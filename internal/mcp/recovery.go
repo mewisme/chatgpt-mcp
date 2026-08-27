@@ -1,16 +1,18 @@
 package mcp
 
-import "time"
+import "sync"
 
-type Recovery struct {
-	Enabled bool
-	Grace   time.Duration
+type RecoveryManager struct {
+	mu sync.Mutex
 }
 
-func DefaultRecovery() Recovery {
-	return Recovery{Enabled: true, Grace: 45 * time.Second}
-}
+func NewRecoveryManager() *RecoveryManager { return &RecoveryManager{} }
 
-func (r Recovery) CanRecover(id string) bool {
-	return r.Enabled && id != ""
+func (r *RecoveryManager) Adopt(id string, sessions *SessionStore) *Session {
+	if session, ok := sessions.Get(id); ok {
+		return session
+	}
+	session := &Session{ID: id}
+	sessions.Set(session)
+	return session
 }

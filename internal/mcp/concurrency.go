@@ -3,15 +3,14 @@ package mcp
 import "sync"
 
 type SessionQueue struct {
-	mu sync.Mutex
+	locks sync.Map
 }
 
-func (q *SessionQueue) LockPost() func() {
-	q.mu.Lock()
-	return q.mu.Unlock
-}
+func NewSessionQueue() *SessionQueue { return &SessionQueue{} }
 
-func (q *SessionQueue) LockDelete() func() {
-	q.mu.Lock()
-	return q.mu.Unlock
+func (q *SessionQueue) Lock(id string) func() {
+	value, _ := q.locks.LoadOrStore(id, &sync.Mutex{})
+	mutex := value.(*sync.Mutex)
+	mutex.Lock()
+	return mutex.Unlock
 }

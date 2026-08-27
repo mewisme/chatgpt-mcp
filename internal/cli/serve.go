@@ -24,6 +24,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := ensureAuth(&cfg); err != nil {
+		return err
+	}
 	if err := config.Validate(cfg); err != nil {
 		return err
 	}

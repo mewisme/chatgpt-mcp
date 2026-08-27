@@ -55,6 +55,6 @@ func authCreateCommand(kind string) *cobra.Command {
 
 func Execute() {
 	if err := root.Execute(); err != nil {
-		panic(err)
+		fmt.Fprintln(root.ErrOrStderr(), err)
 	}
 }

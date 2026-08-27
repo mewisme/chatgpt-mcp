@@ -8,6 +8,10 @@ import (
 
 type HTTPRuntime struct{ Server *Runtime }
 
+func NewHTTPRuntime() *HTTPRuntime { return &HTTPRuntime{Server: NewRuntime()} }
+
+func (h *HTTPRuntime) Handler() http.Handler { return h }
+
 func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodDelete {
 		w.WriteHeader(http.StatusNoContent)

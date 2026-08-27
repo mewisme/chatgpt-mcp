@@ -21,3 +21,9 @@ func (s *SessionStore) Set(session *Session) {
 	defer s.mu.Unlock()
 	s.sessions[session.ID] = session
 }
+
+func (s *SessionStore) Delete(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, id)
+}

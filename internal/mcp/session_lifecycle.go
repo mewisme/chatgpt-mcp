@@ -5,13 +5,13 @@ import (
 	"encoding/hex"
 )
 
-type SessionLifecycle struct{ store *SessionStore }
-
-func NewSessionLifecycle(store *SessionStore) *SessionLifecycle {
-	return &SessionLifecycle{store: store}
+type Lifecycle struct {
+	store *SessionStore
 }
 
-func (s *SessionLifecycle) Create() string {
+func NewLifecycle(store *SessionStore) *Lifecycle { return &Lifecycle{store: store} }
+
+func (s *Lifecycle) Create() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	id := hex.EncodeToString(b)
@@ -19,4 +19,4 @@ func (s *SessionLifecycle) Create() string {
 	return id
 }
 
-func (s *SessionLifecycle) Delete(id string) {}
+func (s *Lifecycle) Delete(id string) { s.store.Delete(id) }

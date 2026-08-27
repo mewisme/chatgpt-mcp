@@ -11,6 +11,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
+	"go.mewis.me/chatgpt-mcp/internal/web"
 )
 
 type App struct {
@@ -47,6 +48,7 @@ func (a *App) Handler() http.Handler {
 		mux.Handle("/api/", adminHandler)
 		mux.Handle("/api/activity/stream", auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, activity.Handler(a.Activity)))
 	}
+	mux.Handle("/", web.Handler())
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))

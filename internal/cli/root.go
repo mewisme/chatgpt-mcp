@@ -1,26 +1,29 @@
 package cli
 
 import (
-	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
-var root = &cobra.Command{Use: "chatgpt-mcp", RunE: runServer, Version: version.Short()}
+var root = &cobra.Command{Use: "chatgpt-mcp", RunE: runServer, Version: version.Short(), SilenceErrors: true, SilenceUsage: true}
 
 func init() {
 	root.AddCommand(&cobra.Command{Use: "uninit", Short: "Remove local configuration", RunE: func(cmd *cobra.Command, args []string) error {
 		if err := os.Remove(config.Path()); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		fmt.Printf("removed config: %s\n", config.Path())
+		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+		log.Success("UNINIT", "configuration removed")
+		log.Detail("config", config.Path())
 		return nil
 	}})
-	root.AddCommand(&cobra.Command{Use: "init", RunE: func(cmd *cobra.Command, args []string) error {
+	root.AddCommand(&cobra.Command{Use: "init", Short: "Initialize local configuration and tokens", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.Default()
 		mcpToken := auth.GenerateToken("mcp")
 		adminToken := auth.GenerateToken("admin")
@@ -29,12 +32,19 @@ func init() {
 		if err := config.Save(cfg); err != nil {
 			return err
 		}
-		fmt.Printf("config: %s\nmcp token: %s\nadmin token: %s\n", config.Path(), mcpToken, adminToken)
+		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+		log.Success("INIT", "configuration created")
+		log.Detail("config", config.Path())
+		log.Detail("mcp", mcpToken)
+		log.Detail("admin", adminToken)
 		return nil
 	}})
-	root.AddCommand(&cobra.Command{Use: "config-path", Run: func(cmd *cobra.Command, args []string) { fmt.Println(config.Path()) }})
-	root.AddCommand(&cobra.Command{Use: "version", Run: func(cmd *cobra.Command, args []string) { fmt.Println(version.String()) }})
-
+	root.AddCommand(&cobra.Command{Use: "config-path", Run: func(cmd *cobra.Command, args []string) {
+		logger.NewCLIWithWriter(cmd.OutOrStdout()).Detail("config", config.Path())
+	}})
+	root.AddCommand(&cobra.Command{Use: "version", Run: func(cmd *cobra.Command, args []string) {
+		logger.NewCLIWithWriter(cmd.OutOrStdout()).Info("VERSION", version.String())
+	}})
 	authCmd := &cobra.Command{Use: "auth"}
 	authCmd.AddCommand(authCreateCommand("mcp"), authCreateCommand("admin"))
 	root.AddCommand(authCmd, serveCommand(), configCommand(), mcpCommand(), tunnelCommand())
@@ -58,13 +68,11 @@ func authCreateCommand(kind string) *cobra.Command {
 		if err := config.Save(cfg); err != nil {
 			return err
 		}
-		fmt.Println(token)
+		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+		log.Success("AUTH", "token rotated", "type", kind)
+		log.Detail(strings.ToUpper(kind), token)
 		return nil
 	}}
 }
 
-func Execute() {
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(root.ErrOrStderr(), err)
-	}
-}
+func Execute() error { return root.Execute() }

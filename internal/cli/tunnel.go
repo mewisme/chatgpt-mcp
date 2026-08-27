@@ -2,12 +2,12 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"os/signal"
 	"syscall"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -24,9 +24,8 @@ func tunnelStatusCommand() *cobra.Command {
 			return err
 		}
 		client := tunnel.NewConfigured(withTunnelOrigin(cfg))
-		status := client.Status()
-		data, _ := json.MarshalIndent(status, "", "  ")
-		fmt.Println(string(data))
+		data, _ := json.MarshalIndent(client.Status(), "", "  ")
+		cmd.Println(string(data))
 		return nil
 	}}
 }
@@ -63,7 +62,11 @@ func tunnelConfigureCommand() *cobra.Command {
 			next.PublicURL = publicURL
 		}
 		cfg.Tunnel = next
-		return config.Save(cfg)
+		if err := config.Save(cfg); err != nil {
+			return err
+		}
+		logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("TUNNEL", "configuration saved")
+		return nil
 	}}
 	cmd.Flags().BoolVar(&enabled, "enabled", false, "enable or disable the tunnel")
 	cmd.Flags().StringVar(&id, "id", "", "tunnel identifier")
@@ -86,7 +89,15 @@ func tunnelToggleCommand(enabled bool) *cobra.Command {
 			return err
 		}
 		cfg.Tunnel.Enabled = enabled
-		return config.Save(cfg)
+		if err := config.Save(cfg); err != nil {
+			return err
+		}
+		state := "disabled"
+		if enabled {
+			state = "enabled"
+		}
+		logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("TUNNEL", state)
+		return nil
 	}}
 }
 
@@ -104,8 +115,14 @@ func tunnelRunCommand() *cobra.Command {
 		if err := client.StartContext(ctx); err != nil {
 			return err
 		}
+		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+		log.Success("TUNNEL", "process started", "pid", client.Status().PID)
 		<-ctx.Done()
-		return client.Stop()
+		if err := client.Stop(); err != nil {
+			return err
+		}
+		log.Info("TUNNEL", "process stopped")
+		return nil
 	}}
 }
 

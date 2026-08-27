@@ -1,8 +1,16 @@
 package mcp
 
-type RecoveryConfig struct {
-	Enabled            bool
-	DeleteGraceSeconds int
+import "time"
+
+type Recovery struct {
+	Enabled bool
+	Grace   time.Duration
 }
 
-func DefaultRecovery() RecoveryConfig { return RecoveryConfig{Enabled: true, DeleteGraceSeconds: 45} }
+func DefaultRecovery() Recovery {
+	return Recovery{Enabled: true, Grace: 45 * time.Second}
+}
+
+func (r Recovery) CanRecover(id string) bool {
+	return r.Enabled && id != ""
+}

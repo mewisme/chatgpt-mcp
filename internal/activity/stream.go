@@ -1,6 +1,9 @@
 package activity
 
-import "sync"
+import (
+	"encoding/json"
+	"sync"
+)
 
 type Stream struct {
 	mu   sync.RWMutex
@@ -17,6 +20,13 @@ func (s *Stream) Subscribe() chan Event {
 	return ch
 }
 
+func (s *Stream) Unsubscribe(ch chan Event) {
+	s.mu.Lock()
+	delete(s.subs, ch)
+	close(ch)
+	s.mu.Unlock()
+}
+
 func (s *Stream) Publish(event Event) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -26,4 +36,9 @@ func (s *Stream) Publish(event Event) {
 		default:
 		}
 	}
+}
+
+func Encode(event Event) string {
+	data, _ := json.Marshal(event)
+	return string(data)
 }

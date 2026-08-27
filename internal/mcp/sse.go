@@ -1,22 +1,24 @@
 package mcp
 
 import (
-	"fmt"
 	"net/http"
+
+	"go.mewis.me/chatgpt-mcp/internal/activity"
 )
 
-type SSE struct{ Stream <-chan string }
+type SSEHandler struct{ Stream *activity.Stream }
 
-func (s SSE) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	if s.Stream == nil {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
 		return
 	}
-	for msg := range s.Stream {
-		_, _ = fmt.Fprintf(w, "data: %s\n\n", msg)
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
+	ch := s.Stream.Subscribe()
+	defer s.Stream.Unsubscribe(ch)
+	for event := range ch {
+		_, _ = w.Write([]byte("data: " + activity.Encode(event) + "\n\n"))
+		flusher.Flush()
 	}
 }

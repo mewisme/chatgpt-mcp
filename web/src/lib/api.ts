@@ -1,14 +1,12 @@
-export async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, options)
-  if (!response.ok) throw new Error(`API ${response.status}`)
-  return response.json() as Promise<T>
-}
+export async function api<T>(path: string, init?: RequestInit): Promise<T> { const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...init }); if (!response.ok) throw new Error(`API ${response.status}`); return response.json() as Promise<T> }
 
 export const adminApi = {
   health: () => api<{ ok: boolean }>("/api/health"),
   config: () => api<Record<string, unknown>>("/api/config"),
-  saveConfig: (config: Record<string, unknown>) => api<{ ok: boolean }>("/api/config", { method: "PUT", body: JSON.stringify(config), headers: { "Content-Type": "application/json" } }),
+  saveConfig: (config: unknown) => api<Record<string, unknown>>("/api/config", { method: "PUT", body: JSON.stringify(config) }),
   workspaces: () => api<unknown[]>("/api/workspaces"),
   tools: () => api<string[]>("/api/tools"),
-  upstream: () => api<{ name: string; status: string }[]>("/api/upstream"),
+  upstream: () => api<{ id: string; name: string; transport: string; enabled: boolean }[]>("/api/upstream"),
+  addUpstream: (server: unknown) => api("/api/upstream", { method: "POST", body: JSON.stringify(server) }),
+  removeUpstream: (id: string) => api(`/api/upstream/${id}`, { method: "DELETE" }),
 }

@@ -2,12 +2,10 @@ package mcp
 
 import "go.mewis.me/chatgpt-mcp/internal/tools"
 
-type ToolCatalog struct{ Items []tools.Schema }
+type ToolCatalog struct{ Registry *tools.Registry }
 
-func NewToolCatalog() *ToolCatalog { return &ToolCatalog{} }
+func NewToolCatalog(registry *tools.Registry) *ToolCatalog { return &ToolCatalog{Registry: registry} }
 
-func (c *ToolCatalog) List() []tools.Schema { return c.Items }
-
-func (c *ToolCatalog) Add(schema tools.Schema) {
-	c.Items = append(c.Items, schema)
+func (c *ToolCatalog) List() []tools.Schema {
+	return c.Registry.ListSchemas()
 }

@@ -6,9 +6,10 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
-var root = &cobra.Command{Use: "chatgpt-mcp", RunE: runServer}
+var root = &cobra.Command{Use: "chatgpt-mcp", RunE: runServer, Version: version.String()}
 
 func init() {
 	root.AddCommand(&cobra.Command{Use: "init", RunE: func(cmd *cobra.Command, args []string) error {
@@ -24,6 +25,7 @@ func init() {
 		return nil
 	}})
 	root.AddCommand(&cobra.Command{Use: "config-path", Run: func(cmd *cobra.Command, args []string) { fmt.Println(config.Path()) }})
+	root.AddCommand(&cobra.Command{Use: "version", Run: func(cmd *cobra.Command, args []string) { fmt.Println(version.String()) }})
 
 	authCmd := &cobra.Command{Use: "auth"}
 	authCmd.AddCommand(authCreateCommand("mcp"), authCreateCommand("admin"))

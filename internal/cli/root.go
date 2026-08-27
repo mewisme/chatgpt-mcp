@@ -8,7 +8,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 )
 
-var root = &cobra.Command{Use: "chatgpt-mcp"}
+var root = &cobra.Command{Use: "chatgpt-mcp", RunE: runServer}
 
 func init() {
 	root.AddCommand(&cobra.Command{Use: "init", RunE: func(cmd *cobra.Command, args []string) error {
@@ -23,7 +23,7 @@ func init() {
 	authCmd := &cobra.Command{Use: "auth"}
 	authCmd.AddCommand(&cobra.Command{Use: "mcp-create", Run: func(cmd *cobra.Command, args []string) { fmt.Println(auth.GenerateToken("mcp")) }})
 	authCmd.AddCommand(&cobra.Command{Use: "admin-create", Run: func(cmd *cobra.Command, args []string) { fmt.Println(auth.GenerateToken("admin")) }})
-	root.AddCommand(authCmd)
+	root.AddCommand(authCmd, serveCommand(), configCommand(), mcpCommand(), tunnelCommand())
 }
 
 func Execute() {

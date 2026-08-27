@@ -1,9 +1,22 @@
 package mcp
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+)
 
-func Stream(w http.ResponseWriter, r *http.Request) {
+type SSE struct{ Stream <-chan string }
+
+func (s SSE) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write([]byte("event: ready\ndata: {}\n\n"))
+	if s.Stream == nil {
+		return
+	}
+	for msg := range s.Stream {
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", msg)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
 }

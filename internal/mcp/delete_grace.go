@@ -4,6 +4,6 @@ import "time"
 
 const SessionDeleteGrace = 45 * time.Second
 
-type DeletePolicy struct{ Grace time.Duration }
+type DeleteScheduler struct{}
 
-func DefaultDeletePolicy() DeletePolicy { return DeletePolicy{Grace: SessionDeleteGrace} }
+func (DeleteScheduler) Schedule(fn func()) { time.AfterFunc(SessionDeleteGrace, fn) }

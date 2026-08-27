@@ -39,6 +39,10 @@ func runServer(cmd *cobra.Command, args []string) error {
 	}
 	runtime := app.New(cfg)
 	runtime.Logger.Info("SERVER", "listening", "addr", addr)
+	runtime.Logger.Info("MCP", "endpoint ready", "url", "http://"+addr+"/mcp")
+	if cfg.Admin.Enabled {
+		runtime.Logger.Info("ADMIN", "dashboard ready", "url", "http://"+addr+"/")
+	}
 	if err := runtime.Start(ctx); err != nil {
 		_ = listener.Close()
 		return err

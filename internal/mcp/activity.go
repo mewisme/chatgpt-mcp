@@ -1,16 +1,11 @@
 package mcp
 
-import (
-	"go.mewis.me/chatgpt-mcp/internal/activity"
-	"go.mewis.me/chatgpt-mcp/internal/workspace"
-)
+import "go.mewis.me/chatgpt-mcp/internal/activity"
 
-type ActivityLogger struct{ Store *activity.Store }
+type ActivityLogger struct{ Stream *activity.Stream }
 
-func (a ActivityLogger) ToolCall(workdir, tool string, result any) {
-	if a.Store == nil {
-		return
+func (a ActivityLogger) Emit(event activity.Event) {
+	if a.Stream != nil {
+		a.Stream.Publish(event)
 	}
-	ws := workspace.Workspace{ID: workdir}
-	_ = a.Store.Append(ws, activity.Event{Kind: "tool", Tool: tool, Message: "tool call completed"})
 }

@@ -9,7 +9,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
-var root = &cobra.Command{Use: "chatgpt-mcp", RunE: runServer, Version: version.String()}
+var root = &cobra.Command{Use: "chatgpt-mcp", RunE: runServer, Version: version.Short()}
 
 func init() {
 	root.AddCommand(&cobra.Command{Use: "init", RunE: func(cmd *cobra.Command, args []string) error {

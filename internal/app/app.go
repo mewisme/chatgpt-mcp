@@ -7,6 +7,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/admin"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -21,6 +22,7 @@ type App struct {
 	Tools    *tools.Registry
 	Activity *activity.Stream
 	Tunnel   *tunnel.Client
+	Logger   *logger.Logger
 }
 
 func New(cfg config.Config) *App {
@@ -34,7 +36,7 @@ func New(cfg config.Config) *App {
 	if tunnelConfig.Origin == "" {
 		tunnelConfig.Origin = config.TunnelOrigin(cfg)
 	}
-	return &App{Config: cfg, MCP: mcpRuntime, Upstream: manager, Tools: tools.NewRegistry(), Activity: stream, Tunnel: tunnel.NewConfigured(tunnelConfig)}
+	return &App{Config: cfg, MCP: mcpRuntime, Upstream: manager, Tools: tools.NewRegistry(), Activity: stream, Tunnel: tunnel.NewConfigured(tunnelConfig), Logger: logger.New(logger.Info)}
 }
 
 func (a *App) Handler() http.Handler {

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/app"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 )
 
 func serveCommand() *cobra.Command {
@@ -38,6 +39,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	runtime := app.New(cfg)
+	runtime.Logger.Info("SERVER", "listening", logger.String("addr", addr))
 	if err := runtime.Start(ctx); err != nil {
 		_ = listener.Close()
 		return err

@@ -1,6 +1,10 @@
 package memory
 
-import "os"
+import (
+	"os"
+
+	"go.mewis.me/chatgpt-mcp/internal/state"
+)
 
 type Store struct{ Path string }
 
@@ -9,4 +13,4 @@ func (s Store) Read() (string, error) {
 	return string(data), err
 }
 
-func (s Store) Write(value string) error { return os.WriteFile(s.Path, []byte(value), 0600) }
+func (s Store) Write(value string) error { return state.WriteFileAtomic(s.Path, []byte(value), 0600) }

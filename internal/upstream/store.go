@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
 type Store struct{ Path string }
@@ -33,5 +35,5 @@ func (s *Store) Save(servers []Server) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.Path, data, 0600)
+	return state.WriteFileAtomic(s.Path, data, 0600)
 }

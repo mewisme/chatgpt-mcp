@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -73,5 +74,5 @@ func Save(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0600)
+	return state.WriteFileAtomic(path, append(data, '\n'), 0600)
 }

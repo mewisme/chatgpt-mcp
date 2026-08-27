@@ -1,8 +1,8 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
@@ -47,7 +47,12 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeHTTPRequest(w, r, &req); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			http.Error(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
+			return
+		}
 		writeError(w, ErrParse, err.Error())
 		return
 	}
@@ -92,7 +97,7 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.EmitActivity("tool.call", name)
 		}
 	}
-	result, err := h.Server.Handle(context.Background(), req.Method, params)
+	result, err := h.Server.Handle(r.Context(), req.Method, params)
 	if err != nil {
 		writeErrorID(w, req.ID, ErrInternal, err.Error())
 		return

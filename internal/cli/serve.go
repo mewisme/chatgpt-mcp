@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os/signal"
 	"syscall"
@@ -23,16 +24,25 @@ func runServer(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := config.Validate(cfg); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	addr := net.JoinHostPort(cfg.Server.Host, fmt.Sprint(cfg.Server.Port))
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
 	runtime := app.New(cfg)
 	if err := runtime.Start(ctx); err != nil {
+		_ = listener.Close()
 		return err
 	}
 	defer runtime.Stop()
-	server := &http.Server{Addr: cfg.Server.Host + ":" + fmt.Sprint(cfg.Server.Port), Handler: runtime.Handler()}
+	server := &http.Server{Handler: runtime.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
 	errCh := make(chan error, 1)
-	go func() { errCh <- server.ListenAndServe() }()
+	go func() { errCh <- server.Serve(listener) }()
 	select {
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {

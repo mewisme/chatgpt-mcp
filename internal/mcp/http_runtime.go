@@ -33,7 +33,9 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, -32700, err.Error())
 		return
 	}
-	h.Activity.Publish(activity.Event{Kind: "mcp.request", Message: req.Method})
+	if h.Activity != nil {
+		h.Activity.Publish(activity.Event{Kind: "mcp.request", Message: req.Method})
+	}
 	var params map[string]any
 	_ = json.Unmarshal(req.Params, &params)
 	result, err := h.Server.Handle(context.Background(), req.Method, params)

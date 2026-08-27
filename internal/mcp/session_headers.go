@@ -17,7 +17,7 @@ func EnsureSessionID(r *http.Request, store *SessionStore) string {
 		}
 	}
 	id := randomSessionID()
-	store.Set(&Session{ID: id})
+	store.Set(NewSession(id))
 	return id
 }
 

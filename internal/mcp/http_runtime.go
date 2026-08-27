@@ -24,6 +24,10 @@ func NewHTTPRuntime() *HTTPRuntime {
 func (h *HTTPRuntime) Handler() http.Handler { return h }
 
 func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		h.serveNotificationStream(w, r)
+		return
+	}
 	if r.Method == http.MethodDelete {
 		id := ReadSessionID(r)
 		if id == "" {
@@ -49,22 +53,22 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := ValidateRequest(req); err != nil {
 		protocolErr := err.(*Error)
-		writeError(w, protocolErr.Code, protocolErr.Message)
+		writeErrorID(w, req.ID, protocolErr.Code, protocolErr.Message)
 		return
 	}
 	if !IsSupportedMethod(req.Method) {
-		writeError(w, ErrMethodNotFound, "method not found")
+		writeErrorID(w, req.ID, ErrMethodNotFound, "method not found")
 		return
 	}
 	params, err := DecodeParams(req.Params)
 	if err != nil {
 		protocolErr := err.(*Error)
-		writeError(w, protocolErr.Code, protocolErr.Message)
+		writeErrorID(w, req.ID, protocolErr.Code, protocolErr.Message)
 		return
 	}
 	if err := ValidateParams(req.Method, params); err != nil {
 		protocolErr := err.(*Error)
-		writeError(w, protocolErr.Code, protocolErr.Message)
+		writeErrorID(w, req.ID, protocolErr.Code, protocolErr.Message)
 		return
 	}
 	if req.Method == "initialize" {
@@ -73,7 +77,7 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		id := ReadSessionID(r)
 		if id == "" {
-			writeError(w, ErrInvalidRequest, "missing MCP-Session-Id")
+			writeErrorID(w, req.ID, ErrInvalidRequest, "missing MCP-Session-Id")
 			return
 		}
 		if _, ok := h.Sessions.Get(id); !ok {
@@ -90,7 +94,11 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.Server.Handle(context.Background(), req.Method, params)
 	if err != nil {
-		writeError(w, ErrInternal, err.Error())
+		writeErrorID(w, req.ID, ErrInternal, err.Error())
+		return
+	}
+	if req.ID == nil {
+		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -27,3 +27,13 @@ func (s *SessionStore) Delete(id string) {
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
 }
+
+func (s *SessionStore) List() []*Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Session, 0, len(s.sessions))
+	for _, session := range s.sessions {
+		out = append(out, session)
+	}
+	return out
+}

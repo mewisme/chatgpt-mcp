@@ -9,6 +9,9 @@ func ValidateRequest(req Request) error {
 	if req.Method == "" {
 		return NewError(ErrInvalidRequest, "missing method")
 	}
+	if req.Method == "initialize" && req.ID == nil {
+		return NewError(ErrInvalidRequest, "initialize requires an id")
+	}
 	return nil
 }
 

@@ -19,6 +19,8 @@ func (r *Runtime) Handle(ctx context.Context, method string, params map[string]a
 	switch method {
 	case "initialize":
 		return Initialize(params), nil
+	case "notifications/initialized":
+		return nil, nil
 	case "tools/list":
 		return map[string]any{"tools": r.Tools.List()}, nil
 	case "tools/call":

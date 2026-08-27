@@ -5,9 +5,11 @@ import (
 	"net/http"
 )
 
-func writeError(w http.ResponseWriter, code int, message string) {
+func writeError(w http.ResponseWriter, code int, message string) { writeErrorID(w, nil, code, message) }
+
+func writeErrorID(w http.ResponseWriter, id any, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(Response{JSONRPC: "2.0", Error: &Error{Code: code, Message: message}})
+	_ = json.NewEncoder(w).Encode(Response{JSONRPC: "2.0", ID: id, Error: &Error{Code: code, Message: message}})
 }
 
 func HandleRequest(runtime ToolRuntime, req Request) Response {

@@ -9,4 +9,4 @@ func Run(args ...string) ([]byte, error) {
 }
 
 func Status() ([]byte, error) { return Run("status", "--short") }
-func Diff() ([]byte, error) { return Run("diff") }
+func Diff() ([]byte, error)   { return Run("diff") }

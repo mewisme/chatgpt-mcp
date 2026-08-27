@@ -9,7 +9,7 @@ import (
 
 type App struct {
 	Config config.Config
-	MCP *mcp.Server
+	MCP    *mcp.Server
 }
 
 func New(cfg config.Config) *App {

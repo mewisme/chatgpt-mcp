@@ -2,7 +2,7 @@ package memory
 
 import "os"
 
-type Store struct { Path string }
+type Store struct{ Path string }
 
 func (s Store) Read() (string, error) {
 	data, err := os.ReadFile(s.Path)

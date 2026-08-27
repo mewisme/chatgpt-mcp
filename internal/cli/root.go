@@ -12,7 +12,9 @@ var root = &cobra.Command{Use: "chatgpt-mcp"}
 
 func init() {
 	root.AddCommand(&cobra.Command{Use: "init", RunE: func(cmd *cobra.Command, args []string) error {
-		if err := config.Save(config.Default()); err != nil { return err }
+		if err := config.Save(config.Default()); err != nil {
+			return err
+		}
 		fmt.Println(config.Path())
 		return nil
 	}})
@@ -25,5 +27,7 @@ func init() {
 }
 
 func Execute() {
-	if err := root.Execute(); err != nil { panic(err) }
+	if err := root.Execute(); err != nil {
+		panic(err)
+	}
 }

@@ -17,7 +17,7 @@ func GenerateToken(prefix string) string {
 func HashToken(token string) string {
 	salt := []byte("chatgpt-mcp-auth")
 	hash := argon2.IDKey([]byte(token), salt, 1, 64*1024, 4, 32)
-	return base64.RawEncoding.EncodeToString(hash)
+	return base64.RawStdEncoding.EncodeToString(hash)
 }
 
 func VerifyToken(token, encoded string) bool {

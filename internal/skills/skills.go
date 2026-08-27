@@ -1,8 +1,8 @@
 package skills
 
 type Skill struct {
-	Name string
+	Name        string
 	Description string
-	Path string
-	Source string
+	Path        string
+	Source      string
 }

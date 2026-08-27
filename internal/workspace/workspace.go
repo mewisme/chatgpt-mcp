@@ -6,7 +6,10 @@ import (
 	"path/filepath"
 )
 
-type Workspace struct { ID string; Path string }
+type Workspace struct {
+	ID   string
+	Path string
+}
 
 func Resolve(path string) Workspace {
 	clean, _ := filepath.Abs(path)

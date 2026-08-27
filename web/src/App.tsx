@@ -1,24 +1,15 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
-
-const items = [
-  ["MCP Sessions", "0"],
-  ["Workspaces", "0"],
-  ["Tools", "0"],
-  ["Upstream Servers", "0"],
-]
+import { useEffect, useState } from "react"
+import { DashboardCard } from "@/components/dashboard-card"
+import { api } from "@/lib/api"
 
 export function App() {
-  return <main className="min-h-svh p-6">
-    <h1 className="text-2xl font-semibold">ChatGPT MCP Admin</h1>
-    <Separator className="my-6" />
-    <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      {items.map(([title, value]) => <Card key={title}>
-        <CardHeader><CardTitle className="text-sm">{title}</CardTitle></CardHeader>
-        <CardContent className="text-3xl font-semibold">{value}</CardContent>
-      </Card>)}
-    </section>
-  </main>
+  const [stats, setStats] = useState({ workspaces: 0, tools: 0 })
+
+  useEffect(() => {
+    Promise.all([api.workspaces(), api.tools()]).then(([workspaces, tools]) => setStats({ workspaces: workspaces.length, tools: tools.length }))
+  }, [])
+
+  return <main className="min-h-svh p-6 space-y-6"><div><h1 className="text-2xl font-semibold">ChatGPT MCP</h1><p className="text-muted-foreground">Admin dashboard</p></div><div className="grid gap-4 md:grid-cols-2"><DashboardCard title="Workspaces" value={String(stats.workspaces)} /><DashboardCard title="Tools" value={String(stats.tools)} /></div></main>
 }
 
 export default App

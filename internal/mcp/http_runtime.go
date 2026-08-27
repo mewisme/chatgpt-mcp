@@ -56,6 +56,17 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, ErrMethodNotFound, "method not found")
 		return
 	}
+	params, err := DecodeParams(req.Params)
+	if err != nil {
+		protocolErr := err.(*Error)
+		writeError(w, protocolErr.Code, protocolErr.Message)
+		return
+	}
+	if err := ValidateParams(req.Method, params); err != nil {
+		protocolErr := err.(*Error)
+		writeError(w, protocolErr.Code, protocolErr.Message)
+		return
+	}
 	if req.Method == "initialize" {
 		id := h.Lifecycle.Create()
 		SetSessionID(w, id)
@@ -71,8 +82,6 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.EmitActivity("session.reconnected", id)
 	}
-	var params map[string]any
-	_ = json.Unmarshal(req.Params, &params)
 	h.EmitActivity("mcp.request", req.Method)
 	if req.Method == "tools/call" {
 		if name, ok := params["name"].(string); ok {

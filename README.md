@@ -63,7 +63,7 @@ chatgpt-mcp serve
 Open the admin dashboard:
 
 ```text
-http://127.0.0.1:3000
+http://127.0.0.1:37422
 ```
 
 Check version:

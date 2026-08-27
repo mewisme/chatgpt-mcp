@@ -3,8 +3,10 @@ package web
 import (
 	"embed"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
+	"strings"
 )
 
 //go:embed dist/*
@@ -15,24 +17,32 @@ func Handler() http.Handler {
 	if err != nil {
 		return http.NotFoundHandler()
 	}
-	return spaHandler{files: http.FileServer(http.FS(static))}
+	return spaHandler{static: static, files: http.FileServer(http.FS(static))}
 }
 
-type spaHandler struct{ files http.Handler }
+type spaHandler struct {
+	static fs.FS
+	files  http.Handler
+}
 
 func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		_, err := fs.Stat(embeddedFS(), path.Clean("dist"+r.URL.Path))
-		if err == nil {
+	clean := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+	if clean != "." && clean != "index.html" {
+		if info, err := fs.Stat(h.static, clean); err == nil && !info.IsDir() {
 			h.files.ServeHTTP(w, r)
 			return
 		}
 	}
-	r.URL.Path = "/index.html"
-	h.files.ServeHTTP(w, r)
+	h.serveIndex(w)
 }
 
-func embeddedFS() fs.FS {
-	value, _ := fs.Sub(assets, "dist")
-	return value
+func (h spaHandler) serveIndex(w http.ResponseWriter) {
+	data, err := fs.ReadFile(h.static, "index.html")
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", mime.TypeByExtension(".html"))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }

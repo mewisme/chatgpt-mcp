@@ -39,6 +39,19 @@ func New(api API) http.Handler {
 		}
 		writeJSON(w, api.Upstream.List())
 	})
+	mux.HandleFunc("/api/tunnel/config", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if api.Tunnel == nil {
+			http.Error(w, "tunnel unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		value := api.Tunnel.Config()
+		value.APIKey = ""
+		writeJSON(w, value)
+	})
 	mux.HandleFunc("/api/tunnel", func(w http.ResponseWriter, r *http.Request) {
 		if api.Tunnel == nil {
 			http.Error(w, "tunnel unavailable", http.StatusServiceUnavailable)

@@ -30,6 +30,8 @@ func (h HTTPRuntime) serveNotificationStream(w http.ResponseWriter, r *http.Requ
 		select {
 		case <-r.Context().Done():
 			return
+		case <-session.Done:
+			return
 		case notification := <-session.Notifications:
 			data, err := json.Marshal(notification)
 			if err != nil {

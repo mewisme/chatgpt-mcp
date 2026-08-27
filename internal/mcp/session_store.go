@@ -25,6 +25,9 @@ func (s *SessionStore) Set(session *Session) {
 func (s *SessionStore) Delete(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if session := s.sessions[id]; session != nil {
+		session.Close()
+	}
 	delete(s.sessions, id)
 }
 

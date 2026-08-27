@@ -1,20 +1,24 @@
 package mcp
 
-import "go.mewis.me/chatgpt-mcp/internal/tools"
+import (
+	"context"
+	"encoding/json"
 
-type ToolRuntime struct{ Registry *tools.Registry }
+	"go.mewis.me/chatgpt-mcp/internal/tools"
+)
 
-func (t ToolRuntime) ListTools() []string {
-	return t.Registry.List()
-}
+type ToolRuntime struct{ Runtime *tools.Runtime }
 
-func (t ToolRuntime) Call(name string, args map[string]any) (any, error) {
-	value, ok, err := t.Registry.Call(name, args)
-	if err != nil {
-		return nil, err
+func NewToolRuntime(runtime *tools.Runtime) *ToolRuntime { return &ToolRuntime{Runtime: runtime} }
+
+func (t *ToolRuntime) ListTools() any { return map[string]any{"tools": t.Runtime.List()} }
+
+func (t *ToolRuntime) Call(ctx context.Context, name string, raw json.RawMessage) (any, error) {
+	args := map[string]any{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, err
+		}
 	}
-	if !ok {
-		return map[string]any{"error": "tool not found"}, nil
-	}
-	return value, nil
+	return t.Runtime.Call(ctx, name, args)
 }

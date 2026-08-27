@@ -9,7 +9,19 @@ type API struct{}
 
 func NewAPI() *API { return &API{} }
 
-func (a *API) Health(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+func (a *API) Routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"enabled": true})
+	})
+	mux.HandleFunc("/api/workspaces", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]any{})
+	})
+	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]any{})
+	})
+	return mux
 }

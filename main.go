@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log
+	"log"
 	"net/http"
 
 	"go.mewis.me/chatgpt-mcp/internal/app"

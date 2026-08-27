@@ -1,29 +1,19 @@
 package mcp
 
-import "sync"
+import "go.mewis.me/chatgpt-mcp/internal/activity"
 
-type Notifications struct {
-	mu        sync.RWMutex
-	listeners []chan string
+type Notification struct {
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
 }
 
-func NewNotifications() *Notifications { return &Notifications{} }
-
-func (n *Notifications) Subscribe() chan string {
-	ch := make(chan string, 8)
-	n.mu.Lock()
-	n.listeners = append(n.listeners, ch)
-	n.mu.Unlock()
-	return ch
+func ToolsListChanged() Notification {
+	return Notification{JSONRPC: "2.0", Method: "notifications/tools/list_changed"}
 }
 
-func (n *Notifications) ToolsChanged() {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	for _, ch := range n.listeners {
-		select {
-		case ch <- "notifications/tools/list_changed":
-		default:
-		}
+func PublishToolsChanged(stream *activity.Stream) {
+	if stream != nil {
+		stream.Publish(activity.Event{Kind: "mcp.notification", Message: "tools/list_changed"})
 	}
 }

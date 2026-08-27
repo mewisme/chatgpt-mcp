@@ -16,9 +16,8 @@ func (s *Server) HandlerFunc() http.Handler {
 	if s.Handler != nil {
 		return s.Handler
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return RequireWorkingDirectory(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
 		_, _ = w.Write([]byte(`{"error":"mcp runtime not implemented"}`))
-	})
+	}))
 }

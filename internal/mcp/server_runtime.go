@@ -1,0 +1,30 @@
+package mcp
+
+import (
+	"context"
+
+	"go.mewis.me/chatgpt-mcp/internal/tools"
+)
+
+type Runtime struct {
+	Tools *tools.Runtime
+}
+
+func NewRuntime() *Runtime {
+	return &Runtime{Tools: tools.NewRuntime()}
+}
+
+func (r *Runtime) Handle(ctx context.Context, method string, params map[string]any) (any, error) {
+	switch method {
+	case "initialize":
+		return Initialize(), nil
+	case "tools/list":
+		return map[string]any{"tools": r.Tools.List()}, nil
+	case "tools/call":
+		name, _ := params["name"].(string)
+		args, _ := params["arguments"].(map[string]any)
+		return r.Tools.Call(ctx, name, args)
+	default:
+		return nil, nil
+	}
+}

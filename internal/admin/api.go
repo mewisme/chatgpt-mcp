@@ -15,7 +15,7 @@ func Handler() http.Handler {
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { jsonResponse(w, map[string]any{"ok": true}) })
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPut {
-			jsonResponse(w, map[string]any{"saved": true})
+			jsonResponse(w, map[string]any{"ok": true})
 			return
 		}
 		jsonResponse(w, map[string]any{})

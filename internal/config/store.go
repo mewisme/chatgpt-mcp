@@ -10,6 +10,8 @@ type Store struct{ Path string }
 
 func NewStore(path string) *Store { return &Store{Path: path} }
 
+func DefaultStore() *Store { return NewStore(DefaultPath()) }
+
 func (s *Store) Load() (map[string]any, error) {
 	data, err := os.ReadFile(s.Path)
 	if os.IsNotExist(err) {

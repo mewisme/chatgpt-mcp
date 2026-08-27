@@ -1,5 +1,8 @@
+import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-export function ToolsPage({ tools }: { tools: string[] }) {
-  return <Table><TableHeader><TableRow><TableHead>Name</TableHead></TableRow></TableHeader><TableBody>{tools.map(tool => <TableRow key={tool}><TableCell>{tool}</TableCell></TableRow>)}</TableBody></Table>
+type Tool = { name: string; description?: string }
+
+export function ToolsPage({ tools }: { tools: Tool[] }) {
+  return <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Description</TableHead></TableRow></TableHeader><TableBody>{tools.map(tool => <TableRow key={tool.name}><TableCell><Badge>{tool.name}</Badge></TableCell><TableCell>{tool.description}</TableCell></TableRow>)}</TableBody></Table>
 }

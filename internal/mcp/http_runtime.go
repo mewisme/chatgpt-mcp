@@ -4,11 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+
+	"go.mewis.me/chatgpt-mcp/internal/activity"
 )
 
-type HTTPRuntime struct{ Server *Runtime }
+type HTTPRuntime struct {
+	Server   *Runtime
+	Activity *activity.Stream
+}
 
-func NewHTTPRuntime() *HTTPRuntime { return &HTTPRuntime{Server: NewRuntime()} }
+func NewHTTPRuntime() *HTTPRuntime {
+	return &HTTPRuntime{Server: NewRuntime(), Activity: activity.NewStream()}
+}
 
 func (h *HTTPRuntime) Handler() http.Handler { return h }
 
@@ -26,6 +33,7 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, -32700, err.Error())
 		return
 	}
+	h.Activity.Publish(activity.Event{Kind: "mcp.request", Message: req.Method})
 	var params map[string]any
 	_ = json.Unmarshal(req.Params, &params)
 	result, err := h.Server.Handle(context.Background(), req.Method, params)

@@ -33,12 +33,14 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, -32700, err.Error())
 		return
 	}
-	if h.Activity != nil {
-		h.Activity.Publish(activity.Event{Kind: "mcp.request", Message: req.Method})
-	}
 	var params map[string]any
 	_ = json.Unmarshal(req.Params, &params)
 	h.EmitActivity("mcp.request", req.Method)
+	if req.Method == "tools/call" {
+		if name, ok := params["name"].(string); ok {
+			h.EmitActivity("tool.call", name)
+		}
+	}
 	result, err := h.Server.Handle(context.Background(), req.Method, params)
 	if err != nil {
 		writeError(w, -32000, err.Error())

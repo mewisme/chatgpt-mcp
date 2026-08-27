@@ -8,5 +8,5 @@ export const adminApi = {
   health: () => api<{ ok: boolean }>("/api/health"),
   config: () => api<Record<string, unknown>>("/api/config"),
   workspaces: () => api<unknown[]>("/api/workspaces"),
-  tools: () => api<unknown[]>("/api/tools"),
+  tools: () => api<string[]>("/api/tools"),
 }

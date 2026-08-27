@@ -1,17 +1,13 @@
 import { useEffect, useState } from "react"
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { DashboardCard } from "@/components/dashboard-card"
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { adminApi } from "@/lib/api"
 
 export function App() {
-  const [data, setData] = useState({ workspaces: 0, tools: 0 })
-
-  useEffect(() => {
-    Promise.all([adminApi.workspaces(), adminApi.tools()]).then(([workspaces, tools]) => setData({ workspaces: workspaces.length, tools: tools.length }))
-  }, [])
-
-  return <SidebarProvider><AppSidebar /><main className="flex-1 p-6"><SidebarTrigger /><h1 className="mb-6 text-2xl font-semibold">Overview</h1><div className="grid gap-4 md:grid-cols-2"><DashboardCard title="Workspaces" value={data.workspaces} /><DashboardCard title="Tools" value={data.tools} /></div></main></SidebarProvider>
+  const [data, setData] = useState<{ workspaces: unknown[]; tools: string[] }>({ workspaces: [], tools: [] })
+  useEffect(() => { Promise.all([adminApi.workspaces(), adminApi.tools()]).then(([workspaces, tools]) => setData({ workspaces, tools })) }, [])
+  return <SidebarProvider><AppSidebar/><SidebarInset><SidebarTrigger/><main className="grid gap-4 p-6 md:grid-cols-2"><DashboardCard title="Workspaces" value={data.workspaces.length}/><DashboardCard title="Tools" value={data.tools.length}/></main></SidebarInset></SidebarProvider>
 }
 
 export default App

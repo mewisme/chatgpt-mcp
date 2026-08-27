@@ -1,0 +1,53 @@
+version: 2
+
+project_name: chatgpt-mcp
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: chatgpt-mcp
+    main: .
+    binary: chatgpt-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X go.mewis.me/chatgpt-mcp/internal/version.Version={{.Version}}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+release:
+  github:
+    owner: mewisme
+    name: chatgpt-mcp
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - '^chore:'
+      - '^docs:'

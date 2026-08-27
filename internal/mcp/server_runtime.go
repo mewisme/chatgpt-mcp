@@ -18,7 +18,7 @@ func NewRuntime() *Runtime {
 func (r *Runtime) Handle(ctx context.Context, method string, params map[string]any) (any, error) {
 	switch method {
 	case "initialize":
-		return Initialize(), nil
+		return Initialize(params), nil
 	case "tools/list":
 		return map[string]any{"tools": r.Tools.List()}, nil
 	case "tools/call":

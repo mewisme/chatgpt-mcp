@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
-import { DashboardCard } from "@/components/dashboard-card"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
-import { adminApi } from "@/lib/api"
+import { OverviewPage } from "@/pages/overview"
+import { ServersPage } from "@/pages/servers"
+import { SettingsPage } from "@/pages/settings"
+import { ToolsPage } from "@/pages/tools"
 
 export function App() {
-  const [data, setData] = useState<{ workspaces: unknown[]; tools: string[] }>({ workspaces: [], tools: [] })
-  useEffect(() => { Promise.all([adminApi.workspaces(), adminApi.tools()]).then(([workspaces, tools]) => setData({ workspaces, tools })) }, [])
-  return <SidebarProvider><AppSidebar/><SidebarInset><SidebarTrigger/><main className="grid gap-4 p-6 md:grid-cols-2"><DashboardCard title="Workspaces" value={data.workspaces.length}/><DashboardCard title="Tools" value={data.tools.length}/></main></SidebarInset></SidebarProvider>
+  const [page, setPage] = useState("overview")
+  return <SidebarProvider><AppSidebar page={page} onPageChange={setPage} /><SidebarInset><header className="flex h-14 items-center border-b px-4"><SidebarTrigger /></header><main className="p-6">{page === "tools" ? <ToolsPage tools={[]} /> : page === "servers" ? <ServersPage /> : page === "settings" ? <SettingsPage /> : <OverviewPage data={{ workspaces: 0, tools: 0 }} />}</main></SidebarInset></SidebarProvider>
 }
 
 export default App

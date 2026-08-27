@@ -25,7 +25,6 @@ type ServerConfig struct {
 
 type AdminConfig struct {
 	Enabled bool `json:"enabled"`
-	Port    int  `json:"port"`
 }
 
 type AuthConfig struct {
@@ -36,7 +35,7 @@ type AuthConfig struct {
 }
 
 func Default() Config {
-	return Config{Server: ServerConfig{Host: "127.0.0.1", Port: 37421}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Host: "127.0.0.1", Port: 37421}, Admin: AdminConfig{Enabled: true}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func TunnelOrigin(cfg Config) string {

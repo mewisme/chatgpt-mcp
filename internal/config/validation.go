@@ -13,9 +13,6 @@ func Validate(cfg Config) error {
 	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("server port must be between 1 and 65535: %d", cfg.Server.Port)
 	}
-	if cfg.Admin.Enabled && (cfg.Admin.Port < 1 || cfg.Admin.Port > 65535) {
-		return fmt.Errorf("admin port must be between 1 and 65535: %d", cfg.Admin.Port)
-	}
 	if cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {
 		return errors.New("MCP auth is enabled but no token is configured; run chatgpt-mcp auth mcp-create")
 	}

@@ -45,6 +45,10 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.EmitActivity("tool.call", name)
 		}
 	}
+	if !IsSupportedMethod(req.Method) {
+		writeError(w, ErrMethodNotFound, "method not found")
+		return
+	}
 	result, err := h.Server.Handle(context.Background(), req.Method, params)
 	if err != nil {
 		writeError(w, -32000, err.Error())

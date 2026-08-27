@@ -1,10 +1,12 @@
 package mcp
 
-type InitializeResult struct {
-	ProtocolVersion string            `json:"protocolVersion"`
-	ServerInfo      map[string]string `json:"serverInfo"`
-}
-
-func Initialize() InitializeResult {
-	return InitializeResult{ProtocolVersion: "2026-07-28", ServerInfo: map[string]string{"name": "chatgpt-mcp", "version": "dev"}}
+func Initialize() map[string]any {
+	return map[string]any{
+		"protocolVersion": "2026-07-28",
+		"capabilities":    DefaultCapabilities(),
+		"serverInfo": map[string]any{
+			"name":    "chatgpt-mcp",
+			"version": "0.1.0",
+		},
+	}
 }

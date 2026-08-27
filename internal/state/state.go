@@ -1,18 +1,22 @@
 package state
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 )
 
 func Root() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".config/chatgpt-mcp/state"
-	}
+	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "chatgpt-mcp", "state")
 }
 
-func Workspace(id string) string {
-	return filepath.Join(Root(), "workspaces", id)
+func WorkspaceID(path string) string {
+	hash := sha256.Sum256([]byte(path))
+	return hex.EncodeToString(hash[:])[:16]
+}
+
+func WorkspacePath(path string) string {
+	return filepath.Join(Root(), "workspaces", WorkspaceID(path))
 }

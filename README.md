@@ -1,28 +1,21 @@
 # chatgpt-mcp
 
-A self-hosted MCP server with an integrated admin dashboard, tool runtime, upstream MCP management, activity observability, and optional tunnel support.
+A self-hosted MCP server with an embedded admin dashboard, authentication, upstream MCP management, activity observability and optional tunnel integration.
 
 ## Features
 
-- MCP JSON-RPC server
-- MCP session lifecycle support
-- Tool registry and execution runtime
-- Upstream MCP server management
-- Admin web dashboard
-- Activity stream and observability
+- MCP protocol runtime
+- JSON-RPC validation and session lifecycle
+- Tool registry and upstream MCP servers
+- Web admin dashboard
 - Token based authentication
-- Tunnel process integration
-- Single binary distribution (planned web embedding)
+- Activity stream and audit events
+- Managed tunnel process
+- Single binary distribution target
 
 ## Installation
 
-### Download release
-
-Download the latest binary from GitHub Releases:
-
-```bash
-chatgpt-mcp
-```
+Download the latest release from GitHub Releases.
 
 ### Build from source
 
@@ -32,32 +25,18 @@ Requirements:
 - Node.js 24+
 - pnpm 11+
 
-Build web assets:
-
 ```bash
-cd web
-pnpm install
-pnpm build
-```
-
-Build binary:
-
-```bash
-go build -o chatgpt-mcp .
+pnpm --dir web install
+pnpm --dir web build
+go build .
 ```
 
 ## First run
 
-Initialize configuration and create authentication tokens:
+Initialize configuration:
 
 ```bash
 chatgpt-mcp init
-```
-
-This creates:
-
-```
-~/.config/chatgpt-mcp/config.json
 ```
 
 Start server:
@@ -66,7 +45,7 @@ Start server:
 chatgpt-mcp serve
 ```
 
-Default endpoint:
+Open:
 
 ```
 http://127.0.0.1:3000
@@ -74,16 +53,18 @@ http://127.0.0.1:3000
 
 ## Authentication
 
-Create or rotate tokens:
+Create tokens:
 
 ```bash
 chatgpt-mcp auth mcp-create
 chatgpt-mcp auth admin-create
 ```
 
-Use the token as:
+Tokens are only printed once. Only hashes are stored in configuration.
 
-```
+Use:
+
+```http
 Authorization: Bearer <token>
 ```
 
@@ -94,8 +75,6 @@ chatgpt-mcp
 ├── serve
 ├── init
 ├── auth
-│   ├── mcp-create
-│   └── admin-create
 ├── config
 ├── mcp
 └── tunnel
@@ -103,12 +82,11 @@ chatgpt-mcp
 
 ## Tunnel
 
-Configure a tunnel process:
+Configure a managed tunnel process:
 
 ```bash
-chatgpt-mcp tunnel configure \
-  --enabled \
-  --command cloudflared
+chatgpt-mcp tunnel configure --command cloudflared --arg tunnel --arg run
+chatgpt-mcp tunnel enable
 ```
 
 Check status:
@@ -119,29 +97,39 @@ chatgpt-mcp tunnel status
 
 ## Development
 
-Run backend:
+Run checks locally:
 
 ```bash
-go run . serve
-```
+go test ./...
+go vet ./...
 
-Run frontend:
-
-```bash
 cd web
-pnpm dev
+pnpm lint
+pnpm typecheck
+pnpm build
 ```
+
+## CI
+
+Pull requests and pushes to `main` run:
+
+- Go tests
+- Go vet
+- Web lint
+- Web typecheck
+- Web production build
+- Cross platform Go builds
 
 ## Release
 
-Releases are created automatically when pushing a version tag:
+Create a tag:
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-GitHub Actions runs tests and GoReleaser to publish binaries.
+GitHub Actions runs GoReleaser and publishes release artifacts.
 
 ## License
 

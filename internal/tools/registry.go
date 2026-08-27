@@ -4,60 +4,41 @@ import "sync"
 
 type Handler func(map[string]any) (any, error)
 
+type Entry struct {
+	Schema  Schema
+	Handler Handler
+}
+
 type Registry struct {
-	mu       sync.RWMutex
-	tools    map[string]Schema
-	handlers map[string]Handler
+	mu    sync.RWMutex
+	tools map[string]Entry
 }
 
-func NewRegistry() *Registry {
-	return &Registry{tools: map[string]Schema{}, handlers: map[string]Handler{}}
-}
+func NewRegistry() *Registry { return &Registry{tools: map[string]Entry{}} }
 
-func (r *Registry) Register(name string, schemaOrHandler any, handlers ...Handler) {
+func (r *Registry) Register(name string, schema Schema, handler Handler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var schema Schema
-	var handler Handler
-	if value, ok := schemaOrHandler.(Schema); ok {
-		schema = value
-		handler = handlers[0]
-	} else {
-		handler = schemaOrHandler.(Handler)
-		schema = DefaultSchema(name, "")
-	}
-	schema.Name = name
-	r.tools[name] = schema
-	r.handlers[name] = handler
-}
-
-func (r *Registry) List() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]string, 0, len(r.tools))
-	for name := range r.tools {
-		out = append(out, name)
-	}
-	return out
+	r.tools[name] = Entry{Schema: schema, Handler: handler}
 }
 
 func (r *Registry) ListSchemas() []Schema {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]Schema, 0, len(r.tools))
-	for _, schema := range r.tools {
-		out = append(out, schema)
+	for _, entry := range r.tools {
+		out = append(out, entry.Schema)
 	}
 	return out
 }
 
 func (r *Registry) Call(name string, args map[string]any) (any, bool, error) {
 	r.mu.RLock()
-	h, ok := r.handlers[name]
+	entry, ok := r.tools[name]
 	r.mu.RUnlock()
 	if !ok {
 		return nil, false, nil
 	}
-	value, err := h(args)
+	value, err := entry.Handler(args)
 	return value, true, err
 }

@@ -1,27 +1,39 @@
 package tools
 
-import "errors"
+import "sync"
 
-type Context struct {
-	WorkingDirectory string
-	SessionID        string
+type Handler func(map[string]any) (any, error)
+
+type Registry struct {
+	mu    sync.RWMutex
+	tools map[string]Handler
 }
-
-type Handler func(Context, any) (any, error)
-
-type Registry struct{ tools map[string]Handler }
 
 func NewRegistry() *Registry { return &Registry{tools: map[string]Handler{}} }
 
-func (r *Registry) Register(name string, handler Handler) { r.tools[name] = handler }
+func (r *Registry) Register(name string, handler Handler) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tools[name] = handler
+}
 
-func (r *Registry) Call(name string, ctx Context, args any) (any, error) {
-	if ctx.WorkingDirectory == "" {
-		return nil, errors.New("working_directory is required")
+func (r *Registry) List() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		out = append(out, name)
 	}
+	return out
+}
+
+func (r *Registry) Call(name string, args map[string]any) (any, bool, error) {
+	r.mu.RLock()
 	h, ok := r.tools[name]
+	r.mu.RUnlock()
 	if !ok {
-		return nil, errors.New("tool not found")
+		return nil, false, nil
 	}
-	return h(ctx, args)
+	value, err := h(args)
+	return value, true, err
 }

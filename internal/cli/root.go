@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
@@ -12,6 +13,13 @@ import (
 var root = &cobra.Command{Use: "chatgpt-mcp", RunE: runServer, Version: version.Short()}
 
 func init() {
+	root.AddCommand(&cobra.Command{Use: "uninit", Short: "Remove local configuration", RunE: func(cmd *cobra.Command, args []string) error {
+		if err := os.Remove(config.Path()); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		fmt.Printf("removed config: %s\n", config.Path())
+		return nil
+	}})
 	root.AddCommand(&cobra.Command{Use: "init", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.Default()
 		mcpToken := auth.GenerateToken("mcp")

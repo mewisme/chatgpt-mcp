@@ -18,18 +18,18 @@ func (s *Store) Load() ([]Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	var value []Server
-	if err := json.Unmarshal(data, &value); err != nil {
+	var servers []Server
+	if err := json.Unmarshal(data, &servers); err != nil {
 		return nil, err
 	}
-	return value, nil
+	return servers, nil
 }
 
-func (s *Store) Save(value []Server) error {
+func (s *Store) Save(servers []Server) error {
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(value, "", "  ")
+	data, err := json.MarshalIndent(servers, "", "  ")
 	if err != nil {
 		return err
 	}

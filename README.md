@@ -118,6 +118,10 @@ Pull requests and pushes to `main` run:
 - Web lint
 - Web typecheck
 - Web production build
+
+## License
+
+MIT License. Copyright (c) 2026 Mew.
 - Cross platform Go builds
 
 ## Release

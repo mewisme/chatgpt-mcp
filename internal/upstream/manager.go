@@ -16,6 +16,7 @@ type Manager struct {
 
 func NewManager() *Manager           { return &Manager{servers: map[string]Server{}} }
 func (m *Manager) Add(server Server) { m.mu.Lock(); defer m.mu.Unlock(); m.servers[server.ID] = server }
+func (m *Manager) Remove(id string)  { m.mu.Lock(); defer m.mu.Unlock(); delete(m.servers, id) }
 func (m *Manager) List() []Server {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

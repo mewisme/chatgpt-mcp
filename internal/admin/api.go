@@ -2,26 +2,14 @@ package admin
 
 import (
 	"encoding/json"
+	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"net/http"
 )
 
-func jsonResponse(w http.ResponseWriter, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(value)
-}
-
 func Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { jsonResponse(w, map[string]any{"ok": true}) })
-	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPut {
-			jsonResponse(w, map[string]any{"ok": true})
-			return
-		}
-		jsonResponse(w, map[string]any{})
-	})
-	mux.HandleFunc("/api/workspaces", func(w http.ResponseWriter, r *http.Request) { jsonResponse(w, []any{}) })
-	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) { jsonResponse(w, []any{}) })
-	mux.HandleFunc("/api/upstream", func(w http.ResponseWriter, r *http.Request) { jsonResponse(w, []any{}) })
+	manager := upstream.NewManager()
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(map[string]any{"ok": true}) })
+	mux.HandleFunc("/api/upstream", func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(manager.List()) })
 	return mux
 }

@@ -1,7 +1,24 @@
 export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; command?: string; args?: string[]; origin?: string; public_url?: string }
 export type TunnelStatus = { enabled: boolean; running: boolean; pid?: number; command?: string; origin?: string; public_url?: string; started_at?: string; last_error?: string }
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> { const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...init }); if (!response.ok) throw new Error(`API ${response.status}`); return response.json() as Promise<T> }
+const adminTokenKey = "chatgpt-mcp-admin-token"
+export const adminToken = {
+  get: () => localStorage.getItem(adminTokenKey) ?? "",
+  set: (token: string) => localStorage.setItem(adminTokenKey, token),
+  clear: () => localStorage.removeItem(adminTokenKey),
+}
+
+export function authHeaders(): HeadersInit { const token = adminToken.get(); return token ? { Authorization: `Bearer ${token}` } : {} }
+
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  headers.set("Content-Type", "application/json")
+  const token = adminToken.get()
+  if (token) headers.set("Authorization", `Bearer ${token}`)
+  const response = await fetch(path, { ...init, headers })
+  if (!response.ok) throw new Error(`API ${response.status}`)
+  return response.json() as Promise<T>
+}
 
 export const adminApi = {
   health: () => api<{ ok: boolean }>("/api/health"),

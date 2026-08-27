@@ -38,11 +38,15 @@ func New(cfg config.Config) *App {
 
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", auth.Middleware("", a.MCP.Handler()))
-	mux.Handle("/mcp/", auth.Middleware("", a.MCP.Handler()))
-	mux.Handle("/admin/", admin.New(admin.API{Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: &a.Config}))
-	mux.Handle("/api/", admin.New(admin.API{Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: &a.Config}))
-	mux.Handle("/api/activity/stream", activity.Handler(a.Activity))
+	mcpHandler := auth.HashedMiddleware(a.Config.Auth.MCPEnabled, a.Config.Auth.MCPTokenHash, a.MCP.Handler())
+	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/mcp/", mcpHandler)
+	if a.Config.Admin.Enabled {
+		adminHandler := auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, admin.New(admin.API{Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: &a.Config}))
+		mux.Handle("/admin/", adminHandler)
+		mux.Handle("/api/", adminHandler)
+		mux.Handle("/api/activity/stream", auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, activity.Handler(a.Activity)))
+	}
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))

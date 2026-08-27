@@ -28,8 +28,10 @@ type AdminConfig struct {
 }
 
 type AuthConfig struct {
-	MCPEnabled   bool `json:"mcp_enabled"`
-	AdminEnabled bool `json:"admin_enabled"`
+	MCPEnabled     bool   `json:"mcp_enabled"`
+	AdminEnabled   bool   `json:"admin_enabled"`
+	MCPTokenHash   string `json:"mcp_token_hash,omitempty"`
+	AdminTokenHash string `json:"admin_token_hash,omitempty"`
 }
 
 func Default() Config {

@@ -2,7 +2,9 @@ package cli
 
 import (
 	"fmt"
+
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 )
 
@@ -14,9 +16,12 @@ func init() {
 		fmt.Println(config.Path())
 		return nil
 	}})
-	root.AddCommand(&cobra.Command{Use: "config-path", Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println(config.Path())
-	}})
+	root.AddCommand(&cobra.Command{Use: "config-path", Run: func(cmd *cobra.Command, args []string) { fmt.Println(config.Path()) }})
+
+	authCmd := &cobra.Command{Use: "auth"}
+	authCmd.AddCommand(&cobra.Command{Use: "mcp-create", Run: func(cmd *cobra.Command, args []string) { fmt.Println(auth.GenerateToken("mcp")) }})
+	authCmd.AddCommand(&cobra.Command{Use: "admin-create", Run: func(cmd *cobra.Command, args []string) { fmt.Println(auth.GenerateToken("admin")) }})
+	root.AddCommand(authCmd)
 }
 
 func Execute() {

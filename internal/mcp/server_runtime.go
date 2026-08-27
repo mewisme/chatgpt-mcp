@@ -10,7 +10,10 @@ type Runtime struct {
 	Tools *tools.Runtime
 }
 
-func NewRuntime() *Runtime { return &Runtime{Tools: tools.NewRuntime()} }
+func NewRuntime() *Runtime {
+	r := tools.NewRuntime()
+	return &Runtime{Tools: r}
+}
 
 func (r *Runtime) Handle(ctx context.Context, method string, params map[string]any) (any, error) {
 	switch method {

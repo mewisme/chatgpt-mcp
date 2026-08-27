@@ -28,7 +28,7 @@ func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", auth.Middleware("", a.MCP.Handler()))
 	mux.Handle("/mcp/", auth.Middleware("", a.MCP.Handler()))
-	mux.Handle("/admin/", http.StripPrefix("/admin", admin.New(admin.API{Upstream: a.Upstream, Tools: a.Tools})))
+	mux.Handle("/admin/", admin.New(admin.API{Upstream: a.Upstream, Tools: a.Tools}))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))

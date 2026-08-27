@@ -10,6 +10,22 @@ type Manager struct {
 
 func NewManager(store *Store) *Manager { return &Manager{store: store, servers: map[string]Server{}} }
 
+func (m *Manager) Load() error {
+	if m.store == nil {
+		return nil
+	}
+	servers, err := m.store.Load()
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, server := range servers {
+		m.servers[server.ID] = server
+	}
+	return nil
+}
+
 func (m *Manager) Add(server Server) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

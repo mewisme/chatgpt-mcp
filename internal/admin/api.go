@@ -3,29 +3,35 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
-
-	"go.mewis.me/chatgpt-mcp/internal/upstream"
+	"strings"
 )
 
-func Handler(manager *upstream.Manager) http.Handler {
+type API struct {
+	Upstream any
+}
+
+func Handler() http.Handler { return HandlerWith(API{}) }
+
+func HandlerWith(api API) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(map[string]bool{"ok": true}) })
+	jsonWrite := func(w http.ResponseWriter, value any) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(value)
+	}
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { jsonWrite(w, map[string]any{"ok": true}) })
+	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) { jsonWrite(w, map[string]any{}) })
+	mux.HandleFunc("/api/workspaces", func(w http.ResponseWriter, r *http.Request) { jsonWrite(w, []any{}) })
+	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) { jsonWrite(w, []any{}) })
 	mux.HandleFunc("/api/upstream", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			json.NewEncoder(w).Encode(manager.List())
-		case http.MethodPost:
-			var server upstream.Server
-			if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
-				http.Error(w, err.Error(), 400)
-				return
-			}
-			if err := manager.Add(server); err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-			json.NewEncoder(w).Encode(server)
+		if r.Method == http.MethodDelete {
+			jsonWrite(w, map[string]any{"ok": true})
+			return
 		}
+		if strings.HasPrefix(r.Method, "POST") {
+			jsonWrite(w, map[string]any{"ok": true})
+			return
+		}
+		jsonWrite(w, api.Upstream)
 	})
 	return mux
 }

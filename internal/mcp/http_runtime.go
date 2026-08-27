@@ -33,6 +33,10 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, -32700, err.Error())
 		return
 	}
+	if err := ValidateRequest(req); err != nil {
+		writeError(w, err.(*Error).Code, err.Error())
+		return
+	}
 	var params map[string]any
 	_ = json.Unmarshal(req.Params, &params)
 	h.EmitActivity("mcp.request", req.Method)

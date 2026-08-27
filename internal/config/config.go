@@ -36,7 +36,7 @@ type AuthConfig struct {
 }
 
 func Default() Config {
-	return Config{Server: ServerConfig{Host: "127.0.0.1", Port: 3000}, Admin: AdminConfig{Enabled: true, Port: 3001}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Host: "127.0.0.1", Port: 37421}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func TunnelOrigin(cfg Config) string {

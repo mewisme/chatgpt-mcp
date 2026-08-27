@@ -1,14 +1,12 @@
-const base = ""
-
-async function request<T>(path: string): Promise<T> {
-  const response = await fetch(`${base}${path}`)
-  if (!response.ok) throw new Error(response.statusText)
-  return response.json()
+export async function api<T>(path: string): Promise<T> {
+  const response = await fetch(path)
+  if (!response.ok) throw new Error(`API ${response.status}`)
+  return response.json() as Promise<T>
 }
 
-export const api = {
-  health: () => request<{ ok: boolean }>("/api/health"),
-  config: () => request<Record<string, unknown>>("/api/config"),
-  workspaces: () => request<unknown[]>("/api/workspaces"),
-  tools: () => request<unknown[]>("/api/tools"),
+export const adminApi = {
+  health: () => api<{ ok: boolean }>("/api/health"),
+  config: () => api<Record<string, unknown>>("/api/config"),
+  workspaces: () => api<unknown[]>("/api/workspaces"),
+  tools: () => api<unknown[]>("/api/tools"),
 }

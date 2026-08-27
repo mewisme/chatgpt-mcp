@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react"
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { AppSidebar } from "@/components/app-sidebar"
 import { DashboardCard } from "@/components/dashboard-card"
-import { api } from "@/lib/api"
+import { adminApi } from "@/lib/api"
 
 export function App() {
-  const [stats, setStats] = useState({ workspaces: 0, tools: 0 })
+  const [data, setData] = useState({ workspaces: 0, tools: 0 })
 
   useEffect(() => {
-    Promise.all([api.workspaces(), api.tools()]).then(([workspaces, tools]) => setStats({ workspaces: workspaces.length, tools: tools.length }))
+    Promise.all([adminApi.workspaces(), adminApi.tools()]).then(([workspaces, tools]) => setData({ workspaces: workspaces.length, tools: tools.length }))
   }, [])
 
-  return <main className="min-h-svh p-6 space-y-6"><div><h1 className="text-2xl font-semibold">ChatGPT MCP</h1><p className="text-muted-foreground">Admin dashboard</p></div><div className="grid gap-4 md:grid-cols-2"><DashboardCard title="Workspaces" value={String(stats.workspaces)} /><DashboardCard title="Tools" value={String(stats.tools)} /></div></main>
+  return <SidebarProvider><AppSidebar /><main className="flex-1 p-6"><SidebarTrigger /><h1 className="mb-6 text-2xl font-semibold">Overview</h1><div className="grid gap-4 md:grid-cols-2"><DashboardCard title="Workspaces" value={data.workspaces} /><DashboardCard title="Tools" value={data.tools} /></div></main></SidebarProvider>
 }
 
 export default App

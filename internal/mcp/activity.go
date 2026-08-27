@@ -2,10 +2,9 @@ package mcp
 
 import "go.mewis.me/chatgpt-mcp/internal/activity"
 
-type ActivityLogger struct{ Stream *activity.Stream }
-
-func (a ActivityLogger) Emit(event activity.Event) {
-	if a.Stream != nil {
-		a.Stream.Publish(event)
+func (h *HTTPRuntime) EmitActivity(kind, message string) {
+	if h.Activity == nil {
+		return
 	}
+	h.Activity.Publish(activity.Event{Kind: kind, Message: message})
 }

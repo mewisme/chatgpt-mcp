@@ -22,8 +22,10 @@ func (s *Stream) Subscribe() chan Event {
 
 func (s *Stream) Unsubscribe(ch chan Event) {
 	s.mu.Lock()
-	delete(s.subs, ch)
-	close(ch)
+	if _, ok := s.subs[ch]; ok {
+		delete(s.subs, ch)
+		close(ch)
+	}
 	s.mu.Unlock()
 }
 

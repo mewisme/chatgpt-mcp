@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
@@ -9,14 +10,6 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/argon2"
-)
-
-const (
-	argonMemory      = 64 * 1024
-	argonIterations  = 3
-	argonParallelism = 2
-	argonSaltLength  = 16
-	argonKeyLength   = 32
 )
 
 func GenerateToken(prefix string) string {
@@ -28,15 +21,19 @@ func GenerateToken(prefix string) string {
 }
 
 func HashToken(token string) string {
-	salt := make([]byte, argonSaltLength)
-	if _, err := rand.Read(salt); err != nil {
-		panic(err)
-	}
-	hash := argon2.IDKey([]byte(token), salt, argonIterations, argonMemory, argonParallelism, argonKeyLength)
-	return fmt.Sprintf("argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, argonMemory, argonIterations, argonParallelism, base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(hash))
+	hash := sha256.Sum256([]byte(token))
+	return "sha256$" + base64.RawStdEncoding.EncodeToString(hash[:])
 }
 
 func VerifyToken(token, encoded string) bool {
+	if strings.HasPrefix(encoded, "sha256$") {
+		expected, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(encoded, "sha256$"))
+		if err != nil || len(expected) != sha256.Size {
+			return false
+		}
+		actual := sha256.Sum256([]byte(token))
+		return subtle.ConstantTimeCompare(actual[:], expected) == 1
+	}
 	if strings.HasPrefix(encoded, "argon2id$") {
 		return verifyArgon2ID(token, encoded)
 	}

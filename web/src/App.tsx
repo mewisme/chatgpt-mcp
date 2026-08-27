@@ -13,10 +13,10 @@ import { TunnelPage } from "@/pages/tunnel"
 
 export function App() {
   const [page, setPage] = useState("overview")
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null)
+  const [authenticated, setAuthenticated] = useState<boolean | null>(() => adminToken.get() ? null : false)
 
   useEffect(() => {
-    if (!adminToken.get()) { setAuthenticated(false); return }
+    if (!adminToken.get()) return
     void adminApi.health().then(() => setAuthenticated(true)).catch(() => { adminToken.clear(); setAuthenticated(false) })
   }, [])
 
@@ -25,7 +25,7 @@ export function App() {
 
   function signOut() { adminToken.clear(); setAuthenticated(false) }
 
-  return <SidebarProvider><AppSidebar page={page} onPageChange={setPage} /><SidebarInset><header className="flex h-14 items-center justify-between border-b px-4"><SidebarTrigger /><Button size="sm" variant="ghost" onClick={signOut}>Sign out</Button></header><main className="p-6">{page === "activity" ? <ActivityPage /> : page === "tools" ? <ToolsPage tools={[]} /> : page === "servers" ? <ServersPage servers={[]} /> : page === "tunnel" ? <TunnelPage /> : page === "settings" ? <SettingsPage /> : <OverviewPage data={{ workspaces: 0, tools: 0 }} />}</main></SidebarInset></SidebarProvider>
+  return <SidebarProvider><AppSidebar page={page} onPageChange={setPage} /><SidebarInset><header className="flex h-14 items-center justify-between border-b px-4"><SidebarTrigger /><Button size="sm" variant="ghost" onClick={signOut}>Sign out</Button></header><main className="p-6">{page === "activity" ? <ActivityPage /> : page === "tools" ? <ToolsPage /> : page === "servers" ? <ServersPage /> : page === "tunnel" ? <TunnelPage /> : page === "settings" ? <SettingsPage /> : <OverviewPage />}</main></SidebarInset></SidebarProvider>
 }
 
 export default App

@@ -90,3 +90,28 @@ func TestSessionDeleteClosesStreamSignal(t *testing.T) {
 		t.Fatal("session done signal was not closed")
 	}
 }
+
+func TestHTTPRuntimeRejectsOversizedBody(t *testing.T) {
+	runtime := NewHTTPRuntime()
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{},"padding":"` + strings.Repeat("x", int(MaxRequestBodyBytes)) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	res := httptest.NewRecorder()
+	runtime.ServeHTTP(res, req)
+	if res.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestHTTPRuntimeRejectsTrailingJSON(t *testing.T) {
+	runtime := NewHTTPRuntime()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initializeBody+`{}`))
+	res := httptest.NewRecorder()
+	runtime.ServeHTTP(res, req)
+	var response Response
+	if err := json.Unmarshal(res.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error == nil || response.Error.Code != ErrParse {
+		t.Fatalf("error = %#v, want code %d", response.Error, ErrParse)
+	}
+}

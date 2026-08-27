@@ -1,6 +1,10 @@
 package auth
 
-import "net/http"
+import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"net/http"
+)
 
 func Middleware(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,8 +31,11 @@ func HashedMiddleware(enabled bool, tokenHash string, next http.Handler) http.Ha
 }
 
 func ValidateRequestToken(r *http.Request, expected string) bool {
-	return TokenFromRequest(r) == expected
+	actualHash := sha256.Sum256([]byte(TokenFromRequest(r)))
+	expectedHash := sha256.Sum256([]byte(expected))
+	return subtle.ConstantTimeCompare(actualHash[:], expectedHash[:]) == 1
 }
+
 func ValidateRequestHash(r *http.Request, expectedHash string) bool {
 	token := TokenFromRequest(r)
 	return token != "" && VerifyToken(token, expectedHash)

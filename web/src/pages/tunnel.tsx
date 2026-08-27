@@ -17,17 +17,11 @@ export function TunnelPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
 
-  async function load() {
-    try {
-      const [nextConfig, nextStatus] = await Promise.all([adminApi.tunnelConfig(), adminApi.tunnel()])
-      setConfig(nextConfig)
-      setArgs((nextConfig.args ?? []).join("\n"))
-      setStatus(nextStatus)
-      setError("")
-    } catch (value) { setError(value instanceof Error ? value.message : String(value)) }
-  }
-
-  useEffect(() => { void load(); const timer = window.setInterval(() => { void adminApi.tunnel().then(setStatus).catch(() => undefined) }, 3000); return () => window.clearInterval(timer) }, [])
+  useEffect(() => {
+    void Promise.all([adminApi.tunnelConfig(), adminApi.tunnel()]).then(([nextConfig, nextStatus]) => { setConfig(nextConfig); setArgs((nextConfig.args ?? []).join("\n")); setStatus(nextStatus) }).catch((value) => setError(value instanceof Error ? value.message : String(value)))
+    const timer = window.setInterval(() => { void adminApi.tunnel().then(setStatus).catch(() => undefined) }, 3000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   async function save() {
     setBusy(true)

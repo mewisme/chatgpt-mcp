@@ -30,11 +30,16 @@ func (s *Session) Notify(notification Notification) {
 
 func (s *Session) Close() { s.closeOnce.Do(func() { close(s.Done) }) }
 
-type SessionManager struct{ sessions map[string]*Session }
+type SessionManager struct {
+	mu       sync.Mutex
+	sessions map[string]*Session
+}
 
 func NewSessionManager() *SessionManager { return &SessionManager{sessions: map[string]*Session{}} }
 
 func (m *SessionManager) Get(id string) *Session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if s := m.sessions[id]; s != nil {
 		return s
 	}

@@ -10,3 +10,25 @@ func TestTunnelOrigin(t *testing.T) {
 		t.Fatalf("unexpected origin: %s", got)
 	}
 }
+
+func TestValidateRequiresAuthTokens(t *testing.T) {
+	cfg := Default()
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected missing auth token validation error")
+	}
+	cfg.Auth.MCPTokenHash = "configured"
+	cfg.Auth.AdminTokenHash = "configured"
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateTunnelCommand(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Tunnel.Enabled = true
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected tunnel command validation error")
+	}
+}

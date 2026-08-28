@@ -17,17 +17,15 @@ func NewRuntime() *Runtime {
 
 func (r *Runtime) Handle(ctx context.Context, method string, params map[string]any) (any, error) {
 	switch method {
-	case "initialize":
-		return Initialize(params), nil
-	case "notifications/initialized":
-		return nil, nil
+	case "server/discover":
+		return Discover(), nil
 	case "tools/list":
-		return map[string]any{"tools": r.Tools.List()}, nil
+		return map[string]any{"tools": r.Tools.List(), "ttlMs": defaultCacheTTLMS, "cacheScope": defaultCacheScope}, nil
 	case "tools/call":
 		name, _ := params["name"].(string)
 		args, _ := params["arguments"].(map[string]any)
 		return r.Tools.Call(ctx, name, args)
 	default:
-		return nil, nil
+		return nil, NewError(ErrMethodNotFound, "method not found")
 	}
 }

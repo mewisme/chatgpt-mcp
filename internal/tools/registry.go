@@ -1,6 +1,9 @@
 package tools
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 type Handler func(map[string]any) (any, error)
 
@@ -29,6 +32,7 @@ func (r *Registry) ListSchemas() []Schema {
 	for _, entry := range r.tools {
 		out = append(out, entry.Schema)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

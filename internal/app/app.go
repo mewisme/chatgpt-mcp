@@ -31,7 +31,6 @@ func New(cfg config.Config) *App {
 	stream := activity.NewStream()
 	mcpRuntime := mcp.NewHTTPRuntime()
 	mcpRuntime.Activity = stream
-	mcpRuntime.Lifecycle = mcp.NewLifecycle(mcpRuntime.Sessions, stream)
 	tunnelConfig := cfg.Tunnel
 	if tunnelConfig.Origin == "" {
 		tunnelConfig.Origin = config.TunnelOrigin(cfg)

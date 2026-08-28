@@ -4,10 +4,8 @@ type Capabilities struct {
 	Tools ToolsCapability `json:"tools"`
 }
 
-type ToolsCapability struct {
-	ListChanged bool `json:"listChanged"`
-}
+type ToolsCapability struct{}
 
 func DefaultCapabilities() Capabilities {
-	return Capabilities{Tools: ToolsCapability{ListChanged: true}}
+	return Capabilities{Tools: ToolsCapability{}}
 }

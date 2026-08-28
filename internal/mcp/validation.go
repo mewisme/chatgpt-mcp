@@ -9,8 +9,8 @@ func ValidateRequest(req Request) error {
 	if req.Method == "" {
 		return NewError(ErrInvalidRequest, "missing method")
 	}
-	if req.Method == "initialize" && req.ID == nil {
-		return NewError(ErrInvalidRequest, "initialize requires an id")
+	if req.ID == nil {
+		return NewError(ErrInvalidRequest, "request requires an id")
 	}
 	return nil
 }
@@ -27,27 +27,16 @@ func DecodeParams(raw json.RawMessage) (map[string]any, error) {
 }
 
 func ValidateParams(method string, params map[string]any) error {
+	if err := validateRequestMeta(params); err != nil {
+		return err
+	}
 	switch method {
-	case "initialize":
-		version, ok := params["protocolVersion"].(string)
-		if !ok || version == "" {
-			return NewError(ErrInvalidParams, "missing protocolVersion")
-		}
-		if version != SupportedProtocolVersion {
-			return NewError(ErrInvalidParams, "unsupported protocolVersion")
-		}
-		clientInfo, ok := params["clientInfo"].(map[string]any)
-		if !ok {
-			return NewError(ErrInvalidParams, "missing clientInfo")
-		}
-		name, _ := clientInfo["name"].(string)
-		version, _ = clientInfo["version"].(string)
-		if name == "" || version == "" {
-			return NewError(ErrInvalidParams, "invalid clientInfo")
-		}
-		if capabilities, exists := params["capabilities"]; exists {
-			if _, ok := capabilities.(map[string]any); !ok {
-				return NewError(ErrInvalidParams, "capabilities must be an object")
+	case "server/discover":
+		return nil
+	case "tools/list":
+		if cursor, exists := params["cursor"]; exists {
+			if _, ok := cursor.(string); !ok {
+				return NewError(ErrInvalidParams, "cursor must be a string")
 			}
 		}
 	case "tools/call":
@@ -59,6 +48,33 @@ func ValidateParams(method string, params map[string]any) error {
 			if _, ok := args.(map[string]any); !ok {
 				return NewError(ErrInvalidParams, "arguments must be an object")
 			}
+		}
+	}
+	return nil
+}
+
+func validateRequestMeta(params map[string]any) error {
+	value, exists := params["_meta"]
+	if !exists {
+		return nil
+	}
+	meta, ok := value.(map[string]any)
+	if !ok {
+		return NewError(ErrInvalidParams, "_meta must be an object")
+	}
+	if value, exists := meta["io.modelcontextprotocol/protocolVersion"]; exists {
+		if _, ok := value.(string); !ok {
+			return NewError(ErrInvalidParams, "protocolVersion metadata must be a string")
+		}
+	}
+	if value, exists := meta["io.modelcontextprotocol/clientInfo"]; exists {
+		if _, ok := value.(map[string]any); !ok {
+			return NewError(ErrInvalidParams, "clientInfo metadata must be an object")
+		}
+	}
+	if value, exists := meta["io.modelcontextprotocol/clientCapabilities"]; exists {
+		if _, ok := value.(map[string]any); !ok {
+			return NewError(ErrInvalidParams, "clientCapabilities metadata must be an object")
 		}
 	}
 	return nil

@@ -9,7 +9,7 @@ import (
 	"unicode"
 )
 
-var mutationWord = regexp.MustCompile(`(?i)(^|[^a-z0-9_.-])(rm|rmdir|unlink|mv|rename|del|erase|move|ren|remove-item|move-item|rename-item)([^a-z0-9_.-]|$)|\bgit\s+mv\b|\bfind\b[\s\S]*\s-delete\b`)
+var mutationWord = regexp.MustCompile(`(?i)(^|[^a-z0-9_.-])(rm|rmdir|unlink|mv|rename|del|erase|move|ren|remove-item|move-item|rename-item)([^a-z0-9_.-]|$)|\bgit\s+(?:mv|rm|clean)\b|\bfind\b[\s\S]*\s-delete\b|\b(?:os\.(?:remove|unlink|rename|replace)|shutil\.(?:move|rmtree)|fs\.(?:unlink|rm|rename))\b`)
 
 var cwdCommands = map[string]bool{
 	"cd": true, "pushd": true, "popd": true, "chdir": true, "set-location": true, "sl": true,
@@ -20,9 +20,15 @@ var mutationCommands = map[string]bool{
 	"del": true, "erase": true, "remove-item": true, "move-item": true, "rename-item": true,
 }
 
-var simpleFlagOnly = map[string]bool{
-	"-f": true, "-r": true, "-R": true, "-v": true, "-i": true, "-n": true, "-T": true, "--force": true,
-	"--recursive": true, "--verbose": true, "--interactive": true, "--no-clobber": true,
+var longMutationOptions = map[string]bool{
+	"--force": true, "--recursive": true, "--verbose": true, "--interactive": true, "--no-clobber": true,
+	"--dir": true, "--quiet": true, "--cached": true, "--ignore-unmatch": true,
+	"-force": true, "-recurse": true, "-verbose": true, "-confirm:$false": true, "-whatif:$false": true,
+	"-path": true, "-literalpath": true, "-destination": true,
+}
+
+func (m *Manager) IsMutationCommand(command string) bool {
+	return mutationWord.MatchString(command)
 }
 
 func (m *Manager) ValidateMutationCommand(id, workingDirectory, command string) error {
@@ -30,7 +36,7 @@ func (m *Manager) ValidateMutationCommand(id, workingDirectory, command string) 
 	if err != nil {
 		return err
 	}
-	if !mutationWord.MatchString(command) {
+	if !m.IsMutationCommand(command) {
 		return nil
 	}
 
@@ -64,12 +70,31 @@ func (m *Manager) ValidateMutationCommand(id, workingDirectory, command string) 
 			continue
 		}
 
-		if name == "git" && len(args) > 0 && strings.EqualFold(args[0], "mv") {
-			recognizedMutation = true
-			if err := m.validateLiteralOperands(id, cwd, args[1:], 2); err != nil {
-				return fmt.Errorf("mutation command denied: git mv: %w", err)
+		if name == "git" && len(args) > 0 {
+			switch strings.ToLower(args[0]) {
+			case "mv":
+				recognizedMutation = true
+				if err := m.validateLiteralOperands(id, cwd, args[1:], 2); err != nil {
+					return fmt.Errorf("mutation command denied: git mv: %w", err)
+				}
+				continue
+			case "rm":
+				recognizedMutation = true
+				if err := m.validateLiteralOperands(id, cwd, args[1:], 1); err != nil {
+					return fmt.Errorf("mutation command denied: git rm: %w", err)
+				}
+				continue
+			case "clean":
+				recognizedMutation = true
+				for _, arg := range args[1:] {
+					if !strings.HasPrefix(arg, "-") {
+						if err := m.validateLiteralPath(id, cwd, arg, false); err != nil {
+							return fmt.Errorf("mutation command denied: git clean: %w", err)
+						}
+					}
+				}
+				continue
 			}
-			continue
 		}
 		if name == "find" && containsToken(args, "-delete") {
 			recognizedMutation = true
@@ -109,7 +134,7 @@ func (m *Manager) validateLiteralOperands(id, cwd string, args []string, minimum
 			continue
 		}
 		if strings.HasPrefix(arg, "-") {
-			if !simpleFlagOnly[arg] {
+			if !allowedMutationOption(arg) {
 				return fmt.Errorf("unsupported option %q", arg)
 			}
 			continue
@@ -125,6 +150,22 @@ func (m *Manager) validateLiteralOperands(id, cwd string, args []string, minimum
 		}
 	}
 	return nil
+}
+
+func allowedMutationOption(value string) bool {
+	lower := strings.ToLower(value)
+	if longMutationOptions[lower] {
+		return true
+	}
+	if !strings.HasPrefix(value, "-") || strings.HasPrefix(value, "--") || len(value) < 2 {
+		return false
+	}
+	for _, flag := range value[1:] {
+		if !strings.ContainsRune("frRvinTdq", flag) {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Manager) validateLiteralPath(id, cwd, value string, mustExist bool) error {

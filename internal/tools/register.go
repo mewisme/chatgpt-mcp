@@ -1,28 +1,17 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
+	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
-
-type CommandResult struct {
-	Command          string `json:"command"`
-	WorkingDirectory string `json:"working_directory"`
-	Stdout           string `json:"stdout"`
-	Stderr           string `json:"stderr"`
-	ExitCode         int    `json:"exit_code"`
-	Success          bool   `json:"success"`
-}
 
 type ReadFilesResult struct {
 	Files []ReadFile `json:"files"`
@@ -36,8 +25,10 @@ type GitStatusResult struct {
 
 func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
 	RegisterFilesystemTools(registry, workspaces, checkpoints)
+	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
+	processes := shellruntime.NewProcessManager(workspaces, shell)
+	RegisterShellTools(registry, workspaces, shell, processes)
 	registry.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","working_directory","paths"],"additionalProperties":false}`, `{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["files","count"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
-	registry.MustRegister("run_command", coreSchema("run_command", "Run a shell command. Rename/delete operations are denied unless every literal target and cwd can be proven inside the registered workspace.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","working_directory","command"],"additionalProperties":false}`, `{"type":"object","properties":{"command":{"type":"string"},"working_directory":{"type":"string"},"stdout":{"type":"string"},"stderr":{"type":"string"},"exit_code":{"type":"integer"},"success":{"type":"boolean"}},"required":["command","working_directory","stdout","stderr","exit_code","success"],"additionalProperties":false}`, RiskCommand), handleRunCommand(workspaces))
 	registry.MustRegister("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","working_directory"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"output":{"type":"string"}},"required":["path","output"],"additionalProperties":false}`, RiskRead), handleGitStatus(workspaces))
 }
 
@@ -68,45 +59,6 @@ func handleReadFiles(workspaces *workspace.Manager) Handler {
 			files = append(files, ReadFile{Path: file, Content: string(data)})
 		}
 		return JSONResult(ReadFilesResult{Files: files, Count: len(files)}), nil
-	}
-}
-
-func handleRunCommand(workspaces *workspace.Manager) Handler {
-	return func(ctx context.Context, args map[string]any) (Result, error) {
-		item, cwd, err := workspaceContext(workspaces, args)
-		if err != nil {
-			return Result{}, err
-		}
-		command, err := requiredString(args, "command")
-		if err != nil {
-			return Result{}, err
-		}
-		if err := workspaces.ValidateMutationCommand(item.ID, cwd, command); err != nil {
-			return Result{}, err
-		}
-		cmd := shellCommand(ctx, command)
-		cmd.Dir = cwd
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		runErr := cmd.Run()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return Result{}, ctxErr
-		}
-		exitCode := 0
-		if runErr != nil {
-			var exitErr *exec.ExitError
-			if !errors.As(runErr, &exitErr) {
-				return Result{}, fmt.Errorf("run command: %w", runErr)
-			}
-			exitCode = exitErr.ExitCode()
-		}
-		value := CommandResult{Command: command, WorkingDirectory: cwd, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode, Success: exitCode == 0}
-		result := JSONResult(value)
-		if exitCode != 0 {
-			result.IsError = true
-		}
-		return result, nil
 	}
 }
 
@@ -175,21 +127,4 @@ func requiredStrings(args map[string]any, key string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("%s must be an array of strings", key)
 	}
-}
-
-func shellCommand(ctx context.Context, command string) *exec.Cmd {
-	if runtime.GOOS == "windows" {
-		if shell, err := exec.LookPath("pwsh"); err == nil {
-			return exec.CommandContext(ctx, shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
-		}
-		if shell, err := exec.LookPath("powershell"); err == nil {
-			return exec.CommandContext(ctx, shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
-		}
-		return exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", command)
-	}
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-	return exec.CommandContext(ctx, shell, "-lc", command)
 }

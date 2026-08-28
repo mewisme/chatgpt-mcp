@@ -1,0 +1,244 @@
+package tools
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
+)
+
+func newGitToolTestRuntime(t *testing.T) (*Runtime, string, string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	root := t.TempDir()
+	workspaces := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := workspaces.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoints := checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoint-state"))
+	registry := NewRegistry()
+	RegisterWorkspaceTools(registry, workspaces)
+	RegisterFilesystemTools(registry, workspaces, checkpoints)
+	RegisterGitTools(registry, workspaces)
+	initGitRepo(t, root)
+	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}, item.ID, root
+}
+
+func initGitRepo(t *testing.T, root string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init", "--quiet"},
+		{"config", "user.name", "Test User"},
+		{"config", "user.email", "test@example.com"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v: %s", args, err, output)
+		}
+	}
+}
+
+func gitToolCall(t *testing.T, runtime *Runtime, name string, args map[string]any) Result {
+	t.Helper()
+	result, err := runtime.Call(context.Background(), name, args)
+	if err != nil {
+		t.Fatalf("%s protocol error: %v", name, err)
+	}
+	return result
+}
+
+func gitBaseArgs(workspaceID, root string) map[string]any {
+	return map[string]any{"workspace_id": workspaceID, "working_directory": root}
+}
+
+func TestGitAddCommitLogDiffAndRestore(t *testing.T) {
+	runtime, workspaceID, root := newGitToolTestRuntime(t)
+	file := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(file, []byte("initial\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	addArgs := gitBaseArgs(workspaceID, root)
+	addArgs["files"] = []any{"file.txt"}
+	addArgs["all"] = false
+	if result := gitToolCall(t, runtime, "git_add", addArgs); result.IsError {
+		t.Fatalf("git_add failed: %#v", result)
+	}
+
+	commitArgs := gitBaseArgs(workspaceID, root)
+	commitArgs["message"] = "initial"
+	commitArgs["stage_all"] = false
+	commitResult := gitToolCall(t, runtime, "git_commit", commitArgs)
+	if commitResult.IsError {
+		t.Fatalf("git_commit failed: %#v", commitResult)
+	}
+
+	logArgs := gitBaseArgs(workspaceID, root)
+	logArgs["count"] = 5
+	logResult := gitToolCall(t, runtime, "git_log", logArgs).StructuredContent.(GitLogResult)
+	if len(logResult.Commits) != 1 || !strings.Contains(logResult.Commits[0], "initial") {
+		t.Fatalf("log = %#v", logResult)
+	}
+
+	if err := os.WriteFile(file, []byte("changed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	diffArgs := gitBaseArgs(workspaceID, root)
+	diffArgs["file"] = "file.txt"
+	diffResult := gitToolCall(t, runtime, "git_diff", diffArgs).StructuredContent.(GitDiffResult)
+	if !strings.Contains(diffResult.Output, "-initial") || !strings.Contains(diffResult.Output, "+changed") {
+		t.Fatalf("diff = %#v", diffResult)
+	}
+
+	restoreArgs := gitBaseArgs(workspaceID, root)
+	restoreArgs["files"] = []any{"file.txt"}
+	restoreResult := gitToolCall(t, runtime, "git_restore", restoreArgs)
+	if restoreResult.IsError {
+		t.Fatalf("git_restore failed: %#v", restoreResult)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "initial\n" {
+		t.Fatalf("restored content = %q", data)
+	}
+}
+
+func TestGitBranchCheckoutStashAndReset(t *testing.T) {
+	runtime, workspaceID, root := newGitToolTestRuntime(t)
+	file := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(file, []byte("initial\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	addArgs := gitBaseArgs(workspaceID, root)
+	addArgs["all"] = true
+	if result := gitToolCall(t, runtime, "git_add", addArgs); result.IsError {
+		t.Fatal(result.Content)
+	}
+	commitArgs := gitBaseArgs(workspaceID, root)
+	commitArgs["message"] = "initial"
+	if result := gitToolCall(t, runtime, "git_commit", commitArgs); result.IsError {
+		t.Fatal(result.Content)
+	}
+
+	branchArgs := gitBaseArgs(workspaceID, root)
+	branchArgs["action"] = "create"
+	branchArgs["name"] = "feature"
+	if result := gitToolCall(t, runtime, "git_branch", branchArgs); result.IsError {
+		t.Fatalf("git_branch failed: %#v", result)
+	}
+	checkoutArgs := gitBaseArgs(workspaceID, root)
+	checkoutArgs["branch"] = "feature"
+	if result := gitToolCall(t, runtime, "git_checkout", checkoutArgs); result.IsError {
+		t.Fatalf("git_checkout failed: %#v", result)
+	}
+
+	if err := os.WriteFile(file, []byte("work\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	stashArgs := gitBaseArgs(workspaceID, root)
+	stashArgs["action"] = "push"
+	stashArgs["message"] = "work"
+	if result := gitToolCall(t, runtime, "git_stash", stashArgs); result.IsError {
+		t.Fatalf("git_stash push failed: %#v", result)
+	}
+	stashArgs["action"] = "list"
+	list := gitToolCall(t, runtime, "git_stash", stashArgs).StructuredContent.(GitStashResult)
+	if !strings.Contains(list.Output, "work") {
+		t.Fatalf("stash list = %#v", list)
+	}
+	stashArgs["action"] = "pop"
+	if result := gitToolCall(t, runtime, "git_stash", stashArgs); result.IsError {
+		t.Fatalf("git_stash pop failed: %#v", result)
+	}
+
+	resetArgs := gitBaseArgs(workspaceID, root)
+	resetArgs["mode"] = "mixed"
+	resetArgs["ref"] = "HEAD"
+	if result := gitToolCall(t, runtime, "git_reset", resetArgs); result.IsError {
+		t.Fatalf("git_reset failed: %#v", result)
+	}
+}
+
+func TestGitPathAndWorkingDirectoryMustMatch(t *testing.T) {
+	runtime, workspaceID, root := newGitToolTestRuntime(t)
+	child := filepath.Join(root, "child")
+	if err := os.Mkdir(child, 0755); err != nil {
+		t.Fatal(err)
+	}
+	result := gitToolCall(t, runtime, "git_status", map[string]any{
+		"workspace_id":      workspaceID,
+		"working_directory": root,
+		"path":              child,
+	})
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "must resolve to the same directory") {
+		t.Fatalf("conflicting git locations were not rejected: %#v", result)
+	}
+}
+
+func TestGitRepoRootOutsideWorkspaceIsRejected(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	parent := t.TempDir()
+	initGitRepo(t, parent)
+	child := filepath.Join(parent, "child")
+	if err := os.Mkdir(child, 0755); err != nil {
+		t.Fatal(err)
+	}
+	workspaces := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := workspaces.Register(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry()
+	RegisterGitTools(registry, workspaces)
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces}
+	result := gitToolCall(t, runtime, "git_status", map[string]any{"workspace_id": item.ID})
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "repository root escapes registered workspace") {
+		t.Fatalf("outside repo root was not rejected: %#v", result)
+	}
+}
+
+func TestGitRejectsPathspecMagicAndOptionInjection(t *testing.T) {
+	runtime, workspaceID, root := newGitToolTestRuntime(t)
+	diffArgs := gitBaseArgs(workspaceID, root)
+	diffArgs["file"] = ":(top)file.txt"
+	result := gitToolCall(t, runtime, "git_diff", diffArgs)
+	if !result.IsError {
+		t.Fatalf("pathspec magic was not rejected: %#v", result)
+	}
+
+	pushArgs := gitBaseArgs(workspaceID, root)
+	pushArgs["remote"] = "--upload-pack=evil"
+	result = gitToolCall(t, runtime, "git_push", pushArgs)
+	if !result.IsError {
+		t.Fatalf("remote option injection was not rejected: %#v", result)
+	}
+}
+
+func TestGitToolCatalog(t *testing.T) {
+	runtime, _, _ := newGitToolTestRuntime(t)
+	names := map[string]bool{}
+	for _, schema := range runtime.List() {
+		names[schema.Name] = true
+	}
+	for _, name := range []string{
+		"git_status", "git_diff", "git_log", "git_add", "git_commit", "git_branch",
+		"git_checkout", "git_restore", "git_push", "git_pull", "git_stash", "git_reset",
+	} {
+		if !names[name] {
+			t.Fatalf("missing git tool %q", name)
+		}
+	}
+}

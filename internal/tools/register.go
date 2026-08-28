@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
@@ -18,18 +17,13 @@ type ReadFilesResult struct {
 	Count int        `json:"count"`
 }
 
-type GitStatusResult struct {
-	Path   string `json:"path"`
-	Output string `json:"output"`
-}
-
 func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
 	RegisterFilesystemTools(registry, workspaces, checkpoints)
 	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
 	processes := shellruntime.NewProcessManager(workspaces, shell)
 	RegisterShellTools(registry, workspaces, shell, processes)
+	RegisterGitTools(registry, workspaces)
 	registry.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","working_directory","paths"],"additionalProperties":false}`, `{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["files","count"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
-	registry.MustRegister("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","working_directory"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"output":{"type":"string"}},"required":["path","output"],"additionalProperties":false}`, RiskRead), handleGitStatus(workspaces))
 }
 
 func coreSchema(name, description, input, output string, risk Risk) Schema {
@@ -59,32 +53,6 @@ func handleReadFiles(workspaces *workspace.Manager) Handler {
 			files = append(files, ReadFile{Path: file, Content: string(data)})
 		}
 		return JSONResult(ReadFilesResult{Files: files, Count: len(files)}), nil
-	}
-}
-
-func handleGitStatus(workspaces *workspace.Manager) Handler {
-	return func(ctx context.Context, args map[string]any) (Result, error) {
-		_, cwd, err := workspaceContext(workspaces, args)
-		if err != nil {
-			return Result{}, err
-		}
-		cmd := exec.CommandContext(ctx, "git", "-C", cwd, "status", "--short")
-		output, err := cmd.CombinedOutput()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return Result{}, ctxErr
-		}
-		if err != nil {
-			detail := strings.TrimSpace(string(output))
-			if detail != "" {
-				return Result{}, fmt.Errorf("git status: %w: %s", err, detail)
-			}
-			return Result{}, fmt.Errorf("git status: %w", err)
-		}
-		text := string(output)
-		if strings.TrimSpace(text) == "" {
-			text = "Clean working tree"
-		}
-		return JSONResult(GitStatusResult{Path: cwd, Output: text}), nil
 	}
 }
 

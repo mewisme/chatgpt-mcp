@@ -56,6 +56,12 @@ func (m *Manager) ValidateMutationCommand(id, workingDirectory, command string) 
 		}
 		name, args := commandName(tokens)
 		if cwdCommands[name] {
+			if name == "popd" {
+				return errors.New("mutation command denied: popd cannot be proven workspace-safe")
+			}
+			if name == "pushd" && len(args) == 0 {
+				return errors.New("mutation command denied: pushd requires an explicit target")
+			}
 			target := "."
 			if len(args) > 0 {
 				target = args[0]

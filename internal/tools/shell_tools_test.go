@@ -92,15 +92,22 @@ func TestShellMutationRejectsCWDDirective(t *testing.T) {
 	}
 }
 
+func backgroundLifecycleCommand() string {
+	if os.PathSeparator == '\\' {
+		return "Write-Output ready; Start-Sleep -Milliseconds 100"
+	}
+	return "printf ready; sleep 0.1"
+}
+
 func TestBackgroundProcessLifecycle(t *testing.T) {
-	if os.Getenv("SHELL") == "" {
+	if os.PathSeparator != '\\' && os.Getenv("SHELL") == "" {
 		t.Setenv("SHELL", "/bin/sh")
 	}
 	runtime, workspaceID, root := newShellToolTestRuntime(t)
 	startResult, err := runtime.Call(context.Background(), "start_process", map[string]any{
 		"workspace_id":      workspaceID,
 		"working_directory": root,
-		"command":           "printf ready; sleep 0.1",
+		"command":           backgroundLifecycleCommand(),
 	})
 	if err != nil || startResult.IsError {
 		t.Fatalf("start_process failed: result=%#v err=%v", startResult, err)

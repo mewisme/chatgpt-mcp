@@ -98,6 +98,32 @@ func TestMutationGuardRejectsCwdChange(t *testing.T) {
 	}
 }
 
+func TestMutationGuardRejectsPopdMutation(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = manager.ValidateMutationCommand(item.ID, root, "popd && rm file.txt")
+	if err == nil || !strings.Contains(err.Error(), "popd cannot be proven workspace-safe") {
+		t.Fatalf("error = %v, want popd fail-closed denial", err)
+	}
+}
+
+func TestMutationGuardRejectsTargetlessPushdMutation(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = manager.ValidateMutationCommand(item.ID, root, "pushd && rm file.txt")
+	if err == nil || !strings.Contains(err.Error(), "pushd requires an explicit target") {
+		t.Fatalf("error = %v, want targetless pushd denial", err)
+	}
+}
+
 func TestMutationGuardRejectsOutsidePath(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "file.txt")

@@ -19,7 +19,7 @@ type App struct {
 	Config   config.Config
 	MCP      *mcp.HTTPRuntime
 	Upstream *upstream.Manager
-	Tools    *tools.Registry
+	Tools    *tools.Runtime
 	Activity *activity.Stream
 	Tunnel   *tunnel.Client
 	Logger   *logger.Logger
@@ -29,13 +29,14 @@ func New(cfg config.Config) *App {
 	store := upstream.NewStore(upstream.Path())
 	manager := upstream.NewManager(store)
 	stream := activity.NewStream()
-	mcpRuntime := mcp.NewHTTPRuntime()
+	toolRuntime := tools.NewRuntime()
+	mcpRuntime := mcp.NewHTTPRuntimeWithTools(toolRuntime)
 	mcpRuntime.Activity = stream
 	tunnelConfig := cfg.Tunnel
 	if tunnelConfig.Origin == "" {
 		tunnelConfig.Origin = config.TunnelOrigin(cfg)
 	}
-	return &App{Config: cfg, MCP: mcpRuntime, Upstream: manager, Tools: tools.NewRegistry(), Activity: stream, Tunnel: tunnel.NewConfigured(tunnelConfig), Logger: logger.New(logger.Info)}
+	return &App{Config: cfg, MCP: mcpRuntime, Upstream: manager, Tools: toolRuntime, Activity: stream, Tunnel: tunnel.NewConfigured(tunnelConfig), Logger: logger.New(logger.Info)}
 }
 
 func (a *App) MCPHandler() http.Handler {

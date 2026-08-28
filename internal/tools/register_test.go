@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,12 +13,9 @@ import (
 
 func callCoreTool(t *testing.T, registry *Registry, name string, args map[string]any) any {
 	t.Helper()
-	value, found, err := registry.Call(name, args)
+	value, err := registry.Call(context.Background(), name, args)
 	if err != nil {
 		t.Fatalf("%s failed: %v", name, err)
-	}
-	if !found {
-		t.Fatalf("%s not registered", name)
 	}
 	return value
 }
@@ -108,6 +107,52 @@ func TestCoreSchemasDescribeRequiredArguments(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("%s does not require working_directory", schema.Name)
+		}
+	}
+}
+
+func TestRegistryRejectsDuplicateTools(t *testing.T) {
+	registry := NewRegistry()
+	handler := func(context.Context, map[string]any) (any, error) { return nil, nil }
+	schema := DefaultSchema("test", "test")
+	if err := registry.Register("test", schema, handler); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register("test", schema, handler); !errors.Is(err, ErrToolAlreadyRegistered) {
+		t.Fatalf("error = %v, want ErrToolAlreadyRegistered", err)
+	}
+}
+
+func TestRegistryReturnsToolNotFound(t *testing.T) {
+	registry := NewRegistry()
+	if _, err := registry.Call(context.Background(), "missing", nil); !errors.Is(err, ErrToolNotFound) {
+		t.Fatalf("error = %v, want ErrToolNotFound", err)
+	}
+}
+
+func TestRegistryPassesContext(t *testing.T) {
+	registry := NewRegistry()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := registry.Register("context_test", DefaultSchema("context_test", "context test"), func(ctx context.Context, args map[string]any) (any, error) { return nil, ctx.Err() }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Call(ctx, "context_test", nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestRegistrySchemasAreSorted(t *testing.T) {
+	registry := NewRegistry()
+	handler := func(context.Context, map[string]any) (any, error) { return nil, nil }
+	for _, name := range []string{"zeta", "alpha", "middle"} {
+		if err := registry.Register(name, DefaultSchema(name, name), handler); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, want := range []string{"alpha", "middle", "zeta"} {
+		if got := registry.ListSchemas()[i].Name; got != want {
+			t.Fatalf("schema[%d] = %q, want %q", i, got, want)
 		}
 	}
 }

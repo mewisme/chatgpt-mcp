@@ -17,7 +17,7 @@ const maxRequestBodyBytes int64 = 1 << 20
 
 type API struct {
 	Upstream *upstream.Manager
-	Tools    *tools.Registry
+	Tools    *tools.Runtime
 	Tunnel   *tunnel.Client
 	Config   *config.Config
 }
@@ -123,7 +123,7 @@ func New(api API) http.Handler {
 			writeJSON(w, []any{})
 			return
 		}
-		writeJSON(w, api.Tools.ListSchemas())
+		writeJSON(w, api.Tools.List())
 	})
 	mux.HandleFunc("/api/upstream", func(w http.ResponseWriter, r *http.Request) {
 		if api.Upstream == nil {

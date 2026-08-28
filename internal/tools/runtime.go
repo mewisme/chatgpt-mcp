@@ -12,8 +12,6 @@ func NewRuntime() *Runtime {
 
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
-
 func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (any, error) {
-	value, _, err := r.Registry.Call(name, args)
-	return value, err
+	return r.Registry.Call(ctx, name, args)
 }

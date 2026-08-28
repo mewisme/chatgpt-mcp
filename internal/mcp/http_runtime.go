@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
+	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
 type HTTPRuntime struct {
@@ -13,8 +14,10 @@ type HTTPRuntime struct {
 	Activity *activity.Stream
 }
 
-func NewHTTPRuntime() *HTTPRuntime {
-	return &HTTPRuntime{Server: NewRuntime(), Activity: activity.NewStream()}
+func NewHTTPRuntime() *HTTPRuntime { return NewHTTPRuntimeWithTools(tools.NewRuntime()) }
+
+func NewHTTPRuntimeWithTools(toolRuntime *tools.Runtime) *HTTPRuntime {
+	return &HTTPRuntime{Server: NewRuntimeWithTools(toolRuntime), Activity: activity.NewStream()}
 }
 
 func (h *HTTPRuntime) Handler() http.Handler { return h }

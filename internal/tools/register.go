@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,18 +28,18 @@ type WriteFileResult struct {
 }
 
 func RegisterCore(r *Registry) {
-	r.Register("read_text_file", coreSchema("read_text_file", "Read a text file", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Base working directory for relative paths"},"path":{"type":"string","description":"File path, absolute or relative to working_directory"}},"required":["working_directory","path"],"additionalProperties":false}`, `{"type":"string"}`, true), handleReadTextFile)
-	r.Register("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Base working directory for relative paths"},"paths":{"type":"array","items":{"type":"string"},"minItems":1,"description":"File paths, absolute or relative to working_directory"}},"required":["working_directory","paths"],"additionalProperties":false}`, `{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}`, true), handleReadFiles)
-	r.Register("write_file", coreSchema("write_file", "Write a text file", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Base working directory for relative paths"},"path":{"type":"string","description":"File path, absolute or relative to working_directory"},"content":{"type":"string","description":"Complete text content to write"}},"required":["working_directory","path","content"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"bytes":{"type":"integer"}},"required":["path","bytes"],"additionalProperties":false}`, false), handleWriteFile)
-	r.Register("run_command", coreSchema("run_command", "Run a shell command", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Directory in which the command is executed"},"command":{"type":"string","description":"Shell command to execute"}},"required":["working_directory","command"],"additionalProperties":false}`, `{"type":"object","properties":{"command":{"type":"string"},"working_directory":{"type":"string"},"stdout":{"type":"string"},"stderr":{"type":"string"},"exit_code":{"type":"integer"},"success":{"type":"boolean"}},"required":["command","working_directory","stdout","stderr","exit_code","success"],"additionalProperties":false}`, false), handleRunCommand)
-	r.Register("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Git repository or a directory inside it"}},"required":["working_directory"],"additionalProperties":false}`, `{"type":"string"}`, true), handleGitStatus)
+	r.MustRegister("read_text_file", coreSchema("read_text_file", "Read a text file", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Base working directory for relative paths"},"path":{"type":"string","description":"File path, absolute or relative to working_directory"}},"required":["working_directory","path"],"additionalProperties":false}`, `{"type":"string"}`, true), handleReadTextFile)
+	r.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Base working directory for relative paths"},"paths":{"type":"array","items":{"type":"string"},"minItems":1,"description":"File paths, absolute or relative to working_directory"}},"required":["working_directory","paths"],"additionalProperties":false}`, `{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}`, true), handleReadFiles)
+	r.MustRegister("write_file", coreSchema("write_file", "Write a text file", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Base working directory for relative paths"},"path":{"type":"string","description":"File path, absolute or relative to working_directory"},"content":{"type":"string","description":"Complete text content to write"}},"required":["working_directory","path","content"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"bytes":{"type":"integer"}},"required":["path","bytes"],"additionalProperties":false}`, false), handleWriteFile)
+	r.MustRegister("run_command", coreSchema("run_command", "Run a shell command", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Directory in which the command is executed"},"command":{"type":"string","description":"Shell command to execute"}},"required":["working_directory","command"],"additionalProperties":false}`, `{"type":"object","properties":{"command":{"type":"string"},"working_directory":{"type":"string"},"stdout":{"type":"string"},"stderr":{"type":"string"},"exit_code":{"type":"integer"},"success":{"type":"boolean"}},"required":["command","working_directory","stdout","stderr","exit_code","success"],"additionalProperties":false}`, false), handleRunCommand)
+	r.MustRegister("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Git repository or a directory inside it"}},"required":["working_directory"],"additionalProperties":false}`, `{"type":"string"}`, true), handleGitStatus)
 }
 
 func coreSchema(name, description, input, output string, readOnly bool) Schema {
 	return Schema{Name: name, Description: description, InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: map[string]any{"readOnly": readOnly}}
 }
 
-func handleReadTextFile(args map[string]any) (any, error) {
+func handleReadTextFile(_ context.Context, args map[string]any) (any, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
 		return nil, err
@@ -50,7 +51,7 @@ func handleReadTextFile(args map[string]any) (any, error) {
 	return (FileService{}).ReadText(workdir, file)
 }
 
-func handleReadFiles(args map[string]any) (any, error) {
+func handleReadFiles(_ context.Context, args map[string]any) (any, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
 		return nil, err
@@ -62,7 +63,7 @@ func handleReadFiles(args map[string]any) (any, error) {
 	return (ReadFilesService{}).Read(Context{WorkingDirectory: workdir}, paths)
 }
 
-func handleWriteFile(args map[string]any) (any, error) {
+func handleWriteFile(_ context.Context, args map[string]any) (any, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
 		return nil, err
@@ -81,7 +82,7 @@ func handleWriteFile(args map[string]any) (any, error) {
 	return WriteFileResult{Path: resolve(workdir, file), Bytes: len([]byte(content))}, nil
 }
 
-func handleRunCommand(args map[string]any) (any, error) {
+func handleRunCommand(ctx context.Context, args map[string]any) (any, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
 		return nil, err
@@ -90,12 +91,15 @@ func handleRunCommand(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := shellCommand(command)
+	cmd := shellCommand(ctx, command)
 	cmd.Dir = workdir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	exitCode := 0
 	if runErr != nil {
 		var exitErr *exec.ExitError
@@ -107,13 +111,16 @@ func handleRunCommand(args map[string]any) (any, error) {
 	return CommandResult{Command: command, WorkingDirectory: workdir, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode, Success: exitCode == 0}, nil
 }
 
-func handleGitStatus(args map[string]any) (any, error) {
+func handleGitStatus(ctx context.Context, args map[string]any) (any, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command("git", "-C", workdir, "status", "--short")
+	cmd := exec.CommandContext(ctx, "git", "-C", workdir, "status", "--short")
 	output, err := cmd.CombinedOutput()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil {
 		detail := strings.TrimSpace(string(output))
 		if detail != "" {
@@ -184,19 +191,19 @@ func requiredStrings(args map[string]any, key string) ([]string, error) {
 	}
 }
 
-func shellCommand(command string) *exec.Cmd {
+func shellCommand(ctx context.Context, command string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
 		if shell, err := exec.LookPath("pwsh"); err == nil {
-			return exec.Command(shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
+			return exec.CommandContext(ctx, shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
 		}
 		if shell, err := exec.LookPath("powershell"); err == nil {
-			return exec.Command(shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
+			return exec.CommandContext(ctx, shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
 		}
-		return exec.Command("cmd.exe", "/d", "/s", "/c", command)
+		return exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", command)
 	}
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	return exec.Command(shell, "-lc", command)
+	return exec.CommandContext(ctx, shell, "-lc", command)
 }

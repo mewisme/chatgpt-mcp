@@ -38,6 +38,55 @@ func TestSensitiveConfigValuesCannotBeRead(t *testing.T) {
 	}
 }
 
+func TestConfigPresetApplyPreservesSecrets(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-secret"
+	cfg.Auth.AdminTokenHash = "admin-secret"
+	cfg.Tunnel.APIKey = "tunnel-secret"
+	cfg.Tunnel.Command = "tunnel-client"
+	cfg.Tunnel.Args = []string{"run"}
+	if err := applyConfigPreset(&cfg, "lan"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.Host != "0.0.0.0" || cfg.Admin.Enabled {
+		t.Fatalf("preset not applied: %#v", cfg)
+	}
+	if cfg.Auth.MCPTokenHash != "mcp-secret" || cfg.Auth.AdminTokenHash != "admin-secret" {
+		t.Fatal("auth secrets changed")
+	}
+	if cfg.Tunnel.APIKey != "tunnel-secret" || cfg.Tunnel.Command != "tunnel-client" || !reflect.DeepEqual(cfg.Tunnel.Args, []string{"run"}) {
+		t.Fatal("tunnel details changed")
+	}
+}
+
+func TestConfigPresetRequiresConfiguredAuth(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = ""
+	cfg.Auth.AdminTokenHash = ""
+	if err := applyConfigPreset(&cfg, "default"); err == nil {
+		t.Fatal("preset unexpectedly bypassed auth validation")
+	}
+}
+
+func TestMatchingConfigPreset(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp"
+	cfg.Auth.AdminTokenHash = "admin"
+	if got := matchingConfigPreset(cfg); got != "default" {
+		t.Fatalf("preset = %q", got)
+	}
+	cfg.Server.Port++
+	if got := matchingConfigPreset(cfg); got != "custom" {
+		t.Fatalf("preset = %q", got)
+	}
+}
+
+func TestUnknownConfigPreset(t *testing.T) {
+	if _, err := configPresetByName("missing"); err == nil {
+		t.Fatal("unknown preset was accepted")
+	}
+}
+
 func TestRemoveConfigRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "chatgpt-mcp")
 	if err := os.MkdirAll(root, 0700); err != nil {

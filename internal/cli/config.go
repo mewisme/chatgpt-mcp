@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -36,6 +37,39 @@ type configView struct {
 	Tunnel tunnelView          `json:"tunnel"`
 }
 
+type configPreset struct {
+	Name             string              `json:"name"`
+	Description      string              `json:"description"`
+	Server           config.ServerConfig `json:"server"`
+	Admin            config.AdminConfig  `json:"admin"`
+	MCPAuthEnabled   bool                `json:"mcp_auth_enabled"`
+	AdminAuthEnabled bool                `json:"admin_auth_enabled"`
+	TunnelEnabled    bool                `json:"tunnel_enabled"`
+}
+
+var configPresets = map[string]configPreset{
+	"default": {
+		Name: "default", Description: "Loopback MCP and admin endpoints with authentication enabled.",
+		Server: config.ServerConfig{Host: "127.0.0.1", Port: 37421}, Admin: config.AdminConfig{Enabled: true, Port: 37422},
+		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
+	},
+	"headless": {
+		Name: "headless", Description: "Loopback MCP endpoint only; admin UI disabled.",
+		Server: config.ServerConfig{Host: "127.0.0.1", Port: 37421}, Admin: config.AdminConfig{Enabled: false, Port: 37422},
+		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
+	},
+	"lan": {
+		Name: "lan", Description: "Expose MCP on all interfaces while keeping admin UI disabled.",
+		Server: config.ServerConfig{Host: "0.0.0.0", Port: 37421}, Admin: config.AdminConfig{Enabled: false, Port: 37422},
+		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
+	},
+	"lan-admin": {
+		Name: "lan-admin", Description: "Expose MCP and authenticated admin UI on all interfaces.",
+		Server: config.ServerConfig{Host: "0.0.0.0", Port: 37421}, Admin: config.AdminConfig{Enabled: true, Port: 37422},
+		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
+	},
+}
+
 func configCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "config", Short: "Read and update validated runtime configuration"}
 	cmd.AddCommand(
@@ -46,6 +80,7 @@ func configCommand() *cobra.Command {
 		}},
 		configGetCommand(),
 		configSetCommand(),
+		configPresetCommand(),
 		&cobra.Command{Use: "validate", RunE: func(cmd *cobra.Command, args []string) error {
 			value, err := config.Load()
 			if err != nil {
@@ -124,6 +159,124 @@ func configSetCommand() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func configPresetCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "preset", Short: "List, inspect, and apply built-in configuration presets"}
+	cmd.AddCommand(
+		&cobra.Command{
+			Use:   "list",
+			Short: "List built-in configuration presets",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+				names := configPresetNames()
+				log.Success("PRESET", "configuration presets loaded", "count", len(names))
+				for _, name := range names {
+					preset := configPresets[name]
+					log.Detail(name, preset.Description)
+				}
+				return nil
+			},
+		},
+		&cobra.Command{
+			Use:   "show <name>",
+			Short: "Show one built-in configuration preset",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				preset, err := configPresetByName(args[0])
+				if err != nil {
+					return err
+				}
+				return printJSON(cmd, preset)
+			},
+		},
+		&cobra.Command{
+			Use:     "apply <name>",
+			Aliases: []string{"use"},
+			Short:   "Apply a preset while preserving configured secrets and tunnel details",
+			Args:    cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				if err := applyConfigPreset(&cfg, args[0]); err != nil {
+					return err
+				}
+				if err := config.Save(cfg); err != nil {
+					return err
+				}
+				log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+				log.Success("PRESET", "configuration preset applied", "name", strings.ToLower(strings.TrimSpace(args[0])))
+				log.Detail("mcp", fmt.Sprintf("http://%s:%d/mcp", cfg.Server.Host, cfg.Server.Port))
+				if cfg.Admin.Enabled {
+					log.Detail("admin", fmt.Sprintf("http://%s:%d/", cfg.Server.Host, cfg.Admin.Port))
+				} else {
+					log.Detail("admin", "disabled")
+				}
+				log.Detail("secrets", "preserved")
+				return nil
+			},
+		},
+		&cobra.Command{
+			Use:   "current",
+			Short: "Print the matching preset name or custom",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				cmd.Println(matchingConfigPreset(cfg))
+				return nil
+			},
+		},
+	)
+	return cmd
+}
+
+func configPresetNames() []string {
+	names := make([]string, 0, len(configPresets))
+	for name := range configPresets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func configPresetByName(name string) (configPreset, error) {
+	key := strings.ToLower(strings.TrimSpace(name))
+	preset, ok := configPresets[key]
+	if !ok {
+		return configPreset{}, fmt.Errorf("unknown config preset %q; available: %s", name, strings.Join(configPresetNames(), ", "))
+	}
+	return preset, nil
+}
+
+func applyConfigPreset(cfg *config.Config, name string) error {
+	preset, err := configPresetByName(name)
+	if err != nil {
+		return err
+	}
+	cfg.Server = preset.Server
+	cfg.Admin = preset.Admin
+	cfg.Auth.MCPEnabled = preset.MCPAuthEnabled
+	cfg.Auth.AdminEnabled = preset.AdminAuthEnabled
+	cfg.Tunnel.Enabled = preset.TunnelEnabled
+	return config.Validate(*cfg)
+}
+
+func matchingConfigPreset(cfg config.Config) string {
+	for _, name := range configPresetNames() {
+		preset := configPresets[name]
+		if cfg.Server == preset.Server &&
+			cfg.Admin == preset.Admin &&
+			cfg.Auth.MCPEnabled == preset.MCPAuthEnabled &&
+			cfg.Auth.AdminEnabled == preset.AdminAuthEnabled &&
+			cfg.Tunnel.Enabled == preset.TunnelEnabled {
+			return name
+		}
+	}
+	return "custom"
 }
 
 func configPublicView(cfg config.Config) configView {

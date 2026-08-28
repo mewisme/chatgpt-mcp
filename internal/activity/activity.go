@@ -2,20 +2,28 @@ package activity
 
 import (
 	"encoding/json"
-	"go.mewis.me/chatgpt-mcp/internal/workspace"
 	"os"
 	"path/filepath"
+	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 type Event struct {
-	Kind    string `json:"kind"`
-	Tool    string `json:"tool,omitempty"`
-	Message string `json:"message,omitempty"`
+	Kind        string    `json:"kind"`
+	Method      string    `json:"method,omitempty"`
+	Tool        string    `json:"tool,omitempty"`
+	WorkspaceID string    `json:"workspace_id,omitempty"`
+	Status      string    `json:"status,omitempty"`
+	DurationMS  int64     `json:"duration_ms,omitempty"`
+	Message     string    `json:"message,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
 type Store struct{ Root string }
 
 func (s Store) Append(ws workspace.Workspace, event Event) error {
+	event = normalizeEvent(event)
 	path := filepath.Join(s.Root, "workspaces", ws.ID, "activity.jsonl")
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
@@ -28,4 +36,13 @@ func (s Store) Append(ws workspace.Workspace, event Event) error {
 	data, _ := json.Marshal(event)
 	_, err = f.Write(append(data, '\n'))
 	return err
+}
+
+func normalizeEvent(event Event) Event {
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	} else {
+		event.Timestamp = event.Timestamp.UTC()
+	}
+	return event
 }

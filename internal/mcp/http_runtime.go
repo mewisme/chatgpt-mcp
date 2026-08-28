@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
@@ -64,15 +65,11 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.EmitActivity("mcp.request", req.Method)
-	if req.Method == "tools/call" {
-		if name, ok := params["name"].(string); ok {
-			h.EmitActivity("tool.call", name)
-		}
-	}
-
+	started := time.Now()
 	result, err := h.Server.Handle(r.Context(), req.Method, params)
+	duration := time.Since(started)
 	if err != nil {
+		h.EmitActivity(requestActivity(req.Method, params, "error", err.Error(), duration))
 		var protocolErr *Error
 		if errors.As(err, &protocolErr) {
 			writeErrorID(w, req.ID, protocolErr.Code, protocolErr.Message)
@@ -81,6 +78,15 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeErrorID(w, req.ID, ErrInternal, err.Error())
 		return
 	}
+
+	status, message := "ok", ""
+	if toolResult, ok := result.(tools.Result); ok && toolResult.IsError {
+		status = "error"
+		if len(toolResult.Content) > 0 {
+			message = toolResult.Content[0].Text
+		}
+	}
+	h.EmitActivity(requestActivity(req.Method, params, status, message, duration))
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(Response{JSONRPC: "2.0", ID: req.ID, Result: result})

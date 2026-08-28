@@ -1,10 +1,32 @@
 package mcp
 
-import "go.mewis.me/chatgpt-mcp/internal/activity"
+import (
+	"time"
 
-func (h *HTTPRuntime) EmitActivity(kind, message string) {
+	"go.mewis.me/chatgpt-mcp/internal/activity"
+)
+
+func (h *HTTPRuntime) EmitActivity(event activity.Event) {
 	if h.Activity == nil {
 		return
 	}
-	h.Activity.Publish(activity.Event{Kind: kind, Message: message})
+	h.Activity.Publish(event)
+}
+
+func requestActivity(method string, params map[string]any, status, message string, duration time.Duration) activity.Event {
+	event := activity.Event{
+		Kind:       string(activity.EventRequest),
+		Method:     method,
+		Status:     status,
+		DurationMS: duration.Milliseconds(),
+		Message:    message,
+	}
+	if method != "tools/call" {
+		return event
+	}
+	event.Kind = string(activity.EventToolCall)
+	event.Tool, _ = params["name"].(string)
+	args, _ := params["arguments"].(map[string]any)
+	event.WorkspaceID, _ = args["workspace_id"].(string)
+	return event
 }

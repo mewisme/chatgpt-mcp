@@ -1,14 +1,654 @@
 package checkpoint
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
 )
 
-type Store struct{ Root string }
+const (
+	indexVersion      = 1
+	defaultMaxCount   = 500
+	defaultRetention  = 30 * 24 * time.Hour
+	defaultMaxFile    = 5 * 1024 * 1024
+	maxDirectoryDepth = 32
+)
 
-func (s Store) Path(workspaceID string) string {
+type Store struct {
+	Root              string
+	MaxCount          int
+	Retention         time.Duration
+	MaxFileBytes      int64
+	MaxDirectoryDepth int
+	mu                sync.Mutex
+}
+
+type FileSnapshot struct {
+	Path        string         `json:"path"`
+	Existed     bool           `json:"existed"`
+	IsDirectory bool           `json:"is_directory,omitempty"`
+	Encoding    string         `json:"encoding,omitempty"`
+	Content     string         `json:"content,omitempty"`
+	Children    []FileSnapshot `json:"children,omitempty"`
+	Skipped     bool           `json:"skipped,omitempty"`
+	SkipReason  string         `json:"skip_reason,omitempty"`
+}
+
+type Summary struct {
+	ID        string   `json:"id"`
+	CreatedAt string   `json:"created_at"`
+	Tool      string   `json:"tool"`
+	Summary   string   `json:"summary"`
+	Files     []string `json:"files"`
+	FileCount int      `json:"file_count"`
+}
+
+type Manifest struct {
+	Version       int            `json:"version"`
+	ID            string         `json:"id"`
+	WorkspaceID   string         `json:"workspace_id"`
+	WorkspaceRoot string         `json:"workspace_root"`
+	CreatedAt     string         `json:"created_at"`
+	Tool          string         `json:"tool"`
+	Summary       string         `json:"summary"`
+	Files         []FileSnapshot `json:"files"`
+}
+
+type Index struct {
+	Version     int       `json:"version"`
+	Checkpoints []Summary `json:"checkpoints"`
+}
+
+type RestoreChange struct {
+	Path              string `json:"path"`
+	Action            string `json:"action"`
+	ExistedBeforeEdit bool   `json:"existed_before_edit"`
+	Reason            string `json:"reason,omitempty"`
+}
+
+type Preview struct {
+	Checkpoint       Summary         `json:"checkpoint"`
+	Changes          []RestoreChange `json:"changes"`
+	SkippedSnapshots []RestoreChange `json:"skipped_snapshots"`
+}
+
+type RestoreResult struct {
+	Checkpoint Summary         `json:"checkpoint"`
+	Restored   []string        `json:"restored"`
+	Deleted    []string        `json:"deleted"`
+	Skipped    []RestoreChange `json:"skipped"`
+}
+
+func DefaultRoot() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".chatgpt-mcp"
+	}
+	return filepath.Join(home, ".config", "chatgpt-mcp")
+}
+
+func NewStore(root string) *Store {
+	return &Store{Root: root, MaxCount: defaultMaxCount, Retention: defaultRetention, MaxFileBytes: defaultMaxFile, MaxDirectoryDepth: maxDirectoryDepth}
+}
+
+func (s *Store) Path(workspaceID string) string {
 	return filepath.Join(s.Root, "workspaces", workspaceID, "checkpoints")
 }
 
-func (s Store) Ensure(workspaceID string) error { return os.MkdirAll(s.Path(workspaceID), 0700) }
+func (s *Store) Ensure(workspaceID string) error {
+	return os.MkdirAll(s.Path(workspaceID), 0700)
+}
+
+func (s *Store) Config(workspaceID string) map[string]any {
+	return map[string]any{
+		"enabled":        true,
+		"store_path":     s.Path(workspaceID),
+		"max_count":      s.maxCount(),
+		"retention_days": int(s.retention().Hours() / 24),
+		"max_file_bytes": s.maxFileBytes(),
+		"note":           "Only file-editing MCP tools are tracked. Shell command file changes are not captured.",
+	}
+}
+
+func (s *Store) Before(workspaceID, workspaceRoot, tool string, paths []string, dryRun bool) (string, error) {
+	if dryRun {
+		return "", nil
+	}
+	unique := uniquePaths(paths)
+	if len(unique) == 0 {
+		return "", nil
+	}
+	for _, path := range unique {
+		if !within(workspaceRoot, path) {
+			return "", fmt.Errorf("checkpoint path escapes workspace: %s", path)
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	snapshots := make([]FileSnapshot, 0, len(unique))
+	for _, path := range unique {
+		snapshot, err := s.snapshot(path, 0)
+		if err != nil {
+			return "", err
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+
+	id, err := checkpointID()
+	if err != nil {
+		return "", err
+	}
+	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
+	names := make([]string, len(unique))
+	for i, path := range unique {
+		names[i] = filepath.Base(path)
+	}
+	manifest := Manifest{
+		Version:       indexVersion,
+		ID:            id,
+		WorkspaceID:   workspaceID,
+		WorkspaceRoot: filepath.Clean(workspaceRoot),
+		CreatedAt:     createdAt,
+		Tool:          tool,
+		Summary:       fmt.Sprintf("%s: %d path(s) - %s", tool, len(unique), strings.Join(names, ", ")),
+		Files:         snapshots,
+	}
+
+	dir := s.checkpointDir(workspaceID, id)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	if err := writeJSONAtomic(s.manifestPath(workspaceID, id), manifest, 0600); err != nil {
+		return "", err
+	}
+
+	index, err := s.readIndex(workspaceID)
+	if err != nil {
+		return "", err
+	}
+	index.Checkpoints = append(index.Checkpoints, buildSummary(manifest))
+	if err := s.pruneLocked(workspaceID, &index); err != nil {
+		return "", err
+	}
+	if err := s.writeIndex(workspaceID, index); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (s *Store) List(workspaceID string, limit int) ([]Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index, err := s.readIndex(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	result := make([]Summary, 0, minInt(limit, len(index.Checkpoints)))
+	for i := len(index.Checkpoints) - 1; i >= 0 && len(result) < limit; i-- {
+		result = append(result, index.Checkpoints[i])
+	}
+	return result, nil
+}
+
+func (s *Store) Get(workspaceID, id string) (*Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index, err := s.readIndex(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	for _, summary := range index.Checkpoints {
+		if summary.ID == id {
+			value := summary
+			return &value, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *Store) PreviewRestore(workspaceID, workspaceRoot, id string) (Preview, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, id)
+	if err != nil {
+		return Preview{}, err
+	}
+	changes := make([]RestoreChange, 0, len(snapshots))
+	skipped := make([]RestoreChange, 0)
+	for path, snapshot := range snapshots {
+		if snapshot.Skipped {
+			change := RestoreChange{Path: path, Action: "skip", ExistedBeforeEdit: snapshot.Existed, Reason: snapshot.SkipReason}
+			changes = append(changes, change)
+			skipped = append(skipped, change)
+			continue
+		}
+		_, statErr := os.Stat(path)
+		existsNow := statErr == nil
+		if !snapshot.Existed {
+			if existsNow {
+				changes = append(changes, RestoreChange{Path: path, Action: "delete", ExistedBeforeEdit: false, Reason: "file was created after checkpoint"})
+			} else {
+				changes = append(changes, RestoreChange{Path: path, Action: "skip", ExistedBeforeEdit: false, Reason: "already absent"})
+			}
+			continue
+		}
+		changes = append(changes, RestoreChange{Path: path, Action: "restore", ExistedBeforeEdit: true})
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
+	sort.Slice(skipped, func(i, j int) bool { return skipped[i].Path < skipped[j].Path })
+	return Preview{Checkpoint: target, Changes: changes, SkippedSnapshots: skipped}, nil
+}
+
+func (s *Store) Restore(workspaceID, workspaceRoot, id string) (RestoreResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, id)
+	if err != nil {
+		return RestoreResult{}, err
+	}
+	type pair struct {
+		path     string
+		snapshot FileSnapshot
+	}
+	ordered := make([]pair, 0, len(snapshots))
+	for path, snapshot := range snapshots {
+		ordered = append(ordered, pair{path: path, snapshot: snapshot})
+	}
+	sort.Slice(ordered, func(i, j int) bool { return len(ordered[i].path) > len(ordered[j].path) })
+
+	result := RestoreResult{Checkpoint: target, Restored: []string{}, Deleted: []string{}, Skipped: []RestoreChange{}}
+	for _, item := range ordered {
+		if item.snapshot.Skipped {
+			result.Skipped = append(result.Skipped, RestoreChange{Path: item.path, Action: "skip", ExistedBeforeEdit: item.snapshot.Existed, Reason: item.snapshot.SkipReason})
+			continue
+		}
+		if !item.snapshot.Existed {
+			if err := os.RemoveAll(item.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return RestoreResult{}, err
+			}
+			result.Deleted = append(result.Deleted, item.path)
+			continue
+		}
+		if err := restoreSnapshot(item.snapshot); err != nil {
+			return RestoreResult{}, err
+		}
+		result.Restored = append(result.Restored, item.path)
+	}
+
+	index, err := s.readIndex(workspaceID)
+	if err != nil {
+		return RestoreResult{}, err
+	}
+	targetIndex := summaryIndex(index.Checkpoints, id)
+	if targetIndex < 0 {
+		return RestoreResult{}, fmt.Errorf("checkpoint not found: %s", id)
+	}
+	removed := append([]Summary(nil), index.Checkpoints[targetIndex:]...)
+	index.Checkpoints = append([]Summary(nil), index.Checkpoints[:targetIndex]...)
+	for _, summary := range removed {
+		if err := os.RemoveAll(s.checkpointDir(workspaceID, summary.ID)); err != nil {
+			return RestoreResult{}, err
+		}
+	}
+	if err := s.writeIndex(workspaceID, index); err != nil {
+		return RestoreResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Store) Clear(workspaceID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index, err := s.readIndex(workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	count := len(index.Checkpoints)
+	for _, summary := range index.Checkpoints {
+		if err := os.RemoveAll(s.checkpointDir(workspaceID, summary.ID)); err != nil {
+			return 0, err
+		}
+	}
+	if err := s.writeIndex(workspaceID, Index{Version: indexVersion, Checkpoints: []Summary{}}); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func Fingerprint(paths []string) string {
+	normalized := uniquePaths(paths)
+	sort.Strings(normalized)
+	sum := sha256.Sum256([]byte(strings.Join(normalized, "\n")))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+func (s *Store) snapshot(path string, depth int) (FileSnapshot, error) {
+	resolved := filepath.Clean(path)
+	info, err := os.Stat(resolved)
+	if errors.Is(err, os.ErrNotExist) {
+		return FileSnapshot{Path: resolved, Existed: false}, nil
+	}
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	if info.IsDir() {
+		return s.snapshotDirectory(resolved, depth)
+	}
+	if info.Size() > s.maxFileBytes() {
+		return FileSnapshot{Path: resolved, Existed: true, Skipped: true, SkipReason: fmt.Sprintf("file exceeds max file bytes (%d bytes)", info.Size())}, nil
+	}
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	if utf8.Valid(data) {
+		return FileSnapshot{Path: resolved, Existed: true, Encoding: "utf-8", Content: string(data)}, nil
+	}
+	return FileSnapshot{Path: resolved, Existed: true, Encoding: "base64", Content: base64.StdEncoding.EncodeToString(data)}, nil
+}
+
+func (s *Store) snapshotDirectory(path string, depth int) (FileSnapshot, error) {
+	if depth > s.maxDepth() {
+		return FileSnapshot{Path: path, Existed: true, IsDirectory: true, Skipped: true, SkipReason: fmt.Sprintf("directory depth exceeds %d", s.maxDepth())}, nil
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	children := make([]FileSnapshot, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		childPath := filepath.Join(path, entry.Name())
+		if entry.IsDir() {
+			child, err := s.snapshotDirectory(childPath, depth+1)
+			if err != nil {
+				return FileSnapshot{}, err
+			}
+			children = append(children, child)
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return FileSnapshot{}, err
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		child, err := s.snapshot(childPath, depth+1)
+		if err != nil {
+			return FileSnapshot{}, err
+		}
+		children = append(children, child)
+	}
+	return FileSnapshot{Path: path, Existed: true, IsDirectory: true, Children: children}, nil
+}
+
+func restoreSnapshot(snapshot FileSnapshot) error {
+	if snapshot.Skipped {
+		return fmt.Errorf("cannot restore skipped snapshot for %s: %s", snapshot.Path, snapshot.SkipReason)
+	}
+	if snapshot.IsDirectory {
+		if err := os.MkdirAll(snapshot.Path, 0755); err != nil {
+			return err
+		}
+		for _, child := range snapshot.Children {
+			if err := restoreSnapshot(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(snapshot.Path), 0755); err != nil {
+		return err
+	}
+	var data []byte
+	var err error
+	switch snapshot.Encoding {
+	case "base64":
+		data, err = base64.StdEncoding.DecodeString(snapshot.Content)
+	default:
+		data = []byte(snapshot.Content)
+	}
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(snapshot.Path, data, 0644)
+}
+
+func (s *Store) collectRestorePlanLocked(workspaceID, workspaceRoot, id string) (Summary, map[string]FileSnapshot, error) {
+	index, err := s.readIndex(workspaceID)
+	if err != nil {
+		return Summary{}, nil, err
+	}
+	targetIndex := summaryIndex(index.Checkpoints, id)
+	if targetIndex < 0 {
+		return Summary{}, nil, fmt.Errorf("checkpoint not found: %s", id)
+	}
+	target := index.Checkpoints[targetIndex]
+	files := map[string]FileSnapshot{}
+	for _, summary := range index.Checkpoints[targetIndex:] {
+		manifest, err := s.readManifest(workspaceID, summary.ID)
+		if err != nil {
+			return Summary{}, nil, err
+		}
+		if manifest == nil {
+			continue
+		}
+		if manifest.WorkspaceID != workspaceID || filepath.Clean(manifest.WorkspaceRoot) != filepath.Clean(workspaceRoot) {
+			return Summary{}, nil, errors.New("checkpoint workspace binding mismatch")
+		}
+		for _, snapshot := range manifest.Files {
+			if !within(workspaceRoot, snapshot.Path) {
+				return Summary{}, nil, fmt.Errorf("checkpoint path escapes workspace: %s", snapshot.Path)
+			}
+			if _, exists := files[snapshot.Path]; !exists {
+				files[snapshot.Path] = snapshot
+			}
+		}
+	}
+	return target, files, nil
+}
+
+func (s *Store) readIndex(workspaceID string) (Index, error) {
+	data, err := os.ReadFile(s.indexPath(workspaceID))
+	if errors.Is(err, os.ErrNotExist) {
+		return Index{Version: indexVersion, Checkpoints: []Summary{}}, nil
+	}
+	if err != nil {
+		return Index{}, err
+	}
+	var index Index
+	if err := json.Unmarshal(data, &index); err != nil {
+		return Index{}, err
+	}
+	if index.Version != indexVersion {
+		return Index{}, fmt.Errorf("unsupported checkpoint index version: %d", index.Version)
+	}
+	if index.Checkpoints == nil {
+		index.Checkpoints = []Summary{}
+	}
+	return index, nil
+}
+
+func (s *Store) writeIndex(workspaceID string, index Index) error {
+	if err := s.Ensure(workspaceID); err != nil {
+		return err
+	}
+	index.Version = indexVersion
+	return writeJSONAtomic(s.indexPath(workspaceID), index, 0600)
+}
+
+func (s *Store) readManifest(workspaceID, id string) (*Manifest, error) {
+	data, err := os.ReadFile(s.manifestPath(workspaceID, id))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, err
+	}
+	if manifest.Version != indexVersion {
+		return nil, fmt.Errorf("unsupported checkpoint manifest version: %d", manifest.Version)
+	}
+	return &manifest, nil
+}
+
+func (s *Store) pruneLocked(workspaceID string, index *Index) error {
+	cutoff := time.Now().UTC().Add(-s.retention())
+	kept := make([]Summary, 0, len(index.Checkpoints))
+	remove := make([]Summary, 0)
+	for _, summary := range index.Checkpoints {
+		created, err := time.Parse(time.RFC3339Nano, summary.CreatedAt)
+		if err == nil && created.Before(cutoff) {
+			remove = append(remove, summary)
+			continue
+		}
+		kept = append(kept, summary)
+	}
+	for len(kept) > s.maxCount() {
+		remove = append(remove, kept[0])
+		kept = kept[1:]
+	}
+	for _, summary := range remove {
+		if err := os.RemoveAll(s.checkpointDir(workspaceID, summary.ID)); err != nil {
+			return err
+		}
+	}
+	index.Checkpoints = kept
+	return nil
+}
+
+func (s *Store) checkpointDir(workspaceID, id string) string {
+	return filepath.Join(s.Path(workspaceID), "data", id)
+}
+
+func (s *Store) indexPath(workspaceID string) string {
+	return filepath.Join(s.Path(workspaceID), "index.json")
+}
+
+func (s *Store) manifestPath(workspaceID, id string) string {
+	return filepath.Join(s.checkpointDir(workspaceID, id), "manifest.json")
+}
+
+func (s *Store) maxCount() int {
+	if s.MaxCount > 0 {
+		return s.MaxCount
+	}
+	return defaultMaxCount
+}
+
+func (s *Store) retention() time.Duration {
+	if s.Retention > 0 {
+		return s.Retention
+	}
+	return defaultRetention
+}
+
+func (s *Store) maxFileBytes() int64 {
+	if s.MaxFileBytes > 0 {
+		return s.MaxFileBytes
+	}
+	return defaultMaxFile
+}
+
+func (s *Store) maxDepth() int {
+	if s.MaxDirectoryDepth > 0 {
+		return s.MaxDirectoryDepth
+	}
+	return maxDirectoryDepth
+}
+
+func checkpointID() (string, error) {
+	buffer := make([]byte, 6)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", err
+	}
+	return "cp_" + hex.EncodeToString(buffer), nil
+}
+
+func buildSummary(manifest Manifest) Summary {
+	files := make([]string, len(manifest.Files))
+	for i, snapshot := range manifest.Files {
+		files[i] = snapshot.Path
+	}
+	return Summary{ID: manifest.ID, CreatedAt: manifest.CreatedAt, Tool: manifest.Tool, Summary: manifest.Summary, Files: files, FileCount: len(files)}
+}
+
+func summaryIndex(values []Summary, id string) int {
+	for i, value := range values {
+		if value.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func uniquePaths(paths []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(paths))
+	for _, path := range paths {
+		clean := filepath.Clean(path)
+		if !seen[clean] {
+			seen[clean] = true
+			result = append(result, clean)
+		}
+	}
+	return result
+}
+
+func within(root, candidate string) bool {
+	root = filepath.Clean(root)
+	candidate = filepath.Clean(candidate)
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return false
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative))
+}
+
+func writeJSONAtomic(path string, value any, mode os.FileMode) error {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	temp := path + ".tmp"
+	if err := os.WriteFile(temp, data, mode); err != nil {
+		return err
+	}
+	if err := os.Rename(temp, path); err != nil {
+		_ = os.Remove(temp)
+		return err
+	}
+	return nil
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

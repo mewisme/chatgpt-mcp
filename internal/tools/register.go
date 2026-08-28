@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -24,16 +24,6 @@ type CommandResult struct {
 	Success          bool   `json:"success"`
 }
 
-type WriteFileResult struct {
-	Path  string `json:"path"`
-	Bytes int    `json:"bytes"`
-}
-
-type ReadTextFileResult struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-}
-
 type ReadFilesResult struct {
 	Files []ReadFile `json:"files"`
 	Count int        `json:"count"`
@@ -44,36 +34,15 @@ type GitStatusResult struct {
 	Output string `json:"output"`
 }
 
-func RegisterCore(r *Registry, workspaces *workspace.Manager) {
-	r.MustRegister("read_text_file", coreSchema("read_text_file", "Read a text file", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"path":{"type":"string"}},"required":["workspace_id","working_directory","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}`, RiskRead), handleReadTextFile(workspaces))
-	r.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","working_directory","paths"],"additionalProperties":false}`, `{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["files","count"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
-	r.MustRegister("write_file", coreSchema("write_file", "Write a text file", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"}},"required":["workspace_id","working_directory","path","content"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"bytes":{"type":"integer"}},"required":["path","bytes"],"additionalProperties":false}`, RiskEdit), handleWriteFile(workspaces))
-	r.MustRegister("run_command", coreSchema("run_command", "Run a shell command. Rename/delete operations are denied unless every literal target and cwd can be proven inside the registered workspace.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","working_directory","command"],"additionalProperties":false}`, `{"type":"object","properties":{"command":{"type":"string"},"working_directory":{"type":"string"},"stdout":{"type":"string"},"stderr":{"type":"string"},"exit_code":{"type":"integer"},"success":{"type":"boolean"}},"required":["command","working_directory","stdout","stderr","exit_code","success"],"additionalProperties":false}`, RiskCommand), handleRunCommand(workspaces))
-	r.MustRegister("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","working_directory"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"output":{"type":"string"}},"required":["path","output"],"additionalProperties":false}`, RiskRead), handleGitStatus(workspaces))
+func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
+	RegisterFilesystemTools(registry, workspaces, checkpoints)
+	registry.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","working_directory","paths"],"additionalProperties":false}`, `{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["files","count"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
+	registry.MustRegister("run_command", coreSchema("run_command", "Run a shell command. Rename/delete operations are denied unless every literal target and cwd can be proven inside the registered workspace.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","working_directory","command"],"additionalProperties":false}`, `{"type":"object","properties":{"command":{"type":"string"},"working_directory":{"type":"string"},"stdout":{"type":"string"},"stderr":{"type":"string"},"exit_code":{"type":"integer"},"success":{"type":"boolean"}},"required":["command","working_directory","stdout","stderr","exit_code","success"],"additionalProperties":false}`, RiskCommand), handleRunCommand(workspaces))
+	registry.MustRegister("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","working_directory"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"output":{"type":"string"}},"required":["path","output"],"additionalProperties":false}`, RiskRead), handleGitStatus(workspaces))
 }
 
 func coreSchema(name, description, input, output string, risk Risk) Schema {
-	return Schema{
-		Name:         name,
-		Description:  description,
-		InputSchema:  json.RawMessage(input),
-		OutputSchema: json.RawMessage(output),
-		Annotations:  ToolAnnotations(risk),
-	}
-}
-
-func handleReadTextFile(workspaces *workspace.Manager) Handler {
-	return func(_ context.Context, args map[string]any) (Result, error) {
-		_, _, file, err := workspacePath(workspaces, args, "path", true)
-		if err != nil {
-			return Result{}, err
-		}
-		content, err := os.ReadFile(file)
-		if err != nil {
-			return Result{}, err
-		}
-		return JSONResult(ReadTextFileResult{Path: file, Content: string(content)}), nil
-	}
+	return Schema{Name: name, Description: description, InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: ToolAnnotations(risk)}
 }
 
 func handleReadFiles(workspaces *workspace.Manager) Handler {
@@ -102,26 +71,6 @@ func handleReadFiles(workspaces *workspace.Manager) Handler {
 	}
 }
 
-func handleWriteFile(workspaces *workspace.Manager) Handler {
-	return func(_ context.Context, args map[string]any) (Result, error) {
-		_, _, file, err := workspacePath(workspaces, args, "path", false)
-		if err != nil {
-			return Result{}, err
-		}
-		content, ok := args["content"].(string)
-		if !ok {
-			return Result{}, fmt.Errorf("content must be a string")
-		}
-		if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
-			return Result{}, err
-		}
-		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
-			return Result{}, err
-		}
-		return JSONResult(WriteFileResult{Path: file, Bytes: len([]byte(content))}), nil
-	}
-}
-
 func handleRunCommand(workspaces *workspace.Manager) Handler {
 	return func(ctx context.Context, args map[string]any) (Result, error) {
 		item, cwd, err := workspaceContext(workspaces, args)
@@ -135,7 +84,6 @@ func handleRunCommand(workspaces *workspace.Manager) Handler {
 		if err := workspaces.ValidateMutationCommand(item.ID, cwd, command); err != nil {
 			return Result{}, err
 		}
-
 		cmd := shellCommand(ctx, command)
 		cmd.Dir = cwd
 		var stdout, stderr bytes.Buffer

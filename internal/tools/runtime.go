@@ -4,20 +4,23 @@ import (
 	"context"
 	"errors"
 
+	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 type Runtime struct {
-	Registry   *Registry
-	Workspaces *workspace.Manager
+	Registry    *Registry
+	Workspaces  *workspace.Manager
+	Checkpoints *checkpoint.Store
 }
 
 func NewRuntime() *Runtime {
 	workspaces := workspace.NewManager(workspace.DefaultStorePath())
+	checkpoints := checkpoint.NewStore(checkpoint.DefaultRoot())
 	registry := NewRegistry()
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}
 	RegisterWorkspaceTools(registry, workspaces)
-	RegisterCore(registry, workspaces)
+	RegisterCore(registry, workspaces, checkpoints)
 	return runtime
 }
 

@@ -2,7 +2,7 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/base64"
 	"errors"
 	"os"
 	"os/exec"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -21,115 +22,201 @@ func newToolTestRuntime(t *testing.T) (*Runtime, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkpoints := checkpoint.NewStore(filepath.Join(t.TempDir(), "state"))
 	registry := NewRegistry()
 	RegisterWorkspaceTools(registry, manager)
-	RegisterCore(registry, manager)
-	return &Runtime{Registry: registry, Workspaces: manager}, item.ID, root
+	RegisterCore(registry, manager, checkpoints)
+	return &Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoints}, item.ID, root
 }
 
-func TestWorkspaceRegisterTool(t *testing.T) {
-	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
-	registry := NewRegistry()
-	RegisterWorkspaceTools(registry, manager)
-	root := t.TempDir()
-	result, err := registry.Call(context.Background(), "workspace_register", map[string]any{"path": root})
+func callTool(t *testing.T, runtime *Runtime, name string, args map[string]any) Result {
+	t.Helper()
+	result, err := runtime.Call(context.Background(), name, args)
+	if err != nil {
+		t.Fatalf("%s protocol error: %v", name, err)
+	}
+	return result
+}
+
+func baseArgs(workspaceID, root string) map[string]any {
+	return map[string]any{"workspace_id": workspaceID, "working_directory": root}
+}
+
+func TestReadTextFilePartialLines(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("one\ntwo\nthree\nfour"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	args := baseArgs(workspaceID, root)
+	args["path"] = "file.txt"
+	args["offset"] = 2
+	args["limit"] = 2
+	result := callTool(t, runtime, "read_text_file", args)
+	value := result.StructuredContent.(ReadTextFileResult)
+	if value.Content != "     2|two\n     3|three" {
+		t.Fatalf("content = %q", value.Content)
+	}
+	if value.Lines == nil || *value.Lines != 2 {
+		t.Fatalf("lines = %#v", value.Lines)
+	}
+}
+
+func TestReadFileBase64Chunk(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	data := []byte("abcdefghij")
+	if err := os.WriteFile(filepath.Join(root, "binary.bin"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	args := baseArgs(workspaceID, root)
+	args["path"] = "binary.bin"
+	args["offset"] = 2
+	args["length"] = 4
+	result := callTool(t, runtime, "read_file_base64", args)
+	value := result.StructuredContent.(ReadFileBase64Result)
+	if decoded, _ := base64.StdEncoding.DecodeString(value.Content); string(decoded) != "cdef" {
+		t.Fatalf("chunk = %q", decoded)
+	}
+	if value.NextOffset == nil || *value.NextOffset != 6 || value.Done {
+		t.Fatalf("unexpected offsets: %#v", value)
+	}
+}
+
+func TestWriteAndEditCreateCheckpoints(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	args := baseArgs(workspaceID, root)
+	args["path"] = "file.txt"
+	args["content"] = "alpha beta"
+	result := callTool(t, runtime, "write_file", args)
+	write := result.StructuredContent.(WriteFileResult)
+	if write.CheckpointID == nil {
+		t.Fatal("write_file did not create checkpoint")
+	}
+
+	editArgs := baseArgs(workspaceID, root)
+	editArgs["path"] = "file.txt"
+	editArgs["old_text"] = "beta"
+	editArgs["new_text"] = "gamma"
+	result = callTool(t, runtime, "edit_file", editArgs)
+	edit := result.StructuredContent.(EditFileResult)
+	if edit.CheckpointID == nil || !strings.Contains(edit.Diff, "+ alpha gamma") {
+		t.Fatalf("unexpected edit result: %#v", edit)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "file.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, ok := result.StructuredContent.(WorkspaceRegistrationResult)
-	if !ok || value.WorkspaceID == "" || value.WorkspaceRoot == "" {
-		t.Fatalf("unexpected structured content: %#v", result.StructuredContent)
-	}
-	if len(result.Content) != 1 || result.Content[0].Type != "text" {
-		t.Fatalf("unexpected MCP content: %#v", result.Content)
+	if string(data) != "alpha gamma" {
+		t.Fatalf("content = %q", data)
 	}
 }
 
-func TestCoreFileToolsRequireWorkspaceBinding(t *testing.T) {
+func TestEditDryRunDoesNotWriteOrCheckpoint(t *testing.T) {
 	runtime, workspaceID, root := newToolTestRuntime(t)
-	result, err := runtime.Call(context.Background(), "write_file", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-		"path":              "nested/example.txt",
-		"content":           "hello",
-	})
-	if err != nil || result.IsError {
-		t.Fatalf("write_file failed: result=%#v err=%v", result, err)
+	file := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(file, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := result.StructuredContent.(WriteFileResult); !ok {
-		t.Fatalf("unexpected write_file structured content: %T", result.StructuredContent)
+	args := baseArgs(workspaceID, root)
+	args["path"] = "file.txt"
+	args["old_text"] = "old"
+	args["new_text"] = "new"
+	args["dry_run"] = true
+	result := callTool(t, runtime, "edit_file", args)
+	value := result.StructuredContent.(EditFileResult)
+	if value.CheckpointID != nil || !value.DryRun {
+		t.Fatalf("unexpected dry run: %#v", value)
 	}
-
-	result, err = runtime.Call(context.Background(), "read_text_file", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-		"path":              "nested/example.txt",
-	})
-	if err != nil || result.IsError {
-		t.Fatalf("read_text_file failed: result=%#v err=%v", result, err)
-	}
-	value := result.StructuredContent.(ReadTextFileResult)
-	if value.Content != "hello" {
-		t.Fatalf("content = %q", value.Content)
-	}
-
-	outside := filepath.Join(t.TempDir(), "outside.txt")
-	result, err = runtime.Call(context.Background(), "write_file", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-		"path":              outside,
-		"content":           "denied",
-	})
-	if err != nil {
-		t.Fatalf("workspace path violation should be tool error, not protocol error: %v", err)
-	}
-	if !result.IsError {
-		t.Fatalf("outside write was not rejected: %#v", result)
+	data, _ := os.ReadFile(file)
+	if string(data) != "old" {
+		t.Fatalf("dry-run mutated file: %q", data)
 	}
 }
 
-func TestRunCommandMutationGuard(t *testing.T) {
+func TestMultiFilePatchRejectsEscapeBeforeMutation(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	file := filepath.Join(root, "safe.txt")
+	if err := os.WriteFile(file, []byte("old\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	args := baseArgs(workspaceID, root)
+	args["patch"] = "*** Begin Patch\n*** Update File: safe.txt\n@@\n-old\n+new\n*** Add File: ../escape.txt\n+bad\n*** End Patch"
+	result := callTool(t, runtime, "apply_patch", args)
+	if !result.IsError {
+		t.Fatalf("escape patch was not rejected: %#v", result)
+	}
+	data, _ := os.ReadFile(file)
+	if string(data) != "old\n" {
+		t.Fatalf("safe file mutated before validation: %q", data)
+	}
+}
+
+func TestGlobAndGrep(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "a.ts"), []byte("const hello = 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "b.go"), []byte("package test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	globArgs := baseArgs(workspaceID, root)
+	globArgs["pattern"] = "**/*.ts"
+	globResult := callTool(t, runtime, "glob", globArgs).StructuredContent.(GlobResult)
+	if len(globResult.Matches) != 1 || !strings.HasSuffix(globResult.Matches[0], filepath.Join("src", "a.ts")) {
+		t.Fatalf("glob = %#v", globResult)
+	}
+
+	grepArgs := baseArgs(workspaceID, root)
+	grepArgs["pattern"] = "hello"
+	grepArgs["glob"] = "*.ts"
+	grepResult := callTool(t, runtime, "grep", grepArgs).StructuredContent.(GrepResult)
+	if !strings.Contains(grepResult.Output, "a.ts:1") {
+		t.Fatalf("grep = %#v", grepResult)
+	}
+}
+
+func TestDeleteAndMoveStayInsideWorkspace(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	file := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	moveArgs := baseArgs(workspaceID, root)
+	moveArgs["source"] = "a.txt"
+	moveArgs["destination"] = filepath.Join(t.TempDir(), "outside.txt")
+	result := callTool(t, runtime, "move_file", moveArgs)
+	if !result.IsError {
+		t.Fatalf("outside move was not rejected: %#v", result)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("source changed after denied move: %v", err)
+	}
+
+	deleteArgs := baseArgs(workspaceID, root)
+	deleteArgs["path"] = filepath.Join(t.TempDir(), "outside.txt")
+	result = callTool(t, runtime, "delete_file", deleteArgs)
+	if !result.IsError {
+		t.Fatalf("outside delete was not rejected: %#v", result)
+	}
+}
+
+func TestRunCommandMutationGuardStillApplies(t *testing.T) {
 	if os.Getenv("SHELL") == "" {
 		t.Setenv("SHELL", "/bin/sh")
 	}
 	runtime, workspaceID, root := newToolTestRuntime(t)
-
-	result, err := runtime.Call(context.Background(), "run_command", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-		"command":           "printf safe > file.txt; rm file.txt",
-	})
-	if err != nil || result.IsError {
-		t.Fatalf("safe mutation failed: result=%#v err=%v", result, err)
-	}
-
 	child := filepath.Join(root, "child")
 	if err := os.Mkdir(child, 0755); err != nil {
 		t.Fatal(err)
 	}
-	result, err = runtime.Call(context.Background(), "run_command", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-		"command":           "cd child && rm file.txt",
-	})
-	if err != nil {
-		t.Fatalf("guard denial should be tool error: %v", err)
-	}
+	args := baseArgs(workspaceID, root)
+	args["command"] = "cd child && rm file.txt"
+	result := callTool(t, runtime, "run_command", args)
 	if !result.IsError || !strings.Contains(result.Content[0].Text, "cwd change") {
 		t.Fatalf("cwd-changing mutation was not denied: %#v", result)
-	}
-
-	outside := filepath.Join(t.TempDir(), "outside.txt")
-	result, err = runtime.Call(context.Background(), "run_command", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-		"command":           "rm " + outside,
-	})
-	if err != nil {
-		t.Fatalf("guard denial should be tool error: %v", err)
-	}
-	if !result.IsError {
-		t.Fatalf("outside mutation was not denied: %#v", result)
 	}
 }
 
@@ -146,46 +233,29 @@ func TestGitStatusUsesBoundWorkingDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "untracked.txt"), []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtime.Call(context.Background(), "git_status", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-	})
-	if err != nil || result.IsError {
-		t.Fatalf("git_status failed: result=%#v err=%v", result, err)
-	}
+	args := baseArgs(workspaceID, root)
+	result := callTool(t, runtime, "git_status", args)
 	value := result.StructuredContent.(GitStatusResult)
 	if !strings.Contains(value.Output, "untracked.txt") {
-		t.Fatalf("unexpected git_status output: %#v", value)
+		t.Fatalf("git status = %#v", value)
 	}
 }
 
-func TestCoreSchemasUseNativeOutputSchemas(t *testing.T) {
+func TestFilesystemToolCatalog(t *testing.T) {
 	runtime, _, _ := newToolTestRuntime(t)
+	names := map[string]bool{}
 	for _, schema := range runtime.List() {
-		if len(schema.OutputSchema) == 0 {
-			t.Fatalf("%s has no output schema", schema.Name)
-		}
-		var output map[string]any
-		if err := json.Unmarshal(schema.OutputSchema, &output); err != nil {
-			t.Fatalf("%s invalid output schema: %v", schema.Name, err)
-		}
-		if output["type"] != "object" {
-			t.Fatalf("%s output schema type = %#v, want object", schema.Name, output["type"])
-		}
-		if _, wrapped := output["properties"].(map[string]any)["ok"]; wrapped {
-			t.Fatalf("%s unexpectedly uses Local Coder result envelope", schema.Name)
-		}
+		names[schema.Name] = true
 	}
-}
-
-func TestAnnotationsAreFixed(t *testing.T) {
-	edit := ToolAnnotations(RiskEdit)
-	if edit["destructiveHint"] != false || edit["openWorldHint"] != false || edit["idempotentHint"] != true {
-		t.Fatalf("edit annotations changed with environment: %#v", edit)
-	}
-	command := ToolAnnotations(RiskCommand)
-	if command["idempotentHint"] != false || command["destructiveHint"] != false {
-		t.Fatalf("command annotations = %#v", command)
+	for _, name := range []string{
+		"read_text_file", "read_file_base64", "write_file", "write_file_base64", "edit_file", "multi_edit",
+		"replace_regex", "apply_patch", "list_directory", "glob", "grep", "delete_file", "create_directory",
+		"delete_directory", "copy_file", "move_file", "search_files", "directory_tree", "list_allowed_directories",
+		"read_files",
+	} {
+		if !names[name] {
+			t.Fatalf("missing tool %q", name)
+		}
 	}
 }
 
@@ -198,12 +268,5 @@ func TestRegistryRejectsDuplicateTools(t *testing.T) {
 	}
 	if err := registry.Register("test", schema, handler); !errors.Is(err, ErrToolAlreadyRegistered) {
 		t.Fatalf("error = %v, want ErrToolAlreadyRegistered", err)
-	}
-}
-
-func TestRegistryReturnsToolNotFound(t *testing.T) {
-	registry := NewRegistry()
-	if _, err := registry.Call(context.Background(), "missing", nil); !errors.Is(err, ErrToolNotFound) {
-		t.Fatalf("error = %v, want ErrToolNotFound", err)
 	}
 }

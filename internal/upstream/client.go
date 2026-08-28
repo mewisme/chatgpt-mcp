@@ -1,16 +1,619 @@
 package upstream
 
-import "context"
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+const (
+	ModernProtocol = "2026-07-28"
+	LegacyProtocol = "2025-11-25"
+)
+
+type Tool struct {
+	Server       string         `json:"server,omitempty"`
+	Name         string         `json:"name"`
+	Title        string         `json:"title,omitempty"`
+	Description  string         `json:"description,omitempty"`
+	InputSchema  map[string]any `json:"inputSchema,omitempty"`
+	OutputSchema map[string]any `json:"outputSchema,omitempty"`
+	Annotations  map[string]any `json:"annotations,omitempty"`
+	Execution    map[string]any `json:"execution,omitempty"`
+	Meta         map[string]any `json:"_meta,omitempty"`
+}
+
+type Content struct {
+	Type string         `json:"type"`
+	Text string         `json:"text,omitempty"`
+	Data any            `json:"data,omitempty"`
+	Raw  map[string]any `json:"-"`
+}
+
+func (c *Content) UnmarshalJSON(data []byte) error {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	c.Raw = raw
+	if value, ok := raw["type"].(string); ok {
+		c.Type = value
+	}
+	if value, ok := raw["text"].(string); ok {
+		c.Text = value
+	}
+	if value, ok := raw["data"]; ok {
+		c.Data = value
+	}
+	return nil
+}
+
+func (c Content) MarshalJSON() ([]byte, error) {
+	if c.Raw != nil {
+		return json.Marshal(c.Raw)
+	}
+	return json.Marshal(map[string]any{"type": c.Type, "text": c.Text, "data": c.Data})
+}
+
+type CallResult struct {
+	Content           []Content      `json:"content"`
+	StructuredContent any            `json:"structuredContent,omitempty"`
+	IsError           bool           `json:"isError,omitempty"`
+	Meta              map[string]any `json:"_meta,omitempty"`
+	ResultType        string         `json:"resultType,omitempty"`
+	RequestState      any            `json:"requestState,omitempty"`
+	InputRequests     any            `json:"inputRequests,omitempty"`
+}
 
 type Client interface {
 	Connect(context.Context, Server) error
 	Close(context.Context, string) error
 	Tools(context.Context, string) ([]Tool, error)
-	Call(context.Context, string, string, map[string]any) (any, error)
+	Call(context.Context, string, string, map[string]any) (CallResult, error)
+	PID(string) int
 }
 
-type Tool struct {
-	Server      string `json:"server"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+type NativeClient struct {
+	mu          sync.Mutex
+	connections map[string]*rpcConnection
+	httpClient  *http.Client
+}
+
+type rpcConnection struct {
+	mu      sync.Mutex
+	server  Server
+	era     string
+	session string
+	pid     int
+	stdio   *stdioTransport
+	http    *httpTransport
+	nextID  atomic.Int64
+}
+
+type rpcRequest struct {
+	JSONRPC string         `json:"jsonrpc"`
+	ID      int64          `json:"id,omitempty"`
+	Method  string         `json:"method"`
+	Params  map[string]any `json:"params,omitempty"`
+}
+
+type rpcResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *rpcError       `json:"error,omitempty"`
+}
+
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
+}
+
+type stdioTransport struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout *bufio.Reader
+	stderr bytes.Buffer
+	mu     sync.Mutex
+}
+
+type httpTransport struct {
+	url     string
+	headers map[string]string
+	client  *http.Client
+}
+
+func NewNativeClient() *NativeClient {
+	return &NativeClient{
+		connections: map[string]*rpcConnection{},
+		httpClient:  &http.Client{Timeout: 0},
+	}
+}
+
+func (c *NativeClient) Connect(ctx context.Context, server Server) error {
+	server, err := NormalizeServer(server)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	if existing := c.connections[server.ID]; existing != nil {
+		c.mu.Unlock()
+		return nil
+	}
+	c.mu.Unlock()
+
+	connection, err := c.createConnection(ctx, server)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	if existing := c.connections[server.ID]; existing != nil {
+		c.mu.Unlock()
+		_ = connection.close(context.Background())
+		return nil
+	}
+	c.connections[server.ID] = connection
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *NativeClient) Close(ctx context.Context, id string) error {
+	c.mu.Lock()
+	connection := c.connections[id]
+	delete(c.connections, id)
+	c.mu.Unlock()
+	if connection == nil {
+		return nil
+	}
+	return connection.close(ctx)
+}
+
+func (c *NativeClient) Tools(ctx context.Context, id string) ([]Tool, error) {
+	connection, err := c.connection(id)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Tools []Tool `json:"tools"`
+	}
+	if err := connection.call(ctx, "tools/list", "", map[string]any{}, &result); err != nil {
+		return nil, err
+	}
+	for index := range result.Tools {
+		result.Tools[index].Server = id
+	}
+	return result.Tools, nil
+}
+
+func (c *NativeClient) Call(ctx context.Context, id, tool string, args map[string]any) (CallResult, error) {
+	connection, err := c.connection(id)
+	if err != nil {
+		return CallResult{}, err
+	}
+	var result CallResult
+	if err := connection.call(ctx, "tools/call", tool, map[string]any{"name": tool, "arguments": args}, &result); err != nil {
+		return CallResult{}, err
+	}
+	if result.Content == nil {
+		result.Content = []Content{}
+	}
+	return result, nil
+}
+
+func (c *NativeClient) PID(id string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if connection := c.connections[id]; connection != nil {
+		return connection.pid
+	}
+	return 0
+}
+
+func (c *NativeClient) connection(id string) (*rpcConnection, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	value := c.connections[id]
+	if value == nil {
+		return nil, fmt.Errorf("upstream not connected: %s", id)
+	}
+	return value, nil
+}
+
+func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rpcConnection, error) {
+	connection := &rpcConnection{server: server}
+	if server.Transport == "stdio" {
+		transport, err := startStdio(server)
+		if err != nil {
+			return nil, err
+		}
+		connection.stdio = transport
+		if transport.cmd.Process != nil {
+			connection.pid = transport.cmd.Process.Pid
+		}
+	} else {
+		headers := map[string]string{}
+		for key, value := range server.Headers {
+			headers[key] = value
+		}
+		if env := strings.TrimSpace(server.BearerTokenEnvVar); env != "" {
+			token := strings.TrimSpace(os.Getenv(env))
+			if token == "" {
+				return nil, fmt.Errorf("missing bearer token environment variable for %s: %s", server.ID, env)
+			}
+			if !hasHeader(headers, "Authorization") {
+				headers["Authorization"] = "Bearer " + token
+			}
+		}
+		connection.http = &httpTransport{url: server.URL, headers: headers, client: c.httpClient}
+	}
+	if err := connection.negotiate(ctx); err != nil {
+		_ = connection.close(context.Background())
+		return nil, err
+	}
+	return connection, nil
+}
+
+func (c *rpcConnection) negotiate(ctx context.Context) error {
+	var discovery map[string]any
+	err := c.callEra(ctx, ModernProtocol, "server/discover", "", map[string]any{}, &discovery)
+	if err == nil {
+		c.era = ModernProtocol
+		return nil
+	}
+	var protocolErr *ProtocolError
+	if !errors.As(err, &protocolErr) || protocolErr.Code != -32601 {
+		return fmt.Errorf("modern upstream discovery failed: %w", err)
+	}
+
+	params := map[string]any{
+		"protocolVersion": LegacyProtocol,
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "chatgpt-mcp", "version": "1.0.0"},
+	}
+	var initialized struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if err := c.callEra(ctx, LegacyProtocol, "initialize", "", params, &initialized); err != nil {
+		return fmt.Errorf("legacy upstream initialize failed: %w", err)
+	}
+	c.era = initialized.ProtocolVersion
+	if c.era == "" {
+		c.era = LegacyProtocol
+	}
+	return c.notify(ctx, "notifications/initialized", map[string]any{})
+}
+
+func (c *rpcConnection) call(ctx context.Context, method, name string, params map[string]any, target any) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	era := c.era
+	if era == "" {
+		era = ModernProtocol
+	}
+	return c.callEraLocked(ctx, era, method, name, params, target)
+}
+
+func (c *rpcConnection) callEra(ctx context.Context, era, method, name string, params map[string]any, target any) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.callEraLocked(ctx, era, method, name, params, target)
+}
+
+func (c *rpcConnection) callEraLocked(ctx context.Context, era, method, name string, params map[string]any, target any) error {
+	id := c.nextID.Add(1)
+	value := cloneMap(params)
+	if era == ModernProtocol {
+		value["_meta"] = requestMeta()
+	}
+	request := rpcRequest{JSONRPC: "2.0", ID: id, Method: method, Params: value}
+	response, err := c.roundTrip(ctx, request, era, name)
+	if err != nil {
+		return err
+	}
+	if response.Error != nil {
+		return &ProtocolError{Code: response.Error.Code, Message: response.Error.Message, Data: response.Error.Data}
+	}
+	if target == nil || len(response.Result) == 0 {
+		return nil
+	}
+	return json.Unmarshal(response.Result, target)
+}
+
+func (c *rpcConnection) notify(ctx context.Context, method string, params map[string]any) error {
+	request := map[string]any{"jsonrpc": "2.0", "method": method, "params": params}
+	data, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	if c.stdio != nil {
+		c.stdio.mu.Lock()
+		defer c.stdio.mu.Unlock()
+		_, err = c.stdio.stdin.Write(append(data, '\n'))
+		return err
+	}
+	return c.http.notify(ctx, data, c.era, method, c.session)
+}
+
+func (c *rpcConnection) roundTrip(ctx context.Context, request rpcRequest, era, name string) (rpcResponse, error) {
+	data, err := json.Marshal(request)
+	if err != nil {
+		return rpcResponse{}, err
+	}
+	if c.stdio != nil {
+		return c.stdio.roundTrip(ctx, data, request.ID)
+	}
+	response, session, err := c.http.roundTrip(ctx, data, era, request.Method, name, c.session)
+	if session != "" {
+		c.session = session
+	}
+	return response, err
+}
+
+func (c *rpcConnection) close(ctx context.Context) error {
+	if c.stdio != nil {
+		return c.stdio.close(ctx)
+	}
+	return nil
+}
+
+func startStdio(server Server) (*stdioTransport, error) {
+	cmd := exec.Command(server.Command, server.Args...)
+	if server.CWD != "" {
+		cmd.Dir = server.CWD
+	}
+	env := envMap(os.Environ())
+	for key, value := range server.Env {
+		env[key] = value
+	}
+	cmd.Env = envSlice(env)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	value := &stdioTransport{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}
+	cmd.Stderr = &value.stderr
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func (t *stdioTransport) roundTrip(ctx context.Context, data []byte, id int64) (rpcResponse, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, err := t.stdin.Write(append(data, '\n')); err != nil {
+		return rpcResponse{}, t.withStderr(err)
+	}
+	type readValue struct {
+		response rpcResponse
+		err      error
+	}
+	done := make(chan readValue, 1)
+	go func() {
+		for {
+			line, err := t.stdout.ReadBytes('\n')
+			if err != nil {
+				done <- readValue{err: t.withStderr(err)}
+				return
+			}
+			line = bytes.TrimSpace(line)
+			if len(line) == 0 {
+				continue
+			}
+			var response rpcResponse
+			if json.Unmarshal(line, &response) != nil {
+				continue
+			}
+			if rawID(response.ID) != strconv.FormatInt(id, 10) {
+				continue
+			}
+			done <- readValue{response: response}
+			return
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		_ = t.close(context.Background())
+		return rpcResponse{}, ctx.Err()
+	case result := <-done:
+		return result.response, result.err
+	}
+}
+
+func (t *stdioTransport) close(ctx context.Context) error {
+	_ = t.stdin.Close()
+	if t.cmd == nil || t.cmd.Process == nil || t.cmd.ProcessState != nil {
+		return nil
+	}
+	_ = t.cmd.Process.Signal(os.Interrupt)
+	done := make(chan error, 1)
+	go func() { done <- t.cmd.Wait() }()
+	select {
+	case <-ctx.Done():
+		_ = t.cmd.Process.Kill()
+		return ctx.Err()
+	case <-time.After(500 * time.Millisecond):
+		return t.cmd.Process.Kill()
+	case <-done:
+		return nil
+	}
+}
+
+func (t *stdioTransport) withStderr(err error) error {
+	text := strings.TrimSpace(t.stderr.String())
+	if text == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, text)
+}
+
+func (t *httpTransport) roundTrip(ctx context.Context, data []byte, era, method, name, session string) (rpcResponse, string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(data))
+	if err != nil {
+		return rpcResponse{}, "", err
+	}
+	t.applyHeaders(request, era, method, name, session)
+	response, err := t.client.Do(request)
+	if err != nil {
+		return rpcResponse{}, "", err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 32<<20))
+	if err != nil {
+		return rpcResponse{}, "", err
+	}
+	sessionValue := response.Header.Get("Mcp-Session-Id")
+	rpc, parseErr := parseHTTPRPC(body, response.Header.Get("Content-Type"))
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if parseErr == nil && rpc.Error != nil {
+			return rpc, sessionValue, nil
+		}
+		return rpcResponse{}, sessionValue, fmt.Errorf("upstream HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if parseErr != nil {
+		return rpcResponse{}, sessionValue, parseErr
+	}
+	return rpc, sessionValue, nil
+}
+
+func (t *httpTransport) notify(ctx context.Context, data []byte, era, method, session string) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	t.applyHeaders(request, era, method, "", session)
+	response, err := t.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("upstream notification HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
+func (t *httpTransport) applyHeaders(request *http.Request, era, method, name, session string) {
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	for key, value := range t.headers {
+		request.Header.Set(key, value)
+	}
+	if era == ModernProtocol {
+		request.Header.Set("MCP-Protocol-Version", ModernProtocol)
+		request.Header.Set("Mcp-Method", method)
+		if name != "" {
+			request.Header.Set("Mcp-Name", name)
+		}
+		return
+	}
+	if era != "" && method != "initialize" {
+		request.Header.Set("MCP-Protocol-Version", era)
+	}
+	if session != "" {
+		request.Header.Set("Mcp-Session-Id", session)
+	}
+}
+
+func parseHTTPRPC(body []byte, contentType string) (rpcResponse, error) {
+	if strings.Contains(strings.ToLower(contentType), "text/event-stream") {
+		var joined bytes.Buffer
+		scanner := bufio.NewScanner(bytes.NewReader(body))
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "data:") {
+				joined.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+			}
+		}
+		if joined.Len() == 0 {
+			return rpcResponse{}, errors.New("empty upstream SSE response")
+		}
+		body = joined.Bytes()
+	}
+	var response rpcResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return rpcResponse{}, fmt.Errorf("decode upstream JSON-RPC response: %w", err)
+	}
+	return response, nil
+}
+
+type ProtocolError struct {
+	Code    int
+	Message string
+	Data    any
+}
+
+func (e *ProtocolError) Error() string {
+	if e == nil {
+		return "upstream protocol error"
+	}
+	return fmt.Sprintf("upstream protocol error %d: %s", e.Code, e.Message)
+}
+
+func requestMeta() map[string]any {
+	return map[string]any{
+		"io.modelcontextprotocol/protocolVersion": ModernProtocol,
+		"io.modelcontextprotocol/clientInfo": map[string]any{
+			"name": "chatgpt-mcp", "version": "1.0.0",
+		},
+		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+	}
+}
+
+func cloneMap(value map[string]any) map[string]any {
+	result := make(map[string]any, len(value)+1)
+	for key, item := range value {
+		result[key] = item
+	}
+	return result
+}
+
+func rawID(value json.RawMessage) string {
+	text := strings.TrimSpace(string(value))
+	return strings.Trim(text, `"`)
+}
+
+func hasHeader(values map[string]string, name string) bool {
+	for key := range values {
+		if strings.EqualFold(key, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func envMap(values []string) map[string]string {
+	result := map[string]string{}
+	for _, value := range values {
+		if index := strings.IndexByte(value, '='); index >= 0 {
+			result[value[:index]] = value[index+1:]
+		}
+	}
+	return result
+}
+
+func envSlice(values map[string]string) []string {
+	result := make([]string, 0, len(values))
+	for key, value := range values {
+		result = append(result, key+"="+value)
+	}
+	return result
 }

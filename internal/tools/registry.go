@@ -22,13 +22,20 @@ type Entry struct {
 }
 
 type Registry struct {
-	mu    sync.RWMutex
-	tools map[string]Entry
+	mu     sync.RWMutex
+	tools  map[string]Entry
+	owners map[string]string
 }
 
-func NewRegistry() *Registry { return &Registry{tools: map[string]Entry{}} }
+func NewRegistry() *Registry {
+	return &Registry{tools: map[string]Entry{}, owners: map[string]string{}}
+}
 
 func (r *Registry) Register(name string, schema Schema, handler Handler) error {
+	return r.registerOwned("", name, schema, handler)
+}
+
+func (r *Registry) registerOwned(owner, name string, schema Schema, handler Handler) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return errors.New("tool name is required")
@@ -49,12 +56,64 @@ func (r *Registry) Register(name string, schema Schema, handler Handler) error {
 		return fmt.Errorf("%w: %s", ErrToolAlreadyRegistered, name)
 	}
 	r.tools[name] = Entry{Schema: schema, Handler: handler}
+	if owner != "" {
+		r.owners[name] = owner
+	}
 	return nil
 }
 
 func (r *Registry) MustRegister(name string, schema Schema, handler Handler) {
 	if err := r.Register(name, schema, handler); err != nil {
 		panic(err)
+	}
+}
+
+func (r *Registry) ReplaceOwned(owner string, entries map[string]Entry) error {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return errors.New("owner is required")
+	}
+	for name, entry := range entries {
+		if strings.TrimSpace(name) == "" || entry.Handler == nil {
+			return fmt.Errorf("invalid owned tool %q", name)
+		}
+		if entry.Schema.Name == "" {
+			entry.Schema.Name = name
+			entries[name] = entry
+		}
+		if entry.Schema.Name != name {
+			return fmt.Errorf("owned schema name %q does not match %q", entry.Schema.Name, name)
+		}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for name := range entries {
+		if _, exists := r.tools[name]; exists && r.owners[name] != owner {
+			return fmt.Errorf("%w: %s", ErrToolAlreadyRegistered, name)
+		}
+	}
+	for name, currentOwner := range r.owners {
+		if currentOwner == owner {
+			delete(r.tools, name)
+			delete(r.owners, name)
+		}
+	}
+	for name, entry := range entries {
+		r.tools[name] = entry
+		r.owners[name] = owner
+	}
+	return nil
+}
+
+func (r *Registry) ClearOwnedPrefix(prefix string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for name, owner := range r.owners {
+		if strings.HasPrefix(owner, prefix) {
+			delete(r.tools, name)
+			delete(r.owners, name)
+		}
 	}
 }
 

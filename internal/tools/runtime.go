@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"errors"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
+	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -12,15 +14,23 @@ type Runtime struct {
 	Registry    *Registry
 	Workspaces  *workspace.Manager
 	Checkpoints *checkpoint.Store
+	Upstream    *upstream.Manager
 }
 
 func NewRuntime() *Runtime {
 	workspaces := workspace.NewManager(workspace.DefaultStorePath())
 	checkpoints := checkpoint.NewStore(checkpoint.DefaultRoot())
+	upstreams := upstream.NewManager(upstream.NewStore(upstream.Path()))
+	_ = upstreams.Load()
 	registry := NewRegistry()
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams}
 	RegisterWorkspaceTools(registry, workspaces)
 	RegisterCore(registry, workspaces, checkpoints)
+	RegisterUpstreamTools(registry, upstreams)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = RefreshUpstreamProxies(ctx, registry, upstreams, false)
+	cancel()
 	return runtime
 }
 

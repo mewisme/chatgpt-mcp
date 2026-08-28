@@ -45,7 +45,7 @@ func TestUpstreamAPIMutations(t *testing.T) {
 	manager := upstream.NewManager(upstream.NewStore(filepath.Join(t.TempDir(), "upstream.json")))
 	handler := New(API{Upstream: manager})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/upstream", strings.NewReader(`{"id":"server-1","name":"Server","transport":"http","enabled":true}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/upstream", strings.NewReader(`{"id":"server-1","name":"Server","transport":"http","url":"http://127.0.0.1:65535","enabled":true}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("add status = %d: %s", recorder.Code, recorder.Body.String())
 	}
@@ -59,5 +59,18 @@ func TestUpstreamAPIMutations(t *testing.T) {
 	}
 	if len(manager.List()) != 0 {
 		t.Fatalf("server was not removed: %+v", manager.List())
+	}
+}
+
+func TestUpstreamAPIRejectsInvalidConfig(t *testing.T) {
+	manager := upstream.NewManager(upstream.NewStore(filepath.Join(t.TempDir(), "upstream.json")))
+	handler := New(API{Upstream: manager})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/upstream", strings.NewReader(`{"id":"server-1","name":"Server","transport":"http","enabled":true}`)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	}
+	if len(manager.List()) != 0 {
+		t.Fatalf("invalid server was persisted: %+v", manager.List())
 	}
 }

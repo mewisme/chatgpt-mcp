@@ -139,15 +139,16 @@ func New(api API) http.Handler {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if strings.TrimSpace(server.ID) == "" || strings.TrimSpace(server.Name) == "" || strings.TrimSpace(server.Transport) == "" {
-				http.Error(w, "id, name and transport are required", http.StatusBadRequest)
+			normalized, err := upstream.NormalizeServer(server)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if err := api.Upstream.Add(server); err != nil {
+			if err := api.Upstream.Add(normalized); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			writeJSON(w, server)
+			writeJSON(w, normalized)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}

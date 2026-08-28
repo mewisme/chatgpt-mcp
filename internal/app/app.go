@@ -26,8 +26,6 @@ type App struct {
 }
 
 func New(cfg config.Config) *App {
-	store := upstream.NewStore(upstream.Path())
-	manager := upstream.NewManager(store)
 	stream := activity.NewStream()
 	toolRuntime := tools.NewRuntime()
 	mcpRuntime := mcp.NewHTTPRuntimeWithTools(toolRuntime)
@@ -36,7 +34,10 @@ func New(cfg config.Config) *App {
 	if tunnelConfig.Origin == "" {
 		tunnelConfig.Origin = config.TunnelOrigin(cfg)
 	}
-	return &App{Config: cfg, MCP: mcpRuntime, Upstream: manager, Tools: toolRuntime, Activity: stream, Tunnel: tunnel.NewConfigured(tunnelConfig), Logger: logger.New(logger.Info)}
+	return &App{
+		Config: cfg, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
+		Tunnel: tunnel.NewConfigured(tunnelConfig), Logger: logger.New(logger.Info),
+	}
 }
 
 func (a *App) MCPHandler() http.Handler {
@@ -56,7 +57,9 @@ func (a *App) AdminHandler() http.Handler {
 	if !a.Config.Admin.Enabled {
 		return http.NotFoundHandler()
 	}
-	adminHandler := auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, admin.New(admin.API{Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: &a.Config}))
+	adminHandler := auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, admin.New(admin.API{
+		Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: &a.Config,
+	}))
 	mux.Handle("/admin/", adminHandler)
 	mux.Handle("/api/", adminHandler)
 	mux.Handle("/api/activity/stream", auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, activity.Handler(a.Activity)))

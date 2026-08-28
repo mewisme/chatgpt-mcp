@@ -1,8 +1,9 @@
 package app
 
 import (
-	"go.mewis.me/chatgpt-mcp/internal/config"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/config"
 )
 
 func TestNewSharesToolRuntime(t *testing.T) {
@@ -12,6 +13,9 @@ func TestNewSharesToolRuntime(t *testing.T) {
 	}
 	if app.MCP.Server.Tools != app.Tools {
 		t.Fatal("MCP and Admin do not share the same tool runtime")
+	}
+	if app.Upstream != app.Tools.Upstream {
+		t.Fatal("Admin and tool runtime do not share the same upstream manager")
 	}
 }
 
@@ -25,5 +29,8 @@ func TestBootstrapRewiresToolRuntime(t *testing.T) {
 	}
 	if app.MCP.Server.Tools != app.Tools {
 		t.Fatal("bootstrap did not wire shared tool runtime")
+	}
+	if app.Upstream != app.Tools.Upstream {
+		t.Fatal("bootstrap did not wire shared upstream manager")
 	}
 }

@@ -1,6 +1,45 @@
 export type Tool = { name: string; title?: string; description?: string; inputSchema?: unknown; outputSchema?: unknown; annotations?: Record<string, unknown> }
-export type MCPServer = { id: string; name: string; transport: string; enabled: boolean }
-export type PublicConfig = { server: { host: string; port: number }; admin: { enabled: boolean; port: number }; auth: { mcp_enabled: boolean; admin_enabled: boolean } }
+export type Workspace = { id: string; path: string }
+export type MCPAuth = { type?: "auto" | "oauth" | "none" | string; scope?: string }
+export type MCPServer = {
+  id: string
+  name: string
+  transport: "http" | "stdio" | string
+  enabled: boolean
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+  bearer_token_env_var?: string
+  auth?: MCPAuth
+  tool_prefix?: string
+  expose?: "all" | "allowlist" | "meta_only" | "none" | string
+  tools?: string[]
+  disabled_tools?: string[]
+  idle_timeout_sec?: number
+}
+export type MCPServerStatus = {
+  id: string
+  name: string
+  enabled: boolean
+  transport: string
+  auth: string
+  health: "unknown" | "connected" | "unreachable" | "disabled" | string
+  connected: boolean
+  tool_count: number
+  expose: string
+  proxied_tools: string[]
+  last_error?: string
+  pid?: number
+}
+export type MCPServerTools = { server_id: string; tools: Tool[]; proxied_tools: string[] }
+export type PublicConfig = {
+  server: { host: string; port: number }
+  admin: { enabled: boolean; port: number }
+  auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
+}
 export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; command?: string; args?: string[]; origin?: string; public_url?: string }
 export type TunnelStatus = { enabled: boolean; running: boolean; pid?: number; command?: string; origin?: string; public_url?: string; started_at?: string; last_error?: string }
 
@@ -11,24 +50,32 @@ export function authHeaders(): HeadersInit { const token = adminToken.get(); ret
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
-  headers.set("Content-Type", "application/json")
+  if (init?.body !== undefined && init.body !== null) headers.set("Content-Type", "application/json")
   const token = adminToken.get()
   if (token) headers.set("Authorization", `Bearer ${token}`)
   const response = await fetch(path, { ...init, headers })
-  if (!response.ok) throw new Error(`API ${response.status}`)
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
+  const text = response.status === 204 ? "" : await response.text()
+  if (!response.ok) throw new Error(text.trim() || `API ${response.status}`)
+  if (!text) return undefined as T
+  try { return JSON.parse(text) as T } catch { throw new Error(`Invalid JSON response from ${path}`) }
 }
 
 export const adminApi = {
   health: () => api<{ ok: boolean }>("/api/health"),
   config: () => api<PublicConfig>("/api/config"),
   saveConfig: (config: Partial<PublicConfig>) => api<PublicConfig>("/api/config", { method: "PUT", body: JSON.stringify(config) }),
-  workspaces: () => api<unknown[]>("/api/workspaces"),
+  workspaces: () => api<Workspace[]>("/api/workspaces"),
+  workspace: (id: string) => api<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`),
+  registerWorkspace: (path: string) => api<Workspace>("/api/workspaces", { method: "POST", body: JSON.stringify({ path }) }),
+  removeWorkspace: (id: string) => api<void>(`/api/workspaces/${encodeURIComponent(id)}`, { method: "DELETE" }),
   tools: () => api<Tool[]>("/api/tools"),
   upstream: () => api<MCPServer[]>("/api/upstream"),
+  upstreamServer: (id: string) => api<MCPServer>(`/api/upstream/${encodeURIComponent(id)}`),
   addUpstream: (server: MCPServer) => api<MCPServer>("/api/upstream", { method: "POST", body: JSON.stringify(server) }),
+  updateUpstream: (id: string, server: MCPServer) => api<MCPServer>(`/api/upstream/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(server) }),
   removeUpstream: (id: string) => api<void>(`/api/upstream/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  upstreamStatus: (id: string, refresh = true) => api<MCPServerStatus>(`/api/upstream/${encodeURIComponent(id)}/status?refresh=${refresh}`),
+  upstreamTools: (id: string, refresh = false) => api<MCPServerTools>(`/api/upstream/${encodeURIComponent(id)}/tools?refresh=${refresh}`),
   tunnel: () => api<TunnelStatus>("/api/tunnel"),
   tunnelConfig: () => api<TunnelConfig>("/api/tunnel/config"),
   configureTunnel: (config: TunnelConfig) => api<TunnelStatus>("/api/tunnel", { method: "PUT", body: JSON.stringify(config) }),

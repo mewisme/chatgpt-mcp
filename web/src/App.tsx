@@ -10,6 +10,7 @@ import { ServersPage } from "@/pages/servers"
 import { SettingsPage } from "@/pages/settings"
 import { ToolsPage } from "@/pages/tools"
 import { TunnelPage } from "@/pages/tunnel"
+import { WorkspacesPage } from "@/pages/workspaces"
 
 export function App() {
   const [page, setPage] = useState("overview")
@@ -25,7 +26,7 @@ export function App() {
 
   function signOut() { adminToken.clear(); setAuthenticated(false) }
 
-  return <SidebarProvider><AppSidebar page={page} onPageChange={setPage} /><SidebarInset><header className="flex h-14 items-center justify-between border-b px-4"><SidebarTrigger /><Button size="sm" variant="ghost" onClick={signOut}>Sign out</Button></header><main className="p-6">{page === "activity" ? <ActivityPage /> : page === "tools" ? <ToolsPage /> : page === "servers" ? <ServersPage /> : page === "tunnel" ? <TunnelPage /> : page === "settings" ? <SettingsPage /> : <OverviewPage />}</main></SidebarInset></SidebarProvider>
+  return <SidebarProvider><AppSidebar page={page} onPageChange={setPage} /><SidebarInset><header className="flex h-14 items-center justify-between border-b px-4"><SidebarTrigger /><Button size="sm" variant="ghost" onClick={signOut}>Sign out</Button></header><main className="p-6">{page === "activity" ? <ActivityPage /> : page === "workspaces" ? <WorkspacesPage /> : page === "tools" ? <ToolsPage /> : page === "servers" ? <ServersPage /> : page === "tunnel" ? <TunnelPage /> : page === "settings" ? <SettingsPage /> : <OverviewPage />}</main></SidebarInset></SidebarProvider>
 }
 
 export default App

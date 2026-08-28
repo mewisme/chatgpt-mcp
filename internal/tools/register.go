@@ -39,57 +39,65 @@ func coreSchema(name, description, input, output string, readOnly bool) Schema {
 	return Schema{Name: name, Description: description, InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: map[string]any{"readOnly": readOnly}}
 }
 
-func handleReadTextFile(_ context.Context, args map[string]any) (any, error) {
+func handleReadTextFile(_ context.Context, args map[string]any) (Result, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	file, err := requiredString(args, "path")
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	return (FileService{}).ReadText(workdir, file)
+	content, err := (FileService{}).ReadText(workdir, file)
+	if err != nil {
+		return Result{}, err
+	}
+	return TextResult(content), nil
 }
 
-func handleReadFiles(_ context.Context, args map[string]any) (any, error) {
+func handleReadFiles(_ context.Context, args map[string]any) (Result, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	paths, err := requiredStrings(args, "paths")
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	return (ReadFilesService{}).Read(Context{WorkingDirectory: workdir}, paths)
+	files, err := (ReadFilesService{}).Read(Context{WorkingDirectory: workdir}, paths)
+	if err != nil {
+		return Result{}, err
+	}
+	return JSONResult(files), nil
 }
 
-func handleWriteFile(_ context.Context, args map[string]any) (any, error) {
+func handleWriteFile(_ context.Context, args map[string]any) (Result, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	file, err := requiredString(args, "path")
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	content, ok := args["content"].(string)
 	if !ok {
-		return nil, fmt.Errorf("content must be a string")
+		return Result{}, fmt.Errorf("content must be a string")
 	}
 	if err := (FileService{}).WriteText(workdir, file, content); err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	return WriteFileResult{Path: resolve(workdir, file), Bytes: len([]byte(content))}, nil
+	return JSONResult(WriteFileResult{Path: resolve(workdir, file), Bytes: len([]byte(content))}), nil
 }
 
-func handleRunCommand(ctx context.Context, args map[string]any) (any, error) {
+func handleRunCommand(ctx context.Context, args map[string]any) (Result, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	command, err := requiredString(args, "command")
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	cmd := shellCommand(ctx, command)
 	cmd.Dir = workdir
@@ -98,37 +106,42 @@ func handleRunCommand(ctx context.Context, args map[string]any) (any, error) {
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
+		return Result{}, ctxErr
 	}
 	exitCode := 0
 	if runErr != nil {
 		var exitErr *exec.ExitError
 		if !errors.As(runErr, &exitErr) {
-			return nil, fmt.Errorf("run command: %w", runErr)
+			return Result{}, fmt.Errorf("run command: %w", runErr)
 		}
 		exitCode = exitErr.ExitCode()
 	}
-	return CommandResult{Command: command, WorkingDirectory: workdir, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode, Success: exitCode == 0}, nil
+	value := CommandResult{Command: command, WorkingDirectory: workdir, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode, Success: exitCode == 0}
+	result := JSONResult(value)
+	if exitCode != 0 {
+		result.IsError = true
+	}
+	return result, nil
 }
 
-func handleGitStatus(ctx context.Context, args map[string]any) (any, error) {
+func handleGitStatus(ctx context.Context, args map[string]any) (Result, error) {
 	workdir, err := requiredWorkingDirectory(args)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	cmd := exec.CommandContext(ctx, "git", "-C", workdir, "status", "--short")
 	output, err := cmd.CombinedOutput()
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
+		return Result{}, ctxErr
 	}
 	if err != nil {
 		detail := strings.TrimSpace(string(output))
 		if detail != "" {
-			return nil, fmt.Errorf("git status: %w: %s", err, detail)
+			return Result{}, fmt.Errorf("git status: %w: %s", err, detail)
 		}
-		return nil, fmt.Errorf("git status: %w", err)
+		return Result{}, fmt.Errorf("git status: %w", err)
 	}
-	return string(output), nil
+	return TextResult(string(output)), nil
 }
 
 func requiredWorkingDirectory(args map[string]any) (string, error) {

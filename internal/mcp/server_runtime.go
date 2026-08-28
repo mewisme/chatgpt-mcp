@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
@@ -10,7 +11,9 @@ type Runtime struct {
 	Tools *tools.Runtime
 }
 
-func NewRuntime() *Runtime { return NewRuntimeWithTools(tools.NewRuntime()) }
+func NewRuntime() *Runtime {
+	return NewRuntimeWithTools(tools.NewRuntime())
+}
 
 func NewRuntimeWithTools(toolRuntime *tools.Runtime) *Runtime {
 	if toolRuntime == nil {
@@ -28,7 +31,11 @@ func (r *Runtime) Handle(ctx context.Context, method string, params map[string]a
 	case "tools/call":
 		name, _ := params["name"].(string)
 		args, _ := params["arguments"].(map[string]any)
-		return r.Tools.Call(ctx, name, args)
+		result, err := r.Tools.Call(ctx, name, args)
+		if errors.Is(err, tools.ErrToolNotFound) {
+			return nil, NewError(ErrInvalidParams, err.Error())
+		}
+		return result, err
 	default:
 		return nil, NewError(ErrMethodNotFound, "method not found")
 	}

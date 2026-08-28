@@ -14,12 +14,13 @@ var (
 	ErrToolAlreadyRegistered = errors.New("tool already registered")
 )
 
-type Handler func(context.Context, map[string]any) (any, error)
+type Handler func(context.Context, map[string]any) (Result, error)
 
 type Entry struct {
 	Schema  Schema
 	Handler Handler
 }
+
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]Entry
@@ -41,6 +42,7 @@ func (r *Registry) Register(name string, schema Schema, handler Handler) error {
 	if schema.Name != name {
 		return fmt.Errorf("tool schema name %q does not match registration name %q", schema.Name, name)
 	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.tools[name]; exists {
@@ -67,12 +69,12 @@ func (r *Registry) ListSchemas() []Schema {
 	return out
 }
 
-func (r *Registry) Call(ctx context.Context, name string, args map[string]any) (any, error) {
+func (r *Registry) Call(ctx context.Context, name string, args map[string]any) (Result, error) {
 	r.mu.RLock()
 	entry, ok := r.tools[name]
 	r.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrToolNotFound, name)
+		return Result{}, fmt.Errorf("%w: %s", ErrToolNotFound, name)
 	}
 	if ctx == nil {
 		ctx = context.Background()

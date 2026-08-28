@@ -1,6 +1,9 @@
 package tools
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 type Runtime struct{ Registry *Registry }
 
@@ -12,6 +15,14 @@ func NewRuntime() *Runtime {
 
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
-func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (any, error) {
-	return r.Registry.Call(ctx, name, args)
+
+func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (Result, error) {
+	result, err := r.Registry.Call(ctx, name, args)
+	if err == nil {
+		return result, nil
+	}
+	if errors.Is(err, ErrToolNotFound) {
+		return Result{}, err
+	}
+	return ErrorResult(err), nil
 }

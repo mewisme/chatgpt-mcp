@@ -23,6 +23,8 @@ func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints
 	processes := shellruntime.NewProcessManager(workspaces, shell)
 	RegisterShellTools(registry, workspaces, shell, processes)
 	RegisterGitTools(registry, workspaces)
+	RegisterContextTools(registry, workspaces, checkpoints)
+	RegisterRewindTools(registry, workspaces, checkpoints)
 	registry.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","working_directory","paths"],"additionalProperties":false}`, `{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["files","count"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
 }
 

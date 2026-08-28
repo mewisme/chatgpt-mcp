@@ -3,14 +3,22 @@ package tools
 import (
 	"context"
 	"errors"
+
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
-type Runtime struct{ Registry *Registry }
+type Runtime struct {
+	Registry   *Registry
+	Workspaces *workspace.Manager
+}
 
 func NewRuntime() *Runtime {
-	r := NewRegistry()
-	RegisterCore(r)
-	return &Runtime{Registry: r}
+	workspaces := workspace.NewManager(workspace.DefaultStorePath())
+	registry := NewRegistry()
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces}
+	RegisterWorkspaceTools(registry, workspaces)
+	RegisterCore(registry, workspaces)
+	return runtime
 }
 
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
@@ -24,5 +32,5 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	if errors.Is(err, ErrToolNotFound) {
 		return Result{}, err
 	}
-	return ErrorResult(err), nil
+	return ToolErrorResult(name, err, nil), nil
 }

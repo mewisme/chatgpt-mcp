@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 type CommandResult struct {
@@ -27,140 +29,156 @@ type WriteFileResult struct {
 	Bytes int    `json:"bytes"`
 }
 
-func RegisterCore(r *Registry) {
-	r.MustRegister("read_text_file", coreSchema("read_text_file", "Read a text file", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Base working directory for relative paths"},"path":{"type":"string","description":"File path, absolute or relative to working_directory"}},"required":["working_directory","path"],"additionalProperties":false}`, `{"type":"string"}`, true), handleReadTextFile)
-	r.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Base working directory for relative paths"},"paths":{"type":"array","items":{"type":"string"},"minItems":1,"description":"File paths, absolute or relative to working_directory"}},"required":["working_directory","paths"],"additionalProperties":false}`, `{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}`, true), handleReadFiles)
-	r.MustRegister("write_file", coreSchema("write_file", "Write a text file", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Base working directory for relative paths"},"path":{"type":"string","description":"File path, absolute or relative to working_directory"},"content":{"type":"string","description":"Complete text content to write"}},"required":["working_directory","path","content"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"bytes":{"type":"integer"}},"required":["path","bytes"],"additionalProperties":false}`, false), handleWriteFile)
-	r.MustRegister("run_command", coreSchema("run_command", "Run a shell command", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Directory in which the command is executed"},"command":{"type":"string","description":"Shell command to execute"}},"required":["working_directory","command"],"additionalProperties":false}`, `{"type":"object","properties":{"command":{"type":"string"},"working_directory":{"type":"string"},"stdout":{"type":"string"},"stderr":{"type":"string"},"exit_code":{"type":"integer"},"success":{"type":"boolean"}},"required":["command","working_directory","stdout","stderr","exit_code","success"],"additionalProperties":false}`, false), handleRunCommand)
-	r.MustRegister("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"working_directory":{"type":"string","description":"Git repository or a directory inside it"}},"required":["working_directory"],"additionalProperties":false}`, `{"type":"string"}`, true), handleGitStatus)
+func RegisterCore(r *Registry, workspaces *workspace.Manager) {
+	r.MustRegister("read_text_file", coreSchema("read_text_file", "Read a text file", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"path":{"type":"string"}},"required":["workspace_id","working_directory","path"],"additionalProperties":false}`, RiskRead), handleReadTextFile(workspaces))
+	r.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","working_directory","paths"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
+	r.MustRegister("write_file", coreSchema("write_file", "Write a text file", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"}},"required":["workspace_id","working_directory","path","content"],"additionalProperties":false}`, RiskEdit), handleWriteFile(workspaces))
+	r.MustRegister("run_command", coreSchema("run_command", "Run a shell command. Rename/delete operations are denied unless every literal target and cwd can be proven inside the registered workspace.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","working_directory","command"],"additionalProperties":false}`, RiskCommand), handleRunCommand(workspaces))
+	r.MustRegister("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","working_directory"],"additionalProperties":false}`, RiskRead), handleGitStatus(workspaces))
 }
 
-func coreSchema(name, description, input, output string, readOnly bool) Schema {
-	return Schema{Name: name, Description: description, InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: map[string]any{"readOnly": readOnly}}
+func coreSchema(name, description, input string, risk Risk) Schema {
+	return Schema{
+		Name:         name,
+		Description:  description,
+		InputSchema:  json.RawMessage(input),
+		OutputSchema: ToolResultOutputSchema,
+		Annotations:  ToolAnnotations(risk),
+	}
 }
 
-func handleReadTextFile(_ context.Context, args map[string]any) (Result, error) {
-	workdir, err := requiredWorkingDirectory(args)
-	if err != nil {
-		return Result{}, err
-	}
-	file, err := requiredString(args, "path")
-	if err != nil {
-		return Result{}, err
-	}
-	content, err := (FileService{}).ReadText(workdir, file)
-	if err != nil {
-		return Result{}, err
-	}
-	return TextResult(content), nil
-}
-
-func handleReadFiles(_ context.Context, args map[string]any) (Result, error) {
-	workdir, err := requiredWorkingDirectory(args)
-	if err != nil {
-		return Result{}, err
-	}
-	paths, err := requiredStrings(args, "paths")
-	if err != nil {
-		return Result{}, err
-	}
-	files, err := (ReadFilesService{}).Read(Context{WorkingDirectory: workdir}, paths)
-	if err != nil {
-		return Result{}, err
-	}
-	return JSONResult(files), nil
-}
-
-func handleWriteFile(_ context.Context, args map[string]any) (Result, error) {
-	workdir, err := requiredWorkingDirectory(args)
-	if err != nil {
-		return Result{}, err
-	}
-	file, err := requiredString(args, "path")
-	if err != nil {
-		return Result{}, err
-	}
-	content, ok := args["content"].(string)
-	if !ok {
-		return Result{}, fmt.Errorf("content must be a string")
-	}
-	if err := (FileService{}).WriteText(workdir, file, content); err != nil {
-		return Result{}, err
-	}
-	return JSONResult(WriteFileResult{Path: resolve(workdir, file), Bytes: len([]byte(content))}), nil
-}
-
-func handleRunCommand(ctx context.Context, args map[string]any) (Result, error) {
-	workdir, err := requiredWorkingDirectory(args)
-	if err != nil {
-		return Result{}, err
-	}
-	command, err := requiredString(args, "command")
-	if err != nil {
-		return Result{}, err
-	}
-	cmd := shellCommand(ctx, command)
-	cmd.Dir = workdir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return Result{}, ctxErr
-	}
-	exitCode := 0
-	if runErr != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(runErr, &exitErr) {
-			return Result{}, fmt.Errorf("run command: %w", runErr)
+func handleReadTextFile(workspaces *workspace.Manager) Handler {
+	return func(_ context.Context, args map[string]any) (Result, error) {
+		_, _, file, err := workspacePath(workspaces, args, "path", true)
+		if err != nil {
+			return Result{}, err
 		}
-		exitCode = exitErr.ExitCode()
-	}
-	value := CommandResult{Command: command, WorkingDirectory: workdir, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode, Success: exitCode == 0}
-	result := JSONResult(value)
-	if exitCode != 0 {
-		result.IsError = true
-	}
-	return result, nil
-}
-
-func handleGitStatus(ctx context.Context, args map[string]any) (Result, error) {
-	workdir, err := requiredWorkingDirectory(args)
-	if err != nil {
-		return Result{}, err
-	}
-	cmd := exec.CommandContext(ctx, "git", "-C", workdir, "status", "--short")
-	output, err := cmd.CombinedOutput()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return Result{}, ctxErr
-	}
-	if err != nil {
-		detail := strings.TrimSpace(string(output))
-		if detail != "" {
-			return Result{}, fmt.Errorf("git status: %w: %s", err, detail)
+		content, err := os.ReadFile(file)
+		if err != nil {
+			return Result{}, err
 		}
-		return Result{}, fmt.Errorf("git status: %w", err)
+		return ToolResult("read_text_file", map[string]any{"path": file, "content": string(content)}, ""), nil
 	}
-	return TextResult(string(output)), nil
 }
 
-func requiredWorkingDirectory(args map[string]any) (string, error) {
-	workdir, err := requiredString(args, "working_directory")
-	if err != nil {
-		return "", err
+func handleReadFiles(workspaces *workspace.Manager) Handler {
+	return func(_ context.Context, args map[string]any) (Result, error) {
+		item, cwd, err := workspaceContext(workspaces, args)
+		if err != nil {
+			return Result{}, err
+		}
+		paths, err := requiredStrings(args, "paths")
+		if err != nil {
+			return Result{}, err
+		}
+		files := make([]ReadFile, 0, len(paths))
+		for _, value := range paths {
+			file, err := workspaces.ResolvePath(item.ID, cwd, value, true)
+			if err != nil {
+				return Result{}, fmt.Errorf("path %q: %w", value, err)
+			}
+			data, err := os.ReadFile(file)
+			if err != nil {
+				return Result{}, err
+			}
+			files = append(files, ReadFile{Path: file, Content: string(data)})
+		}
+		return ToolResult("read_files", map[string]any{"files": files, "count": len(files)}, fmt.Sprintf("read_files: %d file(s)", len(files))), nil
 	}
-	workdir, err = filepath.Abs(workdir)
-	if err != nil {
-		return "", fmt.Errorf("resolve working_directory: %w", err)
+}
+
+func handleWriteFile(workspaces *workspace.Manager) Handler {
+	return func(_ context.Context, args map[string]any) (Result, error) {
+		_, _, file, err := workspacePath(workspaces, args, "path", false)
+		if err != nil {
+			return Result{}, err
+		}
+		content, ok := args["content"].(string)
+		if !ok {
+			return Result{}, fmt.Errorf("content must be a string")
+		}
+		if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+			return Result{}, err
+		}
+		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+			return Result{}, err
+		}
+		return ToolResult("write_file", map[string]any{"path": file, "bytes": len([]byte(content))}, ""), nil
 	}
-	info, err := os.Stat(workdir)
-	if err != nil {
-		return "", fmt.Errorf("working_directory: %w", err)
+}
+
+func handleRunCommand(workspaces *workspace.Manager) Handler {
+	return func(ctx context.Context, args map[string]any) (Result, error) {
+		item, cwd, err := workspaceContext(workspaces, args)
+		if err != nil {
+			return Result{}, err
+		}
+		command, err := requiredString(args, "command")
+		if err != nil {
+			return Result{}, err
+		}
+		if err := workspaces.ValidateMutationCommand(item.ID, cwd, command); err != nil {
+			return Result{}, err
+		}
+
+		cmd := shellCommand(ctx, command)
+		cmd.Dir = cwd
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		runErr := cmd.Run()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return Result{}, ctxErr
+		}
+		exitCode := 0
+		if runErr != nil {
+			var exitErr *exec.ExitError
+			if !errors.As(runErr, &exitErr) {
+				return Result{}, fmt.Errorf("run command: %w", runErr)
+			}
+			exitCode = exitErr.ExitCode()
+		}
+		value := CommandResult{Command: command, WorkingDirectory: cwd, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode, Success: exitCode == 0}
+		data := map[string]any{
+			"command":           value.Command,
+			"working_directory": value.WorkingDirectory,
+			"stdout":            value.Stdout,
+			"stderr":            value.Stderr,
+			"exit_code":         value.ExitCode,
+			"success":           value.Success,
+		}
+		if exitCode != 0 {
+			result := ToolErrorResult("run_command", fmt.Errorf("command exited with code %d", exitCode), data)
+			return result, nil
+		}
+		return ToolResult("run_command", data, fmt.Sprintf("exit %d in %s", exitCode, cwd)), nil
 	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("working_directory is not a directory: %s", workdir)
+}
+
+func handleGitStatus(workspaces *workspace.Manager) Handler {
+	return func(ctx context.Context, args map[string]any) (Result, error) {
+		_, cwd, err := workspaceContext(workspaces, args)
+		if err != nil {
+			return Result{}, err
+		}
+		cmd := exec.CommandContext(ctx, "git", "-C", cwd, "status", "--short")
+		output, err := cmd.CombinedOutput()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return Result{}, ctxErr
+		}
+		if err != nil {
+			detail := strings.TrimSpace(string(output))
+			if detail != "" {
+				return Result{}, fmt.Errorf("git status: %w: %s", err, detail)
+			}
+			return Result{}, fmt.Errorf("git status: %w", err)
+		}
+		text := string(output)
+		if strings.TrimSpace(text) == "" {
+			text = "Clean working tree"
+		}
+		return ToolResult("git_status", map[string]any{"path": cwd, "output": text}, ""), nil
 	}
-	return workdir, nil
 }
 
 func requiredString(args map[string]any, key string) (string, error) {

@@ -23,7 +23,7 @@ const (
 	defaultCommandTimeout = 120 * time.Second
 )
 
-type State struct {
+type SessionState struct {
 	WorkspaceID    string   `json:"workspace_id"`
 	CWD            string   `json:"cwd"`
 	StartedAt      string   `json:"started_at"`
@@ -57,7 +57,7 @@ type Manager struct {
 
 type session struct {
 	mu    sync.Mutex
-	state State
+	state SessionState
 }
 
 var (
@@ -118,7 +118,7 @@ func (m *Manager) Reset(workspaceID, path string) (Status, error) {
 	current.mu.Lock()
 	defer current.mu.Unlock()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	current.state = State{WorkspaceID: workspaceID, CWD: target, StartedAt: now, UpdatedAt: now, RecentCommands: []string{}}
+	current.state = SessionState{WorkspaceID: workspaceID, CWD: target, StartedAt: now, UpdatedAt: now, RecentCommands: []string{}}
 	if err := m.save(current.state); err != nil {
 		return Status{}, err
 	}
@@ -243,10 +243,10 @@ func (m *Manager) session(workspaceID, workspaceRoot string) (*session, error) {
 	return value, nil
 }
 
-func (m *Manager) load(workspaceID, workspaceRoot string) (State, error) {
+func (m *Manager) load(workspaceID, workspaceRoot string) (SessionState, error) {
 	data, err := os.ReadFile(m.statePath(workspaceID))
 	if err == nil {
-		var state State
+		var state SessionState
 		if json.Unmarshal(data, &state) == nil && state.WorkspaceID == workspaceID && strings.TrimSpace(state.CWD) != "" {
 			resolved, resolveErr := m.resolveDirectory(workspaceID, workspaceRoot, state.CWD)
 			if resolveErr == nil {
@@ -261,17 +261,17 @@ func (m *Manager) load(workspaceID, workspaceRoot string) (State, error) {
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return State{}, err
+		return SessionState{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	state := State{WorkspaceID: workspaceID, CWD: workspaceRoot, StartedAt: now, UpdatedAt: now, RecentCommands: []string{}}
+	state := SessionState{WorkspaceID: workspaceID, CWD: workspaceRoot, StartedAt: now, UpdatedAt: now, RecentCommands: []string{}}
 	if err := m.save(state); err != nil {
-		return State{}, err
+		return SessionState{}, err
 	}
 	return state, nil
 }
 
-func (m *Manager) save(state State) error {
+func (m *Manager) save(state SessionState) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -354,7 +354,7 @@ func (m *Manager) applyCWDDirectives(workspaceID, currentCWD, command string) (s
 	return cwd, rest, nil
 }
 
-func statusFromState(state State) Status {
+func statusFromState(state SessionState) Status {
 	recent := append([]string(nil), state.RecentCommands...)
 	if len(recent) > 10 {
 		recent = recent[len(recent)-10:]

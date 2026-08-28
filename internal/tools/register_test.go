@@ -36,12 +36,12 @@ func TestWorkspaceRegisterTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, ok := result.StructuredContent.(Payload)
-	if !ok || !payload.OK || payload.Tool != "workspace_register" {
-		t.Fatalf("unexpected payload: %#v", result.StructuredContent)
+	value, ok := result.StructuredContent.(WorkspaceRegistrationResult)
+	if !ok || value.WorkspaceID == "" || value.WorkspaceRoot == "" {
+		t.Fatalf("unexpected structured content: %#v", result.StructuredContent)
 	}
-	if payload.Data["workspace_id"] == "" || payload.Data["workspace_root"] == "" {
-		t.Fatalf("missing workspace data: %#v", payload.Data)
+	if len(result.Content) != 1 || result.Content[0].Type != "text" {
+		t.Fatalf("unexpected MCP content: %#v", result.Content)
 	}
 }
 
@@ -56,6 +56,9 @@ func TestCoreFileToolsRequireWorkspaceBinding(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("write_file failed: result=%#v err=%v", result, err)
 	}
+	if _, ok := result.StructuredContent.(WriteFileResult); !ok {
+		t.Fatalf("unexpected write_file structured content: %T", result.StructuredContent)
+	}
 
 	result, err = runtime.Call(context.Background(), "read_text_file", map[string]any{
 		"workspace_id":      workspaceID,
@@ -65,9 +68,9 @@ func TestCoreFileToolsRequireWorkspaceBinding(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("read_text_file failed: result=%#v err=%v", result, err)
 	}
-	payload := result.StructuredContent.(Payload)
-	if payload.Data["content"] != "hello" {
-		t.Fatalf("content = %#v", payload.Data["content"])
+	value := result.StructuredContent.(ReadTextFileResult)
+	if value.Content != "hello" {
+		t.Fatalf("content = %q", value.Content)
 	}
 
 	outside := filepath.Join(t.TempDir(), "outside.txt")
@@ -150,36 +153,39 @@ func TestGitStatusUsesBoundWorkingDirectory(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("git_status failed: result=%#v err=%v", result, err)
 	}
-	payload := result.StructuredContent.(Payload)
-	if !strings.Contains(payload.Data["output"].(string), "untracked.txt") {
-		t.Fatalf("unexpected git_status output: %#v", payload.Data)
+	value := result.StructuredContent.(GitStatusResult)
+	if !strings.Contains(value.Output, "untracked.txt") {
+		t.Fatalf("unexpected git_status output: %#v", value)
 	}
 }
 
-func TestCoreSchemasUseLocalCoderEnvelope(t *testing.T) {
+func TestCoreSchemasUseNativeOutputSchemas(t *testing.T) {
 	runtime, _, _ := newToolTestRuntime(t)
 	for _, schema := range runtime.List() {
 		if len(schema.OutputSchema) == 0 {
 			t.Fatalf("%s has no output schema", schema.Name)
 		}
-		var output struct {
-			Required []string `json:"required"`
-		}
+		var output map[string]any
 		if err := json.Unmarshal(schema.OutputSchema, &output); err != nil {
 			t.Fatalf("%s invalid output schema: %v", schema.Name, err)
 		}
-		for _, required := range []string{"ok", "tool", "summary", "data"} {
-			found := false
-			for _, value := range output.Required {
-				if value == required {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Fatalf("%s output schema missing %s", schema.Name, required)
-			}
+		if output["type"] != "object" {
+			t.Fatalf("%s output schema type = %#v, want object", schema.Name, output["type"])
 		}
+		if _, wrapped := output["properties"].(map[string]any)["ok"]; wrapped {
+			t.Fatalf("%s unexpectedly uses Local Coder result envelope", schema.Name)
+		}
+	}
+}
+
+func TestAnnotationsAreFixed(t *testing.T) {
+	edit := ToolAnnotations(RiskEdit)
+	if edit["destructiveHint"] != false || edit["openWorldHint"] != false || edit["idempotentHint"] != true {
+		t.Fatalf("edit annotations changed with environment: %#v", edit)
+	}
+	command := ToolAnnotations(RiskCommand)
+	if command["idempotentHint"] != false || command["destructiveHint"] != false {
+		t.Fatalf("command annotations = %#v", command)
 	}
 }
 

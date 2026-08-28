@@ -8,13 +8,24 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
+type WorkspaceRegistrationResult struct {
+	WorkspaceID   string `json:"workspace_id"`
+	WorkspaceRoot string `json:"workspace_root"`
+}
+
+type WorkspaceStatusResult struct {
+	WorkspaceID      string `json:"workspace_id"`
+	WorkspaceRoot    string `json:"workspace_root"`
+	WorkingDirectory string `json:"working_directory"`
+}
+
 func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager) {
 	registry.MustRegister("workspace_register", Schema{
 		Name:         "workspace_register",
 		Title:        "Register Workspace",
 		Description:  "Register a workspace root before using local coding tools. Re-registering the same canonical path returns the same workspace_id.",
 		InputSchema:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
-		OutputSchema: ToolResultOutputSchema,
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"workspace_root":{"type":"string"}},"required":["workspace_id","workspace_root"],"additionalProperties":false}`),
 		Annotations:  ToolAnnotations(RiskRead),
 	}, func(_ context.Context, args map[string]any) (Result, error) {
 		path, err := requiredString(args, "path")
@@ -25,7 +36,7 @@ func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager) {
 		if err != nil {
 			return Result{}, err
 		}
-		return ToolResult("workspace_register", map[string]any{"workspace_id": item.ID, "workspace_root": item.Path}, "workspace registered: "+item.Path), nil
+		return JSONResult(WorkspaceRegistrationResult{WorkspaceID: item.ID, WorkspaceRoot: item.Path}), nil
 	})
 
 	registry.MustRegister("workspace_status", Schema{
@@ -33,7 +44,7 @@ func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager) {
 		Title:        "Workspace Status",
 		Description:  "Resolve a registered workspace and optional working_directory.",
 		InputSchema:  json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id"],"additionalProperties":false}`),
-		OutputSchema: ToolResultOutputSchema,
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"workspace_root":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","workspace_root","working_directory"],"additionalProperties":false}`),
 		Annotations:  ToolAnnotations(RiskRead),
 	}, func(_ context.Context, args map[string]any) (Result, error) {
 		id, err := requiredString(args, "workspace_id")
@@ -48,11 +59,7 @@ func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager) {
 		if err != nil {
 			return Result{}, err
 		}
-		return ToolResult("workspace_status", map[string]any{
-			"workspace_id":      item.ID,
-			"workspace_root":    item.Path,
-			"working_directory": cwd,
-		}, "workspace cwd: "+cwd), nil
+		return JSONResult(WorkspaceStatusResult{WorkspaceID: item.ID, WorkspaceRoot: item.Path, WorkingDirectory: cwd}), nil
 	})
 }
 

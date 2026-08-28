@@ -29,20 +29,35 @@ type WriteFileResult struct {
 	Bytes int    `json:"bytes"`
 }
 
-func RegisterCore(r *Registry, workspaces *workspace.Manager) {
-	r.MustRegister("read_text_file", coreSchema("read_text_file", "Read a text file", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"path":{"type":"string"}},"required":["workspace_id","working_directory","path"],"additionalProperties":false}`, RiskRead), handleReadTextFile(workspaces))
-	r.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","working_directory","paths"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
-	r.MustRegister("write_file", coreSchema("write_file", "Write a text file", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"}},"required":["workspace_id","working_directory","path","content"],"additionalProperties":false}`, RiskEdit), handleWriteFile(workspaces))
-	r.MustRegister("run_command", coreSchema("run_command", "Run a shell command. Rename/delete operations are denied unless every literal target and cwd can be proven inside the registered workspace.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","working_directory","command"],"additionalProperties":false}`, RiskCommand), handleRunCommand(workspaces))
-	r.MustRegister("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","working_directory"],"additionalProperties":false}`, RiskRead), handleGitStatus(workspaces))
+type ReadTextFileResult struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
-func coreSchema(name, description, input string, risk Risk) Schema {
+type ReadFilesResult struct {
+	Files []ReadFile `json:"files"`
+	Count int        `json:"count"`
+}
+
+type GitStatusResult struct {
+	Path   string `json:"path"`
+	Output string `json:"output"`
+}
+
+func RegisterCore(r *Registry, workspaces *workspace.Manager) {
+	r.MustRegister("read_text_file", coreSchema("read_text_file", "Read a text file", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"path":{"type":"string"}},"required":["workspace_id","working_directory","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}`, RiskRead), handleReadTextFile(workspaces))
+	r.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","working_directory","paths"],"additionalProperties":false}`, `{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["files","count"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
+	r.MustRegister("write_file", coreSchema("write_file", "Write a text file", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"}},"required":["workspace_id","working_directory","path","content"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"bytes":{"type":"integer"}},"required":["path","bytes"],"additionalProperties":false}`, RiskEdit), handleWriteFile(workspaces))
+	r.MustRegister("run_command", coreSchema("run_command", "Run a shell command. Rename/delete operations are denied unless every literal target and cwd can be proven inside the registered workspace.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","working_directory","command"],"additionalProperties":false}`, `{"type":"object","properties":{"command":{"type":"string"},"working_directory":{"type":"string"},"stdout":{"type":"string"},"stderr":{"type":"string"},"exit_code":{"type":"integer"},"success":{"type":"boolean"}},"required":["command","working_directory","stdout","stderr","exit_code","success"],"additionalProperties":false}`, RiskCommand), handleRunCommand(workspaces))
+	r.MustRegister("git_status", coreSchema("git_status", "Get git status in short format", `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","working_directory"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"output":{"type":"string"}},"required":["path","output"],"additionalProperties":false}`, RiskRead), handleGitStatus(workspaces))
+}
+
+func coreSchema(name, description, input, output string, risk Risk) Schema {
 	return Schema{
 		Name:         name,
 		Description:  description,
 		InputSchema:  json.RawMessage(input),
-		OutputSchema: ToolResultOutputSchema,
+		OutputSchema: json.RawMessage(output),
 		Annotations:  ToolAnnotations(risk),
 	}
 }
@@ -57,7 +72,7 @@ func handleReadTextFile(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
-		return ToolResult("read_text_file", map[string]any{"path": file, "content": string(content)}, ""), nil
+		return JSONResult(ReadTextFileResult{Path: file, Content: string(content)}), nil
 	}
 }
 
@@ -83,7 +98,7 @@ func handleReadFiles(workspaces *workspace.Manager) Handler {
 			}
 			files = append(files, ReadFile{Path: file, Content: string(data)})
 		}
-		return ToolResult("read_files", map[string]any{"files": files, "count": len(files)}, fmt.Sprintf("read_files: %d file(s)", len(files))), nil
+		return JSONResult(ReadFilesResult{Files: files, Count: len(files)}), nil
 	}
 }
 
@@ -103,7 +118,7 @@ func handleWriteFile(workspaces *workspace.Manager) Handler {
 		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
 			return Result{}, err
 		}
-		return ToolResult("write_file", map[string]any{"path": file, "bytes": len([]byte(content))}, ""), nil
+		return JSONResult(WriteFileResult{Path: file, Bytes: len([]byte(content))}), nil
 	}
 }
 
@@ -139,19 +154,11 @@ func handleRunCommand(workspaces *workspace.Manager) Handler {
 			exitCode = exitErr.ExitCode()
 		}
 		value := CommandResult{Command: command, WorkingDirectory: cwd, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode, Success: exitCode == 0}
-		data := map[string]any{
-			"command":           value.Command,
-			"working_directory": value.WorkingDirectory,
-			"stdout":            value.Stdout,
-			"stderr":            value.Stderr,
-			"exit_code":         value.ExitCode,
-			"success":           value.Success,
-		}
+		result := JSONResult(value)
 		if exitCode != 0 {
-			result := ToolErrorResult("run_command", fmt.Errorf("command exited with code %d", exitCode), data)
-			return result, nil
+			result.IsError = true
 		}
-		return ToolResult("run_command", data, fmt.Sprintf("exit %d in %s", exitCode, cwd)), nil
+		return result, nil
 	}
 }
 
@@ -177,7 +184,7 @@ func handleGitStatus(workspaces *workspace.Manager) Handler {
 		if strings.TrimSpace(text) == "" {
 			text = "Clean working tree"
 		}
-		return ToolResult("git_status", map[string]any{"path": cwd, "output": text}, ""), nil
+		return JSONResult(GitStatusResult{Path: cwd, Output: text}), nil
 	}
 }
 

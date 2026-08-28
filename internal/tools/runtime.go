@@ -32,5 +32,5 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	if errors.Is(err, ErrToolNotFound) {
 		return Result{}, err
 	}
-	return ToolErrorResult(name, err, nil), nil
+	return ErrorResult(err), nil
 }

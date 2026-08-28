@@ -47,10 +47,7 @@ func TunnelOrigin(cfg Config) string {
 	return "http://" + net.JoinHostPort(host, strconv.Itoa(cfg.Server.Port))
 }
 
-func Path() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "chatgpt-mcp", "config.json")
-}
+func Path() string { return DefaultPath() }
 
 func Load() (Config, error) {
 	cfg := Default()

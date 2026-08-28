@@ -2,6 +2,9 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -9,32 +12,269 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 )
 
+type configAuthView struct {
+	MCPEnabled           bool `json:"mcp_enabled"`
+	AdminEnabled         bool `json:"admin_enabled"`
+	MCPTokenConfigured   bool `json:"mcp_token_configured"`
+	AdminTokenConfigured bool `json:"admin_token_configured"`
+}
+
+type tunnelView struct {
+	Enabled          bool     `json:"enabled"`
+	ID               string   `json:"id,omitempty"`
+	APIKeyConfigured bool     `json:"api_key_configured"`
+	Command          string   `json:"command,omitempty"`
+	Args             []string `json:"args,omitempty"`
+	Origin           string   `json:"origin,omitempty"`
+	PublicURL        string   `json:"public_url,omitempty"`
+}
+
+type configView struct {
+	Server config.ServerConfig `json:"server"`
+	Admin  config.AdminConfig  `json:"admin"`
+	Auth   configAuthView      `json:"auth"`
+	Tunnel tunnelView          `json:"tunnel"`
+}
+
 func configCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "config"}
-	cmd.AddCommand(&cobra.Command{Use: "path", Run: func(cmd *cobra.Command, args []string) {
-		logger.NewCLIWithWriter(cmd.OutOrStdout()).Detail("config", config.DefaultPath())
-	}})
-	cmd.AddCommand(&cobra.Command{Use: "get", RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := config.DefaultStore().Load()
-		if err != nil {
-			return err
-		}
-		data, _ := json.MarshalIndent(value, "", "  ")
-		cmd.Println(string(data))
-		return nil
-	}})
-	cmd.AddCommand(&cobra.Command{Use: "set key=value", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		parts := strings.SplitN(args[0], "=", 2)
-		value, err := config.DefaultStore().Load()
-		if err != nil {
-			return err
-		}
-		value[parts[0]] = parts[1]
-		if err := config.DefaultStore().Save(value); err != nil {
-			return err
-		}
-		logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("CONFIG", "value saved", "key", parts[0])
-		return nil
-	}})
+	cmd := &cobra.Command{Use: "config", Short: "Read and update validated runtime configuration"}
+	cmd.AddCommand(
+		&cobra.Command{Use: "path", Run: func(cmd *cobra.Command, args []string) {
+			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log.Detail("config", config.Path())
+			log.Detail("root", config.RootPath())
+		}},
+		configGetCommand(),
+		configSetCommand(),
+		&cobra.Command{Use: "validate", RunE: func(cmd *cobra.Command, args []string) error {
+			value, err := config.Load()
+			if err != nil {
+				return err
+			}
+			if err := config.Validate(value); err != nil {
+				return err
+			}
+			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("CONFIG", "configuration is valid")
+			return nil
+		}},
+	)
 	return cmd
+}
+
+func configGetCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get [key]",
+		Short: "Show redacted configuration or one supported key",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			if len(args) == 0 {
+				data, err := json.MarshalIndent(configPublicView(cfg), "", "  ")
+				if err != nil {
+					return err
+				}
+				cmd.Println(string(data))
+				return nil
+			}
+			value, err := getConfigValue(cfg, args[0])
+			if err != nil {
+				return err
+			}
+			if text, ok := value.(string); ok {
+				cmd.Println(text)
+				return nil
+			}
+			data, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			cmd.Println(string(data))
+			return nil
+		},
+	}
+}
+
+func configSetCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "Set one typed configuration value; key=value is also accepted",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key, raw, err := parseConfigSetArgs(args)
+			if err != nil {
+				return err
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			if err := setConfigValue(&cfg, key, raw); err != nil {
+				return err
+			}
+			if err := config.Validate(cfg); err != nil {
+				return err
+			}
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("CONFIG", "value saved", "key", key)
+			return nil
+		},
+	}
+}
+
+func configPublicView(cfg config.Config) configView {
+	return configView{
+		Server: cfg.Server,
+		Admin:  cfg.Admin,
+		Auth: configAuthView{
+			MCPEnabled: cfg.Auth.MCPEnabled, AdminEnabled: cfg.Auth.AdminEnabled,
+			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",
+		},
+		Tunnel: tunnelView{
+			Enabled: cfg.Tunnel.Enabled, ID: cfg.Tunnel.ID, APIKeyConfigured: cfg.Tunnel.APIKey != "",
+			Command: cfg.Tunnel.Command, Args: append([]string(nil), cfg.Tunnel.Args...),
+			Origin: cfg.Tunnel.Origin, PublicURL: cfg.Tunnel.PublicURL,
+		},
+	}
+}
+
+func parseConfigSetArgs(args []string) (string, string, error) {
+	if len(args) == 2 {
+		key := strings.TrimSpace(args[0])
+		if key == "" {
+			return "", "", errors.New("config key is required")
+		}
+		return key, args[1], nil
+	}
+	key, value, ok := strings.Cut(args[0], "=")
+	if !ok || strings.TrimSpace(key) == "" {
+		return "", "", errors.New("use config set <key> <value> or config set key=value")
+	}
+	return strings.TrimSpace(key), value, nil
+}
+
+func setConfigValue(cfg *config.Config, key, raw string) error {
+	switch key {
+	case "server.host":
+		if strings.TrimSpace(raw) == "" {
+			return errors.New("server.host must not be empty")
+		}
+		cfg.Server.Host = raw
+	case "server.port":
+		value, err := parseInt(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Server.Port = value
+	case "admin.enabled":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Admin.Enabled = value
+	case "admin.port":
+		value, err := parseInt(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Admin.Port = value
+	case "auth.mcp_enabled":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Auth.MCPEnabled = value
+	case "auth.admin_enabled":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Auth.AdminEnabled = value
+	case "tunnel.enabled":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Tunnel.Enabled = value
+	case "tunnel.id":
+		cfg.Tunnel.ID = raw
+	case "tunnel.api_key":
+		cfg.Tunnel.APIKey = raw
+	case "tunnel.command":
+		cfg.Tunnel.Command = raw
+	case "tunnel.args":
+		var value []string
+		if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			return fmt.Errorf("tunnel.args must be a JSON string array: %w", err)
+		}
+		cfg.Tunnel.Args = value
+	case "tunnel.origin":
+		cfg.Tunnel.Origin = raw
+	case "tunnel.public_url":
+		cfg.Tunnel.PublicURL = raw
+	case "auth.mcp_token_hash", "auth.admin_token_hash":
+		return errors.New("token hashes cannot be set through config; use chatgpt-mcp auth *-create")
+	default:
+		return fmt.Errorf("unsupported config key: %s", key)
+	}
+	return nil
+}
+
+func getConfigValue(cfg config.Config, key string) (any, error) {
+	switch key {
+	case "server.host":
+		return cfg.Server.Host, nil
+	case "server.port":
+		return cfg.Server.Port, nil
+	case "admin.enabled":
+		return cfg.Admin.Enabled, nil
+	case "admin.port":
+		return cfg.Admin.Port, nil
+	case "auth.mcp_enabled":
+		return cfg.Auth.MCPEnabled, nil
+	case "auth.admin_enabled":
+		return cfg.Auth.AdminEnabled, nil
+	case "auth.mcp_token_configured":
+		return cfg.Auth.MCPTokenHash != "", nil
+	case "auth.admin_token_configured":
+		return cfg.Auth.AdminTokenHash != "", nil
+	case "tunnel.enabled":
+		return cfg.Tunnel.Enabled, nil
+	case "tunnel.id":
+		return cfg.Tunnel.ID, nil
+	case "tunnel.api_key_configured":
+		return cfg.Tunnel.APIKey != "", nil
+	case "tunnel.command":
+		return cfg.Tunnel.Command, nil
+	case "tunnel.args":
+		return cfg.Tunnel.Args, nil
+	case "tunnel.origin":
+		return cfg.Tunnel.Origin, nil
+	case "tunnel.public_url":
+		return cfg.Tunnel.PublicURL, nil
+	case "auth.mcp_token_hash", "auth.admin_token_hash", "tunnel.api_key":
+		return nil, errors.New("sensitive config values cannot be read through the CLI")
+	default:
+		return nil, fmt.Errorf("unsupported config key: %s", key)
+	}
+}
+
+func parseBool(raw, key string) (bool, error) {
+	value, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		return false, fmt.Errorf("%s must be true or false", key)
+	}
+	return value, nil
+}
+
+func parseInt(raw, key string) (int, error) {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", key)
+	}
+	return value, nil
 }

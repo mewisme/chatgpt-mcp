@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -20,11 +21,14 @@ func serveCommand() *cobra.Command {
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load()
-	if err != nil {
+	if _, err := os.Stat(config.Path()); err != nil {
+		if os.IsNotExist(err) {
+			return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init")
+		}
 		return err
 	}
-	if err := ensureAuth(&cfg); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
 		return err
 	}
 	if err := config.Validate(cfg); err != nil {

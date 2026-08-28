@@ -5,10 +5,12 @@ import (
 	"path/filepath"
 )
 
-func DefaultPath() string {
+func RootPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "config.json"
+		return "chatgpt-mcp"
 	}
-	return filepath.Join(home, ".config", "chatgpt-mcp", "config.json")
+	return filepath.Join(home, ".config", "chatgpt-mcp")
 }
+
+func DefaultPath() string { return filepath.Join(RootPath(), "config.json") }

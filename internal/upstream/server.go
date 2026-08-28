@@ -67,9 +67,6 @@ func NormalizeServer(value Server) (Server, error) {
 	default:
 		return Server{}, errors.New("upstream expose must be none, meta_only, allowlist, or all")
 	}
-	if !value.Enabled && value.Expose == "all" {
-		value.Expose = "none"
-	}
 	if value.IdleTimeoutSec == 0 {
 		value.IdleTimeoutSec = 600
 	}

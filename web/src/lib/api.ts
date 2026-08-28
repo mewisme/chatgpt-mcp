@@ -40,6 +40,8 @@ export type PublicConfig = {
   admin: { enabled: boolean; port: number }
   auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
 }
+export type ConfigPreset = { name: string; description: string; server: PublicConfig["server"]; admin: PublicConfig["admin"]; mcp_auth_enabled: boolean; admin_auth_enabled: boolean; tunnel_enabled: boolean }
+export type ConfigPresetList = { current: string; presets: ConfigPreset[] }
 export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; command?: string; args?: string[]; origin?: string; public_url?: string }
 export type TunnelStatus = { enabled: boolean; running: boolean; pid?: number; command?: string; origin?: string; public_url?: string; started_at?: string; last_error?: string }
 
@@ -64,6 +66,9 @@ export const adminApi = {
   health: () => api<{ ok: boolean }>("/api/health"),
   config: () => api<PublicConfig>("/api/config"),
   saveConfig: (config: Partial<PublicConfig>) => api<PublicConfig>("/api/config", { method: "PUT", body: JSON.stringify(config) }),
+  configPresets: () => api<ConfigPresetList>("/api/config/presets"),
+  configPreset: (name: string) => api<ConfigPreset>(`/api/config/presets/${encodeURIComponent(name)}`),
+  applyConfigPreset: (name: string) => api<PublicConfig>(`/api/config/presets/${encodeURIComponent(name)}`, { method: "POST" }),
   workspaces: () => api<Workspace[]>("/api/workspaces"),
   workspace: (id: string) => api<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`),
   registerWorkspace: (path: string) => api<Workspace>("/api/workspaces", { method: "POST", body: JSON.stringify({ path }) }),

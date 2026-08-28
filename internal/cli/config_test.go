@@ -45,7 +45,7 @@ func TestConfigPresetApplyPreservesSecrets(t *testing.T) {
 	cfg.Tunnel.APIKey = "tunnel-secret"
 	cfg.Tunnel.Command = "tunnel-client"
 	cfg.Tunnel.Args = []string{"run"}
-	if err := applyConfigPreset(&cfg, "lan"); err != nil {
+	if err := config.ApplyPreset(&cfg, "lan"); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Server.Host != "0.0.0.0" || cfg.Admin.Enabled {
@@ -63,7 +63,7 @@ func TestConfigPresetRequiresConfiguredAuth(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = ""
 	cfg.Auth.AdminTokenHash = ""
-	if err := applyConfigPreset(&cfg, "default"); err == nil {
+	if err := config.ApplyPreset(&cfg, "default"); err == nil {
 		t.Fatal("preset unexpectedly bypassed auth validation")
 	}
 }
@@ -72,17 +72,17 @@ func TestMatchingConfigPreset(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = "mcp"
 	cfg.Auth.AdminTokenHash = "admin"
-	if got := matchingConfigPreset(cfg); got != "default" {
+	if got := config.MatchPreset(cfg); got != "default" {
 		t.Fatalf("preset = %q", got)
 	}
 	cfg.Server.Port++
-	if got := matchingConfigPreset(cfg); got != "custom" {
+	if got := config.MatchPreset(cfg); got != "custom" {
 		t.Fatalf("preset = %q", got)
 	}
 }
 
 func TestUnknownConfigPreset(t *testing.T) {
-	if _, err := configPresetByName("missing"); err == nil {
+	if _, err := config.PresetByName("missing"); err == nil {
 		t.Fatal("unknown preset was accepted")
 	}
 }

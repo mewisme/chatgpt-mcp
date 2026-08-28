@@ -1,0 +1,60 @@
+package admin
+
+import (
+	"net/http"
+	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/config"
+)
+
+type configPresetList struct {
+	Current string          `json:"current"`
+	Presets []config.Preset `json:"presets"`
+}
+
+func (api API) handleConfigPresets(w http.ResponseWriter, r *http.Request) {
+	if api.Config == nil {
+		http.Error(w, "config unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, configPresetList{Current: config.MatchPreset(*api.Config), Presets: config.Presets()})
+}
+
+func (api API) handleConfigPreset(w http.ResponseWriter, r *http.Request) {
+	if api.Config == nil {
+		http.Error(w, "config unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/config/presets/"), "/")
+	if name == "" || strings.Contains(name, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	preset, err := config.PresetByName(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, preset)
+	case http.MethodPost:
+		next := *api.Config
+		if err := config.ApplyPreset(&next, name); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := config.Save(next); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		*api.Config = next
+		writeJSON(w, publicConfigView(next))
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}

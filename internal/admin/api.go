@@ -48,6 +48,8 @@ func New(api API) http.Handler {
 		writeJSON(w, map[string]bool{"ok": true})
 	}))
 	mux.HandleFunc("/api/config", api.handleConfig)
+	mux.HandleFunc("/api/config/presets", api.handleConfigPresets)
+	mux.HandleFunc("/api/config/presets/", api.handleConfigPreset)
 	mux.HandleFunc("/api/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/api/workspaces/", api.handleWorkspace)
 	mux.HandleFunc("/api/tools", api.handleTools)

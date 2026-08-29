@@ -9,6 +9,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
+	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -16,13 +17,15 @@ import (
 )
 
 type App struct {
-	Config   config.Config
-	MCP      *mcp.HTTPRuntime
-	Upstream *upstream.Manager
-	Tools    *tools.Runtime
-	Activity *activity.Stream
-	Tunnel   *tunnel.Client
-	Logger   *logger.Logger
+	Config     config.Config
+	MCP        *mcp.HTTPRuntime
+	Upstream   *upstream.Manager
+	Tools      *tools.Runtime
+	Activity   *activity.Stream
+	Tunnel     *tunnel.Client
+	Logger     *logger.Logger
+	OAuth      *mcpoauth.Store
+	OAuthFlows *mcpoauth.FlowManager
 }
 
 func New(cfg config.Config) *App {
@@ -34,9 +37,11 @@ func New(cfg config.Config) *App {
 	if tunnelConfig.Origin == "" {
 		tunnelConfig.Origin = config.TunnelOrigin(cfg)
 	}
+	oauthStore := mcpoauth.NewStore(mcpoauth.Path())
 	return &App{
 		Config: cfg, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
 		Tunnel: tunnel.NewConfigured(tunnelConfig), Logger: logger.New(logger.Info),
+		OAuth: oauthStore, OAuthFlows: mcpoauth.NewFlowManager(oauthStore),
 	}
 }
 
@@ -57,9 +62,11 @@ func (a *App) AdminHandler() http.Handler {
 	if !a.Config.Admin.Enabled {
 		return http.NotFoundHandler()
 	}
-	adminHandler := auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, admin.New(admin.API{
-		Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: &a.Config,
-	}))
+	adminAPI := admin.API{
+		Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: &a.Config, OAuth: a.OAuth, OAuthFlows: a.OAuthFlows,
+	}
+	adminHandler := auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, admin.New(adminAPI))
+	mux.Handle("/oauth/callback/", adminAPI.OAuthCallbackHandler())
 	mux.Handle("/admin/", adminHandler)
 	mux.Handle("/api/", adminHandler)
 	mux.Handle("/api/activity/stream", auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, activity.Handler(a.Activity)))

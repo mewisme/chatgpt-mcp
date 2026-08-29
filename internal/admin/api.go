@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -21,6 +22,8 @@ type API struct {
 	Workspaces *workspace.Manager
 	Tunnel     *tunnel.Client
 	Config     *config.Config
+	OAuth      *mcpoauth.Store
+	OAuthFlows *mcpoauth.FlowManager
 }
 
 type authSettings struct {
@@ -43,6 +46,7 @@ type configPatch struct {
 }
 
 func New(api API) http.Handler {
+	api = api.withOAuth()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]bool{"ok": true})

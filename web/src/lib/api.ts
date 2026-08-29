@@ -35,6 +35,27 @@ export type MCPServerStatus = {
   pid?: number
 }
 export type MCPServerTools = { server_id: string; tools: Tool[]; proxied_tools: string[] }
+export type MCPServerOAuthStatus = {
+  server_id: string
+  configured: boolean
+  issuer?: string
+  resource?: string
+  registration?: string
+  client_id?: string
+  scopes?: string[]
+  has_refresh_token: boolean
+  expires_at?: string
+  expired: boolean
+}
+export type MCPServerOAuthLogin = {
+  redirect_origin: string
+  issuer?: string
+  client_id?: string
+  client_secret_env_var?: string
+  client_metadata_url?: string
+  scope?: string
+}
+export type MCPServerOAuthSession = { session_id: string; authorization_url: string; expires_at: string }
 export type PublicConfig = {
   server: { host: string; port: number }
   admin: { enabled: boolean; port: number }
@@ -81,6 +102,9 @@ export const adminApi = {
   removeUpstream: (id: string) => api<void>(`/api/upstream/${encodeURIComponent(id)}`, { method: "DELETE" }),
   upstreamStatus: (id: string, refresh = true) => api<MCPServerStatus>(`/api/upstream/${encodeURIComponent(id)}/status?refresh=${refresh}`),
   upstreamTools: (id: string, refresh = false) => api<MCPServerTools>(`/api/upstream/${encodeURIComponent(id)}/tools?refresh=${refresh}`),
+  upstreamOAuthStatus: (id: string) => api<MCPServerOAuthStatus>(`/api/upstream/${encodeURIComponent(id)}/auth/status`),
+  beginUpstreamOAuth: (id: string, request: MCPServerOAuthLogin) => api<MCPServerOAuthSession>(`/api/upstream/${encodeURIComponent(id)}/auth/login`, { method: "POST", body: JSON.stringify(request) }),
+  logoutUpstreamOAuth: (id: string) => api<void>(`/api/upstream/${encodeURIComponent(id)}/auth/logout`, { method: "DELETE" }),
   tunnel: () => api<TunnelStatus>("/api/tunnel"),
   tunnelConfig: () => api<TunnelConfig>("/api/tunnel/config"),
   configureTunnel: (config: TunnelConfig) => api<TunnelStatus>("/api/tunnel", { method: "PUT", body: JSON.stringify(config) }),

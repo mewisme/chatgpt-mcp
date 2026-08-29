@@ -78,6 +78,10 @@ func (api API) handleUpstream(w http.ResponseWriter, r *http.Request) {
 		api.handleUpstreamServer(w, r, manager, server)
 		return
 	}
+	if len(parts) == 3 && parts[1] == "auth" {
+		api.handleUpstreamOAuth(w, r, manager, server, parts[2])
+		return
+	}
 	if len(parts) != 2 {
 		http.NotFound(w, r)
 		return

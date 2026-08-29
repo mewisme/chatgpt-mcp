@@ -134,6 +134,14 @@ func (m *Manager) Get(id string) (Server, bool) {
 	return value, ok
 }
 
+func (m *Manager) Disconnect(id string) error {
+	m.mu.Lock()
+	delete(m.cache, id)
+	delete(m.errors, id)
+	m.mu.Unlock()
+	return m.client.Close(context.Background(), id)
+}
+
 func (m *Manager) List() []Server {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

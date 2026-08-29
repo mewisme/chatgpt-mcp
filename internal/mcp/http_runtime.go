@@ -71,6 +71,16 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeErrorID(w, req.ID, protocolErr.Code, protocolErr.Message)
 		return
 	}
+	if req.Method == "tools/call" {
+		name, _ := params["name"].(string)
+		args, _ := params["arguments"].(map[string]any)
+		if schema, ok := h.Server.Tools.Registry.Schema(name); ok {
+			if headerErr := validateToolParamHeaders(r, schema, args); headerErr != nil {
+				writeErrorStatusID(w, http.StatusBadRequest, req.ID, headerErr.Code, headerErr.Message)
+				return
+			}
+		}
+	}
 
 	if req.Method == "subscriptions/listen" {
 		started := time.Now()

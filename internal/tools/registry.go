@@ -166,6 +166,13 @@ func (r *Registry) ListSchemas() []Schema {
 	return out
 }
 
+func (r *Registry) Schema(name string) (Schema, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.tools[name]
+	return entry.Schema, ok
+}
+
 func (r *Registry) Call(ctx context.Context, name string, args map[string]any) (Result, error) {
 	r.mu.RLock()
 	entry, ok := r.tools[name]

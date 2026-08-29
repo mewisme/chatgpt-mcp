@@ -30,15 +30,19 @@ func ValidateHTTPHeaders(r *http.Request, req Request, params map[string]any) *E
 	}
 
 	expectedName := mirroredRequestName(req.Method, params)
-	name := strings.TrimSpace(r.Header.Get(NameHeader))
+	rawName := strings.TrimSpace(r.Header.Get(NameHeader))
 	if expectedName != "" {
-		if name == "" {
+		if rawName == "" {
 			return NewError(ErrHeaderMismatch, "missing Mcp-Name header")
+		}
+		name, err := decodeMCPHeaderValue(rawName)
+		if err != nil {
+			return NewError(ErrHeaderMismatch, "malformed Mcp-Name header")
 		}
 		if name != expectedName {
 			return NewError(ErrHeaderMismatch, "Mcp-Name header does not match request parameters")
 		}
-	} else if name != "" {
+	} else if rawName != "" {
 		return NewError(ErrHeaderMismatch, "Mcp-Name header is not valid for this method")
 	}
 

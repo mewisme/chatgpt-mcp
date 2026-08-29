@@ -1,0 +1,241 @@
+package tunnel
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"sync"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	localmcp "go.mewis.me/chatgpt-mcp/internal/mcp"
+	"go.mewis.me/chatgpt-mcp/internal/tools"
+	"go.mewis.me/chatgpt-mcp/internal/version"
+)
+
+type sdkBridge struct {
+	runtime      *tools.Runtime
+	server       *sdkmcp.Server
+	mu           sync.Mutex
+	fingerprints map[string]string
+}
+
+func newSDKBridge(runtime *tools.Runtime) (*sdkBridge, error) {
+	if runtime == nil || runtime.Registry == nil {
+		return nil, errors.New("MCP tools runtime is required")
+	}
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "chatgpt-mcp", Version: version.Version}, &sdkmcp.ServerOptions{Capabilities: &sdkmcp.ServerCapabilities{}})
+	bridge := &sdkBridge{runtime: runtime, server: server, fingerprints: map[string]string{}}
+	if err := bridge.syncTools(); err != nil {
+		return nil, err
+	}
+	return bridge, nil
+}
+
+func (b *sdkBridge) Run(ctx context.Context, transport sdkmcp.Transport) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	changes := b.runtime.Registry.SubscribeChanges()
+	defer b.runtime.Registry.UnsubscribeChanges(changes)
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- b.server.Run(runCtx, transport) }()
+
+	for {
+		select {
+		case <-changes:
+			if err := b.syncTools(); err != nil {
+				return fmt.Errorf("sync tunnel tools: %w", err)
+			}
+		case err := <-serverDone:
+			return err
+		case <-ctx.Done():
+			cancel()
+			return <-serverDone
+		}
+	}
+}
+
+func (b *sdkBridge) syncTools() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	type preparedTool struct {
+		tool        *sdkmcp.Tool
+		fingerprint string
+	}
+	prepared := map[string]preparedTool{}
+	for _, schema := range b.runtime.List() {
+		if !localmcp.HeaderSafeTool(schema) {
+			continue
+		}
+		tool, err := sdkToolFromSchema(schema)
+		if err != nil {
+			return fmt.Errorf("tool %q: %w", schema.Name, err)
+		}
+		data, err := json.Marshal(schema)
+		if err != nil {
+			return fmt.Errorf("fingerprint tool %q: %w", schema.Name, err)
+		}
+		prepared[schema.Name] = preparedTool{tool: tool, fingerprint: string(data)}
+	}
+
+	var removed []string
+	for name := range b.fingerprints {
+		if _, ok := prepared[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	sort.Strings(removed)
+	if len(removed) > 0 {
+		b.server.RemoveTools(removed...)
+	}
+
+	names := make([]string, 0, len(prepared))
+	for name := range prepared {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		item := prepared[name]
+		if b.fingerprints[name] == item.fingerprint {
+			continue
+		}
+		if err := addSDKTool(b.server, item.tool, b.toolHandler(name)); err != nil {
+			return err
+		}
+	}
+
+	next := make(map[string]string, len(prepared))
+	for name, item := range prepared {
+		next[name] = item.fingerprint
+	}
+	b.fingerprints = next
+	return nil
+}
+
+func addSDKTool(server *sdkmcp.Server, tool *sdkmcp.Tool, handler sdkmcp.ToolHandler) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("register SDK tool %q: %v", tool.Name, recovered)
+		}
+	}()
+	server.AddTool(tool, handler)
+	return nil
+}
+
+func sdkToolFromSchema(schema tools.Schema) (*sdkmcp.Tool, error) {
+	input := schema.InputSchema
+	if len(input) == 0 {
+		input = json.RawMessage(`{"type":"object"}`)
+	}
+	var inputObject map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(input))
+	decoder.UseNumber()
+	if err := decoder.Decode(&inputObject); err != nil {
+		return nil, fmt.Errorf("decode input schema: %w", err)
+	}
+	if kind, _ := inputObject["type"].(string); kind != "object" {
+		return nil, fmt.Errorf("input schema must have type object")
+	}
+
+	var output any
+	if len(schema.OutputSchema) > 0 {
+		decoder = json.NewDecoder(bytes.NewReader(schema.OutputSchema))
+		decoder.UseNumber()
+		if err := decoder.Decode(&output); err != nil {
+			return nil, fmt.Errorf("decode output schema: %w", err)
+		}
+	}
+
+	var annotations *sdkmcp.ToolAnnotations
+	if len(schema.Annotations) > 0 {
+		data, err := json.Marshal(schema.Annotations)
+		if err != nil {
+			return nil, fmt.Errorf("encode annotations: %w", err)
+		}
+		var value sdkmcp.ToolAnnotations
+		if err := json.Unmarshal(data, &value); err != nil {
+			return nil, fmt.Errorf("decode annotations: %w", err)
+		}
+		annotations = &value
+	}
+
+	return &sdkmcp.Tool{
+		Name: schema.Name, Title: schema.Title, Description: schema.Description,
+		InputSchema: inputObject, OutputSchema: output, Annotations: annotations,
+	}, nil
+}
+
+func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
+	return func(ctx context.Context, request *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		if request == nil || request.Params == nil {
+			return nil, errors.New("tools/call params are required")
+		}
+		args, err := decodeToolArguments(request.Params.Arguments)
+		if err != nil {
+			return nil, err
+		}
+		if request.Params.RequestState != "" || request.Params.InputResponses != nil {
+			responses, err := decodeInputResponses(request.Params.InputResponses)
+			if err != nil {
+				return nil, err
+			}
+			ctx = tools.WithInputRound(ctx, request.Params.RequestState, responses)
+		}
+		result, err := b.runtime.Call(ctx, name, args)
+		if err != nil {
+			return nil, err
+		}
+		return sdkResultFromTools(result)
+	}
+}
+
+func decodeToolArguments(raw json.RawMessage) (map[string]any, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return map[string]any{}, nil
+	}
+	var args map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&args); err != nil {
+		return nil, fmt.Errorf("decode tool arguments: %w", err)
+	}
+	if args == nil {
+		args = map[string]any{}
+	}
+	return args, nil
+}
+
+func decodeInputResponses(values sdkmcp.InputResponseMap) (map[string]any, error) {
+	if values == nil {
+		return nil, nil
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return nil, fmt.Errorf("encode inputResponses: %w", err)
+	}
+	var decoded map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, fmt.Errorf("decode inputResponses: %w", err)
+	}
+	return decoded, nil
+}
+
+func sdkResultFromTools(result tools.Result) (*sdkmcp.CallToolResult, error) {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("encode tool result: %w", err)
+	}
+	var converted sdkmcp.CallToolResult
+	if err := json.Unmarshal(data, &converted); err != nil {
+		return nil, fmt.Errorf("convert tool result to MCP SDK: %w", err)
+	}
+	return &converted, nil
+}

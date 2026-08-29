@@ -9,15 +9,6 @@ import (
 	"testing"
 )
 
-func TestTunnelOrigin(t *testing.T) {
-	cfg := Default()
-	cfg.Server.Host = "0.0.0.0"
-	cfg.Server.Port = 4321
-	if got := TunnelOrigin(cfg); got != "http://127.0.0.1:4321" {
-		t.Fatalf("unexpected origin: %s", got)
-	}
-}
-
 func TestValidateRequiresAuthTokens(t *testing.T) {
 	cfg := Default()
 	if err := Validate(cfg); err == nil {
@@ -30,13 +21,25 @@ func TestValidateRequiresAuthTokens(t *testing.T) {
 	}
 }
 
-func TestValidateTunnelCommand(t *testing.T) {
+func TestValidateBuiltinOpenAITunnel(t *testing.T) {
 	cfg := Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
 	cfg.Tunnel.Enabled = true
 	if err := Validate(cfg); err == nil {
-		t.Fatal("expected tunnel command validation error")
+		t.Fatal("expected missing tunnel id/api key validation error")
+	}
+	cfg.Tunnel.ID = "tunnel_0123456789abcdef0123456789abcdef"
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected missing tunnel API key validation error")
+	}
+	cfg.Tunnel.APIKey = "sk-test"
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Tunnel.ControlPlaneBaseURL = "not-a-url"
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected invalid control plane URL")
 	}
 }
 
@@ -45,6 +48,7 @@ func TestConfigSaveSeparatesTunnelAPIKey(t *testing.T) {
 	configPath := filepath.Join(root, "config.json")
 	secretPath := filepath.Join(root, "tunnel.json")
 	cfg := Default()
+	cfg.Tunnel.ID = "tunnel_0123456789abcdef0123456789abcdef"
 	cfg.Tunnel.APIKey = "tunnel-secret"
 
 	if err := saveAt(configPath, secretPath, cfg); err != nil {
@@ -68,8 +72,8 @@ func TestConfigSaveSeparatesTunnelAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tunnel.APIKey != "tunnel-secret" {
-		t.Fatalf("loaded API key = %q", loaded.Tunnel.APIKey)
+	if loaded.Tunnel.APIKey != "tunnel-secret" || loaded.Tunnel.ID != cfg.Tunnel.ID {
+		t.Fatalf("loaded tunnel = %#v", loaded.Tunnel)
 	}
 	if runtime.GOOS != "windows" {
 		info, err := os.Stat(secretPath)
@@ -119,6 +123,40 @@ func TestLegacyTunnelAPIKeyMigratesOnSave(t *testing.T) {
 	}
 	if secret != "legacy-secret" {
 		t.Fatalf("migrated secret = %q", secret)
+	}
+}
+
+func TestLegacyGenericTunnelFieldsAreIgnored(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	data := []byte(`{
+		"server":{"host":"127.0.0.1","port":37421},
+		"admin":{"enabled":true,"port":37422},
+		"auth":{"mcp_enabled":false,"admin_enabled":false},
+		"tunnel":{"enabled":false,"id":"tunnel_test","command":"cloudflared","args":["tunnel"],"origin":"http://127.0.0.1:37421","public_url":"https://old.example"}
+	}`)
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadAt(configPath, secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Tunnel.ID != "tunnel_test" {
+		t.Fatalf("tunnel id = %q", loaded.Tunnel.ID)
+	}
+	if err := saveAt(configPath, secretPath, loaded); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, obsolete := range []string{`"command"`, `"args"`, `"origin"`, `"public_url"`} {
+		if strings.Contains(string(saved), obsolete) {
+			t.Fatalf("obsolete generic tunnel field survived migration: %s", saved)
+		}
 	}
 }
 

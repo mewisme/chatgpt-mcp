@@ -3,7 +3,6 @@ package cli
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -19,10 +18,13 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "admin.enabled", "false"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setConfigValue(&cfg, "tunnel.args", `["a","b"]`); err != nil {
+	if err := setConfigValue(&cfg, "tunnel.control_plane_base_url", "https://api.openai.com"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Port != 4000 || cfg.Admin.Enabled || !reflect.DeepEqual(cfg.Tunnel.Args, []string{"a", "b"}) {
+	if err := setConfigValue(&cfg, "tunnel.organization_id", "org-test"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.Port != 4000 || cfg.Admin.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
 		t.Fatalf("cfg = %#v", cfg)
 	}
 }
@@ -43,8 +45,9 @@ func TestConfigPresetApplyPreservesSecrets(t *testing.T) {
 	cfg.Auth.MCPTokenHash = "mcp-secret"
 	cfg.Auth.AdminTokenHash = "admin-secret"
 	cfg.Tunnel.APIKey = "tunnel-secret"
-	cfg.Tunnel.Command = "tunnel-client"
-	cfg.Tunnel.Args = []string{"run"}
+	cfg.Tunnel.ID = "tunnel-id"
+	cfg.Tunnel.ControlPlaneBaseURL = "https://api.openai.com"
+	cfg.Tunnel.OrganizationID = "org-test"
 	if err := config.ApplyPreset(&cfg, "lan"); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +57,8 @@ func TestConfigPresetApplyPreservesSecrets(t *testing.T) {
 	if cfg.Auth.MCPTokenHash != "mcp-secret" || cfg.Auth.AdminTokenHash != "admin-secret" {
 		t.Fatal("auth secrets changed")
 	}
-	if cfg.Tunnel.APIKey != "tunnel-secret" || cfg.Tunnel.Command != "tunnel-client" || !reflect.DeepEqual(cfg.Tunnel.Args, []string{"run"}) {
+	if cfg.Tunnel.APIKey != "tunnel-secret" || cfg.Tunnel.ID != "tunnel-id" ||
+		cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
 		t.Fatal("tunnel details changed")
 	}
 }

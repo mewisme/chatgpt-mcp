@@ -63,8 +63,8 @@ export type PublicConfig = {
 }
 export type ConfigPreset = { name: string; description: string; server: PublicConfig["server"]; admin: PublicConfig["admin"]; mcp_auth_enabled: boolean; admin_auth_enabled: boolean; tunnel_enabled: boolean }
 export type ConfigPresetList = { current: string; presets: ConfigPreset[] }
-export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; command?: string; args?: string[]; origin?: string; public_url?: string }
-export type TunnelStatus = { enabled: boolean; running: boolean; pid?: number; command?: string; origin?: string; public_url?: string; started_at?: string; last_error?: string }
+export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; control_plane_base_url?: string; organization_id?: string }
+export type TunnelStatus = { provider: "openai" | string; enabled: boolean; running: boolean; ready: boolean; id?: string; control_plane_base_url?: string; organization_id?: string; started_at?: string; last_error?: string }
 
 const adminTokenKey = "chatgpt-mcp-admin-token"
 export const adminToken = { get: () => localStorage.getItem(adminTokenKey) ?? "", set: (token: string) => localStorage.setItem(adminTokenKey, token), clear: () => localStorage.removeItem(adminTokenKey) }

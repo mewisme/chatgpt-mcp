@@ -62,9 +62,6 @@ func (api API) configureTunnel(w http.ResponseWriter, r *http.Request) {
 	if next.APIKey == "" {
 		next.APIKey = current.APIKey
 	}
-	if next.Origin == "" {
-		next.Origin = config.TunnelOrigin(*api.Config)
-	}
 	candidate := *api.Config
 	candidate.Tunnel = next
 	if err := config.Validate(candidate); err != nil {

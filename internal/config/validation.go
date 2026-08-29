@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func Validate(cfg Config) error {
@@ -25,8 +27,8 @@ func Validate(cfg Config) error {
 	if cfg.Admin.Enabled && cfg.Auth.AdminEnabled && cfg.Auth.AdminTokenHash == "" {
 		return errors.New("admin auth is enabled but no token is configured; run chatgpt-mcp auth admin-create")
 	}
-	if cfg.Tunnel.Enabled && strings.TrimSpace(cfg.Tunnel.Command) == "" {
-		return errors.New("tunnel is enabled but command is empty")
+	if err := tunnel.ValidateConfig(cfg.Tunnel); err != nil {
+		return err
 	}
 	return nil
 }

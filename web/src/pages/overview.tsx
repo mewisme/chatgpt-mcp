@@ -44,7 +44,7 @@ async function loadDashboard(): Promise<DashboardData> {
     tools: tools.length,
     servers: servers.length,
     enabledServers: servers.filter((server) => server.enabled).length,
-    tunnel: tunnel.running ? `Running${tunnel.pid ? ` · PID ${tunnel.pid}` : ""}` : "Stopped",
+    tunnel: tunnel.running ? (tunnel.ready ? "Ready" : "Connecting") : "Stopped",
     preset: presets.current,
     updatedAt: new Date(),
   }

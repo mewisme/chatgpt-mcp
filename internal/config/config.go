@@ -2,10 +2,8 @@ package config
 
 import (
 	"encoding/json"
-	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -37,14 +35,6 @@ type AuthConfig struct {
 
 func Default() Config {
 	return Config{Server: ServerConfig{Host: "127.0.0.1", Port: 37421}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
-}
-
-func TunnelOrigin(cfg Config) string {
-	host := cfg.Server.Host
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		host = "127.0.0.1"
-	}
-	return "http://" + net.JoinHostPort(host, strconv.Itoa(cfg.Server.Port))
 }
 
 func Path() string { return DefaultPath() }

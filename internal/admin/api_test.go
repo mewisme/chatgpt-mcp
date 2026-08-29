@@ -31,8 +31,8 @@ func (*adminUpstreamClient) PID(string) int { return 0 }
 
 func TestTunnelConfigRedactsAPIKey(t *testing.T) {
 	cfg := config.Default()
-	cfg.Tunnel = tunnel.Config{Enabled: true, APIKey: "secret", Command: "tunnel"}
-	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel), Config: &cfg})
+	cfg.Tunnel = tunnel.Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}
+	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: &cfg})
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/tunnel/config", nil))
 	if recorder.Code != http.StatusOK {
@@ -40,6 +40,9 @@ func TestTunnelConfigRedactsAPIKey(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "secret") {
 		t.Fatal("API key must not be returned")
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"tunnel_test"`) {
+		t.Fatalf("tunnel id missing: %s", recorder.Body.String())
 	}
 }
 

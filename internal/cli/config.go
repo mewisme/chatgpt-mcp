@@ -20,13 +20,11 @@ type configAuthView struct {
 }
 
 type tunnelView struct {
-	Enabled          bool     `json:"enabled"`
-	ID               string   `json:"id,omitempty"`
-	APIKeyConfigured bool     `json:"api_key_configured"`
-	Command          string   `json:"command,omitempty"`
-	Args             []string `json:"args,omitempty"`
-	Origin           string   `json:"origin,omitempty"`
-	PublicURL        string   `json:"public_url,omitempty"`
+	Enabled             bool   `json:"enabled"`
+	ID                  string `json:"id,omitempty"`
+	APIKeyConfigured    bool   `json:"api_key_configured"`
+	ControlPlaneBaseURL string `json:"control_plane_base_url,omitempty"`
+	OrganizationID      string `json:"organization_id,omitempty"`
 }
 
 type configView struct {
@@ -209,8 +207,7 @@ func configPublicView(cfg config.Config) configView {
 		},
 		Tunnel: tunnelView{
 			Enabled: cfg.Tunnel.Enabled, ID: cfg.Tunnel.ID, APIKeyConfigured: cfg.Tunnel.APIKey != "",
-			Command: cfg.Tunnel.Command, Args: append([]string(nil), cfg.Tunnel.Args...),
-			Origin: cfg.Tunnel.Origin, PublicURL: cfg.Tunnel.PublicURL,
+			ControlPlaneBaseURL: cfg.Tunnel.ControlPlaneBaseURL, OrganizationID: cfg.Tunnel.OrganizationID,
 		},
 	}
 }
@@ -277,18 +274,10 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 		cfg.Tunnel.ID = raw
 	case "tunnel.api_key":
 		cfg.Tunnel.APIKey = raw
-	case "tunnel.command":
-		cfg.Tunnel.Command = raw
-	case "tunnel.args":
-		var value []string
-		if err := json.Unmarshal([]byte(raw), &value); err != nil {
-			return fmt.Errorf("tunnel.args must be a JSON string array: %w", err)
-		}
-		cfg.Tunnel.Args = value
-	case "tunnel.origin":
-		cfg.Tunnel.Origin = raw
-	case "tunnel.public_url":
-		cfg.Tunnel.PublicURL = raw
+	case "tunnel.control_plane_base_url":
+		cfg.Tunnel.ControlPlaneBaseURL = raw
+	case "tunnel.organization_id":
+		cfg.Tunnel.OrganizationID = raw
 	case "auth.mcp_token_hash", "auth.admin_token_hash":
 		return errors.New("token hashes cannot be set through config; use chatgpt-mcp auth *-create")
 	default:
@@ -321,14 +310,10 @@ func getConfigValue(cfg config.Config, key string) (any, error) {
 		return cfg.Tunnel.ID, nil
 	case "tunnel.api_key_configured":
 		return cfg.Tunnel.APIKey != "", nil
-	case "tunnel.command":
-		return cfg.Tunnel.Command, nil
-	case "tunnel.args":
-		return cfg.Tunnel.Args, nil
-	case "tunnel.origin":
-		return cfg.Tunnel.Origin, nil
-	case "tunnel.public_url":
-		return cfg.Tunnel.PublicURL, nil
+	case "tunnel.control_plane_base_url":
+		return cfg.Tunnel.ControlPlaneBaseURL, nil
+	case "tunnel.organization_id":
+		return cfg.Tunnel.OrganizationID, nil
 	case "auth.mcp_token_hash", "auth.admin_token_hash", "tunnel.api_key":
 		return nil, errors.New("sensitive config values cannot be read through the CLI")
 	default:

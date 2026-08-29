@@ -17,11 +17,9 @@ func TestApplyPresetPreservesSecretsAndTunnelDetails(t *testing.T) {
 	cfg.Auth.MCPTokenHash = "mcp-secret"
 	cfg.Auth.AdminTokenHash = "admin-secret"
 	cfg.Tunnel.APIKey = "tunnel-secret"
-	cfg.Tunnel.Command = "tunnel-client"
-	cfg.Tunnel.Args = []string{"run"}
 	cfg.Tunnel.ID = "tunnel-id"
-	cfg.Tunnel.Origin = "http://127.0.0.1:37421"
-	cfg.Tunnel.PublicURL = "https://example.test"
+	cfg.Tunnel.ControlPlaneBaseURL = "https://api.openai.com"
+	cfg.Tunnel.OrganizationID = "org-test"
 
 	if err := ApplyPreset(&cfg, "lan"); err != nil {
 		t.Fatal(err)
@@ -32,9 +30,8 @@ func TestApplyPresetPreservesSecretsAndTunnelDetails(t *testing.T) {
 	if cfg.Auth.MCPTokenHash != "mcp-secret" || cfg.Auth.AdminTokenHash != "admin-secret" {
 		t.Fatal("auth secrets changed")
 	}
-	if cfg.Tunnel.APIKey != "tunnel-secret" || cfg.Tunnel.Command != "tunnel-client" ||
-		!reflect.DeepEqual(cfg.Tunnel.Args, []string{"run"}) || cfg.Tunnel.ID != "tunnel-id" ||
-		cfg.Tunnel.Origin != "http://127.0.0.1:37421" || cfg.Tunnel.PublicURL != "https://example.test" {
+	if cfg.Tunnel.APIKey != "tunnel-secret" || cfg.Tunnel.ID != "tunnel-id" ||
+		cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
 		t.Fatal("tunnel details changed")
 	}
 }

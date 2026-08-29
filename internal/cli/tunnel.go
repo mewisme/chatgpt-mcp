@@ -1,18 +1,21 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func tunnelCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "tunnel"}
+	cmd := &cobra.Command{Use: "tunnel", Short: "Manage the builtin OpenAI Secure MCP Tunnel"}
 	cmd.AddCommand(tunnelStatusCommand(), tunnelConfigureCommand(), tunnelToggleCommand(true), tunnelToggleCommand(false), tunnelRunCommand())
 	return cmd
 }
@@ -23,8 +26,7 @@ func tunnelStatusCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		client := tunnel.NewConfigured(withTunnelOrigin(cfg))
-		data, _ := json.MarshalIndent(client.Status(), "", "  ")
+		data, _ := json.MarshalIndent(tunnel.NewConfigured(cfg.Tunnel, nil).Status(), "", "  ")
 		cmd.Println(string(data))
 		return nil
 	}}
@@ -32,8 +34,7 @@ func tunnelStatusCommand() *cobra.Command {
 
 func tunnelConfigureCommand() *cobra.Command {
 	var enabled bool
-	var id, apiKey, command, origin, publicURL string
-	var commandArgs []string
+	var id, apiKey, controlPlaneBaseURL, organizationID string
 	cmd := &cobra.Command{Use: "configure", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -49,32 +50,27 @@ func tunnelConfigureCommand() *cobra.Command {
 		if cmd.Flags().Changed("api-key") {
 			next.APIKey = apiKey
 		}
-		if cmd.Flags().Changed("command") {
-			next.Command = command
+		if cmd.Flags().Changed("control-plane-base-url") {
+			next.ControlPlaneBaseURL = controlPlaneBaseURL
 		}
-		if cmd.Flags().Changed("arg") {
-			next.Args = commandArgs
-		}
-		if cmd.Flags().Changed("origin") {
-			next.Origin = origin
-		}
-		if cmd.Flags().Changed("public-url") {
-			next.PublicURL = publicURL
+		if cmd.Flags().Changed("organization-id") {
+			next.OrganizationID = organizationID
 		}
 		cfg.Tunnel = next
+		if err := config.Validate(cfg); err != nil {
+			return err
+		}
 		if err := config.Save(cfg); err != nil {
 			return err
 		}
-		logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("TUNNEL", "configuration saved")
+		logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("TUNNEL", "OpenAI Secure MCP Tunnel configuration saved")
 		return nil
 	}}
-	cmd.Flags().BoolVar(&enabled, "enabled", false, "enable or disable the tunnel")
-	cmd.Flags().StringVar(&id, "id", "", "tunnel identifier")
-	cmd.Flags().StringVar(&apiKey, "api-key", "", "tunnel API key")
-	cmd.Flags().StringVar(&command, "command", "", "tunnel process command")
-	cmd.Flags().StringSliceVar(&commandArgs, "arg", nil, "tunnel process argument")
-	cmd.Flags().StringVar(&origin, "origin", "", "local origin exposed by the tunnel")
-	cmd.Flags().StringVar(&publicURL, "public-url", "", "public tunnel URL")
+	cmd.Flags().BoolVar(&enabled, "enabled", false, "enable or disable the OpenAI Secure MCP Tunnel")
+	cmd.Flags().StringVar(&id, "id", "", "OpenAI tunnel identifier")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "OpenAI tunnel runtime API key")
+	cmd.Flags().StringVar(&controlPlaneBaseURL, "control-plane-base-url", "", "OpenAI tunnel control plane base URL")
+	cmd.Flags().StringVar(&organizationID, "organization-id", "", "OpenAI organization identifier")
 	return cmd
 }
 
@@ -89,6 +85,9 @@ func tunnelToggleCommand(enabled bool) *cobra.Command {
 			return err
 		}
 		cfg.Tunnel.Enabled = enabled
+		if err := config.Validate(cfg); err != nil {
+			return err
+		}
 		if err := config.Save(cfg); err != nil {
 			return err
 		}
@@ -96,40 +95,52 @@ func tunnelToggleCommand(enabled bool) *cobra.Command {
 		if enabled {
 			state = "enabled"
 		}
-		logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("TUNNEL", state)
+		logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("TUNNEL", "OpenAI Secure MCP Tunnel "+state)
 		return nil
 	}}
 }
 
 func tunnelRunCommand() *cobra.Command {
-	return &cobra.Command{Use: "run", Short: "Run the configured tunnel in the foreground", RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "run", Short: "Run the builtin OpenAI Secure MCP Tunnel in the foreground", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		tunnelConfig := withTunnelOrigin(cfg)
+		tunnelConfig := cfg.Tunnel
 		tunnelConfig.Enabled = true
-		client := tunnel.NewConfigured(tunnelConfig)
+		if err := tunnel.ValidateConfig(tunnelConfig); err != nil {
+			return err
+		}
+		runtime := tools.NewRuntime()
+		defer func() {
+			if runtime.Upstream == nil {
+				return
+			}
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = runtime.Upstream.Shutdown(shutdownCtx)
+		}()
+		client := tunnel.NewConfigured(tunnelConfig, runtime)
 		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 		if err := client.StartContext(ctx); err != nil {
 			return err
 		}
 		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
-		log.Success("TUNNEL", "process started", "pid", client.Status().PID)
+		log.Info("TUNNEL", "connecting to OpenAI Secure MCP Tunnel", "tunnel_id", tunnelConfig.ID)
+		if err := client.WaitUntilReady(ctx); err != nil {
+			_ = client.Stop()
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		log.Success("TUNNEL", "connected", "tunnel_id", tunnelConfig.ID)
 		<-ctx.Done()
 		if err := client.Stop(); err != nil {
 			return err
 		}
-		log.Info("TUNNEL", "process stopped")
+		log.Info("TUNNEL", "stopped")
 		return nil
 	}}
-}
-
-func withTunnelOrigin(cfg config.Config) tunnel.Config {
-	tunnelConfig := cfg.Tunnel
-	if tunnelConfig.Origin == "" {
-		tunnelConfig.Origin = config.TunnelOrigin(cfg)
-	}
-	return tunnelConfig
 }

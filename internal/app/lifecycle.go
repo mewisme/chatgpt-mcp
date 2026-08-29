@@ -18,8 +18,9 @@ func (a *App) Start(ctx context.Context) error {
 		a.Activity.Publish(activity.Event{Kind: "tunnel.error", Message: err.Error()})
 		return err
 	}
-	if a.Tunnel.Status().Running {
-		a.Activity.Publish(activity.Event{Kind: "tunnel.started", Message: a.Tunnel.Status().PublicURL})
+	status := a.Tunnel.Status()
+	if status.Running {
+		a.Activity.Publish(activity.Event{Kind: "tunnel.started", Message: status.ID})
 	}
 	return nil
 }
@@ -37,7 +38,7 @@ func (a *App) Stop() error {
 			}
 			first = err
 		} else if status.Running && a.Activity != nil {
-			a.Activity.Publish(activity.Event{Kind: "tunnel.stopped", Message: status.PublicURL})
+			a.Activity.Publish(activity.Event{Kind: "tunnel.stopped", Message: status.ID})
 		}
 	}
 	if a.Upstream != nil {

@@ -34,9 +34,10 @@ func New(cfg config.Config) *App {
 	mcpRuntime := mcp.NewHTTPRuntimeWithTools(toolRuntime)
 	mcpRuntime.Activity = stream
 	oauthStore := mcpoauth.NewStore(mcpoauth.Path())
+	appLogger := logger.New(logger.Info)
 	return &App{
 		Config: cfg, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
-		Tunnel: tunnel.NewConfigured(cfg.Tunnel, toolRuntime), Logger: logger.New(logger.Info),
+		Tunnel: tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger), Logger: appLogger,
 		OAuth: oauthStore, OAuthFlows: mcpoauth.NewFlowManager(oauthStore),
 	}
 }

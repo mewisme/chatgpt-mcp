@@ -20,7 +20,7 @@ func serveCommand() *cobra.Command {
 	return &cobra.Command{Use: "serve", Short: "Start the MCP server", RunE: runServer}
 }
 
-func runServer(cmd *cobra.Command, args []string) error {
+func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if _, err := os.Stat(config.Path()); err != nil {
 		if os.IsNotExist(err) {
 			return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init")
@@ -34,8 +34,13 @@ func runServer(cmd *cobra.Command, args []string) error {
 	if err := config.Validate(cfg); err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signalCh)
+
+	runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
+	defer runtimeCancel()
 
 	mcpAddr := net.JoinHostPort(cfg.Server.Host, fmt.Sprint(cfg.Server.Port))
 	mcpListener, err := net.Listen("tcp", mcpAddr)
@@ -56,10 +61,20 @@ func runServer(cmd *cobra.Command, args []string) error {
 	}
 
 	runtime := app.New(cfg)
-	if err := runtime.Start(ctx); err != nil {
+	if err := runtime.Start(runtimeCtx); err != nil {
 		return err
 	}
-	defer runtime.Stop()
+	defer func() {
+		runtime.Logger.Info("SERVER", "cleaning up runtime services")
+		if err := runtime.Stop(); err != nil {
+			runtime.Logger.Error("SERVER", "runtime cleanup failed", "error", err)
+			if runErr == nil {
+				runErr = err
+			}
+			return
+		}
+		runtime.Logger.Success("SERVER", "shutdown complete")
+	}()
 
 	runtime.Logger.Info("MCP", "endpoint ready", "url", "http://"+mcpAddr+"/mcp")
 	if cfg.Admin.Enabled {
@@ -76,15 +91,30 @@ func runServer(cmd *cobra.Command, args []string) error {
 		go serveHTTP(adminServer, adminListener, errCh)
 	}
 
+	shutdown := func() error {
+		runtime.Logger.Info("SERVER", "stopping HTTP listeners")
+		err := shutdownServers(servers)
+		if err != nil {
+			runtime.Logger.Error("SERVER", "HTTP shutdown failed", "error", err)
+			return err
+		}
+		runtime.Logger.Success("SERVER", "HTTP listeners stopped")
+		return nil
+	}
+
 	select {
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			shutdownServers(servers)
-			return err
+			runtime.Logger.Error("SERVER", "HTTP listener failed", "error", err)
+			return errors.Join(err, shutdown())
 		}
-		return nil
-	case <-ctx.Done():
-		return shutdownServers(servers)
+		return shutdown()
+	case signalValue := <-signalCh:
+		runtime.Logger.Warn("SERVER", "shutdown requested", "signal", signalValue.String())
+		return shutdown()
+	case <-cmd.Context().Done():
+		runtime.Logger.Warn("SERVER", "shutdown requested", "reason", "context canceled")
+		return shutdown()
 	}
 }
 

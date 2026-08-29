@@ -101,7 +101,7 @@ func tunnelToggleCommand(enabled bool) *cobra.Command {
 }
 
 func tunnelRunCommand() *cobra.Command {
-	return &cobra.Command{Use: "run", Short: "Run the builtin OpenAI Secure MCP Tunnel in the foreground", RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "run", Short: "Run the builtin OpenAI Secure MCP Tunnel in the foreground", RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
@@ -111,36 +111,61 @@ func tunnelRunCommand() *cobra.Command {
 		if err := tunnel.ValidateConfig(tunnelConfig); err != nil {
 			return err
 		}
+
+		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
 		runtime := tools.NewRuntime()
-		defer func() {
-			if runtime.Upstream == nil {
-				return
-			}
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = runtime.Upstream.Shutdown(shutdownCtx)
-		}()
-		client := tunnel.NewConfigured(tunnelConfig, runtime)
-		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
+		defer runtimeCancel()
+		shutdownCtx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		if err := client.StartContext(ctx); err != nil {
+
+		client := tunnel.NewConfiguredWithLogger(tunnelConfig, runtime, log)
+		if err := client.StartContext(runtimeCtx); err != nil {
 			return err
 		}
-		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+		defer func() {
+			status := client.Status()
+			if status.Running {
+				log.Info("TUNNEL", "stopping", "tunnel_id", tunnelConfig.ID)
+				if err := client.Stop(); err != nil {
+					log.Error("TUNNEL", "failed to stop", "error", err)
+					if runErr == nil {
+						runErr = err
+					}
+				} else {
+					log.Success("TUNNEL", "stopped", "tunnel_id", tunnelConfig.ID)
+				}
+			}
+			if runtime.Upstream != nil {
+				log.Info("UPSTREAM", "stopping upstream servers")
+				upstreamCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err := runtime.Upstream.Shutdown(upstreamCtx)
+				cancel()
+				if err != nil {
+					log.Error("UPSTREAM", "shutdown failed", "error", err)
+					if runErr == nil {
+						runErr = err
+					}
+				} else {
+					log.Success("UPSTREAM", "stopped")
+				}
+			}
+			if runErr == nil {
+				log.Success("TUNNEL", "shutdown complete")
+			}
+		}()
+
 		log.Info("TUNNEL", "connecting to OpenAI Secure MCP Tunnel", "tunnel_id", tunnelConfig.ID)
-		if err := client.WaitUntilReady(ctx); err != nil {
-			_ = client.Stop()
-			if ctx.Err() != nil {
+		if err := client.WaitUntilReady(shutdownCtx); err != nil {
+			if shutdownCtx.Err() != nil {
+				log.Warn("TUNNEL", "shutdown requested")
 				return nil
 			}
 			return err
 		}
 		log.Success("TUNNEL", "connected", "tunnel_id", tunnelConfig.ID)
-		<-ctx.Done()
-		if err := client.Stop(); err != nil {
-			return err
-		}
-		log.Info("TUNNEL", "stopped")
+		<-shutdownCtx.Done()
+		log.Warn("TUNNEL", "shutdown requested")
 		return nil
 	}}
 }

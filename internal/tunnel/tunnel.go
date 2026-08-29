@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	tunnelclient "github.com/openai/tunnel-client"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
@@ -77,22 +79,36 @@ func New(id, key string, runtime *tools.Runtime) *Client {
 }
 
 func NewConfigured(cfg Config, runtime *tools.Runtime) *Client {
-	return newConfigured(cfg, runtime, newOpenAIBackend)
+	return NewConfiguredWithLogger(cfg, runtime, nil)
+}
+
+func NewConfiguredWithLogger(cfg Config, runtime *tools.Runtime, log *logger.Logger) *Client {
+	return newConfigured(cfg, runtime, newOpenAIBackendFactory(log))
 }
 
 func newConfigured(cfg Config, runtime *tools.Runtime, factory backendFactory) *Client {
 	if factory == nil {
-		factory = newOpenAIBackend
+		factory = newOpenAIBackendFactory(nil)
 	}
 	return &Client{config: cfg, runtime: runtime, factory: factory}
 }
 
-func newOpenAIBackend(cfg Config, transport sdkmcp.Transport) (backend, error) {
+func newOpenAIBackendFactory(log *logger.Logger) backendFactory {
+	if log == nil {
+		log = logger.New(logger.Info)
+	}
+	return func(cfg Config, transport sdkmcp.Transport) (backend, error) {
+		return newOpenAIBackend(cfg, transport, log.LineWriter("TUNNEL"))
+	}
+}
+
+func newOpenAIBackend(cfg Config, transport sdkmcp.Transport, logWriter io.Writer) (backend, error) {
 	return tunnelclient.New(tunnelclient.Config{
 		TunnelID:            cfg.ID,
 		APIKey:              cfg.APIKey,
 		ControlPlaneBaseURL: cfg.ControlPlaneBaseURL,
 		OrganizationID:      cfg.OrganizationID,
+		LogWriter:           logWriter,
 	}, transport)
 }
 

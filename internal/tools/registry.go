@@ -22,13 +22,14 @@ type Entry struct {
 }
 
 type Registry struct {
-	mu     sync.RWMutex
-	tools  map[string]Entry
-	owners map[string]string
+	mu       sync.RWMutex
+	tools    map[string]Entry
+	owners   map[string]string
+	watchers map[chan struct{}]struct{}
 }
 
 func NewRegistry() *Registry {
-	return &Registry{tools: map[string]Entry{}, owners: map[string]string{}}
+	return &Registry{tools: map[string]Entry{}, owners: map[string]string{}, watchers: map[chan struct{}]struct{}{}}
 }
 
 func (r *Registry) Register(name string, schema Schema, handler Handler) error {
@@ -51,14 +52,16 @@ func (r *Registry) registerOwned(owner, name string, schema Schema, handler Hand
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if _, exists := r.tools[name]; exists {
+		r.mu.Unlock()
 		return fmt.Errorf("%w: %s", ErrToolAlreadyRegistered, name)
 	}
 	r.tools[name] = Entry{Schema: schema, Handler: handler}
 	if owner != "" {
 		r.owners[name] = owner
 	}
+	r.mu.Unlock()
+	r.signalChanged()
 	return nil
 }
 
@@ -87,9 +90,9 @@ func (r *Registry) ReplaceOwned(owner string, entries map[string]Entry) error {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	for name := range entries {
 		if _, exists := r.tools[name]; exists && r.owners[name] != owner {
+			r.mu.Unlock()
 			return fmt.Errorf("%w: %s", ErrToolAlreadyRegistered, name)
 		}
 	}
@@ -103,16 +106,51 @@ func (r *Registry) ReplaceOwned(owner string, entries map[string]Entry) error {
 		r.tools[name] = entry
 		r.owners[name] = owner
 	}
+	r.mu.Unlock()
+	r.signalChanged()
 	return nil
 }
 
 func (r *Registry) ClearOwnedPrefix(prefix string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	changed := false
 	for name, owner := range r.owners {
 		if strings.HasPrefix(owner, prefix) {
 			delete(r.tools, name)
 			delete(r.owners, name)
+			changed = true
+		}
+	}
+	r.mu.Unlock()
+	if changed {
+		r.signalChanged()
+	}
+}
+
+func (r *Registry) SubscribeChanges() chan struct{} {
+	ch := make(chan struct{}, 1)
+	r.mu.Lock()
+	r.watchers[ch] = struct{}{}
+	r.mu.Unlock()
+	return ch
+}
+
+func (r *Registry) UnsubscribeChanges(ch chan struct{}) {
+	if ch == nil {
+		return
+	}
+	r.mu.Lock()
+	delete(r.watchers, ch)
+	r.mu.Unlock()
+}
+
+func (r *Registry) signalChanged() {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for ch := range r.watchers {
+		select {
+		case ch <- struct{}{}:
+		default:
 		}
 	}
 }

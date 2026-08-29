@@ -11,14 +11,21 @@ import (
 )
 
 type HTTPRuntime struct {
-	Server   *Runtime
-	Activity *activity.Stream
+	Server        *Runtime
+	Activity      *activity.Stream
+	Subscriptions *subscriptionHub
 }
 
 func NewHTTPRuntime() *HTTPRuntime { return NewHTTPRuntimeWithTools(tools.NewRuntime()) }
 
 func NewHTTPRuntimeWithTools(toolRuntime *tools.Runtime) *HTTPRuntime {
-	return &HTTPRuntime{Server: NewRuntimeWithTools(toolRuntime), Activity: activity.NewStream()}
+	return &HTTPRuntime{Server: NewRuntimeWithTools(toolRuntime), Activity: activity.NewStream(), Subscriptions: newSubscriptionHub()}
+}
+
+func (h *HTTPRuntime) CloseSubscriptions() {
+	if h != nil && h.Subscriptions != nil {
+		h.Subscriptions.closeAll()
+	}
 }
 
 func (h *HTTPRuntime) Handler() http.Handler { return h }
@@ -62,6 +69,13 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := ValidateParams(req.Method, params); err != nil {
 		protocolErr := err.(*Error)
 		writeErrorID(w, req.ID, protocolErr.Code, protocolErr.Message)
+		return
+	}
+
+	if req.Method == "subscriptions/listen" {
+		started := time.Now()
+		h.serveSubscription(w, r, req, params)
+		h.EmitActivity(requestActivity(req.Method, params, "ok", "", time.Since(started)))
 		return
 	}
 

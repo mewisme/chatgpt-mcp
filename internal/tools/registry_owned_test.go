@@ -29,3 +29,18 @@ func TestReplaceOwnedIsAtomicAndRemovesStaleTools(t *testing.T) {
 		t.Fatal("native tool was removed")
 	}
 }
+func TestRegistryOwnedReplacementSignalsChange(t *testing.T) {
+	registry := NewRegistry()
+	changes := registry.SubscribeChanges()
+	defer registry.UnsubscribeChanges(changes)
+	if err := registry.ReplaceOwned("upstream:test", map[string]Entry{
+		"test__one": {Schema: Schema{Name: "test__one"}, Handler: func(context.Context, map[string]any) (Result, error) { return TextResult("one"), nil }},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changes:
+	default:
+		t.Fatal("owned replacement did not signal registry change")
+	}
+}

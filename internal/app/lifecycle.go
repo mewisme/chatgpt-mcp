@@ -26,6 +26,9 @@ func (a *App) Start(ctx context.Context) error {
 
 func (a *App) Stop() error {
 	var first error
+	if a.MCP != nil {
+		a.MCP.CloseSubscriptions()
+	}
 	if a.Tunnel != nil {
 		status := a.Tunnel.Status()
 		if err := a.Tunnel.Stop(); err != nil {

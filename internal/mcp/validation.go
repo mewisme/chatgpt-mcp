@@ -59,6 +59,8 @@ func ValidateParams(method string, params map[string]any) error {
 				return NewError(ErrInvalidParams, "inputResponses must be an object")
 			}
 		}
+	case "subscriptions/listen":
+		return validateListenNotifications(params)
 	}
 	return nil
 }

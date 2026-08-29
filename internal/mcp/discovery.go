@@ -8,6 +8,10 @@ const (
 	defaultCacheScope        = "private"
 )
 
+func serverInfo() map[string]any {
+	return map[string]any{"name": "chatgpt-mcp", "version": version.Version}
+}
+
 func Discover() map[string]any {
 	return map[string]any{
 		"supportedVersions": []string{SupportedProtocolVersion},
@@ -15,11 +19,6 @@ func Discover() map[string]any {
 		"ttlMs":             defaultCacheTTLMS,
 		"cacheScope":        defaultCacheScope,
 		"resultType":        "complete",
-		"_meta": map[string]any{
-			"io.modelcontextprotocol/serverInfo": map[string]any{
-				"name":    "chatgpt-mcp",
-				"version": version.Version,
-			},
-		},
+		"_meta":             map[string]any{"io.modelcontextprotocol/serverInfo": serverInfo()},
 	}
 }

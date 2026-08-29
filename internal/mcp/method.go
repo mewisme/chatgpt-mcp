@@ -2,7 +2,7 @@ package mcp
 
 func IsSupportedMethod(method string) bool {
 	switch method {
-	case "server/discover", "tools/list", "tools/call":
+	case "server/discover", "tools/list", "tools/call", "subscriptions/listen":
 		return true
 	default:
 		return false

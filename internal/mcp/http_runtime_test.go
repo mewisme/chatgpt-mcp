@@ -1,11 +1,17 @@
 package mcp
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
 func modernRequest(method, body string) *http.Request {
@@ -46,6 +52,11 @@ func TestHTTPRuntimeDiscoverIsStateless(t *testing.T) {
 	}
 	if result["cacheScope"] != defaultCacheScope || result["ttlMs"] != float64(defaultCacheTTLMS) {
 		t.Fatalf("cache hints = %#v/%#v", result["ttlMs"], result["cacheScope"])
+	}
+	capabilities, _ := result["capabilities"].(map[string]any)
+	toolsCapability, _ := capabilities["tools"].(map[string]any)
+	if toolsCapability["listChanged"] != true {
+		t.Fatalf("tools capability = %#v", toolsCapability)
 	}
 }
 
@@ -181,5 +192,147 @@ func TestHTTPRuntimeRejectsTrailingJSON(t *testing.T) {
 	response := decodeResponse(t, res)
 	if response.Error == nil || response.Error.Code != ErrParse {
 		t.Fatalf("error = %#v, want code %d", response.Error, ErrParse)
+	}
+}
+func TestHTTPRuntimeListenRequiresNotificationsFilter(t *testing.T) {
+	runtime := NewHTTPRuntime()
+	req := modernRequest("subscriptions/listen", `{"jsonrpc":"2.0","id":10,"method":"subscriptions/listen","params":{}}`)
+	res := httptest.NewRecorder()
+	runtime.ServeHTTP(res, req)
+	response := decodeResponse(t, res)
+	if response.Error == nil || response.Error.Code != ErrInvalidParams {
+		t.Fatalf("error = %#v, want code %d", response.Error, ErrInvalidParams)
+	}
+}
+
+func TestHTTPRuntimeStreamsToolChangesAndGracefulClose(t *testing.T) {
+	runtime := NewHTTPRuntime()
+	server := httptest.NewServer(runtime.Handler())
+	defer server.Close()
+
+	body := strings.NewReader(`{"jsonrpc":"2.0","id":11,"method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true,"promptsListChanged":true},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`)
+	req, err := http.NewRequest(http.MethodPost, server.URL, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(ProtocolVersionHeader, SupportedProtocolVersion)
+	req.Header.Set(MethodHeader, "subscriptions/listen")
+	res, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(res.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("status/content-type = %d/%q", res.StatusCode, res.Header.Get("Content-Type"))
+	}
+	reader := bufio.NewReader(res.Body)
+
+	ack := readSSEFrame(t, reader)
+	if ack["method"] != "notifications/subscriptions/acknowledged" {
+		t.Fatalf("ack = %#v", ack)
+	}
+	ackParams, _ := ack["params"].(map[string]any)
+	honored, _ := ackParams["notifications"].(map[string]any)
+	if honored["toolsListChanged"] != true {
+		t.Fatalf("honored notifications = %#v", honored)
+	}
+	if _, exists := honored["promptsListChanged"]; exists {
+		t.Fatalf("unsupported prompt filter was honored: %#v", honored)
+	}
+	assertSubscriptionID(t, ackParams, float64(11))
+
+	runtime.Server.Tools.Registry.MustRegister("subscription_test_tool", tools.Schema{
+		Name: "subscription_test_tool", InputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(context.Context, map[string]any) (tools.Result, error) {
+		return tools.TextResult("ok"), nil
+	})
+
+	changed := readSSEFrame(t, reader)
+	if changed["method"] != "notifications/tools/list_changed" {
+		t.Fatalf("changed = %#v", changed)
+	}
+	changedParams, _ := changed["params"].(map[string]any)
+	assertSubscriptionID(t, changedParams, float64(11))
+
+	runtime.CloseSubscriptions()
+	final := readSSEFrame(t, reader)
+	if final["id"] != float64(11) {
+		t.Fatalf("final id = %#v", final["id"])
+	}
+	result, _ := final["result"].(map[string]any)
+	if result["resultType"] != "complete" {
+		t.Fatalf("final result = %#v", result)
+	}
+	meta, _ := result["_meta"].(map[string]any)
+	if meta["io.modelcontextprotocol/subscriptionId"] != float64(11) {
+		t.Fatalf("final meta = %#v", meta)
+	}
+	if _, ok := meta["io.modelcontextprotocol/serverInfo"].(map[string]any); !ok {
+		t.Fatalf("final server info = %#v", meta["io.modelcontextprotocol/serverInfo"])
+	}
+}
+
+func TestHTTPRuntimeListenContextCancellationClosesStream(t *testing.T) {
+	runtime := NewHTTPRuntime()
+	server := httptest.NewServer(runtime.Handler())
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	body := strings.NewReader(`{"jsonrpc":"2.0","id":"listen-cancel","method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true}}}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(ProtocolVersionHeader, SupportedProtocolVersion)
+	req.Header.Set(MethodHeader, "subscriptions/listen")
+	res, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(res.Body)
+	_ = readSSEFrame(t, reader)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(io.Discard, reader)
+		done <- err
+	}()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("listen stream did not close after request cancellation")
+	}
+	_ = res.Body.Close()
+}
+
+func readSSEFrame(t *testing.T, reader *bufio.Reader) map[string]any {
+	t.Helper()
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read SSE frame: %v", err)
+		}
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		var value map[string]any
+		if err := json.Unmarshal([]byte(payload), &value); err != nil {
+			t.Fatalf("decode SSE frame: %v", err)
+		}
+		return value
+	}
+}
+
+func assertSubscriptionID(t *testing.T, params map[string]any, want any) {
+	t.Helper()
+	meta, _ := params["_meta"].(map[string]any)
+	if meta["io.modelcontextprotocol/subscriptionId"] != want {
+		t.Fatalf("subscription id = %#v, want %#v", meta["io.modelcontextprotocol/subscriptionId"], want)
 	}
 }

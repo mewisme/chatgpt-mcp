@@ -22,18 +22,26 @@ chatgpt-mcp provides a single binary runtime for running MCP tools, managing ups
 
 ## Installation
 
-### Go install
+### Local source install
 
-Requires Go 1.27+:
+Requires Go 1.27+, Node.js 24+, and pnpm 11+.
+
+From a cloned repository, run the same command on Linux, Windows, or macOS:
 
 ```bash
-go install go.mewis.me/chatgpt-mcp@latest
+node scripts/install-local.mjs
 ```
 
-Run:
+The installer restores frontend dependencies, builds the admin dashboard, copies `web/dist` into the ignored `internal/web/dist` embed directory, then runs:
 
 ```bash
-chatgpt-mcp
+go install .
+```
+
+To skip the dependency install when `web/node_modules` is already current:
+
+```bash
+node scripts/install-local.mjs --no-deps
 ```
 
 ### Binary release
@@ -45,6 +53,12 @@ Supported platforms:
 - Linux amd64/arm64
 - Windows amd64/arm64
 - macOS amd64/arm64
+
+Run:
+
+```bash
+chatgpt-mcp
+```
 
 ## Quick start
 
@@ -135,12 +149,14 @@ Install frontend dependencies:
 pnpm --dir web install
 ```
 
-Build admin dashboard:
+Build and prepare the embedded admin dashboard:
 
 ```bash
 pnpm --dir web build
 node scripts/prepare-web-embed.mjs
 ```
+
+`internal/web/dist` is generated locally and intentionally ignored by Git. Prepare the embed before commands that compile the Go package.
 
 Run backend checks:
 
@@ -162,12 +178,14 @@ pnpm build
 
 Pull requests and pushes to `main` run:
 
-- Go tests
-- Go vet
 - Frontend lint
 - Frontend typecheck
 - Frontend production build
+- Go tests
+- Go vet
 - Cross-platform Go builds
+
+CI builds the frontend once, passes `web/dist` as an artifact, and prepares `internal/web/dist` before Go compilation.
 
 ## Release
 

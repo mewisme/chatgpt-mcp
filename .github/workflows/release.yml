@@ -35,8 +35,10 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Build web
-        working-directory: web
-        run: pnpm install --frozen-lockfile && pnpm build
+        run: |
+          pnpm --dir web install --frozen-lockfile
+          pnpm --dir web build
+          node scripts/prepare-web-embed.mjs
 
       - name: Test
         run: go test ./...
@@ -49,4 +51,3 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

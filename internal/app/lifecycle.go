@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
 )
@@ -24,16 +25,24 @@ func (a *App) Start(ctx context.Context) error {
 }
 
 func (a *App) Stop() error {
-	if a.Tunnel == nil {
-		return nil
+	var first error
+	if a.Tunnel != nil {
+		status := a.Tunnel.Status()
+		if err := a.Tunnel.Stop(); err != nil {
+			if a.Activity != nil {
+				a.Activity.Publish(activity.Event{Kind: "tunnel.error", Message: err.Error()})
+			}
+			first = err
+		} else if status.Running && a.Activity != nil {
+			a.Activity.Publish(activity.Event{Kind: "tunnel.stopped", Message: status.PublicURL})
+		}
 	}
-	status := a.Tunnel.Status()
-	if err := a.Tunnel.Stop(); err != nil {
-		a.Activity.Publish(activity.Event{Kind: "tunnel.error", Message: err.Error()})
-		return err
+	if a.Upstream != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := a.Upstream.Shutdown(ctx); err != nil && first == nil {
+			first = err
+		}
 	}
-	if status.Running {
-		a.Activity.Publish(activity.Event{Kind: "tunnel.stopped", Message: status.PublicURL})
-	}
-	return nil
+	return first
 }

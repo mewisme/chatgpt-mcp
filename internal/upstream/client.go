@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -99,6 +101,7 @@ type rpcConnection struct {
 	pid     int
 	stdio   *stdioTransport
 	http    *httpTransport
+	tools   map[string]Tool
 	nextID  atomic.Int64
 }
 
@@ -192,10 +195,19 @@ func (c *NativeClient) Tools(ctx context.Context, id string) ([]Tool, error) {
 	if err := connection.call(ctx, "tools/list", "", map[string]any{}, &result); err != nil {
 		return nil, err
 	}
-	for index := range result.Tools {
-		result.Tools[index].Server = id
+	modernHTTP := connection.isModernHTTP()
+	filtered := make([]Tool, 0, len(result.Tools))
+	for _, tool := range result.Tools {
+		tool.Server = id
+		if modernHTTP {
+			if _, err := toolHeaderSpecs(tool.InputSchema); err != nil {
+				continue
+			}
+		}
+		filtered = append(filtered, tool)
 	}
-	return result.Tools, nil
+	connection.rememberTools(filtered)
+	return filtered, nil
 }
 
 func (c *NativeClient) Call(ctx context.Context, id, tool string, args map[string]any) (CallResult, error) {
@@ -203,14 +215,47 @@ func (c *NativeClient) Call(ctx context.Context, id, tool string, args map[strin
 	if err != nil {
 		return CallResult{}, err
 	}
+	headers, err := c.headersForCall(ctx, connection, id, tool, args)
+	if err != nil {
+		return CallResult{}, err
+	}
+	params := map[string]any{"name": tool, "arguments": args}
 	var result CallResult
-	if err := connection.call(ctx, "tools/call", tool, map[string]any{"name": tool, "arguments": args}, &result); err != nil {
+	err = connection.callWithHeaders(ctx, "tools/call", tool, params, headers, &result)
+	if isHeaderMismatch(err) && connection.isModernHTTP() {
+		if _, refreshErr := c.Tools(ctx, id); refreshErr != nil {
+			return CallResult{}, fmt.Errorf("refresh tools after HeaderMismatch: %w", refreshErr)
+		}
+		headers, err = c.headersForCall(ctx, connection, id, tool, args)
+		if err != nil {
+			return CallResult{}, err
+		}
+		err = connection.callWithHeaders(ctx, "tools/call", tool, params, headers, &result)
+	}
+	if err != nil {
 		return CallResult{}, err
 	}
 	if result.Content == nil {
 		result.Content = []Content{}
 	}
 	return result, nil
+}
+
+func (c *NativeClient) headersForCall(ctx context.Context, connection *rpcConnection, id, tool string, args map[string]any) (map[string]string, error) {
+	if !connection.isModernHTTP() {
+		return nil, nil
+	}
+	definition, ok := connection.toolDefinition(tool)
+	if !ok {
+		if _, err := c.Tools(ctx, id); err != nil {
+			return nil, err
+		}
+		definition, ok = connection.toolDefinition(tool)
+		if !ok {
+			return nil, fmt.Errorf("upstream tool definition not found: %s/%s", id, tool)
+		}
+	}
+	return mirroredToolHeaders(definition, args)
 }
 
 func (c *NativeClient) PID(id string) int {
@@ -232,8 +277,30 @@ func (c *NativeClient) connection(id string) (*rpcConnection, error) {
 	return value, nil
 }
 
+func (c *rpcConnection) isModernHTTP() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.http != nil && c.era == ModernProtocol
+}
+
+func (c *rpcConnection) rememberTools(tools []Tool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tools = make(map[string]Tool, len(tools))
+	for _, tool := range tools {
+		c.tools[tool.Name] = tool
+	}
+}
+
+func (c *rpcConnection) toolDefinition(name string) (Tool, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	tool, ok := c.tools[name]
+	return tool, ok
+}
+
 func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rpcConnection, error) {
-	connection := &rpcConnection{server: server}
+	connection := &rpcConnection{server: server, tools: map[string]Tool{}}
 	if server.Transport == "stdio" {
 		transport, err := startStdio(server)
 		if err != nil {
@@ -297,29 +364,33 @@ func (c *rpcConnection) negotiate(ctx context.Context) error {
 }
 
 func (c *rpcConnection) call(ctx context.Context, method, name string, params map[string]any, target any) error {
+	return c.callWithHeaders(ctx, method, name, params, nil, target)
+}
+
+func (c *rpcConnection) callWithHeaders(ctx context.Context, method, name string, params map[string]any, headers map[string]string, target any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	era := c.era
 	if era == "" {
 		era = ModernProtocol
 	}
-	return c.callEraLocked(ctx, era, method, name, params, target)
+	return c.callEraLocked(ctx, era, method, name, params, headers, target)
 }
 
 func (c *rpcConnection) callEra(ctx context.Context, era, method, name string, params map[string]any, target any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.callEraLocked(ctx, era, method, name, params, target)
+	return c.callEraLocked(ctx, era, method, name, params, nil, target)
 }
 
-func (c *rpcConnection) callEraLocked(ctx context.Context, era, method, name string, params map[string]any, target any) error {
+func (c *rpcConnection) callEraLocked(ctx context.Context, era, method, name string, params map[string]any, headers map[string]string, target any) error {
 	id := c.nextID.Add(1)
 	value := cloneMap(params)
 	if era == ModernProtocol {
 		value["_meta"] = requestMeta()
 	}
 	request := rpcRequest{JSONRPC: "2.0", ID: id, Method: method, Params: value}
-	response, err := c.roundTrip(ctx, request, era, name)
+	response, err := c.roundTrip(ctx, request, era, name, headers)
 	if err != nil {
 		return err
 	}
@@ -347,7 +418,7 @@ func (c *rpcConnection) notify(ctx context.Context, method string, params map[st
 	return c.http.notify(ctx, data, c.era, method, c.session)
 }
 
-func (c *rpcConnection) roundTrip(ctx context.Context, request rpcRequest, era, name string) (rpcResponse, error) {
+func (c *rpcConnection) roundTrip(ctx context.Context, request rpcRequest, era, name string, headers map[string]string) (rpcResponse, error) {
 	data, err := json.Marshal(request)
 	if err != nil {
 		return rpcResponse{}, err
@@ -355,7 +426,7 @@ func (c *rpcConnection) roundTrip(ctx context.Context, request rpcRequest, era, 
 	if c.stdio != nil {
 		return c.stdio.roundTrip(ctx, data, request.ID)
 	}
-	response, session, err := c.http.roundTrip(ctx, data, era, request.Method, name, c.session)
+	response, session, err := c.http.roundTrip(ctx, data, era, request.Method, name, c.session, headers)
 	if session != "" {
 		c.session = session
 	}
@@ -464,12 +535,12 @@ func (t *stdioTransport) withStderr(err error) error {
 	return fmt.Errorf("%w: %s", err, text)
 }
 
-func (t *httpTransport) roundTrip(ctx context.Context, data []byte, era, method, name, session string) (rpcResponse, string, error) {
+func (t *httpTransport) roundTrip(ctx context.Context, data []byte, era, method, name, session string, headers map[string]string) (rpcResponse, string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(data))
 	if err != nil {
 		return rpcResponse{}, "", err
 	}
-	t.applyHeaders(request, era, method, name, session)
+	t.applyHeaders(request, era, method, name, session, headers)
 	response, err := t.client.Do(request)
 	if err != nil {
 		return rpcResponse{}, "", err
@@ -498,7 +569,7 @@ func (t *httpTransport) notify(ctx context.Context, data []byte, era, method, se
 	if err != nil {
 		return err
 	}
-	t.applyHeaders(request, era, method, "", session)
+	t.applyHeaders(request, era, method, "", session, nil)
 	response, err := t.client.Do(request)
 	if err != nil {
 		return err
@@ -511,17 +582,25 @@ func (t *httpTransport) notify(ctx context.Context, data []byte, era, method, se
 	return nil
 }
 
-func (t *httpTransport) applyHeaders(request *http.Request, era, method, name, session string) {
+func (t *httpTransport) applyHeaders(request *http.Request, era, method, name, session string, messageHeaders map[string]string) {
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	for key, value := range t.headers {
+		if era == ModernProtocol && strings.HasPrefix(strings.ToLower(key), "mcp-param-") {
+			continue
+		}
 		request.Header.Set(key, value)
 	}
 	if era == ModernProtocol {
 		request.Header.Set("MCP-Protocol-Version", ModernProtocol)
 		request.Header.Set("Mcp-Method", method)
 		if name != "" {
-			request.Header.Set("Mcp-Name", name)
+			request.Header.Set("Mcp-Name", encodeMCPHeaderValue(name))
+		}
+		for key, value := range messageHeaders {
+			if strings.HasPrefix(strings.ToLower(key), "mcp-param-") {
+				request.Header.Set(key, value)
+			}
 		}
 		return
 	}
@@ -535,24 +614,270 @@ func (t *httpTransport) applyHeaders(request *http.Request, era, method, name, s
 
 func parseHTTPRPC(body []byte, contentType string) (rpcResponse, error) {
 	if strings.Contains(strings.ToLower(contentType), "text/event-stream") {
-		var joined bytes.Buffer
-		scanner := bufio.NewScanner(bytes.NewReader(body))
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.HasPrefix(line, "data:") {
-				joined.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-			}
-		}
-		if joined.Len() == 0 {
-			return rpcResponse{}, errors.New("empty upstream SSE response")
-		}
-		body = joined.Bytes()
+		return parseSSERPC(body)
 	}
 	var response rpcResponse
 	if err := json.Unmarshal(body, &response); err != nil {
 		return rpcResponse{}, fmt.Errorf("decode upstream JSON-RPC response: %w", err)
 	}
 	return response, nil
+}
+
+func parseSSERPC(body []byte) (rpcResponse, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 64*1024), 32<<20)
+	var dataLines []string
+	var lastErr error
+	flush := func() (rpcResponse, bool) {
+		if len(dataLines) == 0 {
+			return rpcResponse{}, false
+		}
+		payload := strings.Join(dataLines, "\n")
+		dataLines = nil
+		var response rpcResponse
+		if err := json.Unmarshal([]byte(payload), &response); err != nil {
+			lastErr = fmt.Errorf("decode upstream SSE JSON-RPC response: %w", err)
+			return rpcResponse{}, false
+		}
+		if len(response.ID) == 0 {
+			return rpcResponse{}, false
+		}
+		return response, true
+	}
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if line == "" {
+			if response, ok := flush(); ok {
+				return response, nil
+			}
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		value := strings.TrimPrefix(line, "data:")
+		if strings.HasPrefix(value, " ") {
+			value = value[1:]
+		}
+		dataLines = append(dataLines, value)
+	}
+	if err := scanner.Err(); err != nil {
+		return rpcResponse{}, err
+	}
+	if response, ok := flush(); ok {
+		return response, nil
+	}
+	if lastErr != nil {
+		return rpcResponse{}, lastErr
+	}
+	return rpcResponse{}, errors.New("empty upstream SSE response")
+}
+
+type toolHeaderSpec struct {
+	Argument string
+	Header   string
+	Type     string
+}
+
+func toolHeaderSpecs(schema map[string]any) ([]toolHeaderSpec, error) {
+	if len(schema) == 0 {
+		return nil, nil
+	}
+	total := countMCPHeaderAnnotations(schema)
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		if total > 0 {
+			return nil, errors.New("x-mcp-header is only supported on top-level inputSchema properties")
+		}
+		return nil, nil
+	}
+	specs := make([]toolHeaderSpec, 0)
+	seen := map[string]bool{}
+	topLevel := 0
+	for argument, raw := range properties {
+		property, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		rawHeader, exists := property["x-mcp-header"]
+		if !exists {
+			continue
+		}
+		topLevel++
+		header, ok := rawHeader.(string)
+		if !ok || header == "" || !isHTTPToken(header) {
+			return nil, fmt.Errorf("invalid x-mcp-header for %s", argument)
+		}
+		key := strings.ToLower(header)
+		if seen[key] {
+			return nil, fmt.Errorf("duplicate x-mcp-header %q", header)
+		}
+		seen[key] = true
+		kind, _ := property["type"].(string)
+		switch kind {
+		case "string", "integer", "boolean":
+		default:
+			return nil, fmt.Errorf("x-mcp-header parameter %s must use string, integer, or boolean type", argument)
+		}
+		specs = append(specs, toolHeaderSpec{Argument: argument, Header: "Mcp-Param-" + header, Type: kind})
+	}
+	if total != topLevel {
+		return nil, errors.New("x-mcp-header is only supported on top-level inputSchema properties")
+	}
+	return specs, nil
+}
+
+func countMCPHeaderAnnotations(value any) int {
+	switch typed := value.(type) {
+	case map[string]any:
+		count := 0
+		for key, item := range typed {
+			if key == "x-mcp-header" {
+				count++
+			}
+			count += countMCPHeaderAnnotations(item)
+		}
+		return count
+	case []any:
+		count := 0
+		for _, item := range typed {
+			count += countMCPHeaderAnnotations(item)
+		}
+		return count
+	default:
+		return 0
+	}
+}
+
+func mirroredToolHeaders(tool Tool, args map[string]any) (map[string]string, error) {
+	specs, err := toolHeaderSpecs(tool.InputSchema)
+	if err != nil {
+		return nil, err
+	}
+	headers := make(map[string]string, len(specs))
+	for _, spec := range specs {
+		value, exists := args[spec.Argument]
+		if !exists || value == nil {
+			continue
+		}
+		text, err := toolHeaderPrimitive(spec.Type, value)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", spec.Argument, err)
+		}
+		headers[spec.Header] = encodeMCPHeaderValue(text)
+	}
+	return headers, nil
+}
+
+func toolHeaderPrimitive(kind string, value any) (string, error) {
+	switch kind {
+	case "string":
+		text, ok := value.(string)
+		if !ok {
+			return "", errors.New("x-mcp-header value must be a string")
+		}
+		return text, nil
+	case "boolean":
+		boolean, ok := value.(bool)
+		if !ok {
+			return "", errors.New("x-mcp-header value must be a boolean")
+		}
+		return strconv.FormatBool(boolean), nil
+	case "integer":
+		return integerHeaderValue(value)
+	default:
+		return "", fmt.Errorf("unsupported x-mcp-header type: %s", kind)
+	}
+}
+
+func integerHeaderValue(value any) (string, error) {
+	switch typed := value.(type) {
+	case int:
+		return strconv.FormatInt(int64(typed), 10), nil
+	case int8:
+		return strconv.FormatInt(int64(typed), 10), nil
+	case int16:
+		return strconv.FormatInt(int64(typed), 10), nil
+	case int32:
+		return strconv.FormatInt(int64(typed), 10), nil
+	case int64:
+		return strconv.FormatInt(typed, 10), nil
+	case uint:
+		return strconv.FormatUint(uint64(typed), 10), nil
+	case uint8:
+		return strconv.FormatUint(uint64(typed), 10), nil
+	case uint16:
+		return strconv.FormatUint(uint64(typed), 10), nil
+	case uint32:
+		return strconv.FormatUint(uint64(typed), 10), nil
+	case uint64:
+		return strconv.FormatUint(typed, 10), nil
+	case float32:
+		value := float64(typed)
+		if math.IsNaN(value) || math.IsInf(value, 0) || math.Trunc(value) != value {
+			return "", errors.New("x-mcp-header value must be an integer")
+		}
+		return strconv.FormatFloat(value, 'f', -1, 64), nil
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) || math.Trunc(typed) != typed {
+			return "", errors.New("x-mcp-header value must be an integer")
+		}
+		return strconv.FormatFloat(typed, 'f', -1, 64), nil
+	case json.Number:
+		value, err := typed.Float64()
+		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || math.Trunc(value) != value {
+			return "", errors.New("x-mcp-header value must be an integer")
+		}
+		return strconv.FormatFloat(value, 'f', -1, 64), nil
+	default:
+		return "", errors.New("x-mcp-header value must be an integer")
+	}
+}
+
+func encodeMCPHeaderValue(value string) string {
+	if safeMCPHeaderValue(value) && !(strings.HasPrefix(value, "=?base64?") && strings.HasSuffix(value, "?=")) {
+		return value
+	}
+	return "=?base64?" + base64.StdEncoding.EncodeToString([]byte(value)) + "?="
+}
+
+func safeMCPHeaderValue(value string) bool {
+	if len(value) > 0 {
+		if value[0] == ' ' || value[0] == '\t' || value[len(value)-1] == ' ' || value[len(value)-1] == '\t' {
+			return false
+		}
+	}
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if char == '\t' {
+			continue
+		}
+		if char < 0x20 || char > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func isHTTPToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' {
+			continue
+		}
+		if !strings.ContainsRune("!#$%&'*+-.^_`|~", rune(char)) {
+			return false
+		}
+	}
+	return true
+}
+
+func isHeaderMismatch(err error) bool {
+	var protocolErr *ProtocolError
+	return errors.As(err, &protocolErr) && protocolErr.Code == -32020
 }
 
 type ProtocolError struct {

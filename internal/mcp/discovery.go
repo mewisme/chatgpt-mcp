@@ -14,6 +14,7 @@ func Discover() map[string]any {
 		"capabilities":      DefaultCapabilities(),
 		"ttlMs":             defaultCacheTTLMS,
 		"cacheScope":        defaultCacheScope,
+		"resultType":        "complete",
 		"_meta": map[string]any{
 			"io.modelcontextprotocol/serverInfo": map[string]any{
 				"name":    "chatgpt-mcp",

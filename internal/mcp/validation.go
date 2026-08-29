@@ -49,6 +49,16 @@ func ValidateParams(method string, params map[string]any) error {
 				return NewError(ErrInvalidParams, "arguments must be an object")
 			}
 		}
+		if requestState, exists := params["requestState"]; exists {
+			if _, ok := requestState.(string); !ok {
+				return NewError(ErrInvalidParams, "requestState must be a string")
+			}
+		}
+		if inputResponses, exists := params["inputResponses"]; exists {
+			if _, ok := inputResponses.(map[string]any); !ok {
+				return NewError(ErrInvalidParams, "inputResponses must be an object")
+			}
+		}
 	}
 	return nil
 }

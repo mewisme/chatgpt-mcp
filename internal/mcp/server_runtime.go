@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"go.mewis.me/chatgpt-mcp/internal/tools"
+	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
 type Runtime struct {
@@ -27,10 +28,15 @@ func (r *Runtime) Handle(ctx context.Context, method string, params map[string]a
 	case "server/discover":
 		return Discover(), nil
 	case "tools/list":
-		return map[string]any{"tools": r.Tools.List(), "ttlMs": defaultCacheTTLMS, "cacheScope": defaultCacheScope}, nil
+		return map[string]any{"tools": r.Tools.List(), "ttlMs": defaultCacheTTLMS, "cacheScope": defaultCacheScope, "resultType": "complete"}, nil
 	case "tools/call":
 		name, _ := params["name"].(string)
 		args, _ := params["arguments"].(map[string]any)
+		requestState, _ := params["requestState"].(string)
+		inputResponses, _ := params["inputResponses"].(map[string]any)
+		meta, _ := params["_meta"].(map[string]any)
+		ctx = tools.WithInputRound(ctx, requestState, inputResponses)
+		ctx = upstream.WithRequestMeta(ctx, meta)
 		result, err := r.Tools.Call(ctx, name, args)
 		if errors.Is(err, tools.ErrToolNotFound) {
 			return nil, NewError(ErrInvalidParams, err.Error())

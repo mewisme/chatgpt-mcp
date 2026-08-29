@@ -70,13 +70,13 @@ func (c Content) MarshalJSON() ([]byte, error) {
 }
 
 type CallResult struct {
-	Content           []Content      `json:"content"`
+	Content           []Content      `json:"content,omitempty"`
 	StructuredContent any            `json:"structuredContent,omitempty"`
 	IsError           bool           `json:"isError,omitempty"`
 	Meta              map[string]any `json:"_meta,omitempty"`
 	ResultType        string         `json:"resultType,omitempty"`
-	RequestState      any            `json:"requestState,omitempty"`
-	InputRequests     any            `json:"inputRequests,omitempty"`
+	RequestState      string         `json:"requestState,omitempty"`
+	InputRequests     map[string]any `json:"inputRequests,omitempty"`
 }
 
 type Client interface {
@@ -211,6 +211,10 @@ func (c *NativeClient) Tools(ctx context.Context, id string) ([]Tool, error) {
 }
 
 func (c *NativeClient) Call(ctx context.Context, id, tool string, args map[string]any) (CallResult, error) {
+	return c.CallWithInput(ctx, id, tool, args, "", nil)
+}
+
+func (c *NativeClient) CallWithInput(ctx context.Context, id, tool string, args map[string]any, requestState string, inputResponses map[string]any) (CallResult, error) {
 	connection, err := c.connection(id)
 	if err != nil {
 		return CallResult{}, err
@@ -220,6 +224,12 @@ func (c *NativeClient) Call(ctx context.Context, id, tool string, args map[strin
 		return CallResult{}, err
 	}
 	params := map[string]any{"name": tool, "arguments": args}
+	if requestState != "" {
+		params["requestState"] = requestState
+	}
+	if inputResponses != nil {
+		params["inputResponses"] = inputResponses
+	}
 	var result CallResult
 	err = connection.callWithHeaders(ctx, "tools/call", tool, params, headers, &result)
 	if isHeaderMismatch(err) && connection.isModernHTTP() {
@@ -235,7 +245,7 @@ func (c *NativeClient) Call(ctx context.Context, id, tool string, args map[strin
 	if err != nil {
 		return CallResult{}, err
 	}
-	if result.Content == nil {
+	if result.ResultType != "input_required" && result.Content == nil {
 		result.Content = []Content{}
 	}
 	return result, nil
@@ -387,7 +397,7 @@ func (c *rpcConnection) callEraLocked(ctx context.Context, era, method, name str
 	id := c.nextID.Add(1)
 	value := cloneMap(params)
 	if era == ModernProtocol {
-		value["_meta"] = requestMeta()
+		value["_meta"] = requestMeta(ctx)
 	}
 	request := rpcRequest{JSONRPC: "2.0", ID: id, Method: method, Params: value}
 	response, err := c.roundTrip(ctx, request, era, name, headers)
@@ -893,14 +903,24 @@ func (e *ProtocolError) Error() string {
 	return fmt.Sprintf("upstream protocol error %d: %s", e.Code, e.Message)
 }
 
-func requestMeta() map[string]any {
-	return map[string]any{
+func requestMeta(ctx context.Context) map[string]any {
+	meta := map[string]any{
 		"io.modelcontextprotocol/protocolVersion": ModernProtocol,
 		"io.modelcontextprotocol/clientInfo": map[string]any{
 			"name": "chatgpt-mcp", "version": "1.0.0",
 		},
 		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
 	}
+	incoming := RequestMetaFromContext(ctx)
+	if capabilities, ok := incoming["io.modelcontextprotocol/clientCapabilities"].(map[string]any); ok {
+		meta["io.modelcontextprotocol/clientCapabilities"] = cloneMap(capabilities)
+	}
+	for _, key := range []string{"traceparent", "tracestate", "baggage"} {
+		if value, ok := incoming[key].(string); ok && value != "" {
+			meta[key] = value
+		}
+	}
+	return meta
 }
 
 func cloneMap(value map[string]any) map[string]any {

@@ -183,7 +183,15 @@ func (m *Manager) Tools(ctx context.Context, id string, force bool) ([]Tool, err
 	return tools, nil
 }
 
+type inputRoundClient interface {
+	CallWithInput(context.Context, string, string, map[string]any, string, map[string]any) (CallResult, error)
+}
+
 func (m *Manager) Call(ctx context.Context, id, tool string, args map[string]any) (CallResult, error) {
+	return m.CallWithInput(ctx, id, tool, args, "", nil)
+}
+
+func (m *Manager) CallWithInput(ctx context.Context, id, tool string, args map[string]any, requestState string, inputResponses map[string]any) (CallResult, error) {
 	server, ok := m.Get(id)
 	if !ok {
 		return CallResult{}, errors.New("unknown upstream server: " + id)
@@ -195,7 +203,16 @@ func (m *Manager) Call(ctx context.Context, id, tool string, args map[string]any
 		m.recordError(id, err)
 		return CallResult{}, err
 	}
-	result, err := m.client.Call(ctx, id, tool, args)
+	var result CallResult
+	var err error
+	if client, ok := m.client.(inputRoundClient); ok {
+		result, err = client.CallWithInput(ctx, id, tool, args, requestState, inputResponses)
+	} else {
+		if requestState != "" || inputResponses != nil {
+			return CallResult{}, errors.New("upstream client does not support multi-round-trip input")
+		}
+		result, err = m.client.Call(ctx, id, tool, args)
+	}
 	if err != nil {
 		m.recordError(id, err)
 		return CallResult{}, err

@@ -105,9 +105,12 @@ func RegisterUpstreamTools(registry *Registry, manager *upstream.Manager) {
 		if err != nil {
 			return Result{}, err
 		}
-		value, err := manager.Call(ctx, serverID, tool, callArgs)
+		value, err := callUpstream(ctx, manager, serverID, tool, callArgs)
 		if err != nil {
 			return Result{}, err
+		}
+		if value.ResultType == "input_required" {
+			return forwardUpstreamResult(value), nil
 		}
 		result := normalizeMCPCall(serverID, tool, value)
 		if value.IsError {
@@ -172,7 +175,7 @@ func refreshServerProxy(registry *Registry, manager *upstream.Manager, server up
 		serverID := server.ID
 		toolName := tool.Name
 		entries[proxyName] = Entry{Schema: schema, Handler: func(ctx context.Context, args map[string]any) (Result, error) {
-			value, err := manager.Call(ctx, serverID, toolName, args)
+			value, err := callUpstream(ctx, manager, serverID, toolName, args)
 			if err != nil {
 				return Result{}, err
 			}
@@ -194,7 +197,17 @@ func normalizeMCPCall(serverID, tool string, value upstream.CallResult) Result {
 	return JSONResult(payload)
 }
 
+func callUpstream(ctx context.Context, manager *upstream.Manager, serverID, tool string, args map[string]any) (upstream.CallResult, error) {
+	round := InputRoundFromContext(ctx)
+	return manager.CallWithInput(ctx, serverID, tool, args, round.RequestState, round.InputResponses)
+}
+
 func forwardUpstreamResult(value upstream.CallResult) Result {
+	if value.ResultType == "input_required" {
+		return Result{
+			ResultType: value.ResultType, RequestState: value.RequestState, InputRequests: value.InputRequests,
+		}
+	}
 	content := make([]Content, 0, len(value.Content))
 	for _, item := range value.Content {
 		text := item.Text
@@ -207,7 +220,9 @@ func forwardUpstreamResult(value upstream.CallResult) Result {
 	if len(content) == 0 {
 		content = []Content{{Type: "text", Text: upstreamText(value)}}
 	}
-	return Result{Content: content, StructuredContent: value.StructuredContent, IsError: value.IsError, Meta: value.Meta}
+	return Result{
+		Content: content, StructuredContent: value.StructuredContent, IsError: value.IsError, Meta: value.Meta, ResultType: value.ResultType,
+	}
 }
 
 func upstreamText(value upstream.CallResult) string {

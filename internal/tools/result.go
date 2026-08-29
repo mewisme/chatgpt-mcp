@@ -49,10 +49,33 @@ type Result struct {
 	StructuredContent any            `json:"structuredContent,omitempty"`
 	IsError           bool           `json:"isError,omitempty"`
 	Meta              map[string]any `json:"_meta,omitempty"`
+	ResultType        string         `json:"resultType,omitempty"`
+	RequestState      string         `json:"requestState,omitempty"`
+	InputRequests     map[string]any `json:"inputRequests,omitempty"`
+}
+
+func (r Result) MarshalJSON() ([]byte, error) {
+	if r.ResultType == "input_required" {
+		return json.Marshal(struct {
+			ResultType    string         `json:"resultType"`
+			InputRequests map[string]any `json:"inputRequests"`
+			RequestState  string         `json:"requestState,omitempty"`
+		}{ResultType: r.ResultType, InputRequests: r.InputRequests, RequestState: r.RequestState})
+	}
+	type wire struct {
+		Content           []Content      `json:"content"`
+		StructuredContent any            `json:"structuredContent,omitempty"`
+		IsError           bool           `json:"isError,omitempty"`
+		Meta              map[string]any `json:"_meta,omitempty"`
+		ResultType        string         `json:"resultType,omitempty"`
+	}
+	return json.Marshal(wire{
+		Content: r.Content, StructuredContent: r.StructuredContent, IsError: r.IsError, Meta: r.Meta, ResultType: r.ResultType,
+	})
 }
 
 func TextResult(text string) Result {
-	return Result{Content: []Content{{Type: "text", Text: text}}, StructuredContent: text}
+	return Result{Content: []Content{{Type: "text", Text: text}}, StructuredContent: text, ResultType: "complete"}
 }
 
 func JSONResult(value any) Result {
@@ -60,7 +83,7 @@ func JSONResult(value any) Result {
 	if err != nil {
 		return ErrorResult(fmt.Errorf("encode tool result: %w", err))
 	}
-	return Result{Content: []Content{{Type: "text", Text: text}}, StructuredContent: value}
+	return Result{Content: []Content{{Type: "text", Text: text}}, StructuredContent: value, ResultType: "complete"}
 }
 
 func ErrorResult(err error) Result {
@@ -68,7 +91,7 @@ func ErrorResult(err error) Result {
 	if err != nil {
 		message = err.Error()
 	}
-	return Result{Content: []Content{{Type: "text", Text: message}}, IsError: true}
+	return Result{Content: []Content{{Type: "text", Text: message}}, IsError: true, ResultType: "complete"}
 }
 
 func resultText(value any) (string, error) {

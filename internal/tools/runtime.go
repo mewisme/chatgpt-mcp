@@ -40,6 +40,9 @@ func (r *Runtime) ListTools() []Schema { return r.List() }
 func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (Result, error) {
 	result, err := r.Registry.Call(ctx, name, args)
 	if err == nil {
+		if result.ResultType == "" {
+			result.ResultType = "complete"
+		}
 		return result, nil
 	}
 	if errors.Is(err, ErrToolNotFound) {

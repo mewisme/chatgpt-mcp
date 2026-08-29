@@ -192,12 +192,19 @@ func TestHTTPRuntimeRejectsInvalidToolParams(t *testing.T) {
 
 func TestHTTPRuntimeRejectsLegacyMethods(t *testing.T) {
 	runtime := NewHTTPRuntime()
-	req := modernRequest("initialize", `{"jsonrpc":"2.0","id":7,"method":"initialize","params":{}}`)
-	res := httptest.NewRecorder()
-	runtime.ServeHTTP(res, req)
-	response := decodeResponse(t, res)
-	if response.Error == nil || response.Error.Code != ErrMethodNotFound {
-		t.Fatalf("error = %#v, want code %d", response.Error, ErrMethodNotFound)
+	for _, method := range []string{"initialize", "ping", "logging/setLevel", "resources/subscribe", "resources/unsubscribe"} {
+		t.Run(method, func(t *testing.T) {
+			req := modernRequest(method, `{"jsonrpc":"2.0","id":7,"method":"`+method+`","params":{}}`)
+			res := httptest.NewRecorder()
+			runtime.ServeHTTP(res, req)
+			if res.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusNotFound, res.Body.String())
+			}
+			response := decodeResponse(t, res)
+			if response.Error == nil || response.Error.Code != ErrMethodNotFound {
+				t.Fatalf("error = %#v, want code %d", response.Error, ErrMethodNotFound)
+			}
+		})
 	}
 }
 

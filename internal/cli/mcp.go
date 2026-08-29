@@ -45,6 +45,7 @@ func mcpCommand() *cobra.Command {
 		mcpServerToggleCommand(false),
 		mcpServerStatusCommand(),
 		mcpServerToolsCommand(),
+		mcpServerAuthCommand(),
 	)
 	cmd.AddCommand(server)
 	return cmd

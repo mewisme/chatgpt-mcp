@@ -18,6 +18,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 )
 
 const (
@@ -91,18 +93,20 @@ type NativeClient struct {
 	mu          sync.Mutex
 	connections map[string]*rpcConnection
 	httpClient  *http.Client
+	oauth       *mcpoauth.Store
 }
 
 type rpcConnection struct {
-	mu      sync.Mutex
-	server  Server
-	era     string
-	session string
-	pid     int
-	stdio   *stdioTransport
-	http    *httpTransport
-	tools   map[string]Tool
-	nextID  atomic.Int64
+	mu           sync.Mutex
+	server       Server
+	era          string
+	session      string
+	pid          int
+	stdio        *stdioTransport
+	http         *httpTransport
+	tools        map[string]Tool
+	managedOAuth bool
+	nextID       atomic.Int64
 }
 
 type rpcRequest struct {
@@ -140,10 +144,14 @@ type httpTransport struct {
 }
 
 func NewNativeClient() *NativeClient {
-	return &NativeClient{
-		connections: map[string]*rpcConnection{},
-		httpClient:  &http.Client{Timeout: 0},
+	return NewNativeClientWithOAuthStore(mcpoauth.NewStore(mcpoauth.Path()))
+}
+
+func NewNativeClientWithOAuthStore(store *mcpoauth.Store) *NativeClient {
+	if store == nil {
+		store = mcpoauth.NewStore(mcpoauth.Path())
 	}
+	return &NativeClient{connections: map[string]*rpcConnection{}, httpClient: &http.Client{Timeout: 0}, oauth: store}
 }
 
 func (c *NativeClient) Connect(ctx context.Context, server Server) error {
@@ -334,10 +342,26 @@ func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rp
 				headers["Authorization"] = "Bearer " + token
 			}
 		}
+		connection.managedOAuth = server.Auth.Type != "none" && !hasHeader(headers, "Authorization")
+		if connection.managedOAuth {
+			token, err := c.oauth.AccessToken(ctx, mcpoauth.RuntimeConfig{ServerID: server.ID, ServerURL: server.URL})
+			switch {
+			case err == nil:
+				headers["Authorization"] = "Bearer " + token
+			case errors.Is(err, mcpoauth.ErrCredentialNotFound) && server.Auth.Type == "auto":
+			case errors.Is(err, mcpoauth.ErrCredentialNotFound), errors.Is(err, mcpoauth.ErrLoginRequired):
+				return nil, &OAuthLoginRequiredError{ServerID: server.ID, Cause: err}
+			default:
+				return nil, err
+			}
+		}
 		connection.http = &httpTransport{url: server.URL, headers: headers, client: c.httpClient}
 	}
 	if err := connection.negotiate(ctx); err != nil {
 		_ = connection.close(context.Background())
+		if server.Transport == "http" && connection.managedOAuth && isOAuthHTTPChallenge(err) {
+			return nil, &OAuthLoginRequiredError{ServerID: server.ID, Cause: err}
+		}
 		return nil, err
 	}
 	return connection, nil
@@ -563,6 +587,11 @@ func (t *httpTransport) roundTrip(ctx context.Context, data []byte, era, method,
 	sessionValue := response.Header.Get("Mcp-Session-Id")
 	rpc, parseErr := parseHTTPRPC(body, response.Header.Get("Content-Type"))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+			return rpcResponse{}, sessionValue, &HTTPStatusError{
+				StatusCode: response.StatusCode, Status: response.Status, WWWAuthenticate: append([]string(nil), response.Header.Values("WWW-Authenticate")...),
+			}
+		}
 		if parseErr == nil && rpc.Error != nil {
 			return rpc, sessionValue, nil
 		}

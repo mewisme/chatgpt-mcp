@@ -8,19 +8,20 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  release:
+  web:
+    name: Web release checks
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.27.x'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -30,24 +31,129 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: '24'
+          node-version: 24
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Build web
-        run: |
-          pnpm --dir web install --frozen-lockfile
-          pnpm --dir web build
-          node scripts/prepare-web-embed.mjs
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Upload web dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-web-dist
+          path: web/dist
+          if-no-files-found: error
+
+  native:
+    name: Release native ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    needs:
+      - web
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            runner: ubuntu-latest
+            binary: chatgpt-mcp
+          - name: Windows
+            runner: windows-latest
+            binary: chatgpt-mcp.exe
+          - name: macOS
+            runner: macos-latest
+            binary: chatgpt-mcp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download web dist
+        uses: actions/download-artifact@v4
+        with:
+          name: release-web-dist
+          path: web/dist
+
+      - name: Prepare web embed
+        run: node scripts/prepare-web-embed.mjs
+
+      - name: Verify modules
+        run: go mod verify
 
       - name: Test
         run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -trimpath -o ./dist-smoke/${{ matrix.binary }} ./
+
+      - name: Runtime smoke
+        run: node scripts/smoke-release.mjs ./dist-smoke/${{ matrix.binary }}
+
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs:
+      - web
+      - native
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download web dist
+        uses: actions/download-artifact@v4
+        with:
+          name: release-web-dist
+          path: web/dist
+
+      - name: Prepare web embed
+        run: node scripts/prepare-web-embed.mjs
+
+      - name: Verify modules
+        run: go mod verify
+
+      - name: Verify clean module metadata
+        run: git diff --exit-code -- go.mod go.sum
 
       - name: Release
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: '~> v2'
+          version: 'v2.18.0'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

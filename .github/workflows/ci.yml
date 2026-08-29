@@ -66,10 +66,13 @@ jobs:
         include:
           - name: Linux
             runner: ubuntu-latest
+            binary: chatgpt-mcp
           - name: Windows
             runner: windows-latest
+            binary: chatgpt-mcp.exe
           - name: macOS
             runner: macos-latest
+            binary: chatgpt-mcp
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -91,6 +94,12 @@ jobs:
           name: web-dist
           path: web/dist
 
+      - name: Prepare web embed
+        run: node scripts/prepare-web-embed.mjs
+
+      - name: Verify modules
+        run: go mod verify
+
       - name: Local install smoke
         run: node scripts/install-local.mjs --from-dist
 
@@ -101,7 +110,10 @@ jobs:
         run: go vet ./...
 
       - name: Build
-        run: go build -trimpath ./
+        run: go build -trimpath -o ./dist-smoke/${{ matrix.binary }} ./
+
+      - name: Runtime smoke
+        run: node scripts/smoke-release.mjs ./dist-smoke/${{ matrix.binary }}
 
   cross-build:
     name: Cross build ${{ matrix.os }}/${{ matrix.arch }}
@@ -144,6 +156,9 @@ jobs:
 
       - name: Prepare web embed
         run: node scripts/prepare-web-embed.mjs
+
+      - name: Verify modules
+        run: go mod verify
 
       - name: Build
         env:

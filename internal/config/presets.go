@@ -18,22 +18,22 @@ type Preset struct {
 var builtInPresets = []Preset{
 	{
 		Name: "default", Description: "Loopback MCP and admin endpoints with authentication enabled.",
-		Server: ServerConfig{Host: "127.0.0.1", Port: 37421}, Admin: AdminConfig{Enabled: true, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: false}, Admin: AdminConfig{Enabled: true, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
 	},
 	{
 		Name: "headless", Description: "Loopback MCP endpoint only; admin UI disabled.",
-		Server: ServerConfig{Host: "127.0.0.1", Port: 37421}, Admin: AdminConfig{Enabled: false, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: false}, Admin: AdminConfig{Enabled: false, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
 	},
 	{
 		Name: "lan", Description: "Expose MCP on all interfaces while keeping admin UI disabled.",
-		Server: ServerConfig{Host: "0.0.0.0", Port: 37421}, Admin: AdminConfig{Enabled: false, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: true}, Admin: AdminConfig{Enabled: false, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
 	},
 	{
 		Name: "lan-admin", Description: "Expose MCP and authenticated admin UI on all interfaces.",
-		Server: ServerConfig{Host: "0.0.0.0", Port: 37421}, Admin: AdminConfig{Enabled: true, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: true}, Admin: AdminConfig{Enabled: true, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
 	},
 }

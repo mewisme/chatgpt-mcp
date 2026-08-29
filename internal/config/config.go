@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -17,8 +18,8 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
+	Port   int  `json:"port"`
+	Expose bool `json:"expose"`
 }
 
 type AdminConfig struct {
@@ -34,7 +35,7 @@ type AuthConfig struct {
 }
 
 func Default() Config {
-	return Config{Server: ServerConfig{Host: "127.0.0.1", Port: 37421}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Port: 37421, Expose: false}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func Path() string { return DefaultPath() }
@@ -55,6 +56,9 @@ func loadAt(configPath, secretPath string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
 	}
+	if err := migrateLegacyServerConfig(data, &cfg); err != nil {
+		return cfg, err
+	}
 	secret, err := loadTunnelSecretAt(secretPath)
 	if err != nil {
 		return cfg, err
@@ -63,6 +67,24 @@ func loadAt(configPath, secretPath string) (Config, error) {
 		cfg.Tunnel.APIKey = secret
 	}
 	return cfg, nil
+}
+
+func migrateLegacyServerConfig(data []byte, cfg *Config) error {
+	var legacy struct {
+		Server struct {
+			Host   string `json:"host"`
+			Expose *bool  `json:"expose"`
+		} `json:"server"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if legacy.Server.Expose != nil || strings.TrimSpace(legacy.Server.Host) == "" {
+		return nil
+	}
+	host := strings.Trim(strings.ToLower(strings.TrimSpace(legacy.Server.Host)), "[]")
+	cfg.Server.Expose = host != "127.0.0.1" && host != "::1" && host != "localhost"
+	return nil
 }
 
 func Save(cfg Config) error {

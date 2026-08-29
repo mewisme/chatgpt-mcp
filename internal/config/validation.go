@@ -3,15 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func Validate(cfg Config) error {
-	if strings.TrimSpace(cfg.Server.Host) == "" {
-		return errors.New("server host is required")
-	}
 	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("server port must be between 1 and 65535: %d", cfg.Server.Port)
 	}

@@ -20,9 +20,10 @@ let child = null
 
 try {
   run(["--help"])
+  run(["serve", "--help"])
   run(["version"])
   run(["init"], { quiet: true })
-  run(["config", "set", "server.host", "127.0.0.1"])
+  run(["config", "set", "server.expose", "false"])
   run(["config", "set", "server.port", String(serverPort)])
   run(["config", "set", "admin.port", String(adminPort)])
   run(["config", "set", "auth.mcp_enabled", "false"])

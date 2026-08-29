@@ -57,7 +57,7 @@ export type MCPServerOAuthLogin = {
 }
 export type MCPServerOAuthSession = { session_id: string; authorization_url: string; expires_at: string }
 export type PublicConfig = {
-  server: { host: string; port: number }
+  server: { port: number; expose: boolean }
   admin: { enabled: boolean; port: number }
   auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
 }

@@ -171,12 +171,7 @@ func configPresetCommand() *cobra.Command {
 				}
 				log := logger.NewCLIWithWriter(cmd.OutOrStdout())
 				log.Success("PRESET", "configuration preset applied", "name", config.MatchPreset(cfg))
-				log.Detail("mcp", fmt.Sprintf("http://%s:%d/mcp", cfg.Server.Host, cfg.Server.Port))
-				if cfg.Admin.Enabled {
-					log.Detail("admin", fmt.Sprintf("http://%s:%d/", cfg.Server.Host, cfg.Admin.Port))
-				} else {
-					log.Detail("admin", "disabled")
-				}
+				logEndpointDetails(log, cfg)
 				log.Detail("secrets", "preserved")
 				return nil
 			},
@@ -229,11 +224,12 @@ func parseConfigSetArgs(args []string) (string, string, error) {
 
 func setConfigValue(cfg *config.Config, key, raw string) error {
 	switch key {
-	case "server.host":
-		if strings.TrimSpace(raw) == "" {
-			return errors.New("server.host must not be empty")
+	case "server.expose":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
 		}
-		cfg.Server.Host = raw
+		cfg.Server.Expose = value
 	case "server.port":
 		value, err := parseInt(raw, key)
 		if err != nil {
@@ -288,8 +284,8 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 
 func getConfigValue(cfg config.Config, key string) (any, error) {
 	switch key {
-	case "server.host":
-		return cfg.Server.Host, nil
+	case "server.expose":
+		return cfg.Server.Expose, nil
 	case "server.port":
 		return cfg.Server.Port, nil
 	case "admin.enabled":

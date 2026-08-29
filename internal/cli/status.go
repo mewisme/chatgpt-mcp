@@ -34,12 +34,7 @@ func statusCommand() *cobra.Command {
 			log.Info("STATUS", "local runtime configuration")
 			log.Detail("initialized", initialized)
 			log.Detail("config", config.Path())
-			log.Detail("mcp", fmt.Sprintf("http://%s:%d/mcp", cfg.Server.Host, cfg.Server.Port))
-			if cfg.Admin.Enabled {
-				log.Detail("admin", fmt.Sprintf("http://%s:%d/", cfg.Server.Host, cfg.Admin.Port))
-			} else {
-				log.Detail("admin", "disabled")
-			}
+			logEndpointDetails(log, cfg)
 			log.Detail("auth", fmt.Sprintf("mcp=%t admin=%t", cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled))
 			log.Detail("workspaces", len(workspaces))
 			log.Detail("upstreams", len(upstreams.List()))

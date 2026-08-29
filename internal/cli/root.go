@@ -25,6 +25,7 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
+	addExposeFlag(cmd)
 	cmd.AddCommand(
 		initCommand(),
 		uninitCommand(),
@@ -70,8 +71,7 @@ func initCommand() *cobra.Command {
 			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
 			log.Success("INIT", "configuration created")
 			log.Detail("config", config.Path())
-			log.Detail("mcp url", fmt.Sprintf("http://%s:%d/mcp", cfg.Server.Host, cfg.Server.Port))
-			log.Detail("admin url", fmt.Sprintf("http://%s:%d/", cfg.Server.Host, cfg.Admin.Port))
+			logEndpointDetails(log, cfg)
 			log.Detail("mcp token", mcpToken)
 			log.Detail("admin token", adminToken)
 			return nil

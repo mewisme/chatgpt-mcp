@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -17,7 +16,9 @@ import (
 )
 
 func serveCommand() *cobra.Command {
-	return &cobra.Command{Use: "serve", Short: "Start the MCP server", RunE: runServer}
+	cmd := &cobra.Command{Use: "serve", Short: "Start the MCP server", RunE: runServer}
+	addExposeFlag(cmd)
+	return cmd
 }
 
 func runServer(cmd *cobra.Command, args []string) (runErr error) {
@@ -31,6 +32,9 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err != nil {
 		return err
 	}
+	if err := applyExposeOverride(cmd, &cfg); err != nil {
+		return err
+	}
 	if err := config.Validate(cfg); err != nil {
 		return err
 	}
@@ -42,7 +46,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 	defer runtimeCancel()
 
-	mcpAddr := net.JoinHostPort(cfg.Server.Host, fmt.Sprint(cfg.Server.Port))
+	mcpAddr := serverBindAddress(cfg.Server.Port, cfg.Server.Expose)
 	mcpListener, err := net.Listen("tcp", mcpAddr)
 	if err != nil {
 		return err
@@ -52,7 +56,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	var adminListener net.Listener
 	adminAddr := ""
 	if cfg.Admin.Enabled {
-		adminAddr = net.JoinHostPort(cfg.Server.Host, fmt.Sprint(cfg.Admin.Port))
+		adminAddr = serverBindAddress(cfg.Admin.Port, cfg.Server.Expose)
 		adminListener, err = net.Listen("tcp", adminAddr)
 		if err != nil {
 			return err
@@ -76,10 +80,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		runtime.Logger.Success("SERVER", "shutdown complete")
 	}()
 
-	runtime.Logger.Info("MCP", "endpoint ready", "url", "http://"+mcpAddr+"/mcp")
-	if cfg.Admin.Enabled {
-		runtime.Logger.Info("ADMIN", "dashboard ready", "url", "http://"+adminAddr+"/")
-	}
+	logReadyEndpoints(runtime.Logger, cfg)
 
 	mcpServer := newHTTPServer(runtime.MCPHandler())
 	servers := []*http.Server{mcpServer}

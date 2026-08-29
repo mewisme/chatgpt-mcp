@@ -151,6 +151,31 @@ MCP:   http://127.0.0.1:37421/mcp
 Admin: http://127.0.0.1:37422/
 ```
 
+The server bind policy is intentionally machine-independent:
+
+```json
+{
+  "server": {
+    "port": 37421,
+    "expose": false
+  }
+}
+```
+
+`expose: false` binds to `127.0.0.1`. To expose MCP and the enabled Admin listener to the local network for one run:
+
+```bash
+chatgpt-mcp serve --expose
+```
+
+Or persist the policy:
+
+```bash
+chatgpt-mcp config set server.expose true
+```
+
+When exposed, the runtime binds to `0.0.0.0`, detects every active non-loopback IPv4 interface, and logs each reachable MCP/Admin URL with its interface name. Multiple LAN/VPN/network addresses are shown separately. Legacy `server.host` values are migrated automatically on load and removed on the next config save.
+
 Inspect the current runtime configuration:
 
 ```bash

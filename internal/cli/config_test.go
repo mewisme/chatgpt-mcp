@@ -15,6 +15,9 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "server.port", "4000"); err != nil {
 		t.Fatal(err)
 	}
+	if err := setConfigValue(&cfg, "server.expose", "true"); err != nil {
+		t.Fatal(err)
+	}
 	if err := setConfigValue(&cfg, "admin.enabled", "false"); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +27,7 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "tunnel.organization_id", "org-test"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Port != 4000 || cfg.Admin.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
+	if cfg.Server.Port != 4000 || !cfg.Server.Expose || cfg.Admin.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
 		t.Fatalf("cfg = %#v", cfg)
 	}
 }
@@ -51,7 +54,7 @@ func TestConfigPresetApplyPreservesSecrets(t *testing.T) {
 	if err := config.ApplyPreset(&cfg, "lan"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Host != "0.0.0.0" || cfg.Admin.Enabled {
+	if !cfg.Server.Expose || cfg.Admin.Enabled {
 		t.Fatalf("preset not applied: %#v", cfg)
 	}
 	if cfg.Auth.MCPTokenHash != "mcp-secret" || cfg.Auth.AdminTokenHash != "admin-secret" {

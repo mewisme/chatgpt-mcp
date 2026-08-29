@@ -62,6 +62,9 @@ func TestConfigAPIHidesTokenHashes(t *testing.T) {
 	if !strings.Contains(body, `"mcp_token_configured":true`) || !strings.Contains(body, `"admin_token_configured":true`) {
 		t.Fatalf("configured state missing: %s", body)
 	}
+	if strings.Contains(body, `"host"`) || !strings.Contains(body, `"expose":false`) {
+		t.Fatalf("server exposure view is invalid: %s", body)
+	}
 }
 
 func TestWorkspaceAPICRUD(t *testing.T) {

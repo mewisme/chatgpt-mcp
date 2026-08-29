@@ -51,6 +51,7 @@ function AuthState({ label, enabled }: { label: string; enabled?: boolean }) {
 
 async function loadDashboard(): Promise<DashboardData> {
   const [workspaces, tools, servers, tunnel, presets, config] = await Promise.all([adminApi.workspaces(), adminApi.tools(), adminApi.upstream(), adminApi.tunnel(), adminApi.configPresets(), adminApi.config()])
+  const host = window.location.hostname || "127.0.0.1"
   return {
     workspaces: workspaces.length,
     tools: tools.length,
@@ -58,8 +59,8 @@ async function loadDashboard(): Promise<DashboardData> {
     enabledServers: servers.filter((server) => server.enabled).length,
     tunnel: tunnel.running ? (tunnel.ready ? "Ready" : "Connecting") : "Stopped",
     preset: presets.current,
-    mcpEndpoint: `http://${config.server.host}:${config.server.port}/mcp`,
-    adminEndpoint: config.admin.enabled ? `http://${config.server.host}:${config.admin.port}` : "Disabled",
+    mcpEndpoint: `http://${host}:${config.server.port}/mcp`,
+    adminEndpoint: config.admin.enabled ? `http://${host}:${config.admin.port}` : "Disabled",
     mcpAuth: config.auth.mcp_enabled,
     adminAuth: config.auth.admin_enabled,
     updatedAt: new Date(),

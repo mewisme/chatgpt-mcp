@@ -2,10 +2,10 @@
 #
 # chatgpt-mcp installer for macOS / Linux.
 #
-# curl -fsSL https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.sh | sh
+# curl -fsSL https://get.mewis.me/chatgpt-mcp.sh | sh
 #
 # Uninstall:
-# curl -fsSL https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.sh | sh -s -- --uninstall
+# curl -fsSL https://get.mewis.me/chatgpt-mcp.sh | sh -s -- --uninstall
 #
 # Environment:
 #   CHATGPT_MCP_VERSION      release tag (default: latest)

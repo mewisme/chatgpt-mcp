@@ -39,24 +39,24 @@ Binary releases do not require Node.js or pnpm.
 Linux/macOS:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.sh | sh
+curl -fsSL https://get.mewis.me/chatgpt-mcp.sh | sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.ps1 | iex
+irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
 ```
 
 Install a specific release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.sh | env CHATGPT_MCP_VERSION=v0.1.0 sh
+curl -fsSL https://get.mewis.me/chatgpt-mcp.sh | env CHATGPT_MCP_VERSION=v0.1.0 sh
 ```
 
 ```powershell
 $env:CHATGPT_MCP_VERSION = 'v0.1.0'
-irm https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.ps1 | iex
+irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
 ```
 
 The Unix installer keeps versions under `~/.chatgpt-mcp` and links `chatgpt-mcp` into `~/.local/bin`. The Windows installer uses `%LOCALAPPDATA%\chatgpt-mcp\current` and adds that directory to the user `PATH`.
@@ -64,13 +64,13 @@ The Unix installer keeps versions under `~/.chatgpt-mcp` and links `chatgpt-mcp`
 Unix uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.sh | sh -s -- --uninstall
+curl -fsSL https://get.mewis.me/chatgpt-mcp.sh | sh -s -- --uninstall
 ```
 
 Windows uninstall:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://get.mewis.me/chatgpt-mcp.ps1))) -Uninstall
 ```
 
 ### Homebrew

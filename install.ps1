@@ -1,6 +1,6 @@
 # chatgpt-mcp installer for Windows (PowerShell).
 #
-# irm https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.ps1 | iex
+# irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
 #
 # Environment:
 #   CHATGPT_MCP_VERSION      release tag (default: latest)

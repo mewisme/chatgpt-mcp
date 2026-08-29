@@ -4,6 +4,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { navItems } from "@/lib/admin-navigation"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { adminApi, adminToken } from "@/lib/api"
 import { ActivityPage } from "@/pages/activity"
 import { LoginPage } from "@/pages/login"
@@ -42,7 +43,7 @@ export function App() {
 
   function signOut() { adminToken.clear(); setAuthenticated(false) }
 
-  return <SidebarProvider><AppSidebar page={page} onPageChange={setPage} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{meta.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{meta.description}</div></div><Button size="sm" variant="ghost" onClick={signOut}><LogOut />Sign out</Button></header><main className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1440px] p-4 sm:p-6 lg:p-8"><Page /></div></main></SidebarInset></SidebarProvider>
+  return <TooltipProvider><SidebarProvider><AppSidebar page={page} onPageChange={setPage} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{meta.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{meta.description}</div></div><Button size="sm" variant="ghost" onClick={signOut}><LogOut />Sign out</Button></header><main className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1440px] p-4 sm:p-6 lg:p-8"><Page /></div></main></SidebarInset></SidebarProvider></TooltipProvider>
 }
 
 export default App

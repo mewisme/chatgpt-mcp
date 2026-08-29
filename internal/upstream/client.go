@@ -98,16 +98,17 @@ type NativeClient struct {
 }
 
 type rpcConnection struct {
-	mu           sync.Mutex
-	server       Server
-	era          string
-	session      string
-	pid          int
-	stdio        *stdioTransport
-	http         *httpTransport
-	tools        map[string]Tool
-	managedOAuth bool
-	nextID       atomic.Int64
+	mu               sync.Mutex
+	server           Server
+	era              string
+	session          string
+	pid              int
+	stdio            *stdioTransport
+	http             *httpTransport
+	tools            map[string]Tool
+	managedOAuth     bool
+	toolsListChanged bool
+	nextID           atomic.Int64
 }
 
 type rpcRequest struct {
@@ -391,10 +392,13 @@ func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rp
 }
 
 func (c *rpcConnection) negotiate(ctx context.Context) error {
-	var discovery map[string]any
+	var discovery struct {
+		Capabilities map[string]any `json:"capabilities"`
+	}
 	err := c.callEra(ctx, ModernProtocol, "server/discover", "", map[string]any{}, &discovery)
 	if err == nil {
 		c.era = ModernProtocol
+		c.toolsListChanged = toolsListChangedCapability(discovery.Capabilities)
 		return nil
 	}
 	var protocolErr *ProtocolError

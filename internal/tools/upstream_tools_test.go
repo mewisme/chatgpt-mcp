@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
@@ -83,4 +85,93 @@ func TestMCPCallNormalizesUpstreamError(t *testing.T) {
 	if !result.IsError {
 		t.Fatalf("expected tool error: %#v", result)
 	}
+}
+
+type subscriptionBridgeClient struct {
+	mu      sync.Mutex
+	tools   []upstream.Tool
+	started chan struct{}
+	trigger chan struct{}
+}
+
+func (*subscriptionBridgeClient) Connect(context.Context, upstream.Server) error { return nil }
+func (*subscriptionBridgeClient) Close(context.Context, string) error            { return nil }
+func (c *subscriptionBridgeClient) Tools(context.Context, string) ([]upstream.Tool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]upstream.Tool(nil), c.tools...), nil
+}
+func (*subscriptionBridgeClient) Call(context.Context, string, string, map[string]any) (upstream.CallResult, error) {
+	return upstream.CallResult{}, nil
+}
+func (*subscriptionBridgeClient) PID(string) int { return 0 }
+func (c *subscriptionBridgeClient) ListenToolsChanged(ctx context.Context, _ string, onChange func()) error {
+	select {
+	case c.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.trigger:
+		onChange()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+}
+
+func TestUpstreamToolSubscriptionRefreshesDynamicProxy(t *testing.T) {
+	client := &subscriptionBridgeClient{
+		tools:   []upstream.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}},
+		started: make(chan struct{}, 1),
+		trigger: make(chan struct{}, 1),
+	}
+	manager := upstream.NewManagerWithClient(nil, client)
+	if err := manager.Add(upstream.Server{
+		ID: "demo", Name: "Demo", Enabled: true, Transport: "http", URL: "http://example.test", Expose: "all",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry()
+	RegisterUpstreamTools(registry, manager)
+	if err := RefreshUpstreamProxies(context.Background(), registry, manager, false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("subscription did not start")
+	}
+	if !hasSchema(registry.ListSchemas(), "demo__echo") {
+		t.Fatal("initial proxy missing")
+	}
+
+	client.mu.Lock()
+	client.tools = []upstream.Tool{{Name: "goodbye", InputSchema: map[string]any{"type": "object"}}}
+	client.mu.Unlock()
+	client.trigger <- struct{}{}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		schemas := registry.ListSchemas()
+		if hasSchema(schemas, "demo__goodbye") && !hasSchema(schemas, "demo__echo") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dynamic proxies were not refreshed: %#v", schemas)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := manager.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func hasSchema(values []Schema, name string) bool {
+	for _, value := range values {
+		if value.Name == name {
+			return true
+		}
+	}
+	return false
 }

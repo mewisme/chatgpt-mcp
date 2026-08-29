@@ -37,6 +37,17 @@ type MCPCallResult struct {
 }
 
 func RegisterUpstreamTools(registry *Registry, manager *upstream.Manager) {
+	manager.SetToolsChangedHandler(func(ctx context.Context, serverID string) error {
+		server, ok := manager.Get(serverID)
+		if !ok || !server.Enabled {
+			return nil
+		}
+		values, err := manager.Tools(ctx, serverID, false)
+		if err != nil {
+			return err
+		}
+		return refreshServerProxy(registry, manager, server, values)
+	})
 	register := func(name, title, description, input, output string, risk Risk, handler Handler) {
 		registry.MustRegister(name, Schema{
 			Name: name, Title: title, Description: description,

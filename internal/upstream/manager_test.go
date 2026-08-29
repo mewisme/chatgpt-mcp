@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestManagerListIsDeterministic(t *testing.T) {
@@ -171,5 +173,95 @@ func TestManagerReturnsOAuthCleanupFailureAfterPersistedMutation(t *testing.T) {
 	stored, ok := manager.Get("alpha")
 	if !ok || stored.Auth.Type != "none" {
 		t.Fatalf("persisted update was lost: %#v", stored)
+	}
+}
+
+type managerSubscriptionClient struct {
+	mu       sync.Mutex
+	tools    []Tool
+	toolGets int
+	started  chan struct{}
+	trigger  chan struct{}
+}
+
+func (c *managerSubscriptionClient) Connect(context.Context, Server) error { return nil }
+func (c *managerSubscriptionClient) Close(context.Context, string) error   { return nil }
+func (c *managerSubscriptionClient) Tools(context.Context, string) ([]Tool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.toolGets++
+	return append([]Tool(nil), c.tools...), nil
+}
+func (*managerSubscriptionClient) Call(context.Context, string, string, map[string]any) (CallResult, error) {
+	return CallResult{}, nil
+}
+func (*managerSubscriptionClient) PID(string) int { return 0 }
+func (c *managerSubscriptionClient) ListenToolsChanged(ctx context.Context, _ string, onChange func()) error {
+	select {
+	case c.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.trigger:
+		onChange()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+}
+
+func TestManagerInvalidatesToolsCacheFromSubscription(t *testing.T) {
+	client := &managerSubscriptionClient{
+		tools:   []Tool{{Name: "one"}},
+		started: make(chan struct{}, 1),
+		trigger: make(chan struct{}, 1),
+	}
+	manager := NewManagerWithClient(nil, client)
+	manager.SetToolsChangedHandler(func(context.Context, string) error { return nil })
+	if err := manager.Add(Server{ID: "demo", Enabled: true, Transport: "http", URL: "http://example.test"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Tools(context.Background(), "demo", false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("subscription did not start")
+	}
+	if _, err := manager.Tools(context.Background(), "demo", false); err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	if client.toolGets != 1 {
+		t.Fatalf("cached tools fetched %d times", client.toolGets)
+	}
+	client.mu.Unlock()
+
+	client.trigger <- struct{}{}
+	deadline := time.Now().Add(time.Second)
+	for {
+		manager.mu.RLock()
+		_, cached := manager.cache["demo"]
+		manager.mu.RUnlock()
+		if !cached {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("tools cache was not invalidated")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := manager.Tools(context.Background(), "demo", false); err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	if client.toolGets != 2 {
+		t.Fatalf("tools after invalidation fetched %d times", client.toolGets)
+	}
+	client.mu.Unlock()
+	if err := manager.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }

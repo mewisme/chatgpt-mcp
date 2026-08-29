@@ -3,9 +3,13 @@ package upstream
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestHTTPModernToolsAndCall(t *testing.T) {
@@ -261,4 +265,119 @@ func TestHTTPModernProtocolError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected connect error")
 	}
+}
+func TestHTTPModernToolsChangedSubscription(t *testing.T) {
+	changed := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		switch request.Method {
+		case "server/discover":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0", "id": request.ID,
+				"result": map[string]any{"capabilities": map[string]any{"tools": map[string]any{"listChanged": true}}},
+			})
+		case "subscriptions/listen":
+			if r.Header.Get("Mcp-Method") != "subscriptions/listen" || r.Header.Get("Mcp-Name") != "" {
+				t.Fatalf("subscription headers method=%q name=%q", r.Header.Get("Mcp-Method"), r.Header.Get("Mcp-Name"))
+			}
+			notifications, _ := request.Params["notifications"].(map[string]any)
+			if notifications["toolsListChanged"] != true {
+				t.Fatalf("listen params = %#v", request.Params)
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Fatal("missing flusher")
+			}
+			meta := map[string]any{"io.modelcontextprotocol/subscriptionId": request.ID}
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", mustJSON(map[string]any{
+				"jsonrpc": "2.0", "method": "notifications/subscriptions/acknowledged",
+				"params": map[string]any{"notifications": map[string]any{"toolsListChanged": true}, "_meta": meta},
+			}))
+			flusher.Flush()
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", mustJSON(map[string]any{
+				"jsonrpc": "2.0", "method": "notifications/tools/list_changed", "params": map[string]any{"_meta": meta},
+			}))
+			flusher.Flush()
+		default:
+			t.Fatalf("unexpected method %q", request.Method)
+		}
+	}))
+	defer server.Close()
+
+	client := NewNativeClient()
+	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL}); err != nil {
+		t.Fatal(err)
+	}
+	err := client.ListenToolsChanged(context.Background(), "test", func() { changed <- struct{}{} })
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("listen error = %v", err)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("tools/list_changed callback was not delivered")
+	}
+}
+
+func TestHTTPModernSubscriptionCancellationClosesStream(t *testing.T) {
+	streamClosed := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		switch request.Method {
+		case "server/discover":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0", "id": request.ID,
+				"result": map[string]any{"capabilities": map[string]any{"tools": map[string]any{"listChanged": true}}},
+			})
+		case "subscriptions/listen":
+			w.Header().Set("Content-Type", "text/event-stream")
+			flusher := w.(http.Flusher)
+			meta := map[string]any{"io.modelcontextprotocol/subscriptionId": request.ID}
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", mustJSON(map[string]any{
+				"jsonrpc": "2.0", "method": "notifications/subscriptions/acknowledged",
+				"params": map[string]any{"notifications": map[string]any{"toolsListChanged": true}, "_meta": meta},
+			}))
+			flusher.Flush()
+			<-r.Context().Done()
+			streamClosed <- struct{}{}
+		default:
+			t.Fatalf("unexpected method %q", request.Method)
+		}
+	}))
+	defer server.Close()
+
+	client := NewNativeClient()
+	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- client.ListenToolsChanged(ctx, "test", func() {}) }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("listen error = %v", err)
+	}
+	select {
+	case <-streamClosed:
+	case <-time.After(time.Second):
+		t.Fatal("subscription HTTP stream was not closed on cancellation")
+	}
+}
+
+func mustJSON(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }

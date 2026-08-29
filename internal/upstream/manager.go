@@ -40,13 +40,19 @@ type toolCache struct {
 	expiresAt time.Time
 }
 
+type toolSubscription struct {
+	cancel context.CancelFunc
+}
+
 type Manager struct {
-	mu      sync.RWMutex
-	store   *Store
-	client  Client
-	servers map[string]Server
-	cache   map[string]toolCache
-	errors  map[string]string
+	mu            sync.RWMutex
+	store         *Store
+	client        Client
+	servers       map[string]Server
+	cache         map[string]toolCache
+	errors        map[string]string
+	subscriptions map[string]*toolSubscription
+	toolsChanged  func(context.Context, string) error
 }
 
 func NewManager(store *Store) *Manager {
@@ -54,7 +60,10 @@ func NewManager(store *Store) *Manager {
 }
 
 func NewManagerWithClient(store *Store, client Client) *Manager {
-	return &Manager{store: store, client: client, servers: map[string]Server{}, cache: map[string]toolCache{}, errors: map[string]string{}}
+	return &Manager{
+		store: store, client: client, servers: map[string]Server{}, cache: map[string]toolCache{}, errors: map[string]string{},
+		subscriptions: map[string]*toolSubscription{},
+	}
 }
 
 func (m *Manager) Load() error {
@@ -111,6 +120,7 @@ func (m *Manager) Add(server Server) error {
 	if !existed {
 		return nil
 	}
+	m.stopToolsSubscription(normalized.ID)
 	closeErr := m.client.Close(context.Background(), normalized.ID)
 	var oauthErr error
 	if oauthCredentialBindingChanged(previous, normalized) {
@@ -133,6 +143,7 @@ func (m *Manager) Remove(id string) error {
 	delete(m.cache, id)
 	delete(m.errors, id)
 	m.mu.Unlock()
+	m.stopToolsSubscription(id)
 	return errors.Join(m.client.Close(context.Background(), id), m.clearOAuthCredential(id))
 }
 
@@ -148,6 +159,7 @@ func (m *Manager) Disconnect(id string) error {
 	delete(m.cache, id)
 	delete(m.errors, id)
 	m.mu.Unlock()
+	m.stopToolsSubscription(id)
 	return m.client.Close(context.Background(), id)
 }
 
@@ -178,9 +190,11 @@ func (m *Manager) Tools(ctx context.Context, id string, force bool) ([]Tool, err
 	cached, hasCache := m.cache[id]
 	m.mu.RUnlock()
 	if !force && hasCache && time.Now().Before(cached.expiresAt) {
+		m.ensureToolsSubscription(server)
 		return append([]Tool(nil), cached.tools...), nil
 	}
 	if force {
+		m.stopToolsSubscription(id)
 		_ = m.client.Close(context.Background(), id)
 	}
 	if err := m.client.Connect(ctx, server); err != nil {
@@ -197,6 +211,7 @@ func (m *Manager) Tools(ctx context.Context, id string, force bool) ([]Tool, err
 	m.cache[id] = toolCache{tools: append([]Tool(nil), tools...), expiresAt: time.Now().Add(toolsCacheTTL)}
 	delete(m.errors, id)
 	m.mu.Unlock()
+	m.ensureToolsSubscription(server)
 	return tools, nil
 }
 
@@ -292,6 +307,7 @@ func (m *Manager) ProxiedToolNames(server Server, tools []Tool) []string {
 }
 
 func (m *Manager) Shutdown(ctx context.Context) error {
+	m.stopAllToolsSubscriptions()
 	servers := m.List()
 	var first error
 	for _, server := range servers {
@@ -324,6 +340,108 @@ func (m *Manager) buildStatus(server Server, health Health, connected bool, tool
 		status.PID = &pid
 	}
 	return status
+}
+
+type toolsChangedSubscriptionClient interface {
+	ListenToolsChanged(context.Context, string, func()) error
+}
+
+func (m *Manager) SetToolsChangedHandler(handler func(context.Context, string) error) {
+	m.mu.Lock()
+	m.toolsChanged = handler
+	m.mu.Unlock()
+}
+
+func (m *Manager) ensureToolsSubscription(server Server) {
+	client, ok := m.client.(toolsChangedSubscriptionClient)
+	if !ok || !server.Enabled || server.Transport != "http" {
+		return
+	}
+	m.mu.Lock()
+	if m.toolsChanged == nil || m.subscriptions[server.ID] != nil {
+		m.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	subscription := &toolSubscription{cancel: cancel}
+	m.subscriptions[server.ID] = subscription
+	m.mu.Unlock()
+
+	go m.runToolsSubscription(ctx, server.ID, subscription, client)
+}
+
+func (m *Manager) runToolsSubscription(ctx context.Context, id string, subscription *toolSubscription, client toolsChangedSubscriptionClient) {
+	defer func() {
+		m.mu.Lock()
+		if m.subscriptions[id] == subscription {
+			delete(m.subscriptions, id)
+		}
+		m.mu.Unlock()
+	}()
+	backoff := time.Second
+	for {
+		err := client.ListenToolsChanged(ctx, id, func() { m.handleToolsChanged(id) })
+		if ctx.Err() != nil {
+			return
+		}
+		if errors.Is(err, ErrSubscriptionsUnsupported) {
+			return
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+		if backoff < 30*time.Second {
+			backoff *= 2
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+		}
+	}
+}
+
+func (m *Manager) handleToolsChanged(id string) {
+	m.mu.Lock()
+	delete(m.cache, id)
+	handler := m.toolsChanged
+	m.mu.Unlock()
+	if handler == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	err := handler(ctx, id)
+	cancel()
+	if err != nil {
+		m.recordError(id, err)
+	}
+}
+
+func (m *Manager) stopToolsSubscription(id string) {
+	m.mu.Lock()
+	subscription := m.subscriptions[id]
+	delete(m.subscriptions, id)
+	m.mu.Unlock()
+	if subscription != nil {
+		subscription.cancel()
+	}
+}
+
+func (m *Manager) stopAllToolsSubscriptions() {
+	m.mu.Lock()
+	values := make([]*toolSubscription, 0, len(m.subscriptions))
+	for _, subscription := range m.subscriptions {
+		values = append(values, subscription)
+	}
+	m.subscriptions = map[string]*toolSubscription{}
+	m.mu.Unlock()
+	for _, subscription := range values {
+		subscription.cancel()
+	}
 }
 
 type oauthCredentialCleaner interface {

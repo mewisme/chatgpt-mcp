@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"unicode"
 )
@@ -292,7 +293,7 @@ func shellWords(segment string) ([]string, error) {
 			escaped = false
 			continue
 		}
-		if r == '\\' && quote != '\'' {
+		if r == '\\' && quote != '\'' && runtime.GOOS != "windows" {
 			escaped = true
 			continue
 		}

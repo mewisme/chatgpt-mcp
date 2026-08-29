@@ -28,8 +28,8 @@ func newGitToolTestRuntime(t *testing.T) (*Runtime, string, string) {
 	RegisterWorkspaceTools(registry, workspaces)
 	RegisterFilesystemTools(registry, workspaces, checkpoints)
 	RegisterGitTools(registry, workspaces)
-	initGitRepo(t, root)
-	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}, item.ID, root
+	initGitRepo(t, item.Path)
+	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}, item.ID, item.Path
 }
 
 func initGitRepo(t *testing.T, root string) {
@@ -38,6 +38,8 @@ func initGitRepo(t *testing.T, root string) {
 		{"init", "--quiet"},
 		{"config", "user.name", "Test User"},
 		{"config", "user.email", "test@example.com"},
+		{"config", "core.autocrlf", "false"},
+		{"config", "core.eol", "lf"},
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = root

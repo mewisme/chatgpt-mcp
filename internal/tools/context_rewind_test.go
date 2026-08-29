@@ -24,7 +24,7 @@ func newContextToolRuntime(t *testing.T) (*Runtime, string, string, *checkpoint.
 	RegisterWorkspaceTools(registry, workspaces)
 	RegisterContextTools(registry, workspaces, checkpoints)
 	RegisterRewindTools(registry, workspaces, checkpoints)
-	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}, item.ID, root, checkpoints
+	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}, item.ID, item.Path, checkpoints
 }
 
 func TestContextSkillsRulesAndRemember(t *testing.T) {

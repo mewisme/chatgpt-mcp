@@ -28,7 +28,7 @@ func newShellToolTestRuntime(t *testing.T) (*Runtime, string, string) {
 	shell := shellruntime.NewManager(workspaces, filepath.Join(t.TempDir(), "shell-state"))
 	processes := shellruntime.NewProcessManager(workspaces, shell)
 	RegisterShellTools(registry, workspaces, shell, processes)
-	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}, item.ID, root
+	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}, item.ID, item.Path
 }
 
 func TestShellToolsPersistCWD(t *testing.T) {

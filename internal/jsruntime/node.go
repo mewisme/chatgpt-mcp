@@ -559,7 +559,16 @@ func (w *worker) closeUnlocked() error {
 		return nil
 	}
 	if runtime.GOOS == "windows" {
-		return w.cmd.Process.Kill()
+		killErr := w.cmd.Process.Kill()
+		waitErr := w.cmd.Wait()
+		if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+			return killErr
+		}
+		var exitErr *exec.ExitError
+		if waitErr != nil && !errors.As(waitErr, &exitErr) {
+			return waitErr
+		}
+		return nil
 	}
 	_ = w.cmd.Process.Signal(os.Interrupt)
 	done := make(chan error, 1)

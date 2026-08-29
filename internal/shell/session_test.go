@@ -18,7 +18,7 @@ func newShellTestManager(t *testing.T) (*Manager, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewManager(workspaces, filepath.Join(t.TempDir(), "state")), item.ID, root
+	return NewManager(workspaces, filepath.Join(t.TempDir(), "state")), item.ID, item.Path
 }
 
 func TestShellPersistsCWD(t *testing.T) {

@@ -21,7 +21,7 @@ func newAdvancedRuntime(t *testing.T) (*Runtime, string, string) {
 	registry := NewRegistry()
 	RegisterWorkspaceTools(registry, workspaces)
 	RegisterAdvancedTools(registry, workspaces)
-	return &Runtime{Registry: registry, Workspaces: workspaces}, item.ID, root
+	return &Runtime{Registry: registry, Workspaces: workspaces}, item.ID, item.Path
 }
 
 func TestAdvancedToolCatalog(t *testing.T) {
@@ -47,6 +47,12 @@ func TestNodeReplToolPersistsState(t *testing.T) {
 		t.Skip("node permission model unavailable")
 	}
 	runtime, workspaceID, _ := newAdvancedRuntime(t)
+	t.Cleanup(func() {
+		result, err := runtime.Call(context.Background(), "node_repl", map[string]any{"workspace_id": workspaceID, "action": "reset"})
+		if err != nil || result.IsError {
+			t.Errorf("node_repl cleanup failed: result=%#v err=%v", result, err)
+		}
+	})
 	first, err := runtime.Call(context.Background(), "node_repl", map[string]any{
 		"workspace_id": workspaceID, "code": "globalThis.x = 1; return globalThis.x",
 	})

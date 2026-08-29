@@ -111,6 +111,19 @@ jobs:
       - name: Runtime smoke
         run: node scripts/smoke-release.mjs ./dist-smoke/${{ matrix.binary }}
 
+      - name: Validate Unix installer
+        if: runner.os != 'Windows'
+        run: sh -n install.sh
+
+      - name: Validate PowerShell installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path ./install.ps1), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+
   release:
     name: Publish release
     runs-on: ubuntu-latest
@@ -149,6 +162,9 @@ jobs:
       - name: Verify clean module metadata
         run: git diff --exit-code -- go.mod go.sum
 
+      - name: Install UPX
+        run: sudo apt-get update && sudo apt-get install -y upx-ucl
+
       - name: Release
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -157,3 +173,31 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach package manifests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          test -f dist/scoop/chatgpt-mcp.json
+          test -f dist/homebrew/Casks/chatgpt-mcp.rb
+          gh release upload "${GITHUB_REF_NAME}" \
+            dist/scoop/chatgpt-mcp.json \
+            dist/homebrew/Casks/chatgpt-mcp.rb \
+            --clobber
+
+      - name: Trigger package manager sync
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_SYNC_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::PACKAGE_SYNC_TOKEN is not configured; skipping Homebrew/Scoop sync."
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg name "chatgpt-mcp" \
+            --arg tag "${GITHUB_REF_NAME}" \
+            '{event_type:"sync-package",client_payload:{name:$name,tag:$tag}}')
+          for repo in homebrew-mew scoop-mew; do
+            echo "$payload" | gh api "repos/${{ github.repository_owner }}/${repo}/dispatches" --input -
+            echo "Dispatched sync-package to ${{ github.repository_owner }}/${repo} (${GITHUB_REF_NAME})"
+          done

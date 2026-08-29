@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
 project_name: chatgpt-mcp
@@ -27,14 +28,22 @@ builds:
       - -s -w
       - -X go.mewis.me/chatgpt-mcp/internal/version.Version={{.Version}}
 
+# Keep macOS binaries untouched for Gatekeeper compatibility.
+upx:
+  - enabled: true
+    ids: [chatgpt-mcp]
+    goos: [linux, windows]
+    compress: best
+
 archives:
-  - id: default
-    formats:
-      - tar.gz
+  - id: chatgpt-mcp
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
     format_overrides:
       - goos: windows
-        formats:
-          - zip
+        formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
@@ -55,3 +64,41 @@ changelog:
     exclude:
       - '^chore:'
       - '^docs:'
+
+# Generate dist/scoop/chatgpt-mcp.json; the release workflow uploads it as
+# a release asset and scoop-mew syncs it through repository_dispatch.
+scoops:
+  - name: chatgpt-mcp
+    url_template: "https://github.com/mewisme/chatgpt-mcp/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    homepage: "https://github.com/mewisme/chatgpt-mcp"
+    description: "Self-hosted MCP 2026-07-28 runtime with local tools, upstream MCP aggregation, and OpenAI tunnel support"
+    license: MIT
+    goamd64: v1
+    skip_upload: true
+    repository:
+      owner: mewisme
+      name: scoop-mew
+      branch: main
+
+# Generate dist/homebrew/Casks/chatgpt-mcp.rb; the release workflow uploads
+# it as a release asset and homebrew-mew syncs it through repository_dispatch.
+homebrew_casks:
+  - name: chatgpt-mcp
+    ids:
+      - chatgpt-mcp
+    binaries:
+      - chatgpt-mcp
+    homepage: "https://github.com/mewisme/chatgpt-mcp"
+    description: "Self-hosted MCP 2026-07-28 runtime with local tools, upstream MCP aggregation, and OpenAI tunnel support"
+    directory: Casks
+    skip_upload: true
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/chatgpt-mcp"]
+          end
+    repository:
+      owner: mewisme
+      name: homebrew-mew
+      branch: main

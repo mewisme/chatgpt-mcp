@@ -34,6 +34,61 @@ Binary releases do not require Node.js or pnpm.
 
 ## Installation
 
+### Direct installer
+
+Linux/macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.ps1 | iex
+```
+
+Install a specific release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.sh | env CHATGPT_MCP_VERSION=v0.1.0 sh
+```
+
+```powershell
+$env:CHATGPT_MCP_VERSION = 'v0.1.0'
+irm https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.ps1 | iex
+```
+
+The Unix installer keeps versions under `~/.chatgpt-mcp` and links `chatgpt-mcp` into `~/.local/bin`. The Windows installer uses `%LOCALAPPDATA%\chatgpt-mcp\current` and adds that directory to the user `PATH`.
+
+Unix uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.sh | sh -s -- --uninstall
+```
+
+Windows uninstall:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/mewisme/chatgpt-mcp/main/install.ps1))) -Uninstall
+```
+
+### Homebrew
+
+```bash
+brew tap mewisme/mew
+brew install --cask chatgpt-mcp
+```
+
+The generated cask is synchronized through `mewisme/homebrew-mew`.
+
+### Scoop
+
+```powershell
+scoop bucket add mew https://github.com/mewisme/scoop-mew
+scoop install mew/chatgpt-mcp
+```
+
 ### Local source install
 
 From a cloned repository:
@@ -322,7 +377,11 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Release archives contain the standalone binary with the admin dashboard embedded, plus `checksums.txt`.
+Release archives contain the standalone binary with the admin dashboard embedded, plus `README.md`, `LICENSE`, and `checksums.txt`.
+
+GoReleaser also generates `chatgpt-mcp.json` for Scoop and `chatgpt-mcp.rb` for Homebrew Cask. The release workflow uploads both manifests as release assets and dispatches `sync-package` to `mewisme/scoop-mew` and `mewisme/homebrew-mew`.
+
+Maintainers should configure the `PACKAGE_SYNC_TOKEN` repository secret with permission to dispatch workflows to both package-manager repositories. If the secret is absent, publishing still succeeds and package sync is skipped with a warning.
 
 ## License
 

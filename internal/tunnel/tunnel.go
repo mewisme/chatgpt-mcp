@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+const (
+	gracefulStopTimeout = 2 * time.Second
+	defaultStopTimeout  = 5 * time.Second
+	redactedSecret      = "[redacted]"
+)
+
 type Config struct {
 	Enabled   bool     `json:"enabled"`
 	ID        string   `json:"id,omitempty"`
@@ -35,7 +41,8 @@ type Client struct {
 	mu        sync.RWMutex
 	config    Config
 	cmd       *exec.Cmd
-	cancel    context.CancelFunc
+	done      chan struct{}
+	stopping  bool
 	startedAt time.Time
 	lastError string
 }
@@ -63,19 +70,23 @@ func (c *Client) Config() Config {
 func (c *Client) Start() error { return c.StartContext(context.Background()) }
 
 func (c *Client) StartContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.config.Enabled {
+		c.mu.Unlock()
 		return nil
 	}
 	if c.cmd != nil {
+		c.mu.Unlock()
 		return errors.New("tunnel already running")
 	}
 	if c.config.Command == "" {
+		c.mu.Unlock()
 		return errors.New("tunnel command is required")
 	}
-	processCtx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(processCtx, c.config.Command, c.config.Args...)
+	cmd := exec.Command(c.config.Command, c.config.Args...)
 	cmd.Env = append(os.Environ(),
 		"CHATGPT_MCP_TUNNEL_ID="+c.config.ID,
 		"CHATGPT_MCP_TUNNEL_API_KEY="+c.config.APIKey,
@@ -85,51 +96,121 @@ func (c *Client) StartContext(ctx context.Context) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
-		cancel()
 		c.lastError = err.Error()
+		c.mu.Unlock()
 		return err
 	}
+	done := make(chan struct{})
 	c.cmd = cmd
-	c.cancel = cancel
+	c.done = done
+	c.stopping = false
 	c.startedAt = time.Now()
 	c.lastError = ""
-	go c.wait(cmd, processCtx)
+	c.mu.Unlock()
+
+	go c.wait(cmd, done)
+	go c.watchContext(ctx, cmd, done)
 	return nil
 }
 
-func (c *Client) wait(cmd *exec.Cmd, ctx context.Context) {
+func (c *Client) wait(cmd *exec.Cmd, done chan struct{}) {
 	err := cmd.Wait()
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.cmd != cmd {
+	if c.cmd == cmd {
+		if err != nil && !c.stopping {
+			c.lastError = err.Error()
+		}
+		c.cmd = nil
+		c.done = nil
+		c.stopping = false
+		c.startedAt = time.Time{}
+	}
+	c.mu.Unlock()
+	close(done)
+}
+
+func (c *Client) watchContext(ctx context.Context, cmd *exec.Cmd, done <-chan struct{}) {
+	select {
+	case <-done:
 		return
+	case <-ctx.Done():
+		stopCtx, cancel := context.WithTimeout(context.Background(), defaultStopTimeout)
+		defer cancel()
+		_ = c.stopCommand(stopCtx, cmd, done)
 	}
-	if err != nil && ctx.Err() == nil {
-		c.lastError = err.Error()
-	}
-	c.cmd = nil
-	c.cancel = nil
-	c.startedAt = time.Time{}
 }
 
 func (c *Client) Stop() error {
-	c.mu.Lock()
-	cmd := c.cmd
-	cancel := c.cancel
-	c.cmd = nil
-	c.cancel = nil
-	c.startedAt = time.Time{}
-	c.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), defaultStopTimeout)
+	defer cancel()
+	return c.StopContext(ctx)
+}
+
+func (c *Client) StopContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if cmd == nil || cmd.Process == nil {
+	c.mu.RLock()
+	cmd := c.cmd
+	done := c.done
+	c.mu.RUnlock()
+	if cmd == nil || done == nil {
 		return nil
 	}
-	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	return c.stopCommand(ctx, cmd, done)
+}
+
+func (c *Client) stopCommand(ctx context.Context, cmd *exec.Cmd, done <-chan struct{}) error {
+	c.mu.Lock()
+	if c.cmd != cmd {
+		c.mu.Unlock()
+		return nil
+	}
+	c.stopping = true
+	c.mu.Unlock()
+
+	if cmd.Process == nil {
+		return nil
+	}
+	signalErr := cmd.Process.Signal(os.Interrupt)
+	if signalErr != nil && !errors.Is(signalErr, os.ErrProcessDone) {
+		if err := killProcess(cmd.Process); err != nil {
+			return err
+		}
+		return waitProcessExit(ctx, done)
+	}
+
+	timer := time.NewTimer(gracefulStopTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return nil
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+	if err := killProcess(cmd.Process); err != nil {
+		return err
+	}
+	return waitProcessExit(ctx, done)
+}
+
+func killProcess(process *os.Process) error {
+	if process == nil {
+		return nil
+	}
+	if err := process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
 	return nil
+}
+
+func waitProcessExit(ctx context.Context, done <-chan struct{}) error {
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *Client) Status() Status {
@@ -145,5 +226,15 @@ func (c *Client) Status() Status {
 func (c *Client) Environment() map[string]string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return map[string]string{"CHATGPT_MCP_TUNNEL_ID": c.config.ID, "CHATGPT_MCP_TUNNEL_API_KEY": c.config.APIKey, "CHATGPT_MCP_TUNNEL_ORIGIN": c.config.Origin, "CHATGPT_MCP_TUNNEL_PUBLIC_URL": c.config.PublicURL, "CHATGPT_MCP_TUNNEL_ENABLED": strconv.FormatBool(c.config.Enabled)}
+	apiKey := ""
+	if c.config.APIKey != "" {
+		apiKey = redactedSecret
+	}
+	return map[string]string{
+		"CHATGPT_MCP_TUNNEL_ID":         c.config.ID,
+		"CHATGPT_MCP_TUNNEL_API_KEY":    apiKey,
+		"CHATGPT_MCP_TUNNEL_ORIGIN":     c.config.Origin,
+		"CHATGPT_MCP_TUNNEL_PUBLIC_URL": c.config.PublicURL,
+		"CHATGPT_MCP_TUNNEL_ENABLED":    strconv.FormatBool(c.config.Enabled),
+	}
 }

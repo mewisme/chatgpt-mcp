@@ -50,26 +50,47 @@ func TunnelOrigin(cfg Config) string {
 func Path() string { return DefaultPath() }
 
 func Load() (Config, error) {
+	return loadAt(Path(), TunnelSecretPath())
+}
+
+func loadAt(configPath, secretPath string) (Config, error) {
 	cfg := Default()
-	data, err := os.ReadFile(Path())
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cfg, nil
 		}
 		return cfg, err
 	}
-	err = json.Unmarshal(data, &cfg)
-	return cfg, err
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return cfg, err
+	}
+	secret, err := loadTunnelSecretAt(secretPath)
+	if err != nil {
+		return cfg, err
+	}
+	if secret != "" {
+		cfg.Tunnel.APIKey = secret
+	}
+	return cfg, nil
 }
 
 func Save(cfg Config) error {
-	path := Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	return saveAt(Path(), TunnelSecretPath(), cfg)
+}
+
+func saveAt(configPath, secretPath string, cfg Config) error {
+	if err := saveTunnelSecretAt(secretPath, cfg.Tunnel.APIKey); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
+		return err
+	}
+	persisted := cfg
+	persisted.Tunnel.APIKey = ""
+	data, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		return err
 	}
-	return state.WriteFileAtomic(path, append(data, '\n'), 0600)
+	return state.WriteFileAtomic(configPath, append(data, '\n'), 0600)
 }

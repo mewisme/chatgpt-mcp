@@ -30,6 +30,13 @@ func (h *HTTPRuntime) CloseSubscriptions() {
 
 func (h *HTTPRuntime) Handler() http.Handler { return h }
 
+func (h HTTPRuntime) emitActivity(method string, params map[string]any, status, message string, duration time.Duration) {
+	if method == "tools/call" && h.Server != nil && h.Server.Tools != nil && h.Server.Tools.HasCallObserver() {
+		return
+	}
+	h.EmitActivity(requestActivity(method, params, status, message, duration))
+}
+
 func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -85,7 +92,7 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if req.Method == "subscriptions/listen" {
 		started := time.Now()
 		h.serveSubscription(w, r, req, params)
-		h.EmitActivity(requestActivity(req.Method, params, "ok", "", time.Since(started)))
+		h.emitActivity(req.Method, params, "ok", "", time.Since(started))
 		return
 	}
 
@@ -93,11 +100,11 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	result, err := h.Server.Handle(r.Context(), req.Method, params)
 	duration := time.Since(started)
 	if contextErr := r.Context().Err(); contextErr != nil {
-		h.EmitActivity(requestActivity(req.Method, params, "cancelled", contextErr.Error(), duration))
+		h.emitActivity(req.Method, params, "cancelled", contextErr.Error(), duration)
 		return
 	}
 	if err != nil {
-		h.EmitActivity(requestActivity(req.Method, params, "error", err.Error(), duration))
+		h.emitActivity(req.Method, params, "error", err.Error(), duration)
 		var protocolErr *Error
 		if errors.As(err, &protocolErr) {
 			writeProtocolErrorStatusID(w, http.StatusOK, req.ID, protocolErr)
@@ -114,7 +121,7 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			message = toolResult.Content[0].Text
 		}
 	}
-	h.EmitActivity(requestActivity(req.Method, params, status, message, duration))
+	h.emitActivity(req.Method, params, status, message, duration)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(Response{JSONRPC: "2.0", ID: req.ID, Result: result})

@@ -36,6 +36,7 @@ func (r *Runtime) Handle(ctx context.Context, method string, params map[string]a
 		inputResponses, _ := params["inputResponses"].(map[string]any)
 		meta, _ := params["_meta"].(map[string]any)
 		ctx = tools.WithInputRound(ctx, requestState, inputResponses)
+		ctx = tools.WithCallSource(ctx, "http")
 		ctx = upstream.WithRequestMeta(ctx, meta)
 		result, err := r.Tools.Call(ctx, name, args)
 		if errors.Is(err, tools.ErrToolNotFound) {

@@ -187,6 +187,7 @@ func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
 			}
 			ctx = tools.WithInputRound(ctx, request.Params.RequestState, responses)
 		}
+		ctx = tools.WithCallSource(ctx, "tunnel")
 		result, err := b.runtime.Call(ctx, name, args)
 		if err != nil {
 			return nil, err

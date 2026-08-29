@@ -10,6 +10,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	"go.mewis.me/chatgpt-mcp/internal/telemetry"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -35,6 +36,7 @@ func New(cfg config.Config) *App {
 	mcpRuntime.Activity = stream
 	oauthStore := mcpoauth.NewStore(mcpoauth.Path())
 	appLogger := logger.New(logger.Info)
+	telemetry.AttachTools(toolRuntime, stream, appLogger)
 	return &App{
 		Config: cfg, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
 		Tunnel: tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger), Logger: appLogger,

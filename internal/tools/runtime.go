@@ -11,10 +11,11 @@ import (
 )
 
 type Runtime struct {
-	Registry    *Registry
-	Workspaces  *workspace.Manager
-	Checkpoints *checkpoint.Store
-	Upstream    *upstream.Manager
+	Registry     *Registry
+	Workspaces   *workspace.Manager
+	Checkpoints  *checkpoint.Store
+	Upstream     *upstream.Manager
+	CallObserver CallObserver
 }
 
 func NewRuntime() *Runtime {
@@ -38,15 +39,36 @@ func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
 
 func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (Result, error) {
+	started := time.Now()
+	source := CallSource(ctx)
+	workspaceID, _ := args["workspace_id"].(string)
+	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID})
+
 	result, err := r.Registry.Call(ctx, name, args)
 	if err == nil {
 		if result.ResultType == "" {
 			result.ResultType = "complete"
 		}
+		status, message := "ok", ""
+		if result.IsError {
+			status = "error"
+			if len(result.Content) > 0 {
+				message = result.Content[0].Text
+			}
+		}
+		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType})
 		return result, nil
 	}
+
+	status, message := "error", err.Error()
+	if ctx != nil && ctx.Err() != nil {
+		status, message = "cancelled", ctx.Err().Error()
+	}
 	if errors.Is(err, ErrToolNotFound) {
+		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message})
 		return Result{}, err
 	}
-	return ErrorResult(err), nil
+	result = ErrorResult(err)
+	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType})
+	return result, nil
 }

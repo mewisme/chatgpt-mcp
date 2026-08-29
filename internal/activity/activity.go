@@ -12,6 +12,7 @@ import (
 type Event struct {
 	Kind        string    `json:"kind"`
 	Method      string    `json:"method,omitempty"`
+	Source      string    `json:"source,omitempty"`
 	Tool        string    `json:"tool,omitempty"`
 	WorkspaceID string    `json:"workspace_id,omitempty"`
 	Status      string    `json:"status,omitempty"`

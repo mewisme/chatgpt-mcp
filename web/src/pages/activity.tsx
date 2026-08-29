@@ -10,6 +10,7 @@ import { authHeaders } from "@/lib/api"
 type ActivityEvent = {
   kind: string
   method?: string
+  source?: string
   tool?: string
   workspace_id?: string
   status?: string
@@ -47,7 +48,7 @@ export function ActivityPage() {
       if (kind !== "all" && event.kind !== kind) return false
       if (status !== "all" && event.status !== status) return false
       if (!needle) return true
-      return [event.kind, event.method, event.tool, event.workspace_id, event.status, event.message].some((value) => value?.toLowerCase().includes(needle))
+      return [event.kind, event.method, event.source, event.tool, event.workspace_id, event.status, event.message].some((value) => value?.toLowerCase().includes(needle))
     })
   }, [events, kind, status, query])
 
@@ -56,7 +57,7 @@ export function ActivityPage() {
 
 function ActivityRow({ event }: { event: ActivityEvent }) {
   const title = event.tool || event.method || event.kind
-  return <div className="rounded-lg border p-3"><div className="flex flex-wrap items-center gap-2"><div className="font-mono text-sm font-medium">{title}</div><Badge variant="outline">{event.kind}</Badge>{event.status ? <Badge variant={event.status === "error" ? "destructive" : "secondary"}>{event.status}</Badge> : null}<div className="ml-auto text-xs text-muted-foreground">{formatTime(event.timestamp)}</div></div><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">{event.workspace_id ? <span>workspace {event.workspace_id}</span> : null}{event.duration_ms !== undefined ? <span>{event.duration_ms} ms</span> : null}</div>{event.message ? <div className="mt-2 break-words text-sm text-muted-foreground">{event.message}</div> : null}</div>
+  return <div className="rounded-lg border p-3"><div className="flex flex-wrap items-center gap-2"><div className="font-mono text-sm font-medium">{title}</div><Badge variant="outline">{event.kind}</Badge>{event.status ? <Badge variant={event.status === "error" ? "destructive" : "secondary"}>{event.status}</Badge> : null}<div className="ml-auto text-xs text-muted-foreground">{formatTime(event.timestamp)}</div></div><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">{event.source ? <span>source {event.source}</span> : null}{event.workspace_id ? <span>workspace {event.workspace_id}</span> : null}{event.duration_ms !== undefined ? <span>{event.duration_ms} ms</span> : null}</div>{event.message ? <div className="mt-2 break-words text-sm text-muted-foreground">{event.message}</div> : null}</div>
 }
 
 async function streamActivity(signal: AbortSignal, onEvent: (event: ActivityEvent) => void) {

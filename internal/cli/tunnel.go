@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/telemetry"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -114,6 +115,7 @@ func tunnelRunCommand() *cobra.Command {
 
 		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
 		runtime := tools.NewRuntime()
+		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 		defer runtimeCancel()
 		shutdownCtx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)

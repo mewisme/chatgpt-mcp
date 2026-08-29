@@ -57,3 +57,21 @@ func TestNativeClientAutoAuthTurns401IntoLoginInstruction(t *testing.T) {
 		t.Fatalf("error=%T %v", err, err)
 	}
 }
+
+func TestNativeClientClearsStoredOAuthCredential(t *testing.T) {
+	store := mcpoauth.NewStore(filepath.Join(t.TempDir(), "oauth.json"))
+	if err := store.Put(mcpoauth.Credential{ServerID: "secure", ServerURL: "https://example.test/mcp", AccessToken: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	client := NewNativeClientWithOAuthStore(store)
+	if err := client.ClearOAuthCredential("secure"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.Status("secure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Configured {
+		t.Fatalf("credential still configured: %#v", status)
+	}
+}

@@ -94,7 +94,6 @@ func (m *Manager) Add(server Server) error {
 		return err
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	previous, existed := m.servers[normalized.ID]
 	m.servers[normalized.ID] = normalized
 	if err := m.persistLocked(); err != nil {
@@ -103,11 +102,21 @@ func (m *Manager) Add(server Server) error {
 		} else {
 			delete(m.servers, normalized.ID)
 		}
+		m.mu.Unlock()
 		return err
 	}
 	delete(m.cache, normalized.ID)
 	delete(m.errors, normalized.ID)
-	return nil
+	m.mu.Unlock()
+	if !existed {
+		return nil
+	}
+	closeErr := m.client.Close(context.Background(), normalized.ID)
+	var oauthErr error
+	if oauthCredentialBindingChanged(previous, normalized) {
+		oauthErr = m.clearOAuthCredential(normalized.ID)
+	}
+	return errors.Join(closeErr, oauthErr)
 }
 
 func (m *Manager) Remove(id string) error {
@@ -124,7 +133,7 @@ func (m *Manager) Remove(id string) error {
 	delete(m.cache, id)
 	delete(m.errors, id)
 	m.mu.Unlock()
-	return m.client.Close(context.Background(), id)
+	return errors.Join(m.client.Close(context.Background(), id), m.clearOAuthCredential(id))
 }
 
 func (m *Manager) Get(id string) (Server, bool) {
@@ -315,6 +324,42 @@ func (m *Manager) buildStatus(server Server, health Health, connected bool, tool
 		status.PID = &pid
 	}
 	return status
+}
+
+type oauthCredentialCleaner interface {
+	ClearOAuthCredential(string) error
+}
+
+func (m *Manager) clearOAuthCredential(id string) error {
+	cleaner, ok := m.client.(oauthCredentialCleaner)
+	if !ok {
+		return nil
+	}
+	return cleaner.ClearOAuthCredential(id)
+}
+
+func oauthCredentialBindingChanged(previous, next Server) bool {
+	previousManaged := usesManagedOAuth(previous)
+	nextManaged := usesManagedOAuth(next)
+	if previousManaged != nextManaged {
+		return true
+	}
+	if !previousManaged {
+		return false
+	}
+	return previous.URL != next.URL || previous.Auth.Scope != next.Auth.Scope
+}
+
+func usesManagedOAuth(server Server) bool {
+	if server.Transport != "http" || server.Auth.Type == "none" || strings.TrimSpace(server.BearerTokenEnvVar) != "" {
+		return false
+	}
+	for key := range server.Headers {
+		if strings.EqualFold(key, "Authorization") {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Manager) recordError(id string, err error) {

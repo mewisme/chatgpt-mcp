@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -160,21 +161,36 @@ func (c *NativeClient) Connect(ctx context.Context, server Server) error {
 		return err
 	}
 	c.mu.Lock()
-	if existing := c.connections[server.ID]; existing != nil {
+	existing := c.connections[server.ID]
+	if existing != nil && reflect.DeepEqual(existing.server, server) {
 		c.mu.Unlock()
 		return nil
 	}
+	if existing != nil {
+		delete(c.connections, server.ID)
+	}
 	c.mu.Unlock()
+	if existing != nil {
+		if err := existing.close(ctx); err != nil {
+			return err
+		}
+	}
 
 	connection, err := c.createConnection(ctx, server)
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
-	if existing := c.connections[server.ID]; existing != nil {
+	if current := c.connections[server.ID]; current != nil {
+		if reflect.DeepEqual(current.server, server) {
+			c.mu.Unlock()
+			_ = connection.close(context.Background())
+			return nil
+		}
+		delete(c.connections, server.ID)
 		c.mu.Unlock()
-		_ = connection.close(context.Background())
-		return nil
+		_ = current.close(context.Background())
+		c.mu.Lock()
 	}
 	c.connections[server.ID] = connection
 	c.mu.Unlock()
@@ -190,6 +206,13 @@ func (c *NativeClient) Close(ctx context.Context, id string) error {
 		return nil
 	}
 	return connection.close(ctx)
+}
+
+func (c *NativeClient) ClearOAuthCredential(id string) error {
+	if c.oauth == nil {
+		return nil
+	}
+	return c.oauth.Delete(id)
 }
 
 func (c *NativeClient) Tools(ctx context.Context, id string) ([]Tool, error) {

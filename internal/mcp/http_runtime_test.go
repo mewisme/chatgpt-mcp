@@ -15,10 +15,50 @@ import (
 )
 
 func modernRequest(method, body string) *http.Request {
+	return rawModernRequest(method, modernRequestBody(body))
+}
+
+func rawModernRequest(method, body string) *http.Request {
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
 	req.Header.Set(ProtocolVersionHeader, SupportedProtocolVersion)
 	req.Header.Set(MethodHeader, method)
 	return req
+}
+
+func modernRequestBody(body string) string {
+	if len(body) > 1<<20 {
+		return body
+	}
+	decoder := json.NewDecoder(strings.NewReader(body))
+	decoder.UseNumber()
+	var request map[string]any
+	if err := decoder.Decode(&request); err != nil {
+		return body
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return body
+	}
+	params, _ := request["params"].(map[string]any)
+	if params == nil {
+		params = map[string]any{}
+		request["params"] = params
+	}
+	meta, _ := params["_meta"].(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
+		params["_meta"] = meta
+	}
+	if _, exists := meta["io.modelcontextprotocol/protocolVersion"]; !exists {
+		meta["io.modelcontextprotocol/protocolVersion"] = SupportedProtocolVersion
+	}
+	if _, exists := meta["io.modelcontextprotocol/clientCapabilities"]; !exists {
+		meta["io.modelcontextprotocol/clientCapabilities"] = map[string]any{}
+	}
+	data, err := json.Marshal(request)
+	if err != nil {
+		return body
+	}
+	return string(data)
 }
 
 func decodeResponse(t *testing.T, res *httptest.ResponseRecorder) Response {
@@ -119,8 +159,8 @@ func TestHTTPRuntimeRejectsMissingProtocolHeader(t *testing.T) {
 		t.Fatalf("status = %d, want %d", res.Code, http.StatusBadRequest)
 	}
 	response := decodeResponse(t, res)
-	if response.Error == nil || response.Error.Code != ErrUnsupportedProtocolVersion {
-		t.Fatalf("error = %#v, want code %d", response.Error, ErrUnsupportedProtocolVersion)
+	if response.Error == nil || response.Error.Code != ErrHeaderMismatch {
+		t.Fatalf("error = %#v, want code %d", response.Error, ErrHeaderMismatch)
 	}
 }
 
@@ -210,7 +250,7 @@ func TestHTTPRuntimeStreamsToolChangesAndGracefulClose(t *testing.T) {
 	server := httptest.NewServer(runtime.Handler())
 	defer server.Close()
 
-	body := strings.NewReader(`{"jsonrpc":"2.0","id":11,"method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true,"promptsListChanged":true},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`)
+	body := strings.NewReader(modernRequestBody(`{"jsonrpc":"2.0","id":11,"method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true,"promptsListChanged":true},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`))
 	req, err := http.NewRequest(http.MethodPost, server.URL, body)
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +318,7 @@ func TestHTTPRuntimeListenContextCancellationClosesStream(t *testing.T) {
 	defer server.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	body := strings.NewReader(`{"jsonrpc":"2.0","id":"listen-cancel","method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true}}}`)
+	body := strings.NewReader(modernRequestBody(`{"jsonrpc":"2.0","id":"listen-cancel","method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true}}}`))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, body)
 	if err != nil {
 		t.Fatal(err)

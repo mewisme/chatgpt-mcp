@@ -14,9 +14,13 @@ func writeErrorID(w http.ResponseWriter, id any, code int, message string) {
 }
 
 func writeErrorStatusID(w http.ResponseWriter, status int, id any, code int, message string) {
+	writeProtocolErrorStatusID(w, status, id, &Error{Code: code, Message: message})
+}
+
+func writeProtocolErrorStatusID(w http.ResponseWriter, status int, id any, protocolErr *Error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(Response{JSONRPC: "2.0", ID: id, Error: &Error{Code: code, Message: message}})
+	_ = json.NewEncoder(w).Encode(Response{JSONRPC: "2.0", ID: id, Error: protocolErr})
 }
 
 func HandleRequest(runtime ToolRuntime, req Request) Response {

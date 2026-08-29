@@ -63,7 +63,7 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if headerErr := ValidateHTTPHeaders(r, req, params); headerErr != nil {
-		writeErrorStatusID(w, http.StatusBadRequest, req.ID, headerErr.Code, headerErr.Message)
+		writeProtocolErrorStatusID(w, http.StatusBadRequest, req.ID, headerErr)
 		return
 	}
 	if err := ValidateParams(req.Method, params); err != nil {
@@ -92,11 +92,15 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	result, err := h.Server.Handle(r.Context(), req.Method, params)
 	duration := time.Since(started)
+	if contextErr := r.Context().Err(); contextErr != nil {
+		h.EmitActivity(requestActivity(req.Method, params, "cancelled", contextErr.Error(), duration))
+		return
+	}
 	if err != nil {
 		h.EmitActivity(requestActivity(req.Method, params, "error", err.Error(), duration))
 		var protocolErr *Error
 		if errors.As(err, &protocolErr) {
-			writeErrorID(w, req.ID, protocolErr.Code, protocolErr.Message)
+			writeProtocolErrorStatusID(w, http.StatusOK, req.ID, protocolErr)
 			return
 		}
 		writeErrorID(w, req.ID, ErrInternal, err.Error())

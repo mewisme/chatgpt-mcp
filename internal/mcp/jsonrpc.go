@@ -73,4 +73,5 @@ func stampServerInfo(raw []byte) (json.RawMessage, error) {
 type Error struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }

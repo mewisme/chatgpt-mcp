@@ -15,10 +15,13 @@ const (
 func ValidateHTTPHeaders(r *http.Request, req Request, params map[string]any) *Error {
 	protocolVersion := strings.TrimSpace(r.Header.Get(ProtocolVersionHeader))
 	if protocolVersion == "" {
-		return NewError(ErrUnsupportedProtocolVersion, "missing MCP-Protocol-Version header")
+		return NewError(ErrHeaderMismatch, "missing MCP-Protocol-Version header")
 	}
 	if protocolVersion != SupportedProtocolVersion {
-		return NewError(ErrUnsupportedProtocolVersion, fmt.Sprintf("unsupported protocol version %q", protocolVersion))
+		return NewErrorData(ErrUnsupportedProtocolVersion, fmt.Sprintf("unsupported protocol version %q", protocolVersion), map[string]any{
+			"supported": []string{SupportedProtocolVersion},
+			"requested": protocolVersion,
+		})
 	}
 
 	method := strings.TrimSpace(r.Header.Get(MethodHeader))

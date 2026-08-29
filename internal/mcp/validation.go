@@ -68,26 +68,25 @@ func ValidateParams(method string, params map[string]any) error {
 func validateRequestMeta(params map[string]any) error {
 	value, exists := params["_meta"]
 	if !exists {
-		return nil
+		return NewError(ErrInvalidParams, "_meta is required")
 	}
 	meta, ok := value.(map[string]any)
 	if !ok {
 		return NewError(ErrInvalidParams, "_meta must be an object")
 	}
-	if value, exists := meta["io.modelcontextprotocol/protocolVersion"]; exists {
-		if _, ok := value.(string); !ok {
-			return NewError(ErrInvalidParams, "protocolVersion metadata must be a string")
-		}
+	version, ok := meta["io.modelcontextprotocol/protocolVersion"].(string)
+	if !ok || version == "" {
+		return NewError(ErrInvalidParams, "protocolVersion metadata is required and must be a string")
 	}
 	if value, exists := meta["io.modelcontextprotocol/clientInfo"]; exists {
 		if _, ok := value.(map[string]any); !ok {
 			return NewError(ErrInvalidParams, "clientInfo metadata must be an object")
 		}
 	}
-	if value, exists := meta["io.modelcontextprotocol/clientCapabilities"]; exists {
-		if _, ok := value.(map[string]any); !ok {
-			return NewError(ErrInvalidParams, "clientCapabilities metadata must be an object")
-		}
+	if value, exists := meta["io.modelcontextprotocol/clientCapabilities"]; !exists {
+		return NewError(ErrInvalidParams, "clientCapabilities metadata is required")
+	} else if _, ok := value.(map[string]any); !ok {
+		return NewError(ErrInvalidParams, "clientCapabilities metadata must be an object")
 	}
 	return nil
 }

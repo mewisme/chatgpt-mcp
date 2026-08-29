@@ -9,13 +9,14 @@ process.noDeprecation = true
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
-const options = { installDeps: true, prepareOnly: false }
+const options = { installDeps: true, prepareOnly: false, fromDist: false }
 
 for (const arg of args) {
   if (arg === "--no-deps") options.installDeps = false
   else if (arg === "--prepare-only") options.prepareOnly = true
+  else if (arg === "--from-dist") options.fromDist = true
   else if (arg === "--help" || arg === "-h") {
-    console.log(`Usage: node scripts/install-local.mjs [--no-deps] [--prepare-only]
+    console.log(`Usage: node scripts/install-local.mjs [--no-deps] [--prepare-only] [--from-dist]
 
 Cross-platform local build/install for Linux, Windows, and macOS.
 
@@ -28,6 +29,7 @@ Default flow:
 Options:
   --no-deps       Skip pnpm install.
   --prepare-only  Build and prepare embedded web assets without go install .
+  --from-dist     Use an existing web/dist and skip pnpm install/build.
   -h, --help      Show this help.`)
     process.exit(0)
   } else fail(`unknown argument: ${arg}`)
@@ -40,12 +42,15 @@ await requireFile("go.mod")
 await requireFile("web/package.json")
 await requireFile("web/pnpm-lock.yaml")
 await requireFile("scripts/prepare-web-embed.mjs")
+if (options.fromDist) await requireFile("web/dist/index.html")
 
 console.log(`[INFO] repository: ${root}`)
 console.log(`[INFO] platform: ${process.platform}/${process.arch}`)
 
-if (options.installDeps) run(pnpm, ["--dir", "web", "install", "--frozen-lockfile"])
-run(pnpm, ["--dir", "web", "build"])
+if (!options.fromDist) {
+  if (options.installDeps) run(pnpm, ["--dir", "web", "install", "--frozen-lockfile"])
+  run(pnpm, ["--dir", "web", "build"])
+}
 run(process.execPath, [resolve(root, "scripts/prepare-web-embed.mjs")])
 
 if (options.prepareOnly) {

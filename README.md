@@ -44,6 +44,12 @@ To skip the dependency install when `web/node_modules` is already current:
 node scripts/install-local.mjs --no-deps
 ```
 
+If `web/dist` was already built or downloaded:
+
+```bash
+node scripts/install-local.mjs --from-dist
+```
+
 ### Binary release
 
 Download the latest release from GitHub Releases.
@@ -178,14 +184,11 @@ pnpm build
 
 Pull requests and pushes to `main` run:
 
-- Frontend lint
-- Frontend typecheck
-- Frontend production build
-- Go tests
-- Go vet
-- Cross-platform Go builds
+- Frontend lint, typecheck, and production build
+- Native local-install smoke, Go tests, Go vet, and Go build on Linux, Windows, and macOS
+- Cross-builds for release target OS/architecture pairs
 
-CI builds the frontend once, passes `web/dist` as an artifact, and prepares `internal/web/dist` before Go compilation.
+CI builds the frontend once, passes `web/dist` as an artifact, and reuses it on native and cross-build jobs. The native matrix runs `scripts/install-local.mjs --from-dist`, so the same local install path is continuously validated on all supported operating systems.
 
 ## Release
 

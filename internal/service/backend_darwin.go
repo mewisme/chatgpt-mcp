@@ -15,6 +15,17 @@ type darwinManager struct{}
 func NewManager() Manager             { return darwinManager{} }
 func (darwinManager) Backend() string { return "launchd" }
 
+func (darwinManager) DefinitionMatches(spec Spec) (bool, error) {
+	data, err := os.ReadFile(darwinPlistPath(spec))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return string(data) == DarwinPlist(spec), nil
+}
+
 func (darwinManager) Install(spec Spec) error {
 	path := darwinPlistPath(spec)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

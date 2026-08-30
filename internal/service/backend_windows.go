@@ -13,6 +13,14 @@ type windowsManager struct{}
 func NewManager() Manager              { return windowsManager{} }
 func (windowsManager) Backend() string { return "task-scheduler" }
 
+func (windowsManager) DefinitionMatches(spec Spec) (bool, error) {
+	output, ok := commandSucceeded("schtasks.exe", "/Query", "/TN", windowsTaskName(spec), "/XML")
+	if !ok {
+		return false, nil
+	}
+	return strings.Contains(output, "<Command>"+xmlText(spec.Binary)+"</Command>") && strings.Contains(output, "<Arguments>"+xmlText(windowsCommandLine(Args(spec)))+"</Arguments>"), nil
+}
+
 func (windowsManager) Install(spec Spec) error {
 	if err := os.MkdirAll(spec.ConfigRoot, 0700); err != nil {
 		return err

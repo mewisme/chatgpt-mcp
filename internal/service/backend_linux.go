@@ -15,6 +15,17 @@ type linuxManager struct{}
 func NewManager() Manager            { return linuxManager{} }
 func (linuxManager) Backend() string { return "systemd" }
 
+func (linuxManager) DefinitionMatches(spec Spec) (bool, error) {
+	data, err := os.ReadFile(linuxUnitPath(spec))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return string(data) == LinuxUnit(spec), nil
+}
+
 func (linuxManager) Install(spec Spec) error {
 	path := linuxUnitPath(spec)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

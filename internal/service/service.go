@@ -41,6 +41,7 @@ type Status struct {
 
 type Manager interface {
 	Backend() string
+	DefinitionMatches(Spec) (bool, error)
 	Install(Spec) error
 	Start(Spec) error
 	Stop(Spec) error

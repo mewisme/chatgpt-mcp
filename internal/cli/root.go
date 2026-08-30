@@ -32,6 +32,8 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(
 		initCommand(),
 		uninitCommand(),
+		upCommand(),
+		downCommand(),
 		configCommand(),
 		authCommand(),
 		workspaceCommand(),

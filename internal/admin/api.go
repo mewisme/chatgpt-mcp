@@ -25,6 +25,7 @@ type API struct {
 	Config     *config.RuntimeStore
 	OAuth      *mcpoauth.Store
 	OAuthFlows *mcpoauth.FlowManager
+	saveConfig func(config.Config) error
 }
 
 type authSettings struct {
@@ -182,15 +183,22 @@ func publicConfigView(cfg config.Config) publicConfig {
 }
 
 func (api API) persistConfigWithFeatures(next, previous config.Config) error {
-	if err := config.Save(next); err != nil {
+	if err := api.persistConfig(next); err != nil {
 		return err
 	}
 	if next.Features != previous.Features && api.Tools != nil {
 		if err := api.Tools.SyncFeatures(next.Features); err != nil {
-			return errors.Join(err, config.Save(previous))
+			return errors.Join(err, api.persistConfig(previous))
 		}
 	}
 	return nil
+}
+
+func (api API) persistConfig(value config.Config) error {
+	if api.saveConfig != nil {
+		return api.saveConfig(value)
+	}
+	return config.Save(value)
 }
 
 func method(method string, next http.HandlerFunc) http.HandlerFunc {

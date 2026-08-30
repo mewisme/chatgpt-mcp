@@ -73,7 +73,7 @@ func (api API) configureTunnel(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusBadRequest
 			return candidate, err
 		}
-		if err := api.Tunnel.Reconfigure(effective, func() error { return config.Save(candidate) }); err != nil {
+		if err := api.Tunnel.Reconfigure(effective, func() error { return api.persistConfig(candidate) }); err != nil {
 			return candidate, err
 		}
 		return candidate, nil

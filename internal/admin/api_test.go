@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,19 +54,13 @@ func TestTunnelConfigRedactsAPIKey(t *testing.T) {
 }
 
 func TestTunnelConfigureRollsBackRuntimeAndMemoryWhenPersistenceFails(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	root := filepath.Join(home, ".config", "chatgpt-mcp")
-	if err := os.MkdirAll(filepath.Join(root, "config.json", "block"), 0700); err != nil {
-		t.Fatal(err)
-	}
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
 	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_old", APIKey: "old-secret"}
 	client := tunnel.NewConfigured(cfg.Tunnel, nil)
 	store := config.NewRuntimeStore(cfg)
-	handler := New(API{Tunnel: client, Config: store})
+	handler := New(API{Tunnel: client, Config: store, saveConfig: func(config.Config) error { return errors.New("persistence failed") }})
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel", strings.NewReader(`{"enabled":false,"id":"tunnel_new","api_key":"new-secret"}`)))
 	if recorder.Code != http.StatusInternalServerError {
@@ -167,18 +160,12 @@ func TestConfigAPIFeaturePatchUpdatesRuntimeCatalog(t *testing.T) {
 }
 
 func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeCatalog(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	root := filepath.Join(home, ".config", "chatgpt-mcp")
-	if err := os.MkdirAll(filepath.Join(root, "config.json", "block"), 0700); err != nil {
-		t.Fatal(err)
-	}
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
-	handler := New(API{Config: store, Tools: runtime})
+	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return errors.New("persistence failed") }})
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"ponytail":{"enabled":false}}}`)))
 	if recorder.Code != http.StatusInternalServerError {

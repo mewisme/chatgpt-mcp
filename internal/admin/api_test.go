@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -220,6 +221,66 @@ func TestConfigAPIFeatureRuntimeFailureRollsBackPersistedConfig(t *testing.T) {
 	}
 	if got := runtime.Features(); !got.Ponytail.Enabled || got.Caveman.Enabled {
 		t.Fatalf("runtime features changed after failed sync: %#v", got)
+	}
+}
+
+func TestConfigAPIPermissionsPatchUpdatesRuntimeAccess(t *testing.T) {
+	root := t.TempDir()
+	allowed := t.TempDir()
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+	item, err := runtime.Workspaces.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runtime.Workspaces.ResolveWorkingDirectory(item.ID, allowed); err == nil {
+		t.Fatal("unconfigured directory was accessible")
+	}
+	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return nil }})
+	body := fmt.Sprintf(`{"permissions":{"allow_dirs":[%q]}}`, allowed)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if _, _, err := runtime.Workspaces.ResolveWorkingDirectory(item.ID, allowed); err != nil {
+		t.Fatalf("runtime access was not updated: %v", err)
+	}
+	if got := store.Snapshot().Permissions.AllowDirs; len(got) != 1 || got[0] != allowed {
+		t.Fatalf("stored permissions = %#v", got)
+	}
+	if !strings.Contains(recorder.Body.String(), `"permissions":{"allow_dirs":[`) {
+		t.Fatalf("permissions missing from response: %s", recorder.Body.String())
+	}
+}
+
+func TestConfigAPIPermissionsPersistenceFailureKeepsRuntimeAccess(t *testing.T) {
+	root := t.TempDir()
+	allowed := t.TempDir()
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+	item, err := runtime.Workspaces.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return errors.New("persistence failed") }})
+	body := fmt.Sprintf(`{"permissions":{"allow_dirs":[%q]}}`, allowed)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(body)))
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if _, _, err := runtime.Workspaces.ResolveWorkingDirectory(item.ID, allowed); err == nil {
+		t.Fatal("runtime access changed after persistence failure")
+	}
+	if len(store.Snapshot().Permissions.AllowDirs) != 0 {
+		t.Fatalf("store changed after persistence failure: %#v", store.Snapshot().Permissions)
 	}
 }
 

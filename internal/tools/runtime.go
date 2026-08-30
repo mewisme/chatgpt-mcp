@@ -31,7 +31,11 @@ func NewRuntime() *Runtime {
 }
 
 func NewRuntimeWithFeatures(featureConfig features.Config) *Runtime {
-	workspaces := workspace.NewManager(workspace.DefaultStorePath())
+	return NewRuntimeWithAccess(featureConfig, nil)
+}
+
+func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []string) *Runtime {
+	workspaces := workspace.NewManagerWithGlobalAllowDirs(workspace.DefaultStorePath(), globalAllowDirs)
 	checkpoints := checkpoint.NewStore(checkpoint.DefaultRoot())
 	upstreams := upstream.NewManager(upstream.NewStore(upstream.Path()))
 	_ = upstreams.Load()
@@ -76,6 +80,12 @@ func (r *Runtime) Features() features.Config {
 	r.featureMu.Lock()
 	defer r.featureMu.Unlock()
 	return r.features
+}
+
+func (r *Runtime) SetGlobalAllowDirs(allowDirs []string) {
+	if r != nil && r.Workspaces != nil {
+		r.Workspaces.SetGlobalAllowDirs(allowDirs)
+	}
 }
 
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }

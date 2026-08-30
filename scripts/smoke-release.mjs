@@ -17,6 +17,7 @@ const env = { ...process.env, HOME: home, USERPROFILE: home }
 const configDir = path.join(home, "config")
 const defaultConfigDir = path.join(home, ".config", "chatgpt-mcp")
 const defaultSentinel = path.join(defaultConfigDir, "release-smoke-sentinel")
+const allowedDir = path.join(home, "allowed")
 const globalArgs = ["--config-dir", configDir]
 const serverPort = await freePort()
 const adminPort = await freePort()
@@ -24,11 +25,14 @@ let child = null
 
 try {
   await mkdir(defaultConfigDir, { recursive: true })
+  await mkdir(allowedDir, { recursive: true })
   await writeFile(defaultSentinel, "keep\n")
   run(["--help"])
   run(["serve", "--help"])
   run(["version"])
   run(["init"], { quiet: true })
+  run(["config", "allow-dir", "add", allowedDir])
+  run(["config", "allow-dir", "list"])
   run(["config", "verify"])
   run(["config", "convert", "yaml"])
   run(["config", "verify"])

@@ -171,3 +171,23 @@ func TestMutationDetectionCoversWritesAndNestedShells(t *testing.T) {
 		}
 	}
 }
+
+func TestShellPolicyAllowsExplicitAllowedDirectoryWrites(t *testing.T) {
+	root := t.TempDir()
+	allowed := t.TempDir()
+	outside := t.TempDir()
+	manager := NewManagerWithGlobalAllowDirs(filepath.Join(t.TempDir(), "workspaces.json"), []string{allowed})
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowedFile := filepath.Join(allowed, "artifact.txt")
+	for _, command := range []string{"echo ok > " + allowedFile, "touch " + allowedFile, "rm " + allowedFile} {
+		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
+			t.Fatalf("allowed-dir command rejected: %s: %v", command, err)
+		}
+	}
+	if err := manager.ValidateShellCommand(item.ID, root, "touch "+filepath.Join(outside, "escape.txt")); err == nil {
+		t.Fatal("write outside effective roots was allowed")
+	}
+}

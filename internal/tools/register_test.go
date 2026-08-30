@@ -270,3 +270,49 @@ func TestRegistryRejectsDuplicateTools(t *testing.T) {
 		t.Fatalf("error = %v, want ErrToolAlreadyRegistered", err)
 	}
 }
+
+func TestAllowedDirectorySupportsFilesystemAndRewind(t *testing.T) {
+	root := t.TempDir()
+	allowed := t.TempDir()
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.AddAllowDir(item.ID, allowed); err != nil {
+		t.Fatal(err)
+	}
+	checkpoints := checkpoint.NewStore(filepath.Join(t.TempDir(), "state"))
+	registry := NewRegistry()
+	RegisterWorkspaceTools(registry, manager)
+	RegisterCore(registry, manager, checkpoints)
+	runtime := &Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoints}
+
+	write := callTool(t, runtime, "write_file", map[string]any{"workspace_id": item.ID, "working_directory": allowed, "path": "artifact.txt", "content": "before"})
+	if write.IsError || write.StructuredContent.(WriteFileResult).CheckpointID == nil {
+		t.Fatalf("allowed write failed: %#v", write)
+	}
+	edit := callTool(t, runtime, "edit_file", map[string]any{"workspace_id": item.ID, "working_directory": allowed, "path": "artifact.txt", "old_text": "before", "new_text": "after"})
+	editResult := edit.StructuredContent.(EditFileResult)
+	if edit.IsError || editResult.CheckpointID == nil {
+		t.Fatalf("allowed edit failed: %#v", edit)
+	}
+	restore := callTool(t, runtime, "rewind", map[string]any{"workspace_id": item.ID, "action": "restore", "checkpoint_id": *editResult.CheckpointID})
+	if restore.IsError {
+		t.Fatalf("allowed rewind failed: %#v", restore)
+	}
+	data, err := os.ReadFile(filepath.Join(allowed, "artifact.txt"))
+	if err != nil || string(data) != "before" {
+		t.Fatalf("restored content = %q err=%v", data, err)
+	}
+
+	edit = callTool(t, runtime, "edit_file", map[string]any{"workspace_id": item.ID, "working_directory": allowed, "path": "artifact.txt", "old_text": "before", "new_text": "after"})
+	editResult = edit.StructuredContent.(EditFileResult)
+	if _, err := manager.RemoveAllowDir(item.ID, allowed); err != nil {
+		t.Fatal(err)
+	}
+	preview := callTool(t, runtime, "rewind", map[string]any{"workspace_id": item.ID, "action": "preview", "checkpoint_id": *editResult.CheckpointID})
+	if !preview.IsError {
+		t.Fatalf("revoked allow dir remained rewind-accessible: %#v", preview)
+	}
+}

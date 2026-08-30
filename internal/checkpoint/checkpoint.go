@@ -61,6 +61,7 @@ type Manifest struct {
 	ID            string         `json:"id"`
 	WorkspaceID   string         `json:"workspace_id"`
 	WorkspaceRoot string         `json:"workspace_root"`
+	AllowedRoots  []string       `json:"allowed_roots,omitempty"`
 	CreatedAt     string         `json:"created_at"`
 	Tool          string         `json:"tool"`
 	Summary       string         `json:"summary"`
@@ -120,15 +121,20 @@ func (s *Store) Config(workspaceID string) map[string]any {
 }
 
 func (s *Store) Before(workspaceID, workspaceRoot, tool string, paths []string, dryRun bool) (string, error) {
+	return s.BeforeAllowed(workspaceID, workspaceRoot, []string{workspaceRoot}, tool, paths, dryRun)
+}
+
+func (s *Store) BeforeAllowed(workspaceID, workspaceRoot string, allowedRoots []string, tool string, paths []string, dryRun bool) (string, error) {
 	if dryRun {
 		return "", nil
 	}
+	allowedRoots = effectiveRoots(workspaceRoot, allowedRoots)
 	unique := uniquePaths(paths)
 	if len(unique) == 0 {
 		return "", nil
 	}
 	for _, path := range unique {
-		if !within(workspaceRoot, path) {
+		if !withinAny(allowedRoots, path) {
 			return "", fmt.Errorf("checkpoint path escapes workspace: %s", path)
 		}
 	}
@@ -159,6 +165,7 @@ func (s *Store) Before(workspaceID, workspaceRoot, tool string, paths []string, 
 		ID:            id,
 		WorkspaceID:   workspaceID,
 		WorkspaceRoot: filepath.Clean(workspaceRoot),
+		AllowedRoots:  allowedRoots,
 		CreatedAt:     createdAt,
 		Tool:          tool,
 		Summary:       fmt.Sprintf("%s: %d path(s) - %s", tool, len(unique), strings.Join(names, ", ")),
@@ -221,9 +228,13 @@ func (s *Store) Get(workspaceID, id string) (*Summary, error) {
 }
 
 func (s *Store) PreviewRestore(workspaceID, workspaceRoot, id string) (Preview, error) {
+	return s.PreviewRestoreAllowed(workspaceID, workspaceRoot, []string{workspaceRoot}, id)
+}
+
+func (s *Store) PreviewRestoreAllowed(workspaceID, workspaceRoot string, allowedRoots []string, id string) (Preview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, id)
+	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, effectiveRoots(workspaceRoot, allowedRoots), id)
 	if err != nil {
 		return Preview{}, err
 	}
@@ -254,9 +265,13 @@ func (s *Store) PreviewRestore(workspaceID, workspaceRoot, id string) (Preview, 
 }
 
 func (s *Store) Restore(workspaceID, workspaceRoot, id string) (RestoreResult, error) {
+	return s.RestoreAllowed(workspaceID, workspaceRoot, []string{workspaceRoot}, id)
+}
+
+func (s *Store) RestoreAllowed(workspaceID, workspaceRoot string, allowedRoots []string, id string) (RestoreResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, id)
+	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, effectiveRoots(workspaceRoot, allowedRoots), id)
 	if err != nil {
 		return RestoreResult{}, err
 	}
@@ -431,7 +446,7 @@ func restoreSnapshot(snapshot FileSnapshot) error {
 	return os.WriteFile(snapshot.Path, data, 0644)
 }
 
-func (s *Store) collectRestorePlanLocked(workspaceID, workspaceRoot, id string) (Summary, map[string]FileSnapshot, error) {
+func (s *Store) collectRestorePlanLocked(workspaceID, workspaceRoot string, allowedRoots []string, id string) (Summary, map[string]FileSnapshot, error) {
 	index, err := s.readIndex(workspaceID)
 	if err != nil {
 		return Summary{}, nil, err
@@ -453,8 +468,9 @@ func (s *Store) collectRestorePlanLocked(workspaceID, workspaceRoot, id string) 
 		if manifest.WorkspaceID != workspaceID || filepath.Clean(manifest.WorkspaceRoot) != filepath.Clean(workspaceRoot) {
 			return Summary{}, nil, errors.New("checkpoint workspace binding mismatch")
 		}
+		manifestRoots := effectiveRoots(manifest.WorkspaceRoot, manifest.AllowedRoots)
 		for _, snapshot := range manifest.Files {
-			if !within(workspaceRoot, snapshot.Path) {
+			if !withinAny(manifestRoots, snapshot.Path) || !withinAny(allowedRoots, snapshot.Path) {
 				return Summary{}, nil, fmt.Errorf("checkpoint path escapes workspace: %s", snapshot.Path)
 			}
 			if _, exists := files[snapshot.Path]; !exists {
@@ -613,6 +629,20 @@ func uniquePaths(paths []string) []string {
 		}
 	}
 	return result
+}
+
+func effectiveRoots(workspaceRoot string, roots []string) []string {
+	values := append([]string{workspaceRoot}, roots...)
+	return uniquePaths(values)
+}
+
+func withinAny(roots []string, candidate string) bool {
+	for _, root := range roots {
+		if within(root, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func within(root, candidate string) bool {

@@ -1,5 +1,5 @@
 export type Tool = { name: string; title?: string; description?: string; inputSchema?: unknown; outputSchema?: unknown; annotations?: Record<string, unknown> }
-export type Workspace = { id: string; path: string }
+export type Workspace = { id: string; path: string; allow_dirs?: string[] }
 export type MCPAuth = { type?: "auto" | "oauth" | "none" | string; scope?: string }
 export type MCPServer = {
   id: string
@@ -60,6 +60,7 @@ export type PublicConfig = {
   server: { port: number; expose: { mode: "none" | "all" | "interfaces"; interfaces: string[] } }
   admin: { enabled: boolean; port: number }
   auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
+  permissions: { allow_dirs: string[] }
   features: { ponytail: { enabled: boolean }; caveman: { enabled: boolean } }
 }
 export type NetworkAddress = { address: string; interface?: string; scope: "local" | "lan" | "network" | string }

@@ -14,6 +14,45 @@ func workspaceCommand() *cobra.Command {
 		workspaceListCommand(),
 		workspaceShowCommand(),
 		workspaceUnregisterCommand(),
+		workspaceAllowDirCommand(),
+	)
+	return cmd
+}
+
+func workspaceAllowDirCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "allow-dir", Short: "Manage workspace-specific allowed directories"}
+	cmd.AddCommand(
+		&cobra.Command{Use: "add <workspace_id> <path>", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+			manager := workspace.NewManager(workspace.DefaultStorePath())
+			item, err := manager.AddAllowDir(args[0], args[1])
+			if err != nil {
+				return err
+			}
+			log := commandLogger(cmd)
+			log.Success("WORKSPACE", "allowed directory added")
+			log.Detail("id", item.ID)
+			log.Detail("allow_dir", args[1])
+			return nil
+		}},
+		&cobra.Command{Use: "remove <workspace_id> <path>", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+			manager := workspace.NewManager(workspace.DefaultStorePath())
+			item, err := manager.RemoveAllowDir(args[0], args[1])
+			if err != nil {
+				return err
+			}
+			log := commandLogger(cmd)
+			log.Success("WORKSPACE", "allowed directory removed")
+			log.Detail("id", item.ID)
+			return nil
+		}},
+		&cobra.Command{Use: "list <workspace_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+			manager := workspace.NewManager(workspace.DefaultStorePath())
+			item, err := manager.Get(args[0])
+			if err != nil {
+				return err
+			}
+			return printJSON(cmd, item.AllowDirs)
+		}},
 	)
 	return cmd
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,7 @@ func configCommand() *cobra.Command {
 		configGetCommand(),
 		configListCommand(),
 		configSetCommand(),
+		configAllowDirCommand(),
 		configConvertCommand(),
 		configPresetCommand(),
 		configVerifyCommand(),
@@ -106,6 +108,93 @@ func configSetCommand() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func configAllowDirCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "allow-dir", Short: "Manage global allowed directories"}
+	cmd.AddCommand(
+		&cobra.Command{Use: "add <path>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			targets, err := config.NormalizeAllowDirs([]string{args[0]})
+			if err != nil {
+				return err
+			}
+			target := targets[0]
+			dirs, err := config.NormalizeAllowDirs(cfg.Permissions.AllowDirs)
+			if err != nil {
+				return err
+			}
+			found := false
+			for _, value := range dirs {
+				found = found || value == target
+			}
+			if !found {
+				dirs, err = config.NormalizeAllowDirs(append(dirs, target))
+				if err != nil {
+					return err
+				}
+			}
+			cfg.Permissions.AllowDirs = dirs
+			if err := config.Validate(cfg); err != nil {
+				return err
+			}
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+			commandLogger(cmd).Success("CONFIG", "global allowed directory added", "path", target)
+			return nil
+		}},
+		&cobra.Command{Use: "remove <path>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			target, err := filepath.Abs(args[0])
+			if err != nil {
+				return err
+			}
+			target = filepath.Clean(target)
+			if canonical, err := filepath.EvalSymlinks(target); err == nil {
+				target = filepath.Clean(canonical)
+			}
+			filtered := make([]string, 0, len(cfg.Permissions.AllowDirs))
+			removed := false
+			for _, value := range cfg.Permissions.AllowDirs {
+				candidate := filepath.Clean(value)
+				if canonical, err := filepath.EvalSymlinks(candidate); err == nil {
+					candidate = filepath.Clean(canonical)
+				}
+				if candidate == target {
+					removed = true
+					continue
+				}
+				filtered = append(filtered, value)
+			}
+			if !removed {
+				return fmt.Errorf("global allowed directory is not configured: %s", target)
+			}
+			cfg.Permissions.AllowDirs = filtered
+			if err := config.Validate(cfg); err != nil {
+				return err
+			}
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+			commandLogger(cmd).Success("CONFIG", "global allowed directory removed", "path", target)
+			return nil
+		}},
+		&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			return printJSON(cmd, cfg.Permissions.AllowDirs)
+		}},
+	)
+	return cmd
 }
 
 func configPresetCommand() *cobra.Command {
@@ -237,6 +326,8 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 			return err
 		}
 		cfg.Auth.AdminEnabled = value
+	case "permissions.allow_dirs":
+		cfg.Permissions.AllowDirs = parseCSV(raw)
 	case "features.ponytail.enabled":
 		value, err := parseBool(raw, key)
 		if err != nil {
@@ -269,6 +360,20 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 		return fmt.Errorf("unsupported config key: %s", key)
 	}
 	return nil
+}
+
+func parseCSV(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}
+	}
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if value := strings.TrimSpace(part); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func getConfigValue(cfg config.Config, key string) (any, error) {

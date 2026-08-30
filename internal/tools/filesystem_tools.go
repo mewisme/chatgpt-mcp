@@ -105,7 +105,7 @@ func handleWriteFile(workspaces *workspace.Manager, checkpoints *checkpoint.Stor
 		if err != nil {
 			return Result{}, err
 		}
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "write_file", []string{file}, false)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "write_file", []string{file}, false)
 		if err != nil {
 			return Result{}, err
 		}
@@ -130,7 +130,7 @@ func handleWriteFileBase64(workspaces *workspace.Manager, checkpoints *checkpoin
 		if err != nil {
 			return Result{}, err
 		}
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "write_file_base64", []string{file}, false)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "write_file_base64", []string{file}, false)
 		if err != nil {
 			return Result{}, err
 		}
@@ -172,7 +172,7 @@ func handleEditFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 			return Result{}, err
 		}
 		diff := patcher.BuildSimpleDiff(string(original), next)
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "edit_file", []string{file}, dryRun)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "edit_file", []string{file}, dryRun)
 		if err != nil {
 			return Result{}, err
 		}
@@ -215,7 +215,7 @@ func handleMultiEdit(workspaces *workspace.Manager, checkpoints *checkpoint.Stor
 			}
 		}
 		diff := patcher.BuildSimpleDiff(string(original), next)
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "multi_edit", []string{file}, dryRun)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "multi_edit", []string{file}, dryRun)
 		if err != nil {
 			return Result{}, err
 		}
@@ -259,7 +259,7 @@ func handleReplaceRegex(workspaces *workspace.Manager, checkpoints *checkpoint.S
 			return Result{}, err
 		}
 		diff := patcher.BuildSimpleDiff(string(original), next)
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "replace_regex", []string{file}, dryRun)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "replace_regex", []string{file}, dryRun)
 		if err != nil {
 			return Result{}, err
 		}
@@ -324,7 +324,7 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 				resolvedOps[index] = op
 				paths = append(paths, resolved)
 			}
-			checkpointID, err := checkpoints.Before(item.ID, item.Path, "apply_patch", paths, dryRun)
+			checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "apply_patch", paths, dryRun)
 			if err != nil {
 				return Result{}, err
 			}
@@ -416,7 +416,7 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 			return Result{}, err
 		}
 		diff := patcher.BuildSimpleDiff(string(original), next)
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "apply_patch", []string{file}, dryRun)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "apply_patch", []string{file}, dryRun)
 		if err != nil {
 			return Result{}, err
 		}
@@ -585,7 +585,7 @@ func handleDeleteFile(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 		if !info.Mode().IsRegular() {
 			return Result{}, errors.New("path is not a file")
 		}
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "delete_file", []string{file}, false)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "delete_file", []string{file}, false)
 		if err != nil {
 			return Result{}, err
 		}
@@ -622,7 +622,7 @@ func handleDeleteDirectory(workspaces *workspace.Manager, checkpoints *checkpoin
 		if !info.IsDir() {
 			return Result{}, errors.New("path is not a directory")
 		}
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "delete_directory", []string{dir}, false)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "delete_directory", []string{dir}, false)
 		if err != nil {
 			return Result{}, err
 		}
@@ -662,7 +662,7 @@ func handleCopyFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 		if !info.Mode().IsRegular() {
 			return Result{}, errors.New("source is not a file")
 		}
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "copy_file", []string{destination}, false)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "copy_file", []string{destination}, false)
 		if err != nil {
 			return Result{}, err
 		}
@@ -699,7 +699,7 @@ func handleMoveFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 		if err != nil {
 			return Result{}, err
 		}
-		checkpointID, err := checkpoints.Before(item.ID, item.Path, "move_file", []string{source, destination}, false)
+		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "move_file", []string{source, destination}, false)
 		if err != nil {
 			return Result{}, err
 		}
@@ -764,11 +764,15 @@ func handleListAllowedDirectories(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
+		roots, err := workspaces.EffectiveRoots(item.ID)
+		if err != nil {
+			return Result{}, err
+		}
 		return JSONResult(AllowedDirectoriesResult{
 			FullMachineAccess: false,
-			Permission:        "workspace-bound: local tools are restricted to the registered workspace root",
+			Permission:        "workspace-bound with explicit allowed directories",
 			DefaultCWD:        cwd,
-			MachineRoots:      []string{item.Path},
+			MachineRoots:      roots,
 			WorkspaceID:       item.ID,
 			WorkspaceRoot:     item.Path,
 		}), nil
@@ -938,6 +942,14 @@ func optionalStrings(args map[string]any, key string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("%s must be an array of strings", key)
 	}
+}
+
+func checkpointBefore(checkpoints *checkpoint.Store, workspaces *workspace.Manager, item workspace.Workspace, tool string, paths []string, dryRun bool) (string, error) {
+	roots, err := workspaces.EffectiveRoots(item.ID)
+	if err != nil {
+		return "", err
+	}
+	return checkpoints.BeforeAllowed(item.ID, item.Path, roots, tool, paths, dryRun)
 }
 
 func editSpecs(value any) ([]EditSpec, error) {

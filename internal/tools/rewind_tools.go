@@ -97,7 +97,11 @@ func RegisterRewindTools(registry *Registry, workspaces *workspace.Manager, chec
 			return Result{}, fmt.Errorf("unknown checkpoint_id: %s. Use action=list first", checkpointID)
 		}
 
-		preview, err := checkpoints.PreviewRestore(item.ID, item.Path, checkpointID)
+		roots, err := workspaces.EffectiveRoots(item.ID)
+		if err != nil {
+			return Result{}, err
+		}
+		preview, err := checkpoints.PreviewRestoreAllowed(item.ID, item.Path, roots, checkpointID)
 		if err != nil {
 			return Result{}, err
 		}
@@ -106,7 +110,7 @@ func RegisterRewindTools(registry *Registry, workspaces *workspace.Manager, chec
 				return Result{}, fmt.Errorf("rewind path validation failed: %w", err)
 			}
 		}
-		if err := checkpoints.ValidateRestorePaths(item.ID, item.Path, checkpointID); err != nil {
+		if err := checkpoints.ValidateRestorePathsAllowed(item.ID, item.Path, roots, checkpointID); err != nil {
 			return Result{}, err
 		}
 
@@ -116,7 +120,7 @@ func RegisterRewindTools(registry *Registry, workspaces *workspace.Manager, chec
 			}), nil
 		}
 
-		value, err := checkpoints.Restore(item.ID, item.Path, checkpointID)
+		value, err := checkpoints.RestoreAllowed(item.ID, item.Path, roots, checkpointID)
 		if err != nil {
 			return Result{}, err
 		}

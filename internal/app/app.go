@@ -33,7 +33,7 @@ func New(cfg config.Config) *App { return NewWithLogger(cfg, nil) }
 
 func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	stream := activity.NewStream()
-	toolRuntime := tools.NewRuntimeWithFeatures(cfg.Features)
+	toolRuntime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
 	mcpRuntime := mcp.NewHTTPRuntimeWithTools(toolRuntime)
 	mcpRuntime.Activity = stream
 	oauthStore := mcpoauth.NewStore(mcpoauth.Path())

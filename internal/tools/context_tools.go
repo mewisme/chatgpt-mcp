@@ -151,12 +151,16 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err := upstreamManager.Load(); err == nil {
 			servers = upstreamManager.List()
 		}
+		roots, err := workspaces.EffectiveRoots(item.ID)
+		if err != nil {
+			return Result{}, err
+		}
 		return JSONResult(AgentStatusResult{
-			PermissionProfile:     "workspace-bound",
-			PermissionDescription: "workspace-bound: local tools may only operate inside the registered workspace; mutating shell commands are fail-closed",
+			PermissionProfile:     "workspace-bound+allow-dirs",
+			PermissionDescription: "local tools may operate inside the workspace root plus explicitly allowed global/workspace directories; mutating shell commands remain fail-closed",
 			FullMachineAccess:     false,
 			DefaultCWD:            cwd,
-			MachineRoots:          []string{item.Path},
+			MachineRoots:          roots,
 			WorkspaceID:           item.ID,
 			WorkspaceRoot:         item.Path,
 			PID:                   os.Getpid(),

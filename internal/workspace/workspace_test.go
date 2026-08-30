@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -31,7 +32,7 @@ func TestRegisterIsStableAndPersistent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != first {
+	if !reflect.DeepEqual(got, first) {
 		t.Fatalf("persisted workspace = %#v, want %#v", got, first)
 	}
 }
@@ -172,5 +173,62 @@ func TestMutationGuardRejectsMoveDestinationOutside(t *testing.T) {
 	}
 	if err := manager.ValidateMutationCommand(item.ID, root, "mv old.txt "+outside); err == nil {
 		t.Fatal("expected outside mv destination to be rejected")
+	}
+}
+
+func TestGlobalAllowDirExtendsWorkspaceScope(t *testing.T) {
+	root := t.TempDir()
+	allowed := t.TempDir()
+	outside := t.TempDir()
+	manager := NewManagerWithGlobalAllowDirs(filepath.Join(t.TempDir(), "workspaces.json"), []string{allowed})
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, cwd, err := manager.ResolveWorkingDirectory(item.ID, allowed); err != nil || cwd != allowed {
+		t.Fatalf("allowed cwd = %q err=%v", cwd, err)
+	}
+	path := filepath.Join(allowed, "artifact.txt")
+	if got, err := manager.ResolvePath(item.ID, allowed, path, false); err != nil || got != path {
+		t.Fatalf("allowed path = %q err=%v", got, err)
+	}
+	if _, err := manager.ResolvePath(item.ID, root, filepath.Join(outside, "escape.txt"), false); err == nil {
+		t.Fatal("unlisted outside path was allowed")
+	}
+}
+
+func TestWorkspaceAllowDirPersistsAndRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	allowed := t.TempDir()
+	outside := t.TempDir()
+	store := filepath.Join(t.TempDir(), "workspaces.json")
+	manager := NewManager(store)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = manager.AddAllowDir(item.ID, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(item.AllowDirs) != 1 || item.AllowDirs[0] != allowed {
+		t.Fatalf("allow dirs = %#v", item.AllowDirs)
+	}
+	reloaded := NewManager(store)
+	if _, _, err := reloaded.ResolveWorkingDirectory(item.ID, allowed); err != nil {
+		t.Fatalf("persisted allow dir rejected: %v", err)
+	}
+	link := filepath.Join(allowed, "outside-link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := reloaded.ResolvePath(item.ID, allowed, filepath.Join(link, "file.txt"), false); err == nil {
+		t.Fatal("symlink escape from allowed dir was accepted")
+	}
+	if _, err := reloaded.RemoveAllowDir(item.ID, allowed); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := reloaded.ResolveWorkingDirectory(item.ID, allowed); err == nil {
+		t.Fatal("removed allow dir remained accessible")
 	}
 }

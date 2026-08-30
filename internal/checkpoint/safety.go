@@ -8,14 +8,31 @@ import (
 )
 
 func (s *Store) ValidateRestorePaths(workspaceID, workspaceRoot, id string) error {
+	return s.ValidateRestorePathsAllowed(workspaceID, workspaceRoot, []string{workspaceRoot}, id)
+}
+
+func (s *Store) ValidateRestorePathsAllowed(workspaceID, workspaceRoot string, allowedRoots []string, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, id)
+	allowedRoots = effectiveRoots(workspaceRoot, allowedRoots)
+	_, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, allowedRoots, id)
 	if err != nil {
 		return err
 	}
 	for _, snapshot := range snapshots {
-		if err := validateSnapshotPath(workspaceRoot, snapshot); err != nil {
+		if err := validateSnapshotPathAllowed(allowedRoots, snapshot); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSnapshotPathAllowed(roots []string, snapshot FileSnapshot) error {
+	if _, err := safeCanonicalAny(roots, snapshot.Path); err != nil {
+		return fmt.Errorf("checkpoint restore denied for %s: %w", snapshot.Path, err)
+	}
+	for _, child := range snapshot.Children {
+		if err := validateSnapshotPathAllowed(roots, child); err != nil {
 			return err
 		}
 	}
@@ -23,15 +40,22 @@ func (s *Store) ValidateRestorePaths(workspaceID, workspaceRoot, id string) erro
 }
 
 func validateSnapshotPath(root string, snapshot FileSnapshot) error {
-	if _, err := safeCanonical(root, snapshot.Path); err != nil {
-		return fmt.Errorf("checkpoint restore denied for %s: %w", snapshot.Path, err)
-	}
-	for _, child := range snapshot.Children {
-		if err := validateSnapshotPath(root, child); err != nil {
-			return err
+	return validateSnapshotPathAllowed([]string{root}, snapshot)
+}
+
+func safeCanonicalAny(roots []string, candidate string) (string, error) {
+	var lastErr error
+	for _, root := range roots {
+		resolved, err := safeCanonical(root, candidate)
+		if err == nil {
+			return resolved, nil
 		}
+		lastErr = err
 	}
-	return nil
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no allowed roots configured")
+	}
+	return "", lastErr
 }
 
 func safeCanonical(root, candidate string) (string, error) {

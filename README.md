@@ -233,6 +233,22 @@ chatgpt-mcp config list --format yaml
 chatgpt-mcp config get admin --toml
 ```
 
+Global filesystem access outside registered workspace roots is explicit through `permissions.allow_dirs`. Directories must be absolute and exist when configured. For example, allowing `/tmp` lets every workspace-bound Agent read/write test or build artifacts there:
+
+```bash
+chatgpt-mcp config allow-dir add /tmp
+chatgpt-mcp config allow-dir list
+chatgpt-mcp config allow-dir remove /tmp
+```
+
+The full list can also be replaced directly:
+
+```bash
+chatgpt-mcp config set permissions.allow_dirs /tmp,/var/tmp/chatgpt-mcp
+```
+
+Admin Settings exposes the same global allow list and applies changes to the live tool runtime after persistence succeeds; no runtime restart is required.
+
 Sensitive keys keep their real names but their values are rendered as `<redacted>` by the config inspection commands. The active main config controls the serialization format of structured `chatgpt-mcp` state such as tunnel secrets, upstream servers, workspace registry, OAuth state, shell state, and rewind metadata. Append-only activity logs remain JSONL.
 
 Convert the active configuration and structured state tree transactionally:
@@ -402,6 +418,16 @@ chatgpt-mcp workspace --help
 ```
 
 Workspace handles are explicit and immutable; tool calls cannot silently switch to another workspace.
+
+A workspace can also grant its own additional directories without exposing them to every other workspace:
+
+```bash
+chatgpt-mcp workspace allow-dir add ws_... /path/to/build-cache
+chatgpt-mcp workspace allow-dir list ws_...
+chatgpt-mcp workspace allow-dir remove ws_... /path/to/build-cache
+```
+
+The effective filesystem scope for an Agent is the workspace root plus global `permissions.allow_dirs` plus that workspace's `allow_dirs`. Filesystem reads/writes, shell mutation validation, Git/process working directories, and rewind validation use the same canonical root set. Symlink escapes remain denied. Filesystem mutations in allowed directories still create rewind checkpoints, and revoking a directory prevents old checkpoints from restoring files back into the revoked path. Agents can inspect effective roots with `list_allowed_directories` or `agent_status`, but no MCP tool can grant new directories to itself.
 
 ## CLI
 

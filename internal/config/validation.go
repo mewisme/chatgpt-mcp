@@ -3,6 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -16,6 +20,9 @@ func Validate(cfg Config) error {
 	}
 	if cfg.Admin.Enabled && cfg.Admin.Port == cfg.Server.Port {
 		return errors.New("admin port must differ from server port")
+	}
+	if _, err := NormalizeAllowDirs(cfg.Permissions.AllowDirs); err != nil {
+		return err
 	}
 	exposure := NormalizeExposure(cfg.Server.Expose)
 	switch exposure.Mode {
@@ -40,4 +47,34 @@ func Validate(cfg Config) error {
 		return err
 	}
 	return nil
+}
+
+func NormalizeAllowDirs(values []string) ([]string, error) {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		path := strings.TrimSpace(value)
+		if path == "" || !filepath.IsAbs(path) {
+			return nil, fmt.Errorf("permissions allow dir must be an absolute path: %q", value)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("permissions allow dir %s: %w", path, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("permissions allow dir is not a directory: %s", path)
+		}
+		canonical, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil, fmt.Errorf("permissions allow dir %s: %w", path, err)
+		}
+		canonical = filepath.Clean(canonical)
+		if _, exists := seen[canonical]; exists {
+			return nil, fmt.Errorf("duplicate permissions allow dir: %s", canonical)
+		}
+		seen[canonical] = struct{}{}
+		result = append(result, canonical)
+	}
+	sort.Strings(result)
+	return result, nil
 }

@@ -16,11 +16,16 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `json:"server"`
-	Admin    AdminConfig    `json:"admin"`
-	Auth     AuthConfig     `json:"auth"`
-	Features FeaturesConfig `json:"features"`
-	Tunnel   tunnel.Config  `json:"tunnel"`
+	Server      ServerConfig      `json:"server"`
+	Admin       AdminConfig       `json:"admin"`
+	Auth        AuthConfig        `json:"auth"`
+	Permissions PermissionsConfig `json:"permissions"`
+	Features    FeaturesConfig    `json:"features"`
+	Tunnel      tunnel.Config     `json:"tunnel"`
+}
+
+type PermissionsConfig struct {
+	AllowDirs []string `json:"allow_dirs"`
 }
 
 type ServerConfig struct {
@@ -56,7 +61,7 @@ type AuthConfig struct {
 type FeaturesConfig = features.Config
 
 func Default() Config {
-	return Config{Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {
@@ -216,6 +221,11 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 		return err
 	}
 	persisted := cfg
+	allowDirs, err := NormalizeAllowDirs(persisted.Permissions.AllowDirs)
+	if err != nil {
+		return err
+	}
+	persisted.Permissions.AllowDirs = allowDirs
 	persisted.Server.Expose = NormalizeExposure(persisted.Server.Expose)
 	persisted.Tunnel.APIKey = ""
 	data, err := configformat.MarshalPath(configPath, persisted)

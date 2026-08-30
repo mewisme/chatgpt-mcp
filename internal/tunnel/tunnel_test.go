@@ -13,16 +13,17 @@ import (
 )
 
 type fakeBackend struct {
-	mu       sync.Mutex
-	started  bool
-	stopped  bool
-	startErr error
-	ready    chan struct{}
-	done     chan os.Signal
+	mu        sync.Mutex
+	started   bool
+	stopped   bool
+	startErr  error
+	autoReady bool
+	ready     chan struct{}
+	done      chan os.Signal
 }
 
 func newFakeBackend() *fakeBackend {
-	return &fakeBackend{ready: make(chan struct{}), done: make(chan os.Signal)}
+	return &fakeBackend{autoReady: true, ready: make(chan struct{}), done: make(chan os.Signal)}
 }
 
 func (b *fakeBackend) Start(context.Context) error {
@@ -33,7 +34,13 @@ func (b *fakeBackend) Start(context.Context) error {
 	if err != nil {
 		return err
 	}
-	close(b.ready)
+	if b.autoReady {
+		select {
+		case <-b.ready:
+		default:
+			close(b.ready)
+		}
+	}
 	return nil
 }
 
@@ -134,15 +141,21 @@ func TestTunnelLifecycleObserverReportsConnectingReadyAndStopped(t *testing.T) {
 	waitLifecycleState(t, events, LifecycleStopped)
 }
 
-func TestTunnelBackendShutdownReportsDegradedThenStopped(t *testing.T) {
+func TestTunnelBackendShutdownReconnects(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
-	fake := newFakeBackend()
-	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) { return fake, nil })
-	events := make(chan LifecycleEvent, 8)
+	created := make(chan *fakeBackend, 4)
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+		fake := newFakeBackend()
+		created <- fake
+		return fake, nil
+	})
+	client.restartDelay = func(int) time.Duration { return time.Millisecond }
+	events := make(chan LifecycleEvent, 16)
 	client.SetLifecycleObserver(func(event LifecycleEvent) { events <- event })
 	if err := client.Start(); err != nil {
 		t.Fatal(err)
 	}
+	first := <-created
 	readyCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := client.WaitUntilReady(readyCtx); err != nil {
@@ -150,7 +163,7 @@ func TestTunnelBackendShutdownReportsDegradedThenStopped(t *testing.T) {
 	}
 	waitLifecycleState(t, events, LifecycleReady)
 	select {
-	case fake.done <- os.Interrupt:
+	case first.done <- os.Interrupt:
 	case <-time.After(time.Second):
 		t.Fatal("backend watcher did not receive shutdown signal")
 	}
@@ -158,13 +171,115 @@ func TestTunnelBackendShutdownReportsDegradedThenStopped(t *testing.T) {
 	if degraded.Message == "" {
 		t.Fatal("degraded lifecycle event did not include a reason")
 	}
+	reconnecting := waitLifecycleState(t, events, LifecycleReconnecting)
+	if reconnecting.Attempt != 1 || reconnecting.RetryIn != time.Millisecond {
+		t.Fatalf("reconnecting event = %+v", reconnecting)
+	}
+	second := <-created
+	if second == first {
+		t.Fatal("restart reused the previous backend")
+	}
+	waitLifecycleState(t, events, LifecycleReady)
+	status := client.Status()
+	if !status.Running || !status.Ready || status.Restarting || status.LastError != "" {
+		t.Fatalf("tunnel did not recover: %+v", status)
+	}
+	first.mu.Lock()
+	firstStopped := first.stopped
+	first.mu.Unlock()
+	if !firstStopped {
+		t.Fatal("failed backend was not stopped before reconnect")
+	}
+	if err := client.Stop(); err != nil {
+		t.Fatal(err)
+	}
 	waitLifecycleState(t, events, LifecycleStopped)
-	deadline := time.Now().Add(time.Second)
-	for client.Status().Running {
-		if time.Now().After(deadline) {
-			t.Fatalf("tunnel stayed running after backend shutdown: %+v", client.Status())
+}
+
+func TestTunnelStopDuringReconnectPreventsRestart(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	created := make(chan *fakeBackend, 4)
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+		fake := newFakeBackend()
+		created <- fake
+		return fake, nil
+	})
+	client.restartDelay = func(int) time.Duration { return time.Hour }
+	events := make(chan LifecycleEvent, 16)
+	client.SetLifecycleObserver(func(event LifecycleEvent) { events <- event })
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	first := <-created
+	readyCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := client.WaitUntilReady(readyCtx); err != nil {
+		t.Fatal(err)
+	}
+	waitLifecycleState(t, events, LifecycleReady)
+	first.done <- os.Interrupt
+	waitLifecycleState(t, events, LifecycleDegraded)
+	waitLifecycleState(t, events, LifecycleReconnecting)
+	if err := client.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	waitLifecycleState(t, events, LifecycleStopped)
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case extra := <-created:
+		t.Fatalf("tunnel restarted after explicit stop: %#v", extra)
+	default:
+	}
+	status := client.Status()
+	if status.Running || status.Ready || status.Restarting {
+		t.Fatalf("tunnel remained active after explicit stop: %+v", status)
+	}
+}
+
+func TestWaitUntilReadySurvivesReconnectBeforeInitialReady(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	created := make(chan *fakeBackend, 4)
+	count := 0
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+		count++
+		fake := newFakeBackend()
+		if count == 1 {
+			fake.autoReady = false
 		}
-		time.Sleep(time.Millisecond)
+		created <- fake
+		return fake, nil
+	})
+	client.restartDelay = func(int) time.Duration { return time.Millisecond }
+	events := make(chan LifecycleEvent, 16)
+	client.SetLifecycleObserver(func(event LifecycleEvent) { events <- event })
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	first := <-created
+	waitLifecycleState(t, events, LifecycleConnecting)
+	readyCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	readyErr := make(chan error, 1)
+	go func() { readyErr <- client.WaitUntilReady(readyCtx) }()
+	first.done <- os.Interrupt
+	waitLifecycleState(t, events, LifecycleDegraded)
+	waitLifecycleState(t, events, LifecycleReconnecting)
+	<-created
+	waitLifecycleState(t, events, LifecycleReady)
+	if err := <-readyErr; err != nil {
+		t.Fatalf("WaitUntilReady returned during recoverable restart: %v", err)
+	}
+	if err := client.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDefaultRestartDelayIsBoundedExponential(t *testing.T) {
+	tests := map[int]time.Duration{0: time.Second, 1: time.Second, 2: 2 * time.Second, 5: 16 * time.Second, 6: 30 * time.Second, 20: 30 * time.Second}
+	for attempt, want := range tests {
+		if got := defaultRestartDelay(attempt); got != want {
+			t.Fatalf("attempt %d delay = %s, want %s", attempt, got, want)
+		}
 	}
 }
 

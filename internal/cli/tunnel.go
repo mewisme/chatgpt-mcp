@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os/signal"
 	"syscall"
 	"time"
@@ -122,20 +123,19 @@ func tunnelRunCommand() *cobra.Command {
 		defer stop()
 
 		client := tunnel.NewConfiguredWithLogger(tunnelConfig, runtime, log)
+		client.SetLifecycleObserver(func(event tunnel.LifecycleEvent) { logTunnelLifecycle(log, event) })
 		if err := client.StartContext(runtimeCtx); err != nil {
 			return err
 		}
 		defer func() {
 			status := client.Status()
-			if status.Running {
+			if status.Running || status.Restarting {
 				log.Action("TUNNEL", "tunnel.stopping", "Stopping tunnel", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
 				if err := client.Stop(); err != nil {
 					log.Failure("TUNNEL", "tunnel.stop.failed", "Failed to stop tunnel", err)
 					if runErr == nil {
 						runErr = err
 					}
-				} else {
-					log.Ready("TUNNEL", "tunnel.stopped", "Tunnel stopped", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
 				}
 			}
 			if runtime.Upstream != nil {
@@ -157,7 +157,6 @@ func tunnelRunCommand() *cobra.Command {
 			}
 		}()
 
-		log.Action("TUNNEL", "tunnel.connecting", "Connecting tunnel", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
 		if err := client.WaitUntilReady(shutdownCtx); err != nil {
 			if shutdownCtx.Err() != nil {
 				log.Verbose("TUNNEL", "tunnel.shutdown.requested", "Shutdown requested")
@@ -165,9 +164,32 @@ func tunnelRunCommand() *cobra.Command {
 			}
 			return err
 		}
-		log.Ready("TUNNEL", "tunnel.connected", "Tunnel connected", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
 		<-shutdownCtx.Done()
 		log.Verbose("TUNNEL", "tunnel.shutdown.requested", "Shutdown requested")
 		return nil
 	}}
+}
+
+func logTunnelLifecycle(log *logger.Logger, event tunnel.LifecycleEvent) {
+	fields := []logger.Field{}
+	if event.ID != "" {
+		fields = append(fields, logger.WithVerbose("tunnel_id", event.ID))
+	}
+	switch event.State {
+	case tunnel.LifecycleConnecting:
+		log.Action("TUNNEL", "tunnel.connecting", "Connecting tunnel", fields...)
+	case tunnel.LifecycleReconnecting:
+		fields = append(fields, logger.WithVerbose("attempt", event.Attempt), logger.WithVerbose("retry_in", event.RetryIn.String()))
+		log.Action("TUNNEL", "tunnel.reconnecting", "Reconnecting tunnel", fields...)
+	case tunnel.LifecycleReady:
+		log.Ready("TUNNEL", "tunnel.connected", "Tunnel connected", fields...)
+	case tunnel.LifecycleDegraded:
+		var eventErr error
+		if event.Message != "" {
+			eventErr = errors.New(event.Message)
+		}
+		log.Warning("TUNNEL", "tunnel.degraded", "Tunnel degraded", eventErr, fields...)
+	case tunnel.LifecycleStopped:
+		log.Ready("TUNNEL", "tunnel.stopped", "Tunnel stopped", fields...)
+	}
 }

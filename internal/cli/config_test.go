@@ -221,6 +221,9 @@ func TestRemoveConfigRoot(t *testing.T) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
 	}
+	if err := configformat.MarkRoot(root); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte("{}"), 0600); err != nil {
 		t.Fatal(err)
 	}

@@ -95,7 +95,7 @@ func TestLineWriterVerboseShowsRouteContextOnly(t *testing.T) {
 	}
 }
 
-func TestLineWriterPromotesReconnectToDefaultAction(t *testing.T) {
+func TestLineWriterKeepsRawReconnectDiagnosticOutOfDefault(t *testing.T) {
 	restoreColor := disableColor()
 	defer restoreColor()
 	var output bytes.Buffer
@@ -103,9 +103,8 @@ func TestLineWriterPromotesReconnectToDefaultAction(t *testing.T) {
 	if _, err := writer.Write([]byte(`level=INFO msg="reconnecting to control plane" attempt=2 tunnel_id=tunnel_123` + "\n")); err != nil {
 		t.Fatal(err)
 	}
-	text := output.String()
-	if !strings.Contains(text, "→ Reconnecting tunnel") || strings.Contains(text, "attempt") || strings.Contains(text, "tunnel_id") {
-		t.Fatalf("default reconnect output = %q", text)
+	if output.Len() != 0 {
+		t.Fatalf("raw reconnect diagnostic leaked into default output: %q", output.String())
 	}
 }
 

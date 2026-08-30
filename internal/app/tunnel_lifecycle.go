@@ -22,6 +22,9 @@ func (a *App) attachTunnelLifecycle() {
 			switch event.State {
 			case tunnel.LifecycleConnecting:
 				a.Logger.Action("TUNNEL", "tunnel.connecting", "Connecting tunnel", fields...)
+			case tunnel.LifecycleReconnecting:
+				fields = append(fields, logger.WithVerbose("attempt", event.Attempt), logger.WithVerbose("retry_in", event.RetryIn.String()))
+				a.Logger.Action("TUNNEL", "tunnel.reconnecting", "Reconnecting tunnel", fields...)
 			case tunnel.LifecycleReady:
 				a.Logger.Ready("TUNNEL", "tunnel.connected", "Tunnel connected", fields...)
 			case tunnel.LifecycleDegraded:

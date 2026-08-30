@@ -125,11 +125,6 @@ func parseStructuredLine(line string) (Event, bool) {
 func classifyDiagnosticEvent(event *Event) {
 	message := strings.ToLower(strings.TrimSpace(event.Message))
 	switch {
-	case strings.Contains(message, "reconnect"):
-		event.Name = "tunnel.reconnecting"
-		event.Message = "Reconnecting tunnel"
-		event.Kind = KindAction
-		event.Visibility = VisibilityDefault
 	case strings.Contains(message, "route resolved"):
 		event.Name = "tunnel.route.resolved"
 		event.Visibility = VisibilityVerbose

@@ -68,11 +68,7 @@ var (
 )
 
 func DefaultStateRoot() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".chatgpt-mcp"
-	}
-	return filepath.Join(home, ".config", "chatgpt-mcp")
+	return configformat.RootPath()
 }
 
 func NewManager(workspaces *workspace.Manager, root string) *Manager {

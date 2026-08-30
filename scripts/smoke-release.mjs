@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -14,11 +14,17 @@ if (!input) fail("usage: node scripts/smoke-release.mjs <binary>")
 const binary = path.resolve(input)
 const home = await mkdtemp(path.join(tmpdir(), "chatgpt-mcp-release-smoke-"))
 const env = { ...process.env, HOME: home, USERPROFILE: home }
+const configDir = path.join(home, "config")
+const defaultConfigDir = path.join(home, ".config", "chatgpt-mcp")
+const defaultSentinel = path.join(defaultConfigDir, "release-smoke-sentinel")
+const globalArgs = ["--config-dir", configDir]
 const serverPort = await freePort()
 const adminPort = await freePort()
 let child = null
 
 try {
+  await mkdir(defaultConfigDir, { recursive: true })
+  await writeFile(defaultSentinel, "keep\n")
   run(["--help"])
   run(["serve", "--help"])
   run(["version"])
@@ -39,7 +45,7 @@ try {
   run(["config", "verify"])
   run(["status"])
 
-  child = spawn(binary, ["serve"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
+  child = spawn(binary, [...globalArgs, "serve"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
   let stdout = ""
   let stderr = ""
   child.stdout.on("data", (chunk) => { stdout += chunk.toString() })
@@ -54,6 +60,7 @@ try {
   child = null
 
   run(["uninit"], { quiet: true })
+  if (await readFile(defaultSentinel, "utf8") !== "keep\n") fail("isolated commands modified the default config root")
   console.log("[OK] release smoke: init -> verify -> convert/transform -> config -> status -> serve -> health -> Activity SSE ready -> MCP discover/list/conformance -> stop -> uninit")
 } finally {
   if (child) await stopChild(child).catch(() => undefined)
@@ -61,7 +68,7 @@ try {
 }
 
 function run(args, { quiet = false } = {}) {
-  const result = spawnSync(binary, args, { env, encoding: "utf8", windowsHide: true })
+  const result = spawnSync(binary, [...globalArgs, ...args], { env, encoding: "utf8", windowsHide: true })
   if (result.error) fail(`${args.join(" ")}: ${result.error.message}`)
   if (result.status !== 0) {
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim()

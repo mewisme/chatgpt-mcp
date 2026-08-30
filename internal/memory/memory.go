@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
@@ -21,11 +22,7 @@ type Store struct {
 }
 
 func DefaultRoot() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".chatgpt-mcp"
-	}
-	return filepath.Join(home, ".config", "chatgpt-mcp")
+	return configformat.RootPath()
 }
 
 func NewStore(root string) Store {

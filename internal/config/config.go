@@ -208,7 +208,11 @@ func saveAt(configPath, secretPath string, cfg Config) error {
 }
 
 func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret func(string, string) error) error {
-	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
+	root := filepath.Dir(configPath)
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return err
+	}
+	if err := configformat.MarkRoot(root); err != nil {
 		return err
 	}
 	persisted := cfg

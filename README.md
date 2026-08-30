@@ -153,6 +153,15 @@ The command creates MCP/admin credentials and stores configuration under:
 ~/.config/chatgpt-mcp/
 ```
 
+For test binaries, CI, or parallel isolated instances, override the entire persistent config/state root with `--config-dir`:
+
+```bash
+chatgpt-mcp --config-dir ./.tmp/chatgpt-mcp-test init
+chatgpt-mcp --config-dir ./.tmp/chatgpt-mcp-test serve
+```
+
+The equivalent environment variable is `CHATGPT_MCP_CONFIG_DIR`. The CLI flag takes precedence over the environment variable, which takes precedence over the default `~/.config/chatgpt-mcp` root. The override applies to config, tunnel secrets, OAuth/upstream state, workspaces, shell state, memory, checkpoints, and other persistent runtime state, so test runs do not mutate the normal user instance.
+
 Start the runtime:
 
 ```bash
@@ -235,7 +244,7 @@ chatgpt-mcp config convert toml
 chatgpt-mcp config transform toml
 ```
 
-`convert` and `transform` are aliases. The command recursively converts every managed structured config/state file under `~/.config/chatgpt-mcp`, including mixed JSON/YAML/TOML state left from older versions, after a full preflight and with rollback on mutation failure.
+`convert` and `transform` are aliases. The command recursively converts every managed structured config/state file under the active config root (default `~/.config/chatgpt-mcp`), including mixed JSON/YAML/TOML state left from older versions, after a full preflight and with rollback on mutation failure.
 
 Verify the full config/state tree before starting the runtime or after manual edits:
 
@@ -351,6 +360,8 @@ Run only the builtin tunnel in the foreground:
 chatgpt-mcp tunnel run
 ```
 
+Unexpected tunnel runtime or embedded MCP transport failures are supervised automatically. The runtime emits a degraded state, reconnects with bounded exponential backoff (`1s`, `2s`, `4s`, up to `30s`), and returns to ready when the replacement connection succeeds. Explicit stop/disable/reconfigure and process shutdown cancel the supervisor, so they never trigger an automatic restart.
+
 The tunnel API key is kept separately from the main config using the same storage format, for example:
 
 ```text
@@ -380,7 +391,7 @@ Runtime configuration is exposed through a synchronized immutable-snapshot store
 
 Built-in agent features live under `features`. Ponytail and Caveman are enabled by default, can be toggled independently with `config set features.<name>.enabled <true|false>` or Admin Settings, and update the live tool catalog when changed through the Admin API. Caveman is a built-in terse-response turn controller; Ponytail continues to use its trusted plugin hooks when its feature is enabled.
 
-Admin Activity streaming uses sequenced SSE events with `id` values, an initial `ready` control event, periodic heartbeats, and explicit overflow termination for slow subscribers. The Activity UI detects sequence gaps instead of silently hiding dropped events. Tunnel lifecycle transitions are emitted from the tunnel runtime itself as `connecting`, `ready`, `degraded`, and `stopped`, with the same transition feeding both runtime logs and Activity.
+Admin Activity streaming uses sequenced SSE events with `id` values, an initial `ready` control event, periodic heartbeats, and explicit overflow termination for slow subscribers. The Activity UI detects sequence gaps instead of silently hiding dropped events. Tunnel lifecycle transitions are emitted from the tunnel runtime itself as `connecting`, `degraded`, `reconnecting`, `ready`, and `stopped`, with the same transition feeding both runtime logs and Activity.
 
 ## Workspaces
 
@@ -408,6 +419,8 @@ chatgpt-mcp
 ```
 
 Use `--help` on any command for the current flags and subcommands.
+
+Global runtime isolation is available through `--config-dir <path>` or `CHATGPT_MCP_CONFIG_DIR=<path>`. Prefer it whenever running development/test binaries that execute mutating commands such as `init`, `uninit`, `config set`, workspace registration, or tunnel configuration.
 
 ### Logging
 
@@ -464,7 +477,7 @@ go build -trimpath -o chatgpt-mcp ./
 node scripts/smoke-release.mjs ./chatgpt-mcp
 ```
 
-The smoke uses an isolated temporary home directory and verifies init/config/status, HTTP health, MCP discovery, tool listing, modern error behavior, shutdown, and uninit.
+The smoke uses an isolated temporary home plus an explicit `--config-dir`, and verifies init/config/status, HTTP health, MCP discovery, tool listing, modern error behavior, shutdown, and uninit without touching the normal user config root.
 
 ## CI
 

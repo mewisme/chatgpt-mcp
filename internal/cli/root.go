@@ -24,9 +24,10 @@ func newRootCommand() *cobra.Command {
 		Version:           version.Short(),
 		SilenceErrors:     true,
 		SilenceUsage:      true,
-		PersistentPreRunE: validateLoggingFlags,
+		PersistentPreRunE: prepareCommand,
 	}
 	addExposeFlag(cmd)
+	addConfigDirFlag(cmd)
 	addLoggingFlags(cmd)
 	cmd.AddCommand(
 		initCommand(),
@@ -138,12 +139,15 @@ func uninitCommand() *cobra.Command {
 
 func removeConfigRoot(root string) error {
 	clean := filepath.Clean(root)
-	if clean == "." || clean == string(filepath.Separator) || filepath.Base(clean) != "chatgpt-mcp" {
+	if clean == "." || clean == string(filepath.Separator) {
 		return fmt.Errorf("refusing to remove unsafe config root: %s", clean)
 	}
 	volume := filepath.VolumeName(clean)
 	if clean == volume+string(filepath.Separator) {
 		return fmt.Errorf("refusing to remove volume root: %s", clean)
+	}
+	if clean != filepath.Clean(configformat.DefaultRootPath()) && !configformat.IsManagedRoot(clean) {
+		return fmt.Errorf("refusing to remove unmanaged config root: %s", clean)
 	}
 	return os.RemoveAll(clean)
 }

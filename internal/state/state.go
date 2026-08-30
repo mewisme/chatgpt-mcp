@@ -3,13 +3,13 @@ package state
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"path/filepath"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func Root() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "chatgpt-mcp", "state")
+	return filepath.Join(configformat.RootPath(), "state")
 }
 
 func WorkspaceID(path string) string {

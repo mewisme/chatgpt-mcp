@@ -29,7 +29,7 @@ var longMutationOptions = map[string]bool{
 }
 
 func (m *Manager) IsMutationCommand(command string) bool {
-	return mutationWord.MatchString(command)
+	return m.isMutationCommand(command, 0)
 }
 
 func (m *Manager) ValidateMutationCommand(id, workingDirectory, command string) error {
@@ -46,7 +46,20 @@ func (m *Manager) ValidateMutationCommand(id, workingDirectory, command string) 
 		return fmt.Errorf("mutation command denied: %w", err)
 	}
 
+	redirections, err := outputRedirectionTargets(command)
+	if err != nil {
+		return fmt.Errorf("mutation command denied: %w", err)
+	}
 	recognizedMutation := false
+	for _, target := range redirections {
+		recognizedMutation = true
+		if isNullDevice(target) {
+			continue
+		}
+		if err := m.validateLiteralPath(id, cwd, target, false); err != nil {
+			return fmt.Errorf("mutation command denied: output redirection: %w", err)
+		}
+	}
 	for _, segment := range segments {
 		tokens, err := shellWords(segment)
 		if err != nil {
@@ -56,6 +69,12 @@ func (m *Manager) ValidateMutationCommand(id, workingDirectory, command string) 
 			continue
 		}
 		name, args := commandName(tokens)
+		if inner, ok := nestedShellCommand(name, args); ok && m.isMutationCommand(inner, 1) {
+			return fmt.Errorf("mutation command denied: nested %s mutation cannot be proven workspace-safe", name)
+		}
+		if code, ok := inlineInterpreterCode(name, args); ok && inlineMutationAPI.MatchString(code) {
+			return fmt.Errorf("mutation command denied: inline %s mutation cannot be proven workspace-safe", name)
+		}
 		if cwdCommands[name] {
 			if name == "popd" {
 				return errors.New("mutation command denied: popd cannot be proven workspace-safe")
@@ -113,6 +132,13 @@ func (m *Manager) ValidateMutationCommand(id, workingDirectory, command string) 
 				if err := m.validateLiteralPath(id, cwd, root, true); err != nil {
 					return fmt.Errorf("mutation command denied: find -delete: %w", err)
 				}
+			}
+			continue
+		}
+		if writeCommands[name] {
+			recognizedMutation = true
+			if err := m.validateWriteOperands(id, cwd, name, args); err != nil {
+				return fmt.Errorf("mutation command denied: %s: %w", name, err)
 			}
 			continue
 		}

@@ -150,13 +150,11 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, workingDirectory, comma
 		}
 		baseCWD = resolved
 	} else if mutation {
-		return ExecResult{}, errors.New("mutation command denied: working_directory is required for rename/delete commands")
+		return ExecResult{}, errors.New("mutation command denied: working_directory is required for mutating commands")
 	}
 
-	if mutation {
-		if err := m.workspaces.ValidateMutationCommand(workspaceID, baseCWD, command); err != nil {
-			return ExecResult{}, err
-		}
+	if err := m.workspaces.ValidateShellCommand(workspaceID, baseCWD, command); err != nil {
+		return ExecResult{}, err
 	}
 
 	cwd, effective, err := m.applyCWDDirectives(workspaceID, baseCWD, command)
@@ -208,12 +206,10 @@ func (m *Manager) ValidateBackgroundCommand(workspaceID, workingDirectory, comma
 		}
 		cwd = resolved
 	} else if mutation {
-		return "", errors.New("mutation command denied: working_directory is required for rename/delete commands")
+		return "", errors.New("mutation command denied: working_directory is required for mutating commands")
 	}
-	if mutation {
-		if err := m.workspaces.ValidateMutationCommand(workspaceID, cwd, command); err != nil {
-			return "", err
-		}
+	if err := m.workspaces.ValidateShellCommand(workspaceID, cwd, command); err != nil {
+		return "", err
 	}
 	effectiveCWD, effective, err := m.applyCWDDirectives(workspaceID, cwd, command)
 	if err != nil {

@@ -153,7 +153,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		}
 		return JSONResult(AgentStatusResult{
 			PermissionProfile:     "workspace-bound",
-			PermissionDescription: "workspace-bound: local tools may only operate inside the registered workspace; rename/delete commands are fail-closed",
+			PermissionDescription: "workspace-bound: local tools may only operate inside the registered workspace; mutating shell commands are fail-closed",
 			FullMachineAccess:     false,
 			DefaultCWD:            cwd,
 			MachineRoots:          []string{item.Path},
@@ -164,7 +164,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			Quickstart: []string{
 				"Register one workspace and pass its workspace_id to local tools.",
 				"Read before editing; use apply_patch/edit_file for deterministic changes.",
-				"Rename/delete shell commands require a matching explicit working_directory.",
+				"Mutating shell commands require a matching explicit working_directory.",
 				"Use rewind to list, preview, or restore automatic file checkpoints.",
 			},
 			Rewind: checkpoints.Config(item.ID),

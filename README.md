@@ -414,6 +414,10 @@ chatgpt-mcp workspace --help
 
 Workspace handles are explicit and immutable; tool calls cannot silently switch to another workspace.
 
+Shell/process tools mark descendants as MCP tool execution context. In that context the `chatgpt-mcp` CLI is fail-closed: only explicitly read-only commands such as `status`, `config get/list`, `auth status`, workspace inspection, upstream inspection, and `tunnel status` are accepted. Control-plane mutations such as `config set`, auth changes, workspace registration/access grants, upstream changes, tunnel configuration, `init`, and `uninit` are denied. The shell policy also rejects direct `cmcp` / `chatgpt-mcp` mutation commands, including common wrappers and nested shells, so an Agent cannot directly grant itself additional filesystem access through the CLI.
+
+This is defense-in-depth for the built-in tool runner, not an OS security boundary against arbitrary code running as the same operating-system user. Strong isolation against a deliberately hostile local process requires an OS-level sandbox or separate user identity for tool subprocesses.
+
 A workspace can also grant its own additional directories without exposing them to every other workspace:
 
 ```bash

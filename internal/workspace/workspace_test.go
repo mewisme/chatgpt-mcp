@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func newTestManager(t *testing.T) *Manager {
@@ -230,5 +232,49 @@ func TestWorkspaceAllowDirPersistsAndRejectsSymlinkEscape(t *testing.T) {
 	}
 	if _, _, err := reloaded.ResolveWorkingDirectory(item.ID, allowed); err == nil {
 		t.Fatal("removed allow dir remained accessible")
+	}
+}
+
+func TestControlPlaneStateIsExcludedFromWorkspaceScope(t *testing.T) {
+	home := t.TempDir()
+	controlPlane := filepath.Join(home, ".config", "chatgpt-mcp")
+	if err := os.MkdirAll(controlPlane, 0700); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(filepath.Join(controlPlane, "workspaces.json"))
+	manager.protectedRoot = canonicalRoot(controlPlane)
+	item, err := manager.Register(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	regular := filepath.Join(home, "project.txt")
+	if got, err := manager.ResolvePath(item.ID, home, regular, false); err != nil || got != regular {
+		t.Fatalf("normal workspace path rejected: %q %v", got, err)
+	}
+	for _, path := range []string{controlPlane, filepath.Join(controlPlane, "config.json"), filepath.Join(controlPlane, "tunnel.json")} {
+		if _, err := manager.ResolvePath(item.ID, home, path, false); err == nil {
+			t.Fatalf("protected control-plane path was accessible: %s", path)
+		}
+	}
+	if _, _, err := manager.ResolveWorkingDirectory(item.ID, controlPlane); err == nil {
+		t.Fatal("protected control-plane directory was accepted as working directory")
+	}
+	if _, err := manager.AddAllowDir(item.ID, controlPlane); err == nil {
+		t.Fatal("protected control-plane directory was accepted as workspace access grant")
+	}
+	if _, err := manager.Register(controlPlane); err == nil {
+		t.Fatal("protected control-plane directory was accepted as workspace root")
+	}
+}
+
+func TestDefaultStoreManagerProtectsActiveConfigRoot(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(DefaultStorePath())
+	if manager.protectedRoot != canonicalRoot(root) {
+		t.Fatalf("protected root = %q, want %q", manager.protectedRoot, canonicalRoot(root))
 	}
 }

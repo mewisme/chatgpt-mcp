@@ -7,8 +7,19 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
+
+func TestShellEnvironmentMarksMCPToolContext(t *testing.T) {
+	want := controlplane.ToolContextEnv + "=1"
+	for _, value := range shellEnvironment() {
+		if value == want {
+			return
+		}
+	}
+	t.Fatalf("shell environment missing %s", want)
+}
 
 func newShellTestManager(t *testing.T) (*Manager, string, string) {
 	t.Helper()

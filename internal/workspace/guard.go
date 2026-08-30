@@ -230,15 +230,31 @@ func commandName(tokens []string) (string, []string) {
 	index := 0
 	for index < len(tokens) {
 		token := strings.ToLower(filepath.Base(tokens[index]))
-		if token == "sudo" || token == "command" {
+		if token == "sudo" || token == "command" || token == "exec" || token == "nohup" {
 			index++
 			continue
 		}
 		if token == "env" {
 			index++
-			for index < len(tokens) && strings.Contains(tokens[index], "=") {
-				index++
+			for index < len(tokens) {
+				current := strings.ToLower(tokens[index])
+				switch {
+				case strings.Contains(tokens[index], "="):
+					index++
+				case current == "-i" || current == "--ignore-environment":
+					index++
+				case current == "-u" || current == "--unset":
+					if index+1 >= len(tokens) {
+						return "", nil
+					}
+					index += 2
+				case strings.HasPrefix(current, "--unset="):
+					index++
+				default:
+					goto envDone
+				}
 			}
+		envDone:
 			continue
 		}
 		if strings.Contains(tokens[index], "=") && !strings.ContainsAny(tokens[index], `/\`) {

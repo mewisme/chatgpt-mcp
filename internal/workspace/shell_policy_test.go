@@ -191,3 +191,34 @@ func TestShellPolicyAllowsExplicitAllowedDirectoryWrites(t *testing.T) {
 		t.Fatal("write outside effective roots was allowed")
 	}
 }
+
+func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		"cmcp config set permissions.allow_dirs /tmp",
+		"chatgpt-mcp auth mcp create",
+		"cmcp workspace access add ws_test /tmp",
+		"env -u CHATGPT_MCP_TOOL_CONTEXT cmcp config set permissions.allow_dirs /tmp",
+		"exec cmcp auth admin disable",
+		`bash -lc "cmcp config preset apply lan"`,
+	} {
+		if err := manager.ValidateShellCommand(item.ID, root, command); err == nil || !strings.Contains(err.Error(), "control-plane mutation denied") {
+			t.Fatalf("control-plane mutation was not denied: %s: %v", command, err)
+		}
+	}
+	for _, command := range []string{
+		"cmcp status",
+		"cmcp config list",
+		"chatgpt-mcp auth status",
+		"cmcp workspace access list ws_test",
+	} {
+		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
+			t.Fatalf("read-only control-plane command rejected: %s: %v", command, err)
+		}
+	}
+}

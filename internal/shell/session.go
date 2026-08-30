@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 	statepkg "go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -491,6 +492,7 @@ func shellEnvironment() []string {
 	values["GIT_PAGER"] = "cat"
 	values["NO_COLOR"] = "1"
 	values["npm_config_yes"] = "true"
+	values[controlplane.ToolContextEnv] = "1"
 	out := make([]string, 0, len(values))
 	for key, value := range values {
 		out = append(out, key+"="+value)

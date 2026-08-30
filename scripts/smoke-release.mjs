@@ -14,6 +14,7 @@ if (!input) fail("usage: node scripts/smoke-release.mjs <binary>")
 const binary = path.resolve(input)
 const home = await mkdtemp(path.join(tmpdir(), "chatgpt-mcp-release-smoke-"))
 const env = { ...process.env, HOME: home, USERPROFILE: home }
+delete env.CHATGPT_MCP_TOOL_CONTEXT
 const configDir = path.join(home, "config")
 const defaultConfigDir = path.join(home, ".config", "chatgpt-mcp")
 const defaultSentinel = path.join(defaultConfigDir, "release-smoke-sentinel")

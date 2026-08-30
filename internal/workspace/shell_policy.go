@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 )
 
 const maxNestedShellDepth = 4
@@ -28,6 +30,9 @@ func (m *Manager) ValidateShellCommand(id, workingDirectory, command string) err
 	if _, _, err := m.ResolveWorkingDirectory(id, workingDirectory); err != nil {
 		return err
 	}
+	if isControlPlaneMutation(command, 0) {
+		return fmt.Errorf("control-plane mutation denied from MCP shell: chatgpt-mcp configuration and permissions cannot be changed through shell tools")
+	}
 	if !m.IsMutationCommand(command) {
 		return nil
 	}
@@ -35,6 +40,9 @@ func (m *Manager) ValidateShellCommand(id, workingDirectory, command string) err
 }
 
 func (m *Manager) isMutationCommand(command string, depth int) bool {
+	if isControlPlaneMutation(command, depth) {
+		return true
+	}
 	if mutationWord.MatchString(command) {
 		return true
 	}
@@ -66,6 +74,39 @@ func (m *Manager) isMutationCommand(command string, depth int) bool {
 		}
 	}
 	return false
+}
+
+func isControlPlaneMutation(command string, depth int) bool {
+	if depth >= maxNestedShellDepth {
+		return false
+	}
+	segments, err := splitShellSegments(command)
+	if err != nil {
+		return false
+	}
+	for _, segment := range segments {
+		tokens, err := shellWords(segment)
+		if err != nil || len(tokens) == 0 {
+			continue
+		}
+		name, args := commandName(tokens)
+		if isChatGPTMCPBinary(name) && !controlplane.IsReadOnlyArgs(args) {
+			return true
+		}
+		if inner, ok := nestedShellCommand(name, args); ok && isControlPlaneMutation(inner, depth+1) {
+			return true
+		}
+	}
+	return false
+}
+
+func isChatGPTMCPBinary(name string) bool {
+	switch strings.ToLower(strings.TrimSuffix(filepath.Base(name), ".exe")) {
+	case "chatgpt-mcp", "cmcp":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Manager) validateWriteOperands(id, cwd, name string, args []string) error {

@@ -32,6 +32,7 @@ type storeFile struct {
 
 type Manager struct {
 	path            string
+	protectedRoot   string
 	mu              sync.RWMutex
 	loaded          bool
 	items           map[string]Workspace
@@ -43,7 +44,13 @@ func DefaultStorePath() string {
 }
 
 func NewManager(path string) *Manager {
-	return &Manager{path: path, items: map[string]Workspace{}}
+	protectedRoot := ""
+	storeRoot := canonicalRoot(filepath.Dir(path))
+	configRoot := canonicalRoot(configformat.RootPath())
+	if storeRoot != "" && configRoot != "" && storeRoot == configRoot {
+		protectedRoot = configRoot
+	}
+	return &Manager{path: path, protectedRoot: protectedRoot, items: map[string]Workspace{}}
 }
 
 func NewManagerWithGlobalAllowDirs(path string, allowDirs []string) *Manager {
@@ -66,6 +73,9 @@ func (m *Manager) Register(path string) (Workspace, error) {
 	if err != nil {
 		return Workspace{}, err
 	}
+	if m.protected(root) {
+		return Workspace{}, fmt.Errorf("workspace root is inside protected control-plane state: %s", root)
+	}
 	sum := sha256.Sum256([]byte(normalizeForID(root)))
 	item := Workspace{ID: "ws_" + hex.EncodeToString(sum[:])[:16], Path: root, AllowDirs: []string{}}
 
@@ -85,6 +95,9 @@ func (m *Manager) AddAllowDir(id, path string) (Workspace, error) {
 	root, err := canonicalExistingDirectory(path)
 	if err != nil {
 		return Workspace{}, err
+	}
+	if m.protected(root) {
+		return Workspace{}, fmt.Errorf("allowed directory is inside protected control-plane state: %s", root)
 	}
 	if err := m.ensureLoaded(); err != nil {
 		return Workspace{}, err
@@ -268,6 +281,9 @@ func (m *Manager) ensureLoaded() error {
 }
 
 func (m *Manager) allowed(id, candidate string) bool {
+	if m.protected(candidate) {
+		return false
+	}
 	roots, err := m.EffectiveRoots(id)
 	if err != nil {
 		return false
@@ -278,6 +294,22 @@ func (m *Manager) allowed(id, candidate string) bool {
 		}
 	}
 	return false
+}
+
+func (m *Manager) protected(candidate string) bool {
+	return m.protectedRoot != "" && within(m.protectedRoot, candidate)
+}
+
+func canonicalRoot(path string) string {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	root := filepath.Clean(absolute)
+	if canonical, err := filepath.EvalSymlinks(root); err == nil {
+		root = filepath.Clean(canonical)
+	}
+	return root
 }
 
 func normalizeRoots(values []string) []string {

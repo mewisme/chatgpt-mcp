@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -39,7 +40,7 @@ func (*adminUpstreamClient) PID(string) int { return 0 }
 func TestTunnelConfigRedactsAPIKey(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tunnel = tunnel.Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}
-	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: &cfg})
+	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: config.NewRuntimeStore(cfg)})
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/tunnel/config", nil))
 	if recorder.Code != http.StatusOK {
@@ -65,17 +66,44 @@ func TestTunnelConfigureRollsBackRuntimeAndMemoryWhenPersistenceFails(t *testing
 	cfg.Auth.AdminEnabled = false
 	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_old", APIKey: "old-secret"}
 	client := tunnel.NewConfigured(cfg.Tunnel, nil)
-	handler := New(API{Tunnel: client, Config: &cfg})
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Tunnel: client, Config: store})
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel", strings.NewReader(`{"enabled":false,"id":"tunnel_new","api_key":"new-secret"}`)))
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if cfg.Tunnel.ID != "tunnel_old" || cfg.Tunnel.APIKey != "old-secret" {
-		t.Fatalf("in-memory config changed after persistence failure: %#v", cfg.Tunnel)
+	if got := store.Snapshot().Tunnel; got.ID != "tunnel_old" || got.APIKey != "old-secret" {
+		t.Fatalf("in-memory config changed after persistence failure: %#v", got)
 	}
 	if got := client.Config(); got.ID != "tunnel_old" || got.APIKey != "old-secret" {
 		t.Fatalf("runtime config changed after persistence failure: %#v", got)
+	}
+}
+
+func TestTunnelConfigurePreservesSecretFromSerializedConfigStore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_store", APIKey: "store-secret"}
+	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
+		t.Fatal(err)
+	}
+	client := tunnel.NewConfigured(tunnel.Config{Enabled: false, ID: "tunnel_runtime", APIKey: "stale-runtime-secret"}, nil)
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Tunnel: client, Config: store})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel", strings.NewReader(`{"enabled":false,"id":"tunnel_new"}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Tunnel; got.ID != "tunnel_new" || got.APIKey != "store-secret" {
+		t.Fatalf("stored tunnel config = %#v", got)
+	}
+	if got := client.Config(); got.ID != "tunnel_new" || got.APIKey != "store-secret" {
+		t.Fatalf("runtime tunnel config = %#v", got)
 	}
 }
 
@@ -84,7 +112,7 @@ func TestConfigAPIHidesTokenHashes(t *testing.T) {
 	cfg.Auth.MCPTokenHash = "mcp-secret-hash"
 	cfg.Auth.AdminTokenHash = "admin-secret-hash"
 	recorder := httptest.NewRecorder()
-	New(API{Config: &cfg}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	New(API{Config: config.NewRuntimeStore(cfg)}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/config", nil))
 	body := recorder.Body.String()
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d", recorder.Code)
@@ -104,7 +132,7 @@ func TestHealthReportsAdminAuthState(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.AdminEnabled = false
 	recorder := httptest.NewRecorder()
-	New(API{Config: &cfg}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	New(API{Config: config.NewRuntimeStore(cfg)}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"auth_enabled":false`) {
 		t.Fatalf("health = %d: %s", recorder.Code, recorder.Body.String())
 	}

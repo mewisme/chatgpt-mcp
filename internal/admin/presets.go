@@ -21,7 +21,7 @@ func (api API) handleConfigPresets(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, configPresetList{Current: config.MatchPreset(*api.Config), Presets: config.Presets()})
+	writeJSON(w, configPresetList{Current: config.MatchPreset(api.Config.Snapshot()), Presets: config.Presets()})
 }
 
 func (api API) handleConfigPreset(w http.ResponseWriter, r *http.Request) {
@@ -43,16 +43,18 @@ func (api API) handleConfigPreset(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, preset)
 	case http.MethodPost:
-		next := *api.Config
-		if err := config.ApplyPreset(&next, name); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		status := http.StatusInternalServerError
+		next, err := api.Config.Update(func(next config.Config) (config.Config, error) {
+			if err := config.ApplyPreset(&next, name); err != nil {
+				status = http.StatusBadRequest
+				return next, err
+			}
+			return next, config.Save(next)
+		})
+		if err != nil {
+			http.Error(w, err.Error(), status)
 			return
 		}
-		if err := config.Save(next); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		*api.Config = next
 		writeJSON(w, publicConfigView(next))
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)

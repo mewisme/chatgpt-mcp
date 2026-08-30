@@ -17,7 +17,12 @@ func Middleware(token string, next http.Handler) http.Handler {
 }
 
 func HashedMiddleware(enabled bool, tokenHash string, next http.Handler) http.Handler {
+	return DynamicHashedMiddleware(func() (bool, string) { return enabled, tokenHash }, next)
+}
+
+func DynamicHashedMiddleware(settings func() (bool, string), next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		enabled, tokenHash := settings()
 		if !enabled {
 			next.ServeHTTP(w, r)
 			return

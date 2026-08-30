@@ -62,10 +62,40 @@ func TestHandlersRequireEnabledAuthentication(t *testing.T) {
 	}
 }
 
+func TestHandlersReadAuthenticationFromRuntimeConfigStore(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = auth.HashToken("mcp-test")
+	cfg.Auth.AdminTokenHash = auth.HashToken("admin-test")
+	app := New(cfg)
+	mcpHandler := app.MCPHandler()
+	adminHandler := app.AdminHandler()
+
+	if _, err := app.Config.Update(func(next config.Config) (config.Config, error) {
+		next.Auth.MCPEnabled = false
+		next.Auth.AdminEnabled = false
+		return next, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mcpRecorder := httptest.NewRecorder()
+	mcpHandler.ServeHTTP(mcpRecorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if mcpRecorder.Code != http.StatusOK {
+		t.Fatalf("updated MCP auth status = %d", mcpRecorder.Code)
+	}
+	adminRecorder := httptest.NewRecorder()
+	adminHandler.ServeHTTP(adminRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if adminRecorder.Code != http.StatusOK {
+		t.Fatalf("updated admin auth status = %d", adminRecorder.Code)
+	}
+}
+
 func TestBootstrapRewiresToolRuntime(t *testing.T) {
 	app := &App{}
 	if err := app.Bootstrap(); err != nil {
 		t.Fatal(err)
+	}
+	if app.Config == nil {
+		t.Fatal("bootstrap did not initialize runtime config store")
 	}
 	if app.Tools == nil || app.MCP == nil || app.MCP.Server == nil {
 		t.Fatal("bootstrap did not initialize runtime")

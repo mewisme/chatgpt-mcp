@@ -14,7 +14,8 @@ func TestConfigPresetsAPI(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = "mcp-secret"
 	cfg.Auth.AdminTokenHash = "admin-secret"
-	handler := New(API{Config: &cfg})
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Config: store})
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/config/presets", nil))
@@ -36,30 +37,32 @@ func TestConfigPresetsAPI(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("apply = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if cfg.Server.Expose.Mode != config.ExposureAll || cfg.Admin.Enabled {
-		t.Fatalf("preset not applied: %#v", cfg)
+	got := store.Snapshot()
+	if got.Server.Expose.Mode != config.ExposureAll || got.Admin.Enabled {
+		t.Fatalf("preset not applied: %#v", got)
 	}
-	if cfg.Auth.MCPTokenHash != "mcp-secret" || cfg.Auth.AdminTokenHash != "admin-secret" {
+	if got.Auth.MCPTokenHash != "mcp-secret" || got.Auth.AdminTokenHash != "admin-secret" {
 		t.Fatal("preset changed auth secrets")
 	}
 }
 
 func TestConfigPresetAPIValidationFailureDoesNotMutate(t *testing.T) {
 	cfg := config.Default()
-	handler := New(API{Config: &cfg})
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Config: store})
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/config/presets/default", nil))
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if !reflect.DeepEqual(cfg, config.Default()) {
-		t.Fatalf("config mutated on failed apply: %#v", cfg)
+	if got := store.Snapshot(); !reflect.DeepEqual(got, config.Default()) {
+		t.Fatalf("config mutated on failed apply: %#v", got)
 	}
 }
 
 func TestConfigPresetAPINotFound(t *testing.T) {
 	cfg := config.Default()
-	handler := New(API{Config: &cfg})
+	handler := New(API{Config: config.NewRuntimeStore(cfg)})
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/config/presets/missing", nil))
 	if recorder.Code != http.StatusNotFound {

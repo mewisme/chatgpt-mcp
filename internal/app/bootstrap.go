@@ -1,11 +1,15 @@
 package app
 
 import (
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
 func (a *App) Bootstrap() error {
+	if a.Config == nil {
+		a.Config = config.NewRuntimeStore(config.Default())
+	}
 	if a.Tools == nil {
 		a.Tools = tools.NewRuntime()
 	}

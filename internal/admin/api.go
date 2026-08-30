@@ -22,7 +22,7 @@ type API struct {
 	Tools      *tools.Runtime
 	Workspaces *workspace.Manager
 	Tunnel     *tunnel.Client
-	Config     *config.Config
+	Config     *config.RuntimeStore
 	OAuth      *mcpoauth.Store
 	OAuthFlows *mcpoauth.FlowManager
 }
@@ -50,7 +50,7 @@ func New(api API) http.Handler {
 	api = api.withOAuth()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
-		authEnabled := api.Config != nil && api.Config.Auth.AdminEnabled
+		authEnabled := api.Config != nil && api.Config.Snapshot().Auth.AdminEnabled
 		writeJSON(w, map[string]bool{"ok": true, "auth_enabled": authEnabled})
 	}))
 	mux.HandleFunc("/api/network/interfaces", api.handleNetworkInterfaces)
@@ -87,33 +87,35 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, publicConfigView(*api.Config))
+		writeJSON(w, publicConfigView(api.Config.Snapshot()))
 	case http.MethodPut:
 		var patch configPatch
 		if err := decodeJSONBody(w, r, &patch); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		next := *api.Config
-		if patch.Server != nil {
-			next.Server = *patch.Server
-		}
-		if patch.Admin != nil {
-			next.Admin = *patch.Admin
-		}
-		if patch.Auth != nil {
-			next.Auth.MCPEnabled = patch.Auth.MCPEnabled
-			next.Auth.AdminEnabled = patch.Auth.AdminEnabled
-		}
-		if err := config.Validate(next); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		status := http.StatusInternalServerError
+		next, err := api.Config.Update(func(next config.Config) (config.Config, error) {
+			if patch.Server != nil {
+				next.Server = *patch.Server
+			}
+			if patch.Admin != nil {
+				next.Admin = *patch.Admin
+			}
+			if patch.Auth != nil {
+				next.Auth.MCPEnabled = patch.Auth.MCPEnabled
+				next.Auth.AdminEnabled = patch.Auth.AdminEnabled
+			}
+			if err := config.Validate(next); err != nil {
+				status = http.StatusBadRequest
+				return next, err
+			}
+			return next, config.Save(next)
+		})
+		if err != nil {
+			http.Error(w, err.Error(), status)
 			return
 		}
-		if err := config.Save(next); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		*api.Config = next
 		writeJSON(w, publicConfigView(next))
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)

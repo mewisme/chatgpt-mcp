@@ -370,6 +370,8 @@ Upstream HTTP OAuth credentials are stored separately from normal runtime config
 
 Upstream proxy refreshes are atomic. A refresh builds the complete replacement proxy set first and commits it in one registry swap only after every required upstream succeeds. Transient discovery or schema failures keep the previous proxy catalog intact, and Admin API mutations report refresh failures instead of silently discarding them.
 
+Runtime configuration is exposed through a synchronized immutable-snapshot store. Admin configuration, presets, tunnel reconfiguration, and request-time authentication read or update the same store; updates serialize validation, persistence, and in-memory commit to avoid races and lost updates. Linux CI also runs the Go race detector.
+
 ## Workspaces
 
 Filesystem, shell, and Git mutations are workspace-bound. Register a workspace before using tools that operate on local project files:

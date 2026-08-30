@@ -18,7 +18,7 @@ import (
 )
 
 type App struct {
-	Config     config.Config
+	Config     *config.RuntimeStore
 	MCP        *mcp.HTTPRuntime
 	Upstream   *upstream.Manager
 	Tools      *tools.Runtime
@@ -37,8 +37,9 @@ func New(cfg config.Config) *App {
 	oauthStore := mcpoauth.NewStore(mcpoauth.Path())
 	appLogger := logger.New(logger.Info)
 	telemetry.AttachTools(toolRuntime, stream, appLogger)
+	configStore := config.NewRuntimeStore(cfg)
 	return &App{
-		Config: cfg, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
+		Config: configStore, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
 		Tunnel: tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger), Logger: appLogger,
 		OAuth: oauthStore, OAuthFlows: mcpoauth.NewFlowManager(oauthStore),
 	}
@@ -46,7 +47,10 @@ func New(cfg config.Config) *App {
 
 func (a *App) MCPHandler() http.Handler {
 	mux := http.NewServeMux()
-	mcpHandler := auth.HashedMiddleware(a.Config.Auth.MCPEnabled, a.Config.Auth.MCPTokenHash, a.MCP.Handler())
+	mcpHandler := auth.DynamicHashedMiddleware(func() (bool, string) {
+		cfg := a.Config.Snapshot()
+		return cfg.Auth.MCPEnabled, cfg.Auth.MCPTokenHash
+	}, a.MCP.Handler())
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -58,17 +62,22 @@ func (a *App) MCPHandler() http.Handler {
 
 func (a *App) AdminHandler() http.Handler {
 	mux := http.NewServeMux()
-	if !a.Config.Admin.Enabled {
+	cfg := a.Config.Snapshot()
+	if !cfg.Admin.Enabled {
 		return http.NotFoundHandler()
 	}
 	adminAPI := admin.API{
-		Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: &a.Config, OAuth: a.OAuth, OAuthFlows: a.OAuthFlows,
+		Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: a.Config, OAuth: a.OAuth, OAuthFlows: a.OAuthFlows,
 	}
-	adminHandler := auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, admin.New(adminAPI))
+	adminAuth := func() (bool, string) {
+		cfg := a.Config.Snapshot()
+		return cfg.Auth.AdminEnabled, cfg.Auth.AdminTokenHash
+	}
+	adminHandler := auth.DynamicHashedMiddleware(adminAuth, admin.New(adminAPI))
 	mux.Handle("/oauth/callback/", adminAPI.OAuthCallbackHandler())
 	mux.Handle("/admin/", adminHandler)
 	mux.Handle("/api/", adminHandler)
-	mux.Handle("/api/activity/stream", auth.HashedMiddleware(a.Config.Auth.AdminEnabled, a.Config.Auth.AdminTokenHash, activity.Handler(a.Activity)))
+	mux.Handle("/api/activity/stream", auth.DynamicHashedMiddleware(adminAuth, activity.Handler(a.Activity)))
 	mux.Handle("/", web.Handler())
 	return mux
 }

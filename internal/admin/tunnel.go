@@ -16,7 +16,11 @@ func (api API) handleTunnelConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tunnel unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	value := api.Tunnel.Config()
+	if api.Config == nil {
+		http.Error(w, "config unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	value := api.Config.Snapshot().Tunnel
 	value.APIKey = ""
 	writeJSON(w, value)
 }
@@ -58,20 +62,25 @@ func (api API) configureTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	current := api.Tunnel.Config()
-	if next.APIKey == "" {
-		next.APIKey = current.APIKey
-	}
-	candidate := *api.Config
-	candidate.Tunnel = next
-	if err := config.Validate(candidate); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	status := http.StatusInternalServerError
+	_, err := api.Config.Update(func(candidate config.Config) (config.Config, error) {
+		effective := next
+		if effective.APIKey == "" {
+			effective.APIKey = candidate.Tunnel.APIKey
+		}
+		candidate.Tunnel = effective
+		if err := config.Validate(candidate); err != nil {
+			status = http.StatusBadRequest
+			return candidate, err
+		}
+		if err := api.Tunnel.Reconfigure(effective, func() error { return config.Save(candidate) }); err != nil {
+			return candidate, err
+		}
+		return candidate, nil
+	})
+	if err != nil {
+		http.Error(w, err.Error(), status)
 		return
 	}
-	if err := api.Tunnel.Reconfigure(next, func() error { return config.Save(candidate) }); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	*api.Config = candidate
 	writeJSON(w, api.Tunnel.Status())
 }

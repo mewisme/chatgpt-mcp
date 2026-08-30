@@ -47,3 +47,24 @@ func TestHashedMiddlewareBypassesAuthenticationWhenDisabled(t *testing.T) {
 		t.Fatalf("expected auth-disabled request to pass, got %d", recorder.Code)
 	}
 }
+
+func TestDynamicHashedMiddlewareReadsCurrentSettingsPerRequest(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	enabled := true
+	token := GenerateToken("test")
+	tokenHash := HashToken(token)
+	handler := DynamicHashedMiddleware(func() (bool, string) { return enabled, tokenHash }, next)
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("enabled auth status = %d", recorder.Code)
+	}
+
+	enabled = false
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("updated auth status = %d", recorder.Code)
+	}
+}

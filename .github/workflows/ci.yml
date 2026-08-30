@@ -106,6 +106,10 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Race test
+        if: matrix.name == 'Linux'
+        run: go test -race ./...
+
       - name: Vet
         run: go vet ./...
 

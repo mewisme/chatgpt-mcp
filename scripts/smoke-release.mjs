@@ -103,13 +103,21 @@ async function verifyMCP(port) {
     fail(`tools/list returned no tools: ${JSON.stringify(tools.body)}`)
   }
   const toolNames = new Set(tools.body.result.tools.map((tool) => tool?.name))
+  if (!toolNames.has("get_version")) fail(`get_version missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (toolNames.has("ponytail_turn")) fail(`disabled ponytail_turn remained in tools/list: ${JSON.stringify(tools.body)}`)
   if (!toolNames.has("caveman_turn")) fail(`enabled caveman_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!Number.isFinite(tools.body.result.ttlMs) || typeof tools.body.result.cacheScope !== "string") {
     fail(`tools/list cache hints are missing: ${JSON.stringify(tools.body)}`)
   }
 
-  const legacy = await mcpRequest(port, "initialize", {}, 3)
+  const version = await mcpRequest(port, "tools/call", { name: "get_version", arguments: {} }, 3)
+  assertStatus(version.response, 200, "get_version")
+  const versionInfo = version.body?.result?.structuredContent
+  if (!versionInfo || typeof versionInfo.version !== "string" || typeof versionInfo.commit !== "string" || typeof versionInfo.build_time !== "string") {
+    fail(`get_version returned invalid structured content: ${JSON.stringify(version.body)}`)
+  }
+
+  const legacy = await mcpRequest(port, "initialize", {}, 4)
   assertStatus(legacy.response, 404, "initialize")
   if (legacy.body?.error?.code !== -32601) {
     fail(`initialize error code = ${legacy.body?.error?.code}, want -32601`)
@@ -153,13 +161,15 @@ async function mcpRequest(port, method, params, id) {
       },
     },
   }
+  const headers = {
+    "Content-Type": "application/json",
+    "MCP-Protocol-Version": protocolVersion,
+    "Mcp-Method": method,
+  }
+  if (method === "tools/call" && typeof params?.name === "string") headers["Mcp-Name"] = params.name
   const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "MCP-Protocol-Version": protocolVersion,
-      "Mcp-Method": method,
-    },
+    headers,
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(5000),
   })

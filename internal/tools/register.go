@@ -9,6 +9,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
+	"go.mewis.me/chatgpt-mcp/internal/version"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -17,7 +18,16 @@ type ReadFilesResult struct {
 	Count int        `json:"count"`
 }
 
+type VersionResult struct {
+	Version   string `json:"version"`
+	Commit    string `json:"commit"`
+	BuildTime string `json:"build_time"`
+}
+
 func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
+	registry.MustRegister("get_version", coreSchema("get_version", "Get the running chatgpt-mcp binary version, commit, and build time.", `{"type":"object","properties":{},"additionalProperties":false}`, `{"type":"object","properties":{"version":{"type":"string"},"commit":{"type":"string"},"build_time":{"type":"string"}},"required":["version","commit","build_time"],"additionalProperties":false}`, RiskRead), func(context.Context, map[string]any) (Result, error) {
+		return JSONResult(VersionResult{Version: version.Version, Commit: version.Commit, BuildTime: version.Date}), nil
+	})
 	RegisterFilesystemTools(registry, workspaces, checkpoints)
 	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
 	processes := shellruntime.NewProcessManager(workspaces, shell)

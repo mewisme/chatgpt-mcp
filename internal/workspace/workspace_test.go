@@ -187,12 +187,17 @@ func TestGlobalAllowDirExtendsWorkspaceScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, cwd, err := manager.ResolveWorkingDirectory(item.ID, allowed); err != nil || cwd != allowed {
-		t.Fatalf("allowed cwd = %q err=%v", cwd, err)
+	expectedAllowed := canonicalRoot(allowed)
+	if _, cwd, err := manager.ResolveWorkingDirectory(item.ID, allowed); err != nil || cwd != expectedAllowed {
+		t.Fatalf("allowed cwd = %q, want %q err=%v", cwd, expectedAllowed, err)
 	}
 	path := filepath.Join(allowed, "artifact.txt")
-	if got, err := manager.ResolvePath(item.ID, allowed, path, false); err != nil || got != path {
-		t.Fatalf("allowed path = %q err=%v", got, err)
+	expectedPath, err := canonicalForContainment(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := manager.ResolvePath(item.ID, allowed, path, false); err != nil || got != expectedPath {
+		t.Fatalf("allowed path = %q, want %q err=%v", got, expectedPath, err)
 	}
 	if _, err := manager.ResolvePath(item.ID, root, filepath.Join(outside, "escape.txt"), false); err == nil {
 		t.Fatal("unlisted outside path was allowed")
@@ -213,8 +218,9 @@ func TestWorkspaceAllowDirPersistsAndRejectsSymlinkEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(item.AllowDirs) != 1 || item.AllowDirs[0] != allowed {
-		t.Fatalf("allow dirs = %#v", item.AllowDirs)
+	expectedAllowed := canonicalRoot(allowed)
+	if len(item.AllowDirs) != 1 || item.AllowDirs[0] != expectedAllowed {
+		t.Fatalf("allow dirs = %#v, want %q", item.AllowDirs, expectedAllowed)
 	}
 	reloaded := NewManager(store)
 	if _, _, err := reloaded.ResolveWorkingDirectory(item.ID, allowed); err != nil {
@@ -248,8 +254,12 @@ func TestControlPlaneStateIsExcludedFromWorkspaceScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	regular := filepath.Join(home, "project.txt")
-	if got, err := manager.ResolvePath(item.ID, home, regular, false); err != nil || got != regular {
-		t.Fatalf("normal workspace path rejected: %q %v", got, err)
+	expectedRegular, err := canonicalForContainment(regular, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := manager.ResolvePath(item.ID, home, regular, false); err != nil || got != expectedRegular {
+		t.Fatalf("normal workspace path = %q, want %q err=%v", got, expectedRegular, err)
 	}
 	for _, path := range []string{controlPlane, filepath.Join(controlPlane, "config.json"), filepath.Join(controlPlane, "tunnel.json")} {
 		if _, err := manager.ResolvePath(item.ID, home, path, false); err == nil {

@@ -272,7 +272,12 @@ func TestConfigAPIPermissionsPatchUpdatesRuntimeAccess(t *testing.T) {
 	if _, _, err := runtime.Workspaces.ResolveWorkingDirectory(item.ID, allowed); err != nil {
 		t.Fatalf("runtime access was not updated: %v", err)
 	}
-	if got := store.Snapshot().Permissions.AllowDirs; len(got) != 1 || got[0] != allowed {
+	canonicalAllowed, err := filepath.EvalSymlinks(allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalAllowed = filepath.Clean(canonicalAllowed)
+	if got := store.Snapshot().Permissions.AllowDirs; len(got) != 1 || got[0] != canonicalAllowed {
 		t.Fatalf("stored permissions = %#v", got)
 	}
 	if !strings.Contains(recorder.Body.String(), `"permissions":{"allow_dirs":[`) {

@@ -106,6 +106,9 @@ jobs:
       - name: Local install smoke
         run: node scripts/install-local.mjs --from-dist
 
+      - name: Package alias smoke
+        run: node --test scripts/prepare-package-aliases.test.mjs
+
       - name: Test
         run: go test ./...
 

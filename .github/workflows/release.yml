@@ -114,6 +114,9 @@ jobs:
       - name: Runtime smoke
         run: node scripts/smoke-release.mjs ./dist-smoke/${{ matrix.binary }}
 
+      - name: Package alias smoke
+        run: node --test scripts/prepare-package-aliases.test.mjs
+
       - name: Validate Unix installer
         if: runner.os != 'Windows'
         run: sh -n install.sh
@@ -176,6 +179,11 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare package aliases
+        run: |
+          node scripts/prepare-package-aliases.mjs
+          node scripts/prepare-package-aliases.mjs --check
 
       - name: Attach package manifests
         env:

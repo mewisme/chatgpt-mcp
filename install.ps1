@@ -59,6 +59,8 @@ try {
 
 $exe = Join-Path $dest 'chatgpt-mcp.exe'
 if (-not (Test-Path $exe)) { throw 'chatgpt-mcp: chatgpt-mcp.exe missing from archive.' }
+$alias = Join-Path $dest 'cmcp.cmd'
+@('@echo off', '"%~dp0chatgpt-mcp.exe" %*') | Set-Content -Path $alias -Encoding Ascii
 
 if ($installDir -eq $defaultInstall) {
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -72,4 +74,5 @@ if ($installDir -eq $defaultInstall) {
 }
 
 Write-Host "Installed to $dest"
-Write-Host 'Run: chatgpt-mcp --help'
+Write-Host "Alias: $alias"
+Write-Host 'Run: chatgpt-mcp --help or cmcp --help'

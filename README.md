@@ -59,7 +59,7 @@ $env:CHATGPT_MCP_VERSION = 'v0.1.0'
 irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
 ```
 
-The Unix installer keeps versions under `~/.chatgpt-mcp` and links `chatgpt-mcp` into `~/.local/bin`. The Windows installer uses `%LOCALAPPDATA%\chatgpt-mcp\current` and adds that directory to the user `PATH`.
+The Unix installer keeps versions under `~/.chatgpt-mcp` and links both `chatgpt-mcp` and the short alias `cmcp` into `~/.local/bin`. The Windows installer uses `%LOCALAPPDATA%\chatgpt-mcp\current`, adds that directory to the user `PATH`, and installs `cmcp` as a command shim for the same executable.
 
 Unix uninstall:
 
@@ -82,12 +82,16 @@ brew install --cask chatgpt-mcp
 
 The generated cask is synchronized through `mewisme/homebrew-mew`.
 
+Both `chatgpt-mcp` and `cmcp` are installed as commands.
+
 ### Scoop
 
 ```powershell
 scoop bucket add mew https://github.com/mewisme/scoop-mew
 scoop install mew/chatgpt-mcp
 ```
+
+The Scoop manifest creates shims for both `chatgpt-mcp` and `cmcp`.
 
 ### Local source install
 
@@ -102,6 +106,8 @@ The installer restores frontend dependencies, builds the dashboard, prepares `in
 ```bash
 go install .
 ```
+
+It also creates `cmcp` beside the installed Go binary (`cmcp` symlink on Unix, `cmcp.cmd` shim on Windows).
 
 Useful variants:
 

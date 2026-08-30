@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { access } from "node:fs/promises"
-import { delimiter, dirname, resolve } from "node:path"
+import { access, rm, symlink, writeFile } from "node:fs/promises"
+import { basename, delimiter, dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { spawnSync } from "node:child_process"
@@ -25,6 +25,7 @@ Default flow:
   2. pnpm --dir web build
   3. copy web/dist -> internal/web/dist
   4. go install .
+  5. install cmcp alias beside chatgpt-mcp
 
 Options:
   --no-deps       Skip pnpm install.
@@ -59,7 +60,10 @@ if (options.prepareOnly) {
 }
 
 run(go, ["install", "."])
-console.log(`[OK] installed: ${installedBinaryPath()}`)
+const binaryPath = installedBinaryPath()
+const aliasPath = await installAlias(binaryPath)
+console.log(`[OK] installed: ${binaryPath}`)
+console.log(`[OK] alias: ${aliasPath}`)
 
 async function requireFile(relative) {
   try {
@@ -88,6 +92,19 @@ function installedBinaryPath() {
   if (gobin) return resolve(gobin, name)
   const gopath = capture(go, ["env", "GOPATH"]).split(delimiter).filter(Boolean)[0]
   return gopath ? resolve(gopath, "bin", name) : name
+}
+
+async function installAlias(binaryPath) {
+  const dir = dirname(binaryPath)
+  if (process.platform === "win32") {
+    const aliasPath = resolve(dir, "cmcp.cmd")
+    await writeFile(aliasPath, '@echo off\r\n"%~dp0chatgpt-mcp.exe" %*\r\n', "ascii")
+    return aliasPath
+  }
+  const aliasPath = resolve(dir, "cmcp")
+  await rm(aliasPath, { force: true })
+  await symlink(basename(binaryPath), aliasPath)
+  return aliasPath
 }
 
 function fail(message) {

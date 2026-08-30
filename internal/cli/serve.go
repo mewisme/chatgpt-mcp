@@ -13,8 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/app"
+	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 )
 
 func serveCommand() *cobra.Command {
@@ -59,7 +61,13 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	}
 	defer bindings.CloseUnstarted()
 
-	runtime := app.NewWithLogger(cfg, commandLogger(cmd))
+	log := commandLogger(cmd)
+	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid()}})
+	if err != nil {
+		return err
+	}
+	log.AddSink(journal)
+	runtime := app.NewWithLogger(cfg, log)
 	if err := runtime.Start(runtimeCtx); err != nil {
 		return err
 	}

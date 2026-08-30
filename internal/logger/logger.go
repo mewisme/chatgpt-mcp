@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fatih/color"
@@ -19,11 +20,13 @@ type Options struct {
 }
 
 type Logger struct {
-	level  Level
-	mode   Mode
-	format Format
-	out    io.Writer
-	now    func() time.Time
+	level   Level
+	mode    Mode
+	format  Format
+	out     io.Writer
+	now     func() time.Time
+	sinksMu sync.RWMutex
+	sinks   []Sink
 }
 
 func New(level Level) *Logger { return NewWithOptions(Options{Level: level, Writer: color.Output}) }
@@ -45,9 +48,22 @@ func NewWithOptions(options Options) *Logger {
 }
 
 func (l *Logger) Emit(event Event) {
-	if l == nil || event.Level < l.level || event.Visibility > l.visibility() {
+	if l == nil {
 		return
 	}
+	event = l.normalize(event)
+	l.writeSinks(event)
+	if event.Level < l.level || event.Visibility > l.visibility() {
+		return
+	}
+	if l.format == FormatJSON {
+		l.renderJSON(event)
+		return
+	}
+	l.renderText(event)
+}
+
+func (l *Logger) normalize(event Event) Event {
 	if strings.TrimSpace(event.Name) == "" {
 		event.Name = legacyEventName(event.Component, event.Message)
 	}
@@ -65,11 +81,10 @@ func (l *Logger) Emit(event Event) {
 			event.Kind = KindError
 		}
 	}
-	if l.format == FormatJSON {
-		l.renderJSON(event)
-		return
+	if event.Time.IsZero() {
+		event.Time = l.now()
 	}
-	l.renderText(event)
+	return event
 }
 
 func (l *Logger) Action(component, name, message string, fields ...Field) {

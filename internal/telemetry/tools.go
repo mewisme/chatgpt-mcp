@@ -31,7 +31,7 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 			}
 			return
 		}
-		fields = append(fields, logger.With("duration_ms", observation.DurationMS))
+		fields = append(fields, logger.With("duration_ms", observation.DurationMS), logger.WithDebug("status", observation.Status))
 		if observation.ResultType != "" {
 			fields = append(fields, logger.With("result_type", observation.ResultType))
 		}

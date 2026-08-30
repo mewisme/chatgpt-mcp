@@ -75,3 +75,29 @@ func TestJSONRendererRespectsModeAndKeepsStructure(t *testing.T) {
 		t.Fatalf("debug field leaked into verbose json: %#v", fields)
 	}
 }
+
+type captureSink struct{ events []Event }
+
+func (s *captureSink) WriteEvent(event Event) error {
+	s.events = append(s.events, event)
+	return nil
+}
+
+func TestSinkReceivesNormalizedEventBeforeVisibilityFiltering(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Info, Writer: &output})
+	sink := &captureSink{}
+	log.AddSink(sink)
+	log.now = func() time.Time { return time.Date(2026, 8, 31, 1, 2, 3, 0, time.UTC) }
+	log.Diagnostic(Debug, "TOOL", "tool.call.started", "Tool call started", WithDebug("tool", "run_command"))
+	if output.Len() != 0 {
+		t.Fatalf("debug event leaked into default output: %q", output.String())
+	}
+	if len(sink.events) != 1 {
+		t.Fatalf("sink events = %#v", sink.events)
+	}
+	event := sink.events[0]
+	if event.Time.IsZero() || event.Name != "tool.call.started" || event.Component != "TOOL" || event.Visibility != VisibilityDebug {
+		t.Fatalf("sink event = %#v", event)
+	}
+}

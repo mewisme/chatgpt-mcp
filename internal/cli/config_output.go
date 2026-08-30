@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -191,9 +192,11 @@ func flattenConfigTree(prefix string, value any, lines *[]string) {
 }
 
 func compactConfigValue(value any) (string, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
 		return "", err
 	}
-	return string(data), nil
+	return strings.TrimSpace(buffer.String()), nil
 }

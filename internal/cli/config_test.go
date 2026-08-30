@@ -81,6 +81,26 @@ func TestSensitiveConfigValuesAreRedacted(t *testing.T) {
 	}
 }
 
+func TestConfigListDoesNotHTMLEscapeRedactionMarker(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "secret"
+	cfg.Auth.AdminTokenHash = "secret"
+	cfg.Tunnel.APIKey = "secret"
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := printConfigSelection(cmd, cfg, "", true, configOutputOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if strings.Contains(text, `\u003c`) || strings.Contains(text, `\u003e`) {
+		t.Fatalf("redaction marker was HTML-escaped: %s", text)
+	}
+	if !strings.Contains(text, `auth.mcp_token_hash = "<redacted>"`) || !strings.Contains(text, `tunnel.api_key = "<redacted>"`) {
+		t.Fatalf("redaction marker missing: %s", text)
+	}
+}
+
 func TestConfigParentTraversalAndFlatOutput(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = "mcp-secret"

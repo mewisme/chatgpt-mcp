@@ -23,6 +23,7 @@ const globalArgs = ["--config-dir", configDir]
 const serverPort = await freePort()
 const adminPort = await freePort()
 let child = null
+let follower = null
 let occupied = null
 
 try {
@@ -93,11 +94,50 @@ try {
   child = null
   runExpectFailure(["config", "reload"])
 
+  const history = run(["logs", "--debug", "--event", "server.*", "--tail", "50"], { quiet: true })
+  if (!history.includes("server.ready") && !history.includes("Server ready")) fail(`runtime history missing server readiness event:\n${history}`)
+  const logPath = run(["logs", "path"], { quiet: true })
+  if (!logPath.includes(path.join(configDir, "logs", "runtime.jsonl"))) fail(`logs path does not use isolated config root:\n${logPath}`)
+
+  const managedServiceID = "release-smoke-managed"
+  child = spawn(binary, [...globalArgs, "_service", "run", "--service-id", managedServiceID, "--service-scope", "user"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
+  stdout = ""
+  stderr = ""
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString() })
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString() })
+  await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
+  await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
+
+  const managedStatus = run(["status"], { quiet: true })
+  for (const expected of ["runtime: running", "managed: true", "scope: user", `service: ${managedServiceID}`]) {
+    if (!managedStatus.includes(expected)) fail(`managed status missing ${JSON.stringify(expected)}:\n${managedStatus}`)
+  }
+  const managedLogs = run(["logs", "--debug", "--event", "server.*", "--grep", "Server", "--tail", "50"], { quiet: true })
+  if (!managedLogs.includes("server.ready") && !managedLogs.includes("Server ready")) fail(`managed runtime logs filter returned no server event:\n${managedLogs}`)
+
+  run(["logs", "clear", "--force"], { quiet: true })
+  let followerStdout = ""
+  let followerStderr = ""
+  follower = spawn(binary, [...globalArgs, "logs", "--follow", "--event", "config.reloaded", "--tail", "0"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
+  follower.stdout.on("data", (chunk) => { followerStdout += chunk.toString() })
+  follower.stderr.on("data", (chunk) => { followerStderr += chunk.toString() })
+  await sleep(250)
+  run(["config", "reload"], { quiet: true })
+  await waitForText("runtime log follow", follower, () => `${followerStdout}\n${followerStderr}`, "Configuration reloaded")
+  await stopChild(follower)
+  follower = null
+
+  await stopChild(child)
+  child = null
+  const stoppedLogs = run(["logs", "--event", "config.reloaded", "--tail", "10"], { quiet: true })
+  if (!stoppedLogs.includes("Configuration reloaded")) fail(`persisted logs unavailable after managed runtime stopped:\n${stoppedLogs}`)
+
   run(["uninit"], { quiet: true })
   if (await readFile(defaultSentinel, "utf8") !== "keep\n") fail("isolated commands modified the default config root")
-  console.log("[OK] release smoke: init -> verify -> convert/transform -> config -> serve -> reload/rebind/rollback -> MCP conformance -> stop -> uninit")
+  console.log("[OK] release smoke: init -> verify -> config -> serve/reload/rollback -> MCP -> logs -> managed runtime -> follow/clear -> stop -> uninit")
 } finally {
   if (occupied) await closeServer(occupied.server).catch(() => undefined)
+  if (follower) await stopChild(follower).catch(() => undefined)
   if (child) await stopChild(child).catch(() => undefined)
   await rm(home, { recursive: true, force: true })
 }
@@ -116,6 +156,7 @@ function run(args, { quiet = false } = {}) {
     const output = [result.stdout, result.stderr].filter(Boolean).join("").trim()
     if (output) console.log(output)
   }
+  return [result.stdout, result.stderr].filter(Boolean).join("").trim()
 }
 
 function runExpectFailure(args) {
@@ -272,6 +313,17 @@ async function waitForHealth(url, server, output) {
     await sleep(100)
   }
   fail(`health check timed out: ${url}\n${output().trim()}`)
+}
+
+async function waitForText(label, processHandle, output, expected) {
+  const deadline = Date.now() + 10000
+  while (Date.now() < deadline) {
+    const text = output()
+    if (text.includes(expected)) return
+    if (processHandle.exitCode !== null) fail(`${label} exited with code ${processHandle.exitCode} before ${JSON.stringify(expected)} appeared\n${text.trim()}`)
+    await sleep(50)
+  }
+  fail(`${label} timed out waiting for ${JSON.stringify(expected)}\n${output().trim()}`)
 }
 
 async function stopChild(server) {

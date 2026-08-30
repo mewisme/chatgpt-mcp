@@ -63,7 +63,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 
 	log := commandLogger(cmd)
 	startedAt := time.Now().UTC()
-	metadata := runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid()}
+	serviceInfo := runtimeServiceInfo(cmd)
+	metadata := runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid(), Managed: serviceInfo.Managed, ServiceID: serviceInfo.ID, ServiceScope: serviceInfo.Scope}
 	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: metadata})
 	if err != nil {
 		return err

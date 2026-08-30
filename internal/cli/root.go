@@ -39,6 +39,7 @@ func newRootCommand() *cobra.Command {
 		tunnelCommand(),
 		serveCommand(),
 		statusCommand(),
+		internalServiceCommand(),
 		&cobra.Command{Use: "version", Run: func(cmd *cobra.Command, args []string) {
 			commandLogger(cmd).Notice("VERSION", "cli.version", version.String())
 		}},

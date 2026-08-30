@@ -36,7 +36,7 @@ func TestConfigPresetsAPI(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("apply = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if !cfg.Server.Expose || cfg.Admin.Enabled {
+	if cfg.Server.Expose.Mode != config.ExposureAll || cfg.Admin.Enabled {
 		t.Fatalf("preset not applied: %#v", cfg)
 	}
 	if cfg.Auth.MCPTokenHash != "mcp-secret" || cfg.Auth.AdminTokenHash != "admin-secret" {

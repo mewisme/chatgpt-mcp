@@ -1,34 +1,26 @@
 package cli
 
 import (
+	"fmt"
 	"net"
-	"sort"
 	"strconv"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
 )
 
-const (
-	loopbackHost = "127.0.0.1"
-	exposedHost  = "0.0.0.0"
-)
-
-type runtimeAddress struct {
-	Host      string
-	Interface string
-	Scope     string
-}
-
-type networkCandidate struct {
-	IP        net.IP
-	Interface string
-	Flags     net.Flags
+type listenerPlan struct {
+	Hosts     []string
+	Addresses []mcpnetwork.Address
 }
 
 func addExposeFlag(cmd *cobra.Command) {
-	cmd.Flags().Bool("expose", false, "expose MCP and admin listeners on all active network interfaces for this run")
+	cmd.Flags().String("expose", "", "network exposure for this run: all, none, or comma-separated interface names")
+	if flag := cmd.Flags().Lookup("expose"); flag != nil {
+		flag.NoOptDefVal = "all"
+	}
 }
 
 func applyExposeOverride(cmd *cobra.Command, cfg *config.Config) error {
@@ -36,110 +28,53 @@ func applyExposeOverride(cmd *cobra.Command, cfg *config.Config) error {
 	if flag == nil || !flag.Changed {
 		return nil
 	}
-	expose, err := cmd.Flags().GetBool("expose")
+	raw, err := cmd.Flags().GetString("expose")
 	if err != nil {
 		return err
 	}
-	cfg.Server.Expose = expose
+	exposure, err := config.ParseExposure(raw)
+	if err != nil {
+		return err
+	}
+	cfg.Server.Expose = exposure
 	return nil
 }
 
-func serverBindHost(expose bool) string {
-	if expose {
-		return exposedHost
+func resolveListenerPlan(exposure config.ExposureConfig) (listenerPlan, error) {
+	hosts, addresses, err := mcpnetwork.ResolveCurrent(exposure)
+	if err != nil {
+		return listenerPlan{}, err
 	}
-	return loopbackHost
+	return listenerPlan{Hosts: hosts, Addresses: addresses}, nil
 }
 
-func serverBindAddress(port int, expose bool) string {
-	return net.JoinHostPort(serverBindHost(expose), strconv.Itoa(port))
+func listenOnHosts(hosts []string, port int) ([]net.Listener, error) {
+	listeners := make([]net.Listener, 0, len(hosts))
+	for _, host := range hosts {
+		listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			for _, opened := range listeners {
+				_ = opened.Close()
+			}
+			return nil, fmt.Errorf("listen on %s:%d: %w", host, port, err)
+		}
+		listeners = append(listeners, listener)
+	}
+	return listeners, nil
 }
 
 func endpointURL(host string, port int, endpointPath string) string {
 	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + endpointPath
 }
 
-func runtimeAddresses(expose bool) []runtimeAddress {
-	addresses := []runtimeAddress{{Host: loopbackHost, Scope: "local"}}
-	if !expose {
-		return addresses
+func logReadyEndpoints(log *logger.Logger, cfg config.Config, plan listenerPlan) {
+	switch cfg.Server.Expose.Mode {
+	case config.ExposureAll:
+		log.Info("SERVER", "network exposure enabled", "mode", config.ExposureAll, "bind", mcpnetwork.WildcardHost, "addresses", len(plan.Addresses)-1)
+	case config.ExposureInterfaces:
+		log.Info("SERVER", "network exposure enabled", "mode", config.ExposureInterfaces, "interfaces", len(cfg.Server.Expose.Interfaces), "addresses", len(plan.Addresses)-1)
 	}
-	return append(addresses, normalizeNetworkAddresses(discoverNetworkCandidates())...)
-}
-
-func discoverNetworkCandidates() []networkCandidate {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil
-	}
-	candidates := make([]networkCandidate, 0)
-	for _, iface := range interfaces {
-		addresses, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, address := range addresses {
-			var ip net.IP
-			switch value := address.(type) {
-			case *net.IPNet:
-				ip = value.IP
-			case *net.IPAddr:
-				ip = value.IP
-			}
-			if ip != nil {
-				candidates = append(candidates, networkCandidate{IP: ip, Interface: iface.Name, Flags: iface.Flags})
-			}
-		}
-	}
-	return candidates
-}
-
-func normalizeNetworkAddresses(candidates []networkCandidate) []runtimeAddress {
-	addresses := make([]runtimeAddress, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate.Flags&net.FlagUp == 0 || candidate.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		ip := candidate.IP.To4()
-		if ip == nil || ip.IsLoopback() || ip.IsUnspecified() || !ip.IsGlobalUnicast() {
-			continue
-		}
-		scope := "network"
-		if ip.IsPrivate() {
-			scope = "lan"
-		}
-		addresses = append(addresses, runtimeAddress{Host: ip.String(), Interface: candidate.Interface, Scope: scope})
-	}
-	sort.Slice(addresses, func(i, j int) bool {
-		if (addresses[i].Scope == "lan") != (addresses[j].Scope == "lan") {
-			return addresses[i].Scope == "lan"
-		}
-		if addresses[i].Host != addresses[j].Host {
-			return addresses[i].Host < addresses[j].Host
-		}
-		return addresses[i].Interface < addresses[j].Interface
-	})
-	unique := addresses[:0]
-	seen := map[string]struct{}{}
-	for _, address := range addresses {
-		if _, ok := seen[address.Host]; ok {
-			continue
-		}
-		seen[address.Host] = struct{}{}
-		unique = append(unique, address)
-	}
-	return unique
-}
-
-func logReadyEndpoints(log *logger.Logger, cfg config.Config) {
-	addresses := runtimeAddresses(cfg.Server.Expose)
-	if cfg.Server.Expose {
-		log.Info("SERVER", "network exposure enabled", "bind", exposedHost, "addresses", len(addresses)-1)
-		if len(addresses) == 1 {
-			log.Warn("SERVER", "no active non-loopback IPv4 interfaces detected", "bind", exposedHost)
-		}
-	}
-	for _, address := range addresses {
+	for _, address := range plan.Addresses {
 		fields := endpointFields(address, endpointURL(address.Host, cfg.Server.Port, "/mcp"))
 		log.Info("MCP", "endpoint ready", fields...)
 		if cfg.Admin.Enabled {
@@ -150,8 +85,16 @@ func logReadyEndpoints(log *logger.Logger, cfg config.Config) {
 }
 
 func logEndpointDetails(log *logger.Logger, cfg config.Config) {
-	log.Detail("expose", cfg.Server.Expose)
-	for _, address := range runtimeAddresses(cfg.Server.Expose) {
+	log.Detail("expose", cfg.Server.Expose.Mode)
+	if len(cfg.Server.Expose.Interfaces) > 0 {
+		log.Detail("interfaces", cfg.Server.Expose.Interfaces)
+	}
+	plan, err := resolveListenerPlan(cfg.Server.Expose)
+	if err != nil {
+		log.Detail("network", err.Error())
+		return
+	}
+	for _, address := range plan.Addresses {
 		log.Detail(endpointDetailLabel("mcp", address), endpointURL(address.Host, cfg.Server.Port, "/mcp"))
 		if cfg.Admin.Enabled {
 			log.Detail(endpointDetailLabel("admin", address), endpointURL(address.Host, cfg.Admin.Port, "/"))
@@ -162,7 +105,7 @@ func logEndpointDetails(log *logger.Logger, cfg config.Config) {
 	}
 }
 
-func endpointFields(address runtimeAddress, url string) []any {
+func endpointFields(address mcpnetwork.Address, url string) []any {
 	fields := []any{"url", url, "scope", address.Scope}
 	if address.Interface != "" {
 		fields = append(fields, "interface", address.Interface)
@@ -170,7 +113,7 @@ func endpointFields(address runtimeAddress, url string) []any {
 	return fields
 }
 
-func endpointDetailLabel(kind string, address runtimeAddress) string {
+func endpointDetailLabel(kind string, address mcpnetwork.Address) string {
 	if address.Interface != "" {
 		return kind + " " + address.Interface
 	}

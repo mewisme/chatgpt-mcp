@@ -196,7 +196,7 @@ func TestLegacyGenericTunnelFieldsAreIgnored(t *testing.T) {
 
 func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 	cfg := Default()
-	if cfg.Server.Port != 37421 || cfg.Server.Expose {
+	if cfg.Server.Port != 37421 || cfg.Server.Expose.Mode != ExposureNone || len(cfg.Server.Expose.Interfaces) != 0 {
 		t.Fatalf("server = %#v", cfg.Server)
 	}
 }
@@ -205,13 +205,13 @@ func TestLegacyServerHostMigratesToExpose(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		server string
-		want   bool
+		want   ExposureMode
 	}{
-		{name: "loopback", server: `{"host":"127.0.0.1","port":37421}`, want: false},
-		{name: "localhost", server: `{"host":"localhost","port":37421}`, want: false},
-		{name: "wildcard", server: `{"host":"0.0.0.0","port":37421}`, want: true},
-		{name: "lan address", server: `{"host":"192.168.1.20","port":37421}`, want: true},
-		{name: "explicit false wins", server: `{"host":"0.0.0.0","port":37421,"expose":false}`, want: false},
+		{name: "loopback", server: `{"host":"127.0.0.1","port":37421}`, want: ExposureNone},
+		{name: "localhost", server: `{"host":"localhost","port":37421}`, want: ExposureNone},
+		{name: "wildcard", server: `{"host":"0.0.0.0","port":37421}`, want: ExposureAll},
+		{name: "lan address", server: `{"host":"192.168.1.20","port":37421}`, want: ExposureAll},
+		{name: "explicit false wins", server: `{"host":"0.0.0.0","port":37421,"expose":false}`, want: ExposureNone},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -225,8 +225,8 @@ func TestLegacyServerHostMigratesToExpose(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Server.Expose != test.want {
-				t.Fatalf("expose = %t, want %t", loaded.Server.Expose, test.want)
+			if loaded.Server.Expose.Mode != test.want {
+				t.Fatalf("expose = %#v, want %s", loaded.Server.Expose, test.want)
 			}
 			if err := saveAt(configPath, secretPath, loaded); err != nil {
 				t.Fatal(err)
@@ -238,14 +238,46 @@ func TestLegacyServerHostMigratesToExpose(t *testing.T) {
 			if strings.Contains(string(saved), `"host"`) {
 				t.Fatalf("legacy host survived save: %s", saved)
 			}
-			wantExpose := `"expose": false`
-			if test.want {
-				wantExpose = `"expose": true`
-			}
-			if !strings.Contains(string(saved), wantExpose) {
+			if !strings.Contains(string(saved), `"expose": {`) || !strings.Contains(string(saved), `"mode": "`+string(test.want)+`"`) {
 				t.Fatalf("saved exposure missing: %s", saved)
 			}
 		})
+	}
+}
+
+func TestLegacyBooleanExposureMigratesAcrossFormats(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		for _, test := range []struct {
+			name  string
+			value bool
+			want  ExposureMode
+		}{{"disabled", false, ExposureNone}, {"enabled", true, ExposureAll}} {
+			t.Run(string(format)+"/"+test.name, func(t *testing.T) {
+				root := t.TempDir()
+				path := configformat.PathFor(root, "config", format)
+				secretPath := configformat.PathFor(root, "tunnel", format)
+				legacy := map[string]any{
+					"server": map[string]any{"port": int64(37421), "expose": test.value},
+					"admin":  map[string]any{"enabled": false, "port": int64(37422)},
+					"auth":   map[string]any{"mcp_enabled": false, "admin_enabled": false},
+					"tunnel": map[string]any{"enabled": false},
+				}
+				data, err := configformat.EncodeGeneric(format, legacy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				loaded, err := loadAt(path, secretPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if loaded.Server.Expose.Mode != test.want || len(loaded.Server.Expose.Interfaces) != 0 {
+					t.Fatalf("expose = %#v", loaded.Server.Expose)
+				}
+			})
+		}
 	}
 }
 

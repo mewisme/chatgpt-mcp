@@ -18,22 +18,22 @@ type Preset struct {
 var builtInPresets = []Preset{
 	{
 		Name: "default", Description: "Loopback MCP and admin endpoints with authentication enabled.",
-		Server: ServerConfig{Port: 37421, Expose: false}, Admin: AdminConfig{Enabled: true, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
 	},
 	{
 		Name: "headless", Description: "Loopback MCP endpoint only; admin UI disabled.",
-		Server: ServerConfig{Port: 37421, Expose: false}, Admin: AdminConfig{Enabled: false, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: false, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
 	},
 	{
 		Name: "lan", Description: "Expose MCP on all interfaces while keeping admin UI disabled.",
-		Server: ServerConfig{Port: 37421, Expose: true}, Admin: AdminConfig{Enabled: false, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: false, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
 	},
 	{
 		Name: "lan-admin", Description: "Expose MCP and authenticated admin UI on all interfaces.",
-		Server: ServerConfig{Port: 37421, Expose: true}, Admin: AdminConfig{Enabled: true, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false,
 	},
 }
@@ -83,7 +83,7 @@ func ApplyPreset(cfg *Config, name string) error {
 
 func MatchPreset(cfg Config) string {
 	for _, preset := range builtInPresets {
-		if cfg.Server == preset.Server &&
+		if cfg.Server.Port == preset.Server.Port && ExposureEqual(cfg.Server.Expose, preset.Server.Expose) &&
 			cfg.Admin == preset.Admin &&
 			cfg.Auth.MCPEnabled == preset.MCPAuthEnabled &&
 			cfg.Auth.AdminEnabled == preset.AdminAuthEnabled &&

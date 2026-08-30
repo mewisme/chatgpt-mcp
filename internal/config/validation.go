@@ -17,6 +17,19 @@ func Validate(cfg Config) error {
 	if cfg.Admin.Enabled && cfg.Admin.Port == cfg.Server.Port {
 		return errors.New("admin port must differ from server port")
 	}
+	exposure := NormalizeExposure(cfg.Server.Expose)
+	switch exposure.Mode {
+	case ExposureNone, ExposureAll:
+		if len(cfg.Server.Expose.Interfaces) != 0 {
+			return errors.New("server expose interfaces must be empty unless mode is interfaces")
+		}
+	case ExposureInterfaces:
+		if len(exposure.Interfaces) == 0 {
+			return errors.New("server expose interfaces mode requires at least one interface")
+		}
+	default:
+		return fmt.Errorf("server expose mode must be none, all, or interfaces: %q", cfg.Server.Expose.Mode)
+	}
 	if cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {
 		return errors.New("MCP auth is enabled but no token is configured; run chatgpt-mcp auth mcp-create")
 	}

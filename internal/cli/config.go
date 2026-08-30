@@ -204,11 +204,20 @@ func parseConfigSetArgs(args []string) (string, string, error) {
 func setConfigValue(cfg *config.Config, key, raw string) error {
 	switch key {
 	case "server.expose":
-		value, err := parseBool(raw, key)
+		value, err := config.ParseExposure(raw)
 		if err != nil {
 			return err
 		}
 		cfg.Server.Expose = value
+	case "server.expose.mode":
+		mode := config.ExposureMode(strings.ToLower(strings.TrimSpace(raw)))
+		if mode != config.ExposureNone && mode != config.ExposureAll && mode != config.ExposureInterfaces {
+			return errors.New("server.expose.mode must be none, all, or interfaces")
+		}
+		cfg.Server.Expose.Mode = mode
+		cfg.Server.Expose = config.NormalizeExposure(cfg.Server.Expose)
+	case "server.expose.interfaces":
+		cfg.Server.Expose = config.NormalizeExposure(config.ExposureConfig{Mode: config.ExposureInterfaces, Interfaces: strings.Split(raw, ",")})
 	case "server.port":
 		value, err := parseInt(raw, key)
 		if err != nil {

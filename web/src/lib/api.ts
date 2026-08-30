@@ -57,10 +57,12 @@ export type MCPServerOAuthLogin = {
 }
 export type MCPServerOAuthSession = { session_id: string; authorization_url: string; expires_at: string }
 export type PublicConfig = {
-  server: { port: number; expose: boolean }
+  server: { port: number; expose: { mode: "none" | "all" | "interfaces"; interfaces: string[] } }
   admin: { enabled: boolean; port: number }
   auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
 }
+export type NetworkAddress = { address: string; interface?: string; scope: "local" | "lan" | "network" | string }
+export type NetworkInterface = { name: string; addresses: NetworkAddress[] }
 export type ConfigPreset = { name: string; description: string; server: PublicConfig["server"]; admin: PublicConfig["admin"]; mcp_auth_enabled: boolean; admin_auth_enabled: boolean; tunnel_enabled: boolean }
 export type ConfigPresetList = { current: string; presets: ConfigPreset[] }
 export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; control_plane_base_url?: string; organization_id?: string }
@@ -68,6 +70,7 @@ export type TunnelStatus = { provider: "openai" | string; enabled: boolean; runn
 
 const adminTokenKey = "chatgpt-mcp-admin-token"
 export const adminToken = { get: () => localStorage.getItem(adminTokenKey) ?? "", set: (token: string) => localStorage.setItem(adminTokenKey, token), clear: () => localStorage.removeItem(adminTokenKey) }
+export class ApiError extends Error { status: number; constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status } }
 
 export function authHeaders(): HeadersInit { const token = adminToken.get(); return token ? { Authorization: `Bearer ${token}` } : {} }
 
@@ -78,13 +81,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (token) headers.set("Authorization", `Bearer ${token}`)
   const response = await fetch(path, { ...init, headers })
   const text = response.status === 204 ? "" : await response.text()
-  if (!response.ok) throw new Error(text.trim() || `API ${response.status}`)
+  if (!response.ok) throw new ApiError(text.trim() || `API ${response.status}`, response.status)
   if (!text) return undefined as T
   try { return JSON.parse(text) as T } catch { throw new Error(`Invalid JSON response from ${path}`) }
 }
 
 export const adminApi = {
-  health: () => api<{ ok: boolean }>("/api/health"),
+  health: () => api<{ ok: boolean; auth_enabled: boolean }>("/api/health"),
+  networkInterfaces: () => api<NetworkInterface[]>("/api/network/interfaces"),
   config: () => api<PublicConfig>("/api/config"),
   saveConfig: (config: Partial<PublicConfig>) => api<PublicConfig>("/api/config", { method: "PUT", body: JSON.stringify(config) }),
   configPresets: () => api<ConfigPresetList>("/api/config/presets"),

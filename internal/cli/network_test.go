@@ -1,51 +1,53 @@
 package cli
 
 import (
-	"net"
+	"bytes"
 	"reflect"
 	"testing"
+
+	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/config"
 )
 
-func TestServerBindHost(t *testing.T) {
-	if got := serverBindHost(false); got != "127.0.0.1" {
-		t.Fatalf("loopback bind = %q", got)
-	}
-	if got := serverBindHost(true); got != "0.0.0.0" {
-		t.Fatalf("exposed bind = %q", got)
-	}
-}
-
-func TestNormalizeNetworkAddresses(t *testing.T) {
-	candidates := []networkCandidate{
-		{IP: net.ParseIP("127.0.0.1"), Interface: "loopback", Flags: net.FlagUp | net.FlagLoopback},
-		{IP: net.ParseIP("192.168.1.20"), Interface: "Wi-Fi", Flags: net.FlagUp},
-		{IP: net.ParseIP("10.0.0.4"), Interface: "Ethernet", Flags: net.FlagUp},
-		{IP: net.ParseIP("192.168.1.20"), Interface: "duplicate", Flags: net.FlagUp},
-		{IP: net.ParseIP("203.0.113.9"), Interface: "Public", Flags: net.FlagUp},
-		{IP: net.ParseIP("172.20.0.2"), Interface: "Down", Flags: 0},
-		{IP: net.ParseIP("2001:db8::1"), Interface: "IPv6", Flags: net.FlagUp},
-	}
-	got := normalizeNetworkAddresses(candidates)
-	want := []runtimeAddress{
-		{Host: "10.0.0.4", Interface: "Ethernet", Scope: "lan"},
-		{Host: "192.168.1.20", Interface: "Wi-Fi", Scope: "lan"},
-		{Host: "203.0.113.9", Interface: "Public", Scope: "network"},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("addresses = %#v, want %#v", got, want)
-	}
-}
-
-func TestRuntimeAddressesAlwaysIncludeLoopback(t *testing.T) {
-	got := runtimeAddresses(false)
-	want := []runtimeAddress{{Host: "127.0.0.1", Scope: "local"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("addresses = %#v, want %#v", got, want)
+func TestExposeFlagSupportsBareAllAndInterfaceLists(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+		want config.ExposureConfig
+	}{
+		{name: "bare", args: []string{"--expose"}, want: config.ExposureConfig{Mode: config.ExposureAll, Interfaces: []string{}}},
+		{name: "all", args: []string{"--expose=all"}, want: config.ExposureConfig{Mode: config.ExposureAll, Interfaces: []string{}}},
+		{name: "none", args: []string{"--expose=none"}, want: config.ExposureConfig{Mode: config.ExposureNone, Interfaces: []string{}}},
+		{name: "true compatibility", args: []string{"--expose=true"}, want: config.ExposureConfig{Mode: config.ExposureAll, Interfaces: []string{}}},
+		{name: "false compatibility", args: []string{"--expose=false"}, want: config.ExposureConfig{Mode: config.ExposureNone, Interfaces: []string{}}},
+		{name: "interfaces", args: []string{"--expose=tailscale0,eth0,eth0"}, want: config.ExposureConfig{Mode: config.ExposureInterfaces, Interfaces: []string{"eth0", "tailscale0"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := config.Default()
+			cmd := &cobra.Command{Use: "test"}
+			addExposeFlag(cmd)
+			cmd.SetArgs(test.args)
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.RunE = func(cmd *cobra.Command, args []string) error { return applyExposeOverride(cmd, &cfg) }
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if !config.ExposureEqual(cfg.Server.Expose, test.want) {
+				t.Fatalf("exposure = %#v, want %#v", cfg.Server.Expose, test.want)
+			}
+		})
 	}
 }
 
 func TestEndpointURL(t *testing.T) {
 	if got := endpointURL("127.0.0.1", 37421, "/mcp"); got != "http://127.0.0.1:37421/mcp" {
 		t.Fatalf("url = %q", got)
+	}
+}
+
+func TestListenPlanShape(t *testing.T) {
+	plan := listenerPlan{Hosts: []string{"127.0.0.1"}}
+	if !reflect.DeepEqual(plan.Hosts, []string{"127.0.0.1"}) {
+		t.Fatalf("plan = %#v", plan)
 	}
 }

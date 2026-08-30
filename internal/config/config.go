@@ -1,8 +1,12 @@
 package config
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -18,8 +22,21 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port   int  `json:"port"`
-	Expose bool `json:"expose"`
+	Port   int            `json:"port"`
+	Expose ExposureConfig `json:"expose"`
+}
+
+type ExposureMode string
+
+const (
+	ExposureNone       ExposureMode = "none"
+	ExposureAll        ExposureMode = "all"
+	ExposureInterfaces ExposureMode = "interfaces"
+)
+
+type ExposureConfig struct {
+	Mode       ExposureMode `json:"mode"`
+	Interfaces []string     `json:"interfaces"`
 }
 
 type AdminConfig struct {
@@ -35,7 +52,81 @@ type AuthConfig struct {
 }
 
 func Default() Config {
-	return Config{Server: ServerConfig{Port: 37421, Expose: false}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
+}
+
+func (value *ExposureConfig) UnmarshalJSON(data []byte) error {
+	var legacy bool
+	if err := json.Unmarshal(data, &legacy); err == nil {
+		if legacy {
+			*value = ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}
+		} else {
+			*value = ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}
+		}
+		return nil
+	}
+	type exposureAlias ExposureConfig
+	var decoded exposureAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return fmt.Errorf("server.expose must be a boolean or exposure object: %w", err)
+	}
+	*value = NormalizeExposure(ExposureConfig(decoded))
+	return nil
+}
+
+func NormalizeExposure(value ExposureConfig) ExposureConfig {
+	value.Mode = ExposureMode(strings.ToLower(strings.TrimSpace(string(value.Mode))))
+	if value.Mode != ExposureInterfaces {
+		value.Interfaces = []string{}
+		return value
+	}
+	names := make([]string, 0, len(value.Interfaces))
+	seen := map[string]struct{}{}
+	for _, name := range value.Interfaces {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	value.Interfaces = names
+	return value
+}
+
+func ParseExposure(raw string) (ExposureConfig, error) {
+	value := strings.TrimSpace(raw)
+	switch strings.ToLower(value) {
+	case "true", "all":
+		return ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}, nil
+	case "false", "none":
+		return ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}, nil
+	case "", "interfaces":
+		return ExposureConfig{}, errors.New("server exposure must be none, all, or a comma-separated interface list")
+	}
+	exposure := NormalizeExposure(ExposureConfig{Mode: ExposureInterfaces, Interfaces: strings.Split(value, ",")})
+	if len(exposure.Interfaces) == 0 {
+		return ExposureConfig{}, errors.New("server exposure interface list cannot be empty")
+	}
+	return exposure, nil
+}
+
+func ExposureEqual(left, right ExposureConfig) bool {
+	left = NormalizeExposure(left)
+	right = NormalizeExposure(right)
+	if left.Mode != right.Mode || len(left.Interfaces) != len(right.Interfaces) {
+		return false
+	}
+	for index := range left.Interfaces {
+		if left.Interfaces[index] != right.Interfaces[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func Load() (Config, error) {
@@ -58,6 +149,7 @@ func loadAt(configPath, secretPath string) (Config, error) {
 	if err := configformat.UnmarshalPath(configPath, data, &cfg); err != nil {
 		return cfg, err
 	}
+	cfg.Server.Expose = NormalizeExposure(cfg.Server.Expose)
 	if err := migrateLegacyServerConfig(configPath, data, &cfg); err != nil {
 		return cfg, err
 	}
@@ -73,19 +165,24 @@ func loadAt(configPath, secretPath string) (Config, error) {
 
 func migrateLegacyServerConfig(path string, data []byte, cfg *Config) error {
 	var legacy struct {
-		Server struct {
-			Host   string `json:"host"`
-			Expose *bool  `json:"expose"`
-		} `json:"server"`
+		Server map[string]any `json:"server"`
 	}
 	if err := configformat.UnmarshalPath(path, data, &legacy); err != nil {
 		return err
 	}
-	if legacy.Server.Expose != nil || strings.TrimSpace(legacy.Server.Host) == "" {
+	if _, exists := legacy.Server["expose"]; exists {
 		return nil
 	}
-	host := strings.Trim(strings.ToLower(strings.TrimSpace(legacy.Server.Host)), "[]")
-	cfg.Server.Expose = host != "127.0.0.1" && host != "::1" && host != "localhost"
+	host, _ := legacy.Server["host"].(string)
+	host = strings.Trim(strings.ToLower(strings.TrimSpace(host)), "[]")
+	if host == "" {
+		return nil
+	}
+	if host == "127.0.0.1" || host == "::1" || host == "localhost" {
+		cfg.Server.Expose = ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}
+	} else {
+		cfg.Server.Expose = ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}
+	}
 	return nil
 }
 
@@ -110,6 +207,7 @@ func saveAt(configPath, secretPath string, cfg Config) error {
 		return err
 	}
 	persisted := cfg
+	persisted.Server.Expose = NormalizeExposure(persisted.Server.Expose)
 	persisted.Tunnel.APIKey = ""
 	data, err := configformat.MarshalPath(configPath, persisted)
 	if err != nil {

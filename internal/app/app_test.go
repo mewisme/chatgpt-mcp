@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
@@ -18,6 +21,44 @@ func TestNewSharesToolRuntime(t *testing.T) {
 	}
 	if app.Upstream != app.Tools.Upstream {
 		t.Fatal("Admin and tool runtime do not share the same upstream manager")
+	}
+}
+
+func TestHandlersHonorDisabledAuthentication(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	app := New(cfg)
+
+	mcpRecorder := httptest.NewRecorder()
+	app.MCPHandler().ServeHTTP(mcpRecorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if mcpRecorder.Code != http.StatusOK {
+		t.Fatalf("MCP auth-disabled health = %d", mcpRecorder.Code)
+	}
+
+	adminRecorder := httptest.NewRecorder()
+	app.AdminHandler().ServeHTTP(adminRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if adminRecorder.Code != http.StatusOK {
+		t.Fatalf("admin auth-disabled health = %d", adminRecorder.Code)
+	}
+}
+
+func TestHandlersRequireEnabledAuthentication(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = auth.HashToken("mcp-test")
+	cfg.Auth.AdminTokenHash = auth.HashToken("admin-test")
+	app := New(cfg)
+
+	mcpRecorder := httptest.NewRecorder()
+	app.MCPHandler().ServeHTTP(mcpRecorder, httptest.NewRequest(http.MethodPost, "/mcp", nil))
+	if mcpRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("MCP auth-enabled status = %d", mcpRecorder.Code)
+	}
+
+	adminRecorder := httptest.NewRecorder()
+	app.AdminHandler().ServeHTTP(adminRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if adminRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("admin auth-enabled status = %d", adminRecorder.Code)
 	}
 }
 

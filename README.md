@@ -160,30 +160,43 @@ MCP:   http://127.0.0.1:37421/mcp
 Admin: http://127.0.0.1:37422/
 ```
 
-The server bind policy is intentionally machine-independent:
+Network exposure is explicit and independent from authentication:
 
 ```json
 {
   "server": {
     "port": 37421,
-    "expose": false
+    "expose": {
+      "mode": "none",
+      "interfaces": []
+    }
   }
 }
 ```
 
-`expose: false` binds to `127.0.0.1`. To expose MCP and the enabled Admin listener to the local network for one run:
+`none` binds only to `127.0.0.1`. `all` binds to `0.0.0.0`. `interfaces` keeps loopback available and additionally binds only to the eligible IPv4 addresses of the selected active interfaces.
+
+For one run:
 
 ```bash
 chatgpt-mcp serve --expose
+chatgpt-mcp serve --expose=all
+chatgpt-mcp serve --expose=eth0
+chatgpt-mcp serve --expose=eth0,tailscale0
+chatgpt-mcp serve --expose=none
 ```
 
-Or persist the policy:
+Bare `--expose` means `all`; `--expose=true` and `--expose=false` remain compatibility aliases for `all` and `none`.
+
+Persist the policy with:
 
 ```bash
-chatgpt-mcp config set server.expose true
+chatgpt-mcp config set server.expose all
+chatgpt-mcp config set server.expose eth0,tailscale0
+chatgpt-mcp config set server.expose none
 ```
 
-When exposed, the runtime binds to `0.0.0.0`, detects every active non-loopback IPv4 interface, and logs each reachable MCP/Admin URL with its interface name. Multiple LAN/VPN/network addresses are shown separately. Legacy `server.host` values are migrated automatically on load and removed on the next config save.
+Selected interfaces must be active, non-loopback, and have an eligible IPv4 address. Startup fails instead of silently broadening exposure when a configured interface is unavailable. Duplicate IPs are bound once. Legacy boolean `server.expose` and `server.host` values are migrated automatically on load and written back in the structured exposure format on the next save.
 
 Inspect the current runtime configuration:
 
@@ -277,6 +290,8 @@ Authentication can be inspected with:
 ```bash
 chatgpt-mcp auth status
 ```
+
+Authentication and network exposure are separate policies. When MCP or Admin authentication is disabled, that endpoint does not require a bearer token on either loopback or exposed interfaces. The Admin dashboard also skips the login screen when Admin authentication is disabled.
 
 ## OpenAI Secure MCP Tunnel
 

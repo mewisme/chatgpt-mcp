@@ -62,8 +62,18 @@ func TestConfigAPIHidesTokenHashes(t *testing.T) {
 	if !strings.Contains(body, `"mcp_token_configured":true`) || !strings.Contains(body, `"admin_token_configured":true`) {
 		t.Fatalf("configured state missing: %s", body)
 	}
-	if strings.Contains(body, `"host"`) || !strings.Contains(body, `"expose":false`) {
+	if strings.Contains(body, `"host"`) || !strings.Contains(body, `"expose":{"mode":"none","interfaces":[]}`) {
 		t.Fatalf("server exposure view is invalid: %s", body)
+	}
+}
+
+func TestHealthReportsAdminAuthState(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.AdminEnabled = false
+	recorder := httptest.NewRecorder()
+	New(API{Config: &cfg}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"auth_enabled":false`) {
+		t.Fatalf("health = %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 

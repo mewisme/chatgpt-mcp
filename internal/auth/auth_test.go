@@ -38,3 +38,12 @@ func TestHashedMiddlewareRequiresConfiguredToken(t *testing.T) {
 		t.Fatalf("expected 204, got %d", recorder.Code)
 	}
 }
+
+func TestHashedMiddlewareBypassesAuthenticationWhenDisabled(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	recorder := httptest.NewRecorder()
+	HashedMiddleware(false, "configured-but-unused", next).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected auth-disabled request to pass, got %d", recorder.Code)
+	}
+}

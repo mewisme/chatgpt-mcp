@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -49,8 +50,10 @@ func New(api API) http.Handler {
 	api = api.withOAuth()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]bool{"ok": true})
+		authEnabled := api.Config != nil && api.Config.Auth.AdminEnabled
+		writeJSON(w, map[string]bool{"ok": true, "auth_enabled": authEnabled})
 	}))
+	mux.HandleFunc("/api/network/interfaces", api.handleNetworkInterfaces)
 	mux.HandleFunc("/api/config", api.handleConfig)
 	mux.HandleFunc("/api/config/presets", api.handleConfigPresets)
 	mux.HandleFunc("/api/config/presets/", api.handleConfigPreset)
@@ -62,6 +65,19 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/tunnel/config", api.handleTunnelConfig)
 	mux.HandleFunc("/api/tunnel", api.handleTunnel)
 	return mux
+}
+
+func (api API) handleNetworkInterfaces(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	interfaces, err := mcpnetwork.Discover()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, interfaces)
 }
 
 func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {

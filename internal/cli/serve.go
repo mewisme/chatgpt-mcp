@@ -47,22 +47,23 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 	defer runtimeCancel()
 
-	mcpAddr := serverBindAddress(cfg.Server.Port, cfg.Server.Expose)
-	mcpListener, err := net.Listen("tcp", mcpAddr)
+	plan, err := resolveListenerPlan(cfg.Server.Expose)
 	if err != nil {
 		return err
 	}
-	defer mcpListener.Close()
+	mcpListeners, err := listenOnHosts(plan.Hosts, cfg.Server.Port)
+	if err != nil {
+		return err
+	}
+	defer closeListeners(mcpListeners)
 
-	var adminListener net.Listener
-	adminAddr := ""
+	var adminListeners []net.Listener
 	if cfg.Admin.Enabled {
-		adminAddr = serverBindAddress(cfg.Admin.Port, cfg.Server.Expose)
-		adminListener, err = net.Listen("tcp", adminAddr)
+		adminListeners, err = listenOnHosts(plan.Hosts, cfg.Admin.Port)
 		if err != nil {
 			return err
 		}
-		defer adminListener.Close()
+		defer closeListeners(adminListeners)
 	}
 
 	runtime := app.New(cfg)
@@ -81,16 +82,21 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		runtime.Logger.Success("SERVER", "shutdown complete")
 	}()
 
-	logReadyEndpoints(runtime.Logger, cfg)
+	logReadyEndpoints(runtime.Logger, cfg, plan)
 
-	mcpServer := newHTTPServer(runtime.MCPHandler())
-	servers := []*http.Server{mcpServer}
-	errCh := make(chan error, 2)
-	go serveHTTP(mcpServer, mcpListener, errCh)
+	servers := make([]*http.Server, 0, len(mcpListeners)+len(adminListeners))
+	errCh := make(chan error, len(mcpListeners)+len(adminListeners))
+	for _, listener := range mcpListeners {
+		server := newHTTPServer(runtime.MCPHandler())
+		servers = append(servers, server)
+		go serveHTTP(server, listener, errCh)
+	}
 	if cfg.Admin.Enabled {
-		adminServer := newHTTPServer(runtime.AdminHandler())
-		servers = append(servers, adminServer)
-		go serveHTTP(adminServer, adminListener, errCh)
+		for _, listener := range adminListeners {
+			server := newHTTPServer(runtime.AdminHandler())
+			servers = append(servers, server)
+			go serveHTTP(server, listener, errCh)
+		}
 	}
 
 	shutdown := func() error {
@@ -126,6 +132,12 @@ func newHTTPServer(handler http.Handler) *http.Server {
 
 func serveHTTP(server *http.Server, listener net.Listener, errCh chan<- error) {
 	errCh <- server.Serve(listener)
+}
+
+func closeListeners(listeners []net.Listener) {
+	for _, listener := range listeners {
+		_ = listener.Close()
+	}
 }
 
 func shutdownServers(servers []*http.Server) error {

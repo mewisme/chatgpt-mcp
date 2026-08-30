@@ -11,7 +11,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
@@ -19,14 +18,16 @@ var root = newRootCommand()
 
 func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "chatgpt-mcp",
-		Short:         "Workspace-bound local MCP server for ChatGPT",
-		RunE:          runServer,
-		Version:       version.Short(),
-		SilenceErrors: true,
-		SilenceUsage:  true,
+		Use:               "chatgpt-mcp",
+		Short:             "Workspace-bound local MCP server for ChatGPT",
+		RunE:              runServer,
+		Version:           version.Short(),
+		SilenceErrors:     true,
+		SilenceUsage:      true,
+		PersistentPreRunE: validateLoggingFlags,
 	}
 	addExposeFlag(cmd)
+	addLoggingFlags(cmd)
 	cmd.AddCommand(
 		initCommand(),
 		uninitCommand(),
@@ -42,11 +43,11 @@ func newRootCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Detail("config", source.Path)
+			commandLogger(cmd).Detail("config", source.Path)
 			return nil
 		}},
 		&cobra.Command{Use: "version", Run: func(cmd *cobra.Command, args []string) {
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Info("VERSION", version.String())
+			commandLogger(cmd).Notice("VERSION", "cli.version", version.String())
 		}},
 	)
 	return cmd
@@ -96,7 +97,7 @@ func initCommand() *cobra.Command {
 			} else if err := config.SaveAs(cfg, format); err != nil {
 				return err
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("INIT", "configuration created")
 			if source.Exists {
 				log.Detail("config", source.Path)
@@ -127,7 +128,7 @@ func uninitCommand() *cobra.Command {
 			if err := removeConfigRoot(root); err != nil {
 				return err
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("UNINIT", "local configuration and state removed")
 			log.Detail("root", root)
 			return nil
@@ -186,7 +187,7 @@ func authCreateCommand(kind string) *cobra.Command {
 			if err := config.Save(cfg); err != nil {
 				return err
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("AUTH", "token rotated", "type", kind)
 			log.Detail(strings.ToUpper(kind), token)
 			return nil
@@ -228,7 +229,7 @@ func authToggleCommand(kind string, enabled bool) *cobra.Command {
 			if enabled {
 				state = "enabled"
 			}
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("AUTH", state, "type", kind)
+			commandLogger(cmd).Success("AUTH", state, "type", kind)
 			return nil
 		},
 	}
@@ -243,7 +244,7 @@ func authStatusCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Info("AUTH", "authentication status")
 			log.Detail("mcp", fmt.Sprintf("enabled=%t configured=%t", cfg.Auth.MCPEnabled, cfg.Auth.MCPTokenHash != ""))
 			log.Detail("admin", fmt.Sprintf("enabled=%t configured=%t", cfg.Auth.AdminEnabled, cfg.Auth.AdminTokenHash != ""))
@@ -252,4 +253,10 @@ func authStatusCommand() *cobra.Command {
 	}
 }
 
-func Execute() error { return root.Execute() }
+func Execute() error {
+	err := root.Execute()
+	if err != nil {
+		commandLogger(root).Failure("CLI", "cli.command.failed", "Command failed", err)
+	}
+	return err
+}

@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -40,7 +39,7 @@ func workspaceRegisterCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("WORKSPACE", "workspace registered")
 			log.Detail("id", item.ID)
 			log.Detail("root", item.Path)
@@ -63,7 +62,7 @@ func workspaceListCommand() *cobra.Command {
 			if asJSON {
 				return printJSON(cmd, items)
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("WORKSPACE", "registered workspaces loaded", "count", len(items))
 			for _, item := range items {
 				log.Detail(item.ID, item.Path)
@@ -105,7 +104,7 @@ func workspaceUnregisterCommand() *cobra.Command {
 			if err := manager.Unregister(args[0]); err != nil {
 				return err
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("WORKSPACE", "workspace unregistered")
 			log.Detail("id", item.ID)
 			log.Detail("root", item.Path)

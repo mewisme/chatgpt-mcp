@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,91 +11,196 @@ import (
 	"github.com/fatih/color"
 )
 
-type Level uint8
-
-const (
-	Debug Level = iota
-	Info
-	Warn
-	Error
-)
+type Options struct {
+	Level  Level
+	Mode   Mode
+	Format Format
+	Writer io.Writer
+}
 
 type Logger struct {
-	level     Level
-	out       io.Writer
-	timestamp bool
+	level  Level
+	mode   Mode
+	format Format
+	out    io.Writer
+	now    func() time.Time
 }
 
-func New(level Level) *Logger { return &Logger{level: level, out: color.Output, timestamp: true} }
-func NewCLI() *Logger         { return &Logger{level: Info, out: color.Output} }
+func New(level Level) *Logger { return NewWithOptions(Options{Level: level, Writer: color.Output}) }
+func NewCLI() *Logger         { return NewWithOptions(Options{Level: Info, Writer: color.Output}) }
 func NewWithWriter(level Level, writer io.Writer) *Logger {
-	return &Logger{level: level, out: writer, timestamp: true}
+	return NewWithOptions(Options{Level: level, Writer: writer})
 }
-func NewCLIWithWriter(writer io.Writer) *Logger { return &Logger{level: Info, out: writer} }
+func NewCLIWithWriter(writer io.Writer) *Logger {
+	return NewWithOptions(Options{Level: Info, Writer: writer})
+}
+func NewWithOptions(options Options) *Logger {
+	if options.Writer == nil {
+		options.Writer = color.Output
+	}
+	if options.Format == "" {
+		options.Format = FormatText
+	}
+	return &Logger{level: options.Level, mode: options.Mode, format: options.Format, out: options.Writer, now: time.Now}
+}
+
+func (l *Logger) Emit(event Event) {
+	if l == nil || event.Level < l.level || event.Visibility > l.visibility() {
+		return
+	}
+	if strings.TrimSpace(event.Name) == "" {
+		event.Name = legacyEventName(event.Component, event.Message)
+	}
+	if strings.TrimSpace(event.Message) == "" {
+		event.Message = event.Name
+	}
+	if event.Component == "" {
+		event.Component = "CLI"
+	}
+	if event.Kind == KindInfo {
+		switch event.Level {
+		case Warn:
+			event.Kind = KindWarning
+		case Error:
+			event.Kind = KindError
+		}
+	}
+	if l.format == FormatJSON {
+		l.renderJSON(event)
+		return
+	}
+	l.renderText(event)
+}
+
+func (l *Logger) Action(component, name, message string, fields ...Field) {
+	l.Emit(Event{Level: Info, Name: name, Message: message, Fields: fields, Component: component, Kind: KindAction})
+}
+func (l *Logger) Ready(component, name, message string, fields ...Field) {
+	l.Emit(Event{Level: Info, Name: name, Message: message, Fields: fields, Component: component, Kind: KindSuccess})
+}
+func (l *Logger) Notice(component, name, message string, fields ...Field) {
+	l.Emit(Event{Level: Info, Name: name, Message: message, Fields: fields, Component: component, Kind: KindInfo})
+}
+func (l *Logger) Warning(component, name, message string, err error, fields ...Field) {
+	l.Emit(Event{Level: Warn, Name: name, Message: message, Fields: fields, Err: err, Component: component, Kind: KindWarning})
+}
+func (l *Logger) Failure(component, name, message string, err error, fields ...Field) {
+	l.Emit(Event{Level: Error, Name: name, Message: message, Fields: fields, Err: err, Component: component, Kind: KindError})
+}
+func (l *Logger) Verbose(component, name, message string, fields ...Field) {
+	l.Emit(Event{Level: Info, Name: name, Message: message, Fields: fields, Component: component, Kind: KindInfo, Visibility: VisibilityVerbose})
+}
+func (l *Logger) Diagnostic(level Level, component, name, message string, fields ...Field) {
+	l.Emit(Event{Level: level, Name: name, Message: message, Fields: fields, Component: component, Kind: kindForLevel(level), Visibility: VisibilityDebug})
+}
 
 func (l *Logger) Debug(component, message string, fields ...any) {
-	l.log(Debug, "DBG", component, message, fields...)
+	l.Emit(legacyEvent(Debug, KindInfo, VisibilityDebug, component, message, fields...))
 }
 func (l *Logger) Info(component, message string, fields ...any) {
-	l.log(Info, "INF", component, message, fields...)
+	l.Emit(legacyEvent(Info, KindInfo, VisibilityDefault, component, message, fields...))
 }
 func (l *Logger) Warn(component, message string, fields ...any) {
-	l.log(Warn, "WRN", component, message, fields...)
+	l.Emit(legacyEvent(Warn, KindWarning, VisibilityDefault, component, message, fields...))
 }
 func (l *Logger) Error(component, message string, fields ...any) {
-	l.log(Error, "ERR", component, message, fields...)
+	l.Emit(legacyEvent(Error, KindError, VisibilityDefault, component, message, fields...))
 }
 func (l *Logger) Success(component, message string, fields ...any) {
-	if Info < l.level {
-		return
-	}
-	l.write("OK", component, message, fields...)
+	l.Emit(legacyEvent(Info, KindSuccess, VisibilityDefault, component, message, fields...))
 }
 func (l *Logger) Detail(label string, value any) {
-	labelText := styled(color.FgHiBlue, color.Bold).Sprintf("%-8s", strings.ToUpper(label))
-	fmt.Fprintf(l.out, "    %s %v\n", labelText, value)
+	l.Emit(Event{Level: Info, Name: "cli.detail", Message: strings.TrimSpace(label), Fields: []Field{With("value", value)}, Component: "CLI", Kind: KindInfo})
 }
 
-func (l *Logger) log(level Level, levelText, component, message string, fields ...any) {
-	if level < l.level {
-		return
+func (l *Logger) eventTime(event Event) time.Time {
+	if !event.Time.IsZero() {
+		return event.Time
 	}
-	l.write(levelText, component, message, fields...)
+	return l.now()
 }
 
-func (l *Logger) write(levelText, component, message string, fields ...any) {
-	if l.timestamp {
-		ts := styled(color.FgHiBlack).Sprint(time.Now().Format("15:04:05"))
-		fmt.Fprint(l.out, ts, " ")
-	}
-	fmt.Fprint(l.out, levelStyle(levelText).Sprintf("%-3s", levelText), " ")
-	fmt.Fprint(l.out, styled(color.FgHiBlue, color.Bold).Sprintf("%-8s", strings.ToUpper(component)))
-	fmt.Fprint(l.out, message)
-	for i := 0; i+1 < len(fields); i += 2 {
-		fmt.Fprint(l.out, " ", styled(color.FgHiBlack).Sprintf("%v=", fields[i]), fields[i+1])
-	}
-	fmt.Fprintln(l.out)
-}
-
-func levelStyle(level string) *color.Color {
-	switch level {
-	case "OK":
-		return styled(color.FgHiGreen, color.Bold)
-	case "DBG":
-		return styled(color.FgHiBlack)
-	case "WRN":
-		return styled(color.FgHiYellow, color.Bold)
-	case "ERR":
-		return styled(color.FgHiRed, color.Bold)
+func (l *Logger) visibility() Visibility {
+	switch l.mode {
+	case ModeDebug:
+		return VisibilityDebug
+	case ModeVerbose:
+		return VisibilityVerbose
 	default:
-		return styled(color.FgHiCyan, color.Bold)
+		return VisibilityDefault
+	}
+}
+
+func legacyEvent(level Level, kind Kind, visibility Visibility, component, message string, values ...any) Event {
+	fields, err := legacyFields(values...)
+	return Event{Level: level, Name: legacyEventName(component, message), Message: message, Fields: fields, Err: err, Component: component, Kind: kind, Visibility: visibility}
+}
+
+func legacyFields(values ...any) ([]Field, error) {
+	fields := make([]Field, 0, len(values)/2)
+	var eventErr error
+	for i := 0; i+1 < len(values); i += 2 {
+		key := strings.TrimSpace(fmt.Sprint(values[i]))
+		value := values[i+1]
+		if strings.EqualFold(key, "error") {
+			switch typed := value.(type) {
+			case error:
+				eventErr = typed
+			case nil:
+			default:
+				eventErr = errors.New(fmt.Sprint(typed))
+			}
+			continue
+		}
+		fields = append(fields, WithVerbose(key, value))
+	}
+	return fields, eventErr
+}
+
+func legacyEventName(component, message string) string {
+	component = slug(component)
+	message = slug(message)
+	if component == "" {
+		component = "log"
+	}
+	if message == "" {
+		return component
+	}
+	return component + "." + message
+}
+
+func slug(value string) string {
+	var builder strings.Builder
+	lastDash := false
+	for _, char := range strings.ToLower(strings.TrimSpace(value)) {
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' {
+			builder.WriteRune(char)
+			lastDash = false
+			continue
+		}
+		if builder.Len() > 0 && !lastDash {
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(builder.String(), "-")
+}
+
+func kindForLevel(level Level) Kind {
+	switch level {
+	case Warn:
+		return KindWarning
+	case Error:
+		return KindError
+	default:
+		return KindInfo
 	}
 }
 
 func styled(attrs ...color.Attribute) *color.Color {
-	c := color.New(attrs...)
+	value := color.New(attrs...)
 	if os.Getenv("NO_COLOR") != "" {
-		c.DisableColor()
+		value.DisableColor()
 	}
-	return c
+	return value
 }

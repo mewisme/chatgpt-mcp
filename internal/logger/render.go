@@ -1,0 +1,175 @@
+package logger
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"reflect"
+	"strings"
+	"time"
+
+	"github.com/fatih/color"
+)
+
+type jsonEvent struct {
+	Time      string         `json:"time"`
+	Level     string         `json:"level"`
+	Event     string         `json:"event"`
+	Kind      string         `json:"kind"`
+	Message   string         `json:"message"`
+	Component string         `json:"component,omitempty"`
+	Fields    map[string]any `json:"fields,omitempty"`
+	Error     string         `json:"error,omitempty"`
+}
+
+func (l *Logger) renderText(event Event) {
+	if l.mode == ModeDebug {
+		l.renderDebugText(event)
+		return
+	}
+	if event.Name == "cli.detail" {
+		value := any("")
+		if len(event.Fields) > 0 {
+			value = event.Fields[0].Value
+		}
+		fmt.Fprintf(l.out, "    %s: %v\n", event.Message, value)
+		return
+	}
+	fmt.Fprint(l.out, symbolStyle(event.Kind).Sprint(symbol(event.Kind)), " ", event.Message)
+	if event.Err != nil {
+		fmt.Fprint(l.out, ": ", event.Err)
+	}
+	fmt.Fprintln(l.out)
+	for _, field := range event.Fields {
+		if field.Visibility > l.visibility() {
+			continue
+		}
+		renderField(l.out, field.Key, field.Value)
+	}
+}
+
+func (l *Logger) renderDebugText(event Event) {
+	level := levelCode(event.Level)
+	fmt.Fprintf(l.out, "%s %s %-10s %s %s", styled(color.FgHiBlack).Sprint(l.eventTime(event).Format("15:04:05")), levelStyle(level).Sprintf("%-3s", level), styled(color.FgHiBlue, color.Bold).Sprintf("%-10s", strings.ToUpper(event.Component)), event.Name, event.Message)
+	for _, field := range event.Fields {
+		fmt.Fprintf(l.out, " %s=%v", field.Key, field.Value)
+	}
+	if event.Err != nil {
+		fmt.Fprintf(l.out, " error=%v", event.Err)
+	}
+	fmt.Fprintln(l.out)
+}
+
+func (l *Logger) renderJSON(event Event) {
+	fields := make(map[string]any, len(event.Fields))
+	for _, field := range event.Fields {
+		if field.Visibility > l.visibility() || strings.TrimSpace(field.Key) == "" {
+			continue
+		}
+		fields[field.Key] = jsonValue(field.Value)
+	}
+	value := jsonEvent{Time: l.eventTime(event).UTC().Format(time.RFC3339Nano), Level: event.Level.String(), Event: event.Name, Kind: event.Kind.String(), Message: event.Message, Component: event.Component, Fields: fields}
+	if event.Err != nil {
+		value.Error = event.Err.Error()
+	}
+	_ = json.NewEncoder(l.out).Encode(value)
+}
+
+func renderField(out io.Writer, key string, value any) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		key = "value"
+	}
+	if values, ok := stringSlice(value); ok && len(values) > 1 {
+		fmt.Fprintf(out, "    %s:\n", key)
+		for _, item := range values {
+			fmt.Fprintf(out, "      - %s\n", item)
+		}
+		return
+	}
+	if values, ok := stringSlice(value); ok && len(values) == 1 {
+		value = values[0]
+	}
+	fmt.Fprintf(out, "    %s: %v\n", key, value)
+}
+
+func stringSlice(value any) ([]string, bool) {
+	if value == nil {
+		return nil, false
+	}
+	if typed, ok := value.([]string); ok {
+		return typed, true
+	}
+	ref := reflect.ValueOf(value)
+	if ref.Kind() != reflect.Slice && ref.Kind() != reflect.Array {
+		return nil, false
+	}
+	values := make([]string, 0, ref.Len())
+	for i := 0; i < ref.Len(); i++ {
+		values = append(values, fmt.Sprint(ref.Index(i).Interface()))
+	}
+	return values, true
+}
+
+func jsonValue(value any) any {
+	if err, ok := value.(error); ok {
+		return err.Error()
+	}
+	return value
+}
+
+func symbol(kind Kind) string {
+	switch kind {
+	case KindAction:
+		return "→"
+	case KindSuccess:
+		return "✓"
+	case KindWarning:
+		return "!"
+	case KindError:
+		return "×"
+	default:
+		return "·"
+	}
+}
+
+func symbolStyle(kind Kind) *color.Color {
+	switch kind {
+	case KindAction:
+		return styled(color.FgHiCyan, color.Bold)
+	case KindSuccess:
+		return styled(color.FgHiGreen, color.Bold)
+	case KindWarning:
+		return styled(color.FgHiYellow, color.Bold)
+	case KindError:
+		return styled(color.FgHiRed, color.Bold)
+	default:
+		return styled(color.FgHiBlack, color.Bold)
+	}
+}
+
+func levelCode(level Level) string {
+	switch level {
+	case Debug:
+		return "DBG"
+	case Warn:
+		return "WRN"
+	case Error:
+		return "ERR"
+	default:
+		return "INF"
+	}
+}
+
+func levelStyle(level string) *color.Color {
+	switch level {
+	case "DBG":
+		return styled(color.FgHiBlack)
+	case "WRN":
+		return styled(color.FgHiYellow, color.Bold)
+	case "ERR":
+		return styled(color.FgHiRed, color.Bold)
+	default:
+		return styled(color.FgHiCyan, color.Bold)
+	}
+}

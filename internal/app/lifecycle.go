@@ -22,7 +22,7 @@ func (a *App) Stop() error {
 	var first error
 	if a.MCP != nil {
 		if a.Logger != nil {
-			a.Logger.Info("RUNTIME", "closing MCP subscriptions")
+			a.Logger.Verbose("RUNTIME", "runtime.subscriptions.closing", "Closing MCP subscriptions")
 		}
 		a.MCP.CloseSubscriptions()
 	}
@@ -33,20 +33,20 @@ func (a *App) Stop() error {
 	}
 	if a.Upstream != nil {
 		if a.Logger != nil {
-			a.Logger.Info("UPSTREAM", "stopping upstream servers")
+			a.Logger.Verbose("UPSTREAM", "upstream.stopping", "Stopping upstream servers")
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err := a.Upstream.Shutdown(ctx)
 		cancel()
 		if err != nil {
 			if a.Logger != nil {
-				a.Logger.Error("UPSTREAM", "shutdown failed", "error", err)
+				a.Logger.Failure("UPSTREAM", "upstream.shutdown.failed", "Upstream shutdown failed", err)
 			}
 			if first == nil {
 				first = err
 			}
 		} else if a.Logger != nil {
-			a.Logger.Success("UPSTREAM", "stopped")
+			a.Logger.Verbose("UPSTREAM", "upstream.stopped", "Upstream servers stopped")
 		}
 	}
 	return first

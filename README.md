@@ -409,6 +409,22 @@ chatgpt-mcp
 
 Use `--help` on any command for the current flags and subcommands.
 
+### Logging
+
+`chatgpt-mcp` uses CLI-first event output by default. Normal output shows only meaningful lifecycle and user-facing state with stable markers: `✓` success/ready, `!` warning, `×` error, `·` information, and `→` action. Context is rendered on indented lines instead of timestamp/level/component prefixes or long `key=value` tails.
+
+Use `--verbose` for useful operational context such as tunnel IDs, bind/exposure details, route/channel/transport information, and tool-call completion metadata. Use `--debug` for the full diagnostic stream including timestamps, levels, components, event names, client IDs, TLS/proxy details, and raw dependency metadata. Low-value tunnel-client events such as poller startup, metadata fetches, or dispatcher registration stay debug-only.
+
+Use `--log-format=json` for JSONL event output suitable for automation. JSON logging respects the selected visibility mode, so `--debug --log-format=json` emits the full diagnostic event stream.
+
+```bash
+chatgpt-mcp serve
+chatgpt-mcp serve --verbose
+chatgpt-mcp serve --debug
+chatgpt-mcp serve --log-format=json
+chatgpt-mcp serve --debug --log-format=json
+```
+
 ## Development
 
 Install frontend dependencies:

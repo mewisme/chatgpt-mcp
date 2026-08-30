@@ -68,20 +68,26 @@ func endpointURL(host string, port int, endpointPath string) string {
 }
 
 func logReadyEndpoints(log *logger.Logger, cfg config.Config, plan listenerPlan) {
-	switch cfg.Server.Expose.Mode {
-	case config.ExposureAll:
-		log.Info("SERVER", "network exposure enabled", "mode", config.ExposureAll, "bind", mcpnetwork.WildcardHost, "addresses", len(plan.Addresses)-1)
-	case config.ExposureInterfaces:
-		log.Info("SERVER", "network exposure enabled", "mode", config.ExposureInterfaces, "interfaces", len(cfg.Server.Expose.Interfaces), "addresses", len(plan.Addresses)-1)
-	}
+	mcpEndpoints := make([]string, 0, len(plan.Addresses))
+	adminEndpoints := make([]string, 0, len(plan.Addresses))
 	for _, address := range plan.Addresses {
-		fields := endpointFields(address, endpointURL(address.Host, cfg.Server.Port, "/mcp"))
-		log.Info("MCP", "endpoint ready", fields...)
+		mcpEndpoints = append(mcpEndpoints, endpointURL(address.Host, cfg.Server.Port, "/mcp"))
 		if cfg.Admin.Enabled {
-			fields = endpointFields(address, endpointURL(address.Host, cfg.Admin.Port, "/"))
-			log.Info("ADMIN", "dashboard ready", fields...)
+			adminEndpoints = append(adminEndpoints, endpointURL(address.Host, cfg.Admin.Port, "/"))
 		}
 	}
+	fields := []logger.Field{logger.With("mcp", mcpEndpoints)}
+	if cfg.Admin.Enabled {
+		fields = append(fields, logger.With("admin", adminEndpoints))
+	}
+	fields = append(fields, logger.WithVerbose("expose", cfg.Server.Expose.Mode))
+	switch cfg.Server.Expose.Mode {
+	case config.ExposureAll:
+		fields = append(fields, logger.WithVerbose("bind", mcpnetwork.WildcardHost), logger.WithVerbose("network_addresses", max(0, len(plan.Addresses)-1)))
+	case config.ExposureInterfaces:
+		fields = append(fields, logger.WithVerbose("interfaces", cfg.Server.Expose.Interfaces), logger.WithVerbose("network_addresses", max(0, len(plan.Addresses)-1)))
+	}
+	log.Ready("SERVER", "server.ready", "Server ready", fields...)
 }
 
 func logEndpointDetails(log *logger.Logger, cfg config.Config) {
@@ -103,14 +109,6 @@ func logEndpointDetails(log *logger.Logger, cfg config.Config) {
 	if !cfg.Admin.Enabled {
 		log.Detail("admin", "disabled")
 	}
-}
-
-func endpointFields(address mcpnetwork.Address, url string) []any {
-	fields := []any{"url", url, "scope", address.Scope}
-	if address.Interface != "" {
-		fields = append(fields, "interface", address.Interface)
-	}
-	return fields
 }
 
 func endpointDetailLabel(kind string, address mcpnetwork.Address) string {

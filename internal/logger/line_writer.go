@@ -2,10 +2,12 @@ package logger
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const maxBufferedLogLine = 64 << 10
@@ -32,7 +34,6 @@ func (w *componentLineWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	w.mu.Lock()
 	defer w.mu.Unlock()
-
 	w.pending = append(w.pending, p...)
 	for {
 		index := bytes.IndexByte(w.pending, '\n')
@@ -57,27 +58,25 @@ func (w *componentLineWriter) emit(line string) {
 	if line == "" {
 		return
 	}
-	level, message, fields, ok := parseStructuredLine(line)
+	event, ok := parseStructuredLine(line)
 	if !ok {
-		w.log.Info(w.component, line)
+		w.log.Emit(Event{Level: Info, Name: "diagnostic.raw", Message: redactRawLine(line), Component: w.component, Visibility: VisibilityDebug})
 		return
 	}
-	switch level {
-	case Debug:
-		w.log.Debug(w.component, message, fields...)
-	case Warn:
-		w.log.Warn(w.component, message, fields...)
-	case Error:
-		w.log.Error(w.component, message, fields...)
-	default:
-		w.log.Info(w.component, message, fields...)
+	if event.Component == "" {
+		event.Component = w.component
+	} else if !strings.EqualFold(event.Component, w.component) {
+		event.Fields = append(event.Fields, WithDebug("stream_component", w.component))
 	}
+	classifyDiagnosticEvent(&event)
+	if event.Name == "" {
+		event.Name = "diagnostic." + slug(event.Message)
+	}
+	w.log.Emit(event)
 }
 
-func parseStructuredLine(line string) (Level, string, []any, bool) {
-	level := Info
-	message := ""
-	fields := make([]any, 0, 8)
+func parseStructuredLine(line string) (Event, bool) {
+	event := Event{Level: Info, Kind: KindInfo, Visibility: VisibilityDebug}
 	structured := false
 	for _, token := range splitStructuredTokens(line) {
 		key, value, ok := strings.Cut(token, "=")
@@ -89,22 +88,79 @@ func parseStructuredLine(line string) (Level, string, []any, bool) {
 		switch strings.ToLower(key) {
 		case "time", "timestamp", "ts":
 			structured = true
+			if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+				event.Time = parsed
+			} else {
+				event.Fields = append(event.Fields, diagnosticField(key, value))
+			}
 		case "level", "lvl":
 			structured = true
-			level = parseStructuredLevel(value)
+			event.Level = parseStructuredLevel(value)
+			event.Kind = kindForLevel(event.Level)
 		case "msg", "message":
 			structured = true
-			message = value
+			event.Message = value
+		case "event", "event_name":
+			structured = true
+			event.Name = value
+		case "component":
+			structured = true
+			event.Component = value
+		case "error", "err":
+			structured = true
+			event.Err = errors.New(redactStructuredField(key, value))
 		case "source":
 			structured = true
+			event.Fields = append(event.Fields, diagnosticField(key, redactStructuredField(key, value)))
 		default:
-			fields = append(fields, key, redactStructuredField(key, value))
+			event.Fields = append(event.Fields, diagnosticField(key, redactStructuredField(key, value)))
 		}
 	}
-	if !structured || strings.TrimSpace(message) == "" {
-		return Info, "", nil, false
+	if !structured || strings.TrimSpace(event.Message) == "" {
+		return Event{}, false
 	}
-	return level, message, fields, true
+	return event, true
+}
+
+func classifyDiagnosticEvent(event *Event) {
+	message := strings.ToLower(strings.TrimSpace(event.Message))
+	switch {
+	case strings.Contains(message, "reconnect"):
+		event.Name = "tunnel.reconnecting"
+		event.Message = "Reconnecting tunnel"
+		event.Kind = KindAction
+		event.Visibility = VisibilityDefault
+	case strings.Contains(message, "route resolved"):
+		event.Name = "tunnel.route.resolved"
+		event.Visibility = VisibilityVerbose
+	default:
+		event.Visibility = VisibilityDebug
+	}
+}
+
+func diagnosticField(key, value string) Field {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "tunnel_id", "channel", "transport", "route_kind", "route_name", "route_mode", "target_host":
+		return WithVerbose(key, value)
+	default:
+		return WithDebug(key, value)
+	}
+}
+
+func redactRawLine(line string) string {
+	tokens := splitStructuredTokens(line)
+	for index, token := range tokens {
+		key, value, ok := strings.Cut(token, "=")
+		if !ok {
+			continue
+		}
+		decoded := decodeStructuredValue(value)
+		redacted := redactStructuredField(key, decoded)
+		if redacted != decoded {
+			tokens[index] = key + "=" + redacted
+		}
+	}
+	return strings.Join(tokens, " ")
 }
 
 func splitStructuredTokens(line string) []string {

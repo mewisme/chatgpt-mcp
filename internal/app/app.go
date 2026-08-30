@@ -29,13 +29,17 @@ type App struct {
 	OAuthFlows *mcpoauth.FlowManager
 }
 
-func New(cfg config.Config) *App {
+func New(cfg config.Config) *App { return NewWithLogger(cfg, nil) }
+
+func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	stream := activity.NewStream()
 	toolRuntime := tools.NewRuntimeWithFeatures(cfg.Features)
 	mcpRuntime := mcp.NewHTTPRuntimeWithTools(toolRuntime)
 	mcpRuntime.Activity = stream
 	oauthStore := mcpoauth.NewStore(mcpoauth.Path())
-	appLogger := logger.New(logger.Info)
+	if appLogger == nil {
+		appLogger = logger.New(logger.Info)
+	}
 	telemetry.AttachTools(toolRuntime, stream, appLogger)
 	configStore := config.NewRuntimeStore(cfg)
 	app := &App{

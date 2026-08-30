@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
@@ -68,7 +67,7 @@ func mcpServerListCommand() *cobra.Command {
 				if asJSON {
 					return printJSON(cmd, statuses)
 				}
-				log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+				log := commandLogger(cmd)
 				log.Success("MCP", "upstream status loaded", "count", len(statuses))
 				for _, status := range statuses {
 					log.Detail(status.ID, fmt.Sprintf("%s enabled=%t health=%s tools=%d expose=%s", status.Transport, status.Enabled, status.Health, status.ToolCount, status.Expose))
@@ -83,7 +82,7 @@ func mcpServerListCommand() *cobra.Command {
 				}
 				return printJSON(cmd, views)
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("MCP", "upstream servers loaded", "count", len(servers))
 			for _, server := range servers {
 				endpoint := server.URL
@@ -123,7 +122,7 @@ func mcpServerAddCommand() *cobra.Command {
 				return err
 			}
 			normalized, _ := manager.Get(args[0])
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("MCP", "upstream server added", "id", normalized.ID)
 			log.Detail("transport", normalized.Transport)
 			log.Detail("prefix", normalized.ToolPrefix)
@@ -158,7 +157,7 @@ func mcpServerConfigureCommand() *cobra.Command {
 			if err := manager.Add(server); err != nil {
 				return err
 			}
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("MCP", "upstream server updated", "id", server.ID)
+			commandLogger(cmd).Success("MCP", "upstream server updated", "id", server.ID)
 			return nil
 		},
 	}
@@ -201,7 +200,7 @@ func mcpServerRemoveCommand() *cobra.Command {
 			if err := manager.Remove(args[0]); err != nil {
 				return err
 			}
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("MCP", "upstream server removed", "id", args[0])
+			commandLogger(cmd).Success("MCP", "upstream server removed", "id", args[0])
 			return nil
 		},
 	}
@@ -229,7 +228,7 @@ func mcpServerToggleCommand(enabled bool) *cobra.Command {
 			if err := manager.Add(server); err != nil {
 				return err
 			}
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("MCP", action+"d", "id", args[0])
+			commandLogger(cmd).Success("MCP", action+"d", "id", args[0])
 			return nil
 		},
 	}
@@ -278,7 +277,7 @@ func mcpServerToolsCommand() *cobra.Command {
 			for _, name := range manager.ProxiedToolNames(server, values) {
 				proxied[name] = true
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("MCP", "upstream tools loaded", "count", len(values))
 			for _, tool := range values {
 				proxy := upstream.ProxyName(server.ToolPrefix, tool.Name)

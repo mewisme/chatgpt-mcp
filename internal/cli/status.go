@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
-	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -31,7 +30,7 @@ func statusCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Info("STATUS", "local runtime configuration")
 			log.Detail("initialized", source.Exists)
 			log.Detail("config", source.Path)

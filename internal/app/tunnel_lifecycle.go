@@ -1,9 +1,11 @@
 package app
 
 import (
+	"errors"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -12,21 +14,24 @@ func (a *App) attachTunnelLifecycle() {
 		return
 	}
 	a.Tunnel.SetLifecycleObserver(func(event tunnel.LifecycleEvent) {
-		fields := []any{}
+		fields := []logger.Field{}
 		if event.ID != "" {
-			fields = append(fields, "tunnel_id", event.ID)
-		}
-		if event.Message != "" && event.State == tunnel.LifecycleDegraded {
-			fields = append(fields, "error", event.Message)
+			fields = append(fields, logger.WithVerbose("tunnel_id", event.ID))
 		}
 		if a.Logger != nil {
 			switch event.State {
-			case tunnel.LifecycleReady, tunnel.LifecycleStopped:
-				a.Logger.Success("TUNNEL", string(event.State), fields...)
+			case tunnel.LifecycleConnecting:
+				a.Logger.Action("TUNNEL", "tunnel.connecting", "Connecting tunnel", fields...)
+			case tunnel.LifecycleReady:
+				a.Logger.Ready("TUNNEL", "tunnel.connected", "Tunnel connected", fields...)
 			case tunnel.LifecycleDegraded:
-				a.Logger.Warn("TUNNEL", string(event.State), fields...)
-			default:
-				a.Logger.Info("TUNNEL", string(event.State), fields...)
+				var err error
+				if strings.TrimSpace(event.Message) != "" {
+					err = errors.New(strings.TrimSpace(event.Message))
+				}
+				a.Logger.Warning("TUNNEL", "tunnel.degraded", "Tunnel degraded", err, fields...)
+			case tunnel.LifecycleStopped:
+				a.Logger.Ready("TUNNEL", "tunnel.stopped", "Tunnel stopped", fields...)
 			}
 		}
 		if a.Activity != nil {

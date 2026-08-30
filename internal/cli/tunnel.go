@@ -64,7 +64,7 @@ func tunnelConfigureCommand() *cobra.Command {
 		if err := config.Save(cfg); err != nil {
 			return err
 		}
-		logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("TUNNEL", "OpenAI Secure MCP Tunnel configuration saved")
+		commandLogger(cmd).Success("TUNNEL", "OpenAI Secure MCP Tunnel configuration saved")
 		return nil
 	}}
 	cmd.Flags().BoolVar(&enabled, "enabled", false, "enable or disable the OpenAI Secure MCP Tunnel")
@@ -96,7 +96,7 @@ func tunnelToggleCommand(enabled bool) *cobra.Command {
 		if enabled {
 			state = "enabled"
 		}
-		logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("TUNNEL", "OpenAI Secure MCP Tunnel "+state)
+		commandLogger(cmd).Success("TUNNEL", "OpenAI Secure MCP Tunnel "+state)
 		return nil
 	}}
 }
@@ -113,7 +113,7 @@ func tunnelRunCommand() *cobra.Command {
 			return err
 		}
 
-		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+		log := commandLogger(cmd)
 		runtime := tools.NewRuntimeWithFeatures(cfg.Features)
 		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
@@ -128,46 +128,46 @@ func tunnelRunCommand() *cobra.Command {
 		defer func() {
 			status := client.Status()
 			if status.Running {
-				log.Info("TUNNEL", "stopping", "tunnel_id", tunnelConfig.ID)
+				log.Action("TUNNEL", "tunnel.stopping", "Stopping tunnel", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
 				if err := client.Stop(); err != nil {
-					log.Error("TUNNEL", "failed to stop", "error", err)
+					log.Failure("TUNNEL", "tunnel.stop.failed", "Failed to stop tunnel", err)
 					if runErr == nil {
 						runErr = err
 					}
 				} else {
-					log.Success("TUNNEL", "stopped", "tunnel_id", tunnelConfig.ID)
+					log.Ready("TUNNEL", "tunnel.stopped", "Tunnel stopped", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
 				}
 			}
 			if runtime.Upstream != nil {
-				log.Info("UPSTREAM", "stopping upstream servers")
+				log.Verbose("UPSTREAM", "upstream.stopping", "Stopping upstream servers")
 				upstreamCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				err := runtime.Upstream.Shutdown(upstreamCtx)
 				cancel()
 				if err != nil {
-					log.Error("UPSTREAM", "shutdown failed", "error", err)
+					log.Failure("UPSTREAM", "upstream.shutdown.failed", "Upstream shutdown failed", err)
 					if runErr == nil {
 						runErr = err
 					}
 				} else {
-					log.Success("UPSTREAM", "stopped")
+					log.Verbose("UPSTREAM", "upstream.stopped", "Upstream servers stopped")
 				}
 			}
 			if runErr == nil {
-				log.Success("TUNNEL", "shutdown complete")
+				log.Verbose("TUNNEL", "tunnel.shutdown.complete", "Tunnel shutdown complete")
 			}
 		}()
 
-		log.Info("TUNNEL", "connecting to OpenAI Secure MCP Tunnel", "tunnel_id", tunnelConfig.ID)
+		log.Action("TUNNEL", "tunnel.connecting", "Connecting tunnel", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
 		if err := client.WaitUntilReady(shutdownCtx); err != nil {
 			if shutdownCtx.Err() != nil {
-				log.Warn("TUNNEL", "shutdown requested")
+				log.Verbose("TUNNEL", "tunnel.shutdown.requested", "Shutdown requested")
 				return nil
 			}
 			return err
 		}
-		log.Success("TUNNEL", "connected", "tunnel_id", tunnelConfig.ID)
+		log.Ready("TUNNEL", "tunnel.connected", "Tunnel connected", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
 		<-shutdownCtx.Done()
-		log.Warn("TUNNEL", "shutdown requested")
+		log.Verbose("TUNNEL", "tunnel.shutdown.requested", "Shutdown requested")
 		return nil
 	}}
 }

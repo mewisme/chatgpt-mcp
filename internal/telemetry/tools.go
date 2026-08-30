@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"errors"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
@@ -13,45 +14,50 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 		return
 	}
 	runtime.SetCallObserver(func(observation tools.CallObservation) {
-		fields := []any{"tool", observation.Tool}
+		fields := []logger.Field{logger.With("tool", observation.Tool)}
 		if observation.Source != "" {
-			fields = append(fields, "source", observation.Source)
+			fields = append(fields, logger.With("source", observation.Source))
 		}
 		if observation.WorkspaceID != "" {
-			fields = append(fields, "workspace", observation.WorkspaceID)
+			fields = append(fields, logger.With("workspace", observation.WorkspaceID))
 		}
 		if observation.Phase == "start" {
 			if log != nil {
-				log.Info("TOOL", "call started", fields...)
+				debugFields := make([]logger.Field, 0, len(fields))
+				for _, field := range fields {
+					debugFields = append(debugFields, logger.WithDebug(field.Key, field.Value))
+				}
+				log.Diagnostic(logger.Debug, "TOOL", "tool.call.started", "Tool call started", debugFields...)
 			}
 			return
 		}
-
-		fields = append(fields, "duration_ms", observation.DurationMS)
+		fields = append(fields, logger.With("duration_ms", observation.DurationMS))
 		if observation.ResultType != "" {
-			fields = append(fields, "result_type", observation.ResultType)
+			fields = append(fields, logger.With("result_type", observation.ResultType))
 		}
 		if log != nil {
+			event := logger.Event{Level: logger.Info, Name: "tool.call.completed", Message: "Tool call completed", Fields: fields, Component: "TOOL", Visibility: logger.VisibilityVerbose}
 			switch observation.Status {
 			case "cancelled":
-				log.Warn("TOOL", "call cancelled", append(fields, "error", observation.Message)...)
+				event.Level = logger.Warn
+				event.Kind = logger.KindWarning
+				event.Name = "tool.call.cancelled"
+				event.Message = "Tool call cancelled"
 			case "error":
-				log.Error("TOOL", "call failed", append(fields, "error", observation.Message)...)
+				event.Level = logger.Error
+				event.Kind = logger.KindError
+				event.Name = "tool.call.failed"
+				event.Message = "Tool call failed"
 			default:
-				log.Success("TOOL", "call completed", fields...)
+				event.Kind = logger.KindSuccess
 			}
+			if strings.TrimSpace(observation.Message) != "" && observation.Status != "ok" {
+				event.Err = errors.New(strings.TrimSpace(observation.Message))
+			}
+			log.Emit(event)
 		}
 		if stream != nil {
-			stream.Publish(activity.Event{
-				Kind:        string(activity.EventToolCall),
-				Method:      "tools/call",
-				Source:      observation.Source,
-				Tool:        observation.Tool,
-				WorkspaceID: observation.WorkspaceID,
-				Status:      observation.Status,
-				DurationMS:  observation.DurationMS,
-				Message:     strings.TrimSpace(observation.Message),
-			})
+			stream.Publish(activity.Event{Kind: string(activity.EventToolCall), Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message)})
 		}
 	})
 }

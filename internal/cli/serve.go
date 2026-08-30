@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/app"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 )
 
 func serveCommand() *cobra.Command {
@@ -66,20 +67,20 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		defer closeListeners(adminListeners)
 	}
 
-	runtime := app.New(cfg)
+	runtime := app.NewWithLogger(cfg, commandLogger(cmd))
 	if err := runtime.Start(runtimeCtx); err != nil {
 		return err
 	}
 	defer func() {
-		runtime.Logger.Info("SERVER", "cleaning up runtime services")
+		runtime.Logger.Verbose("SERVER", "server.runtime.cleanup", "Cleaning up runtime services")
 		if err := runtime.Stop(); err != nil {
-			runtime.Logger.Error("SERVER", "runtime cleanup failed", "error", err)
+			runtime.Logger.Failure("SERVER", "server.runtime.cleanup.failed", "Runtime cleanup failed", err)
 			if runErr == nil {
 				runErr = err
 			}
 			return
 		}
-		runtime.Logger.Success("SERVER", "shutdown complete")
+		runtime.Logger.Ready("SERVER", "server.stopped", "Server stopped")
 	}()
 
 	logReadyEndpoints(runtime.Logger, cfg, plan)
@@ -100,28 +101,27 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	}
 
 	shutdown := func() error {
-		runtime.Logger.Info("SERVER", "stopping HTTP listeners")
+		runtime.Logger.Action("SERVER", "server.stopping", "Stopping server")
 		err := shutdownServers(servers)
 		if err != nil {
-			runtime.Logger.Error("SERVER", "HTTP shutdown failed", "error", err)
+			runtime.Logger.Failure("SERVER", "server.shutdown.failed", "Server shutdown failed", err)
 			return err
 		}
-		runtime.Logger.Success("SERVER", "HTTP listeners stopped")
 		return nil
 	}
 
 	select {
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			runtime.Logger.Error("SERVER", "HTTP listener failed", "error", err)
+			runtime.Logger.Failure("SERVER", "server.listener.failed", "HTTP listener failed", err)
 			return errors.Join(err, shutdown())
 		}
 		return shutdown()
 	case signalValue := <-signalCh:
-		runtime.Logger.Warn("SERVER", "shutdown requested", "signal", signalValue.String())
+		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("signal", signalValue.String()))
 		return shutdown()
 	case <-cmd.Context().Done():
-		runtime.Logger.Warn("SERVER", "shutdown requested", "reason", "context canceled")
+		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("reason", "context canceled"))
 		return shutdown()
 	}
 }

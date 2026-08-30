@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"go.mewis.me/chatgpt-mcp/internal/logger"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 )
 
@@ -46,7 +45,7 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 			store := mcpoauth.NewStore(mcpoauth.Path())
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			credential, err := store.Login(ctx, mcpoauth.LoginConfig{
 				ServerID: server.ID, ServerURL: server.URL, Scope: server.Auth.Scope, Issuer: issuer,
 				ClientID: clientID, ClientSecretEnvVar: clientSecretEnv, ClientMetadataURL: clientMetadataURL,
@@ -108,7 +107,7 @@ func mcpServerAuthStatusCommand() *cobra.Command {
 			if asJSON {
 				return printJSON(cmd, status)
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			if !status.Configured {
 				log.Info("OAUTH", "not authorized", "id", args[0])
 				return nil
@@ -144,7 +143,7 @@ func mcpServerAuthLogoutCommand() *cobra.Command {
 			if err := mcpoauth.NewStore(mcpoauth.Path()).Delete(args[0]); err != nil {
 				return err
 			}
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("OAUTH", "authorization removed", "id", args[0])
+			commandLogger(cmd).Success("OAUTH", "authorization removed", "id", args[0])
 			return nil
 		},
 	}

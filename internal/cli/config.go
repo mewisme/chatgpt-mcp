@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	"go.mewis.me/chatgpt-mcp/internal/logger"
 )
 
 func configCommand() *cobra.Command {
@@ -20,7 +19,7 @@ func configCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Detail("config", source.Path)
 			log.Detail("format", source.Format)
 			log.Detail("root", config.RootPath())
@@ -103,7 +102,7 @@ func configSetCommand() *cobra.Command {
 			if err := config.Save(cfg); err != nil {
 				return err
 			}
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("CONFIG", "value saved", "key", key)
+			commandLogger(cmd).Success("CONFIG", "value saved", "key", key)
 			return nil
 		},
 	}
@@ -116,7 +115,7 @@ func configPresetCommand() *cobra.Command {
 			Use:   "list",
 			Short: "List built-in configuration presets",
 			RunE: func(cmd *cobra.Command, args []string) error {
-				log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+				log := commandLogger(cmd)
 				presets := config.Presets()
 				log.Success("PRESET", "configuration presets loaded", "count", len(presets))
 				for _, preset := range presets {
@@ -153,7 +152,7 @@ func configPresetCommand() *cobra.Command {
 				if err := config.Save(cfg); err != nil {
 					return err
 				}
-				log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+				log := commandLogger(cmd)
 				log.Success("PRESET", "configuration preset applied", "name", config.MatchPreset(cfg))
 				logEndpointDetails(log, cfg)
 				log.Detail("secrets", "preserved")
@@ -295,7 +294,7 @@ func configConvertCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
+			log := commandLogger(cmd)
 			log.Success("CONFIG", "configuration format converted", "format", format, "files", converted)
 			log.Detail("config", config.PathForFormat(format))
 			return nil
@@ -314,7 +313,7 @@ func configVerifyCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("CONFIG", "configuration verified", "format", result.Format, "files", result.Files)
+			commandLogger(cmd).Success("CONFIG", "configuration verified", "format", result.Format, "files", result.Files)
 			return nil
 		},
 	}

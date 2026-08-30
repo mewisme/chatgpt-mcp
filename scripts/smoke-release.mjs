@@ -77,6 +77,9 @@ try {
 }
 
 function run(args, { quiet = false } = {}) {
+  if (globalArgs[0] !== "--config-dir" || !globalArgs[1] || path.resolve(globalArgs[1]) === path.resolve(defaultConfigDir)) {
+    fail("runtime smoke requires an explicit isolated --config-dir")
+  }
   const result = spawnSync(binary, [...globalArgs, ...args], { env, encoding: "utf8", windowsHide: true })
   if (result.error) fail(`${args.join(" ")}: ${result.error.message}`)
   if (result.status !== 0) {

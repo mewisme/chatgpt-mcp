@@ -13,7 +13,7 @@ func TestRootLogFormatJSON(t *testing.T) {
 	cmd := newRootCommand()
 	cmd.SetOut(&output)
 	cmd.SetErr(&output)
-	cmd.SetArgs([]string{"--log-format=json", "version"})
+	cmd.SetArgs(testCommandArgs(t, "--log-format=json", "version"))
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestRootDebugUsesDiagnosticRenderer(t *testing.T) {
 	cmd := newRootCommand()
 	cmd.SetOut(&output)
 	cmd.SetErr(&output)
-	cmd.SetArgs([]string{"--debug", "version"})
+	cmd.SetArgs(testCommandArgs(t, "--debug", "version"))
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestRootDebugUsesDiagnosticRenderer(t *testing.T) {
 
 func TestRootRejectsInvalidLogFormat(t *testing.T) {
 	cmd := newRootCommand()
-	cmd.SetArgs([]string{"--log-format=yaml", "version"})
+	cmd.SetArgs(testCommandArgs(t, "--log-format=yaml", "version"))
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "unsupported log format") {
 		t.Fatalf("error = %v", err)
@@ -55,7 +55,7 @@ func TestCommandLoggerJSONFailure(t *testing.T) {
 	cmd := newRootCommand()
 	cmd.SetOut(&output)
 	cmd.SetErr(&output)
-	cmd.SetArgs([]string{"--log-format=json", "version"})
+	cmd.SetArgs(testCommandArgs(t, "--log-format=json", "version"))
 	if err := cmd.ParseFlags([]string{"--log-format=json"}); err != nil {
 		t.Fatal(err)
 	}

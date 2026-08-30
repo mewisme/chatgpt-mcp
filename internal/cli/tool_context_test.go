@@ -1,20 +1,28 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
+	_, cleanup, err := testutil.IsolateConfigHome()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	value, exists := os.LookupEnv(controlplane.ToolContextEnv)
 	_ = os.Unsetenv(controlplane.ToolContextEnv)
 	code := m.Run()
 	if exists {
 		_ = os.Setenv(controlplane.ToolContextEnv, value)
 	}
+	cleanup()
 	os.Exit(code)
 }
 

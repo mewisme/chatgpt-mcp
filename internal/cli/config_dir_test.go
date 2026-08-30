@@ -32,16 +32,8 @@ func TestConfigDirEnvironmentSelectsRoot(t *testing.T) {
 	defer configformat.SetRootPath("")
 	envRoot := filepath.Join(t.TempDir(), "env")
 	t.Setenv(configformat.EnvConfigDir, envRoot)
-	var output bytes.Buffer
-	cmd := newRootCommand()
-	cmd.SetOut(&output)
-	cmd.SetErr(&output)
-	cmd.SetArgs([]string{"config", "path"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(output.String(), filepath.Join(envRoot, "config.json")) {
-		t.Fatalf("config path output = %q", output.String())
+	if got := configformat.RootPath(); got != envRoot {
+		t.Fatalf("root path = %q, want %q", got, envRoot)
 	}
 }
 

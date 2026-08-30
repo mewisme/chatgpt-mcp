@@ -110,10 +110,14 @@ jobs:
         run: node --test scripts/prepare-package-aliases.test.mjs
 
       - name: Test
+        env:
+          CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-go-test
         run: go test ./...
 
       - name: Race test
         if: matrix.name == 'Linux'
+        env:
+          CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-go-race-test
         run: go test -race ./...
 
       - name: Vet

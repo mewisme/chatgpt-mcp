@@ -253,3 +253,28 @@ func TestShellPolicyBlocksProtectedControlPlaneReads(t *testing.T) {
 		t.Fatalf("normal workspace read rejected: %v", err)
 	}
 }
+
+func TestShellPolicyBlocksProtectedReadThroughPathAlias(t *testing.T) {
+	base := t.TempDir()
+	realHome := filepath.Join(base, "real")
+	aliasHome := filepath.Join(base, "alias")
+	controlPlane := filepath.Join(realHome, ".config", "chatgpt-mcp")
+	if err := os.MkdirAll(controlPlane, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realHome, aliasHome); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	manager := NewManager(filepath.Join(controlPlane, "workspaces.json"))
+	manager.protectedRoot = canonicalRoot(controlPlane)
+	item, err := manager.Register(realHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliasedConfig := filepath.ToSlash(filepath.Join(aliasHome, ".config", "chatgpt-mcp", "config.json"))
+	command := `python -c 'print(open("` + aliasedConfig + `").read())'`
+	err = manager.ValidateShellCommand(item.ID, realHome, command)
+	if err == nil || !strings.Contains(err.Error(), "control-plane state access denied") {
+		t.Fatalf("aliased protected read was not denied: %v", err)
+	}
+}

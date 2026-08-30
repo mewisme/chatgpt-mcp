@@ -14,6 +14,7 @@ import (
 const maxNestedShellDepth = 4
 
 var (
+	absolutePathLiteral = regexp.MustCompile(`(?i)(?:[a-z]:[\\/]|/)[^\"'()\s,;]+`)
 	inlineMutationAPI   = regexp.MustCompile(`(?i)(?:\bopen\s*\(|\b(?:write_text|write_bytes|writefile|writefilesync|appendfile|appendfilesync|createwritestream|unlink|unlinksync|rename|renamesync|copyfile|copyfilesync|mkdir|mkdirsync|rmdir|rmdirsync|truncate|remove|replace|rmtree|move)\s*\(|\bos\.system\s*\(|\bsubprocess\.|\bchild_process\b|\bexecsync\s*\(|\bspawnsync\s*\()`)
 	windowsEnvReference = regexp.MustCompile(`%([A-Za-z_][A-Za-z0-9_]*)%`)
 	writeCommands       = map[string]bool{
@@ -85,6 +86,11 @@ func (m *Manager) referencesProtectedText(cwd, value string) bool {
 	normalized, root := normalizeShellPathText(expanded), strings.TrimRight(normalizeShellPathText(m.protectedRoot), "/")
 	if root != "" && strings.Contains(normalized, root+"/") {
 		return true
+	}
+	for _, candidate := range absolutePathLiteral.FindAllString(expanded, -1) {
+		if m.protectedShellToken(cwd, candidate) {
+			return true
+		}
 	}
 	for _, token := range strings.Fields(expanded) {
 		if m.protectedShellToken(cwd, strings.Trim(token, `"'(),`)) {

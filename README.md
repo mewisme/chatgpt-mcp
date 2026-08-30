@@ -414,6 +414,7 @@ pnpm --dir web install
 Run frontend checks:
 
 ```bash
+pnpm --dir web test
 pnpm --dir web lint
 pnpm --dir web typecheck
 pnpm --dir web build
@@ -447,7 +448,7 @@ The smoke uses an isolated temporary home directory and verifies init/config/sta
 
 Pushes to `main` and pull requests run:
 
-- Web lint, typecheck, and production build
+- Web runtime/component smoke tests, lint, typecheck, and production build
 - Native tests, vet, build, local-install smoke, and runtime/MCP E2E smoke on Linux, Windows, and macOS
 - Cross-build validation for every release target:
   - linux/amd64

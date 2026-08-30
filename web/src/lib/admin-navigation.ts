@@ -2,6 +2,10 @@ import { Activity, Cloud, FolderGit2, Home, Server, Settings, Wrench, type Lucid
 
 export type NavItem = { id: string; title: string; description: string; icon: LucideIcon }
 
+export const adminAppTitle = "ChatGPT MCP"
+
+export function adminDocumentTitle(title: string) { return `${title} | ${adminAppTitle}` }
+
 export const navItems: NavItem[] = [
   { id: "overview", title: "Overview", description: "Runtime health and configuration at a glance.", icon: Home },
   { id: "workspaces", title: "Workspaces", description: "Manage canonical project roots and workspace handles.", icon: FolderGit2 },

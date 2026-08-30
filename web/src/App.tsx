@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { LoaderCircle, LogOut } from "lucide-react"
 import { AppSidebar } from "@/components/app-sidebar"
-import { navItems } from "@/lib/admin-navigation"
+import { adminDocumentTitle, navItems } from "@/lib/admin-navigation"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -39,7 +39,7 @@ export function App() {
     })
   }, [])
 
-  useEffect(() => { document.title = `${meta.title} - chatgpt-mcp` }, [meta.title])
+  useEffect(() => { document.title = adminDocumentTitle(authenticated === null ? "Connecting" : authenticated ? meta.title : "Login") }, [authenticated, meta.title])
 
   if (authenticated === null) return <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />Connecting to admin API...</div>
   if (!authenticated) return <LoginPage onAuthenticated={() => { setAuthRequired(true); setAuthenticated(true) }} />

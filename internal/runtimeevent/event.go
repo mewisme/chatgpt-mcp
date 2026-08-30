@@ -15,6 +15,7 @@ type Field struct {
 }
 
 type Event struct {
+	Sequence     uint64            `json:"sequence,omitempty"`
 	Time         time.Time         `json:"time"`
 	RunID        string            `json:"run_id,omitempty"`
 	PID          int               `json:"pid,omitempty"`

@@ -61,10 +61,17 @@ func (j *Journal) WriteEvent(event logger.Event) error {
 	if j == nil {
 		return nil
 	}
+	return j.Append(fromLoggerEvent(event, j.metadata))
+}
+
+func (j *Journal) Append(event Event) error {
+	if j == nil {
+		return nil
+	}
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(fromLoggerEvent(event, j.metadata)); err != nil {
+	if err := encoder.Encode(event); err != nil {
 		return err
 	}
 	data := buffer.Bytes()
@@ -80,6 +87,21 @@ func (j *Journal) WriteEvent(event logger.Event) error {
 	_, writeErr := file.Write(data)
 	closeErr := file.Close()
 	return errors.Join(writeErr, closeErr)
+}
+
+func (j *Journal) Clear() error {
+	if j == nil {
+		return nil
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var clearErr error
+	for _, path := range append(j.FilesOldestFirst(), j.path) {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			clearErr = errors.Join(clearErr, err)
+		}
+	}
+	return clearErr
 }
 
 func (j *Journal) rotateIfNeeded(incoming int64) error {

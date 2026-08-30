@@ -62,11 +62,14 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	defer bindings.CloseUnstarted()
 
 	log := commandLogger(cmd)
-	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid()}})
+	startedAt := time.Now().UTC()
+	metadata := runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid()}
+	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: metadata})
 	if err != nil {
 		return err
 	}
-	log.AddSink(journal)
+	recorder := runtimeevent.NewRecorder(journal, metadata)
+	log.AddSink(recorder)
 	runtime := app.NewWithLogger(cfg, log)
 	if err := runtime.Start(runtimeCtx); err != nil {
 		return err
@@ -89,6 +92,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	bindings.Start(runtime, errCh)
 	currentCfg, currentPlan := cfg, plan
 	var reloadMu sync.Mutex
+	shutdownRequest := make(chan struct{}, 1)
 	reload := func(_ context.Context) (runtimeReloadResult, error) {
 		reloadMu.Lock()
 		defer reloadMu.Unlock()
@@ -142,7 +146,17 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		logReadyEndpoints(runtime.Logger, next, nextPlan)
 		return reloadResult(next, true), nil
 	}
-	control, err := startRuntimeControl(reload)
+	status := func() runtimeStatusResult {
+		reloadMu.Lock()
+		defer reloadMu.Unlock()
+		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode}
+	}
+	control, err := startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Shutdown: func() {
+		select {
+		case shutdownRequest <- struct{}{}:
+		default:
+		}
+	}, ClearLogs: journal.Clear})
 	if err != nil {
 		return errors.Join(err, bindings.Shutdown())
 	}
@@ -169,6 +183,9 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		return nil
 	case signalValue := <-signalCh:
 		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("signal", signalValue.String()))
+		return shutdown()
+	case <-shutdownRequest:
+		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("reason", "runtime control"))
 		return shutdown()
 	case <-cmd.Context().Done():
 		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("reason", "context canceled"))

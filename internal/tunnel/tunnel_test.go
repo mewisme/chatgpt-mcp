@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -12,11 +13,12 @@ import (
 )
 
 type fakeBackend struct {
-	mu      sync.Mutex
-	started bool
-	stopped bool
-	ready   chan struct{}
-	done    chan os.Signal
+	mu       sync.Mutex
+	started  bool
+	stopped  bool
+	startErr error
+	ready    chan struct{}
+	done     chan os.Signal
 }
 
 func newFakeBackend() *fakeBackend {
@@ -26,7 +28,11 @@ func newFakeBackend() *fakeBackend {
 func (b *fakeBackend) Start(context.Context) error {
 	b.mu.Lock()
 	b.started = true
+	err := b.startErr
 	b.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	close(b.ready)
 	return nil
 }
@@ -160,4 +166,91 @@ func TestConfigureRejectsRunningTunnel(t *testing.T) {
 	if err := client.Configure(Config{}); err == nil {
 		t.Fatal("expected running configure rejection")
 	}
+}
+
+func TestReconfigureRollsBackRunningTunnelWhenPersistenceFails(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	oldConfig := Config{Enabled: true, ID: "tunnel_old", APIKey: "old-secret"}
+	newConfig := Config{Enabled: true, ID: "tunnel_new", APIKey: "new-secret"}
+	created := map[string][]*fakeBackend{}
+	client := newConfigured(oldConfig, runtime, func(cfg Config, _ sdkmcp.Transport) (backend, error) {
+		fake := newFakeBackend()
+		created[cfg.ID] = append(created[cfg.ID], fake)
+		return fake, nil
+	})
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Reconfigure(newConfig, func() error { return errors.New("persist failed") }); err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	if got := client.Config(); got != oldConfig {
+		t.Fatalf("config = %#v, want %#v", got, oldConfig)
+	}
+	if !client.Status().Running {
+		t.Fatal("old tunnel was not restarted")
+	}
+	if len(created[oldConfig.ID]) != 2 || len(created[newConfig.ID]) != 1 {
+		t.Fatalf("backend generations = old:%d new:%d", len(created[oldConfig.ID]), len(created[newConfig.ID]))
+	}
+	created[newConfig.ID][0].mu.Lock()
+	newStopped := created[newConfig.ID][0].stopped
+	created[newConfig.ID][0].mu.Unlock()
+	if !newStopped {
+		t.Fatal("candidate tunnel was not stopped during rollback")
+	}
+	defer client.Stop()
+}
+
+func TestReconfigureRollsBackWhenCandidateStartFails(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	oldConfig := Config{Enabled: true, ID: "tunnel_old", APIKey: "old-secret"}
+	newConfig := Config{Enabled: true, ID: "tunnel_new", APIKey: "new-secret"}
+	oldStarts := 0
+	client := newConfigured(oldConfig, runtime, func(cfg Config, _ sdkmcp.Transport) (backend, error) {
+		fake := newFakeBackend()
+		if cfg.ID == newConfig.ID {
+			fake.startErr = errors.New("candidate start failed")
+		} else {
+			oldStarts++
+		}
+		return fake, nil
+	})
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	persisted := false
+	if err := client.Reconfigure(newConfig, func() error { persisted = true; return nil }); err == nil {
+		t.Fatal("expected candidate start failure")
+	}
+	if persisted {
+		t.Fatal("persistence ran after candidate start failure")
+	}
+	if got := client.Config(); got != oldConfig || !client.Status().Running || oldStarts != 2 {
+		t.Fatalf("rollback failed: config=%#v status=%+v oldStarts=%d", got, client.Status(), oldStarts)
+	}
+	defer client.Stop()
+}
+
+func TestReconfigureRejectsInvalidCandidateBeforeStoppingCurrentTunnel(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	oldConfig := Config{Enabled: true, ID: "tunnel_old", APIKey: "old-secret"}
+	fake := newFakeBackend()
+	client := newConfigured(oldConfig, runtime, func(Config, sdkmcp.Transport) (backend, error) { return fake, nil })
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Reconfigure(Config{Enabled: true}, func() error { return nil }); err == nil {
+		t.Fatal("expected invalid candidate rejection")
+	}
+	if !client.Status().Running || client.Config() != oldConfig {
+		t.Fatalf("current tunnel changed after invalid candidate: config=%#v status=%+v", client.Config(), client.Status())
+	}
+	fake.mu.Lock()
+	stopped := fake.stopped
+	fake.mu.Unlock()
+	if stopped {
+		t.Fatal("current backend was stopped before candidate validation")
+	}
+	defer client.Stop()
 }

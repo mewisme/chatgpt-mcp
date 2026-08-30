@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -296,5 +297,82 @@ func TestClearingTunnelAPIKeyRemovesSecretFile(t *testing.T) {
 	}
 	if _, err := os.Stat(secretPath); !os.IsNotExist(err) {
 		t.Fatalf("secret file still exists: %v", err)
+	}
+}
+
+func TestConfigSaveRollsBackMainConfigWhenTunnelSecretWriteFails(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	original := []byte(`{"server":{"port":4100},"admin":{"enabled":false,"port":4200},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`)
+	if err := os.WriteFile(configPath, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secretPath, []byte(`{"api_key":"old-secret"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Tunnel.APIKey = "new-secret"
+	called := false
+	if err := saveAtWithSecretSaver(configPath, secretPath, cfg, func(path, key string) error {
+		called = true
+		data, readErr := os.ReadFile(configPath)
+		if readErr != nil {
+			return readErr
+		}
+		if string(data) == string(original) {
+			t.Fatal("main config was not written before secret persistence")
+		}
+		if writeErr := os.WriteFile(path, []byte(`{"api_key":"partial-new-secret"}`), 0600); writeErr != nil {
+			return writeErr
+		}
+		return errors.New("injected tunnel secret write failure")
+	}); err == nil {
+		t.Fatal("expected tunnel secret write failure")
+	}
+	if !called {
+		t.Fatal("secret saver was not called")
+	}
+	saved, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(saved) != string(original) {
+		t.Fatalf("main config was not rolled back:\n%s", saved)
+	}
+	secret, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(secret) != `{"api_key":"old-secret"}` {
+		t.Fatalf("tunnel secret was not rolled back: %s", secret)
+	}
+}
+
+func TestConfigSaveDoesNotTouchTunnelSecretWhenMainConfigWriteFails(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	if err := os.MkdirAll(filepath.Join(configPath, "block"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secretPath, []byte(`{"api_key":"old-secret"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Tunnel.APIKey = "new-secret"
+	if err := saveAt(configPath, secretPath, cfg); err == nil {
+		t.Fatal("expected main config write failure")
+	}
+	saved, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(saved) != `{"api_key":"old-secret"}` {
+		t.Fatalf("tunnel secret changed after main config failure: %s", saved)
 	}
 }

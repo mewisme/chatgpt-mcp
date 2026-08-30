@@ -352,6 +352,8 @@ The tunnel API key is kept separately from the main config using the same storag
 ~/.config/chatgpt-mcp/tunnel.toml
 ```
 
+Tunnel configuration updates are transactional. Main configuration and the separate tunnel secret are rolled back together on persistence failure, and Admin API reconfiguration restores the previous runtime configuration/running state if applying or persisting the candidate fails.
+
 ## Upstream MCP servers
 
 `chatgpt-mcp` can connect to other MCP servers and expose enabled upstream tools through the same local runtime.

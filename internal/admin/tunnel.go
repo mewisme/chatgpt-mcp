@@ -68,24 +68,7 @@ func (api API) configureTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := api.Tunnel.Stop(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := api.Tunnel.Configure(next); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if next.Enabled {
-		if err := api.Tunnel.Start(); err != nil {
-			_ = api.Tunnel.Configure(current)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-	}
-	if err := config.Save(candidate); err != nil {
-		_ = api.Tunnel.Stop()
-		_ = api.Tunnel.Configure(current)
+	if err := api.Tunnel.Reconfigure(next, func() error { return config.Save(candidate) }); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

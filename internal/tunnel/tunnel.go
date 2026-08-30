@@ -57,21 +57,22 @@ type serverRun struct {
 }
 
 type Client struct {
-	mu         sync.RWMutex
-	config     Config
-	runtime    *tools.Runtime
-	factory    backendFactory
-	backend    backend
-	cancel     context.CancelFunc
-	serverRun  *serverRun
-	readyCh    chan struct{}
-	doneCh     chan struct{}
-	running    bool
-	ready      bool
-	stopping   bool
-	generation uint64
-	startedAt  time.Time
-	lastError  string
+	reconfigureMu sync.Mutex
+	mu            sync.RWMutex
+	config        Config
+	runtime       *tools.Runtime
+	factory       backendFactory
+	backend       backend
+	cancel        context.CancelFunc
+	serverRun     *serverRun
+	readyCh       chan struct{}
+	doneCh        chan struct{}
+	running       bool
+	ready         bool
+	stopping      bool
+	generation    uint64
+	startedAt     time.Time
+	lastError     string
 }
 
 func New(id, key string, runtime *tools.Runtime) *Client {
@@ -140,6 +141,47 @@ func (c *Client) Configure(cfg Config) error {
 	c.config = cfg
 	c.lastError = ""
 	return nil
+}
+
+func (c *Client) Reconfigure(cfg Config, persist func() error) error {
+	if persist == nil {
+		return errors.New("tunnel persistence callback is required")
+	}
+	if err := ValidateConfig(cfg); err != nil {
+		return err
+	}
+	c.reconfigureMu.Lock()
+	defer c.reconfigureMu.Unlock()
+
+	current := c.Config()
+	wasRunning := c.Status().Running
+	if err := c.Stop(); err != nil {
+		return err
+	}
+	if err := c.Configure(cfg); err != nil {
+		return errors.Join(err, c.rollbackReconfigure(current, wasRunning))
+	}
+	if cfg.Enabled {
+		if err := c.Start(); err != nil {
+			return errors.Join(err, c.rollbackReconfigure(current, wasRunning))
+		}
+	}
+	if err := persist(); err != nil {
+		return errors.Join(err, c.rollbackReconfigure(current, wasRunning))
+	}
+	return nil
+}
+
+func (c *Client) rollbackReconfigure(cfg Config, restart bool) error {
+	var rollbackErr error
+	if c.Status().Running {
+		rollbackErr = errors.Join(rollbackErr, c.Stop())
+	}
+	rollbackErr = errors.Join(rollbackErr, c.Configure(cfg))
+	if restart {
+		rollbackErr = errors.Join(rollbackErr, c.Start())
+	}
+	return rollbackErr
 }
 
 func (c *Client) Config() Config {

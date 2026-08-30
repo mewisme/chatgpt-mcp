@@ -200,9 +200,10 @@ func SaveAs(cfg Config, format configformat.Format) error {
 }
 
 func saveAt(configPath, secretPath string, cfg Config) error {
-	if err := saveTunnelSecretAt(secretPath, cfg.Tunnel.APIKey); err != nil {
-		return err
-	}
+	return saveAtWithSecretSaver(configPath, secretPath, cfg, saveTunnelSecretAt)
+}
+
+func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret func(string, string) error) error {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
 		return err
 	}
@@ -213,5 +214,50 @@ func saveAt(configPath, secretPath string, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return state.WriteFileAtomic(configPath, data, 0600)
+	configSnapshot, err := snapshotFile(configPath)
+	if err != nil {
+		return err
+	}
+	secretSnapshot, err := snapshotFile(secretPath)
+	if err != nil {
+		return err
+	}
+	if err := state.WriteFileAtomic(configPath, data, 0600); err != nil {
+		return err
+	}
+	if err := saveSecret(secretPath, cfg.Tunnel.APIKey); err != nil {
+		return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
+	}
+	return nil
+}
+
+type fileSnapshot struct {
+	exists bool
+	data   []byte
+	mode   os.FileMode
+}
+
+func snapshotFile(path string) (fileSnapshot, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fileSnapshot{}, nil
+		}
+		return fileSnapshot{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	return fileSnapshot{exists: true, data: data, mode: info.Mode().Perm()}, nil
+}
+
+func restoreSnapshot(path string, snapshot fileSnapshot) error {
+	if !snapshot.exists {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return state.WriteFileAtomic(path, snapshot.data, snapshot.mode)
 }

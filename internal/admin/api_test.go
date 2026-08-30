@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,6 +44,32 @@ func TestTunnelConfigRedactsAPIKey(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"id":"tunnel_test"`) {
 		t.Fatalf("tunnel id missing: %s", recorder.Body.String())
+	}
+}
+
+func TestTunnelConfigureRollsBackRuntimeAndMemoryWhenPersistenceFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := filepath.Join(home, ".config", "chatgpt-mcp")
+	if err := os.MkdirAll(filepath.Join(root, "config.json", "block"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_old", APIKey: "old-secret"}
+	client := tunnel.NewConfigured(cfg.Tunnel, nil)
+	handler := New(API{Tunnel: client, Config: &cfg})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel", strings.NewReader(`{"enabled":false,"id":"tunnel_new","api_key":"new-secret"}`)))
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if cfg.Tunnel.ID != "tunnel_old" || cfg.Tunnel.APIKey != "old-secret" {
+		t.Fatalf("in-memory config changed after persistence failure: %#v", cfg.Tunnel)
+	}
+	if got := client.Config(); got.ID != "tunnel_old" || got.APIKey != "old-secret" {
+		t.Fatalf("runtime config changed after persistence failure: %#v", got)
 	}
 }
 

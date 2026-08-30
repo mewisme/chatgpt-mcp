@@ -10,6 +10,7 @@ import (
 )
 
 type Event struct {
+	Sequence    uint64    `json:"sequence,omitempty"`
 	Kind        string    `json:"kind"`
 	Method      string    `json:"method,omitempty"`
 	Source      string    `json:"source,omitempty"`

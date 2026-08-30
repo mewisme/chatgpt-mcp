@@ -32,6 +32,7 @@ try {
   run(["config", "set", "server.port", String(serverPort)])
   run(["config", "set", "admin.port", String(adminPort)])
   run(["config", "set", "auth.mcp_enabled", "false"])
+  run(["config", "set", "auth.admin_enabled", "false"])
   run(["config", "set", "features.ponytail.enabled", "false"])
   run(["config", "set", "features.caveman.enabled", "false"])
   run(["config", "set", "features.caveman.enabled", "true"])
@@ -45,13 +46,15 @@ try {
   child.stderr.on("data", (chunk) => { stderr += chunk.toString() })
 
   await waitForHealth(`http://127.0.0.1:${serverPort}/health`, child, () => `${stdout}\n${stderr}`)
+  await waitForHealth(`http://127.0.0.1:${adminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
+  await verifyActivitySSE(adminPort)
   await verifyMCP(serverPort)
   run(["status"])
   await stopChild(child)
   child = null
 
   run(["uninit"], { quiet: true })
-  console.log("[OK] release smoke: init -> verify -> convert/transform -> config -> status -> serve -> health -> MCP discover/list/conformance -> stop -> uninit")
+  console.log("[OK] release smoke: init -> verify -> convert/transform -> config -> status -> serve -> health -> Activity SSE ready -> MCP discover/list/conformance -> stop -> uninit")
 } finally {
   if (child) await stopChild(child).catch(() => undefined)
   await rm(home, { recursive: true, force: true })
@@ -94,6 +97,29 @@ async function verifyMCP(port) {
   assertStatus(legacy.response, 404, "initialize")
   if (legacy.body?.error?.code !== -32601) {
     fail(`initialize error code = ${legacy.body?.error?.code}, want -32601`)
+  }
+}
+
+async function verifyActivitySSE(port) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/activity/stream?history=0`, { signal: controller.signal })
+    assertStatus(response, 200, "activity SSE")
+    if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) fail("activity SSE response is not an event stream")
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ""
+    while (!buffer.includes("\n\n")) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+    }
+    await reader.cancel()
+    if (!buffer.includes("event: ready\n") || !buffer.includes('"latest_sequence":')) fail(`activity SSE did not emit ready control event: ${JSON.stringify(buffer)}`)
+  } finally {
+    clearTimeout(timeout)
+    controller.abort()
   }
 }
 

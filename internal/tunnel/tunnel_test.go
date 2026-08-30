@@ -112,6 +112,77 @@ func TestBuiltinOpenAITunnelLifecycle(t *testing.T) {
 	}
 }
 
+func TestTunnelLifecycleObserverReportsConnectingReadyAndStopped(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	fake := newFakeBackend()
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) { return fake, nil })
+	events := make(chan LifecycleEvent, 8)
+	client.SetLifecycleObserver(func(event LifecycleEvent) { events <- event })
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitLifecycleState(t, events, LifecycleConnecting)
+	readyCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := client.WaitUntilReady(readyCtx); err != nil {
+		t.Fatal(err)
+	}
+	waitLifecycleState(t, events, LifecycleReady)
+	if err := client.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	waitLifecycleState(t, events, LifecycleStopped)
+}
+
+func TestTunnelBackendShutdownReportsDegradedThenStopped(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	fake := newFakeBackend()
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) { return fake, nil })
+	events := make(chan LifecycleEvent, 8)
+	client.SetLifecycleObserver(func(event LifecycleEvent) { events <- event })
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	readyCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := client.WaitUntilReady(readyCtx); err != nil {
+		t.Fatal(err)
+	}
+	waitLifecycleState(t, events, LifecycleReady)
+	select {
+	case fake.done <- os.Interrupt:
+	case <-time.After(time.Second):
+		t.Fatal("backend watcher did not receive shutdown signal")
+	}
+	degraded := waitLifecycleState(t, events, LifecycleDegraded)
+	if degraded.Message == "" {
+		t.Fatal("degraded lifecycle event did not include a reason")
+	}
+	waitLifecycleState(t, events, LifecycleStopped)
+	deadline := time.Now().Add(time.Second)
+	for client.Status().Running {
+		if time.Now().After(deadline) {
+			t.Fatalf("tunnel stayed running after backend shutdown: %+v", client.Status())
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func waitLifecycleState(t *testing.T, events <-chan LifecycleEvent, state LifecycleState) LifecycleEvent {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.State == state {
+				return event
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for lifecycle state %s", state)
+		}
+	}
+}
+
 func TestTunnelContextCancellationStopsEmbeddedBackend(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	fake := newFakeBackend()

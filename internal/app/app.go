@@ -38,11 +38,13 @@ func New(cfg config.Config) *App {
 	appLogger := logger.New(logger.Info)
 	telemetry.AttachTools(toolRuntime, stream, appLogger)
 	configStore := config.NewRuntimeStore(cfg)
-	return &App{
+	app := &App{
 		Config: configStore, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
 		Tunnel: tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger), Logger: appLogger,
 		OAuth: oauthStore, OAuthFlows: mcpoauth.NewFlowManager(oauthStore),
 	}
+	app.attachTunnelLifecycle()
+	return app
 }
 
 func (a *App) MCPHandler() http.Handler {

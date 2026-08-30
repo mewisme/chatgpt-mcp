@@ -374,6 +374,8 @@ Runtime configuration is exposed through a synchronized immutable-snapshot store
 
 Built-in agent features live under `features`. Ponytail and Caveman are enabled by default, can be toggled independently with `config set features.<name>.enabled <true|false>` or Admin Settings, and update the live tool catalog when changed through the Admin API. Caveman is a built-in terse-response turn controller; Ponytail continues to use its trusted plugin hooks when its feature is enabled.
 
+Admin Activity streaming uses sequenced SSE events with `id` values, an initial `ready` control event, periodic heartbeats, and explicit overflow termination for slow subscribers. The Activity UI detects sequence gaps instead of silently hiding dropped events. Tunnel lifecycle transitions are emitted from the tunnel runtime itself as `connecting`, `ready`, `degraded`, and `stopped`, with the same transition feeding both runtime logs and Activity.
+
 ## Workspaces
 
 Filesystem, shell, and Git mutations are workspace-bound. Register a workspace before using tools that operate on local project files:

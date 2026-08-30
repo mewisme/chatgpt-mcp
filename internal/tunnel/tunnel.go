@@ -51,6 +51,23 @@ type backend interface {
 
 type backendFactory func(Config, sdkmcp.Transport) (backend, error)
 
+type LifecycleState string
+
+const (
+	LifecycleConnecting LifecycleState = "connecting"
+	LifecycleReady      LifecycleState = "ready"
+	LifecycleDegraded   LifecycleState = "degraded"
+	LifecycleStopped    LifecycleState = "stopped"
+)
+
+type LifecycleEvent struct {
+	State   LifecycleState
+	ID      string
+	Message string
+}
+
+type LifecycleObserver func(LifecycleEvent)
+
 type serverRun struct {
 	done chan struct{}
 	err  error
@@ -58,6 +75,7 @@ type serverRun struct {
 
 type Client struct {
 	reconfigureMu sync.Mutex
+	lifecycleMu   sync.RWMutex
 	mu            sync.RWMutex
 	config        Config
 	runtime       *tools.Runtime
@@ -73,6 +91,7 @@ type Client struct {
 	generation    uint64
 	startedAt     time.Time
 	lastError     string
+	lifecycle     LifecycleObserver
 }
 
 func New(id, key string, runtime *tools.Runtime) *Client {
@@ -92,6 +111,27 @@ func newConfigured(cfg Config, runtime *tools.Runtime, factory backendFactory) *
 		factory = newOpenAIBackendFactory(nil)
 	}
 	return &Client{config: cfg, runtime: runtime, factory: factory}
+}
+
+func (c *Client) SetLifecycleObserver(observer LifecycleObserver) {
+	if c == nil {
+		return
+	}
+	c.lifecycleMu.Lock()
+	c.lifecycle = observer
+	c.lifecycleMu.Unlock()
+}
+
+func (c *Client) emitLifecycle(state LifecycleState, id, message string) {
+	if c == nil {
+		return
+	}
+	c.lifecycleMu.RLock()
+	observer := c.lifecycle
+	c.lifecycleMu.RUnlock()
+	if observer != nil {
+		observer(LifecycleEvent{State: state, ID: id, Message: message})
+	}
 }
 
 func newOpenAIBackendFactory(log *logger.Logger) backendFactory {
@@ -198,6 +238,7 @@ func (c *Client) StartContext(parent context.Context) error {
 	}
 
 	c.mu.Lock()
+	id := c.config.ID
 	if !c.config.Enabled {
 		c.mu.Unlock()
 		return nil
@@ -207,12 +248,16 @@ func (c *Client) StartContext(parent context.Context) error {
 		return errors.New("OpenAI tunnel already running")
 	}
 	if c.runtime == nil || c.runtime.Registry == nil {
+		err := errors.New("OpenAI tunnel requires an MCP tools runtime")
+		c.lastError = err.Error()
 		c.mu.Unlock()
-		return errors.New("OpenAI tunnel requires an MCP tools runtime")
+		c.emitLifecycle(LifecycleDegraded, id, err.Error())
+		return err
 	}
 	if err := ValidateConfig(c.config); err != nil {
 		c.lastError = err.Error()
 		c.mu.Unlock()
+		c.emitLifecycle(LifecycleDegraded, id, err.Error())
 		return err
 	}
 
@@ -220,6 +265,7 @@ func (c *Client) StartContext(parent context.Context) error {
 	if err != nil {
 		c.lastError = err.Error()
 		c.mu.Unlock()
+		c.emitLifecycle(LifecycleDegraded, id, err.Error())
 		return err
 	}
 	serverTransport, tunnelTransport := sdkmcp.NewInMemoryTransports()
@@ -227,6 +273,7 @@ func (c *Client) StartContext(parent context.Context) error {
 	if err != nil {
 		c.lastError = err.Error()
 		c.mu.Unlock()
+		c.emitLifecycle(LifecycleDegraded, id, err.Error())
 		return err
 	}
 
@@ -242,6 +289,7 @@ func (c *Client) StartContext(parent context.Context) error {
 		c.lastError = err.Error()
 		c.mu.Unlock()
 		waitRun(context.Background(), run, time.Second)
+		c.emitLifecycle(LifecycleDegraded, id, err.Error())
 		return err
 	}
 
@@ -258,31 +306,47 @@ func (c *Client) StartContext(parent context.Context) error {
 	c.startedAt = time.Now()
 	c.lastError = ""
 	c.mu.Unlock()
+	c.emitLifecycle(LifecycleConnecting, id, "waiting for control-plane readiness")
 
 	go c.watchReady(generation, tunnelBackend, runCtx)
 	go c.watchContext(generation, runCtx)
 	go c.watchServer(generation, run)
+	go c.watchBackend(generation, tunnelBackend, runCtx)
 	return nil
 }
 
 func (c *Client) watchReady(generation uint64, tunnelBackend backend, ctx context.Context) {
 	err := tunnelBackend.WaitUntilReady(ctx)
 	if err != nil {
+		var id string
+		active := false
 		if ctx.Err() == nil {
 			c.mu.Lock()
 			if c.generation == generation && c.running && !c.stopping {
 				c.lastError = err.Error()
+				id = c.config.ID
+				active = true
 			}
 			c.mu.Unlock()
 		}
+		if active {
+			c.emitLifecycle(LifecycleDegraded, id, err.Error())
+		}
 		return
 	}
+	var id string
+	becameReady := false
 	c.mu.Lock()
 	if c.generation == generation && c.running && !c.ready {
 		c.ready = true
+		id = c.config.ID
+		becameReady = true
 		close(c.readyCh)
 	}
 	c.mu.Unlock()
+	if becameReady {
+		c.emitLifecycle(LifecycleReady, id, "control plane ready")
+	}
 }
 
 func (c *Client) watchContext(generation uint64, ctx context.Context) {
@@ -299,16 +363,55 @@ func (c *Client) watchServer(generation uint64, run *serverRun) {
 	}
 	c.mu.Lock()
 	active := c.generation == generation && c.running && !c.stopping
+	id := ""
+	message := ""
 	if active {
-		c.lastError = "embedded MCP server stopped: " + run.err.Error()
+		message = "embedded MCP server stopped: " + run.err.Error()
+		c.lastError = message
+		id = c.config.ID
 	}
 	c.mu.Unlock()
 	if !active {
 		return
 	}
+	c.emitLifecycle(LifecycleDegraded, id, message)
 	stopCtx, cancel := context.WithTimeout(context.Background(), defaultStopTimeout)
 	defer cancel()
 	_ = c.stopGeneration(stopCtx, generation)
+}
+
+func (c *Client) watchBackend(generation uint64, tunnelBackend backend, ctx context.Context) {
+	done := tunnelBackend.Done()
+	if done == nil {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case signal, ok := <-done:
+		if !ok {
+			return
+		}
+		message := "tunnel runtime stopped"
+		if signal != nil {
+			message += ": " + signal.String()
+		}
+		c.mu.Lock()
+		active := c.generation == generation && c.running && !c.stopping
+		id := ""
+		if active {
+			c.lastError = message
+			id = c.config.ID
+		}
+		c.mu.Unlock()
+		if !active {
+			return
+		}
+		c.emitLifecycle(LifecycleDegraded, id, message)
+		stopCtx, cancel := context.WithTimeout(context.Background(), defaultStopTimeout)
+		defer cancel()
+		_ = c.stopGeneration(stopCtx, generation)
+	}
 }
 
 func (c *Client) WaitUntilReady(ctx context.Context) error {
@@ -371,6 +474,7 @@ func (c *Client) stopGeneration(ctx context.Context, generation uint64) error {
 		}
 	}
 	c.stopping = true
+	id := c.config.ID
 	tunnelBackend := c.backend
 	cancel := c.cancel
 	run := c.serverRun
@@ -390,6 +494,7 @@ func (c *Client) stopGeneration(ctx context.Context, generation uint64) error {
 	}
 
 	c.mu.Lock()
+	stopped := false
 	if c.generation == generation {
 		c.backend = nil
 		c.cancel = nil
@@ -401,9 +506,17 @@ func (c *Client) stopGeneration(ctx context.Context, generation uint64) error {
 		c.stopping = false
 		c.startedAt = time.Time{}
 		close(doneCh)
+		stopped = true
 	}
 	c.mu.Unlock()
-	return errors.Join(backendErr, serverErr)
+	err := errors.Join(backendErr, serverErr)
+	if stopped {
+		if err != nil {
+			c.emitLifecycle(LifecycleDegraded, id, err.Error())
+		}
+		c.emitLifecycle(LifecycleStopped, id, "tunnel stopped")
+	}
+	return err
 }
 
 func waitRun(ctx context.Context, run *serverRun, fallback time.Duration) error {

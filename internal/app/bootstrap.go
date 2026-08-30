@@ -21,5 +21,6 @@ func (a *App) Bootstrap() error {
 	} else {
 		a.MCP.Server.Tools = a.Tools
 	}
+	a.attachTunnelLifecycle()
 	return nil
 }

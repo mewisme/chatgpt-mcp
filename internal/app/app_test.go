@@ -127,6 +127,23 @@ func TestBootstrapRewiresToolRuntime(t *testing.T) {
 	}
 }
 
+func TestTunnelLifecyclePublishesActivityFromSourceObserver(t *testing.T) {
+	cfg := config.Default()
+	cfg.Tunnel.Enabled = true
+	app := New(cfg)
+	if err := app.Start(context.Background()); err == nil {
+		t.Fatal("expected invalid tunnel configuration to fail")
+	}
+	recent := app.Activity.Recent(10)
+	if len(recent) == 0 {
+		t.Fatal("tunnel lifecycle failure did not publish activity")
+	}
+	last := recent[len(recent)-1]
+	if last.Kind != "tunnel.degraded" || last.Status != "degraded" || last.Source != "tunnel" {
+		t.Fatalf("activity = %#v", last)
+	}
+}
+
 type lifecycleUpstreamClient struct {
 	closed []string
 }

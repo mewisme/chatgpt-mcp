@@ -1,11 +1,19 @@
 package activity
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 )
 
+const defaultHeartbeatInterval = 15 * time.Second
+
 func Handler(stream *Stream) http.Handler {
+	return handlerWithHeartbeat(stream, defaultHeartbeatInterval)
+}
+
+func handlerWithHeartbeat(stream *Stream, heartbeatInterval time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -15,29 +23,63 @@ func Handler(stream *Stream) http.Handler {
 			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 			return
 		}
-		ch, recent := stream.SubscribeWithRecent(historyLimit(r))
-		defer stream.Unsubscribe(ch)
+		sub, recent := stream.SubscribeDetailed(historyLimit(r))
+		defer stream.UnsubscribeDetailed(sub)
+		lastSent := uint64(0)
 		for _, event := range recent {
-			if _, err := w.Write([]byte("data: " + Encode(event) + "\n\n")); err != nil {
+			if err := writeActivitySSE(w, event); err != nil {
 				return
 			}
+			lastSent = event.Sequence
+		}
+		if _, err := fmt.Fprintf(w, "event: ready\ndata: {\"latest_sequence\":%d}\n\n", stream.LatestSequence()); err != nil {
+			return
 		}
 		flusher.Flush()
+		heartbeat := time.NewTicker(heartbeatInterval)
+		defer heartbeat.Stop()
 		for {
+			select {
+			case overflow := <-sub.Overflow:
+				if overflow.DroppedSequence != 0 {
+					_, _ = fmt.Fprintf(w, "event: overflow\ndata: {\"last_sequence\":%d,\"dropped_sequence\":%d}\n\n", lastSent, overflow.DroppedSequence)
+					flusher.Flush()
+					return
+				}
+			default:
+			}
 			select {
 			case <-r.Context().Done():
 				return
-			case event, ok := <-ch:
+			case overflow := <-sub.Overflow:
+				if overflow.DroppedSequence == 0 {
+					return
+				}
+				_, _ = fmt.Fprintf(w, "event: overflow\ndata: {\"last_sequence\":%d,\"dropped_sequence\":%d}\n\n", lastSent, overflow.DroppedSequence)
+				flusher.Flush()
+				return
+			case <-heartbeat.C:
+				if _, err := fmt.Fprintf(w, "event: heartbeat\ndata: {\"latest_sequence\":%d}\n\n", stream.LatestSequence()); err != nil {
+					return
+				}
+				flusher.Flush()
+			case event, ok := <-sub.Events:
 				if !ok {
 					return
 				}
-				if _, err := w.Write([]byte("data: " + Encode(event) + "\n\n")); err != nil {
+				if err := writeActivitySSE(w, event); err != nil {
 					return
 				}
+				lastSent = event.Sequence
 				flusher.Flush()
 			}
 		}
 	})
+}
+
+func writeActivitySSE(w http.ResponseWriter, event Event) error {
+	_, err := fmt.Fprintf(w, "id: %d\nevent: activity\ndata: %s\n\n", event.Sequence, Encode(event))
+	return err
 }
 
 func historyLimit(r *http.Request) int {

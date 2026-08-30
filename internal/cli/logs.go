@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,8 +46,42 @@ func logsCommand() *cobra.Command {
 		return runLogs(cmd, *followOptions)
 	}}
 	addLogsFlags(follow, followOptions, false)
-	cmd.AddCommand(follow)
+	pathCmd := &cobra.Command{Use: "path", Short: "Show the runtime journal path", Args: cobra.NoArgs, Run: func(cmd *cobra.Command, args []string) {
+		commandLogger(cmd).Notice("LOGS", "logs.path", runtimeevent.Path(config.RootPath()))
+	}}
+	var forceClear bool
+	clear := &cobra.Command{Use: "clear", Short: "Clear runtime logs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if !forceClear {
+			return errors.New("refusing to clear runtime logs without --force")
+		}
+		if err := clearRuntimeLogs(cmd); err != nil {
+			return err
+		}
+		commandLogger(cmd).Ready("LOGS", "logs.cleared", "Runtime logs cleared")
+		return nil
+	}}
+	clear.Flags().BoolVar(&forceClear, "force", false, "clear current and rotated runtime logs")
+	cmd.AddCommand(follow, pathCmd, clear)
 	return cmd
+}
+
+func clearRuntimeLogs(cmd *cobra.Command) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 3*time.Second)
+	_, running, err := managedRuntimeStatus(ctx)
+	cancel()
+	if err != nil {
+		return err
+	}
+	if running {
+		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+		defer cancel()
+		return requestRuntimeClearLogs(ctx)
+	}
+	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{})
+	if err != nil {
+		return err
+	}
+	return journal.Clear()
 }
 
 func addLogsFlags(cmd *cobra.Command, options *logsOptions, includeFollow bool) {

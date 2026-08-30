@@ -117,6 +117,70 @@ func TestLogsFollowStreamsRuntimeEvents(t *testing.T) {
 	}
 }
 
+func TestLogsPathAndClearWhileStopped(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := runtimeevent.NewJournal(root, runtimeevent.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(runtimeevent.Event{Time: time.Now(), Level: "info", Kind: "info", Name: "test.event", Message: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	pathOutput := executeLogsCommand(t, root, []string{"logs", "path"})
+	if !strings.Contains(pathOutput, runtimeevent.Path(root)) {
+		t.Fatalf("logs path output = %q", pathOutput)
+	}
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetContext(context.Background())
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"--config-dir", root, "logs", "clear"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("logs clear without force = %v", err)
+	}
+	cmd = newRootCommand()
+	cmd.SetContext(context.Background())
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"--config-dir", root, "logs", "clear", "--force"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(runtimeevent.Path(root)); !os.IsNotExist(err) {
+		t.Fatalf("runtime journal still exists after clear: %v", err)
+	}
+}
+
+func TestLogsClearUsesRuntimeControlWhenRunning(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	clearCalls := 0
+	control, err := startRuntimeControl(runtimeControlOptions{RunID: "run_clear", Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) {
+		return runtimeReloadResult{PID: os.Getpid()}, nil
+	}, Status: func() runtimeStatusResult {
+		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_clear", ConfigRoot: root}
+	}, Shutdown: func() {}, ClearLogs: func() error {
+		clearCalls++
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	output := executeLogsCommand(t, root, []string{"logs", "clear", "--force"})
+	if clearCalls != 1 || !strings.Contains(output, "Runtime logs cleared") {
+		t.Fatalf("clear calls=%d output=%q", clearCalls, output)
+	}
+}
+
 func executeLogsCommand(t *testing.T, root string, args []string) string {
 	t.Helper()
 	var output bytes.Buffer

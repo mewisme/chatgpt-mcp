@@ -61,9 +61,13 @@ func PathFromArgs(args []string) string {
 			return strings.Join(args[:3], " ")
 		}
 		return strings.Join(args[:2], " ")
-	case "logs":
+	case "logs", "log":
 		if len(args) >= 2 && !strings.HasPrefix(args[1], "-") {
-			return strings.Join(args[:2], " ")
+			path := strings.Join(args[:2], " ")
+			if args[0] == "log" {
+				path = "logs" + strings.TrimPrefix(path, "log")
+			}
+			return path
 		}
 		return "logs"
 	default:

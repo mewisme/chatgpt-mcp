@@ -39,14 +39,6 @@ func newRootCommand() *cobra.Command {
 		tunnelCommand(),
 		serveCommand(),
 		statusCommand(),
-		&cobra.Command{Use: "config-path", Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
-			source, err := config.Source()
-			if err != nil {
-				return err
-			}
-			commandLogger(cmd).Detail("config", source.Path)
-			return nil
-		}},
 		&cobra.Command{Use: "version", Run: func(cmd *cobra.Command, args []string) {
 			commandLogger(cmd).Notice("VERSION", "cli.version", version.String())
 		}},
@@ -155,20 +147,22 @@ func removeConfigRoot(root string) error {
 func authCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "auth", Short: "Manage MCP and admin authentication"}
 	cmd.AddCommand(
-		authCreateCommand("mcp"),
-		authCreateCommand("admin"),
-		authToggleCommand("mcp", true),
-		authToggleCommand("mcp", false),
-		authToggleCommand("admin", true),
-		authToggleCommand("admin", false),
+		authKindCommand("mcp"),
+		authKindCommand("admin"),
 		authStatusCommand(),
 	)
 	return cmd
 }
 
+func authKindCommand(kind string) *cobra.Command {
+	cmd := &cobra.Command{Use: kind, Short: "Manage " + kind + " authentication"}
+	cmd.AddCommand(authCreateCommand(kind), authToggleCommand(kind, true), authToggleCommand(kind, false))
+	return cmd
+}
+
 func authCreateCommand(kind string) *cobra.Command {
 	return &cobra.Command{
-		Use:   kind + "-create",
+		Use:   "create",
 		Short: "Create or rotate the " + kind + " token",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
@@ -205,7 +199,7 @@ func authToggleCommand(kind string, enabled bool) *cobra.Command {
 		action = "enable"
 	}
 	return &cobra.Command{
-		Use:   kind + "-" + action,
+		Use:   action,
 		Short: action + " " + kind + " authentication",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
@@ -214,12 +208,12 @@ func authToggleCommand(kind string, enabled bool) *cobra.Command {
 			}
 			if kind == "mcp" {
 				if enabled && cfg.Auth.MCPTokenHash == "" {
-					return errors.New("MCP token is not configured; run chatgpt-mcp auth mcp-create")
+					return errors.New("MCP token is not configured; run chatgpt-mcp auth mcp create")
 				}
 				cfg.Auth.MCPEnabled = enabled
 			} else {
 				if enabled && cfg.Auth.AdminTokenHash == "" {
-					return errors.New("admin token is not configured; run chatgpt-mcp auth admin-create")
+					return errors.New("admin token is not configured; run chatgpt-mcp auth admin create")
 				}
 				cfg.Auth.AdminEnabled = enabled
 			}

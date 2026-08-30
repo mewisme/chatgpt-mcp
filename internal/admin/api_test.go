@@ -122,6 +122,29 @@ func TestConfigAPIHidesTokenHashes(t *testing.T) {
 	}
 }
 
+func TestConfigAPIWildcardExposureRequiresBothAuth(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-hash"
+	cfg.Auth.AdminTokenHash = "admin-hash"
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Config: store, saveConfig: func(config.Config) error { return nil }})
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"server":{"port":37421,"expose":{"mode":"0.0.0.0","interfaces":[]}}}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("wildcard status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"auth":{"mcp_enabled":false,"admin_enabled":true}}`)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("disable auth status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot(); got.Server.Expose.Mode != config.ExposureWildcard || !got.Auth.MCPEnabled || !got.Auth.AdminEnabled {
+		t.Fatalf("invalid wildcard auth state committed: %#v", got)
+	}
+}
+
 func TestHealthReportsAdminAuthState(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.AdminEnabled = false

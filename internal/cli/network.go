@@ -17,7 +17,7 @@ type listenerPlan struct {
 }
 
 func addExposeFlag(cmd *cobra.Command) {
-	cmd.Flags().String("expose", "", "network exposure for this run: all, none, or comma-separated interface names")
+	cmd.Flags().String("expose", "", "network exposure for this run: none, all, 0.0.0.0, or comma-separated interface names")
 	if flag := cmd.Flags().Lookup("expose"); flag != nil {
 		flag.NoOptDefVal = "all"
 	}
@@ -83,6 +83,8 @@ func logReadyEndpoints(log *logger.Logger, cfg config.Config, plan listenerPlan)
 	fields = append(fields, logger.WithVerbose("expose", cfg.Server.Expose.Mode))
 	switch cfg.Server.Expose.Mode {
 	case config.ExposureAll:
+		fields = append(fields, logger.WithVerbose("network_addresses", max(0, len(plan.Addresses)-1)))
+	case config.ExposureWildcard:
 		fields = append(fields, logger.WithVerbose("bind", mcpnetwork.WildcardHost), logger.WithVerbose("network_addresses", max(0, len(plan.Addresses)-1)))
 	case config.ExposureInterfaces:
 		fields = append(fields, logger.WithVerbose("interfaces", cfg.Server.Expose.Interfaces), logger.WithVerbose("network_addresses", max(0, len(plan.Addresses)-1)))

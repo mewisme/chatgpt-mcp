@@ -24,6 +24,33 @@ func TestValidateRequiresAuthTokens(t *testing.T) {
 	}
 }
 
+func TestValidateWildcardExposureRequiresBothAuth(t *testing.T) {
+	cfg := Default()
+	cfg.Server.Expose = ExposureConfig{Mode: ExposureWildcard, Interfaces: []string{}}
+	cfg.Auth.MCPTokenHash = "mcp"
+	cfg.Auth.AdminTokenHash = "admin"
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "mcp disabled", mutate: func(cfg *Config) { cfg.Auth.MCPEnabled = false }},
+		{name: "admin disabled", mutate: func(cfg *Config) { cfg.Auth.AdminEnabled = false }},
+		{name: "mcp token missing", mutate: func(cfg *Config) { cfg.Auth.MCPTokenHash = "" }},
+		{name: "admin token missing", mutate: func(cfg *Config) { cfg.Auth.AdminTokenHash = "" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := cfg
+			test.mutate(&candidate)
+			if err := Validate(candidate); err == nil {
+				t.Fatal("wildcard exposure accepted without required authentication")
+			}
+		})
+	}
+}
+
 func TestValidateBuiltinOpenAITunnel(t *testing.T) {
 	cfg := Default()
 	cfg.Auth.MCPEnabled = false
@@ -278,7 +305,7 @@ func TestLegacyServerHostMigratesToExpose(t *testing.T) {
 	}{
 		{name: "loopback", server: `{"host":"127.0.0.1","port":37421}`, want: ExposureNone},
 		{name: "localhost", server: `{"host":"localhost","port":37421}`, want: ExposureNone},
-		{name: "wildcard", server: `{"host":"0.0.0.0","port":37421}`, want: ExposureAll},
+		{name: "wildcard", server: `{"host":"0.0.0.0","port":37421}`, want: ExposureWildcard},
 		{name: "lan address", server: `{"host":"192.168.1.20","port":37421}`, want: ExposureAll},
 		{name: "explicit false wins", server: `{"host":"0.0.0.0","port":37421,"expose":false}`, want: ExposureNone},
 	} {
@@ -320,7 +347,7 @@ func TestLegacyBooleanExposureMigratesAcrossFormats(t *testing.T) {
 			name  string
 			value bool
 			want  ExposureMode
-		}{{"disabled", false, ExposureNone}, {"enabled", true, ExposureAll}} {
+		}{{"disabled", false, ExposureNone}, {"enabled", true, ExposureWildcard}} {
 			t.Run(string(format)+"/"+test.name, func(t *testing.T) {
 				root := t.TempDir()
 				path := configformat.PathFor(root, "config", format)

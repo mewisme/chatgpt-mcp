@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -29,7 +28,6 @@ func configCommand() *cobra.Command {
 		configGetCommand(),
 		configListCommand(),
 		configSetCommand(),
-		configAllowDirCommand(),
 		configConvertCommand(),
 		configPresetCommand(),
 		configVerifyCommand(),
@@ -108,93 +106,6 @@ func configSetCommand() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-func configAllowDirCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "allow-dir", Short: "Manage global allowed directories"}
-	cmd.AddCommand(
-		&cobra.Command{Use: "add <path>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			targets, err := config.NormalizeAllowDirs([]string{args[0]})
-			if err != nil {
-				return err
-			}
-			target := targets[0]
-			dirs, err := config.NormalizeAllowDirs(cfg.Permissions.AllowDirs)
-			if err != nil {
-				return err
-			}
-			found := false
-			for _, value := range dirs {
-				found = found || value == target
-			}
-			if !found {
-				dirs, err = config.NormalizeAllowDirs(append(dirs, target))
-				if err != nil {
-					return err
-				}
-			}
-			cfg.Permissions.AllowDirs = dirs
-			if err := config.Validate(cfg); err != nil {
-				return err
-			}
-			if err := config.Save(cfg); err != nil {
-				return err
-			}
-			commandLogger(cmd).Success("CONFIG", "global allowed directory added", "path", target)
-			return nil
-		}},
-		&cobra.Command{Use: "remove <path>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			target, err := filepath.Abs(args[0])
-			if err != nil {
-				return err
-			}
-			target = filepath.Clean(target)
-			if canonical, err := filepath.EvalSymlinks(target); err == nil {
-				target = filepath.Clean(canonical)
-			}
-			filtered := make([]string, 0, len(cfg.Permissions.AllowDirs))
-			removed := false
-			for _, value := range cfg.Permissions.AllowDirs {
-				candidate := filepath.Clean(value)
-				if canonical, err := filepath.EvalSymlinks(candidate); err == nil {
-					candidate = filepath.Clean(canonical)
-				}
-				if candidate == target {
-					removed = true
-					continue
-				}
-				filtered = append(filtered, value)
-			}
-			if !removed {
-				return fmt.Errorf("global allowed directory is not configured: %s", target)
-			}
-			cfg.Permissions.AllowDirs = filtered
-			if err := config.Validate(cfg); err != nil {
-				return err
-			}
-			if err := config.Save(cfg); err != nil {
-				return err
-			}
-			commandLogger(cmd).Success("CONFIG", "global allowed directory removed", "path", target)
-			return nil
-		}},
-		&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			return printJSON(cmd, cfg.Permissions.AllowDirs)
-		}},
-	)
-	return cmd
 }
 
 func configPresetCommand() *cobra.Command {
@@ -289,8 +200,8 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 		cfg.Server.Expose = value
 	case "server.expose.mode":
 		mode := config.ExposureMode(strings.ToLower(strings.TrimSpace(raw)))
-		if mode != config.ExposureNone && mode != config.ExposureAll && mode != config.ExposureInterfaces {
-			return errors.New("server.expose.mode must be none, all, or interfaces")
+		if mode != config.ExposureNone && mode != config.ExposureAll && mode != config.ExposureWildcard && mode != config.ExposureInterfaces {
+			return errors.New("server.expose.mode must be none, all, 0.0.0.0, or interfaces")
 		}
 		cfg.Server.Expose.Mode = mode
 		cfg.Server.Expose = config.NormalizeExposure(cfg.Server.Expose)
@@ -355,7 +266,7 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 	case "tunnel.organization_id":
 		cfg.Tunnel.OrganizationID = raw
 	case "auth.mcp_token_hash", "auth.admin_token_hash":
-		return errors.New("token hashes cannot be set through config; use chatgpt-mcp auth *-create")
+		return errors.New("token hashes cannot be set through config; use chatgpt-mcp auth <mcp|admin> create")
 	default:
 		return fmt.Errorf("unsupported config key: %s", key)
 	}

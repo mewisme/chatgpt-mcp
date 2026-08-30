@@ -40,8 +40,13 @@ func TestResolveExposureModes(t *testing.T) {
 	}
 
 	hosts, addresses, err = Resolve(config.ExposureConfig{Mode: config.ExposureAll}, interfaces)
-	if err != nil || !reflect.DeepEqual(hosts, []string{WildcardHost}) || len(addresses) != 3 {
+	if err != nil || !reflect.DeepEqual(hosts, []string{LoopbackHost, "192.168.1.20", "100.64.0.10"}) || len(addresses) != 3 {
 		t.Fatalf("all = hosts %#v addresses %#v err %v", hosts, addresses, err)
+	}
+
+	hosts, addresses, err = Resolve(config.ExposureConfig{Mode: config.ExposureWildcard}, interfaces)
+	if err != nil || !reflect.DeepEqual(hosts, []string{WildcardHost}) || len(addresses) != 3 {
+		t.Fatalf("wildcard = hosts %#v addresses %#v err %v", hosts, addresses, err)
 	}
 
 	hosts, addresses, err = Resolve(config.ExposureConfig{Mode: config.ExposureInterfaces, Interfaces: []string{"tailscale0", "eth0"}}, interfaces)

@@ -17,8 +17,9 @@ func TestExposeFlagSupportsBareAllAndInterfaceLists(t *testing.T) {
 	}{
 		{name: "bare", args: []string{"--expose"}, want: config.ExposureConfig{Mode: config.ExposureAll, Interfaces: []string{}}},
 		{name: "all", args: []string{"--expose=all"}, want: config.ExposureConfig{Mode: config.ExposureAll, Interfaces: []string{}}},
+		{name: "wildcard", args: []string{"--expose=0.0.0.0"}, want: config.ExposureConfig{Mode: config.ExposureWildcard, Interfaces: []string{}}},
 		{name: "none", args: []string{"--expose=none"}, want: config.ExposureConfig{Mode: config.ExposureNone, Interfaces: []string{}}},
-		{name: "true compatibility", args: []string{"--expose=true"}, want: config.ExposureConfig{Mode: config.ExposureAll, Interfaces: []string{}}},
+		{name: "true compatibility", args: []string{"--expose=true"}, want: config.ExposureConfig{Mode: config.ExposureWildcard, Interfaces: []string{}}},
 		{name: "false compatibility", args: []string{"--expose=false"}, want: config.ExposureConfig{Mode: config.ExposureNone, Interfaces: []string{}}},
 		{name: "interfaces", args: []string{"--expose=tailscale0,eth0,eth0"}, want: config.ExposureConfig{Mode: config.ExposureInterfaces, Interfaces: []string{"eth0", "tailscale0"}}},
 	} {

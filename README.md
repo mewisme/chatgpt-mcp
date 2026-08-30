@@ -175,7 +175,7 @@ MCP:   http://127.0.0.1:37421/mcp
 Admin: http://127.0.0.1:37422/
 ```
 
-Network exposure is explicit and independent from authentication:
+Network exposure is explicit. Authentication is normally independent, except wildcard `0.0.0.0` exposure requires both MCP and Admin authentication with configured tokens:
 
 ```json
 {
@@ -189,29 +189,31 @@ Network exposure is explicit and independent from authentication:
 }
 ```
 
-`none` binds only to `127.0.0.1`. `all` binds to `0.0.0.0`. `interfaces` keeps loopback available and additionally binds only to the eligible IPv4 addresses of the selected active interfaces.
+`none` binds only to `127.0.0.1`. `all` binds loopback plus each currently active eligible IPv4 address individually. `interfaces` keeps loopback available and additionally binds only to the eligible IPv4 addresses of the selected active interfaces. `0.0.0.0` creates a wildcard listener that accepts every IPv4 interface, including interfaces that appear after startup, and is rejected unless both MCP and Admin authentication are enabled with configured tokens.
 
 For one run:
 
 ```bash
 chatgpt-mcp serve --expose
 chatgpt-mcp serve --expose=all
+chatgpt-mcp serve --expose=0.0.0.0
 chatgpt-mcp serve --expose=eth0
 chatgpt-mcp serve --expose=eth0,tailscale0
 chatgpt-mcp serve --expose=none
 ```
 
-Bare `--expose` means `all`; `--expose=true` and `--expose=false` remain compatibility aliases for `all` and `none`.
+Bare `--expose` means `all`. For compatibility with the old boolean exposure setting, `--expose=true` maps to wildcard `0.0.0.0` and `--expose=false` maps to `none`.
 
 Persist the policy with:
 
 ```bash
 chatgpt-mcp config set server.expose all
+chatgpt-mcp config set server.expose 0.0.0.0
 chatgpt-mcp config set server.expose eth0,tailscale0
 chatgpt-mcp config set server.expose none
 ```
 
-Selected interfaces must be active, non-loopback, and have an eligible IPv4 address. Startup fails instead of silently broadening exposure when a configured interface is unavailable. Duplicate IPs are bound once. Legacy boolean `server.expose` and `server.host` values are migrated automatically on load and written back in the structured exposure format on the next save.
+Selected interfaces must be active, non-loopback, and have an eligible IPv4 address. Startup fails instead of silently broadening exposure when a configured interface is unavailable. Duplicate IPs are bound once. Legacy boolean `server.expose=true` and legacy `server.host=0.0.0.0` migrate to explicit wildcard mode; false/loopback migrate to `none`.
 
 Inspect the current runtime configuration:
 
@@ -233,18 +235,11 @@ chatgpt-mcp config list --format yaml
 chatgpt-mcp config get admin --toml
 ```
 
-Global filesystem access outside registered workspace roots is explicit through `permissions.allow_dirs`. Directories must be absolute and exist when configured. For example, allowing `/tmp` lets every workspace-bound Agent read/write test or build artifacts there:
-
-```bash
-chatgpt-mcp config allow-dir add /tmp
-chatgpt-mcp config allow-dir list
-chatgpt-mcp config allow-dir remove /tmp
-```
-
-The full list can also be replaced directly:
+Global filesystem access outside registered workspace roots is explicit through `permissions.allow_dirs`. Directories must be absolute and exist when configured. Configure the full list directly:
 
 ```bash
 chatgpt-mcp config set permissions.allow_dirs /tmp,/var/tmp/chatgpt-mcp
+chatgpt-mcp config get permissions.allow_dirs
 ```
 
 Admin Settings exposes the same global allow list and applies changes to the live tool runtime after persistence succeeds; no runtime restart is required.
@@ -318,8 +313,8 @@ There is no `initialize` handshake and no `Mcp-Session-Id` in this protocol revi
 Create or rotate credentials:
 
 ```bash
-chatgpt-mcp auth mcp-create
-chatgpt-mcp auth admin-create
+chatgpt-mcp auth mcp create
+chatgpt-mcp auth admin create
 ```
 
 Use an enabled token with:
@@ -334,7 +329,7 @@ Authentication can be inspected with:
 chatgpt-mcp auth status
 ```
 
-Authentication and network exposure are separate policies. When MCP or Admin authentication is disabled, that endpoint does not require a bearer token on either loopback or exposed interfaces. The Admin dashboard also skips the login screen when Admin authentication is disabled.
+Authentication and network exposure are separate policies except for wildcard `0.0.0.0`, which requires both MCP and Admin authentication with configured tokens. For other exposure modes, disabling an auth policy removes the bearer-token requirement for that endpoint. The Admin dashboard skips the login screen when Admin authentication is disabled.
 
 ## OpenAI Secure MCP Tunnel
 
@@ -422,9 +417,9 @@ Workspace handles are explicit and immutable; tool calls cannot silently switch 
 A workspace can also grant its own additional directories without exposing them to every other workspace:
 
 ```bash
-chatgpt-mcp workspace allow-dir add ws_... /path/to/build-cache
-chatgpt-mcp workspace allow-dir list ws_...
-chatgpt-mcp workspace allow-dir remove ws_... /path/to/build-cache
+chatgpt-mcp workspace access add ws_... /path/to/build-cache
+chatgpt-mcp workspace access list ws_...
+chatgpt-mcp workspace access remove ws_... /path/to/build-cache
 ```
 
 The effective filesystem scope for an Agent is the workspace root plus global `permissions.allow_dirs` plus that workspace's `allow_dirs`. Filesystem reads/writes, shell mutation validation, Git/process working directories, and rewind validation use the same canonical root set. Symlink escapes remain denied. Filesystem mutations in allowed directories still create rewind checkpoints, and revoking a directory prevents old checkpoints from restoring files back into the revoked path. Agents can inspect effective roots with `list_allowed_directories` or `agent_status`, but no MCP tool can grant new directories to itself.

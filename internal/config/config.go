@@ -38,6 +38,7 @@ type ExposureMode string
 const (
 	ExposureNone       ExposureMode = "none"
 	ExposureAll        ExposureMode = "all"
+	ExposureWildcard   ExposureMode = "0.0.0.0"
 	ExposureInterfaces ExposureMode = "interfaces"
 )
 
@@ -68,7 +69,7 @@ func (value *ExposureConfig) UnmarshalJSON(data []byte) error {
 	var legacy bool
 	if err := json.Unmarshal(data, &legacy); err == nil {
 		if legacy {
-			*value = ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}
+			*value = ExposureConfig{Mode: ExposureWildcard, Interfaces: []string{}}
 		} else {
 			*value = ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}
 		}
@@ -110,12 +111,14 @@ func NormalizeExposure(value ExposureConfig) ExposureConfig {
 func ParseExposure(raw string) (ExposureConfig, error) {
 	value := strings.TrimSpace(raw)
 	switch strings.ToLower(value) {
-	case "true", "all":
+	case "all":
 		return ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}, nil
+	case "true", "0.0.0.0", "wildcard":
+		return ExposureConfig{Mode: ExposureWildcard, Interfaces: []string{}}, nil
 	case "false", "none":
 		return ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}, nil
 	case "", "interfaces":
-		return ExposureConfig{}, errors.New("server exposure must be none, all, or a comma-separated interface list")
+		return ExposureConfig{}, errors.New("server exposure must be none, all, 0.0.0.0, or a comma-separated interface list")
 	}
 	exposure := NormalizeExposure(ExposureConfig{Mode: ExposureInterfaces, Interfaces: strings.Split(value, ",")})
 	if len(exposure.Interfaces) == 0 {
@@ -189,6 +192,8 @@ func migrateLegacyServerConfig(path string, data []byte, cfg *Config) error {
 	}
 	if host == "127.0.0.1" || host == "::1" || host == "localhost" {
 		cfg.Server.Expose = ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}
+	} else if host == "0.0.0.0" {
+		cfg.Server.Expose = ExposureConfig{Mode: ExposureWildcard, Interfaces: []string{}}
 	} else {
 		cfg.Server.Expose = ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}
 	}

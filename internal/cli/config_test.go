@@ -40,7 +40,7 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "permissions.allow_dirs", "/tmp,/var/tmp"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureAll || cfg.Admin.Enabled || cfg.Features.Ponytail.Enabled || cfg.Features.Caveman.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Enabled || cfg.Features.Caveman.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 {
 		t.Fatalf("cfg = %#v", cfg)
 	}
 }
@@ -219,48 +219,11 @@ func TestConfigCommandAliases(t *testing.T) {
 	}
 }
 
-func TestConfigAllowDirCommands(t *testing.T) {
-	defer configformat.SetRootPath("")
-	configRoot := filepath.Join(t.TempDir(), "config")
-	allowed := t.TempDir()
-	if err := configformat.SetRootPath(configRoot); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Default()
-	cfg.Auth.MCPEnabled = false
-	cfg.Auth.AdminEnabled = false
-	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		cmd := newRootCommand()
-		cmd.SetOut(&bytes.Buffer{})
-		cmd.SetErr(&bytes.Buffer{})
-		cmd.SetArgs([]string{"config", "allow-dir", "add", allowed})
-		if err := cmd.Execute(); err != nil {
-			t.Fatal(err)
+func TestConfigHasNoAllowDirSubcommand(t *testing.T) {
+	for _, command := range configCommand().Commands() {
+		if command.Name() == "allow-dir" {
+			t.Fatal("config allow-dir should not exist")
 		}
-	}
-	loaded, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(loaded.Permissions.AllowDirs) != 1 || loaded.Permissions.AllowDirs[0] != allowed {
-		t.Fatalf("allow dirs = %#v", loaded.Permissions.AllowDirs)
-	}
-	cmd := newRootCommand()
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"config", "allow-dir", "remove", allowed})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err = config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(loaded.Permissions.AllowDirs) != 0 {
-		t.Fatalf("allow dirs after remove = %#v", loaded.Permissions.AllowDirs)
 	}
 }
 

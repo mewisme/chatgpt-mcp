@@ -57,7 +57,7 @@ export type MCPServerOAuthLogin = {
 }
 export type MCPServerOAuthSession = { session_id: string; authorization_url: string; expires_at: string }
 export type PublicConfig = {
-  server: { port: number; expose: { mode: "none" | "all" | "interfaces"; interfaces: string[] } }
+  server: { port: number; expose: { mode: "none" | "all" | "0.0.0.0" | "interfaces"; interfaces: string[] } }
   admin: { enabled: boolean; port: number }
   auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
   permissions: { allow_dirs: string[] }

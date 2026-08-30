@@ -19,12 +19,12 @@ func TestConfigDirFlagOverridesEnvironment(t *testing.T) {
 	cmd := newRootCommand()
 	cmd.SetOut(&output)
 	cmd.SetErr(&output)
-	cmd.SetArgs([]string{"--config-dir", flagRoot, "config-path"})
+	cmd.SetArgs([]string{"--config-dir", flagRoot, "config", "path"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), filepath.Join(flagRoot, "config.json")) {
-		t.Fatalf("config-path output = %q", output.String())
+		t.Fatalf("config path output = %q", output.String())
 	}
 }
 
@@ -36,12 +36,12 @@ func TestConfigDirEnvironmentSelectsRoot(t *testing.T) {
 	cmd := newRootCommand()
 	cmd.SetOut(&output)
 	cmd.SetErr(&output)
-	cmd.SetArgs([]string{"config-path"})
+	cmd.SetArgs([]string{"config", "path"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), filepath.Join(envRoot, "config.json")) {
-		t.Fatalf("config-path output = %q", output.String())
+		t.Fatalf("config path output = %q", output.String())
 	}
 }
 

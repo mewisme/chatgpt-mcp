@@ -103,6 +103,21 @@ func Resolve(exposure config.ExposureConfig, interfaces []Interface) ([]string, 
 	case config.ExposureNone:
 		return []string{LoopbackHost}, []Address{loopback}, nil
 	case config.ExposureAll:
+		hosts := []string{LoopbackHost}
+		addresses := []Address{loopback}
+		seen := map[string]struct{}{LoopbackHost: {}}
+		for _, iface := range interfaces {
+			for _, address := range iface.Addresses {
+				if _, ok := seen[address.Host]; ok {
+					continue
+				}
+				seen[address.Host] = struct{}{}
+				hosts = append(hosts, address.Host)
+				addresses = append(addresses, address)
+			}
+		}
+		return hosts, addresses, nil
+	case config.ExposureWildcard:
 		addresses := []Address{loopback}
 		seen := map[string]struct{}{LoopbackHost: {}}
 		for _, iface := range interfaces {

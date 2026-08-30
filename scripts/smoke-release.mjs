@@ -23,11 +23,16 @@ try {
   run(["serve", "--help"])
   run(["version"])
   run(["init"], { quiet: true })
+  run(["config", "verify"])
+  run(["config", "convert", "yaml"])
+  run(["config", "verify"])
+  run(["config", "transform", "toml"])
+  run(["config", "validate"])
   run(["config", "set", "server.expose", "false"])
   run(["config", "set", "server.port", String(serverPort)])
   run(["config", "set", "admin.port", String(adminPort)])
   run(["config", "set", "auth.mcp_enabled", "false"])
-  run(["config", "validate"])
+  run(["config", "verify"])
   run(["status"])
 
   child = spawn(binary, ["serve"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
@@ -43,7 +48,7 @@ try {
   child = null
 
   run(["uninit"], { quiet: true })
-  console.log("[OK] release smoke: init -> config -> status -> serve -> health -> MCP discover/list/conformance -> stop -> uninit")
+  console.log("[OK] release smoke: init -> verify -> convert/transform -> config -> status -> serve -> health -> MCP discover/list/conformance -> stop -> uninit")
 } finally {
   if (child) await stopChild(child).catch(() => undefined)
   await rm(home, { recursive: true, force: true })

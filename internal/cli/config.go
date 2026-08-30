@@ -31,17 +31,7 @@ func configCommand() *cobra.Command {
 		configSetCommand(),
 		configConvertCommand(),
 		configPresetCommand(),
-		&cobra.Command{Use: "validate", RunE: func(cmd *cobra.Command, args []string) error {
-			value, err := config.Load()
-			if err != nil {
-				return err
-			}
-			if err := config.Validate(value); err != nil {
-				return err
-			}
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("CONFIG", "configuration is valid")
-			return nil
-		}},
+		configVerifyCommand(),
 	)
 	return cmd
 }
@@ -280,9 +270,10 @@ func getConfigValue(cfg config.Config, key string) (any, error) {
 
 func configConvertCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "convert <json|yaml|toml>",
-		Short: "Convert main config and all structured chatgpt-mcp state files to one format",
-		Args:  cobra.ExactArgs(1),
+		Use:     "convert <json|yaml|toml>",
+		Aliases: []string{"transform"},
+		Short:   "Convert all structured chatgpt-mcp config/state files to one format",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := configformat.Parse(args[0])
 			if err != nil {
@@ -295,6 +286,23 @@ func configConvertCommand() *cobra.Command {
 			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
 			log.Success("CONFIG", "configuration format converted", "format", format, "files", converted)
 			log.Detail("config", config.PathForFormat(format))
+			return nil
+		},
+	}
+}
+
+func configVerifyCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:     "verify",
+		Aliases: []string{"validate"},
+		Short:   "Verify structured config/state format consistency and configuration validity",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := config.Verify()
+			if err != nil {
+				return err
+			}
+			logger.NewCLIWithWriter(cmd.OutOrStdout()).Success("CONFIG", "configuration verified", "format", result.Format, "files", result.Files)
 			return nil
 		},
 	}

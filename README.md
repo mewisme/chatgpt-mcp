@@ -226,7 +226,19 @@ Convert the active configuration and structured state tree transactionally:
 chatgpt-mcp config convert json
 chatgpt-mcp config convert yaml
 chatgpt-mcp config convert toml
+chatgpt-mcp config transform toml
 ```
+
+`convert` and `transform` are aliases. The command recursively converts every managed structured config/state file under `~/.config/chatgpt-mcp`, including mixed JSON/YAML/TOML state left from older versions, after a full preflight and with rollback on mutation failure.
+
+Verify the full config/state tree before starting the runtime or after manual edits:
+
+```bash
+chatgpt-mcp config verify
+chatgpt-mcp config validate
+```
+
+`verify` and `validate` are aliases. Verification checks that the main config exists, every managed structured file uses the same extension/format as the main config, every file decodes successfully, and the loaded runtime configuration passes semantic validation.
 
 Remove all local `chatgpt-mcp` configuration and state:
 

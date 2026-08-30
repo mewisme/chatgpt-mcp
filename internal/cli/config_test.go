@@ -178,6 +178,18 @@ func TestUnknownConfigPreset(t *testing.T) {
 	}
 }
 
+func TestConfigCommandAliases(t *testing.T) {
+	cmd := configCommand()
+	convert, _, err := cmd.Find([]string{"transform"})
+	if err != nil || convert.Name() != "convert" {
+		t.Fatalf("transform alias = %v %v", convert, err)
+	}
+	verify, _, err := cmd.Find([]string{"validate"})
+	if err != nil || verify.Name() != "verify" {
+		t.Fatalf("validate alias = %v %v", verify, err)
+	}
+}
+
 func TestRemoveConfigRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "chatgpt-mcp")
 	if err := os.MkdirAll(root, 0700); err != nil {

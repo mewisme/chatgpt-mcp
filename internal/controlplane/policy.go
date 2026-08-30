@@ -14,7 +14,7 @@ var readOnlyPaths = map[string]bool{
 	"auth status":    true,
 	"workspace list": true, "workspace show": true, "workspace access list": true,
 	"mcp server list": true, "mcp server show": true, "mcp server status": true, "mcp server tools": true,
-	"tunnel status": true,
+	"tunnel status": true, "logs": true, "logs follow": true, "logs path": true,
 }
 
 func ToolContextActive() bool {
@@ -61,6 +61,11 @@ func PathFromArgs(args []string) string {
 			return strings.Join(args[:3], " ")
 		}
 		return strings.Join(args[:2], " ")
+	case "logs":
+		if len(args) >= 2 && !strings.HasPrefix(args[1], "-") {
+			return strings.Join(args[:2], " ")
+		}
+		return "logs"
 	default:
 		return args[0]
 	}

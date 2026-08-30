@@ -39,7 +39,7 @@ Binary releases do not require Node.js or pnpm.
 Linux/macOS:
 
 ```bash
-curl -fsSL https://get.mewis.me/chatgpt-mcp.sh | sh
+curl -fsSL get.mewis.me/chatgpt-mcp.sh | sh
 ```
 
 Windows PowerShell:
@@ -51,7 +51,7 @@ irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
 Install a specific release:
 
 ```bash
-curl -fsSL https://get.mewis.me/chatgpt-mcp.sh | env CHATGPT_MCP_VERSION=v0.1.0 sh
+curl -fsSL get.mewis.me/chatgpt-mcp.sh | env CHATGPT_MCP_VERSION=v0.1.0 sh
 ```
 
 ```powershell
@@ -64,7 +64,7 @@ The Unix installer keeps versions under `~/.chatgpt-mcp` and links both `chatgpt
 Unix uninstall:
 
 ```bash
-curl -fsSL https://get.mewis.me/chatgpt-mcp.sh | sh -s -- --uninstall
+curl -fsSL get.mewis.me/chatgpt-mcp.sh | sh -s -- --uninstall
 ```
 
 Windows uninstall:

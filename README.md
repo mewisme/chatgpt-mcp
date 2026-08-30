@@ -19,6 +19,8 @@ A self-hosted MCP 2026-07-28 runtime written in Go with an embedded React admini
 - Builtin OpenAI Secure MCP Tunnel using `github.com/openai/tunnel-client`
 - Embedded React admin dashboard
 - MCP and admin bearer-token authentication
+- Persistent structured runtime journal, filtered CLI log replay, and live follow
+- Managed background services for Linux, macOS, and Windows
 - Activity stream and audit events
 - Cross-platform single-binary releases for Linux, Windows, and macOS
 
@@ -59,7 +61,7 @@ $env:CHATGPT_MCP_VERSION = 'v0.1.0'
 irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
 ```
 
-The Unix installer keeps versions under `~/.chatgpt-mcp` and links both `chatgpt-mcp` and the short alias `cmcp` into `~/.local/bin`. The Windows installer uses `%LOCALAPPDATA%\chatgpt-mcp\current`, adds that directory to the user `PATH`, and installs `cmcp` as a command shim for the same executable.
+The Unix installer keeps immutable versions under `~/.chatgpt-mcp/versions`, maintains `~/.chatgpt-mcp/current`, and links both `chatgpt-mcp` and the short alias `cmcp` into `~/.local/bin` through that stable current path. The Windows installer keeps versions under `%LOCALAPPDATA%\chatgpt-mcp\versions`, switches `%LOCALAPPDATA%\chatgpt-mcp\current` as a directory junction, adds that stable directory to the user `PATH`, and installs `cmcp` as a command shim for the same executable. Managed service definitions therefore keep a stable launcher path across upgrades instead of pinning a version-specific executable.
 
 Unix uninstall:
 
@@ -168,6 +170,24 @@ Start the runtime:
 chatgpt-mcp serve
 ```
 
+`serve` is the foreground form: it remains attached to the current terminal/session. For a managed background runtime, install and start the service for the selected config root:
+
+```bash
+chatgpt-mcp up
+```
+
+Stop and remove the managed service without deleting configuration, workspaces, checkpoints, or runtime logs:
+
+```bash
+chatgpt-mcp down
+```
+
+On Linux, normal `up`/`down` use `systemd --user`. `sudo chatgpt-mcp up` / `sudo chatgpt-mcp down` use a system-level systemd unit that starts with the machine, but the MCP process itself still runs as the invoking user from `SUDO_USER`, never as root. A user service warns when systemd lingering is disabled because the user manager may stop after the final login/SSH session ends; `chatgpt-mcp` never enables lingering automatically.
+
+On macOS, normal commands use a LaunchAgent and `sudo` uses a LaunchDaemon whose `UserName` remains the invoking user. On Windows, `up` always uses a per-user Task Scheduler task with `InteractiveToken` and `LeastPrivilege`, even from an elevated terminal; it does not use LocalSystem or store the user's password.
+
+Every service definition persists an absolute `--config-dir`, so it does not depend on the environment of a later login session. The normal precedence remains `--config-dir` > `CHATGPT_MCP_CONFIG_DIR` > default config root. For Linux/macOS system scope invoked through `sudo`, the default root belongs to the invoking user rather than `/root`; an explicit flag or environment override still wins.
+
 Default endpoints:
 
 ```text
@@ -225,6 +245,8 @@ chatgpt-mcp config list admin
 chatgpt-mcp config get admin.enabled
 ```
 
+`status` also reports whether the selected config root has a running foreground runtime or managed service, including service scope/backend, service identity, process ID, and runtime start information when available. A normal user can inspect a system-managed instance; only mutations such as system-scope `down` require the matching privilege.
+
 `config set` persists changes to disk. When `serve` is already running, apply the persisted configuration without restarting the process:
 
 ```bash
@@ -234,7 +256,7 @@ chatgpt-mcp config set server.expose tailscale0
 chatgpt-mcp config reload
 ```
 
-`config reload` uses a loopback-only local control channel tied to the active config root. Auth, feature flags, filesystem permissions, and tunnel settings are updated in the live runtime. Changes to `server.port`, `server.expose`, `admin.enabled`, or `admin.port` rebind the HTTP listeners inside the same `serve` process. Listener reload is transactional: if a new port/address cannot be bound, the previous listeners are restored and the process remains available. A `serve --expose=...` command-line override remains authoritative across reloads. The command fails when no running `serve` process is associated with the selected config root.
+`config reload` uses a loopback-only local control channel tied to the active config root. Auth, feature flags, filesystem permissions, and tunnel settings are updated in the live runtime. Changes to `server.port`, `server.expose`, `admin.enabled`, or `admin.port` rebind the HTTP listeners inside the same process. Listener reload is transactional: if a new port/address cannot be bound, the previous listeners are restored and the process remains available. A foreground `serve --expose=...` command-line override remains authoritative across reloads. The command fails when no running runtime is associated with the selected config root.
 
 `config get` and `config list` use dotted output by default. Parent keys recursively list their children. Structured output can be selected independently from the on-disk format:
 
@@ -255,7 +277,7 @@ chatgpt-mcp config get permissions.allow_dirs
 
 Admin Settings exposes the same global allow list and applies changes to the live tool runtime after persistence succeeds; no runtime restart is required.
 
-Sensitive keys keep their real names but their values are rendered as `<redacted>` by the config inspection commands. The active main config controls the serialization format of structured `chatgpt-mcp` state such as tunnel secrets, upstream servers, workspace registry, OAuth state, shell state, and rewind metadata. Append-only activity logs remain JSONL.
+Sensitive keys keep their real names but their values are rendered as `<redacted>` by the config inspection commands. The active main config controls the serialization format of structured `chatgpt-mcp` state such as tunnel secrets, upstream servers, workspace registry, OAuth state, shell state, and rewind metadata. Runtime events are persisted independently as a sanitized JSONL journal at `<config-root>/logs/runtime.jsonl`, rotated by default at 10 MiB with five files retained.
 
 Convert the active configuration and structured state tree transactionally:
 
@@ -425,7 +447,7 @@ chatgpt-mcp workspace --help
 
 Workspace handles are explicit and immutable; tool calls cannot silently switch to another workspace.
 
-Shell/process tools mark descendants as MCP tool execution context. In that context the `chatgpt-mcp` CLI is fail-closed: only explicitly read-only commands such as `status`, `config get/list`, `auth status`, workspace inspection, upstream inspection, and `tunnel status` are accepted. Control-plane mutations such as `config set`, `config reload`, auth changes, workspace registration/access grants, upstream changes, tunnel configuration, `init`, and `uninit` are denied. The shell policy also rejects direct `cmcp` / `chatgpt-mcp` mutation commands, including common wrappers and nested shells, and denies direct shell reads of the protected config/state subtree. An Agent therefore cannot use the built-in shell path to recover runtime control credentials or directly grant itself additional filesystem access.
+Shell/process tools mark descendants as MCP tool execution context. In that context the `chatgpt-mcp` CLI is fail-closed: only explicitly read-only commands such as `status`, `config get/list`, `auth status`, workspace inspection, upstream inspection, `tunnel status`, and runtime log reading/following are accepted. Control-plane mutations such as `up`, `down`, `_service`, `logs clear`, `config set`, `config reload`, auth changes, workspace registration/access grants, upstream changes, tunnel configuration, `init`, and `uninit` are denied. The shell policy also rejects direct `cmcp` / `chatgpt-mcp` mutation commands, including common wrappers and nested shells, and denies direct shell reads of the protected config/state subtree. An Agent therefore cannot use the built-in shell path to recover runtime control credentials or directly grant itself additional filesystem access.
 
 This is defense-in-depth for the built-in tool runner, not an OS security boundary against arbitrary code running as the same operating-system user. Strong isolation against a deliberately hostile local process requires an OS-level sandbox or separate user identity for tool subprocesses.
 
@@ -443,10 +465,16 @@ The effective filesystem scope for an Agent is the workspace root plus global `p
 
 ```text
 chatgpt-mcp
+├── up
+├── down
 ├── serve
 ├── init
 ├── uninit
 ├── status
+├── logs
+│   ├── follow
+│   ├── path
+│   └── clear
 ├── config
 ├── auth
 ├── workspace
@@ -473,6 +501,34 @@ chatgpt-mcp serve --debug
 chatgpt-mcp serve --log-format=json
 chatgpt-mcp serve --debug --log-format=json
 ```
+
+The same structured runtime events are persisted before terminal visibility filtering, so a normally started service can later be inspected at default, verbose, or debug detail without having needed `--debug` at startup:
+
+```bash
+chatgpt-mcp logs
+chatgpt-mcp logs --verbose
+chatgpt-mcp logs --debug
+chatgpt-mcp logs --log-format=json
+chatgpt-mcp logs -n 200
+chatgpt-mcp logs -f
+chatgpt-mcp logs follow
+```
+
+History is available even after the runtime stops. `-f` first replays matching history and then follows the authenticated loopback runtime event stream without polling the journal. Filters operate on structured event fields before rendering:
+
+```bash
+chatgpt-mcp logs --since 30m
+chatgpt-mcp logs --level warn
+chatgpt-mcp logs --component SERVER,TUNNEL
+chatgpt-mcp logs --workspace ws_...
+chatgpt-mcp logs --workspace /path/to/workspace
+chatgpt-mcp logs --tool run_command --status error
+chatgpt-mcp logs --source tunnel
+chatgpt-mcp logs --event 'tool.call.*'
+chatgpt-mcp logs --grep timeout
+```
+
+`logs path` prints the selected config root's journal path. `logs clear --force` clears the current and rotated journal through the runtime control channel when the server is running and directly when it is stopped. Reading/following logs is read-only in MCP tool execution context; clearing logs is not.
 
 ## Development
 
@@ -513,7 +569,7 @@ go build -trimpath -o chatgpt-mcp ./
 node scripts/smoke-release.mjs ./chatgpt-mcp
 ```
 
-The smoke uses an isolated temporary home plus an explicit non-default `--config-dir`, and verifies init/config/status, live config reload with listener rebind/rollback, HTTP health, MCP discovery, tool listing, modern error behavior, shutdown, and uninit without touching the normal user config root. Native Go test jobs also set `CHATGPT_MCP_CONFIG_DIR` to a runner-temporary non-default root, while runtime-heavy package test harnesses create their own isolated config roots.
+The smoke uses an isolated temporary home plus an explicit non-default `--config-dir`, and verifies init/config/status, live config reload with listener rebind/rollback, foreground and managed runtime metadata, persistent log replay/filter/follow/clear behavior, HTTP health, MCP discovery, tool listing, modern error behavior, shutdown, and uninit without touching the normal user config root. OS service definitions are covered by platform-specific tests while the portable smoke uses the hidden managed runtime entrypoint so CI does not require systemd, launchd, or Task Scheduler. Native Go test jobs also set `CHATGPT_MCP_CONFIG_DIR` to a runner-temporary non-default root, while runtime-heavy package test harnesses create their own isolated config roots.
 
 ## CI
 

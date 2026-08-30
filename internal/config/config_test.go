@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func TestValidateRequiresAuthTokens(t *testing.T) {
@@ -83,6 +85,38 @@ func TestConfigSaveSeparatesTunnelAPIKey(t *testing.T) {
 		if info.Mode().Perm() != 0600 {
 			t.Fatalf("tunnel secret mode = %o, want 600", info.Mode().Perm())
 		}
+	}
+}
+
+func TestConfigRoundTripAcrossFormats(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		t.Run(string(format), func(t *testing.T) {
+			root := t.TempDir()
+			configPath := configformat.PathFor(root, "config", format)
+			secretPath := configformat.PathFor(root, "tunnel", format)
+			cfg := Default()
+			cfg.Auth.MCPTokenHash = "mcp-hash"
+			cfg.Auth.AdminTokenHash = "admin-hash"
+			cfg.Tunnel.ID = "tunnel_0123456789abcdef0123456789abcdef"
+			cfg.Tunnel.APIKey = "tunnel-secret"
+			if err := saveAt(configPath, secretPath, cfg); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := loadAt(configPath, secretPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey {
+				t.Fatalf("round trip = %#v", loaded)
+			}
+			mainData, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(mainData), "tunnel-secret") {
+				t.Fatalf("main %s config leaked tunnel secret: %s", format, mainData)
+			}
+		})
 	}
 }
 

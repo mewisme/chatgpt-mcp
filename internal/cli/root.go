@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
@@ -36,8 +37,13 @@ func newRootCommand() *cobra.Command {
 		tunnelCommand(),
 		serveCommand(),
 		statusCommand(),
-		&cobra.Command{Use: "config-path", Hidden: true, Run: func(cmd *cobra.Command, args []string) {
-			logger.NewCLIWithWriter(cmd.OutOrStdout()).Detail("config", config.Path())
+		&cobra.Command{Use: "config-path", Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
+			source, err := config.Source()
+			if err != nil {
+				return err
+			}
+			logger.NewCLIWithWriter(cmd.OutOrStdout()).Detail("config", source.Path)
+			return nil
 		}},
 		&cobra.Command{Use: "version", Run: func(cmd *cobra.Command, args []string) {
 			logger.NewCLIWithWriter(cmd.OutOrStdout()).Info("VERSION", version.String())
@@ -48,14 +54,32 @@ func newRootCommand() *cobra.Command {
 
 func initCommand() *cobra.Command {
 	var force bool
+	var formatName string
+	var jsonFormat, yamlFormat, tomlFormat bool
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize configuration and authentication tokens",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := os.Stat(config.Path()); err == nil && !force {
-				return errors.New("configuration already exists; use --force to rotate tokens and rewrite config")
-			} else if err != nil && !os.IsNotExist(err) {
+			source, err := config.Source()
+			if err != nil {
 				return err
+			}
+			options := configOutputOptions{format: formatName, json: jsonFormat, yaml: yamlFormat, toml: tomlFormat}
+			format, selected, err := resolveConfigOutputFormat(options)
+			if err != nil {
+				return err
+			}
+			if !selected {
+				format = configformat.JSON
+				if source.Exists {
+					format = source.Format
+				}
+			}
+			if source.Exists && !force {
+				return errors.New("configuration already exists; use --force to rotate tokens and rewrite config")
+			}
+			if source.Exists && selected && format != source.Format {
+				return fmt.Errorf("cannot change storage format with init --force; run chatgpt-mcp config convert %s first", format)
 			}
 			cfg := config.Default()
 			mcpToken := auth.GenerateToken("mcp")
@@ -65,12 +89,21 @@ func initCommand() *cobra.Command {
 			if err := config.Validate(cfg); err != nil {
 				return err
 			}
-			if err := config.Save(cfg); err != nil {
+			if source.Exists {
+				if err := config.Save(cfg); err != nil {
+					return err
+				}
+			} else if err := config.SaveAs(cfg, format); err != nil {
 				return err
 			}
 			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
 			log.Success("INIT", "configuration created")
-			log.Detail("config", config.Path())
+			if source.Exists {
+				log.Detail("config", source.Path)
+			} else {
+				log.Detail("config", config.PathForFormat(format))
+			}
+			log.Detail("format", format)
 			logEndpointDetails(log, cfg)
 			log.Detail("mcp token", mcpToken)
 			log.Detail("admin token", adminToken)
@@ -78,6 +111,10 @@ func initCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "rewrite config and rotate both tokens if already initialized")
+	cmd.Flags().StringVar(&formatName, "format", "", "storage format: json, yaml, or toml")
+	cmd.Flags().BoolVar(&jsonFormat, "json", false, "use JSON storage")
+	cmd.Flags().BoolVar(&yamlFormat, "yaml", false, "use YAML storage")
+	cmd.Flags().BoolVar(&tomlFormat, "toml", false, "use TOML storage")
 	return cmd
 }
 

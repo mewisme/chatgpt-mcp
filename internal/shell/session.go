@@ -3,7 +3,6 @@ package shell
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	statepkg "go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -243,7 +244,7 @@ func (m *Manager) load(workspaceID, workspaceRoot string) (SessionState, error) 
 	data, err := os.ReadFile(m.statePath(workspaceID))
 	if err == nil {
 		var state SessionState
-		if json.Unmarshal(data, &state) == nil && state.WorkspaceID == workspaceID && strings.TrimSpace(state.CWD) != "" {
+		if configformat.UnmarshalPath(m.statePath(workspaceID), data, &state) == nil && state.WorkspaceID == workspaceID && strings.TrimSpace(state.CWD) != "" {
 			resolved, resolveErr := m.resolveDirectory(workspaceID, workspaceRoot, state.CWD)
 			if resolveErr == nil {
 				state.CWD = resolved
@@ -268,27 +269,16 @@ func (m *Manager) load(workspaceID, workspaceRoot string) (SessionState, error) 
 }
 
 func (m *Manager) save(state SessionState) error {
-	data, err := json.MarshalIndent(state, "", "  ")
+	path := m.statePath(state.WorkspaceID)
+	data, err := configformat.MarshalPath(path, state)
 	if err != nil {
 		return err
 	}
-	path := m.statePath(state.WorkspaceID)
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	temp := path + ".tmp"
-	if err := os.WriteFile(temp, data, 0600); err != nil {
-		return err
-	}
-	if err := os.Rename(temp, path); err != nil {
-		_ = os.Remove(temp)
-		return err
-	}
-	return nil
+	return statepkg.WriteFileAtomic(path, data, 0600)
 }
 
 func (m *Manager) statePath(workspaceID string) string {
-	return filepath.Join(m.root, "workspaces", workspaceID, "shell.json")
+	return filepath.Join(m.root, "workspaces", workspaceID, "shell"+configformat.ExtensionForRoot(m.root))
 }
 
 func (m *Manager) resolveDirectory(workspaceID, workspaceRoot, input string) (string, error) {

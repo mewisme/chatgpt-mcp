@@ -1,10 +1,10 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
@@ -23,7 +23,7 @@ func (s *Store) Load() (map[string]any, error) {
 		return nil, err
 	}
 	var value map[string]any
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := configformat.UnmarshalPath(s.Path, data, &value); err != nil {
 		return nil, err
 	}
 	return value, nil
@@ -33,7 +33,7 @@ func (s *Store) Save(value map[string]any) error {
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(value, "", "  ")
+	data, err := configformat.MarshalPath(s.Path, value)
 	if err != nil {
 		return err
 	}

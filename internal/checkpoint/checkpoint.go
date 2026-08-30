@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +14,9 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
 const (
@@ -171,7 +173,7 @@ func (s *Store) Before(workspaceID, workspaceRoot, tool string, paths []string, 
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
-	if err := writeJSONAtomic(s.manifestPath(workspaceID, id), manifest, 0600); err != nil {
+	if err := writeStructuredAtomic(s.manifestPath(workspaceID, id), manifest, 0600); err != nil {
 		return "", err
 	}
 
@@ -476,7 +478,7 @@ func (s *Store) readIndex(workspaceID string) (Index, error) {
 		return Index{}, err
 	}
 	var index Index
-	if err := json.Unmarshal(data, &index); err != nil {
+	if err := configformat.UnmarshalPath(s.indexPath(workspaceID), data, &index); err != nil {
 		return Index{}, err
 	}
 	if index.Version != indexVersion {
@@ -493,7 +495,7 @@ func (s *Store) writeIndex(workspaceID string, index Index) error {
 		return err
 	}
 	index.Version = indexVersion
-	return writeJSONAtomic(s.indexPath(workspaceID), index, 0600)
+	return writeStructuredAtomic(s.indexPath(workspaceID), index, 0600)
 }
 
 func (s *Store) readManifest(workspaceID, id string) (*Manifest, error) {
@@ -505,7 +507,7 @@ func (s *Store) readManifest(workspaceID, id string) (*Manifest, error) {
 		return nil, err
 	}
 	var manifest Manifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	if err := configformat.UnmarshalPath(s.manifestPath(workspaceID, id), data, &manifest); err != nil {
 		return nil, err
 	}
 	if manifest.Version != indexVersion {
@@ -544,11 +546,11 @@ func (s *Store) checkpointDir(workspaceID, id string) string {
 }
 
 func (s *Store) indexPath(workspaceID string) string {
-	return filepath.Join(s.Path(workspaceID), "index.json")
+	return filepath.Join(s.Path(workspaceID), "index"+configformat.ExtensionForRoot(s.Root))
 }
 
 func (s *Store) manifestPath(workspaceID, id string) string {
-	return filepath.Join(s.checkpointDir(workspaceID, id), "manifest.json")
+	return filepath.Join(s.checkpointDir(workspaceID, id), "manifest"+configformat.ExtensionForRoot(s.Root))
 }
 
 func (s *Store) maxCount() int {
@@ -627,23 +629,12 @@ func within(root, candidate string) bool {
 	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative))
 }
 
-func writeJSONAtomic(path string, value any, mode os.FileMode) error {
-	data, err := json.MarshalIndent(value, "", "  ")
+func writeStructuredAtomic(path string, value any, mode os.FileMode) error {
+	data, err := configformat.MarshalPath(path, value)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	temp := path + ".tmp"
-	if err := os.WriteFile(temp, data, mode); err != nil {
-		return err
-	}
-	if err := os.Rename(temp, path); err != nil {
-		_ = os.Remove(temp)
-		return err
-	}
-	return nil
+	return state.WriteFileAtomic(path, data, mode)
 }
 
 func minInt(a, b int) int {

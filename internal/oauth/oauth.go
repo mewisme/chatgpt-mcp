@@ -3,11 +3,11 @@ package oauth
 import (
 	"errors"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 var (
@@ -76,8 +76,7 @@ type Store struct {
 }
 
 func Path() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "chatgpt-mcp", "oauth.json")
+	return configformat.StructuredPath(configformat.RootPath(), "oauth")
 }
 
 func NewStore(path string) *Store {

@@ -1,11 +1,11 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -38,10 +38,12 @@ func Default() Config {
 	return Config{Server: ServerConfig{Port: 37421, Expose: false}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
 }
 
-func Path() string { return DefaultPath() }
-
 func Load() (Config, error) {
-	return loadAt(Path(), TunnelSecretPath())
+	source, err := Source()
+	if err != nil {
+		return Config{}, err
+	}
+	return loadAt(source.Path, configformat.StructuredPathFrom(source.Path, "tunnel"))
 }
 
 func loadAt(configPath, secretPath string) (Config, error) {
@@ -53,10 +55,10 @@ func loadAt(configPath, secretPath string) (Config, error) {
 		}
 		return cfg, err
 	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := configformat.UnmarshalPath(configPath, data, &cfg); err != nil {
 		return cfg, err
 	}
-	if err := migrateLegacyServerConfig(data, &cfg); err != nil {
+	if err := migrateLegacyServerConfig(configPath, data, &cfg); err != nil {
 		return cfg, err
 	}
 	secret, err := loadTunnelSecretAt(secretPath)
@@ -69,14 +71,14 @@ func loadAt(configPath, secretPath string) (Config, error) {
 	return cfg, nil
 }
 
-func migrateLegacyServerConfig(data []byte, cfg *Config) error {
+func migrateLegacyServerConfig(path string, data []byte, cfg *Config) error {
 	var legacy struct {
 		Server struct {
 			Host   string `json:"host"`
 			Expose *bool  `json:"expose"`
 		} `json:"server"`
 	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
+	if err := configformat.UnmarshalPath(path, data, &legacy); err != nil {
 		return err
 	}
 	if legacy.Server.Expose != nil || strings.TrimSpace(legacy.Server.Host) == "" {
@@ -88,7 +90,16 @@ func migrateLegacyServerConfig(data []byte, cfg *Config) error {
 }
 
 func Save(cfg Config) error {
-	return saveAt(Path(), TunnelSecretPath(), cfg)
+	source, err := Source()
+	if err != nil {
+		return err
+	}
+	return saveAt(source.Path, configformat.StructuredPathFrom(source.Path, "tunnel"), cfg)
+}
+
+func SaveAs(cfg Config, format configformat.Format) error {
+	path := PathForFormat(format)
+	return saveAt(path, configformat.StructuredPathFrom(path, "tunnel"), cfg)
 }
 
 func saveAt(configPath, secretPath string, cfg Config) error {
@@ -100,9 +111,9 @@ func saveAt(configPath, secretPath string, cfg Config) error {
 	}
 	persisted := cfg
 	persisted.Tunnel.APIKey = ""
-	data, err := json.MarshalIndent(persisted, "", "  ")
+	data, err := configformat.MarshalPath(configPath, persisted)
 	if err != nil {
 		return err
 	}
-	return state.WriteFileAtomic(configPath, append(data, '\n'), 0600)
+	return state.WriteFileAtomic(configPath, data, 0600)
 }

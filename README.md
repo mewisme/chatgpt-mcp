@@ -132,6 +132,15 @@ Initialize the local configuration:
 chatgpt-mcp init
 ```
 
+JSON is the default storage format. YAML and TOML are also supported:
+
+```bash
+chatgpt-mcp init --json
+chatgpt-mcp init --yaml
+chatgpt-mcp init --toml
+chatgpt-mcp init --format toml
+```
+
 The command creates MCP/admin credentials and stores configuration under:
 
 ```text
@@ -181,6 +190,29 @@ Inspect the current runtime configuration:
 ```bash
 chatgpt-mcp status
 chatgpt-mcp config get
+chatgpt-mcp config list
+chatgpt-mcp config list admin
+chatgpt-mcp config get admin.enabled
+```
+
+`config get` and `config list` use dotted output by default. Parent keys recursively list their children. Structured output can be selected independently from the on-disk format:
+
+```bash
+chatgpt-mcp config list --json
+chatgpt-mcp config list --yaml
+chatgpt-mcp config list --toml
+chatgpt-mcp config list --format yaml
+chatgpt-mcp config get admin --toml
+```
+
+Sensitive keys keep their real names but their values are rendered as `<redacted>` by the config inspection commands. The active main config controls the serialization format of structured `chatgpt-mcp` state such as tunnel secrets, upstream servers, workspace registry, OAuth state, shell state, and rewind metadata. Append-only activity logs remain JSONL.
+
+Convert the active configuration and structured state tree transactionally:
+
+```bash
+chatgpt-mcp config convert json
+chatgpt-mcp config convert yaml
+chatgpt-mcp config convert toml
 ```
 
 Remove all local `chatgpt-mcp` configuration and state:
@@ -286,10 +318,11 @@ Run only the builtin tunnel in the foreground:
 chatgpt-mcp tunnel run
 ```
 
-The tunnel API key is kept separately from `config.json` in:
+The tunnel API key is kept separately from the main config using the same storage format, for example:
 
 ```text
-~/.config/chatgpt-mcp/tunnel.json
+~/.config/chatgpt-mcp/config.toml
+~/.config/chatgpt-mcp/tunnel.toml
 ```
 
 ## Upstream MCP servers

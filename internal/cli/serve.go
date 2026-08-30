@@ -22,11 +22,12 @@ func serveCommand() *cobra.Command {
 }
 
 func runServer(cmd *cobra.Command, args []string) (runErr error) {
-	if _, err := os.Stat(config.Path()); err != nil {
-		if os.IsNotExist(err) {
-			return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init")
-		}
+	source, err := config.Source()
+	if err != nil {
 		return err
+	}
+	if !source.Exists {
+		return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init")
 	}
 	cfg, err := config.Load()
 	if err != nil {

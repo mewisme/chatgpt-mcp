@@ -1,13 +1,14 @@
 package oauth
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 const storeVersion = 1
@@ -90,7 +91,7 @@ func (s *Store) readLocked() (diskStore, error) {
 	if err != nil {
 		return diskStore{}, fmt.Errorf("read oauth store: %w", err)
 	}
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := configformat.UnmarshalPath(s.path, data, &state); err != nil {
 		return diskStore{}, fmt.Errorf("decode oauth store: %w", err)
 	}
 	if state.Version != storeVersion {
@@ -110,11 +111,10 @@ func (s *Store) writeLocked(state diskStore) error {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return fmt.Errorf("chmod oauth store directory: %w", err)
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := configformat.MarshalPath(s.path, state)
 	if err != nil {
 		return fmt.Errorf("encode oauth store: %w", err)
 	}
-	data = append(data, '\n')
 	file, err := os.CreateTemp(dir, ".oauth-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create oauth store temp file: %w", err)

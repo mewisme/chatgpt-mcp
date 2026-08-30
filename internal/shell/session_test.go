@@ -104,3 +104,23 @@ func TestShellReset(t *testing.T) {
 		t.Fatalf("cwd = %q", status.CWD)
 	}
 }
+
+func TestShellStateFollowsRootConfigFormat(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte("[server]\nport = 37421\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	workspaceRoot := t.TempDir()
+	workspaces := workspace.NewManager(filepath.Join(root, "workspaces.toml"))
+	item, err := workspaces.Register(workspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(workspaces, root)
+	if _, err := manager.Status(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "workspaces", item.ID, "shell.toml")); err != nil {
+		t.Fatalf("shell state did not follow TOML format: %v", err)
+	}
+}

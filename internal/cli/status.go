@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -28,12 +27,15 @@ func statusCommand() *cobra.Command {
 			if err := upstreams.Load(); err != nil {
 				return err
 			}
-			_, configErr := os.Stat(config.Path())
-			initialized := configErr == nil
+			source, err := config.Source()
+			if err != nil {
+				return err
+			}
 			log := logger.NewCLIWithWriter(cmd.OutOrStdout())
 			log.Info("STATUS", "local runtime configuration")
-			log.Detail("initialized", initialized)
-			log.Detail("config", config.Path())
+			log.Detail("initialized", source.Exists)
+			log.Detail("config", source.Path)
+			log.Detail("format", source.Format)
 			logEndpointDetails(log, cfg)
 			log.Detail("auth", fmt.Sprintf("mcp=%t admin=%t", cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled))
 			log.Detail("workspaces", len(workspaces))

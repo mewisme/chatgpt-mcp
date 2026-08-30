@@ -1,14 +1,18 @@
 package upstream
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
 type Store struct{ Path string }
+
+type diskStore struct {
+	Servers []Server `json:"servers"`
+}
 
 func NewStore(path string) *Store { return &Store{Path: path} }
 
@@ -20,18 +24,29 @@ func (s *Store) Load() ([]Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	var servers []Server
-	if err := json.Unmarshal(data, &servers); err != nil {
-		return nil, err
+	var stored diskStore
+	if err := configformat.UnmarshalPath(s.Path, data, &stored); err != nil {
+		format, formatErr := configformat.Detect(s.Path)
+		if formatErr != nil || format != configformat.JSON {
+			return nil, err
+		}
+		var legacy []Server
+		if legacyErr := configformat.UnmarshalPath(s.Path, data, &legacy); legacyErr != nil {
+			return nil, err
+		}
+		return legacy, nil
 	}
-	return servers, nil
+	if stored.Servers == nil {
+		stored.Servers = []Server{}
+	}
+	return stored.Servers, nil
 }
 
 func (s *Store) Save(servers []Server) error {
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(servers, "", "  ")
+	data, err := configformat.MarshalPath(s.Path, diskStore{Servers: servers})
 	if err != nil {
 		return err
 	}

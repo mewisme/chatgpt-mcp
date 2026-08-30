@@ -1,11 +1,9 @@
 package upstream
 
 import (
-	"os"
-	"path/filepath"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func Path() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "chatgpt-mcp", "upstream.json")
+	return configformat.StructuredPath(configformat.RootPath(), "upstream")
 }

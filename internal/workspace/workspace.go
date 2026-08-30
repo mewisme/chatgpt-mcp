@@ -3,7 +3,6 @@ package workspace
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +10,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
 const storeVersion = 1
@@ -35,11 +37,7 @@ type Manager struct {
 }
 
 func DefaultStorePath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "workspaces.json"
-	}
-	return filepath.Join(home, ".config", "chatgpt-mcp", "workspaces.json")
+	return configformat.StructuredPath(configformat.RootPath(), "workspaces")
 }
 
 func NewManager(path string) *Manager {
@@ -161,7 +159,7 @@ func (m *Manager) ensureLoaded() error {
 	}
 
 	var stored storeFile
-	if err := json.Unmarshal(data, &stored); err != nil {
+	if err := configformat.UnmarshalPath(m.path, data, &stored); err != nil {
 		return fmt.Errorf("decode workspace registry: %w", err)
 	}
 	if stored.Version != storeVersion {
@@ -183,22 +181,11 @@ func (m *Manager) saveLocked() error {
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Path < items[j].Path })
-	data, err := json.MarshalIndent(storeFile{Version: storeVersion, Workspaces: items}, "", "  ")
+	data, err := configformat.MarshalPath(m.path, storeFile{Version: storeVersion, Workspaces: items})
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(m.path), 0700); err != nil {
-		return err
-	}
-	temp := m.path + ".tmp"
-	if err := os.WriteFile(temp, data, 0600); err != nil {
-		return err
-	}
-	if err := os.Rename(temp, m.path); err != nil {
-		_ = os.Remove(temp)
-		return err
-	}
-	return nil
+	return state.WriteFileAtomic(m.path, data, 0600)
 }
 
 func canonicalExistingDirectory(path string) (string, error) {

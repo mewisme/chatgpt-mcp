@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func TestSetConfigValueTyped(t *testing.T) {
@@ -32,14 +36,94 @@ func TestSetConfigValueTyped(t *testing.T) {
 	}
 }
 
-func TestSensitiveConfigValuesCannotBeRead(t *testing.T) {
+func TestSensitiveConfigValuesAreRedacted(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = "secret"
+	cfg.Auth.AdminTokenHash = "admin-secret"
 	cfg.Tunnel.APIKey = "secret"
-	for _, key := range []string{"auth.mcp_token_hash", "tunnel.api_key"} {
-		if _, err := getConfigValue(cfg, key); err == nil {
-			t.Fatalf("expected %s to be rejected", key)
+	for _, key := range []string{"auth.mcp_token_hash", "auth.admin_token_hash", "tunnel.api_key"} {
+		value, err := getConfigValue(cfg, key)
+		if err != nil {
+			t.Fatal(err)
 		}
+		if value != redactedValue {
+			t.Fatalf("%s = %#v, want %q", key, value, redactedValue)
+		}
+	}
+}
+
+func TestConfigParentTraversalAndFlatOutput(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-secret"
+	cfg.Auth.AdminTokenHash = "admin-secret"
+	cfg.Tunnel.APIKey = "tunnel-secret"
+
+	parent, err := getConfigValue(cfg, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, ok := parent.(map[string]any)
+	if !ok || object["enabled"] != true || object["port"] != int64(37422) {
+		t.Fatalf("admin subtree = %#v", parent)
+	}
+
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := printConfigSelection(cmd, cfg, "admin", true, configOutputOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{"admin.enabled = true", "admin.port = 37422"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("flat output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestConfigOutputFormatsAndRedaction(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-secret"
+	cfg.Auth.AdminTokenHash = "admin-secret"
+	cfg.Tunnel.APIKey = "tunnel-secret"
+
+	for _, test := range []struct {
+		name    string
+		options configOutputOptions
+		want    []string
+	}{
+		{name: "json", options: configOutputOptions{json: true}, want: []string{`"auth"`, `"mcp_token_hash": "<redacted>"`}},
+		{name: "yaml", options: configOutputOptions{yaml: true}, want: []string{"auth:", `mcp_token_hash: <redacted>`}},
+		{name: "toml", options: configOutputOptions{toml: true}, want: []string{"[auth]", `mcp_token_hash = '<redacted>'`}},
+		{name: "format yaml", options: configOutputOptions{format: "yaml"}, want: []string{"auth:", `admin_token_hash: <redacted>`}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			if err := printConfigSelection(cmd, cfg, "", true, test.options); err != nil {
+				t.Fatal(err)
+			}
+			text := out.String()
+			if strings.Contains(text, "mcp-secret") || strings.Contains(text, "admin-secret") || strings.Contains(text, "tunnel-secret") {
+				t.Fatalf("secret leaked in %s output: %s", test.name, text)
+			}
+			for _, want := range test.want {
+				if !strings.Contains(text, want) {
+					t.Fatalf("%s output missing %q:\n%s", test.name, want, text)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigOutputFormatConflict(t *testing.T) {
+	if _, _, err := resolveConfigOutputFormat(configOutputOptions{format: "json", yaml: true}); err == nil {
+		t.Fatal("expected conflicting output formats to fail")
+	}
+	format, selected, err := resolveConfigOutputFormat(configOutputOptions{format: "json", json: true})
+	if err != nil || !selected || format != configformat.JSON {
+		t.Fatalf("same format flags = %q selected=%t err=%v", format, selected, err)
 	}
 }
 

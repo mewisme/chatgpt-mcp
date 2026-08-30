@@ -1,10 +1,10 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
@@ -12,7 +12,7 @@ type tunnelSecret struct {
 	APIKey string `json:"api_key,omitempty"`
 }
 
-func TunnelSecretPath() string { return filepath.Join(RootPath(), "tunnel.json") }
+func TunnelSecretPath() string { return configformat.StructuredPath(RootPath(), "tunnel") }
 
 func loadTunnelSecretAt(path string) (string, error) {
 	data, err := os.ReadFile(path)
@@ -23,7 +23,7 @@ func loadTunnelSecretAt(path string) (string, error) {
 		return "", err
 	}
 	var secret tunnelSecret
-	if err := json.Unmarshal(data, &secret); err != nil {
+	if err := configformat.UnmarshalPath(path, data, &secret); err != nil {
 		return "", err
 	}
 	return secret.APIKey, nil
@@ -39,9 +39,9 @@ func saveTunnelSecretAt(path, apiKey string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(tunnelSecret{APIKey: apiKey}, "", "  ")
+	data, err := configformat.MarshalPath(path, tunnelSecret{APIKey: apiKey})
 	if err != nil {
 		return err
 	}
-	return state.WriteFileAtomic(path, append(data, '\n'), 0600)
+	return state.WriteFileAtomic(path, data, 0600)
 }

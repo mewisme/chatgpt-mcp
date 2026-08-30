@@ -29,7 +29,8 @@ func IsolateConfigHome() (string, func(), error) {
 		_ = os.RemoveAll(home)
 		return "", nil, err
 	}
-	if err := os.Setenv(configformat.EnvConfigDir, ""); err != nil {
+	configRoot := filepath.Join(home, "config")
+	if err := os.Setenv(configformat.EnvConfigDir, configRoot); err != nil {
 		_ = os.RemoveAll(home)
 		return "", nil, err
 	}
@@ -45,5 +46,5 @@ func IsolateConfigHome() (string, func(), error) {
 		}
 		_ = os.RemoveAll(home)
 	}
-	return filepath.Join(home, ".config", "chatgpt-mcp"), cleanup, nil
+	return configRoot, cleanup, nil
 }

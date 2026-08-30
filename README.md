@@ -225,6 +225,17 @@ chatgpt-mcp config list admin
 chatgpt-mcp config get admin.enabled
 ```
 
+`config set` persists changes to disk. When `serve` is already running, apply the persisted configuration without restarting the process:
+
+```bash
+chatgpt-mcp config set server.port 41021
+chatgpt-mcp config set admin.port 41022
+chatgpt-mcp config set server.expose tailscale0
+chatgpt-mcp config reload
+```
+
+`config reload` uses a loopback-only local control channel tied to the active config root. Auth, feature flags, filesystem permissions, and tunnel settings are updated in the live runtime. Changes to `server.port`, `server.expose`, `admin.enabled`, or `admin.port` rebind the HTTP listeners inside the same `serve` process. Listener reload is transactional: if a new port/address cannot be bound, the previous listeners are restored and the process remains available. A `serve --expose=...` command-line override remains authoritative across reloads. The command fails when no running `serve` process is associated with the selected config root.
+
 `config get` and `config list` use dotted output by default. Parent keys recursively list their children. Structured output can be selected independently from the on-disk format:
 
 ```bash
@@ -414,7 +425,7 @@ chatgpt-mcp workspace --help
 
 Workspace handles are explicit and immutable; tool calls cannot silently switch to another workspace.
 
-Shell/process tools mark descendants as MCP tool execution context. In that context the `chatgpt-mcp` CLI is fail-closed: only explicitly read-only commands such as `status`, `config get/list`, `auth status`, workspace inspection, upstream inspection, and `tunnel status` are accepted. Control-plane mutations such as `config set`, auth changes, workspace registration/access grants, upstream changes, tunnel configuration, `init`, and `uninit` are denied. The shell policy also rejects direct `cmcp` / `chatgpt-mcp` mutation commands, including common wrappers and nested shells, so an Agent cannot directly grant itself additional filesystem access through the CLI.
+Shell/process tools mark descendants as MCP tool execution context. In that context the `chatgpt-mcp` CLI is fail-closed: only explicitly read-only commands such as `status`, `config get/list`, `auth status`, workspace inspection, upstream inspection, and `tunnel status` are accepted. Control-plane mutations such as `config set`, `config reload`, auth changes, workspace registration/access grants, upstream changes, tunnel configuration, `init`, and `uninit` are denied. The shell policy also rejects direct `cmcp` / `chatgpt-mcp` mutation commands, including common wrappers and nested shells, and denies direct shell reads of the protected config/state subtree. An Agent therefore cannot use the built-in shell path to recover runtime control credentials or directly grant itself additional filesystem access.
 
 This is defense-in-depth for the built-in tool runner, not an OS security boundary against arbitrary code running as the same operating-system user. Strong isolation against a deliberately hostile local process requires an OS-level sandbox or separate user identity for tool subprocesses.
 
@@ -490,7 +501,7 @@ Run backend verification:
 
 ```bash
 go mod verify
-go test ./...
+CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
 go vet ./...
 go build -trimpath ./
 ```
@@ -502,7 +513,7 @@ go build -trimpath -o chatgpt-mcp ./
 node scripts/smoke-release.mjs ./chatgpt-mcp
 ```
 
-The smoke uses an isolated temporary home plus an explicit `--config-dir`, and verifies init/config/status, HTTP health, MCP discovery, tool listing, modern error behavior, shutdown, and uninit without touching the normal user config root.
+The smoke uses an isolated temporary home plus an explicit non-default `--config-dir`, and verifies init/config/status, live config reload with listener rebind/rollback, HTTP health, MCP discovery, tool listing, modern error behavior, shutdown, and uninit without touching the normal user config root. Native Go test jobs also set `CHATGPT_MCP_CONFIG_DIR` to a runner-temporary non-default root, while runtime-heavy package test harnesses create their own isolated config roots.
 
 ## CI
 

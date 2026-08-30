@@ -23,6 +23,7 @@ const globalArgs = ["--config-dir", configDir]
 const serverPort = await freePort()
 const adminPort = await freePort()
 let child = null
+let occupied = null
 
 try {
   await mkdir(defaultConfigDir, { recursive: true })
@@ -63,15 +64,40 @@ try {
   await waitForHealth(`http://127.0.0.1:${serverPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${adminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
   await verifyActivitySSE(adminPort)
-  await verifyMCP(serverPort)
+  await verifyMCP(serverPort, false)
   run(["status"])
+
+  const servePID = child.pid
+  const reloadedServerPort = await freePort()
+  const reloadedAdminPort = await freePort()
+  run(["config", "set", "server.port", String(reloadedServerPort)])
+  run(["config", "set", "admin.port", String(reloadedAdminPort)])
+  run(["config", "set", "features.ponytail.enabled", "true"])
+  run(["config", "reload"])
+  if (child.pid !== servePID || child.exitCode !== null) fail("config reload restarted or stopped the serve process")
+  await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
+  await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
+  await verifyMCP(reloadedServerPort, true)
+
+  occupied = await occupyPort()
+  run(["config", "set", "server.port", String(occupied.port)])
+  runExpectFailure(["config", "reload"])
+  if (child.pid !== servePID || child.exitCode !== null) fail("failed config reload stopped the serve process")
+  await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
+  run(["config", "set", "server.port", String(reloadedServerPort)])
+  run(["config", "reload"])
+  await closeServer(occupied.server)
+  occupied = null
+
   await stopChild(child)
   child = null
+  runExpectFailure(["config", "reload"])
 
   run(["uninit"], { quiet: true })
   if (await readFile(defaultSentinel, "utf8") !== "keep\n") fail("isolated commands modified the default config root")
-  console.log("[OK] release smoke: init -> verify -> convert/transform -> config -> status -> serve -> health -> Activity SSE ready -> MCP discover/list/conformance -> stop -> uninit")
+  console.log("[OK] release smoke: init -> verify -> convert/transform -> config -> serve -> reload/rebind/rollback -> MCP conformance -> stop -> uninit")
 } finally {
+  if (occupied) await closeServer(occupied.server).catch(() => undefined)
   if (child) await stopChild(child).catch(() => undefined)
   await rm(home, { recursive: true, force: true })
 }
@@ -92,7 +118,16 @@ function run(args, { quiet = false } = {}) {
   }
 }
 
-async function verifyMCP(port) {
+function runExpectFailure(args) {
+  if (globalArgs[0] !== "--config-dir" || !globalArgs[1] || path.resolve(globalArgs[1]) === path.resolve(defaultConfigDir)) {
+    fail("runtime smoke requires an explicit isolated --config-dir")
+  }
+  const result = spawnSync(binary, [...globalArgs, ...args], { env, encoding: "utf8", windowsHide: true })
+  if (result.error) fail(`${args.join(" ")}: ${result.error.message}`)
+  if (result.status === 0) fail(`${args.join(" ")} unexpectedly succeeded`)
+}
+
+async function verifyMCP(port, ponytailEnabled) {
   const discover = await mcpRequest(port, "server/discover", {}, 1)
   assertStatus(discover.response, 200, "server/discover")
   if (discover.response.headers.get("mcp-session-id")) fail("modern MCP response unexpectedly returned Mcp-Session-Id")
@@ -107,7 +142,7 @@ async function verifyMCP(port) {
   }
   const toolNames = new Set(tools.body.result.tools.map((tool) => tool?.name))
   if (!toolNames.has("get_version")) fail(`get_version missing from tools/list: ${JSON.stringify(tools.body)}`)
-  if (toolNames.has("ponytail_turn")) fail(`disabled ponytail_turn remained in tools/list: ${JSON.stringify(tools.body)}`)
+  if (toolNames.has("ponytail_turn") !== ponytailEnabled) fail(`ponytail_turn state did not match runtime config: ${JSON.stringify(tools.body)}`)
   if (!toolNames.has("caveman_turn")) fail(`enabled caveman_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!Number.isFinite(tools.body.result.ttlMs) || typeof tools.body.result.cacheScope !== "string") {
     fail(`tools/list cache hints are missing: ${JSON.stringify(tools.body)}`)
@@ -200,6 +235,27 @@ async function freePort() {
       server.close((error) => error ? reject(error) : resolve(port))
     })
   })
+}
+
+async function occupyPort() {
+  return await new Promise((resolve, reject) => {
+    const server = createServer()
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      const port = typeof address === "object" && address ? address.port : 0
+      if (!port) {
+        server.close()
+        reject(new Error("failed to reserve occupied port"))
+        return
+      }
+      resolve({ server, port })
+    })
+  })
+}
+
+async function closeServer(server) {
+  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
 }
 
 async function waitForHealth(url, server, output) {

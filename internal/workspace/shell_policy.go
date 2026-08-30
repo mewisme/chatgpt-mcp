@@ -1,7 +1,9 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -12,8 +14,9 @@ import (
 const maxNestedShellDepth = 4
 
 var (
-	inlineMutationAPI = regexp.MustCompile(`(?i)(?:\bopen\s*\(|\b(?:write_text|write_bytes|writefile|writefilesync|appendfile|appendfilesync|createwritestream|unlink|unlinksync|rename|renamesync|copyfile|copyfilesync|mkdir|mkdirsync|rmdir|rmdirsync|truncate|remove|replace|rmtree|move)\s*\(|\bos\.system\s*\(|\bsubprocess\.|\bchild_process\b|\bexecsync\s*\(|\bspawnsync\s*\()`)
-	writeCommands     = map[string]bool{
+	inlineMutationAPI   = regexp.MustCompile(`(?i)(?:\bopen\s*\(|\b(?:write_text|write_bytes|writefile|writefilesync|appendfile|appendfilesync|createwritestream|unlink|unlinksync|rename|renamesync|copyfile|copyfilesync|mkdir|mkdirsync|rmdir|rmdirsync|truncate|remove|replace|rmtree|move)\s*\(|\bos\.system\s*\(|\bsubprocess\.|\bchild_process\b|\bexecsync\s*\(|\bspawnsync\s*\()`)
+	windowsEnvReference = regexp.MustCompile(`%([A-Za-z_][A-Za-z0-9_]*)%`)
+	writeCommands       = map[string]bool{
 		"cp": true, "copy": true, "xcopy": true, "robocopy": true, "install": true, "touch": true, "mkdir": true, "md": true,
 		"tee": true, "truncate": true, "ln": true, "link": true, "mkfifo": true,
 		"new-item": true, "set-content": true, "add-content": true, "out-file": true, "copy-item": true,
@@ -27,7 +30,11 @@ var (
 )
 
 func (m *Manager) ValidateShellCommand(id, workingDirectory, command string) error {
-	if _, _, err := m.ResolveWorkingDirectory(id, workingDirectory); err != nil {
+	_, cwd, err := m.ResolveWorkingDirectory(id, workingDirectory)
+	if err != nil {
+		return err
+	}
+	if err := m.validateProtectedShellAccess(cwd, command, 0); err != nil {
 		return err
 	}
 	if isControlPlaneMutation(command, 0) {
@@ -37,6 +44,100 @@ func (m *Manager) ValidateShellCommand(id, workingDirectory, command string) err
 		return nil
 	}
 	return m.ValidateMutationCommand(id, workingDirectory, command)
+}
+
+func (m *Manager) validateProtectedShellAccess(cwd, command string, depth int) error {
+	if m.protectedRoot == "" {
+		return nil
+	}
+	if depth >= maxNestedShellDepth {
+		return errors.New("control-plane state access denied: nested shell depth exceeded")
+	}
+	segments, err := splitShellSegments(command)
+	if err != nil {
+		return fmt.Errorf("control-plane state access denied: %w", err)
+	}
+	for _, segment := range segments {
+		if m.referencesProtectedText(cwd, segment) {
+			return errors.New("control-plane state access denied from MCP shell")
+		}
+		tokens, err := shellWords(segment)
+		if err != nil || len(tokens) == 0 {
+			continue
+		}
+		name, args := commandName(tokens)
+		if inner, ok := nestedShellCommand(name, args); ok {
+			if err := m.validateProtectedShellAccess(cwd, inner, depth+1); err != nil {
+				return err
+			}
+		}
+		for _, token := range tokens {
+			if m.protectedShellToken(cwd, token) {
+				return errors.New("control-plane state access denied from MCP shell")
+			}
+		}
+	}
+	return nil
+}
+
+func (m *Manager) referencesProtectedText(cwd, value string) bool {
+	expanded := expandShellPathVariables(value)
+	normalized, root := normalizeShellPathText(expanded), strings.TrimRight(normalizeShellPathText(m.protectedRoot), "/")
+	if root != "" && strings.Contains(normalized, root+"/") {
+		return true
+	}
+	for _, token := range strings.Fields(expanded) {
+		if m.protectedShellToken(cwd, strings.Trim(token, `"'(),`)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) protectedShellToken(cwd, value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.Contains(value, "://") {
+		return false
+	}
+	if index := strings.IndexByte(value, '='); index > 0 && strings.HasPrefix(value, "-") {
+		value = value[index+1:]
+	}
+	value = strings.Trim(value, `"'(),`)
+	value = expandShellPathVariables(value)
+	if strings.HasPrefix(value, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			value = filepath.Join(home, strings.TrimLeft(strings.TrimPrefix(value, "~"), `/\`))
+		}
+	}
+	if index := strings.IndexAny(value, "*?["); index >= 0 {
+		value = strings.TrimRight(value[:index], `/\`)
+	}
+	if value == "" || (!filepath.IsAbs(value) && !strings.ContainsAny(value, `/\`)) {
+		return false
+	}
+	if !filepath.IsAbs(value) {
+		value = filepath.Join(cwd, value)
+	}
+	canonical, err := canonicalForContainment(value, false)
+	return err == nil && m.protected(canonical)
+}
+
+func expandShellPathVariables(value string) string {
+	value = os.ExpandEnv(value)
+	if strings.Contains(value, "%") {
+		value = windowsEnvReference.ReplaceAllStringFunc(value, func(match string) string {
+			name := strings.Trim(match, "%")
+			if env := os.Getenv(name); env != "" {
+				return env
+			}
+			return match
+		})
+	}
+	return value
+}
+
+func normalizeShellPathText(value string) string {
+	return strings.ToLower(strings.ReplaceAll(value, `\\`, "/"))
 }
 
 func (m *Manager) isMutationCommand(command string, depth int) bool {

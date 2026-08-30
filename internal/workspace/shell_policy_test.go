@@ -222,3 +222,34 @@ func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 		}
 	}
 }
+
+func TestShellPolicyBlocksProtectedControlPlaneReads(t *testing.T) {
+	home := t.TempDir()
+	controlPlane := filepath.Join(home, ".config", "chatgpt-mcp")
+	if err := os.MkdirAll(controlPlane, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	manager := NewManager(filepath.Join(controlPlane, "workspaces.json"))
+	manager.protectedRoot = canonicalRoot(controlPlane)
+	item, err := manager.Register(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		"cat " + filepath.Join(controlPlane, ".runtime-control.json"),
+		"cat .config/chatgpt-mcp/config.json",
+		`cat "$HOME/.config/chatgpt-mcp/config.json"`,
+		"Get-Content -Path " + filepath.Join(controlPlane, "config.json"),
+		`bash -lc "cat .config/chatgpt-mcp/config.json"`,
+		`python -c 'print(open("` + filepath.ToSlash(filepath.Join(controlPlane, "config.json")) + `").read())'`,
+	} {
+		if err := manager.ValidateShellCommand(item.ID, home, command); err == nil || !strings.Contains(err.Error(), "control-plane state access denied") {
+			t.Fatalf("protected read was not denied: %s: %v", command, err)
+		}
+	}
+	if err := manager.ValidateShellCommand(item.ID, home, "cat README.md"); err != nil {
+		t.Fatalf("normal workspace read rejected: %v", err)
+	}
+}

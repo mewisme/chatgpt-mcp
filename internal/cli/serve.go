@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -52,20 +53,11 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err != nil {
 		return err
 	}
-	mcpListeners, err := listenOnHosts(plan.Hosts, cfg.Server.Port)
+	bindings, err := openHTTPBindings(cfg, plan)
 	if err != nil {
 		return err
 	}
-	defer closeListeners(mcpListeners)
-
-	var adminListeners []net.Listener
-	if cfg.Admin.Enabled {
-		adminListeners, err = listenOnHosts(plan.Hosts, cfg.Admin.Port)
-		if err != nil {
-			return err
-		}
-		defer closeListeners(adminListeners)
-	}
+	defer bindings.CloseUnstarted()
 
 	runtime := app.NewWithLogger(cfg, commandLogger(cmd))
 	if err := runtime.Start(runtimeCtx); err != nil {
@@ -85,24 +77,74 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 
 	logReadyEndpoints(runtime.Logger, cfg, plan)
 
-	servers := make([]*http.Server, 0, len(mcpListeners)+len(adminListeners))
-	errCh := make(chan error, len(mcpListeners)+len(adminListeners))
-	for _, listener := range mcpListeners {
-		server := newHTTPServer(runtime.MCPHandler())
-		servers = append(servers, server)
-		go serveHTTP(server, listener, errCh)
-	}
-	if cfg.Admin.Enabled {
-		for _, listener := range adminListeners {
-			server := newHTTPServer(runtime.AdminHandler())
-			servers = append(servers, server)
-			go serveHTTP(server, listener, errCh)
+	errCh := make(chan error, max(1, len(bindings.mcpListeners)+len(bindings.adminListeners)))
+	bindings.Start(runtime, errCh)
+	currentCfg, currentPlan := cfg, plan
+	var reloadMu sync.Mutex
+	reload := func(_ context.Context) (runtimeReloadResult, error) {
+		reloadMu.Lock()
+		defer reloadMu.Unlock()
+		next, err := config.Load()
+		if err != nil {
+			return runtimeReloadResult{}, err
 		}
+		if err := applyExposeOverride(cmd, &next); err != nil {
+			return runtimeReloadResult{}, err
+		}
+		if err := config.Validate(next); err != nil {
+			return runtimeReloadResult{}, err
+		}
+		nextPlan, err := resolveListenerPlan(next.Server.Expose)
+		if err != nil {
+			return runtimeReloadResult{}, err
+		}
+		networkRestarted := !networkConfigEqual(currentCfg, next) || !listenerPlanEqual(currentPlan, nextPlan)
+		if !networkRestarted {
+			if err := runtime.ReloadConfig(next); err != nil {
+				return runtimeReloadResult{}, err
+			}
+			currentCfg, currentPlan = next, nextPlan
+			runtime.Logger.Ready("CONFIG", "config.reloaded", "Configuration reloaded")
+			return reloadResult(next, false), nil
+		}
+
+		runtime.Logger.Action("SERVER", "server.reloading", "Reloading server listeners")
+		if err := bindings.Shutdown(); err != nil {
+			runtime.Logger.Warning("SERVER", "server.reload.shutdown.warning", "Previous listeners did not shut down cleanly", err)
+		}
+		candidate, err := openHTTPBindings(next, nextPlan)
+		if err != nil {
+			restored, restoreErr := restoreHTTPBindings(runtime, currentCfg, currentPlan, errCh)
+			if restoreErr == nil {
+				bindings = restored
+			}
+			return runtimeReloadResult{}, errors.Join(err, restoreErr)
+		}
+		if err := runtime.ReloadConfig(next); err != nil {
+			candidate.CloseUnstarted()
+			restored, restoreErr := restoreHTTPBindings(runtime, currentCfg, currentPlan, errCh)
+			if restoreErr == nil {
+				bindings = restored
+			}
+			return runtimeReloadResult{}, errors.Join(err, restoreErr)
+		}
+		candidate.Start(runtime, errCh)
+		bindings = candidate
+		currentCfg, currentPlan = next, nextPlan
+		logReadyEndpoints(runtime.Logger, next, nextPlan)
+		return reloadResult(next, true), nil
 	}
+	control, err := startRuntimeControl(reload)
+	if err != nil {
+		return errors.Join(err, bindings.Shutdown())
+	}
+	defer control.Close()
 
 	shutdown := func() error {
+		reloadMu.Lock()
+		defer reloadMu.Unlock()
 		runtime.Logger.Action("SERVER", "server.stopping", "Stopping server")
-		err := shutdownServers(servers)
+		err := bindings.Shutdown()
 		if err != nil {
 			runtime.Logger.Failure("SERVER", "server.shutdown.failed", "Server shutdown failed", err)
 			return err
@@ -112,11 +154,11 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 
 	select {
 	case err := <-errCh:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err != nil {
 			runtime.Logger.Failure("SERVER", "server.listener.failed", "HTTP listener failed", err)
 			return errors.Join(err, shutdown())
 		}
-		return shutdown()
+		return nil
 	case signalValue := <-signalCh:
 		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("signal", signalValue.String()))
 		return shutdown()
@@ -128,10 +170,6 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 
 func newHTTPServer(handler http.Handler) *http.Server {
 	return &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
-}
-
-func serveHTTP(server *http.Server, listener net.Listener, errCh chan<- error) {
-	errCh <- server.Serve(listener)
 }
 
 func closeListeners(listeners []net.Listener) {

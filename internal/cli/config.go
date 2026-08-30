@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -28,11 +30,40 @@ func configCommand() *cobra.Command {
 		configGetCommand(),
 		configListCommand(),
 		configSetCommand(),
+		configReloadCommand(),
 		configConvertCommand(),
 		configPresetCommand(),
 		configVerifyCommand(),
 	)
 	return cmd
+}
+
+func configReloadCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reload",
+		Short: "Reload persisted configuration into the running server",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+			defer cancel()
+			result, err := requestRuntimeReload(ctx)
+			if err != nil {
+				return err
+			}
+			log := commandLogger(cmd)
+			log.Success("CONFIG", "configuration reloaded")
+			log.Detail("pid", result.PID)
+			log.Detail("network restarted", result.NetworkRestarted)
+			log.Detail("mcp port", result.ServerPort)
+			if result.AdminEnabled {
+				log.Detail("admin port", result.AdminPort)
+			} else {
+				log.Detail("admin", "disabled")
+			}
+			log.Detail("expose", result.Exposure)
+			return nil
+		},
+	}
 }
 
 func configGetCommand() *cobra.Command {

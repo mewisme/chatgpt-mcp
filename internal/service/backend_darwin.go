@@ -117,9 +117,3 @@ func darwinDomain(spec Spec) string {
 }
 
 func darwinTarget(spec Spec) string { return darwinDomain(spec) + "/" + darwinLabel(spec) }
-
-func xmlText(value string) string {
-	value = strings.ReplaceAll(value, "&", "&amp;")
-	value = strings.ReplaceAll(value, "<", "&lt;")
-	return strings.ReplaceAll(value, ">", "&gt;")
-}

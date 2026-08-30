@@ -12,14 +12,15 @@ $ErrorActionPreference = 'Stop'
 $repo = 'mewisme/chatgpt-mcp'
 $defaultInstall = Join-Path $env:LOCALAPPDATA 'chatgpt-mcp'
 $installDir = if ($env:CHATGPT_MCP_INSTALL_DIR) { $env:CHATGPT_MCP_INSTALL_DIR } else { $defaultInstall }
-$dest = Join-Path $installDir 'current'
+$current = Join-Path $installDir 'current'
+$versions = Join-Path $installDir 'versions'
 
 if ($Uninstall) {
   if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
   if ($installDir -eq $defaultInstall) {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     if ($userPath) {
-      $nextPath = (($userPath -split ';') | Where-Object { $_ -and $_ -ne $dest }) -join ';'
+      $nextPath = (($userPath -split ';') | Where-Object { $_ -and $_ -ne $current }) -join ';'
       [Environment]::SetEnvironmentVariable('Path', $nextPath, 'User')
     }
   }
@@ -40,6 +41,7 @@ if (-not $version) {
 if (-not $version) { throw 'chatgpt-mcp: could not resolve latest version; set CHATGPT_MCP_VERSION.' }
 if ($version -notmatch '^v') { $version = "v$version" }
 $ver = $version.TrimStart('v')
+$dest = Join-Path $versions $version
 
 $url = "https://github.com/$repo/releases/download/$version/chatgpt-mcp_${ver}_windows_${arch}.zip"
 Write-Host "Installing chatgpt-mcp $version (windows/$arch)..."
@@ -59,20 +61,52 @@ try {
 
 $exe = Join-Path $dest 'chatgpt-mcp.exe'
 if (-not (Test-Path $exe)) { throw 'chatgpt-mcp: chatgpt-mcp.exe missing from archive.' }
-$alias = Join-Path $dest 'cmcp.cmd'
+
+$nextCurrent = Join-Path $installDir ('.current-' + [guid]::NewGuid().ToString('N'))
+$previousCurrent = Join-Path $installDir ('.previous-current-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+New-Item -ItemType Junction -Path $nextCurrent -Target $dest | Out-Null
+try {
+  if (Test-Path $current) {
+    $item = Get-Item -Force $current
+    if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+      try {
+        Remove-Item -Recurse -Force $current
+      } catch {
+        throw 'chatgpt-mcp: the existing current install is using the legacy directory layout and is still locked. Run cmcp down once, then rerun the installer and cmcp up.'
+      }
+    } else {
+      Move-Item -Path $current -Destination $previousCurrent
+    }
+  }
+  Move-Item -Path $nextCurrent -Destination $current
+  if (Test-Path $previousCurrent) { [IO.Directory]::Delete($previousCurrent) }
+} catch {
+  if (-not (Test-Path $current) -and (Test-Path $previousCurrent)) { Move-Item -Path $previousCurrent -Destination $current }
+  if (Test-Path $nextCurrent) { [IO.Directory]::Delete($nextCurrent) }
+  throw
+}
+
+$currentExe = Join-Path $current 'chatgpt-mcp.exe'
+$alias = Join-Path $current 'cmcp.cmd'
 @('@echo off', '"%~dp0chatgpt-mcp.exe" %*') | Set-Content -Path $alias -Encoding Ascii
+
+Get-ChildItem -Path $versions -Directory -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $dest } | ForEach-Object {
+  try { Remove-Item -Recurse -Force -ErrorAction Stop $_.FullName } catch { }
+}
 
 if ($installDir -eq $defaultInstall) {
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   $entries = if ($userPath) { $userPath -split ';' } else { @() }
-  if ($entries -notcontains $dest) {
-    $nextPath = if ($userPath) { "$dest;$userPath" } else { $dest }
+  if ($entries -notcontains $current) {
+    $nextPath = if ($userPath) { "$current;$userPath" } else { $current }
     [Environment]::SetEnvironmentVariable('Path', $nextPath, 'User')
-    $env:Path = "$dest;$env:Path"
-    Write-Host "Added $dest to your PATH (restart your terminal if needed)."
+    $env:Path = "$current;$env:Path"
+    Write-Host "Added $current to your PATH (restart your terminal if needed)."
   }
 }
 
 Write-Host "Installed to $dest"
+Write-Host "Current: $currentExe"
 Write-Host "Alias: $alias"
 Write-Host 'Run: chatgpt-mcp --help or cmcp --help'

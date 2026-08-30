@@ -73,9 +73,9 @@ tar -xzf "$tmp/chatgpt-mcp.tar.gz" -C "$dest"
 chmod +x "$dest/chatgpt-mcp"
 
 mkdir -p "$BIN_DIR"
-ln -sf "$dest/chatgpt-mcp" "$BIN_DIR/chatgpt-mcp"
-ln -sf "$dest/chatgpt-mcp" "$BIN_DIR/cmcp"
 ln -sfn "$dest" "$INSTALL_DIR/current"
+ln -sf "$INSTALL_DIR/current/chatgpt-mcp" "$BIN_DIR/chatgpt-mcp"
+ln -sf "$INSTALL_DIR/current/chatgpt-mcp" "$BIN_DIR/cmcp"
 
 if [ -d "$INSTALL_DIR/versions" ]; then
 	for d in "$INSTALL_DIR/versions"/*; do

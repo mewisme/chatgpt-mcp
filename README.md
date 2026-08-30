@@ -368,6 +368,8 @@ and the admin dashboard.
 
 Upstream HTTP OAuth credentials are stored separately from normal runtime configuration. Upstream tool changes propagate into the exposed tool catalog and MCP subscriptions.
 
+Upstream proxy refreshes are atomic. A refresh builds the complete replacement proxy set first and commits it in one registry swap only after every required upstream succeeds. Transient discovery or schema failures keep the previous proxy catalog intact, and Admin API mutations report refresh failures instead of silently discarding them.
+
 ## Workspaces
 
 Filesystem, shell, and Git mutations are workspace-bound. Register a workspace before using tools that operate on local project files:

@@ -132,8 +132,8 @@ func RegisterUpstreamTools(registry *Registry, manager *upstream.Manager) {
 }
 
 func RefreshUpstreamProxies(ctx context.Context, registry *Registry, manager *upstream.Manager, force bool) error {
-	registry.ClearOwnedPrefix("upstream:")
 	var failures []string
+	replacements := map[string]map[string]Entry{}
 	for _, server := range manager.List() {
 		if !server.Enabled || server.Expose == "none" || server.Expose == "meta_only" {
 			continue
@@ -143,17 +143,28 @@ func RefreshUpstreamProxies(ctx context.Context, registry *Registry, manager *up
 			failures = append(failures, server.ID+": "+err.Error())
 			continue
 		}
-		if err := refreshServerProxy(registry, manager, server, tools); err != nil {
+		entries, err := buildServerProxyEntries(manager, server, tools)
+		if err != nil {
 			failures = append(failures, server.ID+": "+err.Error())
+			continue
 		}
+		replacements["upstream:"+server.ID] = entries
 	}
 	if len(failures) > 0 {
 		return errors.New(strings.Join(failures, "; "))
 	}
-	return nil
+	return registry.ReplaceOwnedPrefix("upstream:", replacements)
 }
 
 func refreshServerProxy(registry *Registry, manager *upstream.Manager, server upstream.Server, values []upstream.Tool) error {
+	entries, err := buildServerProxyEntries(manager, server, values)
+	if err != nil {
+		return err
+	}
+	return registry.ReplaceOwned("upstream:"+server.ID, entries)
+}
+
+func buildServerProxyEntries(manager *upstream.Manager, server upstream.Server, values []upstream.Tool) (map[string]Entry, error) {
 	allowed := map[string]bool{}
 	for _, name := range manager.ProxiedToolNames(server, values) {
 		allowed[name] = true
@@ -168,10 +179,16 @@ func refreshServerProxy(registry *Registry, manager *upstream.Manager, server up
 		if inputSchema == nil {
 			inputSchema = map[string]any{"type": "object", "additionalProperties": true}
 		}
-		inputRaw, _ := json.Marshal(inputSchema)
+		inputRaw, err := json.Marshal(inputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("encode input schema for %s: %w", proxyName, err)
+		}
 		var outputRaw json.RawMessage
 		if tool.OutputSchema != nil {
-			outputRaw, _ = json.Marshal(tool.OutputSchema)
+			outputRaw, err = json.Marshal(tool.OutputSchema)
+			if err != nil {
+				return nil, fmt.Errorf("encode output schema for %s: %w", proxyName, err)
+			}
 		}
 		description := strings.TrimSpace(tool.Description)
 		if description == "" {
@@ -193,7 +210,7 @@ func refreshServerProxy(registry *Registry, manager *upstream.Manager, server up
 			return forwardUpstreamResult(value), nil
 		}}
 	}
-	return registry.ReplaceOwned("upstream:"+server.ID, entries)
+	return entries, nil
 }
 
 func normalizeMCPCall(serverID, tool string, value upstream.CallResult) Result {

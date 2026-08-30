@@ -50,7 +50,10 @@ func (api API) handleUpstreams(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		api.refreshUpstreamProxies()
+		if err := api.refreshUpstreamProxies(); err != nil {
+			http.Error(w, "upstream configuration saved but proxy refresh failed: "+err.Error(), http.StatusBadGateway)
+			return
+		}
 		writeJSON(w, publicUpstream(normalized))
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -139,28 +142,34 @@ func (api API) handleUpstreamServer(w http.ResponseWriter, r *http.Request, mana
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		api.refreshUpstreamProxies()
+		if err := api.refreshUpstreamProxies(); err != nil {
+			http.Error(w, "upstream configuration saved but proxy refresh failed: "+err.Error(), http.StatusBadGateway)
+			return
+		}
 		writeJSON(w, publicUpstream(normalized))
 	case http.MethodDelete:
 		if err := manager.Remove(server.ID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		api.refreshUpstreamProxies()
+		if err := api.refreshUpstreamProxies(); err != nil {
+			http.Error(w, "upstream configuration saved but proxy refresh failed: "+err.Error(), http.StatusBadGateway)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
 
-func (api API) refreshUpstreamProxies() {
+func (api API) refreshUpstreamProxies() error {
 	manager := api.upstreamManager()
 	if api.Tools == nil || manager == nil || api.Tools.Upstream != manager {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_ = tools.RefreshUpstreamProxies(ctx, api.Tools.Registry, manager, false)
+	return tools.RefreshUpstreamProxies(ctx, api.Tools.Registry, manager, false)
 }
 
 func publicUpstream(server upstream.Server) upstream.Server {

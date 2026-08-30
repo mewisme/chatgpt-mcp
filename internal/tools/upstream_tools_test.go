@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -11,13 +12,17 @@ import (
 )
 
 type bridgeClient struct {
-	tools  []upstream.Tool
-	result upstream.CallResult
+	tools    []upstream.Tool
+	toolsErr error
+	result   upstream.CallResult
 }
 
 func (*bridgeClient) Connect(context.Context, upstream.Server) error { return nil }
 func (*bridgeClient) Close(context.Context, string) error            { return nil }
 func (c *bridgeClient) Tools(context.Context, string) ([]upstream.Tool, error) {
+	if c.toolsErr != nil {
+		return nil, c.toolsErr
+	}
 	return append([]upstream.Tool(nil), c.tools...), nil
 }
 func (c *bridgeClient) Call(context.Context, string, string, map[string]any) (upstream.CallResult, error) {
@@ -164,6 +169,85 @@ func TestUpstreamToolSubscriptionRefreshesDynamicProxy(t *testing.T) {
 	}
 	if err := manager.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRefreshUpstreamProxiesPreservesCatalogOnTransientFailure(t *testing.T) {
+	client := &bridgeClient{tools: []upstream.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}}
+	manager := upstream.NewManagerWithClient(nil, client)
+	if err := manager.Add(upstream.Server{ID: "demo", Enabled: true, Transport: "http", URL: "http://example.test", Expose: "all"}); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry()
+	RegisterUpstreamTools(registry, manager)
+	if err := RefreshUpstreamProxies(context.Background(), registry, manager, false); err != nil {
+		t.Fatal(err)
+	}
+	if !hasSchema(registry.ListSchemas(), "demo__echo") {
+		t.Fatal("initial proxy missing")
+	}
+	changes := registry.SubscribeChanges()
+	defer registry.UnsubscribeChanges(changes)
+	client.toolsErr = errors.New("transient discovery failure")
+	if err := RefreshUpstreamProxies(context.Background(), registry, manager, true); err == nil {
+		t.Fatal("expected transient refresh failure")
+	}
+	if !hasSchema(registry.ListSchemas(), "demo__echo") {
+		t.Fatal("existing proxy was removed by failed refresh")
+	}
+	select {
+	case <-changes:
+		t.Fatal("failed refresh signaled tool catalog change")
+	default:
+	}
+}
+
+func TestRefreshUpstreamProxiesRejectsCrossServerNameCollisionAtomically(t *testing.T) {
+	client := &bridgeClient{tools: []upstream.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}}
+	manager := upstream.NewManagerWithClient(nil, client)
+	for _, id := range []string{"one", "two"} {
+		if err := manager.Add(upstream.Server{ID: id, Enabled: true, Transport: "http", URL: "http://example.test/" + id, Expose: "all", ToolPrefix: "shared"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry := NewRegistry()
+	if err := registry.ReplaceOwned("upstream:stable", map[string]Entry{
+		"stable__tool": {Schema: Schema{Name: "stable__tool"}, Handler: func(context.Context, map[string]any) (Result, error) { return TextResult("stable"), nil }},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RefreshUpstreamProxies(context.Background(), registry, manager, false); !errors.Is(err, ErrToolAlreadyRegistered) {
+		t.Fatalf("collision error = %v", err)
+	}
+	if _, err := registry.Call(context.Background(), "stable__tool", nil); err != nil {
+		t.Fatalf("stable catalog was mutated after collision: %v", err)
+	}
+}
+
+func TestRefreshUpstreamProxiesRemovesDisabledServerOnSuccessfulSwap(t *testing.T) {
+	client := &bridgeClient{tools: []upstream.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}}
+	manager := upstream.NewManagerWithClient(nil, client)
+	server := upstream.Server{ID: "demo", Enabled: true, Transport: "http", URL: "http://example.test", Expose: "all"}
+	if err := manager.Add(server); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry()
+	if err := RefreshUpstreamProxies(context.Background(), registry, manager, false); err != nil {
+		t.Fatal(err)
+	}
+	if !hasSchema(registry.ListSchemas(), "demo__echo") {
+		t.Fatal("initial proxy missing")
+	}
+	server.Enabled = false
+	server.Expose = "none"
+	if err := manager.Add(server); err != nil {
+		t.Fatal(err)
+	}
+	if err := RefreshUpstreamProxies(context.Background(), registry, manager, false); err != nil {
+		t.Fatal(err)
+	}
+	if hasSchema(registry.ListSchemas(), "demo__echo") {
+		t.Fatal("disabled server proxy survived successful refresh")
 	}
 }
 

@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,18 +12,23 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 type adminUpstreamClient struct {
-	tools []upstream.Tool
+	tools    []upstream.Tool
+	toolsErr error
 }
 
 func (*adminUpstreamClient) Connect(context.Context, upstream.Server) error { return nil }
 func (*adminUpstreamClient) Close(context.Context, string) error            { return nil }
 func (c *adminUpstreamClient) Tools(context.Context, string) ([]upstream.Tool, error) {
+	if c.toolsErr != nil {
+		return nil, c.toolsErr
+	}
 	return append([]upstream.Tool(nil), c.tools...), nil
 }
 func (*adminUpstreamClient) Call(context.Context, string, string, map[string]any) (upstream.CallResult, error) {
@@ -210,6 +216,29 @@ func TestUpstreamAPIRejectsInvalidConfig(t *testing.T) {
 	}
 	if len(manager.List()) != 0 {
 		t.Fatalf("invalid server was persisted: %+v", manager.List())
+	}
+}
+
+func TestUpstreamAPIReportsProxyRefreshFailureAndPreservesCatalog(t *testing.T) {
+	client := &adminUpstreamClient{tools: []upstream.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}}
+	manager := upstream.NewManagerWithClient(nil, client)
+	server := upstream.Server{ID: "server-1", Name: "Server", Transport: "http", URL: "http://example.test/mcp", Enabled: true, Expose: "all"}
+	if err := manager.Add(server); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &tools.Runtime{Registry: tools.NewRegistry(), Upstream: manager}
+	if err := tools.RefreshUpstreamProxies(context.Background(), runtime.Registry, manager, false); err != nil {
+		t.Fatal(err)
+	}
+	client.toolsErr = errors.New("upstream unavailable")
+	handler := New(API{Upstream: manager, Tools: runtime})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/upstream/server-1", strings.NewReader(`{"name":"Updated","transport":"http","url":"http://example.test/mcp","enabled":true,"expose":"all"}`)))
+	if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), "proxy refresh failed") {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if _, ok := runtime.Registry.Schema("server-1__echo"); !ok {
+		t.Fatal("previous proxy catalog was removed after Admin refresh failure")
 	}
 }
 

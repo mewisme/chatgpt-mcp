@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -42,5 +43,69 @@ func TestRegistryOwnedReplacementSignalsChange(t *testing.T) {
 	case <-changes:
 	default:
 		t.Fatal("owned replacement did not signal registry change")
+	}
+}
+
+func TestReplaceOwnedPrefixSwapsMultipleOwnersAtomically(t *testing.T) {
+	registry := NewRegistry()
+	registry.MustRegister("native", Schema{Name: "native"}, func(context.Context, map[string]any) (Result, error) { return TextResult("native"), nil })
+	if err := registry.ReplaceOwnedPrefix("upstream:", map[string]map[string]Entry{
+		"upstream:a": {"a__one": {Schema: Schema{Name: "a__one"}, Handler: func(context.Context, map[string]any) (Result, error) { return TextResult("a"), nil }}},
+		"upstream:b": {"b__one": {Schema: Schema{Name: "b__one"}, Handler: func(context.Context, map[string]any) (Result, error) { return TextResult("b"), nil }}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	changes := registry.SubscribeChanges()
+	defer registry.UnsubscribeChanges(changes)
+	if err := registry.ReplaceOwnedPrefix("upstream:", map[string]map[string]Entry{
+		"upstream:a": {"a__two": {Schema: Schema{Name: "a__two"}, Handler: func(context.Context, map[string]any) (Result, error) { return TextResult("a2"), nil }}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a__one", "b__one"} {
+		if _, err := registry.Call(context.Background(), name, nil); !errors.Is(err, ErrToolNotFound) {
+			t.Fatalf("stale %s survived: %v", name, err)
+		}
+	}
+	for _, name := range []string{"native", "a__two"} {
+		if _, err := registry.Call(context.Background(), name, nil); err != nil {
+			t.Fatalf("expected %s after swap: %v", name, err)
+		}
+	}
+	select {
+	case <-changes:
+	default:
+		t.Fatal("bulk owned replacement did not signal change")
+	}
+	select {
+	case <-changes:
+		t.Fatal("bulk owned replacement signaled more than once")
+	default:
+	}
+}
+
+func TestReplaceOwnedPrefixRejectsCollisionWithoutMutation(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.ReplaceOwned("upstream:old", map[string]Entry{
+		"old__tool": {Schema: Schema{Name: "old__tool"}, Handler: func(context.Context, map[string]any) (Result, error) { return TextResult("old"), nil }},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	changes := registry.SubscribeChanges()
+	defer registry.UnsubscribeChanges(changes)
+	err := registry.ReplaceOwnedPrefix("upstream:", map[string]map[string]Entry{
+		"upstream:a": {"shared": {Schema: Schema{Name: "shared"}, Handler: func(context.Context, map[string]any) (Result, error) { return TextResult("a"), nil }}},
+		"upstream:b": {"shared": {Schema: Schema{Name: "shared"}, Handler: func(context.Context, map[string]any) (Result, error) { return TextResult("b"), nil }}},
+	})
+	if !errors.Is(err, ErrToolAlreadyRegistered) {
+		t.Fatalf("collision error = %v", err)
+	}
+	if _, err := registry.Call(context.Background(), "old__tool", nil); err != nil {
+		t.Fatalf("old registry was mutated after collision: %v", err)
+	}
+	select {
+	case <-changes:
+		t.Fatal("failed bulk replacement signaled a change")
+	default:
 	}
 }

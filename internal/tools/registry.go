@@ -111,20 +111,59 @@ func (r *Registry) ReplaceOwned(owner string, entries map[string]Entry) error {
 	return nil
 }
 
-func (r *Registry) ClearOwnedPrefix(prefix string) {
+func (r *Registry) ReplaceOwnedPrefix(prefix string, replacements map[string]map[string]Entry) error {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return errors.New("owner prefix is required")
+	}
+	type ownedEntry struct {
+		owner string
+		entry Entry
+	}
+	prepared := make(map[string]ownedEntry)
+	for owner, entries := range replacements {
+		owner = strings.TrimSpace(owner)
+		if owner == "" || !strings.HasPrefix(owner, prefix) {
+			return fmt.Errorf("owner %q must start with %q", owner, prefix)
+		}
+		for name, entry := range entries {
+			name = strings.TrimSpace(name)
+			if name == "" || entry.Handler == nil {
+				return fmt.Errorf("invalid owned tool %q", name)
+			}
+			if entry.Schema.Name == "" {
+				entry.Schema.Name = name
+			}
+			if entry.Schema.Name != name {
+				return fmt.Errorf("owned schema name %q does not match %q", entry.Schema.Name, name)
+			}
+			if current, exists := prepared[name]; exists {
+				return fmt.Errorf("%w: %s owned by both %s and %s", ErrToolAlreadyRegistered, name, current.owner, owner)
+			}
+			prepared[name] = ownedEntry{owner: owner, entry: entry}
+		}
+	}
+
 	r.mu.Lock()
-	changed := false
+	for name := range prepared {
+		if _, exists := r.tools[name]; exists && !strings.HasPrefix(r.owners[name], prefix) {
+			r.mu.Unlock()
+			return fmt.Errorf("%w: %s", ErrToolAlreadyRegistered, name)
+		}
+	}
 	for name, owner := range r.owners {
 		if strings.HasPrefix(owner, prefix) {
 			delete(r.tools, name)
 			delete(r.owners, name)
-			changed = true
 		}
 	}
-	r.mu.Unlock()
-	if changed {
-		r.signalChanged()
+	for name, item := range prepared {
+		r.tools[name] = item.entry
+		r.owners[name] = item.owner
 	}
+	r.mu.Unlock()
+	r.signalChanged()
+	return nil
 }
 
 func (r *Registry) SubscribeChanges() chan struct{} {

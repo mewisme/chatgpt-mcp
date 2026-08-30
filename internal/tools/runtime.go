@@ -3,36 +3,79 @@ package tools
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/caveman"
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
+	"go.mewis.me/chatgpt-mcp/internal/features"
+	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 type Runtime struct {
-	Registry     *Registry
-	Workspaces   *workspace.Manager
-	Checkpoints  *checkpoint.Store
-	Upstream     *upstream.Manager
-	CallObserver CallObserver
+	Registry        *Registry
+	Workspaces      *workspace.Manager
+	Checkpoints     *checkpoint.Store
+	Upstream        *upstream.Manager
+	CallObserver    CallObserver
+	featureMu       sync.Mutex
+	features        features.Config
+	ponytailManager *ponytail.Manager
+	cavemanManager  *caveman.Manager
 }
 
 func NewRuntime() *Runtime {
+	return NewRuntimeWithFeatures(features.Default())
+}
+
+func NewRuntimeWithFeatures(featureConfig features.Config) *Runtime {
 	workspaces := workspace.NewManager(workspace.DefaultStorePath())
 	checkpoints := checkpoint.NewStore(checkpoint.DefaultRoot())
 	upstreams := upstream.NewManager(upstream.NewStore(upstream.Path()))
 	_ = upstreams.Load()
 	registry := NewRegistry()
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
 	RegisterWorkspaceTools(registry, workspaces)
 	RegisterCore(registry, workspaces, checkpoints)
 	RegisterUpstreamTools(registry, upstreams)
+	if err := runtime.SyncFeatures(featureConfig); err != nil {
+		panic(err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	_ = RefreshUpstreamProxies(ctx, registry, upstreams, false)
 	cancel()
 	return runtime
+}
+
+func (r *Runtime) SyncFeatures(featureConfig features.Config) error {
+	if r == nil || r.Registry == nil || r.Workspaces == nil {
+		return errors.New("tool runtime is unavailable")
+	}
+	r.featureMu.Lock()
+	defer r.featureMu.Unlock()
+	if r.ponytailManager == nil {
+		r.ponytailManager = ponytail.NewManager()
+	}
+	if r.cavemanManager == nil {
+		r.cavemanManager = caveman.NewManager()
+	}
+	if err := r.Registry.ReplaceOwnedPrefix("feature:", featureToolEntries(r.Workspaces, r.ponytailManager, r.cavemanManager, featureConfig)); err != nil {
+		return err
+	}
+	r.features = featureConfig
+	return nil
+}
+
+func (r *Runtime) Features() features.Config {
+	if r == nil {
+		return features.Config{}
+	}
+	r.featureMu.Lock()
+	defer r.featureMu.Unlock()
+	return r.features
 }
 
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }

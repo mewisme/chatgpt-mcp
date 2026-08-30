@@ -11,7 +11,7 @@ func (a *App) Bootstrap() error {
 		a.Config = config.NewRuntimeStore(config.Default())
 	}
 	if a.Tools == nil {
-		a.Tools = tools.NewRuntime()
+		a.Tools = tools.NewRuntimeWithFeatures(a.Config.Snapshot().Features)
 	}
 	a.Upstream = a.Tools.Upstream
 	if a.MCP == nil {

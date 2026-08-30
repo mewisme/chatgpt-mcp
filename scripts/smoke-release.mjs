@@ -32,6 +32,9 @@ try {
   run(["config", "set", "server.port", String(serverPort)])
   run(["config", "set", "admin.port", String(adminPort)])
   run(["config", "set", "auth.mcp_enabled", "false"])
+  run(["config", "set", "features.ponytail.enabled", "false"])
+  run(["config", "set", "features.caveman.enabled", "false"])
+  run(["config", "set", "features.caveman.enabled", "true"])
   run(["config", "verify"])
   run(["status"])
 
@@ -80,6 +83,9 @@ async function verifyMCP(port) {
   if (!Array.isArray(tools.body?.result?.tools) || tools.body.result.tools.length === 0) {
     fail(`tools/list returned no tools: ${JSON.stringify(tools.body)}`)
   }
+  const toolNames = new Set(tools.body.result.tools.map((tool) => tool?.name))
+  if (toolNames.has("ponytail_turn")) fail(`disabled ponytail_turn remained in tools/list: ${JSON.stringify(tools.body)}`)
+  if (!toolNames.has("caveman_turn")) fail(`enabled caveman_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!Number.isFinite(tools.body.result.ttlMs) || typeof tools.body.result.cacheScope !== "string") {
     fail(`tools/list cache hints are missing: ${JSON.stringify(tools.body)}`)
   }

@@ -31,7 +31,7 @@ type App struct {
 
 func New(cfg config.Config) *App {
 	stream := activity.NewStream()
-	toolRuntime := tools.NewRuntime()
+	toolRuntime := tools.NewRuntimeWithFeatures(cfg.Features)
 	mcpRuntime := mcp.NewHTTPRuntimeWithTools(toolRuntime)
 	mcpRuntime.Activity = stream
 	oauthStore := mcpoauth.NewStore(mcpoauth.Path())

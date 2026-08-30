@@ -372,6 +372,8 @@ Upstream proxy refreshes are atomic. A refresh builds the complete replacement p
 
 Runtime configuration is exposed through a synchronized immutable-snapshot store. Admin configuration, presets, tunnel reconfiguration, and request-time authentication read or update the same store; updates serialize validation, persistence, and in-memory commit to avoid races and lost updates. Linux CI also runs the Go race detector.
 
+Built-in agent features live under `features`. Ponytail and Caveman are enabled by default, can be toggled independently with `config set features.<name>.enabled <true|false>` or Admin Settings, and update the live tool catalog when changed through the Admin API. Caveman is a built-in terse-response turn controller; Ponytail continues to use its trusted plugin hooks when its feature is enabled.
+
 ## Workspaces
 
 Filesystem, shell, and Git mutations are workspace-bound. Register a workspace before using tools that operate on local project files:

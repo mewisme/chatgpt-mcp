@@ -202,6 +202,74 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 	}
 }
 
+func TestDefaultFeaturesEnabled(t *testing.T) {
+	cfg := Default()
+	if !cfg.Features.Ponytail.Enabled || !cfg.Features.Caveman.Enabled {
+		t.Fatalf("features = %#v", cfg.Features)
+	}
+}
+
+func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		t.Run(string(format), func(t *testing.T) {
+			root := t.TempDir()
+			configPath := configformat.PathFor(root, "config", format)
+			secretPath := configformat.PathFor(root, "tunnel", format)
+			legacy := map[string]any{
+				"server": map[string]any{"port": int64(37421), "expose": map[string]any{"mode": "none", "interfaces": []any{}}},
+				"admin":  map[string]any{"enabled": false, "port": int64(37422)},
+				"auth":   map[string]any{"mcp_enabled": false, "admin_enabled": false},
+				"tunnel": map[string]any{"enabled": false},
+			}
+			data, err := configformat.EncodeGeneric(format, legacy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(configPath, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := loadAt(configPath, secretPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !loaded.Features.Ponytail.Enabled || !loaded.Features.Caveman.Enabled {
+				t.Fatalf("legacy %s features = %#v", format, loaded.Features)
+			}
+		})
+	}
+}
+
+func TestPartialFeaturesKeepMissingFeatureDefault(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		t.Run(string(format), func(t *testing.T) {
+			root := t.TempDir()
+			configPath := configformat.PathFor(root, "config", format)
+			secretPath := configformat.PathFor(root, "tunnel", format)
+			partial := map[string]any{
+				"server":   map[string]any{"port": int64(37421), "expose": map[string]any{"mode": "none", "interfaces": []any{}}},
+				"admin":    map[string]any{"enabled": false, "port": int64(37422)},
+				"auth":     map[string]any{"mcp_enabled": false, "admin_enabled": false},
+				"features": map[string]any{"ponytail": map[string]any{"enabled": false}},
+				"tunnel":   map[string]any{"enabled": false},
+			}
+			data, err := configformat.EncodeGeneric(format, partial)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(configPath, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := loadAt(configPath, secretPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if loaded.Features.Ponytail.Enabled || !loaded.Features.Caveman.Enabled {
+				t.Fatalf("partial %s features = %#v", format, loaded.Features)
+			}
+		})
+	}
+}
+
 func TestLegacyServerHostMigratesToExpose(t *testing.T) {
 	for _, test := range []struct {
 		name   string

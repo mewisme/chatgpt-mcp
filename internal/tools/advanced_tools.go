@@ -6,6 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/caveman"
+	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/jsruntime"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
@@ -17,7 +19,6 @@ type NodeResetResult struct {
 
 func RegisterAdvancedTools(registry *Registry, workspaces *workspace.Manager) {
 	nodeManager := jsruntime.NewManager()
-	ponytailManager := ponytail.NewManager()
 	register := func(name, title, description, input, output string, risk Risk, handler Handler) {
 		registry.MustRegister(name, Schema{
 			Name: name, Title: title, Description: description,
@@ -68,23 +69,55 @@ func RegisterAdvancedTools(registry *Registry, workspaces *workspace.Manager) {
 		}
 	})
 
-	register("ponytail_turn", "Ponytail Turn Controller", "Call before each user-facing response when the trusted Ponytail plugin is enabled. Pass the exact current user prompt.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"prompt":{"type":"string"},"action":{"type":"string","enum":["turn","refresh","status"],"default":"turn"}},"required":["workspace_id","prompt"],"additionalProperties":false}`, `{"type":"object","properties":{"available":{"type":"boolean"},"mode":{"type":"string"},"active":{"type":"boolean"},"active_instructions":{"type":"string"},"refresh_hint":{"type":"string"},"error":{"type":"string"}},"required":["available"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
-		item, err := workspaceFromArgs(workspaces, args)
-		if err != nil {
-			return Result{}, err
-		}
-		prompt, err := requiredString(args, "prompt")
-		if err != nil {
-			return Result{}, err
-		}
-		action, err := optionalEnum(args, "action", "turn", "turn", "refresh", "status")
-		if err != nil {
-			return Result{}, err
-		}
-		value, err := ponytailManager.Turn(ctx, item.ID, item.Path, prompt, action)
-		if err != nil {
-			return Result{}, err
-		}
-		return JSONResult(value), nil
-	})
+}
+
+func featureToolEntries(workspaces *workspace.Manager, ponytailManager *ponytail.Manager, cavemanManager *caveman.Manager, featureConfig features.Config) map[string]map[string]Entry {
+	replacements := map[string]map[string]Entry{}
+	if featureConfig.Ponytail.Enabled {
+		replacements["feature:ponytail"] = map[string]Entry{"ponytail_turn": featureEntry("ponytail_turn", "Ponytail Turn Controller", "Call before each user-facing response when the trusted Ponytail plugin is enabled. Pass the exact current user prompt.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"prompt":{"type":"string"},"action":{"type":"string","enum":["turn","refresh","status"],"default":"turn"}},"required":["workspace_id","prompt"],"additionalProperties":false}`, `{"type":"object","properties":{"available":{"type":"boolean"},"mode":{"type":"string"},"active":{"type":"boolean"},"active_instructions":{"type":"string"},"refresh_hint":{"type":"string"},"error":{"type":"string"}},"required":["available"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
+			item, err := workspaceFromArgs(workspaces, args)
+			if err != nil {
+				return Result{}, err
+			}
+			prompt, err := requiredString(args, "prompt")
+			if err != nil {
+				return Result{}, err
+			}
+			action, err := optionalEnum(args, "action", "turn", "turn", "refresh", "status")
+			if err != nil {
+				return Result{}, err
+			}
+			value, err := ponytailManager.Turn(ctx, item.ID, item.Path, prompt, action)
+			if err != nil {
+				return Result{}, err
+			}
+			return JSONResult(value), nil
+		})}
+	}
+	if featureConfig.Caveman.Enabled {
+		replacements["feature:caveman"] = map[string]Entry{"caveman_turn": featureEntry("caveman_turn", "Caveman Turn Controller", "Built-in terse-response controller. Call before each user-facing response and pass the exact current user prompt.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"prompt":{"type":"string"},"action":{"type":"string","enum":["turn","refresh","status"],"default":"turn"}},"required":["workspace_id","prompt"],"additionalProperties":false}`, `{"type":"object","properties":{"available":{"type":"boolean"},"active":{"type":"boolean"},"active_instructions":{"type":"string"},"refresh_hint":{"type":"string"}},"required":["available","active"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+			item, err := workspaceFromArgs(workspaces, args)
+			if err != nil {
+				return Result{}, err
+			}
+			prompt, err := requiredString(args, "prompt")
+			if err != nil {
+				return Result{}, err
+			}
+			action, err := optionalEnum(args, "action", "turn", "turn", "refresh", "status")
+			if err != nil {
+				return Result{}, err
+			}
+			value, err := cavemanManager.Turn(item.ID, prompt, action)
+			if err != nil {
+				return Result{}, err
+			}
+			return JSONResult(value), nil
+		})}
+	}
+	return replacements
+}
+
+func featureEntry(name, title, description, input, output string, risk Risk, handler Handler) Entry {
+	return Entry{Schema: Schema{Name: name, Title: title, Description: description, InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: ToolAnnotations(risk)}, Handler: handler}
 }

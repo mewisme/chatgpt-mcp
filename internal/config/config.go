@@ -10,15 +10,17 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 type Config struct {
-	Server ServerConfig  `json:"server"`
-	Admin  AdminConfig   `json:"admin"`
-	Auth   AuthConfig    `json:"auth"`
-	Tunnel tunnel.Config `json:"tunnel"`
+	Server   ServerConfig   `json:"server"`
+	Admin    AdminConfig    `json:"admin"`
+	Auth     AuthConfig     `json:"auth"`
+	Features FeaturesConfig `json:"features"`
+	Tunnel   tunnel.Config  `json:"tunnel"`
 }
 
 type ServerConfig struct {
@@ -51,8 +53,10 @@ type AuthConfig struct {
 	AdminTokenHash string `json:"admin_token_hash,omitempty"`
 }
 
+type FeaturesConfig = features.Config
+
 func Default() Config {
-	return Config{Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {

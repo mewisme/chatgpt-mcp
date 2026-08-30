@@ -23,7 +23,7 @@ func writeProtocolErrorStatusID(w http.ResponseWriter, status int, id any, proto
 	_ = json.NewEncoder(w).Encode(Response{JSONRPC: "2.0", ID: id, Error: protocolErr})
 }
 
-func HandleRequest(runtime ToolRuntime, req Request) Response {
+func HandleRequest(runtime *ToolRuntime, req Request) Response {
 	response := Response{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "tools/list":

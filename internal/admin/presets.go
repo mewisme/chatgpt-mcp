@@ -45,11 +45,12 @@ func (api API) handleConfigPreset(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		status := http.StatusInternalServerError
 		next, err := api.Config.Update(func(next config.Config) (config.Config, error) {
+			previous := next
 			if err := config.ApplyPreset(&next, name); err != nil {
 				status = http.StatusBadRequest
 				return next, err
 			}
-			return next, config.Save(next)
+			return next, api.persistConfigWithFeatures(next, previous)
 		})
 		if err != nil {
 			http.Error(w, err.Error(), status)

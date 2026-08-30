@@ -12,7 +12,8 @@ import (
 )
 
 func TestNewSharesToolRuntime(t *testing.T) {
-	app := New(config.Config{})
+	cfg := config.Default()
+	app := New(cfg)
 	if app.Tools == nil || app.MCP == nil || app.MCP.Server == nil {
 		t.Fatal("app runtime was not initialized")
 	}
@@ -21,6 +22,24 @@ func TestNewSharesToolRuntime(t *testing.T) {
 	}
 	if app.Upstream != app.Tools.Upstream {
 		t.Fatal("Admin and tool runtime do not share the same upstream manager")
+	}
+	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
+		t.Fatal("default app missing ponytail feature tool")
+	}
+	if _, ok := app.Tools.Registry.Schema("caveman_turn"); !ok {
+		t.Fatal("default app missing caveman feature tool")
+	}
+}
+
+func TestNewHonorsDisabledFeatures(t *testing.T) {
+	cfg := config.Default()
+	cfg.Features.Ponytail.Enabled = false
+	app := New(cfg)
+	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); ok {
+		t.Fatal("disabled ponytail tool registered")
+	}
+	if _, ok := app.Tools.Registry.Schema("caveman_turn"); !ok {
+		t.Fatal("enabled caveman tool missing")
 	}
 }
 

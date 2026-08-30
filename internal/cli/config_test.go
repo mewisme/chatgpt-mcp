@@ -31,8 +31,34 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "tunnel.organization_id", "org-test"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureAll || cfg.Admin.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
+	if err := setConfigValue(&cfg, "features.ponytail.enabled", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setConfigValue(&cfg, "features.caveman.enabled", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureAll || cfg.Admin.Enabled || cfg.Features.Ponytail.Enabled || cfg.Features.Caveman.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
 		t.Fatalf("cfg = %#v", cfg)
+	}
+}
+
+func TestFeatureConfigTraversal(t *testing.T) {
+	cfg := config.Default()
+	value, err := getConfigValue(cfg, "features")
+	if err != nil {
+		t.Fatal(err)
+	}
+	features, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("features = %#v", value)
+	}
+	ponytail, ok := features["ponytail"].(map[string]any)
+	if !ok || ponytail["enabled"] != true {
+		t.Fatalf("ponytail = %#v", features["ponytail"])
+	}
+	leaf, err := getConfigValue(cfg, "features.caveman.enabled")
+	if err != nil || leaf != true {
+		t.Fatalf("caveman leaf = %#v %v", leaf, err)
 	}
 }
 

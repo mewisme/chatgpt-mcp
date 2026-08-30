@@ -238,6 +238,18 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 			return err
 		}
 		cfg.Auth.AdminEnabled = value
+	case "features.ponytail.enabled":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Features.Ponytail.Enabled = value
+	case "features.caveman.enabled":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Features.Caveman.Enabled = value
 	case "tunnel.enabled":
 		value, err := parseBool(raw, key)
 		if err != nil {

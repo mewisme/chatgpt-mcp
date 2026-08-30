@@ -114,7 +114,7 @@ func tunnelRunCommand() *cobra.Command {
 		}
 
 		log := logger.NewCLIWithWriter(cmd.OutOrStdout())
-		runtime := tools.NewRuntime()
+		runtime := tools.NewRuntimeWithFeatures(cfg.Features)
 		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 		defer runtimeCancel()

@@ -60,10 +60,11 @@ export type PublicConfig = {
   server: { port: number; expose: { mode: "none" | "all" | "interfaces"; interfaces: string[] } }
   admin: { enabled: boolean; port: number }
   auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
+  features: { ponytail: { enabled: boolean }; caveman: { enabled: boolean } }
 }
 export type NetworkAddress = { address: string; interface?: string; scope: "local" | "lan" | "network" | string }
 export type NetworkInterface = { name: string; addresses: NetworkAddress[] }
-export type ConfigPreset = { name: string; description: string; server: PublicConfig["server"]; admin: PublicConfig["admin"]; mcp_auth_enabled: boolean; admin_auth_enabled: boolean; tunnel_enabled: boolean }
+export type ConfigPreset = { name: string; description: string; server: PublicConfig["server"]; admin: PublicConfig["admin"]; mcp_auth_enabled: boolean; admin_auth_enabled: boolean; tunnel_enabled: boolean; features: PublicConfig["features"] }
 export type ConfigPresetList = { current: string; presets: ConfigPreset[] }
 export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; control_plane_base_url?: string; organization_id?: string }
 export type TunnelStatus = { provider: "openai" | string; enabled: boolean; running: boolean; ready: boolean; id?: string; control_plane_base_url?: string; organization_id?: string; started_at?: string; last_error?: string }

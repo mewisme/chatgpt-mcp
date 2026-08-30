@@ -20,6 +20,8 @@ func TestApplyPresetPreservesSecretsAndTunnelDetails(t *testing.T) {
 	cfg.Tunnel.ID = "tunnel-id"
 	cfg.Tunnel.ControlPlaneBaseURL = "https://api.openai.com"
 	cfg.Tunnel.OrganizationID = "org-test"
+	cfg.Features.Ponytail.Enabled = false
+	cfg.Features.Caveman.Enabled = false
 
 	if err := ApplyPreset(&cfg, "lan"); err != nil {
 		t.Fatal(err)
@@ -33,6 +35,9 @@ func TestApplyPresetPreservesSecretsAndTunnelDetails(t *testing.T) {
 	if cfg.Tunnel.APIKey != "tunnel-secret" || cfg.Tunnel.ID != "tunnel-id" ||
 		cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
 		t.Fatal("tunnel details changed")
+	}
+	if !cfg.Features.Ponytail.Enabled || !cfg.Features.Caveman.Enabled {
+		t.Fatalf("preset features = %#v", cfg.Features)
 	}
 }
 
@@ -55,6 +60,11 @@ func TestMatchPreset(t *testing.T) {
 	cfg.Server.Port++
 	if got := MatchPreset(cfg); got != "custom" {
 		t.Fatalf("preset = %q", got)
+	}
+	cfg = Default()
+	cfg.Features.Caveman.Enabled = false
+	if got := MatchPreset(cfg); got != "custom" {
+		t.Fatalf("feature-custom preset = %q", got)
 	}
 }
 

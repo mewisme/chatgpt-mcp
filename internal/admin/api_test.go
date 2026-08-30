@@ -138,6 +138,104 @@ func TestHealthReportsAdminAuthState(t *testing.T) {
 	}
 }
 
+func TestConfigAPIFeaturePatchUpdatesRuntimeCatalog(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
+	handler := New(API{Config: store, Tools: runtime})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"ponytail":{"enabled":false}}}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Features; got.Ponytail.Enabled || !got.Caveman.Enabled {
+		t.Fatalf("stored features = %#v", got)
+	}
+	if _, ok := runtime.Registry.Schema("ponytail_turn"); ok {
+		t.Fatal("ponytail tool survived Admin disable")
+	}
+	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
+		t.Fatal("caveman tool disappeared after ponytail disable")
+	}
+	if !strings.Contains(recorder.Body.String(), `"features":{"ponytail":{"enabled":false},"caveman":{"enabled":true}}`) {
+		t.Fatalf("feature config missing from response: %s", recorder.Body.String())
+	}
+}
+
+func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeCatalog(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := filepath.Join(home, ".config", "chatgpt-mcp")
+	if err := os.MkdirAll(filepath.Join(root, "config.json", "block"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
+	handler := New(API{Config: store, Tools: runtime})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"ponytail":{"enabled":false}}}`)))
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Features; !got.Ponytail.Enabled || !got.Caveman.Enabled {
+		t.Fatalf("store changed after persistence failure: %#v", got)
+	}
+	if got := runtime.Features(); !got.Ponytail.Enabled || !got.Caveman.Enabled {
+		t.Fatalf("runtime features changed after persistence failure: %#v", got)
+	}
+	if _, ok := runtime.Registry.Schema("ponytail_turn"); !ok {
+		t.Fatal("ponytail tool was not restored after persistence failure")
+	}
+	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
+		t.Fatal("caveman tool disappeared after persistence failure")
+	}
+}
+
+func TestConfigAPIFeatureRuntimeFailureRollsBackPersistedConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Features.Caveman.Enabled = false
+	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewRuntimeStore(cfg)
+	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
+	if err := runtime.Registry.Register("caveman_turn", tools.Schema{Name: "caveman_turn"}, func(context.Context, map[string]any) (tools.Result, error) {
+		return tools.TextResult("collision"), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(API{Config: store, Tools: runtime})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"caveman":{"enabled":true}}}`)))
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Features; !got.Ponytail.Enabled || got.Caveman.Enabled {
+		t.Fatalf("store changed after runtime sync failure: %#v", got)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Features.Ponytail.Enabled || loaded.Features.Caveman.Enabled {
+		t.Fatalf("persisted config was not rolled back: %#v", loaded.Features)
+	}
+	if got := runtime.Features(); !got.Ponytail.Enabled || got.Caveman.Enabled {
+		t.Fatalf("runtime features changed after failed sync: %#v", got)
+	}
+}
+
 func TestWorkspaceAPICRUD(t *testing.T) {
 	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
 	root := t.TempDir()

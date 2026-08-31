@@ -17,7 +17,7 @@ func TestStableBinaryPathPreservesLauncherSymlink(t *testing.T) {
 	if err := os.WriteFile(target, []byte("binary"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	launcher := filepath.Join(dir, "bin", "cmcp")
+	launcher := filepath.Join(dir, "bin", "cgm")
 	if err := os.MkdirAll(filepath.Dir(launcher), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestStableBinaryPathPreservesLauncherSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", filepath.Dir(launcher))
-	resolved, err := StableBinaryPath("cmcp")
+	resolved, err := StableBinaryPath("cgm")
 	if err != nil {
 		t.Fatal(err)
 	}

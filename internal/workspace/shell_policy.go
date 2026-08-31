@@ -209,7 +209,7 @@ func isControlPlaneMutation(command string, depth int) bool {
 
 func isChatGPTMCPBinary(name string) bool {
 	switch strings.ToLower(strings.TrimSuffix(filepath.Base(name), ".exe")) {
-	case "chatgpt-mcp", "cmcp":
+	case "chatgpt-mcp", "cgm", "cmcp":
 		return true
 	default:
 		return false

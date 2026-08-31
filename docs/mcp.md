@@ -70,7 +70,7 @@ Authorization: Bearer <mcp-token>
 Create or rotate the token with:
 
 ```bash
-cmcp auth mcp create
+cgm auth mcp create
 ```
 
 The OpenAI Secure MCP Tunnel runtime key is unrelated to this local MCP bearer token. The tunnel key authenticates the embedded tunnel client to OpenAI's control plane.
@@ -82,7 +82,7 @@ Tools that operate on the filesystem, shell, Git, processes, rules, skills, cont
 Register:
 
 ```bash
-cmcp workspace register ~/projects/my-project
+cgm workspace register ~/projects/my-project
 ```
 
 The workspace ID is stable and does not silently switch to another project.
@@ -96,8 +96,8 @@ Effective filesystem scope is described in [Security](security.md).
 Start with:
 
 ```bash
-cmcp mcp --help
-cmcp mcp server --help
+cgm mcp --help
+cgm mcp server --help
 ```
 
 Upstream definitions can also be managed in the embedded admin dashboard.
@@ -105,19 +105,19 @@ Upstream definitions can also be managed in the embedded admin dashboard.
 Common management commands:
 
 ```bash
-cmcp mcp server list
-cmcp mcp server show <id>
-cmcp mcp server status <id>
-cmcp mcp server tools <id>
-cmcp mcp server enable <id>
-cmcp mcp server disable <id>
-cmcp mcp server remove <id>
+cgm mcp server list
+cgm mcp server show <id>
+cgm mcp server status <id>
+cgm mcp server tools <id>
+cgm mcp server enable <id>
+cgm mcp server disable <id>
+cgm mcp server remove <id>
 ```
 
 Add an HTTP upstream:
 
 ```bash
-cmcp mcp server add example \
+cgm mcp server add example \
   --transport http \
   --url https://mcp.example.com/mcp \
   --auth auto \
@@ -127,7 +127,7 @@ cmcp mcp server add example \
 Add a local stdio upstream:
 
 ```bash
-cmcp mcp server add local-tools \
+cgm mcp server add local-tools \
   --transport stdio \
   --command node \
   --arg /path/to/server.mjs \
@@ -149,7 +149,7 @@ Useful add/configure controls include:
 Update selected fields with:
 
 ```bash
-cmcp mcp server configure <id> [flags]
+cgm mcp server configure <id> [flags]
 ```
 
 `configure` also has the alias `set`.
@@ -159,9 +159,9 @@ cmcp mcp server configure <id> [flags]
 HTTP upstreams can use OAuth. Credentials/state are stored separately from normal runtime configuration.
 
 ```bash
-cmcp mcp server auth login <id>
-cmcp mcp server auth status <id>
-cmcp mcp server auth logout <id>
+cgm mcp server auth login <id>
+cgm mcp server auth status <id>
+cgm mcp server auth logout <id>
 ```
 
 Upstream tool discovery and proxy refresh are designed to be atomic:
@@ -217,8 +217,8 @@ See [OpenAI + ChatGPT setup](openai-chatgpt.md).
 The MCP tool catalog includes a read-only runtime version tool where supported by the current binary. The CLI also exposes:
 
 ```bash
-cmcp version
-cmcp --version
+cgm version
+cgm --version
 ```
 
 Version metadata can include build version, commit, and build time depending on how the binary was produced.

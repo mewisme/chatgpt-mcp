@@ -17,19 +17,19 @@ registered workspace root
 Register a workspace:
 
 ```bash
-cmcp workspace register ~/projects/my-project
+cgm workspace register ~/projects/my-project
 ```
 
 Grant a workspace one additional root:
 
 ```bash
-cmcp workspace access add ws_... /path/to/build-cache
+cgm workspace access add ws_... /path/to/build-cache
 ```
 
 Grant all workspaces a global root:
 
 ```bash
-cmcp config set permissions.allow_dirs /tmp,/var/tmp/chatgpt-mcp
+cgm config set permissions.allow_dirs /tmp,/var/tmp/chatgpt-mcp
 ```
 
 Paths are canonicalized and symlink escapes are rejected.
@@ -40,7 +40,7 @@ Revoking an allowed root also prevents old checkpoints from restoring files back
 
 Shell/process descendants launched by MCP tools are marked as MCP tool execution context.
 
-In that context, the `cmcp` CLI is fail-closed. Read-only inspection is allowed, while control-plane mutations are denied.
+In that context, the `cgm` CLI is fail-closed. Read-only inspection is allowed, while control-plane mutations are denied.
 
 Examples of read-only operations:
 
@@ -76,7 +76,7 @@ upstream MCP mutations
 tunnel configuration/enable/disable
 ```
 
-The shell policy also recognizes common nested-shell/wrapper patterns rather than checking only a direct `cmcp` command.
+The shell policy also recognizes common nested-shell/wrapper patterns rather than checking only a direct `cgm` command.
 
 ## Protected config/state subtree
 
@@ -99,14 +99,14 @@ If you need a strong boundary against hostile local code, use an OS-level sandbo
 Create/rotate:
 
 ```bash
-cmcp auth mcp create
-cmcp auth admin create
+cgm auth mcp create
+cgm auth admin create
 ```
 
 Inspect without exposing hashes:
 
 ```bash
-cmcp auth status
+cgm auth status
 ```
 
 Direct clients authenticate enabled endpoints with:
@@ -124,10 +124,10 @@ Default exposure is loopback-only.
 Persist exposure:
 
 ```bash
-cmcp config set server.expose none
-cmcp config set server.expose all
-cmcp config set server.expose eth0,tailscale0
-cmcp config set server.expose 0.0.0.0
+cgm config set server.expose none
+cgm config set server.expose all
+cgm config set server.expose eth0,tailscale0
+cgm config set server.expose 0.0.0.0
 ```
 
 `0.0.0.0` is intentionally stricter: wildcard exposure is rejected unless both MCP and Admin authentication are enabled with configured tokens.
@@ -199,7 +199,7 @@ Structured metadata such as component, event name, workspace, tool, status, sour
 Use:
 
 ```bash
-cmcp logs path
+cgm logs path
 ```
 
 to locate the selected instance's journal.
@@ -215,7 +215,7 @@ CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
 or:
 
 ```bash
-cmcp --config-dir /tmp/cmcp-test init
+cgm --config-dir /tmp/cgm-test init
 ```
 
 The repository test/smoke workflow treats avoiding the real default config directory as an invariant.
@@ -225,12 +225,12 @@ The repository test/smoke workflow treats avoiding the real default config direc
 On Linux/macOS:
 
 ```bash
-cmcp up --system
+cgm up --system
 ```
 
 uses system-level service registration. The CLI elevates only the service-management operation through `sudo` when needed, while the MCP process itself is configured to run as the invoking user rather than root.
 
-On Windows, `cmcp up` uses a per-user Scheduled Task with least privilege and does not run as LocalSystem.
+On Windows, `cgm up` uses a per-user Scheduled Task with least privilege and does not run as LocalSystem.
 
 See [Runtime and services](runtime.md).
 
@@ -242,5 +242,5 @@ See [Runtime and services](runtime.md).
 - Register only the workspace roots ChatGPT needs.
 - Add extra directories narrowly and per-workspace where possible.
 - Keep Admin auth enabled whenever the Admin endpoint is reachable beyond loopback.
-- Review `cmcp logs --debug` when diagnosing access or tunnel behavior, but avoid publishing raw diagnostic logs without checking their contents.
+- Review `cgm logs --debug` when diagnosing access or tunnel behavior, but avoid publishing raw diagnostic logs without checking their contents.
 - Run risky tool workloads in an OS sandbox/separate identity when application-level workspace controls are not a sufficient trust boundary.

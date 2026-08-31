@@ -82,7 +82,7 @@ func TestManagedUpAndDownLifecycle(t *testing.T) {
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
-	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root, Binary: "/fake/cmcp", Account: managed.Account{Username: "mew", HomeDir: t.TempDir()}}
+	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root, Binary: "/fake/cgm", Account: managed.Account{Username: "mew", HomeDir: t.TempDir()}}
 	manager := &fakeServiceManager{}
 	var output bytes.Buffer
 	cmd := &cobra.Command{Use: "test"}
@@ -95,7 +95,7 @@ func TestManagedUpAndDownLifecycle(t *testing.T) {
 		t.Fatalf("manager after up = %#v", manager)
 	}
 	text := output.String()
-	for _, expected := range []string{"Managed service installed", "View logs: cmcp logs -f", "Stop service: cmcp down", "session", "pid", "tunnel: disabled · not configured"} {
+	for _, expected := range []string{"Managed service installed", "View logs: cgm logs -f", "Stop service: cgm down", "session", "pid", "tunnel: disabled · not configured"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("up output missing %q: %s", expected, text)
 		}
@@ -199,7 +199,7 @@ func TestManagedSystemFlagSelectsSystemScope(t *testing.T) {
 func TestManagedScopeConflictUsesSystemFlagHint(t *testing.T) {
 	spec := managed.Spec{Scope: managed.ScopeUser}
 	err := managedScopeConflict(runtimeStatusResult{Managed: true, ServiceID: "system", ServiceScope: string(managed.ScopeSystem), PID: 123}, spec, "down")
-	if err == nil || !strings.Contains(err.Error(), "cmcp down --system") {
+	if err == nil || !strings.Contains(err.Error(), "cgm down --system") {
 		t.Fatalf("error = %v, want --system hint", err)
 	}
 }

@@ -18,9 +18,9 @@ INSTALL_DIR="${CHATGPT_MCP_INSTALL_DIR:-$HOME/.chatgpt-mcp}"
 BIN_DIR="${CHATGPT_MCP_BIN_DIR:-$HOME/.local/bin}"
 
 if [ "${1:-}" = "--uninstall" ]; then
-	rm -f "$BIN_DIR/chatgpt-mcp" "$BIN_DIR/cmcp"
+	rm -f "$BIN_DIR/chatgpt-mcp" "$BIN_DIR/cgm" "$BIN_DIR/cmcp"
 	rm -rf "$INSTALL_DIR"
-	echo "chatgpt-mcp uninstalled (removed $INSTALL_DIR, $BIN_DIR/chatgpt-mcp, and $BIN_DIR/cmcp)."
+	echo "chatgpt-mcp uninstalled (removed $INSTALL_DIR, $BIN_DIR/chatgpt-mcp, and aliases)."
 	exit 0
 fi
 
@@ -75,7 +75,8 @@ chmod +x "$dest/chatgpt-mcp"
 mkdir -p "$BIN_DIR"
 ln -sfn "$dest" "$INSTALL_DIR/current"
 ln -sf "$INSTALL_DIR/current/chatgpt-mcp" "$BIN_DIR/chatgpt-mcp"
-ln -sf "$INSTALL_DIR/current/chatgpt-mcp" "$BIN_DIR/cmcp"
+rm -f "$BIN_DIR/cmcp"
+ln -sf "$INSTALL_DIR/current/chatgpt-mcp" "$BIN_DIR/cgm"
 
 if [ -d "$INSTALL_DIR/versions" ]; then
 	for d in "$INSTALL_DIR/versions"/*; do
@@ -86,7 +87,7 @@ fi
 
 echo "Installed to $dest"
 echo "Linked $BIN_DIR/chatgpt-mcp"
-echo "Linked $BIN_DIR/cmcp"
+echo "Linked $BIN_DIR/cgm"
 
 on_path=0
 oldifs="$IFS"
@@ -103,4 +104,4 @@ if [ "$on_path" -eq 0 ]; then
 fi
 
 echo ""
-echo "Done. Run: chatgpt-mcp --help or cmcp --help"
+echo "Done. Run: chatgpt-mcp --help or cgm --help"

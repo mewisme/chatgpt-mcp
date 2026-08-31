@@ -25,7 +25,7 @@ Default flow:
   2. pnpm --dir web build
   3. copy web/dist -> internal/web/dist
   4. go install .
-  5. install cmcp alias beside chatgpt-mcp
+  5. install cgm alias beside chatgpt-mcp
 
 Options:
   --no-deps       Skip pnpm install.
@@ -97,11 +97,13 @@ function installedBinaryPath() {
 async function installAlias(binaryPath) {
   const dir = dirname(binaryPath)
   if (process.platform === "win32") {
-    const aliasPath = resolve(dir, "cmcp.cmd")
+    await rm(resolve(dir, "cmcp.cmd"), { force: true })
+    const aliasPath = resolve(dir, "cgm.cmd")
     await writeFile(aliasPath, '@echo off\r\n"%~dp0chatgpt-mcp.exe" %*\r\n', "ascii")
     return aliasPath
   }
-  const aliasPath = resolve(dir, "cmcp")
+  await rm(resolve(dir, "cmcp"), { force: true })
+  const aliasPath = resolve(dir, "cgm")
   await rm(aliasPath, { force: true })
   await symlink(basename(binaryPath), aliasPath)
   return aliasPath

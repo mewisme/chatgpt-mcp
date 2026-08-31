@@ -77,7 +77,7 @@ scoop bucket add mew https://github.com/mewisme/scoop-mew
 scoop install mew/chatgpt-mcp
 ```
 
-Both `chatgpt-mcp` and the shorter `cmcp` alias are installed. The examples below use `cmcp`.
+Both `chatgpt-mcp` and the shorter `cgm` alias are installed. The examples below use `cgm`.
 
 See [Getting started](docs/getting-started.md) for source builds, version pinning, uninstall, and platform details.
 
@@ -86,7 +86,7 @@ See [Getting started](docs/getting-started.md) for source builds, version pinnin
 ### 1. Initialize
 
 ```bash
-cmcp init
+cgm init
 ```
 
 The default config/state root is:
@@ -100,7 +100,7 @@ Use `--config-dir` or `CHATGPT_MCP_CONFIG_DIR` for isolated instances.
 ### 2. Register a workspace
 
 ```bash
-cmcp workspace register ~/projects/my-project
+cgm workspace register ~/projects/my-project
 ```
 
 The returned `workspace_id` is the stable handle used by workspace-bound tools.
@@ -110,7 +110,7 @@ The returned `workspace_id` is the stable handle used by workspace-bound tools.
 Create a tunnel and a restricted runtime API key in OpenAI Platform, then configure them locally:
 
 ```bash
-cmcp tunnel configure \
+cgm tunnel configure \
   --enabled \
   --id tunnel_... \
   --api-key 'sk-...'
@@ -125,25 +125,25 @@ For the complete OpenAI flow — tunnel ID, runtime key, permissions, Developer 
 Foreground:
 
 ```bash
-cmcp serve
+cgm serve
 ```
 
 Managed background service:
 
 ```bash
-cmcp up
+cgm up
 ```
 
 `up` reports the managed scope/backend, runtime session, PID/endpoints, and whether the OpenAI tunnel is enabled, configured, and currently connected/connecting.
 
-On Linux/macOS, `cmcp up --system` installs a machine-level service and automatically elevates through `sudo` when the current process is user-scoped; the MCP process itself still runs as the invoking user. On Windows, `cmcp up` always uses a per-user Scheduled Task.
+On Linux/macOS, `cgm up --system` installs a machine-level service and automatically elevates through `sudo` when the current process is user-scoped; the MCP process itself still runs as the invoking user. On Windows, `cgm up` always uses a per-user Scheduled Task.
 
 ### 5. Verify
 
 ```bash
-cmcp status
-cmcp tunnel status
-cmcp logs -f
+cgm status
+cgm tunnel status
+cgm logs -f
 ```
 
 Then create or enable the developer-mode app in ChatGPT and select the same tunnel.
@@ -152,22 +152,22 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 
 | Goal | Command |
 | --- | --- |
-| Initialize | `cmcp init` |
-| Start foreground | `cmcp serve` |
-| Start managed service | `cmcp up` |
-| Stop/remove managed service | `cmcp down` |
-| Inspect runtime | `cmcp status` |
-| Follow logs | `cmcp logs -f` |
-| Full diagnostic logs | `cmcp logs --debug -f` |
-| Verify config/state | `cmcp config verify` |
-| Reload persisted config | `cmcp config reload` |
-| Register workspace | `cmcp workspace register <path>` |
-| Add workspace access | `cmcp workspace access add <workspace_id> <path>` |
-| Inspect tunnel | `cmcp tunnel status` |
-| Manage upstream MCPs | `cmcp mcp --help` |
-| Rotate MCP/admin credentials | `cmcp auth --help` |
+| Initialize | `cgm init` |
+| Start foreground | `cgm serve` |
+| Start managed service | `cgm up` |
+| Stop/remove managed service | `cgm down` |
+| Inspect runtime | `cgm status` |
+| Follow logs | `cgm logs -f` |
+| Full diagnostic logs | `cgm logs --debug -f` |
+| Verify config/state | `cgm config verify` |
+| Reload persisted config | `cgm config reload` |
+| Register workspace | `cgm workspace register <path>` |
+| Add workspace access | `cgm workspace access add <workspace_id> <path>` |
+| Inspect tunnel | `cgm tunnel status` |
+| Manage upstream MCPs | `cgm mcp --help` |
+| Rotate MCP/admin credentials | `cgm auth --help` |
 
-`--verbose`, `--debug`, and `--log-format=json` are global flags. Use `cmcp <command> --help` for the live command surface.
+`--verbose`, `--debug`, and `--log-format=json` are global flags. Use `cgm <command> --help` for the live command surface.
 
 ## Runtime endpoints
 

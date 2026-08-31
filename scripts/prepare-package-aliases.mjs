@@ -20,25 +20,25 @@ const homebrewPath = resolve(options.homebrew)
 if (options.check) {
   await checkScoop(scoopPath)
   await checkHomebrew(homebrewPath)
-  console.log("[OK] package aliases verified: chatgpt-mcp + cmcp")
+  console.log("[OK] package aliases verified: chatgpt-mcp + cgm")
 } else {
   await patchScoop(scoopPath)
   await patchHomebrew(homebrewPath)
-  console.log("[OK] package aliases prepared: chatgpt-mcp + cmcp")
+  console.log("[OK] package aliases prepared: chatgpt-mcp + cgm")
 }
 
 async function patchScoop(path) {
   const manifest = JSON.parse(await readFile(path, "utf8"))
   const scopes = scoopScopes(manifest)
   if (scopes.length === 0) fail(`Scoop manifest has no bin entries: ${path}`)
-  for (const scope of scopes) scope.bin = [["chatgpt-mcp.exe", "chatgpt-mcp"], ["chatgpt-mcp.exe", "cmcp"]]
+  for (const scope of scopes) scope.bin = [["chatgpt-mcp.exe", "chatgpt-mcp"], ["chatgpt-mcp.exe", "cgm"]]
   await writeFile(path, `${JSON.stringify(manifest, null, 4)}\n`)
 }
 
 async function checkScoop(path) {
   const manifest = JSON.parse(await readFile(path, "utf8"))
   const scopes = scoopScopes(manifest)
-  if (scopes.length === 0 || scopes.some((scope) => !hasScoopAlias(scope.bin, "chatgpt-mcp") || !hasScoopAlias(scope.bin, "cmcp"))) fail(`Scoop aliases missing: ${path}`)
+  if (scopes.length === 0 || scopes.some((scope) => !hasScoopAlias(scope.bin, "chatgpt-mcp") || !hasScoopAlias(scope.bin, "cgm"))) fail(`Scoop aliases missing: ${path}`)
 }
 
 function scoopScopes(manifest) {
@@ -53,17 +53,18 @@ function hasScoopAlias(bin, alias) {
 }
 
 async function patchHomebrew(path) {
-  const content = await readFile(path, "utf8")
-  if (/^\s*binary "chatgpt-mcp", target: "cmcp"\s*$/m.test(content)) return
-  const match = content.match(/^(\s*)binary "chatgpt-mcp"\s*$/m)
-  if (!match) fail(`Homebrew chatgpt-mcp binary stanza missing: ${path}`)
-  const next = content.replace(match[0], `${match[0]}\n${match[1]}binary "chatgpt-mcp", target: "cmcp"`)
-  await writeFile(path, next.endsWith("\n") ? next : `${next}\n`)
+  let content = (await readFile(path, "utf8")).replace(/^\s*binary "chatgpt-mcp", target: "cmcp"\s*\n?/gm, "")
+  if (!/^\s*binary "chatgpt-mcp", target: "cgm"\s*$/m.test(content)) {
+    const match = content.match(/^(\s*)binary "chatgpt-mcp"\s*$/m)
+    if (!match) fail(`Homebrew chatgpt-mcp binary stanza missing: ${path}`)
+    content = content.replace(match[0], `${match[0]}\n${match[1]}binary "chatgpt-mcp", target: "cgm"`)
+  }
+  await writeFile(path, content.endsWith("\n") ? content : `${content}\n`)
 }
 
 async function checkHomebrew(path) {
   const content = await readFile(path, "utf8")
-  if (!/^\s*binary "chatgpt-mcp"\s*$/m.test(content) || !/^\s*binary "chatgpt-mcp", target: "cmcp"\s*$/m.test(content)) fail(`Homebrew aliases missing: ${path}`)
+  if (!/^\s*binary "chatgpt-mcp"\s*$/m.test(content) || !/^\s*binary "chatgpt-mcp", target: "cgm"\s*$/m.test(content) || /^\s*binary "chatgpt-mcp", target: "cmcp"\s*$/m.test(content)) fail(`Homebrew aliases invalid: ${path}`)
 }
 
 function fail(message) {

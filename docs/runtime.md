@@ -5,7 +5,7 @@
 ## Foreground: `serve`
 
 ```bash
-cmcp serve
+cgm serve
 ```
 
 Use this for:
@@ -20,17 +20,17 @@ The process remains attached to the current terminal/session. Closing an SSH ses
 Examples:
 
 ```bash
-cmcp serve
-cmcp serve --verbose
-cmcp serve --debug
-cmcp serve --log-format=json
-cmcp serve --expose=eth0
+cgm serve
+cgm serve --verbose
+cgm serve --debug
+cgm serve --log-format=json
+cgm serve --expose=eth0
 ```
 
 ## Managed runtime: `up`
 
 ```bash
-cmcp up
+cgm up
 ```
 
 `up` resolves the selected config root, creates or updates the appropriate OS service definition, starts it, waits for the local runtime control channel, and prints enough context for the user to understand what was installed.
@@ -51,7 +51,7 @@ If a foreground `serve` is already using the selected config root, `up` refuses 
 ## Stop/remove: `down`
 
 ```bash
-cmcp down
+cgm down
 ```
 
 `down` stops and removes the managed service for the selected scope. It does **not** delete:
@@ -62,14 +62,14 @@ cmcp down
 - OAuth/upstream state
 - runtime logs
 
-Use `cmcp uninit` only when you intentionally want to remove the selected local config/state root.
+Use `cgm uninit` only when you intentionally want to remove the selected local config/state root.
 
 ## Linux service behavior
 
 ### Normal user
 
 ```bash
-cmcp up
+cgm up
 ```
 
 Uses:
@@ -85,10 +85,10 @@ If user lingering is disabled, `chatgpt-mcp` warns that the user service manager
 ### Machine-level scope
 
 ```bash
-cmcp up --system
+cgm up --system
 ```
 
-Uses a system-level systemd unit and starts with the machine. From a normal user shell, the CLI detects user scope and automatically re-executes its stable absolute launcher through `sudo`, avoiding `sudo secure_path` issues when `cmcp` lives under `~/.local/bin`.
+Uses a system-level systemd unit and starts with the machine. From a normal user shell, the CLI detects user scope and automatically re-executes its stable absolute launcher through `sudo`, avoiding `sudo secure_path` issues when `cgm` lives under `~/.local/bin`.
 
 The service itself still runs the MCP process as the invoking user from `SUDO_USER`; `chatgpt-mcp` does not run the MCP runtime as root.
 
@@ -97,17 +97,17 @@ The default config root is also resolved for the invoking user instead of `/root
 Stop/remove the matching system service with:
 
 ```bash
-cmcp down --system
+cgm down --system
 ```
 
-Normal `cmcp down` does not silently remove the system-scope service. Direct `sudo /absolute/path/cmcp up|down` remains supported for compatibility.
+Normal `cgm down` does not silently remove the system-scope service. Direct `sudo /absolute/path/cgm up|down` remains supported for compatibility.
 
 ## macOS service behavior
 
 Normal:
 
 ```bash
-cmcp up
+cgm up
 ```
 
 uses a user LaunchAgent.
@@ -115,7 +115,7 @@ uses a user LaunchAgent.
 Machine-level:
 
 ```bash
-cmcp up --system
+cgm up --system
 ```
 
 uses a system LaunchDaemon, but the daemon's `UserName` remains the invoking user. The CLI elevates through `sudo` automatically when needed.
@@ -125,14 +125,14 @@ Use the same privilege/scope to remove it with `down`.
 ## Windows service behavior
 
 ```powershell
-cmcp up
+cgm up
 ```
 
 uses a per-user Task Scheduler task.
 
 The task uses the current user, an interactive token, and least privilege. It does not run as LocalSystem and does not store the user's password.
 
-An elevated terminal does not switch `cmcp up` to a LocalSystem/system-service mode.
+An elevated terminal does not switch `cgm up` to a LocalSystem/system-service mode.
 
 ## Service identity and parallel config roots
 
@@ -141,9 +141,9 @@ Managed service identity includes a stable hash of the canonical config root. Th
 For example:
 
 ```bash
-cmcp up
-cmcp --config-dir ~/cmcp-dev up
-cmcp --config-dir ~/cmcp-test up
+cgm up
+cgm --config-dir ~/cgm-dev up
+cgm --config-dir ~/cgm-test up
 ```
 
 Each selected root maps to a distinct managed service.
@@ -153,7 +153,7 @@ On Linux/macOS, user and system scopes also have distinct service identities.
 ## Inspect status
 
 ```bash
-cmcp status
+cgm status
 ```
 
 Status reports information such as:
@@ -191,13 +191,13 @@ The control token is stored under the protected config/state root and is not int
 Persist a change:
 
 ```bash
-cmcp config set server.port 41021
+cgm config set server.port 41021
 ```
 
 Then apply it to the running process:
 
 ```bash
-cmcp config reload
+cgm config reload
 ```
 
 Reload does not restart the process.
@@ -237,28 +237,28 @@ Every runtime process has a stable `run_id` for its lifetime. New runtimes also 
 ### Replay
 
 ```bash
-cmcp logs
-cmcp logs -n 200
-cmcp logs --verbose
-cmcp logs --debug
-cmcp logs --log-format=json
+cgm logs
+cgm logs -n 200
+cgm logs --verbose
+cgm logs --debug
+cgm logs --log-format=json
 ```
 
-Text replay shows `HH:MM:SS` on primary event lines by default. Indented detail lines do not repeat the timestamp. Normal command output such as `cmcp status`, `cmcp up`, or foreground `cmcp serve` remains timestamp-free, including debug mode.
+Text replay shows `HH:MM:SS` on primary event lines by default. Indented detail lines do not repeat the timestamp. Normal command output such as `cgm status`, `cgm up`, or foreground `cgm serve` remains timestamp-free, including debug mode.
 
 Hide replay timestamps when desired:
 
 ```bash
-cmcp logs --no-time
+cgm logs --no-time
 ```
 
 The session separator includes the local date and time; individual event lines only repeat `HH:MM:SS`.
 
-Filter a single runtime session using the full ID or the shortened prefix printed in the session separator / `cmcp status` / `cmcp up`:
+Filter a single runtime session using the full ID or the shortened prefix printed in the session separator / `cgm status` / `cgm up`:
 
 ```bash
-cmcp logs --session run_a1b2c3d4e5f6
-cmcp logs --session run_a1b2c3d4e5f6 -f
+cgm logs --session run_a1b2c3d4e5f6
+cgm logs --session run_a1b2c3d4e5f6 -f
 ```
 
 JSON replay does not emit the text separator; each JSON event instead carries `run_id`, `pid`, and managed service metadata where applicable.
@@ -266,9 +266,9 @@ JSON replay does not emit the text separator; each JSON event instead carries `r
 ### Follow
 
 ```bash
-cmcp logs -f
-cmcp logs follow
-cmcp logs --debug -f
+cgm logs -f
+cgm logs follow
+cgm logs --debug -f
 ```
 
 Follow first reads matching history and then switches to the authenticated live runtime event stream. It does not poll the journal file.
@@ -276,17 +276,17 @@ Follow first reads matching history and then switches to the authenticated live 
 ### Filters
 
 ```bash
-cmcp logs --since 30m
-cmcp logs --until 2026-08-31T12:00:00+07:00
-cmcp logs --session run_a1b2c3d4e5f6
-cmcp logs --level warn
-cmcp logs --component SERVER,TUNNEL
-cmcp logs --workspace ws_...
-cmcp logs --workspace ~/projects/my-project
-cmcp logs --tool run_command --status error
-cmcp logs --source tunnel
-cmcp logs --event 'tool.call.*'
-cmcp logs --grep timeout
+cgm logs --since 30m
+cgm logs --until 2026-08-31T12:00:00+07:00
+cgm logs --session run_a1b2c3d4e5f6
+cgm logs --level warn
+cgm logs --component SERVER,TUNNEL
+cgm logs --workspace ws_...
+cgm logs --workspace ~/projects/my-project
+cgm logs --tool run_command --status error
+cgm logs --source tunnel
+cgm logs --event 'tool.call.*'
+cgm logs --grep timeout
 ```
 
 Filters operate on structured event fields before CLI rendering.
@@ -294,13 +294,13 @@ Filters operate on structured event fields before CLI rendering.
 ### Journal location
 
 ```bash
-cmcp logs path
+cgm logs path
 ```
 
 ### Clear logs
 
 ```bash
-cmcp logs clear --force
+cgm logs clear --force
 ```
 
 If the runtime is running, clearing is performed through the runtime control channel so the active writer can safely reset journal state. If stopped, files are cleared directly.
@@ -319,6 +319,6 @@ Normal text output intentionally avoids noisy level/component prefixes. Stable m
 → action
 ```
 
-Use `--verbose` for operational context and `--debug` for full diagnostics including levels, components, event names, IDs, TLS/proxy metadata, and low-level tunnel/runtime events. Historical/live `cmcp logs` adds timestamps independently of visibility mode.
+Use `--verbose` for operational context and `--debug` for full diagnostics including levels, components, event names, IDs, TLS/proxy metadata, and low-level tunnel/runtime events. Historical/live `cgm logs` adds timestamps independently of visibility mode.
 
 Use `--log-format=json` when logs will be consumed by automation.

@@ -73,7 +73,7 @@ try {
       try {
         Remove-Item -Recurse -Force $current
       } catch {
-        throw 'chatgpt-mcp: the existing current install is using the legacy directory layout and is still locked. Run cmcp down once, then rerun the installer and cmcp up.'
+        throw 'chatgpt-mcp: the existing current install is using the legacy directory layout and is still locked. Run cgm down once, then rerun the installer and cgm up.'
       }
     } else {
       Move-Item -Path $current -Destination $previousCurrent
@@ -88,7 +88,9 @@ try {
 }
 
 $currentExe = Join-Path $current 'chatgpt-mcp.exe'
-$alias = Join-Path $current 'cmcp.cmd'
+$legacyAlias = Join-Path $current 'cmcp.cmd'
+if (Test-Path $legacyAlias) { Remove-Item -Force $legacyAlias }
+$alias = Join-Path $current 'cgm.cmd'
 @('@echo off', '"%~dp0chatgpt-mcp.exe" %*') | Set-Content -Path $alias -Encoding Ascii
 
 Get-ChildItem -Path $versions -Directory -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $dest } | ForEach-Object {
@@ -109,4 +111,4 @@ if ($installDir -eq $defaultInstall) {
 Write-Host "Installed to $dest"
 Write-Host "Current: $currentExe"
 Write-Host "Alias: $alias"
-Write-Host 'Run: chatgpt-mcp --help or cmcp --help'
+Write-Host 'Run: chatgpt-mcp --help or cgm --help'

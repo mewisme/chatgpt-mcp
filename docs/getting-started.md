@@ -34,10 +34,10 @@ The installers expose both commands:
 
 ```text
 chatgpt-mcp
-cmcp
+cgm
 ```
 
-The rest of this guide uses `cmcp`.
+The rest of this guide uses `cgm`.
 
 ## Pin a release
 
@@ -70,21 +70,21 @@ Windows:
 & ([scriptblock]::Create((irm https://get.mewis.me/chatgpt-mcp.ps1))) -Uninstall
 ```
 
-Binary uninstall and `cmcp uninit` are different operations. `uninit` removes the selected `chatgpt-mcp` config/state root; the installer uninstall removes the installed command.
+Binary uninstall and `cgm uninit` are different operations. `uninit` removes the selected `chatgpt-mcp` config/state root; the installer uninstall removes the installed command.
 
 ## Initialize
 
 ```bash
-cmcp init
+cgm init
 ```
 
 JSON is the default storage format. YAML and TOML are also supported:
 
 ```bash
-cmcp init --json
-cmcp init --yaml
-cmcp init --toml
-cmcp init --format toml
+cgm init --json
+cgm init --yaml
+cgm init --toml
+cgm init --format toml
 ```
 
 Initialization creates the local configuration and authentication material under:
@@ -100,16 +100,16 @@ on the selected user account.
 Use an isolated root for tests, experiments, or parallel instances:
 
 ```bash
-cmcp --config-dir ./.tmp/cmcp-dev init
-cmcp --config-dir ./.tmp/cmcp-dev serve
+cgm --config-dir ./.tmp/cgm-dev init
+cgm --config-dir ./.tmp/cgm-dev serve
 ```
 
 or:
 
 ```bash
-export CHATGPT_MCP_CONFIG_DIR="$PWD/.tmp/cmcp-dev"
-cmcp init
-cmcp serve
+export CHATGPT_MCP_CONFIG_DIR="$PWD/.tmp/cgm-dev"
+cgm init
+cgm serve
 ```
 
 Precedence is:
@@ -127,7 +127,7 @@ The selected root includes configuration, tunnel secrets, workspaces, OAuth/upst
 ## Register your first workspace
 
 ```bash
-cmcp workspace register ~/projects/my-project
+cgm workspace register ~/projects/my-project
 ```
 
 Example output includes a stable ID such as:
@@ -141,15 +141,15 @@ Use the workspace ID in tool calls and workspace-specific access rules.
 Inspect registered workspaces:
 
 ```bash
-cmcp workspace list
-cmcp workspace show ws_...
+cgm workspace list
+cgm workspace show ws_...
 ```
 
 Grant one workspace access to an extra directory:
 
 ```bash
-cmcp workspace access add ws_... /path/to/build-cache
-cmcp workspace access list ws_...
+cgm workspace access add ws_... /path/to/build-cache
+cgm workspace access list ws_...
 ```
 
 See [Configuration](configuration.md) and [Security](security.md) before broadening filesystem scope.
@@ -159,7 +159,7 @@ See [Configuration](configuration.md) and [Security](security.md) before broaden
 Foreground:
 
 ```bash
-cmcp serve
+cgm serve
 ```
 
 Default endpoints:
@@ -172,20 +172,20 @@ Admin: http://127.0.0.1:37422/
 For a managed background runtime:
 
 ```bash
-cmcp up
+cgm up
 ```
 
 Inspect it:
 
 ```bash
-cmcp status
-cmcp logs -f
+cgm status
+cgm logs -f
 ```
 
 Stop and remove only the managed service:
 
 ```bash
-cmcp down
+cgm down
 ```
 
 `down` preserves configuration, workspaces, checkpoints, and runtime logs.

@@ -102,7 +102,7 @@ After creation, copy the tunnel ID:
 tunnel_0123456789abcdef0123456789abcdef
 ```
 
-You will pass this value to `cmcp tunnel configure` and select the same tunnel in ChatGPT.
+You will pass this value to `cgm tunnel configure` and select the same tunnel in ChatGPT.
 
 ### Associate the tunnel with the right workspace
 
@@ -141,19 +141,19 @@ sk-...     = permission for the local runtime to use it
 If you have not initialized the runtime yet:
 
 ```bash
-cmcp init
+cgm init
 ```
 
 Optionally register the project(s) ChatGPT should work with:
 
 ```bash
-cmcp workspace register ~/projects/my-project
+cgm workspace register ~/projects/my-project
 ```
 
 ## 5. Configure the embedded tunnel
 
 ```bash
-cmcp tunnel configure \
+cgm tunnel configure \
   --enabled \
   --id tunnel_0123456789abcdef0123456789abcdef \
   --api-key 'sk-...'
@@ -162,7 +162,7 @@ cmcp tunnel configure \
 Optional OpenAI-specific settings:
 
 ```bash
-cmcp tunnel configure \
+cgm tunnel configure \
   --control-plane-base-url https://api.openai.com \
   --organization-id org_...
 ```
@@ -172,7 +172,7 @@ The runtime API key is stored separately from the main configuration using the s
 Inspect the result:
 
 ```bash
-cmcp tunnel status
+cgm tunnel status
 ```
 
 ## 6. Start chatgpt-mcp
@@ -180,21 +180,21 @@ cmcp tunnel status
 For interactive testing:
 
 ```bash
-cmcp serve
+cgm serve
 ```
 
 For normal background use:
 
 ```bash
-cmcp up
+cgm up
 ```
 
 Then verify:
 
 ```bash
-cmcp status
-cmcp tunnel status
-cmcp logs --component TUNNEL -f
+cgm status
+cgm tunnel status
+cgm logs --component TUNNEL -f
 ```
 
 The tunnel must remain connected while ChatGPT scans tools or invokes them.
@@ -204,7 +204,7 @@ The tunnel must remain connected while ChatGPT scans tools or invokes them.
 If you run only:
 
 ```bash
-cmcp serve
+cgm serve
 ```
 
 it is a foreground process tied to that terminal/session.
@@ -212,7 +212,7 @@ it is a foreground process tied to that terminal/session.
 For a user-level managed service:
 
 ```bash
-cmcp up
+cgm up
 ```
 
 On Linux, this uses `systemd --user`. If user lingering is disabled, the CLI warns that the user manager may stop after the final login/SSH session ends.
@@ -220,10 +220,10 @@ On Linux, this uses `systemd --user`. If user lingering is disabled, the CLI war
 For a machine-level systemd service that starts with the machine:
 
 ```bash
-cmcp up --system
+cgm up --system
 ```
 
-If the current process is user-scoped, `cmcp` automatically re-executes its stable absolute launcher through `sudo`. The systemd unit is system-level, but `chatgpt-mcp` itself still runs as the invoking `SUDO_USER`, not as root.
+If the current process is user-scoped, `cgm` automatically re-executes its stable absolute launcher through `sudo`. The systemd unit is system-level, but `chatgpt-mcp` itself still runs as the invoking `SUDO_USER`, not as root.
 
 See [Runtime and services](runtime.md) for the complete lifecycle.
 
@@ -276,9 +276,9 @@ For workspace plans, the app may first appear as a draft. Admins/owners can revi
 Before testing a prompt, verify locally:
 
 ```bash
-cmcp status
-cmcp tunnel status
-cmcp logs --component TUNNEL -n 100
+cgm status
+cgm tunnel status
+cgm logs --component TUNNEL -n 100
 ```
 
 Then enable/select the custom app in ChatGPT and ask for a read-only action first, for example listing registered workspaces or getting runtime version/status.
@@ -286,25 +286,25 @@ Then enable/select the custom app in ChatGPT and ask for a read-only action firs
 For live inspection while testing:
 
 ```bash
-cmcp logs -f
+cgm logs -f
 ```
 
 For full diagnostics:
 
 ```bash
-cmcp logs --debug -f
+cgm logs --debug -f
 ```
 
 ## Tunnel lifecycle commands
 
 ```bash
-cmcp tunnel status
-cmcp tunnel enable
-cmcp tunnel disable
-cmcp tunnel run
+cgm tunnel status
+cgm tunnel enable
+cgm tunnel disable
+cgm tunnel run
 ```
 
-`tunnel run` runs only the builtin tunnel in the foreground. Normal `cmcp serve` / `cmcp up` automatically starts the tunnel when it is configured and enabled.
+`tunnel run` runs only the builtin tunnel in the foreground. Normal `cgm serve` / `cgm up` automatically starts the tunnel when it is configured and enabled.
 
 Unexpected tunnel failures are supervised with bounded exponential reconnect backoff. Explicit disable/reconfigure/shutdown does not trigger an unwanted reconnect.
 
@@ -324,9 +324,9 @@ Check, in this order:
 1. The tunnel is associated with the target ChatGPT workspace.
 2. Your Platform principal has **Tunnels Read + Use**.
 3. Your ChatGPT user has Developer Mode access enabled.
-4. `cmcp tunnel status` reports the configured tunnel.
-5. `cmcp` is still running.
-6. `cmcp logs --component TUNNEL --debug -n 200` does not show authentication or polling failures.
+4. `cgm tunnel status` reports the configured tunnel.
+5. `cgm` is still running.
+6. `cgm logs --component TUNNEL --debug -n 200` does not show authentication or polling failures.
 7. Wait briefly after creating/changing the tunnel or RBAC assignment; OpenAI notes that permission changes can take time to propagate.
 
 See [Troubleshooting](troubleshooting.md) for more cases.

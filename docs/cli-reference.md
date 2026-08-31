@@ -1,12 +1,12 @@
 # CLI reference
 
-`chatgpt-mcp` and `cmcp` are equivalent commands. This reference uses `cmcp` for brevity.
+`chatgpt-mcp` and `cgm` are equivalent commands. This reference uses `cgm` for brevity.
 
 Use the built-in help as the authoritative command surface:
 
 ```bash
-cmcp --help
-cmcp <command> --help
+cgm --help
+cgm <command> --help
 ```
 
 ## Global flags
@@ -72,37 +72,37 @@ chatgpt-mcp
 ### Initialize
 
 ```bash
-cmcp init
-cmcp init --json
-cmcp init --yaml
-cmcp init --toml
+cgm init
+cgm init --json
+cgm init --yaml
+cgm init --toml
 ```
 
 ### Foreground runtime
 
 ```bash
-cmcp serve
-cmcp serve --verbose
-cmcp serve --debug
-cmcp serve --expose=eth0
+cgm serve
+cgm serve --verbose
+cgm serve --debug
+cgm serve --expose=eth0
 ```
 
 ### Managed runtime
 
 ```bash
-cmcp up
-cmcp status
-cmcp down
+cgm up
+cgm status
+cgm down
 ```
 
 Linux/macOS system scope:
 
 ```bash
-cmcp up --system
-cmcp down --system
+cgm up --system
+cgm down --system
 ```
 
-When invoked from a normal user shell, `--system` automatically re-executes the stable absolute `cmcp` launcher through `sudo`, so it does not depend on `sudo` including `~/.local/bin` in `secure_path`. Running the absolute binary under `sudo` directly remains supported for compatibility.
+When invoked from a normal user shell, `--system` automatically re-executes the stable absolute `cgm` launcher through `sudo`, so it does not depend on `sudo` including `~/.local/bin` in `secure_path`. Running the absolute binary under `sudo` directly remains supported for compatibility.
 
 See [Runtime and services](runtime.md).
 
@@ -111,12 +111,12 @@ See [Runtime and services](runtime.md).
 History:
 
 ```bash
-cmcp logs
-cmcp logs -n 200
-cmcp logs --verbose
-cmcp logs --debug
-cmcp logs --log-format=json
-cmcp logs --no-time
+cgm logs
+cgm logs -n 200
+cgm logs --verbose
+cgm logs --debug
+cgm logs --log-format=json
+cgm logs --no-time
 ```
 
 Runtime log replay is timestamped by default and separated by runtime session. Normal CLI command output remains timestamp-free. Use `--session <run_id-or-prefix>` to isolate one runtime process and `--no-time` to suppress replay timestamps.
@@ -124,32 +124,32 @@ Runtime log replay is timestamped by default and separated by runtime session. N
 Follow:
 
 ```bash
-cmcp logs -f
-cmcp logs follow
+cgm logs -f
+cgm logs follow
 ```
 
 Filters:
 
 ```bash
-cmcp logs --since 30m
-cmcp logs --until 2026-08-31T12:00:00+07:00
-cmcp logs --session run_a1b2c3d4e5f6
-cmcp logs --level warn
-cmcp logs --component SERVER,TUNNEL
-cmcp logs --workspace ws_...
-cmcp logs --workspace ~/projects/my-project
-cmcp logs --tool run_command
-cmcp logs --status error
-cmcp logs --source tunnel
-cmcp logs --event 'tool.call.*'
-cmcp logs --grep timeout
+cgm logs --since 30m
+cgm logs --until 2026-08-31T12:00:00+07:00
+cgm logs --session run_a1b2c3d4e5f6
+cgm logs --level warn
+cgm logs --component SERVER,TUNNEL
+cgm logs --workspace ws_...
+cgm logs --workspace ~/projects/my-project
+cgm logs --tool run_command
+cgm logs --status error
+cgm logs --source tunnel
+cgm logs --event 'tool.call.*'
+cgm logs --grep timeout
 ```
 
 Journal management:
 
 ```bash
-cmcp logs path
-cmcp logs clear --force
+cgm logs path
+cgm logs clear --force
 ```
 
 ## Configuration
@@ -157,67 +157,67 @@ cmcp logs clear --force
 Inspect:
 
 ```bash
-cmcp config get
-cmcp config list
-cmcp config get admin.enabled
-cmcp config list admin
+cgm config get
+cgm config list
+cgm config get admin.enabled
+cgm config list admin
 ```
 
 Set:
 
 ```bash
-cmcp config set server.port 41021
-cmcp config set admin.port 41022
-cmcp config set server.expose none
+cgm config set server.port 41021
+cgm config set admin.port 41022
+cgm config set server.expose none
 ```
 
 Apply to a running process:
 
 ```bash
-cmcp config reload
+cgm config reload
 ```
 
 Verify:
 
 ```bash
-cmcp config verify
-cmcp config validate
+cgm config verify
+cgm config validate
 ```
 
 Convert:
 
 ```bash
-cmcp config convert json
-cmcp config convert yaml
-cmcp config convert toml
-cmcp config transform toml
+cgm config convert json
+cgm config convert yaml
+cgm config convert toml
+cgm config transform toml
 ```
 
 Structured display:
 
 ```bash
-cmcp config list --json
-cmcp config list --yaml
-cmcp config list --toml
+cgm config list --json
+cgm config list --yaml
+cgm config list --toml
 ```
 
 ## Authentication
 
 ```bash
-cmcp auth status
-cmcp auth mcp create
-cmcp auth admin create
-cmcp auth mcp enable
-cmcp auth mcp disable
-cmcp auth admin enable
-cmcp auth admin disable
+cgm auth status
+cgm auth mcp create
+cgm auth admin create
+cgm auth mcp enable
+cgm auth mcp disable
+cgm auth admin enable
+cgm auth admin disable
 ```
 
 Use subcommand help for enable/disable/rotation options exposed by the current binary:
 
 ```bash
-cmcp auth mcp --help
-cmcp auth admin --help
+cgm auth mcp --help
+cgm auth admin --help
 ```
 
 ## Workspaces
@@ -225,28 +225,28 @@ cmcp auth admin --help
 Register:
 
 ```bash
-cmcp workspace register ~/projects/my-project
+cgm workspace register ~/projects/my-project
 ```
 
 Inspect:
 
 ```bash
-cmcp workspace list
-cmcp workspace show ws_...
+cgm workspace list
+cgm workspace show ws_...
 ```
 
 Remove the registry handle without deleting project files:
 
 ```bash
-cmcp workspace unregister ws_...
+cgm workspace unregister ws_...
 ```
 
 Additional workspace roots:
 
 ```bash
-cmcp workspace access add ws_... /path/to/cache
-cmcp workspace access list ws_...
-cmcp workspace access remove ws_... /path/to/cache
+cgm workspace access add ws_... /path/to/cache
+cgm workspace access list ws_...
+cgm workspace access remove ws_... /path/to/cache
 ```
 
 ## OpenAI Secure MCP Tunnel
@@ -254,7 +254,7 @@ cmcp workspace access remove ws_... /path/to/cache
 Configure:
 
 ```bash
-cmcp tunnel configure \
+cgm tunnel configure \
   --enabled \
   --id tunnel_... \
   --api-key 'sk-...'
@@ -270,10 +270,10 @@ Optional flags:
 Lifecycle:
 
 ```bash
-cmcp tunnel status
-cmcp tunnel enable
-cmcp tunnel disable
-cmcp tunnel run
+cgm tunnel status
+cgm tunnel enable
+cgm tunnel disable
+cgm tunnel run
 ```
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md) for Platform/ChatGPT configuration.
@@ -281,13 +281,13 @@ See [OpenAI + ChatGPT setup](openai-chatgpt.md) for Platform/ChatGPT configurati
 ## Upstream MCP servers
 
 ```bash
-cmcp mcp --help
-cmcp mcp server --help
-cmcp mcp server list
-cmcp mcp server show <id>
-cmcp mcp server status <id>
-cmcp mcp server tools <id>
-cmcp mcp server auth --help
+cgm mcp --help
+cgm mcp server --help
+cgm mcp server list
+cgm mcp server show <id>
+cgm mcp server status <id>
+cgm mcp server tools <id>
+cgm mcp server auth --help
 ```
 
 Use the server subcommands to add, inspect, update, or remove upstream MCP definitions supported by the current binary.
@@ -297,7 +297,7 @@ See [MCP and upstreams](mcp.md).
 ## Status
 
 ```bash
-cmcp status
+cgm status
 ```
 
 Status is the main read-only overview for:
@@ -317,13 +317,13 @@ Status is the main read-only overview for:
 One command:
 
 ```bash
-cmcp --config-dir /tmp/cmcp-test status
+cgm --config-dir /tmp/cgm-test status
 ```
 
 Environment:
 
 ```bash
-CHATGPT_MCP_CONFIG_DIR=/tmp/cmcp-test cmcp status
+CHATGPT_MCP_CONFIG_DIR=/tmp/cgm-test cgm status
 ```
 
 Always use an isolated config root when running destructive test/dev flows such as `init`, `uninit`, `config set`, workspace registration, or tunnel configuration.
@@ -333,25 +333,25 @@ Always use an isolated config root when running destructive test/dev flows such 
 Default:
 
 ```bash
-cmcp status
+cgm status
 ```
 
 Operational context:
 
 ```bash
-cmcp status --verbose
+cgm status --verbose
 ```
 
 Full diagnostics:
 
 ```bash
-cmcp status --debug
+cgm status --debug
 ```
 
 Machine-readable:
 
 ```bash
-cmcp status --log-format=json
+cgm status --log-format=json
 ```
 
 Visibility flags also apply when replaying persistent runtime logs.

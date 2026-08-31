@@ -13,14 +13,14 @@ Default:
 Override it with:
 
 ```bash
-cmcp --config-dir /path/to/instance status
+cgm --config-dir /path/to/instance status
 ```
 
 or:
 
 ```bash
 export CHATGPT_MCP_CONFIG_DIR=/path/to/instance
-cmcp status
+cgm status
 ```
 
 Precedence:
@@ -40,11 +40,11 @@ Use a non-default root for tests, temporary instances, and development binaries 
 ## Initialize and choose format
 
 ```bash
-cmcp init
-cmcp init --json
-cmcp init --yaml
-cmcp init --toml
-cmcp init --format toml
+cgm init
+cgm init --json
+cgm init --yaml
+cgm init --toml
+cgm init --format toml
 ```
 
 The main configuration determines the serialization format used by managed structured state files.
@@ -52,20 +52,20 @@ The main configuration determines the serialization format used by managed struc
 ## Inspect configuration
 
 ```bash
-cmcp config get
-cmcp config list
-cmcp config get admin.enabled
-cmcp config list admin
+cgm config get
+cgm config list
+cgm config get admin.enabled
+cgm config list admin
 ```
 
 Structured output can be selected independently from the on-disk format:
 
 ```bash
-cmcp config list --json
-cmcp config list --yaml
-cmcp config list --toml
-cmcp config list --format yaml
-cmcp config get admin --toml
+cgm config list --json
+cgm config list --yaml
+cgm config list --toml
+cgm config list --format yaml
+cgm config get admin --toml
 ```
 
 Sensitive values keep their real key names but render as:
@@ -77,9 +77,9 @@ Sensitive values keep their real key names but render as:
 ## Set values
 
 ```bash
-cmcp config set server.port 41021
-cmcp config set admin.port 41022
-cmcp config set admin.enabled true
+cgm config set server.port 41021
+cgm config set admin.port 41022
+cgm config set admin.enabled true
 ```
 
 `key=value` syntax is also accepted by the CLI.
@@ -91,10 +91,10 @@ Changes are validated before persistence.
 Built-in presets provide named baseline configurations while preserving configured secrets and tunnel details when applied.
 
 ```bash
-cmcp config preset list
-cmcp config preset show <name>
-cmcp config preset current
-cmcp config preset apply <name>
+cgm config preset list
+cgm config preset show <name>
+cgm config preset current
+cgm config preset apply <name>
 ```
 
 Use `current` to see whether the active configuration still matches a known preset or has become `custom`.
@@ -104,7 +104,7 @@ Use `current` to see whether the active configuration still matches a known pres
 After persisting a change:
 
 ```bash
-cmcp config reload
+cgm config reload
 ```
 
 The reload path uses the selected config root's loopback-only runtime control channel.
@@ -123,8 +123,8 @@ Rebind is transactional. If a requested port/address cannot be opened, the previ
 ## Verify config/state
 
 ```bash
-cmcp config verify
-cmcp config validate
+cgm config verify
+cgm config validate
 ```
 
 `verify` and `validate` are aliases.
@@ -139,10 +139,10 @@ Verification checks:
 ## Convert formats
 
 ```bash
-cmcp config convert json
-cmcp config convert yaml
-cmcp config convert toml
-cmcp config transform toml
+cgm config convert json
+cgm config convert yaml
+cgm config convert toml
+cgm config transform toml
 ```
 
 `convert` and `transform` are aliases.
@@ -177,12 +177,12 @@ Supported modes:
 One-run override:
 
 ```bash
-cmcp serve --expose
-cmcp serve --expose=all
-cmcp serve --expose=0.0.0.0
-cmcp serve --expose=eth0
-cmcp serve --expose=eth0,tailscale0
-cmcp serve --expose=none
+cgm serve --expose
+cgm serve --expose=all
+cgm serve --expose=0.0.0.0
+cgm serve --expose=eth0
+cgm serve --expose=eth0,tailscale0
+cgm serve --expose=none
 ```
 
 Bare `--expose` means `all`.
@@ -190,10 +190,10 @@ Bare `--expose` means `all`.
 Persist the policy:
 
 ```bash
-cmcp config set server.expose all
-cmcp config set server.expose 0.0.0.0
-cmcp config set server.expose eth0,tailscale0
-cmcp config set server.expose none
+cgm config set server.expose all
+cgm config set server.expose 0.0.0.0
+cgm config set server.expose eth0,tailscale0
+cgm config set server.expose none
 ```
 
 Selected interfaces must be active, non-loopback, and expose an eligible IPv4 address. Startup fails rather than silently broadening exposure when a configured interface is unavailable.
@@ -205,13 +205,13 @@ Wildcard `0.0.0.0` is rejected unless both MCP and Admin authentication are enab
 `chatgpt-mcp` stores token hashes rather than plaintext MCP/admin tokens. Plain tokens are shown only when created or rotated.
 
 ```bash
-cmcp auth mcp create
-cmcp auth admin create
-cmcp auth status
-cmcp auth mcp enable
-cmcp auth mcp disable
-cmcp auth admin enable
-cmcp auth admin disable
+cgm auth mcp create
+cgm auth admin create
+cgm auth status
+cgm auth mcp enable
+cgm auth mcp disable
+cgm auth admin enable
+cgm auth admin disable
 ```
 
 Use an enabled endpoint token as:
@@ -229,22 +229,22 @@ The Admin UI skips its login screen when Admin authentication is disabled.
 Register a workspace:
 
 ```bash
-cmcp workspace register ~/projects/my-project
+cgm workspace register ~/projects/my-project
 ```
 
 Global extra roots apply to every workspace:
 
 ```bash
-cmcp config set permissions.allow_dirs /tmp,/var/tmp/chatgpt-mcp
-cmcp config get permissions.allow_dirs
+cgm config set permissions.allow_dirs /tmp,/var/tmp/chatgpt-mcp
+cgm config get permissions.allow_dirs
 ```
 
 Workspace-specific extra roots:
 
 ```bash
-cmcp workspace access add ws_... /path/to/build-cache
-cmcp workspace access list ws_...
-cmcp workspace access remove ws_... /path/to/build-cache
+cgm workspace access add ws_... /path/to/build-cache
+cgm workspace access list ws_...
+cgm workspace access remove ws_... /path/to/build-cache
 ```
 
 Effective filesystem scope is:
@@ -264,9 +264,9 @@ Built-in features live under `features` and can be updated through config or Adm
 Examples:
 
 ```bash
-cmcp config set features.ponytail.enabled true
-cmcp config set features.caveman.enabled false
-cmcp config reload
+cgm config set features.ponytail.enabled true
+cgm config set features.caveman.enabled false
+cgm config reload
 ```
 
 Admin Settings applies persisted feature changes to the live tool catalog directly when possible.
@@ -276,7 +276,7 @@ Admin Settings applies persisted feature changes to the live tool catalog direct
 Configure OpenAI Secure MCP Tunnel:
 
 ```bash
-cmcp tunnel configure \
+cgm tunnel configure \
   --enabled \
   --id tunnel_... \
   --api-key 'sk-...'
@@ -285,7 +285,7 @@ cmcp tunnel configure \
 Optional:
 
 ```bash
-cmcp tunnel configure \
+cgm tunnel configure \
   --control-plane-base-url https://api.openai.com \
   --organization-id org_...
 ```
@@ -306,8 +306,8 @@ For OpenAI Platform/ChatGPT setup, see [OpenAI + ChatGPT setup](openai-chatgpt.m
 Manage upstream servers with:
 
 ```bash
-cmcp mcp --help
-cmcp mcp server --help
+cgm mcp --help
+cgm mcp server --help
 ```
 
 Upstream OAuth credentials are persisted separately from normal runtime configuration. Proxy refresh is atomic: the old exposed proxy catalog remains active if replacement discovery/schema construction fails.
@@ -317,9 +317,9 @@ See [MCP and upstreams](mcp.md).
 ## Remove config/state
 
 ```bash
-cmcp uninit
+cgm uninit
 ```
 
 This removes the selected `chatgpt-mcp` config/state root. It is intentionally different from uninstalling the binary.
 
-If a managed service is active, use `cmcp down` or `cmcp down --system` for the matching Linux/macOS system scope before removing the instance.
+If a managed service is active, use `cgm down` or `cgm down --system` for the matching Linux/macOS system scope before removing the instance.

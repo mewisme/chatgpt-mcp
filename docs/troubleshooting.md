@@ -5,9 +5,9 @@ Use this guide for common runtime, service, tunnel, configuration, and connectiv
 Start with these three commands:
 
 ```bash
-cmcp status
-cmcp tunnel status
-cmcp logs --debug -n 200
+cgm status
+cgm tunnel status
+cgm logs --debug -n 200
 ```
 
 ## ChatGPT cannot see the tunnel
@@ -18,14 +18,14 @@ Check:
 2. The tunnel is associated with the target ChatGPT workspace, not only a Platform organization.
 3. Your Platform principal has **Tunnels Read + Use**.
 4. Your ChatGPT user has Developer Mode access enabled.
-5. `cmcp` is running.
-6. `cmcp tunnel status` shows the intended `tunnel_...` ID.
+5. `cgm` is running.
+6. `cgm tunnel status` shows the intended `tunnel_...` ID.
 7. Tunnel logs do not show authentication or polling failures.
 
 Useful:
 
 ```bash
-cmcp logs --component TUNNEL --debug -n 200
+cgm logs --component TUNNEL --debug -n 200
 ```
 
 OpenAI documents that role/permission changes can take time to propagate, so retry after the new assignment has become active.
@@ -53,7 +53,7 @@ Do not replace the runtime key with a Platform Admin API key.
 Reconfigure when necessary:
 
 ```bash
-cmcp tunnel configure \
+cgm tunnel configure \
   --enabled \
   --id tunnel_... \
   --api-key 'sk-...'
@@ -62,8 +62,8 @@ cmcp tunnel configure \
 Then:
 
 ```bash
-cmcp tunnel status
-cmcp logs --component TUNNEL --debug -f
+cgm tunnel status
+cgm logs --component TUNNEL --debug -f
 ```
 
 ## ChatGPT Scan Tools fails
@@ -71,8 +71,8 @@ cmcp logs --component TUNNEL --debug -f
 Verify the local runtime is alive while scanning:
 
 ```bash
-cmcp status
-cmcp tunnel status
+cgm status
+cgm tunnel status
 ```
 
 Keep it running for both tool discovery and normal calls.
@@ -80,29 +80,29 @@ Keep it running for both tool discovery and normal calls.
 If using foreground mode, do not close the terminal running:
 
 ```bash
-cmcp serve
+cgm serve
 ```
 
 For background operation use:
 
 ```bash
-cmcp up
+cgm up
 ```
 
 Then inspect:
 
 ```bash
-cmcp logs --debug -f
+cgm logs --debug -f
 ```
 
-## `cmcp serve` dies after SSH disconnect
+## `cgm serve` dies after SSH disconnect
 
 `serve` is a foreground process and is attached to the SSH/session environment.
 
 Use a managed service instead:
 
 ```bash
-cmcp up
+cgm up
 ```
 
 On Linux this is a user systemd service. If the CLI warns that lingering is disabled, the user manager may stop after the final login session ends.
@@ -110,40 +110,40 @@ On Linux this is a user systemd service. If the CLI warns that lingering is disa
 For a machine-level service that starts at boot:
 
 ```bash
-cmcp up --system
+cgm up --system
 ```
 
 The CLI automatically elevates through `sudo` when needed, using its absolute launcher path so `sudo secure_path` does not need to contain `~/.local/bin`. The MCP process still runs as the invoking user, not root.
 
-## `cmcp up` says a foreground runtime is already running
+## `cgm up` says a foreground runtime is already running
 
 `up` intentionally refuses to adopt or kill a foreground `serve` process.
 
 Stop the foreground process normally, then run:
 
 ```bash
-cmcp up
+cgm up
 ```
 
 This prevents service management from unexpectedly taking ownership of a manually started runtime.
 
-## `cmcp down` cannot remove a system service
+## `cgm down` cannot remove a system service
 
 On Linux/macOS, system scope and user scope are distinct.
 
 If the service was created with:
 
 ```bash
-cmcp up --system
+cgm up --system
 ```
 
 remove it with:
 
 ```bash
-cmcp down --system
+cgm down --system
 ```
 
-Normal `cmcp down` only manages the normal user-scope service.
+Normal `cgm down` only manages the normal user-scope service.
 
 ## Linux user service warns about lingering
 
@@ -154,7 +154,7 @@ A user-level systemd service can depend on the user manager lifecycle.
 Options:
 
 - keep the user service and manage lingering yourself according to server policy
-- use `cmcp up --system` for a machine-level systemd unit that starts at boot
+- use `cgm up --system` for a machine-level systemd unit that starts at boot
 
 ## Config changes are not visible in the running server
 
@@ -163,14 +163,14 @@ Options:
 Apply persisted configuration:
 
 ```bash
-cmcp config reload
+cgm config reload
 ```
 
 Verify:
 
 ```bash
-cmcp status
-cmcp config get
+cgm status
+cgm config get
 ```
 
 ## `config reload` fails after changing a port
@@ -180,7 +180,7 @@ The new listener may be unavailable.
 Check:
 
 ```bash
-cmcp logs --component SERVER --debug -n 200
+cgm logs --component SERVER --debug -n 200
 ```
 
 Listener reload is transactional. A failed new bind should restore the previous working listener set rather than leaving the process unavailable.
@@ -188,8 +188,8 @@ Listener reload is transactional. A failed new bind should restore the previous 
 Choose a free port, persist it, and reload again:
 
 ```bash
-cmcp config set server.port 41021
-cmcp config reload
+cgm config set server.port 41021
+cgm config reload
 ```
 
 ## Config format mismatch or manual edit failure
@@ -197,15 +197,15 @@ cmcp config reload
 Run:
 
 ```bash
-cmcp config verify
+cgm config verify
 ```
 
 If you intentionally want one format across the managed state tree:
 
 ```bash
-cmcp config convert json
-cmcp config convert yaml
-cmcp config convert toml
+cgm config convert json
+cgm config convert yaml
+cgm config convert toml
 ```
 
 Conversion preflights structured state before mutation.
@@ -215,20 +215,20 @@ Conversion preflights structured state before mutation.
 Stop the test process immediately and inspect:
 
 ```bash
-cmcp status
-cmcp config path
+cgm status
+cgm config path
 ```
 
 For future test/dev runs, always use:
 
 ```bash
-cmcp --config-dir /tmp/cmcp-test ...
+cgm --config-dir /tmp/cgm-test ...
 ```
 
 or:
 
 ```bash
-CHATGPT_MCP_CONFIG_DIR=/tmp/cmcp-test cmcp ...
+CHATGPT_MCP_CONFIG_DIR=/tmp/cgm-test cgm ...
 ```
 
 Repository tests and release smoke are designed to use explicit non-default roots.
@@ -238,27 +238,27 @@ Repository tests and release smoke are designed to use explicit non-default root
 Check the registered workspace and additional roots:
 
 ```bash
-cmcp workspace list
-cmcp workspace show ws_...
-cmcp workspace access list ws_...
-cmcp config get permissions.allow_dirs
+cgm workspace list
+cgm workspace show ws_...
+cgm workspace access list ws_...
+cgm config get permissions.allow_dirs
 ```
 
 Register the correct root if needed:
 
 ```bash
-cmcp workspace register /absolute/path/to/project
+cgm workspace register /absolute/path/to/project
 ```
 
 Or grant a narrow extra root:
 
 ```bash
-cmcp workspace access add ws_... /absolute/path/to/cache
+cgm workspace access add ws_... /absolute/path/to/cache
 ```
 
 Symlink escapes remain denied even when a textual path appears to be inside an allowed directory.
 
-## MCP tool cannot run `cmcp config set`, `up`, or other mutations
+## MCP tool cannot run `cgm config set`, `up`, or other mutations
 
 This is intentional.
 
@@ -280,13 +280,13 @@ Make control-plane changes from a trusted user terminal instead.
 Inspect authentication:
 
 ```bash
-cmcp auth status
+cgm auth status
 ```
 
 Create/rotate an MCP token if needed:
 
 ```bash
-cmcp auth mcp create
+cgm auth mcp create
 ```
 
 Then send:
@@ -304,14 +304,14 @@ Do not confuse this MCP token with the OpenAI tunnel runtime API key.
 Inspect:
 
 ```bash
-cmcp auth status
+cgm auth status
 ```
 
 Create credentials if appropriate:
 
 ```bash
-cmcp auth mcp create
-cmcp auth admin create
+cgm auth mcp create
+cgm auth admin create
 ```
 
 Then configure wildcard exposure only if you genuinely need direct network ingress.
@@ -323,19 +323,19 @@ For ChatGPT connectivity, prefer Secure MCP Tunnel and keep the local listener p
 Replay verbose events:
 
 ```bash
-cmcp logs --verbose -n 200
+cgm logs --verbose -n 200
 ```
 
 Full diagnostics:
 
 ```bash
-cmcp logs --debug -n 200
+cgm logs --debug -n 200
 ```
 
 Live diagnostics:
 
 ```bash
-cmcp logs --debug -f
+cgm logs --debug -f
 ```
 
 The runtime persists debug-visible structured events even when the service was originally started without `--debug`.
@@ -347,13 +347,13 @@ The runtime journal rotates automatically.
 Locate it:
 
 ```bash
-cmcp logs path
+cgm logs path
 ```
 
 Clear current and rotated logs intentionally:
 
 ```bash
-cmcp logs clear --force
+cgm logs clear --force
 ```
 
 When the runtime is alive, clearing is coordinated through the runtime control channel.
@@ -365,13 +365,13 @@ Current Windows installer layout uses immutable version directories and a stable
 If upgrading from a legacy installation whose `current` path is still a real directory and Windows cannot migrate it because files are locked:
 
 ```powershell
-cmcp down
+cgm down
 ```
 
 then rerun the installer. Start the managed runtime again afterward:
 
 ```powershell
-cmcp up
+cgm up
 ```
 
 ## Upstream MCP refresh fails
@@ -381,9 +381,9 @@ Upstream proxy replacement is atomic. A failed discovery/schema refresh should l
 Inspect:
 
 ```bash
-cmcp status
-cmcp mcp --help
-cmcp logs --debug -n 200
+cgm status
+cgm mcp --help
+cgm logs --debug -n 200
 ```
 
 Fix the upstream endpoint/auth/discovery issue, then retry the relevant upstream configuration action.
@@ -393,12 +393,12 @@ Fix the upstream endpoint/auth/discovery issue, then retry the relevant upstream
 Collect these without copying secrets:
 
 ```bash
-cmcp --version
-cmcp status
-cmcp tunnel status
-cmcp auth status
-cmcp config verify
-cmcp logs --debug -n 200
+cgm --version
+cgm status
+cgm tunnel status
+cgm auth status
+cgm config verify
+cgm logs --debug -n 200
 ```
 
 Before sharing logs, review them for project paths, command output, or other environment-specific information you do not want to disclose.

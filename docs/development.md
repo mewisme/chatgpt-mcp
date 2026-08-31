@@ -106,7 +106,7 @@ node scripts/install-local.mjs --no-deps
 node scripts/install-local.mjs --from-dist
 ```
 
-Both `chatgpt-mcp` and `cmcp` are installed beside the Go binary (`cmcp` is a symlink on Unix and a command shim on Windows).
+Both `chatgpt-mcp` and `cgm` are installed beside the Go binary (`cgm` is a symlink on Unix and a command shim on Windows).
 
 ## Release smoke
 
@@ -218,7 +218,7 @@ Unix installer layout uses immutable versions and stable current/command links:
 ~/.chatgpt-mcp/versions/<version>/...
 ~/.chatgpt-mcp/current -> selected version
 ~/.local/bin/chatgpt-mcp -> stable current path
-~/.local/bin/cmcp -> stable current path
+~/.local/bin/cgm -> stable current path
 ```
 
 Windows uses versioned directories plus a stable `current` directory junction so upgrades do not overwrite the executable currently held open by a managed runtime.

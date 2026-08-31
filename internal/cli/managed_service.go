@@ -185,7 +185,7 @@ func runManagedDown(cmd *cobra.Command, spec managed.Spec, manager managed.Manag
 	}
 	if running {
 		if !runtimeStatus.Managed {
-			return fmt.Errorf("runtime is running in foreground mode (pid %d); cmcp down will not stop it", runtimeStatus.PID)
+			return fmt.Errorf("runtime is running in foreground mode (pid %d); cgm down will not stop it", runtimeStatus.PID)
 		}
 		if runtimeStatus.ServiceID != spec.ID || runtimeStatus.ServiceScope != string(spec.Scope) {
 			return managedScopeConflict(runtimeStatus, spec, "down")
@@ -293,10 +293,10 @@ func waitRuntimeStopped(parent context.Context, timeout time.Duration) error {
 
 func managedScopeConflict(status runtimeStatusResult, spec managed.Spec, action string) error {
 	if status.ServiceScope == string(managed.ScopeSystem) && spec.Scope == managed.ScopeUser {
-		return fmt.Errorf("runtime is managed by a system service; use cmcp %s --system", action)
+		return fmt.Errorf("runtime is managed by a system service; use cgm %s --system", action)
 	}
 	if status.ServiceScope == string(managed.ScopeUser) && spec.Scope == managed.ScopeSystem {
-		return fmt.Errorf("runtime is managed by a user service; use cmcp %s", action)
+		return fmt.Errorf("runtime is managed by a user service; use cgm %s", action)
 	}
 	return fmt.Errorf("another managed service is already running for this config (service %s, pid %d)", status.ServiceID, status.PID)
 }
@@ -380,15 +380,15 @@ func logManagedHints(log *logger.Logger, spec managed.Spec) {
 	} else if warning := managed.PersistenceWarning(spec); warning != "" {
 		log.Warning("SERVICE", "service.persistence.warning", warning, nil)
 		if runtime.GOOS == "linux" && spec.Account.Username != "" {
-			log.Detail("machine service", "cmcp up --system")
+			log.Detail("machine service", "cgm up --system")
 		}
 	} else {
 		log.Notice("SERVICE", "service.detached", "Runtime will continue independently of this terminal")
 	}
-	log.Notice("SERVICE", "service.logs-hint", "View logs: cmcp logs -f")
-	stop := "cmcp down"
+	log.Notice("SERVICE", "service.logs-hint", "View logs: cgm logs -f")
+	stop := "cgm down"
 	if spec.Scope == managed.ScopeSystem && runtime.GOOS != "windows" {
-		stop = "cmcp down --system"
+		stop = "cgm down --system"
 	}
 	log.Notice("SERVICE", "service.stop-hint", "Stop service: "+stop)
 }

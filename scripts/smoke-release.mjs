@@ -93,7 +93,7 @@ try {
   await closeServer(occupied.server)
   occupied = null
 
-  await stopChild(child)
+  await stopRuntimeChild(child)
   child = null
   runExpectFailure(["config", "reload"])
 
@@ -141,7 +141,7 @@ try {
   await stopChild(follower)
   follower = null
 
-  await stopChild(child)
+  await stopRuntimeChild(child)
   child = null
   const stoppedLogs = run(["logs", "--event", "config.reloaded", "--tail", "10"], { quiet: true })
   if (!stoppedLogs.includes("Configuration reloaded")) fail(`persisted logs unavailable after managed runtime stopped:\n${stoppedLogs}`)
@@ -353,6 +353,36 @@ async function stopChild(server) {
     new Promise((resolve) => server.once("exit", resolve)),
     sleep(2000),
   ])
+}
+
+async function stopRuntimeChild(server) {
+  if (server.exitCode !== null) return
+  const controlPath = path.join(configDir, ".runtime-control.json")
+  let control
+  try {
+    control = JSON.parse(await readFile(controlPath, "utf8"))
+  } catch (error) {
+    fail(`runtime control state unavailable before graceful shutdown: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (!control?.address || !control?.token || control?.pid !== server.pid) {
+    fail(`runtime control state does not match child pid ${server.pid}: ${JSON.stringify({ pid: control?.pid, address: control?.address })}`)
+  }
+  let response
+  try {
+    response = await fetch(`http://${control.address}/shutdown`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${control.token}` },
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch (error) {
+    fail(`runtime graceful shutdown request failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (!response.ok) fail(`runtime graceful shutdown returned HTTP ${response.status}`)
+  const exited = await Promise.race([
+    new Promise((resolve) => server.once("exit", () => resolve(true))),
+    sleep(5000).then(() => false),
+  ])
+  if (!exited) fail(`runtime did not exit after graceful shutdown: pid ${server.pid}`)
 }
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)) }

@@ -54,11 +54,34 @@ case "$version" in v*) ;; *) version="v$version" ;; esac
 ver="${version#v}"
 
 url="https://github.com/$REPO/releases/download/$version/chatgpt-mcp_${ver}_${os}_${arch}.tar.gz"
+checksums_url="https://github.com/$REPO/releases/download/$version/checksums.txt"
 echo "Installing chatgpt-mcp $version ($os/$arch)..."
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 curl -fsSL "$url" -o "$tmp/chatgpt-mcp.tar.gz" || {
 	echo "chatgpt-mcp: download failed: $url" >&2
+	exit 1
+}
+curl -fsSL "$checksums_url" -o "$tmp/checksums.txt" || {
+	echo "chatgpt-mcp: checksum download failed: $checksums_url" >&2
+	exit 1
+}
+asset="$(basename "$url")"
+expected="$(awk -v asset="$asset" '$2 == asset { print $1; exit }' "$tmp/checksums.txt")"
+[ -n "$expected" ] || {
+	echo "chatgpt-mcp: checksum missing for $asset" >&2
+	exit 1
+}
+if command -v sha256sum >/dev/null 2>&1; then
+	actual="$(sha256sum "$tmp/chatgpt-mcp.tar.gz" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+	actual="$(shasum -a 256 "$tmp/chatgpt-mcp.tar.gz" | awk '{print $1}')"
+else
+	echo "chatgpt-mcp: sha256sum or shasum is required to verify the release archive" >&2
+	exit 1
+fi
+[ "$actual" = "$expected" ] || {
+	echo "chatgpt-mcp: checksum verification failed for $asset" >&2
 	exit 1
 }
 

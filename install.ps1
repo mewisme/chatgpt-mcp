@@ -44,13 +44,23 @@ $ver = $version.TrimStart('v')
 $dest = Join-Path $versions $version
 
 $url = "https://github.com/$repo/releases/download/$version/chatgpt-mcp_${ver}_windows_${arch}.zip"
+$checksumsUrl = "https://github.com/$repo/releases/download/$version/checksums.txt"
 Write-Host "Installing chatgpt-mcp $version (windows/$arch)..."
 
 $tmp = Join-Path $env:TEMP ("chatgpt-mcp-" + [guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 try {
   $zip = Join-Path $tmp 'chatgpt-mcp.zip'
+  $checksums = Join-Path $tmp 'checksums.txt'
   Invoke-WebRequest -Uri $url -OutFile $zip
+  Invoke-WebRequest -Uri $checksumsUrl -OutFile $checksums
+  $asset = Split-Path $url -Leaf
+  $expected = Get-Content $checksums | ForEach-Object {
+    if ($_ -match '^([0-9a-fA-F]{64})\s+(.+)$' -and $Matches[2] -eq $asset) { $Matches[1].ToLowerInvariant() }
+  } | Select-Object -First 1
+  if (-not $expected) { throw "chatgpt-mcp: checksum missing for $asset" }
+  $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
+  if ($actual -ne $expected) { throw "chatgpt-mcp: checksum verification failed for $asset" }
 
   if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
   New-Item -ItemType Directory -Force -Path $dest | Out-Null

@@ -721,10 +721,7 @@ func parseSSERPC(body []byte) (rpcResponse, error) {
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-		value := strings.TrimPrefix(line, "data:")
-		if strings.HasPrefix(value, " ") {
-			value = value[1:]
-		}
+		value := strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
 		dataLines = append(dataLines, value)
 	}
 	if err := scanner.Err(); err != nil {

@@ -46,8 +46,7 @@ func Load(root string, maxDepth, maxBytesPerFile int) (Result, error) {
 	found := map[string]bool{}
 	files := make([]File, 0)
 
-	var addFile func(string)
-	addFile = func(path string) {
+	addFile := func(path string) {
 		path = filepath.Clean(path)
 		if found[path] {
 			return

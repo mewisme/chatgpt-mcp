@@ -357,7 +357,7 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 		cancel()
 		c.lastError = err.Error()
 		c.mu.Unlock()
-		waitRun(context.Background(), run, time.Second)
+		_ = waitRun(context.Background(), run, time.Second)
 		c.emitLifecycle(LifecycleDegraded, id, err.Error())
 		return err
 	}
@@ -423,7 +423,7 @@ func (c *Client) watchReady(session, generation uint64, tunnelBackend backend, c
 
 func (c *Client) watchSession(session uint64, ctx context.Context) {
 	<-ctx.Done()
-	stopCtx, cancel := context.WithTimeout(context.Background(), defaultStopTimeout)
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultStopTimeout)
 	defer cancel()
 	_ = c.stopSession(stopCtx, session, true)
 }

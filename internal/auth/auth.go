@@ -71,6 +71,10 @@ func verifyArgon2ID(token, encoded string) bool {
 	if err != nil || len(expected) == 0 || len(expected) > 64 {
 		return false
 	}
-	actual := argon2.IDKey([]byte(token), salt, iterations, memory, parallelism, uint32(len(expected)))
+	hashLength := len(expected)
+	if uint64(hashLength) > uint64(^uint32(0)) {
+		return false
+	}
+	actual := argon2.IDKey([]byte(token), salt, iterations, memory, parallelism, uint32(hashLength))
 	return subtle.ConstantTimeCompare(actual, expected) == 1
 }

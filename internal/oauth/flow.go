@@ -350,7 +350,7 @@ func unionScopes(groups ...[]string) []string {
 func validateClientMetadataURL(raw string) error {
 	value, err := url.Parse(raw)
 	if err != nil || value.Scheme != "https" || value.Host == "" || value.Path == "" || value.Path == "/" {
-		return errors.New("Client ID Metadata Document URL must be a non-root HTTPS URL")
+		return errors.New("client ID metadata document URL must be a non-root HTTPS URL")
 	}
 	return nil
 }

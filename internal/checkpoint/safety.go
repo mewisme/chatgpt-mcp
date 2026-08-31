@@ -39,10 +39,6 @@ func validateSnapshotPathAllowed(roots []string, snapshot FileSnapshot) error {
 	return nil
 }
 
-func validateSnapshotPath(root string, snapshot FileSnapshot) error {
-	return validateSnapshotPathAllowed([]string{root}, snapshot)
-}
-
 func safeCanonicalAny(roots []string, candidate string) (string, error) {
 	var lastErr error
 	for _, root := range roots {

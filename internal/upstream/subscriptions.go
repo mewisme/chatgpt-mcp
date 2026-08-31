@@ -152,10 +152,7 @@ func consumeSubscriptionSSE(ctx context.Context, reader io.Reader, requestID int
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-		value := strings.TrimPrefix(line, "data:")
-		if strings.HasPrefix(value, " ") {
-			value = value[1:]
-		}
+		value := strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
 		dataLines = append(dataLines, value)
 	}
 	if ctx.Err() != nil {

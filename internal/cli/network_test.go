@@ -44,6 +44,9 @@ func TestEndpointURL(t *testing.T) {
 	if got := endpointURL("127.0.0.1", 37421, "/mcp"); got != "http://127.0.0.1:37421/mcp" {
 		t.Fatalf("url = %q", got)
 	}
+	if got := endpointURL("2001:db8::20", 37421, "/mcp"); got != "http://[2001:db8::20]:37421/mcp" {
+		t.Fatalf("ipv6 url = %q", got)
+	}
 }
 
 func TestListenPlanShape(t *testing.T) {

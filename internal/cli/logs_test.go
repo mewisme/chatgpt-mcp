@@ -40,11 +40,13 @@ func TestLogsTailAppliesAfterVisibilityFiltering(t *testing.T) {
 	if !strings.Contains(output, "First visible") || !strings.Contains(output, "Last visible") || strings.Contains(output, "Verbose hidden") {
 		t.Fatalf("default logs output = %q", output)
 	}
-	if !strings.Contains(output, "01:00:00") || !strings.Contains(output, "── session run") {
+	firstTimestamp := base.Local().Format("15:04:05")
+	lastTimestamp := base.Add(2 * time.Second).Local().Format("15:04:05")
+	if !strings.Contains(output, firstTimestamp) || !strings.Contains(output, "── session run") {
 		t.Fatalf("default logs output missing replay timestamp/session header: %q", output)
 	}
 	withoutTime := executeLogsCommand(t, root, []string{"logs", "-n", "1", "--no-time"})
-	if strings.Contains(withoutTime, "01:00:02") {
+	if strings.Contains(withoutTime, lastTimestamp) {
 		t.Fatalf("--no-time output = %q", withoutTime)
 	}
 	debugOutput := executeLogsCommand(t, root, []string{"--debug", "logs", "-n", "3"})

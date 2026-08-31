@@ -64,7 +64,12 @@ func NormalizeInterfaces(candidates []Candidate) []Interface {
 		if candidate.Interface == "" || candidate.Flags&net.FlagUp == 0 || candidate.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		ip := candidate.IP.To4()
+		ip := candidate.IP
+		if ipv4 := ip.To4(); ipv4 != nil {
+			ip = ipv4
+		} else {
+			ip = ip.To16()
+		}
 		if ip == nil || ip.IsLoopback() || ip.IsUnspecified() || !ip.IsGlobalUnicast() {
 			continue
 		}
@@ -122,6 +127,9 @@ func Resolve(exposure config.ExposureConfig, interfaces []Interface) ([]string, 
 		seen := map[string]struct{}{LoopbackHost: {}}
 		for _, iface := range interfaces {
 			for _, address := range iface.Addresses {
+				if net.ParseIP(address.Host).To4() == nil {
+					continue
+				}
 				if _, ok := seen[address.Host]; ok {
 					continue
 				}
@@ -141,7 +149,7 @@ func Resolve(exposure config.ExposureConfig, interfaces []Interface) ([]string, 
 		for _, name := range exposure.Interfaces {
 			iface, ok := byName[name]
 			if !ok || len(iface.Addresses) == 0 {
-				return nil, nil, fmt.Errorf("configured network interface %q is unavailable, down, loopback-only, or has no eligible IPv4 address", name)
+				return nil, nil, fmt.Errorf("configured network interface %q is unavailable, down, loopback-only, or has no eligible IP address", name)
 			}
 			for _, address := range iface.Addresses {
 				if _, ok := seen[address.Host]; ok {

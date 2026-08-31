@@ -21,6 +21,7 @@ func TestNormalizeInterfacesFiltersAndDeduplicates(t *testing.T) {
 	want := []Interface{
 		{Name: "duplicate", Addresses: []Address{{Host: "192.168.1.20", Interface: "duplicate", Scope: "lan"}}},
 		{Name: "eth0", Addresses: []Address{{Host: "192.168.1.20", Interface: "eth0", Scope: "lan"}}},
+		{Name: "ipv6", Addresses: []Address{{Host: "2001:db8::1", Interface: "ipv6", Scope: "network"}}},
 		{Name: "tailscale0", Addresses: []Address{{Host: "10.0.0.4", Interface: "tailscale0", Scope: "lan"}}},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -30,7 +31,7 @@ func TestNormalizeInterfacesFiltersAndDeduplicates(t *testing.T) {
 
 func TestResolveExposureModes(t *testing.T) {
 	interfaces := []Interface{
-		{Name: "eth0", Addresses: []Address{{Host: "192.168.1.20", Interface: "eth0", Scope: "lan"}}},
+		{Name: "eth0", Addresses: []Address{{Host: "192.168.1.20", Interface: "eth0", Scope: "lan"}, {Host: "2001:db8::20", Interface: "eth0", Scope: "network"}}},
 		{Name: "tailscale0", Addresses: []Address{{Host: "100.64.0.10", Interface: "tailscale0", Scope: "network"}}},
 	}
 
@@ -40,7 +41,7 @@ func TestResolveExposureModes(t *testing.T) {
 	}
 
 	hosts, addresses, err = Resolve(config.ExposureConfig{Mode: config.ExposureAll}, interfaces)
-	if err != nil || !reflect.DeepEqual(hosts, []string{LoopbackHost, "192.168.1.20", "100.64.0.10"}) || len(addresses) != 3 {
+	if err != nil || !reflect.DeepEqual(hosts, []string{LoopbackHost, "192.168.1.20", "2001:db8::20", "100.64.0.10"}) || len(addresses) != 4 {
 		t.Fatalf("all = hosts %#v addresses %#v err %v", hosts, addresses, err)
 	}
 
@@ -50,8 +51,16 @@ func TestResolveExposureModes(t *testing.T) {
 	}
 
 	hosts, addresses, err = Resolve(config.ExposureConfig{Mode: config.ExposureInterfaces, Interfaces: []string{"tailscale0", "eth0"}}, interfaces)
-	if err != nil || !reflect.DeepEqual(hosts, []string{LoopbackHost, "192.168.1.20", "100.64.0.10"}) || len(addresses) != 3 {
+	if err != nil || !reflect.DeepEqual(hosts, []string{LoopbackHost, "192.168.1.20", "2001:db8::20", "100.64.0.10"}) || len(addresses) != 4 {
 		t.Fatalf("interfaces = hosts %#v addresses %#v err %v", hosts, addresses, err)
+	}
+}
+
+func TestResolveIPv6OnlySelectedInterface(t *testing.T) {
+	interfaces := []Interface{{Name: "eth0", Addresses: []Address{{Host: "2001:db8::20", Interface: "eth0", Scope: "network"}}}}
+	hosts, addresses, err := Resolve(config.ExposureConfig{Mode: config.ExposureInterfaces, Interfaces: []string{"eth0"}}, interfaces)
+	if err != nil || !reflect.DeepEqual(hosts, []string{LoopbackHost, "2001:db8::20"}) || len(addresses) != 2 {
+		t.Fatalf("ipv6 interface = hosts %#v addresses %#v err %v", hosts, addresses, err)
 	}
 }
 

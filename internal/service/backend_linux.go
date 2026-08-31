@@ -87,6 +87,7 @@ func LinuxUnit(spec Spec) string {
 		"[Service]",
 		"Type=simple",
 		"ExecStart=" + systemdCommand(args),
+		"NoNewPrivileges=true",
 		"Restart=on-failure",
 		"RestartSec=3s",
 	}

@@ -238,7 +238,7 @@ On Linux/macOS:
 cgm up --system
 ```
 
-uses system-level service registration. The CLI elevates only the service-management operation through `sudo` when needed, while the MCP process itself is configured to run as the invoking user rather than root.
+uses system-level service registration. The CLI elevates only the service-management operation through `sudo` when needed, while the MCP process itself is configured to run as the invoking user rather than root. Linux managed services also use systemd `NoNewPrivileges=true`, so the runtime and commands launched by it cannot gain additional privilege through setuid/setgid binaries or file capabilities. Commands that genuinely require privilege escalation should be run outside the managed MCP runtime by the operator.
 
 On Windows, `cgm up` uses a per-user Scheduled Task with least privilege and does not run as LocalSystem.
 

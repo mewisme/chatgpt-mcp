@@ -93,6 +93,15 @@ func TestHTTPRuntimeDiscoverIsStateless(t *testing.T) {
 	if result["cacheScope"] != defaultCacheScope || result["ttlMs"] != float64(defaultCacheTTLMS) {
 		t.Fatalf("cache hints = %#v/%#v", result["ttlMs"], result["cacheScope"])
 	}
+	instructions, ok := result["instructions"].(string)
+	if !ok || instructions != ServerInstructions {
+		t.Fatalf("instructions = %#v", result["instructions"])
+	}
+	for _, expected := range []string{"workspace_register", "workspace_status", "agent_status", "project_context", "list_skills", "load_skill", "load_path_rules", "working_directory"} {
+		if !strings.Contains(instructions, expected) {
+			t.Fatalf("instructions missing %q: %s", expected, instructions)
+		}
+	}
 	capabilities, _ := result["capabilities"].(map[string]any)
 	toolsCapability, _ := capabilities["tools"].(map[string]any)
 	if toolsCapability["listChanged"] != true {

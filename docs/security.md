@@ -132,6 +132,8 @@ cgm config set server.expose 0.0.0.0
 
 Any exposure beyond loopback (`all`, an explicit interface list, or `0.0.0.0`) is rejected unless MCP authentication is enabled with a configured token. If the Admin endpoint is enabled, Admin authentication with a configured token is required as well.
 
+Direct listeners currently use HTTP rather than built-in TLS. Non-loopback exposure therefore also requires an explicit `server.allow_insecure_http=true` acknowledgement. Bearer credentials and request contents are not transport-encrypted by `chatgpt-mcp` itself; use this only on a trusted or already encrypted network (for example, an appropriate private overlay), or terminate TLS in a reverse proxy. Prefer Secure MCP Tunnel when public ingress is unnecessary.
+
 Prefer Secure MCP Tunnel for ChatGPT connectivity when the MCP runtime should remain private instead of opening the MCP listener to the public internet.
 
 ## OpenAI Secure MCP Tunnel credentials
@@ -219,6 +221,10 @@ cgm --config-dir /tmp/cgm-test init
 ```
 
 The repository test/smoke workflow treats avoiding the real default config directory as an invariant.
+
+## Admin browser session
+
+The embedded Admin UI keeps the Admin bearer token in browser `sessionStorage`, not persistent `localStorage`, so closing the browser session clears the stored credential. The Admin handler also sends a restrictive Content Security Policy plus frame, MIME-sniffing, referrer, and browser-permission hardening headers. This reduces browser-side token exposure but does not replace HTTPS when the Admin listener is reachable over a network.
 
 ## Managed services and privilege
 

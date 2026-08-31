@@ -6,7 +6,7 @@ import { adminDocumentTitle, navItems } from "@/lib/admin-navigation"
 import { adminToken } from "@/lib/api"
 
 const config = {
-  server: { port: 37421, expose: { mode: "none", interfaces: [] } },
+  server: { port: 37421, expose: { mode: "none", interfaces: [] }, allow_insecure_http: false },
   admin: { enabled: true, port: 37422 },
   auth: { mcp_enabled: true, admin_enabled: true, mcp_token_configured: true, admin_token_configured: true },
   permissions: { allow_dirs: [] },

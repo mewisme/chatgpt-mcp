@@ -34,8 +34,9 @@ type ShellConfig struct {
 }
 
 type ServerConfig struct {
-	Port   int            `json:"port"`
-	Expose ExposureConfig `json:"expose"`
+	Port              int            `json:"port"`
+	Expose            ExposureConfig `json:"expose"`
+	AllowInsecureHTTP bool           `json:"allow_insecure_http"`
 }
 
 type ExposureMode string

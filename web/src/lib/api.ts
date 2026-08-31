@@ -57,7 +57,7 @@ export type MCPServerOAuthLogin = {
 }
 export type MCPServerOAuthSession = { session_id: string; authorization_url: string; expires_at: string }
 export type PublicConfig = {
-  server: { port: number; expose: { mode: "none" | "all" | "0.0.0.0" | "interfaces"; interfaces: string[] } }
+  server: { port: number; expose: { mode: "none" | "all" | "0.0.0.0" | "interfaces"; interfaces: string[] }; allow_insecure_http: boolean }
   admin: { enabled: boolean; port: number }
   auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
   permissions: { allow_dirs: string[] }
@@ -71,7 +71,8 @@ export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; co
 export type TunnelStatus = { provider: "openai" | string; enabled: boolean; running: boolean; ready: boolean; restarting: boolean; id?: string; control_plane_base_url?: string; organization_id?: string; started_at?: string; last_error?: string }
 
 const adminTokenKey = "chatgpt-mcp-admin-token"
-export const adminToken = { get: () => localStorage.getItem(adminTokenKey) ?? "", set: (token: string) => localStorage.setItem(adminTokenKey, token), clear: () => localStorage.removeItem(adminTokenKey) }
+try { localStorage.removeItem(adminTokenKey) } catch { /* storage may be unavailable */ }
+export const adminToken = { get: () => sessionStorage.getItem(adminTokenKey) ?? "", set: (token: string) => sessionStorage.setItem(adminTokenKey, token), clear: () => sessionStorage.removeItem(adminTokenKey) }
 export class ApiError extends Error { status: number; constructor(message: string, status: number) { super(message); this.name = "ApiError"; this.status = status } }
 
 export function authHeaders(): HeadersInit { const token = adminToken.get(); return token ? { Authorization: `Bearer ${token}` } : {} }

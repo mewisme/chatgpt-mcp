@@ -31,12 +31,12 @@ var builtInPresets = []Preset{
 	},
 	{
 		Name: "lan", Description: "Expose MCP on all active interfaces while keeping admin UI disabled.",
-		Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: false, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}, AllowInsecureHTTP: true}, Admin: AdminConfig{Enabled: false, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false, Features: defaultFeatures(),
 	},
 	{
 		Name: "lan-admin", Description: "Expose MCP and authenticated admin UI on all active interfaces.",
-		Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422},
+		Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}, AllowInsecureHTTP: true}, Admin: AdminConfig{Enabled: true, Port: 37422},
 		MCPAuthEnabled: true, AdminAuthEnabled: true, TunnelEnabled: false, Features: defaultFeatures(),
 	},
 }

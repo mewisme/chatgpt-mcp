@@ -131,6 +131,12 @@ func TestConfigAPIWildcardExposureRequiresBothAuth(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"server":{"port":37421,"expose":{"mode":"0.0.0.0","interfaces":[]}}}`)))
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "allow_insecure_http") {
+		t.Fatalf("wildcard without HTTP opt-in status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"server":{"port":37421,"expose":{"mode":"0.0.0.0","interfaces":[]},"allow_insecure_http":true}}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("wildcard status = %d: %s", recorder.Code, recorder.Body.String())
 	}

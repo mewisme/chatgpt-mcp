@@ -33,6 +33,7 @@ func TestValidateNetworkExposureRequiresAuth(t *testing.T) {
 		t.Run(string(exposure.Mode), func(t *testing.T) {
 			cfg := Default()
 			cfg.Server.Expose = exposure
+			cfg.Server.AllowInsecureHTTP = true
 			cfg.Auth.MCPTokenHash = "mcp"
 			cfg.Auth.AdminTokenHash = "admin"
 			if err := Validate(cfg); err != nil {
@@ -62,6 +63,20 @@ func TestValidateNetworkExposureRequiresAuth(t *testing.T) {
 				t.Fatalf("disabled admin endpoint unnecessarily required admin auth: %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateNetworkExposureRequiresExplicitInsecureHTTPOptIn(t *testing.T) {
+	cfg := Default()
+	cfg.Server.Expose = ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}
+	cfg.Auth.MCPTokenHash = "mcp"
+	cfg.Auth.AdminTokenHash = "admin"
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "allow_insecure_http") {
+		t.Fatalf("network exposure without insecure HTTP opt-in = %v", err)
+	}
+	cfg.Server.AllowInsecureHTTP = true
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
 	}
 }
 

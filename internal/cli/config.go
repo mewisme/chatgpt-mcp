@@ -252,6 +252,12 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 			return err
 		}
 		cfg.Server.Port = value
+	case "server.allow_insecure_http":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Server.AllowInsecureHTTP = value
 	case "admin.enabled":
 		value, err := parseBool(raw, key)
 		if err != nil {

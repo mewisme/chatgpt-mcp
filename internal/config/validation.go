@@ -42,6 +42,9 @@ func Validate(cfg Config) error {
 		return fmt.Errorf("server expose mode must be none, all, 0.0.0.0, or interfaces: %q", cfg.Server.Expose.Mode)
 	}
 	if exposure.Mode != ExposureNone {
+		if !cfg.Server.AllowInsecureHTTP {
+			return errors.New("non-loopback HTTP exposure requires server.allow_insecure_http=true; prefer Secure MCP Tunnel or a TLS reverse proxy")
+		}
 		if !cfg.Auth.MCPEnabled || cfg.Auth.MCPTokenHash == "" {
 			return errors.New("network exposure requires MCP authentication with a configured token; run chatgpt-mcp auth mcp create")
 		}

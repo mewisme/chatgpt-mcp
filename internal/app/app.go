@@ -85,7 +85,7 @@ func (a *App) AdminHandler() http.Handler {
 	mux.Handle("/api/", adminHandler)
 	mux.Handle("/api/activity/stream", auth.DynamicHashedMiddleware(adminAuth, activity.Handler(a.Activity)))
 	mux.Handle("/", web.Handler())
-	return mux
+	return web.SecurityHeaders(mux)
 }
 
 func (a *App) Handler() http.Handler {

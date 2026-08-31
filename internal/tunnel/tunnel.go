@@ -620,7 +620,6 @@ func (c *Client) stopGeneration(ctx context.Context, generation uint64) error {
 		}
 	}
 	c.stopping = true
-	id := c.config.ID
 	tunnelBackend := c.backend
 	cancel := c.cancel
 	run := c.serverRun
@@ -640,7 +639,6 @@ func (c *Client) stopGeneration(ctx context.Context, generation uint64) error {
 	}
 
 	c.mu.Lock()
-	stopped := false
 	if c.generation == generation {
 		c.backend = nil
 		c.cancel = nil
@@ -652,14 +650,9 @@ func (c *Client) stopGeneration(ctx context.Context, generation uint64) error {
 		c.stopping = false
 		c.startedAt = time.Time{}
 		close(doneCh)
-		stopped = true
 	}
 	c.mu.Unlock()
-	err := errors.Join(backendErr, serverErr)
-	if stopped && err != nil {
-		c.emitLifecycle(LifecycleDegraded, id, err.Error())
-	}
-	return err
+	return errors.Join(backendErr, serverErr)
 }
 
 func waitRun(ctx context.Context, run *serverRun, fallback time.Duration) error {

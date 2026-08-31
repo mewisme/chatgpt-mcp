@@ -171,7 +171,15 @@ func TestTunnelBackendShutdownReconnects(t *testing.T) {
 	if degraded.Message == "" {
 		t.Fatal("degraded lifecycle event did not include a reason")
 	}
-	reconnecting := waitLifecycleState(t, events, LifecycleReconnecting)
+	var reconnecting LifecycleEvent
+	select {
+	case reconnecting = <-events:
+		if reconnecting.State != LifecycleReconnecting {
+			t.Fatalf("event after degraded = %+v, want reconnecting without duplicate degraded", reconnecting)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for reconnecting lifecycle event")
+	}
 	if reconnecting.Attempt != 1 || reconnecting.RetryIn != time.Millisecond {
 		t.Fatalf("reconnecting event = %+v", reconnecting)
 	}

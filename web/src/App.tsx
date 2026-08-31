@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
-import { LoaderCircle, LogOut } from "lucide-react"
+import { LoaderCircle } from "lucide-react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { adminDocumentTitle, navItems } from "@/lib/admin-navigation"
-import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { adminApi, adminToken, ApiError } from "@/lib/api"
@@ -46,7 +45,7 @@ export function App() {
 
   function signOut() { adminToken.clear(); setAuthenticated(false) }
 
-  return <TooltipProvider><SidebarProvider><AppSidebar page={page} onPageChange={setPage} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{meta.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{meta.description}</div></div>{authRequired ? <Button size="sm" variant="ghost" onClick={signOut}><LogOut />Sign out</Button> : null}</header><main className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1440px] p-4 sm:p-6 lg:p-8"><Page /></div></main></SidebarInset></SidebarProvider></TooltipProvider>
+  return <TooltipProvider><SidebarProvider><AppSidebar authRequired={authRequired} page={page} onPageChange={setPage} onSignOut={signOut} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-4"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{meta.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{meta.description}</div></div></header><div className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1400px] p-4 sm:p-6 lg:p-8"><Page /></div></div></SidebarInset></SidebarProvider></TooltipProvider>
 }
 
 export default App

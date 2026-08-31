@@ -91,7 +91,7 @@ $currentExe = Join-Path $current 'chatgpt-mcp.exe'
 $legacyAlias = Join-Path $current 'cmcp.cmd'
 if (Test-Path $legacyAlias) { Remove-Item -Force $legacyAlias }
 $alias = Join-Path $current 'cgm.cmd'
-@('@echo off', '"%~dp0chatgpt-mcp.exe" %*') | Set-Content -Path $alias -Encoding Ascii
+@('@echo off', 'set "CHATGPT_MCP_CLI_NAME=cgm"', '"%~dp0chatgpt-mcp.exe" %*') | Set-Content -Path $alias -Encoding Ascii
 
 Get-ChildItem -Path $versions -Directory -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $dest } | ForEach-Object {
   try { Remove-Item -Recurse -Force -ErrorAction Stop $_.FullName } catch { }

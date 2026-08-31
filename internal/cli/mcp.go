@@ -138,10 +138,11 @@ func mcpServerAddCommand() *cobra.Command {
 func mcpServerConfigureCommand() *cobra.Command {
 	var flags upstreamFlags
 	cmd := &cobra.Command{
-		Use:     "configure <id>",
-		Aliases: []string{"set"},
-		Short:   "Update selected fields on an existing upstream MCP server",
-		Args:    cobra.ExactArgs(1),
+		Use:               "configure <id>",
+		Aliases:           []string{"set"},
+		Short:             "Update selected fields on an existing upstream MCP server",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {
@@ -168,9 +169,10 @@ func mcpServerConfigureCommand() *cobra.Command {
 
 func mcpServerShowCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <id>",
-		Short: "Show one upstream server with secrets redacted",
-		Args:  cobra.ExactArgs(1),
+		Use:               "show <id>",
+		Short:             "Show one upstream server with secrets redacted",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {
@@ -187,9 +189,10 @@ func mcpServerShowCommand() *cobra.Command {
 
 func mcpServerRemoveCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "remove <id>",
-		Short: "Remove an upstream MCP server",
-		Args:  cobra.ExactArgs(1),
+		Use:               "remove <id>",
+		Short:             "Remove an upstream MCP server",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {
@@ -213,9 +216,10 @@ func mcpServerToggleCommand(enabled bool) *cobra.Command {
 		action = "enable"
 	}
 	return &cobra.Command{
-		Use:   action + " <id>",
-		Short: action + " an upstream MCP server",
-		Args:  cobra.ExactArgs(1),
+		Use:               action + " <id>",
+		Short:             action + " an upstream MCP server",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {
@@ -238,10 +242,11 @@ func mcpServerToggleCommand(enabled bool) *cobra.Command {
 func mcpServerStatusCommand() *cobra.Command {
 	var refresh bool
 	cmd := &cobra.Command{
-		Use:     "status <id>",
-		Aliases: []string{"st"},
-		Short:   "Check one upstream MCP server",
-		Args:    cobra.ExactArgs(1),
+		Use:               "status <id>",
+		Aliases:           []string{"st"},
+		Short:             "Check one upstream MCP server",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {
@@ -260,9 +265,10 @@ func mcpServerStatusCommand() *cobra.Command {
 func mcpServerToolsCommand() *cobra.Command {
 	var refresh bool
 	cmd := &cobra.Command{
-		Use:   "tools <id>",
-		Short: "List tools exposed by one upstream MCP server",
-		Args:  cobra.ExactArgs(1),
+		Use:               "tools <id>",
+		Short:             "List tools exposed by one upstream MCP server",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {

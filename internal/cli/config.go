@@ -85,6 +85,7 @@ func configGetCommand() *cobra.Command {
 		},
 	}
 	addConfigOutputFlags(cmd, &options)
+	cmd.ValidArgsFunction = completeConfigSelection
 	return cmd
 }
 
@@ -108,11 +109,12 @@ func configListCommand() *cobra.Command {
 		},
 	}
 	addConfigOutputFlags(cmd, &options)
+	cmd.ValidArgsFunction = completeConfigSelection
 	return cmd
 }
 
 func configSetCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set one typed configuration value; key=value is also accepted",
 		Args:  cobra.RangeArgs(1, 2),
@@ -138,6 +140,8 @@ func configSetCommand() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.ValidArgsFunction = completeConfigSet
+	return cmd
 }
 
 func configPresetCommand() *cobra.Command {
@@ -158,9 +162,10 @@ func configPresetCommand() *cobra.Command {
 			},
 		},
 		&cobra.Command{
-			Use:   "show <name>",
-			Short: "Show one built-in configuration preset",
-			Args:  cobra.ExactArgs(1),
+			Use:               "show <name>",
+			Short:             "Show one built-in configuration preset",
+			Args:              cobra.ExactArgs(1),
+			ValidArgsFunction: completePresetName,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				preset, err := config.PresetByName(args[0])
 				if err != nil {
@@ -170,10 +175,11 @@ func configPresetCommand() *cobra.Command {
 			},
 		},
 		&cobra.Command{
-			Use:     "apply <name>",
-			Aliases: []string{"use"},
-			Short:   "Apply a preset while preserving configured secrets and tunnel details",
-			Args:    cobra.ExactArgs(1),
+			Use:               "apply <name>",
+			Aliases:           []string{"use"},
+			Short:             "Apply a preset while preserving configured secrets and tunnel details",
+			Args:              cobra.ExactArgs(1),
+			ValidArgsFunction: completePresetName,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				cfg, err := config.Load()
 				if err != nil {
@@ -330,10 +336,11 @@ func getConfigValue(cfg config.Config, key string) (any, error) {
 
 func configConvertCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:     "convert <json|yaml|toml>",
-		Aliases: []string{"transform"},
-		Short:   "Convert all structured chatgpt-mcp config/state files to one format",
-		Args:    cobra.ExactArgs(1),
+		Use:               "convert <json|yaml|toml>",
+		Aliases:           []string{"transform"},
+		Short:             "Convert all structured chatgpt-mcp config/state files to one format",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeConfigFormat,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := configformat.Parse(args[0])
 			if err != nil {

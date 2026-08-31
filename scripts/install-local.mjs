@@ -99,7 +99,7 @@ async function installAlias(binaryPath) {
   if (process.platform === "win32") {
     await rm(resolve(dir, "cmcp.cmd"), { force: true })
     const aliasPath = resolve(dir, "cgm.cmd")
-    await writeFile(aliasPath, '@echo off\r\n"%~dp0chatgpt-mcp.exe" %*\r\n', "ascii")
+    await writeFile(aliasPath, '@echo off\r\nset "CHATGPT_MCP_CLI_NAME=cgm"\r\n"%~dp0chatgpt-mcp.exe" %*\r\n', "ascii")
     return aliasPath
   }
   await rm(resolve(dir, "cmcp"), { force: true })

@@ -22,6 +22,27 @@ Only a small set of high-value aliases is provided:
 
 Aliases compose with nested commands, for example `cgm cfg ls`, `cgm ws ls`, `cgm mcp server ls`, and `cgm tunnel st`.
 
+## Shell completion
+
+Cobra provides command, subcommand, flag, and dynamic argument completion for Bash, Zsh, Fish, and PowerShell:
+
+```bash
+# Bash
+source <(cgm completion bash)
+
+# Zsh
+source <(cgm completion zsh)
+
+# Fish
+cgm completion fish | source
+```
+
+```powershell
+cgm completion powershell | Out-String | Invoke-Expression
+```
+
+Dynamic completion includes config keys and typed values, preset names, workspace IDs, upstream MCP IDs, recent runtime session IDs, and directory arguments where appropriate. For example, `cgm cfg set per<Tab>` completes `permissions.allow_dirs`, while `cgm cfg set auth.mcp_enabled <Tab>` offers `true` and `false`.
+
 ## Global flags
 
 | Flag | Purpose |

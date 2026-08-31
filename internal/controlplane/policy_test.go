@@ -6,7 +6,7 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 	for _, args := range [][]string{
 		{"status"}, {"config", "list"}, {"config", "preset", "show", "default"}, {"auth", "status"},
 		{"workspace", "access", "list", "ws_test"}, {"mcp", "server", "show", "server"}, {"tunnel", "status"},
-		{"st"}, {"cfg", "ls"}, {"ws", "access", "ls", "ws_test"}, {"mcp", "server", "st", "server"}, {"tunnel", "st"},
+		{"st"}, {"cfg", "ls"}, {"ws", "access", "ls", "ws_test"}, {"mcp", "server", "st", "server"}, {"tunnel", "st"}, {"completion", "bash"},
 		{"--config-dir", "/tmp/config", "config", "get", "server.expose"}, {"--verbose", "status"}, {"--help"},
 	} {
 		if !IsReadOnlyArgs(args) {

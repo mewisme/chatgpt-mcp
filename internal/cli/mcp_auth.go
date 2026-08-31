@@ -24,9 +24,10 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 	var noOpen bool
 	var timeout time.Duration
 	command := &cobra.Command{
-		Use:   "login <id>",
-		Short: "Authorize an HTTP MCP server with OAuth",
-		Args:  cobra.ExactArgs(1),
+		Use:               "login <id>",
+		Short:             "Authorize an HTTP MCP server with OAuth",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {
@@ -89,9 +90,10 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 func mcpServerAuthStatusCommand() *cobra.Command {
 	var asJSON bool
 	command := &cobra.Command{
-		Use:   "status <id>",
-		Short: "Show OAuth authorization status without secrets",
-		Args:  cobra.ExactArgs(1),
+		Use:               "status <id>",
+		Short:             "Show OAuth authorization status without secrets",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {
@@ -129,9 +131,10 @@ func mcpServerAuthStatusCommand() *cobra.Command {
 
 func mcpServerAuthLogoutCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "logout <id>",
-		Short: "Delete stored OAuth credentials for an upstream MCP server",
-		Args:  cobra.ExactArgs(1),
+		Use:               "logout <id>",
+		Short:             "Delete stored OAuth credentials for an upstream MCP server",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {

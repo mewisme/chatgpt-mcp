@@ -22,7 +22,7 @@ func workspaceCommand() *cobra.Command {
 func workspaceAccessCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "access", Short: "Manage workspace-specific filesystem access"}
 	cmd.AddCommand(
-		&cobra.Command{Use: "add <workspace_id> <path>", Short: "Grant a workspace access to an additional directory", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		&cobra.Command{Use: "add <workspace_id> <path>", Short: "Grant a workspace access to an additional directory", Args: cobra.ExactArgs(2), ValidArgsFunction: completeWorkspaceThenDirectory, RunE: func(cmd *cobra.Command, args []string) error {
 			manager := workspace.NewManager(workspace.DefaultStorePath())
 			item, err := manager.AddAllowDir(args[0], args[1])
 			if err != nil {
@@ -34,7 +34,7 @@ func workspaceAccessCommand() *cobra.Command {
 			log.Detail("allow_dir", args[1])
 			return nil
 		}},
-		&cobra.Command{Use: "remove <workspace_id> <path>", Short: "Revoke an additional directory from a workspace", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		&cobra.Command{Use: "remove <workspace_id> <path>", Short: "Revoke an additional directory from a workspace", Args: cobra.ExactArgs(2), ValidArgsFunction: completeWorkspaceThenDirectory, RunE: func(cmd *cobra.Command, args []string) error {
 			manager := workspace.NewManager(workspace.DefaultStorePath())
 			item, err := manager.RemoveAllowDir(args[0], args[1])
 			if err != nil {
@@ -45,7 +45,7 @@ func workspaceAccessCommand() *cobra.Command {
 			log.Detail("id", item.ID)
 			return nil
 		}},
-		&cobra.Command{Use: "list <workspace_id>", Aliases: []string{"ls"}, Short: "List workspace-specific additional directories", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		&cobra.Command{Use: "list <workspace_id>", Aliases: []string{"ls"}, Short: "List workspace-specific additional directories", Args: cobra.ExactArgs(1), ValidArgsFunction: completeWorkspaceID, RunE: func(cmd *cobra.Command, args []string) error {
 			manager := workspace.NewManager(workspace.DefaultStorePath())
 			item, err := manager.Get(args[0])
 			if err != nil {
@@ -59,9 +59,10 @@ func workspaceAccessCommand() *cobra.Command {
 
 func workspaceRegisterCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "register [path]",
-		Short: "Register a canonical workspace root and return its stable workspace_id",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "register [path]",
+		Short:             "Register a canonical workspace root and return its stable workspace_id",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeDirectory,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := ""
 			if len(args) == 1 {
@@ -116,9 +117,10 @@ func workspaceListCommand() *cobra.Command {
 
 func workspaceShowCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <workspace_id>",
-		Short: "Show one registered workspace",
-		Args:  cobra.ExactArgs(1),
+		Use:               "show <workspace_id>",
+		Short:             "Show one registered workspace",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeWorkspaceID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := workspace.NewManager(workspace.DefaultStorePath())
 			item, err := manager.Get(args[0])
@@ -132,9 +134,10 @@ func workspaceShowCommand() *cobra.Command {
 
 func workspaceUnregisterCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "unregister <workspace_id>",
-		Short: "Remove a workspace handle without deleting project files",
-		Args:  cobra.ExactArgs(1),
+		Use:               "unregister <workspace_id>",
+		Short:             "Remove a workspace handle without deleting project files",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeWorkspaceID,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := workspace.NewManager(workspace.DefaultStorePath())
 			item, err := manager.Get(args[0])

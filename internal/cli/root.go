@@ -18,7 +18,7 @@ var root = newRootCommand()
 
 func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:               "chatgpt-mcp",
+		Use:               cliUseName(),
 		Short:             "Workspace-bound local MCP server for ChatGPT",
 		RunE:              runServer,
 		Version:           version.Short(),
@@ -48,6 +48,17 @@ func newRootCommand() *cobra.Command {
 		}},
 	)
 	return cmd
+}
+
+func cliUseName() string {
+	if value := strings.ToLower(strings.TrimSpace(os.Getenv("CHATGPT_MCP_CLI_NAME"))); value == "cgm" {
+		return "cgm"
+	}
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe"))
+	if base == "cgm" {
+		return "cgm"
+	}
+	return "chatgpt-mcp"
 }
 
 func initCommand() *cobra.Command {

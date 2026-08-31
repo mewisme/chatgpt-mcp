@@ -8,7 +8,7 @@ import (
 const ToolContextEnv = "CHATGPT_MCP_TOOL_CONTEXT"
 
 var readOnlyPaths = map[string]bool{
-	"help": true, "version": true, "status": true,
+	"help": true, "version": true, "status": true, "completion": true,
 	"config path": true, "config get": true, "config list": true, "config verify": true, "config validate": true,
 	"config preset list": true, "config preset show": true, "config preset current": true,
 	"auth status":    true,
@@ -27,7 +27,8 @@ func ToolContextActive() bool {
 }
 
 func IsReadOnlyPath(path string) bool {
-	return readOnlyPaths[strings.Join(strings.Fields(path), " ")]
+	path = strings.Join(strings.Fields(path), " ")
+	return readOnlyPaths[path] || strings.HasPrefix(path, "completion ")
 }
 
 func IsReadOnlyArgs(args []string) bool {

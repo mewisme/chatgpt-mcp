@@ -45,11 +45,13 @@ func logsCommand() *cobra.Command {
 		return runLogs(cmd, *options)
 	}}
 	addLogsFlags(cmd, options, true)
+	addLogsCompletions(cmd)
 	followOptions := &logsOptions{tail: 100, follow: true, showTime: true}
 	follow := &cobra.Command{Use: "follow", Short: "Follow runtime logs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return runLogs(cmd, *followOptions)
 	}}
 	addLogsFlags(follow, followOptions, false)
+	addLogsCompletions(follow)
 	pathCmd := &cobra.Command{Use: "path", Short: "Show the runtime journal path", Args: cobra.NoArgs, Run: func(cmd *cobra.Command, args []string) {
 		commandLogger(cmd).Notice("LOGS", "logs.path", runtimeevent.Path(config.RootPath()))
 	}}
@@ -67,6 +69,15 @@ func logsCommand() *cobra.Command {
 	clear.Flags().BoolVar(&forceClear, "force", false, "clear current and rotated runtime logs")
 	cmd.AddCommand(follow, pathCmd, clear)
 	return cmd
+}
+
+func addLogsCompletions(cmd *cobra.Command) {
+	_ = cmd.RegisterFlagCompletionFunc("session", completeSessionID)
+	_ = cmd.RegisterFlagCompletionFunc("workspace", func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return workspaceCompletions(cmd, toComplete)
+	})
+	_ = cmd.RegisterFlagCompletionFunc("level", completeStatic("debug", "info", "warn", "error"))
+	_ = cmd.RegisterFlagCompletionFunc("component", completeStatic("SERVER", "TUNNEL", "CONFIG", "MCP", "TOOL", "UPSTREAM", "SESSION", "SERVICE"))
 }
 
 func clearRuntimeLogs(cmd *cobra.Command) error {

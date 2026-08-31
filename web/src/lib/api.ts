@@ -61,6 +61,7 @@ export type PublicConfig = {
   admin: { enabled: boolean; port: number }
   auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
   permissions: { allow_dirs: string[] }
+  shell: { path: string[] }
   features: { ponytail: { enabled: boolean }; caveman: { enabled: boolean } }
 }
 export type NetworkAddress = { address: string; interface?: string; scope: "local" | "lan" | "network" | string }

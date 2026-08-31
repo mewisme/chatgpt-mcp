@@ -291,6 +291,27 @@ func TestConfigAPIPermissionsPatchUpdatesRuntimeAccess(t *testing.T) {
 	}
 }
 
+func TestConfigAPIShellPathPatch(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Config: store, saveConfig: func(config.Config) error { return nil }})
+	path := filepath.Join(t.TempDir(), "bin")
+	recorder := httptest.NewRecorder()
+	body := fmt.Sprintf(`{"shell":{"path":[%q]}}`, path)
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Shell.Path; len(got) != 1 || got[0] != filepath.Clean(path) {
+		t.Fatalf("shell path = %#v", got)
+	}
+	if !strings.Contains(recorder.Body.String(), `"shell":{"path":[`) {
+		t.Fatalf("shell missing from response: %s", recorder.Body.String())
+	}
+}
+
 func TestConfigAPIPermissionsPersistenceFailureKeepsRuntimeAccess(t *testing.T) {
 	root := t.TempDir()
 	allowed := t.TempDir()

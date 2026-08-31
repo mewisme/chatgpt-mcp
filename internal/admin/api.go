@@ -40,6 +40,7 @@ type publicConfig struct {
 	Admin       config.AdminConfig       `json:"admin"`
 	Auth        authSettings             `json:"auth"`
 	Permissions config.PermissionsConfig `json:"permissions"`
+	Shell       config.ShellConfig       `json:"shell"`
 	Features    config.FeaturesConfig    `json:"features"`
 }
 
@@ -48,6 +49,7 @@ type configPatch struct {
 	Admin       *config.AdminConfig       `json:"admin,omitempty"`
 	Auth        *authSettings             `json:"auth,omitempty"`
 	Permissions *config.PermissionsConfig `json:"permissions,omitempty"`
+	Shell       *config.ShellConfig       `json:"shell,omitempty"`
 	Features    *featurePatch             `json:"features,omitempty"`
 }
 
@@ -129,6 +131,14 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 				}
 				next.Permissions.AllowDirs = allowDirs
 			}
+			if patch.Shell != nil {
+				shellPath, err := config.NormalizeShellPath(patch.Shell.Path)
+				if err != nil {
+					status = http.StatusBadRequest
+					return next, err
+				}
+				next.Shell.Path = shellPath
+			}
 			if patch.Features != nil {
 				if patch.Features.Ponytail != nil && patch.Features.Ponytail.Enabled != nil {
 					next.Features.Ponytail.Enabled = *patch.Features.Ponytail.Enabled
@@ -184,7 +194,7 @@ func (api API) upstreamManager() *upstream.Manager {
 
 func publicConfigView(cfg config.Config) publicConfig {
 	return publicConfig{
-		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Features: cfg.Features,
+		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell, Features: cfg.Features,
 		Auth: authSettings{
 			MCPEnabled: cfg.Auth.MCPEnabled, AdminEnabled: cfg.Auth.AdminEnabled,
 			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",

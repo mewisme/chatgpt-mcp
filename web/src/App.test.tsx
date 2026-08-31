@@ -11,6 +11,7 @@ const config = {
   admin: { enabled: true, port: 37422 },
   auth: { mcp_enabled: true, admin_enabled: true, mcp_token_configured: true, admin_token_configured: true },
   permissions: { allow_dirs: [] },
+  shell: { path: [] },
   features: { ponytail: { enabled: true }, caveman: { enabled: true } },
 }
 const presets = { current: "default", presets: [{ name: "default", description: "Default", server: config.server, admin: config.admin, mcp_auth_enabled: true, admin_auth_enabled: true, tunnel_enabled: false, features: config.features }] }

@@ -108,5 +108,5 @@ func (event Event) LoggerEvent() logger.Event {
 	if event.Error != "" {
 		eventErr = fmt.Errorf("%s", event.Error)
 	}
-	return logger.Event{Time: event.Time, Level: level, Visibility: event.Visibility, Kind: kind, Name: event.Name, Component: event.Component, Message: event.Message, Fields: fields, Err: eventErr}
+	return logger.Event{Time: event.Time, Level: level, Visibility: event.Visibility, Kind: kind, Name: event.Name, Component: event.Component, Message: event.Message, Fields: fields, Err: eventErr, RunID: event.RunID, PID: event.PID, Managed: event.Managed, ServiceID: event.ServiceID, ServiceScope: event.ServiceScope}
 }

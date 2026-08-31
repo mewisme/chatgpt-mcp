@@ -27,7 +27,7 @@ func TestRuntimeControlReloadStatusAndShutdownRoundTrip(t *testing.T) {
 	control, err := startRuntimeControl(runtimeControlOptions{RunID: "run_test", StartedAt: time.Now(), Events: stream, Reload: func(context.Context) (runtimeReloadResult, error) {
 		return runtimeReloadResult{PID: os.Getpid(), NetworkRestarted: true, ServerPort: 41001, AdminEnabled: true, AdminPort: 41002, Exposure: config.ExposureNone}, nil
 	}, Status: func() runtimeStatusResult {
-		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_test", ConfigRoot: root, ServerPort: 41001, AdminEnabled: true, AdminPort: 41002, Exposure: config.ExposureNone}
+		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_test", ConfigRoot: root, ServerPort: 41001, AdminEnabled: true, AdminPort: 41002, Exposure: config.ExposureNone, TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelReady: true, TunnelID: "tunnel_test"}
 	}, Shutdown: func() {
 		select {
 		case shutdown <- struct{}{}:
@@ -48,7 +48,7 @@ func TestRuntimeControlReloadStatusAndShutdownRoundTrip(t *testing.T) {
 		t.Fatalf("reload result = %#v", result)
 	}
 	status, err := requestRuntimeStatus(ctx)
-	if err != nil || status.RunID != "run_test" || status.ServerPort != 41001 {
+	if err != nil || status.RunID != "run_test" || status.ServerPort != 41001 || !status.TunnelEnabled || !status.TunnelConfigured || !status.TunnelReady || status.TunnelID != "tunnel_test" {
 		t.Fatalf("status=%#v err=%v", status, err)
 	}
 	if err := requestRuntimeShutdown(ctx); err != nil {

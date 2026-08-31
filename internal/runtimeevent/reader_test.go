@@ -60,3 +60,13 @@ func TestFilesOldestFirstDiscoversRotations(t *testing.T) {
 		t.Fatal("rotated journal returned no events")
 	}
 }
+
+func TestQueryFiltersSessionByDisplayedPrefix(t *testing.T) {
+	query := Query{RunID: "run_abcdef123456"}
+	if !query.Match(Event{RunID: "run_abcdef1234567890", Time: time.Now(), Level: "info"}) {
+		t.Fatal("session prefix did not match run id")
+	}
+	if query.Match(Event{RunID: "run_other", Time: time.Now(), Level: "info"}) {
+		t.Fatal("different session matched run id filter")
+	}
+}

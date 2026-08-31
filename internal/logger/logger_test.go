@@ -40,6 +40,34 @@ func TestVerboseRendererAddsUsefulContext(t *testing.T) {
 	}
 }
 
+func TestTimeModeShowsTimestampOnlyOnPrimaryTextLine(t *testing.T) {
+	restoreColor := disableColor()
+	defer restoreColor()
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Info, TimeMode: TimeShow, Writer: &output})
+	log.now = func() time.Time { return time.Date(2026, 8, 31, 12, 34, 56, 0, time.UTC) }
+	log.Ready("SERVER", "server.ready", "Server ready", With("mcp", "http://127.0.0.1:37421/mcp"))
+	text := output.String()
+	if !strings.Contains(text, "12:34:56 ✓ Server ready") {
+		t.Fatalf("timestamped output = %q", text)
+	}
+	if strings.Contains(text, "12:34:56     mcp:") {
+		t.Fatalf("detail line unexpectedly timestamped: %q", text)
+	}
+}
+
+func TestTimeHideDisablesDebugTimestamp(t *testing.T) {
+	restoreColor := disableColor()
+	defer restoreColor()
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Debug, Mode: ModeDebug, TimeMode: TimeHide, Writer: &output})
+	log.now = func() time.Time { return time.Date(2026, 8, 31, 12, 34, 56, 0, time.UTC) }
+	log.Diagnostic(Debug, "TEST", "test.debug", "Debug line")
+	if strings.Contains(output.String(), "12:34:56") {
+		t.Fatalf("debug timestamp was not disabled: %q", output.String())
+	}
+}
+
 func TestDebugRendererIncludesStructuredMetadata(t *testing.T) {
 	restoreColor := disableColor()
 	defer restoreColor()
@@ -48,10 +76,13 @@ func TestDebugRendererIncludesStructuredMetadata(t *testing.T) {
 	log.now = func() time.Time { return time.Date(2026, 8, 31, 0, 27, 32, 0, time.UTC) }
 	log.Diagnostic(Debug, "TUNNEL", "tunnel.route.resolved", "route resolved", WithDebug("client_instance_id", "client_123"), WithDebug("route_kind", "mcp_channel"))
 	text := output.String()
-	for _, expected := range []string{"00:27:32", "DBG", "TUNNEL", "tunnel.route.resolved", "client_instance_id=client_123", "route_kind=mcp_channel"} {
+	for _, expected := range []string{"DBG", "TUNNEL", "tunnel.route.resolved", "client_instance_id=client_123", "route_kind=mcp_channel"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("debug output %q missing %q", text, expected)
 		}
+	}
+	if strings.Contains(text, "00:27:32") {
+		t.Fatalf("normal CLI debug output unexpectedly contains timestamp: %q", text)
 	}
 }
 
@@ -73,6 +104,19 @@ func TestJSONRendererRespectsModeAndKeepsStructure(t *testing.T) {
 	}
 	if _, ok := fields["client_instance_id"]; ok {
 		t.Fatalf("debug field leaked into verbose json: %#v", fields)
+	}
+}
+
+func TestJSONRendererIncludesReplaySessionMetadata(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Info, Format: FormatJSON, Writer: &output})
+	log.Emit(Event{Level: Info, Kind: KindSuccess, Name: "server.ready", Message: "Server ready", Component: "SERVER", RunID: "run_test", PID: 42, Managed: true, ServiceID: "service_test", ServiceScope: "system"})
+	var value map[string]any
+	if err := json.Unmarshal(output.Bytes(), &value); err != nil {
+		t.Fatal(err)
+	}
+	if value["run_id"] != "run_test" || value["pid"] != float64(42) || value["managed"] != true || value["service_id"] != "service_test" || value["service_scope"] != "system" {
+		t.Fatalf("json metadata = %#v", value)
 	}
 }
 

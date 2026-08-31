@@ -333,11 +333,45 @@ func logManagedDetails(log *logger.Logger, spec managed.Spec, manager managed.Ma
 }
 
 func logRuntimeDetails(log *logger.Logger, status runtimeStatusResult) {
+	if status.RunID != "" {
+		log.Detail("session", shortSessionID(status.RunID))
+	}
 	log.Detail("pid", status.PID)
 	log.Detail("mcp", fmt.Sprintf("http://127.0.0.1:%d/mcp", status.ServerPort))
 	if status.AdminEnabled {
 		log.Detail("admin", fmt.Sprintf("http://127.0.0.1:%d/", status.AdminPort))
 	}
+	log.Detail("tunnel", runtimeTunnelSummary(status))
+	if status.TunnelID != "" {
+		log.Detail("tunnel id", status.TunnelID)
+	}
+}
+
+func runtimeTunnelSummary(status runtimeStatusResult) string {
+	parts := []string{}
+	if status.TunnelEnabled {
+		parts = append(parts, "enabled")
+	} else {
+		parts = append(parts, "disabled")
+	}
+	if status.TunnelConfigured {
+		parts = append(parts, "configured")
+	} else {
+		parts = append(parts, "not configured")
+	}
+	if status.TunnelEnabled {
+		switch {
+		case status.TunnelReady:
+			parts = append(parts, "connected")
+		case status.TunnelRestarting:
+			parts = append(parts, "reconnecting")
+		case status.TunnelRunning:
+			parts = append(parts, "connecting")
+		default:
+			parts = append(parts, "stopped")
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 func logManagedHints(log *logger.Logger, spec managed.Spec) {

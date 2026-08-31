@@ -116,7 +116,10 @@ cmcp logs -n 200
 cmcp logs --verbose
 cmcp logs --debug
 cmcp logs --log-format=json
+cmcp logs --no-time
 ```
+
+Runtime log replay is timestamped by default and separated by runtime session. Normal CLI command output remains timestamp-free. Use `--session <run_id-or-prefix>` to isolate one runtime process and `--no-time` to suppress replay timestamps.
 
 Follow:
 
@@ -130,6 +133,7 @@ Filters:
 ```bash
 cmcp logs --since 30m
 cmcp logs --until 2026-08-31T12:00:00+07:00
+cmcp logs --session run_a1b2c3d4e5f6
 cmcp logs --level warn
 cmcp logs --component SERVER,TUNNEL
 cmcp logs --workspace ws_...
@@ -302,7 +306,9 @@ Status is the main read-only overview for:
 - runtime state
 - foreground/managed service state
 - service scope/backend/ID
+- runtime session ID
 - PID/start information
+- tunnel enabled/configured/live state
 - registered workspaces
 - upstream servers
 

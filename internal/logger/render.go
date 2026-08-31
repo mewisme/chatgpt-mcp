@@ -12,14 +12,19 @@ import (
 )
 
 type jsonEvent struct {
-	Time      string         `json:"time"`
-	Level     string         `json:"level"`
-	Event     string         `json:"event"`
-	Kind      string         `json:"kind"`
-	Message   string         `json:"message"`
-	Component string         `json:"component,omitempty"`
-	Fields    map[string]any `json:"fields,omitempty"`
-	Error     string         `json:"error,omitempty"`
+	Time         string         `json:"time"`
+	Level        string         `json:"level"`
+	Event        string         `json:"event"`
+	Kind         string         `json:"kind"`
+	Message      string         `json:"message"`
+	Component    string         `json:"component,omitempty"`
+	RunID        string         `json:"run_id,omitempty"`
+	PID          int            `json:"pid,omitempty"`
+	Managed      bool           `json:"managed,omitempty"`
+	ServiceID    string         `json:"service_id,omitempty"`
+	ServiceScope string         `json:"service_scope,omitempty"`
+	Fields       map[string]any `json:"fields,omitempty"`
+	Error        string         `json:"error,omitempty"`
 }
 
 func (l *Logger) renderText(event Event) {
@@ -34,6 +39,9 @@ func (l *Logger) renderText(event Event) {
 		}
 		fmt.Fprintf(l.out, "    %s: %v\n", event.Message, value)
 		return
+	}
+	if l.showTime() {
+		fmt.Fprint(l.out, styled(color.FgHiBlack).Sprint(l.eventTime(event).Format("15:04:05")), " ")
 	}
 	fmt.Fprint(l.out, symbolStyle(event.Kind).Sprint(symbol(event.Kind)), " ", event.Message)
 	if event.Err != nil {
@@ -50,7 +58,10 @@ func (l *Logger) renderText(event Event) {
 
 func (l *Logger) renderDebugText(event Event) {
 	level := levelCode(event.Level)
-	fmt.Fprintf(l.out, "%s %s %-10s %s %s", styled(color.FgHiBlack).Sprint(l.eventTime(event).Format("15:04:05")), levelStyle(level).Sprintf("%-3s", level), styled(color.FgHiBlue, color.Bold).Sprintf("%-10s", strings.ToUpper(event.Component)), event.Name, event.Message)
+	if l.showTime() {
+		fmt.Fprint(l.out, styled(color.FgHiBlack).Sprint(l.eventTime(event).Format("15:04:05")), " ")
+	}
+	fmt.Fprintf(l.out, "%s %-10s %s %s", levelStyle(level).Sprintf("%-3s", level), styled(color.FgHiBlue, color.Bold).Sprintf("%-10s", strings.ToUpper(event.Component)), event.Name, event.Message)
 	for _, field := range event.Fields {
 		fmt.Fprintf(l.out, " %s=%v", field.Key, field.Value)
 	}
@@ -68,7 +79,7 @@ func (l *Logger) renderJSON(event Event) {
 		}
 		fields[field.Key] = jsonValue(field.Value)
 	}
-	value := jsonEvent{Time: l.eventTime(event).UTC().Format(time.RFC3339Nano), Level: event.Level.String(), Event: event.Name, Kind: event.Kind.String(), Message: event.Message, Component: event.Component, Fields: fields}
+	value := jsonEvent{Time: l.eventTime(event).UTC().Format(time.RFC3339Nano), Level: event.Level.String(), Event: event.Name, Kind: event.Kind.String(), Message: event.Message, Component: event.Component, RunID: event.RunID, PID: event.PID, Managed: event.Managed, ServiceID: event.ServiceID, ServiceScope: event.ServiceScope, Fields: fields}
 	if event.Err != nil {
 		value.Error = event.Err.Error()
 	}

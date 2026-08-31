@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -23,8 +24,11 @@ import (
 type logsOptions struct {
 	tail       int
 	follow     bool
+	showTime   bool
+	noTime     bool
 	since      string
 	until      string
+	session    string
 	level      string
 	components string
 	workspace  string
@@ -36,12 +40,12 @@ type logsOptions struct {
 }
 
 func logsCommand() *cobra.Command {
-	options := &logsOptions{tail: 100}
+	options := &logsOptions{tail: 100, showTime: true}
 	cmd := &cobra.Command{Use: "logs", Aliases: []string{"log"}, Short: "Read and follow structured runtime logs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return runLogs(cmd, *options)
 	}}
 	addLogsFlags(cmd, options, true)
-	followOptions := &logsOptions{tail: 100, follow: true}
+	followOptions := &logsOptions{tail: 100, follow: true, showTime: true}
 	follow := &cobra.Command{Use: "follow", Short: "Follow runtime logs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return runLogs(cmd, *followOptions)
 	}}
@@ -89,8 +93,10 @@ func addLogsFlags(cmd *cobra.Command, options *logsOptions, includeFollow bool) 
 	if includeFollow {
 		cmd.Flags().BoolVarP(&options.follow, "follow", "f", false, "follow new runtime events")
 	}
+	cmd.Flags().BoolVar(&options.noTime, "no-time", false, "hide timestamps from runtime event lines")
 	cmd.Flags().StringVar(&options.since, "since", "", "show events since a duration such as 30m or an RFC3339 timestamp")
 	cmd.Flags().StringVar(&options.until, "until", "", "show events through an RFC3339 timestamp")
+	cmd.Flags().StringVar(&options.session, "session", "", "filter by session/run ID or displayed prefix")
 	cmd.Flags().StringVar(&options.level, "level", "", "minimum level: debug, info, warn, or error")
 	cmd.Flags().StringVar(&options.components, "component", "", "comma-separated components such as SERVER,TUNNEL")
 	cmd.Flags().StringVar(&options.workspace, "workspace", "", "workspace ID or registered workspace path")
@@ -102,6 +108,9 @@ func addLogsFlags(cmd *cobra.Command, options *logsOptions, includeFollow bool) 
 }
 
 func runLogs(cmd *cobra.Command, options logsOptions) error {
+	if options.noTime {
+		options.showTime = false
+	}
 	query, err := buildLogsQuery(options)
 	if err != nil {
 		return err
@@ -123,10 +132,10 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 	if options.tail > 0 && len(events) > options.tail {
 		events = append([]runtimeevent.Event(nil), events[len(events)-options.tail:]...)
 	}
-	replay := logReplayLogger(cmd)
+	replay := newRuntimeReplay(cmd, options.showTime)
 	lastByRun := map[string]uint64{}
 	for _, event := range events {
-		renderRuntimeEvent(replay, event)
+		replay.Render(event)
 		if event.RunID != "" && event.Sequence > lastByRun[event.RunID] {
 			lastByRun[event.RunID] = event.Sequence
 		}
@@ -144,7 +153,7 @@ func buildLogsQuery(options logsOptions) (runtimeevent.Query, error) {
 	if options.tail < 0 {
 		return runtimeevent.Query{}, errors.New("tail must be zero or greater")
 	}
-	query := runtimeevent.Query{MinLevel: strings.ToLower(strings.TrimSpace(options.level)), Components: parseCSV(options.components), Tool: strings.TrimSpace(options.tool), Status: strings.TrimSpace(options.status), Source: strings.TrimSpace(options.source), EventGlob: strings.TrimSpace(options.event), Grep: strings.TrimSpace(options.grep)}
+	query := runtimeevent.Query{RunID: strings.TrimSpace(options.session), MinLevel: strings.ToLower(strings.TrimSpace(options.level)), Components: parseCSV(options.components), Tool: strings.TrimSpace(options.tool), Status: strings.TrimSpace(options.status), Source: strings.TrimSpace(options.source), EventGlob: strings.TrimSpace(options.event), Grep: strings.TrimSpace(options.grep)}
 	if query.MinLevel != "" {
 		switch query.MinLevel {
 		case "debug", "info", "warn", "warning", "error":
@@ -259,10 +268,14 @@ func visibleRuntimeEvents(events []runtimeevent.Event, visibility logger.Visibil
 	return result
 }
 
-func logReplayLogger(cmd *cobra.Command) *logger.Logger {
+func logReplayLogger(cmd *cobra.Command, showTime bool) *logger.Logger {
 	verbose, debug := commandLogMode(cmd)
 	format, _ := commandLogFormat(cmd)
-	return logger.NewWithOptions(logger.Options{Level: logger.Debug, Mode: logger.ModeFor(verbose, debug), Format: format, Writer: commandLogWriter(cmd)})
+	timeMode := logger.TimeHide
+	if showTime {
+		timeMode = logger.TimeShow
+	}
+	return logger.NewWithOptions(logger.Options{Level: logger.Debug, Mode: logger.ModeFor(verbose, debug), Format: format, TimeMode: timeMode, Writer: commandLogWriter(cmd)})
 }
 
 func renderRuntimeEvent(log *logger.Logger, event runtimeevent.Event) {
@@ -271,7 +284,62 @@ func renderRuntimeEvent(log *logger.Logger, event runtimeevent.Event) {
 	log.Emit(value)
 }
 
-func followRuntimeEventStream(cmd *cobra.Command, response *http.Response, query runtimeevent.Query, visibility logger.Visibility, lastByRun map[string]uint64, replay *logger.Logger) error {
+type runtimeReplay struct {
+	log       *logger.Logger
+	out       io.Writer
+	format    logger.Format
+	showTime  bool
+	lastRunID string
+}
+
+func newRuntimeReplay(cmd *cobra.Command, showTime bool) *runtimeReplay {
+	format, _ := commandLogFormat(cmd)
+	return &runtimeReplay{log: logReplayLogger(cmd, showTime), out: commandLogWriter(cmd), format: format, showTime: showTime}
+}
+
+func (replay *runtimeReplay) Render(event runtimeevent.Event) {
+	if replay == nil {
+		return
+	}
+	if replay.format == logger.FormatText && event.RunID != "" && event.RunID != replay.lastRunID {
+		replay.renderSessionHeader(event)
+		replay.lastRunID = event.RunID
+	}
+	if replay.format == logger.FormatText && event.Name == "runtime.session.started" {
+		return
+	}
+	renderRuntimeEvent(replay.log, event)
+}
+
+func (replay *runtimeReplay) renderSessionHeader(event runtimeevent.Event) {
+	prefix := ""
+	if replay.showTime && !event.Time.IsZero() {
+		prefix = event.Time.Local().Format("2006-01-02 15:04:05") + " "
+	}
+	mode := "foreground"
+	if event.Managed {
+		mode = "managed"
+		if event.ServiceScope != "" {
+			mode += "/" + event.ServiceScope
+		}
+	}
+	pid := ""
+	if event.PID > 0 {
+		pid = fmt.Sprintf(" · pid %d", event.PID)
+	}
+	fmt.Fprintf(replay.out, "%s── session %s%s · %s ──\n", prefix, shortSessionID(event.RunID), pid, mode)
+}
+
+func shortSessionID(value string) string {
+	value = strings.TrimSpace(value)
+	const max = 16
+	if len(value) <= max {
+		return value
+	}
+	return value[:max]
+}
+
+func followRuntimeEventStream(cmd *cobra.Command, response *http.Response, query runtimeevent.Query, visibility logger.Visibility, lastByRun map[string]uint64, replay *runtimeReplay) error {
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	eventType := ""
@@ -291,7 +359,7 @@ func followRuntimeEventStream(cmd *cobra.Command, response *http.Response, query
 		if !query.Match(event) || event.Visibility > visibility {
 			return nil
 		}
-		renderRuntimeEvent(replay, event)
+		replay.Render(event)
 		if event.RunID != "" && event.Sequence > lastByRun[event.RunID] {
 			lastByRun[event.RunID] = event.Sequence
 		}

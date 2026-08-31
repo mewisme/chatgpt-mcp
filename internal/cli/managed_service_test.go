@@ -95,7 +95,7 @@ func TestManagedUpAndDownLifecycle(t *testing.T) {
 		t.Fatalf("manager after up = %#v", manager)
 	}
 	text := output.String()
-	for _, expected := range []string{"Managed service installed", "View logs: cmcp logs -f", "Stop service: cmcp down", "pid"} {
+	for _, expected := range []string{"Managed service installed", "View logs: cmcp logs -f", "Stop service: cmcp down", "session", "pid", "tunnel: disabled · not configured"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("up output missing %q: %s", expected, text)
 		}
@@ -201,5 +201,23 @@ func TestManagedScopeConflictUsesSystemFlagHint(t *testing.T) {
 	err := managedScopeConflict(runtimeStatusResult{Managed: true, ServiceID: "system", ServiceScope: string(managed.ScopeSystem), PID: 123}, spec, "down")
 	if err == nil || !strings.Contains(err.Error(), "cmcp down --system") {
 		t.Fatalf("error = %v, want --system hint", err)
+	}
+}
+
+func TestRuntimeTunnelSummary(t *testing.T) {
+	cases := []struct {
+		status runtimeStatusResult
+		want   string
+	}{
+		{runtimeStatusResult{}, "disabled · not configured"},
+		{runtimeStatusResult{TunnelConfigured: true}, "disabled · configured"},
+		{runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true}, "enabled · configured · connecting"},
+		{runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelReady: true}, "enabled · configured · connected"},
+		{runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRestarting: true}, "enabled · configured · reconnecting"},
+	}
+	for _, test := range cases {
+		if got := runtimeTunnelSummary(test.status); got != test.want {
+			t.Fatalf("summary = %q, want %q", got, test.want)
+		}
 	}
 }

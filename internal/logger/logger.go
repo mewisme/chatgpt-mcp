@@ -13,20 +13,22 @@ import (
 )
 
 type Options struct {
-	Level  Level
-	Mode   Mode
-	Format Format
-	Writer io.Writer
+	Level    Level
+	Mode     Mode
+	Format   Format
+	TimeMode TimeMode
+	Writer   io.Writer
 }
 
 type Logger struct {
-	level   Level
-	mode    Mode
-	format  Format
-	out     io.Writer
-	now     func() time.Time
-	sinksMu sync.RWMutex
-	sinks   []Sink
+	level    Level
+	mode     Mode
+	format   Format
+	timeMode TimeMode
+	out      io.Writer
+	now      func() time.Time
+	sinksMu  sync.RWMutex
+	sinks    []Sink
 }
 
 func New(level Level) *Logger { return NewWithOptions(Options{Level: level, Writer: color.Output}) }
@@ -44,7 +46,7 @@ func NewWithOptions(options Options) *Logger {
 	if options.Format == "" {
 		options.Format = FormatText
 	}
-	return &Logger{level: options.Level, mode: options.Mode, format: options.Format, out: options.Writer, now: time.Now}
+	return &Logger{level: options.Level, mode: options.Mode, format: options.Format, timeMode: options.TimeMode, out: options.Writer, now: time.Now}
 }
 
 func (l *Logger) Emit(event Event) {
@@ -133,6 +135,17 @@ func (l *Logger) eventTime(event Event) time.Time {
 		return event.Time
 	}
 	return l.now()
+}
+
+func (l *Logger) showTime() bool {
+	switch l.timeMode {
+	case TimeShow:
+		return true
+	case TimeHide:
+		return false
+	default:
+		return false
+	}
 }
 
 func (l *Logger) visibility() Visibility {

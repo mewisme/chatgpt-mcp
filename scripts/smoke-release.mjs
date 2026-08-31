@@ -66,7 +66,10 @@ try {
   await waitForHealth(`http://127.0.0.1:${adminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
   await verifyActivitySSE(adminPort)
   await verifyMCP(serverPort, false)
-  run(["status"])
+  const foregroundStatus = run(["status"], { quiet: true })
+  for (const expected of ["runtime: running", "session: run_", "tunnel: disabled · not configured"]) {
+    if (!foregroundStatus.includes(expected)) fail(`foreground status missing ${JSON.stringify(expected)}:\n${foregroundStatus}`)
+  }
 
   const servePID = child.pid
   const reloadedServerPort = await freePort()
@@ -96,6 +99,12 @@ try {
 
   const history = run(["logs", "--debug", "--event", "server.*", "--tail", "50"], { quiet: true })
   if (!history.includes("server.ready") && !history.includes("Server ready")) fail(`runtime history missing server readiness event:\n${history}`)
+  if (!history.includes("── session run_")) fail(`runtime history missing session boundary:\n${history}`)
+  if (!/^\d{2}:\d{2}:\d{2} /m.test(history)) fail(`runtime history missing replay timestamp:\n${history}`)
+  const noTimeHistory = run(["logs", "--event", "server.*", "--tail", "10", "--no-time"], { quiet: true })
+  if (/^\d{2}:\d{2}:\d{2} /m.test(noTimeHistory)) fail(`--no-time still rendered replay timestamp:\n${noTimeHistory}`)
+  const sessionLifecycle = run(["logs", "--event", "runtime.session.*", "--tail", "10"], { quiet: true })
+  if (!sessionLifecycle.includes("Runtime session ended")) fail(`runtime history missing session end marker:\n${sessionLifecycle}`)
   const logPath = run(["logs", "path"], { quiet: true })
   if (!logPath.includes(path.join(configDir, "logs", "runtime.jsonl"))) fail(`logs path does not use isolated config root:\n${logPath}`)
 
@@ -109,11 +118,16 @@ try {
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
 
   const managedStatus = run(["status"], { quiet: true })
-  for (const expected of ["runtime: running", "managed: true", "scope: user", `service: ${managedServiceID}`]) {
+  for (const expected of ["runtime: running", "managed: true", "scope: user", `service: ${managedServiceID}`, "session: run_", "tunnel: disabled · not configured"]) {
     if (!managedStatus.includes(expected)) fail(`managed status missing ${JSON.stringify(expected)}:\n${managedStatus}`)
   }
   const managedLogs = run(["logs", "--debug", "--event", "server.*", "--grep", "Server", "--tail", "50"], { quiet: true })
   if (!managedLogs.includes("server.ready") && !managedLogs.includes("Server ready")) fail(`managed runtime logs filter returned no server event:\n${managedLogs}`)
+  const managedJSON = run(["--log-format=json", "logs", "--event", "server.ready", "--tail", "1"], { quiet: true })
+  const managedJSONEvent = JSON.parse(managedJSON.split(/\r?\n/).filter(Boolean).at(-1))
+  if (typeof managedJSONEvent.run_id !== "string" || !managedJSONEvent.run_id.startsWith("run_") || managedJSONEvent.service_scope !== "user") {
+    fail(`managed JSON logs missing session/service metadata:\n${managedJSON}`)
+  }
 
   run(["logs", "clear", "--force"], { quiet: true })
   let followerStdout = ""

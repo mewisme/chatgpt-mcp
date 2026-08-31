@@ -11,6 +11,7 @@ type Query struct {
 	Tail        int
 	Since       *time.Time
 	Until       *time.Time
+	RunID       string
 	MinLevel    string
 	Components  []string
 	WorkspaceID string
@@ -26,6 +27,9 @@ func (query Query) Match(event Event) bool {
 		return false
 	}
 	if query.Until != nil && event.Time.After(query.Until.UTC()) {
+		return false
+	}
+	if query.RunID != "" && !strings.HasPrefix(strings.ToLower(event.RunID), strings.ToLower(strings.TrimSpace(query.RunID))) {
 		return false
 	}
 	if query.MinLevel != "" && levelRank(event.Level) < levelRank(query.MinLevel) {
@@ -85,7 +89,7 @@ func levelRank(level string) int {
 
 func searchText(event Event) string {
 	var builder strings.Builder
-	for _, value := range []string{event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.Status} {
+	for _, value := range []string{event.RunID, event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.Status} {
 		builder.WriteString(value)
 		builder.WriteByte(' ')
 	}

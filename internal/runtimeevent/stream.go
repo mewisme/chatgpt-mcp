@@ -2,6 +2,7 @@ package runtimeevent
 
 import (
 	"sync"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 )
@@ -93,9 +94,45 @@ func (r *Recorder) WriteEvent(event logger.Event) error {
 	if r == nil {
 		return nil
 	}
+	return r.Record(fromLoggerEvent(event, r.metadata))
+}
+
+func (r *Recorder) Record(value Event) error {
+	if r == nil {
+		return nil
+	}
+	if value.Time.IsZero() {
+		value.Time = time.Now().UTC()
+	} else {
+		value.Time = value.Time.UTC()
+	}
+	if value.RunID == "" {
+		value.RunID = r.metadata.RunID
+	}
+	if value.PID == 0 {
+		value.PID = r.metadata.PID
+	}
+	if !value.Managed {
+		value.Managed = r.metadata.Managed
+	}
+	if value.ServiceID == "" {
+		value.ServiceID = r.metadata.ServiceID
+	}
+	if value.ServiceScope == "" {
+		value.ServiceScope = r.metadata.ServiceScope
+	}
+	value.Message = sanitizeString(value.Message)
+	value.Error = sanitizeString(value.Error)
+	value.WorkspaceID = sanitizeString(value.WorkspaceID)
+	value.Tool = sanitizeString(value.Tool)
+	value.Method = sanitizeString(value.Method)
+	value.Source = sanitizeString(value.Source)
+	value.Status = sanitizeString(value.Status)
+	for index := range value.Fields {
+		value.Fields[index].Value = sanitizeValue(value.Fields[index].Key, value.Fields[index].Value)
+	}
 	r.mu.Lock()
 	r.sequence++
-	value := fromLoggerEvent(event, r.metadata)
 	value.Sequence = r.sequence
 	err := r.Journal.Append(value)
 	r.Stream.mu.Lock()

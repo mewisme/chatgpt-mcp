@@ -33,7 +33,7 @@ func TestLineWriterDebugPreservesMetadataAndRedactsSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	for _, expected := range []string{"12:00:00", "INF", "CONTROLPLANE", "connected to control plane", "tunnel_id=tunnel_123", "api_key=[redacted]", "route_kind=mcp_channel", "stream_component=TUNNEL"} {
+	for _, expected := range []string{"INF", "CONTROLPLANE", "connected to control plane", "tunnel_id=tunnel_123", "api_key=[redacted]", "route_kind=mcp_channel", "stream_component=TUNNEL"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("output %q missing %q", text, expected)
 		}

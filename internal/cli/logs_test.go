@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,9 +40,69 @@ func TestLogsTailAppliesAfterVisibilityFiltering(t *testing.T) {
 	if !strings.Contains(output, "First visible") || !strings.Contains(output, "Last visible") || strings.Contains(output, "Verbose hidden") {
 		t.Fatalf("default logs output = %q", output)
 	}
+	if !strings.Contains(output, "01:00:00") || !strings.Contains(output, "── session run") {
+		t.Fatalf("default logs output missing replay timestamp/session header: %q", output)
+	}
+	withoutTime := executeLogsCommand(t, root, []string{"logs", "-n", "1", "--no-time"})
+	if strings.Contains(withoutTime, "01:00:02") {
+		t.Fatalf("--no-time output = %q", withoutTime)
+	}
 	debugOutput := executeLogsCommand(t, root, []string{"--debug", "logs", "-n", "3"})
 	if !strings.Contains(debugOutput, "Verbose hidden") {
 		t.Fatalf("debug logs did not include hidden event: %q", debugOutput)
+	}
+}
+
+func TestLogsSessionFilterUsesDisplayedPrefix(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := runtimeevent.NewJournal(root, runtimeevent.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []runtimeevent.Event{
+		{Sequence: 1, Time: time.Now(), RunID: "run_abcdef1234567890", PID: 10, Level: "info", Kind: "success", Name: "test.one", Message: "Wanted session"},
+		{Sequence: 1, Time: time.Now(), RunID: "run_other1234567890", PID: 20, Level: "info", Kind: "success", Name: "test.two", Message: "Other session"},
+	} {
+		if err := journal.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output := executeLogsCommand(t, root, []string{"logs", "--session", "run_abcdef123456"})
+	if !strings.Contains(output, "Wanted session") || strings.Contains(output, "Other session") {
+		t.Fatalf("session-filtered output = %q", output)
+	}
+}
+
+func TestLogsJSONKeepsSessionStructuredWithoutTextHeader(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := runtimeevent.NewJournal(root, runtimeevent.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(runtimeevent.Event{Sequence: 1, Time: time.Now(), RunID: "run_json_session", PID: 42, Level: "info", Kind: "success", Name: "server.ready", Component: "SERVER", Message: "Server ready"}); err != nil {
+		t.Fatal(err)
+	}
+	output := executeLogsCommand(t, root, []string{"--log-format=json", "logs"})
+	if strings.Contains(output, "── session") {
+		t.Fatalf("json output leaked text session header: %q", output)
+	}
+	var value map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &value); err != nil {
+		t.Fatalf("json output = %q: %v", output, err)
+	}
+	if value["event"] != "server.ready" {
+		t.Fatalf("json event = %#v", value)
+	}
+	if value["run_id"] != "run_json_session" || value["pid"] != float64(42) {
+		t.Fatalf("json session metadata = %#v", value)
 	}
 }
 

@@ -23,6 +23,14 @@ const (
 	ModeDebug
 )
 
+type TimeMode uint8
+
+const (
+	TimeAuto TimeMode = iota
+	TimeShow
+	TimeHide
+)
+
 type Format string
 
 const (
@@ -55,15 +63,20 @@ type Field struct {
 }
 
 type Event struct {
-	Time       time.Time
-	Level      Level
-	Name       string
-	Message    string
-	Fields     []Field
-	Err        error
-	Component  string
-	Kind       Kind
-	Visibility Visibility
+	Time         time.Time
+	Level        Level
+	Name         string
+	Message      string
+	Fields       []Field
+	Err          error
+	Component    string
+	Kind         Kind
+	Visibility   Visibility
+	RunID        string
+	PID          int
+	Managed      bool
+	ServiceID    string
+	ServiceScope string
 }
 
 func ParseFormat(value string) (Format, error) {

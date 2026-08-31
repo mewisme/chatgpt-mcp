@@ -204,6 +204,10 @@ func ValidateConfig(cfg Config) error {
 	return nil
 }
 
+func Configured(cfg Config) bool {
+	return strings.TrimSpace(cfg.ID) != "" && strings.TrimSpace(cfg.APIKey) != ""
+}
+
 func (c *Client) Configure(cfg Config) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

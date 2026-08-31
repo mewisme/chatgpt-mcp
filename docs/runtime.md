@@ -35,6 +35,8 @@ cmcp up
 
 `up` resolves the selected config root, creates or updates the appropriate OS service definition, starts it, waits for the local runtime control channel, and prints enough context for the user to understand what was installed.
 
+The startup summary includes the runtime session ID, PID, MCP/admin endpoints, and tunnel state. Tunnel state distinguishes whether it is enabled, whether ID/API-key setup is complete, and whether the live tunnel is connected, connecting, reconnecting, or stopped. The tunnel ID is shown when configured; the API key is never printed.
+
 The service definition stores an absolute `--config-dir`, so it does not depend on the environment of a future login session.
 
 `up` is idempotent:
@@ -163,7 +165,9 @@ Status reports information such as:
 - service backend
 - user/system scope where applicable
 - service ID
+- current runtime session ID
 - PID and start information
+- tunnel enabled/configured/live state and tunnel ID
 - workspaces and upstream state
 
 A normal user can inspect a system-managed runtime. Mutations such as removing a system service still require the matching privilege.
@@ -228,6 +232,8 @@ Default rotation:
 
 Events are persisted before terminal visibility filtering, so a service started normally can later be inspected at verbose or debug detail.
 
+Every runtime process has a stable `run_id` for its lifetime. New runtimes also write `runtime.session.started` and `runtime.session.ended` journal markers. Text replay uses the same ID to print a clear session separator even when the requested tail/filter begins in the middle of a session.
+
 ### Replay
 
 ```bash
@@ -237,6 +243,25 @@ cmcp logs --verbose
 cmcp logs --debug
 cmcp logs --log-format=json
 ```
+
+Text replay shows `HH:MM:SS` on primary event lines by default. Indented detail lines do not repeat the timestamp. Normal command output such as `cmcp status`, `cmcp up`, or foreground `cmcp serve` remains timestamp-free, including debug mode.
+
+Hide replay timestamps when desired:
+
+```bash
+cmcp logs --no-time
+```
+
+The session separator includes the local date and time; individual event lines only repeat `HH:MM:SS`.
+
+Filter a single runtime session using the full ID or the shortened prefix printed in the session separator / `cmcp status` / `cmcp up`:
+
+```bash
+cmcp logs --session run_a1b2c3d4e5f6
+cmcp logs --session run_a1b2c3d4e5f6 -f
+```
+
+JSON replay does not emit the text separator; each JSON event instead carries `run_id`, `pid`, and managed service metadata where applicable.
 
 ### Follow
 
@@ -253,6 +278,7 @@ Follow first reads matching history and then switches to the authenticated live 
 ```bash
 cmcp logs --since 30m
 cmcp logs --until 2026-08-31T12:00:00+07:00
+cmcp logs --session run_a1b2c3d4e5f6
 cmcp logs --level warn
 cmcp logs --component SERVER,TUNNEL
 cmcp logs --workspace ws_...
@@ -293,6 +319,6 @@ Normal text output intentionally avoids noisy level/component prefixes. Stable m
 → action
 ```
 
-Use `--verbose` for operational context and `--debug` for full diagnostics including timestamps, levels, components, event names, IDs, TLS/proxy metadata, and low-level tunnel/runtime events.
+Use `--verbose` for operational context and `--debug` for full diagnostics including levels, components, event names, IDs, TLS/proxy metadata, and low-level tunnel/runtime events. Historical/live `cmcp logs` adds timestamps independently of visibility mode.
 
 Use `--log-format=json` when logs will be consumed by automation.

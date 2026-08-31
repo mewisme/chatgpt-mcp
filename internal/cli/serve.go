@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func serveCommand() *cobra.Command {
@@ -70,6 +72,17 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		return err
 	}
 	recorder := runtimeevent.NewRecorder(journal, metadata)
+	if err := recorder.Record(runtimeevent.Event{Time: startedAt, Level: "info", Kind: "action", Name: "runtime.session.started", Component: "SESSION", Message: "Runtime session started", Fields: []runtimeevent.Field{{Key: "session", Value: metadata.RunID}, {Key: "mode", Value: runtimeSessionMode(metadata)}, {Key: "config", Value: config.RootPath()}}}); err != nil {
+		return err
+	}
+	defer func() {
+		status := "ok"
+		if runErr != nil {
+			status = "error"
+		}
+		durationMS := time.Since(startedAt).Milliseconds()
+		_ = recorder.Record(runtimeevent.Event{Time: time.Now().UTC(), Level: "info", Kind: "info", Name: "runtime.session.ended", Component: "SESSION", Message: "Runtime session ended", Status: status, DurationMS: durationMS, Fields: []runtimeevent.Field{{Key: "session", Value: metadata.RunID}, {Key: "status", Value: status}, {Key: "duration_ms", Value: durationMS}}})
+	}()
 	log.AddSink(recorder)
 	runtime := app.NewWithLogger(cfg, log)
 	if err := runtime.Start(runtimeCtx); err != nil {
@@ -150,7 +163,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	status := func() runtimeStatusResult {
 		reloadMu.Lock()
 		defer reloadMu.Unlock()
-		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode}
+		tunnelStatus := runtime.Tunnel.Status()
+		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID)}
 	}
 	control, err := startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Shutdown: func() {
 		select {
@@ -192,6 +206,16 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("reason", "context canceled"))
 		return shutdown()
 	}
+}
+
+func runtimeSessionMode(metadata runtimeevent.Metadata) string {
+	if !metadata.Managed {
+		return "foreground"
+	}
+	if metadata.ServiceScope != "" {
+		return "managed/" + metadata.ServiceScope
+	}
+	return "managed"
 }
 
 func newHTTPServer(handler http.Handler) *http.Server {

@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -58,6 +59,9 @@ func statusCommand() *cobra.Command {
 			if running {
 				log.Detail("runtime", "running")
 				log.Detail("managed", runtimeStatus.Managed)
+				if runtimeStatus.RunID != "" {
+					log.Detail("session", shortSessionID(runtimeStatus.RunID))
+				}
 				log.Detail("pid", runtimeStatus.PID)
 				if !runtimeStatus.StartedAt.IsZero() {
 					log.Detail("started", runtimeStatus.StartedAt.Local().Format(time.RFC3339))
@@ -67,8 +71,18 @@ func statusCommand() *cobra.Command {
 					log.Detail("backend", runtimeBackendLabel(runtimeStatus.ServiceScope))
 					log.Detail("service", runtimeStatus.ServiceID)
 				}
+				log.Detail("tunnel", runtimeTunnelSummary(runtimeStatus))
+				if runtimeStatus.TunnelID != "" {
+					log.Detail("tunnel id", runtimeStatus.TunnelID)
+				}
 			} else {
 				log.Detail("runtime", "stopped")
+				configured := tunnel.Configured(cfg.Tunnel)
+				state := runtimeStatusResult{TunnelEnabled: cfg.Tunnel.Enabled, TunnelConfigured: configured, TunnelID: cfg.Tunnel.ID}
+				log.Detail("tunnel", runtimeTunnelSummary(state))
+				if cfg.Tunnel.ID != "" {
+					log.Detail("tunnel id", cfg.Tunnel.ID)
+				}
 				for _, item := range installedManagedServices(account) {
 					log.Detail("service "+string(item.spec.Scope), fmt.Sprintf("installed (%s)", managedBackendLabel(item.manager, item.spec)))
 				}

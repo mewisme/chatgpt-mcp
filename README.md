@@ -43,7 +43,7 @@ chatgpt-mcp
 - Workspace-bound filesystem, shell, Git, rules, skills, checkpoints, and utilities
 - Dynamic upstream MCP aggregation with OAuth and MRTR relay
 - Managed background runtime via systemd, launchd, or Task Scheduler
-- Persistent structured logs with replay, filters, `--verbose`, `--debug`, JSON, and live follow
+- Persistent structured logs with session boundaries, replay timestamps, filters, `--verbose`, `--debug`, JSON, and live follow
 - Live configuration reload with transactional listener rebind and rollback
 - Embedded React admin dashboard
 - Separate MCP/admin authentication and explicit network exposure controls
@@ -133,6 +133,8 @@ Managed background service:
 ```bash
 cmcp up
 ```
+
+`up` reports the managed scope/backend, runtime session, PID/endpoints, and whether the OpenAI tunnel is enabled, configured, and currently connected/connecting.
 
 On Linux/macOS, `cmcp up --system` installs a machine-level service and automatically elevates through `sudo` when the current process is user-scoped; the MCP process itself still runs as the invoking user. On Windows, `cmcp up` always uses a per-user Scheduled Task.
 

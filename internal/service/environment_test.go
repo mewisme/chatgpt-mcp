@@ -9,17 +9,21 @@ import (
 )
 
 func TestCaptureEnvironmentKeepsExecutionPathWithoutSecrets(t *testing.T) {
-	t.Setenv("PATH", strings.Join([]string{"/custom/node/bin", "/usr/bin"}, string(os.PathListSeparator)))
+	accountHome := filepath.FromSlash("/home/mew")
+	goBin := filepath.FromSlash("/home/mew/go/bin")
+	nodeBin := filepath.FromSlash("/custom/node/bin")
+	systemBin := filepath.FromSlash("/usr/bin")
+	t.Setenv("PATH", strings.Join([]string{nodeBin, systemBin}, string(os.PathListSeparator)))
 	t.Setenv("OPENAI_API_KEY", "secret")
 	t.Setenv("LANG", "en_US.UTF-8")
-	snapshot := CaptureEnvironment(Account{Username: "mew", HomeDir: filepath.Clean("/home/mew")}, []string{"/home/mew/go/bin", "/custom/node/bin"})
+	snapshot := CaptureEnvironment(Account{Username: "mew", HomeDir: accountHome}, []string{goBin, nodeBin})
 	path := snapshot.Values["PATH"]
-	for _, expected := range []string{"/home/mew/go/bin", "/custom/node/bin", "/usr/bin"} {
+	for _, expected := range []string{goBin, nodeBin, systemBin} {
 		if !strings.Contains(path, expected) {
 			t.Fatalf("PATH %q missing %q", path, expected)
 		}
 	}
-	if strings.Count(path, "/custom/node/bin") != 1 {
+	if strings.Count(path, nodeBin) != 1 {
 		t.Fatalf("PATH did not deduplicate entries: %q", path)
 	}
 	if _, exists := snapshot.Values["OPENAI_API_KEY"]; exists {
@@ -29,10 +33,10 @@ func TestCaptureEnvironmentKeepsExecutionPathWithoutSecrets(t *testing.T) {
 		t.Fatalf("LANG = %q", snapshot.Values["LANG"])
 	}
 	if runtime.GOOS == "windows" {
-		if snapshot.Values["USERPROFILE"] == "" || snapshot.Values["USERNAME"] != "mew" {
+		if snapshot.Values["USERPROFILE"] != accountHome || snapshot.Values["USERNAME"] != "mew" {
 			t.Fatalf("windows identity = %#v", snapshot.Values)
 		}
-	} else if snapshot.Values["HOME"] != "/home/mew" || snapshot.Values["USER"] != "mew" || snapshot.Values["LOGNAME"] != "mew" {
+	} else if snapshot.Values["HOME"] != accountHome || snapshot.Values["USER"] != "mew" || snapshot.Values["LOGNAME"] != "mew" {
 		t.Fatalf("unix identity = %#v", snapshot.Values)
 	}
 }

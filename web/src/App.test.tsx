@@ -37,7 +37,7 @@ describe("admin app runtime smoke", () => {
 
     const pageSmokeText: Record<string, string> = {
       workspaces: "Register workspace",
-      tools: "Tool catalog",
+      tools: "Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.",
       servers: "Add MCP server",
       tunnel: "OpenAI Secure MCP Tunnel",
       activity: "Live MCP requests, tool calls, and runtime lifecycle events. Open any event to inspect its complete metadata.",

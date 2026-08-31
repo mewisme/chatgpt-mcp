@@ -322,4 +322,4 @@ cmcp uninit
 
 This removes the selected `chatgpt-mcp` config/state root. It is intentionally different from uninstalling the binary.
 
-If a managed service is active, use `cmcp down` (or the matching `sudo cmcp down` scope on Linux/macOS) before removing the instance.
+If a managed service is active, use `cmcp down` or `cmcp down --system` for the matching Linux/macOS system scope before removing the instance.

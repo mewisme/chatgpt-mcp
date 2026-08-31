@@ -225,10 +225,10 @@ The repository test/smoke workflow treats avoiding the real default config direc
 On Linux/macOS:
 
 ```bash
-sudo cmcp up
+cmcp up --system
 ```
 
-uses system-level service registration, but the MCP process itself is configured to run as the invoking user rather than root.
+uses system-level service registration. The CLI elevates only the service-management operation through `sudo` when needed, while the MCP process itself is configured to run as the invoking user rather than root.
 
 On Windows, `cmcp up` uses a per-user Scheduled Task with least privilege and does not run as LocalSystem.
 

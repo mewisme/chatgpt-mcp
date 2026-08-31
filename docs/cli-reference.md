@@ -98,9 +98,11 @@ cmcp down
 Linux/macOS system scope:
 
 ```bash
-sudo cmcp up
-sudo cmcp down
+cmcp up --system
+cmcp down --system
 ```
+
+When invoked from a normal user shell, `--system` automatically re-executes the stable absolute `cmcp` launcher through `sudo`, so it does not depend on `sudo` including `~/.local/bin` in `secure_path`. Running the absolute binary under `sudo` directly remains supported for compatibility.
 
 See [Runtime and services](runtime.md).
 

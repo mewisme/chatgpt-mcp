@@ -80,13 +80,13 @@ The MCP process runs as the current user.
 
 If user lingering is disabled, `chatgpt-mcp` warns that the user service manager may stop after the final login/SSH session ends. It does not enable lingering automatically.
 
-### With sudo
+### Machine-level scope
 
 ```bash
-sudo cmcp up
+cmcp up --system
 ```
 
-Uses a system-level systemd unit and starts with the machine.
+Uses a system-level systemd unit and starts with the machine. From a normal user shell, the CLI detects user scope and automatically re-executes its stable absolute launcher through `sudo`, avoiding `sudo secure_path` issues when `cmcp` lives under `~/.local/bin`.
 
 The service itself still runs the MCP process as the invoking user from `SUDO_USER`; `chatgpt-mcp` does not run the MCP runtime as root.
 
@@ -95,10 +95,10 @@ The default config root is also resolved for the invoking user instead of `/root
 Stop/remove the matching system service with:
 
 ```bash
-sudo cmcp down
+cmcp down --system
 ```
 
-Normal `cmcp down` does not silently remove the system-scope service.
+Normal `cmcp down` does not silently remove the system-scope service. Direct `sudo /absolute/path/cmcp up|down` remains supported for compatibility.
 
 ## macOS service behavior
 
@@ -110,13 +110,13 @@ cmcp up
 
 uses a user LaunchAgent.
 
-With sudo:
+Machine-level:
 
 ```bash
-sudo cmcp up
+cmcp up --system
 ```
 
-uses a system LaunchDaemon, but the daemon's `UserName` remains the invoking user.
+uses a system LaunchDaemon, but the daemon's `UserName` remains the invoking user. The CLI elevates through `sudo` automatically when needed.
 
 Use the same privilege/scope to remove it with `down`.
 

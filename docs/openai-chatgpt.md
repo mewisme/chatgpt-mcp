@@ -220,10 +220,10 @@ On Linux, this uses `systemd --user`. If user lingering is disabled, the CLI war
 For a machine-level systemd service that starts with the machine:
 
 ```bash
-sudo cmcp up
+cmcp up --system
 ```
 
-The systemd unit is system-level, but `chatgpt-mcp` itself still runs as the invoking `SUDO_USER`, not as root.
+If the current process is user-scoped, `cmcp` automatically re-executes its stable absolute launcher through `sudo`. The systemd unit is system-level, but `chatgpt-mcp` itself still runs as the invoking `SUDO_USER`, not as root.
 
 See [Runtime and services](runtime.md) for the complete lifecycle.
 

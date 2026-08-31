@@ -110,10 +110,10 @@ On Linux this is a user systemd service. If the CLI warns that lingering is disa
 For a machine-level service that starts at boot:
 
 ```bash
-sudo cmcp up
+cmcp up --system
 ```
 
-The MCP process still runs as the invoking user, not root.
+The CLI automatically elevates through `sudo` when needed, using its absolute launcher path so `sudo secure_path` does not need to contain `~/.local/bin`. The MCP process still runs as the invoking user, not root.
 
 ## `cmcp up` says a foreground runtime is already running
 
@@ -134,13 +134,13 @@ On Linux/macOS, system scope and user scope are distinct.
 If the service was created with:
 
 ```bash
-sudo cmcp up
+cmcp up --system
 ```
 
 remove it with:
 
 ```bash
-sudo cmcp down
+cmcp down --system
 ```
 
 Normal `cmcp down` only manages the normal user-scope service.
@@ -154,7 +154,7 @@ A user-level systemd service can depend on the user manager lifecycle.
 Options:
 
 - keep the user service and manage lingering yourself according to server policy
-- use `sudo cmcp up` for a machine-level systemd unit that starts at boot
+- use `cmcp up --system` for a machine-level systemd unit that starts at boot
 
 ## Config changes are not visible in the running server
 

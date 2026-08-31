@@ -20,15 +20,26 @@ import (
 const serviceReadyTimeout = 15 * time.Second
 
 func upCommand() *cobra.Command {
-	return &cobra.Command{Use: "up", Short: "Install and start the managed MCP service", Args: cobra.NoArgs, RunE: runUp}
+	cmd := &cobra.Command{Use: "up", Short: "Install and start the managed MCP service", Args: cobra.NoArgs, RunE: runUp}
+	cmd.Flags().Bool("system", false, "use a machine-level service on Linux/macOS; elevates with sudo when needed")
+	return cmd
 }
 
 func downCommand() *cobra.Command {
-	return &cobra.Command{Use: "down", Short: "Stop and remove the managed MCP service", Args: cobra.NoArgs, RunE: runDown}
+	cmd := &cobra.Command{Use: "down", Short: "Stop and remove the managed MCP service", Args: cobra.NoArgs, RunE: runDown}
+	cmd.Flags().Bool("system", false, "use the machine-level service on Linux/macOS; elevates with sudo when needed")
+	return cmd
 }
 
 func runUp(cmd *cobra.Command, _ []string) error {
-	spec, manager, err := managedServiceForCommand(cmd)
+	scope, err := managedScopeForCommand(cmd)
+	if err != nil {
+		return err
+	}
+	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
+		return elevateManagedCommand(cmd, "up")
+	}
+	spec, manager, err := managedServiceForCommand(cmd, scope)
 	if err != nil {
 		return err
 	}
@@ -36,15 +47,35 @@ func runUp(cmd *cobra.Command, _ []string) error {
 }
 
 func runDown(cmd *cobra.Command, _ []string) error {
-	spec, manager, err := managedServiceForCommand(cmd)
+	scope, err := managedScopeForCommand(cmd)
+	if err != nil {
+		return err
+	}
+	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
+		return elevateManagedCommand(cmd, "down")
+	}
+	spec, manager, err := managedServiceForCommand(cmd, scope)
 	if err != nil {
 		return err
 	}
 	return runManagedDown(cmd, spec, manager)
 }
 
-func managedServiceForCommand(cmd *cobra.Command) (managed.Spec, managed.Manager, error) {
-	scope := managed.DetectScope()
+func managedScopeForCommand(cmd *cobra.Command) (managed.Scope, error) {
+	system, err := cmd.Flags().GetBool("system")
+	if err != nil {
+		return "", err
+	}
+	if system {
+		if runtime.GOOS == "windows" {
+			return "", errors.New("system service scope is not supported on Windows; managed services use a per-user Scheduled Task")
+		}
+		return managed.ScopeSystem, nil
+	}
+	return managed.DetectScope(), nil
+}
+
+func managedServiceForCommand(cmd *cobra.Command, scope managed.Scope) (managed.Spec, managed.Manager, error) {
 	account, err := managed.InvokingAccount(scope)
 	if err != nil {
 		return managed.Spec{}, nil, err
@@ -262,10 +293,10 @@ func waitRuntimeStopped(parent context.Context, timeout time.Duration) error {
 
 func managedScopeConflict(status runtimeStatusResult, spec managed.Spec, action string) error {
 	if status.ServiceScope == string(managed.ScopeSystem) && spec.Scope == managed.ScopeUser {
-		return fmt.Errorf("runtime is managed by a system service; use sudo cmcp %s", action)
+		return fmt.Errorf("runtime is managed by a system service; use cmcp %s --system", action)
 	}
 	if status.ServiceScope == string(managed.ScopeUser) && spec.Scope == managed.ScopeSystem {
-		return fmt.Errorf("runtime is managed by a user service; use cmcp %s without sudo", action)
+		return fmt.Errorf("runtime is managed by a user service; use cmcp %s", action)
 	}
 	return fmt.Errorf("another managed service is already running for this config (service %s, pid %d)", status.ServiceID, status.PID)
 }
@@ -315,7 +346,7 @@ func logManagedHints(log *logger.Logger, spec managed.Spec) {
 	} else if warning := managed.PersistenceWarning(spec); warning != "" {
 		log.Warning("SERVICE", "service.persistence.warning", warning, nil)
 		if runtime.GOOS == "linux" && spec.Account.Username != "" {
-			log.Detail("enable persistence", "loginctl enable-linger "+spec.Account.Username)
+			log.Detail("machine service", "cmcp up --system")
 		}
 	} else {
 		log.Notice("SERVICE", "service.detached", "Runtime will continue independently of this terminal")
@@ -323,7 +354,7 @@ func logManagedHints(log *logger.Logger, spec managed.Spec) {
 	log.Notice("SERVICE", "service.logs-hint", "View logs: cmcp logs -f")
 	stop := "cmcp down"
 	if spec.Scope == managed.ScopeSystem && runtime.GOOS != "windows" {
-		stop = "sudo cmcp down"
+		stop = "cmcp down --system"
 	}
 	log.Notice("SERVICE", "service.stop-hint", "Stop service: "+stop)
 }

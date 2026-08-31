@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -170,5 +171,35 @@ func TestResolveManagedConfigRootUsesInvokingUserForSudoDefault(t *testing.T) {
 	}
 	if got, want := config.RootPath(), managed.DefaultConfigRoot(account); got != want {
 		t.Fatalf("root = %q, want invoking-user root %q", got, want)
+	}
+}
+
+func TestManagedSystemFlagSelectsSystemScope(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows always uses per-user Task Scheduler")
+	}
+	root := newRootCommand()
+	root.SetArgs([]string{"up", "--system"})
+	cmd, _, err := root.Find([]string{"up", "--system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("system", "true"); err != nil {
+		t.Fatal(err)
+	}
+	scope, err := managedScopeForCommand(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope != managed.ScopeSystem {
+		t.Fatalf("scope = %q, want system", scope)
+	}
+}
+
+func TestManagedScopeConflictUsesSystemFlagHint(t *testing.T) {
+	spec := managed.Spec{Scope: managed.ScopeUser}
+	err := managedScopeConflict(runtimeStatusResult{Managed: true, ServiceID: "system", ServiceScope: string(managed.ScopeSystem), PID: 123}, spec, "down")
+	if err == nil || !strings.Contains(err.Error(), "cmcp down --system") {
+		t.Fatalf("error = %v, want --system hint", err)
 	}
 }

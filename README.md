@@ -134,7 +134,7 @@ Managed background service:
 cmcp up
 ```
 
-On Linux/macOS, `sudo cmcp up` installs a machine-level service but still runs the MCP process as the invoking user. On Windows, `cmcp up` always uses a per-user Scheduled Task.
+On Linux/macOS, `cmcp up --system` installs a machine-level service and automatically elevates through `sudo` when the current process is user-scoped; the MCP process itself still runs as the invoking user. On Windows, `cmcp up` always uses a per-user Scheduled Task.
 
 ### 5. Verify
 

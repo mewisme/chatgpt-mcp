@@ -40,7 +40,7 @@ describe("admin app runtime smoke", () => {
       tools: "Tool catalog",
       servers: "Add MCP server",
       tunnel: "OpenAI Secure MCP Tunnel",
-      activity: "Live MCP requests, tool calls, and runtime lifecycle events. The stream replays recent in-memory events when this page opens.",
+      activity: "Live MCP requests, tool calls, and runtime lifecycle events. Open any event to inspect its complete metadata.",
       settings: "Config preset",
     }
     for (const item of navItems.slice(1)) {

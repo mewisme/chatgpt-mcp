@@ -24,6 +24,7 @@ import (
 type logsOptions struct {
 	tail       int
 	follow     bool
+	all        bool
 	showTime   bool
 	noTime     bool
 	since      string
@@ -108,6 +109,8 @@ func addLogsFlags(cmd *cobra.Command, options *logsOptions, includeFollow bool) 
 	cmd.Flags().StringVar(&options.since, "since", "", "show events since a duration such as 30m or an RFC3339 timestamp")
 	cmd.Flags().StringVar(&options.until, "until", "", "show events through an RFC3339 timestamp")
 	cmd.Flags().StringVar(&options.session, "session", "", "filter by session/run ID or displayed prefix")
+	cmd.Flags().BoolVar(&options.all, "all", false, "show events from all sessions")
+	cmd.MarkFlagsMutuallyExclusive("all", "session")
 	cmd.Flags().StringVar(&options.level, "level", "", "minimum level: debug, info, warn, or error")
 	cmd.Flags().StringVar(&options.components, "component", "", "comma-separated components such as SERVER,TUNNEL")
 	cmd.Flags().StringVar(&options.workspace, "workspace", "", "workspace ID or registered workspace path")
@@ -140,10 +143,14 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 			defer response.Body.Close()
 		}
 	}
-	events, err := runtimeevent.Read(config.RootPath(), query)
+	allEvents, err := runtimeevent.Read(config.RootPath(), runtimeevent.Query{})
 	if err != nil {
 		return err
 	}
+	if !options.all && query.RunID == "" {
+		query.RunID = latestRuntimeSession(allEvents)
+	}
+	events := matchingRuntimeEvents(allEvents, query)
 	events = visibleRuntimeEvents(events, visibility)
 	if options.tail > 0 && len(events) > options.tail {
 		events = append([]runtimeevent.Event(nil), events[len(events)-options.tail:]...)
@@ -163,6 +170,25 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 		return fmt.Errorf("runtime is not running; cannot follow: %w", followErr)
 	}
 	return followRuntimeEventStream(followCtx, cmd, response, query, visibility, lastByRun, replay)
+}
+
+func latestRuntimeSession(events []runtimeevent.Event) string {
+	for index := len(events) - 1; index >= 0; index-- {
+		if runID := strings.TrimSpace(events[index].RunID); runID != "" {
+			return runID
+		}
+	}
+	return ""
+}
+
+func matchingRuntimeEvents(events []runtimeevent.Event, query runtimeevent.Query) []runtimeevent.Event {
+	result := make([]runtimeevent.Event, 0, len(events))
+	for _, event := range events {
+		if query.Match(event) {
+			result = append(result, event)
+		}
+	}
+	return result
 }
 
 func buildLogsQuery(options logsOptions) (runtimeevent.Query, error) {

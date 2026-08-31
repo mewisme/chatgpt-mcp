@@ -79,6 +79,77 @@ func TestLogsSessionFilterUsesDisplayedPrefix(t *testing.T) {
 	}
 }
 
+func TestLogsDefaultsToLatestSessionAndAllRestoresHistory(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := runtimeevent.NewJournal(root, runtimeevent.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now()
+	for _, event := range []runtimeevent.Event{
+		{Sequence: 1, Time: base, RunID: "run_old", Level: "info", Kind: "success", Name: "test.old", Message: "Old session"},
+		{Sequence: 1, Time: base.Add(time.Second), RunID: "run_latest", Level: "info", Kind: "success", Name: "test.latest", Message: "Latest session"},
+	} {
+		if err := journal.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output := executeLogsCommand(t, root, []string{"logs"})
+	if !strings.Contains(output, "Latest session") || strings.Contains(output, "Old session") {
+		t.Fatalf("latest-session output = %q", output)
+	}
+	allOutput := executeLogsCommand(t, root, []string{"logs", "--all"})
+	if !strings.Contains(allOutput, "Latest session") || !strings.Contains(allOutput, "Old session") {
+		t.Fatalf("all-session output = %q", allOutput)
+	}
+}
+
+func TestLogsSelectsLatestSessionBeforeOtherFilters(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := runtimeevent.NewJournal(root, runtimeevent.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now()
+	for _, event := range []runtimeevent.Event{
+		{Time: base, RunID: "run_old", Level: "error", Kind: "error", Name: "test.old", Message: "Old matching error"},
+		{Time: base.Add(time.Second), RunID: "run_latest", Level: "info", Kind: "success", Name: "test.latest", Message: "Latest success"},
+	} {
+		if err := journal.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output := executeLogsCommand(t, root, []string{"logs", "--level", "error"})
+	if strings.Contains(output, "Old matching error") {
+		t.Fatalf("filter jumped to an older session: %q", output)
+	}
+}
+
+func TestLogsRejectsAllWithSession(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetContext(context.Background())
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"--config-dir", root, "logs", "--all", "--session", "run_test"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("logs accepted --all with --session")
+	}
+}
+
 func TestLogsJSONKeepsSessionStructuredWithoutTextHeader(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := t.TempDir()

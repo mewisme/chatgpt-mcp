@@ -41,12 +41,12 @@ func Validate(cfg Config) error {
 	default:
 		return fmt.Errorf("server expose mode must be none, all, 0.0.0.0, or interfaces: %q", cfg.Server.Expose.Mode)
 	}
-	if exposure.Mode == ExposureWildcard {
+	if exposure.Mode != ExposureNone {
 		if !cfg.Auth.MCPEnabled || cfg.Auth.MCPTokenHash == "" {
-			return errors.New("0.0.0.0 exposure requires MCP authentication with a configured token; run chatgpt-mcp auth mcp create")
+			return errors.New("network exposure requires MCP authentication with a configured token; run chatgpt-mcp auth mcp create")
 		}
-		if !cfg.Auth.AdminEnabled || cfg.Auth.AdminTokenHash == "" {
-			return errors.New("0.0.0.0 exposure requires admin authentication with a configured token; run chatgpt-mcp auth admin create")
+		if cfg.Admin.Enabled && (!cfg.Auth.AdminEnabled || cfg.Auth.AdminTokenHash == "") {
+			return errors.New("network exposure with the admin endpoint enabled requires admin authentication with a configured token; run chatgpt-mcp auth admin create")
 		}
 	}
 	if cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {

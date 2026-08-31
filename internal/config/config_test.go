@@ -24,28 +24,42 @@ func TestValidateRequiresAuthTokens(t *testing.T) {
 	}
 }
 
-func TestValidateWildcardExposureRequiresBothAuth(t *testing.T) {
-	cfg := Default()
-	cfg.Server.Expose = ExposureConfig{Mode: ExposureWildcard, Interfaces: []string{}}
-	cfg.Auth.MCPTokenHash = "mcp"
-	cfg.Auth.AdminTokenHash = "admin"
-	if err := Validate(cfg); err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		name   string
-		mutate func(*Config)
-	}{
-		{name: "mcp disabled", mutate: func(cfg *Config) { cfg.Auth.MCPEnabled = false }},
-		{name: "admin disabled", mutate: func(cfg *Config) { cfg.Auth.AdminEnabled = false }},
-		{name: "mcp token missing", mutate: func(cfg *Config) { cfg.Auth.MCPTokenHash = "" }},
-		{name: "admin token missing", mutate: func(cfg *Config) { cfg.Auth.AdminTokenHash = "" }},
+func TestValidateNetworkExposureRequiresAuth(t *testing.T) {
+	for _, exposure := range []ExposureConfig{
+		{Mode: ExposureAll, Interfaces: []string{}},
+		{Mode: ExposureWildcard, Interfaces: []string{}},
+		{Mode: ExposureInterfaces, Interfaces: []string{"eth0"}},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			candidate := cfg
-			test.mutate(&candidate)
-			if err := Validate(candidate); err == nil {
-				t.Fatal("wildcard exposure accepted without required authentication")
+		t.Run(string(exposure.Mode), func(t *testing.T) {
+			cfg := Default()
+			cfg.Server.Expose = exposure
+			cfg.Auth.MCPTokenHash = "mcp"
+			cfg.Auth.AdminTokenHash = "admin"
+			if err := Validate(cfg); err != nil {
+				t.Fatal(err)
+			}
+			for _, test := range []struct {
+				name   string
+				mutate func(*Config)
+			}{
+				{name: "mcp disabled", mutate: func(cfg *Config) { cfg.Auth.MCPEnabled = false }},
+				{name: "admin auth disabled", mutate: func(cfg *Config) { cfg.Auth.AdminEnabled = false }},
+				{name: "mcp token missing", mutate: func(cfg *Config) { cfg.Auth.MCPTokenHash = "" }},
+				{name: "admin token missing", mutate: func(cfg *Config) { cfg.Auth.AdminTokenHash = "" }},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					candidate := cfg
+					test.mutate(&candidate)
+					if err := Validate(candidate); err == nil {
+						t.Fatal("network exposure accepted without required authentication")
+					}
+				})
+			}
+			cfg.Admin.Enabled = false
+			cfg.Auth.AdminEnabled = false
+			cfg.Auth.AdminTokenHash = ""
+			if err := Validate(cfg); err != nil {
+				t.Fatalf("disabled admin endpoint unnecessarily required admin auth: %v", err)
 			}
 		})
 	}

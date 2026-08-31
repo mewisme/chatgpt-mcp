@@ -130,7 +130,7 @@ cgm config set server.expose eth0,tailscale0
 cgm config set server.expose 0.0.0.0
 ```
 
-`0.0.0.0` is intentionally stricter: wildcard exposure is rejected unless both MCP and Admin authentication are enabled with configured tokens.
+Any exposure beyond loopback (`all`, an explicit interface list, or `0.0.0.0`) is rejected unless MCP authentication is enabled with a configured token. If the Admin endpoint is enabled, Admin authentication with a configured token is required as well.
 
 Prefer Secure MCP Tunnel for ChatGPT connectivity when the MCP runtime should remain private instead of opening the MCP listener to the public internet.
 

@@ -46,7 +46,7 @@ func (s *Store) ProbeWWWAuthenticate(ctx context.Context, serverURL string) ([]s
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	request.Header.Set("MCP-Protocol-Version", "2026-07-28")
 	request.Header.Set("Mcp-Method", "server/discover")
-	response, err := s.client.Do(request)
+	response, err := s.clientForTargets(serverURL).Do(request)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,11 @@ func (s *Store) Discover(ctx context.Context, serverURL, issuerPreference string
 	var resourceMeta *oauthex.ProtectedResourceMetadata
 	var lastErr error
 	for _, candidate := range candidates {
-		value, err := oauthex.GetProtectedResourceMetadata(ctx, candidate.URL, candidate.Resource, s.client)
+		if err := validateOutboundURL(ctx, candidate.URL, serverURL); err != nil {
+			lastErr = err
+			continue
+		}
+		value, err := oauthex.GetProtectedResourceMetadata(ctx, candidate.URL, candidate.Resource, s.clientForTargets(serverURL))
 		if err != nil {
 			lastErr = err
 			continue
@@ -93,7 +97,10 @@ func (s *Store) Discover(ctx context.Context, serverURL, issuerPreference string
 			return nil, fmt.Errorf("configured issuer %q is not advertised by the protected resource", issuer)
 		}
 	}
-	authMeta, err := mcpauth.GetAuthServerMetadata(ctx, issuer, s.client)
+	if err := validateOutboundURL(ctx, issuer, serverURL); err != nil {
+		return nil, fmt.Errorf("authorization server URL denied: %w", err)
+	}
+	authMeta, err := mcpauth.GetAuthServerMetadata(ctx, issuer, s.clientForTargets(serverURL, issuer))
 	if err != nil {
 		return nil, fmt.Errorf("authorization server metadata discovery failed: %w", err)
 	}
@@ -102,6 +109,18 @@ func (s *Store) Discover(ctx context.Context, serverURL, issuerPreference string
 	}
 	if !slices.Contains(authMeta.CodeChallengeMethodsSupported, "S256") {
 		return nil, errors.New("authorization server does not advertise PKCE S256")
+	}
+	for name, endpoint := range map[string]string{
+		"authorization": authMeta.AuthorizationEndpoint,
+		"token":         authMeta.TokenEndpoint,
+		"registration":  authMeta.RegistrationEndpoint,
+	} {
+		if endpoint == "" {
+			continue
+		}
+		if err := validateOutboundURL(ctx, endpoint, serverURL, issuer); err != nil {
+			return nil, fmt.Errorf("%s endpoint denied: %w", name, err)
+		}
 	}
 	scopes := challengeScopes(challenges)
 	if len(scopes) == 0 {

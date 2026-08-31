@@ -226,6 +226,10 @@ The repository test/smoke workflow treats avoiding the real default config direc
 
 The embedded Admin UI keeps the Admin bearer token in browser `sessionStorage`, not persistent `localStorage`, so closing the browser session clears the stored credential. The Admin handler also sends a restrictive Content Security Policy plus frame, MIME-sniffing, referrer, and browser-permission hardening headers. This reduces browser-side token exposure but does not replace HTTPS when the Admin listener is reachable over a network.
 
+## Upstream OAuth network policy
+
+The origin of an upstream MCP URL explicitly configured by the user is trusted for that upstream, including local/private development servers. OAuth resource metadata, issuer, token, registration, and redirect targets advertised outside that configured origin must use HTTPS and must not resolve to loopback, private, link-local, unspecified, or multicast addresses. Redirects are checked with the same policy to prevent a public OAuth endpoint from pivoting requests into local infrastructure or cloud metadata services.
+
 ## Managed services and privilege
 
 On Linux/macOS:

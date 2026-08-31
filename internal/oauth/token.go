@@ -49,7 +49,7 @@ func (s *Store) AccessToken(ctx context.Context, config RuntimeConfig) (string, 
 	if len(credential.Scopes) > 0 {
 		form.Set("scope", strings.Join(credential.Scopes, " "))
 	}
-	response, err := s.requestToken(ctx, credential.TokenEndpoint, credential.TokenAuthMethod, credential.ClientID, secret, form)
+	response, err := s.requestToken(ctx, credential.TokenEndpoint, credential.TokenAuthMethod, credential.ClientID, secret, form, credential.ServerURL, credential.Issuer)
 	if err != nil {
 		return "", fmt.Errorf("%w: refresh access token: %v", ErrLoginRequired, err)
 	}
@@ -69,9 +69,12 @@ func (s *Store) AccessToken(ctx context.Context, config RuntimeConfig) (string, 
 	return updated.AccessToken, nil
 }
 
-func (s *Store) requestToken(ctx context.Context, endpoint, authMethod, clientID, clientSecret string, form url.Values) (tokenResponse, error) {
+func (s *Store) requestToken(ctx context.Context, endpoint, authMethod, clientID, clientSecret string, form url.Values, trustedOrigins ...string) (tokenResponse, error) {
 	if endpoint == "" {
 		return tokenResponse{}, errors.New("token endpoint is required")
+	}
+	if err := validateOutboundURL(ctx, endpoint, trustedOrigins...); err != nil {
+		return tokenResponse{}, fmt.Errorf("token endpoint denied: %w", err)
 	}
 	requestForm := cloneValues(form)
 	method := normalizeTokenAuthMethod(authMethod, clientSecret)
@@ -94,7 +97,7 @@ func (s *Store) requestToken(ctx context.Context, endpoint, authMethod, clientID
 	if method == "client_secret_basic" {
 		request.SetBasicAuth(clientID, clientSecret)
 	}
-	response, err := s.client.Do(request)
+	response, err := s.clientForTargets(trustedOrigins...).Do(request)
 	if err != nil {
 		return tokenResponse{}, err
 	}

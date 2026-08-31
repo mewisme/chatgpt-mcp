@@ -157,7 +157,7 @@ func TestAccessTokenRefreshIncludesResource(t *testing.T) {
 	store := NewStoreWithClient(filepath.Join(t.TempDir(), "oauth.json"), server.Client())
 	if err := store.Put(Credential{
 		ServerID: "alpha", ServerURL: "https://resource.example/mcp", Resource: "https://resource.example/mcp",
-		ClientID: "client", TokenEndpoint: server.URL, TokenAuthMethod: "none", AccessToken: "old", RefreshToken: "refresh", ExpiresAt: time.Now().Add(-time.Minute),
+		Issuer: server.URL, ClientID: "client", TokenEndpoint: server.URL, TokenAuthMethod: "none", AccessToken: "old", RefreshToken: "refresh", ExpiresAt: time.Now().Add(-time.Minute),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +171,48 @@ func TestAccessTokenRefreshIncludesResource(t *testing.T) {
 	updated, _ := store.Get("alpha")
 	if updated.RefreshToken != "new-refresh" {
 		t.Fatalf("refresh token was not rotated")
+	}
+}
+
+func TestOAuthNetworkPolicyAllowsConfiguredOriginAndRejectsPrivatePivot(t *testing.T) {
+	ctx := context.Background()
+	configured := "http://127.0.0.1:37421/mcp"
+	if err := validateOutboundURL(ctx, "http://127.0.0.1:37421/.well-known/oauth-protected-resource", configured); err != nil {
+		t.Fatalf("configured local origin was rejected: %v", err)
+	}
+	for _, raw := range []string{
+		"http://127.0.0.1:9999/metadata",
+		"https://127.0.0.1/metadata",
+		"https://169.254.169.254/latest/meta-data/",
+		"https://10.0.0.1/oauth",
+		"https://[::1]/oauth",
+	} {
+		if err := validateOutboundURL(ctx, raw, configured); err == nil {
+			t.Fatalf("private OAuth pivot was accepted: %s", raw)
+		}
+	}
+}
+
+func TestOAuthClientRejectsRedirectToUntrustedPrivateOrigin(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL+"/private", http.StatusFound)
+	}))
+	defer source.Close()
+	store := NewStoreWithClient(filepath.Join(t.TempDir(), "oauth.json"), source.Client())
+	request, err := http.NewRequest(http.MethodGet, source.URL+"/start", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := store.clientForTargets(source.URL).Do(request)
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "OAuth redirect denied") {
+		t.Fatalf("private redirect was not denied: %v", err)
 	}
 }
 

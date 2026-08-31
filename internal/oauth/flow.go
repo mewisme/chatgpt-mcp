@@ -157,7 +157,7 @@ func (m *FlowManager) Complete(ctx context.Context, id, state, code, issuer, oau
 		"code_verifier": {pending.Verifier},
 		"resource":      {pending.Discovery.Resource},
 	}
-	token, err := m.store.requestToken(ctx, pending.Discovery.AuthServerMeta.TokenEndpoint, pending.Registration.TokenAuthMethod, pending.Registration.ClientID, secret, form)
+	token, err := m.store.requestToken(ctx, pending.Discovery.AuthServerMeta.TokenEndpoint, pending.Registration.TokenAuthMethod, pending.Registration.ClientID, secret, form, pending.Config.ServerURL, pending.Discovery.Issuer)
 	if err != nil {
 		return Credential{}, fmt.Errorf("exchange authorization code: %w", err)
 	}
@@ -227,10 +227,13 @@ func (s *Store) resolveRegistration(ctx context.Context, config LoginConfig, dis
 	if slices.Contains(discovery.AuthServerMeta.GrantTypesSupported, "refresh_token") || slices.Contains(discovery.AuthServerMeta.ScopesSupported, "offline_access") {
 		grantTypes = append(grantTypes, "refresh_token")
 	}
+	if err := validateOutboundURL(ctx, discovery.AuthServerMeta.RegistrationEndpoint, config.ServerURL, discovery.Issuer); err != nil {
+		return registration{}, fmt.Errorf("dynamic client registration endpoint denied: %w", err)
+	}
 	response, err := oauthex.RegisterClient(ctx, discovery.AuthServerMeta.RegistrationEndpoint, &oauthex.ClientRegistrationMetadata{
 		RedirectURIs: []string{redirectURL}, TokenEndpointAuthMethod: "none", GrantTypes: grantTypes,
 		ResponseTypes: []string{"code"}, ClientName: "chatgpt-mcp", Scope: strings.Join(scopes, " "), ApplicationType: "native",
-	}, s.client)
+	}, s.clientForTargets(config.ServerURL, discovery.Issuer))
 	if err != nil {
 		return registration{}, fmt.Errorf("dynamic client registration: %w", err)
 	}

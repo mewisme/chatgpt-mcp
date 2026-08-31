@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 func TestDefaultRendererIsCLIFirst(t *testing.T) {
@@ -117,6 +119,33 @@ func TestJSONRendererIncludesReplaySessionMetadata(t *testing.T) {
 	}
 	if value["run_id"] != "run_test" || value["pid"] != float64(42) || value["managed"] != true || value["service_id"] != "service_test" || value["service_scope"] != "system" {
 		t.Fatalf("json metadata = %#v", value)
+	}
+}
+
+func TestTextRendererUsesVisualHierarchyAndRespectsNoColor(t *testing.T) {
+	previous := color.NoColor
+	color.NoColor = false
+	defer func() { color.NoColor = previous }()
+	t.Setenv("NO_COLOR", "")
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Info, TimeMode: TimeShow, Writer: &output})
+	log.now = func() time.Time { return time.Date(2026, 8, 31, 12, 34, 56, 0, time.UTC) }
+	log.Ready("SERVER", "server.ready", "Server ready", With("mcp", "http://127.0.0.1:37421/mcp"))
+	text := output.String()
+	if !strings.Contains(text, "\x1b[") || !strings.Contains(text, "\x1b[2m") {
+		t.Fatalf("styled output = %q", text)
+	}
+	if !strings.Contains(text, "Server ready") || !strings.Contains(text, "http://127.0.0.1:37421/mcp") {
+		t.Fatalf("styled output lost content: %q", text)
+	}
+
+	t.Setenv("NO_COLOR", "1")
+	output.Reset()
+	log = NewWithOptions(Options{Level: Info, TimeMode: TimeShow, Writer: &output})
+	log.now = func() time.Time { return time.Date(2026, 8, 31, 12, 34, 56, 0, time.UTC) }
+	log.Ready("SERVER", "server.ready", "Server ready", With("mcp", "http://127.0.0.1:37421/mcp"))
+	if strings.Contains(output.String(), "\x1b[") {
+		t.Fatalf("NO_COLOR output contains ANSI: %q", output.String())
 	}
 }
 

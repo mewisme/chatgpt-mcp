@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -105,17 +106,17 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 
 func renderStatusText(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	if snapshot.Running {
-		fmt.Fprintln(out, "✓ chatgpt-mcp is running")
+		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), "chatgpt-mcp is running")
 		renderRunningStatus(out, snapshot, verbose)
 		return
 	}
-	fmt.Fprintln(out, "× chatgpt-mcp is stopped")
+	fmt.Fprintln(out, cliStyled(color.FgHiRed, color.Bold).Sprint("×"), "chatgpt-mcp is stopped")
 	renderStoppedStatus(out, snapshot, verbose)
 }
 
 func renderRunningStatus(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	status := snapshot.Runtime
-	fmt.Fprintln(out, "\nRuntime")
+	fmt.Fprintln(out, "\n"+cliHeading("Runtime"))
 	statusField(out, "pid", status.PID)
 	if status.RunID != "" {
 		statusField(out, "session", shortSessionID(status.RunID))
@@ -151,7 +152,7 @@ func renderStoppedStatus(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	if len(snapshot.Services) == 0 {
 		return
 	}
-	fmt.Fprintln(out, "\nService")
+	fmt.Fprintln(out, "\n"+cliHeading("Service"))
 	for _, item := range snapshot.Services {
 		statusField(out, string(item.spec.Scope), fmt.Sprintf("installed · %s", managedBackendLabel(item.manager, item.spec)))
 	}
@@ -159,7 +160,7 @@ func renderStoppedStatus(out io.Writer, snapshot statusSnapshot, verbose bool) {
 
 func renderStatusEndpoints(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	cfg := snapshot.Config
-	fmt.Fprintln(out, "\nEndpoints")
+	fmt.Fprintln(out, "\n"+cliHeading("Endpoints"))
 	if !verbose {
 		statusField(out, "mcp", endpointURL(mcpnetwork.LoopbackHost, cfg.Server.Port, "/mcp"))
 		if cfg.Admin.Enabled {
@@ -194,7 +195,7 @@ func renderStatusEndpoints(out io.Writer, snapshot statusSnapshot, verbose bool)
 		if name == "" {
 			name = address.Scope
 		}
-		fmt.Fprintf(out, "\n  %s\n", name)
+		fmt.Fprintf(out, "\n  %s\n", cliHeading(name))
 		statusNestedField(out, "mcp", endpointURL(address.Host, cfg.Server.Port, "/mcp"))
 		if cfg.Admin.Enabled {
 			statusNestedField(out, "admin", endpointURL(address.Host, cfg.Admin.Port, "/"))
@@ -210,13 +211,13 @@ func renderStatusTunnel(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	if !snapshot.Running {
 		status = runtimeStatusResult{TunnelEnabled: snapshot.Config.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(snapshot.Config.Tunnel), TunnelID: snapshot.Config.Tunnel.ID}
 	}
-	fmt.Fprintln(out, "\nTunnel")
+	fmt.Fprintln(out, "\n"+cliHeading("Tunnel"))
 	if verbose {
 		statusField(out, "enabled", status.TunnelEnabled)
 		statusField(out, "configured", status.TunnelConfigured)
-		statusField(out, "status", statusTunnelState(status, snapshot.Running))
+		statusStateField(out, "status", statusTunnelState(status, snapshot.Running))
 	} else {
-		statusField(out, "status", statusTunnelSummary(status, snapshot.Running))
+		statusStateField(out, "status", statusTunnelSummary(status, snapshot.Running))
 	}
 	if status.TunnelID != "" {
 		statusField(out, "id", status.TunnelID)
@@ -225,7 +226,7 @@ func renderStatusTunnel(out io.Writer, snapshot statusSnapshot, verbose bool) {
 
 func renderStatusConfig(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	cfg := snapshot.Config
-	fmt.Fprintln(out, "\nConfig")
+	fmt.Fprintln(out, "\n"+cliHeading("Config"))
 	path := compactStatusPath(snapshot.Source.Path)
 	if verbose {
 		path = snapshot.Source.Path
@@ -241,8 +242,8 @@ func renderStatusConfig(out io.Writer, snapshot statusSnapshot, verbose bool) {
 }
 
 func renderStatusUninitialized(out io.Writer) {
-	fmt.Fprintln(out, "! chatgpt-mcp is not initialized")
-	fmt.Fprintln(out, "\nRun:")
+	fmt.Fprintln(out, cliStyled(color.FgHiYellow, color.Bold).Sprint("!"), "chatgpt-mcp is not initialized")
+	fmt.Fprintln(out, "\n"+cliHeading("Run:"))
 	fmt.Fprintf(out, "  %s init\n", cliUseName())
 }
 
@@ -290,10 +291,14 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 }
 
 func statusField(out io.Writer, label string, value any) {
-	fmt.Fprintf(out, "  %-11s %v\n", label, value)
+	fmt.Fprintf(out, "  %s %v\n", cliDim(fmt.Sprintf("%-11s", label)), value)
 }
 func statusNestedField(out io.Writer, label string, value any) {
-	fmt.Fprintf(out, "    %-9s %v\n", label, value)
+	fmt.Fprintf(out, "    %s %v\n", cliDim(fmt.Sprintf("%-9s", label)), value)
+}
+
+func statusStateField(out io.Writer, label string, value any) {
+	fmt.Fprintf(out, "  %s %s\n", cliDim(fmt.Sprintf("%-11s", label)), cliState(value))
 }
 
 func statusExposureSummary(snapshot statusSnapshot) string {

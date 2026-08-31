@@ -369,7 +369,8 @@ func (replay *runtimeReplay) renderSessionHeader(event runtimeevent.Event) {
 	if event.PID > 0 {
 		pid = fmt.Sprintf(" · pid %d", event.PID)
 	}
-	fmt.Fprintf(replay.out, "%s── session %s%s · %s ──\n", prefix, shortSessionID(event.RunID), pid, mode)
+	line := fmt.Sprintf("%s── session %s%s · %s ──", prefix, shortSessionID(event.RunID), pid, mode)
+	fmt.Fprintln(replay.out, cliDim(line))
 }
 
 func shortSessionID(value string) string {

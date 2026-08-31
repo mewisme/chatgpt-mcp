@@ -37,11 +37,11 @@ func (l *Logger) renderText(event Event) {
 		if len(event.Fields) > 0 {
 			value = event.Fields[0].Value
 		}
-		fmt.Fprintf(l.out, "    %s: %v\n", event.Message, value)
+		fmt.Fprintf(l.out, "    %s %v\n", styled(color.Faint).Sprint(event.Message+":"), value)
 		return
 	}
 	if l.showTime() {
-		fmt.Fprint(l.out, styled(color.FgHiBlack).Sprint(l.eventTime(event).Format("15:04:05")), " ")
+		fmt.Fprint(l.out, styled(color.Faint).Sprint(l.eventTime(event).Format("15:04:05")), " ")
 	}
 	fmt.Fprint(l.out, symbolStyle(event.Kind).Sprint(symbol(event.Kind)), " ", event.Message)
 	if event.Err != nil {
@@ -59,14 +59,14 @@ func (l *Logger) renderText(event Event) {
 func (l *Logger) renderDebugText(event Event) {
 	level := levelCode(event.Level)
 	if l.showTime() {
-		fmt.Fprint(l.out, styled(color.FgHiBlack).Sprint(l.eventTime(event).Format("15:04:05")), " ")
+		fmt.Fprint(l.out, styled(color.Faint).Sprint(l.eventTime(event).Format("15:04:05")), " ")
 	}
-	fmt.Fprintf(l.out, "%s %-10s %s %s", levelStyle(level).Sprintf("%-3s", level), styled(color.FgHiBlue, color.Bold).Sprintf("%-10s", strings.ToUpper(event.Component)), event.Name, event.Message)
+	fmt.Fprintf(l.out, "%s %-10s %s %s", levelStyle(level).Sprintf("%-3s", level), styled(color.FgHiBlue, color.Bold).Sprintf("%-10s", strings.ToUpper(event.Component)), styled(color.Faint).Sprint(event.Name), event.Message)
 	for _, field := range event.Fields {
-		fmt.Fprintf(l.out, " %s=%v", field.Key, field.Value)
+		fmt.Fprintf(l.out, " %s=%v", styled(color.Faint).Sprint(field.Key), field.Value)
 	}
 	if event.Err != nil {
-		fmt.Fprintf(l.out, " error=%v", event.Err)
+		fmt.Fprintf(l.out, " %s=%v", styled(color.Faint).Sprint("error"), event.Err)
 	}
 	fmt.Fprintln(l.out)
 }
@@ -91,17 +91,18 @@ func renderField(out io.Writer, key string, value any) {
 	if key == "" {
 		key = "value"
 	}
+	label := styled(color.Faint).Sprint(key + ":")
 	if values, ok := stringSlice(value); ok && len(values) > 1 {
-		fmt.Fprintf(out, "    %s:\n", key)
+		fmt.Fprintf(out, "    %s\n", label)
 		for _, item := range values {
-			fmt.Fprintf(out, "      - %s\n", item)
+			fmt.Fprintf(out, "      %s %s\n", styled(color.Faint).Sprint("-"), item)
 		}
 		return
 	}
 	if values, ok := stringSlice(value); ok && len(values) == 1 {
 		value = values[0]
 	}
-	fmt.Fprintf(out, "    %s: %v\n", key, value)
+	fmt.Fprintf(out, "    %s %v\n", label, value)
 }
 
 func stringSlice(value any) ([]string, bool) {

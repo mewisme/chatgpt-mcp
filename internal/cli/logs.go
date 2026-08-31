@@ -116,10 +116,15 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 		return err
 	}
 	visibility := logsVisibility(cmd)
+	followCtx := cmd.Context()
+	var interrupt *foregroundInterrupt
 	var response *http.Response
 	var followErr error
 	if options.follow {
-		response, _, followErr = openRuntimeEventStream(cmd.Context())
+		interrupt = newForegroundInterrupt(cmd, true)
+		defer interrupt.Close()
+		followCtx = interrupt.Context
+		response, _, followErr = openRuntimeEventStream(followCtx)
 		if response != nil {
 			defer response.Body.Close()
 		}
@@ -146,7 +151,7 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 	if followErr != nil {
 		return fmt.Errorf("runtime is not running; cannot follow: %w", followErr)
 	}
-	return followRuntimeEventStream(cmd, response, query, visibility, lastByRun, replay)
+	return followRuntimeEventStream(followCtx, cmd, response, query, visibility, lastByRun, replay)
 }
 
 func buildLogsQuery(options logsOptions) (runtimeevent.Query, error) {
@@ -339,7 +344,7 @@ func shortSessionID(value string) string {
 	return value[:max]
 }
 
-func followRuntimeEventStream(cmd *cobra.Command, response *http.Response, query runtimeevent.Query, visibility logger.Visibility, lastByRun map[string]uint64, replay *runtimeReplay) error {
+func followRuntimeEventStream(ctx context.Context, cmd *cobra.Command, response *http.Response, query runtimeevent.Query, visibility logger.Visibility, lastByRun map[string]uint64, replay *runtimeReplay) error {
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	eventType := ""
@@ -367,7 +372,7 @@ func followRuntimeEventStream(cmd *cobra.Command, response *http.Response, query
 	}
 	for scanner.Scan() {
 		select {
-		case <-cmd.Context().Done():
+		case <-ctx.Done():
 			return nil
 		default:
 		}
@@ -387,7 +392,7 @@ func followRuntimeEventStream(cmd *cobra.Command, response *http.Response, query
 			data += strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		}
 	}
-	if err := scanner.Err(); err != nil && cmd.Context().Err() == nil {
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
 		return err
 	}
 	return nil

@@ -6,10 +6,8 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -46,10 +44,6 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		return err
 	}
 
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(signalCh)
-
 	runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 	defer runtimeCancel()
 
@@ -66,6 +60,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	log := commandLogger(cmd)
 	startedAt := time.Now().UTC()
 	serviceInfo := runtimeServiceInfo(cmd)
+	interrupt := newForegroundInterrupt(cmd, !serviceInfo.Managed)
+	defer interrupt.Close()
 	metadata := runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid(), Managed: serviceInfo.Managed, ServiceID: serviceInfo.ID, ServiceScope: serviceInfo.Scope}
 	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: metadata})
 	if err != nil {
@@ -196,14 +192,15 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			return errors.Join(err, shutdown())
 		}
 		return nil
-	case signalValue := <-signalCh:
-		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("signal", signalValue.String()))
+	case <-interrupt.Context.Done():
+		reason := interrupt.Reason()
+		if reason == "" {
+			reason = "context canceled"
+		}
+		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("reason", reason))
 		return shutdown()
 	case <-shutdownRequest:
 		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("reason", "runtime control"))
-		return shutdown()
-	case <-cmd.Context().Done():
-		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("reason", "context canceled"))
 		return shutdown()
 	}
 }

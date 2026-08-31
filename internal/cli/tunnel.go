@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -119,8 +117,9 @@ func tunnelRunCommand() *cobra.Command {
 		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 		defer runtimeCancel()
-		shutdownCtx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
+		interrupt := newForegroundInterrupt(cmd, true)
+		defer interrupt.Close()
+		shutdownCtx := interrupt.Context
 
 		client := tunnel.NewConfiguredWithLogger(tunnelConfig, runtime, log)
 		client.SetLifecycleObserver(func(event tunnel.LifecycleEvent) { logTunnelLifecycle(log, event) })
@@ -165,7 +164,7 @@ func tunnelRunCommand() *cobra.Command {
 			return err
 		}
 		<-shutdownCtx.Done()
-		log.Verbose("TUNNEL", "tunnel.shutdown.requested", "Shutdown requested")
+		log.Verbose("TUNNEL", "tunnel.shutdown.requested", "Shutdown requested", logger.With("reason", interrupt.Reason()))
 		return nil
 	}}
 }

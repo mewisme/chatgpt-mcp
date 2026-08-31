@@ -1,0 +1,117 @@
+package cli
+
+import (
+	"context"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
+
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
+)
+
+type foregroundInterrupt struct {
+	Context     context.Context
+	cancel      context.CancelFunc
+	signalCh    chan os.Signal
+	restore     func()
+	reasonMu    sync.RWMutex
+	reason      string
+	cleanupOnce sync.Once
+}
+
+func newForegroundInterrupt(cmd *cobra.Command, enableKeys bool) *foregroundInterrupt {
+	parent := context.Background()
+	if cmd != nil && cmd.Context() != nil {
+		parent = cmd.Context()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	value := &foregroundInterrupt{Context: ctx, cancel: cancel, signalCh: make(chan os.Signal, 1), restore: func() {}}
+	signal.Notify(value.signalCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		select {
+		case sig := <-value.signalCh:
+			value.stop(sig.String())
+		case <-ctx.Done():
+		}
+	}()
+	if enableKeys {
+		value.enableTerminalKeys(cmd)
+	}
+	return value
+}
+
+func (value *foregroundInterrupt) enableTerminalKeys(cmd *cobra.Command) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return
+	}
+	state, err := term.MakeRaw(fd)
+	if err != nil {
+		return
+	}
+	value.restore = func() { _ = term.Restore(fd, state) }
+	if cmd != nil {
+		format, _ := commandLogFormat(cmd)
+		if format != "json" {
+			commandLogger(cmd).Notice("CLI", "cli.interrupt.hint", "Press q or Ctrl+C to stop")
+		}
+	}
+	go func() {
+		buffer := []byte{0}
+		for {
+			if _, err := os.Stdin.Read(buffer); err != nil {
+				return
+			}
+			if reason, ok := interactiveInterruptKey(buffer[0]); ok {
+				value.stop(reason)
+				return
+			}
+		}
+	}()
+}
+
+func interactiveInterruptKey(value byte) (string, bool) {
+	switch value {
+	case 'q', 'Q':
+		return "q", true
+	case 3:
+		return "Ctrl+C", true
+	default:
+		return "", false
+	}
+}
+
+func (value *foregroundInterrupt) stop(reason string) {
+	if value == nil {
+		return
+	}
+	value.reasonMu.Lock()
+	if value.reason == "" {
+		value.reason = strings.TrimSpace(reason)
+	}
+	value.reasonMu.Unlock()
+	value.cancel()
+}
+
+func (value *foregroundInterrupt) Reason() string {
+	if value == nil {
+		return ""
+	}
+	value.reasonMu.RLock()
+	defer value.reasonMu.RUnlock()
+	return value.reason
+}
+
+func (value *foregroundInterrupt) Close() {
+	if value == nil {
+		return
+	}
+	value.cleanupOnce.Do(func() {
+		signal.Stop(value.signalCh)
+		value.cancel()
+		value.restore()
+	})
+}

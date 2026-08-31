@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -22,6 +23,9 @@ func Validate(cfg Config) error {
 		return errors.New("admin port must differ from server port")
 	}
 	if _, err := NormalizeAllowDirs(cfg.Permissions.AllowDirs); err != nil {
+		return err
+	}
+	if _, err := NormalizeShellPath(cfg.Shell.Path); err != nil {
 		return err
 	}
 	exposure := NormalizeExposure(cfg.Server.Expose)
@@ -55,6 +59,31 @@ func Validate(cfg Config) error {
 		return err
 	}
 	return nil
+}
+
+func NormalizeShellPath(values []string) ([]string, error) {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		path := strings.TrimSpace(value)
+		if path == "" {
+			continue
+		}
+		if !filepath.IsAbs(path) {
+			return nil, fmt.Errorf("shell path must be absolute: %q", value)
+		}
+		path = filepath.Clean(path)
+		key := path
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, path)
+	}
+	return result, nil
 }
 
 func NormalizeAllowDirs(values []string) ([]string, error) {

@@ -22,6 +22,8 @@ const serviceReadyTimeout = 15 * time.Second
 func upCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "up", Short: "Install and start the managed MCP service", Args: cobra.NoArgs, RunE: runUp}
 	cmd.Flags().Bool("system", false, "use a machine-level service on Linux/macOS; elevates with sudo when needed")
+	cmd.Flags().String("service-environment-hash", "", "internal managed environment snapshot hash")
+	_ = cmd.Flags().MarkHidden("service-environment-hash")
 	return cmd
 }
 
@@ -36,12 +38,31 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
-		return elevateManagedCommand(cmd, "up")
-	}
 	spec, manager, err := managedServiceForCommand(cmd, scope)
 	if err != nil {
 		return err
+	}
+	environmentHash, _ := cmd.Flags().GetString("service-environment-hash")
+	if environmentHash == "" {
+		source, err := config.Source()
+		if err != nil {
+			return err
+		}
+		if !source.Exists {
+			return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init first")
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		environmentHash, err = managed.SaveEnvironment(spec.ConfigRoot, managed.CaptureEnvironment(spec.Account, cfg.Shell.Path))
+		if err != nil {
+			return err
+		}
+	}
+	spec.EnvironmentHash = environmentHash
+	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
+		return elevateManagedCommand(cmd, "up", environmentHash)
 	}
 	return runManagedUp(cmd, spec, manager)
 }
@@ -52,7 +73,7 @@ func runDown(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
-		return elevateManagedCommand(cmd, "down")
+		return elevateManagedCommand(cmd, "down", "")
 	}
 	spec, manager, err := managedServiceForCommand(cmd, scope)
 	if err != nil {

@@ -25,11 +25,12 @@ type Account struct {
 }
 
 type Spec struct {
-	ID         string
-	Scope      Scope
-	ConfigRoot string
-	Binary     string
-	Account    Account
+	ID              string
+	Scope           Scope
+	ConfigRoot      string
+	Binary          string
+	EnvironmentHash string
+	Account         Account
 }
 
 type Status struct {
@@ -89,5 +90,5 @@ func StableBinaryPath(value string) (string, error) {
 }
 
 func Args(spec Spec) []string {
-	return []string{"--config-dir", spec.ConfigRoot, "_service", "run", "--service-id", spec.ID, "--service-scope", string(spec.Scope)}
+	return []string{"--config-dir", spec.ConfigRoot, "_service", "run", "--service-id", spec.ID, "--service-scope", string(spec.Scope), "--service-environment-hash", spec.EnvironmentHash}
 }

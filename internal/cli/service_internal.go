@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/config"
+	managed "go.mewis.me/chatgpt-mcp/internal/service"
 )
 
 type serviceRuntimeInfo struct {
@@ -16,12 +18,21 @@ type serviceRuntimeContextKey struct{}
 
 func internalServiceCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "_service", Hidden: true}
-	var serviceID, serviceScope string
+	var serviceID, serviceScope, environmentHash string
 	run := &cobra.Command{
 		Use:    "run",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if environmentHash != "" {
+				snapshot, err := managed.LoadEnvironment(config.RootPath(), environmentHash)
+				if err != nil {
+					return err
+				}
+				if err := managed.ApplyEnvironment(snapshot); err != nil {
+					return err
+				}
+			}
 			ctx := context.WithValue(cmd.Context(), serviceRuntimeContextKey{}, serviceRuntimeInfo{Managed: true, ID: serviceID, Scope: serviceScope})
 			cmd.SetContext(ctx)
 			return runServer(cmd, args)
@@ -29,6 +40,7 @@ func internalServiceCommand() *cobra.Command {
 	}
 	run.Flags().StringVar(&serviceID, "service-id", "", "managed service identity")
 	run.Flags().StringVar(&serviceScope, "service-scope", "user", "managed service scope")
+	run.Flags().StringVar(&environmentHash, "service-environment-hash", "", "managed environment snapshot hash")
 	cmd.AddCommand(run)
 	return cmd
 }

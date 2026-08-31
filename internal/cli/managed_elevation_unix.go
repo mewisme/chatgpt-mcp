@@ -13,7 +13,7 @@ import (
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 )
 
-func elevateManagedCommand(cmd *cobra.Command, action string) error {
+func elevateManagedCommand(cmd *cobra.Command, action, environmentHash string) error {
 	binary, err := managed.StableBinaryPath(os.Args[0])
 	if err != nil {
 		return err
@@ -36,6 +36,9 @@ func elevateManagedCommand(cmd *cobra.Command, action string) error {
 		args = append(args, "--log-format", format)
 	}
 	args = append(args, action, "--system")
+	if action == "up" && environmentHash != "" {
+		args = append(args, "--service-environment-hash", environmentHash)
+	}
 	child := exec.CommandContext(cmd.Context(), sudo, args...)
 	child.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	if err := child.Run(); err != nil {

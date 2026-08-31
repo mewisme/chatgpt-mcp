@@ -398,7 +398,7 @@ func commandForPlatform(ctx context.Context, command string) (*exec.Cmd, error) 
 			shell = "/bin/sh"
 		}
 	}
-	return exec.CommandContext(ctx, shell, "-lc", command), nil
+	return exec.CommandContext(ctx, shell, "-c", command), nil
 }
 
 func windowsShell() (string, bool, error) {

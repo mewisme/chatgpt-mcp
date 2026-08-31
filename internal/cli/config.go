@@ -278,6 +278,8 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 		cfg.Auth.AdminEnabled = value
 	case "permissions.allow_dirs":
 		cfg.Permissions.AllowDirs = parseCSV(raw)
+	case "shell.path":
+		cfg.Shell.Path = parseCSV(raw)
 	case "features.ponytail.enabled":
 		value, err := parseBool(raw, key)
 		if err != nil {

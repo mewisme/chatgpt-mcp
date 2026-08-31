@@ -236,6 +236,21 @@ func TestDefaultFeaturesEnabled(t *testing.T) {
 	}
 }
 
+func TestNormalizeShellPath(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "tools")
+	second := filepath.Join(t.TempDir(), "bin")
+	got, err := NormalizeShellPath([]string{first, second, first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != filepath.Clean(first) || got[1] != filepath.Clean(second) {
+		t.Fatalf("shell path = %#v", got)
+	}
+	if _, err := NormalizeShellPath([]string{"relative/bin"}); err == nil {
+		t.Fatal("relative shell path was accepted")
+	}
+}
+
 func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
 		t.Run(string(format), func(t *testing.T) {

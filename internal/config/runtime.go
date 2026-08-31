@@ -47,5 +47,11 @@ func cloneConfig(value Config) Config {
 	if value.Server.Expose.Interfaces != nil {
 		value.Server.Expose.Interfaces = append([]string{}, value.Server.Expose.Interfaces...)
 	}
+	if value.Permissions.AllowDirs != nil {
+		value.Permissions.AllowDirs = append([]string{}, value.Permissions.AllowDirs...)
+	}
+	if value.Shell.Path != nil {
+		value.Shell.Path = append([]string{}, value.Shell.Path...)
+	}
 	return value
 }

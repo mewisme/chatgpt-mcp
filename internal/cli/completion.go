@@ -29,6 +29,7 @@ var configKeyCompletions = []configKeyCompletion{
 	{Key: "auth.mcp_token_hash", Description: "MCP token hash (read-only)"},
 	{Key: "auth.admin_token_hash", Description: "admin token hash (read-only)"},
 	{Key: "permissions.allow_dirs", Description: "additional filesystem roots", Settable: true},
+	{Key: "shell.path", Description: "additional executable search paths", Settable: true},
 	{Key: "features.ponytail.enabled", Description: "Ponytail feature enabled", Settable: true},
 	{Key: "features.caveman.enabled", Description: "Caveman feature enabled", Settable: true},
 	{Key: "tunnel.enabled", Description: "OpenAI tunnel enabled", Settable: true},
@@ -94,7 +95,7 @@ func completeConfigSet(_ *cobra.Command, args []string, toComplete string) ([]st
 		}
 		sort.Strings(values)
 		return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
-	case "permissions.allow_dirs":
+	case "permissions.allow_dirs", "shell.path":
 		return nil, cobra.ShellCompDirectiveFilterDirs
 	default:
 		return nil, cobra.ShellCompDirectiveNoFileComp

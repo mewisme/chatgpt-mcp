@@ -18,7 +18,9 @@ func TestMain(m *testing.M) {
 	}
 	value, exists := os.LookupEnv(controlplane.ToolContextEnv)
 	_ = os.Unsetenv(controlplane.ToolContextEnv)
+	restoreAncestorContext := controlplane.DisableAncestorContextForTesting()
 	code := m.Run()
+	restoreAncestorContext()
 	if exists {
 		_ = os.Setenv(controlplane.ToolContextEnv, value)
 	}

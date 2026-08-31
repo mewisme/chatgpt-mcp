@@ -204,7 +204,6 @@ func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 		"cgm config set permissions.allow_dirs /tmp",
 		"chatgpt-mcp auth mcp create",
 		"cmcp workspace access add ws_test /tmp",
-		"env -u CHATGPT_MCP_TOOL_CONTEXT cmcp config set permissions.allow_dirs /tmp",
 		"exec cmcp auth admin disable",
 		`bash -lc "cmcp config preset apply lan"`,
 	} {
@@ -221,6 +220,27 @@ func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 	} {
 		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
 			t.Fatalf("read-only control-plane command rejected: %s: %v", command, err)
+		}
+	}
+}
+
+func TestShellPolicyBlocksToolContextClearing(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		"unset CHATGPT_MCP_TOOL_CONTEXT",
+		"env -u CHATGPT_MCP_TOOL_CONTEXT go test ./...",
+		"env --unset=CHATGPT_MCP_TOOL_CONTEXT node test.js",
+		`python -c 'import os; os.environ.pop("CHATGPT_MCP_TOOL_CONTEXT", None)'`,
+		`node -e 'delete process.env.CHATGPT_MCP_TOOL_CONTEXT'`,
+		"Remove-Item Env:CHATGPT_MCP_TOOL_CONTEXT",
+	} {
+		if err := manager.ValidateShellCommand(item.ID, root, command); err == nil || !strings.Contains(err.Error(), "cannot be cleared") {
+			t.Fatalf("tool context clearing was not denied: %s: %v", command, err)
 		}
 	}
 }

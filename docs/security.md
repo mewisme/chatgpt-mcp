@@ -76,7 +76,7 @@ upstream MCP mutations
 tunnel configuration/enable/disable
 ```
 
-The shell policy also recognizes common nested-shell/wrapper patterns rather than checking only a direct `cgm` command.
+The shell policy also recognizes common nested-shell/wrapper patterns rather than checking only a direct `cgm` command. It rejects direct attempts to clear the MCP tool-context marker. On Linux, the CLI additionally inspects the process ancestry for the marker, so a child script cannot regain control-plane mutation access merely by deleting the variable from the environment passed to `cgm`.
 
 ## Protected config/state subtree
 
@@ -88,7 +88,7 @@ This prevents an Agent from simply reading the local runtime-control token and u
 
 ## What this boundary does not provide
 
-A process deliberately running arbitrary native code as the same OS user may have capabilities beyond what an application-level tool policy can reliably contain.
+A process deliberately running arbitrary native code as the same OS user may have capabilities beyond what an application-level tool policy can reliably contain. Process-ancestry checks are defense in depth, not a sandbox: hostile code may deliberately daemonize, create a new session, manipulate process state, or access files directly without invoking `cgm`.
 
 If you need a strong boundary against hostile local code, use an OS-level sandbox, container/VM boundary, or a separate operating-system identity with only the required filesystem access.
 

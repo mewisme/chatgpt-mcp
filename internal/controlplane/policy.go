@@ -17,13 +17,20 @@ var readOnlyPaths = map[string]bool{
 	"tunnel status": true, "logs": true, "logs follow": true, "logs path": true,
 }
 
+var ancestorContextCheck = true
+
 func ToolContextActive() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(ToolContextEnv))) {
 	case "1", "true", "yes", "on":
 		return true
-	default:
-		return false
 	}
+	return ancestorContextCheck && ancestorToolContextActive()
+}
+
+func DisableAncestorContextForTesting() func() {
+	previous := ancestorContextCheck
+	ancestorContextCheck = false
+	return func() { ancestorContextCheck = previous }
 }
 
 func IsReadOnlyPath(path string) bool {

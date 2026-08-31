@@ -53,8 +53,9 @@ func mcpCommand() *cobra.Command {
 func mcpServerListCommand() *cobra.Command {
 	var asJSON, refresh bool
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List configured upstream MCP servers",
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List configured upstream MCP servers",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {
@@ -237,9 +238,10 @@ func mcpServerToggleCommand(enabled bool) *cobra.Command {
 func mcpServerStatusCommand() *cobra.Command {
 	var refresh bool
 	cmd := &cobra.Command{
-		Use:   "status <id>",
-		Short: "Check one upstream MCP server",
-		Args:  cobra.ExactArgs(1),
+		Use:     "status <id>",
+		Aliases: []string{"st"},
+		Short:   "Check one upstream MCP server",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager, err := loadUpstreamManager()
 			if err != nil {

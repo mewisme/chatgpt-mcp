@@ -16,8 +16,9 @@ import (
 
 func statusCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
-		Short: "Show local configuration, runtime, service, workspaces, and upstreams",
+		Use:     "status",
+		Aliases: []string{"st"},
+		Short:   "Show local configuration, runtime, service, workspaces, and upstreams",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			scope := managed.DetectScope()
 			account, err := managed.InvokingAccount(scope)

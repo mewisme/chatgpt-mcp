@@ -239,8 +239,9 @@ func authToggleCommand(kind string, enabled bool) *cobra.Command {
 
 func authStatusCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
-		Short: "Show authentication state without revealing token hashes",
+		Use:     "status",
+		Aliases: []string{"st"},
+		Short:   "Show authentication state without revealing token hashes",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {

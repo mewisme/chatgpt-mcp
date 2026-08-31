@@ -39,6 +39,7 @@ func PathFromArgs(args []string) string {
 	if len(args) == 0 {
 		return ""
 	}
+	args = canonicalCommandArgs(args)
 	if args[0] == "help" || args[0] == "version" || args[0] == "status" {
 		return args[0]
 	}
@@ -73,6 +74,28 @@ func PathFromArgs(args []string) string {
 	default:
 		return args[0]
 	}
+}
+
+func canonicalCommandArgs(args []string) []string {
+	result := append([]string(nil), args...)
+	for index, value := range result {
+		if strings.HasPrefix(value, "-") {
+			continue
+		}
+		switch value {
+		case "cfg":
+			result[index] = "config"
+		case "ws":
+			result[index] = "workspace"
+		case "ls":
+			result[index] = "list"
+		case "st":
+			result[index] = "status"
+		case "log":
+			result[index] = "logs"
+		}
+	}
+	return result
 }
 
 func stripGlobalFlags(args []string) []string {

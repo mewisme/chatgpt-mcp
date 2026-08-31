@@ -32,3 +32,28 @@ func TestSubcommandNamesDoNotUseDashes(t *testing.T) {
 	}
 	visit(newRootCommand())
 }
+
+func TestUsefulCommandAliasesResolve(t *testing.T) {
+	root := newRootCommand()
+	for _, test := range []struct {
+		path []string
+		want string
+	}{
+		{[]string{"cfg"}, "config"},
+		{[]string{"cfg", "ls"}, "list"},
+		{[]string{"cfg", "preset", "ls"}, "list"},
+		{[]string{"ws"}, "workspace"},
+		{[]string{"ws", "ls"}, "list"},
+		{[]string{"ws", "access", "ls"}, "list"},
+		{[]string{"mcp", "server", "ls"}, "list"},
+		{[]string{"mcp", "server", "st"}, "status"},
+		{[]string{"auth", "st"}, "status"},
+		{[]string{"tunnel", "st"}, "status"},
+		{[]string{"st"}, "status"},
+	} {
+		resolved, _, err := root.Find(test.path)
+		if err != nil || resolved.Name() != test.want {
+			t.Fatalf("alias path %v resolved to %v: %v", test.path, resolved, err)
+		}
+	}
+}

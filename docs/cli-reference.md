@@ -9,6 +9,19 @@ cgm --help
 cgm <command> --help
 ```
 
+## Useful aliases
+
+Only a small set of high-value aliases is provided:
+
+| Full name | Alias |
+| --- | --- |
+| `config` | `cfg` |
+| `workspace` | `ws` |
+| `list` | `ls` |
+| `status` | `st` |
+
+Aliases compose with nested commands, for example `cgm cfg ls`, `cgm ws ls`, `cgm mcp server ls`, and `cgm tunnel st`.
+
 ## Global flags
 
 | Flag | Purpose |

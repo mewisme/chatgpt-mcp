@@ -14,7 +14,7 @@ import (
 )
 
 func configCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "config", Short: "Read and update validated runtime configuration"}
+	cmd := &cobra.Command{Use: "config", Aliases: []string{"cfg"}, Short: "Read and update validated runtime configuration"}
 	cmd.AddCommand(
 		&cobra.Command{Use: "path", RunE: func(cmd *cobra.Command, args []string) error {
 			source, err := config.Source()
@@ -91,9 +91,10 @@ func configGetCommand() *cobra.Command {
 func configListCommand() *cobra.Command {
 	options := configOutputOptions{}
 	cmd := &cobra.Command{
-		Use:   "list [key]",
-		Short: "List redacted configuration with optional subtree and output format",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "list [key]",
+		Aliases: []string{"ls"},
+		Short:   "List redacted configuration with optional subtree and output format",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -143,8 +144,9 @@ func configPresetCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "preset", Short: "List, inspect, and apply built-in configuration presets"}
 	cmd.AddCommand(
 		&cobra.Command{
-			Use:   "list",
-			Short: "List built-in configuration presets",
+			Use:     "list",
+			Aliases: []string{"ls"},
+			Short:   "List built-in configuration presets",
 			RunE: func(cmd *cobra.Command, args []string) error {
 				log := commandLogger(cmd)
 				presets := config.Presets()

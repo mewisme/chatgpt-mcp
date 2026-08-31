@@ -8,7 +8,7 @@ import (
 )
 
 func workspaceCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "workspace", Short: "Manage registered workspace roots"}
+	cmd := &cobra.Command{Use: "workspace", Aliases: []string{"ws"}, Short: "Manage registered workspace roots"}
 	cmd.AddCommand(
 		workspaceRegisterCommand(),
 		workspaceListCommand(),
@@ -45,7 +45,7 @@ func workspaceAccessCommand() *cobra.Command {
 			log.Detail("id", item.ID)
 			return nil
 		}},
-		&cobra.Command{Use: "list <workspace_id>", Short: "List workspace-specific additional directories", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		&cobra.Command{Use: "list <workspace_id>", Aliases: []string{"ls"}, Short: "List workspace-specific additional directories", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 			manager := workspace.NewManager(workspace.DefaultStorePath())
 			item, err := manager.Get(args[0])
 			if err != nil {
@@ -90,8 +90,9 @@ func workspaceRegisterCommand() *cobra.Command {
 func workspaceListCommand() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List registered workspace roots",
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List registered workspace roots",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := workspace.NewManager(workspace.DefaultStorePath())
 			items, err := manager.List()

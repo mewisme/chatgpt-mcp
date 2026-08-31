@@ -21,7 +21,7 @@ func tunnelCommand() *cobra.Command {
 }
 
 func tunnelStatusCommand() *cobra.Command {
-	return &cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "status", Aliases: []string{"st"}, RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err

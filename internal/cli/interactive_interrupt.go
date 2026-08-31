@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -54,6 +55,15 @@ func (value *foregroundInterrupt) enableTerminalKeys(cmd *cobra.Command) {
 	}
 	value.restore = func() { _ = term.Restore(fd, state) }
 	if cmd != nil {
+		out, errOut := cmd.OutOrStdout(), cmd.ErrOrStderr()
+		cmd.SetOut(newTerminalRawWriter(out))
+		cmd.SetErr(newTerminalRawWriter(errOut))
+		previousRestore := value.restore
+		value.restore = func() {
+			previousRestore()
+			cmd.SetOut(out)
+			cmd.SetErr(errOut)
+		}
 		format, _ := commandLogFormat(cmd)
 		if format != "json" {
 			commandLogger(cmd).Notice("CLI", "cli.interrupt.hint", "Press q or Ctrl+C to stop")
@@ -71,6 +81,40 @@ func (value *foregroundInterrupt) enableTerminalKeys(cmd *cobra.Command) {
 			}
 		}
 	}()
+}
+
+type terminalRawWriter struct {
+	mu     sync.Mutex
+	out    io.Writer
+	lastCR bool
+}
+
+func newTerminalRawWriter(out io.Writer) io.Writer {
+	if out == nil {
+		return io.Discard
+	}
+	return &terminalRawWriter{out: out}
+}
+
+func (writer *terminalRawWriter) Write(data []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	converted := make([]byte, 0, len(data)+8)
+	for _, value := range data {
+		if value == '\n' && !writer.lastCR {
+			converted = append(converted, '\r')
+		}
+		converted = append(converted, value)
+		writer.lastCR = value == '\r'
+		if value != '\r' && value != '\n' {
+			writer.lastCR = false
+		}
+	}
+	_, err := writer.out.Write(converted)
+	if err != nil {
+		return 0, err
+	}
+	return len(data), nil
 }
 
 func interactiveInterruptKey(value byte) (string, bool) {

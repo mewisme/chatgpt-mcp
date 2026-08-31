@@ -57,11 +57,11 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	}
 	defer bindings.CloseUnstarted()
 
-	log := commandLogger(cmd)
 	startedAt := time.Now().UTC()
 	serviceInfo := runtimeServiceInfo(cmd)
 	interrupt := newForegroundInterrupt(cmd, !serviceInfo.Managed)
 	defer interrupt.Close()
+	log := commandLogger(cmd)
 	metadata := runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid(), Managed: serviceInfo.Managed, ServiceID: serviceInfo.ID, ServiceScope: serviceInfo.Scope}
 	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: metadata})
 	if err != nil {

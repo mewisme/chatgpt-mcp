@@ -16,7 +16,7 @@ import (
 func configCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "config", Aliases: []string{"cfg"}, Short: "Read and update validated runtime configuration"}
 	cmd.AddCommand(
-		&cobra.Command{Use: "path", RunE: func(cmd *cobra.Command, args []string) error {
+		&cobra.Command{Use: "path", Short: "Show the active configuration path, format, and root", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 			source, err := config.Source()
 			if err != nil {
 				return err

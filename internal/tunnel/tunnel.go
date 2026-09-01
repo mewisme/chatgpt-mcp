@@ -62,6 +62,14 @@ type Metadata struct {
 	FetchedAt       time.Time `json:"fetched_at"`
 }
 
+type CreateRequest struct {
+	Name            string
+	Description     string
+	TenantIDs       []string
+	WorkspaceIDs    []string
+	OrganizationIDs []string
+}
+
 type metadataFetcher func(context.Context, Config) (Metadata, error)
 
 type backend interface {
@@ -158,15 +166,7 @@ func FetchMetadata(ctx context.Context, cfg Config) (Metadata, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return Metadata{}, errors.New("OpenAI tunnel API key is empty")
 	}
-	baseURL := strings.TrimSpace(cfg.ControlPlaneBaseURL)
-	if baseURL == "" {
-		baseURL = tunnelclient.DefaultControlPlaneBaseURL
-	}
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return Metadata{}, fmt.Errorf("invalid OpenAI tunnel control plane base URL %q", baseURL)
-	}
-	client, err := tcadmin.NewAdminTunnelClient(&tcconfig.AdminConfig{BaseURL: parsed, AdminKey: cfg.APIKey})
+	client, err := adminTunnelClient(cfg, cfg.APIKey)
 	if err != nil {
 		return Metadata{}, err
 	}
@@ -174,11 +174,59 @@ func FetchMetadata(ctx context.Context, cfg Config) (Metadata, error) {
 	if err != nil {
 		return Metadata{}, err
 	}
+	return metadataFromTunnel(value), nil
+}
+
+func Create(ctx context.Context, cfg Config, apiKey string, req CreateRequest) (Metadata, error) {
+	if strings.TrimSpace(apiKey) == "" {
+		return Metadata{}, errors.New("OpenAI tunnel admin API key is empty")
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Description = strings.TrimSpace(req.Description)
+	if req.Name == "" {
+		return Metadata{}, errors.New("tunnel name is required")
+	}
+	if req.Description == "" {
+		return Metadata{}, errors.New("tunnel description is required")
+	}
+	if len(req.OrganizationIDs) == 0 && len(req.WorkspaceIDs) == 0 {
+		return Metadata{}, errors.New("at least one organization or workspace id is required")
+	}
+	client, err := adminTunnelClient(cfg, apiKey)
+	if err != nil {
+		return Metadata{}, err
+	}
+	value, err := client.CreateTunnel(ctx, tcadmin.TunnelCreateRequest{
+		Name: req.Name, Description: req.Description,
+		TenantIDs: append([]string(nil), req.TenantIDs...), WorkspaceIDs: append([]string(nil), req.WorkspaceIDs...), OrganizationIDs: append([]string(nil), req.OrganizationIDs...),
+	})
+	if err != nil {
+		return Metadata{}, err
+	}
+	return metadataFromTunnel(value), nil
+}
+
+func adminTunnelClient(cfg Config, apiKey string) (*tcadmin.AdminTunnelClient, error) {
+	baseURL := strings.TrimSpace(cfg.ControlPlaneBaseURL)
+	if baseURL == "" {
+		baseURL = tunnelclient.DefaultControlPlaneBaseURL
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return nil, fmt.Errorf("invalid OpenAI tunnel control plane base URL %q", baseURL)
+	}
+	return tcadmin.NewAdminTunnelClient(&tcconfig.AdminConfig{BaseURL: parsed, AdminKey: apiKey})
+}
+
+func metadataFromTunnel(value *tcadmin.Tunnel) Metadata {
+	if value == nil {
+		return Metadata{}
+	}
 	return Metadata{
 		ID: value.ID, Name: value.Name, Description: value.Description, Creator: value.Creator,
 		TenantIDs: append([]string(nil), value.TenantIDs...), WorkspaceIDs: append([]string(nil), value.WorkspaceIDs...), OrganizationIDs: append([]string(nil), value.OrganizationIDs...),
 		RequestID: value.RequestID, FetchedAt: time.Now().UTC(),
-	}, nil
+	}
 }
 
 func (c *Client) RefreshMetadata(ctx context.Context, force bool) (Metadata, error) {

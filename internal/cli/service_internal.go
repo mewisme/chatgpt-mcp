@@ -17,10 +17,11 @@ type serviceRuntimeInfo struct {
 type serviceRuntimeContextKey struct{}
 
 func internalServiceCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "_service", Hidden: true}
+	cmd := &cobra.Command{Use: "_service", Short: "Internal managed service commands", Hidden: true}
 	var serviceID, serviceScope, environmentHash string
 	run := &cobra.Command{
 		Use:    "run",
+		Short:  "Run chatgpt-mcp as an internal managed service",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

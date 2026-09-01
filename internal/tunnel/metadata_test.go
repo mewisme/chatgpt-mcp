@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -34,6 +35,44 @@ func TestFetchMetadataWithRuntimeKey(t *testing.T) {
 	}
 	if metadata.FetchedAt.IsZero() {
 		t.Fatal("fetched_at is zero")
+	}
+}
+
+func TestCreateWithAdminAPIKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/tunnels" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer sk-admin" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["name"] != "Mew Tunnel" || body["description"] != "Created from chatgpt-mcp" {
+			t.Fatalf("body = %#v", body)
+		}
+		w.Header().Set("x-request-id", "req_create")
+		_, _ = w.Write([]byte(`{"id":"tunnel_created","name":"Mew Tunnel","description":"Created from chatgpt-mcp","workspace_ids":["ws_openai"],"organization_ids":["org_test"]}`))
+	}))
+	defer server.Close()
+
+	metadata, err := Create(context.Background(), Config{ControlPlaneBaseURL: server.URL}, "sk-admin", CreateRequest{Name: "Mew Tunnel", Description: "Created from chatgpt-mcp", WorkspaceIDs: []string{"ws_openai"}, OrganizationIDs: []string{"org_test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.ID != "tunnel_created" || metadata.Name != "Mew Tunnel" || metadata.RequestID != "req_create" {
+		t.Fatalf("metadata = %#v", metadata)
+	}
+}
+
+func TestCreateRequiresAdminKeyAndScope(t *testing.T) {
+	if _, err := Create(context.Background(), Config{}, "", CreateRequest{Name: "n", Description: "d", WorkspaceIDs: []string{"ws"}}); err == nil {
+		t.Fatal("expected missing admin key error")
+	}
+	if _, err := Create(context.Background(), Config{}, "sk-admin", CreateRequest{Name: "n", Description: "d"}); err == nil {
+		t.Fatal("expected missing scope error")
 	}
 }
 

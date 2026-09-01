@@ -33,6 +33,7 @@ type statusSnapshot struct {
 	Services      []installedManagedService
 	ListenerPlan  listenerPlan
 	ListenerError error
+	Tunnel        tunnel.Status
 }
 
 func statusCommand() *cobra.Command {
@@ -92,7 +93,8 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		return runtimeErr
 	}
 	plan, listenerErr := resolveListenerPlan(cfg.Server.Expose)
-	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: len(upstreams.List()), ListenerPlan: plan, ListenerError: listenerErr}
+	tunnelStatus := fetchTunnelStatus(cmd.Context(), cfg.Tunnel)
+	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: len(upstreams.List()), ListenerPlan: plan, ListenerError: listenerErr, Tunnel: tunnelStatus}
 	if !running {
 		snapshot.Services = installedManagedServices(account)
 	}
@@ -106,11 +108,11 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 
 func renderStatusText(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	if snapshot.Running {
-		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), "chatgpt-mcp is running")
+		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), "ChatGPT MCP is running")
 		renderRunningStatus(out, snapshot, verbose)
 		return
 	}
-	fmt.Fprintln(out, cliStyled(color.FgHiRed, color.Bold).Sprint("×"), "chatgpt-mcp is stopped")
+	fmt.Fprintln(out, cliStyled(color.FgHiRed, color.Bold).Sprint("×"), "ChatGPT MCP is stopped")
 	renderStoppedStatus(out, snapshot, verbose)
 }
 
@@ -222,6 +224,29 @@ func renderStatusTunnel(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	if status.TunnelID != "" {
 		statusField(out, "id", status.TunnelID)
 	}
+	if snapshot.Tunnel.Metadata != nil {
+		metadata := snapshot.Tunnel.Metadata
+		if metadata.Name != "" {
+			statusField(out, "name", metadata.Name)
+		}
+		if verbose {
+			if metadata.Description != "" {
+				statusField(out, "description", metadata.Description)
+			}
+			if metadata.Creator != "" {
+				statusField(out, "creator", metadata.Creator)
+			}
+			if len(metadata.WorkspaceIDs) > 0 {
+				statusField(out, "workspaces", strings.Join(metadata.WorkspaceIDs, ", "))
+			}
+			if len(metadata.OrganizationIDs) > 0 {
+				statusField(out, "organizations", strings.Join(metadata.OrganizationIDs, ", "))
+			}
+		}
+	}
+	if verbose && snapshot.Tunnel.MetadataError != "" {
+		statusField(out, "metadata", "unavailable: "+snapshot.Tunnel.MetadataError)
+	}
 }
 
 func renderStatusConfig(out io.Writer, snapshot statusSnapshot, verbose bool) {
@@ -242,7 +267,7 @@ func renderStatusConfig(out io.Writer, snapshot statusSnapshot, verbose bool) {
 }
 
 func renderStatusUninitialized(out io.Writer) {
-	fmt.Fprintln(out, cliStyled(color.FgHiYellow, color.Bold).Sprint("!"), "chatgpt-mcp is not initialized")
+	fmt.Fprintln(out, cliStyled(color.FgHiYellow, color.Bold).Sprint("!"), "ChatGPT MCP is not initialized")
 	fmt.Fprintln(out, "\n"+cliHeading("Run:"))
 	fmt.Fprintf(out, "  %s init\n", cliUseName())
 }
@@ -285,6 +310,19 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 		for _, item := range snapshot.Services {
 			log.Detail("service "+string(item.spec.Scope), fmt.Sprintf("installed (%s)", managedBackendLabel(item.manager, item.spec)))
 		}
+	}
+	if snapshot.Tunnel.Metadata != nil {
+		log.Detail("tunnel name", snapshot.Tunnel.Metadata.Name)
+		log.Detail("tunnel description", snapshot.Tunnel.Metadata.Description)
+		if len(snapshot.Tunnel.Metadata.WorkspaceIDs) > 0 {
+			log.Detail("tunnel workspaces", strings.Join(snapshot.Tunnel.Metadata.WorkspaceIDs, ", "))
+		}
+		if len(snapshot.Tunnel.Metadata.OrganizationIDs) > 0 {
+			log.Detail("tunnel organizations", strings.Join(snapshot.Tunnel.Metadata.OrganizationIDs, ", "))
+		}
+	}
+	if snapshot.Tunnel.MetadataError != "" {
+		log.Detail("tunnel metadata error", snapshot.Tunnel.MetadataError)
 	}
 	log.Detail("workspaces", snapshot.Workspaces)
 	log.Detail("upstreams", snapshot.Upstreams)

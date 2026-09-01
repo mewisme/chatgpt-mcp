@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -32,24 +34,36 @@ func (api API) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, api.Tunnel.Status())
+		writeJSON(w, api.tunnelStatus(r.Context()))
 	case http.MethodPost:
 		if err := api.Tunnel.Start(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, api.Tunnel.Status())
+		writeJSON(w, api.tunnelStatus(r.Context()))
 	case http.MethodDelete:
 		if err := api.Tunnel.Stop(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, api.Tunnel.Status())
+		writeJSON(w, api.tunnelStatus(r.Context()))
 	case http.MethodPut:
 		api.configureTunnel(w, r)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (api API) tunnelStatus(ctx context.Context) tunnel.Status {
+	if api.Tunnel == nil {
+		return tunnel.Status{Provider: tunnel.ProviderOpenAI}
+	}
+	if tunnel.Configured(api.Tunnel.Config()) {
+		metadataCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, _ = api.Tunnel.RefreshMetadata(metadataCtx, false)
+		cancel()
+	}
+	return api.Tunnel.Status()
 }
 
 func (api API) configureTunnel(w http.ResponseWriter, r *http.Request) {
@@ -82,5 +96,5 @@ func (api API) configureTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	writeJSON(w, api.Tunnel.Status())
+	writeJSON(w, api.tunnelStatus(r.Context()))
 }

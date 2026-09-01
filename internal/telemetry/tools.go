@@ -57,7 +57,7 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 			log.Emit(event)
 		}
 		if stream != nil {
-			stream.Publish(activity.Event{Kind: string(activity.EventToolCall), Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message)})
+			stream.Publish(activity.Event{Kind: string(activity.EventToolCall), Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message), Raw: observation.Raw})
 		}
 	})
 }

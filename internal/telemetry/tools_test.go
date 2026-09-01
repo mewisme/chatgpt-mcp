@@ -23,8 +23,12 @@ func TestAttachToolsPublishesActivityAndKeepsDefaultLogQuiet(t *testing.T) {
 	stream := activity.NewStream()
 	var output bytes.Buffer
 	AttachTools(runtime, stream, logger.NewWithWriter(logger.Info, &output))
-	ctx := tools.WithCallSource(context.Background(), "tunnel")
-	result, err := runtime.Call(ctx, "echo", map[string]any{"workspace_id": "ws_test"})
+	args := map[string]any{"workspace_id": "ws_test", "message": "hello"}
+	params := map[string]any{"name": "echo", "arguments": args, "requestState": "state_test", "inputResponses": map[string]any{"approval": true}, "_meta": map[string]any{"request_id": "req_test"}}
+	request := map[string]any{"jsonrpc": "2.0", "id": "call_1", "method": "tools/call", "params": params}
+	ctx := tools.WithCallRequest(tools.WithCallSource(context.Background(), "tunnel"), request)
+	ctx = tools.WithCallDetails(ctx, "tools/call", params)
+	result, err := runtime.Call(ctx, "echo", args)
 	if err != nil || result.IsError {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -38,6 +42,24 @@ func TestAttachToolsPublishesActivityAndKeepsDefaultLogQuiet(t *testing.T) {
 	event := events[0]
 	if event.Kind != "tool_call" || event.Source != "tunnel" || event.Tool != "echo" || event.WorkspaceID != "ws_test" || event.Status != "ok" {
 		t.Fatalf("event=%#v", event)
+	}
+	if event.Raw["status"] != "ok" || event.Raw["result_type"] != "complete" {
+		t.Fatalf("raw outcome=%#v", event.Raw)
+	}
+	rawParams, ok := event.Raw["params"].(map[string]any)
+	if !ok || rawParams["requestState"] != "state_test" || rawParams["_meta"].(map[string]any)["request_id"] != "req_test" {
+		t.Fatalf("raw params=%#v", event.Raw)
+	}
+	rawArgs, ok := event.Raw["arguments"].(map[string]any)
+	if !ok || rawArgs["message"] != "hello" {
+		t.Fatalf("raw arguments=%#v", event.Raw)
+	}
+	if _, ok := event.Raw["result"].(tools.Result); !ok {
+		t.Fatalf("raw result=%#v", event.Raw["result"])
+	}
+	rawRequest, ok := event.Raw["request"].(map[string]any)
+	if !ok || rawRequest["id"] != "call_1" || rawRequest["method"] != "tools/call" {
+		t.Fatalf("raw request=%#v", event.Raw)
 	}
 }
 

@@ -26,10 +26,21 @@ func tunnelStatusCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		data, _ := json.MarshalIndent(tunnel.NewConfigured(cfg.Tunnel, nil).Status(), "", "  ")
+		status := fetchTunnelStatus(cmd.Context(), cfg.Tunnel)
+		data, _ := json.MarshalIndent(status, "", "  ")
 		cmd.Println(string(data))
 		return nil
 	}}
+}
+
+func fetchTunnelStatus(ctx context.Context, cfg tunnel.Config) tunnel.Status {
+	client := tunnel.NewConfigured(cfg, nil)
+	if tunnel.Configured(cfg) {
+		metadataCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, _ = client.RefreshMetadata(metadataCtx, false)
+		cancel()
+	}
+	return client.Status()
 }
 
 func tunnelConfigureCommand() *cobra.Command {

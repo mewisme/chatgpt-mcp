@@ -83,7 +83,7 @@ func TestLineWriterVerboseShowsRouteContextOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	for _, expected := range []string{"mcp channel route resolved", "tunnel_id: tunnel_123", "channel: main", "transport: in-memory", "route_kind: mcp_channel", "route_name: main"} {
+	for _, expected := range []string{"Mcp channel route resolved", "tunnel_id: tunnel_123", "channel: main", "transport: in-memory", "route_kind: mcp_channel", "route_name: main"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("verbose output %q missing %q", text, expected)
 		}

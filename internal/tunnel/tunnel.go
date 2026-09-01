@@ -13,6 +13,8 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	tunnelclient "github.com/openai/tunnel-client"
+	tcconfig "github.com/openai/tunnel-client/pkg/config"
+	tcadmin "github.com/openai/tunnel-client/pkg/controlplane/admin"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
@@ -22,6 +24,7 @@ const (
 	defaultStopTimeout = 5 * time.Second
 	restartMinDelay    = time.Second
 	restartMaxDelay    = 30 * time.Second
+	metadataTTL        = 5 * time.Minute
 )
 
 type Config struct {
@@ -43,7 +46,23 @@ type Status struct {
 	OrganizationID      string    `json:"organization_id,omitempty"`
 	StartedAt           time.Time `json:"started_at,omitempty"`
 	LastError           string    `json:"last_error,omitempty"`
+	Metadata            *Metadata `json:"metadata,omitempty"`
+	MetadataError       string    `json:"metadata_error,omitempty"`
 }
+
+type Metadata struct {
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description"`
+	Creator         string    `json:"creator,omitempty"`
+	TenantIDs       []string  `json:"tenant_ids,omitempty"`
+	WorkspaceIDs    []string  `json:"workspace_ids,omitempty"`
+	OrganizationIDs []string  `json:"organization_ids,omitempty"`
+	RequestID       string    `json:"request_id,omitempty"`
+	FetchedAt       time.Time `json:"fetched_at"`
+}
+
+type metadataFetcher func(context.Context, Config) (Metadata, error)
 
 type backend interface {
 	Start(context.Context) error
@@ -82,6 +101,7 @@ type serverRun struct {
 type Client struct {
 	reconfigureMu  sync.Mutex
 	lifecycleMu    sync.RWMutex
+	metadataMu     sync.Mutex
 	mu             sync.RWMutex
 	config         Config
 	runtime        *tools.Runtime
@@ -103,6 +123,10 @@ type Client struct {
 	generation     uint64
 	restartAttempt int
 	restartDelay   func(int) time.Duration
+	metadataFetch  metadataFetcher
+	metadata       *Metadata
+	metadataError  string
+	metadataCheck  time.Time
 	startedAt      time.Time
 	lastError      string
 	lifecycle      LifecycleObserver
@@ -124,7 +148,94 @@ func newConfigured(cfg Config, runtime *tools.Runtime, factory backendFactory) *
 	if factory == nil {
 		factory = newOpenAIBackendFactory(nil)
 	}
-	return &Client{config: cfg, runtime: runtime, factory: factory, restartDelay: defaultRestartDelay}
+	return &Client{config: cfg, runtime: runtime, factory: factory, restartDelay: defaultRestartDelay, metadataFetch: FetchMetadata}
+}
+
+func FetchMetadata(ctx context.Context, cfg Config) (Metadata, error) {
+	if strings.TrimSpace(cfg.ID) == "" {
+		return Metadata{}, errors.New("OpenAI tunnel id is empty")
+	}
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return Metadata{}, errors.New("OpenAI tunnel API key is empty")
+	}
+	baseURL := strings.TrimSpace(cfg.ControlPlaneBaseURL)
+	if baseURL == "" {
+		baseURL = tunnelclient.DefaultControlPlaneBaseURL
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return Metadata{}, fmt.Errorf("invalid OpenAI tunnel control plane base URL %q", baseURL)
+	}
+	client, err := tcadmin.NewAdminTunnelClient(&tcconfig.AdminConfig{BaseURL: parsed, AdminKey: cfg.APIKey})
+	if err != nil {
+		return Metadata{}, err
+	}
+	value, err := client.GetTunnel(ctx, cfg.ID)
+	if err != nil {
+		return Metadata{}, err
+	}
+	return Metadata{
+		ID: value.ID, Name: value.Name, Description: value.Description, Creator: value.Creator,
+		TenantIDs: append([]string(nil), value.TenantIDs...), WorkspaceIDs: append([]string(nil), value.WorkspaceIDs...), OrganizationIDs: append([]string(nil), value.OrganizationIDs...),
+		RequestID: value.RequestID, FetchedAt: time.Now().UTC(),
+	}, nil
+}
+
+func (c *Client) RefreshMetadata(ctx context.Context, force bool) (Metadata, error) {
+	if c == nil {
+		return Metadata{}, errors.New("tunnel client is unavailable")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c.metadataMu.Lock()
+	defer c.metadataMu.Unlock()
+	c.mu.RLock()
+	cfg := c.config
+	if !force && c.metadata != nil && time.Since(c.metadata.FetchedAt) < metadataTTL {
+		value := cloneMetadata(*c.metadata)
+		c.mu.RUnlock()
+		return value, nil
+	}
+	if !force && c.metadata == nil && c.metadataError != "" && time.Since(c.metadataCheck) < time.Minute {
+		err := errors.New(c.metadataError)
+		c.mu.RUnlock()
+		return Metadata{}, err
+	}
+	fetch := c.metadataFetch
+	c.mu.RUnlock()
+	if !Configured(cfg) {
+		return Metadata{}, errors.New("OpenAI tunnel is not configured")
+	}
+	if fetch == nil {
+		fetch = FetchMetadata
+	}
+	value, err := fetch(ctx, cfg)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.config.ID != cfg.ID || c.config.APIKey != cfg.APIKey || c.config.ControlPlaneBaseURL != cfg.ControlPlaneBaseURL {
+		return Metadata{}, errors.New("OpenAI tunnel configuration changed while fetching metadata")
+	}
+	if err != nil {
+		c.metadataCheck = time.Now().UTC()
+		c.metadataError = err.Error()
+		return Metadata{}, err
+	}
+	value = cloneMetadata(value)
+	if value.FetchedAt.IsZero() {
+		value.FetchedAt = time.Now().UTC()
+	}
+	c.metadata = &value
+	c.metadataCheck = value.FetchedAt
+	c.metadataError = ""
+	return cloneMetadata(value), nil
+}
+
+func cloneMetadata(value Metadata) Metadata {
+	value.TenantIDs = append([]string(nil), value.TenantIDs...)
+	value.WorkspaceIDs = append([]string(nil), value.WorkspaceIDs...)
+	value.OrganizationIDs = append([]string(nil), value.OrganizationIDs...)
+	return value
 }
 
 func (c *Client) SetLifecycleObserver(observer LifecycleObserver) {
@@ -214,7 +325,13 @@ func (c *Client) Configure(cfg Config) error {
 	if c.running || c.stopping || c.restarting || c.sessionCancel != nil {
 		return errors.New("cannot configure a running tunnel")
 	}
+	changed := c.config.ID != cfg.ID || c.config.APIKey != cfg.APIKey || c.config.ControlPlaneBaseURL != cfg.ControlPlaneBaseURL
 	c.config = cfg
+	if changed {
+		c.metadata = nil
+		c.metadataError = ""
+		c.metadataCheck = time.Time{}
+	}
 	c.lastError = ""
 	return nil
 }
@@ -675,9 +792,14 @@ func waitRun(ctx context.Context, run *serverRun, fallback time.Duration) error 
 func (c *Client) Status() Status {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	var metadata *Metadata
+	if c.metadata != nil {
+		value := cloneMetadata(*c.metadata)
+		metadata = &value
+	}
 	return Status{
 		Provider: ProviderOpenAI, Enabled: c.config.Enabled, Running: c.running, Ready: c.ready, Restarting: c.restarting, ID: c.config.ID,
 		ControlPlaneBaseURL: c.config.ControlPlaneBaseURL, OrganizationID: c.config.OrganizationID,
-		StartedAt: c.startedAt, LastError: c.lastError,
+		StartedAt: c.startedAt, LastError: c.lastError, Metadata: metadata, MetadataError: c.metadataError,
 	}
 }

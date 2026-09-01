@@ -30,6 +30,22 @@ func TestDefaultRendererIsCLIFirst(t *testing.T) {
 	}
 }
 
+func TestTextRendererCapitalizesMessagesAfterIcons(t *testing.T) {
+	restoreColor := disableColor()
+	defer restoreColor()
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Info, Writer: &output})
+	log.Ready("SERVICE", "service.updated", "managed service updated")
+	log.Action("SERVICE", "service.updating", "updating managed service")
+	log.Info("WORKSPACE", "registered workspaces loaded")
+	text := output.String()
+	for _, expected := range []string{"✓ Managed service updated", "→ Updating managed service", "· Registered workspaces loaded"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("output %q missing %q", text, expected)
+		}
+	}
+}
+
 func TestVerboseRendererAddsUsefulContext(t *testing.T) {
 	restoreColor := disableColor()
 	defer restoreColor()

@@ -95,7 +95,8 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	started := time.Now()
 	source := CallSource(ctx)
 	workspaceID, _ := args["workspace_id"].(string)
-	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID})
+	raw := callRaw(ctx, source, name, args)
+	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw})
 
 	result, err := r.Registry.Call(ctx, name, args)
 	if err == nil {
@@ -109,7 +110,11 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 				message = result.Content[0].Text
 			}
 		}
-		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType})
+		finishRaw := cloneMap(raw)
+		finishRaw["status"] = status
+		finishRaw["result_type"] = result.ResultType
+		finishRaw["result"] = result
+		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw})
 		return result, nil
 	}
 
@@ -118,10 +123,18 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		status, message = "cancelled", ctx.Err().Error()
 	}
 	if errors.Is(err, ErrToolNotFound) {
-		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message})
+		finishRaw := cloneMap(raw)
+		finishRaw["status"] = status
+		finishRaw["error"] = message
+		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw})
 		return Result{}, err
 	}
 	result = ErrorResult(err)
-	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType})
+	finishRaw := cloneMap(raw)
+	finishRaw["status"] = status
+	finishRaw["result_type"] = result.ResultType
+	finishRaw["result"] = result
+	finishRaw["error"] = message
+	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw})
 	return result, nil
 }

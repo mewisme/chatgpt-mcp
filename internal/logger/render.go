@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
 )
@@ -43,7 +45,7 @@ func (l *Logger) renderText(event Event) {
 	if l.showTime() {
 		fmt.Fprint(l.out, styled(color.Faint).Sprint(l.eventTime(event).Format("15:04:05")), " ")
 	}
-	fmt.Fprint(l.out, symbolStyle(event.Kind).Sprint(symbol(event.Kind)), " ", event.Message)
+	fmt.Fprint(l.out, symbolStyle(event.Kind).Sprint(symbol(event.Kind)), " ", capitalizeIconMessage(event.Message))
 	if event.Err != nil {
 		fmt.Fprint(l.out, ": ", event.Err)
 	}
@@ -54,6 +56,21 @@ func (l *Logger) renderText(event Event) {
 		}
 		renderField(l.out, field.Key, field.Value)
 	}
+}
+
+func capitalizeIconMessage(message string) string {
+	if message == "" {
+		return message
+	}
+	r, size := utf8.DecodeRuneInString(message)
+	if r == utf8.RuneError && size == 0 {
+		return message
+	}
+	upper := unicode.ToUpper(r)
+	if upper == r {
+		return message
+	}
+	return string(upper) + message[size:]
 }
 
 func (l *Logger) renderDebugText(event Event) {

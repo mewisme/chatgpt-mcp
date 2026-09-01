@@ -20,6 +20,7 @@ func requestActivity(method string, params map[string]any, status, message strin
 		Status:     status,
 		DurationMS: duration.Milliseconds(),
 		Message:    message,
+		Raw:        map[string]any{"method": method, "params": params},
 	}
 	if method != "tools/call" {
 		return event
@@ -28,5 +29,7 @@ func requestActivity(method string, params map[string]any, status, message strin
 	event.Tool, _ = params["name"].(string)
 	args, _ := params["arguments"].(map[string]any)
 	event.WorkspaceID, _ = args["workspace_id"].(string)
+	event.Raw["tool"] = event.Tool
+	event.Raw["arguments"] = args
 	return event
 }

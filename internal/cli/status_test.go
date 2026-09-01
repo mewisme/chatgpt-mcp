@@ -42,7 +42,7 @@ func TestStatusReportsManagedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	for _, expected := range []string{"✓ chatgpt-mcp is running", "Runtime", "session     run_status", "managed     system ·", "service     chatgpt-mcp-system-test", "Endpoints", "Tunnel", "status      connected", "id          tunnel_status", "Config", "auth        mcp off · admin off"} {
+	for _, expected := range []string{"✓ ChatGPT MCP is running", "Runtime", "session     run_status", "managed     system ·", "service     chatgpt-mcp-system-test", "Endpoints", "Tunnel", "status      connected", "id          tunnel_status", "Config", "auth        mcp off · admin off"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("status missing %q: %s", expected, text)
 		}
@@ -105,7 +105,7 @@ func TestStatusNotInitialized(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	if !strings.Contains(text, "! chatgpt-mcp is not initialized") || !strings.Contains(text, "chatgpt-mcp init") {
+	if !strings.Contains(text, "! ChatGPT MCP is not initialized") || !strings.Contains(text, "chatgpt-mcp init") {
 		t.Fatalf("unexpected uninitialized status: %s", text)
 	}
 }

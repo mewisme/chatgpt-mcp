@@ -97,7 +97,11 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	started := time.Now()
-	result, err := h.Server.Handle(r.Context(), req.Method, params)
+	requestCtx := r.Context()
+	if req.Method == "tools/call" {
+		requestCtx = tools.WithCallRequest(requestCtx, map[string]any{"jsonrpc": req.JSONRPC, "id": req.ID, "method": req.Method, "params": params})
+	}
+	result, err := h.Server.Handle(requestCtx, req.Method, params)
 	duration := time.Since(started)
 	if contextErr := r.Context().Err(); contextErr != nil {
 		h.emitActivity(req.Method, params, "cancelled", contextErr.Error(), duration)

@@ -10,16 +10,17 @@ import (
 )
 
 type Event struct {
-	Sequence    uint64    `json:"sequence,omitempty"`
-	Kind        string    `json:"kind"`
-	Method      string    `json:"method,omitempty"`
-	Source      string    `json:"source,omitempty"`
-	Tool        string    `json:"tool,omitempty"`
-	WorkspaceID string    `json:"workspace_id,omitempty"`
-	Status      string    `json:"status,omitempty"`
-	DurationMS  int64     `json:"duration_ms,omitempty"`
-	Message     string    `json:"message,omitempty"`
-	Timestamp   time.Time `json:"timestamp"`
+	Sequence    uint64         `json:"sequence,omitempty"`
+	Kind        string         `json:"kind"`
+	Method      string         `json:"method,omitempty"`
+	Source      string         `json:"source,omitempty"`
+	Tool        string         `json:"tool,omitempty"`
+	WorkspaceID string         `json:"workspace_id,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	DurationMS  int64          `json:"duration_ms,omitempty"`
+	Message     string         `json:"message,omitempty"`
+	Raw         map[string]any `json:"raw,omitempty"`
+	Timestamp   time.Time      `json:"timestamp"`
 }
 
 type Store struct{ Root string }

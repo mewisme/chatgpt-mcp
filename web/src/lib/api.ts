@@ -69,7 +69,8 @@ export type NetworkInterface = { name: string; addresses: NetworkAddress[] }
 export type ConfigPreset = { name: string; description: string; server: PublicConfig["server"]; admin: PublicConfig["admin"]; mcp_auth_enabled: boolean; admin_auth_enabled: boolean; tunnel_enabled: boolean; features: PublicConfig["features"] }
 export type ConfigPresetList = { current: string; presets: ConfigPreset[] }
 export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; control_plane_base_url?: string; organization_id?: string }
-export type TunnelStatus = { provider: "openai" | string; enabled: boolean; running: boolean; ready: boolean; restarting: boolean; id?: string; control_plane_base_url?: string; organization_id?: string; started_at?: string; last_error?: string }
+export type TunnelMetadata = { id: string; name: string; description: string; creator?: string; tenant_ids?: string[]; workspace_ids?: string[]; organization_ids?: string[]; request_id?: string; fetched_at: string }
+export type TunnelStatus = { provider: "openai" | string; enabled: boolean; running: boolean; ready: boolean; restarting: boolean; id?: string; control_plane_base_url?: string; organization_id?: string; started_at?: string; last_error?: string; metadata?: TunnelMetadata; metadata_error?: string }
 
 const adminTokenKey = "chatgpt-mcp-admin-token"
 try { localStorage.removeItem(adminTokenKey) } catch { /* storage may be unavailable */ }

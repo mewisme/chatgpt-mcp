@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestValidateRequiresAuthTokens(t *testing.T) {
@@ -102,13 +103,15 @@ func TestValidateBuiltinOpenAITunnel(t *testing.T) {
 	}
 }
 
-func TestConfigSaveSeparatesTunnelAPIKey(t *testing.T) {
+func TestConfigSaveSeparatesTunnelSecrets(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")
 	secretPath := filepath.Join(root, "tunnel.json")
 	cfg := Default()
 	cfg.Tunnel.ID = "tunnel_0123456789abcdef0123456789abcdef"
 	cfg.Tunnel.APIKey = "tunnel-secret"
+	cfg.Tunnel.AdminKey = "admin-secret"
+	cfg.Tunnel.AdminWorkspaceID = "ws-admin"
 
 	if err := saveAt(configPath, secretPath, cfg); err != nil {
 		t.Fatal(err)
@@ -117,21 +120,21 @@ func TestConfigSaveSeparatesTunnelAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(configData), "tunnel-secret") || strings.Contains(string(configData), `"api_key"`) {
+	if strings.Contains(string(configData), "tunnel-secret") || strings.Contains(string(configData), "admin-secret") || strings.Contains(string(configData), `"api_key"`) || strings.Contains(string(configData), `"admin_key"`) || strings.Contains(string(configData), "ws-admin") {
 		t.Fatalf("config.json leaked tunnel secret: %s", configData)
 	}
 	secretData, err := os.ReadFile(secretPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(secretData), "tunnel-secret") {
-		t.Fatalf("tunnel.json did not contain secret: %s", secretData)
+	if !strings.Contains(string(secretData), "tunnel-secret") || !strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "ws-admin") {
+		t.Fatalf("tunnel.json did not contain all secrets: %s", secretData)
 	}
 	loaded, err := loadAt(configPath, secretPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tunnel.APIKey != "tunnel-secret" || loaded.Tunnel.ID != cfg.Tunnel.ID {
+	if loaded.Tunnel.APIKey != "tunnel-secret" || loaded.Tunnel.AdminKey != "admin-secret" || loaded.Tunnel.AdminWorkspaceID != "ws-admin" || loaded.Tunnel.ID != cfg.Tunnel.ID {
 		t.Fatalf("loaded tunnel = %#v", loaded.Tunnel)
 	}
 	if runtime.GOOS != "windows" {
@@ -156,6 +159,8 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			cfg.Auth.AdminTokenHash = "admin-hash"
 			cfg.Tunnel.ID = "tunnel_0123456789abcdef0123456789abcdef"
 			cfg.Tunnel.APIKey = "tunnel-secret"
+			cfg.Tunnel.AdminKey = "admin-secret"
+			cfg.Tunnel.AdminOrganizationID = "org-admin"
 			if err := saveAt(configPath, secretPath, cfg); err != nil {
 				t.Fatal(err)
 			}
@@ -163,15 +168,24 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey {
+			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey || loaded.Tunnel.AdminKey != cfg.Tunnel.AdminKey || loaded.Tunnel.AdminOrganizationID != cfg.Tunnel.AdminOrganizationID {
 				t.Fatalf("round trip = %#v", loaded)
 			}
 			mainData, err := os.ReadFile(configPath)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(mainData), "tunnel-secret") {
+			if strings.Contains(string(mainData), "tunnel-secret") || strings.Contains(string(mainData), "admin-secret") || strings.Contains(string(mainData), "org-admin") {
 				t.Fatalf("main %s config leaked tunnel secret: %s", format, mainData)
+			}
+			secretData, err := os.ReadFile(secretPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range []string{"tunnel-secret", "admin-secret", "org-admin"} {
+				if !strings.Contains(string(secretData), expected) {
+					t.Fatalf("tunnel %s secret missing %q: %s", format, expected, secretData)
+				}
 			}
 		})
 	}
@@ -212,8 +226,8 @@ func TestLegacyTunnelAPIKeyMigratesOnSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if secret != "legacy-secret" {
-		t.Fatalf("migrated secret = %q", secret)
+	if secret.APIKey != "legacy-secret" {
+		t.Fatalf("migrated secret = %q", secret.APIKey)
 	}
 }
 
@@ -455,7 +469,7 @@ func TestConfigSaveRollsBackMainConfigWhenTunnelSecretWriteFails(t *testing.T) {
 	cfg.Auth.AdminEnabled = false
 	cfg.Tunnel.APIKey = "new-secret"
 	called := false
-	if err := saveAtWithSecretSaver(configPath, secretPath, cfg, func(path, key string) error {
+	if err := saveAtWithSecretSaver(configPath, secretPath, cfg, func(path string, value tunnel.Config) error {
 		called = true
 		data, readErr := os.ReadFile(configPath)
 		if readErr != nil {
@@ -513,5 +527,29 @@ func TestConfigSaveDoesNotTouchTunnelSecretWhenMainConfigWriteFails(t *testing.T
 	}
 	if string(saved) != `{"api_key":"old-secret"}` {
 		t.Fatalf("tunnel secret changed after main config failure: %s", saved)
+	}
+}
+
+func TestClearingRuntimeKeyPreservesAdminKeySecret(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	cfg := Default()
+	cfg.Tunnel.APIKey = "runtime-secret"
+	cfg.Tunnel.AdminKey = "admin-secret"
+	cfg.Tunnel.AdminWorkspaceID = "ws_admin"
+	if err := saveAt(configPath, secretPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Tunnel.APIKey = ""
+	if err := saveAt(configPath, secretPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadAt(configPath, secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Tunnel.APIKey != "" || loaded.Tunnel.AdminKey != "admin-secret" || loaded.Tunnel.AdminWorkspaceID != "ws_admin" {
+		t.Fatalf("loaded tunnel = %#v", loaded.Tunnel)
 	}
 }

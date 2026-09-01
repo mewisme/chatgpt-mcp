@@ -31,23 +31,35 @@ type Config struct {
 	Enabled             bool   `json:"enabled"`
 	ID                  string `json:"id,omitempty"`
 	APIKey              string `json:"api_key,omitempty"`
+	AdminKey            string `json:"admin_key,omitempty"`
+	AdminOrganizationID string `json:"admin_organization_id,omitempty"`
+	AdminWorkspaceID    string `json:"admin_workspace_id,omitempty"`
+	AdminTenantID       string `json:"admin_tenant_id,omitempty"`
 	ControlPlaneBaseURL string `json:"control_plane_base_url,omitempty"`
 	OrganizationID      string `json:"organization_id,omitempty"`
 }
 
+type AdminScope struct {
+	OrganizationID string `json:"organization_id,omitempty"`
+	WorkspaceID    string `json:"workspace_id,omitempty"`
+	TenantID       string `json:"tenant_id,omitempty"`
+}
+
 type Status struct {
-	Provider            string    `json:"provider"`
-	Enabled             bool      `json:"enabled"`
-	Running             bool      `json:"running"`
-	Ready               bool      `json:"ready"`
-	Restarting          bool      `json:"restarting"`
-	ID                  string    `json:"id,omitempty"`
-	ControlPlaneBaseURL string    `json:"control_plane_base_url,omitempty"`
-	OrganizationID      string    `json:"organization_id,omitempty"`
-	StartedAt           time.Time `json:"started_at,omitempty"`
-	LastError           string    `json:"last_error,omitempty"`
-	Metadata            *Metadata `json:"metadata,omitempty"`
-	MetadataError       string    `json:"metadata_error,omitempty"`
+	Provider            string      `json:"provider"`
+	Enabled             bool        `json:"enabled"`
+	Running             bool        `json:"running"`
+	Ready               bool        `json:"ready"`
+	Restarting          bool        `json:"restarting"`
+	ID                  string      `json:"id,omitempty"`
+	ControlPlaneBaseURL string      `json:"control_plane_base_url,omitempty"`
+	OrganizationID      string      `json:"organization_id,omitempty"`
+	StartedAt           time.Time   `json:"started_at,omitempty"`
+	LastError           string      `json:"last_error,omitempty"`
+	Metadata            *Metadata   `json:"metadata,omitempty"`
+	MetadataError       string      `json:"metadata_error,omitempty"`
+	AdminKeyConfigured  bool        `json:"admin_key_configured"`
+	AdminScope          *AdminScope `json:"admin_scope,omitempty"`
 }
 
 type Metadata struct {
@@ -177,7 +189,7 @@ func FetchMetadata(ctx context.Context, cfg Config) (Metadata, error) {
 	return metadataFromTunnel(value), nil
 }
 
-func Create(ctx context.Context, cfg Config, apiKey string, req CreateRequest) (Metadata, error) {
+func createWithAdminKey(ctx context.Context, cfg Config, apiKey string, req CreateRequest) (Metadata, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return Metadata{}, errors.New("OpenAI tunnel admin API key is empty")
 	}
@@ -365,6 +377,30 @@ func ValidateConfig(cfg Config) error {
 
 func Configured(cfg Config) bool {
 	return strings.TrimSpace(cfg.ID) != "" && strings.TrimSpace(cfg.APIKey) != ""
+}
+
+func RuntimeConfigEqual(left, right Config) bool {
+	left.AdminKey, right.AdminKey = "", ""
+	left.AdminOrganizationID, right.AdminOrganizationID = "", ""
+	left.AdminWorkspaceID, right.AdminWorkspaceID = "", ""
+	left.AdminTenantID, right.AdminTenantID = "", ""
+	return left == right
+}
+
+func (c *Client) SyncManagementConfig(cfg Config) error {
+	if c == nil {
+		return errors.New("tunnel client is unavailable")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !RuntimeConfigEqual(c.config, cfg) {
+		return errors.New("cannot sync management config when runtime tunnel configuration differs")
+	}
+	c.config.AdminKey = cfg.AdminKey
+	c.config.AdminOrganizationID = cfg.AdminOrganizationID
+	c.config.AdminWorkspaceID = cfg.AdminWorkspaceID
+	c.config.AdminTenantID = cfg.AdminTenantID
+	return nil
 }
 
 func (c *Client) Configure(cfg Config) error {
@@ -845,9 +881,16 @@ func (c *Client) Status() Status {
 		value := cloneMetadata(*c.metadata)
 		metadata = &value
 	}
+	var adminScope *AdminScope
+	scope := AdminScopeFromConfig(c.config)
+	adminConfigured := strings.TrimSpace(c.config.AdminKey) != "" && ValidateAdminScope(scope) == nil
+	if adminConfigured {
+		value := scope
+		adminScope = &value
+	}
 	return Status{
 		Provider: ProviderOpenAI, Enabled: c.config.Enabled, Running: c.running, Ready: c.ready, Restarting: c.restarting, ID: c.config.ID,
 		ControlPlaneBaseURL: c.config.ControlPlaneBaseURL, OrganizationID: c.config.OrganizationID,
-		StartedAt: c.startedAt, LastError: c.lastError, Metadata: metadata, MetadataError: c.metadataError,
+		StartedAt: c.startedAt, LastError: c.lastError, Metadata: metadata, MetadataError: c.metadataError, AdminKeyConfigured: adminConfigured, AdminScope: adminScope,
 	}
 }

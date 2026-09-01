@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"strings"
 	"time"
 
@@ -18,69 +17,7 @@ import (
 
 func tunnelCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "tunnel", Short: "Manage the builtin OpenAI Secure MCP Tunnel"}
-	cmd.AddCommand(tunnelCreateCommand(), tunnelStatusCommand(), tunnelConfigureCommand(), tunnelToggleCommand(true), tunnelToggleCommand(false), tunnelRunCommand())
-	return cmd
-}
-
-func tunnelCreateCommand() *cobra.Command {
-	var name, description, apiKey, controlPlaneBaseURL string
-	var organizationIDs, workspaceIDs, tenantIDs []string
-	cmd := &cobra.Command{
-		Use:   "create",
-		Short: "Create an OpenAI tunnel with an admin API key",
-		Long:  "Create tunnel metadata through the OpenAI Tunnel Management API. This requires an admin API key with Tunnels Manage; a normal runtime Read+Use key cannot create tunnels. The admin key is used only for this request and is never persisted.",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			key := strings.TrimSpace(apiKey)
-			if key == "" {
-				key = strings.TrimSpace(os.Getenv("OPENAI_ADMIN_KEY"))
-			}
-			if key == "" {
-				return errors.New("OpenAI admin API key is required; use --api-key or OPENAI_ADMIN_KEY")
-			}
-			if strings.TrimSpace(controlPlaneBaseURL) != "" {
-				cfg.Tunnel.ControlPlaneBaseURL = strings.TrimSpace(controlPlaneBaseURL)
-			}
-			request := tunnel.CreateRequest{
-				Name: strings.TrimSpace(name), Description: strings.TrimSpace(description),
-				OrganizationIDs: normalizeTunnelIDs(organizationIDs), WorkspaceIDs: normalizeTunnelIDs(workspaceIDs), TenantIDs: normalizeTunnelIDs(tenantIDs),
-			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-			defer cancel()
-			metadata, err := tunnel.Create(ctx, cfg.Tunnel, key, request)
-			if err != nil {
-				return err
-			}
-			log := commandLogger(cmd)
-			log.Success("TUNNEL", "Tunnel created")
-			log.Detail("id", metadata.ID)
-			log.Detail("name", metadata.Name)
-			if metadata.Description != "" {
-				log.Detail("description", metadata.Description)
-			}
-			if len(metadata.WorkspaceIDs) > 0 {
-				log.Detail("workspaces", strings.Join(metadata.WorkspaceIDs, ", "))
-			}
-			if len(metadata.OrganizationIDs) > 0 {
-				log.Detail("organizations", strings.Join(metadata.OrganizationIDs, ", "))
-			}
-			log.Detail("ready", "allow 25-30 seconds before expecting the new tunnel to be active")
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&name, "name", "", "tunnel name (required)")
-	cmd.Flags().StringVar(&description, "description", "", "tunnel description (required)")
-	cmd.Flags().StringVar(&apiKey, "api-key", "", "OpenAI admin API key with Tunnels Manage; defaults to OPENAI_ADMIN_KEY")
-	cmd.Flags().StringVar(&controlPlaneBaseURL, "control-plane-base-url", "", "OpenAI tunnel control plane base URL; defaults to the configured value")
-	cmd.Flags().StringSliceVar(&organizationIDs, "organization-id", nil, "OpenAI organization identifier; repeatable")
-	cmd.Flags().StringSliceVar(&workspaceIDs, "workspace-id", nil, "OpenAI workspace identifier; repeatable")
-	cmd.Flags().StringSliceVar(&tenantIDs, "tenant-id", nil, "OpenAI tenant identifier; repeatable")
-	_ = cmd.MarkFlagRequired("name")
-	_ = cmd.MarkFlagRequired("description")
+	cmd.AddCommand(tunnelAdminKeyCommand(), tunnelListCommand(), tunnelGetCommand(), tunnelCreateCommand(), tunnelUpdateCommand(), tunnelDeleteCommand(), tunnelStatusCommand(), tunnelConfigureCommand(), tunnelToggleCommand(true), tunnelToggleCommand(false), tunnelRunCommand())
 	return cmd
 }
 

@@ -36,6 +36,10 @@ var configKeyCompletions = []configKeyCompletion{
 	{Key: "tunnel.enabled", Description: "OpenAI tunnel enabled", Settable: true},
 	{Key: "tunnel.id", Description: "OpenAI tunnel ID", Settable: true},
 	{Key: "tunnel.api_key", Description: "OpenAI tunnel runtime API key", Settable: true},
+	{Key: "tunnel.admin_key", Description: "OpenAI tunnel admin key (manage with tunnel admin-key)"},
+	{Key: "tunnel.admin_organization_id", Description: "verified admin organization scope (read-only)"},
+	{Key: "tunnel.admin_workspace_id", Description: "verified admin workspace scope (read-only)"},
+	{Key: "tunnel.admin_tenant_id", Description: "verified admin tenant scope (read-only)"},
 	{Key: "tunnel.control_plane_base_url", Description: "OpenAI tunnel control-plane URL", Settable: true},
 	{Key: "tunnel.organization_id", Description: "OpenAI organization ID", Settable: true},
 }

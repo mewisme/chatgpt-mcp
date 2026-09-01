@@ -244,6 +244,9 @@ func renderStatusTunnel(out io.Writer, snapshot statusSnapshot, verbose bool) {
 			}
 		}
 	}
+	if verbose && snapshot.Tunnel.AdminKeyConfigured && snapshot.Tunnel.AdminScope != nil {
+		statusField(out, "admin", "configured · "+formatTunnelAdminScope(*snapshot.Tunnel.AdminScope))
+	}
 	if verbose && snapshot.Tunnel.MetadataError != "" {
 		statusField(out, "metadata", "unavailable: "+snapshot.Tunnel.MetadataError)
 	}

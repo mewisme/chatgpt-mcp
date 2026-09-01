@@ -24,6 +24,7 @@ func (api API) handleTunnelConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	value := api.Config.Snapshot().Tunnel
 	value.APIKey = ""
+	value.AdminKey = ""
 	writeJSON(w, value)
 }
 
@@ -82,6 +83,10 @@ func (api API) configureTunnel(w http.ResponseWriter, r *http.Request) {
 		if effective.APIKey == "" {
 			effective.APIKey = candidate.Tunnel.APIKey
 		}
+		effective.AdminKey = candidate.Tunnel.AdminKey
+		effective.AdminOrganizationID = candidate.Tunnel.AdminOrganizationID
+		effective.AdminWorkspaceID = candidate.Tunnel.AdminWorkspaceID
+		effective.AdminTenantID = candidate.Tunnel.AdminTenantID
 		candidate.Tunnel = effective
 		if err := config.Validate(candidate); err != nil {
 			status = http.StatusBadRequest

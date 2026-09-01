@@ -175,8 +175,16 @@ func loadAt(configPath, secretPath string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	if secret != "" {
-		cfg.Tunnel.APIKey = secret
+	if secret.APIKey != "" {
+		cfg.Tunnel.APIKey = secret.APIKey
+	}
+	if secret.AdminKey != "" {
+		cfg.Tunnel.AdminKey = secret.AdminKey
+	}
+	if secret.AdminOrganizationID != "" || secret.AdminWorkspaceID != "" || secret.AdminTenantID != "" {
+		cfg.Tunnel.AdminOrganizationID = secret.AdminOrganizationID
+		cfg.Tunnel.AdminWorkspaceID = secret.AdminWorkspaceID
+		cfg.Tunnel.AdminTenantID = secret.AdminTenantID
 	}
 	return cfg, nil
 }
@@ -223,7 +231,7 @@ func saveAt(configPath, secretPath string, cfg Config) error {
 	return saveAtWithSecretSaver(configPath, secretPath, cfg, saveTunnelSecretAt)
 }
 
-func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret func(string, string) error) error {
+func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret func(string, tunnel.Config) error) error {
 	root := filepath.Dir(configPath)
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return err
@@ -244,6 +252,10 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	persisted.Shell.Path = shellPath
 	persisted.Server.Expose = NormalizeExposure(persisted.Server.Expose)
 	persisted.Tunnel.APIKey = ""
+	persisted.Tunnel.AdminKey = ""
+	persisted.Tunnel.AdminOrganizationID = ""
+	persisted.Tunnel.AdminWorkspaceID = ""
+	persisted.Tunnel.AdminTenantID = ""
 	data, err := configformat.MarshalPath(configPath, persisted)
 	if err != nil {
 		return err
@@ -259,7 +271,7 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	if err := state.WriteFileAtomic(configPath, data, 0600); err != nil {
 		return err
 	}
-	if err := saveSecret(secretPath, cfg.Tunnel.APIKey); err != nil {
+	if err := saveSecret(secretPath, cfg.Tunnel); err != nil {
 		return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
 	}
 	return nil

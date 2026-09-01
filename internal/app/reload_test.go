@@ -27,3 +27,22 @@ func TestReloadConfigUpdatesLiveRuntime(t *testing.T) {
 		t.Fatal("disabled feature tool remained registered")
 	}
 }
+
+func TestReloadConfigSyncsTunnelAdminKeyWithoutRuntimeReconfigure(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	app := New(cfg)
+	next := cfg
+	next.Tunnel.AdminKey = "admin-key"
+	next.Tunnel.AdminWorkspaceID = "ws_admin"
+	if err := app.ReloadConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	if got := app.Tunnel.Config(); got.AdminKey != "admin-key" || got.AdminWorkspaceID != "ws_admin" {
+		t.Fatalf("tunnel config = %#v", got)
+	}
+	if !app.Tunnel.Status().AdminKeyConfigured {
+		t.Fatalf("tunnel status = %#v", app.Tunnel.Status())
+	}
+}

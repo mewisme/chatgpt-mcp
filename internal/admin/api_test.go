@@ -37,20 +37,20 @@ func (*adminUpstreamClient) Call(context.Context, string, string, map[string]any
 }
 func (*adminUpstreamClient) PID(string) int { return 0 }
 
-func TestTunnelConfigRedactsAPIKey(t *testing.T) {
+func TestTunnelConfigRedactsSecrets(t *testing.T) {
 	cfg := config.Default()
-	cfg.Tunnel = tunnel.Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}
+	cfg.Tunnel = tunnel.Config{Enabled: true, ID: "tunnel_test", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin"}
 	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: config.NewRuntimeStore(cfg)})
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/tunnel/config", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d", recorder.Code)
 	}
-	if strings.Contains(recorder.Body.String(), "secret") {
-		t.Fatal("API key must not be returned")
+	if strings.Contains(recorder.Body.String(), "runtime-secret") || strings.Contains(recorder.Body.String(), "admin-secret") {
+		t.Fatalf("tunnel API leaked a secret: %s", recorder.Body.String())
 	}
-	if !strings.Contains(recorder.Body.String(), `"id":"tunnel_test"`) {
-		t.Fatalf("tunnel id missing: %s", recorder.Body.String())
+	if !strings.Contains(recorder.Body.String(), `"id":"tunnel_test"`) || !strings.Contains(recorder.Body.String(), `"admin_workspace_id":"ws_admin"`) {
+		t.Fatalf("tunnel config fields missing: %s", recorder.Body.String())
 	}
 }
 
@@ -81,7 +81,7 @@ func TestTunnelConfigurePreservesSecretFromSerializedConfigStore(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
-	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_store", APIKey: "store-secret"}
+	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_store", APIKey: "store-secret", AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin"}
 	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
 		t.Fatal(err)
 	}
@@ -93,10 +93,10 @@ func TestTunnelConfigurePreservesSecretFromSerializedConfigStore(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if got := store.Snapshot().Tunnel; got.ID != "tunnel_new" || got.APIKey != "store-secret" {
+	if got := store.Snapshot().Tunnel; got.ID != "tunnel_new" || got.APIKey != "store-secret" || got.AdminKey != "admin-secret" || got.AdminWorkspaceID != "ws_admin" {
 		t.Fatalf("stored tunnel config = %#v", got)
 	}
-	if got := client.Config(); got.ID != "tunnel_new" || got.APIKey != "store-secret" {
+	if got := client.Config(); got.ID != "tunnel_new" || got.APIKey != "store-secret" || got.AdminKey != "admin-secret" || got.AdminWorkspaceID != "ws_admin" {
 		t.Fatalf("runtime tunnel config = %#v", got)
 	}
 }

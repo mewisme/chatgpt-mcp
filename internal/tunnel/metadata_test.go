@@ -58,7 +58,7 @@ func TestCreateWithAdminAPIKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	metadata, err := Create(context.Background(), Config{ControlPlaneBaseURL: server.URL}, "sk-admin", CreateRequest{Name: "Mew Tunnel", Description: "Created from chatgpt-mcp", WorkspaceIDs: []string{"ws_openai"}, OrganizationIDs: []string{"org_test"}})
+	metadata, err := CreateManaged(context.Background(), Config{AdminKey: "sk-admin", ControlPlaneBaseURL: server.URL}, CreateRequest{Name: "Mew Tunnel", Description: "Created from chatgpt-mcp", WorkspaceIDs: []string{"ws_openai"}, OrganizationIDs: []string{"org_test"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,10 +68,10 @@ func TestCreateWithAdminAPIKey(t *testing.T) {
 }
 
 func TestCreateRequiresAdminKeyAndScope(t *testing.T) {
-	if _, err := Create(context.Background(), Config{}, "", CreateRequest{Name: "n", Description: "d", WorkspaceIDs: []string{"ws"}}); err == nil {
+	if _, err := CreateManaged(context.Background(), Config{}, CreateRequest{Name: "n", Description: "d", WorkspaceIDs: []string{"ws"}}); err == nil {
 		t.Fatal("expected missing admin key error")
 	}
-	if _, err := Create(context.Background(), Config{}, "sk-admin", CreateRequest{Name: "n", Description: "d"}); err == nil {
+	if _, err := CreateManaged(context.Background(), Config{AdminKey: "sk-admin"}, CreateRequest{Name: "n", Description: "d"}); err == nil {
 		t.Fatal("expected missing scope error")
 	}
 }
@@ -93,5 +93,35 @@ func TestRefreshMetadataCachesSuccessfulLookup(t *testing.T) {
 	}
 	if calls.Load() != 1 || first.Name != "Cached tunnel" || second.Name != "Cached tunnel" || client.Status().Metadata == nil {
 		t.Fatalf("calls=%d first=%#v second=%#v status=%#v", calls.Load(), first, second, client.Status())
+	}
+}
+
+func TestVerifyAdminKeyUsesManagedListScope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels" || r.URL.Query().Get("workspace_id") != "ws_admin" {
+			t.Fatalf("request = %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+		if r.Header.Get("Authorization") != "Bearer sk-admin" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"tunnels":[{"id":"tunnel_one","name":"One","description":"First"},{"id":"tunnel_two","name":"Two","description":"Second"}]}`))
+	}))
+	defer server.Close()
+
+	cfg := Config{AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL}
+	count, err := VerifyAdminKey(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 || !AdminConfigured(cfg) {
+		t.Fatalf("count=%d configured=%t", count, AdminConfigured(cfg))
+	}
+}
+
+func TestStatusRedactsAdminKeyAndExposesVerifiedScope(t *testing.T) {
+	client := NewConfigured(Config{AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin"}, nil)
+	status := client.Status()
+	if !status.AdminKeyConfigured || status.AdminScope == nil || status.AdminScope.WorkspaceID != "ws_admin" {
+		t.Fatalf("status = %#v", status)
 	}
 }

@@ -22,6 +22,7 @@ type Runtime struct {
 	Upstream        *upstream.Manager
 	CallObserver    CallObserver
 	SessionBindings *SessionWorkspaceBinder
+	sessionMu       sync.Mutex
 	featureMu       sync.Mutex
 	features        features.Config
 	ponytailManager *ponytail.Manager
@@ -103,17 +104,29 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		receivedBy = r.runtimeInstanceID()
 	}
 	workspaceID, _ := args["workspace_id"].(string)
+	var preflightErr error
 	if workspaceID != "" && r.Workspaces != nil {
-		if canonical, err := r.Workspaces.CanonicalID(workspaceID); err == nil && canonical != workspaceID {
-			args = cloneMap(args)
-			args["workspace_id"] = canonical
+		canonical, err := r.Workspaces.CanonicalID(workspaceID)
+		if err != nil {
+			preflightErr = err
+		} else {
+			if canonical != workspaceID {
+				args = cloneMap(args)
+				args["workspace_id"] = canonical
+			}
 			workspaceID = canonical
+			if sessionID := MCPSessionID(ctx); sessionID != "" {
+				_, _, preflightErr = r.sessionBinder().CheckOrBind(sessionID, workspaceID)
+			}
 		}
 	}
 	raw := callRaw(ctx, source, name, args)
 	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, ReceivedByInstanceID: receivedBy})
 
-	result, err := r.Registry.Call(ctx, name, args)
+	result, err := Result{}, preflightErr
+	if err == nil {
+		result, err = r.Registry.Call(ctx, name, args)
+	}
 	executedBy := r.runtimeInstanceID()
 	finishRaw := cloneMap(raw)
 	finishRaw["routing"] = map[string]any{"received_by_instance_id": receivedBy, "executed_by_instance_id": executedBy}
@@ -150,6 +163,15 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["result"] = result
 	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
+}
+
+func (r *Runtime) sessionBinder() *SessionWorkspaceBinder {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	if r.SessionBindings == nil {
+		r.SessionBindings = NewSessionWorkspaceBinder()
+	}
+	return r.SessionBindings
 }
 
 func (r *Runtime) runtimeInstanceID() string {

@@ -1,0 +1,73 @@
+package cli
+
+import "testing"
+
+func TestValidateClusterRelayListen(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		value         string
+		allowInsecure bool
+		want          string
+		wantErr       bool
+	}{
+		{name: "IPv4 loopback", value: "127.0.0.1:37423", want: "127.0.0.1:37423"},
+		{name: "IPv6 loopback", value: "[::1]:37423", want: "[::1]:37423"},
+		{name: "localhost", value: "localhost:37423", want: "localhost:37423"},
+		{name: "remote denied", value: "0.0.0.0:37423", wantErr: true},
+		{name: "remote explicit", value: "0.0.0.0:37423", allowInsecure: true, want: "0.0.0.0:37423"},
+		{name: "missing host", value: ":37423", wantErr: true},
+		{name: "bad port", value: "127.0.0.1:70000", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := validateClusterRelayListen(test.value, test.allowInsecure)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("validateClusterRelayListen(%q) = %q, want error", test.value, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("validateClusterRelayListen(%q) = %q, want %q", test.value, got, test.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeClusterRelayPath(t *testing.T) {
+	for _, test := range []struct {
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{value: "/cluster", want: "/cluster"},
+		{value: "/cluster/", want: "/cluster"},
+		{value: "/", want: "/"},
+		{value: "cluster", wantErr: true},
+		{value: "/cluster?token=x", wantErr: true},
+	} {
+		got, err := normalizeClusterRelayPath(test.value)
+		if test.wantErr {
+			if err == nil {
+				t.Fatalf("normalizeClusterRelayPath(%q) = %q, want error", test.value, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != test.want {
+			t.Fatalf("normalizeClusterRelayPath(%q) = %q, want %q", test.value, got, test.want)
+		}
+	}
+}
+
+func TestClusterRelayCommandHierarchy(t *testing.T) {
+	cmd := clusterCommand()
+	resolved, _, err := cmd.Find([]string{"relay"})
+	if err != nil || resolved.Name() != "relay" {
+		t.Fatalf("cluster relay resolved to %v: %v", resolved, err)
+	}
+}

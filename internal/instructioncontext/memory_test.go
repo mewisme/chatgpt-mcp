@@ -45,15 +45,15 @@ func TestLoadProjectMemoryPrefersAgentsAndLoadsDistinctFallbacks(t *testing.T) {
 	want := []struct {
 		kind, source, content string
 	}{
-		{"user", "agents", "user agents"},
-		{"user", "claude", "user claude"},
 		{"project", "agents", "root agents"},
 		{"project", "agents", "project agents"},
+		{"user", "agents", "user agents"},
 		{"project", "claude", "root claude"},
 		{"project", "claudes", "claudes fallback"},
 		{"project", "cursor", "cursor fallback"},
 		{"project", "codex", "codex fallback"},
 		{"project", "claude", "local claude"},
+		{"user", "claude", "user claude"},
 	}
 	if len(bundle.Sections) != len(want) {
 		t.Fatalf("sections = %#v", bundle.Sections)
@@ -125,5 +125,70 @@ func TestLoadProjectMemoryDefaultsWorkspaceRootsToRoot(t *testing.T) {
 	}
 	if len(bundle.WorkspaceRoots) != 1 || bundle.WorkspaceRoots[0] != bundle.Root {
 		t.Fatalf("workspace roots = %#v root=%q", bundle.WorkspaceRoots, bundle.Root)
+	}
+}
+
+func TestLoadProjectMemoryAppliesGlobalBudgetByPrecedence(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), "AAAAAA")
+	writeInstructionFile(t, filepath.Join(root, ".agents", "AGENTS.md"), "BBBBBB")
+	writeInstructionFile(t, filepath.Join(home, ".agents", "AGENTS.md"), "CCCCCC")
+	writeInstructionFile(t, filepath.Join(root, "CLAUDE.md"), "DDDDDD")
+	bundle, err := LoadProjectMemory(root, MemoryLoadOptions{HomeDir: home, MaxTotalBytes: 10, MaxBytesPerSection: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.BudgetBytes != 10 || bundle.TotalBytes != 10 || !bundle.BudgetTruncated {
+		t.Fatalf("budget = %#v", bundle)
+	}
+	if len(bundle.Sections) != 2 {
+		t.Fatalf("sections = %#v", bundle.Sections)
+	}
+	if bundle.Sections[0].Path != filepath.Join(root, "AGENTS.md") || bundle.Sections[0].Content != "AAAAAA" || bundle.Sections[0].Truncated {
+		t.Fatalf("primary section = %#v", bundle.Sections[0])
+	}
+	if bundle.Sections[1].Path != filepath.Join(root, ".agents", "AGENTS.md") || bundle.Sections[1].Content != "BBBB" || !bundle.Sections[1].Truncated {
+		t.Fatalf("secondary section = %#v", bundle.Sections[1])
+	}
+}
+
+func TestLoadProjectMemoryKeepsClaudeFallbackWhenBudgetAllows(t *testing.T) {
+	root := t.TempDir()
+	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), "agents")
+	writeInstructionFile(t, filepath.Join(root, "CLAUDE.md"), "claude")
+	bundle, err := LoadProjectMemory(root, MemoryLoadOptions{DisableUser: true, MaxTotalBytes: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Sections) != 2 || bundle.Sections[0].Source != "agents" || bundle.Sections[1].Source != "claude" || bundle.Sections[1].Content != "claude" {
+		t.Fatalf("sections = %#v", bundle.Sections)
+	}
+	if bundle.BudgetTruncated {
+		t.Fatalf("unexpected budget truncation: %#v", bundle)
+	}
+}
+
+func TestLoadProjectMemoryUsesDefaultGlobalBudget(t *testing.T) {
+	root := t.TempDir()
+	bundle, err := LoadProjectMemory(root, MemoryLoadOptions{DisableUser: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.BudgetBytes != DefaultMemoryMaxBytes || bundle.BudgetTruncated {
+		t.Fatalf("bundle = %#v", bundle)
+	}
+}
+
+func TestLoadProjectMemoryDropsImportMetadataOutsideBudget(t *testing.T) {
+	root := t.TempDir()
+	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), "prefix\n@extra.md")
+	writeInstructionFile(t, filepath.Join(root, "extra.md"), "extra instructions")
+	bundle, err := LoadProjectMemory(root, MemoryLoadOptions{DisableUser: true, MaxTotalBytes: 6, MaxBytesPerSection: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Sections) != 1 || bundle.Sections[0].Content != "prefix" || len(bundle.Imports) != 0 || !bundle.BudgetTruncated {
+		t.Fatalf("bundle = %#v", bundle)
 	}
 }

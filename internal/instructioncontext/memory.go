@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	DefaultMemoryMaxBytes  = 100_000
 	DefaultSectionMaxBytes = 25_000
 	DefaultSectionMaxLines = 200
 )
@@ -19,6 +20,7 @@ type MemoryLoadOptions struct {
 	WorkspaceRoots     []string
 	HomeDir            string
 	DisableUser        bool
+	MaxTotalBytes      int
 	MaxBytesPerSection int
 	MaxLinesPerSection int
 	ImportMaxDepth     int
@@ -31,9 +33,12 @@ type memoryCandidate struct {
 	Source   string
 }
 
-var projectMemoryCandidates = []memoryCandidate{
+var primaryProjectMemoryCandidates = []memoryCandidate{
 	{Relative: "AGENTS.md", Kind: SectionProject, Source: "agents"},
 	{Relative: filepath.Join(".agents", "AGENTS.md"), Kind: SectionProject, Source: "agents"},
+}
+
+var fallbackProjectMemoryCandidates = []memoryCandidate{
 	{Relative: "CLAUDE.md", Kind: SectionProject, Source: "claude"},
 	{Relative: filepath.Join(".claude", "CLAUDE.md"), Kind: SectionProject, Source: "claude"},
 	{Relative: filepath.Join(".claudes", "CLAUDE.md"), Kind: SectionProject, Source: "claudes"},
@@ -42,8 +47,11 @@ var projectMemoryCandidates = []memoryCandidate{
 	{Relative: "CLAUDE.local.md", Kind: SectionProject, Source: "claude"},
 }
 
-var userMemoryCandidates = []memoryCandidate{
+var primaryUserMemoryCandidates = []memoryCandidate{
 	{Relative: filepath.Join(".agents", "AGENTS.md"), Kind: SectionUser, Source: "agents"},
+}
+
+var fallbackUserMemoryCandidates = []memoryCandidate{
 	{Relative: filepath.Join(".claude", "CLAUDE.md"), Kind: SectionUser, Source: "claude"},
 	{Relative: filepath.Join(".claudes", "CLAUDE.md"), Kind: SectionUser, Source: "claudes"},
 	{Relative: filepath.Join(".cursor", "AGENTS.md"), Kind: SectionUser, Source: "cursor"},
@@ -62,6 +70,10 @@ func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle
 	} else {
 		workspaceRoots = cleanPaths(workspaceRoots)
 	}
+	maxTotal := opts.MaxTotalBytes
+	if maxTotal <= 0 {
+		maxTotal = DefaultMemoryMaxBytes
+	}
 	maxBytes := opts.MaxBytesPerSection
 	if maxBytes <= 0 {
 		maxBytes = DefaultSectionMaxBytes
@@ -79,27 +91,74 @@ func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle
 		home, _ = os.UserHomeDir()
 	}
 	expander := newImportExpander(workspaceRoots, home, opts.ImportMaxDepth, maxBytes, maxLines)
-	sections := make([]Section, 0, len(projectMemoryCandidates)+len(userMemoryCandidates))
+	capacity := len(primaryProjectMemoryCandidates) + len(fallbackProjectMemoryCandidates)
+	if !opts.DisableUser {
+		capacity += len(primaryUserMemoryCandidates) + len(fallbackUserMemoryCandidates)
+	}
+	sections := make([]Section, 0, capacity)
 	totalBytes := 0
+	budgetTruncated := false
 	seenContent := map[string]bool{}
+	rollbackImports := func(start int) {
+		for _, imported := range expander.imports[start:] {
+			delete(expander.importSeen, imported.Path)
+		}
+		expander.imports = expander.imports[:start]
+	}
 	appendCandidate := func(base string, candidate memoryCandidate) {
+		importsStart := len(expander.imports)
 		section, contentID, ok := loadMemorySection(filepath.Join(base, candidate.Relative), candidate, maxBytes, maxLines, expander)
 		if !ok || seenContent[contentID] {
+			rollbackImports(importsStart)
 			return
 		}
+		remaining := maxTotal - totalBytes
+		if remaining <= 0 {
+			rollbackImports(importsStart)
+			budgetTruncated = true
+			return
+		}
+		if section.LoadedBytes > remaining {
+			limited, _ := limitInstructionText([]byte(section.Content), remaining, maxLines)
+			section.Content = strings.TrimSpace(limited)
+			section.LoadedBytes = len([]byte(section.Content))
+			section.Truncated = true
+			budgetTruncated = true
+			if section.Content == "" {
+				rollbackImports(importsStart)
+				return
+			}
+		}
+		keptImports := expander.imports[:importsStart]
+		for _, imported := range expander.imports[importsStart:] {
+			if strings.Contains(section.Content, "<!-- @import "+imported.Path+" -->") {
+				keptImports = append(keptImports, imported)
+				continue
+			}
+			delete(expander.importSeen, imported.Path)
+		}
+		expander.imports = keptImports
 		seenContent[contentID] = true
 		sections = append(sections, section)
 		totalBytes += section.LoadedBytes
 	}
-	if !opts.DisableUser {
-		for _, candidate := range userMemoryCandidates {
-			appendCandidate(home, candidate)
+	appendAll := func(base string, candidates []memoryCandidate) {
+		for _, candidate := range candidates {
+			appendCandidate(base, candidate)
 		}
 	}
-	for _, candidate := range projectMemoryCandidates {
-		appendCandidate(root, candidate)
+	appendAll(root, primaryProjectMemoryCandidates)
+	if !opts.DisableUser {
+		appendAll(home, primaryUserMemoryCandidates)
 	}
-	return ProjectMemoryBundle{Root: root, WorkspaceRoots: workspaceRoots, Sections: sections, Imports: expander.imports, TotalBytes: totalBytes, LoadedAt: now().UTC()}, nil
+	appendAll(root, fallbackProjectMemoryCandidates)
+	if !opts.DisableUser {
+		appendAll(home, fallbackUserMemoryCandidates)
+	}
+	return ProjectMemoryBundle{
+		Root: root, WorkspaceRoots: workspaceRoots, Sections: sections, Imports: expander.imports,
+		TotalBytes: totalBytes, BudgetBytes: maxTotal, BudgetTruncated: budgetTruncated, LoadedAt: now().UTC(),
+	}, nil
 }
 
 func loadMemorySection(path string, candidate memoryCandidate, maxBytes, maxLines int, expander *importExpander) (Section, string, bool) {

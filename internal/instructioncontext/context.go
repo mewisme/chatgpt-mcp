@@ -27,12 +27,14 @@ type Section struct {
 }
 
 type ProjectMemoryBundle struct {
-	Root           string    `json:"root"`
-	WorkspaceRoots []string  `json:"workspace_roots"`
-	Sections       []Section `json:"sections"`
-	Imports        []Section `json:"imports,omitempty"`
-	TotalBytes     int       `json:"total_bytes"`
-	LoadedAt       time.Time `json:"loaded_at"`
+	Root            string    `json:"root"`
+	WorkspaceRoots  []string  `json:"workspace_roots"`
+	Sections        []Section `json:"sections"`
+	Imports         []Section `json:"imports,omitempty"`
+	TotalBytes      int       `json:"total_bytes"`
+	BudgetBytes     int       `json:"budget_bytes"`
+	BudgetTruncated bool      `json:"budget_truncated"`
+	LoadedAt        time.Time `json:"loaded_at"`
 }
 
 type AdminSnapshot struct {

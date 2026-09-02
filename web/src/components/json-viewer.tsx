@@ -1,7 +1,7 @@
-import { CopyButton } from "@/components/copy-button"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { CodeBlock, CodeBlockBody, CodeBlockContent, CodeBlockCopyButton, CodeBlockFilename, CodeBlockFiles, CodeBlockHeader, CodeBlockItem } from "@/components/kibo-ui/code-block"
 
-export function JsonViewer({ value, maxHeight = "24rem" }: { value: unknown; maxHeight?: string }) {
+export function JsonViewer({ value, maxHeight = "24rem", filename = "data.json" }: { value: unknown; maxHeight?: string; filename?: string }) {
   const text = JSON.stringify(value ?? null, null, 2)
-  return <div className="overflow-hidden rounded-lg border bg-muted/20"><div className="flex items-center justify-between border-b px-3 py-1.5"><span className="text-xs font-medium text-muted-foreground">JSON</span><CopyButton label="Copy JSON" value={text} /></div><ScrollArea style={{ maxHeight }}><pre className="min-w-0 whitespace-pre-wrap break-words p-3 font-mono text-xs leading-relaxed">{text}</pre></ScrollArea></div>
+  const data = [{ language: "json", filename, code: text }]
+  return <CodeBlock data={data} defaultValue="json"><CodeBlockHeader><CodeBlockFiles>{(item) => <CodeBlockFilename key={item.filename} value={item.language}>{item.filename}</CodeBlockFilename>}</CodeBlockFiles><CodeBlockCopyButton aria-label="Copy JSON" /></CodeBlockHeader><CodeBlockBody className="overflow-y-auto" style={{ maxHeight }}>{(item) => <CodeBlockItem key={item.filename} value={item.language}><CodeBlockContent language="json">{item.code}</CodeBlockContent></CodeBlockItem>}</CodeBlockBody></CodeBlock>
 }

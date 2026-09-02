@@ -38,8 +38,8 @@ func callTool(t *testing.T, runtime *Runtime, name string, args map[string]any) 
 	return result
 }
 
-func baseArgs(workspaceID, root string) map[string]any {
-	return map[string]any{"workspace_id": workspaceID, "working_directory": root}
+func baseArgs(workspaceID, _ string) map[string]any {
+	return map[string]any{"workspace_id": workspaceID}
 }
 
 func TestReadTextFilePartialLines(t *testing.T) {
@@ -213,6 +213,7 @@ func TestRunCommandMutationGuardStillApplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := baseArgs(workspaceID, root)
+	args["working_directory"] = root
 	args["command"] = "cd child && rm file.txt"
 	result := callTool(t, runtime, "run_command", args)
 	if !result.IsError || !strings.Contains(result.Content[0].Text, "cwd change") {
@@ -259,6 +260,24 @@ func TestFilesystemToolCatalog(t *testing.T) {
 	}
 }
 
+func TestFilesystemAndContextSchemasDoNotExposeWorkingDirectory(t *testing.T) {
+	runtime, _, _ := newToolTestRuntime(t)
+	workspaceOnly := map[string]bool{
+		"read_text_file": true, "read_file_base64": true, "write_file": true, "write_file_base64": true, "edit_file": true, "multi_edit": true,
+		"replace_regex": true, "apply_patch": true, "list_directory": true, "glob": true, "grep": true, "delete_file": true, "create_directory": true,
+		"delete_directory": true, "copy_file": true, "move_file": true, "search_files": true, "directory_tree": true, "list_allowed_directories": true,
+		"read_files": true, "project_context": true, "agent_status": true, "load_path_rules": true,
+	}
+	for _, schema := range runtime.List() {
+		if !workspaceOnly[schema.Name] || strings.Contains(string(schema.InputSchema), `"working_directory"`) {
+			if workspaceOnly[schema.Name] && strings.Contains(string(schema.InputSchema), `"working_directory"`) {
+				t.Fatalf("%s still exposes working_directory: %s", schema.Name, schema.InputSchema)
+			}
+			continue
+		}
+	}
+}
+
 func TestRegistryRejectsDuplicateTools(t *testing.T) {
 	registry := NewRegistry()
 	handler := func(context.Context, map[string]any) (Result, error) { return Result{}, nil }
@@ -288,11 +307,12 @@ func TestAllowedDirectorySupportsFilesystemAndRewind(t *testing.T) {
 	RegisterCore(registry, manager, checkpoints)
 	runtime := &Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoints}
 
-	write := callTool(t, runtime, "write_file", map[string]any{"workspace_id": item.ID, "working_directory": allowed, "path": "artifact.txt", "content": "before"})
+	file := filepath.Join(allowed, "artifact.txt")
+	write := callTool(t, runtime, "write_file", map[string]any{"workspace_id": item.ID, "path": file, "content": "before"})
 	if write.IsError || write.StructuredContent.(WriteFileResult).CheckpointID == nil {
 		t.Fatalf("allowed write failed: %#v", write)
 	}
-	edit := callTool(t, runtime, "edit_file", map[string]any{"workspace_id": item.ID, "working_directory": allowed, "path": "artifact.txt", "old_text": "before", "new_text": "after"})
+	edit := callTool(t, runtime, "edit_file", map[string]any{"workspace_id": item.ID, "path": file, "old_text": "before", "new_text": "after"})
 	editResult := edit.StructuredContent.(EditFileResult)
 	if edit.IsError || editResult.CheckpointID == nil {
 		t.Fatalf("allowed edit failed: %#v", edit)
@@ -306,7 +326,7 @@ func TestAllowedDirectorySupportsFilesystemAndRewind(t *testing.T) {
 		t.Fatalf("restored content = %q err=%v", data, err)
 	}
 
-	edit = callTool(t, runtime, "edit_file", map[string]any{"workspace_id": item.ID, "working_directory": allowed, "path": "artifact.txt", "old_text": "before", "new_text": "after"})
+	edit = callTool(t, runtime, "edit_file", map[string]any{"workspace_id": item.ID, "path": file, "old_text": "before", "new_text": "after"})
 	editResult = edit.StructuredContent.(EditFileResult)
 	if _, err := manager.RemoveAllowDir(item.ID, allowed); err != nil {
 		t.Fatal(err)

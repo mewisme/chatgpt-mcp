@@ -68,11 +68,11 @@ func workspaceContext(manager *workspace.Manager, args map[string]any) (workspac
 	if err != nil {
 		return workspace.Workspace{}, "", err
 	}
-	workingDirectory, err := requiredString(args, "working_directory")
+	ctx, err := manager.ResolveContext(id)
 	if err != nil {
 		return workspace.Workspace{}, "", err
 	}
-	return manager.ResolveWorkingDirectory(id, workingDirectory)
+	return ctx.Workspace, ctx.Root, nil
 }
 
 func workspacePath(manager *workspace.Manager, args map[string]any, key string, mustExist bool) (workspace.Workspace, string, string, error) {

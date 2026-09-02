@@ -95,7 +95,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		return JSONResult(value), nil
 	})
 
-	register("project_context", "Project Context", "Load project instructions, config, and provider rules under a workspace path.", workspaceOnlySchema(`"working_directory":{"type":"string"},"path":{"type":"string"},"max_depth":{"type":"integer","minimum":0,"maximum":5,"default":3},"max_bytes_per_file":{"type":"integer","minimum":1,"maximum":200000,"default":60000},`), `{"type":"object","properties":{"root":{"type":"string"},"files":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["root","files","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("project_context", "Project Context", "Load project instructions, config, and provider rules under a workspace path.", workspaceOnlySchema(`"path":{"type":"string"},"max_depth":{"type":"integer","minimum":0,"maximum":5,"default":3},"max_bytes_per_file":{"type":"integer","minimum":1,"maximum":200000,"default":60000},`), `{"type":"object","properties":{"root":{"type":"string"},"files":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["root","files","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
 		item, cwd, err := workspaceLocation(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -141,7 +141,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		return JSONResult(value), nil
 	})
 
-	register("agent_status", "Agent Status", "Show workspace permissions, runtime, rewind config, upstream configuration, and tool runtime status.", workspaceOnlySchema(`"working_directory":{"type":"string"},`), `{"type":"object","additionalProperties":true}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("agent_status", "Agent Status", "Show workspace permissions, runtime, rewind config, upstream configuration, and tool runtime status.", workspaceOnlySchema(``), `{"type":"object","additionalProperties":true}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
 		item, cwd, err := workspaceLocation(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -197,7 +197,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		return JSONResult(RememberResult{SavedTo: path, Note: strings.TrimSpace(note)}), nil
 	})
 
-	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from .claude/.claudes/.agents/.cursor/.codex rule directories.", workspaceOnlySchema(`"working_directory":{"type":"string"},"path":{"type":"string"},`), `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from .claude/.claudes/.agents/.cursor/.codex rule directories.", workspaceOnlySchema(`"path":{"type":"string"},`), `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
 		item, cwd, err := workspaceLocation(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -244,13 +244,5 @@ func workspaceLocation(workspaces *workspace.Manager, args map[string]any) (work
 	if err != nil {
 		return workspace.Workspace{}, "", err
 	}
-	workingDirectory, err := optionalString(args, "working_directory")
-	if err != nil {
-		return workspace.Workspace{}, "", err
-	}
-	if strings.TrimSpace(workingDirectory) == "" {
-		return item, item.Path, nil
-	}
-	_, cwd, err := workspaces.ResolveWorkingDirectory(item.ID, workingDirectory)
-	return item, cwd, err
+	return item, item.Path, nil
 }

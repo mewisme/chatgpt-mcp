@@ -69,7 +69,7 @@ try {
   await verifyActivitySSE(adminPort)
   await verifyMCP(serverPort, false)
   const foregroundStatus = run(["status"], { quiet: true })
-  for (const expected of ["✓ chatgpt-mcp is running", "session     run_", "mode        foreground", "status      disabled"]) {
+  for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "OpenAI Secure MCP Tunnel is disabled"]) {
     if (!foregroundStatus.includes(expected)) fail(`foreground status missing ${JSON.stringify(expected)}:\n${foregroundStatus}`)
   }
 
@@ -120,7 +120,7 @@ try {
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
 
   const managedStatus = run(["status"], { quiet: true })
-  for (const expected of ["✓ chatgpt-mcp is running", "managed     user ·", `service     ${managedServiceID}`, "session     run_", "status      disabled"]) {
+  for (const expected of ["✓ ChatGPT MCP is running", "managed     user ·", `service     ${managedServiceID}`, "session     run_", "OpenAI Secure MCP Tunnel is disabled"]) {
     if (!managedStatus.includes(expected)) fail(`managed status missing ${JSON.stringify(expected)}:\n${managedStatus}`)
   }
   const managedLogs = run(["logs", "--debug", "--event", "server.*", "--grep", "Server", "--tail", "50"], { quiet: true })

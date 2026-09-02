@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var errKernelKeyringUnavailable = errors.New("Linux kernel keyring unavailable")
+var errKernelKeyringUnavailable = errors.New("linux kernel keyring unavailable")
 
 type linuxBackend struct {
 	durable Backend
@@ -33,7 +33,7 @@ func (b linuxBackend) Set(service, account, value string) error {
 	if kernelErr == nil {
 		return nil
 	}
-	return fmt.Errorf("Secret Service and Linux kernel keyring are unavailable: %w", errors.Join(durableErr, kernelErr))
+	return fmt.Errorf("secret service and Linux kernel keyring are unavailable: %w", errors.Join(durableErr, kernelErr))
 }
 
 func (b linuxBackend) Get(service, account string) (string, error) {
@@ -60,7 +60,7 @@ func (b linuxBackend) Get(service, account string) (string, error) {
 		return "", ErrNotFound
 	}
 	if durableUnavailable && errors.Is(kernelErr, errKernelKeyringUnavailable) {
-		return "", fmt.Errorf("Secret Service and Linux kernel keyring are unavailable: %w", errors.Join(durableErr, kernelErr))
+		return "", fmt.Errorf("secret service and Linux kernel keyring are unavailable: %w", errors.Join(durableErr, kernelErr))
 	}
 	return "", kernelErr
 }
@@ -87,7 +87,7 @@ func (b linuxBackend) Delete(service, account string) error {
 		return ErrNotFound
 	}
 	if durableUnavailable && errors.Is(kernelErr, errKernelKeyringUnavailable) {
-		return fmt.Errorf("Secret Service and Linux kernel keyring are unavailable: %w", errors.Join(durableErr, kernelErr))
+		return fmt.Errorf("secret service and Linux kernel keyring are unavailable: %w", errors.Join(durableErr, kernelErr))
 	}
 	return kernelErr
 }
@@ -124,7 +124,7 @@ func (kernelBackend) Get(service, account string) (string, error) {
 		return "", kernelError(err)
 	}
 	if length > len(buffer) {
-		return "", errors.New("Linux kernel keyring secret changed while reading")
+		return "", errors.New("linux kernel keyring secret changed while reading")
 	}
 	return string(buffer[:length]), nil
 }

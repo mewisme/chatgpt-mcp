@@ -188,20 +188,13 @@ func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
 			ctx = tools.WithInputRound(ctx, request.Params.RequestState, responses)
 		}
 		ctx = tools.WithCallSource(ctx, "tunnel")
-		if data, err := json.Marshal(request); err == nil {
-			var rawRequest map[string]any
-			decoder := json.NewDecoder(bytes.NewReader(data))
-			decoder.UseNumber()
-			if decoder.Decode(&rawRequest) == nil {
-				ctx = tools.WithCallRequest(ctx, rawRequest)
-			}
-		}
 		if data, err := json.Marshal(request.Params); err == nil {
 			var params map[string]any
 			decoder := json.NewDecoder(bytes.NewReader(data))
 			decoder.UseNumber()
 			if decoder.Decode(&params) == nil {
 				ctx = tools.WithCallDetails(ctx, "tools/call", params)
+				ctx = tools.WithCallRequest(ctx, map[string]any{"method": "tools/call", "params": params})
 			}
 		}
 		result, err := b.runtime.Call(ctx, name, args)

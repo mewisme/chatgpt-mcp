@@ -30,6 +30,7 @@ type ProjectMemoryBundle struct {
 	Root           string    `json:"root"`
 	WorkspaceRoots []string  `json:"workspace_roots"`
 	Sections       []Section `json:"sections"`
+	Imports        []Section `json:"imports,omitempty"`
 	TotalBytes     int       `json:"total_bytes"`
 	LoadedAt       time.Time `json:"loaded_at"`
 }

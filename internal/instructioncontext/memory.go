@@ -21,6 +21,7 @@ type MemoryLoadOptions struct {
 	DisableUser        bool
 	MaxBytesPerSection int
 	MaxLinesPerSection int
+	ImportMaxDepth     int
 	Now                func() time.Time
 }
 
@@ -73,12 +74,16 @@ func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle
 	if now == nil {
 		now = time.Now
 	}
-
+	home := strings.TrimSpace(opts.HomeDir)
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	expander := newImportExpander(workspaceRoots, home, opts.ImportMaxDepth, maxBytes, maxLines)
 	sections := make([]Section, 0, len(projectMemoryCandidates)+len(userMemoryCandidates))
 	totalBytes := 0
 	seenContent := map[string]bool{}
 	appendCandidate := func(base string, candidate memoryCandidate) {
-		section, contentID, ok := loadMemorySection(filepath.Join(base, candidate.Relative), candidate, maxBytes, maxLines)
+		section, contentID, ok := loadMemorySection(filepath.Join(base, candidate.Relative), candidate, maxBytes, maxLines, expander)
 		if !ok || seenContent[contentID] {
 			return
 		}
@@ -87,10 +92,6 @@ func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle
 		totalBytes += section.LoadedBytes
 	}
 	if !opts.DisableUser {
-		home := strings.TrimSpace(opts.HomeDir)
-		if home == "" {
-			home, _ = os.UserHomeDir()
-		}
 		for _, candidate := range userMemoryCandidates {
 			appendCandidate(home, candidate)
 		}
@@ -98,10 +99,10 @@ func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle
 	for _, candidate := range projectMemoryCandidates {
 		appendCandidate(root, candidate)
 	}
-	return ProjectMemoryBundle{Root: root, WorkspaceRoots: workspaceRoots, Sections: sections, TotalBytes: totalBytes, LoadedAt: now().UTC()}, nil
+	return ProjectMemoryBundle{Root: root, WorkspaceRoots: workspaceRoots, Sections: sections, Imports: expander.imports, TotalBytes: totalBytes, LoadedAt: now().UTC()}, nil
 }
 
-func loadMemorySection(path string, candidate memoryCandidate, maxBytes, maxLines int) (Section, string, bool) {
+func loadMemorySection(path string, candidate memoryCandidate, maxBytes, maxLines int, expander *importExpander) (Section, string, bool) {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return Section{}, "", false
@@ -110,13 +111,14 @@ func loadMemorySection(path string, candidate memoryCandidate, maxBytes, maxLine
 	if err != nil {
 		return Section{}, "", false
 	}
-	content, truncated := limitInstructionText(data, maxBytes, maxLines)
+	expanded := expander.expand(string(data), path)
+	content, truncated := limitInstructionText([]byte(expanded), maxBytes, maxLines)
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return Section{}, "", false
 	}
 	loadedBytes := len([]byte(content))
-	normalized := strings.TrimSpace(strings.ReplaceAll(string(data), "\r\n", "\n"))
+	normalized := strings.TrimSpace(strings.ReplaceAll(stripHTMLComments(expanded), "\r\n", "\n"))
 	sum := sha256.Sum256([]byte(normalized))
 	return Section{
 		Path: path, Kind: candidate.Kind, Source: candidate.Source, Content: content,

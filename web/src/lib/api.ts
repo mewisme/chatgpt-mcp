@@ -68,9 +68,12 @@ export type NetworkAddress = { address: string; interface?: string; scope: "loca
 export type NetworkInterface = { name: string; addresses: NetworkAddress[] }
 export type ConfigPreset = { name: string; description: string; server: PublicConfig["server"]; admin: PublicConfig["admin"]; mcp_auth_enabled: boolean; admin_auth_enabled: boolean; tunnel_enabled: boolean; features: PublicConfig["features"] }
 export type ConfigPresetList = { current: string; presets: ConfigPreset[] }
-export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; control_plane_base_url?: string; organization_id?: string }
+export type TunnelAdminScope = { organization_id?: string; workspace_id?: string; tenant_id?: string }
+export type TunnelConfig = { enabled: boolean; id?: string; api_key?: string; runtime_key_configured?: boolean; admin_key_configured?: boolean; admin_organization_id?: string; admin_workspace_id?: string; admin_tenant_id?: string; control_plane_base_url?: string; organization_id?: string }
+export type TunnelAdminKeyRequest = { admin_key?: string; organization_id?: string; workspace_id?: string; tenant_id?: string }
+export type TunnelAdminKeyStatus = { configured: boolean; scope: TunnelAdminScope; tunnels?: number }
 export type TunnelMetadata = { id: string; name: string; description: string; creator?: string; tenant_ids?: string[]; workspace_ids?: string[]; organization_ids?: string[]; request_id?: string; fetched_at: string }
-export type TunnelStatus = { provider: "openai" | string; enabled: boolean; running: boolean; ready: boolean; restarting: boolean; id?: string; control_plane_base_url?: string; organization_id?: string; started_at?: string; last_error?: string; metadata?: TunnelMetadata; metadata_error?: string }
+export type TunnelStatus = { provider: "openai" | string; enabled: boolean; running: boolean; ready: boolean; restarting: boolean; id?: string; control_plane_base_url?: string; organization_id?: string; started_at?: string; last_error?: string; metadata?: TunnelMetadata; metadata_error?: string; admin_key_configured?: boolean; admin_scope?: TunnelAdminScope }
 
 const adminTokenKey = "chatgpt-mcp-admin-token"
 try { localStorage.removeItem(adminTokenKey) } catch { /* storage may be unavailable */ }
@@ -117,6 +120,10 @@ export const adminApi = {
   tunnel: () => api<TunnelStatus>("/api/tunnel"),
   tunnelConfig: () => api<TunnelConfig>("/api/tunnel/config"),
   configureTunnel: (config: TunnelConfig) => api<TunnelStatus>("/api/tunnel", { method: "PUT", body: JSON.stringify(config) }),
+  tunnelAdminKey: () => api<TunnelAdminKeyStatus>("/api/tunnel/admin/key"),
+  configureTunnelAdminKey: (request: TunnelAdminKeyRequest) => api<TunnelAdminKeyStatus>("/api/tunnel/admin/key", { method: "PUT", body: JSON.stringify(request) }),
+  verifyTunnelAdminKey: () => api<TunnelAdminKeyStatus>("/api/tunnel/admin/key", { method: "POST" }),
+  removeTunnelAdminKey: () => api<TunnelAdminKeyStatus>("/api/tunnel/admin/key", { method: "DELETE" }),
   startTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "POST" }),
   stopTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "DELETE" }),
 }

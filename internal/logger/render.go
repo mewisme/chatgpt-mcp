@@ -150,7 +150,7 @@ func jsonValue(value any) any {
 func symbol(kind Kind) string {
 	switch kind {
 	case KindAction:
-		return "→"
+		return "⠏"
 	case KindSuccess:
 		return "✓"
 	case KindWarning:

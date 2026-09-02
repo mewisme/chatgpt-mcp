@@ -39,7 +39,7 @@ func TestTextRendererCapitalizesMessagesAfterIcons(t *testing.T) {
 	log.Action("SERVICE", "service.updating", "updating managed service")
 	log.Info("WORKSPACE", "registered workspaces loaded")
 	text := output.String()
-	for _, expected := range []string{"✓ Managed service updated", "→ Updating managed service", "· Registered workspaces loaded"} {
+	for _, expected := range []string{"✓ Managed service updated", "⠏ Updating managed service", "· Registered workspaces loaded"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("output %q missing %q", text, expected)
 		}

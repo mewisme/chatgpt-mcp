@@ -88,7 +88,7 @@ func renderTunnelStatusText(out io.Writer, cfg tunnel.Config, status tunnel.Stat
 	case "connected":
 		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), "OpenAI Secure MCP Tunnel is connected")
 	case "connecting", "reconnecting":
-		fmt.Fprintln(out, cliStyled(color.FgHiCyan, color.Bold).Sprint("→"), "OpenAI Secure MCP Tunnel is "+state)
+		fmt.Fprintln(out, cliStyled(color.FgHiCyan, color.Bold).Sprint("⠏"), "OpenAI Secure MCP Tunnel is "+state)
 	case "failed":
 		fmt.Fprintln(out, cliStyled(color.FgHiRed, color.Bold).Sprint("×"), "OpenAI Secure MCP Tunnel failed")
 	default:

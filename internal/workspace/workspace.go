@@ -409,16 +409,22 @@ func (m *Manager) migrateWorkspaceState(legacyID, canonicalID string) error {
 }
 
 func rewriteWorkspaceStateIDs(root, legacyID, canonicalID string) error {
-	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	paths := []string{}
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
-			return nil
+		if !entry.IsDir() {
+			paths = append(paths, path)
 		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, path := range paths {
 		format, err := configformat.Detect(path)
 		if err != nil {
-			return nil
+			continue
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -430,11 +436,11 @@ func rewriteWorkspaceStateIDs(root, legacyID, canonicalID string) error {
 		}
 		object, ok := decoded.(map[string]any)
 		if !ok {
-			return nil
+			continue
 		}
 		value, _ := object["workspace_id"].(string)
 		if value == "" || value == canonicalID {
-			return nil
+			continue
 		}
 		if value != legacyID {
 			return fmt.Errorf("workspace state %s belongs to unexpected workspace %s", path, value)
@@ -447,8 +453,8 @@ func rewriteWorkspaceStateIDs(root, legacyID, canonicalID string) error {
 		if err := state.WriteFileAtomic(path, encoded, 0600); err != nil {
 			return fmt.Errorf("rewrite workspace state %s: %w", path, err)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func (m *Manager) allowed(id, candidate string) bool {

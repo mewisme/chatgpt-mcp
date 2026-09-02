@@ -40,7 +40,8 @@ func TestResolveWorkspacePathUsesRegisteredRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ctx.Workspace.ID != item.ID || filepath.Clean(resolved) != filepath.Clean(child) {
-		t.Fatalf("context/resolved = %#v %s, want %s %s", ctx, resolved, item.ID, child)
+	expected := filepath.Join(item.Path, "nested", "file.txt")
+	if ctx.Workspace.ID != item.ID || filepath.Clean(resolved) != filepath.Clean(expected) {
+		t.Fatalf("context/resolved = %#v %s, want %s %s", ctx, resolved, item.ID, expected)
 	}
 }

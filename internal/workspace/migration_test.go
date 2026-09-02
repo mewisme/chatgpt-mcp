@@ -51,8 +51,8 @@ func TestWorkspaceIDsAreStableAcrossInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.ID != second.ID || first.ID != workspaceID(workspaceRoot) {
-		t.Fatalf("workspace ids are not path-stable: %s %s", first.ID, second.ID)
+	if first.ID != second.ID || first.ID != workspaceID(first.Path) || first.Path != second.Path {
+		t.Fatalf("workspace ids are not path-stable: %#v %#v", first, second)
 	}
 }
 
@@ -71,14 +71,22 @@ func TestWorkspaceRegistryMigratesV2InstanceIDAndState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(oldState, "marker.txt"), []byte("v2"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(oldState, "shell.json"), []byte(`{"workspace_id":"`+oldID+`","cwd":"`+workspaceRoot+`","started_at":"x","updated_at":"x","recent_commands":["pwd"]}`), 0600); err != nil {
+	shellState, err := json.Marshal(map[string]any{"workspace_id": oldID, "cwd": workspaceRoot, "started_at": "x", "updated_at": "x", "recent_commands": []string{"pwd"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldState, "shell.json"), shellState, 0600); err != nil {
 		t.Fatal(err)
 	}
 	manifestDir := filepath.Join(oldState, "checkpoints", "cp_test")
 	if err := os.MkdirAll(manifestDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(manifestDir, "manifest.json"), []byte(`{"version":1,"id":"cp_test","workspace_id":"`+oldID+`","workspace_root":"`+workspaceRoot+`","created_at":"x","tool":"edit_file","summary":"test","files":[]}`), 0600); err != nil {
+	manifestState, err := json.Marshal(map[string]any{"version": 1, "id": "cp_test", "workspace_id": oldID, "workspace_root": workspaceRoot, "created_at": "x", "tool": "edit_file", "summary": "test", "files": []any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manifestDir, "manifest.json"), manifestState, 0600); err != nil {
 		t.Fatal(err)
 	}
 

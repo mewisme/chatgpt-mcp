@@ -1,13 +1,17 @@
 package mcp
 
-import "go.mewis.me/chatgpt-mcp/internal/version"
+import (
+	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
+	"go.mewis.me/chatgpt-mcp/internal/version"
+)
 
 const (
 	SupportedProtocolVersion = "2026-07-28"
 	defaultCacheTTLMS        = 0
 	defaultCacheScope        = "private"
-	ServerInstructions       = "Use chatgpt-mcp for local, workspace-aware coding and project operations. For project work, obtain a workspace_id with workspace_register unless one is already provided; use workspace_status to inspect its registered root, persisted shell cwd, and allowed directories. Within one MCP session, the first valid workspace-scoped call binds that session to the workspace; keep using that workspace for the session and use a separate MCP session for another workspace. Filesystem and git paths resolve from the registered workspace root; shell commands use the server-side persisted shell cwd. Before substantial work in a workspace, call agent_status and project_context, discover skills with list_skills, and load each applicable skill with load_skill before acting. Load path-scoped rules with load_path_rules before modifying relevant files. Read files before editing and prefer apply_patch, edit_file, or multi_edit for deterministic changes. Use rewind checkpoints for inspection or recovery. Never assume project instructions, rules, or skills are already in context; load them on demand."
 )
+
+var ServerInstructions = instructioncontext.StaticServerInstructions()
 
 func serverInfo() map[string]any {
 	return map[string]any{"name": "chatgpt-mcp", "version": version.Version}

@@ -40,3 +40,34 @@ func TestAgentWorkflowIsStableAndNonEmpty(t *testing.T) {
 		t.Fatalf("workflow = %q", AgentWorkflow())
 	}
 }
+
+func TestSharedGuidanceRendersIntoWorkflowAndServerInstructions(t *testing.T) {
+	workflow := AgentWorkflow()
+	server := StaticServerInstructions()
+	steps := SharedGuidanceSteps()
+	if len(steps) == 0 {
+		t.Fatal("shared guidance is empty")
+	}
+	for _, step := range steps {
+		if !strings.Contains(workflow, step) {
+			t.Fatalf("workflow missing shared guidance %q", step)
+		}
+		if !strings.Contains(server, step) {
+			t.Fatalf("server instructions missing shared guidance %q", step)
+		}
+	}
+	for _, expected := range []string{"workspace_register", "workspace_status", "persisted shell cwd", "agent_status", "project_context", "list_skills"} {
+		if !strings.Contains(server, expected) {
+			t.Fatalf("server instructions missing bootstrap %q: %s", expected, server)
+		}
+	}
+}
+
+func TestSharedGuidanceStepsReturnsCopy(t *testing.T) {
+	first := SharedGuidanceSteps()
+	first[0] = "mutated"
+	second := SharedGuidanceSteps()
+	if len(second) == 0 || second[0] == "mutated" {
+		t.Fatalf("shared guidance leaked mutable state: %#v", second)
+	}
+}

@@ -18,7 +18,6 @@ func (a *App) ReloadConfig(next config.Config) error {
 	previous := a.Config.Snapshot()
 	featuresChanged := previous.Features != next.Features
 	permissionsChanged := !slices.Equal(previous.Permissions.AllowDirs, next.Permissions.AllowDirs)
-	clusterChanged := !clusterConfigEqual(previous.Cluster, next.Cluster)
 	tunnelChanged := previous.Tunnel != next.Tunnel
 	tunnelRuntimeChanged := tunnelChanged && !tunnel.RuntimeConfigEqual(previous.Tunnel, next.Tunnel)
 	if featuresChanged {
@@ -29,20 +28,10 @@ func (a *App) ReloadConfig(next config.Config) error {
 	if permissionsChanged {
 		a.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
 	}
-
-	clusterRuntimeChanged := clusterChanged && a.running
-	if clusterRuntimeChanged {
-		previousRuntime := clusterRuntimeConfig{cluster: previous.Cluster, tunnel: previous.Tunnel, tunnelRuntimeChanged: tunnelRuntimeChanged}
-		nextRuntime := clusterRuntimeConfig{cluster: next.Cluster, tunnel: next.Tunnel, tunnelRuntimeChanged: tunnelRuntimeChanged}
-		if err := a.restartClusterRuntime(previousRuntime, nextRuntime); err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, featuresChanged, permissionsChanged, false, false, false))
-		}
-	} else if tunnelChanged && a.Tunnel != nil {
+	if tunnelChanged && a.Tunnel != nil {
 		var err error
 		if tunnelRuntimeChanged {
-			if a.tunnelLeader != nil {
-				err = a.tunnelLeader.Configure(next.Tunnel)
-			} else if a.running {
+			if a.running {
 				err = a.Tunnel.Reconfigure(next.Tunnel, func() error { return nil })
 			} else {
 				err = a.Tunnel.Configure(next.Tunnel)
@@ -51,7 +40,7 @@ func (a *App) ReloadConfig(next config.Config) error {
 			err = a.Tunnel.SyncManagementConfig(next.Tunnel)
 		}
 		if err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, featuresChanged, permissionsChanged, false, false, false))
+			return errors.Join(err, a.rollbackRuntimeConfig(previous, featuresChanged, permissionsChanged, false, false))
 		}
 		if tunnelRuntimeChanged {
 			if metadata, loadErr := config.LoadTunnelMetadata(next.Tunnel.ID); loadErr == nil {
@@ -59,26 +48,17 @@ func (a *App) ReloadConfig(next config.Config) error {
 			}
 		}
 	}
-
 	if _, err := a.Config.Update(func(config.Config) (config.Config, error) { return next, nil }); err != nil {
-		return errors.Join(err, a.rollbackRuntimeConfig(previous, featuresChanged, permissionsChanged, tunnelChanged, tunnelRuntimeChanged, clusterRuntimeChanged))
+		return errors.Join(err, a.rollbackRuntimeConfig(previous, featuresChanged, permissionsChanged, tunnelChanged, tunnelRuntimeChanged))
 	}
 	return nil
 }
 
-func (a *App) rollbackRuntimeConfig(previous config.Config, featuresChanged, permissionsChanged, tunnelChanged, tunnelRuntimeChanged, clusterRuntimeChanged bool) error {
+func (a *App) rollbackRuntimeConfig(previous config.Config, featuresChanged, permissionsChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
 	var rollbackErr error
-	if clusterRuntimeChanged {
-		current := a.Config.Snapshot()
-		rollbackErr = errors.Join(rollbackErr, a.restartClusterRuntime(
-			clusterRuntimeConfig{cluster: current.Cluster, tunnel: current.Tunnel, tunnelRuntimeChanged: tunnelRuntimeChanged},
-			clusterRuntimeConfig{cluster: previous.Cluster, tunnel: previous.Tunnel, tunnelRuntimeChanged: tunnelRuntimeChanged},
-		))
-	} else if tunnelChanged && a.Tunnel != nil {
+	if tunnelChanged && a.Tunnel != nil {
 		if tunnelRuntimeChanged {
-			if a.tunnelLeader != nil {
-				rollbackErr = errors.Join(rollbackErr, a.tunnelLeader.Configure(previous.Tunnel))
-			} else if a.running {
+			if a.running {
 				rollbackErr = errors.Join(rollbackErr, a.Tunnel.Reconfigure(previous.Tunnel, func() error { return nil }))
 			} else {
 				rollbackErr = errors.Join(rollbackErr, a.Tunnel.Configure(previous.Tunnel))

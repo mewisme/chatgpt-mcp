@@ -19,18 +19,10 @@ type Config struct {
 	Server      ServerConfig      `json:"server"`
 	Admin       AdminConfig       `json:"admin"`
 	Auth        AuthConfig        `json:"auth"`
-	Cluster     ClusterConfig     `json:"cluster"`
 	Permissions PermissionsConfig `json:"permissions"`
 	Shell       ShellConfig       `json:"shell"`
 	Features    FeaturesConfig    `json:"features"`
 	Tunnel      tunnel.Config     `json:"tunnel"`
-}
-
-type ClusterConfig struct {
-	Enabled              bool   `json:"enabled"`
-	RelayURL             string `json:"relay_url,omitempty"`
-	RelayToken           string `json:"relay_token,omitempty"`
-	RelayTokenConfigured bool   `json:"relay_token_configured,omitempty"`
 }
 
 type PermissionsConfig struct {
@@ -76,7 +68,7 @@ type AuthConfig struct {
 type FeaturesConfig = features.Config
 
 func Default() Config {
-	return Config{Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Cluster: ClusterConfig{}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {
@@ -180,16 +172,11 @@ func loadAt(configPath, secretPath string) (Config, error) {
 		return cfg, err
 	}
 	legacyRuntime, legacyAdmin := cfg.Tunnel.APIKey, cfg.Tunnel.AdminKey
-	legacyClusterToken := cfg.Cluster.RelayToken
 	migrateSecrets, err := loadTunnelSecrets(secretPath, &cfg.Tunnel, legacyRuntime, legacyAdmin)
 	if err != nil {
 		return cfg, err
 	}
-	clusterMigration, err := loadClusterSecret(filepath.Dir(configPath), &cfg.Cluster, legacyClusterToken)
-	if err != nil {
-		return cfg, err
-	}
-	if migrateSecrets || clusterMigration || legacyRuntime != "" || legacyAdmin != "" || legacyClusterToken != "" {
+	if migrateSecrets || legacyRuntime != "" || legacyAdmin != "" {
 		if err := saveAt(configPath, secretPath, cfg); err != nil {
 			return cfg, fmt.Errorf("migrate credentials to OS keyring: %w", err)
 		}
@@ -259,8 +246,6 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	persisted.Permissions.AllowDirs = allowDirs
 	persisted.Shell.Path = shellPath
 	persisted.Server.Expose = NormalizeExposure(persisted.Server.Expose)
-	persisted.Cluster.RelayTokenConfigured = cfg.Cluster.RelayToken != ""
-	persisted.Cluster.RelayToken = ""
 	persisted.Tunnel.APIKey = ""
 	persisted.Tunnel.AdminKey = ""
 	persisted.Tunnel.AdminOrganizationID = ""
@@ -282,9 +267,6 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 		return err
 	}
 	if err := saveSecret(secretPath, cfg.Tunnel); err != nil {
-		return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
-	}
-	if err := saveClusterSecret(root, cfg.Cluster); err != nil {
 		return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
 	}
 	return nil

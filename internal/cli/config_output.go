@@ -74,7 +74,6 @@ func redactedConfigTree(cfg config.Config) (map[string]any, error) {
 	}
 	setConfigTreeValue(tree, "auth.mcp_token_hash", redactedValue)
 	setConfigTreeValue(tree, "auth.admin_token_hash", redactedValue)
-	setConfigTreeValue(tree, "cluster.relay_token", redactedValue)
 	setConfigTreeValue(tree, "tunnel.api_key", redactedValue)
 	setConfigTreeValue(tree, "tunnel.admin_key", redactedValue)
 	return tree, nil

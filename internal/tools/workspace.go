@@ -30,8 +30,8 @@ func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager, shel
 	registry.MustRegister("workspace_register", Schema{
 		Name:         "workspace_register",
 		Title:        "Register Workspace",
-		Description:  "Register a workspace root on the local instance or an optional cluster instance. Re-registering the same canonical path on the same instance returns the same workspace_id.",
-		InputSchema:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"instance_id":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
+		Description:  "Register a local workspace root. Re-registering the same canonical path returns the same workspace_id.",
+		InputSchema:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
 		OutputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"workspace_root":{"type":"string"},"instance_id":{"type":"string"},"instance_name":{"type":"string"}},"required":["workspace_id","workspace_root","instance_id","instance_name"],"additionalProperties":false}`),
 		Annotations:  ToolAnnotations(RiskRead),
 	}, func(_ context.Context, args map[string]any) (Result, error) {

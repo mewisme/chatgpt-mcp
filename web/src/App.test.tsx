@@ -7,16 +7,43 @@ import { adminDocumentTitle, navItems } from "@/lib/admin-navigation"
 import { adminToken } from "@/lib/api"
 
 const config = {
-  server: { port: 37421, expose: { mode: "none", interfaces: [] }, allow_insecure_http: false },
+  server: {
+    port: 37421,
+    expose: { mode: "none", interfaces: [] },
+    allow_insecure_http: false,
+  },
   admin: { enabled: true, port: 37422 },
-  auth: { mcp_enabled: true, admin_enabled: true, mcp_token_configured: true, admin_token_configured: true },
-  cluster: { enabled: false, relay_url: "", relay_token_configured: false },
+  auth: {
+    mcp_enabled: true,
+    admin_enabled: true,
+    mcp_token_configured: true,
+    admin_token_configured: true,
+  },
   permissions: { allow_dirs: [] },
   shell: { path: [] },
   features: { ponytail: { enabled: true }, caveman: { enabled: true } },
 }
-const presets = { current: "default", presets: [{ name: "default", description: "Default", server: config.server, admin: config.admin, mcp_auth_enabled: true, admin_auth_enabled: true, tunnel_enabled: false, features: config.features }] }
-const tunnel = { provider: "openai", enabled: false, running: false, ready: false }
+const presets = {
+  current: "default",
+  presets: [
+    {
+      name: "default",
+      description: "Default",
+      server: config.server,
+      admin: config.admin,
+      mcp_auth_enabled: true,
+      admin_auth_enabled: true,
+      tunnel_enabled: false,
+      features: config.features,
+    },
+  ],
+}
+const tunnel = {
+  provider: "openai",
+  enabled: false,
+  running: false,
+  ready: false,
+}
 
 describe("admin app runtime smoke", () => {
   beforeEach(() => {
@@ -35,68 +62,116 @@ describe("admin app runtime smoke", () => {
     const user = userEvent.setup()
     renderAdminApp()
 
-    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Overview")))
-    expect(await screen.findByText("Active listeners and configuration preset.")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.title).toBe(adminDocumentTitle("Overview"))
+    )
+    expect(
+      await screen.findByText("Active listeners and configuration preset.")
+    ).toBeInTheDocument()
 
     const pageSmokeText: Record<string, string> = {
       workspaces: "Register workspace",
-      tools: "Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.",
+      tools:
+        "Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.",
       servers: "Add MCP server",
       tunnel: "OpenAI Secure MCP Tunnel",
-      activity: "Live MCP requests, tool calls, and runtime lifecycle events. Open any event to inspect its complete metadata.",
+      activity:
+        "Live MCP requests, tool calls, and runtime lifecycle events. Open any event to inspect its complete metadata.",
       settings: "Config preset",
     }
     for (const item of navItems.slice(1)) {
       await user.click(screen.getByRole("link", { name: item.title }))
-      await waitFor(() => expect(document.title).toBe(adminDocumentTitle(item.title)))
+      await waitFor(() =>
+        expect(document.title).toBe(adminDocumentTitle(item.title))
+      )
       expect(window.location.pathname).toBe(item.path)
-      expect((await screen.findAllByText(pageSmokeText[item.id])).length).toBeGreaterThan(0)
+      expect(
+        (await screen.findAllByText(pageSmokeText[item.id])).length
+      ).toBeGreaterThan(0)
     }
   })
 
   it("loads a deep-linked page and follows popstate navigation", async () => {
     window.history.replaceState({}, "", "/tunnel")
     renderAdminApp()
-    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Tunnel")))
-    expect((await screen.findAllByText("OpenAI Secure MCP Tunnel")).length).toBeGreaterThan(0)
+    await waitFor(() =>
+      expect(document.title).toBe(adminDocumentTitle("Tunnel"))
+    )
+    expect(
+      (await screen.findAllByText("OpenAI Secure MCP Tunnel")).length
+    ).toBeGreaterThan(0)
     window.history.pushState({}, "", "/tools")
     window.dispatchEvent(new PopStateEvent("popstate"))
-    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Tools")))
-    expect(await screen.findByText("Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.title).toBe(adminDocumentTitle("Tools"))
+    )
+    expect(
+      await screen.findByText(
+        "Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints."
+      )
+    ).toBeInTheDocument()
   })
 
   it("normalizes root and unknown paths to overview", async () => {
     window.history.replaceState({}, "", "/missing")
     renderAdminApp()
-    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Overview")))
+    await waitFor(() =>
+      expect(document.title).toBe(adminDocumentTitle("Overview"))
+    )
     expect(window.location.pathname).toBe("/overview")
   })
 
   it("uses a login title when admin authentication rejects the current token", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      if (requestPath(input) === "/api/health") return new Response("unauthorized", { status: 401 })
-      return mockFetch(input)
-    }))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (requestPath(input) === "/api/health")
+          return new Response("unauthorized", { status: 401 })
+        return mockFetch(input)
+      })
+    )
     renderAdminApp()
-    expect(await screen.findByText("Enter the admin token generated by the CLI.")).toBeInTheDocument()
-    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Login")))
+    expect(
+      await screen.findByText("Enter the admin token generated by the CLI.")
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.title).toBe(adminDocumentTitle("Login"))
+    )
   })
 
   it("uses a connecting title while the initial health check is pending", async () => {
     let resolveHealth: ((response: Response) => void) | undefined
-    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
-      if (requestPath(input) === "/api/health") return new Promise<Response>((resolve) => { resolveHealth = resolve })
-      return mockFetch(input)
-    }))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        if (requestPath(input) === "/api/health")
+          return new Promise<Response>((resolve) => {
+            resolveHealth = resolve
+          })
+        return mockFetch(input)
+      })
+    )
     renderAdminApp()
-    expect(await screen.findByText("Connecting to admin API...")).toBeInTheDocument()
-    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Connecting")))
+    expect(
+      await screen.findByText("Connecting to admin API...")
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.title).toBe(adminDocumentTitle("Connecting"))
+    )
     resolveHealth?.(json({ ok: true, auth_enabled: true }))
-    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Overview")))
+    await waitFor(() =>
+      expect(document.title).toBe(adminDocumentTitle("Overview"))
+    )
   })
 })
 
-function renderAdminApp() { return render(<ThemeProvider><App /></ThemeProvider>) }
+function renderAdminApp() {
+  return render(
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
+  )
+}
 
 async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   const path = requestPath(input)
@@ -105,12 +180,17 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   if (path === "/api/tools") return json([])
   if (path === "/api/upstream") return json([])
   if (path === "/api/tunnel") return json(tunnel)
-  if (path === "/api/tunnel/config") return json({ enabled: false, runtime_key_configured: false, admin_key_configured: false })
-  if (path === "/api/tunnel/admin/key") return json({ configured: false, scope: {} })
+  if (path === "/api/tunnel/config")
+    return json({
+      enabled: false,
+      runtime_key_configured: false,
+      admin_key_configured: false,
+    })
+  if (path === "/api/tunnel/admin/key")
+    return json({ configured: false, scope: {} })
   if (path === "/api/config") return json(config)
   if (path === "/api/config/presets") return json(presets)
   if (path === "/api/network/interfaces") return json([])
-  if (path === "/api/cluster") return json({ enabled: false, connected: false, instance_id: "inst_test", name: "test-runtime", member_count: 0, online_member_count: 0, workspace_count: 0, catalog_compatible: true, tunnel_role: "standalone" })
   if (path === "/api/activity/stream?history=100") return activityStream()
   throw new Error(`Unhandled test request: ${path}`)
 }
@@ -121,10 +201,25 @@ function requestPath(input: RequestInfo | URL) {
   return `${url.pathname}${url.search}`
 }
 
-function json(value: unknown) { return new Response(JSON.stringify(value), { status: 200, headers: { "Content-Type": "application/json" } }) }
+function json(value: unknown) {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  })
+}
 
 function activityStream() {
   const encoder = new TextEncoder()
-  const body = new ReadableStream({ start(controller) { controller.enqueue(encoder.encode('event: ready\ndata: {"latest_sequence":0}\n\n')); controller.close() } })
-  return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } })
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode('event: ready\ndata: {"latest_sequence":0}\n\n')
+      )
+      controller.close()
+    },
+  })
+  return new Response(body, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  })
 }

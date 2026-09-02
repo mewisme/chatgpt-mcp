@@ -196,10 +196,6 @@ jobs:
       - name: Runtime smoke
         run: node scripts/smoke-release.mjs ./dist-smoke/${{ matrix.binary }}
 
-      - name: Cluster process E2E
-        if: matrix.name == 'Linux'
-        run: node scripts/cluster-e2e.mjs ./dist-smoke/${{ matrix.binary }}
-
   cross-build:
     name: Cross build ${{ matrix.os }}/${{ matrix.arch }}
     runs-on: ubuntu-latest

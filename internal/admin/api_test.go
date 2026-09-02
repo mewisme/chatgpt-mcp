@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"go.mewis.me/chatgpt-mcp/internal/cluster"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
@@ -135,63 +134,6 @@ func TestConfigAPIHidesTokenHashes(t *testing.T) {
 	}
 	if strings.Contains(body, `"host"`) || !strings.Contains(body, `"expose":{"mode":"none","interfaces":[]}`) {
 		t.Fatalf("server exposure view is invalid: %s", body)
-	}
-}
-
-func TestConfigAPIHidesClusterRelayToken(t *testing.T) {
-	cfg := config.Default()
-	cfg.Cluster = config.ClusterConfig{Enabled: true, RelayURL: "wss://relay.example.test/cluster", RelayToken: "cluster-secret"}
-	recorder := httptest.NewRecorder()
-	New(API{Config: config.NewRuntimeStore(cfg)}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/config", nil))
-	body := recorder.Body.String()
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", recorder.Code, body)
-	}
-	if strings.Contains(body, "cluster-secret") || !strings.Contains(body, `"relay_token_configured":true`) || !strings.Contains(body, `"relay_url":"wss://relay.example.test/cluster"`) {
-		t.Fatalf("cluster config response = %s", body)
-	}
-}
-
-func TestConfigAPIClusterReloadIsTransactional(t *testing.T) {
-	cfg := config.Default()
-	cfg.Auth.MCPEnabled = false
-	cfg.Auth.AdminEnabled = false
-	store := config.NewRuntimeStore(cfg)
-	var saved []config.Config
-	handler := New(API{
-		Config:     store,
-		saveConfig: func(next config.Config) error { saved = append(saved, next); return nil },
-		ReloadConfig: func(next config.Config) error {
-			if next.Cluster.RelayURL == "wss://broken.example.test/cluster" {
-				return errors.New("relay unavailable")
-			}
-			_, err := store.Update(func(config.Config) (config.Config, error) { return next, nil })
-			return err
-		},
-	})
-
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"cluster":{"enabled":true,"relay_url":"wss://relay.example.test/cluster","relay_token":"cluster-secret"}}`)))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("enable status = %d: %s", recorder.Code, recorder.Body.String())
-	}
-	if got := store.Snapshot().Cluster; !got.Enabled || got.RelayURL != "wss://relay.example.test/cluster" || got.RelayToken != "cluster-secret" {
-		t.Fatalf("live cluster config = %#v", got)
-	}
-	if strings.Contains(recorder.Body.String(), "cluster-secret") || !strings.Contains(recorder.Body.String(), `"relay_token_configured":true`) {
-		t.Fatalf("enable response leaked token: %s", recorder.Body.String())
-	}
-
-	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"cluster":{"enabled":true,"relay_url":"wss://broken.example.test/cluster"}}`)))
-	if recorder.Code != http.StatusInternalServerError || !strings.Contains(recorder.Body.String(), "relay unavailable") {
-		t.Fatalf("broken status = %d: %s", recorder.Code, recorder.Body.String())
-	}
-	if got := store.Snapshot().Cluster; got.RelayURL != "wss://relay.example.test/cluster" || got.RelayToken != "cluster-secret" {
-		t.Fatalf("cluster config changed after reload failure: %#v", got)
-	}
-	if len(saved) != 3 || saved[2].Cluster.RelayURL != "wss://relay.example.test/cluster" {
-		t.Fatalf("persistence rollback = %#v", saved)
 	}
 }
 
@@ -612,23 +554,5 @@ func TestTunnelAdminKeyRejectsFailedVerification(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel/admin/key", strings.NewReader(`{"admin_key":"sk-denied","workspace_id":"ws_admin"}`)))
 	if recorder.Code != http.StatusBadRequest || store.Snapshot().Tunnel.AdminKey != "" {
 		t.Fatalf("status=%d config=%#v body=%s", recorder.Code, store.Snapshot().Tunnel, recorder.Body.String())
-	}
-}
-
-func TestClusterStatusAPI(t *testing.T) {
-	handler := New(API{ClusterStatus: func(context.Context) cluster.RuntimeStatus {
-		return cluster.RuntimeStatus{Enabled: true, Connected: true, InstanceID: "inst_local", Name: "local", MemberCount: 2, OnlineMemberCount: 2, WorkspaceCount: 3, CatalogHash: "catalog", CatalogCompatible: true, TunnelRole: "leader", LeaderInstanceID: "inst_local", LeaderEpoch: 7}
-	}})
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/cluster", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
-	}
-	var status cluster.RuntimeStatus
-	if err := json.Unmarshal(recorder.Body.Bytes(), &status); err != nil {
-		t.Fatal(err)
-	}
-	if !status.Connected || status.InstanceID != "inst_local" || status.TunnelRole != "leader" || status.LeaderEpoch != 7 {
-		t.Fatalf("cluster status = %#v", status)
 	}
 }

@@ -1,13 +1,11 @@
 package admin
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 
-	"go.mewis.me/chatgpt-mcp/internal/cluster"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
@@ -20,16 +18,15 @@ import (
 const maxRequestBodyBytes int64 = 1 << 20
 
 type API struct {
-	Upstream      *upstream.Manager
-	Tools         *tools.Runtime
-	Workspaces    *workspace.Manager
-	Tunnel        *tunnel.Client
-	Config        *config.RuntimeStore
-	OAuth         *mcpoauth.Store
-	OAuthFlows    *mcpoauth.FlowManager
-	ClusterStatus func(context.Context) cluster.RuntimeStatus
-	ReloadConfig  func(config.Config) error
-	saveConfig    func(config.Config) error
+	Upstream     *upstream.Manager
+	Tools        *tools.Runtime
+	Workspaces   *workspace.Manager
+	Tunnel       *tunnel.Client
+	Config       *config.RuntimeStore
+	OAuth        *mcpoauth.Store
+	OAuthFlows   *mcpoauth.FlowManager
+	ReloadConfig func(config.Config) error
+	saveConfig   func(config.Config) error
 }
 
 type authSettings struct {
@@ -43,24 +40,15 @@ type publicConfig struct {
 	Server      config.ServerConfig      `json:"server"`
 	Admin       config.AdminConfig       `json:"admin"`
 	Auth        authSettings             `json:"auth"`
-	Cluster     clusterSettings          `json:"cluster"`
 	Permissions config.PermissionsConfig `json:"permissions"`
 	Shell       config.ShellConfig       `json:"shell"`
 	Features    config.FeaturesConfig    `json:"features"`
-}
-
-type clusterSettings struct {
-	Enabled              bool   `json:"enabled"`
-	RelayURL             string `json:"relay_url"`
-	RelayToken           string `json:"relay_token,omitempty"`
-	RelayTokenConfigured bool   `json:"relay_token_configured"`
 }
 
 type configPatch struct {
 	Server      *config.ServerConfig      `json:"server,omitempty"`
 	Admin       *config.AdminConfig       `json:"admin,omitempty"`
 	Auth        *authSettings             `json:"auth,omitempty"`
-	Cluster     *clusterSettings          `json:"cluster,omitempty"`
 	Permissions *config.PermissionsConfig `json:"permissions,omitempty"`
 	Shell       *config.ShellConfig       `json:"shell,omitempty"`
 	Features    *featurePatch             `json:"features,omitempty"`
@@ -83,13 +71,7 @@ func New(api API) http.Handler {
 		writeJSON(w, map[string]bool{"ok": true, "auth_enabled": authEnabled})
 	}))
 	mux.HandleFunc("/api/network/interfaces", api.handleNetworkInterfaces)
-	mux.HandleFunc("/api/cluster", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
-		if api.ClusterStatus == nil {
-			writeJSON(w, cluster.RuntimeStatus{})
-			return
-		}
-		writeJSON(w, api.ClusterStatus(r.Context()))
-	}))
+
 	mux.HandleFunc("/api/config", api.handleConfig)
 	mux.HandleFunc("/api/config/presets", api.handleConfigPresets)
 	mux.HandleFunc("/api/config/presets/", api.handleConfigPreset)
@@ -145,13 +127,7 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			next.Auth.MCPEnabled = patch.Auth.MCPEnabled
 			next.Auth.AdminEnabled = patch.Auth.AdminEnabled
 		}
-		if patch.Cluster != nil {
-			next.Cluster.Enabled = patch.Cluster.Enabled
-			next.Cluster.RelayURL = patch.Cluster.RelayURL
-			if patch.Cluster.RelayToken != "" {
-				next.Cluster.RelayToken = patch.Cluster.RelayToken
-			}
-		}
+
 		if patch.Permissions != nil {
 			var allowDirs []string
 			allowDirs, err = config.NormalizeAllowDirs(patch.Permissions.AllowDirs)
@@ -225,7 +201,6 @@ func (api API) upstreamManager() *upstream.Manager {
 func publicConfigView(cfg config.Config) publicConfig {
 	return publicConfig{
 		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell, Features: cfg.Features,
-		Cluster: clusterSettings{Enabled: cfg.Cluster.Enabled, RelayURL: cfg.Cluster.RelayURL, RelayTokenConfigured: cfg.Cluster.RelayToken != "" || cfg.Cluster.RelayTokenConfigured},
 		Auth: authSettings{
 			MCPEnabled: cfg.Auth.MCPEnabled, AdminEnabled: cfg.Auth.AdminEnabled,
 			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",

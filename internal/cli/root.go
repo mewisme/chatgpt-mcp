@@ -43,7 +43,6 @@ func newRootCommand() *cobra.Command {
 		authCommand(),
 		workspaceCommand(),
 		mcpCommand(),
-		clusterCommand(),
 		tunnelCommand(),
 		serveCommand(),
 		statusCommand(),
@@ -157,10 +156,6 @@ func purgeKeyringSecrets(root string) error {
 	if err != nil {
 		return err
 	}
-	clusterEntries, err := config.ClusterKeyringEntries(root)
-	if err != nil {
-		return err
-	}
 	oauthEntries, err := mcpoauth.NewStore(configformat.StructuredPath(root, "oauth")).KeyringEntries()
 	if err != nil {
 		return err
@@ -169,7 +164,7 @@ func purgeKeyringSecrets(root string) error {
 	if err != nil {
 		return err
 	}
-	entries = append(entries, clusterEntries...)
+	entries = append(entries, secretstore.Name("cluster", "relay-token"))
 	entries = append(entries, oauthEntries...)
 	entries = append(entries, upstreamEntries...)
 	changes := make([]secretstore.Change, 0, len(entries))

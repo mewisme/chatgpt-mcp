@@ -6,16 +6,38 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { adminApi, type ConfigPresetList, type NetworkInterface, type PublicConfig } from "@/lib/api"
+import {
+  adminApi,
+  type ConfigPresetList,
+  type NetworkInterface,
+  type PublicConfig,
+} from "@/lib/api"
 
 export function SettingsPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
@@ -28,13 +50,33 @@ export function SettingsPage() {
   const [error, setError] = useState("")
 
   useEffect(() => {
-    void Promise.all([adminApi.config(), adminApi.configPresets(), adminApi.networkInterfaces()]).then(([nextConfig, nextPresets, nextInterfaces]) => {
-      const normalized = normalizeConfig(nextConfig)
-      setConfig(normalized); setSavedConfig(normalized); setPresets(nextPresets); setInterfaces(nextInterfaces); setSelectedPreset(nextPresets.current === "custom" ? "" : nextPresets.current)
-    }).catch((value) => setError(errorText(value)))
+    void Promise.all([
+      adminApi.config(),
+      adminApi.configPresets(),
+      adminApi.networkInterfaces(),
+    ])
+      .then(([nextConfig, nextPresets, nextInterfaces]) => {
+        const normalized = normalizeConfig(nextConfig)
+        setConfig(normalized)
+        setSavedConfig(normalized)
+        setPresets(nextPresets)
+        setInterfaces(nextInterfaces)
+        setSelectedPreset(
+          nextPresets.current === "custom" ? "" : nextPresets.current
+        )
+      })
+      .catch((value) => setError(errorText(value)))
   }, [])
 
-  const dirty = useMemo(() => Boolean(config && savedConfig && JSON.stringify(config) !== JSON.stringify(savedConfig)), [config, savedConfig])
+  const dirty = useMemo(
+    () =>
+      Boolean(
+        config &&
+        savedConfig &&
+        JSON.stringify(config) !== JSON.stringify(savedConfig)
+      ),
+    [config, savedConfig]
+  )
 
   async function save() {
     if (!config) return
@@ -42,50 +84,619 @@ export function SettingsPage() {
     try {
       const next = normalizeConfig(await adminApi.saveConfig(config))
       const nextPresets = await adminApi.configPresets()
-      setConfig(next); setSavedConfig(next); setPresets(nextPresets); setSelectedPreset(nextPresets.current === "custom" ? "" : nextPresets.current)
-      setMessage("Saved. Runtime, cluster, listener, feature, auth, filesystem, and shell-path changes were applied live."); setError("")
-    } catch (value) { setError(errorText(value)); setMessage("") } finally { setBusy(false) }
+      setConfig(next)
+      setSavedConfig(next)
+      setPresets(nextPresets)
+      setSelectedPreset(
+        nextPresets.current === "custom" ? "" : nextPresets.current
+      )
+      setMessage(
+        "Saved. Runtime, listener, feature, auth, filesystem, and shell-path changes were applied live."
+      )
+      setError("")
+    } catch (value) {
+      setError(errorText(value))
+      setMessage("")
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function applyPreset() {
     if (!selectedPreset) return
     setBusy(true)
     try {
-      const next = normalizeConfig(await adminApi.applyConfigPreset(selectedPreset))
+      const next = normalizeConfig(
+        await adminApi.applyConfigPreset(selectedPreset)
+      )
       const nextPresets = await adminApi.configPresets()
-      setConfig(next); setSavedConfig(next); setPresets(nextPresets); setSelectedPreset(nextPresets.current === "custom" ? selectedPreset : nextPresets.current)
-      setMessage(`Preset ${selectedPreset} applied. Secrets, permissions, and shell paths were preserved.`); setError("")
-    } catch (value) { setError(errorText(value)); setMessage("") } finally { setBusy(false) }
+      setConfig(next)
+      setSavedConfig(next)
+      setPresets(nextPresets)
+      setSelectedPreset(
+        nextPresets.current === "custom" ? selectedPreset : nextPresets.current
+      )
+      setMessage(
+        `Preset ${selectedPreset} applied. Secrets, permissions, and shell paths were preserved.`
+      )
+      setError("")
+    } catch (value) {
+      setError(errorText(value))
+      setMessage("")
+    } finally {
+      setBusy(false)
+    }
   }
 
   function setExposureMode(mode: PublicConfig["server"]["expose"]["mode"]) {
     if (!config) return
     const current = config.server.expose.interfaces
     const exposed = mode !== "none"
-    setConfig({ ...config, server: { ...config.server, expose: { mode, interfaces: mode === "interfaces" ? current : [] } }, auth: exposed ? { ...config.auth, mcp_enabled: true, admin_enabled: config.admin.enabled ? true : config.auth.admin_enabled } : config.auth })
+    setConfig({
+      ...config,
+      server: {
+        ...config.server,
+        expose: { mode, interfaces: mode === "interfaces" ? current : [] },
+      },
+      auth: exposed
+        ? {
+            ...config.auth,
+            mcp_enabled: true,
+            admin_enabled: config.admin.enabled
+              ? true
+              : config.auth.admin_enabled,
+          }
+        : config.auth,
+    })
   }
 
   function toggleInterface(name: string, checked: boolean) {
     if (!config) return
     const selected = new Set(config.server.expose.interfaces)
-    if (checked) selected.add(name); else selected.delete(name)
-    setConfig({ ...config, server: { ...config.server, expose: { mode: "interfaces", interfaces: [...selected].sort() } } })
+    if (checked) selected.add(name)
+    else selected.delete(name)
+    setConfig({
+      ...config,
+      server: {
+        ...config.server,
+        expose: { mode: "interfaces", interfaces: [...selected].sort() },
+      },
+    })
   }
 
-  if (!config || !savedConfig || !presets) return <div className="text-sm text-muted-foreground">{error || "Loading settings..."}</div>
+  if (!config || !savedConfig || !presets)
+    return (
+      <div className="text-sm text-muted-foreground">
+        {error || "Loading settings..."}
+      </div>
+    )
   const selectedInterfaces = new Set(config.server.expose.interfaces)
   const exposed = config.server.expose.mode !== "none"
-  const exposureAuthReady = !exposed || (config.auth.mcp_enabled && config.auth.mcp_token_configured && (!config.admin.enabled || (config.auth.admin_enabled && config.auth.admin_token_configured)))
-  const clusterReady = !config.cluster.enabled || (config.cluster.relay_url.trim() !== "" && (config.cluster.relay_token_configured || Boolean(config.cluster.relay_token?.trim())))
-  const saveDisabled = busy || (config.server.expose.mode === "interfaces" && config.server.expose.interfaces.length === 0) || !exposureAuthReady || (exposed && !config.server.allow_insecure_http) || !clusterReady
+  const exposureAuthReady =
+    !exposed ||
+    (config.auth.mcp_enabled &&
+      config.auth.mcp_token_configured &&
+      (!config.admin.enabled ||
+        (config.auth.admin_enabled && config.auth.admin_token_configured)))
+  const saveDisabled =
+    busy ||
+    (config.server.expose.mode === "interfaces" &&
+      config.server.expose.interfaces.length === 0) ||
+    !exposureAuthReady ||
+    (exposed && !config.server.allow_insecure_http)
 
-  return <div className="space-y-6"><PageHeader title="Settings" description="Configure runtime listeners, cluster federation, security, filesystem access, features, and the managed execution environment." actions={<Badge variant="secondary">{presets.current}</Badge>} /><PageError message={error} />{message ? <Alert><AlertDescription>{message}</AlertDescription></Alert> : null}<Tabs defaultValue="general"><TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="general">General</TabsTrigger><TabsTrigger value="cluster">Cluster</TabsTrigger><TabsTrigger value="network">Network</TabsTrigger><TabsTrigger value="permissions">Permissions</TabsTrigger><TabsTrigger value="features">Features</TabsTrigger><TabsTrigger value="authentication">Authentication</TabsTrigger><TabsTrigger value="environment">Environment</TabsTrigger></TabsList><TabsContent className="mt-6 space-y-6" value="general"><Card><CardHeader><CardTitle>Config preset</CardTitle><CardDescription>Apply the same built-in presets used by the CLI. Secrets, filesystem permissions, shell paths, and cluster credentials are preserved.</CardDescription></CardHeader><CardContent><div className="flex flex-col gap-3 sm:flex-row"><Select value={selectedPreset} onValueChange={setSelectedPreset}><SelectTrigger className="w-full sm:w-64"><SelectValue placeholder="Select preset" /></SelectTrigger><SelectContent>{presets.presets.map((preset) => <SelectItem key={preset.name} value={preset.name}>{preset.name}</SelectItem>)}</SelectContent></Select><Button disabled={busy || !selectedPreset} variant="outline" onClick={() => void applyPreset()}>Apply preset</Button></div>{selectedPreset ? <p className="mt-3 text-sm text-muted-foreground">{presets.presets.find((preset) => preset.name === selectedPreset)?.description}</p> : null}</CardContent></Card><Card><CardHeader><CardTitle>Runtime</CardTitle><CardDescription>Listener ports and Admin availability.</CardDescription></CardHeader><CardContent><FieldGroup><div className="grid gap-5 md:grid-cols-2"><SettingField label="Server port" description="MCP listener port."><Input max={65535} min={1} type="number" value={config.server.port} onChange={(event) => setConfig({ ...config, server: { ...config.server, port: Number(event.target.value) } })} /></SettingField><SettingField label="Admin port" description="Admin API and dashboard port."><Input max={65535} min={1} type="number" value={config.admin.port} onChange={(event) => setConfig({ ...config, admin: { ...config.admin, port: Number(event.target.value) } })} /></SettingField></div><Toggle label="Admin enabled" description="Serve the local Admin API and dashboard." checked={config.admin.enabled} onCheckedChange={(enabled) => setConfig({ ...config, admin: { ...config.admin, enabled } })} /></FieldGroup></CardContent></Card></TabsContent><TabsContent className="mt-6" value="cluster"><Card><CardHeader><CardTitle>Cluster federation</CardTitle><CardDescription>Join this runtime to a relay so registered workspaces can be routed across multiple chatgpt-mcp instances.</CardDescription></CardHeader><CardContent><FieldGroup><Toggle label="Cluster enabled" description="Connect this runtime to the configured cluster relay." checked={config.cluster.enabled} onCheckedChange={(enabled) => setConfig({ ...config, cluster: { ...config.cluster, enabled } })} /><SettingField label="Relay URL" description="Use wss:// for remote relays. ws:// is accepted only for loopback."><Input placeholder="wss://relay.example.com/cluster" value={config.cluster.relay_url} onChange={(event) => setConfig({ ...config, cluster: { ...config.cluster, relay_url: event.target.value } })} /></SettingField><SettingField label="Relay token" description={config.cluster.relay_token_configured ? "A token is configured. Leave blank to keep it, or enter a new token to rotate it." : "Required before cluster federation can be enabled."}><Input autoComplete="new-password" placeholder={config.cluster.relay_token_configured ? "Configured - enter a new token to rotate" : "Cluster relay token"} type="password" value={config.cluster.relay_token || ""} onChange={(event) => setConfig({ ...config, cluster: { ...config.cluster, relay_token: event.target.value } })} /></SettingField><div className="flex flex-wrap gap-2"><Badge variant={config.cluster.relay_token_configured ? "secondary" : "outline"}>{config.cluster.relay_token_configured ? "Token configured" : "Token missing"}</Badge><Badge variant={clusterReady ? "secondary" : "destructive"}>{clusterReady ? "Configuration ready" : "Configuration incomplete"}</Badge></div>{config.cluster.enabled && !clusterReady ? <Alert variant="destructive"><AlertDescription>Cluster requires a relay URL and configured relay token before it can be enabled.</AlertDescription></Alert> : null}</FieldGroup></CardContent></Card></TabsContent><TabsContent className="mt-6" value="network"><Card><CardHeader><CardTitle>Network exposure</CardTitle><CardDescription>Choose which interfaces receive direct MCP and Admin listeners.</CardDescription></CardHeader><CardContent className="space-y-5"><RadioGroup value={config.server.expose.mode} onValueChange={(value) => setExposureMode(value as PublicConfig["server"]["expose"]["mode"])}><ExposureOption value="none" title="Local only" description="Bind MCP and Admin only to 127.0.0.1." /><ExposureOption value="all" title="All active interfaces" description="Keep loopback and bind every currently active eligible IPv4 and IPv6 address." /><ExposureOption value="interfaces" title="Selected interfaces" description="Keep loopback and bind eligible IPv4 and IPv6 addresses only on selected interfaces." /><ExposureOption value="0.0.0.0" title="Wildcard 0.0.0.0" description="Bind every IPv4 interface, including interfaces that appear later." /></RadioGroup>{config.server.expose.mode === "interfaces" ? <div className="space-y-2 rounded-lg border p-3">{interfaces.length === 0 ? <div className="text-sm text-muted-foreground">No eligible active network interfaces detected.</div> : interfaces.map((iface) => <label className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 hover:bg-muted/50" key={iface.name}><Checkbox checked={selectedInterfaces.has(iface.name)} onCheckedChange={(checked) => toggleInterface(iface.name, checked === true)} /><div className="min-w-0 flex-1"><div className="font-mono text-sm">{iface.name}</div><div className="mt-1 flex flex-wrap gap-2">{iface.addresses.map((address) => <Badge key={address.address} variant="outline">{address.address} · {address.scope}</Badge>)}</div></div></label>)}</div> : null}{exposed && !exposureAuthReady ? <Alert variant="destructive"><AlertDescription>Direct network exposure requires configured MCP authentication and, when Admin is enabled, configured Admin authentication.</AlertDescription></Alert> : null}{exposed ? <div className="space-y-3"><Toggle label="Allow authenticated HTTP beyond loopback" description="Acknowledge that direct non-loopback listeners are unencrypted HTTP." checked={config.server.allow_insecure_http} onCheckedChange={(allow_insecure_http) => setConfig({ ...config, server: { ...config.server, allow_insecure_http } })} />{!config.server.allow_insecure_http ? <Alert variant="destructive"><AlertDescription>Use this only on a trusted or encrypted network, or prefer Secure MCP Tunnel / a TLS reverse proxy.</AlertDescription></Alert> : null}</div> : null}</CardContent></Card></TabsContent><TabsContent className="mt-6" value="permissions"><Card><CardHeader><CardTitle>Filesystem access</CardTitle><CardDescription>Directories available to every registered workspace in addition to its own canonical root.</CardDescription></CardHeader><CardContent><SettingField label="Allowed directories" description="One absolute existing directory per line."><Textarea className="min-h-40 font-mono" placeholder={"/tmp\n/var/tmp/chatgpt-mcp"} value={config.permissions.allow_dirs.join("\n")} onChange={(event) => setConfig({ ...config, permissions: { allow_dirs: parseLines(event.target.value) } })} /></SettingField></CardContent></Card></TabsContent><TabsContent className="mt-6" value="features"><Card><CardHeader><CardTitle>Built-in features</CardTitle><CardDescription>Feature tool registration updates immediately after saving.</CardDescription></CardHeader><CardContent><FieldGroup><Toggle label="Ponytail" description="Enable Ponytail feature tools." checked={config.features.ponytail.enabled} onCheckedChange={(enabled) => setConfig({ ...config, features: { ...config.features, ponytail: { enabled } } })} /><Toggle label="Caveman" description="Enable Caveman feature tools." checked={config.features.caveman.enabled} onCheckedChange={(enabled) => setConfig({ ...config, features: { ...config.features, caveman: { enabled } } })} /></FieldGroup></CardContent></Card></TabsContent><TabsContent className="mt-6" value="authentication"><Card><CardHeader><CardTitle>Authentication</CardTitle><CardDescription>Authentication is mandatory for direct network exposure; Admin authentication is mandatory when its endpoint is exposed.</CardDescription></CardHeader><CardContent><FieldGroup><AuthToggle locked={exposed} label="MCP authentication" configured={config.auth.mcp_token_configured} checked={config.auth.mcp_enabled} command="cgm auth mcp create" onCheckedChange={(enabled) => setConfig({ ...config, auth: { ...config.auth, mcp_enabled: enabled } })} /><AuthToggle locked={exposed && config.admin.enabled} label="Admin authentication" configured={config.auth.admin_token_configured} checked={config.auth.admin_enabled} command="cgm auth admin create" onCheckedChange={(enabled) => setConfig({ ...config, auth: { ...config.auth, admin_enabled: enabled } })} /></FieldGroup></CardContent></Card></TabsContent><TabsContent className="mt-6" value="environment"><Card><CardHeader><CardTitle>Managed execution environment</CardTitle><CardDescription>Extra executable search paths prepended to the PATH snapshot captured by <code className="font-mono">cgm up</code> and <code className="font-mono">cgm up --system</code>.</CardDescription></CardHeader><CardContent><SettingField label="Additional PATH entries" description="One absolute directory per line. Arbitrary environment variables and secrets are intentionally not stored here."><Textarea className="min-h-40 font-mono" placeholder={"/opt/custom/bin\n/usr/local/cuda/bin"} value={config.shell.path.join("\n")} onChange={(event) => setConfig({ ...config, shell: { path: parseLines(event.target.value) } })} /></SettingField></CardContent></Card></TabsContent></Tabs>{dirty ? <div className="sticky bottom-4 z-10 mx-auto flex max-w-2xl flex-col gap-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between"><div className="text-sm"><div className="font-medium">Unsaved changes</div><div className="text-xs text-muted-foreground">Review and save the current settings before leaving this page.</div></div><ButtonGroup className="self-end sm:self-auto"><Button disabled={busy} variant="outline" onClick={() => { setConfig(savedConfig); setMessage(""); setError("") }}><Undo2 />Reset</Button><Button disabled={saveDisabled} onClick={() => void save()}><Save />{busy ? "Saving..." : "Save"}</Button></ButtonGroup></div> : null}</div>
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Settings"
+        description="Configure runtime listeners, security, filesystem access, features, and the managed execution environment."
+        actions={<Badge variant="secondary">{presets.current}</Badge>}
+      />
+      <PageError message={error} />
+      {message ? (
+        <Alert>
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+      ) : null}
+      <Tabs defaultValue="general">
+        <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="network">Network</TabsTrigger>
+          <TabsTrigger value="permissions">Permissions</TabsTrigger>
+          <TabsTrigger value="features">Features</TabsTrigger>
+          <TabsTrigger value="authentication">Authentication</TabsTrigger>
+          <TabsTrigger value="environment">Environment</TabsTrigger>
+        </TabsList>
+        <TabsContent className="mt-6 space-y-6" value="general">
+          <Card>
+            <CardHeader>
+              <CardTitle>Config preset</CardTitle>
+              <CardDescription>
+                Apply the same built-in presets used by the CLI. Secrets,
+                filesystem permissions, and shell paths are preserved.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Select
+                  value={selectedPreset}
+                  onValueChange={setSelectedPreset}
+                >
+                  <SelectTrigger className="w-full sm:w-64">
+                    <SelectValue placeholder="Select preset" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {presets.presets.map((preset) => (
+                      <SelectItem key={preset.name} value={preset.name}>
+                        {preset.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  disabled={busy || !selectedPreset}
+                  variant="outline"
+                  onClick={() => void applyPreset()}
+                >
+                  Apply preset
+                </Button>
+              </div>
+              {selectedPreset ? (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {
+                    presets.presets.find(
+                      (preset) => preset.name === selectedPreset
+                    )?.description
+                  }
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Runtime</CardTitle>
+              <CardDescription>
+                Listener ports and Admin availability.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup>
+                <div className="grid gap-5 md:grid-cols-2">
+                  <SettingField
+                    label="Server port"
+                    description="MCP listener port."
+                  >
+                    <Input
+                      max={65535}
+                      min={1}
+                      type="number"
+                      value={config.server.port}
+                      onChange={(event) =>
+                        setConfig({
+                          ...config,
+                          server: {
+                            ...config.server,
+                            port: Number(event.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </SettingField>
+                  <SettingField
+                    label="Admin port"
+                    description="Admin API and dashboard port."
+                  >
+                    <Input
+                      max={65535}
+                      min={1}
+                      type="number"
+                      value={config.admin.port}
+                      onChange={(event) =>
+                        setConfig({
+                          ...config,
+                          admin: {
+                            ...config.admin,
+                            port: Number(event.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </SettingField>
+                </div>
+                <Toggle
+                  label="Admin enabled"
+                  description="Serve the local Admin API and dashboard."
+                  checked={config.admin.enabled}
+                  onCheckedChange={(enabled) =>
+                    setConfig({
+                      ...config,
+                      admin: { ...config.admin, enabled },
+                    })
+                  }
+                />
+              </FieldGroup>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent className="mt-6" value="network">
+          <Card>
+            <CardHeader>
+              <CardTitle>Network exposure</CardTitle>
+              <CardDescription>
+                Choose which interfaces receive direct MCP and Admin listeners.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <RadioGroup
+                value={config.server.expose.mode}
+                onValueChange={(value) =>
+                  setExposureMode(
+                    value as PublicConfig["server"]["expose"]["mode"]
+                  )
+                }
+              >
+                <ExposureOption
+                  value="none"
+                  title="Local only"
+                  description="Bind MCP and Admin only to 127.0.0.1."
+                />
+                <ExposureOption
+                  value="all"
+                  title="All active interfaces"
+                  description="Keep loopback and bind every currently active eligible IPv4 and IPv6 address."
+                />
+                <ExposureOption
+                  value="interfaces"
+                  title="Selected interfaces"
+                  description="Keep loopback and bind eligible IPv4 and IPv6 addresses only on selected interfaces."
+                />
+                <ExposureOption
+                  value="0.0.0.0"
+                  title="Wildcard 0.0.0.0"
+                  description="Bind every IPv4 interface, including interfaces that appear later."
+                />
+              </RadioGroup>
+              {config.server.expose.mode === "interfaces" ? (
+                <div className="space-y-2 rounded-lg border p-3">
+                  {interfaces.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      No eligible active network interfaces detected.
+                    </div>
+                  ) : (
+                    interfaces.map((iface) => (
+                      <label
+                        className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 hover:bg-muted/50"
+                        key={iface.name}
+                      >
+                        <Checkbox
+                          checked={selectedInterfaces.has(iface.name)}
+                          onCheckedChange={(checked) =>
+                            toggleInterface(iface.name, checked === true)
+                          }
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono text-sm">{iface.name}</div>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {iface.addresses.map((address) => (
+                              <Badge key={address.address} variant="outline">
+                                {address.address} · {address.scope}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      </label>
+                    ))
+                  )}
+                </div>
+              ) : null}
+              {exposed && !exposureAuthReady ? (
+                <Alert variant="destructive">
+                  <AlertDescription>
+                    Direct network exposure requires configured MCP
+                    authentication and, when Admin is enabled, configured Admin
+                    authentication.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              {exposed ? (
+                <div className="space-y-3">
+                  <Toggle
+                    label="Allow authenticated HTTP beyond loopback"
+                    description="Acknowledge that direct non-loopback listeners are unencrypted HTTP."
+                    checked={config.server.allow_insecure_http}
+                    onCheckedChange={(allow_insecure_http) =>
+                      setConfig({
+                        ...config,
+                        server: { ...config.server, allow_insecure_http },
+                      })
+                    }
+                  />
+                  {!config.server.allow_insecure_http ? (
+                    <Alert variant="destructive">
+                      <AlertDescription>
+                        Use this only on a trusted or encrypted network, or
+                        prefer Secure MCP Tunnel / a TLS reverse proxy.
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent className="mt-6" value="permissions">
+          <Card>
+            <CardHeader>
+              <CardTitle>Filesystem access</CardTitle>
+              <CardDescription>
+                Directories available to every registered workspace in addition
+                to its own canonical root.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SettingField
+                label="Allowed directories"
+                description="One absolute existing directory per line."
+              >
+                <Textarea
+                  className="min-h-40 font-mono"
+                  placeholder={"/tmp\n/var/tmp/chatgpt-mcp"}
+                  value={config.permissions.allow_dirs.join("\n")}
+                  onChange={(event) =>
+                    setConfig({
+                      ...config,
+                      permissions: {
+                        allow_dirs: parseLines(event.target.value),
+                      },
+                    })
+                  }
+                />
+              </SettingField>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent className="mt-6" value="features">
+          <Card>
+            <CardHeader>
+              <CardTitle>Built-in features</CardTitle>
+              <CardDescription>
+                Feature tool registration updates immediately after saving.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup>
+                <Toggle
+                  label="Ponytail"
+                  description="Enable Ponytail feature tools."
+                  checked={config.features.ponytail.enabled}
+                  onCheckedChange={(enabled) =>
+                    setConfig({
+                      ...config,
+                      features: { ...config.features, ponytail: { enabled } },
+                    })
+                  }
+                />
+                <Toggle
+                  label="Caveman"
+                  description="Enable Caveman feature tools."
+                  checked={config.features.caveman.enabled}
+                  onCheckedChange={(enabled) =>
+                    setConfig({
+                      ...config,
+                      features: { ...config.features, caveman: { enabled } },
+                    })
+                  }
+                />
+              </FieldGroup>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent className="mt-6" value="authentication">
+          <Card>
+            <CardHeader>
+              <CardTitle>Authentication</CardTitle>
+              <CardDescription>
+                Authentication is mandatory for direct network exposure; Admin
+                authentication is mandatory when its endpoint is exposed.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup>
+                <AuthToggle
+                  locked={exposed}
+                  label="MCP authentication"
+                  configured={config.auth.mcp_token_configured}
+                  checked={config.auth.mcp_enabled}
+                  command="cgm auth mcp create"
+                  onCheckedChange={(enabled) =>
+                    setConfig({
+                      ...config,
+                      auth: { ...config.auth, mcp_enabled: enabled },
+                    })
+                  }
+                />
+                <AuthToggle
+                  locked={exposed && config.admin.enabled}
+                  label="Admin authentication"
+                  configured={config.auth.admin_token_configured}
+                  checked={config.auth.admin_enabled}
+                  command="cgm auth admin create"
+                  onCheckedChange={(enabled) =>
+                    setConfig({
+                      ...config,
+                      auth: { ...config.auth, admin_enabled: enabled },
+                    })
+                  }
+                />
+              </FieldGroup>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent className="mt-6" value="environment">
+          <Card>
+            <CardHeader>
+              <CardTitle>Managed execution environment</CardTitle>
+              <CardDescription>
+                Extra executable search paths prepended to the PATH snapshot
+                captured by <code className="font-mono">cgm up</code> and{" "}
+                <code className="font-mono">cgm up --system</code>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SettingField
+                label="Additional PATH entries"
+                description="One absolute directory per line. Arbitrary environment variables and secrets are intentionally not stored here."
+              >
+                <Textarea
+                  className="min-h-40 font-mono"
+                  placeholder={"/opt/custom/bin\n/usr/local/cuda/bin"}
+                  value={config.shell.path.join("\n")}
+                  onChange={(event) =>
+                    setConfig({
+                      ...config,
+                      shell: { path: parseLines(event.target.value) },
+                    })
+                  }
+                />
+              </SettingField>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+      {dirty ? (
+        <div className="sticky bottom-4 z-10 mx-auto flex max-w-2xl flex-col gap-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm">
+            <div className="font-medium">Unsaved changes</div>
+            <div className="text-xs text-muted-foreground">
+              Review and save the current settings before leaving this page.
+            </div>
+          </div>
+          <ButtonGroup className="self-end sm:self-auto">
+            <Button
+              disabled={busy}
+              variant="outline"
+              onClick={() => {
+                setConfig(savedConfig)
+                setMessage("")
+                setError("")
+              }}
+            >
+              <Undo2 />
+              Reset
+            </Button>
+            <Button disabled={saveDisabled} onClick={() => void save()}>
+              <Save />
+              {busy ? "Saving..." : "Save"}
+            </Button>
+          </ButtonGroup>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
-function SettingField({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) { return <Field><FieldLabel>{label}</FieldLabel>{children}{description ? <FieldDescription>{description}</FieldDescription> : null}</Field> }
-function Toggle({ label, description, checked, onCheckedChange }: { label: string; description: string; checked: boolean; onCheckedChange: (checked: boolean) => void }) { return <Field orientation="horizontal"><div className="min-w-0 flex-1"><FieldLabel>{label}</FieldLabel><FieldDescription>{description}</FieldDescription></div><Switch checked={checked} onCheckedChange={onCheckedChange} /></Field> }
-function ExposureOption({ value, title, description }: { value: string; title: string; description: string }) { return <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/40"><RadioGroupItem className="mt-0.5" value={value} /><div><div className="text-sm font-medium">{title}</div><div className="text-sm text-muted-foreground">{description}</div></div></label> }
-function AuthToggle({ label, configured, command, checked, locked = false, onCheckedChange }: { label: string; configured: boolean; command: string; checked: boolean; locked?: boolean; onCheckedChange: (checked: boolean) => void }) { return <Field orientation="horizontal"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><FieldLabel>{label}</FieldLabel><Badge variant={configured ? "secondary" : "outline"}>{configured ? "Token configured" : "Token missing"}</Badge></div>{!configured ? <FieldDescription className="font-mono">{command}</FieldDescription> : null}</div><Switch checked={checked} disabled={locked || (!configured && !checked)} onCheckedChange={onCheckedChange} /></Field> }
-function normalizeConfig(value: PublicConfig): PublicConfig { return { ...value, cluster: value.cluster || { enabled: false, relay_url: "", relay_token_configured: false }, shell: value.shell || { path: [] } } }
-function parseLines(value: string) { return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) }
-function errorText(value: unknown) { return value instanceof Error ? value.message : String(value) }
+function SettingField({
+  label,
+  description,
+  children,
+}: {
+  label: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      {children}
+      {description ? <FieldDescription>{description}</FieldDescription> : null}
+    </Field>
+  )
+}
+function Toggle({
+  label,
+  description,
+  checked,
+  onCheckedChange,
+}: {
+  label: string
+  description: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <Field orientation="horizontal">
+      <div className="min-w-0 flex-1">
+        <FieldLabel>{label}</FieldLabel>
+        <FieldDescription>{description}</FieldDescription>
+      </div>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </Field>
+  )
+}
+function ExposureOption({
+  value,
+  title,
+  description,
+}: {
+  value: string
+  title: string
+  description: string
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/40">
+      <RadioGroupItem className="mt-0.5" value={value} />
+      <div>
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-sm text-muted-foreground">{description}</div>
+      </div>
+    </label>
+  )
+}
+function AuthToggle({
+  label,
+  configured,
+  command,
+  checked,
+  locked = false,
+  onCheckedChange,
+}: {
+  label: string
+  configured: boolean
+  command: string
+  checked: boolean
+  locked?: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <Field orientation="horizontal">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <FieldLabel>{label}</FieldLabel>
+          <Badge variant={configured ? "secondary" : "outline"}>
+            {configured ? "Token configured" : "Token missing"}
+          </Badge>
+        </div>
+        {!configured ? (
+          <FieldDescription className="font-mono">{command}</FieldDescription>
+        ) : null}
+      </div>
+      <Switch
+        checked={checked}
+        disabled={locked || (!configured && !checked)}
+        onCheckedChange={onCheckedChange}
+      />
+    </Field>
+  )
+}
+function normalizeConfig(value: PublicConfig): PublicConfig {
+  return { ...value, shell: value.shell || { path: [] } }
+}
+function parseLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+function errorText(value: unknown) {
+  return value instanceof Error ? value.message : String(value)
+}

@@ -10,7 +10,7 @@ import (
 
 const DefaultImportMaxDepth = 4
 
-var htmlCommentPattern = regexp.MustCompile("(?s)<!--[\\s\\S]*?-->")
+var htmlCommentPattern = regexp.MustCompile(`(?s)<!--.*?-->`)
 
 type importExpander struct {
 	roots      []string
@@ -31,8 +31,9 @@ func newImportExpander(roots []string, home string, maxDepth, maxBytes, maxLines
 
 func (e *importExpander) expand(content, sourcePath string) string {
 	visited := map[string]bool{}
-	if absolute, err := filepath.Abs(sourcePath); err == nil {
-		visited[filepath.Clean(absolute)] = true
+	if canonical, err := canonicalEnvironmentPath(sourcePath); err == nil {
+		visited[canonical] = true
+		sourcePath = canonical
 	}
 	return e.expandDepth(stripHTMLComments(content), filepath.Dir(sourcePath), visited, 0)
 }

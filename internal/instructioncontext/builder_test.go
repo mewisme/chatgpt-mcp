@@ -45,6 +45,7 @@ func TestBuildAssemblesInstructionContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	root = canonicalTestPath(t, root)
 	if value.Root != root || value.WorkspaceID != "ws_test" || value.LoadedAt != loadedAt || value.InstructionBytes != len([]byte(value.InstructionsText)) {
 		t.Fatalf("value = %#v", value)
 	}

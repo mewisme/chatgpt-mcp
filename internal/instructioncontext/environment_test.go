@@ -23,6 +23,9 @@ func TestLoadEnvironmentSnapshot(t *testing.T) {
 	if snapshot.Platform != runtime.GOOS || snapshot.OS != runtime.GOOS || snapshot.Arch != runtime.GOARCH || snapshot.Go != runtime.Version() || snapshot.PID != os.Getpid() {
 		t.Fatalf("runtime snapshot = %#v", snapshot)
 	}
+	root = canonicalTestPath(t, root)
+	allowed = canonicalTestPath(t, allowed)
+	cwd = canonicalTestPath(t, cwd)
 	if snapshot.WorkspaceID != "ws_test" || snapshot.WorkspaceRoot != root || snapshot.CWD != cwd {
 		t.Fatalf("workspace snapshot = %#v", snapshot)
 	}
@@ -40,6 +43,7 @@ func TestLoadEnvironmentSnapshotDefaultsCWDAndRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	root = canonicalTestPath(t, root)
 	if snapshot.CWD != root || len(snapshot.EffectiveRoots) != 1 || snapshot.EffectiveRoots[0] != root {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
@@ -87,6 +91,7 @@ func TestLoadEnvironmentSnapshotCanonicalizesSymlinkPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	root = canonicalTestPath(t, root)
 	if snapshot.WorkspaceRoot != root || snapshot.CWD != root || len(snapshot.EffectiveRoots) != 1 || snapshot.EffectiveRoots[0] != root {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}

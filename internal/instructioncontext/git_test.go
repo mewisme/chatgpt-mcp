@@ -45,6 +45,7 @@ func TestLoadGitSnapshotRepoStatusAndRecentCommits(t *testing.T) {
 	}
 
 	snapshot := LoadGitSnapshot(context.Background(), root, GitSnapshotOptions{WorkspaceRoots: []string{root}})
+	root = canonicalTestPath(t, root)
 	if !snapshot.IsRepo || snapshot.Root != root || snapshot.Branch != "main" || snapshot.Error != "" {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}

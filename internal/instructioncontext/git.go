@@ -21,11 +21,10 @@ type GitSnapshotOptions struct {
 }
 
 func LoadGitSnapshot(ctx context.Context, cwd string, opts GitSnapshotOptions) GitSnapshot {
-	absolute, err := filepath.Abs(cwd)
+	cwd, err := canonicalEnvironmentPath(cwd)
 	if err != nil {
 		return GitSnapshot{Error: err.Error()}
 	}
-	cwd = filepath.Clean(absolute)
 	roots := cleanPaths(opts.WorkspaceRoots)
 	if len(roots) == 0 {
 		roots = []string{cwd}

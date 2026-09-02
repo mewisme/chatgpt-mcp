@@ -141,7 +141,8 @@ func TestFormatInstructionsGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if actual != strings.TrimSuffix(string(expected), "\n") {
+	expectedText := strings.ReplaceAll(string(expected), "\r\n", "\n")
+	if actual != strings.TrimSuffix(expectedText, "\n") {
 		t.Fatalf("formatted instructions differ from golden\n--- actual ---\n%s\n--- expected ---\n%s", actual, expected)
 	}
 }

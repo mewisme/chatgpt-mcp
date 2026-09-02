@@ -59,11 +59,10 @@ var fallbackUserMemoryCandidates = []memoryCandidate{
 }
 
 func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle, error) {
-	absolute, err := filepath.Abs(root)
+	root, err := canonicalEnvironmentPath(root)
 	if err != nil {
 		return ProjectMemoryBundle{}, err
 	}
-	root = filepath.Clean(absolute)
 	workspaceRoots := opts.WorkspaceRoots
 	if len(workspaceRoots) == 0 {
 		workspaceRoots = []string{root}
@@ -206,12 +205,14 @@ func limitInstructionText(data []byte, maxBytes, maxLines int) (string, bool) {
 
 func cleanPaths(values []string) []string {
 	result := make([]string, 0, len(values))
+	seen := map[string]bool{}
 	for _, value := range values {
-		absolute, err := filepath.Abs(value)
-		if err != nil {
+		canonical, err := canonicalEnvironmentPath(value)
+		if err != nil || seen[canonical] {
 			continue
 		}
-		result = append(result, filepath.Clean(absolute))
+		seen[canonical] = true
+		result = append(result, canonical)
 	}
 	return result
 }

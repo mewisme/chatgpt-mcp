@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ type testClusterRuntime struct {
 	node      *cluster.Node
 }
 
-func newTestClusterRuntime(t *testing.T, relay *cluster.MemoryRelay, workspaceRoot string) testClusterRuntime {
+func newTestClusterRuntime(t *testing.T, transport cluster.Transport, workspaceRoot string) testClusterRuntime {
 	t.Helper()
 	configRoot := t.TempDir()
 	workspaces := workspace.NewManager(filepath.Join(configRoot, "workspaces.json"))
@@ -40,7 +41,7 @@ func newTestClusterRuntime(t *testing.T, relay *cluster.MemoryRelay, workspaceRo
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := cluster.NewNode(relay, advertisement, runtime.ClusterRPCHandler)
+	node := cluster.NewNode(transport, advertisement, runtime.ClusterRPCHandler)
 	runtime.SetClusterNode(node)
 	return testClusterRuntime{runtime: runtime, workspace: item, node: node}
 }
@@ -190,4 +191,47 @@ func TestRemoteToolNotFoundPreservesProtocolError(t *testing.T) {
 	if !errors.Is(err, ErrToolNotFound) {
 		t.Fatalf("error = %v, want ErrToolNotFound", err)
 	}
+}
+
+func TestRuntimeRoutesWorkspaceToolCallOverWebSocketRelay(t *testing.T) {
+	server := httptest.NewServer(cluster.NewRelayServer("cluster-secret"))
+	defer server.Close()
+	relayURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	first := newTestClusterRuntime(t, cluster.NewWebSocketTransport(relayURL, "cluster-secret"), t.TempDir())
+	secondRoot := t.TempDir()
+	second := newTestClusterRuntime(t, cluster.NewWebSocketTransport(relayURL, "cluster-secret"), secondRoot)
+	startTestClusterRuntime(t, ctx, first)
+	startTestClusterRuntime(t, ctx, second)
+	if err := os.WriteFile(filepath.Join(secondRoot, "wire.txt"), []byte("over-websocket"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var receiver, executor []CallObservation
+	first.runtime.CallObserver = func(value CallObservation) { receiver = append(receiver, value) }
+	second.runtime.CallObserver = func(value CallObservation) { executor = append(executor, value) }
+	result, err := first.runtime.Call(WithCallSource(ctx, "tunnel"), "read_text_file", map[string]any{"workspace_id": second.workspace.ID, "path": "wire.txt"})
+	if err != nil || result.IsError {
+		t.Fatalf("WebSocket remote read failed: result=%#v err=%v", result, err)
+	}
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok || structured["content"] != "over-websocket" {
+		t.Fatalf("structured content = %#v", result.StructuredContent)
+	}
+	firstIdentity, _ := first.runtime.Workspaces.Instance()
+	secondIdentity, _ := second.runtime.Workspaces.Instance()
+	assertRoute := func(label string, observations []CallObservation, source string) {
+		t.Helper()
+		for _, observation := range observations {
+			if observation.Phase == "finish" && observation.Tool == "read_text_file" && observation.Source == source {
+				if observation.ReceivedByInstanceID != firstIdentity.ID || observation.ExecutedByInstanceID != secondIdentity.ID {
+					t.Fatalf("%s routing = %#v", label, observation)
+				}
+				return
+			}
+		}
+		t.Fatalf("%s observation missing: %#v", label, observations)
+	}
+	assertRoute("receiver", receiver, "tunnel")
+	assertRoute("executor", executor, "cluster")
 }

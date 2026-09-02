@@ -19,6 +19,7 @@ const tunnel = { provider: "openai", enabled: false, running: false, ready: fals
 
 describe("admin app runtime smoke", () => {
   beforeEach(() => {
+    window.history.replaceState({}, "", "/overview")
     adminToken.set("test-admin-token")
     vi.stubGlobal("fetch", vi.fn(mockFetch))
     document.title = ""
@@ -45,10 +46,29 @@ describe("admin app runtime smoke", () => {
       settings: "Config preset",
     }
     for (const item of navItems.slice(1)) {
-      await user.click(screen.getByRole("button", { name: item.title }))
+      await user.click(screen.getByRole("link", { name: item.title }))
       await waitFor(() => expect(document.title).toBe(adminDocumentTitle(item.title)))
+      expect(window.location.pathname).toBe(item.path)
       expect((await screen.findAllByText(pageSmokeText[item.id])).length).toBeGreaterThan(0)
     }
+  })
+
+  it("loads a deep-linked page and follows popstate navigation", async () => {
+    window.history.replaceState({}, "", "/tunnel")
+    renderAdminApp()
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Tunnel")))
+    expect((await screen.findAllByText("OpenAI Secure MCP Tunnel")).length).toBeGreaterThan(0)
+    window.history.pushState({}, "", "/tools")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Tools")))
+    expect(await screen.findByText("Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.")).toBeInTheDocument()
+  })
+
+  it("normalizes root and unknown paths to overview", async () => {
+    window.history.replaceState({}, "", "/missing")
+    renderAdminApp()
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Overview")))
+    expect(window.location.pathname).toBe("/overview")
   })
 
   it("uses a login title when admin authentication rejects the current token", async () => {

@@ -31,7 +31,11 @@ func (a *App) ReloadConfig(next config.Config) error {
 	if tunnelChanged && a.Tunnel != nil {
 		var err error
 		if tunnelRuntimeChanged {
-			err = a.Tunnel.Reconfigure(next.Tunnel, func() error { return nil })
+			if a.tunnelLeader != nil {
+				err = a.tunnelLeader.Configure(next.Tunnel)
+			} else {
+				err = a.Tunnel.Reconfigure(next.Tunnel, func() error { return nil })
+			}
 		} else {
 			err = a.Tunnel.SyncManagementConfig(next.Tunnel)
 		}
@@ -54,7 +58,11 @@ func (a *App) rollbackRuntimeConfig(previous config.Config, featuresChanged, per
 	var rollbackErr error
 	if tunnelChanged && a.Tunnel != nil {
 		if tunnelRuntimeChanged {
-			rollbackErr = errors.Join(rollbackErr, a.Tunnel.Reconfigure(previous.Tunnel, func() error { return nil }))
+			if a.tunnelLeader != nil {
+				rollbackErr = errors.Join(rollbackErr, a.tunnelLeader.Configure(previous.Tunnel))
+			} else {
+				rollbackErr = errors.Join(rollbackErr, a.Tunnel.Reconfigure(previous.Tunnel, func() error { return nil }))
+			}
 		} else {
 			rollbackErr = errors.Join(rollbackErr, a.Tunnel.SyncManagementConfig(previous.Tunnel))
 		}

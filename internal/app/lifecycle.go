@@ -12,6 +12,10 @@ func (a *App) Start(ctx context.Context) error {
 	if a.Tunnel == nil {
 		return nil
 	}
+	if a.Tools != nil && a.Tools.ClusterNode() != nil {
+		a.tunnelLeader = newTunnelLeaderCoordinator(a.Tools.ClusterNode(), a.Tunnel, a.Logger)
+		return a.tunnelLeader.Start(ctx)
+	}
 	if err := a.Tunnel.StartContext(ctx); err != nil {
 		return err
 	}
@@ -26,7 +30,12 @@ func (a *App) Stop() error {
 		}
 		a.MCP.CloseSubscriptions()
 	}
-	if a.Tunnel != nil {
+	if a.tunnelLeader != nil {
+		if err := a.tunnelLeader.Stop(); err != nil {
+			first = err
+		}
+		a.tunnelLeader = nil
+	} else if a.Tunnel != nil {
 		if err := a.Tunnel.Stop(); err != nil {
 			first = err
 		}

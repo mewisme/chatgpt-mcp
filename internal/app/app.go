@@ -18,15 +18,16 @@ import (
 )
 
 type App struct {
-	Config     *config.RuntimeStore
-	MCP        *mcp.HTTPRuntime
-	Upstream   *upstream.Manager
-	Tools      *tools.Runtime
-	Activity   *activity.Stream
-	Tunnel     *tunnel.Client
-	Logger     *logger.Logger
-	OAuth      *mcpoauth.Store
-	OAuthFlows *mcpoauth.FlowManager
+	Config       *config.RuntimeStore
+	MCP          *mcp.HTTPRuntime
+	Upstream     *upstream.Manager
+	Tools        *tools.Runtime
+	Activity     *activity.Stream
+	Tunnel       *tunnel.Client
+	Logger       *logger.Logger
+	OAuth        *mcpoauth.Store
+	OAuthFlows   *mcpoauth.FlowManager
+	tunnelLeader *tunnelLeaderCoordinator
 }
 
 func New(cfg config.Config) *App { return NewWithLogger(cfg, nil) }

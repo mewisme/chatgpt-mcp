@@ -103,20 +103,31 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	if receivedBy == "" {
 		receivedBy = r.runtimeInstanceID()
 	}
-	workspaceID, _ := args["workspace_id"].(string)
+	workspaceID := ""
 	var preflightErr error
-	if workspaceID != "" && r.Workspaces != nil {
-		canonical, err := r.Workspaces.CanonicalID(workspaceID)
+	if schema, ok := r.Registry.Schema(name); ok {
+		workspaceScoped, err := schemaHasWorkspaceID(schema)
 		if err != nil {
 			preflightErr = err
-		} else {
-			if canonical != workspaceID {
-				args = cloneMap(args)
-				args["workspace_id"] = canonical
+		} else if workspaceScoped {
+			workspaceID, preflightErr = requiredString(args, "workspace_id")
+			if preflightErr == nil && r.Workspaces == nil {
+				preflightErr = errors.New("workspace manager is unavailable")
 			}
-			workspaceID = canonical
-			if sessionID := MCPSessionID(ctx); sessionID != "" {
-				_, _, preflightErr = r.sessionBinder().CheckOrBind(sessionID, workspaceID)
+			if preflightErr == nil {
+				canonical, err := r.Workspaces.CanonicalID(workspaceID)
+				if err != nil {
+					preflightErr = err
+				} else {
+					if canonical != workspaceID {
+						args = cloneMap(args)
+						args["workspace_id"] = canonical
+					}
+					workspaceID = canonical
+					if sessionID := MCPSessionID(ctx); sessionID != "" {
+						_, _, preflightErr = r.sessionBinder().CheckOrBind(sessionID, workspaceID)
+					}
+				}
 			}
 		}
 	}

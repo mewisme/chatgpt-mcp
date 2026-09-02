@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -265,6 +266,35 @@ func TestWorkspaceBoundSchemasDoNotExposeWorkingDirectory(t *testing.T) {
 		input := string(schema.InputSchema)
 		if strings.Contains(input, `"workspace_id"`) && strings.Contains(input, `"working_directory"`) {
 			t.Fatalf("%s still exposes working_directory: %s", schema.Name, schema.InputSchema)
+		}
+	}
+}
+
+func TestWorkspaceBoundSchemasRequireWorkspaceID(t *testing.T) {
+	runtime, _, _ := newToolTestRuntime(t)
+	for _, schema := range runtime.List() {
+		workspaceScoped, err := schemaHasWorkspaceID(schema)
+		if err != nil {
+			t.Fatalf("%s input schema: %v", schema.Name, err)
+		}
+		if !workspaceScoped {
+			continue
+		}
+		var input struct {
+			Required []string `json:"required"`
+		}
+		if err := json.Unmarshal(schema.InputSchema, &input); err != nil {
+			t.Fatalf("%s input schema: %v", schema.Name, err)
+		}
+		required := false
+		for _, name := range input.Required {
+			if name == "workspace_id" {
+				required = true
+				break
+			}
+		}
+		if !required {
+			t.Fatalf("%s declares workspace_id but does not require it: %s", schema.Name, schema.InputSchema)
 		}
 	}
 }

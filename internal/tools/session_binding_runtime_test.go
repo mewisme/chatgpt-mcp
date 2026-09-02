@@ -83,6 +83,30 @@ func TestRuntimeInvalidWorkspaceDoesNotBindSession(t *testing.T) {
 	}
 }
 
+func TestRuntimeWorkspaceSchemaRequiresExplicitWorkspaceID(t *testing.T) {
+	runtime, _, _, calls := newSessionBindingRuntime(t)
+	ctx := WithMCPSessionID(context.Background(), "session-a")
+	result, err := runtime.Call(ctx, "workspace_probe", map[string]any{})
+	if err != nil || !result.IsError || *calls != 0 || !strings.Contains(result.Content[0].Text, "workspace_id") {
+		t.Fatalf("missing workspace = %#v err=%v calls=%d", result, err, *calls)
+	}
+	if _, ok := runtime.SessionBindings.Lookup("session-a"); ok {
+		t.Fatal("missing workspace created a session binding")
+	}
+}
+
+func TestRuntimeIgnoresWorkspaceIDOnGlobalTool(t *testing.T) {
+	runtime, first, _, _ := newSessionBindingRuntime(t)
+	ctx := WithMCPSessionID(context.Background(), "session-a")
+	result, err := runtime.Call(ctx, "global_probe", map[string]any{"workspace_id": first})
+	if err != nil || result.IsError {
+		t.Fatalf("global tool = %#v err=%v", result, err)
+	}
+	if _, ok := runtime.SessionBindings.Lookup("session-a"); ok {
+		t.Fatal("global tool created a session binding from undeclared workspace_id")
+	}
+}
+
 func TestRuntimeNonWorkspaceToolDoesNotBindSession(t *testing.T) {
 	runtime, _, _, _ := newSessionBindingRuntime(t)
 	ctx := WithMCPSessionID(context.Background(), "session-a")

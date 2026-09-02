@@ -1,6 +1,9 @@
 package tools
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 type Schema struct {
 	Name         string          `json:"name"`
@@ -9,4 +12,18 @@ type Schema struct {
 	InputSchema  json.RawMessage `json:"inputSchema,omitempty"`
 	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
 	Annotations  map[string]any  `json:"annotations,omitempty"`
+}
+
+func schemaHasWorkspaceID(schema Schema) (bool, error) {
+	if len(schema.InputSchema) == 0 {
+		return false, nil
+	}
+	var input struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(schema.InputSchema, &input); err != nil {
+		return false, fmt.Errorf("decode tool %q input schema: %w", schema.Name, err)
+	}
+	_, ok := input.Properties["workspace_id"]
+	return ok, nil
 }

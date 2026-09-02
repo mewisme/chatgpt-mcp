@@ -56,6 +56,7 @@ type EnvironmentSnapshot struct {
 }
 
 type GitSnapshot struct {
+	Skipped         bool     `json:"skipped,omitempty"`
 	IsRepo          bool     `json:"is_repo"`
 	Root            string   `json:"root,omitempty"`
 	Branch          string   `json:"branch,omitempty"`
@@ -77,18 +78,19 @@ type ToolProfile struct {
 }
 
 type InstructionContext struct {
-	Root             string              `json:"root"`
-	WorkspaceID      string              `json:"workspace_id"`
-	WorkspaceRoots   []string            `json:"workspace_roots"`
-	Environment      EnvironmentSnapshot `json:"environment"`
-	Git              GitSnapshot         `json:"git"`
-	ProjectMemory    ProjectMemoryBundle `json:"project_memory"`
-	AutoMemory       AutoMemorySnapshot  `json:"auto_memory"`
-	Rules            []rules.Rule        `json:"rules"`
-	Skills           []skills.Skill      `json:"skills"`
-	ToolProfile      ToolProfile         `json:"tool_profile"`
-	AgentWorkflow    string              `json:"agent_workflow"`
-	InstructionsText string              `json:"instructions_text"`
-	InstructionBytes int                 `json:"instruction_bytes"`
-	LoadedAt         time.Time           `json:"loaded_at"`
+	Root                 string              `json:"root"`
+	WorkspaceID          string              `json:"workspace_id"`
+	WorkspaceRoots       []string            `json:"workspace_roots"`
+	Environment          EnvironmentSnapshot `json:"environment"`
+	Git                  GitSnapshot         `json:"git"`
+	ProjectMemory        ProjectMemoryBundle `json:"project_memory"`
+	AutoMemory           AutoMemorySnapshot  `json:"auto_memory"`
+	Rules                []rules.Rule        `json:"rules"`
+	Skills               []skills.Skill      `json:"skills"`
+	ToolProfile          ToolProfile         `json:"tool_profile"`
+	AgentWorkflow        string              `json:"agent_workflow"`
+	InstructionsText     string              `json:"instructions_text"`
+	InstructionBytes     int                 `json:"instruction_bytes"`
+	InstructionTruncated bool                `json:"instruction_truncated,omitempty"`
+	LoadedAt             time.Time           `json:"loaded_at"`
 }

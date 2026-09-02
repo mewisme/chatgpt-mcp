@@ -3,6 +3,7 @@ package instructioncontext
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"go.mewis.me/chatgpt-mcp/internal/rules"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
@@ -94,8 +95,24 @@ func TestFormatInstructionsDetachedAndNonRepoGit(t *testing.T) {
 func TestApplyFormattedInstructionsDefaultsWorkflow(t *testing.T) {
 	value := InstructionContext{ToolProfile: ToolProfile{Name: "full", Count: 1}}
 	ApplyFormattedInstructions(&value)
-	if value.AgentWorkflow != AgentWorkflow() || value.InstructionsText == "" || value.InstructionBytes != len([]byte(value.InstructionsText)) {
+	if value.AgentWorkflow != AgentWorkflow() || value.InstructionsText == "" || value.InstructionBytes != len([]byte(value.InstructionsText)) || value.InstructionTruncated {
 		t.Fatalf("value = %#v", value)
 	}
 	ApplyFormattedInstructions(nil)
+}
+
+func TestFormatInstructionsOmitsSkippedGit(t *testing.T) {
+	text, _ := FormatInstructions(InstructionContext{Git: GitSnapshot{Skipped: true}})
+	if strings.Contains(text, "## Git") {
+		t.Fatalf("skipped git rendered:\n%s", text)
+	}
+}
+
+func TestApplyFormattedInstructionsLimitUTF8(t *testing.T) {
+	value := InstructionContext{ProjectMemory: ProjectMemoryBundle{Sections: []Section{{Path: "/workspace/AGENTS.md", Kind: SectionProject, Content: strings.Repeat("🙂", 200)}}}}
+	ApplyFormattedInstructionsLimit(&value, 257)
+	if !value.InstructionTruncated || value.InstructionBytes > 257 || value.InstructionBytes != len([]byte(value.InstructionsText)) || !utf8.ValidString(value.InstructionsText) {
+		t.Fatalf("value = %#v", value)
+	}
+	ApplyFormattedInstructionsLimit(nil, 257)
 }

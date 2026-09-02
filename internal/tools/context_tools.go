@@ -42,6 +42,7 @@ type ProjectContextMemoryFile struct {
 }
 
 type ProjectContextGitSummary struct {
+	Skipped bool   `json:"skipped,omitempty"`
 	IsRepo  bool   `json:"is_repo"`
 	Branch  string `json:"branch,omitempty"`
 	Commits int    `json:"commits"`
@@ -124,7 +125,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		return JSONResult(value), nil
 	})
 
-	register("project_context", "Project Context", "Build the complete workspace instruction context with environment, Git, memory, rules, skills, and ready-to-use instructions.", workspaceOnlySchema(`"path":{"type":"string"},"max_depth":{"type":"integer","minimum":0,"maximum":5,"default":4},"max_bytes_per_file":{"type":"integer","minimum":1,"maximum":200000,"default":25000},`), `{"type":"object","properties":{"root":{"type":"string"},"workspace_id":{"type":"string"},"instruction_context":{"type":"object","additionalProperties":true},"summary":{"type":"object","additionalProperties":true}},"required":["root","workspace_id","instruction_context","summary"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("project_context", "Project Context", "Build the complete workspace instruction context with environment, Git, memory, rules, skills, and ready-to-use instructions.", workspaceOnlySchema(`"path":{"type":"string"},"max_instruction_bytes":{"type":"integer","minimum":1,"maximum":1000000,"default":100000},"max_section_bytes":{"type":"integer","minimum":1,"maximum":500000,"default":25000},"max_lines_per_section":{"type":"integer","minimum":1,"maximum":5000,"default":200},"include_git":{"type":"boolean","default":true},"include_memory":{"type":"boolean","default":true},"include_skills":{"type":"boolean","default":true},`), `{"type":"object","properties":{"root":{"type":"string"},"workspace_id":{"type":"string"},"instruction_context":{"type":"object","additionalProperties":true},"summary":{"type":"object","additionalProperties":true}},"required":["root","workspace_id","instruction_context","summary"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
 		item, cwd, err := workspaceLocation(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -147,11 +148,27 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 				return Result{}, errors.New("project_context path must be a directory")
 			}
 		}
-		maxDepth, err := optionalInt(args, "max_depth", instructioncontext.DefaultImportMaxDepth, 0, 5)
+		maxInstructionBytes, err := optionalInt(args, "max_instruction_bytes", instructioncontext.DefaultInstructionMaxBytes, 1, 1_000_000)
 		if err != nil {
 			return Result{}, err
 		}
-		maxBytes, err := optionalInt(args, "max_bytes_per_file", instructioncontext.DefaultSectionMaxBytes, 1, 200_000)
+		maxSectionBytes, err := optionalInt(args, "max_section_bytes", instructioncontext.DefaultSectionMaxBytes, 1, 500_000)
+		if err != nil {
+			return Result{}, err
+		}
+		maxLinesPerSection, err := optionalInt(args, "max_lines_per_section", instructioncontext.DefaultSectionMaxLines, 1, 5_000)
+		if err != nil {
+			return Result{}, err
+		}
+		includeGit, err := optionalBool(args, "include_git", true)
+		if err != nil {
+			return Result{}, err
+		}
+		includeMemory, err := optionalBool(args, "include_memory", true)
+		if err != nil {
+			return Result{}, err
+		}
+		includeSkills, err := optionalBool(args, "include_skills", true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -161,7 +178,9 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		}
 		value, err := instructioncontext.Build(ctx, instructioncontext.BuildOptions{
 			Root: root, WorkspaceID: item.ID, WorkspaceRoot: item.Path, CWD: cwd, WorkspaceRoots: roots, MemoryStore: memoryStore,
-			Memory: instructioncontext.MemoryLoadOptions{ImportMaxDepth: maxDepth, MaxBytesPerSection: maxBytes}, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())},
+			Memory:      instructioncontext.MemoryLoadOptions{ImportMaxDepth: instructioncontext.DefaultImportMaxDepth, MaxBytesPerSection: maxSectionBytes, MaxLinesPerSection: maxLinesPerSection},
+			ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())}, MaxInstructionBytes: maxInstructionBytes,
+			SkipGit: !includeGit, SkipMemory: !includeMemory, SkipSkills: !includeSkills,
 		})
 		if err != nil {
 			return Result{}, err
@@ -267,7 +286,7 @@ func projectContextResult(value instructioncontext.InstructionContext) ProjectCo
 		Root: value.Root, WorkspaceID: value.WorkspaceID, InstructionContext: value,
 		Summary: ProjectContextSummary{
 			MemoryFiles: files, MemoryBytes: value.ProjectMemory.TotalBytes, InstructionBytes: value.InstructionBytes,
-			Git:   ProjectContextGitSummary{IsRepo: value.Git.IsRepo, Branch: value.Git.Branch, Commits: len(value.Git.RecentCommits)},
+			Git:   ProjectContextGitSummary{Skipped: value.Git.Skipped, IsRepo: value.Git.IsRepo, Branch: value.Git.Branch, Commits: len(value.Git.RecentCommits)},
 			Rules: len(value.Rules), Skills: len(value.Skills),
 		},
 	}

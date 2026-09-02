@@ -117,6 +117,17 @@ func TestProjectContextOutputSchemaUsesInstructionBundle(t *testing.T) {
 	if !ok {
 		t.Fatal("missing project_context schema")
 	}
+	input := string(schema.InputSchema)
+	for _, expected := range []string{"\"max_instruction_bytes\"", "\"max_section_bytes\"", "\"max_lines_per_section\"", "\"include_git\"", "\"include_memory\"", "\"include_skills\""} {
+		if !strings.Contains(input, expected) {
+			t.Fatalf("input schema missing %s: %s", expected, input)
+		}
+	}
+	for _, legacy := range []string{"\"max_depth\"", "\"max_bytes_per_file\""} {
+		if strings.Contains(input, legacy) {
+			t.Fatalf("legacy project_context input remains %s: %s", legacy, input)
+		}
+	}
 	output := string(schema.OutputSchema)
 	for _, expected := range []string{"\"root\"", "\"workspace_id\"", "\"instruction_context\"", "\"summary\""} {
 		if !strings.Contains(output, expected) {
@@ -125,6 +136,54 @@ func TestProjectContextOutputSchemaUsesInstructionBundle(t *testing.T) {
 	}
 	if strings.Contains(output, "\"count\"") || strings.Contains(output, "\"files\":") {
 		t.Fatalf("legacy project_context output remains: %s", output)
+	}
+}
+
+func TestProjectContextInputControlsCollectorsAndLimits(t *testing.T) {
+	runtime, workspaceID, root, _ := newContextToolRuntime(t)
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("first line\nsecond line with more content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	skillDir := filepath.Join(root, ".agents", "skills", "test")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: test\ndescription: test skill\n---\nbody"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	skippedResult, err := runtime.Call(context.Background(), "project_context", map[string]any{
+		"workspace_id": workspaceID, "include_git": false, "include_memory": false, "include_skills": false,
+	})
+	if err != nil || skippedResult.IsError {
+		t.Fatalf("project_context skipped collectors failed: %#v %v", skippedResult, err)
+	}
+	skipped := skippedResult.StructuredContent.(ProjectContextResult)
+	if !skipped.InstructionContext.Git.Skipped || !skipped.Summary.Git.Skipped || len(skipped.InstructionContext.ProjectMemory.Sections) != 0 || len(skipped.InstructionContext.Skills) != 0 {
+		t.Fatalf("skipped context = %#v", skipped)
+	}
+	for _, heading := range []string{"## Git", "## Project instructions", "## User instructions", "## Skills"} {
+		if strings.Contains(skipped.InstructionContext.InstructionsText, heading) {
+			t.Fatalf("skipped heading %q rendered: %s", heading, skipped.InstructionContext.InstructionsText)
+		}
+	}
+
+	limitedResult, err := runtime.Call(context.Background(), "project_context", map[string]any{
+		"workspace_id": workspaceID, "max_instruction_bytes": 256, "max_section_bytes": 8, "max_lines_per_section": 1,
+	})
+	if err != nil || limitedResult.IsError {
+		t.Fatalf("project_context limits failed: %#v %v", limitedResult, err)
+	}
+	limited := limitedResult.StructuredContent.(ProjectContextResult)
+	if len(limited.InstructionContext.ProjectMemory.Sections) != 1 {
+		t.Fatalf("memory = %#v", limited.InstructionContext.ProjectMemory)
+	}
+	section := limited.InstructionContext.ProjectMemory.Sections[0]
+	if !section.Truncated || section.LoadedBytes > 8 || strings.Contains(section.Content, "second line") {
+		t.Fatalf("section = %#v", section)
+	}
+	if !limited.InstructionContext.InstructionTruncated || limited.InstructionContext.InstructionBytes > 256 {
+		t.Fatalf("instruction limit = %#v", limited.InstructionContext)
 	}
 }
 

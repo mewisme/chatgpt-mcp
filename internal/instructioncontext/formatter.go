@@ -3,10 +3,13 @@ package instructioncontext
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"go.mewis.me/chatgpt-mcp/internal/rules"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
 )
+
+const DefaultInstructionMaxBytes = 100_000
 
 const QuickPointers = `- Use load_path_rules(path) before editing files covered by path-scoped rules.
 - Use load_skill(name) only for skills whose summaries match the current task.
@@ -22,7 +25,9 @@ func FormatInstructions(value InstructionContext) (string, int) {
 		formatBlock("Agent workflow", workflow),
 		formatBlock("Tool profile", formatToolProfile(value.ToolProfile)),
 		formatBlock("Environment", formatEnvironment(value.Environment)),
-		formatBlock("Git", formatGit(value.Git)),
+	}
+	if !value.Git.Skipped {
+		blocks = append(blocks, formatBlock("Git", formatGit(value.Git)))
 	}
 	if value.AutoMemory.Loaded && strings.TrimSpace(value.AutoMemory.Content) != "" {
 		blocks = append(blocks, formatBlock("Auto memory", strings.TrimSpace(value.AutoMemory.Content)))
@@ -53,6 +58,27 @@ func ApplyFormattedInstructions(value *InstructionContext) {
 		value.AgentWorkflow = AgentWorkflow()
 	}
 	value.InstructionsText, value.InstructionBytes = FormatInstructions(*value)
+	value.InstructionTruncated = false
+}
+
+func ApplyFormattedInstructionsLimit(value *InstructionContext, maxBytes int) {
+	if value == nil {
+		return
+	}
+	if maxBytes <= 0 {
+		maxBytes = DefaultInstructionMaxBytes
+	}
+	ApplyFormattedInstructions(value)
+	if value.InstructionBytes <= maxBytes {
+		return
+	}
+	limited := []byte(value.InstructionsText)[:maxBytes]
+	for len(limited) > 0 && !utf8.Valid(limited) {
+		limited = limited[:len(limited)-1]
+	}
+	value.InstructionsText = string(limited)
+	value.InstructionBytes = len(limited)
+	value.InstructionTruncated = true
 }
 
 func formatBlock(title, content string) string {

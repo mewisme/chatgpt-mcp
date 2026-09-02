@@ -75,3 +75,42 @@ func TestBuildRejectsProjectRootOutsideWorkspaceRoots(t *testing.T) {
 		t.Fatal("expected project root outside workspace roots to fail")
 	}
 }
+
+func TestBuildSkipsOptionalCollectors(t *testing.T) {
+	root := t.TempDir()
+	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), "project instruction")
+	writeSkillFile(t, root, ".agents", "release", "release", "Release workflow", "body")
+	store := memory.NewStore(t.TempDir())
+	if _, err := store.Append("ws_test", "memory note"); err != nil {
+		t.Fatal(err)
+	}
+	value, err := Build(context.Background(), BuildOptions{
+		Root: root, WorkspaceID: "ws_test", WorkspaceRoot: root, CWD: root, WorkspaceRoots: []string{root}, MemoryStore: store,
+		SkipGit: true, SkipMemory: true, SkipSkills: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !value.Git.Skipped || value.Git.IsRepo || len(value.ProjectMemory.Sections) != 0 || value.AutoMemory.Loaded || len(value.Skills) != 0 {
+		t.Fatalf("value = %#v", value)
+	}
+	for _, unexpected := range []string{"## Git", "## Auto memory", "## Project instructions", "## User instructions", "## Skills", "project instruction", "memory note", "Release workflow"} {
+		if strings.Contains(value.InstructionsText, unexpected) {
+			t.Fatalf("skipped content %q rendered:\n%s", unexpected, value.InstructionsText)
+		}
+	}
+}
+
+func TestBuildLimitsFinalInstructions(t *testing.T) {
+	root := t.TempDir()
+	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), strings.Repeat("instruction ", 500))
+	value, err := Build(context.Background(), BuildOptions{
+		Root: root, WorkspaceID: "ws_test", WorkspaceRoot: root, CWD: root, WorkspaceRoots: []string{root}, MemoryStore: memory.NewStore(t.TempDir()), MaxInstructionBytes: 512,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !value.InstructionTruncated || value.InstructionBytes > 512 || value.InstructionBytes != len([]byte(value.InstructionsText)) {
+		t.Fatalf("value = %#v", value)
+	}
+}

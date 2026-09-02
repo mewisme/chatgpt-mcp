@@ -7,20 +7,25 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/memory"
+	"go.mewis.me/chatgpt-mcp/internal/skills"
 )
 
 type BuildOptions struct {
-	Root           string
-	WorkspaceID    string
-	WorkspaceRoot  string
-	CWD            string
-	WorkspaceRoots []string
-	MemoryStore    memory.Store
-	Memory         MemoryLoadOptions
-	ToolProfile    ToolProfile
-	AdminEnabled   bool
-	AdminPort      int
-	Now            func() time.Time
+	Root                string
+	WorkspaceID         string
+	WorkspaceRoot       string
+	CWD                 string
+	WorkspaceRoots      []string
+	MemoryStore         memory.Store
+	Memory              MemoryLoadOptions
+	ToolProfile         ToolProfile
+	MaxInstructionBytes int
+	SkipGit             bool
+	SkipMemory          bool
+	SkipSkills          bool
+	AdminEnabled        bool
+	AdminPort           int
+	Now                 func() time.Time
 }
 
 func Build(ctx context.Context, opts BuildOptions) (InstructionContext, error) {
@@ -58,31 +63,41 @@ func Build(ctx context.Context, opts BuildOptions) (InstructionContext, error) {
 	if err != nil {
 		return InstructionContext{}, err
 	}
-	memoryOpts := opts.Memory
-	memoryOpts.WorkspaceRoots = roots
-	memoryOpts.Now = func() time.Time { return loadedAt }
-	projectMemory, err := LoadProjectMemory(root, memoryOpts)
-	if err != nil {
-		return InstructionContext{}, err
-	}
-	autoMemory, err := LoadAutoMemory(opts.MemoryStore, workspaceID)
-	if err != nil {
-		return InstructionContext{}, err
+	projectMemory := ProjectMemoryBundle{Root: root, WorkspaceRoots: roots, LoadedAt: loadedAt}
+	autoMemory := AutoMemorySnapshot{}
+	if !opts.SkipMemory {
+		memoryOpts := opts.Memory
+		memoryOpts.WorkspaceRoots = roots
+		memoryOpts.Now = func() time.Time { return loadedAt }
+		projectMemory, err = LoadProjectMemory(root, memoryOpts)
+		if err != nil {
+			return InstructionContext{}, err
+		}
+		autoMemory, err = LoadAutoMemory(opts.MemoryStore, workspaceID)
+		if err != nil {
+			return InstructionContext{}, err
+		}
 	}
 	unconditionalRules, err := LoadUnconditionalRules(root)
 	if err != nil {
 		return InstructionContext{}, err
 	}
-	skillSummaries, err := LoadSkillSummaries(root)
-	if err != nil {
-		return InstructionContext{}, err
+	skillSummaries := []skills.Skill(nil)
+	if !opts.SkipSkills {
+		skillSummaries, err = LoadSkillSummaries(root)
+		if err != nil {
+			return InstructionContext{}, err
+		}
+	}
+	gitSnapshot := GitSnapshot{Skipped: opts.SkipGit}
+	if !opts.SkipGit {
+		gitSnapshot = LoadGitSnapshot(ctx, root, GitSnapshotOptions{WorkspaceRoots: roots})
 	}
 	value := InstructionContext{
 		Root: root, WorkspaceID: workspaceID, WorkspaceRoots: roots, Environment: environment,
-		Git: LoadGitSnapshot(ctx, root, GitSnapshotOptions{WorkspaceRoots: roots}), ProjectMemory: projectMemory,
-		AutoMemory: autoMemory, Rules: unconditionalRules, Skills: skillSummaries, ToolProfile: opts.ToolProfile,
+		Git: gitSnapshot, ProjectMemory: projectMemory, AutoMemory: autoMemory, Rules: unconditionalRules, Skills: skillSummaries, ToolProfile: opts.ToolProfile,
 		AgentWorkflow: AgentWorkflow(), LoadedAt: loadedAt,
 	}
-	ApplyFormattedInstructions(&value)
+	ApplyFormattedInstructionsLimit(&value, opts.MaxInstructionBytes)
 	return value, nil
 }

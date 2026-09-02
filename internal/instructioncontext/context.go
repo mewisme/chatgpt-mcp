@@ -56,12 +56,13 @@ type EnvironmentSnapshot struct {
 }
 
 type GitSnapshot struct {
-	IsRepo        bool     `json:"is_repo"`
-	Root          string   `json:"root,omitempty"`
-	Branch        string   `json:"branch,omitempty"`
-	StatusShort   string   `json:"status_short,omitempty"`
-	RecentCommits []string `json:"recent_commits,omitempty"`
-	Error         string   `json:"error,omitempty"`
+	IsRepo          bool     `json:"is_repo"`
+	Root            string   `json:"root,omitempty"`
+	Branch          string   `json:"branch,omitempty"`
+	StatusShort     string   `json:"status_short,omitempty"`
+	StatusTruncated bool     `json:"status_truncated,omitempty"`
+	RecentCommits   []string `json:"recent_commits,omitempty"`
+	Error           string   `json:"error,omitempty"`
 }
 
 type AutoMemorySnapshot struct {

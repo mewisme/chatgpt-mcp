@@ -38,9 +38,8 @@ func TestShellToolsPersistCWD(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := runtime.Call(context.Background(), "run_command", map[string]any{
-		"workspace_id":      workspaceID,
-		"command":           "cd child",
-		"working_directory": root,
+		"workspace_id": workspaceID,
+		"command":      "cd child",
 	})
 	if err != nil || result.IsError {
 		t.Fatalf("run_command failed: result=%#v err=%v", result, err)
@@ -55,23 +54,30 @@ func TestShellToolsPersistCWD(t *testing.T) {
 	}
 }
 
-func TestShellMutationRequiresMatchingCWD(t *testing.T) {
+func TestShellMutationUsesPersistentCWD(t *testing.T) {
 	runtime, workspaceID, root := newShellToolTestRuntime(t)
 	child := filepath.Join(root, "child")
 	if err := os.Mkdir(child, 0755); err != nil {
 		t.Fatal(err)
 	}
+	file := filepath.Join(child, "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	_, _ = runtime.Call(context.Background(), "run_command", map[string]any{
-		"workspace_id": workspaceID, "command": "cd child", "working_directory": root,
+		"workspace_id": workspaceID, "command": "cd child",
 	})
 	result, err := runtime.Call(context.Background(), "run_command", map[string]any{
-		"workspace_id": workspaceID, "command": "rm file.txt", "working_directory": root,
+		"workspace_id": workspaceID, "command": "rm file.txt",
 	})
 	if err != nil {
-		t.Fatalf("expected MCP tool error result, got protocol error: %v", err)
+		t.Fatal(err)
 	}
-	if !result.IsError || !strings.Contains(result.Content[0].Text, "does not match working_directory") {
-		t.Fatalf("mutation was not denied: %#v", result)
+	if result.IsError {
+		t.Fatalf("mutation failed: %#v", result)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
 	}
 }
 
@@ -82,7 +88,7 @@ func TestShellMutationRejectsCWDDirective(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := runtime.Call(context.Background(), "run_command", map[string]any{
-		"workspace_id": workspaceID, "command": "cd child && rm file.txt", "working_directory": root,
+		"workspace_id": workspaceID, "command": "cd child && rm file.txt",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -103,11 +109,10 @@ func TestBackgroundProcessLifecycle(t *testing.T) {
 	if os.PathSeparator != '\\' && os.Getenv("SHELL") == "" {
 		t.Setenv("SHELL", "/bin/sh")
 	}
-	runtime, workspaceID, root := newShellToolTestRuntime(t)
+	runtime, workspaceID, _ := newShellToolTestRuntime(t)
 	startResult, err := runtime.Call(context.Background(), "start_process", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-		"command":           backgroundLifecycleCommand(),
+		"workspace_id": workspaceID,
+		"command":      backgroundLifecycleCommand(),
 	})
 	if err != nil || startResult.IsError {
 		t.Fatalf("start_process failed: result=%#v err=%v", startResult, err)
@@ -148,29 +153,37 @@ func TestBackgroundProcessLifecycle(t *testing.T) {
 	}
 }
 
-func TestBackgroundMutationRequiresExplicitMatchingCWD(t *testing.T) {
-	runtime, workspaceID, root := newShellToolTestRuntime(t)
+func TestBackgroundMutationUsesPersistedCWDAndRejectsOutside(t *testing.T) {
+	runtime, workspaceID, _ := newShellToolTestRuntime(t)
 	result, err := runtime.Call(context.Background(), "start_process", map[string]any{
 		"workspace_id": workspaceID,
-		"command":      "rm file.txt",
+		"command":      "touch file.txt",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsError || !strings.Contains(result.Content[0].Text, "working_directory is required") {
-		t.Fatalf("background mutation was not denied: %#v", result)
+	if result.IsError {
+		t.Fatalf("background mutation failed: %#v", result)
 	}
 
 	outside := filepath.Join(t.TempDir(), "outside.txt")
 	result, err = runtime.Call(context.Background(), "start_process", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-		"command":           "rm " + outside,
+		"workspace_id": workspaceID,
+		"command":      "rm " + outside,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !result.IsError {
 		t.Fatalf("outside background mutation was not denied: %#v", result)
+	}
+}
+
+func TestShellSchemasDoNotExposeWorkingDirectory(t *testing.T) {
+	runtime, _, _ := newShellToolTestRuntime(t)
+	for _, schema := range runtime.List() {
+		if (schema.Name == "run_command" || schema.Name == "start_process") && strings.Contains(string(schema.InputSchema), `"working_directory"`) {
+			t.Fatalf("%s still exposes working_directory: %s", schema.Name, schema.InputSchema)
+		}
 	}
 }

@@ -83,11 +83,11 @@ func NewProcessManager(workspaces *workspace.Manager, shell *Manager) *ProcessMa
 	return &ProcessManager{workspaces: workspaces, shell: shell, processes: map[string]*managedProcess{}}
 }
 
-func (m *ProcessManager) Start(workspaceID, workingDirectory, command string) (StartResult, error) {
+func (m *ProcessManager) Start(workspaceID, command string) (StartResult, error) {
 	if _, err := m.workspaces.Get(workspaceID); err != nil {
 		return StartResult{}, err
 	}
-	cwd, err := m.shell.ValidateBackgroundCommand(workspaceID, workingDirectory, command)
+	cwd, err := m.shell.ValidateBackgroundCommand(workspaceID, command)
 	if err != nil {
 		return StartResult{}, err
 	}

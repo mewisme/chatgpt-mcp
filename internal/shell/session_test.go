@@ -38,7 +38,7 @@ func TestShellPersistsCWD(t *testing.T) {
 	if err := os.Mkdir(child, 0755); err != nil {
 		t.Fatal(err)
 	}
-	result, err := manager.Exec(context.Background(), workspaceID, root, "cd child")
+	result, err := manager.Exec(context.Background(), workspaceID, "cd child")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,18 +63,24 @@ func TestShellPersistsCWD(t *testing.T) {
 	}
 }
 
-func TestMutationRequiresMatchingPersistentCWD(t *testing.T) {
+func TestMutationUsesPersistentCWD(t *testing.T) {
 	manager, workspaceID, root := newShellTestManager(t)
 	child := filepath.Join(root, "child")
 	if err := os.Mkdir(child, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Exec(context.Background(), workspaceID, root, "cd child"); err != nil {
+	file := filepath.Join(child, "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := manager.Exec(context.Background(), workspaceID, root, "rm file.txt")
-	if err == nil || !strings.Contains(err.Error(), "does not match working_directory") {
-		t.Fatalf("error = %v", err)
+	if _, err := manager.Exec(context.Background(), workspaceID, "cd child"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Exec(context.Background(), workspaceID, "rm file.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
 	}
 }
 
@@ -84,17 +90,23 @@ func TestMutationRejectsCWDChange(t *testing.T) {
 	if err := os.Mkdir(child, 0755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := manager.Exec(context.Background(), workspaceID, root, "cd child && rm file.txt")
+	_, err := manager.Exec(context.Background(), workspaceID, "cd child && rm file.txt")
 	if err == nil || !strings.Contains(err.Error(), "cwd change") {
 		t.Fatalf("error = %v", err)
 	}
 }
 
-func TestMutationRequiresWorkingDirectory(t *testing.T) {
-	manager, workspaceID, _ := newShellTestManager(t)
-	_, err := manager.Exec(context.Background(), workspaceID, "", "rm file.txt")
-	if err == nil || !strings.Contains(err.Error(), "working_directory is required") {
-		t.Fatalf("error = %v", err)
+func TestMutationUsesWorkspaceRootByDefault(t *testing.T) {
+	manager, workspaceID, root := newShellTestManager(t)
+	file := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Exec(context.Background(), workspaceID, "rm file.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
 	}
 }
 

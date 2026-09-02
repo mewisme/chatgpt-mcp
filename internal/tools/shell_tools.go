@@ -24,7 +24,7 @@ func RegisterShellTools(registry *Registry, workspaces *workspace.Manager, shell
 		}, handler)
 	}
 
-	register("run_command", "Run Command", "Run shell commands to verify work. Cwd persists across tool calls and is stored per workspace. Mutating commands require explicit working_directory matching the persisted cwd and are checked against workspace containment.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`, `{"type":"object","properties":{"command":{"type":"string"},"cwd":{"type":"string"},"stdout":{"type":"string"},"stderr":{"type":"string"},"exit_code":{"type":"integer"},"timed_out":{"type":"boolean"}},"required":["command","cwd","stdout","stderr","exit_code","timed_out"],"additionalProperties":false}`, RiskCommand, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("run_command", "Run Command", "Run shell commands in the workspace persisted cwd. Cwd changes persist server-side and all commands remain workspace-contained.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`, `{"type":"object","properties":{"command":{"type":"string"},"cwd":{"type":"string"},"stdout":{"type":"string"},"stderr":{"type":"string"},"exit_code":{"type":"integer"},"timed_out":{"type":"boolean"}},"required":["command","cwd","stdout","stderr","exit_code","timed_out"],"additionalProperties":false}`, RiskCommand, func(ctx context.Context, args map[string]any) (Result, error) {
 		workspaceID, err := requiredString(args, "workspace_id")
 		if err != nil {
 			return Result{}, err
@@ -33,11 +33,7 @@ func RegisterShellTools(registry *Registry, workspaces *workspace.Manager, shell
 		if err != nil {
 			return Result{}, err
 		}
-		workingDirectory, err := optionalString(args, "working_directory")
-		if err != nil {
-			return Result{}, err
-		}
-		value, err := shell.Exec(ctx, workspaceID, workingDirectory, command)
+		value, err := shell.Exec(ctx, workspaceID, command)
 		if err != nil {
 			return Result{}, err
 		}
@@ -76,7 +72,7 @@ func RegisterShellTools(registry *Registry, workspaces *workspace.Manager, shell
 		return JSONResult(value), nil
 	})
 
-	register("start_process", "Start Background Process", "Start a long-running command in the background. Background commands cannot contain cwd-changing directives; mutating commands require working_directory and workspace containment.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`, `{"type":"object","properties":{"id":{"type":"string"},"pid":{"type":"integer"},"command":{"type":"string"},"cwd":{"type":"string"},"started_at":{"type":"string"}},"required":["id","pid","command","cwd","started_at"],"additionalProperties":false}`, RiskCommand, func(_ context.Context, args map[string]any) (Result, error) {
+	register("start_process", "Start Background Process", "Start a long-running command in the workspace persisted cwd. Background commands cannot contain cwd-changing directives.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`, `{"type":"object","properties":{"id":{"type":"string"},"pid":{"type":"integer"},"command":{"type":"string"},"cwd":{"type":"string"},"started_at":{"type":"string"}},"required":["id","pid","command","cwd","started_at"],"additionalProperties":false}`, RiskCommand, func(_ context.Context, args map[string]any) (Result, error) {
 		workspaceID, err := requiredString(args, "workspace_id")
 		if err != nil {
 			return Result{}, err
@@ -85,11 +81,7 @@ func RegisterShellTools(registry *Registry, workspaces *workspace.Manager, shell
 		if err != nil {
 			return Result{}, err
 		}
-		workingDirectory, err := optionalString(args, "working_directory")
-		if err != nil {
-			return Result{}, err
-		}
-		value, err := processes.Start(workspaceID, workingDirectory, command)
+		value, err := processes.Start(workspaceID, command)
 		if err != nil {
 			return Result{}, err
 		}

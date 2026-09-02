@@ -123,7 +123,7 @@ func (m *Manager) Reset(workspaceID, path string) (Status, error) {
 	return statusFromState(current.state), nil
 }
 
-func (m *Manager) Exec(ctx context.Context, workspaceID, workingDirectory, command string) (ExecResult, error) {
+func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecResult, error) {
 	item, err := m.workspaces.Get(workspaceID)
 	if err != nil {
 		return ExecResult{}, err
@@ -135,22 +135,11 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, workingDirectory, comma
 	current.mu.Lock()
 	defer current.mu.Unlock()
 
-	mutation := m.workspaces.IsMutationCommand(command)
-	baseCWD := current.state.CWD
-
-	if strings.TrimSpace(workingDirectory) != "" {
-		resolved, err := m.resolveDirectory(workspaceID, item.Path, workingDirectory)
-		if err != nil {
-			return ExecResult{}, err
-		}
-		if mutation && filepath.Clean(current.state.CWD) != filepath.Clean(resolved) {
-			return ExecResult{}, fmt.Errorf("mutation command denied: persisted cwd %s does not match working_directory %s", current.state.CWD, resolved)
-		}
-		baseCWD = resolved
-	} else if mutation {
-		return ExecResult{}, errors.New("mutation command denied: working_directory is required for mutating commands")
+	baseCWD, err := m.resolveDirectory(workspaceID, item.Path, current.state.CWD)
+	if err != nil {
+		return ExecResult{}, err
 	}
-
+	current.state.CWD = baseCWD
 	if err := m.workspaces.ValidateShellCommand(workspaceID, baseCWD, command); err != nil {
 		return ExecResult{}, err
 	}
@@ -159,8 +148,8 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, workingDirectory, comma
 	if err != nil {
 		return ExecResult{}, err
 	}
-	if mutation && filepath.Clean(cwd) != filepath.Clean(baseCWD) {
-		return ExecResult{}, fmt.Errorf("mutation command denied: effective cwd %s does not match working_directory %s", cwd, baseCWD)
+	if m.workspaces.IsMutationCommand(command) && filepath.Clean(cwd) != filepath.Clean(baseCWD) {
+		return ExecResult{}, errors.New("mutation command denied: cwd change must be performed in a separate run_command call")
 	}
 
 	if strings.TrimSpace(effective) == "" {
@@ -180,7 +169,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, workingDirectory, comma
 	return result, err
 }
 
-func (m *Manager) ValidateBackgroundCommand(workspaceID, workingDirectory, command string) (string, error) {
+func (m *Manager) ValidateBackgroundCommand(workspaceID, command string) (string, error) {
 	item, err := m.workspaces.Get(workspaceID)
 	if err != nil {
 		return "", err
@@ -192,20 +181,11 @@ func (m *Manager) ValidateBackgroundCommand(workspaceID, workingDirectory, comma
 	current.mu.Lock()
 	defer current.mu.Unlock()
 
-	mutation := m.workspaces.IsMutationCommand(command)
-	cwd := current.state.CWD
-	if strings.TrimSpace(workingDirectory) != "" {
-		resolved, err := m.resolveDirectory(workspaceID, item.Path, workingDirectory)
-		if err != nil {
-			return "", err
-		}
-		if mutation && filepath.Clean(current.state.CWD) != filepath.Clean(resolved) {
-			return "", fmt.Errorf("mutation command denied: persisted cwd %s does not match working_directory %s", current.state.CWD, resolved)
-		}
-		cwd = resolved
-	} else if mutation {
-		return "", errors.New("mutation command denied: working_directory is required for mutating commands")
+	cwd, err := m.resolveDirectory(workspaceID, item.Path, current.state.CWD)
+	if err != nil {
+		return "", err
 	}
+	current.state.CWD = cwd
 	if err := m.workspaces.ValidateShellCommand(workspaceID, cwd, command); err != nil {
 		return "", err
 	}
@@ -213,11 +193,8 @@ func (m *Manager) ValidateBackgroundCommand(workspaceID, workingDirectory, comma
 	if err != nil {
 		return "", err
 	}
-	if mutation && filepath.Clean(effectiveCWD) != filepath.Clean(cwd) {
-		return "", fmt.Errorf("mutation command denied: effective cwd %s does not match working_directory %s", effectiveCWD, cwd)
-	}
 	if strings.TrimSpace(effective) != strings.TrimSpace(command) || filepath.Clean(effectiveCWD) != filepath.Clean(cwd) {
-		return "", errors.New("background process command must not contain cwd-changing directives; use working_directory instead")
+		return "", errors.New("background process command must not contain cwd-changing directives; change the shell cwd first")
 	}
 	return cwd, nil
 }
@@ -288,7 +265,7 @@ func (m *Manager) resolveDirectory(workspaceID, workspaceRoot, input string) (st
 		return "", err
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("working_directory is not a directory: %s", resolved)
+		return "", fmt.Errorf("shell cwd is not a directory: %s", resolved)
 	}
 	return resolved, nil
 }

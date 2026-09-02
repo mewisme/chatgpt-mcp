@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -30,19 +31,15 @@ func clusterCommand() *cobra.Command {
 }
 
 func clusterRelayCommand() *cobra.Command {
-	var listen, path string
+	var listen, path, tokenFile string
 	var allowInsecureHTTP bool
 	defaults := cluster.DefaultRelayServerOptions()
 	var maxConnections, maxRequestsPerSecond int
 	var helloTimeout, idleTimeout, writeTimeout time.Duration
 	cmd := &cobra.Command{Use: "relay", Short: "Run the cluster WebSocket relay in the foreground", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		cfg, err := config.Load()
+		token, err := clusterRelayToken(tokenFile)
 		if err != nil {
 			return err
-		}
-		token := strings.TrimSpace(cfg.Cluster.RelayToken)
-		if token == "" {
-			return errors.New("cluster relay token is not configured; run chatgpt-mcp config set cluster.relay_token <token>")
 		}
 		address, err := validateClusterRelayListen(listen, allowInsecureHTTP)
 		if err != nil {
@@ -106,6 +103,7 @@ func clusterRelayCommand() *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&listen, "listen", defaultClusterRelayListen, "relay listen address")
 	cmd.Flags().StringVar(&path, "path", defaultClusterRelayPath, "WebSocket relay path")
+	cmd.Flags().StringVar(&tokenFile, "token-file", "", "read the relay bearer token from a file instead of configured secret storage")
 	cmd.Flags().BoolVar(&allowInsecureHTTP, "allow-insecure-http", false, "allow a non-loopback relay listener without TLS")
 	cmd.Flags().IntVar(&maxConnections, "max-connections", defaults.MaxConnections, "maximum simultaneous relay connections")
 	cmd.Flags().IntVar(&maxRequestsPerSecond, "max-requests-per-second", defaults.MaxRequestsPerSecond, "maximum requests per second per relay connection")
@@ -113,6 +111,29 @@ func clusterRelayCommand() *cobra.Command {
 	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", defaults.IdleTimeout, "maximum idle time between relay messages")
 	cmd.Flags().DurationVar(&writeTimeout, "write-timeout", defaults.WriteTimeout, "maximum time for a relay WebSocket write")
 	return cmd
+}
+
+func clusterRelayToken(tokenFile string) (string, error) {
+	tokenFile = strings.TrimSpace(tokenFile)
+	if tokenFile != "" {
+		data, err := os.ReadFile(tokenFile)
+		if err != nil {
+			return "", fmt.Errorf("read cluster relay token file: %w", err)
+		}
+		if token := strings.TrimSpace(string(data)); token != "" {
+			return token, nil
+		}
+		return "", errors.New("cluster relay token file is empty")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(cfg.Cluster.RelayToken)
+	if token == "" {
+		return "", errors.New("cluster relay token is not configured; run chatgpt-mcp config set cluster.relay_token <token> or use --token-file")
+	}
+	return token, nil
 }
 
 func validateClusterRelayOptions(options cluster.RelayServerOptions) error {

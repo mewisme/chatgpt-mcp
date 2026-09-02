@@ -1,0 +1,3 @@
+{$CLUSTER_RELAY_DOMAIN} {
+    reverse_proxy relay:37423
+}

@@ -137,6 +137,20 @@ The portable smoke verifies behavior such as:
 - modern MCP error behavior
 - clean stop/shutdown
 
+## Cluster process E2E
+
+After building a native binary, run:
+
+```bash
+node scripts/cluster-e2e.mjs ./chatgpt-mcp
+```
+
+The E2E test creates three isolated config roots and starts a real relay plus two real `serve` processes. It verifies remote workspace read/write routing, relay metrics, relay restart/reconnect/re-advertisement, workspace-owner offline behavior, owner restart, and routing recovery.
+
+On Linux, the CLI deliberately detects MCP tool context through process ancestry. Therefore this E2E must run from a normal trusted terminal/CI process, not from a `run_command` MCP tool descendant. The test never weakens or bypasses that guard.
+
+Tunnel-leader handover is tested separately with real WebSocket relay transport plus a fake tunnel runtime; CI does not require a real OpenAI tunnel or API key.
+
 OS service-definition details are covered by platform-specific tests rather than attempting to install real systemd/launchd/Task Scheduler services inside generic CI runners.
 
 ## Cross-platform builds
@@ -185,6 +199,7 @@ Pushes to `main` and pull requests run:
 - vet
 - native build
 - runtime/MCP smoke
+- full cluster process E2E
 
 ### Native macOS
 

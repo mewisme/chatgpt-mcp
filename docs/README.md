@@ -9,6 +9,7 @@ This directory contains the detailed documentation for `chatgpt-mcp`. The reposi
 | Install and start `chatgpt-mcp` | [Getting started](getting-started.md) |
 | Connect ChatGPT to a private/local runtime | [OpenAI + ChatGPT setup](openai-chatgpt.md) |
 | Run as a foreground process or managed service | [Runtime and services](runtime.md) |
+| Federate multiple runtimes and deploy a relay | [Cluster federation](cluster.md) |
 | Configure ports, auth, exposure, formats, and workspaces | [Configuration](configuration.md) |
 | Browse commands and common flag combinations | [CLI reference](cli-reference.md) |
 | Understand MCP protocol behavior and upstream servers | [MCP and upstreams](mcp.md) |
@@ -31,6 +32,13 @@ This directory contains the detailed documentation for `chatgpt-mcp`. The reposi
 2. [Runtime and services](runtime.md) — especially user vs system service behavior
 3. [OpenAI + ChatGPT setup](openai-chatgpt.md)
 4. [Troubleshooting](troubleshooting.md)
+
+### I am operating multiple runtimes
+
+1. [Cluster federation](cluster.md)
+2. [Configuration](configuration.md)
+3. [Runtime and services](runtime.md)
+4. [Security](security.md)
 
 ### I am developing or contributing
 

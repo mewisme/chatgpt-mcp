@@ -1,0 +1,7 @@
+.git
+.secrets
+.tmp-*
+chatgpt-mcp
+internal/web/dist
+web/dist
+web/node_modules

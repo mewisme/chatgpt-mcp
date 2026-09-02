@@ -109,7 +109,7 @@ cgm config reload
 
 The reload path uses the selected config root's loopback-only runtime control channel.
 
-Changes to auth, feature flags, filesystem permissions, and tunnel settings can be applied live.
+Changes to auth, feature flags, filesystem permissions, cluster federation, and tunnel settings can be applied live.
 
 Changes to these network settings trigger listener rebind inside the same process:
 
@@ -308,6 +308,25 @@ tunnel.toml
 Tunnel configuration updates are transactional with rollback on persistence/apply failure.
 
 For OpenAI Platform/ChatGPT setup, see [OpenAI + ChatGPT setup](openai-chatgpt.md).
+
+## Cluster configuration
+
+Cluster federation is disabled by default. Configure a relay before enabling it:
+
+```bash
+cgm config set cluster.relay_url wss://relay.example.com/cluster
+cgm config set cluster.relay_token 'replace-with-the-relay-secret'
+cgm config set cluster.enabled true
+cgm config reload
+```
+
+`cluster.relay_token` is reversible secret material and is stored through the same secret-store abstraction used by other long-lived credentials. Inspection output redacts it. Admin Settings exposes only `relay_token_configured`, never the token value.
+
+Remote relay URLs must use `wss://`. Loopback development relays may use `ws://127.0.0.1:...`/`ws://localhost:...`.
+
+Cluster config reload is transactional. Enabling/disabling cluster or changing relay URL/token restarts only the cluster runtime and rolls back when the candidate connection cannot be established.
+
+See [Cluster federation](cluster.md) for relay deployment, workspace routing, leadership, recovery, and token rotation.
 
 ## Upstream MCP configuration
 

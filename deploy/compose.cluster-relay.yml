@@ -1,0 +1,35 @@
+services:
+  relay:
+    build:
+      context: ..
+      dockerfile: deploy/cluster-relay.Dockerfile
+    command: ["cluster", "relay", "--token-file", "/run/secrets/cluster-token", "--listen", "0.0.0.0:37423", "--allow-insecure-http"]
+    expose:
+      - "37423"
+    restart: unless-stopped
+    secrets:
+      - cluster-token
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - relay
+    environment:
+      CLUSTER_RELAY_DOMAIN: ${CLUSTER_RELAY_DOMAIN:?set CLUSTER_RELAY_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile.cluster-relay.docker:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+secrets:
+  cluster-token:
+    file: ../.secrets/cluster-token
+
+volumes:
+  caddy-data:
+  caddy-config:

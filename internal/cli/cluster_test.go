@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -88,6 +90,23 @@ func TestValidateClusterRelayOptions(t *testing.T) {
 		if err := validateClusterRelayOptions(value); err == nil {
 			t.Fatalf("expected invalid relay options: %#v", value)
 		}
+	}
+}
+
+func TestClusterRelayTokenFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "relay.token")
+	if err := os.WriteFile(path, []byte(" file-secret \n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	token, err := clusterRelayToken(path)
+	if err != nil || token != "file-secret" {
+		t.Fatalf("token = %q err=%v", token, err)
+	}
+	if err := os.WriteFile(path, []byte("\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clusterRelayToken(path); err == nil {
+		t.Fatal("expected empty token file to fail")
 	}
 }
 

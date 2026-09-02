@@ -53,6 +53,7 @@ workspace list/show/access list
 auth status
 mcp inspection
 tunnel status
+cluster status
 logs
 logs follow
 logs path
@@ -74,6 +75,7 @@ auth changes
 workspace register/unregister/access grants
 upstream MCP mutations
 tunnel configuration/enable/disable
+cluster relay startup/configuration changes
 ```
 
 The shell policy also recognizes common nested-shell/wrapper patterns rather than checking only a direct `cgm` command. It rejects direct attempts to clear the MCP tool-context marker. On Linux, the CLI additionally inspects the process ancestry for the marker, so a child script cannot regain control-plane mutation access merely by deleting the variable from the environment passed to `cgm`.
@@ -163,6 +165,24 @@ Do not use an OpenAI Admin API key as the long-lived runtime key.
 Tunnel runtime/admin keys are stored in the OS keyring. `tunnel.<ext>` contains only configured-state markers and admin scope metadata, and normal inspection output redacts sensitive values. Legacy plaintext credentials can be migrated explicitly with `cgm config migrate`; normal credential-loading paths also migrate legacy values before rewriting their files.
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md).
+
+## Cluster relay security
+
+Cluster relay connections use one shared bearer token. Runtime config stores that token through secret storage; Admin responses never return it. For dedicated service/container deployments, `cgm cluster relay --token-file <path>` reads the token from a mounted credential file and avoids putting the secret in process arguments or plaintext config.
+
+The relay does not provide built-in TLS. `cgm cluster relay` refuses a non-loopback listener unless `--allow-insecure-http` is explicitly supplied. For remote runtimes, put the relay behind TLS and configure `wss://.../cluster`.
+
+Relay endpoints:
+
+- `/cluster` — authenticated WebSocket protocol
+- `/health` — unauthenticated liveness/readiness JSON; keep returned data non-secret
+- `/metrics` — authenticated operational JSON using the same relay bearer token
+
+The relay enforces a connection cap, per-connection request rate limit, 4 MiB WebSocket read limit, initial-hello timeout, idle timeout, and write timeout. Defaults can be overridden with `cgm cluster relay --help`.
+
+The shipped relay backend is in-memory and supports one authoritative relay process. Do not run multiple independent relays for the same tunnel-leader cluster and treat them as active-active: their leadership state is independent. Runtime reconnect plus a service supervisor is the supported availability model until a distributed relay backend is provided.
+
+See [Cluster federation](cluster.md).
 
 ## Tunnel network model
 

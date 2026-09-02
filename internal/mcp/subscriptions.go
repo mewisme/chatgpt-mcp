@@ -78,6 +78,14 @@ func (h HTTPRuntime) serveSubscription(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 
+	var changes <-chan struct{}
+	var changeSubscription chan struct{}
+	if honoredTools {
+		changeSubscription = h.Server.Tools.Registry.SubscribeChanges()
+		defer h.Server.Tools.Registry.UnsubscribeChanges(changeSubscription)
+		changes = changeSubscription
+	}
+
 	meta := map[string]any{"io.modelcontextprotocol/subscriptionId": req.ID}
 	honored := map[string]any{}
 	if honoredTools {
@@ -92,14 +100,6 @@ func (h HTTPRuntime) serveSubscription(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 	flusher.Flush()
-
-	var changes <-chan struct{}
-	var changeSubscription chan struct{}
-	if honoredTools {
-		changeSubscription = h.Server.Tools.Registry.SubscribeChanges()
-		defer h.Server.Tools.Registry.UnsubscribeChanges(changeSubscription)
-		changes = changeSubscription
-	}
 
 	keepAlive := time.NewTicker(defaultSubscriptionKeepAlive)
 	defer keepAlive.Stop()

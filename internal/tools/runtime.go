@@ -50,6 +50,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterCore(registry, workspaces, checkpoints, shell)
+	RegisterClusterTools(registry, runtime)
 	RegisterUpstreamTools(registry, upstreams)
 	if err := runtime.SyncFeatures(featureConfig); err != nil {
 		panic(err)
@@ -116,6 +117,37 @@ func (r *Runtime) ClusterNode() *cluster.Node {
 	return r.clusterNode
 }
 
+func (r *Runtime) ClusterAdvertisement() (cluster.Advertisement, error) {
+	if r == nil || r.Workspaces == nil {
+		return cluster.Advertisement{}, errors.New("workspace manager is unavailable")
+	}
+	identity, err := r.Workspaces.Instance()
+	if err != nil {
+		return cluster.Advertisement{}, err
+	}
+	workspaceIDs, err := r.Workspaces.AdvertisedIDs()
+	if err != nil {
+		return cluster.Advertisement{}, err
+	}
+	value := cluster.Advertisement{InstanceID: identity.ID, Name: identity.Name, Workspaces: workspaceIDs}
+	if node := r.ClusterNode(); node != nil {
+		value.CatalogHash = node.Advertisement().CatalogHash
+	}
+	return value, nil
+}
+
+func (r *Runtime) RefreshClusterAdvertisement(ctx context.Context) error {
+	node := r.ClusterNode()
+	if node == nil {
+		return nil
+	}
+	value, err := r.ClusterAdvertisement()
+	if err != nil {
+		return err
+	}
+	return node.Update(ctx, value)
+}
+
 func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (Result, error) {
 	return r.call(ctx, name, args, true)
 }
@@ -135,6 +167,9 @@ func (r *Runtime) call(ctx context.Context, name string, args map[string]any, al
 	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw})
 
 	result, err := r.executeCall(ctx, name, args, workspaceID, allowRemote)
+	if err == nil && !result.IsError && name == "workspace_register" {
+		_ = r.RefreshClusterAdvertisement(ctx)
+	}
 	if err == nil {
 		if result.ResultType == "" {
 			result.ResultType = "complete"
@@ -175,7 +210,11 @@ func (r *Runtime) call(ctx context.Context, name string, args map[string]any, al
 	return result, nil
 }
 
-const clusterToolCallMethod = "tools.call"
+const (
+	clusterToolCallMethod          = "tools.call"
+	clusterWorkspaceRegisterMethod = "workspace.register"
+	clusterWorkspaceListMethod     = "workspace.list"
+)
 
 type clusterToolCall struct {
 	Name      string         `json:"name"`
@@ -189,6 +228,9 @@ type clusterToolResponse struct {
 }
 
 func (r *Runtime) executeCall(ctx context.Context, name string, args map[string]any, workspaceID string, allowRemote bool) (Result, error) {
+	if allowRemote && name == "workspace_register" {
+		return r.executeWorkspaceRegister(ctx, args)
+	}
 	if !allowRemote || workspaceID == "" || r.Workspaces == nil {
 		return r.Registry.Call(ctx, name, args)
 	}
@@ -231,8 +273,64 @@ func (r *Runtime) executeCall(ctx context.Context, name string, args map[string]
 	return response.Result, nil
 }
 
+func (r *Runtime) executeWorkspaceRegister(ctx context.Context, args map[string]any) (Result, error) {
+	if r.Workspaces == nil {
+		return Result{}, errors.New("workspace manager is unavailable")
+	}
+	identity, err := r.Workspaces.Instance()
+	if err != nil {
+		return Result{}, err
+	}
+	target, err := optionalString(args, "instance_id")
+	if err != nil {
+		return Result{}, err
+	}
+	localArgs := cloneMap(args)
+	delete(localArgs, "instance_id")
+	if target == "" || target == identity.ID {
+		return r.Registry.Call(ctx, "workspace_register", localArgs)
+	}
+	node := r.ClusterNode()
+	if node == nil {
+		return Result{}, fmt.Errorf("cluster instance is unavailable: %s", target)
+	}
+	if _, err := clusterMember(ctx, node, target); err != nil {
+		return Result{}, err
+	}
+	payload, err := json.Marshal(clusterToolCall{Name: "workspace_register", Arguments: localArgs})
+	if err != nil {
+		return Result{}, err
+	}
+	encoded, err := node.Call(ctx, target, clusterWorkspaceRegisterMethod, payload)
+	if err != nil {
+		return Result{}, err
+	}
+	return decodeClusterToolResponse(encoded)
+}
+
 func (r *Runtime) ClusterRPCHandler(ctx context.Context, method string, payload json.RawMessage) (json.RawMessage, error) {
-	if method != clusterToolCallMethod {
+	switch method {
+	case clusterWorkspaceRegisterMethod:
+		var call clusterToolCall
+		if err := json.Unmarshal(payload, &call); err != nil {
+			return nil, fmt.Errorf("decode cluster workspace register: %w", err)
+		}
+		if call.Name != "workspace_register" {
+			return nil, errors.New("cluster workspace register payload has unexpected tool name")
+		}
+		call.Arguments = cloneMap(call.Arguments)
+		delete(call.Arguments, "instance_id")
+		ctx = WithCallSource(ctx, "cluster")
+		result, callErr := r.call(ctx, call.Name, call.Arguments, false)
+		return encodeClusterToolResponse(result, callErr)
+	case clusterWorkspaceListMethod:
+		value, err := r.localWorkspaceList()
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(value)
+	case clusterToolCallMethod:
+	default:
 		return nil, fmt.Errorf("unsupported cluster RPC method: %s", method)
 	}
 	var call clusterToolCall
@@ -256,14 +354,45 @@ func (r *Runtime) ClusterRPCHandler(ctx context.Context, method string, payload 
 	}
 	ctx = WithCallSource(ctx, "cluster")
 	result, callErr := r.call(ctx, call.Name, call.Arguments, false)
+	return encodeClusterToolResponse(result, callErr)
+}
+
+func encodeClusterToolResponse(result Result, err error) (json.RawMessage, error) {
 	response := clusterToolResponse{Result: result}
-	if callErr != nil {
-		response.Error = callErr.Error()
-		response.ToolNotFound = errors.Is(callErr, ErrToolNotFound)
-	}
-	encoded, err := json.Marshal(response)
 	if err != nil {
-		return nil, err
+		response.Error = err.Error()
+		response.ToolNotFound = errors.Is(err, ErrToolNotFound)
 	}
-	return encoded, nil
+	return json.Marshal(response)
+}
+
+func decodeClusterToolResponse(encoded json.RawMessage) (Result, error) {
+	var response clusterToolResponse
+	if err := json.Unmarshal(encoded, &response); err != nil {
+		return Result{}, fmt.Errorf("decode cluster tool response: %w", err)
+	}
+	if response.Error == "" {
+		return response.Result, nil
+	}
+	if response.ToolNotFound {
+		return Result{}, fmt.Errorf("%w: %s", ErrToolNotFound, response.Error)
+	}
+	return Result{}, errors.New(response.Error)
+}
+
+func clusterMember(ctx context.Context, node *cluster.Node, instanceID string) (cluster.Member, error) {
+	snapshot, err := node.Snapshot(ctx)
+	if err != nil {
+		return cluster.Member{}, err
+	}
+	for _, member := range snapshot.Members {
+		if member.InstanceID != instanceID {
+			continue
+		}
+		if !member.Online {
+			return member, fmt.Errorf("cluster instance is offline: %s", instanceID)
+		}
+		return member, nil
+	}
+	return cluster.Member{}, fmt.Errorf("cluster instance not found: %s", instanceID)
 }

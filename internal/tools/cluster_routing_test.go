@@ -35,6 +35,7 @@ func newTestClusterRuntime(t *testing.T, relay *cluster.MemoryRelay, workspaceRo
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterCore(registry, workspaces, checkpoints, shell)
 	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}
+	RegisterClusterTools(registry, runtime)
 	identity, err := workspaces.Instance()
 	if err != nil {
 		t.Fatal(err)

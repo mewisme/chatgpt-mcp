@@ -78,19 +78,14 @@ func (n *Node) Update(ctx context.Context, advertisement Advertisement) error {
 	if err := validateAdvertisement(advertisement); err != nil {
 		return err
 	}
-	n.mu.RLock()
+	n.mu.Lock()
 	session := n.session
-	n.mu.RUnlock()
+	n.advert = advertisement
+	n.mu.Unlock()
 	if session == nil {
 		return ErrClosed
 	}
-	if err := session.Advertise(ctx, advertisement); err != nil {
-		return err
-	}
-	n.mu.Lock()
-	n.advert = advertisement
-	n.mu.Unlock()
-	return nil
+	return session.Advertise(ctx, advertisement)
 }
 
 func (n *Node) Snapshot(ctx context.Context) (Snapshot, error) {
@@ -101,6 +96,17 @@ func (n *Node) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, ErrClosed
 	}
 	return session.Snapshot(ctx)
+}
+
+func (n *Node) Advertisement() Advertisement {
+	if n == nil {
+		return Advertisement{}
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	value := n.advert
+	value.Workspaces = append([]string(nil), value.Workspaces...)
+	return value
 }
 
 func (n *Node) WorkspaceOwner(ctx context.Context, workspaceID string) (WorkspaceOwner, error) {

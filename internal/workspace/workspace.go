@@ -228,6 +228,22 @@ func (m *Manager) List() ([]Workspace, error) {
 	return items, nil
 }
 
+func (m *Manager) AdvertisedIDs() ([]string, error) {
+	items, err := m.List()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = appendUniqueString(ids, item.ID)
+		for _, legacyID := range item.LegacyIDs {
+			ids = appendUniqueString(ids, legacyID)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
 func (m *Manager) ResolveDirectory(id, input string) (Workspace, string, error) {
 	item, err := m.Get(id)
 	if err != nil {

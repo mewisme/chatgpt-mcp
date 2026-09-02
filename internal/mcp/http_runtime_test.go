@@ -158,6 +158,27 @@ func TestHTTPRuntimeToolCallRequiresMatchingNameHeader(t *testing.T) {
 	}
 }
 
+func TestHTTPRuntimePropagatesSessionID(t *testing.T) {
+	registry := tools.NewRegistry()
+	seen := make(chan string, 1)
+	registry.MustRegister("session_probe", tools.Schema{Name: "session_probe", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(ctx context.Context, _ map[string]any) (tools.Result, error) {
+		seen <- tools.MCPSessionID(ctx)
+		return tools.TextResult("ok"), nil
+	})
+	runtime := NewHTTPRuntimeWithTools(&tools.Runtime{Registry: registry})
+	req := modernRequest("tools/call", `{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"session_probe","arguments":{}}}`)
+	req.Header.Set(NameHeader, "session_probe")
+	req.Header.Set(SessionIDHeader, "session-http")
+	res := httptest.NewRecorder()
+	runtime.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", res.Code, res.Body.String())
+	}
+	if got := <-seen; got != "session-http" {
+		t.Fatalf("session id = %q", got)
+	}
+}
+
 func TestHTTPRuntimeRejectsMissingProtocolHeader(t *testing.T) {
 	runtime := NewHTTPRuntime()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":4,"method":"tools/list"}`))

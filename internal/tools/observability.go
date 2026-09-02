@@ -21,6 +21,7 @@ type CallObserver func(CallObservation)
 type callSourceKey struct{}
 type callDetailsKey struct{}
 type receivedByInstanceKey struct{}
+type mcpSessionIDKey struct{}
 
 type callDetails struct {
 	Method  string
@@ -40,6 +41,21 @@ func ReceivedByInstanceID(ctx context.Context) string {
 		return ""
 	}
 	value, _ := ctx.Value(receivedByInstanceKey{}).(string)
+	return value
+}
+
+func WithMCPSessionID(ctx context.Context, sessionID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, mcpSessionIDKey{}, sessionID)
+}
+
+func MCPSessionID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(mcpSessionIDKey{}).(string)
 	return value
 }
 

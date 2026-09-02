@@ -99,6 +99,9 @@ func (h HTTPRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	requestCtx := r.Context()
 	if req.Method == "tools/call" {
+		if sessionID := r.Header.Get(SessionIDHeader); sessionID != "" {
+			requestCtx = tools.WithMCPSessionID(requestCtx, sessionID)
+		}
 		requestCtx = tools.WithCallRequest(requestCtx, map[string]any{"jsonrpc": req.JSONRPC, "id": req.ID, "method": req.Method, "params": params})
 	}
 	result, err := h.Server.Handle(requestCtx, req.Method, params)

@@ -10,6 +10,7 @@ const (
 	ProtocolVersionHeader = "MCP-Protocol-Version"
 	MethodHeader          = "Mcp-Method"
 	NameHeader            = "Mcp-Name"
+	SessionIDHeader       = "Mcp-Session-Id"
 )
 
 func ValidateHTTPHeaders(r *http.Request, req Request, params map[string]any) *Error {

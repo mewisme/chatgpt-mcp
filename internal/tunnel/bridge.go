@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/openai/tunnel-client/pkg/tunnelctx"
 	localmcp "go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/version"
@@ -188,6 +189,9 @@ func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
 			ctx = tools.WithInputRound(ctx, request.Params.RequestState, responses)
 		}
 		ctx = tools.WithCallSource(ctx, "tunnel")
+		if sessionID, ok := tunnelctx.SessionIDFromContext(ctx); ok {
+			ctx = tools.WithMCPSessionID(ctx, sessionID)
+		}
 		if data, err := json.Marshal(request.Params); err == nil {
 			var params map[string]any
 			decoder := json.NewDecoder(bytes.NewReader(data))

@@ -8,8 +8,30 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/openai/tunnel-client/pkg/tunnelctx"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
+
+func TestSDKBridgePropagatesTunnelSessionID(t *testing.T) {
+	registry := tools.NewRegistry()
+	seen := make(chan string, 1)
+	registry.MustRegister("session_probe", tools.Schema{Name: "session_probe", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(ctx context.Context, _ map[string]any) (tools.Result, error) {
+		seen <- tools.MCPSessionID(ctx)
+		return tools.TextResult("ok"), nil
+	})
+	bridge, err := newSDKBridge(&tools.Runtime{Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := bridge.toolHandler("session_probe")
+	ctx := tunnelctx.ContextWithSessionID(context.Background(), "session-a")
+	if _, err := handler(ctx, &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "session_probe", Arguments: json.RawMessage(`{}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-seen; got != "session-a" {
+		t.Fatalf("session id = %q", got)
+	}
+}
 
 func TestSDKBridgeCallsSharedToolsRuntime(t *testing.T) {
 	registry := tools.NewRegistry()

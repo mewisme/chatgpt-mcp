@@ -212,6 +212,17 @@ func (r *Registry) Schema(name string) (Schema, bool) {
 	return entry.Schema, ok
 }
 
+func (r *Registry) WorkspaceScoped(name string) (bool, error) {
+	r.mu.RLock()
+	entry, ok := r.tools[name]
+	owner := r.owners[name]
+	r.mu.RUnlock()
+	if !ok || strings.HasPrefix(owner, "upstream:") {
+		return false, nil
+	}
+	return schemaHasWorkspaceID(entry.Schema)
+}
+
 func (r *Registry) Call(ctx context.Context, name string, args map[string]any) (Result, error) {
 	r.mu.RLock()
 	entry, ok := r.tools[name]

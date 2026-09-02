@@ -109,8 +109,8 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	sessionBinding := SessionBindingDecision("")
 	sessionWorkspaceID := ""
 	var preflightErr error
-	if schema, ok := r.Registry.Schema(name); ok {
-		workspaceScoped, err := schemaHasWorkspaceID(schema)
+	if r.Registry != nil {
+		workspaceScoped, err := r.Registry.WorkspaceScoped(name)
 		if err != nil {
 			preflightErr = err
 		} else if workspaceScoped {

@@ -149,3 +149,23 @@ func TestRuntimeObservesSessionBindingWithoutRawSessionID(t *testing.T) {
 		t.Fatalf("raw observation leaked MCP session id: %s", data)
 	}
 }
+
+func TestRuntimeDoesNotBindExternalUpstreamWorkspaceID(t *testing.T) {
+	runtime, _, _, _ := newSessionBindingRuntime(t)
+	if err := runtime.Registry.ReplaceOwned("upstream:test", map[string]Entry{
+		"external_probe": {
+			Schema:  Schema{Name: "external_probe", InputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"}},"required":["workspace_id"]}`)},
+			Handler: func(context.Context, map[string]any) (Result, error) { return TextResult("ok"), nil },
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithMCPSessionID(context.Background(), "session-a")
+	result, err := runtime.Call(ctx, "external_probe", map[string]any{"workspace_id": "external-workspace"})
+	if err != nil || result.IsError {
+		t.Fatalf("external tool = %#v err=%v", result, err)
+	}
+	if _, ok := runtime.SessionBindings.Lookup("session-a"); ok {
+		t.Fatal("external upstream workspace_id created a local session binding")
+	}
+}

@@ -16,6 +16,9 @@ type Event struct {
 	Source               string         `json:"source,omitempty"`
 	Tool                 string         `json:"tool,omitempty"`
 	WorkspaceID          string         `json:"workspace_id,omitempty"`
+	SessionHash          string         `json:"session_hash,omitempty"`
+	SessionBinding       string         `json:"session_binding,omitempty"`
+	SessionWorkspaceID   string         `json:"session_workspace_id,omitempty"`
 	ReceivedByInstanceID string         `json:"received_by_instance_id,omitempty"`
 	ExecutedByInstanceID string         `json:"executed_by_instance_id,omitempty"`
 	Status               string         `json:"status,omitempty"`

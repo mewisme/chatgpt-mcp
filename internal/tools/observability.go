@@ -1,6 +1,11 @@
 package tools
 
-import "context"
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
+)
 
 type CallObservation struct {
 	Phase                string
@@ -12,6 +17,9 @@ type CallObservation struct {
 	Message              string
 	ResultType           string
 	Raw                  map[string]any
+	SessionHash          string
+	SessionBinding       SessionBindingDecision
+	SessionWorkspaceID   string
 	ReceivedByInstanceID string
 	ExecutedByInstanceID string
 }
@@ -27,6 +35,15 @@ type callDetails struct {
 	Method  string
 	Params  map[string]any
 	Request map[string]any
+}
+
+func MCPSessionFingerprint(sessionID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(sessionID))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 func WithReceivedByInstanceID(ctx context.Context, instanceID string) context.Context {

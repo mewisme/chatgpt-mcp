@@ -21,6 +21,15 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 		if observation.WorkspaceID != "" {
 			fields = append(fields, logger.With("workspace", observation.WorkspaceID))
 		}
+		if observation.SessionHash != "" {
+			fields = append(fields, logger.WithVerbose("session", observation.SessionHash))
+		}
+		if observation.SessionBinding != "" {
+			fields = append(fields, logger.WithVerbose("session_binding", string(observation.SessionBinding)))
+		}
+		if observation.SessionWorkspaceID != "" {
+			fields = append(fields, logger.WithVerbose("session_workspace", observation.SessionWorkspaceID))
+		}
 		if observation.ReceivedByInstanceID != "" {
 			fields = append(fields, logger.WithVerbose("received_by", observation.ReceivedByInstanceID))
 		}
@@ -63,7 +72,7 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 			log.Emit(event)
 		}
 		if stream != nil {
-			stream.Publish(activity.Event{Kind: string(activity.EventToolCall), Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, ReceivedByInstanceID: observation.ReceivedByInstanceID, ExecutedByInstanceID: observation.ExecutedByInstanceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message), Raw: observation.Raw})
+			stream.Publish(activity.Event{Kind: string(activity.EventToolCall), Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, SessionHash: observation.SessionHash, SessionBinding: string(observation.SessionBinding), SessionWorkspaceID: observation.SessionWorkspaceID, ReceivedByInstanceID: observation.ReceivedByInstanceID, ExecutedByInstanceID: observation.ExecutedByInstanceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message), Raw: observation.Raw})
 		}
 	})
 }

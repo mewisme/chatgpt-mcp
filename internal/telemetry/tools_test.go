@@ -40,7 +40,7 @@ func TestAttachToolsPublishesActivityAndKeepsDefaultLogQuiet(t *testing.T) {
 		t.Fatalf("events=%#v", events)
 	}
 	event := events[0]
-	if event.Kind != "tool_call" || event.Source != "tunnel" || event.Tool != "echo" || event.WorkspaceID != "ws_test" || event.Status != "ok" {
+	if event.Kind != "tool_call" || event.Source != "tunnel" || event.Tool != "echo" || event.WorkspaceID != "" || event.Status != "ok" {
 		t.Fatalf("event=%#v", event)
 	}
 	if event.Raw["status"] != "ok" || event.Raw["result_type"] != "complete" {

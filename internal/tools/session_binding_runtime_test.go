@@ -118,3 +118,34 @@ func TestRuntimeNonWorkspaceToolDoesNotBindSession(t *testing.T) {
 		t.Fatal("global tool created a session binding")
 	}
 }
+
+func TestRuntimeObservesSessionBindingWithoutRawSessionID(t *testing.T) {
+	runtime, first, second, _ := newSessionBindingRuntime(t)
+	observed := make(chan CallObservation, 4)
+	runtime.SetCallObserver(func(value CallObservation) { observed <- value })
+	ctx := WithMCPSessionID(context.Background(), "session-secret-a")
+	if result, err := runtime.Call(ctx, "workspace_probe", map[string]any{"workspace_id": first}); err != nil || result.IsError {
+		t.Fatalf("first call = %#v err=%v", result, err)
+	}
+	start, finish := <-observed, <-observed
+	if start.SessionBinding != SessionBindingNew || finish.SessionBinding != SessionBindingNew || finish.SessionWorkspaceID != first {
+		t.Fatalf("new binding observations = %#v / %#v", start, finish)
+	}
+	if finish.SessionHash == "" || finish.SessionHash != MCPSessionFingerprint("session-secret-a") {
+		t.Fatalf("session hash = %q", finish.SessionHash)
+	}
+	if result, err := runtime.Call(ctx, "workspace_probe", map[string]any{"workspace_id": second}); err != nil || !result.IsError {
+		t.Fatalf("denied call = %#v err=%v", result, err)
+	}
+	_, denied := <-observed, <-observed
+	if denied.SessionBinding != SessionBindingDenied || denied.SessionWorkspaceID != first || denied.WorkspaceID != second || denied.Status != "error" {
+		t.Fatalf("denied observation = %#v", denied)
+	}
+	data, err := json.Marshal(denied.Raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "session-secret-a") {
+		t.Fatalf("raw observation leaked MCP session id: %s", data)
+	}
+}

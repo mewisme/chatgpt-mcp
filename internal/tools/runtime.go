@@ -104,6 +104,10 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		receivedBy = r.runtimeInstanceID()
 	}
 	workspaceID := ""
+	sessionID := MCPSessionID(ctx)
+	sessionHash := MCPSessionFingerprint(sessionID)
+	sessionBinding := SessionBindingDecision("")
+	sessionWorkspaceID := ""
 	var preflightErr error
 	if schema, ok := r.Registry.Schema(name); ok {
 		workspaceScoped, err := schemaHasWorkspaceID(schema)
@@ -124,15 +128,21 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 						args["workspace_id"] = canonical
 					}
 					workspaceID = canonical
-					if sessionID := MCPSessionID(ctx); sessionID != "" {
-						_, _, preflightErr = r.sessionBinder().CheckOrBind(sessionID, workspaceID)
+					if sessionID != "" {
+						binding, decision, err := r.sessionBinder().CheckOrBind(sessionID, workspaceID)
+						sessionBinding = decision
+						sessionWorkspaceID = binding.WorkspaceID
+						preflightErr = err
 					}
 				}
 			}
 		}
 	}
 	raw := callRaw(ctx, source, name, args)
-	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, ReceivedByInstanceID: receivedBy})
+	if sessionHash != "" {
+		raw["session"] = map[string]any{"hash": sessionHash, "binding": sessionBinding, "workspace_id": sessionWorkspaceID}
+	}
+	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy})
 
 	result, err := Result{}, preflightErr
 	if err == nil {
@@ -155,7 +165,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		finishRaw["status"] = status
 		finishRaw["result_type"] = result.ResultType
 		finishRaw["result"] = result
-		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return result, nil
 	}
 
@@ -166,13 +176,13 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["status"] = status
 	finishRaw["error"] = message
 	if errors.Is(err, ErrToolNotFound) {
-		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return Result{}, err
 	}
 	result = ErrorResult(err)
 	finishRaw["result_type"] = result.ResultType
 	finishRaw["result"] = result
-	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
 }
 

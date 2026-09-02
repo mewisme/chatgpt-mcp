@@ -58,8 +58,8 @@ func gitToolCall(t *testing.T, runtime *Runtime, name string, args map[string]an
 	return result
 }
 
-func gitBaseArgs(workspaceID, root string) map[string]any {
-	return map[string]any{"workspace_id": workspaceID, "working_directory": root}
+func gitBaseArgs(workspaceID, _ string) map[string]any {
+	return map[string]any{"workspace_id": workspaceID}
 }
 
 func TestGitAddCommitLogDiffAndRestore(t *testing.T) {
@@ -172,19 +172,18 @@ func TestGitBranchCheckoutStashAndReset(t *testing.T) {
 	}
 }
 
-func TestGitPathAndWorkingDirectoryMustMatch(t *testing.T) {
+func TestGitPathResolvesFromWorkspaceRoot(t *testing.T) {
 	runtime, workspaceID, root := newGitToolTestRuntime(t)
 	child := filepath.Join(root, "child")
 	if err := os.Mkdir(child, 0755); err != nil {
 		t.Fatal(err)
 	}
-	result := gitToolCall(t, runtime, "git_status", map[string]any{
-		"workspace_id":      workspaceID,
-		"working_directory": root,
-		"path":              child,
-	})
-	if !result.IsError || !strings.Contains(result.Content[0].Text, "must resolve to the same directory") {
-		t.Fatalf("conflicting git locations were not rejected: %#v", result)
+	result := gitToolCall(t, runtime, "git_status", map[string]any{"workspace_id": workspaceID, "path": "child"})
+	if result.IsError {
+		t.Fatalf("git path failed: %#v", result)
+	}
+	if got := result.StructuredContent.(GitStatusResult).Path; filepath.Clean(got) != filepath.Clean(child) {
+		t.Fatalf("git path = %s, want %s", got, child)
 	}
 }
 
@@ -234,6 +233,9 @@ func TestGitToolCatalog(t *testing.T) {
 	names := map[string]bool{}
 	for _, schema := range runtime.List() {
 		names[schema.Name] = true
+		if strings.HasPrefix(schema.Name, "git_") && strings.Contains(string(schema.InputSchema), `"working_directory"`) {
+			t.Fatalf("%s still exposes working_directory: %s", schema.Name, schema.InputSchema)
+		}
 	}
 	for _, name := range []string{
 		"git_status", "git_diff", "git_log", "git_add", "git_commit", "git_branch",

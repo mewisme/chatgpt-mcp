@@ -525,30 +525,16 @@ func resolveGitLocation(ctx context.Context, workspaces *workspace.Manager, args
 	if err != nil {
 		return gitLocation{}, err
 	}
-	workingDirectory, err := optionalString(args, "working_directory")
-	if err != nil {
-		return gitLocation{}, err
-	}
 	pathValue, err := optionalString(args, "path")
 	if err != nil {
 		return gitLocation{}, err
 	}
 
 	cwd := item.Path
-	if strings.TrimSpace(workingDirectory) != "" {
-		_, resolved, err := workspaces.ResolveWorkingDirectory(workspaceID, workingDirectory)
-		if err != nil {
-			return gitLocation{}, fmt.Errorf("working_directory: %w", err)
-		}
-		cwd = resolved
-	}
 	if strings.TrimSpace(pathValue) != "" {
 		_, resolved, err := workspaces.ResolveWorkingDirectory(workspaceID, pathValue)
 		if err != nil {
 			return gitLocation{}, fmt.Errorf("path: %w", err)
-		}
-		if strings.TrimSpace(workingDirectory) != "" && filepath.Clean(resolved) != filepath.Clean(cwd) {
-			return gitLocation{}, errors.New("path and working_directory must resolve to the same directory")
 		}
 		cwd = resolved
 	}
@@ -646,7 +632,7 @@ func gitLocationSchema(extra string) string {
 	if extra != "" {
 		extra = "," + strings.TrimSuffix(extra, ",")
 	}
-	return `{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"},"path":{"type":"string"}` + extra + `},"required":["workspace_id"],"additionalProperties":false}`
+	return `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"}` + extra + `},"required":["workspace_id"],"additionalProperties":false}`
 }
 
 func optionalEnum(args map[string]any, key, fallback string, values ...string) (string, error) {

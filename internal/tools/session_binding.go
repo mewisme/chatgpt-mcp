@@ -10,6 +10,8 @@ import (
 
 var ErrSessionWorkspaceMismatch = errors.New("MCP session workspace mismatch")
 
+const defaultSessionBindingTTL = 30 * 24 * time.Hour
+
 type SessionBindingDecision string
 
 const (
@@ -28,10 +30,11 @@ type SessionWorkspaceBinder struct {
 	mu       sync.Mutex
 	bindings map[string]SessionBinding
 	now      func() time.Time
+	ttl      time.Duration
 }
 
 func NewSessionWorkspaceBinder() *SessionWorkspaceBinder {
-	return &SessionWorkspaceBinder{bindings: map[string]SessionBinding{}, now: time.Now}
+	return &SessionWorkspaceBinder{bindings: map[string]SessionBinding{}, now: time.Now, ttl: defaultSessionBindingTTL}
 }
 
 func (b *SessionWorkspaceBinder) CheckOrBind(sessionID, workspaceID string) (SessionBinding, SessionBindingDecision, error) {
@@ -46,6 +49,7 @@ func (b *SessionWorkspaceBinder) CheckOrBind(sessionID, workspaceID string) (Ses
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.now()
+	b.purgeExpiredLocked(now)
 	if binding, ok := b.bindings[sessionID]; ok {
 		if binding.WorkspaceID != workspaceID {
 			return binding, SessionBindingDenied, fmt.Errorf("%w: session is bound to workspace %s and cannot access %s", ErrSessionWorkspaceMismatch, binding.WorkspaceID, workspaceID)
@@ -65,6 +69,7 @@ func (b *SessionWorkspaceBinder) Lookup(sessionID string) (SessionBinding, bool)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.purgeExpiredLocked(b.now())
 	binding, ok := b.bindings[strings.TrimSpace(sessionID)]
 	return binding, ok
 }
@@ -76,4 +81,38 @@ func (b *SessionWorkspaceBinder) Delete(sessionID string) {
 	b.mu.Lock()
 	delete(b.bindings, strings.TrimSpace(sessionID))
 	b.mu.Unlock()
+}
+
+func (b *SessionWorkspaceBinder) purgeExpiredLocked(now time.Time) int {
+	if b.ttl <= 0 {
+		return 0
+	}
+	removed := 0
+	for sessionID, binding := range b.bindings {
+		if now.Sub(binding.LastSeen) < b.ttl {
+			continue
+		}
+		delete(b.bindings, sessionID)
+		removed++
+	}
+	return removed
+}
+
+func (b *SessionWorkspaceBinder) PurgeExpired() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.purgeExpiredLocked(b.now())
+}
+
+func (b *SessionWorkspaceBinder) Count() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.purgeExpiredLocked(b.now())
+	return len(b.bindings)
 }

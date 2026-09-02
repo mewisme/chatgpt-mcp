@@ -88,3 +88,44 @@ func TestSessionWorkspaceBinderUpdatesLastSeen(t *testing.T) {
 		t.Fatalf("binding = %#v", binding)
 	}
 }
+
+func TestSessionWorkspaceBinderExpiresIdleBinding(t *testing.T) {
+	binder := NewSessionWorkspaceBinder()
+	binder.ttl = time.Hour
+	now := time.Unix(100, 0)
+	binder.now = func() time.Time { return now }
+	if _, _, err := binder.CheckOrBind("session-a", "ws_x"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Hour)
+	if removed := binder.PurgeExpired(); removed != 1 {
+		t.Fatalf("removed = %d", removed)
+	}
+	if _, ok := binder.Lookup("session-a"); ok {
+		t.Fatal("expired binding remained")
+	}
+	if _, decision, err := binder.CheckOrBind("session-a", "ws_y"); err != nil || decision != SessionBindingNew {
+		t.Fatalf("rebind after expiry = %s/%v", decision, err)
+	}
+}
+
+func TestSessionWorkspaceBinderActivityRefreshesExpiry(t *testing.T) {
+	binder := NewSessionWorkspaceBinder()
+	binder.ttl = time.Hour
+	now := time.Unix(100, 0)
+	binder.now = func() time.Time { return now }
+	if _, _, err := binder.CheckOrBind("session-a", "ws_x"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(45 * time.Minute)
+	if _, _, err := binder.CheckOrBind("session-a", "ws_x"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(45 * time.Minute)
+	if removed := binder.PurgeExpired(); removed != 0 {
+		t.Fatalf("active binding removed = %d", removed)
+	}
+	if binding, ok := binder.Lookup("session-a"); !ok || binding.WorkspaceID != "ws_x" {
+		t.Fatalf("binding = %#v ok=%t", binding, ok)
+	}
+}

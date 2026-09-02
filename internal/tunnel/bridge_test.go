@@ -33,6 +33,43 @@ func TestSDKBridgePropagatesTunnelSessionID(t *testing.T) {
 	}
 }
 
+func TestSDKBridgeConsumesInternalSessionMetaWithoutLoggingIt(t *testing.T) {
+	registry := tools.NewRegistry()
+	seen := make(chan string, 1)
+	registry.MustRegister("session_probe", tools.Schema{Name: "session_probe", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(ctx context.Context, _ map[string]any) (tools.Result, error) {
+		seen <- tools.MCPSessionID(ctx)
+		return tools.TextResult("ok"), nil
+	})
+	runtime := &tools.Runtime{Registry: registry}
+	observed := make(chan tools.CallObservation, 2)
+	runtime.SetCallObserver(func(value tools.CallObservation) { observed <- value })
+	bridge, err := newSDKBridge(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := bridge.toolHandler("session_probe")
+	request := &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "session_probe", Arguments: json.RawMessage(`{}`), Meta: sdkmcp.Meta{sessionMetaKey: "session-meta", "client": "keep"}}}
+	if _, err := handler(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-seen; got != "session-meta" {
+		t.Fatalf("session id = %q", got)
+	}
+	if _, exists := request.Params.Meta[sessionMetaKey]; exists {
+		t.Fatal("internal session metadata was not consumed")
+	}
+	for i := 0; i < 2; i++ {
+		value := <-observed
+		data, err := json.Marshal(value.Raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "session-meta") || strings.Contains(string(data), sessionMetaKey) {
+			t.Fatalf("raw activity leaked session metadata: %s", data)
+		}
+	}
+}
+
 func TestSDKBridgeCallsSharedToolsRuntime(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister("echo", tools.Schema{

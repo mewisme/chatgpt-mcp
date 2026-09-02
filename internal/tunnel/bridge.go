@@ -192,6 +192,12 @@ func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
 		if sessionID, ok := tunnelctx.SessionIDFromContext(ctx); ok {
 			ctx = tools.WithMCPSessionID(ctx, sessionID)
 		}
+		if request.Params.Meta != nil {
+			if sessionID, _ := request.Params.Meta[sessionMetaKey].(string); sessionID != "" {
+				ctx = tools.WithMCPSessionID(ctx, sessionID)
+			}
+			delete(request.Params.Meta, sessionMetaKey)
+		}
 		if data, err := json.Marshal(request.Params); err == nil {
 			var params map[string]any
 			decoder := json.NewDecoder(bytes.NewReader(data))

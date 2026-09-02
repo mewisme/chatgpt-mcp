@@ -560,7 +560,7 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 		return err
 	}
 	serverTransport, tunnelTransport := sdkmcp.NewInMemoryTransports()
-	tunnelBackend, err := c.factory(c.config, tunnelTransport)
+	tunnelBackend, err := c.factory(c.config, withSessionTransport(tunnelTransport))
 	if err != nil {
 		c.lastError = err.Error()
 		c.mu.Unlock()

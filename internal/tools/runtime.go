@@ -97,6 +97,13 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	started := time.Now()
 	source := CallSource(ctx)
 	workspaceID, _ := args["workspace_id"].(string)
+	if workspaceID != "" && r.Workspaces != nil {
+		if canonical, err := r.Workspaces.CanonicalID(workspaceID); err == nil && canonical != workspaceID {
+			args = cloneMap(args)
+			args["workspace_id"] = canonical
+			workspaceID = canonical
+		}
+	}
 	raw := callRaw(ctx, source, name, args)
 	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw})
 

@@ -81,6 +81,7 @@ func (m *Manager) Status(workspaceID string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	workspaceID = item.ID
 	current, err := m.session(workspaceID, item.Path)
 	if err != nil {
 		return Status{}, err
@@ -95,6 +96,7 @@ func (m *Manager) Reset(workspaceID, path string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	workspaceID = item.ID
 	target := item.Path
 	if strings.TrimSpace(path) != "" {
 		target, err = m.workspaces.ResolvePath(workspaceID, item.Path, path, true)
@@ -128,6 +130,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 	if err != nil {
 		return ExecResult{}, err
 	}
+	workspaceID = item.ID
 	current, err := m.session(workspaceID, item.Path)
 	if err != nil {
 		return ExecResult{}, err
@@ -174,6 +177,7 @@ func (m *Manager) ValidateBackgroundCommand(workspaceID, command string) (string
 	if err != nil {
 		return "", err
 	}
+	workspaceID = item.ID
 	current, err := m.session(workspaceID, item.Path)
 	if err != nil {
 		return "", err

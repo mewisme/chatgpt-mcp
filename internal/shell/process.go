@@ -84,9 +84,11 @@ func NewProcessManager(workspaces *workspace.Manager, shell *Manager) *ProcessMa
 }
 
 func (m *ProcessManager) Start(workspaceID, command string) (StartResult, error) {
-	if _, err := m.workspaces.Get(workspaceID); err != nil {
+	workspaceItem, err := m.workspaces.Get(workspaceID)
+	if err != nil {
 		return StartResult{}, err
 	}
+	workspaceID = workspaceItem.ID
 	cwd, err := m.shell.ValidateBackgroundCommand(workspaceID, command)
 	if err != nil {
 		return StartResult{}, err
@@ -113,45 +115,47 @@ func (m *ProcessManager) Start(workspaceID, command string) (StartResult, error)
 		_ = cmd.Process.Kill()
 		return StartResult{}, err
 	}
-	item := &managedProcess{
+	process := &managedProcess{
 		workspace: workspaceID, id: id, command: command, cwd: cwd,
 		startedAt: time.Now().UTC().Format(time.RFC3339Nano), cmd: cmd, stdout: &logBuffer{}, stderr: &logBuffer{},
 	}
 	m.mu.Lock()
-	m.processes[id] = item
+	m.processes[id] = process
 	m.mu.Unlock()
 
-	go copyLog(item.stdout, stdoutPipe)
-	go copyLog(item.stderr, stderrPipe)
+	go copyLog(process.stdout, stdoutPipe)
+	go copyLog(process.stderr, stderrPipe)
 	go func() {
 		waitErr := cmd.Wait()
-		item.mu.Lock()
-		defer item.mu.Unlock()
+		process.mu.Lock()
+		defer process.mu.Unlock()
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) {
 			code := exitErr.ExitCode()
-			item.exitCode = &code
+			process.exitCode = &code
 		} else if waitErr == nil {
 			code := 0
-			item.exitCode = &code
+			process.exitCode = &code
 		} else {
 			code := -1
-			item.exitCode = &code
+			process.exitCode = &code
 		}
 		if state := cmd.ProcessState; state != nil {
 			if text := signalFromState(state.String()); text != "" {
-				item.signal = &text
+				process.signal = &text
 			}
 		}
 	}()
 
-	return StartResult{ID: id, PID: cmd.Process.Pid, Command: command, CWD: cwd, StartedAt: item.startedAt}, nil
+	return StartResult{ID: id, PID: cmd.Process.Pid, Command: command, CWD: cwd, StartedAt: process.startedAt}, nil
 }
 
 func (m *ProcessManager) Status(workspaceID, id string) ([]ProcessInfo, error) {
-	if _, err := m.workspaces.Get(workspaceID); err != nil {
+	item, err := m.workspaces.Get(workspaceID)
+	if err != nil {
 		return nil, err
 	}
+	workspaceID = item.ID
 	m.mu.RLock()
 	items := make([]*managedProcess, 0, len(m.processes))
 	for _, item := range m.processes {
@@ -218,9 +222,11 @@ func (m *ProcessManager) Stop(workspaceID, id string, force bool) (StopResult, e
 }
 
 func (m *ProcessManager) Clear(workspaceID string) (int, error) {
-	if _, err := m.workspaces.Get(workspaceID); err != nil {
+	item, err := m.workspaces.Get(workspaceID)
+	if err != nil {
 		return 0, err
 	}
+	workspaceID = item.ID
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cleared := 0
@@ -240,9 +246,11 @@ func (m *ProcessManager) Clear(workspaceID string) (int, error) {
 }
 
 func (m *ProcessManager) get(workspaceID, id string) (*managedProcess, error) {
-	if _, err := m.workspaces.Get(workspaceID); err != nil {
+	workspace, err := m.workspaces.Get(workspaceID)
+	if err != nil {
 		return nil, err
 	}
+	workspaceID = workspace.ID
 	m.mu.RLock()
 	item := m.processes[id]
 	m.mu.RUnlock()

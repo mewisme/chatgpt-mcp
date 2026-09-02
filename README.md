@@ -159,6 +159,7 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 | Inspect runtime | `cgm status` |
 | Follow logs | `cgm logs -f` |
 | Full diagnostic logs | `cgm logs --debug -f` |
+| Migrate legacy credentials | `cgm config migrate` |
 | Verify config/state | `cgm config verify` |
 | Reload persisted config | `cgm config reload` |
 | Register workspace | `cgm workspace register <path>` |
@@ -200,7 +201,7 @@ The full documentation index lives in [`docs/README.md`](docs/README.md).
 
 `chatgpt-mcp` is intentionally workspace-bound. Filesystem/shell/Git mutations are constrained to the registered workspace plus explicitly allowed directories, symlink escapes are rejected, and MCP tool execution cannot use the builtin shell to grant itself new control-plane permissions.
 
-The OpenAI tunnel runtime key is stored separately from the main config and should be treated as a secret. A tunnel ID is an identifier, not a secret. Do not use a Platform Admin API key as the long-lived tunnel runtime key.
+Long-lived reversible credentials such as OpenAI tunnel keys, upstream OAuth tokens, and sensitive upstream header/environment values are stored in the OS keyring rather than plaintext config files. MCP/Admin app tokens remain one-way hashes in config. A tunnel ID is an identifier, not a secret. Do not use a Platform Admin API key as the long-lived tunnel runtime key.
 
 Read [Security](docs/security.md) before widening network exposure or granting additional filesystem roots.
 

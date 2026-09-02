@@ -11,6 +11,9 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	"go.mewis.me/chatgpt-mcp/internal/secretstore"
+	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
@@ -134,6 +137,9 @@ func uninitCommand() *cobra.Command {
 		Short: "Remove all local chatgpt-mcp configuration and state",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := config.RootPath()
+			if err := purgeKeyringSecrets(root); err != nil {
+				return err
+			}
 			if err := removeConfigRoot(root); err != nil {
 				return err
 			}
@@ -143,6 +149,28 @@ func uninitCommand() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func purgeKeyringSecrets(root string) error {
+	entries, err := config.TunnelKeyringEntries(root)
+	if err != nil {
+		return err
+	}
+	oauthEntries, err := mcpoauth.NewStore(configformat.StructuredPath(root, "oauth")).KeyringEntries()
+	if err != nil {
+		return err
+	}
+	upstreamEntries, err := upstream.NewStore(configformat.StructuredPath(root, "upstream")).KeyringEntries()
+	if err != nil {
+		return err
+	}
+	entries = append(entries, oauthEntries...)
+	entries = append(entries, upstreamEntries...)
+	changes := make([]secretstore.Change, 0, len(entries))
+	for _, entry := range entries {
+		changes = append(changes, secretstore.Change{Name: entry})
+	}
+	return secretstore.New(root).Apply(changes)
 }
 
 func removeConfigRoot(root string) error {

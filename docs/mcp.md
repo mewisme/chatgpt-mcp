@@ -156,7 +156,7 @@ cgm mcp server configure <id> [flags]
 
 ## Upstream OAuth
 
-HTTP upstreams can use OAuth. Credentials/state are stored separately from normal runtime configuration.
+HTTP upstreams can use OAuth. Access/refresh tokens and client secrets are stored in the OS keyring; the structured OAuth state file contains only non-secret metadata and keyring markers.
 
 ```bash
 cgm mcp server auth login <id>

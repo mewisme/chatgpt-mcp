@@ -3,11 +3,13 @@ package oauth
 import (
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 )
 
 var (
@@ -70,9 +72,10 @@ type LoginOptions struct {
 }
 
 type Store struct {
-	mu     sync.Mutex
-	path   string
-	client *http.Client
+	mu      sync.Mutex
+	path    string
+	client  *http.Client
+	secrets *secretstore.Store
 }
 
 func Path() string {
@@ -83,6 +86,13 @@ func NewStore(path string) *Store {
 	return NewStoreWithClient(path, &http.Client{Timeout: 30 * time.Second})
 }
 
+func (s *Store) Migrate() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.readLocked()
+	return err
+}
+
 func NewStoreWithClient(path string, client *http.Client) *Store {
 	if strings.TrimSpace(path) == "" {
 		path = Path()
@@ -90,5 +100,5 @@ func NewStoreWithClient(path string, client *http.Client) *Store {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &Store{path: path, client: client}
+	return &Store{path: path, client: client, secrets: secretstore.New(filepath.Dir(path))}
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	"go.mewis.me/chatgpt-mcp/internal/secretstore"
+	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
 func TestSetConfigValueTyped(t *testing.T) {
@@ -256,6 +260,56 @@ func TestConfigHasNoAllowDirSubcommand(t *testing.T) {
 	for _, command := range configCommand().Commands() {
 		if command.Name() == "allow-dir" {
 			t.Fatal("config allow-dir should not exist")
+		}
+	}
+}
+
+func TestPurgeKeyringSecretsRemovesPersistedCredentials(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "chatgpt-mcp")
+	if err := configformat.MarkRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tunnel.json"), []byte(`{"runtime_key_configured":true}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "oauth.json"), []byte(`{"version":1,"credentials":{"alpha":{"server_id":"alpha","access_token":"<os-keyring>"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "upstream.json"), []byte(`{"servers":[{"id":"alpha","headers":{"Authorization":"<os-keyring>"}}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := config.TunnelKeyringEntries(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oauthEntries, err := mcpoauth.NewStore(filepath.Join(root, "oauth.json")).KeyringEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstreamEntries, err := upstream.NewStore(filepath.Join(root, "upstream.json")).KeyringEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries = append(entries, oauthEntries...)
+	entries = append(entries, upstreamEntries...)
+	if len(entries) != 3 {
+		t.Fatalf("entries = %#v", entries)
+	}
+	store := secretstore.New(root)
+	for _, entry := range entries {
+		if err := store.Set(entry, "credential"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := purgeKeyringSecrets(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if _, err := store.Get(entry); !errors.Is(err, secretstore.ErrNotFound) {
+			t.Fatalf("keyring entry %q still exists: %v", entry, err)
 		}
 	}
 }

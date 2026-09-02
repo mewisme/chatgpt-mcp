@@ -80,7 +80,7 @@ The shell policy also recognizes common nested-shell/wrapper patterns rather tha
 
 ## Protected config/state subtree
 
-The selected config root contains control-plane material such as runtime control credentials, tunnel secrets, OAuth state, and configuration.
+The selected config root contains control-plane material such as ephemeral runtime-control state, keyring references/metadata, OAuth state metadata, and configuration. Long-lived reversible credentials themselves are stored in the OS keyring.
 
 Built-in MCP shell/file paths deny direct access to the protected control-plane subtree, including canonicalized path aliases/symlinks.
 
@@ -94,7 +94,9 @@ If you need a strong boundary against hostile local code, use an OS-level sandbo
 
 ## MCP and Admin authentication
 
-`chatgpt-mcp` stores token hashes, not plaintext MCP/admin tokens.
+`chatgpt-mcp` stores MCP/Admin app token hashes, not their plaintext bearer tokens. Long-lived reversible credentials use the OS keyring: Windows Credential Manager, macOS Keychain, and Linux Secret Service (`org.freedesktop.secrets`).
+
+On Linux, an unlocked Secret Service provider must be reachable through the user D-Bus session. Managed service environment snapshots preserve `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR` so the runtime can use the same keyring session; if no Secret Service provider is available, secret persistence fails rather than falling back to plaintext files.
 
 Create/rotate:
 
@@ -158,7 +160,7 @@ Tunnels Read + Use
 
 Do not use an OpenAI Admin API key as the long-lived runtime key.
 
-Tunnel configuration stores the runtime key separately from the main config and normal inspection output redacts sensitive values.
+Tunnel runtime/admin keys are stored in the OS keyring. `tunnel.<ext>` contains only configured-state markers and admin scope metadata, and normal inspection output redacts sensitive values. Legacy plaintext credentials can be migrated explicitly with `cgm config migrate`; normal credential-loading paths also migrate legacy values before rewriting their files.
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md).
 

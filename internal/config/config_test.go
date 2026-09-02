@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -127,8 +128,8 @@ func TestConfigSaveSeparatesTunnelSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(secretData), "tunnel-secret") || !strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "ws-admin") {
-		t.Fatalf("tunnel.json did not contain all secrets: %s", secretData)
+	if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "ws-admin") || !strings.Contains(string(secretData), "runtime_key_configured") || !strings.Contains(string(secretData), "admin_key_configured") {
+		t.Fatalf("tunnel.json did not contain marker-only secret metadata: %s", secretData)
 	}
 	loaded, err := loadAt(configPath, secretPath)
 	if err != nil {
@@ -182,10 +183,8 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, expected := range []string{"tunnel-secret", "admin-secret", "org-admin"} {
-				if !strings.Contains(string(secretData), expected) {
-					t.Fatalf("tunnel %s secret missing %q: %s", format, expected, secretData)
-				}
+			if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "org-admin") {
+				t.Fatalf("tunnel %s file leaked secret or lost scope: %s", format, secretData)
 			}
 		})
 	}
@@ -226,8 +225,12 @@ func TestLegacyTunnelAPIKeyMigratesOnSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if secret.APIKey != "legacy-secret" {
-		t.Fatalf("migrated secret = %q", secret.APIKey)
+	if secret.APIKey != "" || !secret.RuntimeKeyConfigured {
+		t.Fatalf("legacy tunnel file was not replaced by keyring marker: %#v", secret)
+	}
+	key, err := secretstore.New(root).Get(tunnelRuntimeSecretName)
+	if err != nil || key != "legacy-secret" {
+		t.Fatalf("migrated keyring secret = %q err=%v", key, err)
 	}
 }
 
@@ -450,6 +453,9 @@ func TestClearingTunnelAPIKeyRemovesSecretFile(t *testing.T) {
 	}
 	if _, err := os.Stat(secretPath); !os.IsNotExist(err) {
 		t.Fatalf("secret file still exists: %v", err)
+	}
+	if _, err := secretstore.New(root).Get(tunnelRuntimeSecretName); !errors.Is(err, secretstore.ErrNotFound) {
+		t.Fatalf("runtime key still exists in OS keyring: %v", err)
 	}
 }
 

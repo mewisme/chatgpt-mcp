@@ -21,8 +21,15 @@ func TestStoreRoundTripAndStatus(t *testing.T) {
 	if err := store.Put(Credential{ServerID: "alpha", ServerURL: "https://example.test/mcp", Issuer: "https://issuer.test", AccessToken: "secret", RefreshToken: "refresh", ExpiresAt: expires, Scopes: []string{"read"}}); err != nil {
 		t.Fatal(err)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"secret"`) || strings.Contains(string(data), `"refresh"`) || !strings.Contains(string(data), "os-keyring") {
+		t.Fatalf("oauth file leaked credential value or missed keyring marker: %s", data)
+	}
 	credential, err := store.Get("alpha")
-	if err != nil || credential.AccessToken != "secret" {
+	if err != nil || credential.AccessToken != "secret" || credential.RefreshToken != "refresh" {
 		t.Fatalf("credential=%#v err=%v", credential, err)
 	}
 	status, err := store.Status("alpha")
@@ -231,5 +238,37 @@ func TestUnionScopesStable(t *testing.T) {
 	got := strings.Join(unionScopes([]string{"a", "b"}, []string{"b", "c"}), " ")
 	if got != "a b c" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestLegacyOAuthFileMigratesCredentialsToKeyring(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oauth.json")
+	legacy := diskStore{Version: storeVersion, Credentials: map[string]Credential{"alpha": {ServerID: "alpha", ClientID: "client", ClientSecret: "legacy-client-value", AccessToken: "legacy-access-value", RefreshToken: "legacy-refresh-value"}}}
+	data, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	credential, err := store.Get("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential.ClientSecret != "legacy-client-value" || credential.AccessToken != "legacy-access-value" || credential.RefreshToken != "legacy-refresh-value" {
+		t.Fatalf("credential=%#v", credential)
+	}
+	migrated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"legacy-client-value", "legacy-access-value", "legacy-refresh-value"} {
+		if strings.Contains(string(migrated), value) {
+			t.Fatalf("oauth file still contains legacy credential: %s", migrated)
+		}
+	}
+	if strings.Count(string(migrated), "os-keyring") < 3 {
+		t.Fatalf("oauth file missing keyring markers: %s", migrated)
 	}
 }

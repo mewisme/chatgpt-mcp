@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
 func configCommand() *cobra.Command {
@@ -31,6 +33,7 @@ func configCommand() *cobra.Command {
 		configListCommand(),
 		configSetCommand(),
 		configReloadCommand(),
+		configMigrateCommand(),
 		configConvertCommand(),
 		configPresetCommand(),
 		configVerifyCommand(),
@@ -344,6 +347,29 @@ func getConfigValue(cfg config.Config, key string) (any, error) {
 	return getConfigTreeValue(tree, key)
 }
 
+func configMigrateCommand() *cobra.Command {
+	return &cobra.Command{Use: "migrate", Short: "Migrate legacy plaintext credentials into the OS keyring", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if err := migrateLegacySecrets(); err != nil {
+			return err
+		}
+		commandLogger(cmd).Success("CONFIG", "credentials migrated to OS keyring")
+		return nil
+	}}
+}
+
+func migrateLegacySecrets() error {
+	if _, err := config.Load(); err != nil {
+		return err
+	}
+	if _, err := upstream.NewStore(upstream.Path()).Load(); err != nil {
+		return err
+	}
+	if err := mcpoauth.NewStore(mcpoauth.Path()).Migrate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func configConvertCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:               "convert <json|yaml|toml>",
@@ -352,6 +378,9 @@ func configConvertCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeConfigFormat,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := migrateLegacySecrets(); err != nil {
+				return err
+			}
 			format, err := configformat.Parse(args[0])
 			if err != nil {
 				return err

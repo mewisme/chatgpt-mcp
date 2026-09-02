@@ -31,6 +31,11 @@ type Server struct {
 	IdleTimeoutSec    int               `json:"idle_timeout_sec,omitempty"`
 }
 
+func SensitiveConfigKey(key string) bool {
+	lower := strings.ToLower(strings.TrimSpace(key))
+	return strings.Contains(lower, "authorization") || strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "password") || strings.Contains(lower, "api-key") || strings.Contains(lower, "cookie") || strings.HasSuffix(lower, "_key") || strings.HasSuffix(lower, "key")
+}
+
 var invalidPrefix = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
 func NormalizeServer(value Server) (Server, error) {

@@ -211,6 +211,12 @@ Apply to a running process:
 cgm config reload
 ```
 
+Migrate legacy plaintext credentials to the OS keyring:
+
+```bash
+cgm config migrate
+```
+
 Verify:
 
 ```bash

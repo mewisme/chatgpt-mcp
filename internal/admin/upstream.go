@@ -203,10 +203,7 @@ func restoreRedactedMap(current, next map[string]string) map[string]string {
 func redactMap(source map[string]string) map[string]string {
 	result := make(map[string]string, len(source))
 	for key, value := range source {
-		lower := strings.ToLower(key)
-		if strings.Contains(lower, "authorization") || strings.Contains(lower, "token") || strings.Contains(lower, "secret") ||
-			strings.Contains(lower, "password") || strings.Contains(lower, "api-key") || strings.Contains(lower, "cookie") ||
-			strings.HasSuffix(lower, "_key") || strings.HasSuffix(lower, "key") {
+		if upstream.SensitiveConfigKey(key) {
 			result[key] = "<redacted>"
 		} else {
 			result[key] = value

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 )
 
 func IsolateConfigHome() (string, func(), error) {
@@ -35,7 +36,9 @@ func IsolateConfigHome() (string, func(), error) {
 		return "", nil, err
 	}
 	_ = configformat.SetRootPath("")
+	keyringCleanup := secretstore.UseMemoryForTesting()
 	cleanup := func() {
+		keyringCleanup()
 		_ = configformat.SetRootPath("")
 		for key, value := range previous {
 			if value == nil {

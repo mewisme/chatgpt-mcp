@@ -24,7 +24,7 @@ type EnvironmentSnapshot struct {
 
 func CaptureEnvironment(account Account, extraPath []string) EnvironmentSnapshot {
 	values := map[string]string{}
-	for _, key := range []string{"SHELL", "COMSPEC", "PATHEXT", "LANG", "TERM", "TMPDIR", "TEMP", "TMP"} {
+	for _, key := range []string{"SHELL", "COMSPEC", "PATHEXT", "LANG", "TERM", "TMPDIR", "TEMP", "TMP", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			values[key] = value
 		}

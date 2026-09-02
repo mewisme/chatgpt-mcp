@@ -167,7 +167,7 @@ cgm tunnel configure \
   --organization-id org_...
 ```
 
-The runtime API key is stored separately from the main configuration using the selected config format. It is never returned by normal config/status commands.
+The runtime API key is stored in the OS keyring. The selected config format keeps only non-secret tunnel metadata and configured-state markers, and normal config/status commands never return the key.
 
 Inspect the result:
 

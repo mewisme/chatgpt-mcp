@@ -171,20 +171,15 @@ func loadAt(configPath, secretPath string) (Config, error) {
 	if err := migrateLegacyServerConfig(configPath, data, &cfg); err != nil {
 		return cfg, err
 	}
-	secret, err := loadTunnelSecretAt(secretPath)
+	legacyRuntime, legacyAdmin := cfg.Tunnel.APIKey, cfg.Tunnel.AdminKey
+	migrateSecrets, err := loadTunnelSecrets(secretPath, &cfg.Tunnel, legacyRuntime, legacyAdmin)
 	if err != nil {
 		return cfg, err
 	}
-	if secret.APIKey != "" {
-		cfg.Tunnel.APIKey = secret.APIKey
-	}
-	if secret.AdminKey != "" {
-		cfg.Tunnel.AdminKey = secret.AdminKey
-	}
-	if secret.AdminOrganizationID != "" || secret.AdminWorkspaceID != "" || secret.AdminTenantID != "" {
-		cfg.Tunnel.AdminOrganizationID = secret.AdminOrganizationID
-		cfg.Tunnel.AdminWorkspaceID = secret.AdminWorkspaceID
-		cfg.Tunnel.AdminTenantID = secret.AdminTenantID
+	if migrateSecrets || legacyRuntime != "" || legacyAdmin != "" {
+		if err := saveAt(configPath, secretPath, cfg); err != nil {
+			return cfg, fmt.Errorf("migrate tunnel secrets to OS keyring: %w", err)
+		}
 	}
 	return cfg, nil
 }

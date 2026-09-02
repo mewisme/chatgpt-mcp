@@ -406,15 +406,13 @@ func redactUpstreamServer(server upstream.Server) upstream.Server {
 	value := server
 	value.Headers = cloneStringMap(server.Headers)
 	for key := range value.Headers {
-		lower := strings.ToLower(key)
-		if strings.Contains(lower, "authorization") || strings.Contains(lower, "token") || strings.Contains(lower, "api-key") || strings.Contains(lower, "cookie") {
+		if upstream.SensitiveConfigKey(key) {
 			value.Headers[key] = "<redacted>"
 		}
 	}
 	value.Env = cloneStringMap(server.Env)
 	for key := range value.Env {
-		lower := strings.ToLower(key)
-		if strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "password") || strings.Contains(lower, "key") {
+		if upstream.SensitiveConfigKey(key) {
 			value.Env[key] = "<redacted>"
 		}
 	}

@@ -10,60 +10,21 @@ cgm tunnel status
 cgm logs --debug -n 200
 ```
 
-For a federated runtime also run:
+## MCP session is bound to another workspace
 
-```bash
-cgm cluster status
+A workspace-scoped tool can return an error like:
+
+```text
+MCP session workspace mismatch: session is bound to workspace ws_x and cannot access ws_y
 ```
 
-## Cluster is reconnecting or disconnected
+This is intentional fail-closed behavior. The first valid workspace-scoped call binds the current MCP session to that workspace. Later calls in the same session may keep using that workspace, but they cannot switch to another registered workspace. Start a separate ChatGPT conversation/MCP session for the other workspace. Multiple sessions may bind to the same workspace.
 
-Check the relay first:
+If the error appears unexpectedly, inspect the Activity page. It shows a short session fingerprint, the requested workspace, the bound workspace, and whether the decision was `new`, `existing`, or `denied`; the raw MCP session ID is never exposed.
 
-```bash
-curl http://relay-host:37423/health
-cgm cluster status
-cgm logs --component CLUSTER --debug -n 200
-```
+## Workspace ID changed after a registry v2 upgrade
 
-For a remote deployment, confirm `cluster.relay_url` uses `wss://`, the TLS certificate is valid, the reverse proxy preserves WebSocket upgrades, and the runtime has the same relay token as the relay.
-
-Normal relay restarts recover automatically. Runtimes fail pending remote calls while disconnected, reconnect with backoff/jitter, then re-advertise current workspaces and catalog state.
-
-## Cluster catalog is incompatible
-
-`cgm cluster status` reports catalog compatibility and the mismatch reason. Every online runtime in a multi-member cluster must advertise the same active tool catalog hash before tunnel leadership is allowed.
-
-Check that members run compatible builds and have matching feature/upstream tool configuration. Upgrade/reconfigure the outlier, reload/restart it, then inspect status again.
-
-## Remote workspace is offline
-
-The workspace directory intentionally retains an offline owner so calls fail with an explicit owner-offline error instead of silently executing somewhere else.
-
-Bring the owning runtime back online and verify:
-
-```bash
-cgm cluster status
-cgm workspace list
-```
-
-The owner reconnects with its stable instance identity and re-advertises its workspace IDs automatically.
-
-## Relay returns 401
-
-The runtime and relay tokens do not match. `cluster.relay_token` is redacted by inspection, so rotate/re-enter it from a trusted terminal rather than trying to read it back.
-
-When a shared OpenAI tunnel is enabled, use the coordinated maintenance-window rotation procedure in [Cluster federation](cluster.md) instead of splitting members across independent relays.
-
-## Relay returns connection/rate limit errors
-
-Inspect authenticated JSON metrics:
-
-```bash
-curl -H 'Authorization: Bearer <relay-token>' https://relay.example.com/metrics
-```
-
-Relevant relay flags are `--max-connections`, `--max-requests-per-second`, `--hello-timeout`, `--idle-timeout`, and `--write-timeout`.
+Current workspace IDs are stable hashes of canonical workspace paths. Registry v2 instance-scoped IDs are migrated to the stable path-based ID and retained as aliases, so existing conversations using the old ID continue to resolve to the same workspace. If an ID is genuinely unknown, re-run `cgm workspace list` or register the canonical path again; the runtime never falls back to another workspace.
 
 ## ChatGPT cannot see the tunnel
 

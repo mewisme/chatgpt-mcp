@@ -207,10 +207,7 @@ Live changes include:
 - authentication state
 - features
 - filesystem permission roots
-- cluster federation
 - tunnel configuration
-
-When cluster federation is enabled, the runtime also supervises its relay connection. Relay loss does not stop the MCP HTTP runtime: pending cluster RPCs fail closed, the node reconnects with bounded backoff, and current workspace/catalog state is re-advertised after recovery. See [Cluster federation](cluster.md).
 
 Network-affecting changes such as MCP/admin port or exposure cause listener rebind inside the same process.
 

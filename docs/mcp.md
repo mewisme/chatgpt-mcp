@@ -55,7 +55,7 @@ The runtime supports the current project surface including:
 The protocol revision is stateless:
 
 - no `initialize` handshake
-- no `Mcp-Session-Id`
+- the direct stateless endpoint does not create `Mcp-Session-Id`; when a client or Secure MCP Tunnel supplies one, the runtime uses it only as an isolation key for workspace-scoped tool calls
 - unknown/removed methods return HTTP `404` with JSON-RPC method-not-found semantics
 - `GET` and `DELETE` on the MCP endpoint return `405`
 
@@ -85,9 +85,11 @@ Register:
 cgm workspace register ~/projects/my-project
 ```
 
-The workspace ID is stable and does not silently switch to another project.
+The workspace ID is stable by canonical path and does not silently switch to another project. Older instance-scoped IDs from registry v2 are migrated and retained as aliases.
 
-Effective filesystem scope is described in [Security](security.md).
+For requests carrying an MCP session ID, the first valid workspace-scoped call binds that session to the canonical workspace. The same session may continue using that workspace, but attempts to access another workspace are denied before tool execution. Multiple sessions may share one workspace.
+
+Effective filesystem scope and session isolation are described in [Security](security.md).
 
 ## Upstream MCP aggregation
 

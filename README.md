@@ -14,7 +14,7 @@ Single Go binary · MCP `2026-07-28` · OpenAI Secure MCP Tunnel · Managed serv
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-555?style=flat-square)](#installation)
 [![License](https://img.shields.io/github/license/mewisme/chatgpt-mcp?style=flat-square)](LICENSE)
 
-[Getting started](docs/getting-started.md) · [Cluster federation](docs/cluster.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [CLI reference](docs/cli-reference.md) · [Security](docs/security.md) · [Troubleshooting](docs/troubleshooting.md)
+[Getting started](docs/getting-started.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [CLI reference](docs/cli-reference.md) · [Security](docs/security.md) · [Troubleshooting](docs/troubleshooting.md)
 
 </div>
 
@@ -40,7 +40,7 @@ chatgpt-mcp
 
 - Stateless MCP `2026-07-28` HTTP runtime at `/mcp`
 - Builtin OpenAI Secure MCP Tunnel client with supervised reconnects
-- Multi-runtime cluster federation with workspace routing, automatic relay reconnect, and single-tunnel leader election
+- MCP-session workspace isolation: many sessions may share one workspace, but one session cannot cross into another workspace
 - Workspace-bound filesystem, shell, Git, rules, skills, checkpoints, and utilities
 - Dynamic upstream MCP aggregation with OAuth and MRTR relay
 - Managed background runtime via systemd, launchd, or Task Scheduler
@@ -164,8 +164,6 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 | Verify config/state | `cgm config verify` |
 | Reload persisted config | `cgm config reload` |
 | Register workspace | `cgm workspace register <path>` |
-| Inspect cluster | `cgm cluster status` |
-| Run cluster relay | `cgm cluster relay` |
 | Add workspace access | `cgm workspace access add <workspace_id> <path>` |
 | Inspect tunnel | `cgm tunnel status` |
 | Manage upstream MCPs | `cgm mcp --help` |
@@ -192,7 +190,6 @@ The default exposure mode is loopback-only. Network exposure, authentication, co
 | Connect ChatGPT through OpenAI Secure MCP Tunnel | [OpenAI + ChatGPT setup](docs/openai-chatgpt.md) |
 | Understand `serve`, `up`, `down`, services, status, and logs | [Runtime and services](docs/runtime.md) |
 | Configure auth, exposure, formats, reload, and workspace access | [Configuration](docs/configuration.md) |
-| Federate multiple runtimes and deploy a relay | [Cluster federation](docs/cluster.md) |
 | Find commands and useful flag combinations | [CLI reference](docs/cli-reference.md) |
 | Understand MCP protocol behavior and upstream aggregation | [MCP and upstreams](docs/mcp.md) |
 | Understand trust boundaries and security controls | [Security](docs/security.md) |
@@ -203,7 +200,7 @@ The full documentation index lives in [`docs/README.md`](docs/README.md).
 
 ## Security model
 
-`chatgpt-mcp` is intentionally workspace-bound. Filesystem/shell/Git mutations are constrained to the registered workspace plus explicitly allowed directories, symlink escapes are rejected, and MCP tool execution cannot use the builtin shell to grant itself new control-plane permissions.
+`chatgpt-mcp` is intentionally workspace-bound. Filesystem/shell/Git mutations are constrained to the registered workspace plus explicitly allowed directories, symlink escapes are rejected, and MCP tool execution cannot use the builtin shell to grant itself new control-plane permissions. The first valid workspace-scoped call in an MCP session binds that session to the workspace; later attempts to use another workspace are denied before the tool handler runs. Multiple independent MCP sessions may bind to the same workspace.
 
 Long-lived reversible credentials such as OpenAI tunnel keys, upstream OAuth tokens, and sensitive upstream header/environment values are stored in the OS keyring rather than plaintext config files. MCP/Admin app tokens remain one-way hashes in config. A tunnel ID is an identifier, not a secret. Do not use a Platform Admin API key as the long-lived tunnel runtime key.
 

@@ -71,9 +71,6 @@ chatgpt-mcp
 │   ├── reload
 │   ├── set
 │   └── verify
-├── cluster
-│   ├── relay
-│   └── status
 ├── down
 ├── init
 ├── logs
@@ -320,44 +317,6 @@ cgm tunnel run
 ```
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md) for Platform/ChatGPT configuration.
-
-## Cluster federation
-
-Inspect the current runtime/member/workspace/catalog/leadership view:
-
-```bash
-cgm cluster status
-cgm --log-format=json cluster status
-```
-
-Run a loopback relay using the configured secret-store token:
-
-```bash
-cgm config set cluster.relay_token 'replace-with-a-long-random-secret'
-cgm cluster relay
-```
-
-Service/container secret file:
-
-```bash
-cgm cluster relay --token-file /run/secrets/cluster-token
-```
-
-Important relay flags:
-
-```text
---listen <host:port>
---path <path>
---token-file <path>
---allow-insecure-http
---max-connections <n>
---max-requests-per-second <n>
---hello-timeout <duration>
---idle-timeout <duration>
---write-timeout <duration>
-```
-
-The relay also serves unauthenticated `/health` JSON and authenticated `/metrics` JSON. See [Cluster federation](cluster.md) for WSS, systemd/Docker deployment, recovery, token rotation, and tunnel leadership.
 
 ## Upstream MCP servers
 

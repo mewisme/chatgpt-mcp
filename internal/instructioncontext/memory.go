@@ -1,6 +1,8 @@
 package instructioncontext
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,15 +31,22 @@ type memoryCandidate struct {
 }
 
 var projectMemoryCandidates = []memoryCandidate{
+	{Relative: "AGENTS.md", Kind: SectionProject, Source: "agents"},
+	{Relative: filepath.Join(".agents", "AGENTS.md"), Kind: SectionProject, Source: "agents"},
 	{Relative: "CLAUDE.md", Kind: SectionProject, Source: "claude"},
 	{Relative: filepath.Join(".claude", "CLAUDE.md"), Kind: SectionProject, Source: "claude"},
-	{Relative: "AGENTS.md", Kind: SectionProject, Source: "agents"},
+	{Relative: filepath.Join(".claudes", "CLAUDE.md"), Kind: SectionProject, Source: "claudes"},
+	{Relative: filepath.Join(".cursor", "AGENTS.md"), Kind: SectionProject, Source: "cursor"},
+	{Relative: filepath.Join(".codex", "AGENTS.md"), Kind: SectionProject, Source: "codex"},
 	{Relative: "CLAUDE.local.md", Kind: SectionProject, Source: "claude"},
 }
 
 var userMemoryCandidates = []memoryCandidate{
-	{Relative: filepath.Join(".codex", "CLAUDE.md"), Kind: SectionUser, Source: "codex"},
+	{Relative: filepath.Join(".agents", "AGENTS.md"), Kind: SectionUser, Source: "agents"},
 	{Relative: filepath.Join(".claude", "CLAUDE.md"), Kind: SectionUser, Source: "claude"},
+	{Relative: filepath.Join(".claudes", "CLAUDE.md"), Kind: SectionUser, Source: "claudes"},
+	{Relative: filepath.Join(".cursor", "AGENTS.md"), Kind: SectionUser, Source: "cursor"},
+	{Relative: filepath.Join(".codex", "AGENTS.md"), Kind: SectionUser, Source: "codex"},
 }
 
 func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle, error) {
@@ -65,53 +74,54 @@ func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle
 		now = time.Now
 	}
 
-	sections := make([]Section, 0, len(projectMemoryCandidates)+1)
+	sections := make([]Section, 0, len(projectMemoryCandidates)+len(userMemoryCandidates))
 	totalBytes := 0
+	seenContent := map[string]bool{}
+	appendCandidate := func(base string, candidate memoryCandidate) {
+		section, contentID, ok := loadMemorySection(filepath.Join(base, candidate.Relative), candidate, maxBytes, maxLines)
+		if !ok || seenContent[contentID] {
+			return
+		}
+		seenContent[contentID] = true
+		sections = append(sections, section)
+		totalBytes += section.LoadedBytes
+	}
 	if !opts.DisableUser {
 		home := strings.TrimSpace(opts.HomeDir)
 		if home == "" {
 			home, _ = os.UserHomeDir()
 		}
 		for _, candidate := range userMemoryCandidates {
-			section, ok := loadMemorySection(filepath.Join(home, candidate.Relative), candidate, maxBytes, maxLines)
-			if !ok {
-				continue
-			}
-			sections = append(sections, section)
-			totalBytes += section.LoadedBytes
-			break
+			appendCandidate(home, candidate)
 		}
 	}
 	for _, candidate := range projectMemoryCandidates {
-		section, ok := loadMemorySection(filepath.Join(root, candidate.Relative), candidate, maxBytes, maxLines)
-		if !ok {
-			continue
-		}
-		sections = append(sections, section)
-		totalBytes += section.LoadedBytes
+		appendCandidate(root, candidate)
 	}
 	return ProjectMemoryBundle{Root: root, WorkspaceRoots: workspaceRoots, Sections: sections, TotalBytes: totalBytes, LoadedAt: now().UTC()}, nil
 }
 
-func loadMemorySection(path string, candidate memoryCandidate, maxBytes, maxLines int) (Section, bool) {
+func loadMemorySection(path string, candidate memoryCandidate, maxBytes, maxLines int) (Section, string, bool) {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return Section{}, false
+		return Section{}, "", false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Section{}, false
+		return Section{}, "", false
 	}
 	content, truncated := limitInstructionText(data, maxBytes, maxLines)
 	content = strings.TrimSpace(content)
 	if content == "" {
-		return Section{}, false
+		return Section{}, "", false
 	}
 	loadedBytes := len([]byte(content))
+	normalized := strings.TrimSpace(strings.ReplaceAll(string(data), "\r\n", "\n"))
+	sum := sha256.Sum256([]byte(normalized))
 	return Section{
 		Path: path, Kind: candidate.Kind, Source: candidate.Source, Content: content,
 		Truncated: truncated, OriginalBytes: len(data), LoadedBytes: loadedBytes,
-	}, true
+	}, hex.EncodeToString(sum[:]), true
 }
 
 func limitInstructionText(data []byte, maxBytes, maxLines int) (string, bool) {

@@ -8,53 +8,59 @@ import (
 	"unicode/utf8"
 )
 
-func TestLoadProjectMemoryCandidatesAndPriority(t *testing.T) {
+func writeInstructionFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadProjectMemoryPrefersAgentsAndLoadsDistinctFallbacks(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0755); err != nil {
-		t.Fatal(err)
+	files := []struct{ path, content string }{
+		{filepath.Join(home, ".agents", "AGENTS.md"), "user agents"},
+		{filepath.Join(home, ".claude", "CLAUDE.md"), "user claude"},
+		{filepath.Join(home, ".codex", "AGENTS.md"), "user agents"},
+		{filepath.Join(root, "AGENTS.md"), "root agents"},
+		{filepath.Join(root, ".agents", "AGENTS.md"), "project agents"},
+		{filepath.Join(root, "CLAUDE.md"), "root claude"},
+		{filepath.Join(root, ".claude", "CLAUDE.md"), "root agents"},
+		{filepath.Join(root, ".claudes", "CLAUDE.md"), "claudes fallback"},
+		{filepath.Join(root, ".cursor", "AGENTS.md"), "cursor fallback"},
+		{filepath.Join(root, ".codex", "AGENTS.md"), "codex fallback"},
+		{filepath.Join(root, "CLAUDE.local.md"), "local claude"},
 	}
-	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	files := map[string]string{
-		filepath.Join(root, "CLAUDE.md"):            "root claude",
-		filepath.Join(root, ".claude", "CLAUDE.md"): "nested claude",
-		filepath.Join(root, "AGENTS.md"):            "agents",
-		filepath.Join(root, "CLAUDE.local.md"):      "local claude",
-		filepath.Join(home, ".codex", "CLAUDE.md"):  "codex user",
-		filepath.Join(home, ".claude", "CLAUDE.md"): "claude user",
-	}
-	for path, content := range files {
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			t.Fatal(err)
-		}
+	for _, file := range files {
+		writeInstructionFile(t, file.path, file.content)
 	}
 	loadedAt := time.Date(2026, 9, 3, 1, 2, 3, 0, time.FixedZone("test", 7*60*60))
 	bundle, err := LoadProjectMemory(root, MemoryLoadOptions{HomeDir: home, WorkspaceRoots: []string{root}, Now: func() time.Time { return loadedAt }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bundle.Sections) != 5 {
-		t.Fatalf("sections = %#v", bundle.Sections)
-	}
 	want := []struct {
-		kind    SectionKind
-		source  string
-		content string
+		kind, source, content string
 	}{
-		{SectionUser, "codex", "codex user"},
-		{SectionProject, "claude", "root claude"},
-		{SectionProject, "claude", "nested claude"},
-		{SectionProject, "agents", "agents"},
-		{SectionProject, "claude", "local claude"},
+		{"user", "agents", "user agents"},
+		{"user", "claude", "user claude"},
+		{"project", "agents", "root agents"},
+		{"project", "agents", "project agents"},
+		{"project", "claude", "root claude"},
+		{"project", "claudes", "claudes fallback"},
+		{"project", "cursor", "cursor fallback"},
+		{"project", "codex", "codex fallback"},
+		{"project", "claude", "local claude"},
+	}
+	if len(bundle.Sections) != len(want) {
+		t.Fatalf("sections = %#v", bundle.Sections)
 	}
 	for i, expected := range want {
 		section := bundle.Sections[i]
-		if section.Kind != expected.kind || section.Source != expected.source || section.Content != expected.content || section.Truncated {
+		if string(section.Kind) != expected.kind || section.Source != expected.source || section.Content != expected.content || section.Truncated {
 			t.Fatalf("section %d = %#v", i, section)
 		}
 	}
@@ -63,18 +69,28 @@ func TestLoadProjectMemoryCandidatesAndPriority(t *testing.T) {
 	}
 }
 
+func TestLoadProjectMemoryDeduplicatesNormalizedContent(t *testing.T) {
+	root := t.TempDir()
+	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), "same\r\ncontent\n")
+	writeInstructionFile(t, filepath.Join(root, ".agents", "AGENTS.md"), " same\ncontent ")
+	writeInstructionFile(t, filepath.Join(root, ".claude", "CLAUDE.md"), "different")
+	bundle, err := LoadProjectMemory(root, MemoryLoadOptions{DisableUser: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Sections) != 2 || bundle.Sections[0].Source != "agents" || bundle.Sections[0].Content != "same\ncontent" || bundle.Sections[1].Content != "different" {
+		t.Fatalf("sections = %#v", bundle.Sections)
+	}
+}
+
 func TestLoadProjectMemorySkipsSymlinkAndEmptyFiles(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.md")
-	if err := os.WriteFile(outside, []byte("outside"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(root, "CLAUDE.md")); err != nil {
+	writeInstructionFile(t, outside, "outside")
+	if err := os.Symlink(outside, filepath.Join(root, "AGENTS.md")); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(" \n\t"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeInstructionFile(t, filepath.Join(root, ".agents", "AGENTS.md"), " \n\t")
 	bundle, err := LoadProjectMemory(root, MemoryLoadOptions{DisableUser: true})
 	if err != nil {
 		t.Fatal(err)
@@ -87,9 +103,7 @@ func TestLoadProjectMemorySkipsSymlinkAndEmptyFiles(t *testing.T) {
 func TestLoadProjectMemoryLimitsSectionByLinesAndUTF8Bytes(t *testing.T) {
 	root := t.TempDir()
 	content := "first\nsecond\n界界界"
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), content)
 	bundle, err := LoadProjectMemory(root, MemoryLoadOptions{DisableUser: true, MaxLinesPerSection: 3, MaxBytesPerSection: 16})
 	if err != nil {
 		t.Fatal(err)
@@ -111,24 +125,5 @@ func TestLoadProjectMemoryDefaultsWorkspaceRootsToRoot(t *testing.T) {
 	}
 	if len(bundle.WorkspaceRoots) != 1 || bundle.WorkspaceRoots[0] != bundle.Root {
 		t.Fatalf("workspace roots = %#v root=%q", bundle.WorkspaceRoots, bundle.Root)
-	}
-}
-
-func TestLoadProjectMemoryFallsBackToClaudeUserInstructions(t *testing.T) {
-	root := t.TempDir()
-	home := t.TempDir()
-	path := filepath.Join(home, ".claude", "CLAUDE.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("claude user"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	bundle, err := LoadProjectMemory(root, MemoryLoadOptions{HomeDir: home})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(bundle.Sections) != 1 || bundle.Sections[0].Kind != SectionUser || bundle.Sections[0].Source != "claude" || bundle.Sections[0].Content != "claude user" {
-		t.Fatalf("sections = %#v", bundle.Sections)
 	}
 }

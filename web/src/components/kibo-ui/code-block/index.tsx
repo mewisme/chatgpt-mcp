@@ -99,17 +99,12 @@ const wordHighlightClassNames = cn(
 );
 
 const codeBlockClassName = cn(
-  "mt-0 bg-background text-sm",
-  "[&_pre]:py-4",
+  "mt-0 min-w-0 max-w-full bg-background text-sm",
+  "[&_pre]:m-0 [&_pre]:w-full [&_pre]:min-w-0 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:py-4",
   // "[&_.shiki]:!bg-[var(--shiki-bg)]",
   "[&_.shiki]:!bg-transparent",
-  "[&_code]:w-full",
-  "[&_code]:grid",
-  "[&_code]:overflow-x-auto",
-  "[&_code]:bg-transparent",
-  "[&_.line]:px-4",
-  "[&_.line]:w-full",
-  "[&_.line]:relative"
+  "[&_code]:grid [&_code]:w-max [&_code]:min-w-full [&_code]:bg-transparent",
+  "[&_.line]:relative [&_.line]:w-max [&_.line]:min-w-full [&_.line]:px-4"
 );
 
 type CodeBlockData = {
@@ -154,7 +149,7 @@ export const CodeBlock = ({
   return (
     <CodeBlockContext.Provider value={{ value, onValueChange, data }}>
       <div
-        className={cn("size-full overflow-hidden rounded-md border", className)}
+        className={cn("size-full min-w-0 max-w-full overflow-hidden rounded-md border", className)}
         {...props}
       />
     </CodeBlockContext.Provider>
@@ -351,8 +346,8 @@ export const CodeBlockCopyButton = ({
 type CodeBlockFallbackProps = HTMLAttributes<HTMLDivElement>;
 
 const CodeBlockFallback = ({ children, ...props }: CodeBlockFallbackProps) => (
-  <div {...props}>
-    <pre className="w-full">
+  <div className="min-w-0 max-w-full" {...props}>
+    <pre className="w-full min-w-0 max-w-full overflow-x-auto">
       <code>
         {children
           ?.toString()
@@ -374,10 +369,9 @@ export type CodeBlockBodyProps = Omit<
   children: (item: CodeBlockData) => ReactNode;
 };
 
-export const CodeBlockBody = ({ children, ...props }: CodeBlockBodyProps) => {
+export const CodeBlockBody = ({ children, className, ...props }: CodeBlockBodyProps) => {
   const { data } = useContext(CodeBlockContext);
-
-  return <div {...props}>{data.map(children)}</div>;
+  return <div className={cn("min-w-0 max-w-full", className)} {...props}>{data.map(children)}</div>;
 };
 
 export type CodeBlockItemProps = HTMLAttributes<HTMLDivElement> & {
@@ -427,6 +421,7 @@ export const CodeBlockContent = ({
   children,
   language = "json",
   syntaxHighlighting = true,
+  className,
   ...props
 }: CodeBlockContentProps) => {
   const [html, setHtml] = useState<string | null>(null);
@@ -444,6 +439,7 @@ export const CodeBlockContent = ({
 
   return (
     <div
+      className={cn("min-w-0 max-w-full", className)}
       // biome-ignore lint/security/noDangerouslySetInnerHtml: "Kinda how Shiki works"
       dangerouslySetInnerHTML={{ __html: html }}
       {...props}

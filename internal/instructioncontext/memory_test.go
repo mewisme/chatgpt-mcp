@@ -145,6 +145,7 @@ func TestLoadProjectMemoryAppliesGlobalBudgetByPrecedence(t *testing.T) {
 	if len(bundle.Sections) != 2 {
 		t.Fatalf("sections = %#v", bundle.Sections)
 	}
+	root = canonicalTestPath(t, root)
 	if bundle.Sections[0].Path != filepath.Join(root, "AGENTS.md") || bundle.Sections[0].Content != "AAAAAA" || bundle.Sections[0].Truncated {
 		t.Fatalf("primary section = %#v", bundle.Sections[0])
 	}

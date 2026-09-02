@@ -106,6 +106,9 @@ func (r *Runtime) SetClusterNode(node *cluster.Node) {
 	r.clusterMu.Lock()
 	r.clusterNode = node
 	r.clusterMu.Unlock()
+	if node != nil {
+		node.SetAdvertisementProvider(r.ClusterAdvertisement)
+	}
 }
 
 func (r *Runtime) ClusterNode() *cluster.Node {
@@ -129,11 +132,11 @@ func (r *Runtime) ClusterAdvertisement() (cluster.Advertisement, error) {
 	if err != nil {
 		return cluster.Advertisement{}, err
 	}
-	value := cluster.Advertisement{InstanceID: identity.ID, Name: identity.Name, Workspaces: workspaceIDs}
-	if node := r.ClusterNode(); node != nil {
-		value.CatalogHash = node.Advertisement().CatalogHash
+	catalogHash, err := CatalogHash(r.List())
+	if err != nil {
+		return cluster.Advertisement{}, err
 	}
-	return value, nil
+	return cluster.Advertisement{InstanceID: identity.ID, Name: identity.Name, CatalogHash: catalogHash, Workspaces: workspaceIDs}, nil
 }
 
 func (r *Runtime) RefreshClusterAdvertisement(ctx context.Context) error {

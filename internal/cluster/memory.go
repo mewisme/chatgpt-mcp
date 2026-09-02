@@ -122,7 +122,8 @@ func (r *MemoryRelay) snapshot() Snapshot {
 		workspaces = append(workspaces, WorkspaceOwner{WorkspaceID: workspaceID, InstanceID: instanceID, Online: member.Online})
 	}
 	sort.Slice(workspaces, func(i, j int) bool { return workspaces[i].WorkspaceID < workspaces[j].WorkspaceID })
-	return Snapshot{Members: members, Workspaces: workspaces}
+	catalogHash, compatible, catalogError := catalogStatus(members)
+	return Snapshot{Members: members, Workspaces: workspaces, CatalogHash: catalogHash, CatalogCompatible: compatible, CatalogError: catalogError}
 }
 
 func (r *MemoryRelay) send(ctx context.Context, sender string, frame Frame) error {

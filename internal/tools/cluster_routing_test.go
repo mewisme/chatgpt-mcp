@@ -36,11 +36,11 @@ func newTestClusterRuntime(t *testing.T, relay *cluster.MemoryRelay, workspaceRo
 	RegisterCore(registry, workspaces, checkpoints, shell)
 	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}
 	RegisterClusterTools(registry, runtime)
-	identity, err := workspaces.Instance()
+	advertisement, err := runtime.ClusterAdvertisement()
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := cluster.NewNode(relay, cluster.Advertisement{InstanceID: identity.ID, Name: identity.Name, Workspaces: []string{item.ID}}, runtime.ClusterRPCHandler)
+	node := cluster.NewNode(relay, advertisement, runtime.ClusterRPCHandler)
 	runtime.SetClusterNode(node)
 	return testClusterRuntime{runtime: runtime, workspace: item, node: node}
 }
@@ -144,8 +144,16 @@ func TestClusterRPCRejectsWorkspaceNotRegisteredOnTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	fakeWorkspaceID := "ws_remote_missing"
-	second.node = cluster.NewNode(relay, cluster.Advertisement{InstanceID: identity.ID, Name: identity.Name, Workspaces: []string{fakeWorkspaceID}}, second.runtime.ClusterRPCHandler)
+	advertisement, err := second.runtime.ClusterAdvertisement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	advertisement.InstanceID = identity.ID
+	advertisement.Name = identity.Name
+	advertisement.Workspaces = []string{fakeWorkspaceID}
+	second.node = cluster.NewNode(relay, advertisement, second.runtime.ClusterRPCHandler)
 	second.runtime.SetClusterNode(second.node)
+	second.node.SetAdvertisementProvider(nil)
 	startTestClusterRuntime(t, ctx, first)
 	startTestClusterRuntime(t, ctx, second)
 	result, err := first.runtime.Call(ctx, "read_text_file", map[string]any{"workspace_id": fakeWorkspaceID, "path": "anything.txt"})

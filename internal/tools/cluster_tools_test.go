@@ -40,7 +40,7 @@ func TestRuntimeListShowsClusterMembers(t *testing.T) {
 		t.Fatalf("runtime_list failed: result=%#v err=%v", result, err)
 	}
 	value := result.StructuredContent.(RuntimeListResult)
-	if value.Count != 2 || len(value.Runtimes) != 2 {
+	if value.Count != 2 || len(value.Runtimes) != 2 || !value.CatalogCompatible || value.CatalogHash == "" || value.CatalogError != "" {
 		t.Fatalf("runtime list = %#v", value)
 	}
 	for _, member := range value.Runtimes {
@@ -176,7 +176,7 @@ func TestStandaloneRuntimeAndWorkspaceList(t *testing.T) {
 		t.Fatalf("runtime_list failed: %#v err=%v", runtimes, err)
 	}
 	runtimeList := runtimes.StructuredContent.(RuntimeListResult)
-	if runtimeList.Count != 1 || !runtimeList.Runtimes[0].Online {
+	if runtimeList.Count != 1 || !runtimeList.Runtimes[0].Online || !runtimeList.CatalogCompatible || runtimeList.CatalogHash == "" {
 		t.Fatalf("runtime list = %#v", runtimeList)
 	}
 	workspaces, err := runtime.Call(context.Background(), "workspace_list", map[string]any{})

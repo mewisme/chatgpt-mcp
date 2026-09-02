@@ -12,12 +12,14 @@ import (
 )
 
 type RPCHandler func(context.Context, string, json.RawMessage) (json.RawMessage, error)
+type AdvertisementProvider func() (Advertisement, error)
 
 type Node struct {
 	transport Transport
 	handler   RPCHandler
 	mu        sync.RWMutex
 	advert    Advertisement
+	provider  AdvertisementProvider
 	session   Session
 	cancel    context.CancelFunc
 	done      chan struct{}
@@ -29,6 +31,15 @@ func NewNode(transport Transport, advertisement Advertisement, handler RPCHandle
 	return &Node{transport: transport, advert: advertisement, handler: handler, pending: map[string]chan RPCResponse{}, heartbeat: 5 * time.Second}
 }
 
+func (n *Node) SetAdvertisementProvider(provider AdvertisementProvider) {
+	if n == nil {
+		return
+	}
+	n.mu.Lock()
+	n.provider = provider
+	n.mu.Unlock()
+}
+
 func (n *Node) Start(ctx context.Context) error {
 	if n == nil || n.transport == nil {
 		return errors.New("cluster transport is required")
@@ -36,15 +47,20 @@ func (n *Node) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	advertisement, err := n.currentAdvertisement()
+	if err != nil {
+		return err
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.session != nil {
 		return errors.New("cluster node is already running")
 	}
-	session, err := n.transport.Connect(ctx, n.advert)
+	session, err := n.transport.Connect(ctx, advertisement)
 	if err != nil {
 		return err
 	}
+	n.advert = advertisement
 	runCtx, cancel := context.WithCancel(ctx)
 	n.session = session
 	n.cancel = cancel
@@ -78,14 +94,19 @@ func (n *Node) Update(ctx context.Context, advertisement Advertisement) error {
 	if err := validateAdvertisement(advertisement); err != nil {
 		return err
 	}
-	n.mu.Lock()
+	n.mu.RLock()
 	session := n.session
-	n.advert = advertisement
-	n.mu.Unlock()
+	n.mu.RUnlock()
 	if session == nil {
 		return ErrClosed
 	}
-	return session.Advertise(ctx, advertisement)
+	if err := session.Advertise(ctx, advertisement); err != nil {
+		return err
+	}
+	n.mu.Lock()
+	n.advert = advertisement
+	n.mu.Unlock()
+	return nil
 }
 
 func (n *Node) Snapshot(ctx context.Context) (Snapshot, error) {
@@ -107,6 +128,23 @@ func (n *Node) Advertisement() Advertisement {
 	value := n.advert
 	value.Workspaces = append([]string(nil), value.Workspaces...)
 	return value
+}
+
+func (n *Node) currentAdvertisement() (Advertisement, error) {
+	n.mu.RLock()
+	provider, advertisement := n.provider, n.advert
+	n.mu.RUnlock()
+	if provider == nil {
+		return advertisement, validateAdvertisement(advertisement)
+	}
+	value, err := provider()
+	if err != nil {
+		return Advertisement{}, err
+	}
+	if err := validateAdvertisement(value); err != nil {
+		return Advertisement{}, err
+	}
+	return value, nil
 }
 
 func (n *Node) WorkspaceOwner(ctx context.Context, workspaceID string) (WorkspaceOwner, error) {
@@ -199,13 +237,18 @@ func (n *Node) run(ctx context.Context, session Session, done chan struct{}) {
 			return
 		case <-ticker.C:
 			cancel()
-			n.mu.RLock()
-			advertisement := n.advert
-			n.mu.RUnlock()
+			advertisement, err := n.currentAdvertisement()
+			if err != nil {
+				n.failPending(err)
+				return
+			}
 			if err := session.Advertise(ctx, advertisement); err != nil {
 				n.failPending(err)
 				return
 			}
+			n.mu.Lock()
+			n.advert = advertisement
+			n.mu.Unlock()
 		case err := <-errorsCh:
 			cancel()
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, ErrClosed) {

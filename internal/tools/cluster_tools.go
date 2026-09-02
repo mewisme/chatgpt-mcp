@@ -11,8 +11,11 @@ import (
 )
 
 type RuntimeListResult struct {
-	Runtimes []cluster.Member `json:"runtimes"`
-	Count    int              `json:"count"`
+	Runtimes          []cluster.Member `json:"runtimes"`
+	Count             int              `json:"count"`
+	CatalogHash       string           `json:"catalog_hash,omitempty"`
+	CatalogCompatible bool             `json:"catalog_compatible"`
+	CatalogError      string           `json:"catalog_error,omitempty"`
 }
 
 type WorkspaceListItem struct {
@@ -34,7 +37,7 @@ func RegisterClusterTools(registry *Registry, runtime *Runtime) {
 		Title:        "List Runtimes",
 		Description:  "List chatgpt-mcp runtime instances visible in the current cluster.",
 		InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-		OutputSchema: json.RawMessage(`{"type":"object","properties":{"runtimes":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["runtimes","count"],"additionalProperties":false}`),
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"runtimes":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"},"catalog_hash":{"type":"string"},"catalog_compatible":{"type":"boolean"},"catalog_error":{"type":"string"}},"required":["runtimes","count","catalog_compatible"],"additionalProperties":false}`),
 		Annotations:  ToolAnnotations(RiskRead),
 	}, func(ctx context.Context, _ map[string]any) (Result, error) {
 		value, err := runtime.runtimeList(ctx)
@@ -74,18 +77,14 @@ func (r *Runtime) runtimeList(ctx context.Context) (RuntimeListResult, error) {
 		if err != nil {
 			return RuntimeListResult{}, err
 		}
-		return RuntimeListResult{Runtimes: snapshot.Members, Count: len(snapshot.Members)}, nil
+		return RuntimeListResult{Runtimes: snapshot.Members, Count: len(snapshot.Members), CatalogHash: snapshot.CatalogHash, CatalogCompatible: snapshot.CatalogCompatible, CatalogError: snapshot.CatalogError}, nil
 	}
-	identity, err := r.Workspaces.Instance()
+	advertisement, err := r.ClusterAdvertisement()
 	if err != nil {
 		return RuntimeListResult{}, err
 	}
-	workspaceIDs, err := r.Workspaces.AdvertisedIDs()
-	if err != nil {
-		return RuntimeListResult{}, err
-	}
-	member := cluster.Member{InstanceID: identity.ID, Name: identity.Name, Workspaces: workspaceIDs, Online: true}
-	return RuntimeListResult{Runtimes: []cluster.Member{member}, Count: 1}, nil
+	member := cluster.Member{InstanceID: advertisement.InstanceID, Name: advertisement.Name, CatalogHash: advertisement.CatalogHash, Workspaces: advertisement.Workspaces, Online: true}
+	return RuntimeListResult{Runtimes: []cluster.Member{member}, Count: 1, CatalogHash: member.CatalogHash, CatalogCompatible: true}, nil
 }
 
 func (r *Runtime) workspaceList(ctx context.Context, instanceID string) (WorkspaceListResult, error) {

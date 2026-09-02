@@ -34,8 +34,11 @@ type WorkspaceOwner struct {
 }
 
 type Snapshot struct {
-	Members    []Member         `json:"members"`
-	Workspaces []WorkspaceOwner `json:"workspaces"`
+	Members           []Member         `json:"members"`
+	Workspaces        []WorkspaceOwner `json:"workspaces"`
+	CatalogHash       string           `json:"catalog_hash,omitempty"`
+	CatalogCompatible bool             `json:"catalog_compatible"`
+	CatalogError      string           `json:"catalog_error,omitempty"`
 }
 
 type FrameKind string
@@ -69,6 +72,40 @@ var (
 	ErrOwnerOffline = errors.New("workspace owner is offline")
 	ErrNoOwner      = errors.New("workspace owner not found")
 )
+
+func catalogStatus(members []Member) (string, bool, string) {
+	online := 0
+	hashes := map[string]bool{}
+	missing := false
+	for _, member := range members {
+		if !member.Online {
+			continue
+		}
+		online++
+		hash := strings.TrimSpace(member.CatalogHash)
+		if hash == "" {
+			missing = true
+			continue
+		}
+		hashes[hash] = true
+	}
+	if online <= 1 {
+		for hash := range hashes {
+			return hash, true, ""
+		}
+		return "", true, ""
+	}
+	if missing {
+		return "", false, "one or more online runtimes do not advertise a catalog hash"
+	}
+	if len(hashes) != 1 {
+		return "", false, "online runtimes advertise different tool catalogs"
+	}
+	for hash := range hashes {
+		return hash, true, ""
+	}
+	return "", false, "tool catalog is unavailable"
+}
 
 func validateAdvertisement(value Advertisement) error {
 	value.InstanceID = strings.TrimSpace(value.InstanceID)

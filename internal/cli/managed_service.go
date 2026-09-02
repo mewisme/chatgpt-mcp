@@ -18,10 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-const (
-	serviceReadyTimeout        = 15 * time.Second
-	tunnelMetadataFetchTimeout = 5 * time.Second
-)
+const serviceReadyTimeout = 15 * time.Second
 
 func upCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "up", Short: "Install and start the managed MCP service", Args: cobra.NoArgs, RunE: runUp}
@@ -34,6 +31,14 @@ func upCommand() *cobra.Command {
 func downCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "down", Short: "Stop and remove the managed MCP service", Args: cobra.NoArgs, RunE: runDown}
 	cmd.Flags().Bool("system", false, "use the machine-level service on Linux/macOS; elevates with sudo when needed")
+	return cmd
+}
+
+func restartCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "restart", Short: "Restart the managed MCP service", Args: cobra.NoArgs, RunE: runRestart}
+	cmd.Flags().Bool("system", false, "use the machine-level service on Linux/macOS; elevates with sudo when needed")
+	cmd.Flags().String("service-environment-hash", "", "internal managed environment snapshot hash")
+	_ = cmd.Flags().MarkHidden("service-environment-hash")
 	return cmd
 }
 
@@ -84,6 +89,47 @@ func runDown(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	return runManagedDown(cmd, spec, manager)
+}
+
+func runRestart(cmd *cobra.Command, _ []string) error {
+	scope, err := managedScopeForCommand(cmd)
+	if err != nil {
+		return err
+	}
+	spec, manager, err := managedServiceForCommand(cmd, scope)
+	if err != nil {
+		return err
+	}
+	environmentHash, _ := cmd.Flags().GetString("service-environment-hash")
+	if environmentHash == "" {
+		source, err := config.Source()
+		if err != nil {
+			return err
+		}
+		if !source.Exists {
+			return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init first")
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		environmentHash, err = managed.SaveEnvironment(spec.ConfigRoot, managed.CaptureEnvironment(spec.Account, cfg.Shell.Path))
+		if err != nil {
+			return err
+		}
+	}
+	spec.EnvironmentHash = environmentHash
+	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
+		return elevateManagedCommand(cmd, "restart", environmentHash)
+	}
+	return runManagedRestart(cmd, spec, manager)
+}
+
+func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Manager) error {
+	if err := runManagedDown(cmd, spec, manager); err != nil {
+		return err
+	}
+	return runManagedUp(cmd, spec, manager)
 }
 
 func managedScopeForCommand(cmd *cobra.Command) (managed.Scope, error) {
@@ -207,7 +253,7 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		status = animateRuntimeTunnelState(cmd, status, statusTunnelWatchTimeout)
 	}
 	logRuntimeTunnelResult(log, status)
-	logRuntimeTunnelMetadata(cmd.Context(), log, cfg.Tunnel, status, tunnel.FetchMetadata)
+	logRuntimeTunnelMetadata(log, cfg.Tunnel, status, config.LoadTunnelMetadata)
 	logManagedHints(log, spec)
 	return nil
 }
@@ -347,7 +393,7 @@ func logManagedAlreadyRunning(cmd *cobra.Command, spec managed.Spec, manager man
 	logManagedDetails(log, spec, manager)
 	logRuntimeDetails(log, status)
 	logRuntimeTunnelResult(log, status)
-	logRuntimeTunnelMetadata(cmd.Context(), log, cfg, status, tunnel.FetchMetadata)
+	logRuntimeTunnelMetadata(log, cfg, status, config.LoadTunnelMetadata)
 	logManagedHints(log, spec)
 }
 
@@ -430,18 +476,17 @@ func logRuntimeTunnelResult(log *logger.Logger, status runtimeStatusResult) {
 	}
 }
 
-type tunnelMetadataFetchFunc func(context.Context, tunnel.Config) (tunnel.Metadata, error)
+type tunnelMetadataLoadFunc func(string) (tunnel.Metadata, error)
 
-func logRuntimeTunnelMetadata(ctx context.Context, log *logger.Logger, cfg tunnel.Config, status runtimeStatusResult, fetch tunnelMetadataFetchFunc) {
-	if log == nil || fetch == nil || statusTunnelState(status, true) != "connected" {
+func logRuntimeTunnelMetadata(log *logger.Logger, cfg tunnel.Config, status runtimeStatusResult, load tunnelMetadataLoadFunc) {
+	if log == nil || load == nil || statusTunnelState(status, true) != "connected" {
 		return
 	}
-	if strings.TrimSpace(status.TunnelID) != "" {
-		cfg.ID = status.TunnelID
+	id := strings.TrimSpace(status.TunnelID)
+	if id == "" {
+		id = strings.TrimSpace(cfg.ID)
 	}
-	fetchCtx, cancel := context.WithTimeout(ctx, tunnelMetadataFetchTimeout)
-	defer cancel()
-	metadata, err := fetch(fetchCtx, cfg)
+	metadata, err := load(id)
 	if err != nil {
 		log.Verbose("TUNNEL", "tunnel.metadata.unavailable", "Tunnel metadata unavailable", logger.WithVerbose("error", err.Error()))
 		return

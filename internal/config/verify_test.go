@@ -21,12 +21,13 @@ func TestVerifyAtChecksStructuredTree(t *testing.T) {
 	write("config.json", `{"server":{"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`)
 	write("workspaces.json", `[]`)
 	write("workspaces/ws_test/shell.json", `{"workspace_id":"ws_test","cwd":"/tmp"}`)
+	write("tunnels/tunnel_test.json", `{"id":"tunnel_test","name":"Test tunnel"}`)
 
 	result, err := verifyAt(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Format != "json" || result.Ext != ".json" || result.Files != 3 {
+	if result.Format != "json" || result.Ext != ".json" || result.Files != 4 {
 		t.Fatalf("verify result = %#v", result)
 	}
 }

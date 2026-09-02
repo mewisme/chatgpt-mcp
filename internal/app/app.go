@@ -42,9 +42,13 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	}
 	telemetry.AttachTools(toolRuntime, stream, appLogger)
 	configStore := config.NewRuntimeStore(cfg)
+	tunnelClient := tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger)
+	if metadata, err := config.LoadTunnelMetadata(cfg.Tunnel.ID); err == nil {
+		_ = tunnelClient.SeedMetadata(metadata)
+	}
 	app := &App{
 		Config: configStore, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
-		Tunnel: tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger), Logger: appLogger,
+		Tunnel: tunnelClient, Logger: appLogger,
 		OAuth: oauthStore, OAuthFlows: mcpoauth.NewFlowManager(oauthStore),
 	}
 	app.attachTunnelLifecycle()

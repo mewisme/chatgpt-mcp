@@ -125,3 +125,19 @@ func TestStatusRedactsAdminKeyAndExposesVerifiedScope(t *testing.T) {
 		t.Fatalf("status = %#v", status)
 	}
 }
+
+func TestSeedMetadataPopulatesStatusWithoutFetch(t *testing.T) {
+	client := NewConfigured(Config{ID: "tunnel_test", APIKey: "runtime-key"}, nil)
+	client.metadataFetch = func(context.Context, Config) (Metadata, error) {
+		t.Fatal("seeded metadata should not fetch")
+		return Metadata{}, nil
+	}
+	metadata := Metadata{ID: "tunnel_test", Name: "Persisted tunnel", FetchedAt: time.Now().UTC().Add(-time.Hour)}
+	if err := client.SeedMetadata(metadata); err != nil {
+		t.Fatal(err)
+	}
+	status := client.Status()
+	if status.Metadata == nil || status.Metadata.Name != "Persisted tunnel" {
+		t.Fatalf("status = %#v", status)
+	}
+}

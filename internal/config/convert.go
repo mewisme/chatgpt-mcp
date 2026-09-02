@@ -133,7 +133,7 @@ func collectStructuredFiles(root string) ([]structuredFile, error) {
 			return nil
 		}
 		base := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
-		if !structuredStateNames[base] {
+		if !structuredStateNames[base] && !isTunnelMetadataFile(root, path) {
 			return nil
 		}
 		format, err := configformat.Detect(path)
@@ -150,4 +150,12 @@ func collectStructuredFiles(root string) ([]structuredFile, error) {
 		return nil, errors.New("no structured config files found")
 	}
 	return files, nil
+}
+
+func isTunnelMetadataFile(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return filepath.Dir(relative) == "tunnels"
 }

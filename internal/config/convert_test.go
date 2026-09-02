@@ -26,18 +26,19 @@ func TestConvertFormatAtConvertsStructuredTree(t *testing.T) {
 	write("workspaces/ws_test/shell.json", `{"workspace_id":"ws_test","cwd":"/tmp"}`)
 	write("workspaces/ws_test/checkpoints/index.json", `{"version":1,"checkpoints":[]}`)
 	write("workspaces/ws_test/checkpoints/data/cp_test/manifest.json", `{"version":1,"id":"cp_test"}`)
+	write("tunnels/tunnel_test.json", `{"id":"tunnel_test","name":"Test tunnel"}`)
 	write("workspaces/ws_test/activity.jsonl", "{}\n")
 
 	converted, err := convertFormatAt(root, configformat.TOML)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if converted != 6 {
-		t.Fatalf("converted = %d, want 6", converted)
+	if converted != 7 {
+		t.Fatalf("converted = %d, want 7", converted)
 	}
 	for _, relative := range []string{
 		"config.toml", "tunnel.toml", "upstream.toml", "workspaces/ws_test/shell.toml",
-		"workspaces/ws_test/checkpoints/index.toml", "workspaces/ws_test/checkpoints/data/cp_test/manifest.toml",
+		"workspaces/ws_test/checkpoints/index.toml", "workspaces/ws_test/checkpoints/data/cp_test/manifest.toml", "tunnels/tunnel_test.toml",
 	} {
 		if _, err := os.Stat(filepath.Join(root, relative)); err != nil {
 			t.Fatalf("missing converted %s: %v", relative, err)

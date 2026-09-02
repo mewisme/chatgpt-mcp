@@ -36,7 +36,7 @@ func elevateManagedCommand(cmd *cobra.Command, action, environmentHash string) e
 		args = append(args, "--log-format", format)
 	}
 	args = append(args, action, "--system")
-	if action == "up" && environmentHash != "" {
+	if (action == "up" || action == "restart") && environmentHash != "" {
 		args = append(args, "--service-environment-hash", environmentHash)
 	}
 	child := exec.CommandContext(cmd.Context(), sudo, args...)

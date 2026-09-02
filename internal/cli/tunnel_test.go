@@ -2,12 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fatih/color"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -48,11 +51,31 @@ func TestConfigureManagedTunnelRequiresSeparateRuntimeKey(t *testing.T) {
 
 func TestTunnelCommandAdminHierarchy(t *testing.T) {
 	cmd := tunnelCommand()
-	for _, path := range [][]string{{"admin", "key", "set"}, {"admin", "key", "status"}, {"admin", "key", "verify"}, {"admin", "key", "remove"}, {"list"}, {"get"}, {"create"}, {"update"}, {"delete"}} {
+	for _, path := range [][]string{{"admin", "key", "set"}, {"admin", "key", "status"}, {"admin", "key", "verify"}, {"admin", "key", "remove"}, {"list"}, {"get"}, {"create"}, {"update"}, {"delete"}, {"sync"}} {
 		resolved, _, err := cmd.Find(path)
 		if err != nil || resolved.Name() != path[len(path)-1] {
 			t.Fatalf("tunnel path %v resolved to %v: %v", path, resolved, err)
 		}
+	}
+}
+
+func TestFetchTunnelStatusUsesPersistedMetadata(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_test", Name: "Persisted tunnel"}); err != nil {
+		t.Fatal(err)
+	}
+	status := fetchTunnelStatus(context.Background(), tunnel.Config{Enabled: true, ID: "tunnel_test", APIKey: "runtime-key"})
+	if status.Metadata == nil || status.Metadata.Name != "Persisted tunnel" {
+		t.Fatalf("status metadata = %#v", status.Metadata)
 	}
 }
 

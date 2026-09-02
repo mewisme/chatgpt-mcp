@@ -19,7 +19,7 @@ import (
 
 func tunnelCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "tunnel", Short: "Manage the builtin OpenAI Secure MCP Tunnel"}
-	cmd.AddCommand(tunnelAdminCommand(), tunnelListCommand(), tunnelGetCommand(), tunnelCreateCommand(), tunnelUpdateCommand(), tunnelDeleteCommand(), tunnelStatusCommand(), tunnelConfigureCommand(), tunnelToggleCommand(true), tunnelToggleCommand(false), tunnelRunCommand())
+	cmd.AddCommand(tunnelAdminCommand(), tunnelListCommand(), tunnelGetCommand(), tunnelCreateCommand(), tunnelUpdateCommand(), tunnelDeleteCommand(), tunnelStatusCommand(), tunnelSyncCommand(), tunnelConfigureCommand(), tunnelToggleCommand(true), tunnelToggleCommand(false), tunnelRunCommand())
 	return cmd
 }
 
@@ -169,14 +169,40 @@ func tunnelCLIState(cfg tunnel.Config, status tunnel.Status, runtimeRunning bool
 	}
 }
 
-func fetchTunnelStatus(ctx context.Context, cfg tunnel.Config) tunnel.Status {
+func fetchTunnelStatus(_ context.Context, cfg tunnel.Config) tunnel.Status {
 	client := tunnel.NewConfigured(cfg, nil)
-	if tunnel.Configured(cfg) {
-		metadataCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		_, _ = client.RefreshMetadata(metadataCtx, false)
-		cancel()
+	if metadata, err := config.LoadTunnelMetadata(cfg.ID); err == nil {
+		_ = client.SeedMetadata(metadata)
 	}
 	return client.Status()
+}
+
+func tunnelSyncCommand() *cobra.Command {
+	return &cobra.Command{Use: "sync", Short: "Fetch and persist metadata for the configured tunnel", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		if !tunnel.Configured(cfg.Tunnel) {
+			return errors.New("configured tunnel id and runtime API key are required")
+		}
+		log := commandLogger(cmd)
+		defer log.Close()
+		log.Action("TUNNEL", "tunnel.metadata.syncing", "Syncing tunnel metadata")
+		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
+		defer cancel()
+		metadata, path, err := config.SyncTunnelMetadata(ctx, cfg.Tunnel)
+		if err != nil {
+			return err
+		}
+		log.Success("TUNNEL", "Tunnel metadata synced")
+		log.Detail("id", metadata.ID)
+		if metadata.Name != "" {
+			log.Detail("name", metadata.Name)
+		}
+		log.Detail("metadata", path)
+		return nil
+	}}
 }
 
 func tunnelConfigureCommand() *cobra.Command {
@@ -187,7 +213,8 @@ func tunnelConfigureCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		next := cfg.Tunnel
+		previous := cfg.Tunnel
+		next := previous
 		if cmd.Flags().Changed("enabled") {
 			next.Enabled = enabled
 		}
@@ -206,6 +233,14 @@ func tunnelConfigureCommand() *cobra.Command {
 		cfg.Tunnel = next
 		if err := config.Validate(cfg); err != nil {
 			return err
+		}
+		if tunnel.Configured(next) && (previous.ID != next.ID || previous.APIKey != next.APIKey || previous.ControlPlaneBaseURL != next.ControlPlaneBaseURL) {
+			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
+			_, _, metadataErr := config.SyncTunnelMetadata(ctx, next)
+			cancel()
+			if metadataErr != nil {
+				return fmt.Errorf("persist tunnel metadata: %w", metadataErr)
+			}
 		}
 		if err := config.Save(cfg); err != nil {
 			return err
@@ -270,6 +305,9 @@ func tunnelRunCommand() *cobra.Command {
 		shutdownCtx := interrupt.Context
 
 		client := tunnel.NewConfiguredWithLogger(tunnelConfig, runtime, log)
+		if metadata, err := config.LoadTunnelMetadata(tunnelConfig.ID); err == nil {
+			_ = client.SeedMetadata(metadata)
+		}
 		client.SetLifecycleObserver(func(event tunnel.LifecycleEvent) { logTunnelLifecycle(log, event) })
 		if err := client.StartContext(runtimeCtx); err != nil {
 			return err

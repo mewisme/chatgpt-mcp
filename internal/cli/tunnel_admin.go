@@ -244,6 +244,9 @@ func tunnelGetCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if _, err := config.SaveTunnelMetadata(metadata); err != nil {
+			return err
+		}
 		if configure {
 			if err := configureManagedTunnel(&cfg, metadata, runtimeAPIKey, enable); err != nil {
 				return err
@@ -289,6 +292,9 @@ func tunnelCreateCommand() *cobra.Command {
 			defer cancel()
 			metadata, err := tunnel.CreateManaged(ctx, cfg.Tunnel, request)
 			if err != nil {
+				return err
+			}
+			if _, err := config.SaveTunnelMetadata(metadata); err != nil {
 				return err
 			}
 			if configure {
@@ -354,6 +360,9 @@ func tunnelUpdateCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if _, err := config.SaveTunnelMetadata(metadata); err != nil {
+			return err
+		}
 		if configure {
 			if err := configureManagedTunnel(&cfg, metadata, runtimeAPIKey, enable); err != nil {
 				return err
@@ -402,6 +411,9 @@ func tunnelDeleteCommand() *cobra.Command {
 			if err := config.Save(cfg); err != nil {
 				return err
 			}
+		}
+		if err := config.RemoveTunnelMetadata(metadata.ID); err != nil {
+			return err
 		}
 		logManagedTunnel(cmd, "Tunnel deleted", metadata, cleared)
 		return nil

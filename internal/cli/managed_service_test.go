@@ -126,6 +126,40 @@ func TestManagedUpAndDownLifecycle(t *testing.T) {
 	}
 }
 
+func TestManagedRestartRunsDownThenUp(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root, Binary: "/fake/cgm", Account: managed.Account{Username: "mew", HomeDir: t.TempDir()}}
+	manager := &fakeServiceManager{}
+	var output bytes.Buffer
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(&output)
+	if err := runManagedUp(cmd, spec, manager); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	starts, installs, removes := manager.starts, manager.installs, manager.removes
+	if err := runManagedRestart(cmd, spec, manager); err != nil {
+		t.Fatal(err)
+	}
+	if !manager.running || manager.starts != starts+1 || manager.installs != installs+1 || manager.removes != removes+1 {
+		t.Fatalf("manager after restart = %#v", manager)
+	}
+	text := output.String()
+	if stopped, started := strings.Index(text, "Managed service removed"), strings.Index(text, "Managed service installed"); stopped < 0 || started < 0 || stopped >= started {
+		t.Fatalf("restart output is not down then up: %s", text)
+	}
+}
+
 func TestManagedUpRejectsForegroundRuntime(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := t.TempDir()
@@ -230,13 +264,13 @@ func TestLogRuntimeTunnelMetadata(t *testing.T) {
 	log := logger.NewWithOptions(logger.Options{Level: logger.Info, Writer: &output})
 	status := runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelReady: true, TunnelID: "tunnel_runtime"}
 	cfg := tunnel.Config{ID: "tunnel_config", APIKey: "runtime-key"}
-	var fetched tunnel.Config
-	logRuntimeTunnelMetadata(context.Background(), log, cfg, status, func(_ context.Context, value tunnel.Config) (tunnel.Metadata, error) {
-		fetched = value
-		return tunnel.Metadata{Name: "MCP Tunnel WSL", Description: "Development tunnel", OrganizationIDs: []string{"org_test"}, WorkspaceIDs: []string{"ws_test"}}, nil
+	var loadedID string
+	logRuntimeTunnelMetadata(log, cfg, status, func(id string) (tunnel.Metadata, error) {
+		loadedID = id
+		return tunnel.Metadata{ID: id, Name: "MCP Tunnel WSL", Description: "Development tunnel", OrganizationIDs: []string{"org_test"}, WorkspaceIDs: []string{"ws_test"}}, nil
 	})
-	if fetched.ID != "tunnel_runtime" || fetched.APIKey != "runtime-key" {
-		t.Fatalf("fetch config = %#v", fetched)
+	if loadedID != "tunnel_runtime" {
+		t.Fatalf("loaded id = %q", loadedID)
 	}
 	text := output.String()
 	for _, expected := range []string{"tunnel name: MCP Tunnel WSL", "tunnel description: Development tunnel", "tunnel scope: organization:org_test · workspace:ws_test"} {
@@ -251,7 +285,7 @@ func TestLogRuntimeTunnelMetadataSkipsUntilConnected(t *testing.T) {
 	log := logger.NewWithOptions(logger.Options{Level: logger.Info, Writer: &output})
 	called := false
 	status := runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelID: "tunnel_runtime"}
-	logRuntimeTunnelMetadata(context.Background(), log, tunnel.Config{ID: "tunnel_runtime", APIKey: "runtime-key"}, status, func(context.Context, tunnel.Config) (tunnel.Metadata, error) {
+	logRuntimeTunnelMetadata(log, tunnel.Config{ID: "tunnel_runtime", APIKey: "runtime-key"}, status, func(string) (tunnel.Metadata, error) {
 		called = true
 		return tunnel.Metadata{}, nil
 	})

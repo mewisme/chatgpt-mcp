@@ -298,6 +298,27 @@ func cloneMetadata(value Metadata) Metadata {
 	return value
 }
 
+func (c *Client) SeedMetadata(value Metadata) error {
+	if c == nil {
+		return errors.New("tunnel client is unavailable")
+	}
+	c.metadataMu.Lock()
+	defer c.metadataMu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if strings.TrimSpace(value.ID) == "" {
+		value.ID = c.config.ID
+	}
+	if strings.TrimSpace(c.config.ID) == "" || value.ID != c.config.ID {
+		return errors.New("tunnel metadata does not match the configured tunnel")
+	}
+	value = cloneMetadata(value)
+	c.metadata = &value
+	c.metadataCheck = value.FetchedAt
+	c.metadataError = ""
+	return nil
+}
+
 func (c *Client) SetLifecycleObserver(observer LifecycleObserver) {
 	if c == nil {
 		return

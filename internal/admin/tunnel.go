@@ -58,20 +58,15 @@ func (api API) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (api API) tunnelStatus(ctx context.Context) tunnel.Status {
+func (api API) tunnelStatus(_ context.Context) tunnel.Status {
 	if api.Tunnel == nil {
 		return tunnel.Status{Provider: tunnel.ProviderOpenAI}
-	}
-	if tunnel.Configured(api.Tunnel.Config()) {
-		metadataCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		_, _ = api.Tunnel.RefreshMetadata(metadataCtx, false)
-		cancel()
 	}
 	return api.Tunnel.Status()
 }
 
 func (api API) configureTunnel(w http.ResponseWriter, r *http.Request) {
-	if api.Config == nil {
+	if api.Config == nil || api.Tunnel == nil {
 		http.Error(w, "config unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -80,29 +75,42 @@ func (api API) configureTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	status := http.StatusInternalServerError
-	_, err := api.Config.Update(func(candidate config.Config) (config.Config, error) {
-		effective := next
-		if effective.APIKey == "" {
-			effective.APIKey = candidate.Tunnel.APIKey
+	current := api.Config.Snapshot()
+	effective := next
+	if effective.APIKey == "" {
+		effective.APIKey = current.Tunnel.APIKey
+	}
+	effective.AdminKey = current.Tunnel.AdminKey
+	effective.AdminOrganizationID = current.Tunnel.AdminOrganizationID
+	effective.AdminWorkspaceID = current.Tunnel.AdminWorkspaceID
+	effective.AdminTenantID = current.Tunnel.AdminTenantID
+	candidate := current
+	candidate.Tunnel = effective
+	if err := config.Validate(candidate); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if tunnel.Configured(effective) && !tunnel.RuntimeConfigEqual(current.Tunnel, effective) {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		_, _, err := config.SyncTunnelMetadata(ctx, effective)
+		cancel()
+		if err != nil {
+			http.Error(w, "persist tunnel metadata: "+err.Error(), http.StatusBadRequest)
+			return
 		}
-		effective.AdminKey = candidate.Tunnel.AdminKey
-		effective.AdminOrganizationID = candidate.Tunnel.AdminOrganizationID
-		effective.AdminWorkspaceID = candidate.Tunnel.AdminWorkspaceID
-		effective.AdminTenantID = candidate.Tunnel.AdminTenantID
-		candidate.Tunnel = effective
-		if err := config.Validate(candidate); err != nil {
-			status = http.StatusBadRequest
-			return candidate, err
-		}
+	}
+	_, err := api.Config.Update(func(config.Config) (config.Config, error) {
 		if err := api.Tunnel.Reconfigure(effective, func() error { return api.persistConfig(candidate) }); err != nil {
-			return candidate, err
+			return current, err
 		}
 		return candidate, nil
 	})
 	if err != nil {
-		http.Error(w, err.Error(), status)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if metadata, err := config.LoadTunnelMetadata(effective.ID); err == nil {
+		_ = api.Tunnel.SeedMetadata(metadata)
 	}
 	writeJSON(w, api.tunnelStatus(r.Context()))
 }

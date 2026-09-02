@@ -55,15 +55,22 @@ func TestTunnelConfigRedactsSecrets(t *testing.T) {
 }
 
 func TestTunnelConfigureRollsBackRuntimeAndMemoryWhenPersistenceFails(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	server := tunnelMetadataServer(t, "new-secret")
+	defer server.Close()
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
-	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_old", APIKey: "old-secret"}
+	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_old", APIKey: "old-secret", ControlPlaneBaseURL: server.URL}
 	client := tunnel.NewConfigured(cfg.Tunnel, nil)
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Tunnel: client, Config: store, saveConfig: func(config.Config) error { return errors.New("persistence failed") }})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel", strings.NewReader(`{"enabled":false,"id":"tunnel_new","api_key":"new-secret"}`)))
+	body := fmt.Sprintf(`{"enabled":false,"id":"tunnel_new","api_key":"new-secret","control_plane_base_url":%q}`, server.URL)
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel", strings.NewReader(body)))
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
@@ -76,12 +83,19 @@ func TestTunnelConfigureRollsBackRuntimeAndMemoryWhenPersistenceFails(t *testing
 }
 
 func TestTunnelConfigurePreservesSecretFromSerializedConfigStore(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	server := tunnelMetadataServer(t, "store-secret")
+	defer server.Close()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
-	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_store", APIKey: "store-secret", AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin"}
+	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_store", APIKey: "store-secret", AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL}
 	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +103,8 @@ func TestTunnelConfigurePreservesSecretFromSerializedConfigStore(t *testing.T) {
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Tunnel: client, Config: store})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel", strings.NewReader(`{"enabled":false,"id":"tunnel_new"}`)))
+	body := fmt.Sprintf(`{"enabled":false,"id":"tunnel_new","control_plane_base_url":%q}`, server.URL)
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel", strings.NewReader(body)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
@@ -474,6 +489,20 @@ func TestUpstreamAPIReportsProxyRefreshFailureAndPreservesCatalog(t *testing.T) 
 func jsonString(value string) string {
 	data, _ := json.Marshal(value)
 	return string(data)
+}
+
+func tunnelMetadataServer(t *testing.T, key string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, "/v1/tunnels/") {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer "+key {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		id := strings.TrimPrefix(r.URL.Path, "/v1/tunnels/")
+		_, _ = fmt.Fprintf(w, `{"id":%q,"name":"Persisted tunnel","description":"Test metadata","workspace_ids":["ws_test"]}`, id)
+	}))
 }
 
 func TestTunnelAdminKeyVerifyBeforeSave(t *testing.T) {

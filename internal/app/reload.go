@@ -38,6 +38,11 @@ func (a *App) ReloadConfig(next config.Config) error {
 		if err != nil {
 			return errors.Join(err, a.rollbackRuntimeConfig(previous, featuresChanged, permissionsChanged, false, false))
 		}
+		if tunnelRuntimeChanged {
+			if metadata, loadErr := config.LoadTunnelMetadata(next.Tunnel.ID); loadErr == nil {
+				_ = a.Tunnel.SeedMetadata(metadata)
+			}
+		}
 	}
 	if _, err := a.Config.Update(func(config.Config) (config.Config, error) { return next, nil }); err != nil {
 		return errors.Join(err, a.rollbackRuntimeConfig(previous, featuresChanged, permissionsChanged, tunnelChanged, tunnelRuntimeChanged))

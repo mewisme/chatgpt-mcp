@@ -34,6 +34,7 @@ func newRootCommand() *cobra.Command {
 		uninitCommand(),
 		upCommand(),
 		downCommand(),
+		restartCommand(),
 		logsCommand(),
 		configCommand(),
 		authCommand(),

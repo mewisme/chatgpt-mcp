@@ -109,6 +109,7 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   if (path === "/api/config") return json(config)
   if (path === "/api/config/presets") return json(presets)
   if (path === "/api/network/interfaces") return json([])
+  if (path === "/api/cluster") return json({ enabled: false, connected: false, instance_id: "inst_test", name: "test-runtime", member_count: 0, online_member_count: 0, workspace_count: 0, catalog_compatible: true, tunnel_role: "standalone" })
   if (path === "/api/activity/stream?history=100") return activityStream()
   throw new Error(`Unhandled test request: ${path}`)
 }

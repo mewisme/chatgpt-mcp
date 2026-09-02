@@ -21,6 +21,12 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 		if observation.WorkspaceID != "" {
 			fields = append(fields, logger.With("workspace", observation.WorkspaceID))
 		}
+		if observation.ReceivedByInstanceID != "" {
+			fields = append(fields, logger.WithVerbose("received_by", observation.ReceivedByInstanceID))
+		}
+		if observation.ExecutedByInstanceID != "" {
+			fields = append(fields, logger.WithVerbose("executed_by", observation.ExecutedByInstanceID))
+		}
 		if observation.Phase == "start" {
 			if log != nil {
 				debugFields := make([]logger.Field, 0, len(fields))
@@ -57,7 +63,7 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 			log.Emit(event)
 		}
 		if stream != nil {
-			stream.Publish(activity.Event{Kind: string(activity.EventToolCall), Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message), Raw: observation.Raw})
+			stream.Publish(activity.Event{Kind: string(activity.EventToolCall), Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, ReceivedByInstanceID: observation.ReceivedByInstanceID, ExecutedByInstanceID: observation.ExecutedByInstanceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message), Raw: observation.Raw})
 		}
 	})
 }

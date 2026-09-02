@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/cluster"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 const (
@@ -23,7 +25,7 @@ const (
 
 func clusterCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "cluster", Short: "Manage multi-runtime cluster federation"}
-	cmd.AddCommand(clusterRelayCommand())
+	cmd.AddCommand(clusterStatusCommand(), clusterRelayCommand())
 	return cmd
 }
 
@@ -147,4 +149,96 @@ func normalizeClusterRelayPath(value string) (string, error) {
 		value = strings.TrimRight(value, "/")
 	}
 	return value, nil
+}
+
+func clusterStatusCommand() *cobra.Command {
+	return &cobra.Command{Use: "status", Aliases: []string{"st"}, Short: "Show cluster membership, catalog compatibility, and tunnel leadership", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		status := offlineClusterStatus(cfg)
+		ctx, cancel := context.WithTimeout(cmd.Context(), time.Second)
+		runtimeStatus, running, err := managedRuntimeStatus(ctx)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if running {
+			status = runtimeStatus.Cluster
+		}
+		format, err := commandLogFormat(cmd)
+		if err != nil {
+			return err
+		}
+		if format == logger.FormatJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(status)
+		}
+		renderClusterStatus(cmd.OutOrStdout(), status, running)
+		return nil
+	}}
+}
+
+func offlineClusterStatus(cfg config.Config) cluster.RuntimeStatus {
+	status := cluster.RuntimeStatus{Enabled: cfg.Cluster.Enabled, RelayURL: strings.TrimSpace(cfg.Cluster.RelayURL), CatalogCompatible: true, TunnelRole: "standalone"}
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	if identity, err := manager.Instance(); err == nil {
+		status.InstanceID, status.Name = identity.ID, identity.Name
+	}
+	if ids, err := manager.AdvertisedIDs(); err == nil {
+		status.WorkspaceCount = len(ids)
+	}
+	if cfg.Cluster.Enabled {
+		status.TunnelRole = "standby"
+	}
+	return status
+}
+
+func renderClusterStatus(out interface{ Write([]byte) (int, error) }, status cluster.RuntimeStatus, runtimeRunning bool) {
+	state := "disabled"
+	switch {
+	case status.Enabled && status.Connected:
+		state = "connected"
+	case status.Enabled && runtimeRunning:
+		state = "disconnected"
+	case status.Enabled:
+		state = "offline"
+	}
+	fmt.Fprintln(out, cliHeading("Cluster"))
+	statusStateField(out, "status", state)
+	statusField(out, "enabled", status.Enabled)
+	if status.InstanceID != "" {
+		statusField(out, "instance", status.InstanceID)
+	}
+	if status.Name != "" {
+		statusField(out, "name", status.Name)
+	}
+	if status.RelayURL != "" {
+		statusField(out, "relay", status.RelayURL)
+	}
+	if status.Connected {
+		statusField(out, "members", fmt.Sprintf("%d online / %d known", status.OnlineMemberCount, status.MemberCount))
+		statusField(out, "workspaces", status.WorkspaceCount)
+		catalog := "compatible"
+		if !status.CatalogCompatible {
+			catalog = "incompatible"
+		}
+		statusField(out, "catalog", catalog)
+		if status.CatalogHash != "" {
+			statusField(out, "catalog hash", status.CatalogHash)
+		}
+	}
+	if status.TunnelRole != "" {
+		statusField(out, "tunnel role", strings.ReplaceAll(status.TunnelRole, "_", " "))
+	}
+	if status.LeaderInstanceID != "" {
+		statusField(out, "leader", status.LeaderInstanceID)
+		statusField(out, "epoch", status.LeaderEpoch)
+	}
+	if status.CatalogError != "" {
+		statusField(out, "catalog error", status.CatalogError)
+	}
+	if status.LastError != "" {
+		statusField(out, "error", status.LastError)
+	}
 }

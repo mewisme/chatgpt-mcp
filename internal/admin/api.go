@@ -1,11 +1,13 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 
+	"go.mewis.me/chatgpt-mcp/internal/cluster"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
@@ -18,14 +20,15 @@ import (
 const maxRequestBodyBytes int64 = 1 << 20
 
 type API struct {
-	Upstream   *upstream.Manager
-	Tools      *tools.Runtime
-	Workspaces *workspace.Manager
-	Tunnel     *tunnel.Client
-	Config     *config.RuntimeStore
-	OAuth      *mcpoauth.Store
-	OAuthFlows *mcpoauth.FlowManager
-	saveConfig func(config.Config) error
+	Upstream      *upstream.Manager
+	Tools         *tools.Runtime
+	Workspaces    *workspace.Manager
+	Tunnel        *tunnel.Client
+	Config        *config.RuntimeStore
+	OAuth         *mcpoauth.Store
+	OAuthFlows    *mcpoauth.FlowManager
+	ClusterStatus func(context.Context) cluster.RuntimeStatus
+	saveConfig    func(config.Config) error
 }
 
 type authSettings struct {
@@ -70,6 +73,13 @@ func New(api API) http.Handler {
 		writeJSON(w, map[string]bool{"ok": true, "auth_enabled": authEnabled})
 	}))
 	mux.HandleFunc("/api/network/interfaces", api.handleNetworkInterfaces)
+	mux.HandleFunc("/api/cluster", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		if api.ClusterStatus == nil {
+			writeJSON(w, cluster.RuntimeStatus{})
+			return
+		}
+		writeJSON(w, api.ClusterStatus(r.Context()))
+	}))
 	mux.HandleFunc("/api/config", api.handleConfig)
 	mux.HandleFunc("/api/config/presets", api.handleConfigPresets)
 	mux.HandleFunc("/api/config/presets/", api.handleConfigPreset)

@@ -158,6 +158,10 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 func (r *Runtime) call(ctx context.Context, name string, args map[string]any, allowRemote bool) (Result, error) {
 	started := time.Now()
 	source := CallSource(ctx)
+	receivedBy := ReceivedByInstanceID(ctx)
+	if receivedBy == "" {
+		receivedBy = r.runtimeInstanceID()
+	}
 	workspaceID, _ := args["workspace_id"].(string)
 	if workspaceID != "" && r.Workspaces != nil {
 		if canonical, err := r.Workspaces.CanonicalID(workspaceID); err == nil && canonical != workspaceID {
@@ -167,12 +171,14 @@ func (r *Runtime) call(ctx context.Context, name string, args map[string]any, al
 		}
 	}
 	raw := callRaw(ctx, source, name, args)
-	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw})
+	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, ReceivedByInstanceID: receivedBy})
 
-	result, err := r.executeCall(ctx, name, args, workspaceID, allowRemote)
+	result, err, executedBy := r.executeCall(ctx, name, args, workspaceID, allowRemote, receivedBy)
 	if err == nil && !result.IsError && name == "workspace_register" {
 		_ = r.RefreshClusterAdvertisement(ctx)
 	}
+	finishRaw := cloneMap(raw)
+	finishRaw["routing"] = map[string]any{"received_by_instance_id": receivedBy, "executed_by_instance_id": executedBy}
 	if err == nil {
 		if result.ResultType == "" {
 			result.ResultType = "complete"
@@ -184,11 +190,10 @@ func (r *Runtime) call(ctx context.Context, name string, args map[string]any, al
 				message = result.Content[0].Text
 			}
 		}
-		finishRaw := cloneMap(raw)
 		finishRaw["status"] = status
 		finishRaw["result_type"] = result.ResultType
 		finishRaw["result"] = result
-		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw})
+		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return result, nil
 	}
 
@@ -196,21 +201,28 @@ func (r *Runtime) call(ctx context.Context, name string, args map[string]any, al
 	if ctx != nil && ctx.Err() != nil {
 		status, message = "cancelled", ctx.Err().Error()
 	}
+	finishRaw["status"] = status
+	finishRaw["error"] = message
 	if errors.Is(err, ErrToolNotFound) {
-		finishRaw := cloneMap(raw)
-		finishRaw["status"] = status
-		finishRaw["error"] = message
-		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw})
+		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return Result{}, err
 	}
 	result = ErrorResult(err)
-	finishRaw := cloneMap(raw)
-	finishRaw["status"] = status
 	finishRaw["result_type"] = result.ResultType
 	finishRaw["result"] = result
-	finishRaw["error"] = message
-	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw})
+	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
+}
+
+func (r *Runtime) runtimeInstanceID() string {
+	if r == nil || r.Workspaces == nil {
+		return ""
+	}
+	identity, err := r.Workspaces.Instance()
+	if err != nil {
+		return ""
+	}
+	return identity.ID
 }
 
 const (
@@ -220,8 +232,9 @@ const (
 )
 
 type clusterToolCall struct {
-	Name      string         `json:"name"`
-	Arguments map[string]any `json:"arguments"`
+	Name                 string         `json:"name"`
+	Arguments            map[string]any `json:"arguments"`
+	ReceivedByInstanceID string         `json:"received_by_instance_id,omitempty"`
 }
 
 type clusterToolResponse struct {
@@ -230,85 +243,87 @@ type clusterToolResponse struct {
 	ToolNotFound bool   `json:"tool_not_found,omitempty"`
 }
 
-func (r *Runtime) executeCall(ctx context.Context, name string, args map[string]any, workspaceID string, allowRemote bool) (Result, error) {
+func (r *Runtime) executeCall(ctx context.Context, name string, args map[string]any, workspaceID string, allowRemote bool, receivedBy string) (Result, error, string) {
+	localID := r.runtimeInstanceID()
 	if allowRemote && name == "workspace_register" {
-		return r.executeWorkspaceRegister(ctx, args)
+		return r.executeWorkspaceRegister(ctx, args, receivedBy)
 	}
 	if !allowRemote || workspaceID == "" || r.Workspaces == nil {
-		return r.Registry.Call(ctx, name, args)
+		result, err := r.Registry.Call(ctx, name, args)
+		return result, err, localID
 	}
 	if _, err := r.Workspaces.Get(workspaceID); err == nil {
-		return r.Registry.Call(ctx, name, args)
+		result, callErr := r.Registry.Call(ctx, name, args)
+		return result, callErr, localID
 	}
 	node := r.ClusterNode()
 	if node == nil {
-		return r.Registry.Call(ctx, name, args)
+		result, err := r.Registry.Call(ctx, name, args)
+		return result, err, localID
 	}
 	owner, err := node.WorkspaceOwner(ctx, workspaceID)
 	if err != nil {
-		return Result{}, err
+		return Result{}, err, ""
 	}
-	identity, err := r.Workspaces.Instance()
+	if owner.InstanceID == localID {
+		return Result{}, fmt.Errorf("cluster directory maps workspace %s to this instance but it is not registered locally", workspaceID), localID
+	}
+	payload, err := json.Marshal(clusterToolCall{Name: name, Arguments: args, ReceivedByInstanceID: receivedBy})
 	if err != nil {
-		return Result{}, err
-	}
-	if owner.InstanceID == identity.ID {
-		return Result{}, fmt.Errorf("cluster directory maps workspace %s to this instance but it is not registered locally", workspaceID)
-	}
-	payload, err := json.Marshal(clusterToolCall{Name: name, Arguments: args})
-	if err != nil {
-		return Result{}, err
+		return Result{}, err, owner.InstanceID
 	}
 	encoded, err := node.Call(ctx, owner.InstanceID, clusterToolCallMethod, payload)
 	if err != nil {
-		return Result{}, err
+		return Result{}, err, owner.InstanceID
 	}
 	var response clusterToolResponse
 	if err := json.Unmarshal(encoded, &response); err != nil {
-		return Result{}, fmt.Errorf("decode cluster tool response: %w", err)
+		return Result{}, fmt.Errorf("decode cluster tool response: %w", err), owner.InstanceID
 	}
 	if response.Error != "" {
 		if response.ToolNotFound {
-			return Result{}, fmt.Errorf("%w: %s", ErrToolNotFound, response.Error)
+			return Result{}, fmt.Errorf("%w: %s", ErrToolNotFound, response.Error), owner.InstanceID
 		}
-		return Result{}, errors.New(response.Error)
+		return Result{}, errors.New(response.Error), owner.InstanceID
 	}
-	return response.Result, nil
+	return response.Result, nil, owner.InstanceID
 }
 
-func (r *Runtime) executeWorkspaceRegister(ctx context.Context, args map[string]any) (Result, error) {
+func (r *Runtime) executeWorkspaceRegister(ctx context.Context, args map[string]any, receivedBy string) (Result, error, string) {
 	if r.Workspaces == nil {
-		return Result{}, errors.New("workspace manager is unavailable")
+		return Result{}, errors.New("workspace manager is unavailable"), ""
 	}
 	identity, err := r.Workspaces.Instance()
 	if err != nil {
-		return Result{}, err
+		return Result{}, err, ""
 	}
 	target, err := optionalString(args, "instance_id")
 	if err != nil {
-		return Result{}, err
+		return Result{}, err, identity.ID
 	}
 	localArgs := cloneMap(args)
 	delete(localArgs, "instance_id")
 	if target == "" || target == identity.ID {
-		return r.Registry.Call(ctx, "workspace_register", localArgs)
+		result, callErr := r.Registry.Call(ctx, "workspace_register", localArgs)
+		return result, callErr, identity.ID
 	}
 	node := r.ClusterNode()
 	if node == nil {
-		return Result{}, fmt.Errorf("cluster instance is unavailable: %s", target)
+		return Result{}, fmt.Errorf("cluster instance is unavailable: %s", target), target
 	}
 	if _, err := clusterMember(ctx, node, target); err != nil {
-		return Result{}, err
+		return Result{}, err, target
 	}
-	payload, err := json.Marshal(clusterToolCall{Name: "workspace_register", Arguments: localArgs})
+	payload, err := json.Marshal(clusterToolCall{Name: "workspace_register", Arguments: localArgs, ReceivedByInstanceID: receivedBy})
 	if err != nil {
-		return Result{}, err
+		return Result{}, err, target
 	}
 	encoded, err := node.Call(ctx, target, clusterWorkspaceRegisterMethod, payload)
 	if err != nil {
-		return Result{}, err
+		return Result{}, err, target
 	}
-	return decodeClusterToolResponse(encoded)
+	result, err := decodeClusterToolResponse(encoded)
+	return result, err, target
 }
 
 func (r *Runtime) ClusterRPCHandler(ctx context.Context, method string, payload json.RawMessage) (json.RawMessage, error) {
@@ -323,7 +338,7 @@ func (r *Runtime) ClusterRPCHandler(ctx context.Context, method string, payload 
 		}
 		call.Arguments = cloneMap(call.Arguments)
 		delete(call.Arguments, "instance_id")
-		ctx = WithCallSource(ctx, "cluster")
+		ctx = WithCallSource(WithReceivedByInstanceID(ctx, call.ReceivedByInstanceID), "cluster")
 		result, callErr := r.call(ctx, call.Name, call.Arguments, false)
 		return encodeClusterToolResponse(result, callErr)
 	case clusterWorkspaceListMethod:
@@ -355,7 +370,7 @@ func (r *Runtime) ClusterRPCHandler(ctx context.Context, method string, payload 
 		call.Arguments = cloneMap(call.Arguments)
 		call.Arguments["workspace_id"] = canonical
 	}
-	ctx = WithCallSource(ctx, "cluster")
+	ctx = WithCallSource(WithReceivedByInstanceID(ctx, call.ReceivedByInstanceID), "cluster")
 	result, callErr := r.call(ctx, call.Name, call.Arguments, false)
 	return encodeClusterToolResponse(result, callErr)
 }

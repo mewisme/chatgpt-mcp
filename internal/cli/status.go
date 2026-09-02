@@ -13,6 +13,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/cluster"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
@@ -34,6 +35,7 @@ type statusSnapshot struct {
 	ListenerPlan  listenerPlan
 	ListenerError error
 	Tunnel        tunnel.Status
+	Cluster       cluster.RuntimeStatus
 }
 
 const statusTunnelWatchTimeout = 35 * time.Second
@@ -96,7 +98,10 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 	}
 	plan, listenerErr := resolveListenerPlan(cfg.Server.Expose)
 	tunnelStatus := fetchTunnelStatus(cmd.Context(), cfg.Tunnel)
-	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: len(upstreams.List()), ListenerPlan: plan, ListenerError: listenerErr, Tunnel: tunnelStatus}
+	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: len(upstreams.List()), ListenerPlan: plan, ListenerError: listenerErr, Tunnel: tunnelStatus, Cluster: offlineClusterStatus(cfg)}
+	if running {
+		snapshot.Cluster = runtimeStatus.Cluster
+	}
 	if !running {
 		snapshot.Services = installedManagedServices(account)
 	}
@@ -106,6 +111,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 	}
 	if snapshot.Running && transientTunnelState(statusTunnelState(snapshot.Runtime, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
 		renderStatusBaseText(cmd.OutOrStdout(), snapshot, verbose)
+		renderStatusCluster(cmd.OutOrStdout(), snapshot)
 		fmt.Fprintln(cmd.OutOrStdout(), "\n"+cliHeading("Tunnel"))
 		snapshot.Runtime = animateRuntimeTunnelState(cmd, snapshot.Runtime, statusTunnelWatchTimeout)
 		snapshot.Tunnel.Running = snapshot.Runtime.TunnelRunning
@@ -121,6 +127,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 
 func renderStatusText(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	renderStatusBaseText(out, snapshot, verbose)
+	renderStatusCluster(out, snapshot)
 	renderStatusTunnel(out, snapshot, verbose)
 }
 
@@ -222,6 +229,11 @@ func renderStatusEndpoints(out io.Writer, snapshot statusSnapshot, verbose bool)
 	if !cfg.Admin.Enabled && len(addresses) == 0 {
 		statusField(out, "admin", "disabled")
 	}
+}
+
+func renderStatusCluster(out io.Writer, snapshot statusSnapshot) {
+	fmt.Fprintln(out)
+	renderClusterStatus(out, snapshot.Cluster, snapshot.Running)
 }
 
 func renderStatusTunnel(out io.Writer, snapshot statusSnapshot, verbose bool) {
@@ -348,6 +360,26 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 	}
 	if snapshot.Tunnel.MetadataError != "" {
 		log.Detail("tunnel metadata error", snapshot.Tunnel.MetadataError)
+	}
+	log.Detail("cluster enabled", snapshot.Cluster.Enabled)
+	log.Detail("cluster connected", snapshot.Cluster.Connected)
+	if snapshot.Cluster.InstanceID != "" {
+		log.Detail("cluster instance", snapshot.Cluster.InstanceID)
+	}
+	if snapshot.Cluster.Name != "" {
+		log.Detail("cluster name", snapshot.Cluster.Name)
+	}
+	if snapshot.Cluster.Connected {
+		log.Detail("cluster members", fmt.Sprintf("%d/%d online", snapshot.Cluster.OnlineMemberCount, snapshot.Cluster.MemberCount))
+		log.Detail("cluster workspaces", snapshot.Cluster.WorkspaceCount)
+		log.Detail("cluster catalog compatible", snapshot.Cluster.CatalogCompatible)
+	}
+	if snapshot.Cluster.TunnelRole != "" {
+		log.Detail("cluster tunnel role", snapshot.Cluster.TunnelRole)
+	}
+	if snapshot.Cluster.LeaderInstanceID != "" {
+		log.Detail("cluster leader", snapshot.Cluster.LeaderInstanceID)
+		log.Detail("cluster epoch", snapshot.Cluster.LeaderEpoch)
 	}
 	log.Detail("workspaces", snapshot.Workspaces)
 	log.Detail("upstreams", snapshot.Upstreams)

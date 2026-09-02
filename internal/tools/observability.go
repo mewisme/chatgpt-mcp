@@ -3,26 +3,44 @@ package tools
 import "context"
 
 type CallObservation struct {
-	Phase       string
-	Source      string
-	Tool        string
-	WorkspaceID string
-	Status      string
-	DurationMS  int64
-	Message     string
-	ResultType  string
-	Raw         map[string]any
+	Phase                string
+	Source               string
+	Tool                 string
+	WorkspaceID          string
+	Status               string
+	DurationMS           int64
+	Message              string
+	ResultType           string
+	Raw                  map[string]any
+	ReceivedByInstanceID string
+	ExecutedByInstanceID string
 }
 
 type CallObserver func(CallObservation)
 
 type callSourceKey struct{}
 type callDetailsKey struct{}
+type receivedByInstanceKey struct{}
 
 type callDetails struct {
 	Method  string
 	Params  map[string]any
 	Request map[string]any
+}
+
+func WithReceivedByInstanceID(ctx context.Context, instanceID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, receivedByInstanceKey{}, instanceID)
+}
+
+func ReceivedByInstanceID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(receivedByInstanceKey{}).(string)
+	return value
 }
 
 func WithCallSource(ctx context.Context, source string) context.Context {

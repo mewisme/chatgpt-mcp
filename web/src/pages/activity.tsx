@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { authHeaders } from "@/lib/api"
 
-export type ActivityEvent = { sequence?: number; kind: string; method?: string; source?: string; tool?: string; workspace_id?: string; status?: string; duration_ms?: number; message?: string; raw?: Record<string, unknown>; timestamp: string }
+export type ActivityEvent = { sequence?: number; kind: string; method?: string; source?: string; tool?: string; workspace_id?: string; received_by_instance_id?: string; executed_by_instance_id?: string; status?: string; duration_ms?: number; message?: string; raw?: Record<string, unknown>; timestamp: string }
 type ActivityStreamHandlers = { onReady: () => void; onEvent: (event: ActivityEvent) => void; onGap: (from: number, to: number) => void }
 
 const columnHelper = createColumnHelper<DataTableFeatures, ActivityEvent>()
@@ -73,7 +73,7 @@ export function ActivityPage() {
       if (status !== "all" && event.status !== status) return false
       if (source !== "all" && event.source !== source) return false
       if (!needle) return true
-      return [event.kind, event.method, event.source, event.tool, event.workspace_id, event.status, event.message].some((value) => value?.toLowerCase().includes(needle))
+      return [event.kind, event.method, event.source, event.tool, event.workspace_id, event.received_by_instance_id, event.executed_by_instance_id, event.status, event.message].some((value) => value?.toLowerCase().includes(needle))
     })
   }, [events, kind, query, source, status])
 
@@ -89,7 +89,7 @@ function ActivityMobileList({ events, onSelect }: { events: ActivityEvent[]; onS
 }
 
 function ActivityDetail({ event, open, onOpenChange }: { event: ActivityEvent; open: boolean; onOpenChange: (open: boolean) => void }) {
-  return <ResponsiveDialog open={open} onOpenChange={onOpenChange} title={activityTitle(event)} description={`${event.kind} · ${formatDateTime(event.timestamp)}`}><Tabs defaultValue="overview"><TabsList className="w-full"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="metadata">Metadata</TabsTrigger><TabsTrigger value="raw">Raw</TabsTrigger></TabsList><TabsContent className="mt-4 divide-y" value="overview"><DetailRow label="Status" value={event.status ? <StatusBadge status={event.status} /> : "-"} /><DetailRow label="Tool" value={event.tool || "-"} mono /><DetailRow label="Method" value={event.method || "-"} mono /><DetailRow label="Message" value={event.message || "-"} /><DetailRow label="Duration" value={event.duration_ms === undefined ? "-" : formatDuration(event.duration_ms)} /></TabsContent><TabsContent className="mt-4 divide-y" value="metadata"><DetailRow label="Sequence" value={event.sequence ?? "-"} mono /><DetailRow label="Timestamp" value={formatDateTime(event.timestamp)} /><DetailRow label="Source" value={event.source || "-"} mono /><DetailRow label="Workspace" value={event.workspace_id || "-"} mono /><DetailRow label="Kind" value={event.kind} mono /></TabsContent><TabsContent className="mt-4" value="raw"><JsonViewer value={event.raw ?? event} /></TabsContent></Tabs></ResponsiveDialog>
+  return <ResponsiveDialog open={open} onOpenChange={onOpenChange} title={activityTitle(event)} description={`${event.kind} · ${formatDateTime(event.timestamp)}`}><Tabs defaultValue="overview"><TabsList className="w-full"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="metadata">Metadata</TabsTrigger><TabsTrigger value="raw">Raw</TabsTrigger></TabsList><TabsContent className="mt-4 divide-y" value="overview"><DetailRow label="Status" value={event.status ? <StatusBadge status={event.status} /> : "-"} /><DetailRow label="Tool" value={event.tool || "-"} mono /><DetailRow label="Method" value={event.method || "-"} mono /><DetailRow label="Message" value={event.message || "-"} /><DetailRow label="Duration" value={event.duration_ms === undefined ? "-" : formatDuration(event.duration_ms)} /></TabsContent><TabsContent className="mt-4 divide-y" value="metadata"><DetailRow label="Sequence" value={event.sequence ?? "-"} mono /><DetailRow label="Timestamp" value={formatDateTime(event.timestamp)} /><DetailRow label="Source" value={event.source || "-"} mono /><DetailRow label="Workspace" value={event.workspace_id || "-"} mono /><DetailRow label="Received by" value={event.received_by_instance_id || "-"} mono /><DetailRow label="Executed by" value={event.executed_by_instance_id || "-"} mono /><DetailRow label="Kind" value={event.kind} mono /></TabsContent><TabsContent className="mt-4" value="raw"><JsonViewer value={event.raw ?? event} /></TabsContent></Tabs></ResponsiveDialog>
 }
 
 function FilterSelect({ label, value, values, onValueChange }: { label: string; value: string; values: string[]; onValueChange: (value: string) => void }) {

@@ -65,8 +65,9 @@ func TestRuntimeRoutesWorkspaceToolCallToRemoteOwner(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(rootB, "owner.txt"), []byte("from-b"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	var observations []CallObservation
-	second.runtime.CallObserver = func(value CallObservation) { observations = append(observations, value) }
+	var receiverObservations, executorObservations []CallObservation
+	first.runtime.CallObserver = func(value CallObservation) { receiverObservations = append(receiverObservations, value) }
+	second.runtime.CallObserver = func(value CallObservation) { executorObservations = append(executorObservations, value) }
 	result, err := first.runtime.Call(WithCallSource(ctx, "tunnel"), "read_text_file", map[string]any{"workspace_id": second.workspace.ID, "path": "owner.txt"})
 	if err != nil || result.IsError {
 		t.Fatalf("remote read failed: result=%#v err=%v", result, err)
@@ -78,15 +79,27 @@ func TestRuntimeRoutesWorkspaceToolCallToRemoteOwner(t *testing.T) {
 	if _, err := first.runtime.Workspaces.Get(second.workspace.ID); !errors.Is(err, workspace.ErrNotFound) {
 		t.Fatalf("remote workspace unexpectedly registered locally: %v", err)
 	}
-	foundClusterExecution := false
-	for _, observation := range observations {
-		if observation.Phase == "finish" && observation.Tool == "read_text_file" && observation.WorkspaceID == second.workspace.ID && observation.Source == "cluster" {
-			foundClusterExecution = true
+	firstID, _ := first.runtime.Workspaces.Instance()
+	secondID, _ := second.runtime.Workspaces.Instance()
+	assertClusterRouteObservation := func(label string, observations []CallObservation, source string) {
+		t.Helper()
+		for _, observation := range observations {
+			if observation.Phase != "finish" || observation.Tool != "read_text_file" || observation.WorkspaceID != second.workspace.ID || observation.Source != source {
+				continue
+			}
+			if observation.ReceivedByInstanceID != firstID.ID || observation.ExecutedByInstanceID != secondID.ID {
+				t.Fatalf("%s route = received %q executed %q", label, observation.ReceivedByInstanceID, observation.ExecutedByInstanceID)
+			}
+			routing, _ := observation.Raw["routing"].(map[string]any)
+			if routing["received_by_instance_id"] != firstID.ID || routing["executed_by_instance_id"] != secondID.ID {
+				t.Fatalf("%s raw routing = %#v", label, routing)
+			}
+			return
 		}
+		t.Fatalf("%s remote execution observation missing: %#v", label, observations)
 	}
-	if !foundClusterExecution {
-		t.Fatalf("remote execution observation missing: %#v", observations)
-	}
+	assertClusterRouteObservation("receiver", receiverObservations, "tunnel")
+	assertClusterRouteObservation("executor", executorObservations, "cluster")
 }
 
 func TestRuntimeRoutesMutationOnlyToRemoteOwner(t *testing.T) {

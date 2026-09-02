@@ -153,3 +153,24 @@ func normalizeWorkspaces(values []string) []string {
 	sort.Strings(result)
 	return result
 }
+
+type RuntimeStatus struct {
+	Enabled           bool             `json:"enabled"`
+	Connected         bool             `json:"connected"`
+	RelayURL          string           `json:"relay_url,omitempty"`
+	InstanceID        string           `json:"instance_id,omitempty"`
+	Name              string           `json:"name,omitempty"`
+	MemberCount       int              `json:"member_count"`
+	OnlineMemberCount int              `json:"online_member_count"`
+	WorkspaceCount    int              `json:"workspace_count"`
+	CatalogHash       string           `json:"catalog_hash,omitempty"`
+	CatalogCompatible bool             `json:"catalog_compatible"`
+	CatalogError      string           `json:"catalog_error,omitempty"`
+	TunnelRole        string           `json:"tunnel_role,omitempty"`
+	LeaderInstanceID  string           `json:"leader_instance_id,omitempty"`
+	LeaderEpoch       uint64           `json:"leader_epoch,omitempty"`
+	LeaseExpiresAt    time.Time        `json:"lease_expires_at,omitempty"`
+	LastError         string           `json:"last_error,omitempty"`
+	Members           []Member         `json:"members,omitempty"`
+	Workspaces        []WorkspaceOwner `json:"workspaces,omitempty"`
+}

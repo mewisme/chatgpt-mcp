@@ -74,6 +74,9 @@ export type TunnelAdminKeyRequest = { admin_key?: string; organization_id?: stri
 export type TunnelAdminKeyStatus = { configured: boolean; scope: TunnelAdminScope; tunnels?: number }
 export type TunnelMetadata = { id: string; name: string; description: string; creator?: string; tenant_ids?: string[]; workspace_ids?: string[]; organization_ids?: string[]; request_id?: string; fetched_at: string }
 export type TunnelStatus = { provider: "openai" | string; enabled: boolean; running: boolean; ready: boolean; restarting: boolean; id?: string; control_plane_base_url?: string; organization_id?: string; started_at?: string; last_error?: string; metadata?: TunnelMetadata; metadata_error?: string; admin_key_configured?: boolean; admin_scope?: TunnelAdminScope }
+export type ClusterMember = { instance_id: string; name: string; catalog_hash?: string; workspaces?: string[]; online: boolean; connected_at?: string; last_seen?: string }
+export type ClusterWorkspaceOwner = { workspace_id: string; instance_id: string; online: boolean }
+export type ClusterStatus = { enabled: boolean; connected: boolean; relay_url?: string; instance_id?: string; name?: string; member_count: number; online_member_count: number; workspace_count: number; catalog_hash?: string; catalog_compatible: boolean; catalog_error?: string; tunnel_role?: string; leader_instance_id?: string; leader_epoch?: number; lease_expires_at?: string; last_error?: string; members?: ClusterMember[]; workspaces?: ClusterWorkspaceOwner[] }
 
 const adminTokenKey = "chatgpt-mcp-admin-token"
 try { localStorage.removeItem(adminTokenKey) } catch { /* storage may be unavailable */ }
@@ -97,6 +100,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export const adminApi = {
   health: () => api<{ ok: boolean; auth_enabled: boolean }>("/api/health"),
   networkInterfaces: () => api<NetworkInterface[]>("/api/network/interfaces"),
+  cluster: () => api<ClusterStatus>("/api/cluster"),
   config: () => api<PublicConfig>("/api/config"),
   saveConfig: (config: Partial<PublicConfig>) => api<PublicConfig>("/api/config", { method: "PUT", body: JSON.stringify(config) }),
   configPresets: () => api<ConfigPresetList>("/api/config/presets"),

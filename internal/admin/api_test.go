@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/cluster"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
@@ -554,5 +555,23 @@ func TestTunnelAdminKeyRejectsFailedVerification(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/tunnel/admin/key", strings.NewReader(`{"admin_key":"sk-denied","workspace_id":"ws_admin"}`)))
 	if recorder.Code != http.StatusBadRequest || store.Snapshot().Tunnel.AdminKey != "" {
 		t.Fatalf("status=%d config=%#v body=%s", recorder.Code, store.Snapshot().Tunnel, recorder.Body.String())
+	}
+}
+
+func TestClusterStatusAPI(t *testing.T) {
+	handler := New(API{ClusterStatus: func(context.Context) cluster.RuntimeStatus {
+		return cluster.RuntimeStatus{Enabled: true, Connected: true, InstanceID: "inst_local", Name: "local", MemberCount: 2, OnlineMemberCount: 2, WorkspaceCount: 3, CatalogHash: "catalog", CatalogCompatible: true, TunnelRole: "leader", LeaderInstanceID: "inst_local", LeaderEpoch: 7}
+	}})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/cluster", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var status cluster.RuntimeStatus
+	if err := json.Unmarshal(recorder.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if !status.Connected || status.InstanceID != "inst_local" || status.TunnelRole != "leader" || status.LeaderEpoch != 7 {
+		t.Fatalf("cluster status = %#v", status)
 	}
 }

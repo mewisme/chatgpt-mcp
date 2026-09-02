@@ -119,6 +119,46 @@ func (n *Node) Snapshot(ctx context.Context) (Snapshot, error) {
 	return session.Snapshot(ctx)
 }
 
+func (n *Node) TryAcquireLeadership(ctx context.Context, tunnelID string, ttl time.Duration) (LeaderLease, bool, error) {
+	n.mu.RLock()
+	session := n.session
+	n.mu.RUnlock()
+	if session == nil {
+		return LeaderLease{}, false, ErrClosed
+	}
+	return session.TryAcquireLeadership(ctx, tunnelID, ttl)
+}
+
+func (n *Node) RenewLeadership(ctx context.Context, lease LeaderLease, ttl time.Duration) (LeaderLease, error) {
+	n.mu.RLock()
+	session := n.session
+	n.mu.RUnlock()
+	if session == nil {
+		return LeaderLease{}, ErrClosed
+	}
+	return session.RenewLeadership(ctx, lease, ttl)
+}
+
+func (n *Node) ReleaseLeadership(ctx context.Context, lease LeaderLease) error {
+	n.mu.RLock()
+	session := n.session
+	n.mu.RUnlock()
+	if session == nil {
+		return ErrClosed
+	}
+	return session.ReleaseLeadership(ctx, lease)
+}
+
+func (n *Node) Leadership(ctx context.Context, tunnelID string) (LeaderLease, bool, error) {
+	n.mu.RLock()
+	session := n.session
+	n.mu.RUnlock()
+	if session == nil {
+		return LeaderLease{}, false, ErrClosed
+	}
+	return session.Leadership(ctx, tunnelID)
+}
+
 func (n *Node) Advertisement() Advertisement {
 	if n == nil {
 		return Advertisement{}

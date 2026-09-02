@@ -33,9 +33,17 @@ type WorkspaceOwner struct {
 	Online      bool   `json:"online"`
 }
 
+type LeaderLease struct {
+	TunnelID   string    `json:"tunnel_id"`
+	InstanceID string    `json:"instance_id"`
+	Epoch      uint64    `json:"epoch"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
 type Snapshot struct {
 	Members           []Member         `json:"members"`
 	Workspaces        []WorkspaceOwner `json:"workspaces"`
+	Leaders           []LeaderLease    `json:"leaders,omitempty"`
 	CatalogHash       string           `json:"catalog_hash,omitempty"`
 	CatalogCompatible bool             `json:"catalog_compatible"`
 	CatalogError      string           `json:"catalog_error,omitempty"`
@@ -71,6 +79,7 @@ var (
 	ErrClosed       = errors.New("cluster session is closed")
 	ErrOwnerOffline = errors.New("workspace owner is offline")
 	ErrNoOwner      = errors.New("workspace owner not found")
+	ErrLeaseLost    = errors.New("cluster leader lease lost")
 )
 
 func catalogStatus(members []Member) (string, bool, string) {

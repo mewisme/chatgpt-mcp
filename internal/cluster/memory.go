@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -13,13 +14,15 @@ type MemoryRelay struct {
 	mu        sync.RWMutex
 	members   map[string]Member
 	owners    map[string]string
+	leaders   map[string]LeaderLease
+	epochs    map[string]uint64
 	sessions  map[string]*memorySession
 	inboxSize int
 	now       func() time.Time
 }
 
 func NewMemoryRelay() *MemoryRelay {
-	return &MemoryRelay{members: map[string]Member{}, owners: map[string]string{}, sessions: map[string]*memorySession{}, inboxSize: 128, now: func() time.Time { return time.Now().UTC() }}
+	return &MemoryRelay{members: map[string]Member{}, owners: map[string]string{}, leaders: map[string]LeaderLease{}, epochs: map[string]uint64{}, sessions: map[string]*memorySession{}, inboxSize: 128, now: func() time.Time { return time.Now().UTC() }}
 }
 
 func (r *MemoryRelay) Connect(ctx context.Context, advertisement Advertisement) (Session, error) {
@@ -108,8 +111,9 @@ func (r *MemoryRelay) advertise(instanceID string, advertisement Advertisement) 
 }
 
 func (r *MemoryRelay) snapshot() Snapshot {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.expireLeadersLocked()
 	members := make([]Member, 0, len(r.members))
 	for _, member := range r.members {
 		member.Workspaces = append([]string(nil), member.Workspaces...)
@@ -122,8 +126,103 @@ func (r *MemoryRelay) snapshot() Snapshot {
 		workspaces = append(workspaces, WorkspaceOwner{WorkspaceID: workspaceID, InstanceID: instanceID, Online: member.Online})
 	}
 	sort.Slice(workspaces, func(i, j int) bool { return workspaces[i].WorkspaceID < workspaces[j].WorkspaceID })
+	leaders := make([]LeaderLease, 0, len(r.leaders))
+	for _, lease := range r.leaders {
+		leaders = append(leaders, lease)
+	}
+	sort.Slice(leaders, func(i, j int) bool { return leaders[i].TunnelID < leaders[j].TunnelID })
 	catalogHash, compatible, catalogError := catalogStatus(members)
-	return Snapshot{Members: members, Workspaces: workspaces, CatalogHash: catalogHash, CatalogCompatible: compatible, CatalogError: catalogError}
+	return Snapshot{Members: members, Workspaces: workspaces, Leaders: leaders, CatalogHash: catalogHash, CatalogCompatible: compatible, CatalogError: catalogError}
+}
+
+func (r *MemoryRelay) tryAcquireLeadership(instanceID, tunnelID string, ttl time.Duration) (LeaderLease, bool, error) {
+	tunnelID = strings.TrimSpace(tunnelID)
+	if tunnelID == "" {
+		return LeaderLease{}, false, errors.New("cluster leader tunnel_id is required")
+	}
+	if ttl <= 0 {
+		return LeaderLease{}, false, errors.New("cluster leader lease ttl must be greater than zero")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.validateSessionLocked(instanceID); err != nil {
+		return LeaderLease{}, false, err
+	}
+	r.expireLeadersLocked()
+	if current, ok := r.leaders[tunnelID]; ok {
+		if current.InstanceID != instanceID {
+			return current, false, nil
+		}
+		current.ExpiresAt = r.now().Add(ttl)
+		r.leaders[tunnelID] = current
+		return current, true, nil
+	}
+	r.epochs[tunnelID]++
+	lease := LeaderLease{TunnelID: tunnelID, InstanceID: instanceID, Epoch: r.epochs[tunnelID], ExpiresAt: r.now().Add(ttl)}
+	r.leaders[tunnelID] = lease
+	return lease, true, nil
+}
+
+func (r *MemoryRelay) renewLeadership(instanceID string, lease LeaderLease, ttl time.Duration) (LeaderLease, error) {
+	if ttl <= 0 {
+		return LeaderLease{}, errors.New("cluster leader lease ttl must be greater than zero")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.validateSessionLocked(instanceID); err != nil {
+		return LeaderLease{}, err
+	}
+	r.expireLeadersLocked()
+	current, ok := r.leaders[lease.TunnelID]
+	if !ok || current.InstanceID != instanceID || current.InstanceID != lease.InstanceID || current.Epoch != lease.Epoch {
+		return LeaderLease{}, ErrLeaseLost
+	}
+	current.ExpiresAt = r.now().Add(ttl)
+	r.leaders[lease.TunnelID] = current
+	return current, nil
+}
+
+func (r *MemoryRelay) releaseLeadership(instanceID string, lease LeaderLease) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.validateSessionLocked(instanceID); err != nil {
+		return err
+	}
+	r.expireLeadersLocked()
+	current, ok := r.leaders[lease.TunnelID]
+	if !ok || current.InstanceID != instanceID || current.InstanceID != lease.InstanceID || current.Epoch != lease.Epoch {
+		return ErrLeaseLost
+	}
+	delete(r.leaders, lease.TunnelID)
+	return nil
+}
+
+func (r *MemoryRelay) leadership(instanceID, tunnelID string) (LeaderLease, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.validateSessionLocked(instanceID); err != nil {
+		return LeaderLease{}, false, err
+	}
+	r.expireLeadersLocked()
+	lease, ok := r.leaders[strings.TrimSpace(tunnelID)]
+	return lease, ok, nil
+}
+
+func (r *MemoryRelay) validateSessionLocked(instanceID string) error {
+	session := r.sessions[instanceID]
+	if session == nil || session.isClosed() || !r.members[instanceID].Online {
+		return ErrClosed
+	}
+	return nil
+}
+
+func (r *MemoryRelay) expireLeadersLocked() {
+	now := r.now()
+	for tunnelID, lease := range r.leaders {
+		if !r.members[lease.InstanceID].Online || !lease.ExpiresAt.After(now) {
+			delete(r.leaders, tunnelID)
+		}
+	}
 }
 
 func (r *MemoryRelay) send(ctx context.Context, sender string, frame Frame) error {
@@ -200,6 +299,34 @@ func (s *memorySession) Snapshot(context.Context) (Snapshot, error) {
 		return Snapshot{}, ErrClosed
 	}
 	return s.relay.snapshot(), nil
+}
+
+func (s *memorySession) TryAcquireLeadership(_ context.Context, tunnelID string, ttl time.Duration) (LeaderLease, bool, error) {
+	if s.isClosed() {
+		return LeaderLease{}, false, ErrClosed
+	}
+	return s.relay.tryAcquireLeadership(s.instanceID, tunnelID, ttl)
+}
+
+func (s *memorySession) RenewLeadership(_ context.Context, lease LeaderLease, ttl time.Duration) (LeaderLease, error) {
+	if s.isClosed() {
+		return LeaderLease{}, ErrClosed
+	}
+	return s.relay.renewLeadership(s.instanceID, lease, ttl)
+}
+
+func (s *memorySession) ReleaseLeadership(_ context.Context, lease LeaderLease) error {
+	if s.isClosed() {
+		return ErrClosed
+	}
+	return s.relay.releaseLeadership(s.instanceID, lease)
+}
+
+func (s *memorySession) Leadership(_ context.Context, tunnelID string) (LeaderLease, bool, error) {
+	if s.isClosed() {
+		return LeaderLease{}, false, ErrClosed
+	}
+	return s.relay.leadership(s.instanceID, tunnelID)
 }
 
 func (s *memorySession) Send(ctx context.Context, frame Frame) error {

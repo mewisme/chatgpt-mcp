@@ -206,3 +206,94 @@ func TestNodeAdvertisementProviderOverridesStaleInitialAdvertisement(t *testing.
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 }
+
+func TestLeaderLeaseHasSingleOwnerAndFencingEpoch(t *testing.T) {
+	relay := NewMemoryRelay()
+	first := NewNode(relay, Advertisement{InstanceID: "inst_a", Name: "a"}, nil)
+	second := NewNode(relay, Advertisement{InstanceID: "inst_b", Name: "b"}, nil)
+	if err := first.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	if err := second.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	lease, acquired, err := first.TryAcquireLeadership(context.Background(), "tunnel_test", 10*time.Second)
+	if err != nil || !acquired || lease.InstanceID != "inst_a" || lease.Epoch != 1 {
+		t.Fatalf("first lease = %#v acquired=%v err=%v", lease, acquired, err)
+	}
+	current, acquired, err := second.TryAcquireLeadership(context.Background(), "tunnel_test", 10*time.Second)
+	if err != nil || acquired || current != lease {
+		t.Fatalf("second acquire = %#v acquired=%v err=%v", current, acquired, err)
+	}
+	renewed, err := first.RenewLeadership(context.Background(), lease, 20*time.Second)
+	if err != nil || renewed.Epoch != lease.Epoch || !renewed.ExpiresAt.After(lease.ExpiresAt) {
+		t.Fatalf("renewed lease = %#v err=%v", renewed, err)
+	}
+	if err := first.ReleaseLeadership(context.Background(), lease); err != nil {
+		t.Fatal(err)
+	}
+	next, acquired, err := second.TryAcquireLeadership(context.Background(), "tunnel_test", 10*time.Second)
+	if err != nil || !acquired || next.InstanceID != "inst_b" || next.Epoch != 2 {
+		t.Fatalf("next lease = %#v acquired=%v err=%v", next, acquired, err)
+	}
+	if _, err := first.RenewLeadership(context.Background(), lease, 10*time.Second); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("stale renew error = %v", err)
+	}
+	if err := first.ReleaseLeadership(context.Background(), lease); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("stale release error = %v", err)
+	}
+}
+
+func TestLeaderLeaseExpiresAndHandsOver(t *testing.T) {
+	now := time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+	relay := NewMemoryRelay()
+	relay.now = func() time.Time { return now }
+	first := NewNode(relay, Advertisement{InstanceID: "inst_a", Name: "a"}, nil)
+	second := NewNode(relay, Advertisement{InstanceID: "inst_b", Name: "b"}, nil)
+	if err := first.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	if err := second.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	lease, acquired, err := first.TryAcquireLeadership(context.Background(), "tunnel_test", 5*time.Second)
+	if err != nil || !acquired {
+		t.Fatalf("first lease = %#v acquired=%v err=%v", lease, acquired, err)
+	}
+	now = now.Add(6 * time.Second)
+	if _, ok, err := second.Leadership(context.Background(), "tunnel_test"); err != nil || ok {
+		t.Fatalf("expired leadership still visible: ok=%v err=%v", ok, err)
+	}
+	next, acquired, err := second.TryAcquireLeadership(context.Background(), "tunnel_test", 5*time.Second)
+	if err != nil || !acquired || next.Epoch != lease.Epoch+1 {
+		t.Fatalf("handover lease = %#v acquired=%v err=%v", next, acquired, err)
+	}
+}
+
+func TestClosingLeaderMakesLeaseImmediatelyAvailable(t *testing.T) {
+	relay := NewMemoryRelay()
+	first := NewNode(relay, Advertisement{InstanceID: "inst_a", Name: "a"}, nil)
+	second := NewNode(relay, Advertisement{InstanceID: "inst_b", Name: "b"}, nil)
+	if err := first.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	lease, acquired, err := first.TryAcquireLeadership(context.Background(), "tunnel_test", time.Minute)
+	if err != nil || !acquired {
+		t.Fatalf("first lease = %#v acquired=%v err=%v", lease, acquired, err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	next, acquired, err := second.TryAcquireLeadership(context.Background(), "tunnel_test", time.Minute)
+	if err != nil || !acquired || next.Epoch != lease.Epoch+1 {
+		t.Fatalf("close handover = %#v acquired=%v err=%v", next, acquired, err)
+	}
+}

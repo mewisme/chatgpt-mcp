@@ -1,7 +1,6 @@
-import { CodeBlock, CodeBlockBody, CodeBlockContent, CodeBlockCopyButton, CodeBlockFilename, CodeBlockFiles, CodeBlockHeader, CodeBlockItem } from "@/components/kibo-ui/code-block"
+import { Code, CodeBlock, CodeHeader } from "@/components/animate-ui/components/animate/code"
 
 export function JsonViewer({ value, maxHeight = "24rem", filename = "data.json" }: { value: unknown; maxHeight?: string; filename?: string }) {
   const text = JSON.stringify(value ?? null, null, 2)
-  const data = [{ language: "json" as const, filename, code: text }]
-  return <CodeBlock data={data} defaultValue="json"><CodeBlockHeader><CodeBlockFiles>{(item) => <CodeBlockFilename key={item.filename} value={item.language}>{item.filename}</CodeBlockFilename>}</CodeBlockFiles><CodeBlockCopyButton aria-label="Copy JSON" /></CodeBlockHeader><CodeBlockBody className="overflow-y-auto" style={{ maxHeight }}>{(item) => <CodeBlockItem key={item.filename} value={item.language}><CodeBlockContent language="json">{item.code}</CodeBlockContent></CodeBlockItem>}</CodeBlockBody></CodeBlock>
+  return <Code code={text}><CodeHeader copyButton copyLabel="Copy JSON">{filename}</CodeHeader><CodeBlock lang="json" style={{ maxHeight }} /></Code>
 }

@@ -20,12 +20,11 @@ func TestAuthCommandUsesNestedHierarchy(t *testing.T) {
 	}
 }
 
-func TestSubcommandNamesDoNotUseDashesExceptExplicitNames(t *testing.T) {
-	allowed := map[string]bool{"chatgpt-mcp tunnel admin-key": true}
+func TestSubcommandNamesDoNotUseDashes(t *testing.T) {
 	var visit func(*cobra.Command)
 	visit = func(command *cobra.Command) {
 		for _, child := range command.Commands() {
-			if strings.Contains(child.Name(), "-") && !allowed[child.CommandPath()] {
+			if strings.Contains(child.Name(), "-") {
 				t.Errorf("dashed subcommand: %s", child.CommandPath())
 			}
 			visit(child)

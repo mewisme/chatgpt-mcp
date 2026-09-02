@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"strings"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
@@ -17,7 +20,7 @@ import (
 
 func tunnelCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "tunnel", Short: "Manage the builtin OpenAI Secure MCP Tunnel"}
-	cmd.AddCommand(tunnelAdminKeyCommand(), tunnelListCommand(), tunnelGetCommand(), tunnelCreateCommand(), tunnelUpdateCommand(), tunnelDeleteCommand(), tunnelStatusCommand(), tunnelConfigureCommand(), tunnelToggleCommand(true), tunnelToggleCommand(false), tunnelRunCommand())
+	cmd.AddCommand(tunnelAdminCommand(), tunnelListCommand(), tunnelGetCommand(), tunnelCreateCommand(), tunnelUpdateCommand(), tunnelDeleteCommand(), tunnelStatusCommand(), tunnelConfigureCommand(), tunnelToggleCommand(true), tunnelToggleCommand(false), tunnelRunCommand())
 	return cmd
 }
 
@@ -39,16 +42,134 @@ func normalizeTunnelIDs(values []string) []string {
 }
 
 func tunnelStatusCommand() *cobra.Command {
-	return &cobra.Command{Use: "status", Aliases: []string{"st"}, Short: "Show tunnel configuration, runtime state, and metadata", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+	return &cobra.Command{Use: "status", Aliases: []string{"st"}, Short: "Show tunnel configuration, runtime state, and metadata", Args: cobra.NoArgs, RunE: runTunnelStatus}
+}
+
+func runTunnelStatus(cmd *cobra.Command, _ []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	status := fetchTunnelStatus(cmd.Context(), cfg.Tunnel)
+	runtimeCtx, cancel := context.WithTimeout(cmd.Context(), time.Second)
+	runtimeStatus, runtimeRunning, err := managedRuntimeStatus(runtimeCtx)
+	cancel()
+	if err != nil {
+		return err
+	}
+	if runtimeRunning {
+		status.Running = runtimeStatus.TunnelRunning
+		status.Ready = runtimeStatus.TunnelReady
+		status.Restarting = runtimeStatus.TunnelRestarting
+		if status.ID == "" {
+			status.ID = runtimeStatus.TunnelID
+		}
+	}
+	format, err := commandLogFormat(cmd)
+	if err != nil {
+		return err
+	}
+	if format == logger.FormatJSON {
+		data, err := json.Marshal(status)
 		if err != nil {
 			return err
 		}
-		status := fetchTunnelStatus(cmd.Context(), cfg.Tunnel)
-		data, _ := json.MarshalIndent(status, "", "  ")
 		cmd.Println(string(data))
 		return nil
-	}}
+	}
+	verbose, _ := commandLogMode(cmd)
+	renderTunnelStatusText(cmd.OutOrStdout(), cfg.Tunnel, status, runtimeRunning, verbose)
+	return nil
+}
+
+func renderTunnelStatusText(out io.Writer, cfg tunnel.Config, status tunnel.Status, runtimeRunning, verbose bool) {
+	state := tunnelCLIState(cfg, status, runtimeRunning)
+	switch state {
+	case "connected":
+		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), "OpenAI Secure MCP Tunnel is connected")
+	case "connecting", "reconnecting":
+		fmt.Fprintln(out, cliStyled(color.FgHiCyan, color.Bold).Sprint("→"), "OpenAI Secure MCP Tunnel is "+state)
+	case "failed":
+		fmt.Fprintln(out, cliStyled(color.FgHiRed, color.Bold).Sprint("×"), "OpenAI Secure MCP Tunnel failed")
+	default:
+		fmt.Fprintln(out, cliDim("·"), "OpenAI Secure MCP Tunnel is "+state)
+	}
+	fmt.Fprintln(out, "\n"+cliHeading("Tunnel"))
+	statusStateField(out, "status", state)
+	statusField(out, "enabled", status.Enabled)
+	statusField(out, "configured", tunnel.Configured(cfg))
+	if status.ID != "" {
+		statusField(out, "id", status.ID)
+	}
+	if status.Metadata != nil {
+		metadata := status.Metadata
+		if metadata.Name != "" {
+			statusField(out, "name", metadata.Name)
+		}
+		if verbose {
+			if metadata.Description != "" {
+				statusField(out, "description", metadata.Description)
+			}
+			if metadata.Creator != "" {
+				statusField(out, "creator", metadata.Creator)
+			}
+			if len(metadata.WorkspaceIDs) > 0 {
+				statusField(out, "workspaces", strings.Join(metadata.WorkspaceIDs, ", "))
+			}
+			if len(metadata.OrganizationIDs) > 0 {
+				statusField(out, "organizations", strings.Join(metadata.OrganizationIDs, ", "))
+			}
+			if len(metadata.TenantIDs) > 0 {
+				statusField(out, "tenants", strings.Join(metadata.TenantIDs, ", "))
+			}
+		}
+	}
+	if status.AdminKeyConfigured && status.AdminScope != nil {
+		statusField(out, "admin", "configured · "+formatTunnelAdminScope(*status.AdminScope))
+	} else if verbose {
+		statusField(out, "admin", "not configured")
+	}
+	if verbose {
+		controlPlane := status.ControlPlaneBaseURL
+		if strings.TrimSpace(controlPlane) == "" {
+			controlPlane = "default"
+		}
+		statusField(out, "control plane", controlPlane)
+		if !status.StartedAt.IsZero() {
+			statusField(out, "started", status.StartedAt.Local().Format(time.RFC3339))
+		}
+		if status.MetadataError != "" {
+			statusField(out, "metadata", "unavailable: "+status.MetadataError)
+		}
+		if status.LastError != "" {
+			statusField(out, "error", status.LastError)
+		}
+	}
+}
+
+func tunnelCLIState(cfg tunnel.Config, status tunnel.Status, runtimeRunning bool) string {
+	if status.LastError != "" && (status.Running || status.Restarting) {
+		return "failed"
+	}
+	if !status.Enabled {
+		return "disabled"
+	}
+	if !tunnel.Configured(cfg) {
+		return "not configured"
+	}
+	if !runtimeRunning {
+		return "offline"
+	}
+	switch {
+	case status.Ready:
+		return "connected"
+	case status.Restarting:
+		return "reconnecting"
+	case status.Running:
+		return "connecting"
+	default:
+		return "stopped"
+	}
 }
 
 func fetchTunnelStatus(ctx context.Context, cfg tunnel.Config) tunnel.Status {

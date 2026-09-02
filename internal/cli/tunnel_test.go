@@ -48,10 +48,57 @@ func TestConfigureManagedTunnelRequiresSeparateRuntimeKey(t *testing.T) {
 
 func TestTunnelCommandAdminHierarchy(t *testing.T) {
 	cmd := tunnelCommand()
-	for _, path := range [][]string{{"admin-key", "set"}, {"admin-key", "status"}, {"admin-key", "verify"}, {"admin-key", "remove"}, {"list"}, {"get"}, {"create"}, {"update"}, {"delete"}} {
+	for _, path := range [][]string{{"admin", "key", "set"}, {"admin", "key", "status"}, {"admin", "key", "verify"}, {"admin", "key", "remove"}, {"list"}, {"get"}, {"create"}, {"update"}, {"delete"}} {
 		resolved, _, err := cmd.Find(path)
 		if err != nil || resolved.Name() != path[len(path)-1] {
 			t.Fatalf("tunnel path %v resolved to %v: %v", path, resolved, err)
 		}
+	}
+}
+
+func TestRenderTunnelStatusTextIsCLIFirst(t *testing.T) {
+	previous := color.NoColor
+	color.NoColor = true
+	defer func() { color.NoColor = previous }()
+
+	cfg := tunnel.Config{Enabled: true, ID: "tunnel_test", APIKey: "runtime-key", AdminKey: "admin-key", AdminWorkspaceID: "ws_admin"}
+	status := tunnel.Status{
+		Provider: tunnel.ProviderOpenAI, Enabled: true, Running: true, Ready: true, ID: "tunnel_test", AdminKeyConfigured: true,
+		AdminScope: &tunnel.AdminScope{WorkspaceID: "ws_admin"}, Metadata: &tunnel.Metadata{ID: "tunnel_test", Name: "MCP WSL", Description: "WSL tunnel"},
+	}
+	var output bytes.Buffer
+	renderTunnelStatusText(&output, cfg, status, true, false)
+	text := output.String()
+	for _, expected := range []string{"✓ OpenAI Secure MCP Tunnel is connected", "Tunnel", "status      connected", "enabled     true", "configured  true", "id          tunnel_test", "name        MCP WSL", "admin       configured · workspace:ws_admin"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("output %q missing %q", text, expected)
+		}
+	}
+	if strings.HasPrefix(strings.TrimSpace(text), "{") || strings.Contains(text, `"provider":`) {
+		t.Fatalf("default tunnel status rendered JSON: %q", text)
+	}
+}
+
+func TestTunnelCLIState(t *testing.T) {
+	configured := tunnel.Config{Enabled: true, ID: "tunnel_test", APIKey: "runtime-key"}
+	for _, test := range []struct {
+		name           string
+		cfg            tunnel.Config
+		status         tunnel.Status
+		runtimeRunning bool
+		want           string
+	}{
+		{name: "disabled", cfg: tunnel.Config{}, status: tunnel.Status{}, want: "disabled"},
+		{name: "not configured", cfg: tunnel.Config{Enabled: true}, status: tunnel.Status{Enabled: true}, want: "not configured"},
+		{name: "offline", cfg: configured, status: tunnel.Status{Enabled: true}, want: "offline"},
+		{name: "connecting", cfg: configured, status: tunnel.Status{Enabled: true, Running: true}, runtimeRunning: true, want: "connecting"},
+		{name: "reconnecting", cfg: configured, status: tunnel.Status{Enabled: true, Restarting: true}, runtimeRunning: true, want: "reconnecting"},
+		{name: "connected", cfg: configured, status: tunnel.Status{Enabled: true, Running: true, Ready: true}, runtimeRunning: true, want: "connected"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := tunnelCLIState(test.cfg, test.status, test.runtimeRunning); got != test.want {
+				t.Fatalf("state = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

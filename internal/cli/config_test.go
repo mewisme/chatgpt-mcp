@@ -51,7 +51,7 @@ func TestSetConfigValueTyped(t *testing.T) {
 func TestTunnelAdminCredentialsCannotBypassVerificationThroughConfigSet(t *testing.T) {
 	cfg := config.Default()
 	for _, key := range []string{"tunnel.admin_key", "tunnel.admin_organization_id", "tunnel.admin_workspace_id", "tunnel.admin_tenant_id"} {
-		if err := setConfigValue(&cfg, key, "value"); err == nil || !strings.Contains(err.Error(), "tunnel admin-key") {
+		if err := setConfigValue(&cfg, key, "value"); err == nil || !strings.Contains(err.Error(), "tunnel admin key") {
 			t.Fatalf("%s error = %v", key, err)
 		}
 	}

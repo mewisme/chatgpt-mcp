@@ -80,8 +80,14 @@ func singleTunnelID(values []string) string {
 	return ""
 }
 
+func tunnelAdminCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "admin", Short: "Manage OpenAI tunnel administration"}
+	cmd.AddCommand(tunnelAdminKeyCommand())
+	return cmd
+}
+
 func tunnelAdminKeyCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "admin-key", Short: "Manage the stored OpenAI tunnel admin key"}
+	cmd := &cobra.Command{Use: "key", Short: "Manage the stored OpenAI tunnel admin key"}
 	cmd.AddCommand(tunnelAdminKeySetCommand(), tunnelAdminKeyStatusCommand(), tunnelAdminKeyVerifyCommand(), tunnelAdminKeyRemoveCommand())
 	return cmd
 }
@@ -163,7 +169,7 @@ func tunnelAdminKeyVerifyCommand() *cobra.Command {
 			return err
 		}
 		if !tunnel.AdminConfigured(cfg.Tunnel) {
-			return errors.New("tunnel admin key is not configured; run tunnel admin-key set first")
+			return errors.New("tunnel admin key is not configured; run tunnel admin key set first")
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
@@ -203,7 +209,7 @@ func tunnelListCommand() *cobra.Command {
 			return err
 		}
 		if strings.TrimSpace(cfg.Tunnel.AdminKey) == "" {
-			return errors.New("tunnel admin key is not configured; run tunnel admin-key set first")
+			return errors.New("tunnel admin key is not configured; run tunnel admin key set first")
 		}
 		scope, err := resolveTunnelAdminScope(cmd, cfg.Tunnel, scopeFlags)
 		if err != nil {
@@ -230,7 +236,7 @@ func tunnelGetCommand() *cobra.Command {
 			return err
 		}
 		if !tunnel.AdminConfigured(cfg.Tunnel) {
-			return errors.New("verified tunnel admin key is required; run tunnel admin-key set first")
+			return errors.New("verified tunnel admin key is required; run tunnel admin key set first")
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
@@ -259,7 +265,7 @@ func tunnelCreateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a tunnel with the stored verified admin key",
-		Long:  "Create tunnel metadata through the OpenAI Tunnel Management API. The stored admin key must already pass tunnel admin-key verify. Use --configure to select the new tunnel for cgm with a separate runtime API key.",
+		Long:  "Create tunnel metadata through the OpenAI Tunnel Management API. The stored admin key must already pass tunnel admin key verify. Use --configure to select the new tunnel for cgm with a separate runtime API key.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
@@ -267,7 +273,7 @@ func tunnelCreateCommand() *cobra.Command {
 				return err
 			}
 			if !tunnel.AdminConfigured(cfg.Tunnel) {
-				return errors.New("verified tunnel admin key is required; run tunnel admin-key set first")
+				return errors.New("verified tunnel admin key is required; run tunnel admin key set first")
 			}
 			orgs, workspaces, tenants := normalizeTunnelIDs(organizationIDs), normalizeTunnelIDs(workspaceIDs), normalizeTunnelIDs(tenantIDs)
 			if len(orgs) == 0 && len(workspaces) == 0 {
@@ -319,7 +325,7 @@ func tunnelUpdateCommand() *cobra.Command {
 			return err
 		}
 		if !tunnel.AdminConfigured(cfg.Tunnel) {
-			return errors.New("verified tunnel admin key is required; run tunnel admin-key set first")
+			return errors.New("verified tunnel admin key is required; run tunnel admin key set first")
 		}
 		request := tunnel.UpdateRequest{}
 		if cmd.Flags().Changed("name") {
@@ -379,7 +385,7 @@ func tunnelDeleteCommand() *cobra.Command {
 			return err
 		}
 		if !tunnel.AdminConfigured(cfg.Tunnel) {
-			return errors.New("verified tunnel admin key is required; run tunnel admin-key set first")
+			return errors.New("verified tunnel admin key is required; run tunnel admin key set first")
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()

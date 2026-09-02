@@ -15,9 +15,13 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-const serviceReadyTimeout = 15 * time.Second
+const (
+	serviceReadyTimeout        = 15 * time.Second
+	tunnelMetadataFetchTimeout = 5 * time.Second
+)
 
 func upCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "up", Short: "Install and start the managed MCP service", Args: cobra.NoArgs, RunE: runUp}
@@ -133,6 +137,10 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 	if _, err := config.Verify(); err != nil {
 		return err
 	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
 	runtimeStatus, running, runtimeErr := managedRuntimeStatus(ctx)
 	cancel()
@@ -156,7 +164,7 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		return err
 	}
 	if running && backendStatus.Installed && matches {
-		logManagedAlreadyRunning(cmd, spec, manager, runtimeStatus)
+		logManagedAlreadyRunning(cmd, spec, manager, runtimeStatus, cfg.Tunnel)
 		return nil
 	}
 	action := "installed"
@@ -199,6 +207,7 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		status = animateRuntimeTunnelState(cmd, status, statusTunnelWatchTimeout)
 	}
 	logRuntimeTunnelResult(log, status)
+	logRuntimeTunnelMetadata(cmd.Context(), log, cfg.Tunnel, status, tunnel.FetchMetadata)
 	logManagedHints(log, spec)
 	return nil
 }
@@ -329,7 +338,7 @@ func managedScopeConflict(status runtimeStatusResult, spec managed.Spec, action 
 	return fmt.Errorf("another managed service is already running for this config (service %s, pid %d)", status.ServiceID, status.PID)
 }
 
-func logManagedAlreadyRunning(cmd *cobra.Command, spec managed.Spec, manager managed.Manager, status runtimeStatusResult) {
+func logManagedAlreadyRunning(cmd *cobra.Command, spec managed.Spec, manager managed.Manager, status runtimeStatusResult, cfg tunnel.Config) {
 	if status.TunnelEnabled && status.TunnelConfigured && transientTunnelState(statusTunnelState(status, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
 		status = animateRuntimeTunnelState(cmd, status, statusTunnelWatchTimeout)
 	}
@@ -338,6 +347,7 @@ func logManagedAlreadyRunning(cmd *cobra.Command, spec managed.Spec, manager man
 	logManagedDetails(log, spec, manager)
 	logRuntimeDetails(log, status)
 	logRuntimeTunnelResult(log, status)
+	logRuntimeTunnelMetadata(cmd.Context(), log, cfg, status, tunnel.FetchMetadata)
 	logManagedHints(log, spec)
 }
 
@@ -418,6 +428,47 @@ func logRuntimeTunnelResult(log *logger.Logger, status runtimeStatusResult) {
 	if status.TunnelID != "" {
 		log.Detail("tunnel id", status.TunnelID)
 	}
+}
+
+type tunnelMetadataFetchFunc func(context.Context, tunnel.Config) (tunnel.Metadata, error)
+
+func logRuntimeTunnelMetadata(ctx context.Context, log *logger.Logger, cfg tunnel.Config, status runtimeStatusResult, fetch tunnelMetadataFetchFunc) {
+	if log == nil || fetch == nil || statusTunnelState(status, true) != "connected" {
+		return
+	}
+	if strings.TrimSpace(status.TunnelID) != "" {
+		cfg.ID = status.TunnelID
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, tunnelMetadataFetchTimeout)
+	defer cancel()
+	metadata, err := fetch(fetchCtx, cfg)
+	if err != nil {
+		log.Verbose("TUNNEL", "tunnel.metadata.unavailable", "Tunnel metadata unavailable", logger.WithVerbose("error", err.Error()))
+		return
+	}
+	if metadata.Name != "" {
+		log.Detail("tunnel name", metadata.Name)
+	}
+	if metadata.Description != "" {
+		log.Detail("tunnel description", metadata.Description)
+	}
+	if scope := tunnelMetadataScope(metadata); scope != "" {
+		log.Detail("tunnel scope", scope)
+	}
+}
+
+func tunnelMetadataScope(metadata tunnel.Metadata) string {
+	parts := make([]string, 0, 3)
+	if len(metadata.OrganizationIDs) > 0 {
+		parts = append(parts, "organization:"+strings.Join(metadata.OrganizationIDs, ","))
+	}
+	if len(metadata.WorkspaceIDs) > 0 {
+		parts = append(parts, "workspace:"+strings.Join(metadata.WorkspaceIDs, ","))
+	}
+	if len(metadata.TenantIDs) > 0 {
+		parts = append(parts, "tenant:"+strings.Join(metadata.TenantIDs, ","))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func runtimeTunnelSummary(status runtimeStatusResult) string {

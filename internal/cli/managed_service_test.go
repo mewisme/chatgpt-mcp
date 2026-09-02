@@ -13,8 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 type fakeServiceManager struct {
@@ -220,5 +222,40 @@ func TestRuntimeTunnelSummary(t *testing.T) {
 		if got := runtimeTunnelSummary(test.status); got != test.want {
 			t.Fatalf("summary = %q, want %q", got, test.want)
 		}
+	}
+}
+
+func TestLogRuntimeTunnelMetadata(t *testing.T) {
+	var output bytes.Buffer
+	log := logger.NewWithOptions(logger.Options{Level: logger.Info, Writer: &output})
+	status := runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelReady: true, TunnelID: "tunnel_runtime"}
+	cfg := tunnel.Config{ID: "tunnel_config", APIKey: "runtime-key"}
+	var fetched tunnel.Config
+	logRuntimeTunnelMetadata(context.Background(), log, cfg, status, func(_ context.Context, value tunnel.Config) (tunnel.Metadata, error) {
+		fetched = value
+		return tunnel.Metadata{Name: "MCP Tunnel WSL", Description: "Development tunnel", OrganizationIDs: []string{"org_test"}, WorkspaceIDs: []string{"ws_test"}}, nil
+	})
+	if fetched.ID != "tunnel_runtime" || fetched.APIKey != "runtime-key" {
+		t.Fatalf("fetch config = %#v", fetched)
+	}
+	text := output.String()
+	for _, expected := range []string{"tunnel name: MCP Tunnel WSL", "tunnel description: Development tunnel", "tunnel scope: organization:org_test · workspace:ws_test"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("metadata output missing %q: %s", expected, text)
+		}
+	}
+}
+
+func TestLogRuntimeTunnelMetadataSkipsUntilConnected(t *testing.T) {
+	var output bytes.Buffer
+	log := logger.NewWithOptions(logger.Options{Level: logger.Info, Writer: &output})
+	called := false
+	status := runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelID: "tunnel_runtime"}
+	logRuntimeTunnelMetadata(context.Background(), log, tunnel.Config{ID: "tunnel_runtime", APIKey: "runtime-key"}, status, func(context.Context, tunnel.Config) (tunnel.Metadata, error) {
+		called = true
+		return tunnel.Metadata{}, nil
+	})
+	if called || output.Len() != 0 {
+		t.Fatalf("metadata fetched before tunnel connected: called=%v output=%q", called, output.String())
 	}
 }

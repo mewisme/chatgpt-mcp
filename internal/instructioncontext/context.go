@@ -87,6 +87,7 @@ type InstructionContext struct {
 	Rules            []rules.Rule        `json:"rules"`
 	Skills           []skills.Skill      `json:"skills"`
 	ToolProfile      ToolProfile         `json:"tool_profile"`
+	AgentWorkflow    string              `json:"agent_workflow"`
 	InstructionsText string              `json:"instructions_text"`
 	InstructionBytes int                 `json:"instruction_bytes"`
 	LoadedAt         time.Time           `json:"loaded_at"`

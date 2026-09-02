@@ -39,10 +39,32 @@ func TestTextRendererCapitalizesMessagesAfterIcons(t *testing.T) {
 	log.Action("SERVICE", "service.updating", "updating managed service")
 	log.Info("WORKSPACE", "registered workspaces loaded")
 	text := output.String()
-	for _, expected := range []string{"✓ Managed service updated", "⠏ Updating managed service", "· Registered workspaces loaded"} {
+	for _, expected := range []string{"✓ Managed service updated", "⠋ Updating managed service", "· Registered workspaces loaded"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("output %q missing %q", text, expected)
 		}
+	}
+}
+
+func TestActionAnimatesUntilTerminalResult(t *testing.T) {
+	restoreColor := disableColor()
+	defer restoreColor()
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Info, Writer: &output})
+	log.animate = true
+	log.spinRate = time.Millisecond
+	log.Action("TUNNEL", "tunnel.connecting", "connecting tunnel")
+	time.Sleep(12 * time.Millisecond)
+	log.Ready("TUNNEL", "tunnel.connected", "tunnel connected")
+	text := output.String()
+	frames := 0
+	for _, frame := range spinnerFrames {
+		if strings.Contains(text, frame) {
+			frames++
+		}
+	}
+	if frames < 2 || !strings.Contains(text, "✓ Tunnel connected") || !strings.Contains(text, "\r\x1b[2K") {
+		t.Fatalf("animated output = %q", text)
 	}
 }
 

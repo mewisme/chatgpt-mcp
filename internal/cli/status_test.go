@@ -42,10 +42,13 @@ func TestStatusReportsManagedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	for _, expected := range []string{"✓ ChatGPT MCP is running", "Runtime", "session     run_status", "managed     system ·", "service     chatgpt-mcp-system-test", "Endpoints", "Tunnel", "status      connected", "id          tunnel_status", "Config", "auth        mcp off · admin off"} {
+	for _, expected := range []string{"✓ ChatGPT MCP is running", "Runtime", "session     run_status", "managed     system ·", "service     chatgpt-mcp-system-test", "Endpoints", "Config", "auth        mcp off · admin off", "Tunnel", "✓ OpenAI Secure MCP Tunnel is connected", "id          tunnel_status"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("status missing %q: %s", expected, text)
 		}
+	}
+	if strings.Index(text, "Config") > strings.Index(text, "Tunnel") {
+		t.Fatalf("tunnel should render after the core status sections: %s", text)
 	}
 	for _, unexpected := range []string{"initialized:", "format:", "mcp local:"} {
 		if strings.Contains(text, unexpected) {
@@ -118,5 +121,29 @@ func TestStatusHelpers(t *testing.T) {
 		if got := formatStatusUptime(time.Now().Add(-duration)); got != expected {
 			t.Fatalf("formatStatusUptime(%s) = %q, want %q", duration, got, expected)
 		}
+	}
+}
+
+func TestStatusTunnelStateTracksTransientStartup(t *testing.T) {
+	base := runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true}
+	for name, test := range map[string]struct {
+		status runtimeStatusResult
+		want   string
+	}{
+		"starting":     {status: base, want: "starting"},
+		"connecting":   {status: runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true}, want: "connecting"},
+		"reconnecting": {status: runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRestarting: true, TunnelLastError: "retry"}, want: "reconnecting"},
+		"connected":    {status: runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelReady: true}, want: "connected"},
+		"failed":       {status: runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelLastError: "failed"}, want: "failed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := statusTunnelState(test.status, true)
+			if got != test.want {
+				t.Fatalf("state = %q, want %q", got, test.want)
+			}
+			if transientTunnelState(got) != (test.want == "starting" || test.want == "connecting" || test.want == "reconnecting") {
+				t.Fatalf("transientTunnelState(%q) mismatch", got)
+			}
+		})
 	}
 }

@@ -62,6 +62,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	interrupt := newForegroundInterrupt(cmd, !serviceInfo.Managed)
 	defer interrupt.Close()
 	log := commandLogger(cmd)
+	defer log.Close()
 	metadata := runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid(), Managed: serviceInfo.Managed, ServiceID: serviceInfo.ID, ServiceScope: serviceInfo.Scope}
 	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: metadata})
 	if err != nil {
@@ -132,7 +133,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 
 		runtime.Logger.Action("SERVER", "server.reloading", "Reloading server listeners")
 		if err := bindings.Shutdown(); err != nil {
-			runtime.Logger.Warning("SERVER", "server.reload.shutdown.warning", "Previous listeners did not shut down cleanly", err)
+			runtime.Logger.Warning("NETWORK", "server.reload.shutdown.warning", "Previous listeners did not shut down cleanly", err)
 		}
 		candidate, err := openHTTPBindings(next, nextPlan)
 		if err != nil {
@@ -140,7 +141,9 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			if restoreErr == nil {
 				bindings = restored
 			}
-			return runtimeReloadResult{}, errors.Join(err, restoreErr)
+			combined := errors.Join(err, restoreErr)
+			runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", combined)
+			return runtimeReloadResult{}, combined
 		}
 		if err := runtime.ReloadConfig(next); err != nil {
 			candidate.CloseUnstarted()
@@ -148,7 +151,9 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			if restoreErr == nil {
 				bindings = restored
 			}
-			return runtimeReloadResult{}, errors.Join(err, restoreErr)
+			combined := errors.Join(err, restoreErr)
+			runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", combined)
+			return runtimeReloadResult{}, combined
 		}
 		candidate.Start(runtime, errCh)
 		bindings = candidate
@@ -160,7 +165,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		reloadMu.Lock()
 		defer reloadMu.Unlock()
 		tunnelStatus := runtime.Tunnel.Status()
-		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID)}
+		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID), TunnelLastError: tunnelStatus.LastError}
 	}
 	control, err := startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Shutdown: func() {
 		select {

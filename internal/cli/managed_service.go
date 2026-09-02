@@ -159,9 +159,18 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		logManagedAlreadyRunning(cmd, spec, manager, runtimeStatus)
 		return nil
 	}
+	action := "installed"
+	if backendStatus.Installed {
+		if matches {
+			action = "started"
+		} else {
+			action = "updated"
+		}
+	}
 	log := commandLogger(cmd)
+	defer log.Close()
+	log.Action("SERVICE", managedServiceActionEvent(action), managedServiceActionMessage(action, spec.Scope))
 	if running {
-		log.Action("SERVICE", "service.updating", "Updating managed service")
 		if err := requestManagedShutdown(cmd.Context()); err != nil {
 			return err
 		}
@@ -171,14 +180,6 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 	} else if backendStatus.Running {
 		if err := manager.Stop(spec); err != nil {
 			return err
-		}
-	}
-	action := "installed"
-	if backendStatus.Installed {
-		if matches {
-			action = "started"
-		} else {
-			action = "updated"
 		}
 	}
 	if !backendStatus.Installed || !matches {
@@ -193,7 +194,12 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 	if err != nil {
 		return err
 	}
-	logManagedUp(cmd, spec, manager, status, action)
+	logManagedUp(log, spec, manager, status, action)
+	if status.TunnelEnabled && status.TunnelConfigured && transientTunnelState(statusTunnelState(status, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
+		status = animateRuntimeTunnelState(cmd, status, statusTunnelWatchTimeout)
+	}
+	logRuntimeTunnelResult(log, status)
+	logManagedHints(log, spec)
 	return nil
 }
 
@@ -221,6 +227,7 @@ func runManagedDown(cmd *cobra.Command, spec managed.Spec, manager managed.Manag
 		return nil
 	}
 	log := commandLogger(cmd)
+	defer log.Close()
 	log.Action("SERVICE", "service.stopping", "Stopping managed service")
 	if running {
 		if err := requestManagedShutdown(cmd.Context()); err != nil {
@@ -323,24 +330,52 @@ func managedScopeConflict(status runtimeStatusResult, spec managed.Spec, action 
 }
 
 func logManagedAlreadyRunning(cmd *cobra.Command, spec managed.Spec, manager managed.Manager, status runtimeStatusResult) {
+	if status.TunnelEnabled && status.TunnelConfigured && transientTunnelState(statusTunnelState(status, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
+		status = animateRuntimeTunnelState(cmd, status, statusTunnelWatchTimeout)
+	}
 	log := commandLogger(cmd)
 	log.Ready("SERVICE", "service.already-running", "Managed service already running")
 	logManagedDetails(log, spec, manager)
 	logRuntimeDetails(log, status)
+	logRuntimeTunnelResult(log, status)
 	logManagedHints(log, spec)
 }
 
-func logManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager, status runtimeStatusResult, action string) {
-	log := commandLogger(cmd)
+func logManagedUp(log *logger.Logger, spec managed.Spec, manager managed.Manager, status runtimeStatusResult, action string) {
 	message := "Managed service " + action
 	if spec.Scope == managed.ScopeSystem {
 		message = "System service " + action
 	}
-	log.Ready("SERVICE", "service.installed", message)
+	log.Ready("SERVICE", "service."+action, message)
 	logManagedDetails(log, spec, manager)
 	log.Ready("SERVER", "server.started", "Server started")
 	logRuntimeDetails(log, status)
-	logManagedHints(log, spec)
+}
+
+func managedServiceActionMessage(action string, scope managed.Scope) string {
+	prefix := "Managed service"
+	if scope == managed.ScopeSystem {
+		prefix = "System service"
+	}
+	switch action {
+	case "installed":
+		return "Installing " + strings.ToLower(prefix)
+	case "updated":
+		return "Updating " + strings.ToLower(prefix)
+	default:
+		return "Starting " + strings.ToLower(prefix)
+	}
+}
+
+func managedServiceActionEvent(action string) string {
+	switch action {
+	case "installed":
+		return "service.installing"
+	case "updated":
+		return "service.updating"
+	default:
+		return "service.starting"
+	}
 }
 
 func logManagedDetails(log *logger.Logger, spec managed.Spec, manager managed.Manager) {
@@ -362,7 +397,24 @@ func logRuntimeDetails(log *logger.Logger, status runtimeStatusResult) {
 	if status.AdminEnabled {
 		log.Detail("admin", fmt.Sprintf("http://127.0.0.1:%d/", status.AdminPort))
 	}
-	log.Detail("tunnel", runtimeTunnelSummary(status))
+}
+
+func logRuntimeTunnelResult(log *logger.Logger, status runtimeStatusResult) {
+	state := statusTunnelState(status, true)
+	switch state {
+	case "connected":
+		log.Ready("TUNNEL", "tunnel.connected", "OpenAI Secure MCP Tunnel connected")
+	case "failed":
+		var err error
+		if status.TunnelLastError != "" {
+			err = errors.New(status.TunnelLastError)
+		}
+		log.Failure("TUNNEL", "tunnel.failed", "OpenAI Secure MCP Tunnel failed", err)
+	case "starting", "connecting", "reconnecting":
+		log.Warning("TUNNEL", "tunnel.pending", "OpenAI Secure MCP Tunnel is still "+state, nil)
+	default:
+		log.Notice("TUNNEL", "tunnel."+strings.ReplaceAll(state, " ", "-"), "OpenAI Secure MCP Tunnel is "+state)
+	}
 	if status.TunnelID != "" {
 		log.Detail("tunnel id", status.TunnelID)
 	}
@@ -389,7 +441,7 @@ func runtimeTunnelSummary(status runtimeStatusResult) string {
 		case status.TunnelRunning:
 			parts = append(parts, "connecting")
 		default:
-			parts = append(parts, "stopped")
+			parts = append(parts, "starting")
 		}
 	}
 	return strings.Join(parts, " · ")

@@ -13,6 +13,8 @@ import (
 	"github.com/fatih/color"
 )
 
+var spinnerFrames = [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 type jsonEvent struct {
 	Time         string         `json:"time"`
 	Level        string         `json:"level"`
@@ -31,9 +33,35 @@ type jsonEvent struct {
 
 func (l *Logger) renderText(event Event) {
 	if l.mode == ModeDebug {
+		l.renderMu.Lock()
+		defer l.renderMu.Unlock()
 		l.renderDebugText(event)
 		return
 	}
+	if l.animate && event.Kind == KindAction {
+		l.startSpinner(event)
+		return
+	}
+	if l.animate {
+		spinner := l.detachSpinner()
+		if spinner != nil {
+			terminal := spinner.event.Component == event.Component && terminalKind(event.Kind)
+			l.stopSpinnerState(spinner, true)
+			l.renderMu.Lock()
+			l.renderTextEvent(event)
+			l.renderMu.Unlock()
+			if !terminal {
+				l.startSpinner(spinner.event)
+			}
+			return
+		}
+	}
+	l.renderMu.Lock()
+	defer l.renderMu.Unlock()
+	l.renderTextEvent(event)
+}
+
+func (l *Logger) renderTextEvent(event Event) {
 	if event.Name == "cli.detail" {
 		value := any("")
 		if len(event.Fields) > 0 {
@@ -56,6 +84,76 @@ func (l *Logger) renderText(event Event) {
 		}
 		renderField(l.out, field.Key, field.Value)
 	}
+}
+
+func terminalKind(kind Kind) bool {
+	return kind == KindSuccess || kind == KindWarning || kind == KindError
+}
+
+func (l *Logger) startSpinner(event Event) {
+	if previous := l.detachSpinner(); previous != nil {
+		l.stopSpinnerState(previous, true)
+	}
+	state := &spinnerState{event: event, stop: make(chan struct{}), done: make(chan struct{})}
+	l.spinMu.Lock()
+	l.spinner = state
+	l.spinMu.Unlock()
+	go l.runSpinner(state)
+}
+
+func (l *Logger) runSpinner(state *spinnerState) {
+	defer close(state.done)
+	rate := l.spinRate
+	if rate <= 0 {
+		rate = defaultSpinnerRate
+	}
+	ticker := time.NewTicker(rate)
+	defer ticker.Stop()
+	frame := 0
+	for {
+		l.renderSpinnerFrame(state.event, spinnerFrames[frame%len(spinnerFrames)])
+		frame++
+		select {
+		case <-state.stop:
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (l *Logger) renderSpinnerFrame(event Event, frame string) {
+	l.renderMu.Lock()
+	defer l.renderMu.Unlock()
+	fmt.Fprint(l.out, "\r\x1b[2K")
+	if l.showTime() {
+		fmt.Fprint(l.out, styled(color.Faint).Sprint(l.eventTime(event).Format("15:04:05")), " ")
+	}
+	fmt.Fprint(l.out, symbolStyle(KindAction).Sprint(frame), " ", capitalizeIconMessage(event.Message))
+}
+
+func (l *Logger) detachSpinner() *spinnerState {
+	l.spinMu.Lock()
+	defer l.spinMu.Unlock()
+	state := l.spinner
+	l.spinner = nil
+	return state
+}
+
+func (l *Logger) stopSpinner(clear bool) {
+	if state := l.detachSpinner(); state != nil {
+		l.stopSpinnerState(state, clear)
+	}
+}
+
+func (l *Logger) stopSpinnerState(state *spinnerState, clear bool) {
+	close(state.stop)
+	<-state.done
+	if !clear {
+		return
+	}
+	l.renderMu.Lock()
+	fmt.Fprint(l.out, "\r\x1b[2K")
+	l.renderMu.Unlock()
 }
 
 func capitalizeIconMessage(message string) string {
@@ -150,7 +248,7 @@ func jsonValue(value any) any {
 func symbol(kind Kind) string {
 	switch kind {
 	case KindAction:
-		return "⠏"
+		return spinnerFrames[0]
 	case KindSuccess:
 		return "✓"
 	case KindWarning:

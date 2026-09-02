@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"golang.org/x/term"
 )
 
 type Options struct {
@@ -27,9 +28,23 @@ type Logger struct {
 	timeMode TimeMode
 	out      io.Writer
 	now      func() time.Time
+	animate  bool
+	spinRate time.Duration
+	eventMu  sync.Mutex
+	renderMu sync.Mutex
+	spinMu   sync.Mutex
+	spinner  *spinnerState
 	sinksMu  sync.RWMutex
 	sinks    []Sink
 }
+
+type spinnerState struct {
+	event Event
+	stop  chan struct{}
+	done  chan struct{}
+}
+
+const defaultSpinnerRate = 80 * time.Millisecond
 
 func New(level Level) *Logger { return NewWithOptions(Options{Level: level, Writer: color.Output}) }
 func NewCLI() *Logger         { return NewWithOptions(Options{Level: Info, Writer: color.Output}) }
@@ -46,7 +61,7 @@ func NewWithOptions(options Options) *Logger {
 	if options.Format == "" {
 		options.Format = FormatText
 	}
-	return &Logger{level: options.Level, mode: options.Mode, format: options.Format, timeMode: options.TimeMode, out: options.Writer, now: time.Now}
+	return &Logger{level: options.Level, mode: options.Mode, format: options.Format, timeMode: options.TimeMode, out: options.Writer, now: time.Now, animate: options.Format == FormatText && options.Mode != ModeDebug && terminalWriter(options.Writer), spinRate: defaultSpinnerRate}
 }
 
 func (l *Logger) Emit(event Event) {
@@ -59,10 +74,28 @@ func (l *Logger) Emit(event Event) {
 		return
 	}
 	if l.format == FormatJSON {
+		l.renderMu.Lock()
+		defer l.renderMu.Unlock()
 		l.renderJSON(event)
 		return
 	}
+	l.eventMu.Lock()
+	defer l.eventMu.Unlock()
 	l.renderText(event)
+}
+
+func (l *Logger) Close() {
+	l.eventMu.Lock()
+	defer l.eventMu.Unlock()
+	l.stopSpinner(true)
+}
+
+func CanAnimate(writer io.Writer) bool { return terminalWriter(writer) }
+
+func terminalWriter(writer io.Writer) bool {
+	type fdWriter interface{ Fd() uintptr }
+	value, ok := writer.(fdWriter)
+	return ok && term.IsTerminal(int(value.Fd()))
 }
 
 func (l *Logger) normalize(event Event) Event {

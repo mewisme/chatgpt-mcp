@@ -21,7 +21,7 @@ func TestLogTunnelLifecycleReconnect(t *testing.T) {
 	log := logger.NewWithOptions(logger.Options{Level: logger.Info, Mode: logger.ModeVerbose, Writer: &output})
 	logTunnelLifecycle(log, tunnel.LifecycleEvent{State: tunnel.LifecycleReconnecting, ID: "tunnel_test", Attempt: 3, RetryIn: 4 * time.Second})
 	text := output.String()
-	for _, expected := range []string{"⠏ Reconnecting tunnel", "tunnel_id: tunnel_test", "attempt: 3", "retry_in: 4s"} {
+	for _, expected := range []string{"⠋ Reconnecting tunnel", "tunnel_id: tunnel_test", "attempt: 3", "retry_in: 4s"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("output %q missing %q", text, expected)
 		}
@@ -91,9 +91,11 @@ func TestTunnelCLIState(t *testing.T) {
 		{name: "disabled", cfg: tunnel.Config{}, status: tunnel.Status{}, want: "disabled"},
 		{name: "not configured", cfg: tunnel.Config{Enabled: true}, status: tunnel.Status{Enabled: true}, want: "not configured"},
 		{name: "offline", cfg: configured, status: tunnel.Status{Enabled: true}, want: "offline"},
+		{name: "starting", cfg: configured, status: tunnel.Status{Enabled: true}, runtimeRunning: true, want: "starting"},
 		{name: "connecting", cfg: configured, status: tunnel.Status{Enabled: true, Running: true}, runtimeRunning: true, want: "connecting"},
-		{name: "reconnecting", cfg: configured, status: tunnel.Status{Enabled: true, Restarting: true}, runtimeRunning: true, want: "reconnecting"},
+		{name: "reconnecting", cfg: configured, status: tunnel.Status{Enabled: true, Restarting: true, LastError: "retrying"}, runtimeRunning: true, want: "reconnecting"},
 		{name: "connected", cfg: configured, status: tunnel.Status{Enabled: true, Running: true, Ready: true}, runtimeRunning: true, want: "connected"},
+		{name: "failed", cfg: configured, status: tunnel.Status{Enabled: true, LastError: "failed"}, runtimeRunning: true, want: "failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := tunnelCLIState(test.cfg, test.status, test.runtimeRunning); got != test.want {

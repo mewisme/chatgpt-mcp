@@ -95,7 +95,7 @@ func TestManagedUpAndDownLifecycle(t *testing.T) {
 		t.Fatalf("manager after up = %#v", manager)
 	}
 	text := output.String()
-	for _, expected := range []string{"Managed service installed", "View logs: cgm logs -f", "Stop service: cgm down", "session", "pid", "tunnel: disabled · not configured"} {
+	for _, expected := range []string{"⠋ Installing managed service", "Managed service installed", "Server started", "OpenAI Secure MCP Tunnel is disabled", "View logs: cgm logs -f", "Stop service: cgm down", "session", "pid"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("up output missing %q: %s", expected, text)
 		}
@@ -211,6 +211,7 @@ func TestRuntimeTunnelSummary(t *testing.T) {
 	}{
 		{runtimeStatusResult{}, "disabled · not configured"},
 		{runtimeStatusResult{TunnelConfigured: true}, "disabled · configured"},
+		{runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true}, "enabled · configured · starting"},
 		{runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true}, "enabled · configured · connecting"},
 		{runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelReady: true}, "enabled · configured · connected"},
 		{runtimeStatusResult{TunnelEnabled: true, TunnelConfigured: true, TunnelRestarting: true}, "enabled · configured · reconnecting"},

@@ -36,6 +36,8 @@ type statusSnapshot struct {
 	Tunnel        tunnel.Status
 }
 
+const statusTunnelWatchTimeout = 35 * time.Second
+
 func statusCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "status",
@@ -102,11 +104,27 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		renderLegacyStatus(cmd, snapshot)
 		return nil
 	}
+	if snapshot.Running && transientTunnelState(statusTunnelState(snapshot.Runtime, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
+		renderStatusBaseText(cmd.OutOrStdout(), snapshot, verbose)
+		fmt.Fprintln(cmd.OutOrStdout(), "\n"+cliHeading("Tunnel"))
+		snapshot.Runtime = animateRuntimeTunnelState(cmd, snapshot.Runtime, statusTunnelWatchTimeout)
+		snapshot.Tunnel.Running = snapshot.Runtime.TunnelRunning
+		snapshot.Tunnel.Ready = snapshot.Runtime.TunnelReady
+		snapshot.Tunnel.Restarting = snapshot.Runtime.TunnelRestarting
+		snapshot.Tunnel.LastError = snapshot.Runtime.TunnelLastError
+		renderStatusTunnelBody(cmd.OutOrStdout(), snapshot, verbose)
+		return nil
+	}
 	renderStatusText(cmd.OutOrStdout(), snapshot, verbose)
 	return nil
 }
 
 func renderStatusText(out io.Writer, snapshot statusSnapshot, verbose bool) {
+	renderStatusBaseText(out, snapshot, verbose)
+	renderStatusTunnel(out, snapshot, verbose)
+}
+
+func renderStatusBaseText(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	if snapshot.Running {
 		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), "ChatGPT MCP is running")
 		renderRunningStatus(out, snapshot, verbose)
@@ -143,13 +161,11 @@ func renderRunningStatus(out io.Writer, snapshot statusSnapshot, verbose bool) {
 		statusField(out, "mode", "foreground")
 	}
 	renderStatusEndpoints(out, snapshot, verbose)
-	renderStatusTunnel(out, snapshot, verbose)
 	renderStatusConfig(out, snapshot, verbose)
 }
 
 func renderStoppedStatus(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	renderStatusEndpoints(out, snapshot, verbose)
-	renderStatusTunnel(out, snapshot, verbose)
 	renderStatusConfig(out, snapshot, verbose)
 	if len(snapshot.Services) == 0 {
 		return
@@ -209,17 +225,20 @@ func renderStatusEndpoints(out io.Writer, snapshot statusSnapshot, verbose bool)
 }
 
 func renderStatusTunnel(out io.Writer, snapshot statusSnapshot, verbose bool) {
+	fmt.Fprintln(out, "\n"+cliHeading("Tunnel"))
+	renderStatusTunnelBody(out, snapshot, verbose)
+}
+
+func renderStatusTunnelBody(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	status := snapshot.Runtime
 	if !snapshot.Running {
 		status = runtimeStatusResult{TunnelEnabled: snapshot.Config.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(snapshot.Config.Tunnel), TunnelID: snapshot.Config.Tunnel.ID}
 	}
-	fmt.Fprintln(out, "\n"+cliHeading("Tunnel"))
+	state := statusTunnelState(status, snapshot.Running)
+	renderTunnelStateLine(out, state)
 	if verbose {
 		statusField(out, "enabled", status.TunnelEnabled)
 		statusField(out, "configured", status.TunnelConfigured)
-		statusStateField(out, "status", statusTunnelState(status, snapshot.Running))
-	} else {
-		statusStateField(out, "status", statusTunnelSummary(status, snapshot.Running))
 	}
 	if status.TunnelID != "" {
 		statusField(out, "id", status.TunnelID)
@@ -249,6 +268,9 @@ func renderStatusTunnel(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	}
 	if verbose && snapshot.Tunnel.MetadataError != "" {
 		statusField(out, "metadata", "unavailable: "+snapshot.Tunnel.MetadataError)
+	}
+	if verbose && status.TunnelLastError != "" {
+		statusField(out, "error", status.TunnelLastError)
 	}
 }
 
@@ -400,17 +422,73 @@ func statusTunnelState(status runtimeStatusResult, runtimeRunning bool) string {
 		return "reconnecting"
 	case status.TunnelRunning:
 		return "connecting"
+	case status.TunnelLastError != "":
+		return "failed"
 	default:
-		return "stopped"
+		return "starting"
 	}
 }
 
-func statusTunnelSummary(status runtimeStatusResult, runtimeRunning bool) string {
-	state := statusTunnelState(status, runtimeRunning)
-	if runtimeRunning || state == "disabled" || state == "not configured" {
-		return state
+func transientTunnelState(state string) bool {
+	return state == "starting" || state == "connecting" || state == "reconnecting"
+}
+
+func animateRuntimeTunnelState(cmd *cobra.Command, status runtimeStatusResult, timeout time.Duration) runtimeStatusResult {
+	log := commandLogger(cmd)
+	defer log.Close()
+	state := statusTunnelState(status, true)
+	log.Action("TUNNEL", "tunnel.status."+state, tunnelStateActionMessage(state))
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(cmd.Context(), time.Second)
+		next, running, err := managedRuntimeStatus(ctx)
+		cancel()
+		if err != nil || !running {
+			return status
+		}
+		status = next
+		nextState := statusTunnelState(status, true)
+		if !transientTunnelState(nextState) {
+			return status
+		}
+		if nextState != state {
+			state = nextState
+			log.Action("TUNNEL", "tunnel.status."+state, tunnelStateActionMessage(state))
+		}
+		select {
+		case <-cmd.Context().Done():
+			return status
+		case <-time.After(150 * time.Millisecond):
+		}
 	}
-	return "configured · " + state
+	return status
+}
+
+func tunnelStateActionMessage(state string) string {
+	switch state {
+	case "starting":
+		return "Starting OpenAI Secure MCP Tunnel"
+	case "reconnecting":
+		return "Reconnecting OpenAI Secure MCP Tunnel"
+	default:
+		return "Connecting OpenAI Secure MCP Tunnel"
+	}
+}
+
+func renderTunnelStateLine(out io.Writer, state string) {
+	message := "OpenAI Secure MCP Tunnel is " + state
+	switch state {
+	case "connected":
+		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), message)
+	case "starting", "connecting", "reconnecting":
+		fmt.Fprintln(out, cliStyled(color.FgHiCyan, color.Bold).Sprint("⠋"), message)
+	case "failed":
+		fmt.Fprintln(out, cliStyled(color.FgHiRed, color.Bold).Sprint("×"), message)
+	case "degraded":
+		fmt.Fprintln(out, cliStyled(color.FgHiYellow, color.Bold).Sprint("!"), message)
+	default:
+		fmt.Fprintln(out, cliDim("·"), message)
+	}
 }
 
 func formatStatusUptime(started time.Time) string {

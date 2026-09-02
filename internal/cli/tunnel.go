@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
@@ -61,6 +60,7 @@ func runTunnelStatus(cmd *cobra.Command, _ []string) error {
 		status.Running = runtimeStatus.TunnelRunning
 		status.Ready = runtimeStatus.TunnelReady
 		status.Restarting = runtimeStatus.TunnelRestarting
+		status.LastError = runtimeStatus.TunnelLastError
 		if status.ID == "" {
 			status.ID = runtimeStatus.TunnelID
 		}
@@ -77,6 +77,13 @@ func runTunnelStatus(cmd *cobra.Command, _ []string) error {
 		cmd.Println(string(data))
 		return nil
 	}
+	if runtimeRunning && transientTunnelState(tunnelCLIState(cfg.Tunnel, status, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
+		runtimeStatus = animateRuntimeTunnelState(cmd, runtimeStatus, statusTunnelWatchTimeout)
+		status.Running = runtimeStatus.TunnelRunning
+		status.Ready = runtimeStatus.TunnelReady
+		status.Restarting = runtimeStatus.TunnelRestarting
+		status.LastError = runtimeStatus.TunnelLastError
+	}
 	verbose, _ := commandLogMode(cmd)
 	renderTunnelStatusText(cmd.OutOrStdout(), cfg.Tunnel, status, runtimeRunning, verbose)
 	return nil
@@ -84,16 +91,7 @@ func runTunnelStatus(cmd *cobra.Command, _ []string) error {
 
 func renderTunnelStatusText(out io.Writer, cfg tunnel.Config, status tunnel.Status, runtimeRunning, verbose bool) {
 	state := tunnelCLIState(cfg, status, runtimeRunning)
-	switch state {
-	case "connected":
-		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), "OpenAI Secure MCP Tunnel is connected")
-	case "connecting", "reconnecting":
-		fmt.Fprintln(out, cliStyled(color.FgHiCyan, color.Bold).Sprint("⠏"), "OpenAI Secure MCP Tunnel is "+state)
-	case "failed":
-		fmt.Fprintln(out, cliStyled(color.FgHiRed, color.Bold).Sprint("×"), "OpenAI Secure MCP Tunnel failed")
-	default:
-		fmt.Fprintln(out, cliDim("·"), "OpenAI Secure MCP Tunnel is "+state)
-	}
+	renderTunnelStateLine(out, state)
 	fmt.Fprintln(out, "\n"+cliHeading("Tunnel"))
 	statusStateField(out, "status", state)
 	statusField(out, "enabled", status.Enabled)
@@ -148,9 +146,6 @@ func renderTunnelStatusText(out io.Writer, cfg tunnel.Config, status tunnel.Stat
 }
 
 func tunnelCLIState(cfg tunnel.Config, status tunnel.Status, runtimeRunning bool) string {
-	if status.LastError != "" && (status.Running || status.Restarting) {
-		return "failed"
-	}
 	if !status.Enabled {
 		return "disabled"
 	}
@@ -167,8 +162,10 @@ func tunnelCLIState(cfg tunnel.Config, status tunnel.Status, runtimeRunning bool
 		return "reconnecting"
 	case status.Running:
 		return "connecting"
+	case status.LastError != "":
+		return "failed"
 	default:
-		return "stopped"
+		return "starting"
 	}
 }
 
@@ -263,6 +260,7 @@ func tunnelRunCommand() *cobra.Command {
 		}
 
 		log := commandLogger(cmd)
+		defer log.Close()
 		runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
 		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))

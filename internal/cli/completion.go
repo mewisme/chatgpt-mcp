@@ -29,6 +29,10 @@ var configKeyCompletions = []configKeyCompletion{
 	{Key: "auth.admin_enabled", Description: "admin authentication enabled", Settable: true},
 	{Key: "auth.mcp_token_hash", Description: "MCP token hash (read-only)"},
 	{Key: "auth.admin_token_hash", Description: "admin token hash (read-only)"},
+	{Key: "cluster.enabled", Description: "cluster federation enabled", Settable: true},
+	{Key: "cluster.relay_url", Description: "cluster WebSocket relay URL", Settable: true},
+	{Key: "cluster.relay_token", Description: "cluster relay token", Settable: true},
+	{Key: "cluster.relay_token_configured", Description: "cluster relay token configured (read-only)"},
 	{Key: "permissions.allow_dirs", Description: "additional filesystem roots", Settable: true},
 	{Key: "shell.path", Description: "additional executable search paths", Settable: true},
 	{Key: "features.ponytail.enabled", Description: "Ponytail feature enabled", Settable: true},
@@ -83,7 +87,7 @@ func completeConfigSet(_ *cobra.Command, args []string, toComplete string) ([]st
 	}
 	key := args[0]
 	switch key {
-	case "server.allow_insecure_http", "admin.enabled", "auth.mcp_enabled", "auth.admin_enabled", "features.ponytail.enabled", "features.caveman.enabled", "tunnel.enabled":
+	case "server.allow_insecure_http", "admin.enabled", "auth.mcp_enabled", "auth.admin_enabled", "cluster.enabled", "features.ponytail.enabled", "features.caveman.enabled", "tunnel.enabled":
 		return filterCompletions([]string{"true", "false"}, toComplete), cobra.ShellCompDirectiveNoFileComp
 	case "server.expose":
 		return filterCompletions([]string{"none", "all", "0.0.0.0"}, toComplete), cobra.ShellCompDirectiveNoFileComp

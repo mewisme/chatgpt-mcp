@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -58,8 +60,40 @@ func Validate(cfg Config) error {
 	if cfg.Admin.Enabled && cfg.Auth.AdminEnabled && cfg.Auth.AdminTokenHash == "" {
 		return errors.New("admin auth is enabled but no token is configured; run chatgpt-mcp auth admin create")
 	}
+	if err := validateClusterConfig(cfg.Cluster); err != nil {
+		return err
+	}
 	if err := tunnel.ValidateConfig(cfg.Tunnel); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateClusterConfig(cfg ClusterConfig) error {
+	raw := strings.TrimSpace(cfg.RelayURL)
+	if cfg.Enabled && raw == "" {
+		return errors.New("cluster is enabled but relay_url is empty")
+	}
+	if cfg.Enabled && strings.TrimSpace(cfg.RelayToken) == "" {
+		return errors.New("cluster is enabled but relay token is empty")
+	}
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("invalid cluster relay URL %q", raw)
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "wss" && scheme != "ws" {
+		return errors.New("cluster relay URL must use wss or ws")
+	}
+	if scheme == "ws" {
+		host := strings.ToLower(parsed.Hostname())
+		ip := net.ParseIP(host)
+		if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return errors.New("insecure ws cluster relay is allowed only on loopback; use wss for remote relays")
+		}
 	}
 	return nil
 }

@@ -559,3 +559,102 @@ func TestClearingRuntimeKeyPreservesAdminKeySecret(t *testing.T) {
 		t.Fatalf("loaded tunnel = %#v", loaded.Tunnel)
 	}
 }
+
+func TestClusterRelayTokenPersistsOnlyInKeyring(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Cluster = ClusterConfig{Enabled: true, RelayURL: "wss://relay.example.com/cluster", RelayToken: "cluster-secret", RelayTokenConfigured: true}
+	if err := saveAt(configPath, secretPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "cluster-secret") || !strings.Contains(string(data), "relay_token_configured") {
+		t.Fatalf("persisted config leaks or misses marker:\n%s", data)
+	}
+	stored, err := secretstore.New(root).Get(clusterRelayTokenSecretName)
+	if err != nil || stored != "cluster-secret" {
+		t.Fatalf("keyring token=%q err=%v", stored, err)
+	}
+	loaded, err := loadAt(configPath, secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Cluster.RelayToken != "cluster-secret" || !loaded.Cluster.RelayTokenConfigured {
+		t.Fatalf("loaded cluster = %#v", loaded.Cluster)
+	}
+}
+
+func TestLegacyClusterRelayTokenMigratesToKeyring(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	legacy := `{"server":{"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"cluster":{"enabled":true,"relay_url":"wss://relay.example.com/cluster","relay_token":"legacy-cluster-secret"},"permissions":{"allow_dirs":[]},"shell":{"path":[]},"features":{},"tunnel":{"enabled":false}}`
+	if err := os.WriteFile(configPath, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadAt(configPath, secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Cluster.RelayToken != "legacy-cluster-secret" || !loaded.Cluster.RelayTokenConfigured {
+		t.Fatalf("loaded cluster = %#v", loaded.Cluster)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "legacy-cluster-secret") {
+		t.Fatalf("legacy token remained on disk: %s", data)
+	}
+}
+
+func TestValidateClusterRelaySecurity(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		cfg  ClusterConfig
+		ok   bool
+	}{
+		{name: "disabled", cfg: ClusterConfig{}, ok: true},
+		{name: "secure", cfg: ClusterConfig{Enabled: true, RelayURL: "wss://relay.example.com/cluster", RelayToken: "secret"}, ok: true},
+		{name: "loopback ws", cfg: ClusterConfig{Enabled: true, RelayURL: "ws://127.0.0.1:8080/cluster", RelayToken: "secret"}, ok: true},
+		{name: "missing url", cfg: ClusterConfig{Enabled: true, RelayToken: "secret"}},
+		{name: "missing token", cfg: ClusterConfig{Enabled: true, RelayURL: "wss://relay.example.com/cluster"}},
+		{name: "remote insecure", cfg: ClusterConfig{Enabled: true, RelayURL: "ws://relay.example.com/cluster", RelayToken: "secret"}},
+		{name: "wrong scheme", cfg: ClusterConfig{Enabled: true, RelayURL: "https://relay.example.com/cluster", RelayToken: "secret"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateClusterConfig(test.cfg)
+			if test.ok && err != nil {
+				t.Fatal(err)
+			}
+			if !test.ok && err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestClusterKeyringEntriesFollowPersistedMarker(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	cfg := Default()
+	cfg.Cluster.RelayToken = "secret"
+	if err := saveAt(configPath, secretPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ClusterKeyringEntries(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0] != clusterRelayTokenSecretName {
+		t.Fatalf("entries = %#v", entries)
+	}
+}

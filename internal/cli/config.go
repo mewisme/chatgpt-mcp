@@ -285,6 +285,17 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 			return err
 		}
 		cfg.Auth.AdminEnabled = value
+	case "cluster.enabled":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Cluster.Enabled = value
+	case "cluster.relay_url":
+		cfg.Cluster.RelayURL = strings.TrimSpace(raw)
+	case "cluster.relay_token":
+		cfg.Cluster.RelayToken = raw
+		cfg.Cluster.RelayTokenConfigured = raw != ""
 	case "permissions.allow_dirs":
 		cfg.Permissions.AllowDirs = parseCSV(raw)
 	case "shell.path":
@@ -317,7 +328,7 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 		cfg.Tunnel.ControlPlaneBaseURL = raw
 	case "tunnel.organization_id":
 		cfg.Tunnel.OrganizationID = raw
-	case "auth.mcp_token_hash", "auth.admin_token_hash":
+	case "auth.mcp_token_hash", "auth.admin_token_hash", "cluster.relay_token_configured":
 		return errors.New("token hashes cannot be set through config; use chatgpt-mcp auth <mcp|admin> create")
 	default:
 		return fmt.Errorf("unsupported config key: %s", key)

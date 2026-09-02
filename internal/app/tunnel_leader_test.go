@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -18,6 +19,54 @@ type fakeLeaderTunnel struct {
 	status     tunnel.Status
 	startCount int
 	stopCount  int
+}
+
+type appTrackedTransport struct {
+	inner   cluster.Transport
+	mu      sync.Mutex
+	session cluster.Session
+}
+
+func (t *appTrackedTransport) Connect(ctx context.Context, advertisement cluster.Advertisement) (cluster.Session, error) {
+	session, err := t.inner.Connect(ctx, advertisement)
+	if err != nil {
+		return nil, err
+	}
+	t.mu.Lock()
+	t.session = session
+	t.mu.Unlock()
+	return session, nil
+}
+
+func (t *appTrackedTransport) Drop() {
+	t.mu.Lock()
+	session := t.session
+	t.mu.Unlock()
+	if session != nil {
+		_ = session.Close()
+	}
+}
+
+type appRelaySwitch struct {
+	mu      sync.RWMutex
+	handler http.Handler
+}
+
+func newAppRelaySwitch(token string) *appRelaySwitch {
+	return &appRelaySwitch{handler: cluster.NewRelayServer(token)}
+}
+
+func (s *appRelaySwitch) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	handler := s.handler
+	s.mu.RUnlock()
+	handler.ServeHTTP(w, r)
+}
+
+func (s *appRelaySwitch) Restart(token string) {
+	s.mu.Lock()
+	s.handler = cluster.NewRelayServer(token)
+	s.mu.Unlock()
 }
 
 func newFakeLeaderTunnel(id string) *fakeLeaderTunnel {
@@ -283,5 +332,51 @@ func TestTunnelLeaderCoordinatorBlocksIncompatibleCatalogOverWebSocketRelay(t *t
 	}
 	if _, ok := second.Lease(); ok {
 		t.Fatal("incompatible WebSocket cluster acquired leadership on second runtime")
+	}
+}
+
+func TestTunnelLeaderCoordinatorRecoversAfterRelayRestart(t *testing.T) {
+	switcher := newAppRelaySwitch("cluster-secret")
+	server := httptest.NewServer(switcher)
+	defer server.Close()
+	relayURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	firstTransport := &appTrackedTransport{inner: cluster.NewWebSocketTransport(relayURL, "cluster-secret")}
+	secondTransport := &appTrackedTransport{inner: cluster.NewWebSocketTransport(relayURL, "cluster-secret")}
+	firstNode := testLeaderNode(t, firstTransport, "inst_a", "cat_same")
+	secondNode := testLeaderNode(t, secondTransport, "inst_b", "cat_same")
+	firstTunnel, secondTunnel := newFakeLeaderTunnel("tunnel_test"), newFakeLeaderTunnel("tunnel_test")
+	first, second := testCoordinator(firstNode, firstTunnel), testCoordinator(secondNode, secondTunnel)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := first.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer first.Stop()
+	if err := second.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer second.Stop()
+	if starts, _ := firstTunnel.counts(); starts != 1 {
+		t.Fatalf("first starts = %d", starts)
+	}
+	switcher.Restart("cluster-secret")
+	firstTransport.Drop()
+	secondTransport.Drop()
+	waitFor(t, func() bool {
+		_, firstStops := firstTunnel.counts()
+		return firstStops >= 1
+	})
+	waitFor(t, func() bool {
+		firstStatus, secondStatus := firstTunnel.Status(), secondTunnel.Status()
+		return firstNode.Connected() && secondNode.Connected() && firstStatus.Running != secondStatus.Running
+	})
+	firstStatus, secondStatus := firstTunnel.Status(), secondTunnel.Status()
+	if firstStatus.Running == secondStatus.Running {
+		t.Fatalf("relay restart tunnel states = first %#v second %#v", firstStatus, secondStatus)
+	}
+	firstLease, firstLeader := first.Lease()
+	secondLease, secondLeader := second.Lease()
+	if firstLeader == secondLeader {
+		t.Fatalf("relay restart leadership = first %#v/%v second %#v/%v", firstLease, firstLeader, secondLease, secondLeader)
 	}
 }

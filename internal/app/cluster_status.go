@@ -41,6 +41,15 @@ func (a *App) ClusterStatus(ctx context.Context) cluster.RuntimeStatus {
 		}
 		return status
 	}
+	if !node.Connected() {
+		status.TunnelRole = "standby"
+		if err := node.LastError(); err != nil {
+			status.LastError = err.Error()
+		} else if status.LastError == "" {
+			status.LastError = "cluster relay is reconnecting"
+		}
+		return status
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}

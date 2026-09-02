@@ -75,6 +75,11 @@ type RPCResponse struct {
 	Error   string          `json:"error,omitempty"`
 }
 
+type ConnectionEvent struct {
+	Connected bool
+	Err       error
+}
+
 var (
 	ErrClosed       = errors.New("cluster session is closed")
 	ErrOwnerOffline = errors.New("workspace owner is offline")

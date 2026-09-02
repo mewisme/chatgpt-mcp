@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,21 +15,31 @@ import (
 type RPCHandler func(context.Context, string, json.RawMessage) (json.RawMessage, error)
 type AdvertisementProvider func() (Advertisement, error)
 
+const (
+	defaultReconnectMin = 250 * time.Millisecond
+	defaultReconnectMax = 5 * time.Second
+)
+
 type Node struct {
-	transport Transport
-	handler   RPCHandler
-	mu        sync.RWMutex
-	advert    Advertisement
-	provider  AdvertisementProvider
-	session   Session
-	cancel    context.CancelFunc
-	done      chan struct{}
-	pending   map[string]chan RPCResponse
-	heartbeat time.Duration
+	transport    Transport
+	handler      RPCHandler
+	lifecycleMu  sync.Mutex
+	mu           sync.RWMutex
+	advert       Advertisement
+	provider     AdvertisementProvider
+	session      Session
+	cancel       context.CancelFunc
+	done         chan struct{}
+	pending      map[string]chan RPCResponse
+	events       chan ConnectionEvent
+	lastErr      error
+	heartbeat    time.Duration
+	reconnectMin time.Duration
+	reconnectMax time.Duration
 }
 
 func NewNode(transport Transport, advertisement Advertisement, handler RPCHandler) *Node {
-	return &Node{transport: transport, advert: advertisement, handler: handler, pending: map[string]chan RPCResponse{}, heartbeat: 5 * time.Second}
+	return &Node{transport: transport, advert: advertisement, handler: handler, pending: map[string]chan RPCResponse{}, events: make(chan ConnectionEvent, 16), heartbeat: 5 * time.Second, reconnectMin: defaultReconnectMin, reconnectMax: defaultReconnectMax}
 }
 
 func (n *Node) SetAdvertisementProvider(provider AdvertisementProvider) {
@@ -44,6 +55,8 @@ func (n *Node) Start(ctx context.Context) error {
 	if n == nil || n.transport == nil {
 		return errors.New("cluster transport is required")
 	}
+	n.lifecycleMu.Lock()
+	defer n.lifecycleMu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -52,12 +65,15 @@ func (n *Node) Start(ctx context.Context) error {
 		return err
 	}
 	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.session != nil {
+	if n.cancel != nil {
+		n.mu.Unlock()
 		return errors.New("cluster node is already running")
 	}
+	n.drainConnectionEvents()
 	session, err := n.transport.Connect(ctx, advertisement)
 	if err != nil {
+		n.lastErr = err
+		n.mu.Unlock()
 		return err
 	}
 	n.advert = advertisement
@@ -65,7 +81,10 @@ func (n *Node) Start(ctx context.Context) error {
 	n.session = session
 	n.cancel = cancel
 	n.done = make(chan struct{})
-	go n.run(runCtx, session, n.done)
+	n.lastErr = nil
+	done := n.done
+	n.mu.Unlock()
+	go n.run(runCtx, session, done)
 	return nil
 }
 
@@ -73,6 +92,8 @@ func (n *Node) Close() error {
 	if n == nil {
 		return nil
 	}
+	n.lifecycleMu.Lock()
+	defer n.lifecycleMu.Unlock()
 	n.mu.Lock()
 	session, cancel, done := n.session, n.cancel, n.done
 	n.session, n.cancel, n.done = nil, nil, nil
@@ -88,6 +109,31 @@ func (n *Node) Close() error {
 	}
 	n.failPending(ErrClosed)
 	return nil
+}
+
+func (n *Node) Connected() bool {
+	if n == nil {
+		return false
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.session != nil
+}
+
+func (n *Node) LastError() error {
+	if n == nil {
+		return ErrClosed
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.lastErr
+}
+
+func (n *Node) ConnectionEvents() <-chan ConnectionEvent {
+	if n == nil {
+		return nil
+	}
+	return n.events
 }
 
 func (n *Node) Update(ctx context.Context, advertisement Advertisement) error {
@@ -253,6 +299,23 @@ func (n *Node) Call(ctx context.Context, targetInstanceID, method string, payloa
 
 func (n *Node) run(ctx context.Context, session Session, done chan struct{}) {
 	defer close(done)
+	current := session
+	for {
+		err := n.runSession(ctx, current)
+		if ctx.Err() != nil {
+			n.disconnect(current, ErrClosed)
+			return
+		}
+		n.disconnect(current, err)
+		next, err := n.reconnect(ctx)
+		if err != nil {
+			return
+		}
+		current = next
+	}
+}
+
+func (n *Node) runSession(ctx context.Context, session Session) error {
 	heartbeat := n.heartbeat
 	if heartbeat <= 0 {
 		heartbeat = 5 * time.Second
@@ -274,32 +337,135 @@ func (n *Node) run(ctx context.Context, session Session, done chan struct{}) {
 		select {
 		case <-ctx.Done():
 			cancel()
-			return
+			return ctx.Err()
 		case <-ticker.C:
 			cancel()
 			advertisement, err := n.currentAdvertisement()
 			if err != nil {
-				n.failPending(err)
-				return
+				return err
 			}
 			if err := session.Advertise(ctx, advertisement); err != nil {
-				n.failPending(err)
-				return
+				return err
 			}
 			n.mu.Lock()
 			n.advert = advertisement
 			n.mu.Unlock()
 		case err := <-errorsCh:
 			cancel()
-			if !errors.Is(err, context.Canceled) && !errors.Is(err, ErrClosed) {
-				n.failPending(err)
-			}
-			return
+			return err
 		case frame := <-frames:
 			cancel()
 			n.handleFrame(ctx, session, frame)
 		}
 	}
+}
+
+func (n *Node) disconnect(session Session, err error) {
+	if err == nil || errors.Is(err, context.Canceled) {
+		err = ErrClosed
+	}
+	n.mu.Lock()
+	n.session = nil
+	n.lastErr = err
+	n.mu.Unlock()
+	n.failPending(err)
+	n.publish(ConnectionEvent{Err: err})
+	if session != nil {
+		_ = session.Close()
+	}
+}
+
+func (n *Node) reconnect(ctx context.Context) (Session, error) {
+	delay := n.reconnectMin
+	if delay <= 0 {
+		delay = defaultReconnectMin
+	}
+	maxDelay := n.reconnectMax
+	if maxDelay < delay {
+		maxDelay = delay
+	}
+	for {
+		if err := waitReconnect(ctx, reconnectJitter(delay)); err != nil {
+			return nil, err
+		}
+		advertisement, err := n.currentAdvertisement()
+		var session Session
+		if err == nil {
+			session, err = n.transport.Connect(ctx, advertisement)
+		}
+		if err == nil {
+			n.mu.Lock()
+			if n.cancel == nil {
+				n.mu.Unlock()
+				_ = session.Close()
+				return nil, ErrClosed
+			}
+			n.session = session
+			n.advert = advertisement
+			n.lastErr = nil
+			n.mu.Unlock()
+			n.publish(ConnectionEvent{Connected: true})
+			return session, nil
+		}
+		n.mu.Lock()
+		n.lastErr = err
+		n.mu.Unlock()
+		delay = nextReconnectDelay(delay, maxDelay)
+	}
+}
+
+func (n *Node) publish(event ConnectionEvent) {
+	if n == nil || n.events == nil {
+		return
+	}
+	select {
+	case n.events <- event:
+	default:
+	}
+}
+
+func (n *Node) drainConnectionEvents() {
+	for {
+		select {
+		case <-n.events:
+		default:
+			return
+		}
+	}
+}
+
+func waitReconnect(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func reconnectJitter(delay time.Duration) time.Duration {
+	if delay <= time.Nanosecond {
+		return delay
+	}
+	half := delay / 2
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return delay
+	}
+	span := uint64(delay - half)
+	if span == 0 {
+		return delay
+	}
+	return half + time.Duration(binary.LittleEndian.Uint64(raw[:])%span)
+}
+
+func nextReconnectDelay(current, max time.Duration) time.Duration {
+	if current >= max || current > max/2 {
+		return max
+	}
+	return current * 2
 }
 
 func (n *Node) handleFrame(ctx context.Context, session Session, frame Frame) {

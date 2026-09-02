@@ -124,10 +124,28 @@ func (c *tunnelLeaderCoordinator) run(ctx context.Context, done chan struct{}) {
 	}
 	ticker := time.NewTicker(tick)
 	defer ticker.Stop()
+	events := c.node.ConnectionEvents()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case event, ok := <-events:
+			if !ok {
+				events = nil
+				continue
+			}
+			if event.Connected {
+				if err := c.reconcile(ctx); err != nil && c.log != nil {
+					c.log.Failure("CLUSTER", "cluster.tunnel.reconcile.failed", "Tunnel leadership reconciliation failed", err)
+				}
+				continue
+			}
+			c.opMu.Lock()
+			err := c.demoteLocked(context.Background(), false)
+			c.opMu.Unlock()
+			if err != nil && c.log != nil {
+				c.log.Failure("CLUSTER", "cluster.tunnel.demote.failed", "Tunnel leadership demotion failed", err)
+			}
 		case <-ticker.C:
 			if err := c.reconcile(ctx); err != nil && c.log != nil {
 				c.log.Failure("CLUSTER", "cluster.tunnel.reconcile.failed", "Tunnel leadership reconciliation failed", err)

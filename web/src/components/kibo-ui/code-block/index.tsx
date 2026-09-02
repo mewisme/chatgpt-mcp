@@ -39,11 +39,12 @@ const filenameIconMap = {
 const lineNumberClassNames = cn(
   "[&_code]:[counter-reset:line]",
   "[&_code]:[counter-increment:line_0]",
-  "[&_.line]:before:content-[counter(line)]",
-  "[&_.line]:before:inline-block",
-  "[&_.line]:before:[counter-increment:line]",
+  "[&_.line]:pl-14",
+  "[&_.line]:before:absolute",
+  "[&_.line]:before:left-4",
   "[&_.line]:before:w-4",
-  "[&_.line]:before:mr-4",
+  "[&_.line]:before:content-[counter(line)]",
+  "[&_.line]:before:[counter-increment:line]",
   "[&_.line]:before:text-[13px]",
   "[&_.line]:before:text-right",
   "[&_.line]:before:text-muted-foreground/50",
@@ -100,11 +101,11 @@ const wordHighlightClassNames = cn(
 
 const codeBlockClassName = cn(
   "mt-0 min-w-0 max-w-full bg-background text-sm",
-  "[&_pre]:m-0 [&_pre]:w-full [&_pre]:min-w-0 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:py-4",
+  "[&_pre]:m-0 [&_pre]:w-full [&_pre]:min-w-0 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap [&_pre]:py-4",
   // "[&_.shiki]:!bg-[var(--shiki-bg)]",
   "[&_.shiki]:!bg-transparent",
-  "[&_code]:grid [&_code]:w-max [&_code]:min-w-full [&_code]:bg-transparent",
-  "[&_.line]:relative [&_.line]:w-max [&_.line]:min-w-full [&_.line]:px-4"
+  "[&_code]:block [&_code]:w-full [&_code]:min-w-0 [&_code]:max-w-full [&_code]:whitespace-pre-wrap [&_code]:bg-transparent",
+  "[&_.line]:relative [&_.line]:block [&_.line]:w-full [&_.line]:min-w-0 [&_.line]:max-w-full [&_.line]:px-4 [&_.line]:whitespace-pre-wrap [&_.line]:break-words [&_.line]:[overflow-wrap:anywhere]"
 );
 
 type CodeBlockData = {

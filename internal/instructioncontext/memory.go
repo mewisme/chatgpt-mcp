@@ -1,0 +1,146 @@
+package instructioncontext
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode/utf8"
+)
+
+const (
+	DefaultSectionMaxBytes = 25_000
+	DefaultSectionMaxLines = 200
+)
+
+type MemoryLoadOptions struct {
+	WorkspaceRoots     []string
+	HomeDir            string
+	DisableUser        bool
+	MaxBytesPerSection int
+	MaxLinesPerSection int
+	Now                func() time.Time
+}
+
+type memoryCandidate struct {
+	Relative string
+	Kind     SectionKind
+	Source   string
+}
+
+var projectMemoryCandidates = []memoryCandidate{
+	{Relative: "CLAUDE.md", Kind: SectionProject, Source: "claude"},
+	{Relative: filepath.Join(".claude", "CLAUDE.md"), Kind: SectionProject, Source: "claude"},
+	{Relative: "AGENTS.md", Kind: SectionProject, Source: "agents"},
+	{Relative: "CLAUDE.local.md", Kind: SectionProject, Source: "claude"},
+}
+
+var userMemoryCandidates = []memoryCandidate{
+	{Relative: filepath.Join(".codex", "CLAUDE.md"), Kind: SectionUser, Source: "codex"},
+	{Relative: filepath.Join(".claude", "CLAUDE.md"), Kind: SectionUser, Source: "claude"},
+}
+
+func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle, error) {
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return ProjectMemoryBundle{}, err
+	}
+	root = filepath.Clean(absolute)
+	workspaceRoots := opts.WorkspaceRoots
+	if len(workspaceRoots) == 0 {
+		workspaceRoots = []string{root}
+	} else {
+		workspaceRoots = cleanPaths(workspaceRoots)
+	}
+	maxBytes := opts.MaxBytesPerSection
+	if maxBytes <= 0 {
+		maxBytes = DefaultSectionMaxBytes
+	}
+	maxLines := opts.MaxLinesPerSection
+	if maxLines <= 0 {
+		maxLines = DefaultSectionMaxLines
+	}
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+
+	sections := make([]Section, 0, len(projectMemoryCandidates)+1)
+	totalBytes := 0
+	if !opts.DisableUser {
+		home := strings.TrimSpace(opts.HomeDir)
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
+		for _, candidate := range userMemoryCandidates {
+			section, ok := loadMemorySection(filepath.Join(home, candidate.Relative), candidate, maxBytes, maxLines)
+			if !ok {
+				continue
+			}
+			sections = append(sections, section)
+			totalBytes += section.LoadedBytes
+			break
+		}
+	}
+	for _, candidate := range projectMemoryCandidates {
+		section, ok := loadMemorySection(filepath.Join(root, candidate.Relative), candidate, maxBytes, maxLines)
+		if !ok {
+			continue
+		}
+		sections = append(sections, section)
+		totalBytes += section.LoadedBytes
+	}
+	return ProjectMemoryBundle{Root: root, WorkspaceRoots: workspaceRoots, Sections: sections, TotalBytes: totalBytes, LoadedAt: now().UTC()}, nil
+}
+
+func loadMemorySection(path string, candidate memoryCandidate, maxBytes, maxLines int) (Section, bool) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return Section{}, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Section{}, false
+	}
+	content, truncated := limitInstructionText(data, maxBytes, maxLines)
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return Section{}, false
+	}
+	loadedBytes := len([]byte(content))
+	return Section{
+		Path: path, Kind: candidate.Kind, Source: candidate.Source, Content: content,
+		Truncated: truncated, OriginalBytes: len(data), LoadedBytes: loadedBytes,
+	}, true
+}
+
+func limitInstructionText(data []byte, maxBytes, maxLines int) (string, bool) {
+	original := string(data)
+	lines := strings.Split(strings.ReplaceAll(original, "\r\n", "\n"), "\n")
+	truncated := false
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		truncated = true
+	}
+	limited := []byte(strings.Join(lines, "\n"))
+	if len(limited) > maxBytes {
+		limited = limited[:maxBytes]
+		for len(limited) > 0 && !utf8.Valid(limited) {
+			limited = limited[:len(limited)-1]
+		}
+		truncated = true
+	}
+	return string(limited), truncated
+}
+
+func cleanPaths(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		absolute, err := filepath.Abs(value)
+		if err != nil {
+			continue
+		}
+		result = append(result, filepath.Clean(absolute))
+	}
+	return result
+}

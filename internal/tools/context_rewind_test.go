@@ -218,3 +218,65 @@ func TestRewindPreviewAndRestore(t *testing.T) {
 		t.Fatalf("content = %q", data)
 	}
 }
+
+func TestProjectContextUsesSelectedSubprojectRoot(t *testing.T) {
+	runtime, workspaceID, root, _ := newContextToolRuntime(t)
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("root instruction must stay out"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "packages", "app")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "AGENTS.md"), []byte("subproject instruction"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ruleDir := filepath.Join(sub, ".agents", "rules")
+	if err := os.MkdirAll(ruleDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ruleDir, "global.md"), []byte("subproject global rule"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	skillDir := filepath.Join(sub, ".agents", "skills", "subskill")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: subskill\ndescription: subproject skill\n---\nbody must stay out"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runtime.Call(context.Background(), "project_context", map[string]any{"workspace_id": workspaceID, "path": "packages/app", "include_git": false})
+	if err != nil || result.IsError {
+		t.Fatalf("project_context subproject failed: %#v %v", result, err)
+	}
+	project := result.StructuredContent.(ProjectContextResult)
+	if project.Root != sub || project.InstructionContext.Root != sub || project.InstructionContext.Environment.WorkspaceRoot != root {
+		t.Fatalf("subproject roots = %#v", project)
+	}
+	if len(project.InstructionContext.ProjectMemory.Sections) != 1 || project.InstructionContext.ProjectMemory.Sections[0].Path != filepath.Join(sub, "AGENTS.md") {
+		t.Fatalf("subproject memory = %#v", project.InstructionContext.ProjectMemory)
+	}
+	for _, expected := range []string{"subproject instruction", "subproject global rule", "subproject skill"} {
+		if !strings.Contains(project.InstructionContext.InstructionsText, expected) {
+			t.Fatalf("subproject instructions missing %q: %s", expected, project.InstructionContext.InstructionsText)
+		}
+	}
+	for _, unexpected := range []string{"root instruction must stay out", "body must stay out"} {
+		if strings.Contains(project.InstructionContext.InstructionsText, unexpected) {
+			t.Fatalf("subproject instructions leaked %q: %s", unexpected, project.InstructionContext.InstructionsText)
+		}
+	}
+}
+
+func TestProjectContextRejectsPathOutsideWorkspace(t *testing.T) {
+	runtime, workspaceID, root, _ := newContextToolRuntime(t)
+	outside := filepath.Join(filepath.Dir(root), "outside")
+	if err := os.MkdirAll(outside, 0755); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.Call(context.Background(), "project_context", map[string]any{"workspace_id": workspaceID, "path": outside})
+	if err == nil && !result.IsError {
+		t.Fatalf("outside project_context path was accepted: %#v", result)
+	}
+}

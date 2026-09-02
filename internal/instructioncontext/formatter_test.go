@@ -1,6 +1,8 @@
 package instructioncontext
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -115,4 +117,31 @@ func TestApplyFormattedInstructionsLimitUTF8(t *testing.T) {
 		t.Fatalf("value = %#v", value)
 	}
 	ApplyFormattedInstructionsLimit(nil, 257)
+}
+
+func TestFormatInstructionsGolden(t *testing.T) {
+	value := InstructionContext{
+		AgentWorkflow: "workflow",
+		ToolProfile:   ToolProfile{Name: "full", Count: 3},
+		Environment: EnvironmentSnapshot{
+			Platform: "linux", OS: "linux", Arch: "amd64", Go: "go1.test", PID: 42,
+			WorkspaceID: "ws_test", WorkspaceRoot: "/workspace", CWD: "/workspace/sub", EffectiveRoots: []string{"/workspace", "/shared"},
+		},
+		Git:        GitSnapshot{IsRepo: true, Root: "/workspace", Branch: "main", StatusShort: "## main\n M main.go", RecentCommits: []string{"abc first"}},
+		AutoMemory: AutoMemorySnapshot{Loaded: true, Content: "remember this", Bytes: 13},
+		ProjectMemory: ProjectMemoryBundle{Sections: []Section{
+			{Path: "/home/user/.agents/AGENTS.md", Kind: SectionUser, Source: "agents", Content: "user rules"},
+			{Path: "/workspace/AGENTS.md", Kind: SectionProject, Source: "agents", Content: "project rules"},
+		}},
+		Rules:  []rules.Rule{{Path: "/workspace/.agents/rules/global.md", Source: ".agents", Content: "global rule"}},
+		Skills: []skills.Skill{{Name: "release", Description: "Release workflow", Source: ".agents", Path: "/workspace/.agents/skills/release/SKILL.md"}},
+	}
+	actual, _ := FormatInstructions(value)
+	expected, err := os.ReadFile(filepath.Join("testdata", "instructions.golden"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual != strings.TrimSuffix(string(expected), "\n") {
+		t.Fatalf("formatted instructions differ from golden\n--- actual ---\n%s\n--- expected ---\n%s", actual, expected)
+	}
 }

@@ -118,3 +118,26 @@ func TestHTTPManySessionsCanShareWorkspace(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPSessionProjectContextCannotSwitchWorkspaces(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	fixture := newIsolationHTTPFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.first.Path, "AGENTS.md"), []byte("first workspace"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.second.Path, "AGENTS.md"), []byte("second workspace"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	first := callWorkspaceToolHTTP(t, fixture.runtime, "project-session", "project_context", map[string]any{"workspace_id": fixture.first.ID, "include_git": false}, 20)
+	if first.IsError || len(first.Content) == 0 || !strings.Contains(first.Content[0].Text, "first workspace") {
+		t.Fatalf("first project_context failed: %#v", first)
+	}
+	denied := callWorkspaceToolHTTP(t, fixture.runtime, "project-session", "project_context", map[string]any{"workspace_id": fixture.second.ID, "include_git": false}, 21)
+	if !denied.IsError || len(denied.Content) == 0 || !strings.Contains(denied.Content[0].Text, "cannot access") {
+		t.Fatalf("cross-workspace project_context was not denied: %#v", denied)
+	}
+	binding, ok := fixture.runtime.Server.Tools.SessionBindings.Lookup("project-session")
+	if !ok || binding.WorkspaceID != fixture.first.ID {
+		t.Fatalf("project_context session binding = %#v ok=%t", binding, ok)
+	}
+}

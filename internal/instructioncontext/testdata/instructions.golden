@@ -1,0 +1,57 @@
+# chatgpt-mcp project context
+
+## Agent workflow
+workflow
+
+## Tool profile
+- name: full
+- tools: 3
+
+## Environment
+- platform: linux
+- os: linux
+- arch: amd64
+- go: go1.test
+- pid: 42
+- workspace_id: ws_test
+- workspace_root: /workspace
+- cwd: /workspace/sub
+- effective_roots:
+  - /workspace
+  - /shared
+- admin: disabled
+
+## Git
+- repository: true
+- root: /workspace
+- branch: main
+- status:
+    ## main
+     M main.go
+- recent_commits:
+  - abc first
+
+## Auto memory
+remember this
+
+## User instructions
+### /home/user/.agents/AGENTS.md [agents]
+user rules
+
+## Project instructions
+### /workspace/AGENTS.md [agents]
+project rules
+
+## Always-on rules
+### /workspace/.agents/rules/global.md [.agents]
+global rule
+
+## Skills
+- release: Release workflow [.agents] (/workspace/.agents/skills/release/SKILL.md)
+Load an applicable skill with load_skill using its exact name before following its workflow.
+
+## Quick pointers
+- Use load_path_rules(path) before editing files covered by path-scoped rules.
+- Use load_skill(name) only for skills whose summaries match the current task.
+- Use workspace_status when workspace root, persisted cwd, or allowed directories need to be re-checked.
+- Use remember(note) for durable workspace notes and rewind for checkpoint inspection or recovery.

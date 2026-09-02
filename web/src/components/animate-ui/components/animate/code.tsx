@@ -4,6 +4,7 @@ import { useTheme } from "next-themes"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import type { CodeLanguage } from "./code-highlight"
 
 type CodeContextType = { code: string }
 
@@ -29,7 +30,7 @@ function CodeHeader({ className, children, icon: Icon, copyButton = false, copyL
   return <div className={cn("flex h-10 w-full shrink-0 items-center gap-x-2 border-b border-border/75 bg-accent px-4 text-sm text-muted-foreground dark:border-border/50", className)} {...props}>{Icon && <Icon className="size-4" />}{children}{copyButton && <Button type="button" variant="ghost" size="icon-xs" className="ml-auto -mr-2" aria-label={copyLabel} onClick={copy}><CopyIcon /></Button>}</div>
 }
 
-type CodeBlockProps = React.ComponentProps<"div"> & { lang: string }
+type CodeBlockProps = React.ComponentProps<"div"> & { lang: CodeLanguage }
 
 function CodeBlock({ className, lang, ...props }: CodeBlockProps) {
   const { resolvedTheme } = useTheme()
@@ -38,7 +39,7 @@ function CodeBlock({ className, lang, ...props }: CodeBlockProps) {
 
   React.useEffect(() => {
     let active = true
-    void import("shiki").then(({ codeToHtml }) => codeToHtml(code, { lang, theme: resolvedTheme === "dark" ? "github-dark" : "github-light" })).then((value) => { if (active) setHtml(value) }).catch(console.error)
+    void import("./code-highlight").then(({ highlightCode }) => highlightCode(code, lang, resolvedTheme === "dark")).then((value) => { if (active) setHtml(value) }).catch(console.error)
     return () => { active = false }
   }, [code, lang, resolvedTheme])
 

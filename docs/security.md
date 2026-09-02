@@ -94,9 +94,9 @@ If you need a strong boundary against hostile local code, use an OS-level sandbo
 
 ## MCP and Admin authentication
 
-`chatgpt-mcp` stores MCP/Admin app token hashes, not their plaintext bearer tokens. Long-lived reversible credentials use the OS keyring: Windows Credential Manager, macOS Keychain, and Linux Secret Service (`org.freedesktop.secrets`).
+`chatgpt-mcp` stores MCP/Admin app token hashes, not their plaintext bearer tokens. Long-lived reversible credentials use the OS keyring: Windows Credential Manager, macOS Keychain, and on Linux Secret Service (`org.freedesktop.secrets`) with the kernel user keyring as a headless fallback.
 
-On Linux, an unlocked Secret Service provider must be reachable through the user D-Bus session. Managed service environment snapshots preserve `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR` so the runtime can use the same keyring session; if no Secret Service provider is available, secret persistence fails rather than falling back to plaintext files.
+On Linux, Secret Service is preferred because it persists credentials across reboot. When no Secret Service provider is available, headless systems fall back to the kernel user keyring without requiring a desktop session or D-Bus. Kernel keyring entries are memory-backed and do not survive reboot; installing a Secret Service provider is recommended for reboot-persistent credentials. Neither backend falls back to plaintext files.
 
 Create/rotate:
 

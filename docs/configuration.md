@@ -126,7 +126,7 @@ Rebind is transactional. If a requested port/address cannot be opened, the previ
 cgm config migrate
 ```
 
-This moves legacy plaintext tunnel keys, OAuth credentials, and sensitive upstream header/environment values into the OS keyring and rewrites structured state with non-secret markers. Normal credential-loading paths also migrate automatically. On Linux this requires a reachable, unlocked Secret Service provider; migration fails instead of retaining plaintext credentials when the keyring is unavailable.
+This moves legacy plaintext tunnel keys, OAuth credentials, and sensitive upstream header/environment values into the OS keyring and rewrites structured state with non-secret markers. Normal credential-loading paths also migrate automatically. On Linux migration prefers Secret Service for reboot-persistent storage. Headless systems without `org.freedesktop.secrets` fall back to the memory-backed kernel user keyring without requiring D-Bus; those entries do not survive reboot, so a Secret Service provider is recommended for persistent credentials. Migration still fails instead of retaining plaintext credentials when neither backend is usable.
 
 ## Verify config/state
 

@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	keyring "github.com/zalando/go-keyring"
 )
 
 const (
@@ -24,26 +22,6 @@ type Backend interface {
 	Set(service, account, value string) error
 	Get(service, account string) (string, error)
 	Delete(service, account string) error
-}
-
-type osBackend struct{}
-
-func (osBackend) Set(service, account, value string) error {
-	return keyring.Set(service, account, value)
-}
-func (osBackend) Get(service, account string) (string, error) {
-	value, err := keyring.Get(service, account)
-	if errors.Is(err, keyring.ErrNotFound) {
-		return "", ErrNotFound
-	}
-	return value, err
-}
-func (osBackend) Delete(service, account string) error {
-	err := keyring.Delete(service, account)
-	if errors.Is(err, keyring.ErrNotFound) {
-		return ErrNotFound
-	}
-	return err
 }
 
 type Store struct {
@@ -64,7 +42,7 @@ type snapshot struct {
 
 var (
 	backendMu      sync.RWMutex
-	defaultBackend Backend = osBackend{}
+	defaultBackend Backend = newOSBackend()
 )
 
 func New(root string) *Store {

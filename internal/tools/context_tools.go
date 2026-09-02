@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
-	projectcontext "go.mewis.me/chatgpt-mcp/internal/context"
+	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 	"go.mewis.me/chatgpt-mcp/internal/memory"
 	"go.mewis.me/chatgpt-mcp/internal/rules"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
@@ -32,6 +32,35 @@ type PathRulesResult struct {
 type RememberResult struct {
 	SavedTo string `json:"saved_to"`
 	Note    string `json:"note"`
+}
+
+type ProjectContextMemoryFile struct {
+	Path      string                         `json:"path"`
+	Kind      instructioncontext.SectionKind `json:"kind"`
+	Source    string                         `json:"source,omitempty"`
+	Truncated bool                           `json:"truncated"`
+}
+
+type ProjectContextGitSummary struct {
+	IsRepo  bool   `json:"is_repo"`
+	Branch  string `json:"branch,omitempty"`
+	Commits int    `json:"commits"`
+}
+
+type ProjectContextSummary struct {
+	MemoryFiles      []ProjectContextMemoryFile `json:"memory_files"`
+	MemoryBytes      int                        `json:"memory_bytes"`
+	InstructionBytes int                        `json:"instruction_bytes"`
+	Git              ProjectContextGitSummary   `json:"git"`
+	Rules            int                        `json:"rules"`
+	Skills           int                        `json:"skills"`
+}
+
+type ProjectContextResult struct {
+	Root               string                                `json:"root"`
+	WorkspaceID        string                                `json:"workspace_id"`
+	InstructionContext instructioncontext.InstructionContext `json:"instruction_context"`
+	Summary            ProjectContextSummary                 `json:"summary"`
 }
 
 type AgentStatusResult struct {
@@ -95,7 +124,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		return JSONResult(value), nil
 	})
 
-	register("project_context", "Project Context", "Load project instructions, config, and provider rules under a workspace path.", workspaceOnlySchema(`"path":{"type":"string"},"max_depth":{"type":"integer","minimum":0,"maximum":5,"default":3},"max_bytes_per_file":{"type":"integer","minimum":1,"maximum":200000,"default":60000},`), `{"type":"object","properties":{"root":{"type":"string"},"files":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["root","files","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("project_context", "Project Context", "Build the complete workspace instruction context with environment, Git, memory, rules, skills, and ready-to-use instructions.", workspaceOnlySchema(`"path":{"type":"string"},"max_depth":{"type":"integer","minimum":0,"maximum":5,"default":4},"max_bytes_per_file":{"type":"integer","minimum":1,"maximum":200000,"default":25000},`), `{"type":"object","properties":{"root":{"type":"string"},"workspace_id":{"type":"string"},"instruction_context":{"type":"object","additionalProperties":true},"summary":{"type":"object","additionalProperties":true}},"required":["root","workspace_id","instruction_context","summary"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
 		item, cwd, err := workspaceLocation(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -118,27 +147,26 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 				return Result{}, errors.New("project_context path must be a directory")
 			}
 		}
-		maxDepth, err := optionalInt(args, "max_depth", 3, 0, 5)
+		maxDepth, err := optionalInt(args, "max_depth", instructioncontext.DefaultImportMaxDepth, 0, 5)
 		if err != nil {
 			return Result{}, err
 		}
-		maxBytes, err := optionalInt(args, "max_bytes_per_file", 60_000, 1, 200_000)
+		maxBytes, err := optionalInt(args, "max_bytes_per_file", instructioncontext.DefaultSectionMaxBytes, 1, 200_000)
 		if err != nil {
 			return Result{}, err
 		}
-		value, err := projectcontext.Load(root, maxDepth, maxBytes)
+		roots, err := workspaces.EffectiveRoots(item.ID)
 		if err != nil {
 			return Result{}, err
 		}
-		filtered := value.Files[:0]
-		for _, file := range value.Files {
-			if _, err := workspaces.ResolvePath(item.ID, root, file.Path, true); err == nil {
-				filtered = append(filtered, file)
-			}
+		value, err := instructioncontext.Build(ctx, instructioncontext.BuildOptions{
+			Root: root, WorkspaceID: item.ID, WorkspaceRoot: item.Path, CWD: cwd, WorkspaceRoots: roots, MemoryStore: memoryStore,
+			Memory: instructioncontext.MemoryLoadOptions{ImportMaxDepth: maxDepth, MaxBytesPerSection: maxBytes}, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())},
+		})
+		if err != nil {
+			return Result{}, err
 		}
-		value.Files = filtered
-		value.Count = len(filtered)
-		return JSONResult(value), nil
+		return JSONResult(projectContextResult(value)), nil
 	})
 
 	register("agent_status", "Agent Status", "Show workspace permissions, runtime, rewind config, upstream configuration, and tool runtime status.", workspaceOnlySchema(``), `{"type":"object","additionalProperties":true}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
@@ -222,6 +250,27 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		}
 		return JSONResult(PathRulesResult{Path: target, Rules: values, Count: len(values)}), nil
 	})
+}
+
+func projectContextResult(value instructioncontext.InstructionContext) ProjectContextResult {
+	files := make([]ProjectContextMemoryFile, 0, len(value.ProjectMemory.Sections)+len(value.ProjectMemory.Imports))
+	appendSection := func(section instructioncontext.Section) {
+		files = append(files, ProjectContextMemoryFile{Path: section.Path, Kind: section.Kind, Source: section.Source, Truncated: section.Truncated})
+	}
+	for _, section := range value.ProjectMemory.Sections {
+		appendSection(section)
+	}
+	for _, section := range value.ProjectMemory.Imports {
+		appendSection(section)
+	}
+	return ProjectContextResult{
+		Root: value.Root, WorkspaceID: value.WorkspaceID, InstructionContext: value,
+		Summary: ProjectContextSummary{
+			MemoryFiles: files, MemoryBytes: value.ProjectMemory.TotalBytes, InstructionBytes: value.InstructionBytes,
+			Git:   ProjectContextGitSummary{IsRepo: value.Git.IsRepo, Branch: value.Git.Branch, Commits: len(value.Git.RecentCommits)},
+			Rules: len(value.Rules), Skills: len(value.Skills),
+		},
+	}
 }
 
 func workspaceOnlySchema(extra string) string {

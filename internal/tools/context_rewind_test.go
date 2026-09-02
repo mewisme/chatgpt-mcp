@@ -13,6 +13,7 @@ import (
 
 func newContextToolRuntime(t *testing.T) (*Runtime, string, string, *checkpoint.Store) {
 	t.Helper()
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	workspaces := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
 	item, err := workspaces.Register(root)
@@ -46,6 +47,13 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ruleDir, "ts.mdc"), []byte("---\nglobs: [\"**/*.ts\"]\n---\nTS rule"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	globalRuleDir := filepath.Join(root, ".agents", "rules")
+	if err := os.MkdirAll(globalRuleDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(globalRuleDir, "global.md"), []byte("Global rule"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	ctxResult, err := runtime.Call(context.Background(), "project_context", map[string]any{"workspace_id": workspaceID})
 	if err != nil || ctxResult.IsError {
@@ -53,6 +61,19 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 	}
 	if ctxResult.StructuredContent == nil {
 		t.Fatal("missing project context")
+	}
+	project := ctxResult.StructuredContent.(ProjectContextResult)
+	if project.Root != root || project.WorkspaceID != workspaceID || project.Summary.MemoryBytes == 0 || project.Summary.InstructionBytes != project.InstructionContext.InstructionBytes {
+		t.Fatalf("project context = %#v", project)
+	}
+	if project.Summary.Rules != 1 || project.Summary.Skills != 1 || len(project.Summary.MemoryFiles) != 1 {
+		t.Fatalf("project summary = %#v", project.Summary)
+	}
+	if !strings.Contains(project.InstructionContext.InstructionsText, "instructions") || !strings.Contains(project.InstructionContext.InstructionsText, "Global rule") || !strings.Contains(project.InstructionContext.InstructionsText, "test skill") {
+		t.Fatalf("instructions = %q", project.InstructionContext.InstructionsText)
+	}
+	if strings.Contains(project.InstructionContext.InstructionsText, "\nbody") {
+		t.Fatalf("skill body leaked into project context: %q", project.InstructionContext.InstructionsText)
 	}
 
 	listResult, err := runtime.Call(context.Background(), "list_skills", map[string]any{"workspace_id": workspaceID})
@@ -79,6 +100,31 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 	rememberResult, err := runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "note": "use compact imports"})
 	if err != nil || rememberResult.IsError {
 		t.Fatalf("remember failed: %#v %v", rememberResult, err)
+	}
+	ctxAfterRemember, err := runtime.Call(context.Background(), "project_context", map[string]any{"workspace_id": workspaceID})
+	if err != nil || ctxAfterRemember.IsError {
+		t.Fatalf("project_context after remember failed: %#v %v", ctxAfterRemember, err)
+	}
+	after := ctxAfterRemember.StructuredContent.(ProjectContextResult)
+	if !after.InstructionContext.AutoMemory.Loaded || !strings.Contains(after.InstructionContext.InstructionsText, "use compact imports") {
+		t.Fatalf("auto memory not included: %#v", after.InstructionContext.AutoMemory)
+	}
+}
+
+func TestProjectContextOutputSchemaUsesInstructionBundle(t *testing.T) {
+	runtime, _, _, _ := newContextToolRuntime(t)
+	schema, ok := runtime.Registry.Schema("project_context")
+	if !ok {
+		t.Fatal("missing project_context schema")
+	}
+	output := string(schema.OutputSchema)
+	for _, expected := range []string{"\"root\"", "\"workspace_id\"", "\"instruction_context\"", "\"summary\""} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output schema missing %s: %s", expected, output)
+		}
+	}
+	if strings.Contains(output, "\"count\"") || strings.Contains(output, "\"files\":") {
+		t.Fatalf("legacy project_context output remains: %s", output)
 	}
 }
 

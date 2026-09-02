@@ -28,6 +28,7 @@ type API struct {
 	OAuth         *mcpoauth.Store
 	OAuthFlows    *mcpoauth.FlowManager
 	ClusterStatus func(context.Context) cluster.RuntimeStatus
+	ReloadConfig  func(config.Config) error
 	saveConfig    func(config.Config) error
 }
 
@@ -42,15 +43,24 @@ type publicConfig struct {
 	Server      config.ServerConfig      `json:"server"`
 	Admin       config.AdminConfig       `json:"admin"`
 	Auth        authSettings             `json:"auth"`
+	Cluster     clusterSettings          `json:"cluster"`
 	Permissions config.PermissionsConfig `json:"permissions"`
 	Shell       config.ShellConfig       `json:"shell"`
 	Features    config.FeaturesConfig    `json:"features"`
+}
+
+type clusterSettings struct {
+	Enabled              bool   `json:"enabled"`
+	RelayURL             string `json:"relay_url"`
+	RelayToken           string `json:"relay_token,omitempty"`
+	RelayTokenConfigured bool   `json:"relay_token_configured"`
 }
 
 type configPatch struct {
 	Server      *config.ServerConfig      `json:"server,omitempty"`
 	Admin       *config.AdminConfig       `json:"admin,omitempty"`
 	Auth        *authSettings             `json:"auth,omitempty"`
+	Cluster     *clusterSettings          `json:"cluster,omitempty"`
 	Permissions *config.PermissionsConfig `json:"permissions,omitempty"`
 	Shell       *config.ShellConfig       `json:"shell,omitempty"`
 	Features    *featurePatch             `json:"features,omitempty"`
@@ -122,48 +132,57 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		status := http.StatusInternalServerError
-		next, err := api.Config.Update(func(next config.Config) (config.Config, error) {
-			previous := next
-			if patch.Server != nil {
-				next.Server = *patch.Server
+		previous := api.Config.Snapshot()
+		next := previous
+		var err error
+		if patch.Server != nil {
+			next.Server = *patch.Server
+		}
+		if patch.Admin != nil {
+			next.Admin = *patch.Admin
+		}
+		if patch.Auth != nil {
+			next.Auth.MCPEnabled = patch.Auth.MCPEnabled
+			next.Auth.AdminEnabled = patch.Auth.AdminEnabled
+		}
+		if patch.Cluster != nil {
+			next.Cluster.Enabled = patch.Cluster.Enabled
+			next.Cluster.RelayURL = patch.Cluster.RelayURL
+			if patch.Cluster.RelayToken != "" {
+				next.Cluster.RelayToken = patch.Cluster.RelayToken
 			}
-			if patch.Admin != nil {
-				next.Admin = *patch.Admin
-			}
-			if patch.Auth != nil {
-				next.Auth.MCPEnabled = patch.Auth.MCPEnabled
-				next.Auth.AdminEnabled = patch.Auth.AdminEnabled
-			}
-			if patch.Permissions != nil {
-				allowDirs, err := config.NormalizeAllowDirs(patch.Permissions.AllowDirs)
-				if err != nil {
-					status = http.StatusBadRequest
-					return next, err
-				}
+		}
+		if patch.Permissions != nil {
+			var allowDirs []string
+			allowDirs, err = config.NormalizeAllowDirs(patch.Permissions.AllowDirs)
+			if err == nil {
 				next.Permissions.AllowDirs = allowDirs
 			}
-			if patch.Shell != nil {
-				shellPath, err := config.NormalizeShellPath(patch.Shell.Path)
-				if err != nil {
-					status = http.StatusBadRequest
-					return next, err
-				}
+		}
+		if err == nil && patch.Shell != nil {
+			var shellPath []string
+			shellPath, err = config.NormalizeShellPath(patch.Shell.Path)
+			if err == nil {
 				next.Shell.Path = shellPath
 			}
-			if patch.Features != nil {
-				if patch.Features.Ponytail != nil && patch.Features.Ponytail.Enabled != nil {
-					next.Features.Ponytail.Enabled = *patch.Features.Ponytail.Enabled
-				}
-				if patch.Features.Caveman != nil && patch.Features.Caveman.Enabled != nil {
-					next.Features.Caveman.Enabled = *patch.Features.Caveman.Enabled
-				}
+		}
+		if err == nil && patch.Features != nil {
+			if patch.Features.Ponytail != nil && patch.Features.Ponytail.Enabled != nil {
+				next.Features.Ponytail.Enabled = *patch.Features.Ponytail.Enabled
 			}
-			if err := config.Validate(next); err != nil {
-				status = http.StatusBadRequest
-				return next, err
+			if patch.Features.Caveman != nil && patch.Features.Caveman.Enabled != nil {
+				next.Features.Caveman.Enabled = *patch.Features.Caveman.Enabled
 			}
-			return next, api.persistConfigWithFeatures(next, previous)
-		})
+		}
+		if err == nil {
+			err = config.Validate(next)
+		}
+		if err != nil {
+			status = http.StatusBadRequest
+		}
+		if err == nil {
+			err = api.commitConfig(next, previous)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), status)
 			return
@@ -206,11 +225,26 @@ func (api API) upstreamManager() *upstream.Manager {
 func publicConfigView(cfg config.Config) publicConfig {
 	return publicConfig{
 		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell, Features: cfg.Features,
+		Cluster: clusterSettings{Enabled: cfg.Cluster.Enabled, RelayURL: cfg.Cluster.RelayURL, RelayTokenConfigured: cfg.Cluster.RelayToken != "" || cfg.Cluster.RelayTokenConfigured},
 		Auth: authSettings{
 			MCPEnabled: cfg.Auth.MCPEnabled, AdminEnabled: cfg.Auth.AdminEnabled,
 			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",
 		},
 	}
+}
+
+func (api API) commitConfig(next, previous config.Config) error {
+	if api.ReloadConfig == nil {
+		_, err := api.Config.Update(func(config.Config) (config.Config, error) { return next, api.persistConfigWithFeatures(next, previous) })
+		return err
+	}
+	if err := api.persistConfig(next); err != nil {
+		return err
+	}
+	if err := api.ReloadConfig(next); err != nil {
+		return errors.Join(err, api.persistConfig(previous))
+	}
+	return nil
 }
 
 func (api API) persistConfigWithFeatures(next, previous config.Config) error {

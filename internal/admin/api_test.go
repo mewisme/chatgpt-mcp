@@ -138,6 +138,63 @@ func TestConfigAPIHidesTokenHashes(t *testing.T) {
 	}
 }
 
+func TestConfigAPIHidesClusterRelayToken(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cluster = config.ClusterConfig{Enabled: true, RelayURL: "wss://relay.example.test/cluster", RelayToken: "cluster-secret"}
+	recorder := httptest.NewRecorder()
+	New(API{Config: config.NewRuntimeStore(cfg)}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	body := recorder.Body.String()
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, body)
+	}
+	if strings.Contains(body, "cluster-secret") || !strings.Contains(body, `"relay_token_configured":true`) || !strings.Contains(body, `"relay_url":"wss://relay.example.test/cluster"`) {
+		t.Fatalf("cluster config response = %s", body)
+	}
+}
+
+func TestConfigAPIClusterReloadIsTransactional(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	var saved []config.Config
+	handler := New(API{
+		Config:     store,
+		saveConfig: func(next config.Config) error { saved = append(saved, next); return nil },
+		ReloadConfig: func(next config.Config) error {
+			if next.Cluster.RelayURL == "wss://broken.example.test/cluster" {
+				return errors.New("relay unavailable")
+			}
+			_, err := store.Update(func(config.Config) (config.Config, error) { return next, nil })
+			return err
+		},
+	})
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"cluster":{"enabled":true,"relay_url":"wss://relay.example.test/cluster","relay_token":"cluster-secret"}}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("enable status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Cluster; !got.Enabled || got.RelayURL != "wss://relay.example.test/cluster" || got.RelayToken != "cluster-secret" {
+		t.Fatalf("live cluster config = %#v", got)
+	}
+	if strings.Contains(recorder.Body.String(), "cluster-secret") || !strings.Contains(recorder.Body.String(), `"relay_token_configured":true`) {
+		t.Fatalf("enable response leaked token: %s", recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"cluster":{"enabled":true,"relay_url":"wss://broken.example.test/cluster"}}`)))
+	if recorder.Code != http.StatusInternalServerError || !strings.Contains(recorder.Body.String(), "relay unavailable") {
+		t.Fatalf("broken status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Cluster; got.RelayURL != "wss://relay.example.test/cluster" || got.RelayToken != "cluster-secret" {
+		t.Fatalf("cluster config changed after reload failure: %#v", got)
+	}
+	if len(saved) != 3 || saved[2].Cluster.RelayURL != "wss://relay.example.test/cluster" {
+		t.Fatalf("persistence rollback = %#v", saved)
+	}
+}
+
 func TestConfigAPIWildcardExposureRequiresBothAuth(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = "mcp-hash"

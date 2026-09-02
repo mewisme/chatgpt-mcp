@@ -44,14 +44,14 @@ func (api API) handleConfigPreset(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, preset)
 	case http.MethodPost:
 		status := http.StatusInternalServerError
-		next, err := api.Config.Update(func(next config.Config) (config.Config, error) {
-			previous := next
-			if err := config.ApplyPreset(&next, name); err != nil {
-				status = http.StatusBadRequest
-				return next, err
-			}
-			return next, api.persistConfigWithFeatures(next, previous)
-		})
+		previous := api.Config.Snapshot()
+		next := previous
+		err := config.ApplyPreset(&next, name)
+		if err != nil {
+			status = http.StatusBadRequest
+		} else {
+			err = api.commitConfig(next, previous)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), status)
 			return

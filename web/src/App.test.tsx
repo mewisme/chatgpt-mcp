@@ -10,6 +10,7 @@ const config = {
   server: { port: 37421, expose: { mode: "none", interfaces: [] }, allow_insecure_http: false },
   admin: { enabled: true, port: 37422 },
   auth: { mcp_enabled: true, admin_enabled: true, mcp_token_configured: true, admin_token_configured: true },
+  cluster: { enabled: false, relay_url: "", relay_token_configured: false },
   permissions: { allow_dirs: [] },
   shell: { path: [] },
   features: { ponytail: { enabled: true }, caveman: { enabled: true } },

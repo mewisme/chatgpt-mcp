@@ -60,6 +60,7 @@ export type PublicConfig = {
   server: { port: number; expose: { mode: "none" | "all" | "0.0.0.0" | "interfaces"; interfaces: string[] }; allow_insecure_http: boolean }
   admin: { enabled: boolean; port: number }
   auth: { mcp_enabled: boolean; admin_enabled: boolean; mcp_token_configured: boolean; admin_token_configured: boolean }
+  cluster: { enabled: boolean; relay_url: string; relay_token?: string; relay_token_configured: boolean }
   permissions: { allow_dirs: string[] }
   shell: { path: string[] }
   features: { ponytail: { enabled: boolean }; caveman: { enabled: boolean } }

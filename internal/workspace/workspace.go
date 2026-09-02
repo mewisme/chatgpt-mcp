@@ -17,7 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
-const storeVersion = 2
+const storeVersion = 3
 
 var ErrNotFound = errors.New("workspace not found")
 
@@ -77,10 +77,6 @@ func (m *Manager) Register(path string) (Workspace, error) {
 	if err := m.ensureLoaded(); err != nil {
 		return Workspace{}, err
 	}
-	identity, err := m.Instance()
-	if err != nil {
-		return Workspace{}, err
-	}
 	root, err := canonicalExistingDirectory(path)
 	if err != nil {
 		return Workspace{}, err
@@ -88,7 +84,7 @@ func (m *Manager) Register(path string) (Workspace, error) {
 	if m.protected(root) {
 		return Workspace{}, fmt.Errorf("workspace root is inside protected control-plane state: %s", root)
 	}
-	item := Workspace{ID: workspaceID(identity.ID, root), Path: root, AllowDirs: []string{}}
+	item := Workspace{ID: workspaceID(root), Path: root, AllowDirs: []string{}}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -315,26 +311,21 @@ func (m *Manager) ensureLoaded() error {
 	if err := configformat.UnmarshalPath(m.path, data, &stored); err != nil {
 		return fmt.Errorf("decode workspace registry: %w", err)
 	}
-	if stored.Version != 1 && stored.Version != storeVersion {
+	if stored.Version < 1 || stored.Version > storeVersion {
 		return fmt.Errorf("unsupported workspace registry version: %d", stored.Version)
 	}
-	identity, err := m.Instance()
-	if err != nil {
-		return fmt.Errorf("load instance identity: %w", err)
-	}
-	migrated := stored.Version == 1
+	migrated := stored.Version != storeVersion
 	for _, item := range stored.Workspaces {
 		if item.ID == "" || item.Path == "" {
 			return errors.New("workspace registry contains invalid entry")
 		}
-		if migrated {
-			legacyID := item.ID
-			item.ID = workspaceID(identity.ID, item.Path)
-			if legacyID != item.ID {
-				item.LegacyIDs = appendUniqueString(item.LegacyIDs, legacyID)
-				if err := m.migrateWorkspaceState(legacyID, item.ID); err != nil {
-					return err
-				}
+		canonicalID := workspaceID(item.Path)
+		if item.ID != canonicalID {
+			previousID := item.ID
+			item.ID = canonicalID
+			item.LegacyIDs = appendUniqueString(item.LegacyIDs, previousID)
+			if err := m.migrateWorkspaceState(previousID, canonicalID); err != nil {
+				return err
 			}
 		}
 		item.AllowDirs = normalizeRoots(item.AllowDirs)
@@ -635,12 +626,12 @@ func normalizeForID(path string) string {
 	return clean
 }
 
-func workspaceID(instanceID, path string) string {
-	sum := sha256.Sum256([]byte(instanceID + "\x00" + normalizeForID(path)))
+func workspaceID(path string) string {
+	sum := sha256.Sum256([]byte(normalizeForID(path)))
 	return "ws_" + hex.EncodeToString(sum[:])[:16]
 }
 
-func legacyWorkspaceID(path string) string {
-	sum := sha256.Sum256([]byte(normalizeForID(path)))
+func instanceScopedWorkspaceID(instanceID, path string) string {
+	sum := sha256.Sum256([]byte(instanceID + "\x00" + normalizeForID(path)))
 	return "ws_" + hex.EncodeToString(sum[:])[:16]
 }

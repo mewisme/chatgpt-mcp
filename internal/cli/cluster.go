@@ -32,6 +32,9 @@ func clusterCommand() *cobra.Command {
 func clusterRelayCommand() *cobra.Command {
 	var listen, path string
 	var allowInsecureHTTP bool
+	defaults := cluster.DefaultRelayServerOptions()
+	var maxConnections, maxRequestsPerSecond int
+	var helloTimeout, idleTimeout, writeTimeout time.Duration
 	cmd := &cobra.Command{Use: "relay", Short: "Run the cluster WebSocket relay in the foreground", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -49,21 +52,26 @@ func clusterRelayCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		options := cluster.RelayServerOptions{MaxConnections: maxConnections, MaxRequestsPerSecond: maxRequestsPerSecond, HelloTimeout: helloTimeout, IdleTimeout: idleTimeout, WriteTimeout: writeTimeout}
+		if err := validateClusterRelayOptions(options); err != nil {
+			return err
+		}
 		listener, err := net.Listen("tcp", address)
 		if err != nil {
 			return fmt.Errorf("listen for cluster relay: %w", err)
 		}
 		defer listener.Close()
 
-		mux := http.NewServeMux()
-		mux.Handle(path, cluster.NewRelayServer(token))
-		server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
+		relay := cluster.NewRelayServerWithBackend(token, cluster.NewMemoryRelay(), options)
+		server := &http.Server{Handler: relay.Handler(path), ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 1 << 20}
 		interrupt := newForegroundInterrupt(cmd, true)
 		defer interrupt.Close()
 		log := commandLogger(cmd)
 		defer log.Close()
 		log.Ready("CLUSTER", "cluster.relay.ready", "Cluster relay is ready", logger.With("listen", listener.Addr().String()), logger.With("path", path))
 		log.Detail("endpoint", "ws://"+listener.Addr().String()+path)
+		log.Detail("health", "http://"+listener.Addr().String()+"/health")
+		log.Detail("metrics", "http://"+listener.Addr().String()+"/metrics")
 		if !isLoopbackListen(address) {
 			log.Warning("CLUSTER", "cluster.relay.insecure", "Cluster relay is exposed over insecure HTTP", errors.New("terminate TLS before exposing this endpoint remotely"))
 		}
@@ -85,6 +93,7 @@ func clusterRelayCommand() *cobra.Command {
 			return nil
 		case <-interrupt.Context.Done():
 			log.Action("CLUSTER", "cluster.relay.stopping", "Stopping cluster relay")
+			_ = relay.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			err := server.Shutdown(ctx)
 			cancel()
@@ -98,7 +107,25 @@ func clusterRelayCommand() *cobra.Command {
 	cmd.Flags().StringVar(&listen, "listen", defaultClusterRelayListen, "relay listen address")
 	cmd.Flags().StringVar(&path, "path", defaultClusterRelayPath, "WebSocket relay path")
 	cmd.Flags().BoolVar(&allowInsecureHTTP, "allow-insecure-http", false, "allow a non-loopback relay listener without TLS")
+	cmd.Flags().IntVar(&maxConnections, "max-connections", defaults.MaxConnections, "maximum simultaneous relay connections")
+	cmd.Flags().IntVar(&maxRequestsPerSecond, "max-requests-per-second", defaults.MaxRequestsPerSecond, "maximum requests per second per relay connection")
+	cmd.Flags().DurationVar(&helloTimeout, "hello-timeout", defaults.HelloTimeout, "maximum time to receive the initial cluster hello")
+	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", defaults.IdleTimeout, "maximum idle time between relay messages")
+	cmd.Flags().DurationVar(&writeTimeout, "write-timeout", defaults.WriteTimeout, "maximum time for a relay WebSocket write")
 	return cmd
+}
+
+func validateClusterRelayOptions(options cluster.RelayServerOptions) error {
+	if options.MaxConnections < 1 {
+		return errors.New("cluster relay max connections must be greater than zero")
+	}
+	if options.MaxRequestsPerSecond < 1 {
+		return errors.New("cluster relay max requests per second must be greater than zero")
+	}
+	if options.HelloTimeout <= 0 || options.IdleTimeout <= 0 || options.WriteTimeout <= 0 {
+		return errors.New("cluster relay timeouts must be greater than zero")
+	}
+	return nil
 }
 
 func validateClusterRelayListen(value string, allowInsecure bool) (string, error) {
@@ -147,6 +174,9 @@ func normalizeClusterRelayPath(value string) (string, error) {
 	}
 	if value != "/" {
 		value = strings.TrimRight(value, "/")
+	}
+	if value == "/health" || value == "/metrics" {
+		return "", errors.New("cluster relay path conflicts with reserved health or metrics endpoint")
 	}
 	return value, nil
 }

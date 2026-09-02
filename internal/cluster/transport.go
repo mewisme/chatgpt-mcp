@@ -9,6 +9,11 @@ type Transport interface {
 	Connect(context.Context, Advertisement) (Session, error)
 }
 
+type RelayBackend interface {
+	Transport
+	Snapshot() Snapshot
+}
+
 type Session interface {
 	Advertise(context.Context, Advertisement) error
 	Snapshot(context.Context) (Snapshot, error)

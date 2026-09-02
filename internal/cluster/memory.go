@@ -110,7 +110,7 @@ func (r *MemoryRelay) advertise(instanceID string, advertisement Advertisement) 
 	return nil
 }
 
-func (r *MemoryRelay) snapshot() Snapshot {
+func (r *MemoryRelay) Snapshot() Snapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.expireLeadersLocked()
@@ -298,7 +298,7 @@ func (s *memorySession) Snapshot(context.Context) (Snapshot, error) {
 	if s.isClosed() {
 		return Snapshot{}, ErrClosed
 	}
-	return s.relay.snapshot(), nil
+	return s.relay.Snapshot(), nil
 }
 
 func (s *memorySession) TryAcquireLeadership(_ context.Context, tunnelID string, ttl time.Duration) (LeaderLease, bool, error) {

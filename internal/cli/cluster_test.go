@@ -1,6 +1,11 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/cluster"
+)
 
 func TestValidateClusterRelayListen(t *testing.T) {
 	for _, test := range []struct {
@@ -47,6 +52,8 @@ func TestNormalizeClusterRelayPath(t *testing.T) {
 		{value: "/", want: "/"},
 		{value: "cluster", wantErr: true},
 		{value: "/cluster?token=x", wantErr: true},
+		{value: "/health", wantErr: true},
+		{value: "/metrics/", wantErr: true},
 	} {
 		got, err := normalizeClusterRelayPath(test.value)
 		if test.wantErr {
@@ -60,6 +67,26 @@ func TestNormalizeClusterRelayPath(t *testing.T) {
 		}
 		if got != test.want {
 			t.Fatalf("normalizeClusterRelayPath(%q) = %q, want %q", test.value, got, test.want)
+		}
+	}
+}
+
+func TestValidateClusterRelayOptions(t *testing.T) {
+	valid := cluster.DefaultRelayServerOptions()
+	if err := validateClusterRelayOptions(valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*cluster.RelayServerOptions){
+		func(value *cluster.RelayServerOptions) { value.MaxConnections = 0 },
+		func(value *cluster.RelayServerOptions) { value.MaxRequestsPerSecond = 0 },
+		func(value *cluster.RelayServerOptions) { value.HelloTimeout = 0 },
+		func(value *cluster.RelayServerOptions) { value.IdleTimeout = -time.Second },
+		func(value *cluster.RelayServerOptions) { value.WriteTimeout = 0 },
+	} {
+		value := valid
+		mutate(&value)
+		if err := validateClusterRelayOptions(value); err == nil {
+			t.Fatalf("expected invalid relay options: %#v", value)
 		}
 	}
 }

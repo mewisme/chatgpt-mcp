@@ -532,7 +532,7 @@ func resolveGitLocation(ctx context.Context, workspaces *workspace.Manager, args
 
 	cwd := item.Path
 	if strings.TrimSpace(pathValue) != "" {
-		_, resolved, err := workspaces.ResolveWorkingDirectory(workspaceID, pathValue)
+		_, resolved, err := workspaces.ResolveDirectory(workspaceID, pathValue)
 		if err != nil {
 			return gitLocation{}, fmt.Errorf("path: %w", err)
 		}

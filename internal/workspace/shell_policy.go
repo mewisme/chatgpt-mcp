@@ -31,8 +31,8 @@ var (
 	}
 )
 
-func (m *Manager) ValidateShellCommand(id, workingDirectory, command string) error {
-	_, cwd, err := m.ResolveWorkingDirectory(id, workingDirectory)
+func (m *Manager) ValidateShellCommand(id, baseDirectory, command string) error {
+	_, cwd, err := m.ResolveDirectory(id, baseDirectory)
 	if err != nil {
 		return err
 	}
@@ -48,7 +48,7 @@ func (m *Manager) ValidateShellCommand(id, workingDirectory, command string) err
 	if !m.IsMutationCommand(command) {
 		return nil
 	}
-	return m.ValidateMutationCommand(id, workingDirectory, command)
+	return m.ValidateMutationCommand(id, baseDirectory, command)
 }
 
 func (m *Manager) validateProtectedShellAccess(cwd, command string, depth int) error {

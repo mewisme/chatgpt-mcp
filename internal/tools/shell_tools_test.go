@@ -189,12 +189,3 @@ func TestBackgroundMutationUsesPersistedCWDAndRejectsOutside(t *testing.T) {
 		t.Fatalf("outside background mutation was not denied: %#v", result)
 	}
 }
-
-func TestShellSchemasDoNotExposeWorkingDirectory(t *testing.T) {
-	runtime, _, _ := newShellToolTestRuntime(t)
-	for _, schema := range runtime.List() {
-		if (schema.Name == "run_command" || schema.Name == "start_process") && strings.Contains(string(schema.InputSchema), `"working_directory"`) {
-			t.Fatalf("%s still exposes working_directory: %s", schema.Name, schema.InputSchema)
-		}
-	}
-}

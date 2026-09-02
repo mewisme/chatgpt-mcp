@@ -32,8 +32,8 @@ func (m *Manager) IsMutationCommand(command string) bool {
 	return m.isMutationCommand(command, 0)
 }
 
-func (m *Manager) ValidateMutationCommand(id, workingDirectory, command string) error {
-	_, cwd, err := m.ResolveWorkingDirectory(id, workingDirectory)
+func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) error {
+	_, cwd, err := m.ResolveDirectory(id, baseDirectory)
 	if err != nil {
 		return err
 	}

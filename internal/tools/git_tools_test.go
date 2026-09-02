@@ -233,9 +233,6 @@ func TestGitToolCatalog(t *testing.T) {
 	names := map[string]bool{}
 	for _, schema := range runtime.List() {
 		names[schema.Name] = true
-		if strings.HasPrefix(schema.Name, "git_") && strings.Contains(string(schema.InputSchema), `"working_directory"`) {
-			t.Fatalf("%s still exposes working_directory: %s", schema.Name, schema.InputSchema)
-		}
 	}
 	for _, name := range []string{
 		"git_status", "git_diff", "git_log", "git_add", "git_commit", "git_branch",

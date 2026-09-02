@@ -145,7 +145,7 @@ func TestHTTPRuntimeToolsListHasCacheHints(t *testing.T) {
 
 func TestHTTPRuntimeToolCallRequiresMatchingNameHeader(t *testing.T) {
 	runtime := NewHTTPRuntime()
-	req := modernRequest("tools/call", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"git_status","arguments":{"working_directory":"."}}}`)
+	req := modernRequest("tools/call", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"git_status","arguments":{"workspace_id":"ws_missing"}}}`)
 	req.Header.Set(NameHeader, "read_text_file")
 	res := httptest.NewRecorder()
 	runtime.ServeHTTP(res, req)

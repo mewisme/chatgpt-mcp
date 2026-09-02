@@ -280,7 +280,7 @@ func TestConfigAPIPermissionsPatchUpdatesRuntimeAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := runtime.Workspaces.ResolveWorkingDirectory(item.ID, allowed); err == nil {
+	if _, _, err := runtime.Workspaces.ResolveDirectory(item.ID, allowed); err == nil {
 		t.Fatal("unconfigured directory was accessible")
 	}
 	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return nil }})
@@ -290,7 +290,7 @@ func TestConfigAPIPermissionsPatchUpdatesRuntimeAccess(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if _, _, err := runtime.Workspaces.ResolveWorkingDirectory(item.ID, allowed); err != nil {
+	if _, _, err := runtime.Workspaces.ResolveDirectory(item.ID, allowed); err != nil {
 		t.Fatalf("runtime access was not updated: %v", err)
 	}
 	canonicalAllowed, err := filepath.EvalSymlinks(allowed)
@@ -346,7 +346,7 @@ func TestConfigAPIPermissionsPersistenceFailureKeepsRuntimeAccess(t *testing.T) 
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if _, _, err := runtime.Workspaces.ResolveWorkingDirectory(item.ID, allowed); err == nil {
+	if _, _, err := runtime.Workspaces.ResolveDirectory(item.ID, allowed); err == nil {
 		t.Fatal("runtime access changed after persistence failure")
 	}
 	if len(store.Snapshot().Permissions.AllowDirs) != 0 {

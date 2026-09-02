@@ -213,7 +213,6 @@ func TestRunCommandMutationGuardStillApplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := baseArgs(workspaceID, root)
-	args["working_directory"] = root
 	args["command"] = "cd child && rm file.txt"
 	result := callTool(t, runtime, "run_command", args)
 	if !result.IsError || !strings.Contains(result.Content[0].Text, "cwd change") {
@@ -221,7 +220,7 @@ func TestRunCommandMutationGuardStillApplies(t *testing.T) {
 	}
 }
 
-func TestGitStatusUsesBoundWorkingDirectory(t *testing.T) {
+func TestGitStatusUsesWorkspaceRoot(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -260,20 +259,12 @@ func TestFilesystemToolCatalog(t *testing.T) {
 	}
 }
 
-func TestFilesystemAndContextSchemasDoNotExposeWorkingDirectory(t *testing.T) {
+func TestWorkspaceBoundSchemasDoNotExposeWorkingDirectory(t *testing.T) {
 	runtime, _, _ := newToolTestRuntime(t)
-	workspaceOnly := map[string]bool{
-		"read_text_file": true, "read_file_base64": true, "write_file": true, "write_file_base64": true, "edit_file": true, "multi_edit": true,
-		"replace_regex": true, "apply_patch": true, "list_directory": true, "glob": true, "grep": true, "delete_file": true, "create_directory": true,
-		"delete_directory": true, "copy_file": true, "move_file": true, "search_files": true, "directory_tree": true, "list_allowed_directories": true,
-		"read_files": true, "project_context": true, "agent_status": true, "load_path_rules": true,
-	}
 	for _, schema := range runtime.List() {
-		if !workspaceOnly[schema.Name] || strings.Contains(string(schema.InputSchema), `"working_directory"`) {
-			if workspaceOnly[schema.Name] && strings.Contains(string(schema.InputSchema), `"working_directory"`) {
-				t.Fatalf("%s still exposes working_directory: %s", schema.Name, schema.InputSchema)
-			}
-			continue
+		input := string(schema.InputSchema)
+		if strings.Contains(input, `"workspace_id"`) && strings.Contains(input, `"working_directory"`) {
+			t.Fatalf("%s still exposes working_directory: %s", schema.Name, schema.InputSchema)
 		}
 	}
 }

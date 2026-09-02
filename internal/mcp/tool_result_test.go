@@ -12,8 +12,8 @@ func TestRuntimeToolCallReturnsMCPResult(t *testing.T) {
 	result, err := runtime.Handle(context.Background(), "tools/call", map[string]any{
 		"name": "read_text_file",
 		"arguments": map[string]any{
-			"working_directory": t.TempDir(),
-			"path":              "missing.txt",
+			"workspace_id": "ws_missing",
+			"path":         "missing.txt",
 		},
 	})
 	if err != nil {

@@ -39,14 +39,14 @@ func TestRegisterIsStableAndPersistent(t *testing.T) {
 	}
 }
 
-func TestResolveWorkingDirectoryRejectsEscape(t *testing.T) {
+func TestResolveDirectoryRejectsEscape(t *testing.T) {
 	root := t.TempDir()
 	manager := newTestManager(t)
 	item, err := manager.Register(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := manager.ResolveWorkingDirectory(item.ID, filepath.Dir(root)); err == nil {
+	if _, _, err := manager.ResolveDirectory(item.ID, filepath.Dir(root)); err == nil {
 		t.Fatal("expected working directory escape to be rejected")
 	}
 }
@@ -188,7 +188,7 @@ func TestGlobalAllowDirExtendsWorkspaceScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	expectedAllowed := canonicalRoot(allowed)
-	if _, cwd, err := manager.ResolveWorkingDirectory(item.ID, allowed); err != nil || cwd != expectedAllowed {
+	if _, cwd, err := manager.ResolveDirectory(item.ID, allowed); err != nil || cwd != expectedAllowed {
 		t.Fatalf("allowed cwd = %q, want %q err=%v", cwd, expectedAllowed, err)
 	}
 	path := filepath.Join(allowed, "artifact.txt")
@@ -223,7 +223,7 @@ func TestWorkspaceAllowDirPersistsAndRejectsSymlinkEscape(t *testing.T) {
 		t.Fatalf("allow dirs = %#v, want %q", item.AllowDirs, expectedAllowed)
 	}
 	reloaded := NewManager(store)
-	if _, _, err := reloaded.ResolveWorkingDirectory(item.ID, allowed); err != nil {
+	if _, _, err := reloaded.ResolveDirectory(item.ID, allowed); err != nil {
 		t.Fatalf("persisted allow dir rejected: %v", err)
 	}
 	link := filepath.Join(allowed, "outside-link")
@@ -236,7 +236,7 @@ func TestWorkspaceAllowDirPersistsAndRejectsSymlinkEscape(t *testing.T) {
 	if _, err := reloaded.RemoveAllowDir(item.ID, allowed); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := reloaded.ResolveWorkingDirectory(item.ID, allowed); err == nil {
+	if _, _, err := reloaded.ResolveDirectory(item.ID, allowed); err == nil {
 		t.Fatal("removed allow dir remained accessible")
 	}
 }
@@ -266,7 +266,7 @@ func TestControlPlaneStateIsExcludedFromWorkspaceScope(t *testing.T) {
 			t.Fatalf("protected control-plane path was accessible: %s", path)
 		}
 	}
-	if _, _, err := manager.ResolveWorkingDirectory(item.ID, controlPlane); err == nil {
+	if _, _, err := manager.ResolveDirectory(item.ID, controlPlane); err == nil {
 		t.Fatal("protected control-plane directory was accepted as working directory")
 	}
 	if _, err := manager.AddAllowDir(item.ID, controlPlane); err == nil {

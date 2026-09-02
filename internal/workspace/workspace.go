@@ -195,7 +195,7 @@ func (m *Manager) List() ([]Workspace, error) {
 	return items, nil
 }
 
-func (m *Manager) ResolveWorkingDirectory(id, input string) (Workspace, string, error) {
+func (m *Manager) ResolveDirectory(id, input string) (Workspace, string, error) {
 	item, err := m.Get(id)
 	if err != nil {
 		return Workspace{}, "", err
@@ -212,13 +212,13 @@ func (m *Manager) ResolveWorkingDirectory(id, input string) (Workspace, string, 
 		return Workspace{}, "", err
 	}
 	if !m.allowed(item.ID, canonical) {
-		return Workspace{}, "", fmt.Errorf("working_directory escapes workspace: %s", canonical)
+		return Workspace{}, "", fmt.Errorf("directory escapes workspace: %s", canonical)
 	}
 	return item, canonical, nil
 }
 
-func (m *Manager) ResolvePath(id, workingDirectory, input string, mustExist bool) (string, error) {
-	item, cwd, err := m.ResolveWorkingDirectory(id, workingDirectory)
+func (m *Manager) ResolvePath(id, baseDirectory, input string, mustExist bool) (string, error) {
+	item, cwd, err := m.ResolveDirectory(id, baseDirectory)
 	if err != nil {
 		return "", err
 	}

@@ -2,12 +2,7 @@ package tools
 
 import (
 	"context"
-	"fmt"
 )
-
-type Context struct {
-	WorkingDirectory string
-}
 
 type InputRound struct {
 	RequestState   string
@@ -26,12 +21,4 @@ func WithInputRound(ctx context.Context, requestState string, inputResponses map
 func InputRoundFromContext(ctx context.Context) InputRound {
 	value, _ := ctx.Value(inputRoundContextKey{}).(InputRound)
 	return value
-}
-
-func RequireWorkingDirectory(args map[string]any) error {
-	value, ok := args["working_directory"].(string)
-	if !ok || value == "" {
-		return fmt.Errorf("working_directory is required")
-	}
-	return nil
 }

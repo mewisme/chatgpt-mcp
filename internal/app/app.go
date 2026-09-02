@@ -1,11 +1,13 @@
 package app
 
 import (
+	"context"
 	"net/http"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
 	"go.mewis.me/chatgpt-mcp/internal/admin"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
+	"go.mewis.me/chatgpt-mcp/internal/cluster"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
@@ -18,16 +20,19 @@ import (
 )
 
 type App struct {
-	Config       *config.RuntimeStore
-	MCP          *mcp.HTTPRuntime
-	Upstream     *upstream.Manager
-	Tools        *tools.Runtime
-	Activity     *activity.Stream
-	Tunnel       *tunnel.Client
-	Logger       *logger.Logger
-	OAuth        *mcpoauth.Store
-	OAuthFlows   *mcpoauth.FlowManager
-	tunnelLeader *tunnelLeaderCoordinator
+	Config                  *config.RuntimeStore
+	MCP                     *mcp.HTTPRuntime
+	Upstream                *upstream.Manager
+	Tools                   *tools.Runtime
+	Activity                *activity.Stream
+	Tunnel                  *tunnel.Client
+	Logger                  *logger.Logger
+	OAuth                   *mcpoauth.Store
+	OAuthFlows              *mcpoauth.FlowManager
+	tunnelLeader            *tunnelLeaderCoordinator
+	clusterTransportFactory func(config.ClusterConfig) cluster.Transport
+	runtimeCtx              context.Context
+	running                 bool
 }
 
 func New(cfg config.Config) *App { return NewWithLogger(cfg, nil) }

@@ -167,8 +167,9 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			Go:                    runtime.Version(),
 			Quickstart: []string{
 				"Register one workspace and pass its workspace_id to local tools.",
+				"Filesystem and git paths resolve from the registered workspace root; shell commands use the persisted shell cwd.",
 				"Read before editing; use apply_patch/edit_file for deterministic changes.",
-				"Mutating shell commands require a matching explicit working_directory.",
+				"Use workspace_status to inspect workspace root, shell cwd, and allowed directories.",
 				"Use rewind to list, preview, or restore automatic file checkpoints.",
 			},
 			Rewind: checkpoints.Config(item.ID),

@@ -24,12 +24,15 @@ type VersionResult struct {
 	BuildTime string `json:"build_time"`
 }
 
-func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
+func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store, shells ...*shellruntime.Manager) {
 	registry.MustRegister("get_version", coreSchema("get_version", "Get the running chatgpt-mcp binary version, commit, and build time.", `{"type":"object","properties":{},"additionalProperties":false}`, `{"type":"object","properties":{"version":{"type":"string"},"commit":{"type":"string"},"build_time":{"type":"string"}},"required":["version","commit","build_time"],"additionalProperties":false}`, RiskRead), func(context.Context, map[string]any) (Result, error) {
 		return JSONResult(VersionResult{Version: version.Version, Commit: version.Commit, BuildTime: version.Date}), nil
 	})
 	RegisterFilesystemTools(registry, workspaces, checkpoints)
 	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
+	if len(shells) > 0 && shells[0] != nil {
+		shell = shells[0]
+	}
 	processes := shellruntime.NewProcessManager(workspaces, shell)
 	RegisterShellTools(registry, workspaces, shell, processes)
 	RegisterGitTools(registry, workspaces)

@@ -23,9 +23,9 @@ func newShellToolTestRuntime(t *testing.T) (*Runtime, string, string) {
 	}
 	checkpoints := checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoint-state"))
 	registry := NewRegistry()
-	RegisterWorkspaceTools(registry, workspaces)
-	RegisterFilesystemTools(registry, workspaces, checkpoints)
 	shell := shellruntime.NewManager(workspaces, filepath.Join(t.TempDir(), "shell-state"))
+	RegisterWorkspaceTools(registry, workspaces, shell)
+	RegisterFilesystemTools(registry, workspaces, checkpoints)
 	processes := shellruntime.NewProcessManager(workspaces, shell)
 	RegisterShellTools(registry, workspaces, shell, processes)
 	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}, item.ID, item.Path
@@ -51,6 +51,17 @@ func TestShellToolsPersistCWD(t *testing.T) {
 	status := statusResult.StructuredContent.(shellruntime.Status)
 	if filepath.Clean(status.CWD) != filepath.Clean(child) {
 		t.Fatalf("cwd = %q, want %q", status.CWD, child)
+	}
+	workspaceStatusResult, err := runtime.Call(context.Background(), "workspace_status", map[string]any{"workspace_id": workspaceID})
+	if err != nil || workspaceStatusResult.IsError {
+		t.Fatalf("workspace_status failed: result=%#v err=%v", workspaceStatusResult, err)
+	}
+	workspaceStatus := workspaceStatusResult.StructuredContent.(WorkspaceStatusResult)
+	if filepath.Clean(workspaceStatus.WorkspaceRoot) != filepath.Clean(root) || filepath.Clean(workspaceStatus.ShellCWD) != filepath.Clean(child) {
+		t.Fatalf("workspace status = %#v", workspaceStatus)
+	}
+	if len(workspaceStatus.AllowedDirectories) == 0 || filepath.Clean(workspaceStatus.AllowedDirectories[0]) != filepath.Clean(root) {
+		t.Fatalf("allowed directories = %#v", workspaceStatus.AllowedDirectories)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -14,12 +15,13 @@ type WorkspaceRegistrationResult struct {
 }
 
 type WorkspaceStatusResult struct {
-	WorkspaceID      string `json:"workspace_id"`
-	WorkspaceRoot    string `json:"workspace_root"`
-	WorkingDirectory string `json:"working_directory"`
+	WorkspaceID        string   `json:"workspace_id"`
+	WorkspaceRoot      string   `json:"workspace_root"`
+	ShellCWD           string   `json:"shell_cwd"`
+	AllowedDirectories []string `json:"allowed_directories"`
 }
 
-func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager) {
+func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager, shells ...*shellruntime.Manager) {
 	registry.MustRegister("workspace_register", Schema{
 		Name:         "workspace_register",
 		Title:        "Register Workspace",
@@ -42,24 +44,32 @@ func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager) {
 	registry.MustRegister("workspace_status", Schema{
 		Name:         "workspace_status",
 		Title:        "Workspace Status",
-		Description:  "Resolve a registered workspace and optional working_directory.",
-		InputSchema:  json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id"],"additionalProperties":false}`),
-		OutputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"workspace_root":{"type":"string"},"working_directory":{"type":"string"}},"required":["workspace_id","workspace_root","working_directory"],"additionalProperties":false}`),
+		Description:  "Resolve a registered workspace, its filesystem root, persisted shell cwd, and allowed directories.",
+		InputSchema:  json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"}},"required":["workspace_id"],"additionalProperties":false}`),
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"workspace_root":{"type":"string"},"shell_cwd":{"type":"string"},"allowed_directories":{"type":"array","items":{"type":"string"}}},"required":["workspace_id","workspace_root","shell_cwd","allowed_directories"],"additionalProperties":false}`),
 		Annotations:  ToolAnnotations(RiskRead),
 	}, func(_ context.Context, args map[string]any) (Result, error) {
 		id, err := requiredString(args, "workspace_id")
 		if err != nil {
 			return Result{}, err
 		}
-		workingDirectory, err := optionalString(args, "working_directory")
+		ctx, err := manager.ResolveContext(id)
 		if err != nil {
 			return Result{}, err
 		}
-		item, cwd, err := manager.ResolveWorkingDirectory(id, workingDirectory)
+		roots, err := manager.EffectiveRoots(id)
 		if err != nil {
 			return Result{}, err
 		}
-		return JSONResult(WorkspaceStatusResult{WorkspaceID: item.ID, WorkspaceRoot: item.Path, WorkingDirectory: cwd}), nil
+		shellCWD := ctx.Root
+		if len(shells) > 0 && shells[0] != nil {
+			status, err := shells[0].Status(id)
+			if err != nil {
+				return Result{}, err
+			}
+			shellCWD = status.CWD
+		}
+		return JSONResult(WorkspaceStatusResult{WorkspaceID: ctx.Workspace.ID, WorkspaceRoot: ctx.Root, ShellCWD: shellCWD, AllowedDirectories: roots}), nil
 	})
 }
 

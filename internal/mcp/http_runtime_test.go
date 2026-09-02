@@ -97,7 +97,7 @@ func TestHTTPRuntimeDiscoverIsStateless(t *testing.T) {
 	if !ok || instructions != ServerInstructions {
 		t.Fatalf("instructions = %#v", result["instructions"])
 	}
-	for _, expected := range []string{"workspace_register", "workspace_status", "agent_status", "project_context", "list_skills", "load_skill", "load_path_rules", "working_directory"} {
+	for _, expected := range []string{"workspace_register", "workspace_status", "agent_status", "project_context", "list_skills", "load_skill", "load_path_rules", "persisted shell cwd"} {
 		if !strings.Contains(instructions, expected) {
 			t.Fatalf("instructions missing %q: %s", expected, instructions)
 		}

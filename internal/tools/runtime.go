@@ -10,6 +10,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
+	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -41,8 +42,9 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	_ = upstreams.Load()
 	registry := NewRegistry()
 	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
-	RegisterWorkspaceTools(registry, workspaces)
-	RegisterCore(registry, workspaces, checkpoints)
+	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
+	RegisterWorkspaceTools(registry, workspaces, shell)
+	RegisterCore(registry, workspaces, checkpoints, shell)
 	RegisterUpstreamTools(registry, upstreams)
 	if err := runtime.SyncFeatures(featureConfig); err != nil {
 		panic(err)

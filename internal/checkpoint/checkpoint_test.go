@@ -3,6 +3,7 @@ package checkpoint
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -110,5 +111,47 @@ func TestCheckpointMetadataFollowsRootConfigFormat(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(store.Path("ws_test"), "data", id, "manifest.yaml")); err != nil {
 		t.Fatalf("checkpoint manifest did not follow YAML format: %v", err)
+	}
+}
+
+func TestCheckpointYAMLManifestPreservesColonContent(t *testing.T) {
+	stateRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stateRoot, "config.yaml"), []byte("server: {}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	workspaceRoot := t.TempDir()
+	file := filepath.Join(workspaceRoot, "file.txt")
+	content := "name: value\nurl: https://example.com\nheader: x:y\nplain"
+	if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(stateRoot)
+	id, err := store.Before("ws_test", workspaceRoot, "edit_file", []string{file}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(store.Path("ws_test"), "data", id, "manifest.yaml")
+	manifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(manifest), "content: |") || !strings.Contains(string(manifest), "name: value") {
+		t.Fatalf("manifest content is not encoded as a YAML block scalar:\n%s", manifest)
+	}
+	if _, err := store.PreviewRestore("ws_test", workspaceRoot, id); err != nil {
+		t.Fatalf("preview failed to decode YAML checkpoint: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("changed"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Restore("ws_test", workspaceRoot, id); err != nil {
+		t.Fatalf("restore failed to decode YAML checkpoint: %v", err)
+	}
+	restored, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(restored) != content {
+		t.Fatalf("restored content = %q, want %q", restored, content)
 	}
 }

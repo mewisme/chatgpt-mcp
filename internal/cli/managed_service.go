@@ -180,7 +180,7 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 	if !source.Exists {
 		return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init first")
 	}
-	if _, err := config.Verify(); err != nil {
+	if _, err := config.VerifyRuntime(); err != nil {
 		return err
 	}
 	cfg, err := config.Load()

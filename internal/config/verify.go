@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
@@ -15,10 +17,14 @@ type VerifyResult struct {
 }
 
 func Verify() (VerifyResult, error) {
-	return verifyAt(RootPath())
+	return verifyAt(RootPath(), false)
 }
 
-func verifyAt(root string) (VerifyResult, error) {
+func VerifyRuntime() (VerifyResult, error) {
+	return verifyAt(RootPath(), true)
+}
+
+func verifyAt(root string, skipCheckpoints bool) (VerifyResult, error) {
 	source, err := configformat.Discover(root)
 	if err != nil {
 		return VerifyResult{}, err
@@ -31,6 +37,9 @@ func verifyAt(root string) (VerifyResult, error) {
 		return VerifyResult{}, err
 	}
 	for _, file := range files {
+		if skipCheckpoints && isCheckpointStateFile(root, file.path) {
+			continue
+		}
 		if file.ext != source.Ext {
 			return VerifyResult{}, fmt.Errorf("structured config format mismatch: %s uses %s, expected %s", file.path, file.ext, source.Ext)
 		}
@@ -50,4 +59,13 @@ func verifyAt(root string) (VerifyResult, error) {
 		return VerifyResult{}, err
 	}
 	return VerifyResult{Format: source.Format, Ext: source.Ext, Files: len(files)}, nil
+}
+
+func isCheckpointStateFile(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(filepath.Clean(relative), string(filepath.Separator))
+	return len(parts) >= 4 && parts[0] == "workspaces" && parts[2] == "checkpoints"
 }

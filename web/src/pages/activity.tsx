@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createColumnHelper } from "@tanstack/react-table"
-import { CircleDot, Pause, Play, Radio, Search, Trash2 } from "lucide-react"
+import { CircleDot, Pause, Play, Radio, RefreshCw, Search, Trash2 } from "lucide-react"
 import { DataTable } from "@/components/data-table"
 import { DataTableColumnHeader } from "@/components/data-table-column-header"
 import type { DataTableFeatures } from "@/components/data-table-features"
@@ -44,22 +44,24 @@ export function ActivityPage() {
   const [paused, setPaused] = useState(false)
   const pausedRef = useRef(false)
   const [connected, setConnected] = useState(false)
+  const [connecting, setConnecting] = useState(true)
+  const [streamVersion, setStreamVersion] = useState(0)
   const [error, setError] = useState("")
 
   useEffect(() => { pausedRef.current = paused }, [paused])
   useEffect(() => {
     const controller = new AbortController()
     void streamActivity(controller.signal, {
-      onReady: () => setConnected(true),
-      onEvent: (event) => { setConnected(true); if (pausedRef.current) setPending((items) => [event, ...items].slice(0, 200)); else setEvents((items) => [event, ...items].slice(0, 200)) },
+      onReady: () => { setConnected(true); setConnecting(false) },
+      onEvent: (event) => { setConnected(true); setConnecting(false); if (pausedRef.current) setPending((items) => prependActivity(items, event)); else setEvents((items) => prependActivity(items, event)) },
       onGap: (from, to) => setError(`Activity stream skipped ${to - from - 1} event(s) between sequence ${from} and ${to}.`),
     }).then(() => {
-      if (!controller.signal.aborted) { setConnected(false); setError("Activity stream closed; reload to reconnect.") }
+      if (!controller.signal.aborted) { setConnected(false); setConnecting(false); setError("Activity stream closed; use Refresh to reconnect.") }
     }).catch((value) => {
-      if (!controller.signal.aborted) { setConnected(false); setError(errorText(value)) }
+      if (!controller.signal.aborted) { setConnected(false); setConnecting(false); setError(errorText(value)) }
     })
     return () => controller.abort()
-  }, [])
+  }, [streamVersion])
 
   const kinds = useMemo(() => unique(events, pending, (event) => event.kind), [events, pending])
   const statuses = useMemo(() => unique(events, pending, (event) => event.status), [events, pending])
@@ -75,10 +77,11 @@ export function ActivityPage() {
     })
   }, [events, kind, query, source, status])
 
-  function resume() { setEvents((items) => [...pending, ...items].slice(0, 200)); setPending([]); setPaused(false) }
+  function resume() { setEvents((items) => mergeActivity(pending, items)); setPending([]); setPaused(false) }
+  function refresh() { setConnected(false); setConnecting(true); setError(""); setStreamVersion((value) => value + 1) }
   function clear() { setEvents([]); setPending([]) }
 
-  return <div className="space-y-6"><PageHeader title="Activity" description="Live MCP requests, tool calls, and runtime lifecycle events. Open any event to inspect its complete metadata." actions={<><Badge variant={connected ? "secondary" : "outline"}><CircleDot className="size-3" />{connected ? "Live" : "Connecting"}</Badge><Button size="sm" variant="outline" onClick={() => paused ? resume() : setPaused(true)}>{paused ? <Play /> : <Pause />}{paused ? `Resume${pending.length ? ` (${pending.length})` : ""}` : "Pause"}</Button><Button size="sm" variant="outline" onClick={clear}><Trash2 />Clear</Button></>} /><PageError message={error} /><div className="flex flex-col gap-2 lg:flex-row"><div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search tool, workspace, source, message..." value={query} onChange={(event) => setQuery(event.target.value)} /></div><FilterSelect label="All event types" value={kind} values={kinds} onValueChange={setKind} /><FilterSelect label="All statuses" value={status} values={statuses} onValueChange={setStatus} /><FilterSelect label="All sources" value={source} values={sources} onValueChange={setSource} /></div>{paused && pending.length ? <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{pending.length} new event{pending.length === 1 ? "" : "s"} waiting while paused.</div> : null}{filtered.length === 0 ? <PageEmpty icon={Radio} title="No matching activity" description={events.length ? "Adjust the filters or resume the live stream." : "Activity will appear here as MCP requests and tools run."} /> : mobile ? <ActivityMobileList events={filtered} onSelect={setSelected} /> : <DataTable columns={columns} data={filtered} onRowClick={setSelected} pageSize={20} />}{selected ? <ActivityDetail event={selected} open onOpenChange={(open) => { if (!open) setSelected(null) }} /> : null}</div>
+  return <div className="space-y-6"><PageHeader title="Activity" description="Live MCP requests, tool calls, and runtime lifecycle events. Open any event to inspect its complete metadata." actions={<><Badge variant={connected ? "secondary" : "outline"}><CircleDot className="size-3" />{connected ? "Live" : connecting ? "Connecting" : "Disconnected"}</Badge><Button size="sm" variant="outline" onClick={refresh}><RefreshCw className={connecting ? "animate-spin" : ""} />Refresh</Button><Button size="sm" variant="outline" onClick={() => paused ? resume() : setPaused(true)}>{paused ? <Play /> : <Pause />}{paused ? `Resume${pending.length ? ` (${pending.length})` : ""}` : "Pause"}</Button><Button size="sm" variant="outline" onClick={clear}><Trash2 />Clear</Button></>} /><PageError message={error} /><div className="flex flex-col gap-2 lg:flex-row"><div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search tool, workspace, source, message..." value={query} onChange={(event) => setQuery(event.target.value)} /></div><FilterSelect label="All event types" value={kind} values={kinds} onValueChange={setKind} /><FilterSelect label="All statuses" value={status} values={statuses} onValueChange={setStatus} /><FilterSelect label="All sources" value={source} values={sources} onValueChange={setSource} /></div>{paused && pending.length ? <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{pending.length} new event{pending.length === 1 ? "" : "s"} waiting while paused.</div> : null}{filtered.length === 0 ? <PageEmpty icon={Radio} title="No matching activity" description={events.length ? "Adjust the filters or resume the live stream." : "Activity will appear here as MCP requests and tools run."} /> : mobile ? <ActivityMobileList events={filtered} onSelect={setSelected} /> : <DataTable columns={columns} data={filtered} onRowClick={setSelected} pageSize={20} />}{selected ? <ActivityDetail event={selected} open onOpenChange={(open) => { if (!open) setSelected(null) }} /> : null}</div>
 }
 
 function ActivityMobileList({ events, onSelect }: { events: ActivityEvent[]; onSelect: (event: ActivityEvent) => void }) {
@@ -98,6 +101,8 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={destructive ? "destructive" : status === "success" || status === "completed" || status === "ok" ? "secondary" : "outline"}>{status}</Badge>
 }
 
+function prependActivity(items: ActivityEvent[], event: ActivityEvent) { return [event, ...items.filter((item) => !event.sequence || item.sequence !== event.sequence)].slice(0, 200) }
+function mergeActivity(head: ActivityEvent[], tail: ActivityEvent[]) { return [...head, ...tail].reduce<ActivityEvent[]>((items, event) => event.sequence && items.some((item) => item.sequence === event.sequence) ? items : [...items, event], []).slice(0, 200) }
 function unique(events: ActivityEvent[], pending: ActivityEvent[], pick: (event: ActivityEvent) => string | undefined) { return [...new Set([...events, ...pending].map(pick).filter((value): value is string => Boolean(value)))].sort() }
 function activityTitle(event: ActivityEvent) { return event.tool || event.method || event.kind }
 function formatDuration(value: number) { return value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} s` }

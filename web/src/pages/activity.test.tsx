@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -29,6 +29,28 @@ describe("activity page", () => {
     expect(screen.getAllByText(/req_test/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/call_1/).length).toBeGreaterThan(0)
     await act(async () => { controller?.close() })
+    view.unmount()
+  })
+
+  it("reconnects the activity stream without reloading the page", async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    const fetchMock = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start(value) { controllers.push(value); value.enqueue(encoder.encode('event: ready\ndata: {"latest_sequence":0}\n\n')) } }), { status: 200, headers: { "Content-Type": "text/event-stream" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    const view = render(<TooltipProvider><ActivityPage /></TooltipProvider>)
+
+    expect(await screen.findByText("Live")).toBeInTheDocument()
+    await act(async () => { controllers[0].close() })
+    expect(await screen.findByText("Disconnected")).toBeInTheDocument()
+    expect(screen.getByText("Activity stream closed; use Refresh to reconnect.")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Refresh" }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText("Live")).toBeInTheDocument()
+    expect(screen.queryByText("Activity stream closed; use Refresh to reconnect.")).not.toBeInTheDocument()
+
+    await act(async () => { controllers[1].close() })
     view.unmount()
   })
 })

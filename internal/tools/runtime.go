@@ -21,6 +21,7 @@ type Runtime struct {
 	Checkpoints     *checkpoint.Store
 	Upstream        *upstream.Manager
 	CallObserver    CallObserver
+	SessionBindings *SessionWorkspaceBinder
 	featureMu       sync.Mutex
 	features        features.Config
 	ponytailManager *ponytail.Manager
@@ -41,7 +42,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	upstreams := upstream.NewManager(upstream.NewStore(upstream.Path()))
 	_ = upstreams.Load()
 	registry := NewRegistry()
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionBindings: NewSessionWorkspaceBinder(), ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
 	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)

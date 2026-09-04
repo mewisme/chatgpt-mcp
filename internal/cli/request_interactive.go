@@ -265,7 +265,7 @@ func (m *requestInteractiveModel) startConfirmation(action string, request appro
 func (m requestInteractiveModel) View() tea.View {
 	content := m.list.View()
 	if m.detail {
-		content = m.detailView()
+		content = interactive.CenterOverlay(content, m.detailView(), m.width, m.height)
 	} else if m.confirm.Active() {
 		message := fmt.Sprintf("%s %s? [y/N]", requestActionTitle(m.confirm.Action), m.confirm.Target)
 		content += "\n" + interactive.Banner(message, interactive.ToneWarning) + "\n"
@@ -287,7 +287,7 @@ func (m requestInteractiveModel) detailView() string {
 		right += "  " + interactive.Secondary(countdown)
 	}
 	var builder strings.Builder
-	builder.WriteString(interactive.TwoColumn(interactive.Title(title), right, m.contentWidth()))
+	builder.WriteString(interactive.TwoColumn(interactive.Title(title), right, m.modalContentWidth()))
 	if m.err != nil {
 		builder.WriteString("\n")
 		builder.WriteString(interactive.Banner(m.err.Error(), interactive.ToneDanger))
@@ -296,15 +296,21 @@ func (m requestInteractiveModel) detailView() string {
 		builder.WriteString("\n")
 		builder.WriteString(interactive.Banner(m.notice, interactive.ToneSuccess))
 	}
-	builder.WriteString("\n\n")
-	builder.WriteString(interactive.Panel(m.viewport.View(), max(12, m.contentWidth()-2)))
-	builder.WriteString("\n\n")
-	builder.WriteString(interactive.DefaultHelp(m.contentWidth(),
-		interactive.Binding([]string{"j", "k"}, "j/k", "scroll"), interactive.Binding([]string{"pgup", "pgdown"}, "pgup/pgdn", "page"), requestApproveBinding,
-		requestDenyBinding, requestRefreshBinding, interactive.Binding([]string{"esc"}, "esc", "back"), interactive.Binding([]string{"ctrl+c"}, "ctrl+c", "quit"),
-	))
 	builder.WriteString("\n")
-	return builder.String()
+	builder.WriteString(interactive.Divider(m.modalContentWidth()))
+	builder.WriteString("\n")
+	builder.WriteString(m.viewport.View())
+	if m.confirm.Active() {
+		builder.WriteString("\n\n")
+		message := fmt.Sprintf("%s %s? [y/N]", requestActionTitle(m.confirm.Action), m.confirm.Target)
+		builder.WriteString(interactive.Banner(message, interactive.ToneWarning))
+	}
+	builder.WriteString("\n\n")
+	builder.WriteString(interactive.DefaultHelp(m.modalContentWidth(),
+		interactive.Binding([]string{"j", "k"}, "j/k", "scroll"), requestApproveBinding,
+		requestDenyBinding, requestRefreshBinding, interactive.Binding([]string{"esc", "q"}, "esc/q", "close"), interactive.Binding([]string{"ctrl+c"}, "ctrl+c", "quit"),
+	))
+	return interactive.Modal(builder.String(), m.modalWidth())
 }
 
 func (m requestInteractiveModel) selected() (approval.Request, bool) {
@@ -380,8 +386,12 @@ func (m requestInteractiveModel) resolveCmd(action, id string) tea.Cmd {
 }
 
 func (m *requestInteractiveModel) resizeViewport() {
-	m.viewport.SetWidth(max(12, m.contentWidth()-6))
-	m.viewport.SetHeight(max(5, m.height-6))
+	m.viewport.SetWidth(max(12, m.modalContentWidth()))
+	height := m.height
+	if height <= 0 {
+		height = 20
+	}
+	m.viewport.SetHeight(max(5, min(18, height-10)))
 }
 
 func (m *requestInteractiveModel) syncDetailViewport() {
@@ -390,27 +400,39 @@ func (m *requestInteractiveModel) syncDetailViewport() {
 	}
 	request := m.detailRequest
 	var builder strings.Builder
-	builder.WriteString(interactive.KeyValue("Request", request.ID))
-	builder.WriteString("\n")
-	builder.WriteString(interactive.KeyValue("Status", interactive.ToneText(string(request.Status), requestStatusTone(request.Status))))
-	builder.WriteString("\n")
-	builder.WriteString(interactive.KeyValue("Workspace", request.WorkspaceID))
-	builder.WriteString("\n")
-	builder.WriteString(interactive.KeyValue("Tool", request.TargetTool))
-	builder.WriteString("\n")
-	if request.Source != "" {
-		builder.WriteString(interactive.KeyValue("Source", request.Source))
-		builder.WriteString("\n")
+	requestDetailRow(&builder, "Workspace", request.WorkspaceID)
+	requestDetailRow(&builder, "Request", request.ID)
+	requestDetailRow(&builder, "Tool", request.TargetTool)
+	requestDetailRow(&builder, "Source", emptyRequestValue(request.Source))
+	requestDetailRow(&builder, "Session", emptyRequestValue(request.SessionHash))
+	guard := strings.TrimSpace(string(request.GuardCode))
+	if guard == "" {
+		guard = strings.TrimSpace(request.GuardReason)
 	}
-	builder.WriteString(interactive.KeyValue("Expires", requestCountdown(request, m.now)))
-	builder.WriteString("\n")
-	if request.GuardReason != "" {
-		builder.WriteString(interactive.KeyValue("Guard", request.GuardReason))
-		builder.WriteString("\n")
+	if guard == "" {
+		guard = "control-plane mutation"
+	}
+	requestDetailRow(&builder, "Guard", guard)
+	requestDetailRow(&builder, "Created", requestInteractiveTime(request.CreatedAt))
+	requestDetailRow(&builder, "Expires", requestInteractiveTime(request.ExpiresAt))
+	if !request.ResolvedAt.IsZero() {
+		requestDetailRow(&builder, "Resolved", requestInteractiveTime(request.ResolvedAt))
+	}
+	if request.ResolvedBy != "" {
+		requestDetailRow(&builder, "Resolved by", request.ResolvedBy)
+	}
+	if request.Reason != "" {
+		requestDetailRow(&builder, "Reason", request.Reason)
+	}
+	if !request.RetryUntil.IsZero() {
+		requestDetailRow(&builder, "Retry until", requestInteractiveTime(request.RetryUntil))
+	}
+	if !request.ConsumedAt.IsZero() {
+		requestDetailRow(&builder, "Consumed", requestInteractiveTime(request.ConsumedAt))
 	}
 	if len(request.Arguments) > 0 {
 		builder.WriteString("\n")
-		builder.WriteString(interactive.Title("Arguments"))
+		builder.WriteString(interactive.Title("Exact arguments"))
 		builder.WriteString("\n")
 		var value any
 		if json.Unmarshal(request.Arguments, &value) == nil {
@@ -423,14 +445,46 @@ func (m *requestInteractiveModel) syncDetailViewport() {
 			builder.WriteString("\n")
 		}
 	}
+	if request.GuardReason != "" {
+		builder.WriteString("\n")
+		builder.WriteString(interactive.Title("Guard reason"))
+		builder.WriteString("\n")
+		builder.WriteString(interactive.Muted(request.GuardReason))
+		builder.WriteString("\n")
+	}
 	m.viewport.SetContent(strings.TrimSuffix(builder.String(), "\n"))
 }
 
-func (m requestInteractiveModel) contentWidth() int {
-	if m.width <= 0 {
-		return 80
+func (m requestInteractiveModel) modalWidth() int {
+	width := m.width
+	if width <= 0 {
+		width = 80
 	}
-	return max(20, m.width-2)
+	return max(42, min(86, width-8))
+}
+func (m requestInteractiveModel) modalContentWidth() int { return max(30, m.modalWidth()-6) }
+
+func requestDetailRow(builder *strings.Builder, label, value string) {
+	if builder.Len() > 0 {
+		builder.WriteString("\n")
+	}
+	builder.WriteString(interactive.Label(fmt.Sprintf("%-11s", label)))
+	builder.WriteString("  ")
+	builder.WriteString(value)
+}
+
+func emptyRequestValue(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "-"
+	}
+	return value
+}
+
+func requestInteractiveTime(value time.Time) string {
+	if value.IsZero() {
+		return "-"
+	}
+	return value.Local().Format("2006-01-02 15:04:05 MST")
 }
 
 func syncRequestListHelp(model *list.Model) {

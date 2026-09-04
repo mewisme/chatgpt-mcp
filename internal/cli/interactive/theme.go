@@ -98,6 +98,22 @@ func Modal(body string, width int) string {
 	return style.Render(body)
 }
 
+func CenterOverlay(background, foreground string, width, height int) string {
+	if width <= 0 {
+		width = max(80, lipgloss.Width(background))
+	}
+	if height <= 0 {
+		height = max(20, lipgloss.Height(background))
+	}
+	x := max(0, (width-lipgloss.Width(foreground))/2)
+	y := max(0, (height-lipgloss.Height(foreground))/2)
+	canvas := lipgloss.NewCanvas(width, height)
+	base := lipgloss.NewLayer(background).X(0).Y(0).Z(0)
+	dialog := lipgloss.NewLayer(foreground).X(x).Y(y).Z(1)
+	canvas.Compose(lipgloss.NewCompositor(base, dialog))
+	return canvas.Render()
+}
+
 func Divider(width int) string {
 	if width <= 0 {
 		return ""

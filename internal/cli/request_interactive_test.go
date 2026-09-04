@@ -122,7 +122,7 @@ func TestRequestInteractiveRefreshDropsResolvedItems(t *testing.T) {
 func TestRequestInteractiveViewRendersHierarchyAndScrollableDetail(t *testing.T) {
 	now := time.Now().UTC()
 	arguments := `{"workspace_id":"ws_a","command":"cgm update","notes":"line one\nline two\nline three\nline four\nline five\nline six\nline seven\nline eight"}`
-	request := approval.Request{ID: "req_visual", Status: approval.StatusPending, WorkspaceID: "ws_a", Source: "tunnel", TargetTool: "run_command", Title: "Allow cgm update", Arguments: []byte(arguments), GuardReason: "control-plane mutation", ExpiresAt: now.Add(time.Minute)}
+	request := approval.Request{ID: "req_visual", Status: approval.StatusPending, WorkspaceID: "ws_a", SessionHash: "hash-session", Source: "tunnel", TargetTool: "run_command", Title: "Allow cgm update", Arguments: []byte(arguments), GuardReason: "control-plane mutation", CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Minute)}
 	client := requestInteractiveClient{list: func(context.Context) ([]approval.Request, error) { return []approval.Request{request}, nil }, view: func(context.Context, string) (approval.Request, error) { return request, nil }}
 	model := newRequestInteractiveModel(context.Background(), []approval.Request{request}, client)
 	model.now = now
@@ -137,9 +137,21 @@ func TestRequestInteractiveViewRendersHierarchyAndScrollableDetail(t *testing.T)
 	model = updated.(requestInteractiveModel)
 	updated, _ = model.Update(cmd())
 	model = updated.(requestInteractiveModel)
-	if !model.detail || !strings.Contains(model.viewport.GetContent(), "Arguments") || !strings.Contains(model.viewport.GetContent(), `"command": "cgm update"`) {
-		t.Fatalf("detail content=%q", model.viewport.GetContent())
+	detail := model.viewport.GetContent()
+	for _, expected := range []string{"Workspace", "ws_a", "Request", "req_visual", "Tool", "run_command", "Source", "tunnel", "Session", "hash-session", "Guard", "control-plane mutation", "Created", "Expires", "Exact arguments", `"command": "cgm update"`, "Guard reason"} {
+		if !strings.Contains(detail, expected) {
+			t.Fatalf("detail content missing %q: %q", expected, detail)
+		}
 	}
+	overlay := model.View().Content
+	if !strings.Contains(overlay, "Pending control approvals") || !strings.Contains(overlay, "Allow cgm update") || !strings.Contains(overlay, "esc/q") || !strings.Contains(overlay, "close") {
+		t.Fatalf("overlay view=%q", overlay)
+	}
+	model = updateRequestInteractive(t, model, keyText("a"))
+	if !model.confirm.Active() || !strings.Contains(model.View().Content, "Approve req_visual? [y/N]") {
+		t.Fatalf("modal confirmation missing: confirm=%#v view=%q", model.confirm, model.View().Content)
+	}
+	model = updateRequestInteractive(t, model, keyText("n"))
 	before := model.viewport.YOffset()
 	model = updateRequestInteractive(t, model, keyText("j"))
 	if model.viewport.YOffset() <= before {

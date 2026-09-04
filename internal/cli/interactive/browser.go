@@ -8,7 +8,6 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	lipgloss "charm.land/lipgloss/v2"
 )
 
 type Row struct {
@@ -212,21 +211,7 @@ func (m Browser) View() tea.View {
 }
 
 func (m Browser) overlayDetail(background string) string {
-	modal := m.detailView()
-	width, height := m.width, m.height
-	if width <= 0 {
-		width = max(80, lipgloss.Width(background))
-	}
-	if height <= 0 {
-		height = max(20, lipgloss.Height(background))
-	}
-	x := max(0, (width-lipgloss.Width(modal))/2)
-	y := max(0, (height-lipgloss.Height(modal))/2)
-	canvas := lipgloss.NewCanvas(width, height)
-	base := lipgloss.NewLayer(background).X(0).Y(0).Z(0)
-	dialog := lipgloss.NewLayer(modal).X(x).Y(y).Z(1)
-	canvas.Compose(lipgloss.NewCompositor(base, dialog))
-	return canvas.Render()
+	return CenterOverlay(background, m.detailView(), m.width, m.height)
 }
 
 func (m Browser) detailView() string {
@@ -253,7 +238,7 @@ func (m Browser) detailView() string {
 	builder.WriteString("\n")
 	builder.WriteString(m.viewport.View())
 	builder.WriteString("\n\n")
-	help := []key.Binding{Binding([]string{"j", "k"}, "j/k", "scroll"), Binding([]string{"pgup", "pgdown"}, "pgup/pgdn", "page"), Binding([]string{"esc", "q"}, "esc/q", "close")}
+	help := []key.Binding{Binding([]string{"j", "k"}, "j/k", "scroll"), Binding([]string{"esc", "q"}, "esc/q", "close")}
 	for _, action := range m.actions {
 		help = append(help, Binding([]string{action.Key}, action.Key, action.Desc))
 	}

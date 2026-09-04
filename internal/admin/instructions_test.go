@@ -106,7 +106,15 @@ func TestWorkspaceContextAPISupportsSubprojectAndLimits(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Root != sub || len(result.InstructionContext.ProjectMemory.Sections) != 1 {
+	resultRootInfo, err := os.Stat(result.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subInfo, err := os.Stat(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(resultRootInfo, subInfo) || len(result.InstructionContext.ProjectMemory.Sections) != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 	section := result.InstructionContext.ProjectMemory.Sections[0]

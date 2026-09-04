@@ -34,6 +34,7 @@ func newRootCommand() *cobra.Command {
 	addLoggingFlags(cmd)
 	cmd.AddCommand(
 		installCommand(),
+		updateCommand(),
 		initCommand(),
 		uninitCommand(),
 		upCommand(),

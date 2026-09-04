@@ -1,0 +1,142 @@
+package admin
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
+)
+
+func TestGlobalInstructionsAndWorkspaceContextAPI(t *testing.T) {
+	configRoot := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", configRoot)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "CLAUDE.md"), []byte("USER CLAUDE CONTEXT"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("PROJECT CONTEXT"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	manager := workspace.NewManager(filepath.Join(configRoot, "workspaces.json"))
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(API{Workspaces: manager})
+
+	putBody := `{"context":"MANAGED GLOBAL CONTEXT","rules":[{"id":"rule_global","name":"Global","enabled":true,"content":"MANAGED GLOBAL RULE"}],"source_policy":{"claude":{"context":false}}}`
+	put := httptest.NewRequest(http.MethodPut, "/api/instructions/global", strings.NewReader(putBody))
+	putRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(putRecorder, put)
+	if putRecorder.Code != http.StatusOK {
+		t.Fatalf("PUT status=%d body=%s", putRecorder.Code, putRecorder.Body.String())
+	}
+	var settings instructionSettingsResponse
+	if err := json.Unmarshal(putRecorder.Body.Bytes(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings.Context != "MANAGED GLOBAL CONTEXT" || len(settings.Rules) != 1 || len(settings.DetectedSources) != 1 {
+		t.Fatalf("settings = %#v", settings)
+	}
+	source := settings.DetectedSources[0]
+	if source.Provider != "claude" || source.Kind != string(instructionpolicy.ResourceContext) || source.Enabled {
+		t.Fatalf("source = %#v", source)
+	}
+
+	preview := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+item.ID+"/context?include_git=false", nil)
+	previewRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(previewRecorder, preview)
+	if previewRecorder.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", previewRecorder.Code, previewRecorder.Body.String())
+	}
+	var result projectcontext.Result
+	if err := json.Unmarshal(previewRecorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"MANAGED GLOBAL CONTEXT", "MANAGED GLOBAL RULE", "PROJECT CONTEXT"} {
+		if !strings.Contains(result.InstructionContext.InstructionsText, expected) {
+			t.Fatalf("missing %q: %s", expected, result.InstructionContext.InstructionsText)
+		}
+	}
+	if strings.Contains(result.InstructionContext.InstructionsText, "USER CLAUDE CONTEXT") {
+		t.Fatalf("disabled user context leaked: %s", result.InstructionContext.InstructionsText)
+	}
+	if result.InstructionContext.Git.Skipped != true || len(result.InstructionContext.Sources) != 1 || result.Summary.Rules != 1 {
+		t.Fatalf("preview = %#v", result)
+	}
+}
+
+func TestWorkspaceContextAPISupportsSubprojectAndLimits(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	root := t.TempDir()
+	sub := filepath.Join(root, "packages", "app")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "AGENTS.md"), []byte("first line\nsecond line"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	New(API{Workspaces: manager}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/workspaces/"+item.ID+"/context?path=packages/app&include_git=false&max_section_bytes=8&max_lines_per_section=1", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var result projectcontext.Result
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Root != sub || len(result.InstructionContext.ProjectMemory.Sections) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	section := result.InstructionContext.ProjectMemory.Sections[0]
+	if !section.Truncated || section.LoadedBytes > 8 || strings.Contains(section.Content, "second") {
+		t.Fatalf("section = %#v", section)
+	}
+}
+
+func TestInstructionSettingsGETOnlyReportsDetectedSources(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	store := instructionpolicy.DefaultStore()
+	value := instructionpolicy.DefaultConfig()
+	disabled := false
+	value.Sources["cursor"] = instructionpolicy.SourcePolicy{Skills: &disabled}
+	if err := store.Save(value); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	New(API{}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/instructions/global", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response instructionSettingsResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.DetectedSources) != 0 || response.SourcePolicy["cursor"].Skills == nil {
+		t.Fatalf("response = %#v", response)
+	}
+}

@@ -3,8 +3,11 @@ package admin
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
+	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -53,11 +56,12 @@ func (api API) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "workspace registry unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	id := singlePathID(r.URL.Path, "/api/workspaces/")
-	if id == "" {
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/workspaces/"), "/"), "/")
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
 		http.NotFound(w, r)
 		return
 	}
+	id := parts[0]
 	value, err := manager.Get(id)
 	if err != nil {
 		if errors.Is(err, workspace.ErrNotFound) {
@@ -65,6 +69,14 @@ func (api API) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
+		return
+	}
+	if len(parts) == 2 && parts[1] == "context" {
+		api.handleWorkspaceContext(w, r, manager, value)
+		return
+	}
+	if len(parts) != 1 {
+		http.NotFound(w, r)
 		return
 	}
 	switch r.Method {
@@ -81,10 +93,50 @@ func (api API) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func singlePathID(path, prefix string) string {
-	value := strings.Trim(strings.TrimPrefix(path, prefix), "/")
-	if value == "" || strings.Contains(value, "/") {
-		return ""
+func (api API) handleWorkspaceContext(w http.ResponseWriter, r *http.Request, manager *workspace.Manager, item workspace.Workspace) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	toolProfile := func() instructioncontext.ToolProfile {
+		count := 0
+		if api.Tools != nil {
+			count = len(api.Tools.List())
+		}
+		return instructioncontext.ToolProfile{Name: "full", Count: count}
+	}
+	service := projectcontext.New(manager, toolProfile)
+	adminEnabled, adminPort := false, 0
+	if api.Config != nil {
+		cfg := api.Config.Snapshot()
+		adminEnabled, adminPort = cfg.Admin.Enabled, cfg.Admin.Port
+	}
+	result, err := service.Build(r.Context(), item.ID, projectcontext.Options{
+		Path:                strings.TrimSpace(r.URL.Query().Get("path")),
+		MaxInstructionBytes: queryInt(r, "max_instruction_bytes", instructioncontext.DefaultInstructionMaxBytes, 1, 1_000_000),
+		MaxSectionBytes:     queryInt(r, "max_section_bytes", instructioncontext.DefaultSectionMaxBytes, 1, 500_000),
+		MaxLinesPerSection:  queryInt(r, "max_lines_per_section", instructioncontext.DefaultSectionMaxLines, 1, 5_000),
+		IncludeGit:          queryBool(r, "include_git", true),
+		IncludeMemory:       queryBool(r, "include_memory", true),
+		IncludeSkills:       queryBool(r, "include_skills", true),
+		AdminEnabled:        adminEnabled,
+		AdminPort:           adminPort,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func queryInt(r *http.Request, key string, fallback, min, max int) int {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < min || value > max {
+		return fallback
 	}
 	return value
 }

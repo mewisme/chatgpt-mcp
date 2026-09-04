@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 )
 
 var skillRoots = []struct {
@@ -20,10 +22,44 @@ var skillRoots = []struct {
 }
 
 func Discover(workspaceRoot string) ([]Skill, error) {
+	return discoverAt(workspaceRoot, nil)
+}
+
+func DiscoverUser(home string, policy instructionpolicy.Config) ([]Skill, error) {
+	return discoverAt(home, func(source string) bool { return policy.Enabled(source, instructionpolicy.ResourceSkills) })
+}
+
+func DiscoverWithUser(workspaceRoot, home string, policy instructionpolicy.Config) ([]Skill, error) {
+	project, err := Discover(workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	user, err := DiscoverUser(home, policy)
+	if err != nil {
+		return nil, err
+	}
+	result := append([]Skill(nil), project...)
+	projectNames := map[string]bool{}
+	for _, skill := range project {
+		projectNames[skill.Name] = true
+	}
+	for _, skill := range user {
+		if !projectNames[skill.Name] {
+			result = append(result, skill)
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result, nil
+}
+
+func discoverAt(rootPath string, enabled func(string) bool) ([]Skill, error) {
 	result := make([]Skill, 0)
 	seen := map[string]bool{}
 	for _, root := range skillRoots {
-		walkSkills(filepath.Join(workspaceRoot, root.Relative), root.Source, 0, &result, seen)
+		if enabled != nil && !enabled(root.Source) {
+			continue
+		}
+		walkSkills(filepath.Join(rootPath, root.Relative), root.Source, 0, &result, seen)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Name == result[j].Name {
@@ -35,13 +71,22 @@ func Discover(workspaceRoot string) ([]Skill, error) {
 }
 
 func Load(workspaceRoot, name string, maxBytes int) (Loaded, error) {
+	values, err := Discover(workspaceRoot)
+	return loadFrom(values, err, name, maxBytes)
+}
+
+func LoadWithUser(workspaceRoot, home, name string, maxBytes int, policy instructionpolicy.Config) (Loaded, error) {
+	values, err := DiscoverWithUser(workspaceRoot, home, policy)
+	return loadFrom(values, err, name, maxBytes)
+}
+
+func loadFrom(all []Skill, err error, name string, maxBytes int) (Loaded, error) {
 	if strings.TrimSpace(name) == "" {
 		return Loaded{}, errors.New("skill name is required")
 	}
 	if maxBytes <= 0 || maxBytes > 500_000 {
 		return Loaded{}, errors.New("max_bytes must be between 1 and 500000")
 	}
-	all, err := Discover(workspaceRoot)
 	if err != nil {
 		return Loaded{}, err
 	}

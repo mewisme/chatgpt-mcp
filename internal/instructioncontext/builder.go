@@ -3,10 +3,14 @@ package instructioncontext
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/memory"
+	"go.mewis.me/chatgpt-mcp/internal/rules"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
 )
 
@@ -18,6 +22,7 @@ type BuildOptions struct {
 	WorkspaceRoots      []string
 	MemoryStore         memory.Store
 	Memory              MemoryLoadOptions
+	Policy              instructionpolicy.Config
 	ToolProfile         ToolProfile
 	MaxInstructionBytes int
 	SkipGit             bool
@@ -56,6 +61,14 @@ func Build(ctx context.Context, opts BuildOptions) (InstructionContext, error) {
 		now = time.Now
 	}
 	loadedAt := now().UTC()
+	home := strings.TrimSpace(opts.Memory.HomeDir)
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	sources, err := DiscoverUserSources(home, opts.Policy)
+	if err != nil {
+		return InstructionContext{}, err
+	}
 	environment, err := LoadEnvironmentSnapshot(EnvironmentOptions{
 		WorkspaceID: workspaceID, WorkspaceRoot: workspaceRoot, CWD: opts.CWD, EffectiveRoots: roots,
 		AdminEnabled: opts.AdminEnabled, AdminPort: opts.AdminPort,
@@ -68,6 +81,8 @@ func Build(ctx context.Context, opts BuildOptions) (InstructionContext, error) {
 	if !opts.SkipMemory {
 		memoryOpts := opts.Memory
 		memoryOpts.WorkspaceRoots = roots
+		memoryOpts.HomeDir = home
+		memoryOpts.SourcePolicy = opts.Policy
 		memoryOpts.Now = func() time.Time { return loadedAt }
 		projectMemory, err = LoadProjectMemory(root, memoryOpts)
 		if err != nil {
@@ -78,13 +93,13 @@ func Build(ctx context.Context, opts BuildOptions) (InstructionContext, error) {
 			return InstructionContext{}, err
 		}
 	}
-	unconditionalRules, err := LoadUnconditionalRules(root)
+	unconditionalRules, err := LoadUnconditionalRulesWithUser(root, home, opts.Policy)
 	if err != nil {
 		return InstructionContext{}, err
 	}
 	skillSummaries := []skills.Skill(nil)
 	if !opts.SkipSkills {
-		skillSummaries, err = LoadSkillSummaries(root)
+		skillSummaries, err = LoadSkillSummariesWithUser(root, home, opts.Policy)
 		if err != nil {
 			return InstructionContext{}, err
 		}
@@ -93,9 +108,26 @@ func Build(ctx context.Context, opts BuildOptions) (InstructionContext, error) {
 	if !opts.SkipGit {
 		gitSnapshot = LoadGitSnapshot(ctx, root, GitSnapshotOptions{WorkspaceRoots: roots})
 	}
+	globalRules := make([]rules.Rule, 0, len(opts.Policy.Rules))
+	for _, rule := range opts.Policy.Rules {
+		content := strings.TrimSpace(rule.Content)
+		if !rule.Enabled || content == "" {
+			continue
+		}
+		id := strings.TrimSpace(rule.ID)
+		if id == "" {
+			id = strings.TrimSpace(rule.Name)
+		}
+		if id == "" {
+			id = "rule"
+		}
+		globalRules = append(globalRules, rules.Rule{Path: filepath.ToSlash("managed://global-rules/" + id), Source: "chatgpt-mcp", Content: content, AlwaysApply: true})
+	}
+	sources = markLoadedSources(sources, projectMemory, unconditionalRules, skillSummaries)
 	value := InstructionContext{
 		Root: root, WorkspaceID: workspaceID, WorkspaceRoots: roots, Environment: environment,
-		Git: gitSnapshot, ProjectMemory: projectMemory, AutoMemory: autoMemory, Rules: unconditionalRules, Skills: skillSummaries, ToolProfile: opts.ToolProfile,
+		Git: gitSnapshot, ProjectMemory: projectMemory, AutoMemory: autoMemory, GlobalContext: strings.TrimSpace(opts.Policy.Context), GlobalRules: globalRules,
+		Rules: unconditionalRules, Skills: skillSummaries, Sources: sources, ToolProfile: opts.ToolProfile,
 		AgentWorkflow: AgentWorkflow(), LoadedAt: loadedAt,
 	}
 	ApplyFormattedInstructionsLimit(&value, opts.MaxInstructionBytes)

@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
 )
 
@@ -17,6 +18,15 @@ var skillSourcePriority = map[string]int{
 
 func LoadSkillSummaries(root string) ([]skills.Skill, error) {
 	values, err := skills.Discover(root)
+	return filterSkillSummaries(values, err)
+}
+
+func LoadSkillSummariesWithUser(root, home string, policy instructionpolicy.Config) ([]skills.Skill, error) {
+	values, err := skills.DiscoverWithUser(root, home, policy)
+	return filterSkillSummaries(values, err)
+}
+
+func filterSkillSummaries(values []skills.Skill, err error) ([]skills.Skill, error) {
 	if err != nil {
 		return nil, err
 	}

@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/memory"
 	"go.mewis.me/chatgpt-mcp/internal/rules"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
@@ -83,6 +85,7 @@ type AgentStatusResult struct {
 
 func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
 	memoryStore := memory.NewStore(memory.DefaultRoot())
+	policyStore := instructionpolicy.DefaultStore()
 	register := func(name, title, description, input, output string, risk Risk, handler Handler) {
 		registry.MustRegister(name, Schema{
 			Name: name, Title: title, Description: description,
@@ -95,7 +98,12 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
-		values, err := skills.Discover(item.Path)
+		policy, err := policyStore.Load()
+		if err != nil {
+			return Result{}, err
+		}
+		home, _ := os.UserHomeDir()
+		values, err := skills.DiscoverWithUser(item.Path, home, policy)
 		if err != nil {
 			return Result{}, err
 		}
@@ -115,11 +123,16 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
-		value, err := skills.Load(item.Path, name, maxBytes)
+		policy, err := policyStore.Load()
 		if err != nil {
 			return Result{}, err
 		}
-		if _, err := workspaces.ResolvePath(item.ID, item.Path, value.Skill.Path, true); err != nil {
+		home, _ := os.UserHomeDir()
+		value, err := skills.LoadWithUser(item.Path, home, name, maxBytes, policy)
+		if err != nil {
+			return Result{}, err
+		}
+		if _, err := workspaces.ResolvePath(item.ID, item.Path, value.Skill.Path, true); err != nil && !withinDirectory(home, value.Skill.Path) {
 			return Result{}, fmt.Errorf("skill path: %w", err)
 		}
 		return JSONResult(value), nil
@@ -176,10 +189,14 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
+		policy, err := policyStore.Load()
+		if err != nil {
+			return Result{}, err
+		}
 		value, err := instructioncontext.Build(ctx, instructioncontext.BuildOptions{
 			Root: root, WorkspaceID: item.ID, WorkspaceRoot: item.Path, CWD: cwd, WorkspaceRoots: roots, MemoryStore: memoryStore,
-			Memory:      instructioncontext.MemoryLoadOptions{ImportMaxDepth: instructioncontext.DefaultImportMaxDepth, MaxBytesPerSection: maxSectionBytes, MaxLinesPerSection: maxLinesPerSection},
-			ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())}, MaxInstructionBytes: maxInstructionBytes,
+			Memory: instructioncontext.MemoryLoadOptions{ImportMaxDepth: instructioncontext.DefaultImportMaxDepth, MaxBytesPerSection: maxSectionBytes, MaxLinesPerSection: maxLinesPerSection},
+			Policy: policy, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())}, MaxInstructionBytes: maxInstructionBytes,
 			SkipGit: !includeGit, SkipMemory: !includeMemory, SkipSkills: !includeSkills,
 		})
 		if err != nil {
@@ -258,12 +275,17 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
-		values, err := rules.LoadForFile(item.Path, target)
+		policy, err := policyStore.Load()
+		if err != nil {
+			return Result{}, err
+		}
+		home, _ := os.UserHomeDir()
+		values, err := rules.LoadForFileWithUser(item.Path, target, home, policy)
 		if err != nil {
 			return Result{}, err
 		}
 		for _, rule := range values {
-			if _, err := workspaces.ResolvePath(item.ID, item.Path, rule.Path, true); err != nil {
+			if _, err := workspaces.ResolvePath(item.ID, item.Path, rule.Path, true); err != nil && !withinDirectory(home, rule.Path) {
 				return Result{}, fmt.Errorf("rule path: %w", err)
 			}
 		}
@@ -287,9 +309,18 @@ func projectContextResult(value instructioncontext.InstructionContext) ProjectCo
 		Summary: ProjectContextSummary{
 			MemoryFiles: files, MemoryBytes: value.ProjectMemory.TotalBytes, InstructionBytes: value.InstructionBytes,
 			Git:   ProjectContextGitSummary{Skipped: value.Git.Skipped, IsRepo: value.Git.IsRepo, Branch: value.Git.Branch, Commits: len(value.Git.RecentCommits)},
-			Rules: len(value.Rules), Skills: len(value.Skills),
+			Rules: len(value.GlobalRules) + len(value.Rules), Skills: len(value.Skills),
 		},
 	}
+}
+
+func withinDirectory(root, path string) bool {
+	root, path = strings.TrimSpace(root), strings.TrimSpace(path)
+	if root == "" || path == "" {
+		return false
+	}
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
 
 func workspaceOnlySchema(extra string) string {

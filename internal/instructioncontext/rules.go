@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/rules"
 )
 
@@ -19,6 +20,15 @@ var ruleSourcePriority = map[string]int{
 
 func LoadUnconditionalRules(root string) ([]rules.Rule, error) {
 	all, err := rules.Discover(root)
+	return filterUnconditionalRules(all, err)
+}
+
+func LoadUnconditionalRulesWithUser(root, home string, policy instructionpolicy.Config) ([]rules.Rule, error) {
+	all, err := rules.DiscoverWithUser(root, home, policy)
+	return filterUnconditionalRules(all, err)
+}
+
+func filterUnconditionalRules(all []rules.Rule, err error) ([]rules.Rule, error) {
 	if err != nil {
 		return nil, err
 	}

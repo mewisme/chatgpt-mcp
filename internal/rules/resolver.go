@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 )
 
 var ruleRoots = []struct {
@@ -19,9 +21,34 @@ var ruleRoots = []struct {
 }
 
 func Discover(workspaceRoot string) ([]Rule, error) {
+	return discoverAt(workspaceRoot, nil)
+}
+
+func DiscoverUser(home string, policy instructionpolicy.Config) ([]Rule, error) {
+	return discoverAt(home, func(source string) bool { return policy.Enabled(source, instructionpolicy.ResourceRules) })
+}
+
+func DiscoverWithUser(workspaceRoot, home string, policy instructionpolicy.Config) ([]Rule, error) {
+	project, err := Discover(workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	user, err := DiscoverUser(home, policy)
+	if err != nil {
+		return nil, err
+	}
+	result := append(project, user...)
+	sort.SliceStable(result, func(i, j int) bool { return result[i].Path < result[j].Path })
+	return result, nil
+}
+
+func discoverAt(rootPath string, enabled func(string) bool) ([]Rule, error) {
 	result := make([]Rule, 0)
 	for _, root := range ruleRoots {
-		walkRules(filepath.Join(workspaceRoot, root.Relative), root.Source, 0, &result)
+		if enabled != nil && !enabled(root.Source) {
+			continue
+		}
+		walkRules(filepath.Join(rootPath, root.Relative), root.Source, 0, &result)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
 	return result, nil
@@ -29,6 +56,20 @@ func Discover(workspaceRoot string) ([]Rule, error) {
 
 func LoadForFile(workspaceRoot, file string) ([]Rule, error) {
 	all, err := Discover(workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	matched := make([]Rule, 0)
+	for _, rule := range all {
+		if Match(rule, workspaceRoot, file) {
+			matched = append(matched, rule)
+		}
+	}
+	return matched, nil
+}
+
+func LoadForFileWithUser(workspaceRoot, file, home string, policy instructionpolicy.Config) ([]Rule, error) {
+	all, err := DiscoverWithUser(workspaceRoot, home, policy)
 	if err != nil {
 		return nil, err
 	}

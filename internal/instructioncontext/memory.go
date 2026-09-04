@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 )
 
 const (
@@ -19,6 +21,7 @@ const (
 type MemoryLoadOptions struct {
 	WorkspaceRoots     []string
 	HomeDir            string
+	SourcePolicy       instructionpolicy.Config
 	DisableUser        bool
 	MaxTotalBytes      int
 	MaxBytesPerSection int
@@ -141,18 +144,21 @@ func LoadProjectMemory(root string, opts MemoryLoadOptions) (ProjectMemoryBundle
 		sections = append(sections, section)
 		totalBytes += section.LoadedBytes
 	}
-	appendAll := func(base string, candidates []memoryCandidate) {
+	appendAll := func(base string, candidates []memoryCandidate, userLevel bool) {
 		for _, candidate := range candidates {
+			if userLevel && !opts.SourcePolicy.Enabled(candidate.Source, instructionpolicy.ResourceContext) {
+				continue
+			}
 			appendCandidate(base, candidate)
 		}
 	}
-	appendAll(root, primaryProjectMemoryCandidates)
+	appendAll(root, primaryProjectMemoryCandidates, false)
 	if !opts.DisableUser {
-		appendAll(home, primaryUserMemoryCandidates)
+		appendAll(home, primaryUserMemoryCandidates, true)
 	}
-	appendAll(root, fallbackProjectMemoryCandidates)
+	appendAll(root, fallbackProjectMemoryCandidates, false)
 	if !opts.DisableUser {
-		appendAll(home, fallbackUserMemoryCandidates)
+		appendAll(home, fallbackUserMemoryCandidates, true)
 	}
 	return ProjectMemoryBundle{
 		Root: root, WorkspaceRoots: workspaceRoots, Sections: sections, Imports: expander.imports,

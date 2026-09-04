@@ -8,12 +8,16 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func newContextToolRuntime(t *testing.T) (*Runtime, string, string, *checkpoint.Store) {
 	t.Helper()
 	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	testHome := t.TempDir()
+	t.Setenv("HOME", testHome)
+	t.Setenv("USERPROFILE", testHome)
 	root := t.TempDir()
 	workspaces := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
 	item, err := workspaces.Register(root)
@@ -108,6 +112,78 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 	after := ctxAfterRemember.StructuredContent.(ProjectContextResult)
 	if !after.InstructionContext.AutoMemory.Loaded || !strings.Contains(after.InstructionContext.InstructionsText, "use compact imports") {
 		t.Fatalf("auto memory not included: %#v", after.InstructionContext.AutoMemory)
+	}
+}
+
+func TestContextToolsApplyManagedGlobalPolicyToUserSources(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "rules"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "CLAUDE.md"), []byte("USER CLAUDE CONTEXT"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "rules", "ts.md"), []byte("---\nglobs: [\"**/*.ts\"]\n---\nUSER CLAUDE RULE"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	skillDir := filepath.Join(home, ".claude", "skills", "user-review")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: user-review\ndescription: USER CLAUDE SKILL\n---\nsecret body"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	disabled := false
+	policy := instructionpolicy.DefaultConfig()
+	policy.Context = "MANAGED GLOBAL CONTEXT"
+	policy.Rules = []instructionpolicy.GlobalRule{{ID: "managed", Enabled: true, Content: "MANAGED GLOBAL RULE"}}
+	policy.Sources["claude"] = instructionpolicy.SourcePolicy{Context: &disabled, Rules: &disabled, Skills: &disabled}
+	if err := instructionpolicy.DefaultStore().Save(policy); err != nil {
+		t.Fatal(err)
+	}
+
+	ctxResult, err := runtime.Call(context.Background(), "project_context", map[string]any{"workspace_id": workspaceID, "include_git": false})
+	if err != nil || ctxResult.IsError {
+		t.Fatalf("project_context failed: %#v %v", ctxResult, err)
+	}
+	project := ctxResult.StructuredContent.(ProjectContextResult)
+	for _, expected := range []string{"MANAGED GLOBAL CONTEXT", "MANAGED GLOBAL RULE"} {
+		if !strings.Contains(project.InstructionContext.InstructionsText, expected) {
+			t.Fatalf("missing %q in instructions: %s", expected, project.InstructionContext.InstructionsText)
+		}
+	}
+	for _, unexpected := range []string{"USER CLAUDE CONTEXT", "USER CLAUDE RULE", "USER CLAUDE SKILL"} {
+		if strings.Contains(project.InstructionContext.InstructionsText, unexpected) {
+			t.Fatalf("disabled source leaked %q: %s", unexpected, project.InstructionContext.InstructionsText)
+		}
+	}
+	if len(project.InstructionContext.Sources) != 3 {
+		t.Fatalf("sources = %#v", project.InstructionContext.Sources)
+	}
+	for _, source := range project.InstructionContext.Sources {
+		if source.Provider != "claude" || source.Enabled || source.Loaded {
+			t.Fatalf("disabled source snapshot = %#v", source)
+		}
+	}
+
+	listResult, err := runtime.Call(context.Background(), "list_skills", map[string]any{"workspace_id": workspaceID})
+	if err != nil || listResult.IsError {
+		t.Fatalf("list_skills failed: %#v %v", listResult, err)
+	}
+	if listResult.StructuredContent.(SkillsListResult).Count != 0 {
+		t.Fatalf("disabled user skill leaked: %#v", listResult.StructuredContent)
+	}
+	loadResult, err := runtime.Call(context.Background(), "load_skill", map[string]any{"workspace_id": workspaceID, "name": "user-review"})
+	if err != nil || !loadResult.IsError {
+		t.Fatalf("disabled load_skill bypassed policy: %#v %v", loadResult, err)
+	}
+	rulesResult, err := runtime.Call(context.Background(), "load_path_rules", map[string]any{"workspace_id": workspaceID, "path": "src/app.ts"})
+	if err != nil || rulesResult.IsError || rulesResult.StructuredContent.(PathRulesResult).Count != 0 {
+		t.Fatalf("disabled user rule leaked: %#v %v", rulesResult, err)
 	}
 }
 

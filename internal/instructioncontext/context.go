@@ -77,6 +77,15 @@ type ToolProfile struct {
 	Count int    `json:"count"`
 }
 
+type SourceSnapshot struct {
+	Provider string   `json:"provider"`
+	Kind     string   `json:"kind"`
+	Paths    []string `json:"paths"`
+	Count    int      `json:"count"`
+	Enabled  bool     `json:"enabled"`
+	Loaded   bool     `json:"loaded"`
+}
+
 type InstructionContext struct {
 	Root                 string              `json:"root"`
 	WorkspaceID          string              `json:"workspace_id"`
@@ -85,8 +94,11 @@ type InstructionContext struct {
 	Git                  GitSnapshot         `json:"git"`
 	ProjectMemory        ProjectMemoryBundle `json:"project_memory"`
 	AutoMemory           AutoMemorySnapshot  `json:"auto_memory"`
+	GlobalContext        string              `json:"global_context,omitempty"`
+	GlobalRules          []rules.Rule        `json:"global_rules"`
 	Rules                []rules.Rule        `json:"rules"`
 	Skills               []skills.Skill      `json:"skills"`
+	Sources              []SourceSnapshot    `json:"sources"`
 	ToolProfile          ToolProfile         `json:"tool_profile"`
 	AgentWorkflow        string              `json:"agent_workflow"`
 	InstructionsText     string              `json:"instructions_text"`

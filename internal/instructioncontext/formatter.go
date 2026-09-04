@@ -32,12 +32,18 @@ func FormatInstructions(value InstructionContext) (string, int) {
 	if value.AutoMemory.Loaded && strings.TrimSpace(value.AutoMemory.Content) != "" {
 		blocks = append(blocks, formatBlock("Auto memory", strings.TrimSpace(value.AutoMemory.Content)))
 	}
+	if strings.TrimSpace(value.GlobalContext) != "" {
+		blocks = append(blocks, formatBlock("Global context", strings.TrimSpace(value.GlobalContext)))
+	}
 	user, project := splitMemorySections(value.ProjectMemory.Sections)
 	if user != "" {
 		blocks = append(blocks, formatBlock("User instructions", user))
 	}
 	if project != "" {
 		blocks = append(blocks, formatBlock("Project instructions", project))
+	}
+	if globalRulesText := formatRules(value.GlobalRules); globalRulesText != "" {
+		blocks = append(blocks, formatBlock("Global rules", globalRulesText))
 	}
 	if rulesText := formatRules(value.Rules); rulesText != "" {
 		blocks = append(blocks, formatBlock("Always-on rules", rulesText))

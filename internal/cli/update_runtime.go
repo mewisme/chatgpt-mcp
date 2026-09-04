@@ -18,6 +18,8 @@ type updateRuntimeState struct {
 	Status  runtimeStatusResult
 }
 
+type updateRuntimeRestartFunc func(*cobra.Command, install.Layout, runtimeStatusResult) error
+
 func captureUpdateRuntimeState(parent context.Context) (updateRuntimeState, error) {
 	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
@@ -28,7 +30,11 @@ func captureUpdateRuntimeState(parent context.Context) (updateRuntimeState, erro
 	return updateRuntimeState{Running: running, Status: status}, nil
 }
 
-func coordinateUpdatedRuntime(cmd *cobra.Command, layout install.Layout, state updateRuntimeState, noRestart bool) error {
+func coordinateUpdatedRuntime(cmd *cobra.Command, installed install.Result, state updateRuntimeState, noRestart bool) error {
+	return coordinateUpdatedRuntimeWith(cmd, installed, state, noRestart, restartManagedRuntimeAfterUpdate)
+}
+
+func coordinateUpdatedRuntimeWith(cmd *cobra.Command, installed install.Result, state updateRuntimeState, noRestart bool, restart updateRuntimeRestartFunc) error {
 	if !state.Running {
 		return nil
 	}
@@ -44,8 +50,21 @@ func coordinateUpdatedRuntime(cmd *cobra.Command, layout install.Layout, state u
 		return nil
 	}
 	log.Action("UPDATE", "update.runtime-restarting", "Restarting managed runtime")
-	if err := restartManagedRuntimeAfterUpdate(cmd, layout, state.Status); err != nil {
-		return err
+	if err := restart(cmd, installed.Layout, state.Status); err != nil {
+		log.Warning("UPDATE", "update.runtime-restart-failed", "Managed runtime restart failed; rolling back", err)
+		if rollbackErr := install.RollbackResult(installed); rollbackErr != nil {
+			return fmt.Errorf("managed runtime restart failed: %w; rollback failed: %v", err, rollbackErr)
+		}
+		previous := installed.Activation.PreviousVersion
+		log.Ready("UPDATE", "update.rollback-complete", "Previous version restored")
+		if previous != "" {
+			log.Detail("current", previous)
+		}
+		if rollbackRestartErr := restart(cmd, installed.Layout, state.Status); rollbackRestartErr != nil {
+			return fmt.Errorf("managed runtime restart failed: %w; rolled back to %s but previous runtime restart failed: %v", err, previous, rollbackRestartErr)
+		}
+		log.Ready("UPDATE", "update.rollback-runtime-restarted", "Previous managed runtime restarted")
+		return fmt.Errorf("managed runtime restart failed: %w; rolled back to %s", err, previous)
 	}
 	log.Ready("UPDATE", "update.runtime-restarted", "Managed runtime restarted")
 	return nil

@@ -61,8 +61,11 @@ func updateCommand() *cobra.Command {
 			log.Detail("latest", result.Target)
 			return nil
 		}
-		if err := coordinateUpdatedRuntime(cmd, layout, runtimeState, noRestart); err != nil {
-			return fmt.Errorf("updated to %s but managed runtime restart failed: %w", result.Target, err)
+		if err := coordinateUpdatedRuntime(cmd, result.Install, runtimeState, noRestart); err != nil {
+			return fmt.Errorf("update to %s failed after activation: %w", result.Target, err)
+		}
+		if err := install.FinalizeResult(result.Install); err != nil {
+			log.Warning("UPDATE", "update.cleanup-failed", "Update succeeded but old version cleanup failed", err)
 		}
 		message := "updated"
 		if result.Downgrade {

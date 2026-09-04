@@ -3,12 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/install"
@@ -101,7 +103,7 @@ func TestCoordinateUpdatedRuntimeSkipsRestart(t *testing.T) {
 	cmd := newRootCommand()
 	cmd.SetOut(&output)
 	state := updateRuntimeState{Running: true, Status: runtimeStatusResult{PID: 123, Managed: true}}
-	if err := coordinateUpdatedRuntime(cmd, install.Layout{}, state, true); err != nil {
+	if err := coordinateUpdatedRuntime(cmd, install.Result{}, state, true); err != nil {
 		t.Fatal(err)
 	}
 	text := output.String()
@@ -115,12 +117,90 @@ func TestCoordinateUpdatedRuntimeLeavesForegroundServerRunning(t *testing.T) {
 	cmd := newRootCommand()
 	cmd.SetOut(&output)
 	state := updateRuntimeState{Running: true, Status: runtimeStatusResult{PID: 456}}
-	if err := coordinateUpdatedRuntime(cmd, install.Layout{}, state, false); err != nil {
+	if err := coordinateUpdatedRuntime(cmd, install.Result{}, state, false); err != nil {
 		t.Fatal(err)
 	}
 	text := output.String()
 	if !strings.Contains(text, "Foreground runtime is still using the previous version") || !strings.Contains(text, "pid: 456") {
 		t.Fatalf("output = %q", text)
+	}
+}
+
+func TestCoordinateUpdatedRuntimeRollsBackAndRestartsPreviousVersion(t *testing.T) {
+	layout := updateInstallLayout(t)
+	installed := updateInstallVersions(t, layout)
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	state := updateRuntimeState{Running: true, Status: runtimeStatusResult{Managed: true, PID: 789}}
+	calls := 0
+	restart := func(*cobra.Command, install.Layout, runtimeStatusResult) error {
+		calls++
+		if calls == 1 {
+			return errors.New("new runtime unhealthy")
+		}
+		return nil
+	}
+	err := coordinateUpdatedRuntimeWith(cmd, installed, state, false, restart)
+	if err == nil || !strings.Contains(err.Error(), "rolled back to v1.0.0") {
+		t.Fatalf("error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("restart calls = %d", calls)
+	}
+	version, _, currentErr := install.CurrentVersion(layout)
+	if currentErr != nil {
+		t.Fatal(currentErr)
+	}
+	if version != "v1.0.0" {
+		t.Fatalf("current version = %q", version)
+	}
+	metadata, metadataErr := install.ReadMetadata(layout.Metadata)
+	if metadataErr != nil {
+		t.Fatal(metadataErr)
+	}
+	if metadata.Version != "v1.0.0" {
+		t.Fatalf("metadata version = %q", metadata.Version)
+	}
+	text := output.String()
+	for _, expected := range []string{"rolling back", "Previous version restored", "Previous managed runtime restarted"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("output missing %q: %s", expected, text)
+		}
+	}
+}
+
+func TestCoordinateUpdatedRuntimeReportsPreviousRestartFailure(t *testing.T) {
+	layout := updateInstallLayout(t)
+	installed := updateInstallVersions(t, layout)
+	cmd := newRootCommand()
+	state := updateRuntimeState{Running: true, Status: runtimeStatusResult{Managed: true}}
+	calls := 0
+	restart := func(*cobra.Command, install.Layout, runtimeStatusResult) error {
+		calls++
+		if calls == 1 {
+			return errors.New("new runtime unhealthy")
+		}
+		return errors.New("old runtime unhealthy")
+	}
+	err := coordinateUpdatedRuntimeWith(cmd, installed, state, false, restart)
+	if err == nil || !strings.Contains(err.Error(), "previous runtime restart failed") || !strings.Contains(err.Error(), "old runtime unhealthy") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCoordinateUpdatedRuntimeReportsRollbackFailure(t *testing.T) {
+	layout := updateInstallLayout(t)
+	installed := updateInstallVersions(t, layout)
+	installed.Activation.PreviousTarget = filepath.Join(t.TempDir(), "outside")
+	cmd := newRootCommand()
+	state := updateRuntimeState{Running: true, Status: runtimeStatusResult{Managed: true}}
+	restart := func(*cobra.Command, install.Layout, runtimeStatusResult) error {
+		return errors.New("new runtime unhealthy")
+	}
+	err := coordinateUpdatedRuntimeWith(cmd, installed, state, false, restart)
+	if err == nil || !strings.Contains(err.Error(), "rollback failed") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -160,4 +240,34 @@ func TestSaveManagedEnvironmentUsesSelectedConfig(t *testing.T) {
 	if strings.TrimSpace(hash) == "" {
 		t.Fatal("environment hash is empty")
 	}
+}
+
+func updateInstallLayout(t *testing.T) install.Layout {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "install")
+	layout, err := install.NewLayout(root, filepath.Join(root, "bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return layout
+}
+
+func updateInstallVersions(t *testing.T, layout install.Layout) install.Result {
+	t.Helper()
+	oldBinary := filepath.Join(t.TempDir(), "old")
+	newBinary := filepath.Join(t.TempDir(), "new")
+	if err := os.WriteFile(oldBinary, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newBinary, []byte("new"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := install.Install(install.Options{Layout: layout, Version: "v1.0.0", Source: oldBinary, NoAlias: true}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := install.Install(install.Options{Layout: layout, Version: "v1.1.0", Source: newBinary, NoAlias: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
 }

@@ -23,6 +23,7 @@ type Result struct {
 	Source           string
 	Staged           Staged
 	Activation       Activation
+	PreviousMetadata *Metadata
 	Canonical        CanonicalStatus
 	Alias            AliasStatus
 	AliasInstalled   bool
@@ -74,7 +75,11 @@ func Install(options Options) (Result, error) {
 			return Result{}, fmt.Errorf("%w: %s", ErrAliasConflict, aliasBefore.Path)
 		}
 	}
-	metadataMatches := currentMetadataMatches(layout, version)
+	previousMetadata, err := existingMetadata(layout.Metadata)
+	if err != nil {
+		return Result{}, err
+	}
+	metadataMatches := metadataMatches(previousMetadata, layout, version)
 	staged, err := Stage(layout, version, resolvedSource)
 	if err != nil {
 		return Result{}, err
@@ -83,7 +88,7 @@ func Install(options Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	result := Result{Layout: layout, Version: version, Source: resolvedSource, Staged: staged, Activation: activation}
+	result := Result{Layout: layout, Version: version, Source: resolvedSource, Staged: staged, Activation: activation, PreviousMetadata: previousMetadata}
 	rollback := func(cause error) (Result, error) {
 		rollbackErr := Rollback(activation)
 		if canonicalBefore.State == CanonicalMissing {
@@ -132,9 +137,19 @@ func normalizeInstallVersion(version string) string {
 	return version
 }
 
-func currentMetadataMatches(layout Layout, version string) bool {
-	metadata, err := ReadMetadata(layout.Metadata)
-	return err == nil && metadata.Method == MethodDirect && metadata.Version == version && samePath(metadata.InstallDir, layout.Root) && samePath(metadata.BinDir, layout.BinDir)
+func existingMetadata(path string) (*Metadata, error) {
+	metadata, err := ReadMetadata(path)
+	if errors.Is(err, ErrMetadataNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &metadata, nil
+}
+
+func metadataMatches(metadata *Metadata, layout Layout, version string) bool {
+	return metadata != nil && metadata.Method == MethodDirect && metadata.Version == version && samePath(metadata.InstallDir, layout.Root) && samePath(metadata.BinDir, layout.BinDir)
 }
 
 func isDevelopmentVersion(version string) bool {

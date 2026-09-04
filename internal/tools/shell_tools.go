@@ -33,6 +33,7 @@ func RegisterShellTools(registry *Registry, workspaces *workspace.Manager, shell
 		if err != nil {
 			return Result{}, err
 		}
+		ctx = shellruntime.WithExecutionSource(ctx, CallSource(ctx))
 		value, err := shell.Exec(ctx, workspaceID, command)
 		if err != nil {
 			return Result{}, err

@@ -7,6 +7,32 @@ export type Tool = {
   annotations?: Record<string, unknown>
 }
 export type Workspace = { id: string; path: string; allow_dirs?: string[] }
+export type ExecutionStatus = "running" | "success" | "failed" | "cancelled" | "timed_out" | string
+export type ExecutionInfo = {
+  id: string
+  workspace_id: string
+  tool: string
+  command: string
+  cwd: string
+  source?: string
+  started_at: string
+  finished_at?: string
+  status: ExecutionStatus
+  exit_code?: number
+  timed_out?: boolean
+}
+export type ExecutionSnapshot = { execution: ExecutionInfo; stdout: string; stderr: string; latest_sequence: number }
+export type ExecutionEvent = {
+  sequence: number
+  type: "output" | "completed" | string
+  execution_id: string
+  stream?: "stdout" | "stderr" | string
+  data?: string
+  status?: ExecutionStatus
+  exit_code?: number
+  timed_out?: boolean
+  timestamp: string
+}
 export type InstructionSourcePolicy = { enabled?: boolean; context?: boolean; rules?: boolean; skills?: boolean }
 export type GlobalInstructionRule = { id: string; name?: string; enabled: boolean; content: string }
 export type InstructionSource = { provider: string; kind: "context" | "rules" | "skills" | string; paths: string[]; count: number; enabled: boolean; loaded: boolean }
@@ -315,6 +341,8 @@ export const adminApi = {
     const suffix = query.size ? `?${query}` : ""
     return api<ProjectContextResult>(`/api/workspaces/${encodeURIComponent(id)}/context${suffix}`)
   },
+  workspaceExecutions: (id: string, limit = 50) => api<ExecutionInfo[]>(`/api/workspaces/${encodeURIComponent(id)}/executions?limit=${limit}`),
+  workspaceExecution: (id: string, executionID: string) => api<ExecutionSnapshot>(`/api/workspaces/${encodeURIComponent(id)}/executions/${encodeURIComponent(executionID)}`),
   tools: () => api<Tool[]>("/api/tools"),
   upstream: () => api<MCPServer[]>("/api/upstream"),
   upstreamServer: (id: string) =>

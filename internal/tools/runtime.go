@@ -25,6 +25,7 @@ type Runtime struct {
 	CallObserver    CallObserver
 	SessionBindings *SessionWorkspaceBinder
 	Approvals       *approval.Manager
+	Executions      *shellruntime.ExecutionHub
 	sessionMu       sync.Mutex
 	featureMu       sync.Mutex
 	features        features.Config
@@ -50,8 +51,9 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	if err != nil {
 		panic(err)
 	}
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionBindings: NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID), ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
-	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
+	executions := shellruntime.NewExecutionHub()
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionBindings: NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID), Executions: executions, ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
+	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterCore(registry, workspaces, checkpoints, shell)
@@ -188,7 +190,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		}
 		finishRaw["status"] = status
 		finishRaw["result_type"] = result.ResultType
-		finishRaw["result"] = result
+		finishRaw["result"] = observedResult(name, result)
 		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return result, nil
 	}
@@ -205,9 +207,27 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	}
 	result = ErrorResult(err)
 	finishRaw["result_type"] = result.ResultType
-	finishRaw["result"] = result
+	finishRaw["result"] = observedResult(name, result)
 	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
+}
+
+func observedResult(name string, result Result) any {
+	if name != "run_command" {
+		return result
+	}
+	value, ok := result.StructuredContent.(shellruntime.ExecResult)
+	if !ok {
+		return map[string]any{"result_type": result.ResultType, "is_error": result.IsError}
+	}
+	return map[string]any{
+		"result_type": result.ResultType,
+		"is_error":    result.IsError,
+		"command":     value.Command,
+		"cwd":         value.CWD,
+		"exit_code":   value.ExitCode,
+		"timed_out":   value.TimedOut,
+	}
 }
 
 func (r *Runtime) sessionBinder() *SessionWorkspaceBinder {

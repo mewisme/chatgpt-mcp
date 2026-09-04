@@ -10,6 +10,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -20,6 +21,7 @@ const maxRequestBodyBytes int64 = 1 << 20
 
 type API struct {
 	Approvals    *approval.Manager
+	Executions   *shellruntime.ExecutionHub
 	Upstream     *upstream.Manager
 	Tools        *tools.Runtime
 	Workspaces   *workspace.Manager

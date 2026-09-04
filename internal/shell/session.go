@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,6 +54,7 @@ type ExecResult struct {
 type Manager struct {
 	workspaces *workspace.Manager
 	root       string
+	executions *ExecutionHub
 	mu         sync.Mutex
 	sessions   map[string]*session
 	timeout    time.Duration
@@ -74,7 +76,21 @@ func DefaultStateRoot() string {
 }
 
 func NewManager(workspaces *workspace.Manager, root string) *Manager {
-	return &Manager{workspaces: workspaces, root: root, sessions: map[string]*session{}, timeout: defaultCommandTimeout}
+	return NewManagerWithExecutions(workspaces, root, NewExecutionHub())
+}
+
+func NewManagerWithExecutions(workspaces *workspace.Manager, root string, executions *ExecutionHub) *Manager {
+	if executions == nil {
+		executions = NewExecutionHub()
+	}
+	return &Manager{workspaces: workspaces, root: root, executions: executions, sessions: map[string]*session{}, timeout: defaultCommandTimeout}
+}
+
+func (m *Manager) Executions() *ExecutionHub {
+	if m == nil {
+		return nil
+	}
+	return m.executions
 }
 
 func (m *Manager) Status(workspaceID string) (Status, error) {
@@ -166,7 +182,8 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 		current.state.RecentCommands = append([]string(nil), current.state.RecentCommands[len(current.state.RecentCommands)-maxHistory:]...)
 	}
 
-	result, err := runOnce(ctx, effective, cwd, m.timeout)
+	run := m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "run_command", Command: effective, CWD: cwd, Source: executionSource(ctx)})
+	result, err := runOnce(ctx, effective, cwd, m.timeout, run)
 	if saveErr := m.save(current.state); saveErr != nil && err == nil {
 		return ExecResult{}, saveErr
 	}
@@ -327,33 +344,42 @@ func statusFromState(state SessionState) Status {
 	return Status{Active: true, CWD: state.CWD, StartedAt: state.StartedAt, RecentCommands: recent}
 }
 
-func runOnce(ctx context.Context, command, cwd string, timeout time.Duration) (ExecResult, error) {
+func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, execution *ExecutionRun) (ExecResult, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd, err := commandForPlatform(runCtx, command)
 	if err != nil {
+		execution.Finish(ExecutionStatusFailed, nil, false)
 		return ExecResult{}, err
 	}
 	cmd.Dir = cwd
 	cmd.Env = shellEnvironment(ctx)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = io.MultiWriter(&stdout, execution.Writer("stdout"))
+	cmd.Stderr = io.MultiWriter(&stderr, execution.Writer("stderr"))
 	err = cmd.Run()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		execution.Finish(ExecutionStatusTimedOut, nil, true)
 		return ExecResult{}, fmt.Errorf("command timed out after %s", timeout)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
+		execution.Finish(ExecutionStatusCancelled, nil, false)
 		return ExecResult{}, ctxErr
 	}
 	exitCode := 0
 	if err != nil {
 		var exitErr *exec.ExitError
 		if !errors.As(err, &exitErr) {
+			execution.Finish(ExecutionStatusFailed, nil, false)
 			return ExecResult{}, err
 		}
 		exitCode = exitErr.ExitCode()
 	}
+	status := ExecutionStatusSuccess
+	if exitCode != 0 {
+		status = ExecutionStatusFailed
+	}
+	execution.Finish(status, &exitCode, false)
 	return ExecResult{
 		Command: command, CWD: cwd, Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()),
 		ExitCode: exitCode, TimedOut: false,

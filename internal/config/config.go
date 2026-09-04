@@ -155,7 +155,27 @@ func Load() (Config, error) {
 	return loadAt(source.Path, configformat.StructuredPathFrom(source.Path, "tunnel"))
 }
 
+func LoadForTunnelRuntimeKeyReplacement() (Config, error) {
+	return loadForTunnelSecretReplacement(tunnelSecretLoadPolicy{allowMissingRuntime: true})
+}
+
+func LoadForTunnelAdminKeyReplacement() (Config, error) {
+	return loadForTunnelSecretReplacement(tunnelSecretLoadPolicy{allowMissingAdmin: true})
+}
+
+func loadForTunnelSecretReplacement(policy tunnelSecretLoadPolicy) (Config, error) {
+	source, err := Source()
+	if err != nil {
+		return Config{}, err
+	}
+	return loadAtWithTunnelSecretPolicy(source.Path, configformat.StructuredPathFrom(source.Path, "tunnel"), policy)
+}
+
 func loadAt(configPath, secretPath string) (Config, error) {
+	return loadAtWithTunnelSecretPolicy(configPath, secretPath, tunnelSecretLoadPolicy{})
+}
+
+func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSecretLoadPolicy) (Config, error) {
 	cfg := Default()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -172,7 +192,7 @@ func loadAt(configPath, secretPath string) (Config, error) {
 		return cfg, err
 	}
 	legacyRuntime, legacyAdmin := cfg.Tunnel.APIKey, cfg.Tunnel.AdminKey
-	migrateSecrets, err := loadTunnelSecrets(secretPath, &cfg.Tunnel, legacyRuntime, legacyAdmin)
+	migrateSecrets, err := loadTunnelSecretsWithPolicy(secretPath, &cfg.Tunnel, legacyRuntime, legacyAdmin, policy)
 	if err != nil {
 		return cfg, err
 	}

@@ -101,7 +101,7 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 		Long:  "Verify Tunnels Manage access by listing an organization, workspace, or tenant scope, then store the admin key in the secret file store and verification scope in tunnel.<ext>. If no scope flag is provided, cgm first reuses a stored scope or derives one from the currently configured tunnel metadata.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			cfg, err := config.LoadForTunnelAdminKeyReplacement()
 			if err != nil {
 				return err
 			}
@@ -187,7 +187,7 @@ func tunnelAdminKeyVerifyCommand() *cobra.Command {
 
 func tunnelAdminKeyRemoveCommand() *cobra.Command {
 	return &cobra.Command{Use: "remove", Aliases: []string{"rm"}, Short: "Remove the stored tunnel admin key and verification scope", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		cfg, err := config.LoadForTunnelAdminKeyReplacement()
 		if err != nil {
 			return err
 		}

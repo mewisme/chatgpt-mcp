@@ -209,7 +209,11 @@ func tunnelConfigureCommand() *cobra.Command {
 	var enabled bool
 	var id, apiKey, controlPlaneBaseURL, organizationID string
 	cmd := &cobra.Command{Use: "configure", Short: "Configure the builtin OpenAI Secure MCP Tunnel", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		loadConfig := config.Load
+		if cmd.Flags().Changed("api-key") {
+			loadConfig = config.LoadForTunnelRuntimeKeyReplacement
+		}
+		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}

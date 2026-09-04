@@ -59,7 +59,12 @@ func loadTunnelSecretAt(path string) (tunnelSecret, error) {
 	return secret, nil
 }
 
-func loadTunnelSecrets(path string, cfg *tunnel.Config, legacyRuntime, legacyAdmin string) (bool, error) {
+type tunnelSecretLoadPolicy struct {
+	allowMissingRuntime bool
+	allowMissingAdmin   bool
+}
+
+func loadTunnelSecretsWithPolicy(path string, cfg *tunnel.Config, legacyRuntime, legacyAdmin string, policy tunnelSecretLoadPolicy) (bool, error) {
 	stored, err := loadTunnelSecretAt(path)
 	if err != nil {
 		return false, err
@@ -76,11 +81,11 @@ func loadTunnelSecrets(path string, cfg *tunnel.Config, legacyRuntime, legacyAdm
 		legacyAdmin = stored.AdminKey
 	}
 	store := secretstore.New(filepath.Dir(path))
-	runtimeKey, runtimeMigration, err := resolveStoredSecret(store, tunnelRuntimeSecretName, stored.RuntimeKeyConfigured, legacyRuntime, "tunnel runtime key")
+	runtimeKey, runtimeMigration, err := resolveStoredSecret(store, tunnelRuntimeSecretName, stored.RuntimeKeyConfigured, legacyRuntime, "tunnel runtime key", policy.allowMissingRuntime)
 	if err != nil {
 		return false, err
 	}
-	adminKey, adminMigration, err := resolveStoredSecret(store, tunnelAdminSecretName, stored.AdminKeyConfigured, legacyAdmin, "tunnel admin key")
+	adminKey, adminMigration, err := resolveStoredSecret(store, tunnelAdminSecretName, stored.AdminKeyConfigured, legacyAdmin, "tunnel admin key", policy.allowMissingAdmin)
 	if err != nil {
 		return false, err
 	}
@@ -89,7 +94,7 @@ func loadTunnelSecrets(path string, cfg *tunnel.Config, legacyRuntime, legacyAdm
 	return runtimeMigration || adminMigration || stored.APIKey != "" || stored.AdminKey != "", nil
 }
 
-func resolveStoredSecret(store *secretstore.Store, name string, configured bool, legacy, label string) (string, bool, error) {
+func resolveStoredSecret(store *secretstore.Store, name string, configured bool, legacy, label string, allowMissing bool) (string, bool, error) {
 	if configured {
 		value, err := store.Get(name)
 		if err == nil {
@@ -99,6 +104,9 @@ func resolveStoredSecret(store *secretstore.Store, name string, configured bool,
 			return "", false, fmt.Errorf("load %s from secret file store: %w", label, err)
 		}
 		if legacy == "" {
+			if allowMissing {
+				return "", false, nil
+			}
 			return "", false, fmt.Errorf("%s is configured but missing from secret file store", label)
 		}
 	}

@@ -23,7 +23,11 @@ func runInteractiveBrowser(cmd *cobra.Command, title string, rows []interactive.
 func workspaceInteractiveRows(items []workspace.Workspace) []interactive.Row {
 	rows := make([]interactive.Row, 0, len(items))
 	for _, item := range items {
-		rows = append(rows, interactive.Row{ID: item.ID, Summary: fmt.Sprintf("%-18s %s", item.ID, item.Path), Detail: prettyInteractiveJSON(item), Search: strings.Join(item.AllowDirs, " ")})
+		meta := ""
+		if len(item.AllowDirs) > 0 {
+			meta = fmt.Sprintf("%d extra roots", len(item.AllowDirs))
+		}
+		rows = append(rows, interactive.Row{ID: item.ID, Title: item.ID, Description: item.Path, Meta: meta, Summary: fmt.Sprintf("%-18s %s", item.ID, item.Path), Detail: prettyInteractiveJSON(item), Search: strings.Join(append(append([]string{}, item.AllowDirs...), item.LegacyIDs...), " ")})
 	}
 	return rows
 }
@@ -36,8 +40,12 @@ func upstreamInteractiveRows(items []upstream.Server) []interactive.Row {
 		if view.Transport == "stdio" {
 			endpoint = view.Command
 		}
+		state := "disabled"
+		if view.Enabled {
+			state = "enabled"
+		}
 		summary := fmt.Sprintf("%-18s %-6s enabled=%t expose=%s endpoint=%s", view.ID, view.Transport, view.Enabled, view.Expose, endpoint)
-		rows = append(rows, interactive.Row{ID: view.ID, Summary: summary, Detail: prettyInteractiveJSON(view), Search: strings.Join([]string{view.Name, view.Transport, view.Expose, endpoint}, " ")})
+		rows = append(rows, interactive.Row{ID: view.ID, Title: view.ID, Description: endpoint, Meta: strings.Join([]string{view.Transport, state, "expose " + view.Expose}, " · "), Summary: summary, Detail: prettyInteractiveJSON(view), Search: strings.Join([]string{view.Name, view.Transport, view.Expose, endpoint}, " ")})
 	}
 	return rows
 }
@@ -45,8 +53,13 @@ func upstreamInteractiveRows(items []upstream.Server) []interactive.Row {
 func upstreamStatusInteractiveRows(items []upstream.Status) []interactive.Row {
 	rows := make([]interactive.Row, 0, len(items))
 	for _, item := range items {
+		description := item.Name
+		if item.LastError != "" {
+			description = item.LastError
+		}
 		summary := fmt.Sprintf("%-18s %-6s enabled=%t health=%s tools=%d expose=%s", item.ID, item.Transport, item.Enabled, item.Health, item.ToolCount, item.Expose)
-		rows = append(rows, interactive.Row{ID: item.ID, Summary: summary, Detail: prettyInteractiveJSON(item), Search: strings.Join([]string{item.Name, item.Transport, string(item.Health), item.Expose, item.LastError}, " ")})
+		meta := fmt.Sprintf("%s · %s · %d tools", item.Transport, item.Health, item.ToolCount)
+		rows = append(rows, interactive.Row{ID: item.ID, Title: item.ID, Description: description, Meta: meta, Summary: summary, Detail: prettyInteractiveJSON(item), Search: strings.Join([]string{item.Name, item.Transport, string(item.Health), item.Expose, item.LastError}, " ")})
 	}
 	return rows
 }
@@ -58,8 +71,16 @@ func tunnelInteractiveRows(items []tunnel.Metadata) []interactive.Row {
 		if scope == "" {
 			scope = strings.Join(item.TenantIDs, ",")
 		}
+		title := item.Name
+		if strings.TrimSpace(title) == "" {
+			title = item.ID
+		}
+		description := item.ID
+		if item.Description != "" {
+			description += " · " + item.Description
+		}
 		summary := fmt.Sprintf("%-22s %-24s scope=%s", item.ID, item.Name, scope)
-		rows = append(rows, interactive.Row{ID: item.ID, Summary: summary, Detail: prettyInteractiveJSON(item), Search: strings.Join([]string{item.Name, item.Description, item.Creator, scope}, " ")})
+		rows = append(rows, interactive.Row{ID: item.ID, Title: title, Description: description, Meta: scope, Summary: summary, Detail: prettyInteractiveJSON(item), Search: strings.Join([]string{item.Name, item.Description, item.Creator, scope}, " ")})
 	}
 	return rows
 }

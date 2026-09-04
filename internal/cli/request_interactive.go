@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
@@ -29,6 +30,7 @@ type requestInteractiveModel struct {
 	keys          interactive.ListKeys
 	cursor        interactive.Cursor
 	confirm       interactive.Confirmation
+	viewport      viewport.Model
 	requests      []approval.Request
 	filter        string
 	filtering     bool
@@ -62,7 +64,10 @@ func newRequestInteractiveModel(ctx context.Context, requests []approval.Request
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return requestInteractiveModel{ctx: ctx, client: client, keys: interactive.DefaultListKeys(), requests: append([]approval.Request(nil), requests...), now: time.Now()}
+	view := viewport.New(viewport.WithWidth(74), viewport.WithHeight(12))
+	view.SoftWrap = true
+	view.FillHeight = false
+	return requestInteractiveModel{ctx: ctx, client: client, keys: interactive.DefaultListKeys(), viewport: view, requests: append([]approval.Request(nil), requests...), now: time.Now()}
 }
 
 func defaultRequestInteractiveClient() requestInteractiveClient {
@@ -75,8 +80,12 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.resizeViewport()
 	case requestInteractiveTickMsg:
 		m.now = time.Time(msg)
+		if m.detail {
+			m.syncDetailViewport()
+		}
 		return m, tea.Batch(requestInteractiveTickCmd(), m.refreshCmd())
 	case requestInteractiveListMsg:
 		m.loading = false
@@ -90,6 +99,7 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.detail {
 			if current, ok := requestFind(msg.requests, m.detailRequest.ID); ok {
 				m.detailRequest = current
+				m.syncDetailViewport()
 			} else {
 				m.detail, m.detailRequest = false, approval.Request{}
 			}
@@ -102,6 +112,8 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.detail, m.detailRequest = true, msg.request
+		m.syncDetailViewport()
+		m.viewport.GotoTop()
 	case requestInteractiveResolveMsg:
 		m.busy = false
 		if msg.err != nil {
@@ -170,6 +182,10 @@ func (m requestInteractiveModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.
 		case key.Matches(msg, m.keys.Refresh):
 			m.loading = true
 			return m, tea.Batch(m.refreshCmd(), m.detailCmd(m.detailRequest.ID))
+		default:
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
 		}
 		return m, nil
 	}
@@ -220,28 +236,25 @@ func (m *requestInteractiveModel) startConfirmation(action string, request appro
 
 func (m requestInteractiveModel) View() tea.View {
 	var builder strings.Builder
-	builder.WriteString("Control approval requests")
+	items := m.filtered()
+	meta := fmt.Sprintf("%d requests", len(items))
 	if m.loading {
-		builder.WriteString("  refreshing...")
+		meta = interactive.Accent("⠋") + " " + interactive.Muted("refreshing")
 	}
-	builder.WriteString("\n")
-	if m.filtering || m.filter != "" {
-		builder.WriteString("Filter: ")
-		builder.WriteString(m.filter)
-		if m.filtering {
-			builder.WriteString("_")
-		}
+	builder.WriteString(interactive.Header("Control approval requests", meta, m.contentWidth()))
+	if filter := interactive.Filter(m.filter, m.filtering); filter != "" {
 		builder.WriteString("\n")
+		builder.WriteString(filter)
 	}
 	if m.err != nil {
-		builder.WriteString("Error: ")
-		builder.WriteString(m.err.Error())
 		builder.WriteString("\n")
+		builder.WriteString(interactive.Banner(m.err.Error(), interactive.ToneDanger))
 	}
 	if m.notice != "" {
-		builder.WriteString(m.notice)
 		builder.WriteString("\n")
+		builder.WriteString(interactive.Banner(m.notice, interactive.ToneSuccess))
 	}
+	builder.WriteString("\n\n")
 	if m.detail {
 		m.writeDetail(&builder)
 	} else {
@@ -249,9 +262,8 @@ func (m requestInteractiveModel) View() tea.View {
 	}
 	if m.confirm.Active() {
 		builder.WriteString("\n")
-		builder.WriteString(requestActionTitle(m.confirm.Action))
-		builder.WriteString(" ")
-		builder.WriteString(m.confirm.View())
+		message := fmt.Sprintf("%s %s? [y/N]", requestActionTitle(m.confirm.Action), m.confirm.Target)
+		builder.WriteString(interactive.Banner(message, interactive.ToneWarning))
 		builder.WriteString("\n")
 	}
 	view := tea.NewView(builder.String())
@@ -262,55 +274,62 @@ func (m requestInteractiveModel) View() tea.View {
 func (m requestInteractiveModel) writeList(builder *strings.Builder) {
 	items := m.filtered()
 	if len(items) == 0 {
-		builder.WriteString("\nNo requests match the current filter.\n")
+		builder.WriteString(interactive.Muted("No requests match the current filter."))
+		builder.WriteString("\n")
 	} else {
-		maxRows := m.height - 7
-		if maxRows < 3 {
-			maxRows = 8
-		}
+		maxRows := m.listCapacity()
 		start, end := requestVisibleWindow(m.cursor.Index, len(items), maxRows)
 		for index := start; index < end; index++ {
 			request := items[index]
-			prefix := "  "
-			if index == m.cursor.Index {
-				prefix = "> "
+			selected := index == m.cursor.Index
+			title := request.Title
+			if strings.TrimSpace(title) == "" {
+				title = request.ID
 			}
-			line := fmt.Sprintf("%s%-9s %-14s %-16s %s", prefix, requestCountdown(request, m.now), shortRequestID(request.ID), request.WorkspaceID, request.Title)
-			builder.WriteString(requestClip(line, m.width))
+			status := interactive.ToneText(strings.ToUpper(string(request.Status)), requestStatusTone(request.Status))
+			countdown := requestCountdown(request, m.now)
+			right := status
+			if countdown != "" && countdown != string(request.Status) {
+				right += "  " + interactive.Secondary(countdown)
+			}
+			left := interactive.CursorMark(selected) + interactive.Title(requestTruncate(title, max(12, m.contentWidth()-32)))
+			builder.WriteString(interactive.TwoColumn(left, right, m.contentWidth()))
+			builder.WriteString("\n")
+			meta := strings.Join(nonEmptyStrings(shortRequestID(request.ID), request.WorkspaceID, request.TargetTool), " · ")
+			builder.WriteString("  ")
+			builder.WriteString(interactive.Secondary(requestTruncate(meta, max(12, m.contentWidth()-2))))
 			builder.WriteString("\n")
 		}
 	}
-	builder.WriteString("\nup/k down/j move  enter/v details  a approve  d deny  / filter  r refresh  q quit\n")
+	builder.WriteString("\n")
+	builder.WriteString(interactive.Help(m.contentWidth(),
+		interactive.HelpItem{Key: "↑/k", Desc: "up"}, interactive.HelpItem{Key: "↓/j", Desc: "down"}, interactive.HelpItem{Key: "enter", Desc: "details"},
+		interactive.HelpItem{Key: "a", Desc: "approve"}, interactive.HelpItem{Key: "d", Desc: "deny"}, interactive.HelpItem{Key: "/", Desc: "filter"},
+		interactive.HelpItem{Key: "r", Desc: "refresh"}, interactive.HelpItem{Key: "q", Desc: "quit"},
+	))
+	builder.WriteString("\n")
 }
 
 func (m requestInteractiveModel) writeDetail(builder *strings.Builder) {
 	request := m.detailRequest
-	builder.WriteString("\n")
-	builder.WriteString(request.Title)
-	builder.WriteString("\n")
-	builder.WriteString("Request:   " + request.ID + "\n")
-	builder.WriteString("Status:    " + string(request.Status) + "\n")
-	builder.WriteString("Workspace: " + request.WorkspaceID + "\n")
-	builder.WriteString("Tool:      " + request.TargetTool + "\n")
-	builder.WriteString("Source:    " + request.Source + "\n")
-	builder.WriteString("Expires:   " + requestCountdown(request, m.now) + "\n")
-	if request.GuardReason != "" {
-		builder.WriteString("Guard:     " + request.GuardReason + "\n")
+	title := request.Title
+	if strings.TrimSpace(title) == "" {
+		title = request.ID
 	}
-	if len(request.Arguments) > 0 {
-		builder.WriteString("Arguments:\n")
-		var value any
-		if json.Unmarshal(request.Arguments, &value) == nil {
-			if data, err := json.MarshalIndent(value, "", "  "); err == nil {
-				builder.Write(data)
-				builder.WriteString("\n")
-			}
-		} else {
-			builder.Write(request.Arguments)
-			builder.WriteString("\n")
-		}
+	status := interactive.ToneText(strings.ToUpper(string(request.Status)), requestStatusTone(request.Status))
+	right := status
+	if countdown := requestCountdown(request, m.now); countdown != "" && countdown != string(request.Status) {
+		right += "  " + interactive.Secondary(countdown)
 	}
-	builder.WriteString("\nesc/enter back  a approve  d deny  r refresh  q quit\n")
+	builder.WriteString(interactive.TwoColumn(interactive.Title(title), right, m.contentWidth()))
+	builder.WriteString("\n\n")
+	builder.WriteString(interactive.Panel(m.viewport.View(), max(12, m.contentWidth()-2)))
+	builder.WriteString("\n\n")
+	builder.WriteString(interactive.Help(m.contentWidth(),
+		interactive.HelpItem{Key: "j/k", Desc: "scroll"}, interactive.HelpItem{Key: "pgup/pgdn", Desc: "page"}, interactive.HelpItem{Key: "a", Desc: "approve"},
+		interactive.HelpItem{Key: "d", Desc: "deny"}, interactive.HelpItem{Key: "r", Desc: "refresh"}, interactive.HelpItem{Key: "esc", Desc: "back"}, interactive.HelpItem{Key: "ctrl+c", Desc: "quit"},
+	))
+	builder.WriteString("\n")
 }
 
 func (m requestInteractiveModel) filtered() []approval.Request {
@@ -369,6 +388,67 @@ func (m requestInteractiveModel) resolveCmd(action, id string) tea.Cmd {
 	}
 }
 
+func (m *requestInteractiveModel) resizeViewport() {
+	m.viewport.SetWidth(max(12, m.contentWidth()-6))
+	m.viewport.SetHeight(max(5, m.height-12))
+}
+
+func (m *requestInteractiveModel) syncDetailViewport() {
+	if !m.detail {
+		return
+	}
+	request := m.detailRequest
+	var builder strings.Builder
+	builder.WriteString(interactive.KeyValue("Request", request.ID))
+	builder.WriteString("\n")
+	builder.WriteString(interactive.KeyValue("Status", interactive.ToneText(string(request.Status), requestStatusTone(request.Status))))
+	builder.WriteString("\n")
+	builder.WriteString(interactive.KeyValue("Workspace", request.WorkspaceID))
+	builder.WriteString("\n")
+	builder.WriteString(interactive.KeyValue("Tool", request.TargetTool))
+	builder.WriteString("\n")
+	if request.Source != "" {
+		builder.WriteString(interactive.KeyValue("Source", request.Source))
+		builder.WriteString("\n")
+	}
+	builder.WriteString(interactive.KeyValue("Expires", requestCountdown(request, m.now)))
+	builder.WriteString("\n")
+	if request.GuardReason != "" {
+		builder.WriteString(interactive.KeyValue("Guard", request.GuardReason))
+		builder.WriteString("\n")
+	}
+	if len(request.Arguments) > 0 {
+		builder.WriteString("\n")
+		builder.WriteString(interactive.Title("Arguments"))
+		builder.WriteString("\n")
+		var value any
+		if json.Unmarshal(request.Arguments, &value) == nil {
+			if data, err := json.MarshalIndent(value, "", "  "); err == nil {
+				builder.Write(data)
+				builder.WriteString("\n")
+			}
+		} else {
+			builder.Write(request.Arguments)
+			builder.WriteString("\n")
+		}
+	}
+	m.viewport.SetContent(strings.TrimSuffix(builder.String(), "\n"))
+}
+
+func (m requestInteractiveModel) contentWidth() int {
+	if m.width <= 0 {
+		return 80
+	}
+	return max(20, m.width-2)
+}
+
+func (m requestInteractiveModel) listCapacity() int {
+	if m.height <= 0 {
+		return 8
+	}
+	return max(3, (m.height-10)/2)
+}
+
 func requestInteractiveTickCmd() tea.Cmd {
 	return tea.Tick(requestInteractiveRefreshInterval, func(now time.Time) tea.Msg { return requestInteractiveTickMsg(now) })
 }
@@ -407,6 +487,19 @@ func requestCountdown(request approval.Request, now time.Time) string {
 	}
 }
 
+func requestStatusTone(status approval.Status) interactive.Tone {
+	switch status {
+	case approval.StatusPending:
+		return interactive.ToneWarning
+	case approval.StatusApproved, approval.StatusConsumed:
+		return interactive.ToneSuccess
+	case approval.StatusDenied:
+		return interactive.ToneDanger
+	default:
+		return interactive.ToneNeutral
+	}
+}
+
 func requestVisibleWindow(cursor, length, maxRows int) (int, int) {
 	if length <= maxRows {
 		return 0, length
@@ -421,7 +514,7 @@ func requestVisibleWindow(cursor, length, maxRows int) (int, int) {
 	return start, start + maxRows
 }
 
-func requestClip(value string, width int) string {
+func requestTruncate(value string, width int) string {
 	if width <= 0 || utf8.RuneCountInString(value) <= width {
 		return value
 	}
@@ -451,4 +544,14 @@ func requestActionTitle(action string) string {
 		return ""
 	}
 	return strings.ToUpper(action[:1]) + action[1:]
+}
+
+func nonEmptyStrings(values ...string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }

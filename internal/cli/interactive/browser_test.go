@@ -73,6 +73,24 @@ func TestBrowserRefreshClosesRemovedDetail(t *testing.T) {
 	}
 }
 
+func TestBrowserDetailViewportScrollsAndResizes(t *testing.T) {
+	lines := make([]string, 30)
+	for index := range lines {
+		lines[index] = "detail line " + string(rune('A'+index%26))
+	}
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One", Description: "first", Detail: strings.Join(lines, "\n")}}, nil)
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 14})
+	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
+	if !model.detail || model.viewport.Width() != 64 || model.viewport.Height() != 4 {
+		t.Fatalf("detail=%t viewport=%dx%d", model.detail, model.viewport.Width(), model.viewport.Height())
+	}
+	before := model.viewport.YOffset()
+	model = updateBrowser(t, model, browserKeyText("j"))
+	if model.viewport.YOffset() <= before {
+		t.Fatalf("viewport did not scroll: before=%d after=%d", before, model.viewport.YOffset())
+	}
+}
+
 func updateBrowser(t *testing.T, model Browser, msg tea.Msg) Browser {
 	t.Helper()
 	updated, _ := model.Update(msg)

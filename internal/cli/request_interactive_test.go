@@ -96,6 +96,34 @@ func TestRequestInteractiveResolvedItemCannotBeApproved(t *testing.T) {
 	}
 }
 
+func TestRequestInteractiveViewRendersHierarchyAndScrollableDetail(t *testing.T) {
+	now := time.Now().UTC()
+	arguments := `{"workspace_id":"ws_a","command":"cgm update","notes":"line one\nline two\nline three\nline four\nline five\nline six\nline seven\nline eight"}`
+	request := approval.Request{ID: "req_visual", Status: approval.StatusPending, WorkspaceID: "ws_a", Source: "tunnel", TargetTool: "run_command", Title: "Allow cgm update", Arguments: []byte(arguments), GuardReason: "control-plane mutation", ExpiresAt: now.Add(time.Minute)}
+	client := requestInteractiveClient{list: func(context.Context) ([]approval.Request, error) { return []approval.Request{request}, nil }, view: func(context.Context, string) (approval.Request, error) { return request, nil }}
+	model := newRequestInteractiveModel(context.Background(), []approval.Request{request}, client)
+	model.now = now
+	model = updateRequestInteractive(t, model, tea.WindowSizeMsg{Width: 76, Height: 16})
+	listView := model.View().Content
+	for _, expected := range []string{"Control approval requests", "Allow cgm update", "PENDING", "req_visual", "ws_a", "run_command"} {
+		if !strings.Contains(listView, expected) {
+			t.Fatalf("list view missing %q: %q", expected, listView)
+		}
+	}
+	updated, cmd := model.Update(keyCode(tea.KeyEnter))
+	model = updated.(requestInteractiveModel)
+	updated, _ = model.Update(cmd())
+	model = updated.(requestInteractiveModel)
+	if !model.detail || !strings.Contains(model.viewport.GetContent(), "Arguments") || !strings.Contains(model.viewport.GetContent(), `"command": "cgm update"`) {
+		t.Fatalf("detail content=%q", model.viewport.GetContent())
+	}
+	before := model.viewport.YOffset()
+	model = updateRequestInteractive(t, model, keyText("j"))
+	if model.viewport.YOffset() <= before {
+		t.Fatalf("viewport did not scroll: before=%d after=%d", before, model.viewport.YOffset())
+	}
+}
+
 func updateRequestInteractive(t *testing.T, model requestInteractiveModel, msg tea.Msg) requestInteractiveModel {
 	t.Helper()
 	updated, _ := model.Update(msg)

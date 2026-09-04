@@ -2,18 +2,23 @@ package interactive
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 )
 
 type Row struct {
-	ID      string
-	Summary string
-	Detail  string
-	Search  string
+	ID          string
+	Title       string
+	Description string
+	Meta        string
+	Summary     string
+	Detail      string
+	Search      string
 }
 
 type RefreshFunc func(context.Context) ([]Row, error)
@@ -25,6 +30,7 @@ type Browser struct {
 	refresh   RefreshFunc
 	keys      ListKeys
 	cursor    Cursor
+	viewport  viewport.Model
 	filter    string
 	filtering bool
 	detail    bool
@@ -43,7 +49,10 @@ func NewBrowser(ctx context.Context, title string, rows []Row, refresh RefreshFu
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return Browser{ctx: ctx, title: strings.TrimSpace(title), rows: append([]Row(nil), rows...), refresh: refresh, keys: DefaultListKeys()}
+	view := viewport.New(viewport.WithWidth(74), viewport.WithHeight(12))
+	view.SoftWrap = true
+	view.FillHeight = false
+	return Browser{ctx: ctx, title: strings.TrimSpace(title), rows: append([]Row(nil), rows...), refresh: refresh, keys: DefaultListKeys(), viewport: view}
 }
 
 func (m Browser) Init() tea.Cmd { return nil }
@@ -52,6 +61,7 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.resizeViewport()
 	case browserRefreshMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -65,6 +75,11 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.rows = msg.rows
 		m.restoreSelection(selectedID)
+		if m.detail {
+			if selected, ok := m.selected(); ok {
+				m.syncViewport(selected)
+			}
+		}
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
@@ -101,6 +116,10 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.detail = false
 		case key.Matches(msg, m.keys.Refresh):
 			return m.startRefresh()
+		default:
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
 		}
 		return m, nil
 	}
@@ -120,8 +139,10 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Down):
 		m.cursor.Move(1, len(items))
 	case key.Matches(msg, m.keys.Open):
-		if _, ok := m.selected(); ok {
+		if selected, ok := m.selected(); ok {
 			m.detail = true
+			m.syncViewport(selected)
+			m.viewport.GotoTop()
 		}
 	case key.Matches(msg, m.keys.Filter):
 		m.filtering = true
@@ -133,24 +154,21 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m Browser) View() tea.View {
 	var builder strings.Builder
-	builder.WriteString(m.title)
+	items := m.filtered()
+	meta := fmt.Sprintf("%d items", len(items))
 	if m.loading {
-		builder.WriteString("  refreshing...")
+		meta = Accent("⠋") + " " + Muted("refreshing")
 	}
-	builder.WriteString("\n")
-	if m.filtering || m.filter != "" {
-		builder.WriteString("Filter: ")
-		builder.WriteString(m.filter)
-		if m.filtering {
-			builder.WriteString("_")
-		}
+	builder.WriteString(Header(m.title, meta, m.contentWidth()))
+	if filter := Filter(m.filter, m.filtering); filter != "" {
 		builder.WriteString("\n")
+		builder.WriteString(filter)
 	}
 	if m.err != nil {
-		builder.WriteString("Error: ")
-		builder.WriteString(m.err.Error())
 		builder.WriteString("\n")
+		builder.WriteString(Banner(m.err.Error(), ToneDanger))
 	}
+	builder.WriteString("\n\n")
 	if m.detail {
 		m.writeDetail(&builder)
 	} else {
@@ -164,49 +182,73 @@ func (m Browser) View() tea.View {
 func (m Browser) writeList(builder *strings.Builder) {
 	items := m.filtered()
 	if len(items) == 0 {
-		builder.WriteString("\nNo items match the current filter.\n")
+		builder.WriteString(Muted("No items match the current filter."))
+		builder.WriteString("\n")
 	} else {
-		maxRows := m.height - 6
-		if maxRows < 3 {
-			maxRows = 8
-		}
+		maxRows := m.listCapacity()
 		start, end := visibleWindow(m.cursor.Index, len(items), maxRows)
 		for index := start; index < end; index++ {
-			prefix := "  "
-			if index == m.cursor.Index {
-				prefix = "> "
-			}
-			builder.WriteString(clip(prefix+items[index].Summary, m.width))
-			builder.WriteString("\n")
+			m.writeRow(builder, items[index], index == m.cursor.Index)
 		}
 	}
-	builder.WriteString("\nup/k down/j move  enter/v details  / filter")
+	builder.WriteString("\n")
+	help := []HelpItem{{Key: "↑/k", Desc: "up"}, {Key: "↓/j", Desc: "down"}, {Key: "enter", Desc: "details"}, {Key: "/", Desc: "filter"}}
 	if m.refresh != nil {
-		builder.WriteString("  r refresh")
+		help = append(help, HelpItem{Key: "r", Desc: "refresh"})
 	}
-	builder.WriteString("  q quit\n")
+	help = append(help, HelpItem{Key: "q", Desc: "quit"})
+	builder.WriteString(Help(m.contentWidth(), help...))
+	builder.WriteString("\n")
+}
+
+func (m Browser) writeRow(builder *strings.Builder, row Row, selected bool) {
+	title := row.Title
+	if strings.TrimSpace(title) == "" {
+		title = row.ID
+	}
+	if strings.TrimSpace(title) == "" {
+		title = row.Summary
+	}
+	meta := strings.TrimSpace(row.Meta)
+	leftWidth := m.contentWidth() - 2
+	if meta != "" {
+		leftWidth -= utf8.RuneCountInString(meta) + 3
+	}
+	title = truncatePlain(title, max(8, leftWidth))
+	primary := CursorMark(selected) + Title(title)
+	if meta != "" {
+		primary = TwoColumn(primary, Secondary(meta), m.contentWidth())
+	}
+	builder.WriteString(primary)
+	builder.WriteString("\n")
+	secondary := strings.TrimSpace(row.Description)
+	if secondary == "" && row.Title == "" && row.Summary != title {
+		secondary = row.Summary
+	}
+	if secondary != "" {
+		builder.WriteString("  ")
+		builder.WriteString(Secondary(truncatePlain(secondary, max(8, m.contentWidth()-2))))
+	}
+	builder.WriteString("\n")
 }
 
 func (m Browser) writeDetail(builder *strings.Builder) {
 	selected, ok := m.selected()
 	if !ok {
-		m.detail = false
+		builder.WriteString(Muted("The selected item is no longer available."))
 		return
 	}
-	builder.WriteString("\n")
-	builder.WriteString(selected.Summary)
+	builder.WriteString(TwoColumn(Title(browserRowTitle(selected)), Secondary(selected.Meta), m.contentWidth()))
 	builder.WriteString("\n\n")
-	if strings.TrimSpace(selected.Detail) != "" {
-		builder.WriteString(selected.Detail)
-		if !strings.HasSuffix(selected.Detail, "\n") {
-			builder.WriteString("\n")
-		}
-	}
-	builder.WriteString("\nesc/enter back")
+	builder.WriteString(Panel(m.viewport.View(), max(12, m.contentWidth()-2)))
+	builder.WriteString("\n\n")
+	help := []HelpItem{{Key: "j/k", Desc: "scroll"}, {Key: "pgup/pgdn", Desc: "page"}, {Key: "esc", Desc: "back"}}
 	if m.refresh != nil {
-		builder.WriteString("  r refresh")
+		help = append(help, HelpItem{Key: "r", Desc: "refresh"})
 	}
-	builder.WriteString("  q back  ctrl+c quit\n")
+	help = append(help, HelpItem{Key: "ctrl+c", Desc: "quit"})
+	builder.WriteString(Help(m.contentWidth(), help...))
+	builder.WriteString("\n")
 }
 
 func (m Browser) filtered() []Row {
@@ -216,7 +258,7 @@ func (m Browser) filtered() []Row {
 	}
 	result := make([]Row, 0, len(m.rows))
 	for _, row := range m.rows {
-		haystack := strings.ToLower(strings.Join([]string{row.ID, row.Summary, row.Search}, " "))
+		haystack := strings.ToLower(strings.Join([]string{row.ID, row.Title, row.Description, row.Meta, row.Summary, row.Search}, " "))
 		if strings.Contains(haystack, query) {
 			result = append(result, row)
 		}
@@ -257,6 +299,46 @@ func (m *Browser) restoreSelection(id string) {
 	}
 }
 
+func (m *Browser) resizeViewport() {
+	m.viewport.SetWidth(max(12, m.contentWidth()-6))
+	m.viewport.SetHeight(max(4, m.height-10))
+}
+
+func (m *Browser) syncViewport(row Row) {
+	content := strings.TrimSpace(row.Detail)
+	if content == "" {
+		content = strings.TrimSpace(row.Description)
+	}
+	if content == "" {
+		content = row.Summary
+	}
+	m.viewport.SetContent(content)
+}
+
+func (m Browser) contentWidth() int {
+	if m.width <= 0 {
+		return 80
+	}
+	return max(20, m.width-2)
+}
+
+func (m Browser) listCapacity() int {
+	if m.height <= 0 {
+		return 8
+	}
+	return max(3, (m.height-9)/2)
+}
+
+func browserRowTitle(row Row) string {
+	if strings.TrimSpace(row.Title) != "" {
+		return row.Title
+	}
+	if strings.TrimSpace(row.ID) != "" {
+		return row.ID
+	}
+	return row.Summary
+}
+
 func visibleWindow(cursor, length, maxRows int) (int, int) {
 	if length <= maxRows {
 		return 0, length
@@ -271,7 +353,7 @@ func visibleWindow(cursor, length, maxRows int) (int, int) {
 	return start, start + maxRows
 }
 
-func clip(value string, width int) string {
+func truncatePlain(value string, width int) string {
 	if width <= 0 || utf8.RuneCountInString(value) <= width {
 		return value
 	}

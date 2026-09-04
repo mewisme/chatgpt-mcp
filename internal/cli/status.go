@@ -19,6 +19,7 @@ import (
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
+	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -34,6 +35,7 @@ type statusSnapshot struct {
 	ListenerPlan  listenerPlan
 	ListenerError error
 	Tunnel        tunnel.Status
+	Update        *updatepkg.CachedCheck
 }
 
 const statusTunnelWatchTimeout = 35 * time.Second
@@ -96,7 +98,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 	}
 	plan, listenerErr := resolveListenerPlan(cfg.Server.Expose)
 	tunnelStatus := fetchTunnelStatus(cmd.Context(), cfg.Tunnel)
-	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: len(upstreams.List()), ListenerPlan: plan, ListenerError: listenerErr, Tunnel: tunnelStatus}
+	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: len(upstreams.List()), ListenerPlan: plan, ListenerError: listenerErr, Tunnel: tunnelStatus, Update: cachedUpdateStatus(time.Now())}
 	if !running {
 		snapshot.Services = installedManagedServices(account)
 	}
@@ -289,6 +291,12 @@ func renderStatusConfig(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	statusField(out, "auth", fmt.Sprintf("mcp %s · admin %s", onOff(cfg.Auth.MCPEnabled), onOff(cfg.Auth.AdminEnabled)))
 	statusField(out, "workspaces", snapshot.Workspaces)
 	statusField(out, "upstreams", snapshot.Upstreams)
+	if snapshot.Update != nil && (verbose || snapshot.Update.Status == updatepkg.StatusAvailable) {
+		statusField(out, "update", formatCachedUpdate(snapshot.Update))
+		if verbose {
+			statusField(out, "checked", snapshot.Update.CheckedAt.Local().Format(time.RFC3339))
+		}
+	}
 }
 
 func renderStatusUninitialized(out io.Writer) {
@@ -351,6 +359,7 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 	}
 	log.Detail("workspaces", snapshot.Workspaces)
 	log.Detail("upstreams", snapshot.Upstreams)
+	logCachedUpdate(log, snapshot.Update)
 }
 
 func statusField(out io.Writer, label string, value any) {

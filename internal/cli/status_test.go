@@ -11,6 +11,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 )
 
 func TestStatusReportsManagedRuntime(t *testing.T) {
@@ -121,6 +122,30 @@ func TestStatusHelpers(t *testing.T) {
 		if got := formatStatusUptime(time.Now().Add(-duration)); got != expected {
 			t.Fatalf("formatStatusUptime(%s) = %q, want %q", duration, got, expected)
 		}
+	}
+}
+
+func TestRenderStatusConfigUsesCachedUpdateWithoutNetwork(t *testing.T) {
+	checkedAt := time.Date(2026, 9, 4, 12, 0, 0, 0, time.Local)
+	available := &updatepkg.CachedCheck{CheckResult: updatepkg.CheckResult{Current: "v1.0.0", Latest: "v1.1.0", Status: updatepkg.StatusAvailable}, CheckedAt: checkedAt}
+	snapshot := statusSnapshot{Source: configformat.Source{Path: "/tmp/config.toml", Exists: true}, Config: config.Default(), Update: available}
+	var output bytes.Buffer
+	renderStatusConfig(&output, snapshot, false)
+	if !strings.Contains(output.String(), "v1.1.0 available") || strings.Contains(output.String(), "checked") {
+		t.Fatalf("cached available output = %q", output.String())
+	}
+
+	output.Reset()
+	snapshot.Update = &updatepkg.CachedCheck{CheckResult: updatepkg.CheckResult{Current: "v1.1.0", Latest: "v1.1.0", Status: updatepkg.StatusUpToDate}, CheckedAt: checkedAt}
+	renderStatusConfig(&output, snapshot, false)
+	if strings.Contains(output.String(), "update") {
+		t.Fatalf("non-verbose up-to-date cache should stay hidden: %q", output.String())
+	}
+
+	output.Reset()
+	renderStatusConfig(&output, snapshot, true)
+	if !strings.Contains(output.String(), "up to date") || !strings.Contains(output.String(), "checked") {
+		t.Fatalf("verbose cached update output = %q", output.String())
 	}
 }
 

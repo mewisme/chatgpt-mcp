@@ -38,6 +38,10 @@ func (c Checker) Check(ctx context.Context, current string) (CheckResult, error)
 	if err != nil {
 		return CheckResult{}, err
 	}
+	return checkRelease(current, release)
+}
+
+func checkRelease(current string, release Release) (CheckResult, error) {
 	current = strings.TrimSpace(current)
 	if isDevelopmentVersion(current) {
 		return CheckResult{Current: current, Latest: release.Version, Status: StatusDevelopment, Release: release}, nil

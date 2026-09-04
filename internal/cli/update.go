@@ -51,6 +51,9 @@ func updateCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if targetVersion == "" {
+			cacheLatestRelease(cmd, layout, result.Target)
+		}
 		if !result.Changed {
 			if result.Current == result.Target {
 				log.Ready("UPDATE", "update.current", "Already up to date")
@@ -90,6 +93,7 @@ func updateCheckCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		cacheLatestReleaseForCurrentInstall(cmd, result.Latest)
 		log := commandLogger(cmd)
 		switch result.Status {
 		case updatepkg.StatusAvailable:

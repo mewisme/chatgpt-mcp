@@ -15,8 +15,10 @@ type Layout struct {
 	Root            string
 	Versions        string
 	Current         string
+	State           string
 	BinDir          string
 	Metadata        string
+	UpdateCache     string
 	BinaryName      string
 	AliasName       string
 	CurrentBinary   string
@@ -36,13 +38,16 @@ func NewLayout(root, binDir string) (Layout, error) {
 	root = filepath.Clean(root)
 	binDir = filepath.Clean(binDir)
 	current := filepath.Join(root, "current")
+	state := filepath.Join(root, "state")
 	binaryName, aliasName := platformBinaryNames()
 	return Layout{
 		Root:            root,
 		Versions:        filepath.Join(root, "versions"),
 		Current:         current,
+		State:           state,
 		BinDir:          binDir,
 		Metadata:        filepath.Join(root, "install.json"),
+		UpdateCache:     filepath.Join(state, "update.json"),
 		BinaryName:      binaryName,
 		AliasName:       aliasName,
 		CurrentBinary:   filepath.Join(current, binaryName),

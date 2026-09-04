@@ -101,6 +101,25 @@ func TestCleanupLegacyInstallationsPreservesCurrentExecutable(t *testing.T) {
 	}
 }
 
+func TestSamePathResolvesSymlinkedParent(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	if err := os.MkdirAll(realDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	aliasDir := filepath.Join(root, "alias")
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+	realPath := filepath.Join(realDir, "chatgpt-mcp")
+	if err := os.WriteFile(realPath, []byte("test"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if !samePath(filepath.Join(aliasDir, "chatgpt-mcp"), realPath) {
+		t.Fatalf("symlinked path was not canonicalized: alias=%q real=%q", aliasDir, realDir)
+	}
+}
+
 func TestInstallMigratesShadowingStandaloneFromPath(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "install")
 	binDir := filepath.Join(t.TempDir(), "bin")

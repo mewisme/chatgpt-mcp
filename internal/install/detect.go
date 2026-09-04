@@ -156,9 +156,20 @@ func withinPath(root, target string) bool {
 }
 
 func samePath(left, right string) bool {
-	leftAbs, leftErr := filepath.Abs(filepath.Clean(left))
-	rightAbs, rightErr := filepath.Abs(filepath.Clean(right))
-	return leftErr == nil && rightErr == nil && strings.EqualFold(leftAbs, rightAbs)
+	leftPath, leftErr := comparablePath(left)
+	rightPath, rightErr := comparablePath(right)
+	return leftErr == nil && rightErr == nil && strings.EqualFold(leftPath, rightPath)
+}
+
+func comparablePath(path string) (string, error) {
+	absolute, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", err
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(absolute); resolveErr == nil {
+		absolute = resolved
+	}
+	return filepath.Clean(absolute), nil
 }
 
 func normalizedPath(path string) string {

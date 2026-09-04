@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/memory"
+	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
 	"go.mewis.me/chatgpt-mcp/internal/rules"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -36,35 +36,10 @@ type RememberResult struct {
 	Note    string `json:"note"`
 }
 
-type ProjectContextMemoryFile struct {
-	Path      string                         `json:"path"`
-	Kind      instructioncontext.SectionKind `json:"kind"`
-	Source    string                         `json:"source,omitempty"`
-	Truncated bool                           `json:"truncated"`
-}
-
-type ProjectContextGitSummary struct {
-	Skipped bool   `json:"skipped,omitempty"`
-	IsRepo  bool   `json:"is_repo"`
-	Branch  string `json:"branch,omitempty"`
-	Commits int    `json:"commits"`
-}
-
-type ProjectContextSummary struct {
-	MemoryFiles      []ProjectContextMemoryFile `json:"memory_files"`
-	MemoryBytes      int                        `json:"memory_bytes"`
-	InstructionBytes int                        `json:"instruction_bytes"`
-	Git              ProjectContextGitSummary   `json:"git"`
-	Rules            int                        `json:"rules"`
-	Skills           int                        `json:"skills"`
-}
-
-type ProjectContextResult struct {
-	Root               string                                `json:"root"`
-	WorkspaceID        string                                `json:"workspace_id"`
-	InstructionContext instructioncontext.InstructionContext `json:"instruction_context"`
-	Summary            ProjectContextSummary                 `json:"summary"`
-}
+type ProjectContextMemoryFile = projectcontext.MemoryFile
+type ProjectContextGitSummary = projectcontext.GitSummary
+type ProjectContextSummary = projectcontext.Summary
+type ProjectContextResult = projectcontext.Result
 
 type AgentStatusResult struct {
 	PermissionProfile     string         `json:"permission_profile"`
@@ -86,6 +61,11 @@ type AgentStatusResult struct {
 func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
 	memoryStore := memory.NewStore(memory.DefaultRoot())
 	policyStore := instructionpolicy.DefaultStore()
+	contextService := projectcontext.New(workspaces, func() instructioncontext.ToolProfile {
+		return instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())}
+	})
+	contextService.MemoryStore = memoryStore
+	contextService.PolicyStore = policyStore
 	register := func(name, title, description, input, output string, risk Risk, handler Handler) {
 		registry.MustRegister(name, Schema{
 			Name: name, Title: title, Description: description,
@@ -139,27 +119,13 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 	})
 
 	register("project_context", "Project Context", "Build the complete workspace instruction context with environment, Git, memory, rules, skills, and ready-to-use instructions.", workspaceOnlySchema(`"path":{"type":"string"},"max_instruction_bytes":{"type":"integer","minimum":1,"maximum":1000000,"default":100000},"max_section_bytes":{"type":"integer","minimum":1,"maximum":500000,"default":25000},"max_lines_per_section":{"type":"integer","minimum":1,"maximum":5000,"default":200},"include_git":{"type":"boolean","default":true},"include_memory":{"type":"boolean","default":true},"include_skills":{"type":"boolean","default":true},`), `{"type":"object","properties":{"root":{"type":"string"},"workspace_id":{"type":"string"},"instruction_context":{"type":"object","additionalProperties":true},"summary":{"type":"object","additionalProperties":true}},"required":["root","workspace_id","instruction_context","summary"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
-		item, cwd, err := workspaceLocation(workspaces, args)
+		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err
 		}
 		pathValue, err := optionalString(args, "path")
 		if err != nil {
 			return Result{}, err
-		}
-		root := cwd
-		if strings.TrimSpace(pathValue) != "" {
-			root, err = workspaces.ResolvePath(item.ID, cwd, pathValue, true)
-			if err != nil {
-				return Result{}, err
-			}
-			info, err := os.Stat(root)
-			if err != nil {
-				return Result{}, err
-			}
-			if !info.IsDir() {
-				return Result{}, errors.New("project_context path must be a directory")
-			}
 		}
 		maxInstructionBytes, err := optionalInt(args, "max_instruction_bytes", instructioncontext.DefaultInstructionMaxBytes, 1, 1_000_000)
 		if err != nil {
@@ -185,24 +151,14 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
-		roots, err := workspaces.EffectiveRoots(item.ID)
-		if err != nil {
-			return Result{}, err
-		}
-		policy, err := policyStore.Load()
-		if err != nil {
-			return Result{}, err
-		}
-		value, err := instructioncontext.Build(ctx, instructioncontext.BuildOptions{
-			Root: root, WorkspaceID: item.ID, WorkspaceRoot: item.Path, CWD: cwd, WorkspaceRoots: roots, MemoryStore: memoryStore,
-			Memory: instructioncontext.MemoryLoadOptions{ImportMaxDepth: instructioncontext.DefaultImportMaxDepth, MaxBytesPerSection: maxSectionBytes, MaxLinesPerSection: maxLinesPerSection},
-			Policy: policy, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())}, MaxInstructionBytes: maxInstructionBytes,
-			SkipGit: !includeGit, SkipMemory: !includeMemory, SkipSkills: !includeSkills,
+		value, err := contextService.Build(ctx, item.ID, projectcontext.Options{
+			Path: pathValue, MaxInstructionBytes: maxInstructionBytes, MaxSectionBytes: maxSectionBytes, MaxLinesPerSection: maxLinesPerSection,
+			IncludeGit: includeGit, IncludeMemory: includeMemory, IncludeSkills: includeSkills,
 		})
 		if err != nil {
 			return Result{}, err
 		}
-		return JSONResult(projectContextResult(value)), nil
+		return JSONResult(value), nil
 	})
 
 	register("agent_status", "Agent Status", "Show workspace permissions, runtime, rewind config, upstream configuration, and tool runtime status.", workspaceOnlySchema(``), `{"type":"object","additionalProperties":true}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
@@ -291,27 +247,6 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		}
 		return JSONResult(PathRulesResult{Path: target, Rules: values, Count: len(values)}), nil
 	})
-}
-
-func projectContextResult(value instructioncontext.InstructionContext) ProjectContextResult {
-	files := make([]ProjectContextMemoryFile, 0, len(value.ProjectMemory.Sections)+len(value.ProjectMemory.Imports))
-	appendSection := func(section instructioncontext.Section) {
-		files = append(files, ProjectContextMemoryFile{Path: section.Path, Kind: section.Kind, Source: section.Source, Truncated: section.Truncated})
-	}
-	for _, section := range value.ProjectMemory.Sections {
-		appendSection(section)
-	}
-	for _, section := range value.ProjectMemory.Imports {
-		appendSection(section)
-	}
-	return ProjectContextResult{
-		Root: value.Root, WorkspaceID: value.WorkspaceID, InstructionContext: value,
-		Summary: ProjectContextSummary{
-			MemoryFiles: files, MemoryBytes: value.ProjectMemory.TotalBytes, InstructionBytes: value.InstructionBytes,
-			Git:   ProjectContextGitSummary{Skipped: value.Git.Skipped, IsRepo: value.Git.IsRepo, Branch: value.Git.Branch, Commits: len(value.Git.RecentCommits)},
-			Rules: len(value.GlobalRules) + len(value.Rules), Skills: len(value.Skills),
-		},
-	}
 }
 
 func withinDirectory(root, path string) bool {

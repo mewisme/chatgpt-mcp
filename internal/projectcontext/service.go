@@ -1,0 +1,137 @@
+package projectcontext
+
+import (
+	"context"
+	"errors"
+	"os"
+	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	"go.mewis.me/chatgpt-mcp/internal/memory"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
+)
+
+type MemoryFile struct {
+	Path      string                         `json:"path"`
+	Kind      instructioncontext.SectionKind `json:"kind"`
+	Source    string                         `json:"source,omitempty"`
+	Truncated bool                           `json:"truncated"`
+}
+
+type GitSummary struct {
+	Skipped bool   `json:"skipped,omitempty"`
+	IsRepo  bool   `json:"is_repo"`
+	Branch  string `json:"branch,omitempty"`
+	Commits int    `json:"commits"`
+}
+
+type Summary struct {
+	MemoryFiles      []MemoryFile `json:"memory_files"`
+	MemoryBytes      int          `json:"memory_bytes"`
+	InstructionBytes int          `json:"instruction_bytes"`
+	Git              GitSummary   `json:"git"`
+	Rules            int          `json:"rules"`
+	Skills           int          `json:"skills"`
+}
+
+type Result struct {
+	Root               string                                `json:"root"`
+	WorkspaceID        string                                `json:"workspace_id"`
+	InstructionContext instructioncontext.InstructionContext `json:"instruction_context"`
+	Summary            Summary                               `json:"summary"`
+}
+
+type Options struct {
+	Path                string
+	MaxInstructionBytes int
+	MaxSectionBytes     int
+	MaxLinesPerSection  int
+	IncludeGit          bool
+	IncludeMemory       bool
+	IncludeSkills       bool
+	AdminEnabled        bool
+	AdminPort           int
+}
+
+type Service struct {
+	Workspaces  *workspace.Manager
+	MemoryStore memory.Store
+	PolicyStore *instructionpolicy.Store
+	ToolProfile func() instructioncontext.ToolProfile
+}
+
+func New(workspaces *workspace.Manager, toolProfile func() instructioncontext.ToolProfile) *Service {
+	return &Service{Workspaces: workspaces, MemoryStore: memory.NewStore(memory.DefaultRoot()), PolicyStore: instructionpolicy.DefaultStore(), ToolProfile: toolProfile}
+}
+
+func (s *Service) Build(ctx context.Context, workspaceID string, opts Options) (Result, error) {
+	if s == nil || s.Workspaces == nil {
+		return Result{}, errors.New("workspace manager is unavailable")
+	}
+	item, err := s.Workspaces.Get(workspaceID)
+	if err != nil {
+		return Result{}, err
+	}
+	root := item.Path
+	if path := strings.TrimSpace(opts.Path); path != "" {
+		root, err = s.Workspaces.ResolvePath(item.ID, item.Path, path, true)
+		if err != nil {
+			return Result{}, err
+		}
+		info, err := os.Stat(root)
+		if err != nil {
+			return Result{}, err
+		}
+		if !info.IsDir() {
+			return Result{}, errors.New("project context path must be a directory")
+		}
+	}
+	roots, err := s.Workspaces.EffectiveRoots(item.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	policy := instructionpolicy.DefaultConfig()
+	if s.PolicyStore != nil {
+		policy, err = s.PolicyStore.Load()
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	profile := instructioncontext.ToolProfile{}
+	if s.ToolProfile != nil {
+		profile = s.ToolProfile()
+	}
+	value, err := instructioncontext.Build(ctx, instructioncontext.BuildOptions{
+		Root: root, WorkspaceID: item.ID, WorkspaceRoot: item.Path, CWD: item.Path, WorkspaceRoots: roots, MemoryStore: s.MemoryStore,
+		Memory: instructioncontext.MemoryLoadOptions{ImportMaxDepth: instructioncontext.DefaultImportMaxDepth, MaxBytesPerSection: opts.MaxSectionBytes, MaxLinesPerSection: opts.MaxLinesPerSection},
+		Policy: policy, ToolProfile: profile, MaxInstructionBytes: opts.MaxInstructionBytes,
+		SkipGit: !opts.IncludeGit, SkipMemory: !opts.IncludeMemory, SkipSkills: !opts.IncludeSkills,
+		AdminEnabled: opts.AdminEnabled, AdminPort: opts.AdminPort,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return FromInstructionContext(value), nil
+}
+
+func FromInstructionContext(value instructioncontext.InstructionContext) Result {
+	files := make([]MemoryFile, 0, len(value.ProjectMemory.Sections)+len(value.ProjectMemory.Imports))
+	appendSection := func(section instructioncontext.Section) {
+		files = append(files, MemoryFile{Path: section.Path, Kind: section.Kind, Source: section.Source, Truncated: section.Truncated})
+	}
+	for _, section := range value.ProjectMemory.Sections {
+		appendSection(section)
+	}
+	for _, section := range value.ProjectMemory.Imports {
+		appendSection(section)
+	}
+	return Result{
+		Root: value.Root, WorkspaceID: value.WorkspaceID, InstructionContext: value,
+		Summary: Summary{
+			MemoryFiles: files, MemoryBytes: value.ProjectMemory.TotalBytes, InstructionBytes: value.InstructionBytes,
+			Git:   GitSummary{Skipped: value.Git.Skipped, IsRepo: value.Git.IsRepo, Branch: value.Git.Branch, Commits: len(value.Git.RecentCommits)},
+			Rules: len(value.GlobalRules) + len(value.Rules), Skills: len(value.Skills),
+		},
+	}
+}

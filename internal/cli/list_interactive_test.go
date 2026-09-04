@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,14 +23,25 @@ func TestWorkspaceListInteractiveFlagsPreserveNonTTYOutputs(t *testing.T) {
 	if !strings.Contains(registered, "Workspace registered") {
 		t.Fatalf("register=%q", registered)
 	}
-	plain := executeRequestCommand(t, root, []string{"workspace", "list", "--no-interactive"})
-	if !strings.Contains(plain, workspaceRoot) || !strings.Contains(plain, "Registered workspaces loaded") {
-		t.Fatalf("plain=%q", plain)
-	}
 	jsonOutput := executeRequestCommand(t, root, []string{"workspace", "list", "--json", "--interactive"})
 	var items []workspace.Workspace
-	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &items); err != nil || len(items) != 1 || items[0].Path != workspaceRoot {
+	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &items); err != nil || len(items) != 1 {
 		t.Fatalf("json=%q items=%#v err=%v", jsonOutput, items, err)
+	}
+	registeredInfo, err := os.Stat(workspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listedInfo, err := os.Stat(items[0].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(registeredInfo, listedInfo) {
+		t.Fatalf("listed path %q does not identify registered root %q", items[0].Path, workspaceRoot)
+	}
+	plain := executeRequestCommand(t, root, []string{"workspace", "list", "--no-interactive"})
+	if !strings.Contains(plain, items[0].Path) || !strings.Contains(plain, "Registered workspaces loaded") {
+		t.Fatalf("plain=%q", plain)
 	}
 	if _, err := executeRequestCommandError(root, []string{"workspace", "list", "--interactive"}); err == nil || !strings.Contains(err.Error(), "requires terminal") {
 		t.Fatalf("forced interactive err=%v", err)

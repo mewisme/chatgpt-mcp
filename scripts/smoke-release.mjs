@@ -131,7 +131,7 @@ try {
   await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
 
-  const managedStatus = run(["status"], { quiet: true })
+  const managedStatus = await waitForStatus(child, () => `${stdout}\n${stderr}`)
   for (const expected of ["✓ ChatGPT MCP is running", "managed     user ·", `service     ${managedServiceID}`, "session     run_", "OpenAI Secure MCP Tunnel is disabled"]) {
     if (!managedStatus.includes(expected)) fail(`managed status missing ${JSON.stringify(expected)}:\n${managedStatus}`)
   }
@@ -412,6 +412,19 @@ async function waitForHealth(url, server, output) {
     await sleep(100)
   }
   fail(`health check timed out: ${url}\n${output().trim()}`)
+}
+
+async function waitForStatus(server, output) {
+  const deadline = Date.now() + 10000
+  let last = ""
+  while (Date.now() < deadline) {
+    if (server.exitCode !== null) fail(`serve exited before runtime status became ready with code ${server.exitCode}\n${output().trim()}`)
+    const result = spawnSync(binary, [...globalArgs, "status"], { env, encoding: "utf8", windowsHide: true })
+    last = [result.stdout, result.stderr].filter(Boolean).join("").trim()
+    if (!result.error && result.status === 0 && last.includes("✓ ChatGPT MCP is running")) return last
+    await sleep(50)
+  }
+  fail(`runtime status did not become ready:\n${last}\n${output().trim()}`)
 }
 
 async function waitForText(label, processHandle, output, expected) {

@@ -10,11 +10,12 @@ import (
 var ErrDevelopmentBuild = errors.New("development build cannot be installed as a release without --force")
 
 type Options struct {
-	Layout  Layout
-	Version string
-	Source  string
-	NoAlias bool
-	Force   bool
+	Layout        Layout
+	Version       string
+	Source        string
+	NoAlias       bool
+	Force         bool
+	MigrateLegacy bool
 }
 
 type Result struct {
@@ -28,6 +29,7 @@ type Result struct {
 	Alias            AliasStatus
 	AliasInstalled   bool
 	AlreadyInstalled bool
+	Legacy           LegacyCleanupResult
 }
 
 func Install(options Options) (Result, error) {
@@ -58,21 +60,52 @@ func Install(options Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	legacyItems := []LegacyInstallation{}
+	if options.MigrateLegacy {
+		legacyItems, err = FindLegacyInstallations(layout, resolvedSource)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	canonicalBefore, err := StatusCanonical(layout)
 	if err != nil {
 		return Result{}, err
 	}
+	var canonicalLegacy *LegacyInstallation
 	if canonicalBefore.State == CanonicalConflict {
-		return Result{}, fmt.Errorf("%w: %s", ErrCanonicalConflict, canonicalBefore.Path)
+		if options.MigrateLegacy {
+			canonicalLegacy, err = inspectCanonicalLegacy(layout, resolvedSource)
+			if err != nil {
+				return Result{}, err
+			}
+		}
+		if canonicalLegacy == nil || !canonicalLegacy.Removable {
+			if canonicalLegacy != nil && canonicalLegacy.Reason != "" {
+				return Result{}, fmt.Errorf("%w: %s (%s)", ErrCanonicalConflict, canonicalBefore.Path, canonicalLegacy.Reason)
+			}
+			return Result{}, fmt.Errorf("%w: %s", ErrCanonicalConflict, canonicalBefore.Path)
+		}
+		if removableLegacyAt(legacyItems, canonicalLegacy.Path) == nil {
+			legacyItems = append(legacyItems, *canonicalLegacy)
+		}
 	}
 	aliasBefore := AliasStatus{State: AliasMissing, Path: layout.AliasPath, Target: layout.CurrentBinary}
+	migrateAlias := false
 	if !options.NoAlias {
 		aliasBefore, err = StatusAlias(layout)
 		if err != nil {
 			return Result{}, err
 		}
 		if aliasBefore.State == AliasConflict {
-			return Result{}, fmt.Errorf("%w: %s", ErrAliasConflict, aliasBefore.Path)
+			if options.MigrateLegacy {
+				migrateAlias, err = legacyAliasMatchesAny(layout, legacyItems)
+				if err != nil {
+					return Result{}, err
+				}
+			}
+			if !migrateAlias {
+				return Result{}, fmt.Errorf("%w: %s", ErrAliasConflict, aliasBefore.Path)
+			}
 		}
 	}
 	previousMetadata, err := existingMetadata(layout.Metadata)
@@ -89,18 +122,40 @@ func Install(options Options) (Result, error) {
 		return Result{}, err
 	}
 	result := Result{Layout: layout, Version: version, Source: resolvedSource, Staged: staged, Activation: activation, PreviousMetadata: previousMetadata}
+	backups := []legacyBackup{}
 	rollback := func(cause error) (Result, error) {
 		rollbackErr := Rollback(activation)
-		if canonicalBefore.State == CanonicalMissing {
-			_, _ = RemoveCanonical(layout)
+		if canonicalBefore.State == CanonicalMissing || canonicalLegacy != nil {
+			if _, removeErr := RemoveCanonical(layout); removeErr != nil {
+				rollbackErr = errors.Join(rollbackErr, removeErr)
+			}
 		}
-		if !options.NoAlias && aliasBefore.State == AliasMissing {
-			_, _ = RemoveAlias(layout)
+		if !options.NoAlias && (aliasBefore.State == AliasMissing || migrateAlias) {
+			if _, removeErr := RemoveAlias(layout); removeErr != nil {
+				rollbackErr = errors.Join(rollbackErr, removeErr)
+			}
+		}
+		if restoreErr := restoreLegacyBackups(backups); restoreErr != nil {
+			rollbackErr = errors.Join(rollbackErr, restoreErr)
 		}
 		if rollbackErr != nil {
 			return Result{}, fmt.Errorf("%w; rollback failed: %v", cause, rollbackErr)
 		}
 		return Result{}, cause
+	}
+	if canonicalLegacy != nil {
+		backup, err := backupLegacyPath(canonicalLegacy.Path)
+		if err != nil {
+			return rollback(err)
+		}
+		backups = append(backups, backup)
+	}
+	if migrateAlias {
+		backup, err := backupLegacyPath(layout.AliasPath)
+		if err != nil {
+			return rollback(err)
+		}
+		backups = append(backups, backup)
 	}
 	canonical, err := InstallCanonical(layout)
 	if err != nil {
@@ -118,6 +173,24 @@ func Install(options Options) (Result, error) {
 	metadata := Metadata{Schema: MetadataSchema, Method: MethodDirect, Version: version, InstallDir: layout.Root, BinDir: layout.BinDir}
 	if err := WriteMetadata(layout.Metadata, metadata); err != nil {
 		return rollback(err)
+	}
+	if canonicalLegacy != nil {
+		result.Legacy.Removed = append(result.Legacy.Removed, *canonicalLegacy)
+	}
+	if migrateAlias {
+		result.Legacy.RemovedAliases = append(result.Legacy.RemovedAliases, layout.AliasPath)
+	}
+	discardLegacyBackups(backups, &result.Legacy)
+	if options.MigrateLegacy {
+		cleanup, cleanupErr := CleanupLegacyInstallations(LegacyCleanupOptions{Layout: layout, Source: resolvedSource})
+		if cleanupErr != nil {
+			result.Legacy.Failed = append(result.Legacy.Failed, LegacyCleanupFailure{Path: "PATH", Err: cleanupErr})
+		} else {
+			result.Legacy.Removed = append(result.Legacy.Removed, cleanup.Removed...)
+			result.Legacy.RemovedAliases = append(result.Legacy.RemovedAliases, cleanup.RemovedAliases...)
+			result.Legacy.Preserved = append(result.Legacy.Preserved, cleanup.Preserved...)
+			result.Legacy.Failed = append(result.Legacy.Failed, cleanup.Failed...)
+		}
 	}
 	result.AlreadyInstalled = metadataMatches && staged.Reused && activation.PreviousVersion == version && canonicalBefore.State == CanonicalInstalled && (options.NoAlias || aliasBefore.State == AliasInstalled)
 	return result, nil

@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ScrollableTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { adminApi, type TunnelAdminKeyRequest, type TunnelAdminKeyStatus, type TunnelAdminScope, type TunnelConfig, type TunnelStatus } from "@/lib/api"
 
 const emptyConfig: TunnelConfig = { enabled: false }
@@ -105,7 +105,7 @@ export function TunnelPage() {
     {loading ? <PageLoading rows={5} /> : <>
       <TunnelHero active={active} busy={busy} config={config} state={state} status={status} variant={variant} adminConfigured={adminConfigured} onToggle={() => void toggle()} />
       <Tabs defaultValue="runtime" className="gap-4">
-        <TabsList variant="line" className="w-full justify-start overflow-x-auto border-b"><TabsTrigger value="runtime"><Power />Runtime</TabsTrigger><TabsTrigger value="admin"><ShieldCheck />Administration</TabsTrigger><TabsTrigger value="metadata"><Activity />Metadata</TabsTrigger></TabsList>
+        <ScrollableTabsList variant="line" className="justify-start border-b"><TabsTrigger value="runtime"><Power />Runtime</TabsTrigger><TabsTrigger value="admin"><ShieldCheck />Administration</TabsTrigger><TabsTrigger value="metadata"><Activity />Metadata</TabsTrigger></ScrollableTabsList>
         <TabsContent value="runtime"><RuntimePanel busy={busy} config={config} setConfig={setConfig} onSave={() => void saveRuntime()} /></TabsContent>
         <TabsContent value="admin"><AdminPanel busy={adminBusy} configured={adminConfigured} currentScope={adminCurrentScope} tunnels={adminTunnels} keyValue={adminKey} scope={adminScope} scopeID={adminScopeID} setKey={setAdminKey} setScope={(value) => { setAdminScope(value); setAdminScopeID("") }} setScopeID={setAdminScopeID} onSave={() => void saveAdmin()} onVerify={() => void verifyAdmin()} onRemove={() => setRemoveAdminOpen(true)} /></TabsContent>
         <TabsContent value="metadata"><MetadataPanel config={config} status={status} /></TabsContent>

@@ -5,6 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { Tabs as TabsPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 function Tabs({
   className,
@@ -55,6 +56,10 @@ function TabsList({
   )
 }
 
+function ScrollableTabsList({ className, ...props }: React.ComponentProps<typeof TabsList>) {
+  return <ScrollArea className="w-full" scrollbars="horizontal"><TabsList className={cn("w-max min-w-full", className)} {...props} /></ScrollArea>
+}
+
 function TabsTrigger({
   className,
   ...props
@@ -87,4 +92,4 @@ function TabsContent({
   )
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }
+export { Tabs, TabsList, ScrollableTabsList, TabsTrigger, TabsContent, tabsListVariants }

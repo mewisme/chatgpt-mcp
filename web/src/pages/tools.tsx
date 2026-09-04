@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemHeader, ItemTitle } from "@/components/ui/item"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ScrollableTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { adminApi, type Tool } from "@/lib/api"
 
@@ -61,7 +61,7 @@ function ToolMobileList({ tools, onSelect }: { tools: Tool[]; onSelect: (tool: T
 }
 
 function ToolDetail({ tool, open, onOpenChange }: { tool: Tool; open: boolean; onOpenChange: (open: boolean) => void }) {
-  return <ResponsiveDialog open={open} onOpenChange={onOpenChange} title={tool.title || tool.name} description={tool.name}><Tabs defaultValue="overview"><TabsList className="w-full overflow-x-auto"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="input">Input schema</TabsTrigger><TabsTrigger value="output">Output schema</TabsTrigger><TabsTrigger value="annotations">Annotations</TabsTrigger></TabsList><TabsContent className="mt-4 divide-y" value="overview"><DetailRow label="Name" value={tool.name} mono /><DetailRow label="Title" value={tool.title || "-"} /><DetailRow label="Description" value={<span className="whitespace-pre-wrap">{tool.description || "No description."}</span>} /><DetailRow label="Hints" value={<ToolHints tool={tool} />} /></TabsContent><TabsContent className="mt-4" value="input"><JsonViewer value={tool.inputSchema ?? {}} /></TabsContent><TabsContent className="mt-4" value="output"><JsonViewer value={tool.outputSchema ?? {}} /></TabsContent><TabsContent className="mt-4" value="annotations"><JsonViewer value={tool.annotations ?? {}} /></TabsContent></Tabs></ResponsiveDialog>
+  return <ResponsiveDialog open={open} onOpenChange={onOpenChange} title={tool.title || tool.name} description={tool.name}><Tabs defaultValue="overview"><ScrollableTabsList><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="input">Input schema</TabsTrigger><TabsTrigger value="output">Output schema</TabsTrigger><TabsTrigger value="annotations">Annotations</TabsTrigger></ScrollableTabsList><TabsContent className="mt-4 divide-y" value="overview"><DetailRow label="Name" value={tool.name} mono /><DetailRow label="Title" value={tool.title || "-"} /><DetailRow label="Description" value={<span className="whitespace-pre-wrap">{tool.description || "No description."}</span>} /><DetailRow label="Hints" value={<ToolHints tool={tool} />} /></TabsContent><TabsContent className="mt-4" value="input"><JsonViewer value={tool.inputSchema ?? {}} /></TabsContent><TabsContent className="mt-4" value="output"><JsonViewer value={tool.outputSchema ?? {}} /></TabsContent><TabsContent className="mt-4" value="annotations"><JsonViewer value={tool.annotations ?? {}} /></TabsContent></Tabs></ResponsiveDialog>
 }
 
 function ToolHints({ tool }: { tool: Tool }) {

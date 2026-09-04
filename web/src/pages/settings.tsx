@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ScrollableTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   adminApi,
@@ -199,14 +199,14 @@ export function SettingsPage() {
         </Alert>
       ) : null}
       <Tabs defaultValue="general">
-        <TabsList className="w-full justify-start overflow-x-auto">
+        <ScrollableTabsList className="justify-start">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="network">Network</TabsTrigger>
           <TabsTrigger value="permissions">Permissions</TabsTrigger>
           <TabsTrigger value="features">Features</TabsTrigger>
           <TabsTrigger value="authentication">Authentication</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>
-        </TabsList>
+        </ScrollableTabsList>
         <TabsContent className="mt-6 space-y-6" value="general">
           <Card>
             <CardHeader>

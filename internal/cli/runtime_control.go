@@ -19,6 +19,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
@@ -145,6 +146,45 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 			return
 		}
 		request, err := options.Approvals.Resolve(r.URL.Query().Get("id"))
+		writeControlJSON(w, request, err)
+	}))
+	mux.HandleFunc("/requests/create-dummy", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+		if options.Approvals == nil {
+			writeControlJSON(w, nil, errors.New("control approval manager is unavailable"))
+			return
+		}
+		var input struct {
+			WorkspaceID string `json:"workspace_id"`
+			Title       string `json:"title"`
+			Command     string `json:"command"`
+		}
+		if err := decodeControlJSON(r, &input); err != nil {
+			writeControlJSON(w, nil, err)
+			return
+		}
+		workspaceID := strings.TrimSpace(input.WorkspaceID)
+		if workspaceID == "" {
+			workspaceID = "ws_dummy"
+		}
+		title := strings.TrimSpace(input.Title)
+		if title == "" {
+			title = "Allow dummy command"
+		}
+		command := strings.TrimSpace(input.Command)
+		if command == "" {
+			command = "echo dummy approval"
+		}
+		sessionID := auth.GenerateToken("dummy")
+		challenge, _, err := options.Approvals.CreateChallenge(approval.ChallengeInput{
+			SessionID: sessionID, SessionHash: "dummy", WorkspaceID: workspaceID, Source: "cli-dummy", TargetTool: "run_command",
+			Arguments: map[string]any{"workspace_id": workspaceID, "command": command, "dummy": true}, GuardCode: controlguard.CodeControlPlaneMutation,
+			GuardReason: "dummy approval request created for UI testing", Title: title,
+		})
+		if err != nil {
+			writeControlJSON(w, nil, err)
+			return
+		}
+		request, _, err := options.Approvals.CreateRequest(challenge.ID, sessionID, workspaceID)
 		writeControlJSON(w, request, err)
 	}))
 	resolveRequest := func(status approval.Status) http.HandlerFunc {
@@ -393,6 +433,14 @@ func requestRuntimeApprovalList(ctx context.Context) ([]approval.Request, error)
 func requestRuntimeApprovalView(ctx context.Context, id string) (approval.Request, error) {
 	var result approval.Request
 	_, err := runtimeControlRequest(ctx, http.MethodGet, "/requests/view?id="+url.QueryEscape(strings.TrimSpace(id)), &result)
+	return result, err
+}
+
+func requestRuntimeApprovalCreateDummy(ctx context.Context, workspaceID, title, command string) (approval.Request, error) {
+	var result approval.Request
+	_, err := runtimeControlJSONRequest(ctx, http.MethodPost, "/requests/create-dummy", map[string]string{
+		"workspace_id": strings.TrimSpace(workspaceID), "title": strings.TrimSpace(title), "command": strings.TrimSpace(command),
+	}, &result)
 	return result, err
 }
 

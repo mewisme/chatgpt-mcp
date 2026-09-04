@@ -1,0 +1,63 @@
+package install
+
+import (
+	"errors"
+	"path/filepath"
+	"strings"
+)
+
+type Layout struct {
+	Root            string
+	Versions        string
+	Current         string
+	BinDir          string
+	Metadata        string
+	BinaryName      string
+	AliasName       string
+	CurrentBinary   string
+	CanonicalBinary string
+	AliasPath       string
+}
+
+func NewLayout(root, binDir string) (Layout, error) {
+	root = strings.TrimSpace(root)
+	binDir = strings.TrimSpace(binDir)
+	if root == "" {
+		return Layout{}, errors.New("install root is required")
+	}
+	if binDir == "" {
+		return Layout{}, errors.New("binary directory is required")
+	}
+	root = filepath.Clean(root)
+	binDir = filepath.Clean(binDir)
+	current := filepath.Join(root, "current")
+	binaryName, aliasName := platformBinaryNames()
+	return Layout{
+		Root:            root,
+		Versions:        filepath.Join(root, "versions"),
+		Current:         current,
+		BinDir:          binDir,
+		Metadata:        filepath.Join(root, "install.json"),
+		BinaryName:      binaryName,
+		AliasName:       aliasName,
+		CurrentBinary:   filepath.Join(current, binaryName),
+		CanonicalBinary: filepath.Join(binDir, binaryName),
+		AliasPath:       filepath.Join(binDir, aliasName),
+	}, nil
+}
+
+func (l Layout) VersionDir(version string) (string, error) {
+	version = strings.TrimSpace(version)
+	if version == "" || version == "." || version == ".." || filepath.Base(version) != version {
+		return "", errors.New("invalid install version")
+	}
+	return filepath.Join(l.Versions, version), nil
+}
+
+func (l Layout) VersionBinary(version string) (string, error) {
+	dir, err := l.VersionDir(version)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, l.BinaryName), nil
+}

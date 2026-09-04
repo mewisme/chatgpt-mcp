@@ -1,0 +1,36 @@
+//go:build windows
+
+package install
+
+import (
+	"path/filepath"
+	"testing"
+)
+
+func TestDefaultLayout(t *testing.T) {
+	home := `C:\Users\Mew`
+	localAppData := `C:\Users\Mew\AppData\Local`
+	layout, err := defaultLayout(home, localAppData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(localAppData, "chatgpt-mcp")
+	if layout.Root != root || layout.Current != filepath.Join(root, "current") {
+		t.Fatalf("unexpected install layout: %+v", layout)
+	}
+	if layout.CanonicalBinary != filepath.Join(root, "current", "chatgpt-mcp.exe") || layout.AliasPath != filepath.Join(root, "current", "cgm.cmd") {
+		t.Fatalf("unexpected command paths: %+v", layout)
+	}
+}
+
+func TestDefaultLayoutFallsBackToUserProfile(t *testing.T) {
+	home := `C:\Users\Mew`
+	layout, err := defaultLayout(home, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(home, "AppData", "Local", "chatgpt-mcp")
+	if layout.Root != expected {
+		t.Fatalf("root = %q, want %q", layout.Root, expected)
+	}
+}

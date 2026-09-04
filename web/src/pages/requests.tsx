@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { CircleDot, RefreshCw, Search, ShieldCheck } from "lucide-react"
 import { DetailRow } from "@/components/detail-row"
 import { JsonViewer } from "@/components/json-viewer"
@@ -18,11 +18,10 @@ import { adminApi, type ApprovalRequest } from "@/lib/api"
 const statuses = ["pending", "approved", "denied", "expired", "cancelled", "consumed"]
 const reconnectDelay = 1000
 
-export function RequestsPage() {
+export function RequestsPage({ workspaceID = "" }: { workspaceID?: string }) {
   const [items, setItems] = useState<ApprovalRequest[]>([])
   const [selected, setSelected] = useState<ApprovalRequest | null>(null)
   const [status, setStatus] = useState("all")
-  const [workspace, setWorkspace] = useState("all")
   const [query, setQuery] = useState("")
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -31,18 +30,18 @@ export function RequestsPage() {
   const [error, setError] = useState("")
   const retryTimer = useRef<number | null>(null)
 
-  async function load(refresh = false) {
+  const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true)
-    try { setItems(await adminApi.approvalRequests("")); setError("") } catch (value) { setError(errorText(value)) } finally { setLoading(false); setRefreshing(false) }
-  }
+    try { setItems(await adminApi.approvalRequests("", workspaceID)); setError("") } catch (value) { setError(errorText(value)) } finally { setLoading(false); setRefreshing(false) }
+  }, [workspaceID])
 
-  useEffect(() => { let active = true; void adminApi.approvalRequests("").then((next) => { if (active) { setItems(next); setError("") } }).catch((value) => { if (active) setError(errorText(value)) }).finally(() => { if (active) setLoading(false) }); return () => { active = false } }, [])
+  useEffect(() => { let active = true; void adminApi.approvalRequests("", workspaceID).then((next) => { if (active) { setItems(next); setError("") } }).catch((value) => { if (active) setError(errorText(value)) }).finally(() => { if (active) setLoading(false) }); return () => { active = false } }, [workspaceID])
   useEffect(() => {
     const controller = new AbortController()
     let stopped = false
     async function connect() {
       try {
-        await streamApprovals(controller.signal, { onReady: () => setConnected(true), onEvent: () => { setConnected(true); void load() } })
+        await streamApprovals(controller.signal, { onReady: () => setConnected(true), onEvent: () => { setConnected(true); void load() } }, workspaceID)
       } catch (value) {
         if (controller.signal.aborted || stopped) return
         setConnected(false)
@@ -52,18 +51,16 @@ export function RequestsPage() {
     }
     void connect()
     return () => { stopped = true; controller.abort(); if (retryTimer.current !== null) window.clearTimeout(retryTimer.current) }
-  }, [])
+  }, [load, workspaceID])
 
-  const workspaces = useMemo(() => [...new Set(items.map((item) => item.workspace_id).filter(Boolean))].sort(), [items])
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return items.filter((item) => {
       if (status !== "all" && item.status !== status) return false
-      if (workspace !== "all" && item.workspace_id !== workspace) return false
       if (!needle) return true
       return [item.id, item.title, item.workspace_id, item.target_tool, item.source, item.status, item.session_hash].some((value) => value?.toLowerCase().includes(needle))
     })
-  }, [items, query, status, workspace])
+  }, [items, query, status])
   const pendingCount = items.filter((item) => item.status === "pending").length
 
   async function openRequest(item: ApprovalRequest) {
@@ -79,7 +76,7 @@ export function RequestsPage() {
     } catch (value) { setError(errorText(value)); await load() } finally { setBusy("") }
   }
 
-  return <div className="space-y-6"><PageHeader title="Approval requests" description="Review pending control grants and inspect resolved request history for every workspace." actions={<><Badge variant={pendingCount ? "secondary" : "outline"}>{pendingCount} pending</Badge><Badge variant={connected ? "secondary" : "outline"}><CircleDot className="size-3" />{connected ? "Live" : "Reconnecting"}</Badge><Button disabled={refreshing} size="sm" variant="outline" onClick={() => void load(true)}><RefreshCw className={refreshing ? "animate-spin" : ""} />Refresh</Button></>} /><PageError message={error} /><div className="flex flex-col gap-2 lg:flex-row"><div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search request, workspace, tool, source..." value={query} onChange={(event) => setQuery(event.target.value)} /></div><Select value={status} onValueChange={setStatus}><SelectTrigger className="w-full lg:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{statuses.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select><Select value={workspace} onValueChange={setWorkspace}><SelectTrigger className="w-full lg:w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All workspaces</SelectItem>{workspaces.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>{loading ? <PageLoading rows={6} /> : filtered.length === 0 ? <PageEmpty icon={ShieldCheck} title="No matching approval requests" description={items.length ? "Adjust the search or filters." : "Control approval requests will appear here when guarded actions require a human grant."} /> : <ItemGroup>{filtered.map((item) => <Item className="cursor-pointer" key={item.id} role="button" tabIndex={0} variant="outline" onClick={() => void openRequest(item)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void openRequest(item) }}><ItemContent className="min-w-0"><ItemHeader><ItemTitle className="min-w-0"><TruncatedText lines={1}>{item.title || item.target_tool}</TruncatedText></ItemTitle><ApprovalStatusBadge status={item.status} /></ItemHeader><ItemDescription>{item.workspace_id} · {item.target_tool}{item.source ? ` · ${item.source}` : ""}</ItemDescription><div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="font-mono">{item.id}</span><span>{formatDateTime(item.created_at)}</span></div></ItemContent></Item>)}</ItemGroup>}{selected ? <RequestDetail request={selected} busy={busy} onOpenChange={(open) => { if (!open && !busy) setSelected(null) }} onResolve={resolve} /> : null}</div>
+  return <div className="space-y-6"><PageHeader title="Approval requests" description={workspaceID ? `Review control approvals and resolved request history for ${workspaceID}.` : "Review control approvals and resolved request history."} actions={<><Badge variant={pendingCount ? "secondary" : "outline"}>{pendingCount} pending</Badge><Badge variant={connected ? "secondary" : "outline"}><CircleDot className="size-3" />{connected ? "Live" : "Reconnecting"}</Badge><Button disabled={refreshing} size="sm" variant="outline" onClick={() => void load(true)}><RefreshCw className={refreshing ? "animate-spin" : ""} />Refresh</Button></>} /><PageError message={error} /><div className="flex flex-col gap-2 lg:flex-row"><div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search request, tool, source..." value={query} onChange={(event) => setQuery(event.target.value)} /></div><Select value={status} onValueChange={setStatus}><SelectTrigger className="w-full lg:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{statuses.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div>{loading ? <PageLoading rows={6} /> : filtered.length === 0 ? <PageEmpty icon={ShieldCheck} title="No matching approval requests" description={items.length ? "Adjust the search or filters." : "Control approval requests will appear here when guarded actions require a human grant."} /> : <ItemGroup>{filtered.map((item) => <Item className="cursor-pointer" key={item.id} role="button" tabIndex={0} variant="outline" onClick={() => void openRequest(item)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") void openRequest(item) }}><ItemContent className="min-w-0"><ItemHeader><ItemTitle className="min-w-0"><TruncatedText lines={1}>{item.title || item.target_tool}</TruncatedText></ItemTitle><ApprovalStatusBadge status={item.status} /></ItemHeader><ItemDescription>{item.workspace_id} · {item.target_tool}{item.source ? ` · ${item.source}` : ""}</ItemDescription><div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="font-mono">{item.id}</span><span>{formatDateTime(item.created_at)}</span></div></ItemContent></Item>)}</ItemGroup>}{selected ? <RequestDetail request={selected} busy={busy} onOpenChange={(open) => { if (!open && !busy) setSelected(null) }} onResolve={resolve} /> : null}</div>
 }
 
 function RequestDetail({ request, busy, onOpenChange, onResolve }: { request: ApprovalRequest; busy: "approve" | "deny" | ""; onOpenChange: (open: boolean) => void; onResolve: (action: "approve" | "deny") => void }) {

@@ -15,7 +15,7 @@ const ActivityPage = lazy(() => import("@/pages/activity").then((module) => ({ d
 const GlobalInstructionsPage = lazy(() => import("@/pages/global-instructions").then((module) => ({ default: module.GlobalInstructionsPage })))
 const LoginPage = lazy(() => import("@/pages/login").then((module) => ({ default: module.LoginPage })))
 const OverviewPage = lazy(() => import("@/pages/overview").then((module) => ({ default: module.OverviewPage })))
-const RequestsPage = lazy(() => import("@/pages/requests").then((module) => ({ default: module.RequestsPage })))
+const RequestsLandingPage = lazy(() => import("@/pages/requests-landing").then((module) => ({ default: module.RequestsLandingPage })))
 const ServersPage = lazy(() => import("@/pages/servers").then((module) => ({ default: module.ServersPage })))
 const SettingsPage = lazy(() => import("@/pages/settings").then((module) => ({ default: module.SettingsPage })))
 const ToolsPage = lazy(() => import("@/pages/tools").then((module) => ({ default: module.ToolsPage })))
@@ -26,7 +26,7 @@ const WorkspacePage = lazy(() => import("@/pages/workspace").then((module) => ({
 const pages: Record<string, React.ComponentType> = {
   overview: OverviewPage,
   workspaces: WorkspacesPage,
-  requests: RequestsPage,
+  requests: RequestsLandingPage,
   tools: ToolsPage,
   servers: ServersPage,
   tunnel: TunnelPage,

@@ -38,10 +38,11 @@ type EventOverflow struct {
 }
 
 type EventSubscription struct {
-	Events   chan Event
-	Overflow chan EventOverflow
-	overflow bool
-	closed   bool
+	Events      chan Event
+	Overflow    chan EventOverflow
+	workspaceID string
+	overflow    bool
+	closed      bool
 }
 
 type EventStream struct {
@@ -57,10 +58,14 @@ func newEventStream() *EventStream {
 }
 
 func (s *EventStream) Subscribe() *EventSubscription {
+	return s.SubscribeWorkspace("")
+}
+
+func (s *EventStream) SubscribeWorkspace(workspaceID string) *EventSubscription {
 	if s == nil {
 		return nil
 	}
-	sub := &EventSubscription{Events: make(chan Event, 16), Overflow: make(chan EventOverflow, 1)}
+	sub := &EventSubscription{Events: make(chan Event, 16), Overflow: make(chan EventOverflow, 1), workspaceID: workspaceID}
 	s.mu.Lock()
 	s.subs[sub.Events] = sub
 	s.mu.Unlock()
@@ -122,6 +127,9 @@ func (s *EventStream) Publish(event Event) {
 	}
 	for _, sub := range s.subs {
 		if sub.closed || sub.overflow {
+			continue
+		}
+		if sub.workspaceID != "" && event.WorkspaceID != sub.workspaceID {
 			continue
 		}
 		select {

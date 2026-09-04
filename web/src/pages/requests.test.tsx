@@ -17,8 +17,8 @@ describe("RequestsPage", () => {
     let items = [pending, consumed]
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = requestPath(input)
-      if (path === "/api/requests?status=") return json(items)
-      if (path === "/api/requests/stream") return approvalStream()
+      if (path === "/api/requests?status=&workspace_id=ws_test") return json(items)
+      if (path === "/api/requests/stream?workspace_id=ws_test") return approvalStream()
       if (path === "/api/requests/req_pending") return json(items.find((item) => item.id === pending.id))
       if (path === "/api/requests/req_pending/approve" && init?.method === "POST") {
         const approved = { ...pending, status: "approved", resolved_at: new Date().toISOString(), resolved_by: "admin" }
@@ -33,7 +33,7 @@ describe("RequestsPage", () => {
     expect(screen.getByText("Allow cgm install")).toBeInTheDocument()
     expect(screen.getByText("1 pending")).toBeInTheDocument()
 
-    const search = screen.getByPlaceholderText("Search request, workspace, tool, source...")
+    const search = screen.getByPlaceholderText("Search request, tool, source...")
     await user.type(search, "consumed")
     expect(screen.queryByText("Allow cgm update")).not.toBeInTheDocument()
     expect(screen.getByText("Allow cgm install")).toBeInTheDocument()
@@ -49,7 +49,7 @@ describe("RequestsPage", () => {
   })
 })
 
-function renderPage() { return render(<ThemeProvider><TooltipProvider><RequestsPage /></TooltipProvider></ThemeProvider>) }
+function renderPage() { return render(<ThemeProvider><TooltipProvider><RequestsPage workspaceID="ws_test" /></TooltipProvider></ThemeProvider>) }
 
 function request(id: string, status: string, command: string): ApprovalRequest {
   const now = Date.now()

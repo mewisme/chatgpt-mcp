@@ -72,7 +72,7 @@ describe("admin app runtime smoke", () => {
     const pageSmokeText: Record<string, string> = {
       workspaces: "Register workspace",
       "workspace-global": "Manage global context, rules, and detected user-level instruction sources.",
-      requests: "Review pending control grants and inspect resolved request history for every workspace.",
+      requests: "Select a workspace to review its control approvals and resolved request history.",
       tools:
         "Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.",
       servers: "Add MCP server",
@@ -129,6 +129,25 @@ describe("admin app runtime smoke", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/ws_test"))
     await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Workspace")))
     expect((await screen.findAllByText("ws_test")).length).toBeGreaterThan(0)
+  })
+
+  it("selects a workspace before navigating to scoped approval requests", async () => {
+    const user = userEvent.setup()
+    const workspace = { id: "ws_test", path: "/projects/test", allow_dirs: [] }
+    window.history.replaceState({}, "", "/workspaces/requests")
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path === "/api/workspaces") return json([workspace])
+      if (path === "/api/workspaces/ws_test") return json(workspace)
+      if (path === "/api/requests?status=&workspace_id=ws_test") return json([])
+      if (path === "/api/requests/stream?workspace_id=ws_test") return approvalStream()
+      return mockFetch(input)
+    }))
+    renderAdminApp()
+    await user.click(await screen.findByText("/projects/test"))
+    await waitFor(() => expect(window.location.pathname).toBe("/workspaces/ws_test/requests"))
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Workspace Requests")))
+    expect(await screen.findByText("Review control approvals and resolved request history for ws_test.")).toBeInTheDocument()
   })
 
   it("deep-links project context and renders the exact effective instructions", async () => {

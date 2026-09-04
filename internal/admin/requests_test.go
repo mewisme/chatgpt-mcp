@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -166,6 +167,36 @@ func TestApprovalSSESubscribesBeforeReadyFlush(t *testing.T) {
 	cancel()
 	<-done
 	t.Fatalf("approval event published during ready flush was lost: %q", writer.String())
+}
+
+func TestApprovalSSEFiltersWorkspaceBeforeSubscriberBuffer(t *testing.T) {
+	manager := approval.NewManager("instance-test")
+	server := httptest.NewServer(New(API{Approvals: manager}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/requests/stream?workspace_id=ws_target", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	if !scanUntil(scanner, "event: ready", time.Second) {
+		t.Fatal("approval SSE missing ready event")
+	}
+	for index := 0; index < 40; index++ {
+		manager.Events().Publish(approval.Event{Name: approval.EventRequested, RequestID: fmt.Sprintf("req_other_%d", index), WorkspaceID: "ws_other", TargetTool: "run_command", Title: "Other", Status: approval.StatusPending})
+	}
+	targetID := "req_target"
+	manager.Events().Publish(approval.Event{Name: approval.EventRequested, RequestID: targetID, WorkspaceID: "ws_target", TargetTool: "run_command", Title: "Target", Status: approval.StatusPending})
+	event := scanEventData(t, scanner, approval.EventRequested)
+	if !strings.Contains(event, targetID) || strings.Contains(event, "ws_other") {
+		t.Fatalf("filtered event = %q", event)
+	}
 }
 
 type approvalFlushWriter struct {

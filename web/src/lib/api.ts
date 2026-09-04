@@ -371,10 +371,11 @@ export const adminApi = {
     api<TunnelAdminKeyStatus>("/api/tunnel/admin/key", { method: "DELETE" }),
   startTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "POST" }),
   stopTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "DELETE" }),
-  approvalRequests: (status = "pending") =>
-    api<ApprovalRequest[]>(
-      `/api/requests?status=${encodeURIComponent(status)}`
-    ),
+  approvalRequests: (status = "pending", workspaceID = "") => {
+    const query = new URLSearchParams({ status })
+    if (workspaceID) query.set("workspace_id", workspaceID)
+    return api<ApprovalRequest[]>(`/api/requests?${query}`)
+  },
   approvalRequest: (id: string) =>
     api<ApprovalRequest>(`/api/requests/${encodeURIComponent(id)}`),
   approveRequest: (id: string, reason = "") =>

@@ -5,8 +5,9 @@ export type ApprovalStreamHandlers = {
   onEvent?: (event: ApprovalEvent) => void
 }
 
-export async function streamApprovals(signal: AbortSignal, handlers: ApprovalStreamHandlers = {}) {
-  const response = await fetch("/api/requests/stream", { headers: authHeaders(), signal })
+export async function streamApprovals(signal: AbortSignal, handlers: ApprovalStreamHandlers = {}, workspaceID = "") {
+  const query = workspaceID ? `?workspace_id=${encodeURIComponent(workspaceID)}` : ""
+  const response = await fetch(`/api/requests/stream${query}`, { headers: authHeaders(), signal })
   if (!response.ok || !response.body) {
     const message = await response.text().catch(() => "")
     throw new Error(message.trim() || `Approval stream ${response.status}`)

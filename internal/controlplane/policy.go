@@ -15,6 +15,7 @@ var readOnlyPaths = map[string]bool{
 	"config path": true, "config get": true, "config list": true, "config verify": true, "config validate": true,
 	"config preset list": true, "config preset show": true, "config preset current": true,
 	"auth status": true, "alias status": true, "update check": true,
+	"request list": true, "request view": true,
 	"workspace list": true, "workspace show": true, "workspace access list": true,
 	"mcp server list": true, "mcp server show": true, "mcp server status": true, "mcp server tools": true,
 	"tunnel status": true, "logs": true, "logs follow": true, "logs path": true,
@@ -77,7 +78,7 @@ func PathFromArgs(args []string) string {
 			return strings.Join(args[:3], " ")
 		}
 		return strings.Join(args[:2], " ")
-	case "alias", "auth", "workspace", "tunnel", "update":
+	case "alias", "auth", "request", "workspace", "tunnel", "update":
 		if args[0] == "workspace" && args[1] == "access" && len(args) >= 3 {
 			return strings.Join(args[:3], " ")
 		}
@@ -118,6 +119,18 @@ func canonicalCommandArgs(args []string) []string {
 			result[index] = "status"
 		case "log":
 			result[index] = "logs"
+		case "req":
+			result[index] = "request"
+		}
+	}
+	if len(result) >= 2 && result[0] == "request" {
+		switch result[1] {
+		case "show", "info":
+			result[1] = "view"
+		case "accept", "allow":
+			result[1] = "approve"
+		case "reject":
+			result[1] = "deny"
 		}
 	}
 	return result

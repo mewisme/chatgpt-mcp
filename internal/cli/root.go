@@ -41,6 +41,7 @@ func newRootCommand() *cobra.Command {
 		downCommand(),
 		restartCommand(),
 		logsCommand(),
+		requestCommand(),
 		configCommand(),
 		aliasCommand(),
 		authCommand(),

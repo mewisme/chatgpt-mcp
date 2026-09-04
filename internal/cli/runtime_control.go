@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,6 +132,50 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 	mux.HandleFunc("/logs/clear", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, _ *http.Request) {
 		writeControlJSON(w, map[string]bool{"ok": true}, options.ClearLogs())
 	}))
+	mux.HandleFunc("/requests", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, _ *http.Request) {
+		if options.Approvals == nil {
+			writeControlJSON(w, nil, errors.New("control approval manager is unavailable"))
+			return
+		}
+		writeControlJSON(w, options.Approvals.List(approval.Filter{}), nil)
+	}))
+	mux.HandleFunc("/requests/view", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		if options.Approvals == nil {
+			writeControlJSON(w, nil, errors.New("control approval manager is unavailable"))
+			return
+		}
+		request, err := options.Approvals.Resolve(r.URL.Query().Get("id"))
+		writeControlJSON(w, request, err)
+	}))
+	resolveRequest := func(status approval.Status) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if options.Approvals == nil {
+				writeControlJSON(w, nil, errors.New("control approval manager is unavailable"))
+				return
+			}
+			var input struct {
+				ID     string `json:"id"`
+				Reason string `json:"reason,omitempty"`
+			}
+			if err := decodeControlJSON(r, &input); err != nil {
+				writeControlJSON(w, nil, err)
+				return
+			}
+			request, err := options.Approvals.Resolve(input.ID)
+			if err != nil {
+				writeControlJSON(w, nil, err)
+				return
+			}
+			if status == approval.StatusApproved {
+				request, err = options.Approvals.Approve(request.ID, "cli", input.Reason)
+			} else {
+				request, err = options.Approvals.Deny(request.ID, "cli", input.Reason)
+			}
+			writeControlJSON(w, request, err)
+		}
+	}
+	mux.HandleFunc("/requests/approve", authenticatedControl(controlState.Token, http.MethodPost, resolveRequest(approval.StatusApproved)))
+	mux.HandleFunc("/requests/deny", authenticatedControl(controlState.Token, http.MethodPost, resolveRequest(approval.StatusDenied)))
 	mux.HandleFunc("/requests/consume-cli", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		if options.Approvals == nil {
 			writeControlJSON(w, nil, errors.New("control approval manager is unavailable"))
@@ -140,10 +185,8 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 			Capability string   `json:"capability"`
 			Args       []string `json:"args"`
 		}
-		decoder := json.NewDecoder(io.LimitReader(r.Body, 64*1024))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&input); err != nil {
-			writeControlJSON(w, nil, fmt.Errorf("decode control approval request: %w", err))
+		if err := decodeControlJSON(r, &input); err != nil {
+			writeControlJSON(w, nil, err)
 			return
 		}
 		requestID, err := options.Approvals.ConsumeCLI(input.Capability, input.Args)
@@ -156,6 +199,15 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 	control := &runtimeControl{state: controlState, listener: listener, server: server, path: path}
 	go func() { _ = server.Serve(listener) }()
 	return control, nil
+}
+
+func decodeControlJSON(r *http.Request, output any) error {
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 64*1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(output); err != nil {
+		return fmt.Errorf("decode runtime control request: %w", err)
+	}
+	return nil
 }
 
 func authenticatedControl(token, method string, next http.HandlerFunc) http.HandlerFunc {
@@ -330,6 +382,32 @@ func requestRuntimeCLIApproval(ctx context.Context, capability string, args []st
 		return errors.New("runtime control approval response is missing request id")
 	}
 	return nil
+}
+
+func requestRuntimeApprovalList(ctx context.Context) ([]approval.Request, error) {
+	var result []approval.Request
+	_, err := runtimeControlRequest(ctx, http.MethodGet, "/requests", &result)
+	return result, err
+}
+
+func requestRuntimeApprovalView(ctx context.Context, id string) (approval.Request, error) {
+	var result approval.Request
+	_, err := runtimeControlRequest(ctx, http.MethodGet, "/requests/view?id="+url.QueryEscape(strings.TrimSpace(id)), &result)
+	return result, err
+}
+
+func requestRuntimeApprovalResolve(ctx context.Context, action, id, reason string) (approval.Request, error) {
+	var result approval.Request
+	_, err := runtimeControlJSONRequest(ctx, http.MethodPost, "/requests/"+action, map[string]string{"id": strings.TrimSpace(id), "reason": strings.TrimSpace(reason)}, &result)
+	return result, err
+}
+
+func requestRuntimeApprovalApprove(ctx context.Context, id, reason string) (approval.Request, error) {
+	return requestRuntimeApprovalResolve(ctx, "approve", id, reason)
+}
+
+func requestRuntimeApprovalDeny(ctx context.Context, id, reason string) (approval.Request, error) {
+	return requestRuntimeApprovalResolve(ctx, "deny", id, reason)
 }
 
 func requestRuntimeReload(ctx context.Context) (runtimeReloadResult, error) {

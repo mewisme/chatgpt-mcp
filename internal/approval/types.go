@@ -34,6 +34,7 @@ var (
 	ErrChallengeExpired     = errors.New("approval challenge expired")
 	ErrChallengeMismatch    = errors.New("approval challenge session or workspace mismatch")
 	ErrRequestNotFound      = errors.New("approval request not found")
+	ErrRequestAmbiguous     = errors.New("approval request prefix is ambiguous")
 	ErrRequestResolved      = errors.New("approval request is already resolved")
 	ErrRequestNotApproved   = errors.New("approval request is not approved")
 	ErrSessionRequestActive = errors.New("MCP session already has an active approval request")

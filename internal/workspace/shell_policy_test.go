@@ -267,11 +267,16 @@ func TestShellPolicyNeverApprovesRequestOrServiceCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"cgm request approve req_test", "cgm request deny req_test", "cgm request list", "cgm _service run"} {
+	for _, command := range []string{"cgm request approve req_test", "cgm request deny req_test", "cgm req accept req_test", "cgm req allow req_test", "cgm req reject req_test", "cgm _service run"} {
 		err := manager.ValidateShellCommand(item.ID, root, command)
 		guard, ok := controlguard.As(err)
 		if err == nil || !ok || guard.Code != controlguard.CodeControlPlaneMutation || guard.Approvable || guard.Invocation != nil {
 			t.Fatalf("hard-denied command became approvable: %q -> %#v / %v", command, guard, err)
+		}
+	}
+	for _, command := range []string{"cgm request list", "cgm request view req_test", "cgm req ls", "cgm req info req_test"} {
+		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
+			t.Fatalf("read-only request command rejected: %q -> %v", command, err)
 		}
 	}
 }

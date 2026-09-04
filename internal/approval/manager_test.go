@@ -153,6 +153,27 @@ func TestManagerClaimMismatchDoesNotConsumeApproval(t *testing.T) {
 	}
 }
 
+func TestManagerResolveRequestIDExactUniquePrefixAndAmbiguity(t *testing.T) {
+	manager := NewManager("instance-test")
+	manager.requests["req_alpha123456"] = &requestRecord{value: Request{ID: "req_alpha123456", Status: StatusPending}, resolved: make(chan struct{})}
+	manager.requests["req_beta123456"] = &requestRecord{value: Request{ID: "req_beta123456", Status: StatusDenied}, resolved: make(chan struct{})}
+
+	exact, err := manager.Resolve("req_alpha123456")
+	if err != nil || exact.ID != "req_alpha123456" {
+		t.Fatalf("exact resolve = %#v err=%v", exact, err)
+	}
+	partial, err := manager.Resolve("req_alp")
+	if err != nil || partial.ID != "req_alpha123456" {
+		t.Fatalf("prefix resolve = %#v err=%v", partial, err)
+	}
+	if _, err := manager.Resolve("req_"); !errors.Is(err, ErrRequestAmbiguous) {
+		t.Fatalf("ambiguous prefix err=%v", err)
+	}
+	if _, err := manager.Resolve("req_missing"); !errors.Is(err, ErrRequestNotFound) {
+		t.Fatalf("missing prefix err=%v", err)
+	}
+}
+
 func TestManagerCLICapabilityExactMismatchReplayAndExpiry(t *testing.T) {
 	t.Run("exact and replay", func(t *testing.T) {
 		manager, _ := testManager()

@@ -389,6 +389,36 @@ func (m *Manager) Get(id string) (Request, bool) {
 	return cloneRequest(record.value), true
 }
 
+func (m *Manager) Resolve(value string) (Request, error) {
+	if m == nil {
+		return Request{}, errors.New("approval manager is unavailable")
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return Request{}, ErrRequestNotFound
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.purgeExpiredLocked(m.now().UTC())
+	if record := m.requests[value]; record != nil {
+		return cloneRequest(record.value), nil
+	}
+	var matched *requestRecord
+	for id, record := range m.requests {
+		if !strings.HasPrefix(id, value) {
+			continue
+		}
+		if matched != nil {
+			return Request{}, fmt.Errorf("%w: %s", ErrRequestAmbiguous, value)
+		}
+		matched = record
+	}
+	if matched == nil {
+		return Request{}, fmt.Errorf("%w: %s", ErrRequestNotFound, value)
+	}
+	return cloneRequest(matched.value), nil
+}
+
 func (m *Manager) List(filter Filter) []Request {
 	if m == nil {
 		return nil

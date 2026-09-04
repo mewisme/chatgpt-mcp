@@ -127,6 +127,45 @@ func TestRuntimeControlConsumesOneShotCLIApproval(t *testing.T) {
 	}
 }
 
+func TestRuntimeControlRequestListViewApproveAndDeny(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	manager := approval.NewManager("instance-test")
+	first := seedApprovalRequest(t, manager, "session-a", "ws_a", "cgm update")
+	second := seedApprovalRequest(t, manager, "session-b", "ws_b", "cgm install")
+	control, err := startRuntimeControl(runtimeControlOptions{Approvals: manager, Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult { return runtimeStatusResult{PID: os.Getpid()} }, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	requests, err := requestRuntimeApprovalList(ctx)
+	if err != nil || len(requests) != 2 {
+		t.Fatalf("request list = %#v err=%v", requests, err)
+	}
+	firstPrefix := uniqueRequestPrefix(first.ID, second.ID)
+	viewed, err := requestRuntimeApprovalView(ctx, firstPrefix)
+	if err != nil || viewed.ID != first.ID {
+		t.Fatalf("request view = %#v err=%v", viewed, err)
+	}
+	approved, err := requestRuntimeApprovalApprove(ctx, firstPrefix, "reviewed")
+	if err != nil || approved.Status != approval.StatusApproved || approved.ResolvedBy != "cli" || approved.Reason != "reviewed" {
+		t.Fatalf("request approve = %#v err=%v", approved, err)
+	}
+	secondPrefix := uniqueRequestPrefix(second.ID, first.ID)
+	denied, err := requestRuntimeApprovalDeny(ctx, secondPrefix, "not now")
+	if err != nil || denied.Status != approval.StatusDenied || denied.ResolvedBy != "cli" || denied.Reason != "not now" {
+		t.Fatalf("request deny = %#v err=%v", denied, err)
+	}
+	if _, err := requestRuntimeApprovalView(ctx, "req_"); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("ambiguous request prefix err=%v", err)
+	}
+}
+
 func TestRuntimeControlRejectsUnauthenticatedCLIApprovalConsume(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
@@ -137,6 +176,14 @@ func TestRuntimeControlRejectsUnauthenticatedCLIApprovalConsume(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer control.Close()
+	listResponse, err := (&http.Client{Timeout: time.Second}).Get("http://" + control.state.Address + "/requests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listResponse.Body.Close()
+	if listResponse.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("request list status = %d", listResponse.StatusCode)
+	}
 	request, err := http.NewRequest(http.MethodPost, "http://"+control.state.Address+"/requests/consume-cli", strings.NewReader(`{"capability":"cap_test","args":["update"]}`))
 	if err != nil {
 		t.Fatal(err)

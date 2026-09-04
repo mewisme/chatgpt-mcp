@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
-
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -130,9 +128,8 @@ func TestRuntimeObservesSessionBindingWithoutRawSessionID(t *testing.T) {
 		t.Fatalf("first call = %#v err=%v", result, err)
 	}
 	start, finish := <-observed, <-observed
-	parsedCallID, parseErr := uuid.Parse(start.CallID)
-	if parseErr != nil || parsedCallID.Version() != 7 || finish.CallID != start.CallID {
-		t.Fatalf("call ids = %q / %q parse=%v version=%v", start.CallID, finish.CallID, parseErr, parsedCallID.Version())
+	if !strings.HasPrefix(start.CallID, "call_") || strings.Count(start.CallID, "_") != 2 || finish.CallID != start.CallID {
+		t.Fatalf("call ids = %q / %q", start.CallID, finish.CallID)
 	}
 	if start.SessionBinding != SessionBindingNew || finish.SessionBinding != SessionBindingNew || finish.SessionWorkspaceID != first {
 		t.Fatalf("new binding observations = %#v / %#v", start, finish)

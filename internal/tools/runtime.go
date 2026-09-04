@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/caveman"
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
@@ -28,6 +28,7 @@ type Runtime struct {
 	SessionBindings *SessionWorkspaceBinder
 	Approvals       *approval.Manager
 	Executions      *shellruntime.ExecutionHub
+	callSequence    atomic.Uint64
 	sessionMu       sync.Mutex
 	featureMu       sync.Mutex
 	features        features.Config
@@ -109,11 +110,7 @@ func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
 
 func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (Result, error) {
-	callUUID, err := uuid.NewV7()
-	if err != nil {
-		return Result{}, fmt.Errorf("generate tool call id: %w", err)
-	}
-	callID := callUUID.String()
+	callID := r.nextCallID()
 	started := time.Now()
 	source := CallSource(ctx)
 	receivedBy := ReceivedByInstanceID(ctx)
@@ -218,6 +215,10 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["result"] = observedResult(name, result)
 	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
+}
+
+func (r *Runtime) nextCallID() string {
+	return fmt.Sprintf("call_%x_%x", time.Now().UnixMilli(), r.callSequence.Add(1))
 }
 
 func observedResult(name string, result Result) any {

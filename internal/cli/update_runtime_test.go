@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,11 +35,12 @@ func (m *updateRuntimeManager) Status(managed.Spec) (managed.Status, error) {
 }
 func (m *updateRuntimeManager) Start(spec managed.Spec) error {
 	m.starts++
-	stream := runtimeevent.NewStream(runtimeevent.Metadata{RunID: "run_update", PID: os.Getpid(), Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope)})
-	control, err := startRuntimeControl(runtimeControlOptions{RunID: "run_update", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), StartedAt: time.Now(), Events: stream, Reload: func(context.Context) (runtimeReloadResult, error) {
+	runID := fmt.Sprintf("run_update_%d", m.starts)
+	stream := runtimeevent.NewStream(runtimeevent.Metadata{RunID: runID, PID: os.Getpid(), Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope)})
+	control, err := startRuntimeControl(runtimeControlOptions{RunID: runID, Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), StartedAt: time.Now(), Events: stream, Reload: func(context.Context) (runtimeReloadResult, error) {
 		return runtimeReloadResult{PID: os.Getpid(), ServerPort: 41001}, nil
 	}, Status: func() runtimeStatusResult {
-		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_update", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: spec.ConfigRoot, ServerPort: 41001}
+		return runtimeStatusResult{PID: os.Getpid(), RunID: runID, Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: spec.ConfigRoot, ServerPort: 41001}
 	}, Shutdown: func() {}, ClearLogs: func() error { return nil }})
 	if err != nil {
 		return err

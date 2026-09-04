@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -85,6 +86,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err := runtime.Start(runtimeCtx); err != nil {
 		return err
 	}
+	var control *runtimeControl
 	defer func() {
 		runtime.Logger.Verbose("SERVER", "server.runtime.cleanup", "Cleaning up runtime services")
 		if err := runtime.Stop(); err != nil {
@@ -92,15 +94,20 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			if runErr == nil {
 				runErr = err
 			}
-			return
+		} else {
+			runtime.Logger.Ready("SERVER", "server.stopped", "Server stopped")
 		}
-		runtime.Logger.Ready("SERVER", "server.stopped", "Server stopped")
+		if control != nil {
+			_ = control.Close()
+		}
 	}()
-
-	logReadyEndpoints(runtime.Logger, cfg, plan)
 
 	errCh := make(chan error, max(1, len(bindings.mcpListeners)+len(bindings.adminListeners)))
 	bindings.Start(runtime, errCh)
+	if err := waitRuntimeHTTPReady(runtimeCtx, cfg, 3*time.Second); err != nil {
+		return errors.Join(err, bindings.Shutdown())
+	}
+	logReadyEndpoints(runtime.Logger, cfg, plan)
 	currentCfg, currentPlan := cfg, plan
 	var reloadMu sync.Mutex
 	shutdownRequest := make(chan struct{}, 1)
@@ -167,7 +174,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		tunnelStatus := runtime.Tunnel.Status()
 		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID), TunnelLastError: tunnelStatus.LastError}
 	}
-	control, err := startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Approvals: runtime.Tools.Approvals, Shutdown: func() {
+	control, err = startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Approvals: runtime.Tools.Approvals, Shutdown: func() {
 		select {
 		case shutdownRequest <- struct{}{}:
 		default:
@@ -176,7 +183,6 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err != nil {
 		return errors.Join(err, bindings.Shutdown())
 	}
-	defer control.Close()
 
 	shutdown := func() error {
 		reloadMu.Lock()
@@ -222,6 +228,51 @@ func runtimeSessionMode(metadata runtimeevent.Metadata) string {
 
 func newHTTPServer(handler http.Handler) *http.Server {
 	return &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
+}
+
+func waitRuntimeHTTPReady(parent context.Context, cfg config.Config, timeout time.Duration) error {
+	endpoints := []string{endpointURL("127.0.0.1", cfg.Server.Port, "/health")}
+	if cfg.Admin.Enabled {
+		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Admin.Port, "/"))
+	}
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 500 * time.Millisecond, Transport: &http.Transport{Proxy: nil}}
+	var lastErr error
+	for time.Now().Before(deadline) {
+		ready := true
+		for _, endpoint := range endpoints {
+			ctx, cancel := context.WithTimeout(parent, 500*time.Millisecond)
+			request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+			if err == nil {
+				var response *http.Response
+				response, err = client.Do(request)
+				if err == nil {
+					_ = response.Body.Close()
+					if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusBadRequest {
+						err = fmt.Errorf("HTTP %d", response.StatusCode)
+					}
+				}
+			}
+			cancel()
+			if err != nil {
+				lastErr = fmt.Errorf("%s: %w", endpoint, err)
+				ready = false
+				break
+			}
+		}
+		if ready {
+			return nil
+		}
+		select {
+		case <-parent.Done():
+			return parent.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("server listeners did not become ready: %w", lastErr)
+	}
+	return errors.New("server listeners did not become ready")
 }
 
 func closeListeners(listeners []net.Listener) {

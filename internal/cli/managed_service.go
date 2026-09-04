@@ -104,10 +104,94 @@ func runRestart(cmd *cobra.Command, _ []string) error {
 }
 
 func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Manager) error {
-	if err := runManagedDown(cmd, spec, manager); err != nil {
+	source, err := config.Source()
+	if err != nil {
 		return err
 	}
-	return runManagedUp(cmd, spec, manager)
+	if !source.Exists {
+		return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init first")
+	}
+	if _, err := config.VerifyRuntime(); err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
+	runtimeStatus, running, runtimeErr := managedRuntimeStatus(ctx)
+	cancel()
+	if runtimeErr != nil {
+		return runtimeErr
+	}
+	if running {
+		if !runtimeStatus.Managed {
+			return fmt.Errorf("runtime is already running outside the managed service (pid %d); stop the foreground serve process first", runtimeStatus.PID)
+		}
+		if runtimeStatus.ServiceID != spec.ID || runtimeStatus.ServiceScope != string(spec.Scope) {
+			return managedScopeConflict(runtimeStatus, spec, "restart")
+		}
+	}
+	backendStatus, err := manager.Status(spec)
+	if err != nil {
+		return err
+	}
+	if !backendStatus.Installed {
+		return runManagedUp(cmd, spec, manager)
+	}
+	matches, err := manager.DefinitionMatches(spec)
+	if err != nil {
+		return err
+	}
+	log := commandLogger(cmd)
+	defer log.Close()
+	log.Action("SERVICE", "service.restarting", "Restarting managed service")
+	previousRunID := runtimeStatus.RunID
+	if running {
+		if err := requestManagedShutdown(cmd.Context()); err != nil {
+			return err
+		}
+		if err := waitRuntimeStopped(cmd.Context(), serviceReadyTimeout); err != nil {
+			return err
+		}
+	}
+	if err := stopManagedBackend(spec, manager); err != nil {
+		return err
+	}
+	if !matches {
+		if err := manager.Install(spec); err != nil {
+			return err
+		}
+	}
+	if err := manager.Start(spec); err != nil {
+		return err
+	}
+	status, err := waitManagedRuntimeReadyAfter(cmd.Context(), spec, previousRunID, serviceReadyTimeout)
+	if err != nil {
+		return err
+	}
+	log.Ready("SERVICE", "service.restarted", "Managed service restarted")
+	logManagedDetails(log, spec, manager)
+	log.Ready("SERVER", "server.started", "Server started")
+	logRuntimeDetails(log, status)
+	if status.TunnelEnabled && status.TunnelConfigured && transientTunnelState(statusTunnelState(status, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
+		status = animateRuntimeTunnelState(cmd, status, statusTunnelWatchTimeout)
+	}
+	logRuntimeTunnelResult(log, status)
+	logRuntimeTunnelMetadata(log, cfg.Tunnel, status, config.LoadTunnelMetadata)
+	logManagedHints(log, spec)
+	return nil
+}
+
+func stopManagedBackend(spec managed.Spec, manager managed.Manager) error {
+	if err := manager.Stop(spec); err != nil {
+		status, statusErr := manager.Status(spec)
+		if statusErr == nil && status.Installed && !status.Running && status.PID == 0 {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func saveManagedEnvironment(spec managed.Spec) (string, error) {
@@ -224,8 +308,13 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		if err := waitRuntimeStopped(cmd.Context(), serviceReadyTimeout); err != nil {
 			return err
 		}
+		if backendStatus.Installed {
+			if err := stopManagedBackend(spec, manager); err != nil {
+				return err
+			}
+		}
 	} else if backendStatus.Running {
-		if err := manager.Stop(spec); err != nil {
+		if err := stopManagedBackend(spec, manager); err != nil {
 			return err
 		}
 	}
@@ -284,8 +373,13 @@ func runManagedDown(cmd *cobra.Command, spec managed.Spec, manager managed.Manag
 		if err := waitRuntimeStopped(cmd.Context(), serviceReadyTimeout); err != nil {
 			return err
 		}
+		if backendStatus.Installed {
+			if err := stopManagedBackend(spec, manager); err != nil {
+				return err
+			}
+		}
 	} else if backendStatus.Running {
-		if err := manager.Stop(spec); err != nil {
+		if err := stopManagedBackend(spec, manager); err != nil {
 			return err
 		}
 	}
@@ -320,6 +414,10 @@ func requestManagedShutdown(parent context.Context) error {
 }
 
 func waitManagedRuntimeReady(parent context.Context, spec managed.Spec, timeout time.Duration) (runtimeStatusResult, error) {
+	return waitManagedRuntimeReadyAfter(parent, spec, "", timeout)
+}
+
+func waitManagedRuntimeReadyAfter(parent context.Context, spec managed.Spec, previousRunID string, timeout time.Duration) (runtimeStatusResult, error) {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -332,7 +430,11 @@ func waitManagedRuntimeReady(parent context.Context, spec managed.Spec, timeout 
 			if !status.Managed || status.ServiceID != spec.ID || status.ServiceScope != string(spec.Scope) {
 				return runtimeStatusResult{}, managedScopeConflict(status, spec, "up")
 			}
-			return status, nil
+			if previousRunID != "" && status.RunID == previousRunID {
+				lastErr = errors.New("previous managed runtime is still shutting down")
+			} else {
+				return status, nil
+			}
 		}
 		select {
 		case <-parent.Done():

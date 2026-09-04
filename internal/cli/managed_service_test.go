@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -39,12 +40,13 @@ func (m *fakeServiceManager) Install(spec managed.Spec) error {
 }
 func (m *fakeServiceManager) Start(spec managed.Spec) error {
 	m.running, m.starts, m.spec = true, m.starts+1, spec
-	stream := runtimeevent.NewStream(runtimeevent.Metadata{RunID: "run_test", PID: os.Getpid(), Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope)})
+	runID := fmt.Sprintf("run_test_%d", m.starts)
+	stream := runtimeevent.NewStream(runtimeevent.Metadata{RunID: runID, PID: os.Getpid(), Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope)})
 	var control *runtimeControl
-	created, err := startRuntimeControl(runtimeControlOptions{RunID: "run_test", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), StartedAt: time.Now(), Events: stream, Reload: func(context.Context) (runtimeReloadResult, error) {
+	created, err := startRuntimeControl(runtimeControlOptions{RunID: runID, Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), StartedAt: time.Now(), Events: stream, Reload: func(context.Context) (runtimeReloadResult, error) {
 		return runtimeReloadResult{PID: os.Getpid(), ServerPort: 41001, AdminEnabled: true, AdminPort: 41002, Exposure: config.ExposureNone}, nil
 	}, Status: func() runtimeStatusResult {
-		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_test", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: spec.ConfigRoot, ServerPort: 41001, AdminEnabled: true, AdminPort: 41002, Exposure: config.ExposureNone}
+		return runtimeStatusResult{PID: os.Getpid(), RunID: runID, Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: spec.ConfigRoot, ServerPort: 41001, AdminEnabled: true, AdminPort: 41002, Exposure: config.ExposureNone}
 	}, Shutdown: func() {
 		m.running = false
 		go func() {
@@ -126,7 +128,7 @@ func TestManagedUpAndDownLifecycle(t *testing.T) {
 	}
 }
 
-func TestManagedRestartRunsDownThenUp(t *testing.T) {
+func TestManagedRestartKeepsServiceInstalledAndStartsNewRuntime(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")
 	if err := configformat.SetRootPath(root); err != nil {
@@ -146,17 +148,57 @@ func TestManagedRestartRunsDownThenUp(t *testing.T) {
 	if err := runManagedUp(cmd, spec, manager); err != nil {
 		t.Fatal(err)
 	}
+	previousRunID := manager.control.state.RunID
 	output.Reset()
+	starts, stops, installs, removes := manager.starts, manager.stops, manager.installs, manager.removes
+	if err := runManagedRestart(cmd, spec, manager); err != nil {
+		t.Fatal(err)
+	}
+	if !manager.running || manager.starts != starts+1 || manager.stops != stops+1 || manager.installs != installs || manager.removes != removes {
+		t.Fatalf("manager after restart = %#v", manager)
+	}
+	if manager.control.state.RunID == previousRunID {
+		t.Fatalf("restart reused runtime session %q", previousRunID)
+	}
+	text := output.String()
+	for _, expected := range []string{"Restarting managed service", "Managed service restarted", "Server started"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("restart output missing %q: %s", expected, text)
+		}
+	}
+	for _, unexpected := range []string{"Managed service removed", "Managed service installed"} {
+		if strings.Contains(text, unexpected) {
+			t.Fatalf("restart unexpectedly reinstalled service: %s", text)
+		}
+	}
+}
+
+func TestManagedRestartUpdatesChangedDefinitionWithoutUninstall(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root, Binary: "/fake/cgm", Account: managed.Account{Username: "mew", HomeDir: t.TempDir()}}
+	manager := &fakeServiceManager{}
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(&bytes.Buffer{})
+	if err := runManagedUp(cmd, spec, manager); err != nil {
+		t.Fatal(err)
+	}
+	manager.matches = false
 	starts, installs, removes := manager.starts, manager.installs, manager.removes
 	if err := runManagedRestart(cmd, spec, manager); err != nil {
 		t.Fatal(err)
 	}
-	if !manager.running || manager.starts != starts+1 || manager.installs != installs+1 || manager.removes != removes+1 {
-		t.Fatalf("manager after restart = %#v", manager)
-	}
-	text := output.String()
-	if stopped, started := strings.Index(text, "Managed service removed"), strings.Index(text, "Managed service installed"); stopped < 0 || started < 0 || stopped >= started {
-		t.Fatalf("restart output is not down then up: %s", text)
+	if manager.starts != starts+1 || manager.installs != installs+1 || manager.removes != removes || !manager.matches {
+		t.Fatalf("manager after definition update = %#v", manager)
 	}
 }
 

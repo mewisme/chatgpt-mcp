@@ -97,7 +97,7 @@ jobs:
           path: web/dist
 
       - name: Prepare web embed
-        run: node scripts/prepare-web-embed.mjs
+        run: node scripts/prepare-web-embed.mjs --from-dist
 
       - name: Verify modules
         run: go mod verify
@@ -176,7 +176,7 @@ jobs:
           path: web/dist
 
       - name: Prepare web embed
-        run: node scripts/prepare-web-embed.mjs
+        run: node scripts/prepare-web-embed.mjs --from-dist
 
       - name: Verify modules
         run: go mod verify

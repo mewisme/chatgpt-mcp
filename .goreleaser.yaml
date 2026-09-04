@@ -5,7 +5,7 @@ project_name: chatgpt-mcp
 
 before:
   hooks:
-    - node scripts/prepare-web-embed.mjs
+    - node scripts/prepare-web-embed.mjs --from-dist
     - go mod verify
 
 builds:

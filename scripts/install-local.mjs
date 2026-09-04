@@ -36,23 +36,18 @@ Options:
   } else fail(`unknown argument: ${arg}`)
 }
 
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm"
 const go = process.platform === "win32" ? "go.exe" : "go"
 
 await requireFile("go.mod")
-await requireFile("web/package.json")
-await requireFile("web/pnpm-lock.yaml")
 await requireFile("scripts/prepare-web-embed.mjs")
-if (options.fromDist) await requireFile("web/dist/index.html")
 
 console.log(`[INFO] repository: ${root}`)
 console.log(`[INFO] platform: ${process.platform}/${process.arch}`)
 
-if (!options.fromDist) {
-  if (options.installDeps) run(pnpm, ["--dir", "web", "install", "--frozen-lockfile"])
-  run(pnpm, ["--dir", "web", "build"])
-}
-run(process.execPath, [resolve(root, "scripts/prepare-web-embed.mjs")])
+const prepareArgs = [resolve(root, "scripts/prepare-web-embed.mjs")]
+if (!options.installDeps) prepareArgs.push("--no-deps")
+if (options.fromDist) prepareArgs.push("--from-dist")
+run(process.execPath, prepareArgs)
 
 if (options.prepareOnly) {
   console.log("[OK] local web embed is ready")

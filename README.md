@@ -236,7 +236,6 @@ pnpm --dir web install
 pnpm --dir web test
 pnpm --dir web lint
 pnpm --dir web typecheck
-pnpm --dir web build
 node scripts/prepare-web-embed.mjs
 CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
 go vet ./...

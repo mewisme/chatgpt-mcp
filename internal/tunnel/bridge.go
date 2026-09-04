@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
+	"sync/atomic"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/openai/tunnel-client/pkg/tunnelctx"
@@ -17,18 +19,23 @@ import (
 )
 
 type sdkBridge struct {
-	runtime      *tools.Runtime
-	server       *sdkmcp.Server
-	mu           sync.Mutex
-	fingerprints map[string]string
+	runtime          *tools.Runtime
+	server           *sdkmcp.Server
+	mu               sync.Mutex
+	fingerprints     map[string]string
+	sessionNamespace uint64
+	sessionIDs       map[*sdkmcp.ServerSession]string
+	nextSession      uint64
 }
+
+var sdkBridgeNamespace atomic.Uint64
 
 func newSDKBridge(runtime *tools.Runtime) (*sdkBridge, error) {
 	if runtime == nil || runtime.Registry == nil {
 		return nil, errors.New("MCP tools runtime is required")
 	}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "chatgpt-mcp", Version: version.Version}, &sdkmcp.ServerOptions{Capabilities: &sdkmcp.ServerCapabilities{}})
-	bridge := &sdkBridge{runtime: runtime, server: server, fingerprints: map[string]string{}}
+	bridge := &sdkBridge{runtime: runtime, server: server, fingerprints: map[string]string{}, sessionNamespace: sdkBridgeNamespace.Add(1), sessionIDs: map[*sdkmcp.ServerSession]string{}}
 	if err := bridge.syncTools(); err != nil {
 		return nil, err
 	}
@@ -189,13 +196,10 @@ func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
 			ctx = tools.WithInputRound(ctx, request.Params.RequestState, responses)
 		}
 		ctx = tools.WithCallSource(ctx, "tunnel")
-		if sessionID, ok := tunnelctx.SessionIDFromContext(ctx); ok {
+		if sessionID := b.sessionID(ctx, request); sessionID != "" {
 			ctx = tools.WithMCPSessionID(ctx, sessionID)
 		}
 		if request.Params.Meta != nil {
-			if sessionID, _ := request.Params.Meta[sessionMetaKey].(string); sessionID != "" {
-				ctx = tools.WithMCPSessionID(ctx, sessionID)
-			}
 			delete(request.Params.Meta, sessionMetaKey)
 		}
 		if data, err := json.Marshal(request.Params); err == nil {
@@ -213,6 +217,34 @@ func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
 		}
 		return sdkResultFromTools(result)
 	}
+}
+
+func (b *sdkBridge) sessionID(ctx context.Context, request *sdkmcp.CallToolRequest) string {
+	if sessionID, ok := tunnelctx.SessionIDFromContext(ctx); ok {
+		if sessionID = strings.TrimSpace(sessionID); sessionID != "" {
+			return sessionID
+		}
+	}
+	if request != nil && request.Params != nil && request.Params.Meta != nil {
+		if sessionID, _ := request.Params.Meta[sessionMetaKey].(string); strings.TrimSpace(sessionID) != "" {
+			return strings.TrimSpace(sessionID)
+		}
+	}
+	if request != nil && request.Session != nil {
+		if sessionID := strings.TrimSpace(request.Session.ID()); sessionID != "" {
+			return "sdk:" + sessionID
+		}
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if sessionID := b.sessionIDs[request.Session]; sessionID != "" {
+			return sessionID
+		}
+		b.nextSession++
+		sessionID := fmt.Sprintf("sdk:%d:%d", b.sessionNamespace, b.nextSession)
+		b.sessionIDs[request.Session] = sessionID
+		return sessionID
+	}
+	return ""
 }
 
 func decodeToolArguments(raw json.RawMessage) (map[string]any, error) {

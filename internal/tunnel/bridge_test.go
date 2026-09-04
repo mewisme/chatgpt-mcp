@@ -3,13 +3,17 @@ package tunnel
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/openai/tunnel-client/pkg/tunnelctx"
+	"go.mewis.me/chatgpt-mcp/internal/approval"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func TestSDKBridgePropagatesTunnelSessionID(t *testing.T) {
@@ -136,6 +140,147 @@ func TestSDKBridgeCallsSharedToolsRuntime(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("bridge server did not stop")
 	}
+}
+
+func TestSDKBridgeFallsBackToStableServerSessionID(t *testing.T) {
+	registry := tools.NewRegistry()
+	seen := make(chan string, 2)
+	registry.MustRegister("session_probe", tools.Schema{Name: "session_probe", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(ctx context.Context, _ map[string]any) (tools.Result, error) {
+		seen <- tools.MCPSessionID(ctx)
+		return tools.TextResult("ok"), nil
+	})
+	bridge, err := newSDKBridge(&tools.Runtime{Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- bridge.Run(ctx, serverTransport) }()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "bridge-session-test", Version: "1.0.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	for range 2 {
+		if _, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "session_probe", Arguments: map[string]any{}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, second := <-seen, <-seen
+	if !strings.HasPrefix(first, "sdk:") || first != second {
+		t.Fatalf("fallback session ids = %q, %q", first, second)
+	}
+	cancel()
+	select {
+	case <-serverDone:
+	case <-time.After(time.Second):
+		t.Fatal("bridge server did not stop")
+	}
+}
+
+func TestSDKBridgeApprovalFlowUsesSessionFallback(t *testing.T) {
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := manager.Instance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := tools.NewRegistry()
+	runtime := &tools.Runtime{Registry: registry, Workspaces: manager, SessionBindings: tools.NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID)}
+	registry.MustRegister("guarded_action", tools.Schema{Name: "guarded_action", InputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`)}, func(ctx context.Context, args map[string]any) (tools.Result, error) {
+		if requestID := tools.ApprovalRequestID(ctx); requestID != "" {
+			return tools.JSONResult(map[string]any{"approved_request": requestID}), nil
+		}
+		command, _ := args["command"].(string)
+		return tools.Result{}, controlguard.New(controlguard.CodeControlPlaneMutation, "guarded action requires approval", true, &controlguard.Invocation{Program: "cgm", Args: []string{"update"}, Command: command})
+	})
+	tools.RegisterApprovalTools(registry, runtime)
+	bridge, err := newSDKBridge(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- bridge.Run(ctx, serverTransport) }()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "bridge-approval-test", Version: "1.0.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	args := map[string]any{"workspace_id": item.ID, "command": "cgm update"}
+	guarded, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "guarded_action", Arguments: args})
+	if err != nil || !guarded.IsError {
+		t.Fatalf("guarded result=%#v err=%v", guarded, err)
+	}
+	body, ok := guarded.StructuredContent.(map[string]any)
+	if !ok || body["code"] != "approval_required" {
+		t.Fatalf("guarded structured content=%#v", guarded.StructuredContent)
+	}
+	challengeID, _ := body["challenge_id"].(string)
+	if challengeID == "" {
+		t.Fatalf("challenge id missing: %#v", body)
+	}
+	resultCh := make(chan *sdkmcp.CallToolResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tools.ApprovalRequestToolName, Arguments: map[string]any{"workspace_id": item.ID, "challenge_id": challengeID}})
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- result
+	}()
+	request := waitForTunnelApproval(t, runtime.Approvals)
+	if _, err := runtime.Approvals.Approve(request.ID, "test", "reviewed"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	case approved := <-resultCh:
+		if approved.IsError {
+			t.Fatalf("approval result=%#v", approved)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approval tool did not resolve")
+	}
+	retry, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "guarded_action", Arguments: args})
+	if err != nil || retry.IsError {
+		t.Fatalf("approved retry=%#v err=%v", retry, err)
+	}
+	payload, ok := retry.StructuredContent.(map[string]any)
+	if !ok || payload["approved_request"] != request.ID {
+		t.Fatalf("approved retry structured content=%#v", retry.StructuredContent)
+	}
+	cancel()
+	select {
+	case <-serverDone:
+	case <-time.After(time.Second):
+		t.Fatal("bridge server did not stop")
+	}
+}
+
+func waitForTunnelApproval(t *testing.T, manager *approval.Manager) approval.Request {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		requests := manager.List(approval.Filter{Status: approval.StatusPending})
+		if len(requests) == 1 {
+			return requests[0]
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("approval request did not become pending")
+	return approval.Request{}
 }
 
 func TestSDKResultPreservesMRTRWireShape(t *testing.T) {

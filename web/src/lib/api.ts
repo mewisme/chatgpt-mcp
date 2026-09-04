@@ -34,6 +34,20 @@ export type ExecutionEvent = {
   timed_out?: boolean
   timestamp: string
 }
+export type ExecutionFeedEvent = {
+  sequence: number
+  type: "started" | "output" | "completed" | string
+  execution_id: string
+  workspace_id: string
+  execution?: ExecutionInfo
+  stream?: "stdout" | "stderr" | string
+  data?: string
+  status?: ExecutionStatus
+  exit_code?: number
+  timed_out?: boolean
+  timestamp: string
+}
+export type ExecutionFeedSnapshot = { events: ExecutionFeedEvent[]; latest_sequence: number }
 export type InstructionSourcePolicy = { enabled?: boolean; context?: boolean; rules?: boolean; skills?: boolean }
 export type GlobalInstructionRule = { id: string; name?: string; enabled: boolean; content: string }
 export type InstructionSource = { provider: string; kind: "context" | "rules" | "skills" | string; paths: string[]; count: number; enabled: boolean; loaded: boolean }

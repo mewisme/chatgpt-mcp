@@ -8,13 +8,18 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemHeader, ItemTitle } from "@/components/ui/item"
 import { ScrollableTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
-import { streamExecution } from "@/lib/execution-stream"
-import { adminApi, type ExecutionEvent, type ExecutionInfo, type ExecutionSnapshot } from "@/lib/api"
+import { streamExecution, streamWorkspaceExecutions } from "@/lib/execution-stream"
+import { adminApi, type ExecutionEvent, type ExecutionFeedEvent, type ExecutionInfo, type ExecutionSnapshot } from "@/lib/api"
 
 const refreshInterval = 1500
 const reconnectDelay = 750
+const maxCombinedFeedEvents = 4000
 
 export function WorkspaceExecutions({ workspaceID }: { workspaceID: string }) {
+  return <Tabs defaultValue="executions"><ScrollableTabsList><TabsTrigger value="executions">Executions</TabsTrigger><TabsTrigger value="combined">Combined stream</TabsTrigger></ScrollableTabsList><TabsContent className="mt-4" value="executions"><WorkspaceExecutionList workspaceID={workspaceID} /></TabsContent><TabsContent className="mt-4" value="combined"><WorkspaceExecutionFeed workspaceID={workspaceID} /></TabsContent></Tabs>
+}
+
+function WorkspaceExecutionList({ workspaceID }: { workspaceID: string }) {
   const navigate = useNavigate()
   const [items, setItems] = useState<ExecutionInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -36,6 +41,37 @@ export function WorkspaceExecutions({ workspaceID }: { workspaceID: string }) {
   function openExecution(item: ExecutionInfo) { navigate(`/workspaces/${encodeURIComponent(workspaceID)}/activity/${encodeURIComponent(item.id)}`) }
 
   return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="text-sm font-medium">Command executions</div><div className="text-xs text-muted-foreground">Live run_command output is kept in a bounded in-memory buffer and scoped to this workspace.</div></div><Button disabled={refreshing} size="sm" variant="outline" onClick={() => void load(true)}><RefreshCw className={refreshing ? "animate-spin" : ""} />Refresh</Button></div><PageError message={error} />{loading ? <PageLoading rows={5} /> : items.length === 0 ? <PageEmpty icon={TerminalSquare} title="No command executions" description="run_command executions for this workspace will appear here." /> : <ItemGroup>{items.map((item) => <Item className="cursor-pointer" key={item.id} role="button" tabIndex={0} variant="outline" onClick={() => openExecution(item)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openExecution(item) }}><ItemContent className="min-w-0"><ItemHeader><ItemTitle className="min-w-0"><TruncatedText lines={1}>{item.command}</TruncatedText></ItemTitle><ExecutionStatusBadge status={item.status} /></ItemHeader><ItemDescription>{item.tool} · {item.cwd}{item.source ? ` · ${item.source}` : ""}</ItemDescription><div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="font-mono">{item.id}</span><span>{formatDateTime(item.started_at)}</span>{item.exit_code !== undefined ? <span>exit {item.exit_code}</span> : null}</div></ItemContent></Item>)}</ItemGroup>}</div>
+}
+
+function WorkspaceExecutionFeed({ workspaceID }: { workspaceID: string }) {
+  const [events, setEvents] = useState<ExecutionFeedEvent[]>([])
+  const [connected, setConnected] = useState(false)
+  const [error, setError] = useState("")
+  const [streamVersion, setStreamVersion] = useState(0)
+  const retryTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let stopped = false
+    async function connect() {
+      try {
+        await streamWorkspaceExecutions(workspaceID, controller.signal, {
+          onSnapshot: (snapshot) => { setEvents(snapshot.events.slice(-maxCombinedFeedEvents)); setConnected(true); setError("") },
+          onEvent: (event) => { setConnected(true); setError(""); setEvents((current) => appendFeedEvent(current, event)) },
+        })
+      } catch (value) {
+        if (controller.signal.aborted || stopped) return
+        setConnected(false)
+        setError(errorText(value))
+        retryTimer.current = window.setTimeout(() => void connect(), reconnectDelay)
+      }
+    }
+    void connect()
+    return () => { stopped = true; controller.abort(); if (retryTimer.current !== null) window.clearTimeout(retryTimer.current) }
+  }, [streamVersion, workspaceID])
+
+  const log = formatExecutionFeed(events)
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="text-sm font-medium">Combined command stream</div><div className="text-xs text-muted-foreground">All run_command output for this workspace is merged in event order. Each execution starts with its execution ID.</div></div><div className="flex flex-wrap items-center gap-2"><Badge variant={connected ? "secondary" : "outline"}><CircleDot className="size-3" />{connected ? "Live" : "Reconnecting"}</Badge><Button size="sm" variant="outline" onClick={() => { setConnected(false); setError(""); setStreamVersion((value) => value + 1) }}><RefreshCw />Reconnect</Button><Button size="sm" variant="outline" onClick={() => setEvents([])}>Clear view</Button></div></div><PageError message={error} />{events.length === 0 ? <PageEmpty icon={TerminalSquare} title="Waiting for command output" description="Recent and future run_command output will stream here automatically." /> : <TextViewer maxHeight={null} value={log} />}</div>
 }
 
 export function WorkspaceExecutionDetail({ workspaceID, executionID }: { workspaceID: string; executionID: string }) {
@@ -87,6 +123,34 @@ function applyExecutionEvent(snapshot: ExecutionSnapshot, event: ExecutionEvent)
   if (event.type === "output") return { ...snapshot, stdout: event.stream === "stdout" ? snapshot.stdout + (event.data ?? "") : snapshot.stdout, stderr: event.stream === "stderr" ? snapshot.stderr + (event.data ?? "") : snapshot.stderr, latest_sequence: event.sequence }
   if (event.type === "completed") return { ...snapshot, latest_sequence: event.sequence, execution: { ...snapshot.execution, status: event.status ?? snapshot.execution.status, exit_code: event.exit_code, timed_out: event.timed_out } }
   return { ...snapshot, latest_sequence: event.sequence }
+}
+
+function appendFeedEvent(events: ExecutionFeedEvent[], event: ExecutionFeedEvent) {
+  if ((events.at(-1)?.sequence ?? 0) >= event.sequence) return events
+  const next = [...events, event]
+  return next.length > maxCombinedFeedEvents ? next.slice(-maxCombinedFeedEvents) : next
+}
+
+function formatExecutionFeed(events: ExecutionFeedEvent[]) {
+  let output = ""
+  let currentExecutionID = ""
+  for (const event of events) {
+    if (event.execution_id !== currentExecutionID || event.type === "started") {
+      if (output && !output.endsWith("\n")) output += "\n"
+      if (output) output += "\n"
+      output += `===== exec_id=${event.execution_id} =====\n`
+      if (event.execution?.command) output += `$ ${event.execution.command}\n`
+      if (event.execution?.cwd) output += `cwd: ${event.execution.cwd}\n`
+      currentExecutionID = event.execution_id
+    }
+    if (event.type === "output") output += event.data ?? ""
+    if (event.type === "completed") {
+      if (output && !output.endsWith("\n")) output += "\n"
+      const exit = event.exit_code === undefined ? "" : `, exit ${event.exit_code}`
+      output += `[${event.status || "completed"}${exit}]\n`
+    }
+  }
+  return output
 }
 
 function ExecutionStatusBadge({ status }: { status: string }) { return <Badge variant={status === "failed" || status === "timed_out" ? "destructive" : status === "running" || status === "success" ? "secondary" : "outline"}>{status}</Badge> }

@@ -33,6 +33,29 @@ describe("WorkspaceExecutions", () => {
     await user.click(screen.getByRole("tab", { name: "stderr" }))
     expect(screen.getByRole("code").textContent).toContain("warn\n")
   })
+
+  it("streams all workspace commands into one combined view separated by execution id", async () => {
+    const user = userEvent.setup()
+    adminToken.set("test-admin-token")
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path === "/api/workspaces/ws_test/executions?limit=50") return json([])
+      if (path === "/api/workspaces/ws_test/executions/stream") return executionFeedStream()
+      throw new Error(`Unhandled test request: ${path}`)
+    }))
+
+    render(<MemoryRouter initialEntries={["/workspaces/ws_test/activity"]}><ThemeProvider><TooltipProvider><WorkspaceExecutions workspaceID="ws_test" /></TooltipProvider></ThemeProvider></MemoryRouter>)
+    await user.click(screen.getByRole("tab", { name: "Combined stream" }))
+    await waitFor(() => expect(screen.getByRole("code").textContent).toContain("exec_id=exec_2"))
+    const log = screen.getByRole("code").textContent ?? ""
+    expect(log).toContain("exec_id=exec_1")
+    expect(log).toContain("$ first")
+    expect(log).toContain("one\n")
+    expect(log).toContain("[success, exit 0]")
+    expect(log).toContain("exec_id=exec_2")
+    expect(log).toContain("$ second")
+    expect(log).toContain("two\n")
+  })
 })
 
 function LocationProbe() { const location = useLocation(); return <span className="sr-only" data-testid="location">{location.pathname}</span> }
@@ -46,6 +69,24 @@ function executionStream(snapshot: ExecutionSnapshot) {
     `id: 4\nevent: completed\ndata: ${JSON.stringify({ sequence: 4, type: "completed", execution_id: "exec_1", status: "success", exit_code: 0, timestamp: new Date().toISOString() })}\n\n`,
   ]
   const body = new ReadableStream({ start(controller) { for (const packet of packets) controller.enqueue(encoder.encode(packet)); controller.close() } })
+  return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } })
+}
+
+function executionFeedStream() {
+  const encoder = new TextEncoder()
+  const first = { id: "exec_1", workspace_id: "ws_test", tool: "run_command", command: "first", cwd: "/projects/test", source: "mcp", started_at: new Date().toISOString(), status: "success", exit_code: 0 }
+  const second = { id: "exec_2", workspace_id: "ws_test", tool: "run_command", command: "second", cwd: "/projects/test", source: "mcp", started_at: new Date().toISOString(), status: "running" }
+  const snapshot = { events: [
+    { sequence: 1, type: "started", execution_id: "exec_1", workspace_id: "ws_test", execution: { ...first, status: "running", exit_code: undefined }, status: "running", timestamp: first.started_at },
+    { sequence: 2, type: "output", execution_id: "exec_1", workspace_id: "ws_test", execution: { ...first, status: "running", exit_code: undefined }, stream: "stdout", data: "one\n", timestamp: first.started_at },
+    { sequence: 3, type: "completed", execution_id: "exec_1", workspace_id: "ws_test", execution: first, status: "success", exit_code: 0, timestamp: first.started_at },
+  ], latest_sequence: 3 }
+  const packets = [
+    `event: ready\ndata: ${JSON.stringify(snapshot)}\n\n`,
+    `id: 4\nevent: started\ndata: ${JSON.stringify({ sequence: 4, type: "started", execution_id: "exec_2", workspace_id: "ws_test", execution: second, status: "running", timestamp: second.started_at })}\n\n`,
+    `id: 5\nevent: output\ndata: ${JSON.stringify({ sequence: 5, type: "output", execution_id: "exec_2", workspace_id: "ws_test", execution: second, stream: "stderr", data: "two\n", timestamp: second.started_at })}\n\n`,
+  ]
+  const body = new ReadableStream({ start(controller) { for (const packet of packets) controller.enqueue(encoder.encode(packet)) } })
   return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } })
 }
 

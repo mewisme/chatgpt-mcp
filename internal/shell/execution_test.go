@@ -46,6 +46,37 @@ func TestExecutionHubSnapshotsAndStreamsOutput(t *testing.T) {
 	}
 }
 
+func TestExecutionHubWorkspaceFeedReplaysAndFilters(t *testing.T) {
+	hub := NewExecutionHub()
+	first := hub.Begin(ExecutionInput{WorkspaceID: "ws_first", Tool: "run_command", Command: "first", CWD: "/tmp", Source: "mcp"})
+	_, _ = first.Writer("stdout").Write([]byte("before\n"))
+	second := hub.Begin(ExecutionInput{WorkspaceID: "ws_second", Tool: "run_command", Command: "second", CWD: "/tmp", Source: "mcp"})
+	_, _ = second.Writer("stdout").Write([]byte("hidden\n"))
+
+	sub, snapshot := hub.SubscribeFeed("ws_first")
+	defer hub.UnsubscribeFeed(sub)
+	if len(snapshot.Events) != 2 || snapshot.Events[0].Type != ExecutionEventStarted || snapshot.Events[0].ExecutionID != first.ID() || snapshot.Events[1].Data != "before\n" {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	for _, event := range snapshot.Events {
+		if event.WorkspaceID != "ws_first" {
+			t.Fatalf("cross-workspace feed event = %#v", event)
+		}
+	}
+
+	_, _ = first.Writer("stderr").Write([]byte("live\n"))
+	event := <-sub.Events
+	if event.Type != ExecutionEventOutput || event.ExecutionID != first.ID() || event.Stream != "stderr" || event.Data != "live\n" || event.Execution == nil || event.Execution.Command != "first" {
+		t.Fatalf("live event = %#v", event)
+	}
+	_, _ = second.Writer("stdout").Write([]byte("still hidden\n"))
+	select {
+	case event := <-sub.Events:
+		t.Fatalf("received cross-workspace event = %#v", event)
+	case <-time.After(25 * time.Millisecond):
+	}
+}
+
 func TestRunCommandStreamsBeforeReturningAndPreservesFinalResult(t *testing.T) {
 	if os.PathSeparator != '\\' && os.Getenv("SHELL") == "" {
 		t.Setenv("SHELL", "/bin/sh")

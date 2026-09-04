@@ -106,3 +106,51 @@ func TestWorkspaceExecutionSSEStartsWithSnapshotAndStreamsUntilCompletion(t *tes
 		t.Fatal("execution SSE did not close after completion")
 	}
 }
+
+func TestWorkspaceExecutionFeedSSEReplaysAndContinuesAcrossCommands(t *testing.T) {
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := shellruntime.NewExecutionHub()
+	first := hub.Begin(shellruntime.ExecutionInput{WorkspaceID: item.ID, Tool: "run_command", Command: "first", CWD: item.Path, Source: "mcp"})
+	_, _ = first.Writer("stdout").Write([]byte("before\n"))
+	code := 0
+	first.Finish(shellruntime.ExecutionStatusSuccess, &code, false)
+	server := httptest.NewServer(New(API{Workspaces: manager, Executions: hub}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/workspaces/"+item.ID+"/executions/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	ready := scanEventData(t, scanner, "ready")
+	var snapshot shellruntime.ExecutionFeedSnapshot
+	if err := json.Unmarshal([]byte(ready), &snapshot); err != nil || len(snapshot.Events) != 3 || snapshot.Events[0].ExecutionID != first.ID() || snapshot.Events[1].Data != "before\n" || snapshot.Events[2].Type != shellruntime.ExecutionEventCompleted {
+		t.Fatalf("feed snapshot=%#v err=%v", snapshot, err)
+	}
+
+	second := hub.Begin(shellruntime.ExecutionInput{WorkspaceID: item.ID, Tool: "run_command", Command: "second", CWD: item.Path, Source: "mcp"})
+	started := scanEventData(t, scanner, shellruntime.ExecutionEventStarted)
+	if !strings.Contains(started, second.ID()) || !strings.Contains(started, `"command":"second"`) {
+		t.Fatalf("started event=%q", started)
+	}
+	_, _ = second.Writer("stderr").Write([]byte("live\n"))
+	output := scanEventData(t, scanner, shellruntime.ExecutionEventOutput)
+	if !strings.Contains(output, `"stream":"stderr"`) || !strings.Contains(output, "live") {
+		t.Fatalf("output event=%q", output)
+	}
+	second.Finish(shellruntime.ExecutionStatusSuccess, &code, false)
+	completed := scanEventData(t, scanner, shellruntime.ExecutionEventCompleted)
+	if !strings.Contains(completed, second.ID()) || !strings.Contains(completed, `"status":"success"`) {
+		t.Fatalf("completed event=%q", completed)
+	}
+}

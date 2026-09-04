@@ -92,6 +92,31 @@ func TestCleanupKeepsSelectedVersions(t *testing.T) {
 	}
 }
 
+func TestCurrentVersionAcceptsCanonicalizedInstallRoot(t *testing.T) {
+	realRoot := filepath.Join(t.TempDir(), "real")
+	aliasRoot := filepath.Join(t.TempDir(), "alias")
+	if err := os.MkdirAll(realRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realRoot, aliasRoot); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	layout, err := NewLayout(filepath.Join(aliasRoot, "install"), filepath.Join(aliasRoot, "bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(Options{Layout: layout, Version: "v1.0.0", Source: testBinary(t, "current"), NoAlias: true}); err != nil {
+		t.Fatal(err)
+	}
+	version, _, err := CurrentVersion(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != "v1.0.0" {
+		t.Fatalf("current version = %q", version)
+	}
+}
+
 func testLayout(t *testing.T) Layout {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "install")

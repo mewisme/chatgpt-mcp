@@ -216,12 +216,14 @@ ${upstreamPlain}`)
 
 async function verifySelfInstall() {
   const metadata = JSON.parse(await readFile(path.join(installRoot, "install.json"), "utf8"))
-  if (metadata.method !== "direct" || metadata.version !== "dev" || path.resolve(metadata.install_dir) !== path.resolve(installRoot)) {
+  if (metadata.method !== "direct" || typeof metadata.version !== "string" || !metadata.version || path.resolve(metadata.install_dir) !== path.resolve(installRoot)) {
     fail(`self-install metadata mismatch: ${JSON.stringify(metadata)}`)
   }
   const executable = path.join(installRoot, "current", process.platform === "win32" ? "chatgpt-mcp.exe" : "chatgpt-mcp")
   const versionResult = spawnSync(executable, ["version"], { env, encoding: "utf8", windowsHide: true })
   if (versionResult.error || versionResult.status !== 0) fail(`installed binary is not executable: ${versionResult.error?.message || versionResult.stderr}`)
+  const versionOutput = [versionResult.stdout, versionResult.stderr].filter(Boolean).join("\n")
+  if (!versionOutput.includes(metadata.version)) fail(`self-install metadata version does not match installed binary: ${JSON.stringify(metadata)}`)
   const alias = path.join(installBin, process.platform === "win32" ? "cgm.cmd" : "cgm")
   if (process.platform === "win32") {
     const content = await readFile(alias, "utf8")
@@ -236,10 +238,14 @@ async function verifyNoAliasInstall() {
   const result = spawnSync(binary, [...globalArgs, "install", "--force", "--no-alias"], { env: isolatedEnv, encoding: "utf8", windowsHide: true })
   if (result.error || result.status !== 0) fail(`install --no-alias failed: ${result.error?.message || result.stderr}`)
   const metadata = JSON.parse(await readFile(path.join(noAliasInstallRoot, "install.json"), "utf8"))
-  if (metadata.method !== "direct" || metadata.version !== "dev" || path.resolve(metadata.install_dir) !== path.resolve(noAliasInstallRoot)) {
+  if (metadata.method !== "direct" || typeof metadata.version !== "string" || !metadata.version || path.resolve(metadata.install_dir) !== path.resolve(noAliasInstallRoot)) {
     fail(`--no-alias metadata mismatch: ${JSON.stringify(metadata)}`)
   }
   const executable = path.join(noAliasInstallRoot, "current", process.platform === "win32" ? "chatgpt-mcp.exe" : "chatgpt-mcp")
+  const versionResult = spawnSync(executable, ["version"], { env: isolatedEnv, encoding: "utf8", windowsHide: true })
+  if (versionResult.error || versionResult.status !== 0) fail(`--no-alias installed binary is not executable: ${versionResult.error?.message || versionResult.stderr}`)
+  const versionOutput = [versionResult.stdout, versionResult.stderr].filter(Boolean).join("\n")
+  if (!versionOutput.includes(metadata.version)) fail(`--no-alias metadata version does not match installed binary: ${JSON.stringify(metadata)}`)
   const canonical = process.platform === "win32" ? executable : path.join(noAliasInstallBin, "chatgpt-mcp")
   if (await realpath(canonical) !== await realpath(executable)) fail(`--no-alias canonical command does not resolve to current binary: ${canonical}`)
   const alias = path.join(noAliasInstallBin, process.platform === "win32" ? "cgm.cmd" : "cgm")

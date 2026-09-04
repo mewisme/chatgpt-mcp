@@ -244,15 +244,40 @@ func fileHash(path string) ([sha256.Size]byte, error) {
 
 func versionFromTarget(layout Layout, target string) (string, error) {
 	target = filepath.Clean(target)
-	relative, err := filepath.Rel(layout.Versions, target)
-	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%w: %s", ErrCurrentNotManaged, target)
+	if version, ok := directVersionFromPath(layout, layout.Versions, target); ok {
+		return version, nil
 	}
-	if filepath.Dir(relative) != "." {
-		return "", fmt.Errorf("%w: %s", ErrCurrentNotManaged, target)
+	resolvedVersions, versionsErr := filepath.EvalSymlinks(layout.Versions)
+	resolvedTarget, targetErr := filepath.EvalSymlinks(target)
+	if versionsErr == nil && targetErr == nil {
+		if version, ok := directVersionFromPath(layout, resolvedVersions, resolvedTarget); ok {
+			return version, nil
+		}
+	}
+	targetInfo, statErr := os.Stat(target)
+	entries, readErr := os.ReadDir(layout.Versions)
+	if statErr == nil && readErr == nil {
+		for _, entry := range entries {
+			candidate, err := layout.VersionDir(entry.Name())
+			if err != nil {
+				continue
+			}
+			candidateInfo, err := os.Stat(candidate)
+			if err == nil && os.SameFile(targetInfo, candidateInfo) {
+				return entry.Name(), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("%w: %s", ErrCurrentNotManaged, target)
+}
+
+func directVersionFromPath(layout Layout, versionsRoot, target string) (string, bool) {
+	relative, err := filepath.Rel(filepath.Clean(versionsRoot), filepath.Clean(target))
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.Dir(relative) != "." {
+		return "", false
 	}
 	if _, err := layout.VersionDir(relative); err != nil {
-		return "", fmt.Errorf("%w: %s", ErrCurrentNotManaged, target)
+		return "", false
 	}
-	return relative, nil
+	return relative, true
 }

@@ -81,7 +81,7 @@ func TestBrowserDetailViewportScrollsAndResizes(t *testing.T) {
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One", Description: "first", Detail: strings.Join(lines, "\n")}}, nil)
 	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 14})
 	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
-	if !model.detail || model.viewport.Width() != 64 || model.viewport.Height() != 8 {
+	if !model.detail || model.viewport.Width() != model.modalContentWidth() || model.viewport.Height() < 4 {
 		t.Fatalf("detail=%t viewport=%dx%d", model.detail, model.viewport.Width(), model.viewport.Height())
 	}
 	before := model.viewport.YOffset()
@@ -96,7 +96,7 @@ func TestBrowserStructuredDetailUsesDefaultListLayout(t *testing.T) {
 	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})
 	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
 	view := model.View().Content
-	if !model.detail || !strings.Contains(view, "Workspace · ws_one") || !strings.Contains(view, "Root") || !strings.Contains(view, "/tmp/project") || !strings.Contains(view, "Legacy ID") || !strings.Contains(view, "q") || !strings.Contains(view, "back") {
+	if !model.detail || !strings.Contains(view, "Items") || !strings.Contains(view, "Workspace · ws_one") || !strings.Contains(view, "Root") || !strings.Contains(view, "/tmp/project") || !strings.Contains(view, "Legacy ID") || !strings.Contains(view, "esc/q") || !strings.Contains(view, "close") {
 		t.Fatalf("detail=%t view=%q", model.detail, view)
 	}
 }

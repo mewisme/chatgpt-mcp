@@ -18,9 +18,11 @@ const (
 )
 
 type charmTheme struct {
+	item        list.DefaultItemStyles
 	title       lipgloss.Style
 	accent      lipgloss.Style
 	muted       lipgloss.Style
+	subtle      lipgloss.Style
 	success     lipgloss.Style
 	panelBorder lipgloss.Style
 }
@@ -31,9 +33,11 @@ func newCharmTheme(isDark bool) charmTheme {
 	listStyles := list.DefaultStyles(isDark)
 	itemStyles := list.NewDefaultItemStyles(isDark)
 	return charmTheme{
+		item:        itemStyles,
 		title:       lipgloss.NewStyle().Foreground(itemStyles.NormalTitle.GetForeground()).Bold(true),
 		accent:      lipgloss.NewStyle().Foreground(itemStyles.SelectedTitle.GetForeground()).Bold(true),
 		muted:       lipgloss.NewStyle().Foreground(itemStyles.NormalDesc.GetForeground()),
+		subtle:      lipgloss.NewStyle().Foreground(listStyles.NoItems.GetForeground()),
 		success:     lipgloss.NewStyle().Foreground(listStyles.Filter.Focused.Prompt.GetForeground()).Bold(true),
 		panelBorder: lipgloss.NewStyle().Foreground(itemStyles.SelectedTitle.GetBorderLeftForeground()),
 	}
@@ -84,6 +88,21 @@ func Panel(body string, width int) string {
 		style = style.MaxWidth(max(12, width))
 	}
 	return style.Render(body)
+}
+
+func Modal(body string, width int) string {
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetForeground()).Padding(1, 2)
+	if width > 0 {
+		style = style.Width(max(24, width))
+	}
+	return style.Render(body)
+}
+
+func Divider(width int) string {
+	if width <= 0 {
+		return ""
+	}
+	return currentTheme.subtle.Render(strings.Repeat("─", width))
 }
 
 func TwoColumn(left, right string, width int) string {

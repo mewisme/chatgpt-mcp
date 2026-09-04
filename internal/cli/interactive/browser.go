@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 )
 
 type Row struct {
@@ -60,7 +61,6 @@ func (i browserItem) FilterValue() string {
 type Browser struct {
 	ctx                context.Context
 	list               list.Model
-	detailList         list.Model
 	viewport           viewport.Model
 	refresh            RefreshFunc
 	actions            []RowAction
@@ -109,18 +109,11 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
 		ApplyDefaultListTheme(&m.list, msg.IsDark())
-		if m.detail && len(m.detailList.Items()) > 0 {
-			ApplyDefaultListTheme(&m.detailList, msg.IsDark())
-			m.syncDetailHelp()
-		}
 		m.syncHelp()
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.list.SetSize(msg.Width, msg.Height)
-		if m.detail && len(m.detailList.Items()) > 0 {
-			m.detailList.SetSize(msg.Width, msg.Height)
-		}
 		m.resizeViewport()
 		return m, nil
 	case browserRefreshMsg:
@@ -167,31 +160,6 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.detail {
-		if len(m.detailList.Items()) > 0 {
-			if msg.String() == "ctrl+c" {
-				return m, tea.Quit
-			}
-			if m.detailList.FilterState() == list.Filtering {
-				var cmd tea.Cmd
-				m.detailList, cmd = m.detailList.Update(msg)
-				return m, cmd
-			}
-			switch {
-			case msg.String() == "q", msg.String() == "esc":
-				m.detail = false
-				m.detailList = list.Model{}
-				return m, nil
-			case m.refresh != nil && key.Matches(msg, browserRefreshBinding):
-				return m.startRefresh()
-			default:
-				if handled, cmd := m.runAction(msg.String()); handled {
-					return m, cmd
-				}
-				var cmd tea.Cmd
-				m.detailList, cmd = m.detailList.Update(msg)
-				return m, cmd
-			}
-		}
 		switch {
 		case msg.String() == "ctrl+c":
 			return m, tea.Quit
@@ -236,24 +204,42 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Browser) View() tea.View {
 	content := m.list.View()
 	if m.detail {
-		if len(m.detailList.Items()) > 0 {
-			content = m.detailList.View()
-		} else {
-			content = m.detailView()
-		}
+		content = m.overlayDetail(content)
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
 	return view
 }
 
+func (m Browser) overlayDetail(background string) string {
+	modal := m.detailView()
+	width, height := m.width, m.height
+	if width <= 0 {
+		width = max(80, lipgloss.Width(background))
+	}
+	if height <= 0 {
+		height = max(20, lipgloss.Height(background))
+	}
+	x := max(0, (width-lipgloss.Width(modal))/2)
+	y := max(0, (height-lipgloss.Height(modal))/2)
+	canvas := lipgloss.NewCanvas(width, height)
+	base := lipgloss.NewLayer(background).X(0).Y(0).Z(0)
+	dialog := lipgloss.NewLayer(modal).X(x).Y(y).Z(1)
+	canvas.Compose(lipgloss.NewCompositor(base, dialog))
+	return canvas.Render()
+}
+
 func (m Browser) detailView() string {
 	selected, ok := m.selected()
 	if !ok {
-		return Muted("The selected item is no longer available.")
+		return Modal(Muted("The selected item is no longer available."), m.modalWidth())
 	}
 	var builder strings.Builder
-	builder.WriteString(TwoColumn(Title(browserRowTitle(selected)), Secondary(selected.Meta), m.contentWidth()))
+	title := strings.TrimSpace(selected.DetailTitle)
+	if title == "" {
+		title = browserRowTitle(selected)
+	}
+	builder.WriteString(TwoColumn(Title(title), Secondary(selected.Meta), m.modalContentWidth()))
 	if m.err != nil {
 		builder.WriteString("\n")
 		builder.WriteString(Banner(m.err.Error(), ToneDanger))
@@ -262,20 +248,20 @@ func (m Browser) detailView() string {
 		builder.WriteString("\n")
 		builder.WriteString(Banner(m.notice, ToneSuccess))
 	}
+	builder.WriteString("\n")
+	builder.WriteString(Divider(m.modalContentWidth()))
+	builder.WriteString("\n")
+	builder.WriteString(m.viewport.View())
 	builder.WriteString("\n\n")
-	builder.WriteString(Panel(m.viewport.View(), max(12, m.contentWidth()-2)))
-	builder.WriteString("\n\n")
-	help := []key.Binding{Binding([]string{"j", "k"}, "j/k", "scroll"), Binding([]string{"pgup", "pgdown"}, "pgup/pgdn", "page"), Binding([]string{"esc"}, "esc", "back")}
+	help := []key.Binding{Binding([]string{"j", "k"}, "j/k", "scroll"), Binding([]string{"pgup", "pgdown"}, "pgup/pgdn", "page"), Binding([]string{"esc", "q"}, "esc/q", "close")}
 	for _, action := range m.actions {
 		help = append(help, Binding([]string{action.Key}, action.Key, action.Desc))
 	}
 	if m.refresh != nil {
 		help = append(help, browserRefreshBinding)
 	}
-	help = append(help, Binding([]string{"ctrl+c"}, "ctrl+c", "quit"))
-	builder.WriteString(DefaultHelp(m.contentWidth(), help...))
-	builder.WriteString("\n")
-	return builder.String()
+	builder.WriteString(DefaultHelp(m.modalContentWidth(), help...))
+	return Modal(builder.String(), m.modalWidth())
 }
 
 func (m Browser) selected() (Row, bool) {
@@ -302,9 +288,6 @@ func (m Browser) startRefresh() (tea.Model, tea.Cmd) {
 	}
 	m.loading = true
 	m.list.StartSpinner()
-	if m.detail && len(m.detailList.Items()) > 0 {
-		m.detailList.StartSpinner()
-	}
 	return m, func() tea.Msg {
 		rows, err := m.refresh(m.ctx)
 		return browserRefreshMsg{rows: rows, err: err}
@@ -322,17 +305,13 @@ func (m *Browser) runAction(keyValue string) (bool, tea.Cmd) {
 		}
 		m.notice, m.err = "", nil
 		notice, cmd, err := action.Run(selected)
-		statusTarget := &m.list
-		if m.detail && len(m.detailList.Items()) > 0 {
-			statusTarget = &m.detailList
-		}
 		if err != nil {
 			m.err = err
-			statusCmd := statusTarget.NewStatusMessage(err.Error())
+			statusCmd := m.list.NewStatusMessage(err.Error())
 			return true, tea.Batch(cmd, statusCmd)
 		}
 		m.notice = notice
-		statusCmd := statusTarget.NewStatusMessage(notice)
+		statusCmd := m.list.NewStatusMessage(notice)
 		return true, tea.Batch(cmd, statusCmd)
 	}
 	return false, nil
@@ -348,18 +327,6 @@ func (m *Browser) syncHelp() {
 	}
 	m.list.AdditionalShortHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
 	m.list.AdditionalFullHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
-}
-
-func (m *Browser) syncDetailHelp() {
-	bindings := make([]key.Binding, 0, len(m.actions)+1)
-	for _, action := range m.actions {
-		bindings = append(bindings, Binding([]string{action.Key}, action.Key, action.Desc))
-	}
-	if m.refresh != nil {
-		bindings = append(bindings, browserRefreshBinding)
-	}
-	m.detailList.AdditionalShortHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
-	m.detailList.AdditionalFullHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
 }
 
 func (m *Browser) restoreSelection(id string) {
@@ -379,42 +346,53 @@ func (m *Browser) restoreSelection(id string) {
 }
 
 func (m *Browser) resizeViewport() {
-	m.viewport.SetWidth(max(12, m.contentWidth()-6))
-	m.viewport.SetHeight(max(4, m.height-6))
+	m.viewport.SetWidth(max(12, m.modalContentWidth()))
+	height := m.height
+	if height <= 0 {
+		height = 20
+	}
+	m.viewport.SetHeight(max(4, min(14, height-10)))
 }
 
 func (m *Browser) syncDetail(row Row) {
-	if len(row.DetailRows) > 0 {
-		title := strings.TrimSpace(row.DetailTitle)
-		if title == "" {
-			title = browserRowTitle(row)
-		}
-		m.detailList = NewDefaultList(title, browserListItems(row.DetailRows), max(20, m.width), max(10, m.height), "field", "fields")
-		m.detailList.KeyMap.Quit = Binding([]string{"q", "esc"}, "q", "back")
-		m.syncDetailHelp()
-		return
-	}
-	m.detailList = list.Model{}
-	m.syncViewport(row)
-	m.viewport.GotoTop()
-}
-
-func (m *Browser) syncViewport(row Row) {
 	content := strings.TrimSpace(row.Detail)
+	if len(row.DetailRows) > 0 {
+		content = renderDetailRows(row.DetailRows)
+	}
 	if content == "" {
 		content = strings.TrimSpace(row.Description)
 	}
 	if content == "" {
 		content = row.Summary
 	}
+	m.resizeViewport()
 	m.viewport.SetContent(content)
+	m.viewport.GotoTop()
 }
 
-func (m Browser) contentWidth() int {
-	if m.width <= 0 {
-		return 80
+func (m Browser) modalWidth() int {
+	width := m.width
+	if width <= 0 {
+		width = 80
 	}
-	return max(20, m.width-2)
+	return max(36, min(78, width-10))
+}
+
+func (m Browser) modalContentWidth() int { return max(24, m.modalWidth()-6) }
+
+func renderDetailRows(rows []Row) string {
+	var builder strings.Builder
+	for index, row := range rows {
+		if index > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString(currentTheme.item.NormalTitle.Render(browserRowTitle(row)))
+		if description := strings.TrimSpace(row.Description); description != "" {
+			builder.WriteString("\n")
+			builder.WriteString(currentTheme.item.NormalDesc.Render(description))
+		}
+	}
+	return builder.String()
 }
 
 func browserListItems(rows []Row) []list.Item {

@@ -55,6 +55,23 @@ func TestBrowserRefreshErrorKeepsItems(t *testing.T) {
 	}
 }
 
+func TestBrowserEmptyStateRendersOnceAndStatusBarReturnsAfterRefresh(t *testing.T) {
+	model := NewBrowser(context.Background(), "Items", nil, func(context.Context) ([]Row, error) {
+		return []Row{{ID: "one", Title: "One"}}, nil
+	})
+	if view := model.View().Content; strings.Count(view, "No items") != 1 {
+		t.Fatalf("No items count=%d view=%q", strings.Count(view, "No items"), view)
+	}
+	updated, cmd := model.Update(browserKeyText("r"))
+	model = updated.(Browser)
+	updated, next := model.Update(cmd())
+	model = updated.(Browser)
+	model = runBrowserCmd(t, model, next)
+	if !model.list.ShowStatusBar() || !strings.Contains(model.View().Content, "One") {
+		t.Fatalf("status=%t view=%q", model.list.ShowStatusBar(), model.View().Content)
+	}
+}
+
 func TestBrowserRefreshClosesRemovedDetail(t *testing.T) {
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Summary: "one"}, {ID: "two", Summary: "two"}}, func(context.Context) ([]Row, error) {
 		return []Row{{ID: "two", Summary: "two"}}, nil

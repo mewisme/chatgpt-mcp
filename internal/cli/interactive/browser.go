@@ -87,6 +87,7 @@ func NewBrowser(ctx context.Context, title string, rows []Row, refresh RefreshFu
 		ctx = context.Background()
 	}
 	model := NewDefaultList(strings.TrimSpace(title), browserListItems(rows), 80, 20, "item", "items")
+	model.SetShowStatusBar(len(rows) > 0)
 	view := viewport.New(viewport.WithWidth(74), viewport.WithHeight(12))
 	view.SoftWrap = true
 	view.FillHeight = false
@@ -129,6 +130,7 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if selected, ok := m.selected(); ok {
 			selectedID = selected.ID
 		}
+		m.list.SetShowStatusBar(len(msg.rows) > 0)
 		cmd := m.list.SetItems(browserListItems(msg.rows))
 		if cmd != nil {
 			m.pendingSelectionID = selectedID

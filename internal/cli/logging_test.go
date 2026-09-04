@@ -68,3 +68,16 @@ func TestCommandLoggerJSONFailure(t *testing.T) {
 		t.Fatalf("event = %#v", event)
 	}
 }
+
+func TestStartCommandSpinnerIsSilentWithoutTerminal(t *testing.T) {
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	log := commandLogger(cmd)
+	startCommandSpinner(cmd, log, "TEST", "test.waiting", "Waiting")
+	log.Close()
+	if output.Len() != 0 {
+		t.Fatalf("spinner wrote to non-terminal output: %q", output.String())
+	}
+}

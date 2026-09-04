@@ -47,13 +47,15 @@ func configReloadCommand() *cobra.Command {
 		Short: "Reload persisted configuration into the running server",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			log := commandLogger(cmd)
+			defer log.Close()
+			startCommandSpinner(cmd, log, "CONFIG", "config.reloading", "Reloading configuration")
 			ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 			defer cancel()
 			result, err := requestRuntimeReload(ctx)
 			if err != nil {
 				return err
 			}
-			log := commandLogger(cmd)
 			log.Success("CONFIG", "configuration reloaded")
 			log.Detail("pid", result.PID)
 			log.Detail("network restarted", result.NetworkRestarted)

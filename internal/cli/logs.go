@@ -61,10 +61,13 @@ func logsCommand() *cobra.Command {
 		if !forceClear {
 			return errors.New("refusing to clear runtime logs without --force")
 		}
+		log := commandLogger(cmd)
+		defer log.Close()
+		startCommandSpinner(cmd, log, "LOGS", "logs.clearing", "Clearing runtime logs")
 		if err := clearRuntimeLogs(cmd); err != nil {
 			return err
 		}
-		commandLogger(cmd).Ready("LOGS", "logs.cleared", "Runtime logs cleared")
+		log.Ready("LOGS", "logs.cleared", "Runtime logs cleared")
 		return nil
 	}}
 	clear.Flags().BoolVar(&forceClear, "force", false, "clear current and rotated runtime logs")

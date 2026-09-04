@@ -67,6 +67,11 @@ func mcpServerListCommand() *cobra.Command {
 				return err
 			}
 			if refresh {
+				log := commandLogger(cmd)
+				defer log.Close()
+				if !asJSON {
+					startCommandSpinner(cmd, log, "MCP", "mcp.status.refreshing", "Refreshing upstream MCP status")
+				}
 				ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
 				statuses := manager.ListStatuses(ctx, true)
 				cancel()
@@ -74,6 +79,7 @@ func mcpServerListCommand() *cobra.Command {
 					return printJSON(cmd, statuses)
 				}
 				if interactiveMode {
+					log.Close()
 					refreshRows := func(parent context.Context) ([]interactive.Row, error) {
 						manager, err := loadUpstreamManager()
 						if err != nil {
@@ -85,7 +91,6 @@ func mcpServerListCommand() *cobra.Command {
 					}
 					return runInteractiveBrowser(cmd, "Upstream MCP server status", upstreamStatusInteractiveRows(statuses), refreshRows)
 				}
-				log := commandLogger(cmd)
 				log.Success("MCP", "upstream status loaded", "count", len(statuses))
 				for _, status := range statuses {
 					log.Detail(status.ID, fmt.Sprintf("%s enabled=%t health=%s tools=%d expose=%s", status.Transport, status.Enabled, status.Health, status.ToolCount, status.Expose))
@@ -303,6 +308,9 @@ func mcpServerToolsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			log := commandLogger(cmd)
+			defer log.Close()
+			startCommandSpinner(cmd, log, "MCP", "mcp.tools.loading", "Loading upstream MCP tools")
 			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
 			defer cancel()
 			values, err := manager.Tools(ctx, args[0], refresh)
@@ -314,7 +322,6 @@ func mcpServerToolsCommand() *cobra.Command {
 			for _, name := range manager.ProxiedToolNames(server, values) {
 				proxied[name] = true
 			}
-			log := commandLogger(cmd)
 			log.Success("MCP", "upstream tools loaded", "count", len(values))
 			for _, tool := range values {
 				proxy := upstream.ProxyName(server.ToolPrefix, tool.Name)

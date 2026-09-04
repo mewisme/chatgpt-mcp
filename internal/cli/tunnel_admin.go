@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -117,6 +118,9 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 			candidate.AdminKey = key
 			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 			defer cancel()
+			log := commandLogger(cmd)
+			defer log.Close()
+			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.admin.verifying", "Verifying tunnel admin key")
 			scope, err := resolveTunnelAdminSetScope(ctx, cmd, candidate, scopeFlags)
 			if err != nil {
 				return fmt.Errorf("admin key verification scope: %w", err)
@@ -130,7 +134,6 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 			if err := config.Save(cfg); err != nil {
 				return err
 			}
-			log := commandLogger(cmd)
 			log.Success("TUNNEL", "Admin key verified and saved")
 			log.Detail("scope", formatTunnelAdminScope(scope))
 			log.Detail("tunnels", count)
@@ -174,11 +177,13 @@ func tunnelAdminKeyVerifyCommand() *cobra.Command {
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
+		log := commandLogger(cmd)
+		defer log.Close()
+		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.admin.verifying", "Verifying tunnel admin key")
 		count, err := tunnel.VerifyAdminKey(ctx, cfg.Tunnel)
 		if err != nil {
 			return fmt.Errorf("admin key verification failed: %w", err)
 		}
-		log := commandLogger(cmd)
 		log.Success("TUNNEL", "Admin key verified")
 		log.Detail("scope", formatTunnelAdminScope(tunnel.AdminScopeFromConfig(cfg.Tunnel)))
 		log.Detail("tunnels", count)
@@ -219,6 +224,11 @@ func tunnelListCommand() *cobra.Command {
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
+		log := commandLogger(cmd)
+		defer log.Close()
+		if !asJSON {
+			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.list.loading", "Loading managed tunnels")
+		}
 		items, err := tunnel.ListManaged(ctx, cfg.Tunnel, scope)
 		if err != nil {
 			return err
@@ -228,6 +238,7 @@ func tunnelListCommand() *cobra.Command {
 			return err
 		}
 		if interactiveMode {
+			log.Close()
 			refreshRows := func(parent context.Context) ([]interactive.Row, error) {
 				ctx, cancel := context.WithTimeout(parent, tunnelAdminTimeout)
 				defer cancel()
@@ -311,6 +322,9 @@ func tunnelCreateCommand() *cobra.Command {
 			request := tunnel.CreateRequest{Name: strings.TrimSpace(name), Description: strings.TrimSpace(description), OrganizationIDs: orgs, WorkspaceIDs: workspaces, TenantIDs: tenants}
 			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 			defer cancel()
+			log := commandLogger(cmd)
+			defer log.Close()
+			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.create.creating", "Creating managed tunnel")
 			metadata, err := tunnel.CreateManaged(ctx, cfg.Tunnel, request)
 			if err != nil {
 				return err
@@ -326,8 +340,9 @@ func tunnelCreateCommand() *cobra.Command {
 					return err
 				}
 			}
-			logManagedTunnel(cmd, "Tunnel created", metadata, configure)
-			commandLogger(cmd).Detail("ready", "allow 25-30 seconds before expecting the new tunnel to be active")
+			log.Success("TUNNEL", "Tunnel created")
+			logManagedTunnelDetails(log, metadata, configure)
+			log.Detail("ready", "allow 25-30 seconds before expecting the new tunnel to be active")
 			return nil
 		},
 	}
@@ -377,6 +392,9 @@ func tunnelUpdateCommand() *cobra.Command {
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
+		log := commandLogger(cmd)
+		defer log.Close()
+		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.update.updating", "Updating managed tunnel")
 		metadata, err := tunnel.UpdateManaged(ctx, cfg.Tunnel, args[0], request)
 		if err != nil {
 			return err
@@ -392,7 +410,8 @@ func tunnelUpdateCommand() *cobra.Command {
 				return err
 			}
 		}
-		logManagedTunnel(cmd, "Tunnel updated", metadata, configure)
+		log.Success("TUNNEL", "Tunnel updated")
+		logManagedTunnelDetails(log, metadata, configure)
 		return nil
 	}}
 	cmd.Flags().StringVar(&name, "name", "", "new tunnel name")
@@ -419,6 +438,9 @@ func tunnelDeleteCommand() *cobra.Command {
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
+		log := commandLogger(cmd)
+		defer log.Close()
+		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.delete.deleting", "Deleting managed tunnel")
 		metadata, err := tunnel.DeleteManaged(ctx, cfg.Tunnel, args[0])
 		if err != nil {
 			return err
@@ -436,7 +458,8 @@ func tunnelDeleteCommand() *cobra.Command {
 		if err := config.RemoveTunnelMetadata(metadata.ID); err != nil {
 			return err
 		}
-		logManagedTunnel(cmd, "Tunnel deleted", metadata, cleared)
+		log.Success("TUNNEL", "Tunnel deleted")
+		logManagedTunnelDetails(log, metadata, cleared)
 		return nil
 	}}
 	cmd.Flags().BoolVar(&confirm, "confirm", false, "confirm permanent tunnel deletion")
@@ -472,9 +495,7 @@ func configureManagedTunnel(cfg *config.Config, metadata tunnel.Metadata, runtim
 	return config.Validate(*cfg)
 }
 
-func logManagedTunnel(cmd *cobra.Command, message string, metadata tunnel.Metadata, configured bool) {
-	log := commandLogger(cmd)
-	log.Success("TUNNEL", message)
+func logManagedTunnelDetails(log *logger.Logger, metadata tunnel.Metadata, configured bool) {
 	log.Detail("id", metadata.ID)
 	if metadata.Name != "" {
 		log.Detail("name", metadata.Name)

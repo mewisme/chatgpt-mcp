@@ -47,6 +47,8 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 			defer cancel()
 			store := mcpoauth.NewStore(mcpoauth.Path())
 			log := commandLogger(cmd)
+			defer log.Close()
+			startCommandSpinner(cmd, log, "OAUTH", "oauth.starting", "Starting OAuth authorization")
 			credential, err := store.Login(ctx, mcpoauth.LoginConfig{
 				ServerID: server.ID, ServerURL: server.URL, Scope: server.Auth.Scope, Issuer: issuer,
 				ClientID: clientID, ClientSecretEnvVar: clientSecretEnv, ClientMetadataURL: clientMetadataURL,
@@ -58,6 +60,7 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 						log.Warn("OAUTH", "could not open browser; use the URL above", "error", err)
 					}
 				}
+				startCommandSpinner(cmd, log, "OAUTH", "oauth.waiting", "Waiting for OAuth authorization")
 				return nil
 			}})
 			if err != nil {
@@ -70,9 +73,12 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 			if !credential.ExpiresAt.IsZero() {
 				log.Detail("expires", credential.ExpiresAt.Format(time.RFC3339))
 			}
+			startCommandSpinner(cmd, log, "MCP", "mcp.health.checking", "Checking upstream MCP health")
 			status := manager.CheckHealth(ctx, server.ID, true)
 			if status.Health != "connected" {
 				log.Warn("MCP", "OAuth completed but upstream health check did not connect", "error", status.LastError)
+			} else {
+				log.Ready("MCP", "mcp.health.connected", "Upstream MCP server connected")
 			}
 			return nil
 		},

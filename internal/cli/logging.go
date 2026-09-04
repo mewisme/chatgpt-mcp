@@ -28,6 +28,14 @@ func commandLogger(cmd *cobra.Command) *logger.Logger {
 	return logger.NewWithOptions(logger.Options{Level: level, Mode: logger.ModeFor(verbose, debug), Format: format, Writer: commandLogWriter(cmd)})
 }
 
+func startCommandSpinner(cmd *cobra.Command, log *logger.Logger, component, name, message string) {
+	format, err := commandLogFormat(cmd)
+	_, debug := commandLogMode(cmd)
+	if err == nil && format == logger.FormatText && !debug && logger.CanAnimate(commandLogWriter(cmd)) {
+		log.Action(component, name, message)
+	}
+}
+
 func commandLogMode(cmd *cobra.Command) (bool, bool) {
 	flags := cmd.Root().PersistentFlags()
 	verbose, _ := flags.GetBool("verbose")

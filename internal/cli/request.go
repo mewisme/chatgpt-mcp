@@ -28,6 +28,11 @@ func requestCreateDummyCommand() *cobra.Command {
 	var workspaceID, title, command string
 	var asJSON bool
 	cmd := &cobra.Command{Use: "dummy", Short: "Create a dummy pending approval request for UI testing", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		log := commandLogger(cmd)
+		defer log.Close()
+		if !asJSON {
+			startCommandSpinner(cmd, log, "REQUEST", "request.creating", "Creating dummy approval request")
+		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), requestControlTimeout)
 		defer cancel()
 		request, err := requestRuntimeApprovalCreateDummy(ctx, workspaceID, title, command)
@@ -37,7 +42,6 @@ func requestCreateDummyCommand() *cobra.Command {
 		if asJSON {
 			return printJSON(cmd, request)
 		}
-		log := commandLogger(cmd)
 		log.Success("REQUEST", "dummy control approval request created", "id", request.ID)
 		log.Detail("workspace", request.WorkspaceID)
 		log.Detail("expires", request.ExpiresAt.Format(time.RFC3339Nano))
@@ -53,6 +57,11 @@ func requestCreateDummyCommand() *cobra.Command {
 func requestListCommand() *cobra.Command {
 	var asJSON, forceInteractive, noInteractive bool
 	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List control approval requests from the running runtime", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		log := commandLogger(cmd)
+		defer log.Close()
+		if !asJSON {
+			startCommandSpinner(cmd, log, "REQUEST", "request.loading", "Loading approval requests")
+		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), requestControlTimeout)
 		defer cancel()
 		requests, err := requestRuntimeApprovalList(ctx)
@@ -67,11 +76,11 @@ func requestListCommand() *cobra.Command {
 			return printJSON(cmd, requests)
 		}
 		if interactiveMode {
+			log.Close()
 			model := newRequestInteractiveModel(cmd.Context(), requests, defaultRequestInteractiveClient())
 			_, err := interactive.Run(cmd.Context(), model, cmd.InOrStdin(), cmd.OutOrStdout())
 			return err
 		}
-		log := commandLogger(cmd)
 		log.Success("REQUEST", "control approval requests loaded", "count", len(requests))
 		for _, request := range requests {
 			log.Detail(request.ID, fmt.Sprintf("status=%s workspace=%s tool=%s title=%s", request.Status, request.WorkspaceID, request.TargetTool, request.Title))
@@ -87,6 +96,11 @@ func requestListCommand() *cobra.Command {
 func requestViewCommand() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{Use: "view <request_id>", Aliases: []string{"show", "info"}, Short: "Show one control approval request by ID or unique prefix", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		log := commandLogger(cmd)
+		defer log.Close()
+		if !asJSON {
+			startCommandSpinner(cmd, log, "REQUEST", "request.loading", "Loading approval request")
+		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), requestControlTimeout)
 		defer cancel()
 		request, err := requestRuntimeApprovalView(ctx, args[0])
@@ -96,6 +110,7 @@ func requestViewCommand() *cobra.Command {
 		if asJSON {
 			return printJSON(cmd, request)
 		}
+		log.Close()
 		printApprovalRequest(cmd, request)
 		return nil
 	}}
@@ -112,9 +127,18 @@ func requestResolveCommand(approve bool) *cobra.Command {
 		label = "Approve"
 		aliases = []string{"accept", "allow"}
 	}
+	progress := "Denying approval request"
+	if approve {
+		progress = "Approving approval request"
+	}
 	var asJSON bool
 	var reason string
 	cmd := &cobra.Command{Use: action + " <request_id>", Aliases: aliases, Short: label + " one pending control approval request by ID or unique prefix", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		log := commandLogger(cmd)
+		defer log.Close()
+		if !asJSON {
+			startCommandSpinner(cmd, log, "REQUEST", "request.resolving", progress)
+		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), requestControlTimeout)
 		defer cancel()
 		var request approval.Request
@@ -130,7 +154,6 @@ func requestResolveCommand(approve bool) *cobra.Command {
 		if asJSON {
 			return printJSON(cmd, request)
 		}
-		log := commandLogger(cmd)
 		log.Success("REQUEST", "control approval request "+past, "id", request.ID)
 		log.Detail("status", request.Status)
 		if !request.RetryUntil.IsZero() {

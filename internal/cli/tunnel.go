@@ -238,7 +238,11 @@ func tunnelConfigureCommand() *cobra.Command {
 		if err := config.Validate(cfg); err != nil {
 			return err
 		}
-		if tunnel.Configured(next) && (previous.ID != next.ID || previous.APIKey != next.APIKey || previous.ControlPlaneBaseURL != next.ControlPlaneBaseURL) {
+		log := commandLogger(cmd)
+		defer log.Close()
+		metadataSync := tunnel.Configured(next) && (previous.ID != next.ID || previous.APIKey != next.APIKey || previous.ControlPlaneBaseURL != next.ControlPlaneBaseURL)
+		if metadataSync {
+			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.metadata.syncing", "Syncing tunnel metadata")
 			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 			_, _, metadataErr := config.SyncTunnelMetadata(ctx, next)
 			cancel()
@@ -249,7 +253,7 @@ func tunnelConfigureCommand() *cobra.Command {
 		if err := config.Save(cfg); err != nil {
 			return err
 		}
-		commandLogger(cmd).Success("TUNNEL", "OpenAI Secure MCP Tunnel configuration saved")
+		log.Success("TUNNEL", "OpenAI Secure MCP Tunnel configuration saved")
 		return nil
 	}}
 	cmd.Flags().BoolVar(&enabled, "enabled", false, "enable or disable the OpenAI Secure MCP Tunnel")

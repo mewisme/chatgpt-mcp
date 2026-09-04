@@ -9,11 +9,13 @@ import (
 func installCommand() *cobra.Command {
 	var noAlias, force bool
 	cmd := &cobra.Command{Use: "install", Short: "Install this binary into the managed versioned layout", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		log := commandLogger(cmd)
+		defer log.Close()
+		startCommandSpinner(cmd, log, "INSTALL", "install.installing", "Installing chatgpt-mcp")
 		result, err := installpkg.Install(installpkg.Options{Version: version.Version, NoAlias: noAlias, Force: force})
 		if err != nil {
 			return err
 		}
-		log := commandLogger(cmd)
 		if result.AlreadyInstalled {
 			log.Notice("INSTALL", "install.already-installed", "Already installed")
 		} else {

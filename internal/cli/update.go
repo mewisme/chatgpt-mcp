@@ -39,6 +39,8 @@ func updateCommand() *cobra.Command {
 		if alias.State == install.AliasConflict {
 			return fmt.Errorf("cannot preserve cgm alias state: %w: %s", install.ErrAliasConflict, alias.Path)
 		}
+		defer log.Close()
+		startCommandSpinner(cmd, log, "UPDATE", "update.updating", "Checking and applying update")
 		runtimeState, err := captureUpdateRuntimeState(cmd.Context())
 		if err != nil {
 			return err
@@ -64,6 +66,7 @@ func updateCommand() *cobra.Command {
 			log.Detail("latest", result.Target)
 			return nil
 		}
+		log.Close()
 		if err := coordinateUpdatedRuntime(cmd, result.Install, runtimeState, noRestart); err != nil {
 			return fmt.Errorf("update to %s failed after activation: %w", result.Target, err)
 		}
@@ -88,13 +91,15 @@ func updateCommand() *cobra.Command {
 
 func updateCheckCommand() *cobra.Command {
 	return &cobra.Command{Use: "check", Short: "Check the latest available release", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		log := commandLogger(cmd)
+		defer log.Close()
+		startCommandSpinner(cmd, log, "UPDATE", "update.checking", "Checking for updates")
 		checker := updatepkg.Checker{Source: updatepkg.Client{UserAgent: "chatgpt-mcp/" + version.Version}}
 		result, err := checker.Check(cmd.Context(), version.Version)
 		if err != nil {
 			return err
 		}
 		cacheLatestReleaseForCurrentInstall(cmd, result.Latest)
-		log := commandLogger(cmd)
 		switch result.Status {
 		case updatepkg.StatusAvailable:
 			log.Notice("UPDATE", "update.available", "New version available")

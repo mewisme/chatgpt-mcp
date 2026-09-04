@@ -107,8 +107,8 @@ func TestTunnelListInteractiveFlagsPreserveNonTTYJSON(t *testing.T) {
 }
 
 func TestInteractiveRowsExposeUsefulDetailsWithoutUpstreamSecrets(t *testing.T) {
-	workspaceRows := workspaceInteractiveRows([]workspace.Workspace{{ID: "ws_one", Path: "/tmp/project", AllowDirs: []string{"/tmp/shared"}}})
-	if len(workspaceRows) != 1 || !strings.Contains(workspaceRows[0].Detail, "/tmp/shared") {
+	workspaceRows := workspaceInteractiveRows([]workspace.Workspace{{ID: "ws_one", Path: "/tmp/project", AllowDirs: []string{"/tmp/shared"}, LegacyIDs: []string{"legacy_one"}}})
+	if len(workspaceRows) != 1 || !strings.Contains(workspaceRows[0].Detail, "Workspace") || !strings.Contains(workspaceRows[0].Detail, "Additional roots") || !strings.Contains(workspaceRows[0].Detail, "/tmp/shared") || !strings.Contains(workspaceRows[0].Detail, "Legacy IDs") || !strings.Contains(workspaceRows[0].Detail, "legacy_one") || strings.Contains(workspaceRows[0].Detail, `"allow_dirs"`) {
 		t.Fatalf("workspace rows=%#v", workspaceRows)
 	}
 	upstreamRows := upstreamInteractiveRows([]upstream.Server{{ID: "demo", Name: "Demo", Transport: "http", Enabled: true, URL: "https://mcp.example.test", Expose: "all", Headers: map[string]string{"Authorization": "secret-value"}}})

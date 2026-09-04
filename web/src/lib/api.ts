@@ -7,6 +7,28 @@ export type Tool = {
   annotations?: Record<string, unknown>
 }
 export type Workspace = { id: string; path: string; allow_dirs?: string[] }
+export type InstructionSourcePolicy = { enabled?: boolean; context?: boolean; rules?: boolean; skills?: boolean }
+export type GlobalInstructionRule = { id: string; name?: string; enabled: boolean; content: string }
+export type InstructionSource = { provider: string; kind: "context" | "rules" | "skills" | string; paths: string[]; count: number; enabled: boolean; loaded: boolean }
+export type GlobalInstructions = { version: number; context: string; rules: GlobalInstructionRule[]; source_policy: Record<string, InstructionSourcePolicy>; detected_sources: InstructionSource[] }
+export type InstructionRule = { path: string; source: string; patterns?: string[]; content: string; always_apply?: boolean }
+export type InstructionSkill = { name: string; description?: string; path?: string; source?: string }
+export type InstructionSection = { path: string; kind: string; source?: string; content: string; truncated: boolean; original_bytes?: number; loaded_bytes: number }
+export type ProjectContextResult = {
+  root: string
+  workspace_id: string
+  summary: { memory_files: { path: string; kind: string; source?: string; truncated: boolean }[]; memory_bytes: number; instruction_bytes: number; git: { skipped?: boolean; is_repo: boolean; branch?: string; commits: number }; rules: number; skills: number }
+  instruction_context: {
+    root: string; workspace_id: string; instructions_text: string; instruction_bytes: number; instruction_truncated?: boolean
+    global_context?: string; global_rules: InstructionRule[]; rules: InstructionRule[]; skills: InstructionSkill[]; sources: InstructionSource[]
+    project_memory: { sections: InstructionSection[]; imports?: InstructionSection[]; total_bytes: number; budget_bytes: number; budget_truncated: boolean }
+    auto_memory: { loaded: boolean; content?: string; bytes: number }
+    git: { skipped?: boolean; is_repo: boolean; root?: string; branch?: string; status_short?: string; recent_commits?: string[]; error?: string }
+    environment: Record<string, unknown>
+    [key: string]: unknown
+  }
+}
+export type ProjectContextOptions = { path?: string; include_git?: boolean; include_memory?: boolean; include_skills?: boolean }
 export type MCPAuth = {
   type?: "auto" | "oauth" | "none" | string
   scope?: string
@@ -282,6 +304,17 @@ export const adminApi = {
     api<void>(`/api/workspaces/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+  globalInstructions: () => api<GlobalInstructions>("/api/instructions/global"),
+  saveGlobalInstructions: (patch: Partial<Pick<GlobalInstructions, "context" | "rules" | "source_policy">>) => api<GlobalInstructions>("/api/instructions/global", { method: "PUT", body: JSON.stringify(patch) }),
+  workspaceContext: (id: string, options: ProjectContextOptions = {}) => {
+    const query = new URLSearchParams()
+    if (options.path?.trim()) query.set("path", options.path.trim())
+    if (options.include_git !== undefined) query.set("include_git", String(options.include_git))
+    if (options.include_memory !== undefined) query.set("include_memory", String(options.include_memory))
+    if (options.include_skills !== undefined) query.set("include_skills", String(options.include_skills))
+    const suffix = query.size ? `?${query}` : ""
+    return api<ProjectContextResult>(`/api/workspaces/${encodeURIComponent(id)}/context${suffix}`)
+  },
   tools: () => api<Tool[]>("/api/tools"),
   upstream: () => api<MCPServer[]>("/api/upstream"),
   upstreamServer: (id: string) =>

@@ -71,6 +71,7 @@ describe("admin app runtime smoke", () => {
 
     const pageSmokeText: Record<string, string> = {
       workspaces: "Register workspace",
+      "workspace-global": "Manage global context, rules, and detected user-level instruction sources.",
       requests: "Review pending control grants and inspect resolved request history for every workspace.",
       tools:
         "Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.",
@@ -128,6 +129,46 @@ describe("admin app runtime smoke", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/ws_test"))
     await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Workspace")))
     expect((await screen.findAllByText("ws_test")).length).toBeGreaterThan(0)
+  })
+
+  it("deep-links project context and renders the exact effective instructions", async () => {
+    const workspace = { id: "ws_test", path: "/projects/test", allow_dirs: [] }
+    window.history.replaceState({}, "", "/workspaces/ws_test/context")
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path === "/api/workspaces/ws_test") return json(workspace)
+      if (path === "/api/workspaces/ws_test/context?include_git=true&include_memory=true&include_skills=true") return json(projectContextFixture())
+      return mockFetch(input)
+    }))
+    renderAdminApp()
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Project Context")))
+    expect(await screen.findByText("EFFECTIVE PROJECT CONTEXT")).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/workspaces/ws_test/context")
+  })
+
+  it("only renders detected instruction sources and persists their toggles", async () => {
+    const user = userEvent.setup()
+    const detected = [{ provider: "claude", kind: "context", paths: ["/home/test/.claude/CLAUDE.md"], count: 1, enabled: true, loaded: false }]
+    let savedPolicy: Record<string, unknown> | undefined
+    window.history.replaceState({}, "", "/workspaces/global")
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestPath(input)
+      if (path === "/api/instructions/global" && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as { source_policy: Record<string, unknown> }
+        savedPolicy = body.source_policy
+        return json({ version: 1, context: "", rules: [], source_policy: body.source_policy, detected_sources: [{ ...detected[0], enabled: false }] })
+      }
+      if (path === "/api/instructions/global") return json({ version: 1, context: "", rules: [], source_policy: {}, detected_sources: detected })
+      return mockFetch(input)
+    }))
+    renderAdminApp()
+    await user.click(await screen.findByRole("tab", { name: "Sources" }))
+    expect(screen.getByText("Claude")).toBeInTheDocument()
+    expect(screen.getByText("/home/test/.claude/CLAUDE.md")).toBeInTheDocument()
+    expect(screen.queryByText("Cursor")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("switch", { name: "Claude Context" }))
+    await user.click(screen.getByRole("button", { name: /Save/ }))
+    await waitFor(() => expect(savedPolicy).toEqual({ claude: { context: false } }))
   })
 
   it("normalizes root and unknown paths to overview", async () => {
@@ -195,6 +236,7 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   const path = requestPath(input)
   if (path === "/api/health") return json({ ok: true, auth_enabled: true })
   if (path === "/api/workspaces") return json([])
+  if (path === "/api/instructions/global") return json({ version: 1, context: "", rules: [], source_policy: {}, detected_sources: [] })
   if (path === "/api/tools") return json([])
   if (path === "/api/upstream") return json([])
   if (path === "/api/tunnel") return json(tunnel)
@@ -214,6 +256,19 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   if (path === "/api/requests/stream") return approvalStream()
   if (path === "/api/activity/stream?history=100") return activityStream()
   throw new Error(`Unhandled test request: ${path}`)
+}
+
+function projectContextFixture() {
+  return {
+    root: "/projects/test",
+    workspace_id: "ws_test",
+    summary: { memory_files: [], memory_bytes: 0, instruction_bytes: 25, git: { is_repo: true, branch: "main", commits: 1 }, rules: 0, skills: 0 },
+    instruction_context: {
+      root: "/projects/test", workspace_id: "ws_test", instructions_text: "EFFECTIVE PROJECT CONTEXT", instruction_bytes: 25,
+      global_rules: [], rules: [], skills: [], sources: [], project_memory: { sections: [], imports: [], total_bytes: 0, budget_bytes: 100000, budget_truncated: false },
+      auto_memory: { loaded: false, bytes: 0 }, git: { is_repo: true, branch: "main" }, environment: {},
+    },
+  }
 }
 
 function requestPath(input: RequestInfo | URL) {

@@ -12,6 +12,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { adminApi, adminToken, ApiError } from "@/lib/api"
 
 const ActivityPage = lazy(() => import("@/pages/activity").then((module) => ({ default: module.ActivityPage })))
+const GlobalInstructionsPage = lazy(() => import("@/pages/global-instructions").then((module) => ({ default: module.GlobalInstructionsPage })))
 const LoginPage = lazy(() => import("@/pages/login").then((module) => ({ default: module.LoginPage })))
 const OverviewPage = lazy(() => import("@/pages/overview").then((module) => ({ default: module.OverviewPage })))
 const RequestsPage = lazy(() => import("@/pages/requests").then((module) => ({ default: module.RequestsPage })))
@@ -35,7 +36,7 @@ const pages: Record<string, React.ComponentType> = {
   "workspace-context": WorkspacePage,
   "workspace-requests": WorkspacePage,
   "workspace-activity": WorkspacePage,
-  "workspace-global": WorkspacesPage,
+  "workspace-global": GlobalInstructionsPage,
 }
 
 export function App() {

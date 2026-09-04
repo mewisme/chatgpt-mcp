@@ -96,6 +96,25 @@ func TestInstallDevelopmentRequiresForce(t *testing.T) {
 	assertCurrentVersion(t, layout, "dev")
 }
 
+func TestInstallNormalizesReleaseVersionPrefix(t *testing.T) {
+	layout := testLayout(t)
+	result, err := Install(Options{Layout: layout, Version: "1.2.3", Source: testBinary(t, "release"), NoAlias: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Version != "v1.2.3" {
+		t.Fatalf("version = %q", result.Version)
+	}
+	assertCurrentVersion(t, layout, "v1.2.3")
+	metadata, err := ReadMetadata(layout.Metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Version != "v1.2.3" {
+		t.Fatalf("metadata version = %q", metadata.Version)
+	}
+}
+
 func TestInstallPreflightsCanonicalConflict(t *testing.T) {
 	layout := testLayout(t)
 	if err := os.MkdirAll(layout.BinDir, 0755); err != nil {

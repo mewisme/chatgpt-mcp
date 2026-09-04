@@ -56,3 +56,40 @@ func TestClientLatestRejectsHTTPFailure(t *testing.T) {
 		t.Fatal("HTTP failure was accepted")
 	}
 }
+
+func TestClientVersion(t *testing.T) {
+	asset, err := CurrentAssetName("v1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		fmt.Fprintf(w, `{"tag_name":"v1.2.3","assets":[{"name":%q,"browser_download_url":"https://example.test/archive"},{"name":"checksums.txt","browser_download_url":"https://example.test/checksums"}]}`, asset)
+	}))
+	defer server.Close()
+	release, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Version(context.Background(), "1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/repos/mewisme/chatgpt-mcp/releases/tags/v1.2.3" {
+		t.Fatalf("request path = %q", gotPath)
+	}
+	if release.Version != "v1.2.3" {
+		t.Fatalf("release version = %q", release.Version)
+	}
+}
+
+func TestClientVersionRejectsTagMismatch(t *testing.T) {
+	asset, err := CurrentAssetName("v1.2.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"tag_name":"v1.2.4","assets":[{"name":%q,"browser_download_url":"https://example.test/archive"},{"name":"checksums.txt","browser_download_url":"https://example.test/checksums"}]}`, asset)
+	}))
+	defer server.Close()
+	if _, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).Version(context.Background(), "v1.2.3"); err == nil {
+		t.Fatal("release tag mismatch was accepted")
+	}
+}

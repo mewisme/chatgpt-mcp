@@ -30,7 +30,7 @@ type Result struct {
 }
 
 func Install(options Options) (Result, error) {
-	version := strings.TrimSpace(options.Version)
+	version := normalizeInstallVersion(options.Version)
 	if version == "" {
 		return Result{}, errors.New("install version is required")
 	}
@@ -116,6 +116,20 @@ func Install(options Options) (Result, error) {
 	}
 	result.AlreadyInstalled = metadataMatches && staged.Reused && activation.PreviousVersion == version && canonicalBefore.State == CanonicalInstalled && (options.NoAlias || aliasBefore.State == AliasInstalled)
 	return result, nil
+}
+
+func normalizeInstallVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" || isDevelopmentVersion(version) {
+		return version
+	}
+	if version[0] == 'V' {
+		return "v" + version[1:]
+	}
+	if version[0] != 'v' {
+		return "v" + version
+	}
+	return version
 }
 
 func currentMetadataMatches(layout Layout, version string) bool {

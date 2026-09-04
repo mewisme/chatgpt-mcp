@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -31,6 +32,25 @@ type githubRelease struct {
 }
 
 func (c Client) Latest(ctx context.Context) (Release, error) {
+	return c.getRelease(ctx, "releases/latest")
+}
+
+func (c Client) Version(ctx context.Context, version string) (Release, error) {
+	version, err := NormalizeVersion(version)
+	if err != nil {
+		return Release{}, err
+	}
+	release, err := c.getRelease(ctx, "releases/tags/"+url.PathEscape(version))
+	if err != nil {
+		return Release{}, err
+	}
+	if release.Version != version {
+		return Release{}, fmt.Errorf("release tag mismatch: got %s, want %s", release.Version, version)
+	}
+	return release, nil
+}
+
+func (c Client) getRelease(ctx context.Context, endpoint string) (Release, error) {
 	owner := strings.TrimSpace(c.Owner)
 	if owner == "" {
 		owner = DefaultOwner
@@ -43,7 +63,7 @@ func (c Client) Latest(ctx context.Context) (Release, error) {
 	if baseURL == "" {
 		baseURL = "https://api.github.com"
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/releases/latest", baseURL, owner, repo), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/%s", baseURL, owner, repo, endpoint), nil)
 	if err != nil {
 		return Release{}, err
 	}

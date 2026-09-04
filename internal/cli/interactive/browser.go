@@ -59,6 +59,8 @@ func (m Browser) Init() tea.Cmd { return nil }
 
 func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
+	case tea.BackgroundColorMsg:
+		SetDarkBackground(msg.IsDark())
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.resizeViewport()
@@ -215,7 +217,7 @@ func (m Browser) writeRow(builder *strings.Builder, row Row, selected bool) {
 		leftWidth -= utf8.RuneCountInString(meta) + 3
 	}
 	title = truncatePlain(title, max(8, leftWidth))
-	primary := CursorMark(selected) + Title(title)
+	primary := CursorMark(selected) + Primary(title, selected)
 	if meta != "" {
 		primary = TwoColumn(primary, Secondary(meta), m.contentWidth())
 	}
@@ -227,7 +229,7 @@ func (m Browser) writeRow(builder *strings.Builder, row Row, selected bool) {
 	}
 	if secondary != "" {
 		builder.WriteString("  ")
-		builder.WriteString(Secondary(truncatePlain(secondary, max(8, m.contentWidth()-2))))
+		builder.WriteString(SelectedSecondary(truncatePlain(secondary, max(8, m.contentWidth()-2)), selected))
 	}
 	builder.WriteString("\n")
 }

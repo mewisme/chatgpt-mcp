@@ -78,6 +78,8 @@ func (m requestInteractiveModel) Init() tea.Cmd { return requestInteractiveTickC
 
 func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
+	case tea.BackgroundColorMsg:
+		interactive.SetDarkBackground(msg.IsDark())
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.resizeViewport()
@@ -298,12 +300,12 @@ func (m requestInteractiveModel) writeList(builder *strings.Builder) {
 			if countdown != "" && countdown != string(request.Status) {
 				right += "  " + interactive.Secondary(countdown)
 			}
-			left := interactive.CursorMark(selected) + interactive.Title(requestTruncate(title, max(12, m.contentWidth()-32)))
+			left := interactive.CursorMark(selected) + interactive.Primary(requestTruncate(title, max(12, m.contentWidth()-32)), selected)
 			builder.WriteString(interactive.TwoColumn(left, right, m.contentWidth()))
 			builder.WriteString("\n")
 			meta := strings.Join(nonEmptyStrings(shortRequestID(request.ID), request.WorkspaceID, request.TargetTool), " · ")
 			builder.WriteString("  ")
-			builder.WriteString(interactive.Secondary(requestTruncate(meta, max(12, m.contentWidth()-2))))
+			builder.WriteString(interactive.SelectedSecondary(requestTruncate(meta, max(12, m.contentWidth()-2)), selected))
 			builder.WriteString("\n")
 		}
 	}

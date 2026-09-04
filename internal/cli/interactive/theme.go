@@ -3,6 +3,7 @@ package interactive
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/list"
 	lipgloss "charm.land/lipgloss/v2"
 )
 
@@ -21,19 +22,56 @@ type HelpItem struct {
 	Desc string
 }
 
-var (
-	titleStyle = lipgloss.NewStyle().Bold(true)
-	keyStyle   = lipgloss.NewStyle().Bold(true)
-)
+type charmTheme struct {
+	list        list.Styles
+	item        list.DefaultItemStyles
+	title       lipgloss.Style
+	accent      lipgloss.Style
+	muted       lipgloss.Style
+	subtle      lipgloss.Style
+	success     lipgloss.Style
+	border      lipgloss.Style
+	panelBorder lipgloss.Style
+}
 
-func Title(value string) string            { return titleStyle.Render(value) }
-func Accent(value string) string           { return keyStyle.Render(value) }
-func Muted(value string) string            { return value }
-func Label(value string) string            { return value }
-func ToneText(value string, _ Tone) string { return value }
+var currentTheme = newCharmTheme(true)
+
+func newCharmTheme(isDark bool) charmTheme {
+	listStyles := list.DefaultStyles(isDark)
+	itemStyles := list.NewDefaultItemStyles(isDark)
+	return charmTheme{
+		list:        listStyles,
+		item:        itemStyles,
+		title:       lipgloss.NewStyle().Foreground(itemStyles.NormalTitle.GetForeground()).Bold(true),
+		accent:      lipgloss.NewStyle().Foreground(itemStyles.SelectedTitle.GetForeground()).Bold(true),
+		muted:       lipgloss.NewStyle().Foreground(itemStyles.NormalDesc.GetForeground()),
+		subtle:      lipgloss.NewStyle().Foreground(listStyles.NoItems.GetForeground()),
+		success:     lipgloss.NewStyle().Foreground(listStyles.Filter.Focused.Prompt.GetForeground()).Bold(true),
+		border:      lipgloss.NewStyle().Foreground(itemStyles.SelectedTitle.GetBorderLeftForeground()),
+		panelBorder: lipgloss.NewStyle().Foreground(itemStyles.SelectedTitle.GetBorderLeftForeground()),
+	}
+}
+
+func SetDarkBackground(isDark bool) { currentTheme = newCharmTheme(isDark) }
+
+func Title(value string) string  { return currentTheme.title.Render(value) }
+func Accent(value string) string { return currentTheme.accent.Render(value) }
+func Muted(value string) string  { return currentTheme.muted.Render(value) }
+func Label(value string) string  { return currentTheme.muted.Render(value) }
+
+func ToneText(value string, tone Tone) string {
+	switch tone {
+	case ToneAccent, ToneWarning, ToneDanger:
+		return currentTheme.accent.Render(value)
+	case ToneSuccess:
+		return currentTheme.success.Render(value)
+	default:
+		return value
+	}
+}
 
 func Header(title, meta string, width int) string {
-	left, right := Title(title), meta
+	left, right := currentTheme.list.Title.Render(title), Muted(meta)
 	line := left
 	if right != "" {
 		gap := 2
@@ -55,18 +93,18 @@ func Divider(width int) string {
 	if width < 12 {
 		width = 12
 	}
-	return strings.Repeat("─", width)
+	return currentTheme.subtle.Render(strings.Repeat("─", width))
 }
 
 func Filter(value string, active bool) string {
 	cursor := ""
 	if active {
-		cursor = "▌"
+		cursor = Accent("▌")
 	}
 	if value == "" && !active {
 		return ""
 	}
-	return Accent("/ ") + value + cursor
+	return currentTheme.list.Filter.Focused.Prompt.Render("/ ") + value + cursor
 }
 
 func Banner(message string, tone Tone) string {
@@ -81,25 +119,43 @@ func Banner(message string, tone Tone) string {
 	} else if tone == ToneSuccess {
 		marker = "✓"
 	}
-	return marker + " " + message
+	return ToneText(marker, tone) + " " + message
 }
 
 func CursorMark(selected bool) string {
 	if selected {
-		return "› "
+		return currentTheme.border.Render("│") + " "
 	}
 	return "  "
+}
+
+func Primary(value string, selected bool) string {
+	if selected {
+		return Accent(value)
+	}
+	return Title(value)
 }
 
 func Secondary(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return ""
 	}
-	return value
+	return Muted(value)
+}
+
+func SelectedSecondary(value string, selected bool) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	if selected {
+		style := lipgloss.NewStyle().Foreground(currentTheme.item.SelectedDesc.GetForeground())
+		return style.Render(value)
+	}
+	return Secondary(value)
 }
 
 func Panel(body string, width int) string {
-	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetForeground()).Padding(0, 1)
 	if width > 0 {
 		style = style.MaxWidth(max(12, width))
 	}
@@ -127,7 +183,7 @@ func Help(width int, items ...HelpItem) string {
 	var lines []string
 	line := ""
 	for _, item := range items {
-		chunk := Accent(item.Key) + " " + item.Desc
+		chunk := Accent(item.Key) + " " + Muted(item.Desc)
 		separator := "   "
 		candidate := chunk
 		if line != "" {
@@ -146,4 +202,4 @@ func Help(width int, items ...HelpItem) string {
 	return strings.Join(lines, "\n")
 }
 
-func KeyValue(label, value string) string { return label + "  " + value }
+func KeyValue(label, value string) string { return Label(label) + "  " + value }

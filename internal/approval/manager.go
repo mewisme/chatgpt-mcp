@@ -255,6 +255,32 @@ func (m *Manager) MatchApproved(input RetryInput) (Request, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.purgeExpiredLocked(m.now().UTC())
+	return m.matchApprovedLocked(input)
+}
+
+func (m *Manager) ClaimApproved(input RetryInput) (Request, bool, error) {
+	if m == nil {
+		return Request{}, false, errors.New("approval manager is unavailable")
+	}
+	input.SessionID, input.WorkspaceID, input.Source, input.TargetTool = strings.TrimSpace(input.SessionID), strings.TrimSpace(input.WorkspaceID), strings.TrimSpace(input.Source), strings.TrimSpace(input.TargetTool)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now().UTC()
+	m.purgeExpiredLocked(now)
+	request, matched, err := m.matchApprovedLocked(input)
+	if err != nil || !matched {
+		return request, matched, err
+	}
+	record := m.requests[request.ID]
+	if record == nil || record.value.Status != StatusApproved {
+		return Request{}, false, ErrRequestNotApproved
+	}
+	record.value.Status, record.value.ConsumedAt = StatusConsumed, now
+	m.clearActiveLocked(record.value)
+	return cloneRequest(record.value), true, nil
+}
+
+func (m *Manager) matchApprovedLocked(input RetryInput) (Request, bool, error) {
 	active := m.requests[m.activeBySession[input.SessionID]]
 	if active == nil || active.value.Status != StatusApproved {
 		return Request{}, false, nil
@@ -267,7 +293,7 @@ func (m *Manager) MatchApproved(input RetryInput) (Request, bool, error) {
 		return Request{}, false, err
 	}
 	if digest != active.value.Digest {
-		return Request{}, false, &MismatchError{RequestID: active.value.ID, Expected: cloneRaw(active.value.Arguments), Actual: actual}
+		return Request{}, false, &MismatchError{RequestID: active.value.ID, TargetTool: active.value.TargetTool, Expected: cloneRaw(active.value.Arguments), Actual: actual}
 	}
 	return cloneRequest(active.value), true, nil
 }

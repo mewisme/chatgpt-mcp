@@ -90,6 +90,69 @@ func TestManagerApprovalExactRetryAndOneShotConsumption(t *testing.T) {
 	}
 }
 
+func TestManagerClaimApprovedIsAtomic(t *testing.T) {
+	manager, _ := testManager()
+	challenge, _, _ := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))
+	request, _, _ := manager.CreateRequest(challenge.ID, "session-a", "ws_x")
+	if _, err := manager.Approve(request.ID, "cli", "reviewed"); err != nil {
+		t.Fatal(err)
+	}
+	input := RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update"}}
+	start := make(chan struct{})
+	type claimResult struct {
+		request Request
+		matched bool
+		err     error
+	}
+	results := make(chan claimResult, 8)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			value, matched, err := manager.ClaimApproved(input)
+			results <- claimResult{request: value, matched: matched, err: err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	claimed := 0
+	for result := range results {
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.matched {
+			claimed++
+			if result.request.Status != StatusConsumed || result.request.ConsumedAt.IsZero() {
+				t.Fatalf("claimed request = %#v", result.request)
+			}
+		}
+	}
+	if claimed != 1 {
+		t.Fatalf("claimed = %d, want 1", claimed)
+	}
+}
+
+func TestManagerClaimMismatchDoesNotConsumeApproval(t *testing.T) {
+	manager, _ := testManager()
+	challenge, _, _ := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))
+	request, _, _ := manager.CreateRequest(challenge.ID, "session-a", "ws_x")
+	if _, err := manager.Approve(request.ID, "cli", "reviewed"); err != nil {
+		t.Fatal(err)
+	}
+	_, matched, err := manager.ClaimApproved(RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update --version v2.0.0"}})
+	var mismatch *MismatchError
+	if matched || !errors.As(err, &mismatch) {
+		t.Fatalf("mismatch claim = matched=%t err=%v", matched, err)
+	}
+	value, ok := manager.Get(request.ID)
+	if !ok || value.Status != StatusApproved {
+		t.Fatalf("approval was consumed by mismatch: %#v ok=%t", value, ok)
+	}
+}
+
 func TestManagerPendingAndApprovedExpiry(t *testing.T) {
 	manager, now := testManager()
 	challenge, _, _ := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))

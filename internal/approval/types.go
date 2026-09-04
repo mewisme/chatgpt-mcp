@@ -105,9 +105,10 @@ type Filter struct {
 }
 
 type MismatchError struct {
-	RequestID string
-	Expected  json.RawMessage
-	Actual    json.RawMessage
+	RequestID  string
+	TargetTool string
+	Expected   json.RawMessage
+	Actual     json.RawMessage
 }
 
 func (e *MismatchError) Error() string {

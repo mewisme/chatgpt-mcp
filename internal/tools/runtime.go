@@ -6,8 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/caveman"
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
@@ -22,6 +24,7 @@ type Runtime struct {
 	Upstream        *upstream.Manager
 	CallObserver    CallObserver
 	SessionBindings *SessionWorkspaceBinder
+	Approvals       *approval.Manager
 	sessionMu       sync.Mutex
 	featureMu       sync.Mutex
 	features        features.Config
@@ -43,11 +46,16 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	upstreams := upstream.NewManager(upstream.NewStore(upstream.Path()))
 	_ = upstreams.Load()
 	registry := NewRegistry()
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionBindings: NewSessionWorkspaceBinder(), ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
+	identity, err := workspaces.Instance()
+	if err != nil {
+		panic(err)
+	}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionBindings: NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID), ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
 	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterCore(registry, workspaces, checkpoints, shell)
+	RegisterApprovalTools(registry, runtime)
 	RegisterUpstreamTools(registry, upstreams)
 	if err := runtime.SyncFeatures(featureConfig); err != nil {
 		panic(err)
@@ -138,6 +146,11 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 			}
 		}
 	}
+	claimedApproval := approval.Request{}
+	var forcedResult *Result
+	if preflightErr == nil {
+		ctx, claimedApproval, forcedResult, preflightErr = r.prepareApprovalRetry(ctx, sessionID, workspaceID, source, name, args)
+	}
 	raw := callRaw(ctx, source, name, args)
 	if sessionHash != "" {
 		raw["session"] = map[string]any{"hash": sessionHash, "binding": sessionBinding, "workspace_id": sessionWorkspaceID}
@@ -145,8 +158,19 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy})
 
 	result, err := Result{}, preflightErr
-	if err == nil {
+	if err == nil && forcedResult != nil {
+		result = *forcedResult
+	} else if err == nil {
 		result, err = r.Registry.Call(ctx, name, args)
+	}
+	if err != nil {
+		if guard, ok := controlguard.As(err); ok {
+			if guardedResult, handled, guardErr := r.approvalResultForGuard(guard, sessionID, sessionHash, workspaceID, source, name, args, claimedApproval); guardErr != nil {
+				err = guardErr
+			} else if handled {
+				result, err = guardedResult, nil
+			}
+		}
 	}
 	executedBy := r.runtimeInstanceID()
 	finishRaw := cloneMap(raw)

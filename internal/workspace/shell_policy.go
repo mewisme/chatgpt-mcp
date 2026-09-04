@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 )
 
@@ -37,18 +38,35 @@ func (m *Manager) ValidateShellCommand(id, baseDirectory, command string) error 
 		return err
 	}
 	if toolContextMutation.MatchString(command) {
-		return errors.New("MCP tool execution context cannot be cleared from shell commands")
+		return controlguard.New(controlguard.CodeContextTamper, "MCP tool execution context cannot be cleared from shell commands", false, nil)
 	}
 	if err := m.validateProtectedShellAccess(cwd, command, 0); err != nil {
-		return err
+		return controlguard.New(controlguard.CodeProtectedState, err.Error(), false, nil)
 	}
 	if isControlPlaneMutation(command, 0) {
-		return fmt.Errorf("control-plane mutation denied from MCP shell: chatgpt-mcp configuration and permissions cannot be changed through shell tools")
+		invocation, approvable := directControlPlaneInvocation(command)
+		return controlguard.New(controlguard.CodeControlPlaneMutation, "control-plane mutation denied from MCP shell: chatgpt-mcp configuration and permissions cannot be changed through shell tools", approvable, invocation)
 	}
 	if !m.IsMutationCommand(command) {
 		return nil
 	}
 	return m.ValidateMutationCommand(id, baseDirectory, command)
+}
+
+func directControlPlaneInvocation(command string) (*controlguard.Invocation, bool) {
+	segments, err := splitShellSegments(command)
+	if err != nil || len(segments) != 1 || strings.TrimSpace(command) != strings.TrimSpace(segments[0]) {
+		return nil, false
+	}
+	tokens, err := shellWords(segments[0])
+	if err != nil || len(tokens) == 0 || !isChatGPTMCPBinary(tokens[0]) {
+		return nil, false
+	}
+	args := append([]string(nil), tokens[1:]...)
+	if controlplane.IsReadOnlyArgs(args) {
+		return nil, false
+	}
+	return &controlguard.Invocation{Program: filepath.Base(tokens[0]), Args: args, Command: strings.TrimSpace(command)}, true
 }
 
 func (m *Manager) validateProtectedShellAccess(cwd, command string, depth int) error {

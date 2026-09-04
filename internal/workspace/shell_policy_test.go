@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 )
 
 func TestShellPolicyRejectsCommonWriteEscapes(t *testing.T) {
@@ -204,11 +206,19 @@ func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 		"cgm config set permissions.allow_dirs /tmp",
 		"chatgpt-mcp auth mcp create",
 		"cmcp workspace access add ws_test /tmp",
-		"exec cmcp auth admin disable",
-		`bash -lc "cmcp config preset apply lan"`,
+		"cgm update",
 	} {
-		if err := manager.ValidateShellCommand(item.ID, root, command); err == nil || !strings.Contains(err.Error(), "control-plane mutation denied") {
+		err := manager.ValidateShellCommand(item.ID, root, command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeControlPlaneMutation || !guard.Approvable || guard.Invocation == nil || guard.Invocation.Command != command {
 			t.Fatalf("control-plane mutation was not denied: %s: %v", command, err)
+		}
+	}
+	for _, command := range []string{"exec cmcp auth admin disable", `bash -lc "cmcp config preset apply lan"`, `cgm update && echo done`} {
+		err := manager.ValidateShellCommand(item.ID, root, command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeControlPlaneMutation || guard.Approvable || guard.Invocation != nil {
+			t.Fatalf("wrapped control-plane mutation became approvable: %s: %#v / %v", command, guard, err)
 		}
 	}
 	for _, command := range []string{
@@ -239,7 +249,9 @@ func TestShellPolicyBlocksToolContextClearing(t *testing.T) {
 		`node -e 'delete process.env.CHATGPT_MCP_TOOL_CONTEXT'`,
 		"Remove-Item Env:CHATGPT_MCP_TOOL_CONTEXT",
 	} {
-		if err := manager.ValidateShellCommand(item.ID, root, command); err == nil || !strings.Contains(err.Error(), "cannot be cleared") {
+		err := manager.ValidateShellCommand(item.ID, root, command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeContextTamper || guard.Approvable || !strings.Contains(err.Error(), "cannot be cleared") {
 			t.Fatalf("tool context clearing was not denied: %s: %v", command, err)
 		}
 	}
@@ -267,7 +279,9 @@ func TestShellPolicyBlocksProtectedControlPlaneReads(t *testing.T) {
 		`bash -lc "cat .config/chatgpt-mcp/config.json"`,
 		`python -c 'print(open("` + filepath.ToSlash(filepath.Join(controlPlane, "config.json")) + `").read())'`,
 	} {
-		if err := manager.ValidateShellCommand(item.ID, home, command); err == nil || !strings.Contains(err.Error(), "control-plane state access denied") {
+		err := manager.ValidateShellCommand(item.ID, home, command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeProtectedState || guard.Approvable || !strings.Contains(err.Error(), "control-plane state access denied") {
 			t.Fatalf("protected read was not denied: %s: %v", command, err)
 		}
 	}

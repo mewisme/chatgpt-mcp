@@ -58,6 +58,10 @@ Dynamic completion includes config keys and typed values, preset names, workspac
 
 ```text
 chatgpt-mcp
+├── alias
+│   ├── install
+│   ├── remove
+│   └── status
 ├── auth
 │   ├── mcp
 │   ├── admin
@@ -73,6 +77,7 @@ chatgpt-mcp
 │   └── verify
 ├── down
 ├── init
+├── install
 ├── logs
 │   ├── follow
 │   ├── path
@@ -89,6 +94,8 @@ chatgpt-mcp
 │   └── status
 ├── uninit
 ├── up
+├── update
+│   └── check
 ├── version
 └── workspace
     ├── access
@@ -100,6 +107,40 @@ chatgpt-mcp
     ├── show
     └── unregister
 ```
+
+## Installation and updates
+
+Install the current binary into the managed direct-install layout:
+
+```bash
+chatgpt-mcp install
+chatgpt-mcp install --no-alias
+```
+
+Manage the short alias independently:
+
+```bash
+cgm alias install
+cgm alias status
+cgm alias remove
+```
+
+Check or apply updates:
+
+```bash
+cgm update check
+cgm update
+cgm update --version vX.Y.Z
+cgm update --no-restart
+```
+
+`update check` is read-only and always checks the latest release. Built-in mutation is only available for managed direct installs. Homebrew and Scoop installs report the owning package-manager upgrade command; Go/development installs refuse built-in self-update; standalone binaries must run `chatgpt-mcp install` first.
+
+Direct updates download the expected platform archive and `checksums.txt`, verify SHA-256 before extraction/activation, preserve the current `cgm` alias state, and switch the stable `current` target transactionally. Exact `--version` allows an intentional downgrade.
+
+When the selected config root has a managed runtime, `cgm update` restarts it and waits for readiness. Failure restores the previous install target and metadata and restarts the previous runtime. `--no-restart` leaves an existing process on the previous binary; foreground `serve` is also never killed by the updater.
+
+`cgm status` never performs a network update check. It may show availability from the fresh install-global cache at `<install-root>/state/update.json`.
 
 ## Lifecycle
 
@@ -211,7 +252,7 @@ Apply to a running process:
 cgm config reload
 ```
 
-Migrate legacy plaintext credentials to the OS keyring:
+Migrate legacy plaintext credentials to the per-config-root secret file store:
 
 ```bash
 cgm config migrate
@@ -351,6 +392,9 @@ Status is the main read-only overview for:
 - tunnel enabled/configured/live state
 - registered workspaces
 - upstream servers
+- cached update availability when a fresh install-global cache exists
+
+`status` does not perform a network update check; use `cgm update check` for an explicit fresh query.
 
 ## Isolated instances
 

@@ -39,6 +39,18 @@ cgm
 
 The rest of this guide uses `cgm`.
 
+Direct bootstrap installers only download, verify, and extract a release; the binary owns the managed installation layout. If you downloaded a release archive manually, install it with:
+
+```bash
+./chatgpt-mcp install
+```
+
+Skip the short alias when needed:
+
+```bash
+./chatgpt-mcp install --no-alias
+```
+
 ## Pin a release
 
 Linux/macOS:
@@ -55,6 +67,46 @@ irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
 ```
 
 The installers keep a stable launcher path so managed service definitions continue to work across upgrades.
+
+## Update
+
+Check without changing files:
+
+```bash
+cgm update check
+```
+
+Update a managed direct installation to the latest stable release:
+
+```bash
+cgm update
+```
+
+Install an exact release, including an intentional downgrade:
+
+```bash
+cgm update --version vX.Y.Z
+```
+
+If the selected config root has a running managed service, update switches the stable `current` target, restarts that service, and waits for runtime readiness. If the new runtime fails to become healthy, `chatgpt-mcp` restores the previous `current` target and metadata, then restarts the previous version.
+
+Skip the managed-service restart when you intentionally want the running process to remain on the old binary until a later restart:
+
+```bash
+cgm update --no-restart
+```
+
+A foreground `cgm serve` process is never killed by the updater; the files on disk are updated and that foreground process continues using its old in-memory binary until restarted manually.
+
+Install ownership is preserved:
+
+- managed direct install → built-in transactional self-update
+- Homebrew → reports `brew upgrade --cask chatgpt-mcp`
+- Scoop → reports `scoop update chatgpt-mcp`
+- `go install` / development builds → built-in self-update is refused
+- standalone release binary → run `chatgpt-mcp install` first to adopt the managed layout
+
+Explicit update checks use the network. Normal commands do not; `cgm status` may surface fresh cached availability from `<install-root>/state/update.json`.
 
 ## Uninstall the binary
 

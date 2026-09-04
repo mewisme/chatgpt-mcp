@@ -17,6 +17,8 @@ const env = { ...process.env, HOME: home, USERPROFILE: home }
 delete env.CHATGPT_MCP_TOOL_CONTEXT
 const installRoot = path.join(home, "managed-install")
 const installBin = process.platform === "win32" ? path.join(installRoot, "current") : path.join(home, "bin")
+const noAliasInstallRoot = path.join(home, "managed-install-no-alias")
+const noAliasInstallBin = process.platform === "win32" ? path.join(noAliasInstallRoot, "current") : path.join(home, "bin-no-alias")
 env.CHATGPT_MCP_INSTALL_DIR = installRoot
 env.CHATGPT_MCP_BIN_DIR = installBin
 const configDir = path.join(home, "config")
@@ -37,6 +39,7 @@ try {
   run(["install", "--force"], { quiet: true })
   run(["install", "--force"], { quiet: true })
   await verifySelfInstall()
+  await verifyNoAliasInstall()
   run(["--help"])
   run(["serve", "--help"])
   run(["auth", "mcp", "--help"])
@@ -196,6 +199,26 @@ async function verifySelfInstall() {
     if (!content.includes("CHATGPT_MCP_CLI_NAME=cgm") || !content.includes("chatgpt-mcp.exe")) fail(`invalid Windows alias: ${content}`)
   } else if (await realpath(alias) !== await realpath(executable)) {
     fail(`Unix alias does not resolve to current binary: ${alias}`)
+  }
+}
+
+async function verifyNoAliasInstall() {
+  const isolatedEnv = { ...env, CHATGPT_MCP_INSTALL_DIR: noAliasInstallRoot, CHATGPT_MCP_BIN_DIR: noAliasInstallBin }
+  const result = spawnSync(binary, [...globalArgs, "install", "--force", "--no-alias"], { env: isolatedEnv, encoding: "utf8", windowsHide: true })
+  if (result.error || result.status !== 0) fail(`install --no-alias failed: ${result.error?.message || result.stderr}`)
+  const metadata = JSON.parse(await readFile(path.join(noAliasInstallRoot, "install.json"), "utf8"))
+  if (metadata.method !== "direct" || metadata.version !== "dev" || path.resolve(metadata.install_dir) !== path.resolve(noAliasInstallRoot)) {
+    fail(`--no-alias metadata mismatch: ${JSON.stringify(metadata)}`)
+  }
+  const executable = path.join(noAliasInstallRoot, "current", process.platform === "win32" ? "chatgpt-mcp.exe" : "chatgpt-mcp")
+  const canonical = process.platform === "win32" ? executable : path.join(noAliasInstallBin, "chatgpt-mcp")
+  if (await realpath(canonical) !== await realpath(executable)) fail(`--no-alias canonical command does not resolve to current binary: ${canonical}`)
+  const alias = path.join(noAliasInstallBin, process.platform === "win32" ? "cgm.cmd" : "cgm")
+  try {
+    await realpath(alias)
+    fail(`--no-alias unexpectedly installed alias: ${alias}`)
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error
   }
 }
 

@@ -150,6 +150,25 @@ Each selected root maps to a distinct managed service.
 
 On Linux/macOS, user and system scopes also have distinct service identities.
 
+## Updates and runtime lifecycle
+
+For a managed direct installation, `cgm update` captures the runtime state for the selected config root before switching the stable install target.
+
+Behavior depends on that selected runtime:
+
+- no runtime is running → activate the new version on disk only
+- foreground `serve` → leave the process running on its current in-memory binary and report that a manual restart is needed
+- managed runtime → activate the new version, restart the existing service in place, and wait for runtime readiness
+- `cgm update --no-restart` → activate on disk but intentionally leave any running process on the previous binary
+
+The updater does not uninstall/reinstall a healthy service definition just to change versions. Managed services keep using the stable launcher/current path, so restart naturally resolves the newly activated binary.
+
+Managed restart is transactional across runtime readiness. If the new runtime cannot become healthy, the updater restores the previous `current` target and install metadata, then attempts to restart the previous managed runtime. The failed target is not treated as a successful update. After a healthy update, version cleanup retains the active version and its immediate previous version for rollback safety.
+
+With multiple config roots, the binary installation is shared but runtime ownership is not. Updating from one selected config root only coordinates the managed service associated with that root. Other foreground or managed instances continue running their loaded binary and pick up the new stable version on their next restart.
+
+See [CLI reference](cli-reference.md#installation-and-updates) for update flags and install-method policy.
+
 ## Inspect status
 
 ```bash

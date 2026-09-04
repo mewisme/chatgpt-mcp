@@ -125,6 +125,8 @@ node scripts/smoke-release.mjs ./chatgpt-mcp
 
 The portable smoke verifies behavior such as:
 
+- managed direct self-install and idempotent reinstall
+- fresh `install --no-alias` preserves the canonical command without creating `cgm`
 - isolated init/uninit
 - config verify/convert/transform
 - config/status commands
@@ -136,6 +138,17 @@ The portable smoke verifies behavior such as:
 - MCP discovery and tool listing
 - modern MCP error behavior
 - clean stop/shutdown
+
+Updater-specific native tests additionally verify:
+
+- HTTPS archive/checksum download through the real downloader into managed activation
+- checksum mismatch never stages or activates the target version
+- same/latest no-op and explicit downgrade behavior
+- install-method policy for direct/Homebrew/Scoop/Go/development/standalone installs
+- managed restart/readiness, foreground preservation, and `--no-restart`
+- automatic rollback plus previous-runtime restart on failed readiness
+
+These updater integration tests run in every native Linux, macOS, and Windows CI/release job. Cross-build jobs continue to compile all six release OS/architecture targets.
 
 ## Cross-platform builds
 
@@ -222,6 +235,14 @@ Unix installer layout uses immutable versions and stable current/command links:
 Windows uses versioned directories plus a stable `current` directory junction so upgrades do not overwrite the executable currently held open by a managed runtime.
 
 Managed service definitions therefore keep a stable launcher path instead of pinning one version-specific executable.
+
+Direct updates stage an immutable target version, verify the downloaded release checksum before activation, switch `current`, and keep the previous version until runtime readiness succeeds. The install-global passive update cache lives at:
+
+```text
+<install-root>/state/update.json
+```
+
+Normal commands only read a fresh cache; explicit update checks bypass it and query the release source.
 
 ## Release workflow
 

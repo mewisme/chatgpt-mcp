@@ -2,7 +2,12 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -136,6 +141,93 @@ func TestUpdaterPreservesMissingAlias(t *testing.T) {
 	if status.State != install.AliasMissing {
 		t.Fatalf("alias state = %q", status.State)
 	}
+}
+
+func TestUpdaterVerifiedReleaseDownloadActivates(t *testing.T) {
+	layout := updateTestLayout(t)
+	installCurrentVersion(t, layout, "v1.0.0", "old-release")
+	server, release := updateReleaseFixture(t, "v1.1.0", []byte("new-release"), true)
+	defer server.Close()
+	updater := Updater{Resolver: fakeResolver{latest: release}, Downloader: Downloader{HTTPClient: server.Client(), TempDir: t.TempDir()}}
+	result, err := updater.Apply(context.Background(), ApplyOptions{Layout: layout, CurrentVersion: "v1.0.0", NoAlias: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.Target != "v1.1.0" {
+		t.Fatalf("result = %+v", result)
+	}
+	version, _, err := install.CurrentVersion(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != "v1.1.0" {
+		t.Fatalf("current version = %q", version)
+	}
+	content, err := os.ReadFile(layout.CurrentBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "new-release" {
+		t.Fatalf("current binary = %q", content)
+	}
+	if _, err := os.Stat(filepath.Join(layout.Versions, "v1.0.0")); err != nil {
+		t.Fatalf("previous version was removed: %v", err)
+	}
+}
+
+func TestUpdaterBadChecksumNeverActivates(t *testing.T) {
+	layout := updateTestLayout(t)
+	installCurrentVersion(t, layout, "v1.0.0", "old-release")
+	server, release := updateReleaseFixture(t, "v1.1.0", []byte("new-release"), false)
+	defer server.Close()
+	updater := Updater{Resolver: fakeResolver{latest: release}, Downloader: Downloader{HTTPClient: server.Client(), TempDir: t.TempDir()}}
+	_, err := updater.Apply(context.Background(), ApplyOptions{Layout: layout, CurrentVersion: "v1.0.0", NoAlias: true})
+	if !errors.Is(err, ErrChecksumMismatch) {
+		t.Fatalf("error = %v", err)
+	}
+	version, _, currentErr := install.CurrentVersion(layout)
+	if currentErr != nil {
+		t.Fatal(currentErr)
+	}
+	if version != "v1.0.0" {
+		t.Fatalf("current version changed after checksum failure: %q", version)
+	}
+	content, readErr := os.ReadFile(layout.CurrentBinary)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(content) != "old-release" {
+		t.Fatalf("current binary changed after checksum failure: %q", content)
+	}
+	if _, statErr := os.Stat(filepath.Join(layout.Versions, "v1.1.0")); !os.IsNotExist(statErr) {
+		t.Fatalf("failed update staged target version: %v", statErr)
+	}
+}
+
+func updateReleaseFixture(t *testing.T, version string, binary []byte, validChecksum bool) (*httptest.Server, Release) {
+	t.Helper()
+	assetName, err := CurrentAssetName(version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := releaseArchive(t, assetName, binary)
+	hash := sha256.Sum256(archive)
+	checksum := hex.EncodeToString(hash[:])
+	if !validChecksum {
+		checksum = fmt.Sprintf("%064d", 0)
+	}
+	checksums := []byte(checksum + "  " + assetName + "\n")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/" + assetName:
+			_, _ = w.Write(archive)
+		case "/checksums.txt":
+			_, _ = w.Write(checksums)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	return server, Release{Version: version, ArchiveName: assetName, ArchiveURL: server.URL + "/" + assetName, ChecksumName: "checksums.txt", ChecksumURL: server.URL + "/checksums.txt"}
 }
 
 func updateTestLayout(t *testing.T) install.Layout {

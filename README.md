@@ -49,6 +49,7 @@ chatgpt-mcp
 - Embedded React admin dashboard
 - Separate MCP/admin authentication and explicit network exposure controls
 - Single-binary releases for Linux, macOS, and Windows on amd64/arm64
+- Transactional direct install/self-update with checksum verification, stable launchers, managed-runtime restart, and automatic rollback
 
 ## Installation
 
@@ -80,7 +81,18 @@ scoop install mew/chatgpt-mcp
 
 Both `chatgpt-mcp` and the shorter `cgm` alias are installed. The examples below use `cgm`.
 
-See [Getting started](docs/getting-started.md) for source builds, version pinning, uninstall, and platform details.
+Direct installs are managed by the binary itself. A downloaded release can adopt the managed layout with `./chatgpt-mcp install`; pass `--no-alias` to skip `cgm`. Managed direct installs can then update transactionally:
+
+```bash
+cgm update check
+cgm update
+cgm update --version vX.Y.Z
+cgm update --no-restart
+```
+
+`cgm update` verifies the release checksum before activation. A running managed service is restarted and health-checked by default; restart failure automatically restores the previous version. Foreground runtimes are left running on the previous binary until restarted manually. Homebrew and Scoop installations remain owned by their package managers.
+
+See [Getting started](docs/getting-started.md) for install ownership, version pinning, updates, uninstall, and platform details.
 
 ## 5-minute quick start
 
@@ -153,6 +165,9 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 
 | Goal | Command |
 | --- | --- |
+| Install current binary into managed layout | `chatgpt-mcp install` |
+| Check for an update | `cgm update check` |
+| Update managed direct install | `cgm update` |
 | Initialize | `cgm init` |
 | Start foreground | `cgm serve` |
 | Start managed service | `cgm up` |
@@ -202,7 +217,7 @@ The full documentation index lives in [`docs/README.md`](docs/README.md).
 
 `chatgpt-mcp` is intentionally workspace-bound. Filesystem/shell/Git mutations are constrained to the registered workspace plus explicitly allowed directories, symlink escapes are rejected, and MCP tool execution cannot use the builtin shell to grant itself new control-plane permissions. The first valid workspace-scoped call in an MCP session binds that session to the workspace; later attempts to use another workspace are denied before the tool handler runs. Multiple independent MCP sessions may bind to the same workspace.
 
-Long-lived reversible credentials such as OpenAI tunnel keys, upstream OAuth tokens, and sensitive upstream header/environment values are stored in the OS keyring rather than plaintext config files. MCP/Admin app tokens remain one-way hashes in config. A tunnel ID is an identifier, not a secret. Do not use a Platform Admin API key as the long-lived tunnel runtime key.
+Long-lived reversible credentials such as OpenAI tunnel keys, upstream OAuth tokens, and sensitive upstream header/environment values are stored in per-config-root secret files under `<config-root>/state/secrets` with restrictive permissions instead of plaintext structured config. MCP/Admin app tokens remain one-way hashes in config. A tunnel ID is an identifier, not a secret. Do not use a Platform Admin API key as the long-lived tunnel runtime key.
 
 Read [Security](docs/security.md) before widening network exposure or granting additional filesystem roots.
 

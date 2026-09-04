@@ -11,9 +11,11 @@ import (
 	"sync"
 )
 
+const servicePrefix = "chatgpt-mcp"
+
 const (
-	servicePrefix = "chatgpt-mcp"
-	Marker        = "<os-keyring>"
+	Marker       = "<secret-file>"
+	LegacyMarker = "<os-keyring>"
 )
 
 var ErrNotFound = errors.New("secret not found")
@@ -40,9 +42,11 @@ type snapshot struct {
 	exists bool
 }
 
+type backendFactory func(root string) Backend
+
 var (
-	backendMu      sync.RWMutex
-	defaultBackend Backend = newOSBackend()
+	backendMu             sync.RWMutex
+	defaultBackendFactory backendFactory = func(root string) Backend { return newFileBackend(root) }
 )
 
 func New(root string) *Store {
@@ -52,9 +56,9 @@ func New(root string) *Store {
 	}
 	sum := sha256.Sum256([]byte(absolute))
 	backendMu.RLock()
-	backend := defaultBackend
+	factory := defaultBackendFactory
 	backendMu.RUnlock()
-	return &Store{service: servicePrefix + "/" + hex.EncodeToString(sum[:8]), backend: backend}
+	return &Store{service: servicePrefix + "/" + hex.EncodeToString(sum[:8]), backend: factory(absolute)}
 }
 
 func Name(parts ...string) string {
@@ -65,23 +69,28 @@ func Name(parts ...string) string {
 	return strings.Join(encoded, "/")
 }
 
+func IsMarker(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == Marker || value == LegacyMarker
+}
+
 func (s *Store) Get(name string) (string, error) {
 	if s == nil || s.backend == nil {
-		return "", errors.New("OS keyring unavailable")
+		return "", errors.New("secret store unavailable")
 	}
 	value, err := s.backend.Get(s.service, name)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return "", ErrNotFound
 		}
-		return "", fmt.Errorf("read OS keyring secret %s: %w", name, err)
+		return "", fmt.Errorf("read secret %s: %w", name, err)
 	}
 	return value, nil
 }
 
 func (s *Store) Set(name, value string) error {
 	if s == nil || s.backend == nil {
-		return errors.New("OS keyring unavailable")
+		return errors.New("secret store unavailable")
 	}
 	if value == "" {
 		err := s.backend.Delete(s.service, name)
@@ -89,12 +98,12 @@ func (s *Store) Set(name, value string) error {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("delete OS keyring secret %s: %w", name, err)
+			return fmt.Errorf("delete secret %s: %w", name, err)
 		}
 		return nil
 	}
 	if err := s.backend.Set(s.service, name, value); err != nil {
-		return fmt.Errorf("write OS keyring secret %s: %w", name, err)
+		return fmt.Errorf("write secret %s: %w", name, err)
 	}
 	return nil
 }
@@ -148,13 +157,14 @@ func (s *Store) rollback(items []snapshot) error {
 }
 
 func UseMemoryForTesting() func() {
+	memory := newMemoryBackend()
 	backendMu.Lock()
-	previous := defaultBackend
-	defaultBackend = newMemoryBackend()
+	previous := defaultBackendFactory
+	defaultBackendFactory = func(string) Backend { return memory }
 	backendMu.Unlock()
 	return func() {
 		backendMu.Lock()
-		defaultBackend = previous
+		defaultBackendFactory = previous
 		backendMu.Unlock()
 	}
 }
@@ -164,30 +174,36 @@ type memoryBackend struct {
 	values map[string]string
 }
 
-func newMemoryBackend() *memoryBackend                      { return &memoryBackend{values: map[string]string{}} }
-func (m *memoryBackend) key(service, account string) string { return service + "\x00" + account }
-func (m *memoryBackend) Set(service, account, value string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.values[m.key(service, account)] = value
+func newMemoryBackend() *memoryBackend {
+	return &memoryBackend{values: map[string]string{}}
+}
+
+func (b *memoryBackend) key(service, account string) string { return service + "\x00" + account }
+
+func (b *memoryBackend) Set(service, account, value string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.values[b.key(service, account)] = value
 	return nil
 }
-func (m *memoryBackend) Get(service, account string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	value, ok := m.values[m.key(service, account)]
+
+func (b *memoryBackend) Get(service, account string) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	value, ok := b.values[b.key(service, account)]
 	if !ok {
 		return "", ErrNotFound
 	}
 	return value, nil
 }
-func (m *memoryBackend) Delete(service, account string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	key := m.key(service, account)
-	if _, ok := m.values[key]; !ok {
+
+func (b *memoryBackend) Delete(service, account string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := b.key(service, account)
+	if _, ok := b.values[key]; !ok {
 		return ErrNotFound
 	}
-	delete(m.values, key)
+	delete(b.values, key)
 	return nil
 }

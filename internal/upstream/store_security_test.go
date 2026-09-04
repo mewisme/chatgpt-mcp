@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestStoreKeepsSensitiveHeaderAndEnvInKeyring(t *testing.T) {
+func TestStoreKeepsSensitiveHeaderAndEnvInSecretFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "upstream.json")
 	store := NewStore(path)
 	server := Server{ID: "alpha", Name: "Alpha", Transport: "http", URL: "https://example.test/mcp", Headers: map[string]string{"Authorization": "Bearer header-private-value", "X-Test": "ok"}, Env: map[string]string{"API_TOKEN": "env-private-value", "MODE": "test"}}
@@ -20,7 +20,7 @@ func TestStoreKeepsSensitiveHeaderAndEnvInKeyring(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if strings.Contains(text, "header-private-value") || strings.Contains(text, "env-private-value") || !strings.Contains(text, "os-keyring") || !strings.Contains(text, `"X-Test": "ok"`) || !strings.Contains(text, `"MODE": "test"`) {
+	if strings.Contains(text, "header-private-value") || strings.Contains(text, "env-private-value") || !strings.Contains(text, "secret-file") || !strings.Contains(text, `"X-Test": "ok"`) || !strings.Contains(text, `"MODE": "test"`) {
 		t.Fatalf("upstream file persistence = %s", data)
 	}
 	loaded, err := store.Load()
@@ -32,7 +32,7 @@ func TestStoreKeepsSensitiveHeaderAndEnvInKeyring(t *testing.T) {
 	}
 }
 
-func TestLegacyUpstreamSecretsMigrateToKeyring(t *testing.T) {
+func TestLegacyUpstreamSecretsMigrateToSecretFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "upstream.json")
 	legacy := diskStore{Servers: []Server{{ID: "alpha", Name: "Alpha", Transport: "http", URL: "https://example.test/mcp", Headers: map[string]string{"Authorization": "Bearer legacy-header-value"}, Env: map[string]string{"API_TOKEN": "legacy-env-value"}}}}
 	data, err := json.MarshalIndent(legacy, "", "  ")
@@ -54,7 +54,7 @@ func TestLegacyUpstreamSecretsMigrateToKeyring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(migrated), "legacy-header-value") || strings.Contains(string(migrated), "legacy-env-value") || strings.Count(string(migrated), "os-keyring") < 2 {
+	if strings.Contains(string(migrated), "legacy-header-value") || strings.Contains(string(migrated), "legacy-env-value") || strings.Count(string(migrated), "secret-file") < 2 {
 		t.Fatalf("upstream file was not migrated: %s", migrated)
 	}
 }

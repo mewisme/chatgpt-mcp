@@ -178,7 +178,7 @@ func loadAt(configPath, secretPath string) (Config, error) {
 	}
 	if migrateSecrets || legacyRuntime != "" || legacyAdmin != "" {
 		if err := saveAt(configPath, secretPath, cfg); err != nil {
-			return cfg, fmt.Errorf("migrate credentials to OS keyring: %w", err)
+			return cfg, fmt.Errorf("migrate credentials to secret file store: %w", err)
 		}
 	}
 	return cfg, nil

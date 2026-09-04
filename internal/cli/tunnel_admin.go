@@ -98,7 +98,7 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set",
 		Short: "Verify and store an OpenAI tunnel admin key",
-		Long:  "Verify Tunnels Manage access by listing an organization, workspace, or tenant scope, then store the admin key in the OS keyring and verification scope in tunnel.<ext>. If no scope flag is provided, cgm first reuses a stored scope or derives one from the currently configured tunnel metadata.",
+		Long:  "Verify Tunnels Manage access by listing an organization, workspace, or tenant scope, then store the admin key in the secret file store and verification scope in tunnel.<ext>. If no scope flag is provided, cgm first reuses a stored scope or derives one from the currently configured tunnel metadata.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
@@ -133,7 +133,7 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 			log.Success("TUNNEL", "Admin key verified and saved")
 			log.Detail("scope", formatTunnelAdminScope(scope))
 			log.Detail("tunnels", count)
-			log.Detail("secret store", "OS keyring")
+			log.Detail("secret store", "secret file store")
 			return nil
 		},
 	}
@@ -157,7 +157,7 @@ func tunnelAdminKeyStatusCommand() *cobra.Command {
 		if scope := tunnel.AdminScopeFromConfig(cfg.Tunnel); tunnel.ValidateAdminScope(scope) == nil {
 			log.Detail("scope", formatTunnelAdminScope(scope))
 		}
-		log.Detail("secret store", "OS keyring")
+		log.Detail("secret store", "secret file store")
 		return nil
 	}}
 }

@@ -140,7 +140,7 @@ func uninitCommand() *cobra.Command {
 		Short: "Remove all local chatgpt-mcp configuration and state",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := config.RootPath()
-			if err := purgeKeyringSecrets(root); err != nil {
+			if err := purgeStoredSecrets(root); err != nil {
 				return err
 			}
 			if err := removeConfigRoot(root); err != nil {
@@ -154,16 +154,16 @@ func uninitCommand() *cobra.Command {
 	}
 }
 
-func purgeKeyringSecrets(root string) error {
-	entries, err := config.TunnelKeyringEntries(root)
+func purgeStoredSecrets(root string) error {
+	entries, err := config.TunnelSecretEntries(root)
 	if err != nil {
 		return err
 	}
-	oauthEntries, err := mcpoauth.NewStore(configformat.StructuredPath(root, "oauth")).KeyringEntries()
+	oauthEntries, err := mcpoauth.NewStore(configformat.StructuredPath(root, "oauth")).SecretEntries()
 	if err != nil {
 		return err
 	}
-	upstreamEntries, err := upstream.NewStore(configformat.StructuredPath(root, "upstream")).KeyringEntries()
+	upstreamEntries, err := upstream.NewStore(configformat.StructuredPath(root, "upstream")).SecretEntries()
 	if err != nil {
 		return err
 	}

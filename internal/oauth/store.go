@@ -19,7 +19,7 @@ type diskStore struct {
 	Credentials map[string]Credential `json:"credentials"`
 }
 
-func (s *Store) KeyringEntries() ([]string, error) {
+func (s *Store) SecretEntries() ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.readDiskLocked()
@@ -28,13 +28,13 @@ func (s *Store) KeyringEntries() ([]string, error) {
 	}
 	entries := []string{}
 	for id, credential := range state.Credentials {
-		if credential.ClientSecret == secretstore.Marker {
+		if secretstore.IsMarker(credential.ClientSecret) {
 			entries = append(entries, oauthSecretName(id, "client-secret"))
 		}
-		if credential.AccessToken == secretstore.Marker {
+		if secretstore.IsMarker(credential.AccessToken) {
 			entries = append(entries, oauthSecretName(id, "access-token"))
 		}
-		if credential.RefreshToken == secretstore.Marker {
+		if secretstore.IsMarker(credential.RefreshToken) {
 			entries = append(entries, oauthSecretName(id, "refresh-token"))
 		}
 	}
@@ -135,7 +135,7 @@ func (s *Store) readLocked() (diskStore, error) {
 	}
 	if migrate {
 		if err := s.writeLocked(raw, state); err != nil {
-			return diskStore{}, fmt.Errorf("migrate OAuth secrets to OS keyring: %w", err)
+			return diskStore{}, fmt.Errorf("migrate OAuth secrets to secret file store: %w", err)
 		}
 	}
 	return state, nil
@@ -166,12 +166,12 @@ func (s *Store) loadSecret(id, field, stored string) (string, bool, error) {
 	if stored == "" {
 		return "", false, nil
 	}
-	if stored != secretstore.Marker {
+	if !secretstore.IsMarker(stored) {
 		return stored, true, nil
 	}
 	value, err := s.secrets.Get(oauthSecretName(id, field))
 	if errors.Is(err, secretstore.ErrNotFound) {
-		return "", false, fmt.Errorf("OAuth %s for %s is configured but missing from OS keyring", field, id)
+		return "", false, fmt.Errorf("OAuth %s for %s is configured but missing from secret file store", field, id)
 	}
 	if err != nil {
 		return "", false, err

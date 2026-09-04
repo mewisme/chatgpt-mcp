@@ -25,8 +25,8 @@ func TestStoreRoundTripAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), `"secret"`) || strings.Contains(string(data), `"refresh"`) || !strings.Contains(string(data), "os-keyring") {
-		t.Fatalf("oauth file leaked credential value or missed keyring marker: %s", data)
+	if strings.Contains(string(data), `"secret"`) || strings.Contains(string(data), `"refresh"`) || !strings.Contains(string(data), "secret-file") {
+		t.Fatalf("oauth file leaked credential value or missed secret-file marker: %s", data)
 	}
 	credential, err := store.Get("alpha")
 	if err != nil || credential.AccessToken != "secret" || credential.RefreshToken != "refresh" {
@@ -241,7 +241,7 @@ func TestUnionScopesStable(t *testing.T) {
 	}
 }
 
-func TestLegacyOAuthFileMigratesCredentialsToKeyring(t *testing.T) {
+func TestLegacyOAuthFileMigratesCredentialsToSecretFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "oauth.json")
 	legacy := diskStore{Version: storeVersion, Credentials: map[string]Credential{"alpha": {ServerID: "alpha", ClientID: "client", ClientSecret: "legacy-client-value", AccessToken: "legacy-access-value", RefreshToken: "legacy-refresh-value"}}}
 	data, err := json.MarshalIndent(legacy, "", "  ")
@@ -268,7 +268,7 @@ func TestLegacyOAuthFileMigratesCredentialsToKeyring(t *testing.T) {
 			t.Fatalf("oauth file still contains legacy credential: %s", migrated)
 		}
 	}
-	if strings.Count(string(migrated), "os-keyring") < 3 {
-		t.Fatalf("oauth file missing keyring markers: %s", migrated)
+	if strings.Count(string(migrated), "secret-file") < 3 {
+		t.Fatalf("oauth file missing secret-file markers: %s", migrated)
 	}
 }

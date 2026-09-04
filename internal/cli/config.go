@@ -348,11 +348,11 @@ func getConfigValue(cfg config.Config, key string) (any, error) {
 }
 
 func configMigrateCommand() *cobra.Command {
-	return &cobra.Command{Use: "migrate", Short: "Migrate legacy plaintext credentials into the OS keyring", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "migrate", Short: "Migrate legacy plaintext credentials into the secret file store", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		if err := migrateLegacySecrets(); err != nil {
 			return err
 		}
-		commandLogger(cmd).Success("CONFIG", "credentials migrated to OS keyring")
+		commandLogger(cmd).Success("CONFIG", "credentials migrated to secret file store")
 		return nil
 	}}
 }

@@ -29,7 +29,7 @@ var (
 
 func TunnelSecretPath() string { return configformat.StructuredPath(RootPath(), "tunnel") }
 
-func TunnelKeyringEntries(root string) ([]string, error) {
+func TunnelSecretEntries(root string) ([]string, error) {
 	stored, err := loadTunnelSecretAt(configformat.StructuredPath(root, "tunnel"))
 	if err != nil {
 		return nil, err
@@ -76,11 +76,11 @@ func loadTunnelSecrets(path string, cfg *tunnel.Config, legacyRuntime, legacyAdm
 		legacyAdmin = stored.AdminKey
 	}
 	store := secretstore.New(filepath.Dir(path))
-	runtimeKey, runtimeMigration, err := resolveKeyringSecret(store, tunnelRuntimeSecretName, stored.RuntimeKeyConfigured, legacyRuntime, "tunnel runtime key")
+	runtimeKey, runtimeMigration, err := resolveStoredSecret(store, tunnelRuntimeSecretName, stored.RuntimeKeyConfigured, legacyRuntime, "tunnel runtime key")
 	if err != nil {
 		return false, err
 	}
-	adminKey, adminMigration, err := resolveKeyringSecret(store, tunnelAdminSecretName, stored.AdminKeyConfigured, legacyAdmin, "tunnel admin key")
+	adminKey, adminMigration, err := resolveStoredSecret(store, tunnelAdminSecretName, stored.AdminKeyConfigured, legacyAdmin, "tunnel admin key")
 	if err != nil {
 		return false, err
 	}
@@ -89,17 +89,17 @@ func loadTunnelSecrets(path string, cfg *tunnel.Config, legacyRuntime, legacyAdm
 	return runtimeMigration || adminMigration || stored.APIKey != "" || stored.AdminKey != "", nil
 }
 
-func resolveKeyringSecret(store *secretstore.Store, name string, configured bool, legacy, label string) (string, bool, error) {
+func resolveStoredSecret(store *secretstore.Store, name string, configured bool, legacy, label string) (string, bool, error) {
 	if configured {
 		value, err := store.Get(name)
 		if err == nil {
 			return value, legacy != "", nil
 		}
 		if !errors.Is(err, secretstore.ErrNotFound) {
-			return "", false, fmt.Errorf("load %s from OS keyring: %w", label, err)
+			return "", false, fmt.Errorf("load %s from secret file store: %w", label, err)
 		}
 		if legacy == "" {
-			return "", false, fmt.Errorf("%s is configured but missing from OS keyring", label)
+			return "", false, fmt.Errorf("%s is configured but missing from secret file store", label)
 		}
 	}
 	if legacy != "" {

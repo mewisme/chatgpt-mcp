@@ -226,11 +226,11 @@ func TestLegacyTunnelAPIKeyMigratesOnSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	if secret.APIKey != "" || !secret.RuntimeKeyConfigured {
-		t.Fatalf("legacy tunnel file was not replaced by keyring marker: %#v", secret)
+		t.Fatalf("legacy tunnel file was not replaced by secret-file marker: %#v", secret)
 	}
 	key, err := secretstore.New(root).Get(tunnelRuntimeSecretName)
 	if err != nil || key != "legacy-secret" {
-		t.Fatalf("migrated keyring secret = %q err=%v", key, err)
+		t.Fatalf("migrated stored secret = %q err=%v", key, err)
 	}
 }
 
@@ -455,7 +455,7 @@ func TestClearingTunnelAPIKeyRemovesSecretFile(t *testing.T) {
 		t.Fatalf("secret file still exists: %v", err)
 	}
 	if _, err := secretstore.New(root).Get(tunnelRuntimeSecretName); !errors.Is(err, secretstore.ErrNotFound) {
-		t.Fatalf("runtime key still exists in OS keyring: %v", err)
+		t.Fatalf("runtime key still exists in secret file store: %v", err)
 	}
 }
 

@@ -24,7 +24,7 @@ func NewStore(path string) *Store {
 	return &Store{Path: path, secrets: secretstore.New(filepath.Dir(path))}
 }
 
-func (s *Store) KeyringEntries() ([]string, error) {
+func (s *Store) SecretEntries() ([]string, error) {
 	servers, err := s.readDisk()
 	if err != nil {
 		return nil, err
@@ -32,12 +32,12 @@ func (s *Store) KeyringEntries() ([]string, error) {
 	entries := []string{}
 	for _, server := range servers {
 		for key, value := range server.Headers {
-			if SensitiveConfigKey(key) && value == secretstore.Marker {
+			if SensitiveConfigKey(key) && secretstore.IsMarker(value) {
 				entries = append(entries, upstreamSecretName(server.ID, "header", key))
 			}
 		}
 		for key, value := range server.Env {
-			if SensitiveConfigKey(key) && value == secretstore.Marker {
+			if SensitiveConfigKey(key) && secretstore.IsMarker(value) {
 				entries = append(entries, upstreamSecretName(server.ID, "env", key))
 			}
 		}
@@ -58,13 +58,13 @@ func (s *Store) Load() ([]Server, error) {
 			if !SensitiveConfigKey(key) || stored == "" {
 				continue
 			}
-			if stored != secretstore.Marker {
+			if !secretstore.IsMarker(stored) {
 				migrate = true
 				continue
 			}
 			value, err := s.secrets.Get(upstreamSecretName(server.ID, "header", key))
 			if errors.Is(err, secretstore.ErrNotFound) {
-				return nil, fmt.Errorf("upstream header %s for %s is configured but missing from OS keyring", key, server.ID)
+				return nil, fmt.Errorf("upstream header %s for %s is configured but missing from secret file store", key, server.ID)
 			}
 			if err != nil {
 				return nil, err
@@ -75,13 +75,13 @@ func (s *Store) Load() ([]Server, error) {
 			if !SensitiveConfigKey(key) || stored == "" {
 				continue
 			}
-			if stored != secretstore.Marker {
+			if !secretstore.IsMarker(stored) {
 				migrate = true
 				continue
 			}
 			value, err := s.secrets.Get(upstreamSecretName(server.ID, "env", key))
 			if errors.Is(err, secretstore.ErrNotFound) {
-				return nil, fmt.Errorf("upstream env %s for %s is configured but missing from OS keyring", key, server.ID)
+				return nil, fmt.Errorf("upstream env %s for %s is configured but missing from secret file store", key, server.ID)
 			}
 			if err != nil {
 				return nil, err
@@ -91,7 +91,7 @@ func (s *Store) Load() ([]Server, error) {
 	}
 	if migrate {
 		if err := s.saveWithPrevious(raw, servers); err != nil {
-			return nil, fmt.Errorf("migrate upstream secrets to OS keyring: %w", err)
+			return nil, fmt.Errorf("migrate upstream secrets to secret file store: %w", err)
 		}
 	}
 	return servers, nil

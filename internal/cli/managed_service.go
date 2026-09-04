@@ -53,18 +53,7 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	}
 	environmentHash, _ := cmd.Flags().GetString("service-environment-hash")
 	if environmentHash == "" {
-		source, err := config.Source()
-		if err != nil {
-			return err
-		}
-		if !source.Exists {
-			return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init first")
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		environmentHash, err = managed.SaveEnvironment(spec.ConfigRoot, managed.CaptureEnvironment(spec.Account, cfg.Shell.Path))
+		environmentHash, err = saveManagedEnvironment(spec)
 		if err != nil {
 			return err
 		}
@@ -102,18 +91,7 @@ func runRestart(cmd *cobra.Command, _ []string) error {
 	}
 	environmentHash, _ := cmd.Flags().GetString("service-environment-hash")
 	if environmentHash == "" {
-		source, err := config.Source()
-		if err != nil {
-			return err
-		}
-		if !source.Exists {
-			return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init first")
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		environmentHash, err = managed.SaveEnvironment(spec.ConfigRoot, managed.CaptureEnvironment(spec.Account, cfg.Shell.Path))
+		environmentHash, err = saveManagedEnvironment(spec)
 		if err != nil {
 			return err
 		}
@@ -130,6 +108,21 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 		return err
 	}
 	return runManagedUp(cmd, spec, manager)
+}
+
+func saveManagedEnvironment(spec managed.Spec) (string, error) {
+	source, err := config.Source()
+	if err != nil {
+		return "", err
+	}
+	if !source.Exists {
+		return "", errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init first")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
+	return managed.SaveEnvironment(spec.ConfigRoot, managed.CaptureEnvironment(spec.Account, cfg.Shell.Path))
 }
 
 func managedScopeForCommand(cmd *cobra.Command) (managed.Scope, error) {

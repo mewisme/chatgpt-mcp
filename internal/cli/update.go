@@ -11,6 +11,7 @@ import (
 
 func updateCommand() *cobra.Command {
 	var targetVersion string
+	var noRestart bool
 	cmd := &cobra.Command{Use: "update", Short: "Check for and install chatgpt-mcp updates", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		detection, err := install.DetectCurrent(version.Version)
 		if err != nil {
@@ -38,6 +39,10 @@ func updateCommand() *cobra.Command {
 		if alias.State == install.AliasConflict {
 			return fmt.Errorf("cannot preserve cgm alias state: %w: %s", install.ErrAliasConflict, alias.Path)
 		}
+		runtimeState, err := captureUpdateRuntimeState(cmd.Context())
+		if err != nil {
+			return err
+		}
 		updater := updatepkg.Updater{
 			Resolver:   updatepkg.Client{UserAgent: "chatgpt-mcp/" + version.Version},
 			Downloader: updatepkg.Downloader{UserAgent: "chatgpt-mcp/" + version.Version},
@@ -56,6 +61,9 @@ func updateCommand() *cobra.Command {
 			log.Detail("latest", result.Target)
 			return nil
 		}
+		if err := coordinateUpdatedRuntime(cmd, layout, runtimeState, noRestart); err != nil {
+			return fmt.Errorf("updated to %s but managed runtime restart failed: %w", result.Target, err)
+		}
 		message := "updated"
 		if result.Downgrade {
 			message = "version changed"
@@ -67,6 +75,7 @@ func updateCommand() *cobra.Command {
 		return nil
 	}}
 	cmd.Flags().StringVar(&targetVersion, "version", "", "install a specific release version (allows explicit downgrade)")
+	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "do not restart a running managed runtime after updating")
 	cmd.AddCommand(updateCheckCommand())
 	return cmd
 }

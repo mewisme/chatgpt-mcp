@@ -1,11 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { BrowserRouter } from "react-router-dom"
-import { App } from "@/App"
+import { RouterProvider } from "react-router-dom"
 import { ThemeProvider } from "@/components/theme-provider"
 import { adminDocumentTitle, navItems } from "@/lib/admin-navigation"
 import { adminToken } from "@/lib/api"
+import { createAdminRouter } from "@/router"
 
 const config = {
   server: {
@@ -123,6 +123,7 @@ describe("admin app runtime smoke", () => {
       const path = requestPath(input)
       if (path === "/api/workspaces") return json([workspace])
       if (path === "/api/workspaces/ws_test") return json(workspace)
+      if (path === "/api/workspaces/ws_test/context?include_git=true&include_memory=true&include_skills=true") return json(projectContextFixture())
       return mockFetch(input)
     }))
     renderAdminApp()
@@ -130,6 +131,10 @@ describe("admin app runtime smoke", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/ws_test"))
     await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Workspace")))
     expect((await screen.findAllByText("ws_test")).length).toBeGreaterThan(0)
+    await user.click(screen.getByRole("tab", { name: "Context" }))
+    await waitFor(() => expect(window.location.pathname).toBe("/workspaces/ws_test/context"))
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Project Context")))
+    expect(await screen.findByText("EFFECTIVE PROJECT CONTEXT")).toBeInTheDocument()
   })
 
   it("selects a workspace before navigating to scoped approval requests", async () => {
@@ -276,9 +281,10 @@ describe("admin app runtime smoke", () => {
 })
 
 function renderAdminApp() {
+  const router = createAdminRouter()
   return render(
     <ThemeProvider>
-      <BrowserRouter><App /></BrowserRouter>
+      <RouterProvider router={router} />
     </ThemeProvider>
   )
 }

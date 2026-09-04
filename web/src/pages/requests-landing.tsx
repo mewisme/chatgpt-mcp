@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react"
 import { FolderGit2, ShieldCheck } from "lucide-react"
+import { useNavigate } from "react-router-dom"
 import { PageEmpty, PageError, PageLoading } from "@/components/page-state"
 import { PageHeader } from "@/components/page-header"
 import { TruncatedText } from "@/components/truncated-text"
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item"
-import { useAdminRouter } from "@/lib/use-admin-router"
 import { adminApi, type Workspace } from "@/lib/api"
 
 export function RequestsLandingPage() {
-  const { navigate } = useAdminRouter()
+  const navigate = useNavigate()
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")

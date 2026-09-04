@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createColumnHelper } from "@tanstack/react-table"
 import { ArrowLeft, CircleDot, Pause, Play, Radio, RefreshCw, Search, Trash2 } from "lucide-react"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { DataTable } from "@/components/data-table"
 import { DataTableColumnHeader } from "@/components/data-table-column-header"
 import type { DataTableFeatures } from "@/components/data-table-features"
@@ -18,7 +19,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { adminApi, authHeaders, type ActivityEvent } from "@/lib/api"
-import { useAdminRouter } from "@/lib/use-admin-router"
 
 type ActivityStreamHandlers = { onReady: () => void; onEvent: (event: ActivityEvent) => void; onGap: (from: number, to: number) => void }
 
@@ -34,7 +34,7 @@ const columns = columnHelper.columns([
 
 export function ActivityPage() {
   const mobile = useIsMobile()
-  const { navigate } = useAdminRouter()
+  const navigate = useNavigate()
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [pending, setPending] = useState<ActivityEvent[]>([])
   const [selected, setSelected] = useState<ActivityEvent | null>(null)
@@ -87,8 +87,7 @@ export function ActivityPage() {
 }
 
 export function ActivityCallPage() {
-  const { route, navigate } = useAdminRouter()
-  const callID = route.callID ?? ""
+  const { callID = "" } = useParams<{ callID: string }>()
   const [event, setEvent] = useState<ActivityEvent | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -100,7 +99,7 @@ export function ActivityCallPage() {
   }, [callID])
 
   if (loading) return <PageLoading rows={6} />
-  return <div className="space-y-6"><PageHeader title={event ? activityTitle(event) : "Tool Call"} description={event ? `${event.call_id} · ${formatDateTime(event.timestamp)}` : callID} actions={<Button size="sm" variant="outline" onClick={() => navigate("/activity")}><ArrowLeft />Activity</Button>} /><PageError message={error} />{event ? <ActivityDetailContent event={event} /> : null}</div>
+  return <div className="space-y-6"><PageHeader title={event ? activityTitle(event) : "Tool Call"} description={event ? `${event.call_id} · ${formatDateTime(event.timestamp)}` : callID} actions={<Button asChild size="sm" variant="outline"><Link to="/activity"><ArrowLeft />Activity</Link></Button>} /><PageError message={error} />{event ? <ActivityDetailContent event={event} /> : null}</div>
 }
 
 function ActivityMobileList({ events, onSelect }: { events: ActivityEvent[]; onSelect: (event: ActivityEvent) => void }) {

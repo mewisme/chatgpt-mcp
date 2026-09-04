@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { FolderGit2, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { useNavigate } from "react-router-dom"
 import { PageEmpty, PageError, PageLoading } from "@/components/page-state"
 import { PageHeader } from "@/components/page-header"
 import { ResponsiveDialog } from "@/components/responsive-dialog"
@@ -10,11 +11,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Label } from "@/components/ui/label"
-import { useAdminRouter } from "@/lib/use-admin-router"
 import { adminApi, type Workspace } from "@/lib/api"
 
 export function WorkspacesPage() {
-  const { navigate } = useAdminRouter()
+  const navigate = useNavigate()
   const [items, setItems] = useState<Workspace[]>([])
   const [path, setPath] = useState("")
   const [removeTarget, setRemoveTarget] = useState<Workspace | null>(null)

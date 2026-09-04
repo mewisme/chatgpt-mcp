@@ -18,8 +18,8 @@ export const adminRoutes: RouteObject[] = [{
     { path: "index.html", element: <Navigate replace to="/overview" /> },
     { path: "overview", lazy: () => import("@/pages/overview").then((module) => ({ Component: module.OverviewPage })), handle: navHandle("overview") },
     { path: "workspaces", lazy: () => import("@/pages/workspaces").then((module) => ({ Component: module.WorkspacesPage })), handle: navHandle("workspaces") },
-    { path: "workspaces/global", lazy: () => import("@/pages/global-instructions").then((module) => ({ Component: module.GlobalInstructionsPage })), handle: navHandle("workspace-global") },
-    { path: "workspaces/requests", lazy: () => import("@/pages/requests-landing").then((module) => ({ Component: module.RequestsLandingPage })), handle: navHandle("requests") },
+    { path: "instructions", lazy: () => import("@/pages/global-instructions").then((module) => ({ Component: module.GlobalInstructionsPage })), handle: navHandle("instructions") },
+    { path: "workspaces/global", element: <Navigate replace to="/instructions" /> },
     {
       path: "workspaces/:workspaceID",
       lazy: () => import("@/pages/workspace").then((module) => ({ Component: module.WorkspaceLayout })),

@@ -72,8 +72,7 @@ describe("admin app runtime smoke", () => {
 
     const pageSmokeText: Record<string, string> = {
       workspaces: "Register workspace",
-      "workspace-global": "Manage global context, rules, and detected user-level instruction sources.",
-      requests: "Select a workspace to review its control approvals and resolved request history.",
+      instructions: "Manage global context, rules, and detected user-level instruction sources.",
       tools:
         "Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.",
       servers: "Add MCP server",
@@ -137,20 +136,17 @@ describe("admin app runtime smoke", () => {
     expect(await screen.findByText("EFFECTIVE PROJECT CONTEXT")).toBeInTheDocument()
   })
 
-  it("selects a workspace before navigating to scoped approval requests", async () => {
-    const user = userEvent.setup()
+  it("deep-links workspace-scoped approval requests", async () => {
     const workspace = { id: "ws_test", path: "/projects/test", allow_dirs: [] }
-    window.history.replaceState({}, "", "/workspaces/requests")
+    window.history.replaceState({}, "", "/workspaces/ws_test/requests")
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = requestPath(input)
-      if (path === "/api/workspaces") return json([workspace])
       if (path === "/api/workspaces/ws_test") return json(workspace)
       if (path === "/api/requests?status=&workspace_id=ws_test") return json([])
       if (path === "/api/requests/stream?workspace_id=ws_test") return approvalStream()
       return mockFetch(input)
     }))
     renderAdminApp()
-    await user.click(await screen.findByText("/projects/test"))
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/ws_test/requests"))
     await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Workspace Requests")))
     expect(await screen.findByText("Review control approvals and resolved request history for ws_test.")).toBeInTheDocument()
@@ -200,7 +196,9 @@ describe("admin app runtime smoke", () => {
     renderAdminApp()
     await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Command Execution")))
     expect(await screen.findByText("go test ./...")).toBeInTheDocument()
-    expect(screen.getByRole("code").textContent).toContain("ok\n")
+    const output = screen.getByRole("code")
+    expect(output.textContent).toContain("ok\n")
+    expect((output.closest('[data-slot="scroll-area"]') as HTMLElement | null)?.style.maxHeight).toBe("")
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(window.location.pathname).toBe("/workspaces/ws_test/activity/exec_1")
   })
@@ -218,6 +216,9 @@ describe("admin app runtime smoke", () => {
     await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Tool Call")))
     expect(await screen.findByText(new RegExp(callID))).toBeInTheDocument()
     expect(screen.getAllByText("run_command").length).toBeGreaterThan(0)
+    await userEvent.setup().click(screen.getByRole("tab", { name: "Raw" }))
+    const raw = screen.getByRole("code")
+    expect((raw.closest('[data-slot="scroll-area"]') as HTMLElement | null)?.style.maxHeight).toBe("")
     expect(window.location.pathname).toBe(`/activity/${callID}`)
   })
 
@@ -225,7 +226,7 @@ describe("admin app runtime smoke", () => {
     const user = userEvent.setup()
     const detected = [{ provider: "claude", kind: "context", paths: ["/home/test/.claude/CLAUDE.md"], count: 1, enabled: true, loaded: false }]
     let savedPolicy: Record<string, unknown> | undefined
-    window.history.replaceState({}, "", "/workspaces/global")
+    window.history.replaceState({}, "", "/instructions")
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = requestPath(input)
       if (path === "/api/instructions/global" && init?.method === "PUT") {

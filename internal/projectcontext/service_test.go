@@ -51,7 +51,15 @@ func TestServiceBuildUsesManagedPolicyAndSelectedSubproject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Root != sub || result.WorkspaceID != item.ID || result.InstructionContext.ToolProfile.Count != 77 {
+	resultRootInfo, err := os.Stat(result.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subInfo, err := os.Stat(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(resultRootInfo, subInfo) || result.WorkspaceID != item.ID || result.InstructionContext.ToolProfile.Count != 77 {
 		t.Fatalf("result = %#v", result)
 	}
 	if !strings.Contains(result.InstructionContext.InstructionsText, "managed context") || !strings.Contains(result.InstructionContext.InstructionsText, "subproject instruction") || strings.Contains(result.InstructionContext.InstructionsText, "disabled user context") {

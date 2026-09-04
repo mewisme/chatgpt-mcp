@@ -183,7 +183,7 @@ func Help(width int, items ...HelpItem) string {
 	var lines []string
 	line := ""
 	for _, item := range items {
-		chunk := Accent(item.Key) + " " + Muted(item.Desc)
+		chunk := item.Key + " " + Muted(item.Desc)
 		separator := "   "
 		candidate := chunk
 		if line != "" {

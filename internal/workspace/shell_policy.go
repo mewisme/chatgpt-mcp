@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -33,6 +34,10 @@ var (
 )
 
 func (m *Manager) ValidateShellCommand(id, baseDirectory, command string) error {
+	return m.ValidateShellCommandContext(context.Background(), id, baseDirectory, command)
+}
+
+func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirectory, command string) error {
 	_, cwd, err := m.ResolveDirectory(id, baseDirectory)
 	if err != nil {
 		return err
@@ -44,7 +49,12 @@ func (m *Manager) ValidateShellCommand(id, baseDirectory, command string) error 
 		return controlguard.New(controlguard.CodeProtectedState, err.Error(), false, nil)
 	}
 	if isControlPlaneMutation(command, 0) {
-		invocation, approvable := directControlPlaneInvocation(command)
+		invocation, approvable := DirectControlPlaneInvocation(command)
+		if approvable && invocation != nil {
+			if granted, ok := controlguard.ApprovalFromContext(ctx); ok && controlguard.SameInvocation(granted.Invocation, *invocation) {
+				return nil
+			}
+		}
 		return controlguard.New(controlguard.CodeControlPlaneMutation, "control-plane mutation denied from MCP shell: chatgpt-mcp configuration and permissions cannot be changed through shell tools", approvable, invocation)
 	}
 	if !m.IsMutationCommand(command) {
@@ -53,7 +63,7 @@ func (m *Manager) ValidateShellCommand(id, baseDirectory, command string) error 
 	return m.ValidateMutationCommand(id, baseDirectory, command)
 }
 
-func directControlPlaneInvocation(command string) (*controlguard.Invocation, bool) {
+func DirectControlPlaneInvocation(command string) (*controlguard.Invocation, bool) {
 	segments, err := splitShellSegments(command)
 	if err != nil || len(segments) != 1 || strings.TrimSpace(command) != strings.TrimSpace(segments[0]) {
 		return nil, false
@@ -63,7 +73,7 @@ func directControlPlaneInvocation(command string) (*controlguard.Invocation, boo
 		return nil, false
 	}
 	args := append([]string(nil), tokens[1:]...)
-	if controlplane.IsReadOnlyArgs(args) {
+	if !controlplane.ApprovalEligibleArgs(args) {
 		return nil, false
 	}
 	return &controlguard.Invocation{Program: filepath.Base(tokens[0]), Args: args, Command: strings.TrimSpace(command)}, true

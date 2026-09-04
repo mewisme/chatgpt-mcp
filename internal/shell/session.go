@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 	statepkg "go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
@@ -143,7 +144,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 		return ExecResult{}, err
 	}
 	current.state.CWD = baseCWD
-	if err := m.workspaces.ValidateShellCommand(workspaceID, baseCWD, command); err != nil {
+	if err := m.workspaces.ValidateShellCommandContext(ctx, workspaceID, baseCWD, command); err != nil {
 		return ExecResult{}, err
 	}
 
@@ -172,7 +173,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 	return result, err
 }
 
-func (m *Manager) ValidateBackgroundCommand(workspaceID, command string) (string, error) {
+func (m *Manager) ValidateBackgroundCommand(ctx context.Context, workspaceID, command string) (string, error) {
 	item, err := m.workspaces.Get(workspaceID)
 	if err != nil {
 		return "", err
@@ -190,7 +191,7 @@ func (m *Manager) ValidateBackgroundCommand(workspaceID, command string) (string
 		return "", err
 	}
 	current.state.CWD = cwd
-	if err := m.workspaces.ValidateShellCommand(workspaceID, cwd, command); err != nil {
+	if err := m.workspaces.ValidateShellCommandContext(ctx, workspaceID, cwd, command); err != nil {
 		return "", err
 	}
 	effectiveCWD, effective, err := m.applyCWDDirectives(workspaceID, cwd, command)
@@ -334,7 +335,7 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration) (E
 		return ExecResult{}, err
 	}
 	cmd.Dir = cwd
-	cmd.Env = shellEnvironment()
+	cmd.Env = shellEnvironment(ctx)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -360,6 +361,16 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration) (E
 }
 
 func commandForPlatform(ctx context.Context, command string) (*exec.Cmd, error) {
+	if granted, ok := controlguard.ApprovalFromContext(ctx); ok {
+		if strings.TrimSpace(command) != strings.TrimSpace(granted.Invocation.Command) {
+			return nil, errors.New("approved control-plane command does not match shell invocation")
+		}
+		executable, err := os.Executable()
+		if err != nil {
+			return nil, fmt.Errorf("resolve approved control-plane executable: %w", err)
+		}
+		return exec.CommandContext(ctx, executable, granted.Invocation.Args...), nil
+	}
 	if runtime.GOOS == "windows" {
 		shell, isPwsh, err := windowsShell()
 		if err != nil {
@@ -461,7 +472,7 @@ func transpileCompoundOperators(command string) string {
 	return result
 }
 
-func shellEnvironment() []string {
+func shellEnvironment(ctx context.Context) []string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {
 		if index := strings.IndexByte(entry, '='); index >= 0 {
@@ -474,6 +485,12 @@ func shellEnvironment() []string {
 	values["NO_COLOR"] = "1"
 	values["npm_config_yes"] = "true"
 	values[controlplane.ToolContextEnv] = "1"
+	values[configformat.EnvConfigDir] = configformat.RootPath()
+	if granted, ok := controlguard.ApprovalFromContext(ctx); ok {
+		values[controlplane.ControlApprovalEnv] = granted.Capability
+	} else {
+		delete(values, controlplane.ControlApprovalEnv)
+	}
 	out := make([]string, 0, len(values))
 	for key, value := range values {
 		out = append(out, key+"="+value)

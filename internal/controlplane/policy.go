@@ -5,7 +5,10 @@ import (
 	"strings"
 )
 
-const ToolContextEnv = "CHATGPT_MCP_TOOL_CONTEXT"
+const (
+	ToolContextEnv     = "CHATGPT_MCP_TOOL_CONTEXT"
+	ControlApprovalEnv = "CHATGPT_MCP_CONTROL_APPROVAL"
+)
 
 var readOnlyPaths = map[string]bool{
 	"help": true, "version": true, "status": true, "completion": true,
@@ -40,6 +43,20 @@ func IsReadOnlyPath(path string) bool {
 
 func IsReadOnlyArgs(args []string) bool {
 	return IsReadOnlyPath(PathFromArgs(args))
+}
+
+func ApprovalEligibleArgs(args []string) bool {
+	if IsReadOnlyArgs(args) {
+		return false
+	}
+	path := PathFromArgs(args)
+	if path == "" || path == "_service" || strings.HasPrefix(path, "_service ") {
+		return false
+	}
+	if path == "request" || strings.HasPrefix(path, "request ") {
+		return false
+	}
+	return true
 }
 
 func PathFromArgs(args []string) string {

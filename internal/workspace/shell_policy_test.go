@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -230,6 +231,47 @@ func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 	} {
 		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
 			t.Fatalf("read-only control-plane command rejected: %s: %v", command, err)
+		}
+	}
+}
+
+func TestShellPolicyAllowsOnlyExactApprovedDirectControlPlaneInvocation(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := "cgm config set server.port 41001"
+	invocation, ok := DirectControlPlaneInvocation(command)
+	if !ok || invocation == nil {
+		t.Fatalf("invocation = %#v ok=%t", invocation, ok)
+	}
+	ctx := controlguard.WithApproval(context.Background(), controlguard.Approval{RequestID: "req_test", Capability: "cap_test", Invocation: *invocation})
+	if err := manager.ValidateShellCommandContext(ctx, item.ID, root, command); err != nil {
+		t.Fatalf("exact approved invocation denied: %v", err)
+	}
+	for _, changed := range []string{"cgm config set server.port 41002", "cgm config set server.port 41001 && echo done", `bash -lc "cgm config set server.port 41001"`} {
+		err := manager.ValidateShellCommandContext(ctx, item.ID, root, changed)
+		guard, typed := controlguard.As(err)
+		if err == nil || !typed || guard.Code != controlguard.CodeControlPlaneMutation {
+			t.Fatalf("changed invocation bypassed guard: %q -> %#v / %v", changed, guard, err)
+		}
+	}
+}
+
+func TestShellPolicyNeverApprovesRequestOrServiceCommands(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"cgm request approve req_test", "cgm request deny req_test", "cgm request list", "cgm _service run"} {
+		err := manager.ValidateShellCommand(item.ID, root, command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeControlPlaneMutation || guard.Approvable || guard.Invocation != nil {
+			t.Fatalf("hard-denied command became approvable: %q -> %#v / %v", command, guard, err)
 		}
 	}
 }

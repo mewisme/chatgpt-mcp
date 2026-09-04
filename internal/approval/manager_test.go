@@ -153,6 +153,62 @@ func TestManagerClaimMismatchDoesNotConsumeApproval(t *testing.T) {
 	}
 }
 
+func TestManagerCLICapabilityExactMismatchReplayAndExpiry(t *testing.T) {
+	t.Run("exact and replay", func(t *testing.T) {
+		manager, _ := testManager()
+		challenge, _, _ := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))
+		request, _, _ := manager.CreateRequest(challenge.ID, "session-a", "ws_x")
+		if _, err := manager.Approve(request.ID, "test", ""); err != nil {
+			t.Fatal(err)
+		}
+		claimed, capability, matched, err := manager.ClaimApprovedCLI(RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update"}}, CLIInvocation{Program: "cgm", Args: []string{"update"}})
+		if err != nil || !matched || capability == "" || claimed.Status != StatusConsumed {
+			t.Fatalf("claim = %#v capability=%q matched=%t err=%v", claimed, capability, matched, err)
+		}
+		requestID, err := manager.ConsumeCLI(capability, []string{"update"})
+		if err != nil || requestID != request.ID {
+			t.Fatalf("consume = %q err=%v", requestID, err)
+		}
+		if _, err := manager.ConsumeCLI(capability, []string{"update"}); !errors.Is(err, ErrCapabilityNotFound) {
+			t.Fatalf("replay err=%v", err)
+		}
+	})
+
+	t.Run("mismatch preserves token", func(t *testing.T) {
+		manager, _ := testManager()
+		challenge, _, _ := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))
+		request, _, _ := manager.CreateRequest(challenge.ID, "session-a", "ws_x")
+		_, _ = manager.Approve(request.ID, "test", "")
+		_, capability, matched, err := manager.ClaimApprovedCLI(RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update"}}, CLIInvocation{Program: "cgm", Args: []string{"update"}})
+		if err != nil || !matched {
+			t.Fatalf("claim matched=%t err=%v", matched, err)
+		}
+		_, err = manager.ConsumeCLI(capability, []string{"update", "--version", "v2.0.0"})
+		var mismatch *CapabilityMismatchError
+		if !errors.As(err, &mismatch) || len(mismatch.Expected) != 1 || mismatch.Expected[0] != "update" {
+			t.Fatalf("mismatch=%#v err=%v", mismatch, err)
+		}
+		if requestID, err := manager.ConsumeCLI(capability, []string{"update"}); err != nil || requestID != request.ID {
+			t.Fatalf("exact after mismatch = %q err=%v", requestID, err)
+		}
+	})
+
+	t.Run("expiry", func(t *testing.T) {
+		manager, now := testManager()
+		challenge, _, _ := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))
+		request, _, _ := manager.CreateRequest(challenge.ID, "session-a", "ws_x")
+		_, _ = manager.Approve(request.ID, "test", "")
+		_, capability, _, err := manager.ClaimApprovedCLI(RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update"}}, CLIInvocation{Program: "cgm", Args: []string{"update"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		*now = now.Add(DefaultCLICapabilityTTL)
+		if _, err := manager.ConsumeCLI(capability, []string{"update"}); !errors.Is(err, ErrCapabilityExpired) {
+			t.Fatalf("expired capability err=%v", err)
+		}
+	})
+}
+
 func TestManagerPendingAndApprovedExpiry(t *testing.T) {
 	manager, now := testManager()
 	challenge, _, _ := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))

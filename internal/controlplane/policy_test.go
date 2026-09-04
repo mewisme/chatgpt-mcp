@@ -24,3 +24,20 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovalEligibleCommandPolicy(t *testing.T) {
+	for _, args := range [][]string{
+		{"update"}, {"install"}, {"config", "set", "server.port", "41001"}, {"workspace", "access", "add", "ws_test", "/tmp"},
+	} {
+		if !ApprovalEligibleArgs(args) {
+			t.Fatalf("approval-eligible command denied: %#v -> %q", args, PathFromArgs(args))
+		}
+	}
+	for _, args := range [][]string{
+		{"status"}, {"update", "check"}, {"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"request", "list"}, {"_service", "run"}, {},
+	} {
+		if ApprovalEligibleArgs(args) {
+			t.Fatalf("hard-denied/read-only command became approval eligible: %#v -> %q", args, PathFromArgs(args))
+		}
+	}
+}

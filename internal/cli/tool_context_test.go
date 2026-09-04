@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/approval"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 	"go.mewis.me/chatgpt-mcp/internal/testutil"
 )
@@ -50,4 +53,77 @@ func TestMCPToolContextAllowsOnlyReadOnlyCLICommands(t *testing.T) {
 			t.Fatalf("mutating command was not denied: %v: %v", path, err)
 		}
 	}
+}
+
+func TestMCPToolContextAllowsExactOneShotRuntimeApproval(t *testing.T) {
+	manager, capability := mintToolContextCapability(t, []string{"config", "set", "server.port", "41001"})
+	control, err := startRuntimeControl(runtimeControlOptions{Approvals: manager, Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult { return runtimeStatusResult{PID: os.Getpid()} }, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	t.Setenv(controlplane.ToolContextEnv, "1")
+	t.Setenv(controlplane.ControlApprovalEnv, capability)
+	previous := processCommandArgs
+	processCommandArgs = func() []string { return []string{"config", "set", "server.port", "41001"} }
+	defer func() { processCommandArgs = previous }()
+	root := newRootCommand()
+	cmd, _, err := root.Find([]string{"config", "set"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCommand(cmd, []string{"server.port", "41001"}); err != nil {
+		t.Fatalf("exact approved command denied: %v", err)
+	}
+	if err := prepareCommand(cmd, []string{"server.port", "41001"}); err == nil || !strings.Contains(err.Error(), "approval verification failed") {
+		t.Fatalf("replayed capability was accepted: %v", err)
+	}
+}
+
+func TestMCPToolContextApprovalMismatchDoesNotBurnCapability(t *testing.T) {
+	manager, capability := mintToolContextCapability(t, []string{"config", "set", "server.port", "41001"})
+	control, err := startRuntimeControl(runtimeControlOptions{Approvals: manager, Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult { return runtimeStatusResult{PID: os.Getpid()} }, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	t.Setenv(controlplane.ToolContextEnv, "1")
+	t.Setenv(controlplane.ControlApprovalEnv, capability)
+	actual := []string{"config", "set", "server.port", "41002"}
+	previous := processCommandArgs
+	processCommandArgs = func() []string { return append([]string(nil), actual...) }
+	defer func() { processCommandArgs = previous }()
+	root := newRootCommand()
+	cmd, _, err := root.Find([]string{"config", "set"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCommand(cmd, []string{"server.port", "41002"}); err == nil || !strings.Contains(err.Error(), "approval verification failed") {
+		t.Fatalf("mismatch was accepted: %v", err)
+	}
+	actual = []string{"config", "set", "server.port", "41001"}
+	if err := prepareCommand(cmd, []string{"server.port", "41001"}); err != nil {
+		t.Fatalf("exact retry after mismatch denied: %v", err)
+	}
+}
+
+func mintToolContextCapability(t *testing.T, cliArgs []string) (*approval.Manager, string) {
+	t.Helper()
+	manager := approval.NewManager("instance-test")
+	challenge, _, err := manager.CreateChallenge(approval.ChallengeInput{SessionID: "session-a", SessionHash: "hash-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm " + strings.Join(cliArgs, " ")}, GuardCode: controlguard.CodeControlPlaneMutation, GuardReason: "denied", Title: "Allow command"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _, err := manager.CreateRequest(challenge.ID, "session-a", "ws_x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Approve(request.ID, "test", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, capability, matched, err := manager.ClaimApprovedCLI(approval.RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm " + strings.Join(cliArgs, " ")}}, approval.CLIInvocation{Program: "cgm", Args: cliArgs})
+	if err != nil || !matched || capability == "" {
+		t.Fatalf("mint capability=%q matched=%t err=%v", capability, matched, err)
+	}
+	return manager, capability
 }

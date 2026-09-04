@@ -69,6 +69,31 @@ func newApprovalShellRuntime(t *testing.T) (*Runtime, string) {
 	return runtime, item.ID
 }
 
+func newApprovalDispatchRuntime(t *testing.T) (*Runtime, string) {
+	t.Helper()
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := manager.Instance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry()
+	runtime := &Runtime{Registry: registry, Workspaces: manager, SessionBindings: NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID)}
+	registry.MustRegister("run_command", Schema{Name: "run_command", InputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`)}, func(ctx context.Context, args map[string]any) (Result, error) {
+		if granted, ok := controlguard.ApprovalFromContext(ctx); ok {
+			return JSONResult(map[string]any{"request_id": granted.RequestID, "capability": granted.Capability, "command": granted.Invocation.Command}), nil
+		}
+		command, _ := args["command"].(string)
+		invocation, _ := workspace.DirectControlPlaneInvocation(command)
+		return Result{}, controlguard.New(controlguard.CodeControlPlaneMutation, "control-plane mutation denied", true, invocation)
+	})
+	RegisterApprovalTools(registry, runtime)
+	return runtime, item.ID
+}
+
 func approvalContext(sessionID string) context.Context {
 	return WithCallSource(WithMCPSessionID(context.Background(), sessionID), "tunnel")
 }
@@ -267,8 +292,8 @@ func TestShellControlGuardProducesChallengeOnlyForDirectLiteralCLI(t *testing.T)
 	}
 }
 
-func TestApprovedShellRetryIsClaimedButStillFailsClosedBeforePhase3(t *testing.T) {
-	runtime, workspaceID := newApprovalShellRuntime(t)
+func TestApprovedShellRetryCarriesOneShotChildCapability(t *testing.T) {
+	runtime, workspaceID := newApprovalDispatchRuntime(t)
 	ctx := approvalContext("session-a")
 	args := map[string]any{"workspace_id": workspaceID, "command": "cgm update"}
 	guarded, _ := runtime.Call(ctx, "run_command", args)
@@ -281,15 +306,23 @@ func TestApprovedShellRetryIsClaimedButStillFailsClosedBeforePhase3(t *testing.T
 		t.Fatal(err)
 	}
 	retry, err := runtime.Call(ctx, "run_command", args)
-	if err != nil || !retry.IsError || !strings.Contains(retry.Content[0].Text, "control-plane mutation denied") {
-		t.Fatalf("phase-2 shell retry = %#v err=%v", retry, err)
+	if err != nil || retry.IsError {
+		t.Fatalf("approved shell retry = %#v err=%v", retry, err)
 	}
-	if _, ok := retry.StructuredContent.(approvalRequiredResponse); ok {
-		t.Fatalf("claimed retry unexpectedly created a second challenge: %#v", retry.StructuredContent)
+	payload := retry.StructuredContent.(map[string]any)
+	capability, _ := payload["capability"].(string)
+	if payload["request_id"] != request.ID || capability == "" || payload["command"] != "cgm update" {
+		t.Fatalf("approved shell payload = %#v", payload)
 	}
 	value, ok := runtime.Approvals.Get(request.ID)
 	if !ok || value.Status != approval.StatusConsumed {
 		t.Fatalf("shell retry did not claim one-shot grant: %#v ok=%t", value, ok)
+	}
+	if requestID, err := runtime.Approvals.ConsumeCLI(capability, []string{"update"}); err != nil || requestID != request.ID {
+		t.Fatalf("child capability consume = %q err=%v", requestID, err)
+	}
+	if _, err := runtime.Approvals.ConsumeCLI(capability, []string{"update"}); !errors.Is(err, approval.ErrCapabilityNotFound) {
+		t.Fatalf("child capability replay err=%v", err)
 	}
 }
 

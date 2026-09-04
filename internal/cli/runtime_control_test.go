@@ -4,11 +4,14 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 )
 
@@ -73,6 +76,72 @@ func TestRuntimeControlRejectsUnauthenticatedEvents(t *testing.T) {
 	defer control.Close()
 	client := &http.Client{Timeout: time.Second}
 	response, err := client.Get("http://" + control.state.Address + "/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
+func TestRuntimeControlConsumesOneShotCLIApproval(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	manager := approval.NewManager("instance-test")
+	challenge, _, err := manager.CreateChallenge(approval.ChallengeInput{
+		SessionID: "session-a", SessionHash: "hash-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command",
+		Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update"}, GuardCode: controlguard.CodeControlPlaneMutation, GuardReason: "denied", Title: "Allow cgm update",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _, err := manager.CreateRequest(challenge.ID, "session-a", "ws_x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Approve(request.ID, "test", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, capability, matched, err := manager.ClaimApprovedCLI(approval.RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update"}}, approval.CLIInvocation{Program: "cgm", Args: []string{"update"}})
+	if err != nil || !matched || capability == "" {
+		t.Fatalf("claim capability=%q matched=%t err=%v", capability, matched, err)
+	}
+	control, err := startRuntimeControl(runtimeControlOptions{Approvals: manager, Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult { return runtimeStatusResult{PID: os.Getpid()} }, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := requestRuntimeCLIApproval(ctx, capability, []string{"update", "--version", "v2"}); err == nil {
+		t.Fatal("mismatched CLI approval unexpectedly succeeded")
+	}
+	if err := requestRuntimeCLIApproval(ctx, capability, []string{"update"}); err != nil {
+		t.Fatalf("exact CLI approval failed: %v", err)
+	}
+	if err := requestRuntimeCLIApproval(ctx, capability, []string{"update"}); err == nil {
+		t.Fatal("CLI approval replay unexpectedly succeeded")
+	}
+}
+
+func TestRuntimeControlRejectsUnauthenticatedCLIApprovalConsume(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	control, err := startRuntimeControl(runtimeControlOptions{Approvals: approval.NewManager("instance-test"), Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult { return runtimeStatusResult{PID: os.Getpid()} }, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	request, err := http.NewRequest(http.MethodPost, "http://"+control.state.Address+"/requests/consume-cli", strings.NewReader(`{"capability":"cap_test","args":["update"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := (&http.Client{Timeout: time.Second}).Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}

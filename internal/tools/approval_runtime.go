@@ -7,15 +7,17 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func (r *Runtime) prepareApprovalRetry(ctx context.Context, sessionID, workspaceID, source, name string, args map[string]any) (context.Context, approval.Request, *Result, error) {
 	if r == nil || r.Approvals == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(workspaceID) == "" || name == ApprovalRequestToolName {
 		return ctx, approval.Request{}, nil, nil
 	}
-	request, matched, err := r.Approvals.ClaimApproved(approval.RetryInput{
+	retry := approval.RetryInput{
 		SessionID: sessionID, WorkspaceID: workspaceID, Source: source, TargetTool: name, Arguments: args,
-	})
+	}
+	_, matched, err := r.Approvals.MatchApproved(retry)
 	if err != nil {
 		var mismatch *approval.MismatchError
 		if errors.As(err, &mismatch) {
@@ -27,7 +29,28 @@ func (r *Runtime) prepareApprovalRetry(ctx context.Context, sessionID, workspace
 	if !matched {
 		return ctx, approval.Request{}, nil, nil
 	}
-	return WithApprovalRequest(ctx, request.ID), request, nil, nil
+	if name != "run_command" && name != "start_process" {
+		claimed, matched, err := r.Approvals.ClaimApproved(retry)
+		if err != nil || !matched {
+			return ctx, approval.Request{}, nil, err
+		}
+		return WithApprovalRequest(ctx, claimed.ID), claimed, nil, nil
+	}
+	command, _ := args["command"].(string)
+	invocation, ok := workspace.DirectControlPlaneInvocation(command)
+	if !ok || invocation == nil {
+		return ctx, approval.Request{}, nil, errors.New("approved shell retry is not a direct approval-eligible control-plane invocation")
+	}
+	claimed, capability, matched, err := r.Approvals.ClaimApprovedCLI(retry, approval.CLIInvocation{Program: invocation.Program, Args: invocation.Args})
+	if err != nil || !matched {
+		return ctx, approval.Request{}, nil, err
+	}
+	if capability == "" {
+		return ctx, approval.Request{}, nil, errors.New("approved shell retry did not receive a child capability")
+	}
+	ctx = WithApprovalRequest(ctx, claimed.ID)
+	ctx = controlguard.WithApproval(ctx, controlguard.Approval{RequestID: claimed.ID, Capability: capability, Invocation: *invocation})
+	return ctx, claimed, nil, nil
 }
 
 func (r *Runtime) approvalResultForGuard(guard *controlguard.Error, sessionID, sessionHash, workspaceID, source, name string, args map[string]any, claimed approval.Request) (Result, bool, error) {

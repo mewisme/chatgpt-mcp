@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
@@ -75,6 +77,7 @@ type runtimeControlOptions struct {
 	Status       func() runtimeStatusResult
 	Shutdown     func()
 	ClearLogs    func() error
+	Approvals    *approval.Manager
 }
 
 type runtimeControl struct {
@@ -127,6 +130,24 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 	}))
 	mux.HandleFunc("/logs/clear", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, _ *http.Request) {
 		writeControlJSON(w, map[string]bool{"ok": true}, options.ClearLogs())
+	}))
+	mux.HandleFunc("/requests/consume-cli", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+		if options.Approvals == nil {
+			writeControlJSON(w, nil, errors.New("control approval manager is unavailable"))
+			return
+		}
+		var input struct {
+			Capability string   `json:"capability"`
+			Args       []string `json:"args"`
+		}
+		decoder := json.NewDecoder(io.LimitReader(r.Body, 64*1024))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			writeControlJSON(w, nil, fmt.Errorf("decode control approval request: %w", err))
+			return
+		}
+		requestID, err := options.Approvals.ConsumeCLI(input.Capability, input.Args)
+		writeControlJSON(w, map[string]string{"request_id": requestID}, err)
 	}))
 	mux.HandleFunc("/events", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		serveRuntimeEvents(w, r, options.Events)
@@ -249,15 +270,30 @@ func loadRuntimeControlState() (runtimeControlState, error) {
 }
 
 func runtimeControlRequest(ctx context.Context, method, path string, output any) (runtimeControlState, error) {
+	return runtimeControlJSONRequest(ctx, method, path, nil, output)
+}
+
+func runtimeControlJSONRequest(ctx context.Context, method, path string, input, output any) (runtimeControlState, error) {
 	control, err := loadRuntimeControlState()
 	if err != nil {
 		return runtimeControlState{}, err
 	}
-	request, err := http.NewRequestWithContext(ctx, method, "http://"+control.Address+path, nil)
+	var body io.Reader
+	if input != nil {
+		data, err := json.Marshal(input)
+		if err != nil {
+			return runtimeControlState{}, fmt.Errorf("encode runtime control request: %w", err)
+		}
+		body = bytes.NewReader(data)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, "http://"+control.Address+path, body)
 	if err != nil {
 		return runtimeControlState{}, err
 	}
 	request.Header.Set("Authorization", "Bearer "+control.Token)
+	if input != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	client := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: nil}}
 	response, err := client.Do(request)
 	if err != nil {
@@ -280,6 +316,20 @@ func runtimeControlRequest(ctx context.Context, method, path string, output any)
 		}
 	}
 	return control, nil
+}
+
+func requestRuntimeCLIApproval(ctx context.Context, capability string, args []string) error {
+	var result struct {
+		RequestID string `json:"request_id"`
+	}
+	_, err := runtimeControlJSONRequest(ctx, http.MethodPost, "/requests/consume-cli", map[string]any{"capability": capability, "args": args}, &result)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(result.RequestID) == "" {
+		return errors.New("runtime control approval response is missing request id")
+	}
+	return nil
 }
 
 func requestRuntimeReload(ctx context.Context) (runtimeReloadResult, error) {

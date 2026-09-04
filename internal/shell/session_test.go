@@ -7,18 +7,68 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func TestShellEnvironmentMarksMCPToolContext(t *testing.T) {
-	want := controlplane.ToolContextEnv + "=1"
-	for _, value := range shellEnvironment() {
-		if value == want {
-			return
+	values := shellEnvironmentMap(context.Background())
+	if values[controlplane.ToolContextEnv] != "1" {
+		t.Fatalf("tool context = %q", values[controlplane.ToolContextEnv])
+	}
+	if values[configformat.EnvConfigDir] != configformat.RootPath() {
+		t.Fatalf("config root = %q want %q", values[configformat.EnvConfigDir], configformat.RootPath())
+	}
+}
+
+func TestShellEnvironmentForwardsOnlyContextApproval(t *testing.T) {
+	t.Setenv(controlplane.ControlApprovalEnv, "cap_inherited")
+	if value := shellEnvironmentMap(context.Background())[controlplane.ControlApprovalEnv]; value != "" {
+		t.Fatalf("unapproved shell inherited capability %q", value)
+	}
+	ctx := controlguard.WithApproval(context.Background(), controlguard.Approval{
+		RequestID: "req_test", Capability: "cap_approved", Invocation: controlguard.Invocation{Program: "cgm", Args: []string{"update"}, Command: "cgm update"},
+	})
+	values := shellEnvironmentMap(ctx)
+	if values[controlplane.ControlApprovalEnv] != "cap_approved" || values[controlplane.ToolContextEnv] != "1" {
+		t.Fatalf("approved shell env = %#v", values)
+	}
+}
+
+func TestApprovedControlPlaneCommandUsesCurrentExecutable(t *testing.T) {
+	invocation := controlguard.Invocation{Program: "cgm", Args: []string{"config", "set", "server.port", "41001"}, Command: "cgm config set server.port 41001"}
+	ctx := controlguard.WithApproval(context.Background(), controlguard.Approval{RequestID: "req_test", Capability: "cap_test", Invocation: invocation})
+	cmd, err := commandForPlatform(ctx, invocation.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(cmd.Path) != filepath.Clean(executable) || len(cmd.Args) != len(invocation.Args)+1 {
+		t.Fatalf("approved command = path %q args %#v", cmd.Path, cmd.Args)
+	}
+	for index := range invocation.Args {
+		if cmd.Args[index+1] != invocation.Args[index] {
+			t.Fatalf("arg %d = %q want %q", index, cmd.Args[index+1], invocation.Args[index])
 		}
 	}
-	t.Fatalf("shell environment missing %s", want)
+	if _, err := commandForPlatform(ctx, "cgm config set server.port 41002"); err == nil {
+		t.Fatal("changed approved shell command selected current executable")
+	}
+}
+
+func shellEnvironmentMap(ctx context.Context) map[string]string {
+	values := map[string]string{}
+	for _, value := range shellEnvironment(ctx) {
+		if index := strings.IndexByte(value, '='); index >= 0 {
+			values[value[:index]] = value[index+1:]
+		}
+	}
+	return values
 }
 
 func newShellTestManager(t *testing.T) (*Manager, string, string) {

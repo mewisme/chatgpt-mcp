@@ -24,7 +24,7 @@ func TestExecRejectsOutputRedirectionOutsideWorkspace(t *testing.T) {
 func TestBackgroundValidationRejectsWriteOutsideWorkspace(t *testing.T) {
 	manager, workspaceID, _ := newShellTestManager(t)
 	outside := filepath.Join(t.TempDir(), "escape.txt")
-	_, err := manager.ValidateBackgroundCommand(workspaceID, "echo escaped > "+outside)
+	_, err := manager.ValidateBackgroundCommand(context.Background(), workspaceID, "echo escaped > "+outside)
 	if err == nil || !strings.Contains(err.Error(), "escapes workspace") {
 		t.Fatalf("error = %v, want workspace escape denial", err)
 	}
@@ -43,7 +43,7 @@ func TestWriteMutationUsesPersistedCWD(t *testing.T) {
 
 func TestBackgroundWriteMutationUsesPersistedCWD(t *testing.T) {
 	manager, workspaceID, root := newShellTestManager(t)
-	cwd, err := manager.ValidateBackgroundCommand(workspaceID, "touch file.txt")
+	cwd, err := manager.ValidateBackgroundCommand(context.Background(), workspaceID, "touch file.txt")
 	if err != nil {
 		t.Fatal(err)
 	}

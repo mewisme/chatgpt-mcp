@@ -22,6 +22,12 @@ type requestRecord struct {
 	closed   bool
 }
 
+type cliCapabilityRecord struct {
+	requestID string
+	args      []string
+	expiresAt time.Time
+}
+
 type Manager struct {
 	mu                    sync.Mutex
 	instanceID            string
@@ -29,6 +35,7 @@ type Manager struct {
 	challengeByTarget     map[string]string
 	requests              map[string]*requestRecord
 	activeBySession       map[string]string
+	cliCapabilities       map[string]*cliCapabilityRecord
 	now                   func() time.Time
 	newID                 func(string) (string, error)
 	challengeTTL          time.Duration
@@ -41,7 +48,7 @@ type Manager struct {
 func NewManager(instanceID string) *Manager {
 	return &Manager{
 		instanceID: strings.TrimSpace(instanceID), challenges: map[string]*challengeRecord{}, challengeByTarget: map[string]string{}, requests: map[string]*requestRecord{}, activeBySession: map[string]string{},
-		now: time.Now, newID: randomID, challengeTTL: DefaultChallengeTTL, requestTTL: DefaultRequestTTL, retryTTL: DefaultRetryTTL, pendingLimit: DefaultPendingLimit, workspacePendingLimit: DefaultWorkspacePendingLimit,
+		cliCapabilities: map[string]*cliCapabilityRecord{}, now: time.Now, newID: randomID, challengeTTL: DefaultChallengeTTL, requestTTL: DefaultRequestTTL, retryTTL: DefaultRetryTTL, pendingLimit: DefaultPendingLimit, workspacePendingLimit: DefaultWorkspacePendingLimit,
 	}
 }
 
@@ -259,25 +266,75 @@ func (m *Manager) MatchApproved(input RetryInput) (Request, bool, error) {
 }
 
 func (m *Manager) ClaimApproved(input RetryInput) (Request, bool, error) {
+	request, _, matched, err := m.ClaimApprovedCLI(input, CLIInvocation{})
+	return request, matched, err
+}
+
+func (m *Manager) ClaimApprovedCLI(input RetryInput, cli CLIInvocation) (Request, string, bool, error) {
 	if m == nil {
-		return Request{}, false, errors.New("approval manager is unavailable")
+		return Request{}, "", false, errors.New("approval manager is unavailable")
 	}
 	input.SessionID, input.WorkspaceID, input.Source, input.TargetTool = strings.TrimSpace(input.SessionID), strings.TrimSpace(input.WorkspaceID), strings.TrimSpace(input.Source), strings.TrimSpace(input.TargetTool)
+	cli.Program = strings.TrimSpace(cli.Program)
+	cli.Args = append([]string(nil), cli.Args...)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.now().UTC()
 	m.purgeExpiredLocked(now)
 	request, matched, err := m.matchApprovedLocked(input)
 	if err != nil || !matched {
-		return request, matched, err
+		return request, "", matched, err
 	}
 	record := m.requests[request.ID]
 	if record == nil || record.value.Status != StatusApproved {
-		return Request{}, false, ErrRequestNotApproved
+		return Request{}, "", false, ErrRequestNotApproved
+	}
+	capability := ""
+	if cli.Program != "" || len(cli.Args) > 0 {
+		capability, err = m.newID("cap")
+		if err != nil {
+			return Request{}, "", false, err
+		}
+		expiresAt := now.Add(DefaultCLICapabilityTTL)
+		if !record.value.RetryUntil.IsZero() && record.value.RetryUntil.Before(expiresAt) {
+			expiresAt = record.value.RetryUntil
+		}
+		m.cliCapabilities[capability] = &cliCapabilityRecord{requestID: record.value.ID, args: append([]string(nil), cli.Args...), expiresAt: expiresAt}
 	}
 	record.value.Status, record.value.ConsumedAt = StatusConsumed, now
 	m.clearActiveLocked(record.value)
-	return cloneRequest(record.value), true, nil
+	return cloneRequest(record.value), capability, true, nil
+}
+
+func (m *Manager) ConsumeCLI(capability string, args []string) (string, error) {
+	if m == nil {
+		return "", errors.New("approval manager is unavailable")
+	}
+	capability = strings.TrimSpace(capability)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now().UTC()
+	record := m.cliCapabilities[capability]
+	if record == nil {
+		m.purgeExpiredLocked(now)
+		return "", ErrCapabilityNotFound
+	}
+	if !now.Before(record.expiresAt) {
+		delete(m.cliCapabilities, capability)
+		m.purgeExpiredLocked(now)
+		return "", ErrCapabilityExpired
+	}
+	m.purgeExpiredLocked(now)
+	if len(record.args) != len(args) {
+		return "", &CapabilityMismatchError{Expected: append([]string(nil), record.args...), Actual: append([]string(nil), args...)}
+	}
+	for index := range record.args {
+		if record.args[index] != args[index] {
+			return "", &CapabilityMismatchError{Expected: append([]string(nil), record.args...), Actual: append([]string(nil), args...)}
+		}
+	}
+	delete(m.cliCapabilities, capability)
+	return record.requestID, nil
 }
 
 func (m *Manager) matchApprovedLocked(input RetryInput) (Request, bool, error) {
@@ -395,6 +452,12 @@ func (m *Manager) purgeExpiredLocked(now time.Time) int {
 		}
 		m.removeChallengeLocked(record.value)
 		changed++
+	}
+	for token, record := range m.cliCapabilities {
+		if !now.Before(record.expiresAt) {
+			delete(m.cliCapabilities, token)
+			changed++
+		}
 	}
 	return changed
 }

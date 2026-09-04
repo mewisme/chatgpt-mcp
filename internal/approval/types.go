@@ -13,6 +13,7 @@ const (
 	DefaultChallengeTTL          = 30 * time.Second
 	DefaultRequestTTL            = 60 * time.Second
 	DefaultRetryTTL              = 30 * time.Second
+	DefaultCLICapabilityTTL      = 15 * time.Second
 	DefaultPendingLimit          = 32
 	DefaultWorkspacePendingLimit = 8
 )
@@ -37,6 +38,8 @@ var (
 	ErrRequestNotApproved   = errors.New("approval request is not approved")
 	ErrSessionRequestActive = errors.New("MCP session already has an active approval request")
 	ErrPendingLimit         = errors.New("approval pending request limit reached")
+	ErrCapabilityNotFound   = errors.New("control approval capability not found")
+	ErrCapabilityExpired    = errors.New("control approval capability expired")
 )
 
 type ChallengeInput struct {
@@ -97,6 +100,20 @@ type RetryInput struct {
 	Source      string
 	TargetTool  string
 	Arguments   map[string]any
+}
+
+type CLIInvocation struct {
+	Program string
+	Args    []string
+}
+
+type CapabilityMismatchError struct {
+	Expected []string
+	Actual   []string
+}
+
+func (e *CapabilityMismatchError) Error() string {
+	return "control approval capability does not match CLI arguments"
 }
 
 type Filter struct {

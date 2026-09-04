@@ -91,6 +91,20 @@ For requests carrying an MCP session ID, the first valid workspace-scoped call b
 
 Effective filesystem scope and session isolation are described in [Security](security.md).
 
+## Effective project context and global instructions
+
+`project_context` is assembled by one shared builder used by both the MCP tool and the Admin workspace preview. Its effective instruction text can include project-local instruction files, managed global context/rules, enabled user-level instruction sources, matching path rules, optional skill metadata, Git context, and memory according to the tool options and configured byte/line budgets.
+
+The Admin `Global Instructions` view manages the runtime-owned global context and always-on rules. It also discovers supported user-level instruction providers on the current machine and exposes policy switches only for resource kinds that actually exist. A missing provider or missing context/rules/skills kind is not synthesized into the UI. Disabling a detected user-level source is enforced in the shared discovery/load path used by `project_context`, `list_skills`, `load_skill`, and `load_path_rules`; project-local sources remain independent from those user-level switches.
+
+The Admin workspace `Context` view calls the same builder as the MCP tool, so its rendered preview is intended to represent the effective context a corresponding `project_context` call would receive with the same options.
+
+## Synchronous commands and Admin execution streaming
+
+`run_command` remains a synchronous MCP tool: the caller receives the normal final command result with stdout, stderr, cwd, exit code, and timeout state. While the command is running, the runtime additionally mirrors stdout/stderr into a workspace-scoped in-memory execution stream for the Admin workspace `Activity` view.
+
+Admin execution streams use a bounded output tail and bounded recent-execution history. Reconnecting clients first receive a full execution snapshot and then sequence-numbered output/completion events, so they can recover from a dropped or overflowed SSE connection without changing the MCP result contract. Raw streamed stdout/stderr is intentionally excluded from the normal activity observation payload; the activity journal keeps command/result metadata while live command output stays in the execution buffer.
+
 ## Control-guard approval flow
 
 When a workspace-scoped tool attempts an approvable control-plane mutation, the tool call returns structured `approval_required` content instead of executing the mutation. The response includes a short-lived `challenge_id`, the workspace, target tool, exact canonical arguments, guard reason, and the `request_control_approval` tool name.

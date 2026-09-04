@@ -209,6 +209,10 @@ The control token is stored under the protected config/state root and is not int
 
 When a guarded MCP tool action creates a pending human request, the runtime publishes approval lifecycle events and the Admin UI shows a global approval dialog with request details, exact target arguments, and a countdown. `cgm request list` uses the same runtime-control source of truth. Approval requests expire after 60 seconds; approved retries remain valid only for their short retry window and exact original target.
 
+The Admin workspace routes also expose runtime-owned project context and command execution views. `Context` previews the same effective context builder used by the MCP `project_context` tool. `Requests` scopes approval list/event traffic to the selected workspace. `Activity` lists recent `run_command` executions for the selected workspace and can attach to a running execution through snapshot-first SSE to display stdout/stderr as they arrive.
+
+Command execution output is kept in bounded process memory rather than persisted to the runtime activity journal. The MCP `run_command` response remains synchronous and unchanged; the Admin stream is an observation path layered alongside it. Completed execution records are retained only in the bounded recent in-memory execution history and disappear when the runtime restarts or old entries are pruned.
+
 ## Live config reload
 
 Persist a change:

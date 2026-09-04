@@ -165,6 +165,21 @@ describe("admin app runtime smoke", () => {
     expect(window.location.pathname).toBe("/workspaces/ws_test/context")
   })
 
+  it("deep-links workspace activity and loads workspace-scoped executions", async () => {
+    const workspace = { id: "ws_test", path: "/projects/test", allow_dirs: [] }
+    window.history.replaceState({}, "", "/workspaces/ws_test/activity")
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path === "/api/workspaces/ws_test") return json(workspace)
+      if (path === "/api/workspaces/ws_test/executions?limit=50") return json([])
+      return mockFetch(input)
+    }))
+    renderAdminApp()
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Workspace Activity")))
+    expect(await screen.findByText("No command executions")).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/workspaces/ws_test/activity")
+  })
+
   it("only renders detected instruction sources and persists their toggles", async () => {
     const user = userEvent.setup()
     const detected = [{ provider: "claude", kind: "context", paths: ["/home/test/.claude/CLAUDE.md"], count: 1, enabled: true, loaded: false }]

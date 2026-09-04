@@ -42,11 +42,13 @@ chatgpt-mcp
 - Builtin OpenAI Secure MCP Tunnel client with supervised reconnects
 - MCP-session workspace isolation: many sessions may share one workspace, but one session cannot cross into another workspace
 - Workspace-bound filesystem, shell, Git, rules, skills, checkpoints, and utilities
+- Managed global context/rules plus detected user-level instruction sources, with per-provider context/rules/skills policy
 - Dynamic upstream MCP aggregation with OAuth and MRTR relay
 - Managed background runtime via systemd, launchd, or Task Scheduler
 - Persistent structured logs with session boundaries, replay timestamps, filters, `--verbose`, `--debug`, JSON, and live follow
 - Live configuration reload with transactional listener rebind and rollback
 - Embedded React admin dashboard
+- Workspace-scoped Admin views for effective project context, approval requests, and live `run_command` executions
 - Separate MCP/admin authentication and explicit network exposure controls
 - Human-approved one-shot elevation for guarded control-plane actions, with CLI/Admin review
 - Single-binary releases for Linux, macOS, and Windows on amd64/arm64

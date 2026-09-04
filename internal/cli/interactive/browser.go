@@ -19,6 +19,7 @@ type Row struct {
 	Detail      string
 	DetailTitle string
 	DetailRows  []Row
+	DetailTabs  []DetailTab
 	Search      string
 }
 
@@ -70,6 +71,7 @@ type Browser struct {
 	err                error
 	notice             string
 	pendingSelectionID string
+	detailTab          int
 }
 
 type browserRefreshMsg struct {
@@ -165,6 +167,8 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case msg.String() == "q", msg.String() == "esc", key.Matches(msg, browserOpenBinding):
 			m.detail = false
 			return m, nil
+		case m.moveDetailTab(msg):
+			return m, nil
 		case m.refresh != nil && key.Matches(msg, browserRefreshBinding):
 			return m.startRefresh()
 		default:
@@ -185,6 +189,7 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, browserOpenBinding):
 		if selected, ok := m.selected(); ok {
 			m.detail = true
+			m.detailTab = 0
 			m.syncDetail(selected)
 		}
 		return m, nil
@@ -235,10 +240,19 @@ func (m Browser) detailView() string {
 	}
 	builder.WriteString("\n")
 	builder.WriteString(Divider(m.modalContentWidth()))
+	if len(selected.DetailTabs) > 1 {
+		builder.WriteString("\n")
+		builder.WriteString(Tabs(detailTabLabels(selected.DetailTabs), m.detailTab))
+		builder.WriteString("\n")
+		builder.WriteString(Divider(m.modalContentWidth()))
+	}
 	builder.WriteString("\n")
 	builder.WriteString(m.viewport.View())
 	builder.WriteString("\n\n")
 	help := []key.Binding{Binding([]string{"j", "k"}, "j/k", "scroll"), Binding([]string{"esc", "q"}, "esc/q", "close")}
+	if len(selected.DetailTabs) > 1 {
+		help = append([]key.Binding{Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs")}, help...)
+	}
 	for _, action := range m.actions {
 		help = append(help, Binding([]string{action.Key}, action.Key, action.Desc))
 	}
@@ -340,7 +354,14 @@ func (m *Browser) resizeViewport() {
 }
 
 func (m *Browser) syncDetail(row Row) {
-	content := strings.TrimSpace(row.Detail)
+	content := ""
+	if len(row.DetailTabs) > 0 {
+		m.detailTab = MoveTab(m.detailTab, len(row.DetailTabs), 0)
+		content = strings.TrimSpace(row.DetailTabs[m.detailTab].Content)
+	}
+	if content == "" {
+		content = strings.TrimSpace(row.Detail)
+	}
 	if len(row.DetailRows) > 0 {
 		content = renderDetailRows(row.DetailRows)
 	}
@@ -353,6 +374,20 @@ func (m *Browser) syncDetail(row Row) {
 	m.resizeViewport()
 	m.viewport.SetContent(content)
 	m.viewport.GotoTop()
+}
+
+func (m *Browser) moveDetailTab(msg tea.KeyPressMsg) bool {
+	selected, ok := m.selected()
+	if !ok || len(selected.DetailTabs) < 2 {
+		return false
+	}
+	delta, ok := TabDelta(msg)
+	if !ok {
+		return false
+	}
+	m.detailTab = MoveTab(m.detailTab, len(selected.DetailTabs), delta)
+	m.syncDetail(selected)
+	return true
 }
 
 func (m Browser) modalWidth() int {
@@ -378,6 +413,14 @@ func renderDetailRows(rows []Row) string {
 		}
 	}
 	return builder.String()
+}
+
+func detailTabLabels(tabs []DetailTab) []string {
+	labels := make([]string, 0, len(tabs))
+	for _, tab := range tabs {
+		labels = append(labels, tab.Title)
+	}
+	return labels
 }
 
 func browserListItems(rows []Row) []list.Item {

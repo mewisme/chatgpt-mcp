@@ -86,6 +86,8 @@ chatgpt-mcp
 │   └── server
 ├── request
 │   ├── approve
+│   ├── create
+│   │   └── dummy
 │   ├── deny
 │   ├── list
 │   └── view
@@ -163,24 +165,32 @@ cgm request list
 cgm request view <request_id>
 cgm request approve <request_id>
 cgm request deny <request_id>
+cgm request create dummy
 ```
 
 Aliases include `req`, `ls`, `show`/`info`, `accept`/`allow`, and `reject`. Request IDs may be specified in full or by an unambiguous prefix. `approve` and `deny` accept `--reason`; list/view/resolve commands support `--json` where applicable.
 
 Pending requests expire after 60 seconds. Approval does not grant a general CLI bypass: it authorizes one exact retry of the original MCP tool arguments. A mismatched retry is rejected without consuming the valid grant; a successful retry consumes it. `cgm request approve/deny` cannot be run by an MCP shell tool to self-approve its own request.
 
-On an interactive terminal, `cgm request list` opens the TUI automatically. Controls include `j/k` or arrows to move, `enter`/`v` for details, `a` approve, `d` deny, `/` filter, `r` refresh, and `q` quit. Approve/deny require a `y/N` confirmation.
+`cgm request create dummy` creates a short-lived pending request through the same runtime approval manager and event stream as production requests. It is intended for testing the request TUI and admin approval UI; its random dummy session cannot match a real MCP retry grant.
 
-List commands that support the reusable browser follow the same mode rules:
+## Interactive TUI commands
 
-```bash
-cgm request list
-cgm workspace list
-cgm mcp server list
-cgm tunnel list
-```
+The following commands support interactive mode. On a terminal they open the TUI automatically unless `--no-interactive` is supplied.
 
-Use `--no-interactive` for deterministic text/legacy output, `--interactive` to force the TUI on a terminal, and `--json` for machine-readable output. `--json` always suppresses the TUI. For compatibility, non-interactive `cgm tunnel list` remains JSON by default.
+| Command | Interactive detail |
+| --- | --- |
+| `cgm request list` | pending approval inbox; detail modal with `Overview`, `Arguments`, and `Guard` tabs plus interactive Allow/Deny actions |
+| `cgm workspace list` | workspace browser with modal details and `c` to copy the selected workspace ID |
+| `cgm mcp server list` | upstream server browser; detail tabs group `Overview`, `Connection`, and `Tools` |
+| `cgm mcp server list --refresh` | refreshed health browser; detail tabs group `Overview`, `Tools`, and `Error` |
+| `cgm tunnel list` | managed tunnel browser; detail tabs group `Overview` and `Scope` |
+
+Mode flags are consistent across these commands: `--interactive` forces the TUI and requires terminal stdin/stdout, `--no-interactive` forces deterministic text/legacy output, and `--json` suppresses the TUI for machine-readable output. For compatibility, non-interactive `cgm tunnel list` remains JSON by default.
+
+Common list controls are `j/k` or arrows to move, `/` to filter, `enter`/`v` to open details, `r` to refresh when available, `?` for full help, and `q` to quit. In tabbed detail dialogs, `←/→` or `h/l` switch tabs and `j/k` or `↑/↓` scroll the active tab.
+
+The request detail dialog keeps action focus separate from tab navigation: `Tab`/`Shift+Tab` switch between Allow and Deny, `Enter` activates the focused action, and `a`/`d` remain direct shortcuts. Resolution opens a second confirmation dialog; that dialog defaults to Cancel, uses `←/→`, `h/l`, or `Tab` to change focus, and `Enter` to choose the focused button. `y` confirms directly while `n`, `Esc`, or `q` cancel.
 
 See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for challenge binding and one-shot capability semantics.
 

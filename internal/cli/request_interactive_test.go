@@ -89,9 +89,16 @@ func TestRequestInteractiveDetailUsesAuthoritativeView(t *testing.T) {
 	if !model.detail || model.detailRequest.ID != request.ID {
 		t.Fatalf("detail model=%#v", model)
 	}
-	view := model.View().Content
-	if !strings.Contains(view, `"command": "cgm update"`) || !strings.Contains(view, "guarded") {
-		t.Fatalf("detail view=%q", view)
+	if !strings.Contains(model.viewport.GetContent(), "Workspace") || !strings.Contains(model.View().Content, "Overview") || !strings.Contains(model.View().Content, "Arguments") || !strings.Contains(model.View().Content, "Guard") {
+		t.Fatalf("overview view=%q", model.View().Content)
+	}
+	model = updateRequestInteractive(t, model, keyText("right"))
+	if !strings.Contains(model.viewport.GetContent(), `"command": "cgm update"`) {
+		t.Fatalf("arguments=%q", model.viewport.GetContent())
+	}
+	model = updateRequestInteractive(t, model, keyText("right"))
+	if !strings.Contains(model.viewport.GetContent(), "guarded") {
+		t.Fatalf("guard=%q", model.viewport.GetContent())
 	}
 }
 
@@ -153,14 +160,26 @@ func TestRequestInteractiveViewRendersHierarchyAndScrollableDetail(t *testing.T)
 	updated, _ = model.Update(cmd())
 	model = updated.(requestInteractiveModel)
 	detail := model.viewport.GetContent()
-	for _, expected := range []string{"Workspace", "ws_a", "Request", "req_visual", "Tool", "run_command", "Source", "tunnel", "Session", "hash-session", "Guard", "control-plane mutation", "Created", "Expires", "Exact arguments", `"command": "cgm update"`, "Guard reason"} {
+	for _, expected := range []string{"Workspace", "ws_a", "Request", "req_visual", "Tool", "run_command", "Source", "tunnel", "Session", "hash-session", "Created", "Expires"} {
 		if !strings.Contains(detail, expected) {
 			t.Fatalf("detail content missing %q: %q", expected, detail)
 		}
 	}
 	overlay := model.View().Content
-	if !strings.Contains(overlay, "Pending control approvals") || !strings.Contains(overlay, "Allow cgm update") || !strings.Contains(overlay, "esc/q") || !strings.Contains(overlay, "close") {
+	if !strings.Contains(overlay, "Allow cgm update") || !strings.Contains(overlay, "Overview") || !strings.Contains(overlay, "Arguments") || !strings.Contains(overlay, "Guard") {
 		t.Fatalf("overlay view=%q", overlay)
+	}
+	model = updateRequestInteractive(t, model, keyText("right"))
+	if model.detailTab != 1 || !strings.Contains(model.viewport.GetContent(), `"command": "cgm update"`) {
+		t.Fatalf("arguments tab=%d content=%q", model.detailTab, model.viewport.GetContent())
+	}
+	model = updateRequestInteractive(t, model, keyText("right"))
+	if model.detailTab != 2 || !strings.Contains(model.viewport.GetContent(), "control-plane mutation") {
+		t.Fatalf("guard tab=%d content=%q", model.detailTab, model.viewport.GetContent())
+	}
+	model = updateRequestInteractive(t, model, keyText("right"))
+	if model.detailTab != 0 || !strings.Contains(model.viewport.GetContent(), "Workspace") {
+		t.Fatalf("wrapped tab=%d content=%q", model.detailTab, model.viewport.GetContent())
 	}
 	modal := model.View().Content
 	if !strings.Contains(modal, "Allow") || !strings.Contains(modal, "Deny") || !strings.Contains(modal, "j/k/↑/↓") {
@@ -169,9 +188,9 @@ func TestRequestInteractiveViewRendersHierarchyAndScrollableDetail(t *testing.T)
 	if !model.detailActions.AffirmativeSelected() {
 		t.Fatal("detail actions should default to Allow")
 	}
-	model = updateRequestInteractive(t, model, keyText("right"))
+	model = updateRequestInteractive(t, model, keyText("tab"))
 	if model.detailActions.AffirmativeSelected() {
-		t.Fatal("right did not focus Deny")
+		t.Fatal("tab did not focus Deny")
 	}
 	model = updateRequestInteractive(t, model, keyCode(tea.KeyEnter))
 	if !model.confirm.Active() || model.confirm.Action != "deny" || !strings.Contains(model.View().Content, "Deny request?") || !strings.Contains(model.View().Content, "←/→/tab") || !strings.Contains(model.View().Content, "n/esc") {

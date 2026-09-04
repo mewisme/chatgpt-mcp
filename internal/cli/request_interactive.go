@@ -69,6 +69,7 @@ type requestInteractiveModel struct {
 	pendingSelectionID string
 	background         tea.BackgroundColorMsg
 	hasBackground      bool
+	detailTab          int
 }
 
 type requestInteractiveListMsg struct {
@@ -174,6 +175,7 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.detail, m.detailRequest = true, msg.request
+		m.detailTab = 0
 		m.detailActions = interactive.NewConfirmButtons("Allow", "Deny", true)
 		m.resizeActions()
 		if m.hasBackground {
@@ -246,7 +248,9 @@ func (m requestInteractiveModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.
 			m.startConfirmation("approve", m.detailRequest)
 		case key.Matches(msg, requestDenyBinding):
 			m.startConfirmation("deny", m.detailRequest)
-		case msg.String() == "h", msg.String() == "l", msg.String() == "left", msg.String() == "right", msg.String() == "tab", msg.String() == "shift+tab":
+		case m.moveDetailTab(msg):
+			return m, nil
+		case msg.String() == "tab", msg.String() == "shift+tab":
 			return m, m.detailActions.Update(msg)
 		case key.Matches(msg, requestRefreshBinding):
 			m.loading = true
@@ -345,12 +349,16 @@ func (m requestInteractiveModel) detailView() string {
 	builder.WriteString("\n")
 	builder.WriteString(interactive.Divider(m.modalContentWidth()))
 	builder.WriteString("\n")
+	builder.WriteString(interactive.Tabs(requestDetailTabLabels, m.detailTab))
+	builder.WriteString("\n")
+	builder.WriteString(interactive.Divider(m.modalContentWidth()))
+	builder.WriteString("\n")
 	builder.WriteString(m.viewport.View())
 	builder.WriteString("\n\n")
 	builder.WriteString(m.detailActions.View())
 	builder.WriteString("\n\n")
 	builder.WriteString(interactive.DefaultHelp(m.modalContentWidth(),
-		interactive.Binding([]string{"j", "k", "up", "down"}, "j/k/↑/↓", "scroll"), interactive.Binding([]string{"h", "l", "left", "right", "tab"}, "←/→/tab", "choose"), interactive.Binding([]string{"enter"}, "enter", "select"),
+		interactive.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), interactive.Binding([]string{"j", "k", "up", "down"}, "j/k/↑/↓", "scroll"), interactive.Binding([]string{"tab", "shift+tab"}, "tab", "action"), interactive.Binding([]string{"enter"}, "enter", "select"),
 		interactive.Binding([]string{"esc", "q"}, "esc/q", "close"),
 	))
 	return interactive.Modal(builder.String(), m.modalWidth())
@@ -466,59 +474,26 @@ func (m *requestInteractiveModel) syncDetailViewport() {
 	}
 	request := m.detailRequest
 	var builder strings.Builder
-	requestDetailRow(&builder, "Workspace", request.WorkspaceID)
-	requestDetailRow(&builder, "Request", request.ID)
-	requestDetailRow(&builder, "Tool", request.TargetTool)
-	requestDetailRow(&builder, "Source", emptyRequestValue(request.Source))
-	requestDetailRow(&builder, "Session", emptyRequestValue(request.SessionHash))
-	guard := strings.TrimSpace(string(request.GuardCode))
-	if guard == "" {
-		guard = strings.TrimSpace(request.GuardReason)
-	}
-	if guard == "" {
-		guard = "control-plane mutation"
-	}
-	requestDetailRow(&builder, "Guard", guard)
-	requestDetailRow(&builder, "Created", requestInteractiveTime(request.CreatedAt))
-	requestDetailRow(&builder, "Expires", requestInteractiveTime(request.ExpiresAt))
-	if !request.ResolvedAt.IsZero() {
-		requestDetailRow(&builder, "Resolved", requestInteractiveTime(request.ResolvedAt))
-	}
-	if request.ResolvedBy != "" {
-		requestDetailRow(&builder, "Resolved by", request.ResolvedBy)
-	}
-	if request.Reason != "" {
-		requestDetailRow(&builder, "Reason", request.Reason)
-	}
-	if !request.RetryUntil.IsZero() {
-		requestDetailRow(&builder, "Retry until", requestInteractiveTime(request.RetryUntil))
-	}
-	if !request.ConsumedAt.IsZero() {
-		requestDetailRow(&builder, "Consumed", requestInteractiveTime(request.ConsumedAt))
-	}
-	if len(request.Arguments) > 0 {
-		builder.WriteString("\n")
-		builder.WriteString(interactive.Title("Exact arguments"))
-		builder.WriteString("\n")
-		var value any
-		if json.Unmarshal(request.Arguments, &value) == nil {
-			if data, err := json.MarshalIndent(value, "", "  "); err == nil {
-				builder.Write(data)
-				builder.WriteString("\n")
-			}
-		} else {
-			builder.Write(request.Arguments)
-			builder.WriteString("\n")
-		}
-	}
-	if request.GuardReason != "" {
-		builder.WriteString("\n")
-		builder.WriteString(interactive.Title("Guard reason"))
-		builder.WriteString("\n")
-		builder.WriteString(interactive.Muted(request.GuardReason))
-		builder.WriteString("\n")
+	switch interactive.MoveTab(m.detailTab, len(requestDetailTabLabels), 0) {
+	case 1:
+		requestArgumentsDetail(&builder, request)
+	case 2:
+		requestGuardDetail(&builder, request)
+	default:
+		requestOverviewDetail(&builder, request)
 	}
 	m.viewport.SetContent(strings.TrimSuffix(builder.String(), "\n"))
+}
+
+func (m *requestInteractiveModel) moveDetailTab(msg tea.KeyPressMsg) bool {
+	delta, ok := interactive.TabDelta(msg)
+	if !ok {
+		return false
+	}
+	m.detailTab = interactive.MoveTab(m.detailTab, len(requestDetailTabLabels), delta)
+	m.syncDetailViewport()
+	m.viewport.GotoTop()
+	return true
 }
 
 func (m requestInteractiveModel) modalWidth() int {
@@ -538,6 +513,57 @@ func requestDetailRow(builder *strings.Builder, label, value string) {
 	builder.WriteString(interactive.Label(fmt.Sprintf("%-11s", label)))
 	builder.WriteString("  ")
 	builder.WriteString(value)
+}
+
+var requestDetailTabLabels = []string{"Overview", "Arguments", "Guard"}
+
+func requestOverviewDetail(builder *strings.Builder, request approval.Request) {
+	requestDetailRow(builder, "Workspace", request.WorkspaceID)
+	requestDetailRow(builder, "Request", request.ID)
+	requestDetailRow(builder, "Tool", request.TargetTool)
+	requestDetailRow(builder, "Source", emptyRequestValue(request.Source))
+	requestDetailRow(builder, "Session", emptyRequestValue(request.SessionHash))
+	requestDetailRow(builder, "Created", requestInteractiveTime(request.CreatedAt))
+	requestDetailRow(builder, "Expires", requestInteractiveTime(request.ExpiresAt))
+	if !request.ResolvedAt.IsZero() {
+		requestDetailRow(builder, "Resolved", requestInteractiveTime(request.ResolvedAt))
+	}
+	if request.ResolvedBy != "" {
+		requestDetailRow(builder, "Resolved by", request.ResolvedBy)
+	}
+	if request.Reason != "" {
+		requestDetailRow(builder, "Reason", request.Reason)
+	}
+	if !request.RetryUntil.IsZero() {
+		requestDetailRow(builder, "Retry until", requestInteractiveTime(request.RetryUntil))
+	}
+	if !request.ConsumedAt.IsZero() {
+		requestDetailRow(builder, "Consumed", requestInteractiveTime(request.ConsumedAt))
+	}
+}
+
+func requestArgumentsDetail(builder *strings.Builder, request approval.Request) {
+	if len(request.Arguments) == 0 {
+		builder.WriteString(interactive.Muted("No arguments"))
+		return
+	}
+	var value any
+	if json.Unmarshal(request.Arguments, &value) == nil {
+		if data, err := json.MarshalIndent(value, "", "  "); err == nil {
+			builder.Write(data)
+			return
+		}
+	}
+	builder.Write(request.Arguments)
+}
+
+func requestGuardDetail(builder *strings.Builder, request approval.Request) {
+	guard := strings.TrimSpace(string(request.GuardCode))
+	if guard == "" {
+		guard = "control-plane mutation"
+	}
+	requestDetailRow(builder, "Guard", guard)
+	requestDetailRow(builder, "Reason", emptyRequestValue(request.GuardReason))
 }
 
 func emptyRequestValue(value string) string {

@@ -18,12 +18,6 @@ type Confirmation struct {
 func (c Confirmation) Active() bool                 { return c.Action != "" }
 func (c *Confirmation) Start(action, target string) { c.Action, c.Target = action, target }
 func (c *Confirmation) Clear()                      { c.Action, c.Target = "", "" }
-func (c Confirmation) View() string {
-	if !c.Active() {
-		return ""
-	}
-	return c.Target + " [y/N]"
-}
 
 func TerminalIO(in io.Reader, out io.Writer) bool {
 	input, inputOK := in.(*os.File)

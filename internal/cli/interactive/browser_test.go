@@ -101,6 +101,23 @@ func TestBrowserStructuredDetailUsesDefaultListLayout(t *testing.T) {
 	}
 }
 
+func TestBrowserTabbedDetailSwitchesContent(t *testing.T) {
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One", DetailTabs: []DetailTab{{Title: "Overview", Content: "overview body"}, {Title: "Scope", Content: "scope body"}}}}, nil)
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})
+	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
+	if !strings.Contains(model.View().Content, "Overview") || !strings.Contains(model.View().Content, "Scope") || !strings.Contains(model.viewport.GetContent(), "overview body") {
+		t.Fatalf("initial tab view=%q content=%q", model.View().Content, model.viewport.GetContent())
+	}
+	model = updateBrowser(t, model, browserKeyCode(tea.KeyRight))
+	if model.detailTab != 1 || !strings.Contains(model.viewport.GetContent(), "scope body") {
+		t.Fatalf("tab=%d content=%q", model.detailTab, model.viewport.GetContent())
+	}
+	model = updateBrowser(t, model, browserKeyCode(tea.KeyLeft))
+	if model.detailTab != 0 || !strings.Contains(model.viewport.GetContent(), "overview body") {
+		t.Fatalf("tab=%d content=%q", model.detailTab, model.viewport.GetContent())
+	}
+}
+
 func TestBrowserRowActionUsesSelectedItemAndDefaultHelp(t *testing.T) {
 	copied := ""
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, nil).WithAction(RowAction{Key: "c", Desc: "copy ID", Run: func(row Row) (string, tea.Cmd, error) {

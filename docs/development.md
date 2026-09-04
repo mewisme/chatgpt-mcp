@@ -161,7 +161,7 @@ Control-approval native smoke additionally verifies:
 - CLI plain/JSON/non-TTY interactive fallback
 - Admin loopback and remote-auth policy
 
-The portable runtime smoke also checks that `request_control_approval` is present in the MCP catalog, `cgm request list` reaches the running runtime, JSON suppresses the TUI, and `--interactive` fails clearly when no terminal is attached. Workspace and upstream list commands are checked with the same deterministic fallback behavior.
+The portable runtime smoke also checks that `request_control_approval` is present in the MCP catalog, `cgm request list` reaches the running runtime, JSON suppresses the TUI, and `--interactive` fails clearly when no terminal is attached. The documented workspace, upstream MCP, and tunnel interactive list commands use the same deterministic fallback behavior.
 
 Updater and control-approval integration gates run in every native Linux, macOS, and Windows CI/release job. Cross-build jobs continue to compile all six release OS/architecture targets.
 

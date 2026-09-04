@@ -112,11 +112,11 @@ func TestInteractiveRowsExposeUsefulDetailsWithoutUpstreamSecrets(t *testing.T) 
 		t.Fatalf("workspace rows=%#v", workspaceRows)
 	}
 	upstreamRows := upstreamInteractiveRows([]upstream.Server{{ID: "demo", Name: "Demo", Transport: "http", Enabled: true, URL: "https://mcp.example.test", Expose: "all", Headers: map[string]string{"Authorization": "secret-value"}}})
-	if len(upstreamRows) != 1 || strings.Contains(upstreamRows[0].Detail, "secret-value") || !strings.Contains(upstreamRows[0].Detail, "<redacted>") {
+	if len(upstreamRows) != 1 || len(upstreamRows[0].DetailTabs) != 3 || strings.Contains(upstreamRows[0].DetailTabs[1].Content, "secret-value") || !strings.Contains(upstreamRows[0].DetailTabs[1].Content, "<redacted>") {
 		t.Fatalf("upstream rows=%#v", upstreamRows)
 	}
 	tunnelRows := tunnelInteractiveRows([]tunnel.Metadata{{ID: "tunnel_one", Name: "One", WorkspaceIDs: []string{"ws_admin"}}})
-	if len(tunnelRows) != 1 || !strings.Contains(tunnelRows[0].Summary, "ws_admin") {
+	if len(tunnelRows) != 1 || len(tunnelRows[0].DetailTabs) != 2 || !strings.Contains(tunnelRows[0].Summary, "ws_admin") || !strings.Contains(tunnelRows[0].DetailTabs[1].Content, "ws_admin") {
 		t.Fatalf("tunnel rows=%#v", tunnelRows)
 	}
 }

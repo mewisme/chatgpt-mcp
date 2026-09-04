@@ -91,6 +91,12 @@ func Activate(staged Staged) (Activation, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Activation{}, err
 	}
+	if currentVersion != "" {
+		currentTarget, err = staged.Layout.VersionDir(currentVersion)
+		if err != nil {
+			return Activation{}, err
+		}
+	}
 	if currentVersion == staged.Version {
 		return Activation{Layout: staged.Layout, Version: staged.Version, PreviousVersion: currentVersion, PreviousTarget: currentTarget, CurrentTarget: staged.Dir}, nil
 	}
@@ -111,7 +117,11 @@ func Rollback(activation Activation) error {
 	if activation.PreviousVersion != "" && version != activation.PreviousVersion {
 		return fmt.Errorf("rollback target version mismatch: got %s, want %s", version, activation.PreviousVersion)
 	}
-	return switchCurrent(activation.Layout, activation.PreviousTarget)
+	target, err := activation.Layout.VersionDir(version)
+	if err != nil {
+		return err
+	}
+	return switchCurrent(activation.Layout, target)
 }
 
 func CurrentVersion(layout Layout) (string, string, error) {

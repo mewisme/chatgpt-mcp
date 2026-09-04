@@ -207,7 +207,7 @@ ${workspacePlain}`)
   runExpectFailure(["workspace", "list", "--interactive"])
 
   const upstreamPlain = run(["mcp", "server", "list", "--no-interactive"], { quiet: true })
-  if (!upstreamPlain.includes("Upstream MCP servers loaded")) fail(`MCP server list fallback did not render plain output:
+  if (!upstreamPlain.includes("Upstream servers loaded")) fail(`MCP server list fallback did not render plain output:
 ${upstreamPlain}`)
   const upstreamJSON = JSON.parse(run(["mcp", "server", "list", "--json", "--interactive"], { quiet: true }))
   if (!Array.isArray(upstreamJSON)) fail("MCP server list JSON fallback did not return an array")

@@ -115,6 +115,27 @@ func TestCurrentVersionAcceptsCanonicalizedInstallRoot(t *testing.T) {
 	if version != "v1.0.0" {
 		t.Fatalf("current version = %q", version)
 	}
+	second, err := Install(Options{Layout: layout, Version: "v1.1.0", Source: testBinary(t, "next"), NoAlias: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPrevious, err := layout.VersionDir("v1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Activation.PreviousTarget != wantPrevious {
+		t.Fatalf("previous target = %q, want %q", second.Activation.PreviousTarget, wantPrevious)
+	}
+	if err := Rollback(second.Activation); err != nil {
+		t.Fatal(err)
+	}
+	version, _, err = CurrentVersion(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != "v1.0.0" {
+		t.Fatalf("rollback version = %q", version)
+	}
 }
 
 func testLayout(t *testing.T) Layout {

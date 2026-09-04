@@ -67,7 +67,7 @@ func newRequestInteractiveModel(ctx context.Context, requests []approval.Request
 	view := viewport.New(viewport.WithWidth(74), viewport.WithHeight(12))
 	view.SoftWrap = true
 	view.FillHeight = false
-	return requestInteractiveModel{ctx: ctx, client: client, keys: interactive.DefaultListKeys(), viewport: view, requests: append([]approval.Request(nil), requests...), now: time.Now()}
+	return requestInteractiveModel{ctx: ctx, client: client, keys: interactive.DefaultListKeys(), viewport: view, requests: requestInteractivePending(requests), now: time.Now()}
 }
 
 func defaultRequestInteractiveClient() requestInteractiveClient {
@@ -94,10 +94,10 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
-		m.requests = msg.requests
+		m.requests = requestInteractivePending(msg.requests)
 		m.cursor.Clamp(len(m.filtered()))
 		if m.detail {
-			if current, ok := requestFind(msg.requests, m.detailRequest.ID); ok {
+			if current, ok := requestFind(m.requests, m.detailRequest.ID); ok {
 				m.detailRequest = current
 				m.syncDetailViewport()
 			} else {
@@ -122,6 +122,8 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.notice = fmt.Sprintf("%s %s", requestActionTitle(msg.action), msg.request.ID)
+		m.requests = requestRemove(m.requests, msg.request.ID)
+		m.cursor.Clamp(len(m.filtered()))
 		m.detail, m.detailRequest = false, approval.Request{}
 		return m, m.refreshCmd()
 	case tea.KeyPressMsg:
@@ -241,7 +243,7 @@ func (m requestInteractiveModel) View() tea.View {
 	if m.loading {
 		meta = interactive.Accent("⠋") + " " + interactive.Muted("refreshing")
 	}
-	builder.WriteString(interactive.Header("Control approval requests", meta, m.contentWidth()))
+	builder.WriteString(interactive.Header("Pending control approvals", meta, m.contentWidth()))
 	if filter := interactive.Filter(m.filter, m.filtering); filter != "" {
 		builder.WriteString("\n")
 		builder.WriteString(filter)
@@ -274,7 +276,11 @@ func (m requestInteractiveModel) View() tea.View {
 func (m requestInteractiveModel) writeList(builder *strings.Builder) {
 	items := m.filtered()
 	if len(items) == 0 {
-		builder.WriteString(interactive.Muted("No requests match the current filter."))
+		message := "No pending approval requests."
+		if strings.TrimSpace(m.filter) != "" {
+			message = "No pending requests match the current filter."
+		}
+		builder.WriteString(interactive.Muted(message))
 		builder.WriteString("\n")
 	} else {
 		maxRows := m.listCapacity()
@@ -460,6 +466,26 @@ func requestFind(requests []approval.Request, id string) (approval.Request, bool
 		}
 	}
 	return approval.Request{}, false
+}
+
+func requestInteractivePending(requests []approval.Request) []approval.Request {
+	result := make([]approval.Request, 0, len(requests))
+	for _, request := range requests {
+		if request.Status == approval.StatusPending {
+			result = append(result, request)
+		}
+	}
+	return result
+}
+
+func requestRemove(requests []approval.Request, id string) []approval.Request {
+	result := requests[:0]
+	for _, request := range requests {
+		if request.ID != id {
+			result = append(result, request)
+		}
+	}
+	return result
 }
 
 func requestCountdown(request approval.Request, now time.Time) string {

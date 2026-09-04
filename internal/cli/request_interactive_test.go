@@ -53,6 +53,9 @@ func TestRequestInteractiveFilterConfirmAndResolve(t *testing.T) {
 	if model.busy || model.err != nil || !strings.Contains(model.notice, second.ID) {
 		t.Fatalf("resolved model=%#v", model)
 	}
+	if len(model.requests) != 1 || model.requests[0].ID != first.ID {
+		t.Fatalf("resolved request remained in inbox: %#v", model.requests)
+	}
 }
 
 func TestRequestInteractiveDetailUsesAuthoritativeView(t *testing.T) {
@@ -87,12 +90,34 @@ func TestRequestInteractiveDetailUsesAuthoritativeView(t *testing.T) {
 	}
 }
 
-func TestRequestInteractiveResolvedItemCannotBeApproved(t *testing.T) {
-	request := approval.Request{ID: "req_denied", Status: approval.StatusDenied, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Denied"}
-	model := newRequestInteractiveModel(context.Background(), []approval.Request{request}, requestInteractiveClient{})
-	model = updateRequestInteractive(t, model, keyText("a"))
-	if model.confirm.Active() || !strings.Contains(model.notice, "cannot be resolved") {
-		t.Fatalf("model=%#v", model)
+func TestRequestInteractiveHidesResolvedItems(t *testing.T) {
+	pending := approval.Request{ID: "req_pending", Status: approval.StatusPending, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Pending"}
+	approved := approval.Request{ID: "req_approved", Status: approval.StatusApproved, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Approved"}
+	denied := approval.Request{ID: "req_denied", Status: approval.StatusDenied, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Denied"}
+	consumed := approval.Request{ID: "req_consumed", Status: approval.StatusConsumed, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Consumed"}
+	model := newRequestInteractiveModel(context.Background(), []approval.Request{pending, approved, denied, consumed}, requestInteractiveClient{})
+	if len(model.requests) != 1 || model.requests[0].ID != pending.ID {
+		t.Fatalf("interactive inbox=%#v", model.requests)
+	}
+	view := model.View().Content
+	if !strings.Contains(view, "Pending control approvals") || strings.Contains(view, approved.ID) || strings.Contains(view, denied.ID) || strings.Contains(view, consumed.ID) {
+		t.Fatalf("view=%q", view)
+	}
+}
+
+func TestRequestInteractiveRefreshDropsResolvedItems(t *testing.T) {
+	now := time.Now().UTC()
+	pending := approval.Request{ID: "req_pending", Status: approval.StatusPending, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Pending", ExpiresAt: now.Add(time.Minute)}
+	approved := pending
+	approved.Status = approval.StatusApproved
+	client := requestInteractiveClient{list: func(context.Context) ([]approval.Request, error) { return []approval.Request{approved}, nil }}
+	model := newRequestInteractiveModel(context.Background(), []approval.Request{pending}, client)
+	updated, cmd := model.Update(keyText("r"))
+	model = updated.(requestInteractiveModel)
+	updated, _ = model.Update(cmd())
+	model = updated.(requestInteractiveModel)
+	if len(model.requests) != 0 {
+		t.Fatalf("resolved request remained after refresh: %#v", model.requests)
 	}
 }
 
@@ -105,7 +130,7 @@ func TestRequestInteractiveViewRendersHierarchyAndScrollableDetail(t *testing.T)
 	model.now = now
 	model = updateRequestInteractive(t, model, tea.WindowSizeMsg{Width: 76, Height: 16})
 	listView := model.View().Content
-	for _, expected := range []string{"Control approval requests", "Allow cgm update", "PENDING", "req_visual", "ws_a", "run_command"} {
+	for _, expected := range []string{"Pending control approvals", "Allow cgm update", "PENDING", "req_visual", "ws_a", "run_command"} {
 		if !strings.Contains(listView, expected) {
 			t.Fatalf("list view missing %q: %q", expected, listView)
 		}

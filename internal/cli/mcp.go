@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
@@ -51,7 +52,7 @@ func mcpCommand() *cobra.Command {
 }
 
 func mcpServerListCommand() *cobra.Command {
-	var asJSON, refresh bool
+	var asJSON, refresh, forceInteractive, noInteractive bool
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
@@ -61,12 +62,28 @@ func mcpServerListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			interactiveMode, err := interactive.ResolveMode(cmd.InOrStdin(), cmd.OutOrStdout(), forceInteractive, noInteractive, asJSON)
+			if err != nil {
+				return err
+			}
 			if refresh {
 				ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
-				defer cancel()
 				statuses := manager.ListStatuses(ctx, true)
+				cancel()
 				if asJSON {
 					return printJSON(cmd, statuses)
+				}
+				if interactiveMode {
+					refreshRows := func(parent context.Context) ([]interactive.Row, error) {
+						manager, err := loadUpstreamManager()
+						if err != nil {
+							return nil, err
+						}
+						ctx, cancel := context.WithTimeout(parent, 15*time.Second)
+						defer cancel()
+						return upstreamStatusInteractiveRows(manager.ListStatuses(ctx, true)), nil
+					}
+					return runInteractiveBrowser(cmd, "Upstream MCP server status", upstreamStatusInteractiveRows(statuses), refreshRows)
 				}
 				log := commandLogger(cmd)
 				log.Success("MCP", "upstream status loaded", "count", len(statuses))
@@ -83,6 +100,16 @@ func mcpServerListCommand() *cobra.Command {
 				}
 				return printJSON(cmd, views)
 			}
+			if interactiveMode {
+				refreshRows := func(context.Context) ([]interactive.Row, error) {
+					manager, err := loadUpstreamManager()
+					if err != nil {
+						return nil, err
+					}
+					return upstreamInteractiveRows(manager.List()), nil
+				}
+				return runInteractiveBrowser(cmd, "Upstream MCP servers", upstreamInteractiveRows(servers), refreshRows)
+			}
 			log := commandLogger(cmd)
 			log.Success("MCP", "upstream servers loaded", "count", len(servers))
 			for _, server := range servers {
@@ -97,6 +124,8 @@ func mcpServerListCommand() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
 	cmd.Flags().BoolVar(&refresh, "refresh", false, "connect to each enabled server and refresh health")
+	cmd.Flags().BoolVar(&forceInteractive, "interactive", false, "force interactive upstream server list")
+	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false, "disable interactive upstream server list")
 	return cmd
 }
 

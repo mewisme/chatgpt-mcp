@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -203,6 +204,7 @@ func tunnelAdminKeyRemoveCommand() *cobra.Command {
 
 func tunnelListCommand() *cobra.Command {
 	var scopeFlags tunnelAdminScopeFlags
+	var asJSON, forceInteractive, noInteractive bool
 	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List tunnels manageable by the stored admin key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -221,9 +223,28 @@ func tunnelListCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		interactiveMode, err := interactive.ResolveMode(cmd.InOrStdin(), cmd.OutOrStdout(), forceInteractive, noInteractive, asJSON)
+		if err != nil {
+			return err
+		}
+		if interactiveMode {
+			refreshRows := func(parent context.Context) ([]interactive.Row, error) {
+				ctx, cancel := context.WithTimeout(parent, tunnelAdminTimeout)
+				defer cancel()
+				items, err := tunnel.ListManaged(ctx, cfg.Tunnel, scope)
+				if err != nil {
+					return nil, err
+				}
+				return tunnelInteractiveRows(items), nil
+			}
+			return runInteractiveBrowser(cmd, "Managed tunnels", tunnelInteractiveRows(items), refreshRows)
+		}
 		return printJSON(cmd, items)
 	}}
 	scopeFlags.add(cmd)
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	cmd.Flags().BoolVar(&forceInteractive, "interactive", false, "force interactive tunnel list")
+	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false, "disable interactive tunnel list")
 	return cmd
 }
 

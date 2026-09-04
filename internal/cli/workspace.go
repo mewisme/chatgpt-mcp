@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -89,7 +90,7 @@ func workspaceRegisterCommand() *cobra.Command {
 }
 
 func workspaceListCommand() *cobra.Command {
-	var asJSON bool
+	var asJSON, forceInteractive, noInteractive bool
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
@@ -100,8 +101,15 @@ func workspaceListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			interactiveMode, err := interactive.ResolveMode(cmd.InOrStdin(), cmd.OutOrStdout(), forceInteractive, noInteractive, asJSON)
+			if err != nil {
+				return err
+			}
 			if asJSON {
 				return printJSON(cmd, items)
+			}
+			if interactiveMode {
+				return runInteractiveBrowser(cmd, "Registered workspaces", workspaceInteractiveRows(items), workspaceInteractiveRefresh())
 			}
 			log := commandLogger(cmd)
 			log.Success("WORKSPACE", "registered workspaces loaded", "count", len(items))
@@ -112,6 +120,8 @@ func workspaceListCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	cmd.Flags().BoolVar(&forceInteractive, "interactive", false, "force interactive workspace list")
+	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false, "disable interactive workspace list")
 	return cmd
 }
 

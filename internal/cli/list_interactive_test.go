@@ -112,14 +112,14 @@ func TestWorkspaceShowAndAccessListDefaultToText(t *testing.T) {
 	registered := executeRequestCommand(t, root, []string{"workspace", "register", workspaceRoot})
 	id := strings.TrimSpace(strings.Split(strings.Split(registered, "id:")[1], "\n")[0])
 
-	show := executeRequestCommand(t, root, []string{"workspace", "show", id})
-	if !strings.Contains(show, "Workspace details") || !strings.Contains(show, workspaceRoot) || strings.HasPrefix(strings.TrimSpace(show), "{") {
-		t.Fatalf("show=%q", show)
-	}
 	showJSON := executeRequestCommand(t, root, []string{"workspace", "show", id, "--json"})
 	var item workspace.Workspace
 	if err := json.Unmarshal([]byte(strings.TrimSpace(showJSON)), &item); err != nil || item.ID != id {
 		t.Fatalf("show json=%q item=%#v err=%v", showJSON, item, err)
+	}
+	show := executeRequestCommand(t, root, []string{"workspace", "show", id})
+	if !strings.Contains(show, "Workspace details") || !strings.Contains(show, item.Path) || strings.HasPrefix(strings.TrimSpace(show), "{") {
+		t.Fatalf("show=%q canonical=%q requested=%q", show, item.Path, workspaceRoot)
 	}
 
 	access := executeRequestCommand(t, root, []string{"workspace", "access", "list", id})

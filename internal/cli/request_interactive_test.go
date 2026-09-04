@@ -36,7 +36,7 @@ func TestRequestInteractiveFilterConfirmAndResolve(t *testing.T) {
 	if !model.confirm.Active() || model.confirm.Action != "approve" || model.confirm.Target != second.ID {
 		t.Fatalf("confirm=%#v", model.confirm)
 	}
-	updated, cmd := model.Update(keyText("y"))
+	updated, cmd := model.Update(keyCode(tea.KeyEnter))
 	model = updated.(requestInteractiveModel)
 	if cmd == nil {
 		t.Fatal("approve confirmation did not return command")
@@ -103,6 +103,14 @@ func TestRequestInteractiveHidesResolvedItems(t *testing.T) {
 	}
 }
 
+func TestRequestInteractiveEmptyStateRendersOnce(t *testing.T) {
+	model := newRequestInteractiveModel(context.Background(), nil, requestInteractiveClient{})
+	view := model.View().Content
+	if count := strings.Count(view, "No requests"); count != 1 {
+		t.Fatalf("No requests count=%d view=%q", count, view)
+	}
+}
+
 func TestRequestInteractiveRefreshDropsResolvedItems(t *testing.T) {
 	now := time.Now().UTC()
 	pending := approval.Request{ID: "req_pending", Status: approval.StatusPending, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Pending", ExpiresAt: now.Add(time.Minute)}
@@ -147,8 +155,12 @@ func TestRequestInteractiveViewRendersHierarchyAndScrollableDetail(t *testing.T)
 	if !strings.Contains(overlay, "Pending control approvals") || !strings.Contains(overlay, "Allow cgm update") || !strings.Contains(overlay, "esc/q") || !strings.Contains(overlay, "close") {
 		t.Fatalf("overlay view=%q", overlay)
 	}
+	modal := model.View().Content
+	if !strings.Contains(modal, "Allow") || !strings.Contains(modal, "Deny") || !strings.Contains(modal, "j/k/↑/↓") {
+		t.Fatalf("detail actions missing: %q", modal)
+	}
 	model = updateRequestInteractive(t, model, keyText("a"))
-	if !model.confirm.Active() || !strings.Contains(model.View().Content, "Approve req_visual? [y/N]") {
+	if !model.confirm.Active() || !strings.Contains(model.View().Content, "Allow request?") || !strings.Contains(model.View().Content, "enter/y") || !strings.Contains(model.View().Content, "esc/n") {
 		t.Fatalf("modal confirmation missing: confirm=%#v view=%q", model.confirm, model.View().Content)
 	}
 	model = updateRequestInteractive(t, model, keyText("n"))

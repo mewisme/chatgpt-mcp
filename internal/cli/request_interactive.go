@@ -94,6 +94,7 @@ func newRequestInteractiveModel(ctx context.Context, requests []approval.Request
 	now := time.Now()
 	pending := requestInteractivePending(requests)
 	listModel := interactive.NewDefaultList("Pending control approvals", requestListItems(pending, now), 80, 20, "request", "requests")
+	listModel.SetShowStatusBar(len(pending) > 0)
 	syncRequestListHelp(&listModel)
 	view := viewport.New(viewport.WithWidth(74), viewport.WithHeight(12))
 	view.SoftWrap = true
@@ -189,15 +190,17 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 func (m requestInteractiveModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.confirm.Active() {
 		switch msg.String() {
-		case "y", "Y":
+		case "y", "Y", "enter":
 			action, target := m.confirm.Action, m.confirm.Target
 			m.confirm.Clear()
 			m.busy = true
 			return m, m.resolveCmd(action, target)
 		case "ctrl+c":
 			return m, tea.Quit
-		default:
+		case "n", "N", "esc", "q":
 			m.confirm.Clear()
+			return m, nil
+		default:
 			return m, nil
 		}
 	}
@@ -266,9 +269,9 @@ func (m requestInteractiveModel) View() tea.View {
 	content := m.list.View()
 	if m.detail {
 		content = interactive.CenterOverlay(content, m.detailView(), m.width, m.height)
-	} else if m.confirm.Active() {
-		message := fmt.Sprintf("%s %s? [y/N]", requestActionTitle(m.confirm.Action), m.confirm.Target)
-		content += "\n" + interactive.Banner(message, interactive.ToneWarning) + "\n"
+	}
+	if m.confirm.Active() {
+		content = interactive.CenterOverlay(content, m.confirmView(), m.width, m.height)
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
@@ -300,17 +303,33 @@ func (m requestInteractiveModel) detailView() string {
 	builder.WriteString(interactive.Divider(m.modalContentWidth()))
 	builder.WriteString("\n")
 	builder.WriteString(m.viewport.View())
-	if m.confirm.Active() {
-		builder.WriteString("\n\n")
-		message := fmt.Sprintf("%s %s? [y/N]", requestActionTitle(m.confirm.Action), m.confirm.Target)
-		builder.WriteString(interactive.Banner(message, interactive.ToneWarning))
-	}
+	builder.WriteString("\n\n")
+	builder.WriteString(interactive.ActionButton("a", "Allow"))
+	builder.WriteString("  ")
+	builder.WriteString(interactive.ActionButton("d", "Deny"))
 	builder.WriteString("\n\n")
 	builder.WriteString(interactive.DefaultHelp(m.modalContentWidth(),
-		interactive.Binding([]string{"j", "k"}, "j/k", "scroll"), requestApproveBinding,
-		requestDenyBinding, requestRefreshBinding, interactive.Binding([]string{"esc", "q"}, "esc/q", "close"), interactive.Binding([]string{"ctrl+c"}, "ctrl+c", "quit"),
+		interactive.Binding([]string{"j", "k", "up", "down"}, "j/k/↑/↓", "scroll"), requestRefreshBinding,
+		interactive.Binding([]string{"esc", "q"}, "esc/q", "close"), interactive.Binding([]string{"ctrl+c"}, "ctrl+c", "quit"),
 	))
 	return interactive.Modal(builder.String(), m.modalWidth())
+}
+
+func (m requestInteractiveModel) confirmView() string {
+	action := requestActionTitle(m.confirm.Action)
+	label := action
+	if m.confirm.Action == "approve" {
+		label = "Allow"
+	}
+	var builder strings.Builder
+	builder.WriteString(interactive.Title(label + " request?"))
+	builder.WriteString("\n")
+	builder.WriteString(interactive.Muted(m.confirm.Target))
+	builder.WriteString("\n\n")
+	builder.WriteString(interactive.ActionButton("enter/y", label))
+	builder.WriteString("  ")
+	builder.WriteString(interactive.ActionButton("esc/n", "Cancel"))
+	return interactive.Modal(builder.String(), max(34, min(54, m.modalWidth()-10)))
 }
 
 func (m requestInteractiveModel) selected() (approval.Request, bool) {
@@ -330,6 +349,7 @@ func (m requestInteractiveModel) selectedID() string {
 }
 
 func (m *requestInteractiveModel) syncListItems(selectedID string) tea.Cmd {
+	m.list.SetShowStatusBar(len(m.requests) > 0)
 	cmd := m.list.SetItems(requestListItems(m.requests, m.now))
 	if cmd != nil {
 		m.pendingSelectionID = selectedID
@@ -391,7 +411,7 @@ func (m *requestInteractiveModel) resizeViewport() {
 	if height <= 0 {
 		height = 20
 	}
-	m.viewport.SetHeight(max(5, min(18, height-10)))
+	m.viewport.SetHeight(max(3, min(18, height-13)))
 }
 
 func (m *requestInteractiveModel) syncDetailViewport() {

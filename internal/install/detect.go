@@ -2,6 +2,7 @@ package install
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,31 @@ type Detection struct {
 	Executable string
 	Root       string
 	Metadata   *Metadata
+}
+
+func (d Detection) ManagedLayout() (Layout, error) {
+	if d.Method != MethodDirect || d.Metadata == nil {
+		return Layout{}, errors.New("managed direct installation not found")
+	}
+	if d.Metadata.Method != MethodDirect {
+		return Layout{}, fmt.Errorf("install metadata method is %q, want direct", d.Metadata.Method)
+	}
+	binDir := strings.TrimSpace(d.Metadata.BinDir)
+	if binDir == "" {
+		defaults, err := DefaultLayout()
+		if err != nil {
+			return Layout{}, err
+		}
+		binDir = defaults.BinDir
+	}
+	layout, err := NewLayout(d.Metadata.InstallDir, binDir)
+	if err != nil {
+		return Layout{}, err
+	}
+	if d.Root != "" && !samePath(d.Root, layout.Root) {
+		return Layout{}, fmt.Errorf("install metadata root %s does not match detected root %s", layout.Root, d.Root)
+	}
+	return layout, nil
 }
 
 func DetectCurrent(buildVersion string) (Detection, error) {

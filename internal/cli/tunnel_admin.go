@@ -250,7 +250,14 @@ func tunnelListCommand() *cobra.Command {
 			}
 			return runInteractiveBrowser(cmd, "Managed tunnels", tunnelInteractiveRows(items), refreshRows)
 		}
-		return printJSON(cmd, items)
+		if asJSON {
+			return printJSON(cmd, items)
+		}
+		log.Success("TUNNEL", "managed tunnels loaded", "count", len(items))
+		for _, item := range items {
+			log.Detail(item.ID, managedTunnelSummary(item))
+		}
+		return nil
 	}}
 	scopeFlags.add(cmd)
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
@@ -261,6 +268,7 @@ func tunnelListCommand() *cobra.Command {
 
 func tunnelGetCommand() *cobra.Command {
 	var configure, enable bool
+	var asJSON bool
 	var runtimeAPIKey string
 	cmd := &cobra.Command{Use: "get <tunnel_id>", Short: "Fetch a managed tunnel by id", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -269,6 +277,11 @@ func tunnelGetCommand() *cobra.Command {
 		}
 		if !tunnel.AdminConfigured(cfg.Tunnel) {
 			return errors.New("verified tunnel admin key is required; run tunnel admin key set first")
+		}
+		log := commandLogger(cmd)
+		defer log.Close()
+		if !asJSON {
+			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.get.loading", "Loading managed tunnel")
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
@@ -287,9 +300,18 @@ func tunnelGetCommand() *cobra.Command {
 				return err
 			}
 		}
-		return printJSON(cmd, metadata)
+		if asJSON {
+			return printJSON(cmd, metadata)
+		}
+		log.Success("TUNNEL", "managed tunnel loaded")
+		logManagedTunnelMetadata(log, metadata)
+		if configure {
+			log.Detail("cgm", "configured")
+		}
+		return nil
 	}}
 	addManagedConfigureFlags(cmd, &configure, &runtimeAPIKey, &enable)
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
 	return cmd
 }
 
@@ -496,6 +518,13 @@ func configureManagedTunnel(cfg *config.Config, metadata tunnel.Metadata, runtim
 }
 
 func logManagedTunnelDetails(log *logger.Logger, metadata tunnel.Metadata, configured bool) {
+	logManagedTunnelMetadata(log, metadata)
+	if configured {
+		log.Detail("cgm", "configured")
+	}
+}
+
+func logManagedTunnelMetadata(log *logger.Logger, metadata tunnel.Metadata) {
 	log.Detail("id", metadata.ID)
 	if metadata.Name != "" {
 		log.Detail("name", metadata.Name)
@@ -503,9 +532,36 @@ func logManagedTunnelDetails(log *logger.Logger, metadata tunnel.Metadata, confi
 	if metadata.Description != "" {
 		log.Detail("description", metadata.Description)
 	}
-	if configured {
-		log.Detail("cgm", "configured")
+	if metadata.Creator != "" {
+		log.Detail("creator", metadata.Creator)
 	}
+	if len(metadata.OrganizationIDs) > 0 {
+		log.Detail("organizations", metadata.OrganizationIDs)
+	}
+	if len(metadata.WorkspaceIDs) > 0 {
+		log.Detail("workspaces", metadata.WorkspaceIDs)
+	}
+	if len(metadata.TenantIDs) > 0 {
+		log.Detail("tenants", metadata.TenantIDs)
+	}
+	if metadata.RequestID != "" {
+		log.Detail("request", metadata.RequestID)
+	}
+	if !metadata.FetchedAt.IsZero() {
+		log.Detail("fetched", metadata.FetchedAt.Local().Format(time.RFC3339))
+	}
+}
+
+func managedTunnelSummary(metadata tunnel.Metadata) string {
+	name := metadata.Name
+	if name == "" {
+		name = "unnamed"
+	}
+	scope := append(append(append([]string{}, metadata.OrganizationIDs...), metadata.WorkspaceIDs...), metadata.TenantIDs...)
+	if len(scope) == 0 {
+		return name
+	}
+	return name + " scope=" + strings.Join(scope, ",")
 }
 
 func formatTunnelAdminScope(scope tunnel.AdminScope) string {

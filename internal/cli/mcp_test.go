@@ -1,8 +1,13 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
@@ -33,5 +38,34 @@ func TestRedactUpstreamServer(t *testing.T) {
 	}
 	if server.Headers["Authorization"] != "Bearer secret" || server.Env["API_TOKEN"] != "secret" {
 		t.Fatal("redaction mutated source config")
+	}
+}
+
+func TestMCPServerShowDefaultsToTextAndSupportsJSON(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if _, err := executeRequestCommandError(root, []string{"mcp", "server", "add", "demo", "--transport", "http", "--url", "https://mcp.example.test", "--header", "Authorization=secret-value"}); err != nil {
+		t.Fatal(err)
+	}
+	plain := executeRequestCommand(t, root, []string{"mcp", "server", "show", "demo"})
+	if !strings.Contains(plain, "Upstream server") || !strings.Contains(plain, "demo") || !strings.Contains(plain, "<redacted>") || strings.Contains(plain, "secret-value") || strings.HasPrefix(strings.TrimSpace(plain), "{") {
+		t.Fatalf("plain=%q", plain)
+	}
+	structured := executeRequestCommand(t, root, []string{"mcp", "server", "show", "demo", "--json"})
+	var server upstream.Server
+	if err := json.Unmarshal([]byte(strings.TrimSpace(structured)), &server); err != nil || server.ID != "demo" || server.Headers["Authorization"] != "<redacted>" {
+		t.Fatalf("json=%q server=%#v err=%v", structured, server, err)
+	}
+}
+
+func TestLogUpstreamStatusUsesCLIFormatter(t *testing.T) {
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	status := upstream.Status{ID: "demo", Name: "Demo", Enabled: true, Transport: "http", Auth: "oauth", Health: upstream.HealthConnected, Connected: true, ToolCount: 2, Expose: "all", ProxiedTools: []string{"demo_one", "demo_two"}}
+	logUpstreamStatus(commandLogger(cmd), status)
+	text := output.String()
+	if !strings.Contains(text, "Upstream server connected") || !strings.Contains(text, "health: connected") || !strings.Contains(text, "tools: 2") || strings.HasPrefix(strings.TrimSpace(text), "{") {
+		t.Fatalf("output=%q", text)
 	}
 }

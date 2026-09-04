@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -241,6 +242,19 @@ func TestMatchingConfigPreset(t *testing.T) {
 func TestUnknownConfigPreset(t *testing.T) {
 	if _, err := config.PresetByName("missing"); err == nil {
 		t.Fatal("unknown preset was accepted")
+	}
+}
+
+func TestConfigPresetShowDefaultsToTextAndSupportsJSON(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "config")
+	plain := executeRequestCommand(t, root, []string{"config", "preset", "show", "default"})
+	if !strings.Contains(plain, "Configuration preset") || !strings.Contains(plain, "name: default") || strings.HasPrefix(strings.TrimSpace(plain), "{") {
+		t.Fatalf("plain=%q", plain)
+	}
+	structured := executeRequestCommand(t, root, []string{"config", "preset", "show", "default", "--json"})
+	var preset config.Preset
+	if err := json.Unmarshal([]byte(strings.TrimSpace(structured)), &preset); err != nil || preset.Name != "default" {
+		t.Fatalf("json=%q preset=%#v err=%v", structured, preset, err)
 	}
 }
 

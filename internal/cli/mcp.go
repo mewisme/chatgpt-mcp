@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -202,7 +203,8 @@ func mcpServerConfigureCommand() *cobra.Command {
 }
 
 func mcpServerShowCommand() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:               "show <id>",
 		Short:             "Show one upstream server with secrets redacted",
 		Args:              cobra.ExactArgs(1),
@@ -216,9 +218,16 @@ func mcpServerShowCommand() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("unknown upstream server: %s", args[0])
 			}
-			return printJSON(cmd, redactUpstreamServer(server))
+			server = redactUpstreamServer(server)
+			if asJSON {
+				return printJSON(cmd, server)
+			}
+			logUpstreamServer(commandLogger(cmd), server)
+			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	return cmd
 }
 
 func mcpServerRemoveCommand() *cobra.Command {
@@ -274,7 +283,7 @@ func mcpServerToggleCommand(enabled bool) *cobra.Command {
 }
 
 func mcpServerStatusCommand() *cobra.Command {
-	var refresh bool
+	var refresh, asJSON bool
 	cmd := &cobra.Command{
 		Use:               "status <id>",
 		Aliases:           []string{"st"},
@@ -286,14 +295,115 @@ func mcpServerStatusCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			log := commandLogger(cmd)
+			defer log.Close()
+			if !asJSON {
+				startCommandSpinner(cmd, log, "MCP", "mcp.status.checking", "Checking upstream MCP status")
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
 			defer cancel()
 			status := manager.CheckHealth(ctx, args[0], refresh)
-			return printJSON(cmd, status)
+			if asJSON {
+				return printJSON(cmd, status)
+			}
+			logUpstreamStatus(log, status)
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&refresh, "refresh", true, "force a new upstream connection/tool list")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
 	return cmd
+}
+
+func logUpstreamServer(log interface {
+	Info(string, string, ...any)
+	Detail(string, any)
+}, server upstream.Server) {
+	endpoint := server.URL
+	if server.Transport == "stdio" {
+		endpoint = server.Command
+	}
+	log.Info("MCP", "upstream server")
+	log.Detail("id", server.ID)
+	log.Detail("name", server.Name)
+	log.Detail("transport", server.Transport)
+	log.Detail("enabled", server.Enabled)
+	log.Detail("endpoint", endpoint)
+	log.Detail("auth", server.Auth.Type)
+	if server.Auth.Scope != "" {
+		log.Detail("auth scope", server.Auth.Scope)
+	}
+	log.Detail("expose", server.Expose)
+	log.Detail("tool prefix", server.ToolPrefix)
+	log.Detail("idle timeout", fmt.Sprintf("%ds", server.IdleTimeoutSec))
+	if server.CWD != "" {
+		log.Detail("cwd", server.CWD)
+	}
+	if len(server.Args) > 0 {
+		log.Detail("args", server.Args)
+	}
+	if server.BearerTokenEnvVar != "" {
+		log.Detail("bearer env", server.BearerTokenEnvVar)
+	}
+	if len(server.Headers) > 0 {
+		log.Detail("headers", sortedAssignments(server.Headers))
+	}
+	if len(server.Env) > 0 {
+		log.Detail("env", sortedAssignments(server.Env))
+	}
+	if len(server.Tools) > 0 {
+		log.Detail("tools", server.Tools)
+	}
+	if len(server.DisabledTools) > 0 {
+		log.Detail("disabled tools", server.DisabledTools)
+	}
+}
+
+func logUpstreamStatus(log interface {
+	Success(string, string, ...any)
+	Info(string, string, ...any)
+	Warn(string, string, ...any)
+	Detail(string, any)
+}, status upstream.Status) {
+	switch status.Health {
+	case upstream.HealthConnected:
+		log.Success("MCP", "upstream server connected")
+	case upstream.HealthUnreachable:
+		log.Warn("MCP", "upstream server unreachable")
+	default:
+		log.Info("MCP", "upstream server status")
+	}
+	log.Detail("id", status.ID)
+	log.Detail("name", status.Name)
+	log.Detail("health", status.Health)
+	log.Detail("enabled", status.Enabled)
+	log.Detail("connected", status.Connected)
+	log.Detail("transport", status.Transport)
+	log.Detail("auth", status.Auth)
+	log.Detail("tools", status.ToolCount)
+	log.Detail("expose", status.Expose)
+	if len(status.ProxiedTools) > 0 {
+		log.Detail("proxied tools", status.ProxiedTools)
+	}
+	if status.PID != nil {
+		log.Detail("pid", *status.PID)
+	}
+	if status.LastError != "" {
+		log.Detail("error", status.LastError)
+	}
+}
+
+func sortedAssignments(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]string, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, key+"="+values[key])
+	}
+	return result
 }
 
 func mcpServerToolsCommand() *cobra.Command {

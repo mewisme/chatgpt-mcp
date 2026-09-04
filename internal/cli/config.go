@@ -151,6 +151,42 @@ func configSetCommand() *cobra.Command {
 
 func configPresetCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "preset", Short: "List, inspect, and apply built-in configuration presets"}
+	var showJSON bool
+	show := &cobra.Command{
+		Use:               "show <name>",
+		Short:             "Show one built-in configuration preset",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completePresetName,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			preset, err := config.PresetByName(args[0])
+			if err != nil {
+				return err
+			}
+			if showJSON {
+				return printJSON(cmd, preset)
+			}
+			log := commandLogger(cmd)
+			log.Info("PRESET", "configuration preset")
+			log.Detail("name", preset.Name)
+			log.Detail("description", preset.Description)
+			log.Detail("mcp port", preset.Server.Port)
+			log.Detail("expose", preset.Server.Expose.Mode)
+			if len(preset.Server.Expose.Interfaces) > 0 {
+				log.Detail("interfaces", preset.Server.Expose.Interfaces)
+			}
+			log.Detail("admin", preset.Admin.Enabled)
+			if preset.Admin.Enabled {
+				log.Detail("admin port", preset.Admin.Port)
+			}
+			log.Detail("mcp auth", preset.MCPAuthEnabled)
+			log.Detail("admin auth", preset.AdminAuthEnabled)
+			log.Detail("tunnel", preset.TunnelEnabled)
+			log.Detail("ponytail", preset.Features.Ponytail.Enabled)
+			log.Detail("caveman", preset.Features.Caveman.Enabled)
+			return nil
+		},
+	}
+	show.Flags().BoolVar(&showJSON, "json", false, "print JSON")
 	cmd.AddCommand(
 		&cobra.Command{
 			Use:     "list",
@@ -166,19 +202,7 @@ func configPresetCommand() *cobra.Command {
 				return nil
 			},
 		},
-		&cobra.Command{
-			Use:               "show <name>",
-			Short:             "Show one built-in configuration preset",
-			Args:              cobra.ExactArgs(1),
-			ValidArgsFunction: completePresetName,
-			RunE: func(cmd *cobra.Command, args []string) error {
-				preset, err := config.PresetByName(args[0])
-				if err != nil {
-					return err
-				}
-				return printJSON(cmd, preset)
-			},
-		},
+		show,
 		&cobra.Command{
 			Use:               "apply <name>",
 			Aliases:           []string{"use"},

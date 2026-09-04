@@ -22,6 +22,27 @@ func workspaceCommand() *cobra.Command {
 
 func workspaceAccessCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "access", Short: "Manage workspace-specific filesystem access"}
+	var listJSON bool
+	list := &cobra.Command{Use: "list <workspace_id>", Aliases: []string{"ls"}, Short: "List workspace-specific additional directories", Args: cobra.ExactArgs(1), ValidArgsFunction: completeWorkspaceID, RunE: func(cmd *cobra.Command, args []string) error {
+		manager := workspace.NewManager(workspace.DefaultStorePath())
+		item, err := manager.Get(args[0])
+		if err != nil {
+			return err
+		}
+		if listJSON {
+			return printJSON(cmd, item.AllowDirs)
+		}
+		log := commandLogger(cmd)
+		log.Success("WORKSPACE", "allowed directories loaded", "count", len(item.AllowDirs))
+		log.Detail("workspace", item.ID)
+		if len(item.AllowDirs) == 0 {
+			log.Detail("allow dirs", "none")
+		} else {
+			log.Detail("allow dirs", item.AllowDirs)
+		}
+		return nil
+	}}
+	list.Flags().BoolVar(&listJSON, "json", false, "print JSON")
 	cmd.AddCommand(
 		&cobra.Command{Use: "add <workspace_id> <path>", Short: "Grant a workspace access to an additional directory", Args: cobra.ExactArgs(2), ValidArgsFunction: completeWorkspaceThenDirectory, RunE: func(cmd *cobra.Command, args []string) error {
 			manager := workspace.NewManager(workspace.DefaultStorePath())
@@ -46,14 +67,7 @@ func workspaceAccessCommand() *cobra.Command {
 			log.Detail("id", item.ID)
 			return nil
 		}},
-		&cobra.Command{Use: "list <workspace_id>", Aliases: []string{"ls"}, Short: "List workspace-specific additional directories", Args: cobra.ExactArgs(1), ValidArgsFunction: completeWorkspaceID, RunE: func(cmd *cobra.Command, args []string) error {
-			manager := workspace.NewManager(workspace.DefaultStorePath())
-			item, err := manager.Get(args[0])
-			if err != nil {
-				return err
-			}
-			return printJSON(cmd, item.AllowDirs)
-		}},
+		list,
 	)
 	return cmd
 }
@@ -126,7 +140,8 @@ func workspaceListCommand() *cobra.Command {
 }
 
 func workspaceShowCommand() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:               "show <workspace_id>",
 		Short:             "Show one registered workspace",
 		Args:              cobra.ExactArgs(1),
@@ -137,9 +152,26 @@ func workspaceShowCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return printJSON(cmd, item)
+			if asJSON {
+				return printJSON(cmd, item)
+			}
+			log := commandLogger(cmd)
+			log.Info("WORKSPACE", "workspace details")
+			log.Detail("id", item.ID)
+			log.Detail("root", item.Path)
+			if len(item.AllowDirs) == 0 {
+				log.Detail("allow dirs", "none")
+			} else {
+				log.Detail("allow dirs", item.AllowDirs)
+			}
+			if len(item.LegacyIDs) > 0 {
+				log.Detail("legacy ids", item.LegacyIDs)
+			}
+			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	return cmd
 }
 
 func workspaceUnregisterCommand() *cobra.Command {

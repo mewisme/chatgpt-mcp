@@ -69,7 +69,7 @@ func TestMCPServerListInteractiveFlagsPreserveNonTTYOutputsAndRedaction(t *testi
 	}
 }
 
-func TestTunnelListInteractiveFlagsPreserveNonTTYJSON(t *testing.T) {
+func TestTunnelListInteractiveFlagsPreserveNonTTYOutputs(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -93,16 +93,43 @@ func TestTunnelListInteractiveFlagsPreserveNonTTYJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := executeRequestCommand(t, root, []string{"tunnel", "list", "--no-interactive"})
-	var items []tunnel.Metadata
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &items); err != nil || len(items) != 1 || items[0].ID != "tunnel_one" {
-		t.Fatalf("output=%q items=%#v err=%v", output, items, err)
+	if !strings.Contains(output, "Managed tunnels loaded") || !strings.Contains(output, "tunnel_one") || strings.HasPrefix(strings.TrimSpace(output), "[") {
+		t.Fatalf("plain=%q", output)
 	}
 	jsonOutput := executeRequestCommand(t, root, []string{"tunnel", "list", "--json", "--interactive"})
+	var items []tunnel.Metadata
 	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &items); err != nil || len(items) != 1 || items[0].Name != "One" {
 		t.Fatalf("json=%q items=%#v err=%v", jsonOutput, items, err)
 	}
 	if _, err := executeRequestCommandError(root, []string{"tunnel", "list", "--interactive"}); err == nil || !strings.Contains(err.Error(), "requires terminal") {
 		t.Fatalf("forced interactive err=%v", err)
+	}
+}
+
+func TestWorkspaceShowAndAccessListDefaultToText(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "config")
+	workspaceRoot := t.TempDir()
+	registered := executeRequestCommand(t, root, []string{"workspace", "register", workspaceRoot})
+	id := strings.TrimSpace(strings.Split(strings.Split(registered, "id:")[1], "\n")[0])
+
+	show := executeRequestCommand(t, root, []string{"workspace", "show", id})
+	if !strings.Contains(show, "Workspace details") || !strings.Contains(show, workspaceRoot) || strings.HasPrefix(strings.TrimSpace(show), "{") {
+		t.Fatalf("show=%q", show)
+	}
+	showJSON := executeRequestCommand(t, root, []string{"workspace", "show", id, "--json"})
+	var item workspace.Workspace
+	if err := json.Unmarshal([]byte(strings.TrimSpace(showJSON)), &item); err != nil || item.ID != id {
+		t.Fatalf("show json=%q item=%#v err=%v", showJSON, item, err)
+	}
+
+	access := executeRequestCommand(t, root, []string{"workspace", "access", "list", id})
+	if !strings.Contains(access, "Allowed directories loaded") || !strings.Contains(access, "allow dirs: none") || strings.HasPrefix(strings.TrimSpace(access), "[") {
+		t.Fatalf("access=%q", access)
+	}
+	accessJSON := executeRequestCommand(t, root, []string{"workspace", "access", "list", id, "--json"})
+	var allowDirs []string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(accessJSON)), &allowDirs); err != nil || len(allowDirs) != 0 {
+		t.Fatalf("access json=%q allowDirs=%#v err=%v", accessJSON, allowDirs, err)
 	}
 }
 

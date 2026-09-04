@@ -33,7 +33,7 @@ CHATGPT_MCP_CONFIG_DIR
 default user config root
 ```
 
-The selected root covers configuration, non-secret credential metadata, upstream/OAuth state, workspace registry, shell state, memory, checkpoints, logs, and runtime control state. Long-lived reversible credentials are stored in the OS keyring, namespaced to this config root.
+The selected root covers configuration, non-secret credential metadata, upstream/OAuth state, workspace registry, shell state, memory, checkpoints, logs, runtime control state, and the per-root secret-file store under `state/secrets/`. Long-lived reversible credentials are namespaced to this config root and stored there instead of structured config.
 
 Use a non-default root for tests, temporary instances, and development binaries that mutate configuration.
 
@@ -126,7 +126,7 @@ Rebind is transactional. If a requested port/address cannot be opened, the previ
 cgm config migrate
 ```
 
-This moves legacy plaintext tunnel keys, OAuth credentials, and sensitive upstream header/environment values into the OS keyring and rewrites structured state with non-secret markers. Normal credential-loading paths also migrate automatically. On Linux migration prefers Secret Service for reboot-persistent storage. Headless systems without `org.freedesktop.secrets` fall back to the memory-backed kernel user keyring without requiring D-Bus; those entries do not survive reboot, so a Secret Service provider is recommended for persistent credentials. Migration still fails instead of retaining plaintext credentials when neither backend is usable.
+This moves legacy plaintext tunnel keys, OAuth credentials, and sensitive upstream header/environment values into the per-config-root secret-file store and rewrites structured state with non-secret `<secret-file>` markers. Normal credential-loading paths also migrate automatically. The secret store has no OS-keyring dependency; migration fails rather than retaining a reversible secret in structured config when the secret file cannot be written safely.
 
 ## Verify config/state
 
@@ -302,7 +302,7 @@ cgm tunnel configure \
   --organization-id org_...
 ```
 
-Tunnel keys are persisted in the OS keyring. The companion tunnel file uses the selected serialization format only for configured-state markers and admin scope metadata, for example:
+Tunnel keys are persisted in the per-config-root secret-file store. The companion tunnel file uses the selected serialization format only for configured-state markers and admin scope metadata, for example:
 
 ```text
 config.toml
@@ -322,7 +322,7 @@ cgm mcp --help
 cgm mcp server --help
 ```
 
-Upstream OAuth access/refresh tokens and client secrets are stored in the OS keyring. Sensitive upstream header/environment values are also moved there, while non-secret upstream configuration remains in the structured state file. Proxy refresh is atomic: the old exposed proxy catalog remains active if replacement discovery/schema construction fails.
+Upstream OAuth access/refresh tokens and client secrets are stored in the per-config-root secret-file store. Sensitive upstream header/environment values are also moved there, while non-secret upstream configuration remains in the structured state file. Proxy refresh is atomic: the old exposed proxy catalog remains active if replacement discovery/schema construction fails.
 
 See [MCP and upstreams](mcp.md).
 

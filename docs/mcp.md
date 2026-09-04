@@ -91,6 +91,24 @@ For requests carrying an MCP session ID, the first valid workspace-scoped call b
 
 Effective filesystem scope and session isolation are described in [Security](security.md).
 
+## Control-guard approval flow
+
+When a workspace-scoped tool attempts an approvable control-plane mutation, the tool call returns structured `approval_required` content instead of executing the mutation. The response includes a short-lived `challenge_id`, the workspace, target tool, exact canonical arguments, guard reason, and the `request_control_approval` tool name.
+
+The agent may then call:
+
+```text
+request_control_approval(workspace_id, challenge_id)
+```
+
+That request is accepted only when the challenge came from a real guard failure in the same MCP session and workspace. The human request expires after 60 seconds and can be reviewed in the Admin UI or with `cgm request list/view`. Approval or denial is performed outside the agent's MCP tool context.
+
+If approved, the tool response instructs the agent to retry the original target tool. The retry must match the approved session, workspace, target tool, source, guard code, and arguments exactly. A mismatched retry returns `approval_mismatch` and does not consume the valid approval; an exact retry consumes it once. Hard-deny guards such as protected-state access, path escape, nested/wrapper control-plane commands, session/workspace rebinding, and tool-context tampering never produce an approval challenge.
+
+For direct `cgm` execution, the approved retry is additionally narrowed to one opaque, short-lived child capability bound to the exact CLI argv. The MCP tool-context marker remains present; the child CLI verifies the capability over authenticated loopback runtime-control before executing.
+
+See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for the full trust model.
+
 ## Upstream MCP aggregation
 
 `chatgpt-mcp` can connect to other MCP servers and expose enabled upstream tools through the same local tool catalog.
@@ -158,7 +176,7 @@ cgm mcp server configure <id> [flags]
 
 ## Upstream OAuth
 
-HTTP upstreams can use OAuth. Access/refresh tokens and client secrets are stored in the OS keyring; the structured OAuth state file contains only non-secret metadata and keyring markers.
+HTTP upstreams can use OAuth. Access/refresh tokens and client secrets are stored in the selected config root's secret-file store; the structured OAuth state file contains only non-secret metadata and `<secret-file>` markers.
 
 ```bash
 cgm mcp server auth login <id>

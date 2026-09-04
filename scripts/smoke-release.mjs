@@ -67,6 +67,7 @@ try {
   run(["config", "set", "features.caveman.enabled", "true"])
   run(["config", "verify"])
   run(["status"])
+  await verifyInteractiveListFallbacks()
 
   child = spawn(binary, [...globalArgs, "serve"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
   let stdout = ""
@@ -78,6 +79,7 @@ try {
   await waitForHealth(`http://127.0.0.1:${adminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
   await verifyActivitySSE(adminPort)
   await verifyMCP(serverPort, false)
+  verifyApprovalCLI()
   const foregroundStatus = run(["status"], { quiet: true })
   for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "OpenAI Secure MCP Tunnel is disabled"]) {
     if (!foregroundStatus.includes(expected)) fail(`foreground status missing ${JSON.stringify(expected)}:\n${foregroundStatus}`)
@@ -185,6 +187,33 @@ function run(args, { quiet = false } = {}) {
   return [result.stdout, result.stderr].filter(Boolean).join("").trim()
 }
 
+function verifyApprovalCLI() {
+  const plain = run(["request", "list", "--no-interactive"], { quiet: true })
+  if (!plain.includes("Control approval requests loaded")) fail(`request list fallback did not render plain output:
+${plain}`)
+  const json = run(["request", "list", "--json", "--interactive"], { quiet: true })
+  const requests = JSON.parse(json)
+  if (!Array.isArray(requests) || requests.length !== 0) fail(`request list JSON fallback expected no pending requests:
+${json}`)
+  runExpectFailure(["request", "list", "--interactive"])
+}
+
+async function verifyInteractiveListFallbacks() {
+  const workspacePlain = run(["workspace", "list", "--no-interactive"], { quiet: true })
+  if (!workspacePlain.includes("Registered workspaces loaded")) fail(`workspace list fallback did not render plain output:
+${workspacePlain}`)
+  const workspaceJSON = JSON.parse(run(["workspace", "list", "--json", "--interactive"], { quiet: true }))
+  if (!Array.isArray(workspaceJSON)) fail("workspace list JSON fallback did not return an array")
+  runExpectFailure(["workspace", "list", "--interactive"])
+
+  const upstreamPlain = run(["mcp", "server", "list", "--no-interactive"], { quiet: true })
+  if (!upstreamPlain.includes("Upstream MCP servers loaded")) fail(`MCP server list fallback did not render plain output:
+${upstreamPlain}`)
+  const upstreamJSON = JSON.parse(run(["mcp", "server", "list", "--json", "--interactive"], { quiet: true }))
+  if (!Array.isArray(upstreamJSON)) fail("MCP server list JSON fallback did not return an array")
+  runExpectFailure(["mcp", "server", "list", "--interactive"])
+}
+
 async function verifySelfInstall() {
   const metadata = JSON.parse(await readFile(path.join(installRoot, "install.json"), "utf8"))
   if (metadata.method !== "direct" || metadata.version !== "dev" || path.resolve(metadata.install_dir) !== path.resolve(installRoot)) {
@@ -246,6 +275,7 @@ async function verifyMCP(port, ponytailEnabled) {
   }
   const toolNames = new Set(tools.body.result.tools.map((tool) => tool?.name))
   if (!toolNames.has("get_version")) fail(`get_version missing from tools/list: ${JSON.stringify(tools.body)}`)
+  if (!toolNames.has("request_control_approval")) fail(`request_control_approval missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (toolNames.has("ponytail_turn") !== ponytailEnabled) fail(`ponytail_turn state did not match runtime config: ${JSON.stringify(tools.body)}`)
   if (!toolNames.has("caveman_turn")) fail(`enabled caveman_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!Number.isFinite(tools.body.result.ttlMs) || typeof tools.body.result.cacheScope !== "string") {

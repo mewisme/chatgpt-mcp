@@ -48,6 +48,7 @@ chatgpt-mcp
 - Live configuration reload with transactional listener rebind and rollback
 - Embedded React admin dashboard
 - Separate MCP/admin authentication and explicit network exposure controls
+- Human-approved one-shot elevation for guarded control-plane actions, with CLI/Admin review
 - Single-binary releases for Linux, macOS, and Windows on amd64/arm64
 - Transactional direct install/self-update with checksum verification, stable launchers, managed-runtime restart, and automatic rollback
 
@@ -173,6 +174,7 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 | Start managed service | `cgm up` |
 | Stop/remove managed service | `cgm down` |
 | Inspect runtime | `cgm status` |
+| Review control approval requests | `cgm request list` |
 | Follow logs | `cgm logs -f` |
 | Full diagnostic logs | `cgm logs --debug -f` |
 | Migrate legacy credentials | `cgm config migrate` |
@@ -215,7 +217,7 @@ The full documentation index lives in [`docs/README.md`](docs/README.md).
 
 ## Security model
 
-`chatgpt-mcp` is intentionally workspace-bound. Filesystem/shell/Git mutations are constrained to the registered workspace plus explicitly allowed directories, symlink escapes are rejected, and MCP tool execution cannot use the builtin shell to grant itself new control-plane permissions. The first valid workspace-scoped call in an MCP session binds that session to the workspace; later attempts to use another workspace are denied before the tool handler runs. Multiple independent MCP sessions may bind to the same workspace.
+`chatgpt-mcp` is intentionally workspace-bound. Filesystem/shell/Git mutations are constrained to the registered workspace plus explicitly allowed directories, symlink escapes are rejected, and MCP tool execution cannot silently grant itself control-plane permissions. When a direct `cgm` mutation is eligible for elevation, the tool receives a short-lived approval challenge; a human can review it in the Admin UI or with `cgm request ...`, and an approved retry must match the original session, workspace, tool, and arguments exactly and is usable once. Hard security boundaries such as path escape, protected control-state access, nested/wrapper execution, and tool-context tampering remain non-approvable. The first valid workspace-scoped call in an MCP session binds that session to the workspace; later attempts to use another workspace are denied before the tool handler runs. Multiple independent MCP sessions may bind to the same workspace.
 
 Long-lived reversible credentials such as OpenAI tunnel keys, upstream OAuth tokens, and sensitive upstream header/environment values are stored in per-config-root secret files under `<config-root>/state/secrets` with restrictive permissions instead of plaintext structured config. MCP/Admin app tokens remain one-way hashes in config. A tunnel ID is an identifier, not a secret. Do not use a Platform Admin API key as the long-lived tunnel runtime key.
 

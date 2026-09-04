@@ -84,14 +84,26 @@ chatgpt-mcp
 │   └── clear
 ├── mcp
 │   └── server
+├── request
+│   ├── approve
+│   ├── deny
+│   ├── list
+│   └── view
 ├── serve
 ├── status
 ├── tunnel
+│   ├── admin
 │   ├── configure
+│   ├── create
+│   ├── delete
 │   ├── disable
 │   ├── enable
+│   ├── get
+│   ├── list
 │   ├── run
-│   └── status
+│   ├── status
+│   ├── sync
+│   └── update
 ├── uninit
 ├── up
 ├── update
@@ -141,6 +153,36 @@ Direct updates download the expected platform archive and `checksums.txt`, verif
 When the selected config root has a managed runtime, `cgm update` restarts it and waits for readiness. Failure restores the previous install target and metadata and restarts the previous runtime. `--no-restart` leaves an existing process on the previous binary; foreground `serve` is also never killed by the updater.
 
 `cgm status` never performs a network update check. It may show availability from the fresh install-global cache at `<install-root>/state/update.json`.
+
+## Control approval requests
+
+When an MCP tool hits an approvable control guard, the agent can create a short-lived human request with the `request_control_approval` MCP tool. Local operators inspect and resolve those requests through the running runtime:
+
+```bash
+cgm request list
+cgm request view <request_id>
+cgm request approve <request_id>
+cgm request deny <request_id>
+```
+
+Aliases include `req`, `ls`, `show`/`info`, `accept`/`allow`, and `reject`. Request IDs may be specified in full or by an unambiguous prefix. `approve` and `deny` accept `--reason`; list/view/resolve commands support `--json` where applicable.
+
+Pending requests expire after 60 seconds. Approval does not grant a general CLI bypass: it authorizes one exact retry of the original MCP tool arguments. A mismatched retry is rejected without consuming the valid grant; a successful retry consumes it. `cgm request approve/deny` cannot be run by an MCP shell tool to self-approve its own request.
+
+On an interactive terminal, `cgm request list` opens the TUI automatically. Controls include `j/k` or arrows to move, `enter`/`v` for details, `a` approve, `d` deny, `/` filter, `r` refresh, and `q` quit. Approve/deny require a `y/N` confirmation.
+
+List commands that support the reusable browser follow the same mode rules:
+
+```bash
+cgm request list
+cgm workspace list
+cgm mcp server list
+cgm tunnel list
+```
+
+Use `--no-interactive` for deterministic text/legacy output, `--interactive` to force the TUI on a terminal, and `--json` for machine-readable output. `--json` always suppresses the TUI. For compatibility, non-interactive `cgm tunnel list` remains JSON by default.
+
+See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for challenge binding and one-shot capability semantics.
 
 ## Lifecycle
 

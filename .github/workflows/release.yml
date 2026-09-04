@@ -109,6 +109,11 @@ jobs:
           go test ./internal/update -run 'TestUpdater|TestPolicyForInstallation'
           go test ./internal/cli -run 'TestCoordinateUpdatedRuntime|TestRestartManagedRuntime'
 
+      - name: Control approval smoke
+        env:
+          CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-approval-test
+        run: go test -count=1 ./internal/approval ./internal/tools ./internal/cli ./internal/admin
+
       - name: Test
         env:
           CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-go-test

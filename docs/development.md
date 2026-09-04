@@ -148,7 +148,22 @@ Updater-specific native tests additionally verify:
 - managed restart/readiness, foreground preservation, and `--no-restart`
 - automatic rollback plus previous-runtime restart on failed readiness
 
-These updater integration tests run in every native Linux, macOS, and Windows CI/release job. Cross-build jobs continue to compile all six release OS/architecture targets.
+Control-approval native smoke additionally verifies:
+
+- challenge creation requires a real approvable guard failure
+- session/workspace binding and fake-challenge rejection
+- challenge/request/retry/capability expiry behavior
+- exact retry succeeds once; replay fails
+- mismatch does not consume the valid grant/capability
+- deny/cancel/expiry lifecycle
+- hard-deny guards remain non-approvable
+- MCP tool context cannot self-approve through `cgm request approve/deny`
+- CLI plain/JSON/non-TTY interactive fallback
+- Admin loopback and remote-auth policy
+
+The portable runtime smoke also checks that `request_control_approval` is present in the MCP catalog, `cgm request list` reaches the running runtime, JSON suppresses the TUI, and `--interactive` fails clearly when no terminal is attached. Workspace and upstream list commands are checked with the same deterministic fallback behavior.
+
+Updater and control-approval integration gates run in every native Linux, macOS, and Windows CI/release job. Cross-build jobs continue to compile all six release OS/architecture targets.
 
 ## Cross-platform builds
 
@@ -191,6 +206,7 @@ Pushes to `main` and pull requests run:
 - module verification
 - local install smoke
 - package alias smoke
+- control approval smoke
 - Go tests
 - race detector
 - vet
@@ -202,6 +218,7 @@ Pushes to `main` and pull requests run:
 - Unix installer validation
 - module verification
 - local install/package alias smoke
+- control approval smoke
 - Go tests
 - vet
 - native build
@@ -212,6 +229,7 @@ Pushes to `main` and pull requests run:
 - PowerShell installer validation
 - module verification
 - local install/package alias smoke
+- control approval smoke
 - Go tests
 - vet
 - native build

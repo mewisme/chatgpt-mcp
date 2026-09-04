@@ -202,8 +202,12 @@ It supports internal operations used by CLI commands such as:
 - graceful shutdown
 - live event streaming
 - safe log clearing
+- approval request list/detail/approve/deny operations
+- verification and one-shot consumption of approved child CLI capabilities
 
-The control token is stored under the protected config/state root and is not intended as a user-facing API credential.
+The control token is stored under the protected config/state root and is not intended as a user-facing API credential. Control-guard challenges, pending approval requests, approved retry grants, and child capabilities live only in runtime memory; restarting the runtime invalidates them.
+
+When a guarded MCP tool action creates a pending human request, the runtime publishes approval lifecycle events and the Admin UI shows a global approval dialog with request details, exact target arguments, and a countdown. `cgm request list` uses the same runtime-control source of truth. Approval requests expire after 60 seconds; approved retries remain valid only for their short retry window and exact original target.
 
 ## Live config reload
 

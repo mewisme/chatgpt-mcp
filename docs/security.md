@@ -44,51 +44,40 @@ The mapping is many-to-one: multiple MCP sessions may bind to the same workspace
 
 Activity/log observability stores only a short SHA-256-derived session fingerprint plus the binding decision (`new`, `existing`, or `denied`); raw MCP session IDs are not exposed.
 
-## MCP tool self-grant prevention
+## Control-guard approvals and self-grant prevention
 
-Shell/process descendants launched by MCP tools are marked as MCP tool execution context.
+Shell/process descendants launched by MCP tools are marked as MCP tool execution context. Read-only inspection remains allowed, while control-plane mutations are guarded.
 
-In that context, the `cgm` CLI is fail-closed. Read-only inspection is allowed, while control-plane mutations are denied.
-
-Examples of read-only operations:
+A narrow subset of direct literal CLI mutations can be elevated by a human without weakening the surrounding sandbox. The flow is challenge-driven:
 
 ```text
-status
-config get/list
-config path
-config verify
-workspace list/show/access list
-auth status
-mcp inspection
-tunnel status
-logs
-logs follow
-logs path
-version
+MCP tool call -> typed control guard -> approval_required + challenge_id
+             -> request_control_approval(challenge_id)
+             -> local human approve/deny
+             -> exact retry of the original tool call
+             -> one-shot child capability -> exact cgm argv
 ```
 
-Examples of denied control-plane mutations:
+The initial guard failure does not create a human request by itself. The agent must call `request_control_approval` with the challenge returned by that exact guarded call. Challenges are short-lived (30 seconds), pending human requests expire after 60 seconds, and an approved retry window lasts 30 seconds. The approval is bound to the runtime instance, MCP session, workspace, source, target tool, canonical arguments, and guard code.
 
-```text
-up
-down
-_service
-logs clear
-config set
-config reload
-init
-uninit
-auth changes
-workspace register/unregister/access grants
-upstream MCP mutations
-tunnel configuration/enable/disable
-```
+An approved retry must match the original tool call exactly. A mismatch returns an `approval_mismatch` response containing expected/actual target information and leaves the valid grant unconsumed so the agent can retry the approved payload. A successful retry consumes the grant atomically. For direct `cgm` execution, the runtime then mints a separate opaque child capability valid for 15 seconds and one exact argv; `CHATGPT_MCP_TOOL_CONTEXT=1` remains set. The child CLI verifies and consumes that capability over authenticated loopback runtime-control before allowing the mutation.
 
-The shell policy also recognizes common nested-shell/wrapper patterns rather than checking only a direct `cgm` command. It rejects direct attempts to clear the MCP tool-context marker. On Linux, the CLI additionally inspects the process ancestry for the marker, so a child script cannot regain control-plane mutation access merely by deleting the variable from the environment passed to `cgm`.
+Human approval never grants a general shell or CLI bypass. Only typed direct control-plane mutations marked approvable by the guard can enter this flow. These remain hard-denied and cannot create an approval request:
+
+- path escape or protected config/state access
+- attempts to clear or tamper with the MCP tool-context marker
+- nested shell/wrapper/compound commands where the exact child mutation cannot be safely bound
+- workspace/session rebinding
+- request approval/deny commands invoked from MCP tool context
+- other guards explicitly marked non-approvable
+
+The approved child process executes the current server binary directly instead of resolving `cgm` through workspace `PATH`, preventing a workspace-supplied executable from receiving the capability.
+
+Local operators can review requests with `cgm request list/view`, approve or deny them with `cgm request approve/deny`, or use the Admin UI dialog. The agent cannot approve its own request through the built-in shell because those resolution commands are themselves hard-denied in MCP tool context.
 
 ## Protected config/state subtree
 
-The selected config root contains control-plane material such as ephemeral runtime-control state, keyring references/metadata, OAuth state metadata, and configuration. Long-lived reversible credentials themselves are stored in the OS keyring.
+The selected config root contains control-plane material such as ephemeral runtime-control state, OAuth/upstream state, secret files, and configuration. Long-lived reversible credentials are stored under `<config-root>/state/secrets/` as one file per secret, keyed by a SHA-256-derived filename and written atomically with restrictive file/directory modes where supported.
 
 Built-in MCP shell/file paths deny direct access to the protected control-plane subtree, including canonicalized path aliases/symlinks.
 
@@ -102,9 +91,9 @@ If you need a strong boundary against hostile local code, use an OS-level sandbo
 
 ## MCP and Admin authentication
 
-`chatgpt-mcp` stores MCP/Admin app token hashes, not their plaintext bearer tokens. Long-lived reversible credentials use the OS keyring: Windows Credential Manager, macOS Keychain, and on Linux Secret Service (`org.freedesktop.secrets`) with the kernel user keyring as a headless fallback.
+`chatgpt-mcp` stores MCP/Admin app token hashes, not their plaintext bearer tokens. Long-lived reversible credentials such as tunnel keys, OAuth tokens/client secrets, and sensitive upstream header/environment values are stored in the selected config root's `state/secrets/` directory instead of structured config files. Structured files keep `<secret-file>` markers and non-secret metadata.
 
-On Linux, Secret Service is preferred because it persists credentials across reboot. When no Secret Service provider is available, headless systems fall back to the kernel user keyring without requiring a desktop session or D-Bus. Kernel keyring entries are memory-backed and do not survive reboot; installing a Secret Service provider is recommended for reboot-persistent credentials. Neither backend falls back to plaintext files.
+The secret store is intentionally file-backed and has no OS keyring dependency. Keep the selected config root private to the operating-system user. Legacy `<os-keyring>` markers are recognized as legacy state so configuration can fail clearly, but values that existed only in a removed OS-keyring backend cannot be recovered and must be configured again.
 
 Create/rotate:
 
@@ -168,7 +157,7 @@ Tunnels Read + Use
 
 Do not use an OpenAI Admin API key as the long-lived runtime key.
 
-Tunnel runtime/admin keys are stored in the OS keyring. `tunnel.<ext>` contains only configured-state markers and admin scope metadata, and normal inspection output redacts sensitive values. Legacy plaintext credentials can be migrated explicitly with `cgm config migrate`; normal credential-loading paths also migrate legacy values before rewriting their files.
+Tunnel runtime/admin keys are stored in the per-config-root secret-file store. `tunnel.<ext>` contains only configured-state markers and admin scope metadata, and normal inspection output redacts sensitive values. Legacy plaintext credentials can be migrated explicitly with `cgm config migrate`; normal credential-loading paths also migrate legacy values before rewriting their files.
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md).
 
@@ -192,8 +181,12 @@ A running runtime exposes an authenticated control endpoint on loopback only. It
 - shutdown
 - live events
 - safe journal clearing
+- approval request list/detail/approve/deny operations
+- one-shot approved child capability verification/consumption
 
-The random bearer credential is stored under the protected selected config root.
+The random bearer credential is stored under the protected selected config root. Approval challenges, requests, retry grants, and child capabilities are runtime-memory state and are not persisted; restarting the runtime invalidates them.
+
+Approval resolution has a stricter remote Admin boundary than ordinary local browsing. Loopback Admin clients follow the local policy, but a non-loopback approval mutation requires enabled Admin authentication and a valid Admin bearer token. Forwarded-address headers are not trusted to turn a remote caller into loopback.
 
 ## Runtime journal sanitization
 

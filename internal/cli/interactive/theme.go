@@ -98,14 +98,6 @@ func Modal(body string, width int) string {
 	return style.Render(body)
 }
 
-func ActionButton(key, label string) string {
-	content := strings.TrimSpace(label)
-	if key = strings.TrimSpace(key); key != "" {
-		content = Muted(key) + " " + content
-	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), false, true, false, true).BorderForeground(currentTheme.panelBorder.GetForeground()).Padding(0, 1).Render(content)
-}
-
 func CenterOverlay(background, foreground string, width, height int) string {
 	if width <= 0 {
 		width = max(80, lipgloss.Width(background))

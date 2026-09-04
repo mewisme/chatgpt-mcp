@@ -53,6 +53,8 @@ type requestInteractiveModel struct {
 	client             requestInteractiveClient
 	list               list.Model
 	confirm            interactive.Confirmation
+	detailActions      interactive.ConfirmButtons
+	confirmActions     interactive.ConfirmButtons
 	viewport           viewport.Model
 	requests           []approval.Request
 	detail             bool
@@ -65,6 +67,8 @@ type requestInteractiveModel struct {
 	notice             string
 	err                error
 	pendingSelectionID string
+	background         tea.BackgroundColorMsg
+	hasBackground      bool
 }
 
 type requestInteractiveListMsg struct {
@@ -99,7 +103,9 @@ func newRequestInteractiveModel(ctx context.Context, requests []approval.Request
 	view := viewport.New(viewport.WithWidth(74), viewport.WithHeight(12))
 	view.SoftWrap = true
 	view.FillHeight = false
-	return requestInteractiveModel{ctx: ctx, client: client, list: listModel, viewport: view, requests: pending, now: now}
+	detailActions := interactive.NewConfirmButtons("Allow", "Deny", true)
+	detailActions.SetWidth(74)
+	return requestInteractiveModel{ctx: ctx, client: client, list: listModel, detailActions: detailActions, viewport: view, requests: pending, now: now}
 }
 
 func defaultRequestInteractiveClient() requestInteractiveClient {
@@ -111,13 +117,17 @@ func (m requestInteractiveModel) Init() tea.Cmd { return requestInteractiveTickC
 func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
+		m.background, m.hasBackground = msg, true
 		interactive.ApplyDefaultListTheme(&m.list, msg.IsDark())
+		m.detailActions.Update(msg)
+		m.confirmActions.Update(msg)
 		syncRequestListHelp(&m.list)
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.list.SetSize(msg.Width, msg.Height)
 		m.resizeViewport()
+		m.resizeActions()
 		return m, nil
 	case requestInteractiveTickMsg:
 		m.now = time.Time(msg)
@@ -164,6 +174,11 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.detail, m.detailRequest = true, msg.request
+		m.detailActions = interactive.NewConfirmButtons("Allow", "Deny", true)
+		m.resizeActions()
+		if m.hasBackground {
+			m.detailActions.Update(m.background)
+		}
 		m.syncDetailViewport()
 		m.viewport.GotoTop()
 		return m, nil
@@ -190,7 +205,16 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 func (m requestInteractiveModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.confirm.Active() {
 		switch msg.String() {
-		case "y", "Y", "enter":
+		case "y", "Y":
+			action, target := m.confirm.Action, m.confirm.Target
+			m.confirm.Clear()
+			m.busy = true
+			return m, m.resolveCmd(action, target)
+		case "enter":
+			if !m.confirmActions.AffirmativeSelected() {
+				m.confirm.Clear()
+				return m, nil
+			}
 			action, target := m.confirm.Action, m.confirm.Target
 			m.confirm.Clear()
 			m.busy = true
@@ -200,6 +224,8 @@ func (m requestInteractiveModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.
 		case "n", "N", "esc", "q":
 			m.confirm.Clear()
 			return m, nil
+		case "h", "l", "left", "right", "tab", "shift+tab":
+			return m, m.confirmActions.Update(msg)
 		default:
 			return m, nil
 		}
@@ -208,12 +234,20 @@ func (m requestInteractiveModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.
 		switch {
 		case msg.String() == "ctrl+c":
 			return m, tea.Quit
-		case msg.String() == "q", msg.String() == "esc", key.Matches(msg, requestOpenBinding):
+		case msg.String() == "q", msg.String() == "esc", msg.String() == "v":
 			m.detail, m.detailRequest = false, approval.Request{}
+		case msg.String() == "enter":
+			action := "deny"
+			if m.detailActions.AffirmativeSelected() {
+				action = "approve"
+			}
+			m.startConfirmation(action, m.detailRequest)
 		case key.Matches(msg, requestApproveBinding):
 			m.startConfirmation("approve", m.detailRequest)
 		case key.Matches(msg, requestDenyBinding):
 			m.startConfirmation("deny", m.detailRequest)
+		case msg.String() == "h", msg.String() == "l", msg.String() == "left", msg.String() == "right", msg.String() == "tab", msg.String() == "shift+tab":
+			return m, m.detailActions.Update(msg)
 		case key.Matches(msg, requestRefreshBinding):
 			m.loading = true
 			m.list.StartSpinner()
@@ -263,6 +297,15 @@ func (m *requestInteractiveModel) startConfirmation(action string, request appro
 		return
 	}
 	m.confirm.Start(action, request.ID)
+	label := requestActionTitle(action)
+	if action == "approve" {
+		label = "Allow"
+	}
+	m.confirmActions = interactive.NewConfirmButtons(label, "Cancel", false)
+	m.resizeActions()
+	if m.hasBackground {
+		m.confirmActions.Update(m.background)
+	}
 }
 
 func (m requestInteractiveModel) View() tea.View {
@@ -304,13 +347,11 @@ func (m requestInteractiveModel) detailView() string {
 	builder.WriteString("\n")
 	builder.WriteString(m.viewport.View())
 	builder.WriteString("\n\n")
-	builder.WriteString(interactive.ActionButton("a", "Allow"))
-	builder.WriteString("  ")
-	builder.WriteString(interactive.ActionButton("d", "Deny"))
+	builder.WriteString(m.detailActions.View())
 	builder.WriteString("\n\n")
 	builder.WriteString(interactive.DefaultHelp(m.modalContentWidth(),
-		interactive.Binding([]string{"j", "k", "up", "down"}, "j/k/↑/↓", "scroll"), requestRefreshBinding,
-		interactive.Binding([]string{"esc", "q"}, "esc/q", "close"), interactive.Binding([]string{"ctrl+c"}, "ctrl+c", "quit"),
+		interactive.Binding([]string{"j", "k", "up", "down"}, "j/k/↑/↓", "scroll"), interactive.Binding([]string{"h", "l", "left", "right", "tab"}, "←/→/tab", "choose"), interactive.Binding([]string{"enter"}, "enter", "select"),
+		interactive.Binding([]string{"esc", "q"}, "esc/q", "close"),
 	))
 	return interactive.Modal(builder.String(), m.modalWidth())
 }
@@ -326,10 +367,10 @@ func (m requestInteractiveModel) confirmView() string {
 	builder.WriteString("\n")
 	builder.WriteString(interactive.Muted(m.confirm.Target))
 	builder.WriteString("\n\n")
-	builder.WriteString(interactive.ActionButton("enter/y", label))
-	builder.WriteString("  ")
-	builder.WriteString(interactive.ActionButton("esc/n", "Cancel"))
-	return interactive.Modal(builder.String(), max(34, min(54, m.modalWidth()-10)))
+	builder.WriteString(m.confirmActions.View())
+	builder.WriteString("\n\n")
+	builder.WriteString(interactive.DefaultHelp(max(24, m.confirmModalWidth()-6), interactive.Binding([]string{"h", "l", "left", "right", "tab"}, "←/→/tab", "choose"), interactive.Binding([]string{"enter"}, "enter", "select"), interactive.Binding([]string{"n", "esc"}, "n/esc", "cancel")))
+	return interactive.Modal(builder.String(), m.confirmModalWidth())
 }
 
 func (m requestInteractiveModel) selected() (approval.Request, bool) {
@@ -414,6 +455,11 @@ func (m *requestInteractiveModel) resizeViewport() {
 	m.viewport.SetHeight(max(3, min(18, height-13)))
 }
 
+func (m *requestInteractiveModel) resizeActions() {
+	m.detailActions.SetWidth(m.modalContentWidth())
+	m.confirmActions.SetWidth(max(24, m.confirmModalWidth()-6))
+}
+
 func (m *requestInteractiveModel) syncDetailViewport() {
 	if !m.detail {
 		return
@@ -483,6 +529,7 @@ func (m requestInteractiveModel) modalWidth() int {
 	return max(42, min(86, width-8))
 }
 func (m requestInteractiveModel) modalContentWidth() int { return max(30, m.modalWidth()-6) }
+func (m requestInteractiveModel) confirmModalWidth() int { return max(34, min(54, m.modalWidth()-10)) }
 
 func requestDetailRow(builder *strings.Builder, label, value string) {
 	if builder.Len() > 0 {

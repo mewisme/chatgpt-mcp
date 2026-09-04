@@ -36,6 +36,13 @@ func TestRequestInteractiveFilterConfirmAndResolve(t *testing.T) {
 	if !model.confirm.Active() || model.confirm.Action != "approve" || model.confirm.Target != second.ID {
 		t.Fatalf("confirm=%#v", model.confirm)
 	}
+	if model.confirmActions.AffirmativeSelected() {
+		t.Fatal("confirmation should default to Cancel")
+	}
+	model = updateRequestInteractive(t, model, keyText("left"))
+	if !model.confirmActions.AffirmativeSelected() {
+		t.Fatal("left did not focus Allow")
+	}
 	updated, cmd := model.Update(keyCode(tea.KeyEnter))
 	model = updated.(requestInteractiveModel)
 	if cmd == nil {
@@ -159,11 +166,24 @@ func TestRequestInteractiveViewRendersHierarchyAndScrollableDetail(t *testing.T)
 	if !strings.Contains(modal, "Allow") || !strings.Contains(modal, "Deny") || !strings.Contains(modal, "j/k/↑/↓") {
 		t.Fatalf("detail actions missing: %q", modal)
 	}
-	model = updateRequestInteractive(t, model, keyText("a"))
-	if !model.confirm.Active() || !strings.Contains(model.View().Content, "Allow request?") || !strings.Contains(model.View().Content, "enter/y") || !strings.Contains(model.View().Content, "esc/n") {
+	if !model.detailActions.AffirmativeSelected() {
+		t.Fatal("detail actions should default to Allow")
+	}
+	model = updateRequestInteractive(t, model, keyText("right"))
+	if model.detailActions.AffirmativeSelected() {
+		t.Fatal("right did not focus Deny")
+	}
+	model = updateRequestInteractive(t, model, keyCode(tea.KeyEnter))
+	if !model.confirm.Active() || model.confirm.Action != "deny" || !strings.Contains(model.View().Content, "Deny request?") || !strings.Contains(model.View().Content, "←/→/tab") || !strings.Contains(model.View().Content, "n/esc") {
 		t.Fatalf("modal confirmation missing: confirm=%#v view=%q", model.confirm, model.View().Content)
 	}
-	model = updateRequestInteractive(t, model, keyText("n"))
+	if model.confirmActions.AffirmativeSelected() {
+		t.Fatal("confirmation should default to Cancel")
+	}
+	model = updateRequestInteractive(t, model, keyCode(tea.KeyEnter))
+	if model.confirm.Active() {
+		t.Fatal("Enter on default Cancel did not close confirmation")
+	}
 	before := model.viewport.YOffset()
 	model = updateRequestInteractive(t, model, keyText("j"))
 	if model.viewport.YOffset() <= before {

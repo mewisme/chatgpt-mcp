@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+const (
+	EnvInstallDir = "CHATGPT_MCP_INSTALL_DIR"
+	EnvBinDir     = "CHATGPT_MCP_BIN_DIR"
+)
+
 type Layout struct {
 	Root            string
 	Versions        string

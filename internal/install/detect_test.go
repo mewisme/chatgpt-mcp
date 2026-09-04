@@ -59,3 +59,16 @@ func TestDetectGoAndStandaloneInstall(t *testing.T) {
 		t.Fatalf("standalone method = %q", detection.Method)
 	}
 }
+
+func TestDetectInstalledDevelopmentBuildAsDirect(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "install")
+	layout, err := NewLayout(root, filepath.Join(t.TempDir(), "bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(root, "versions", "dev", layout.BinaryName)
+	detection := detect(executable, "dev", layout, "", "", "", "")
+	if detection.Method != MethodDirect || detection.Root != root {
+		t.Fatalf("detection = %+v", detection)
+	}
+}

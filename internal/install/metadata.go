@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
 const MetadataSchema = 1
@@ -73,4 +75,16 @@ func ReadMetadata(path string) (Metadata, error) {
 		return Metadata{}, err
 	}
 	return metadata, nil
+}
+
+func WriteMetadata(path string, metadata Metadata) error {
+	if err := metadata.Validate(); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return state.WriteFileAtomic(path, data, 0600)
 }

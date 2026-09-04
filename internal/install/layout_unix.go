@@ -5,6 +5,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func DefaultLayout() (Layout, error) {
@@ -12,7 +13,15 @@ func DefaultLayout() (Layout, error) {
 	if err != nil {
 		return Layout{}, err
 	}
-	return defaultLayout(home)
+	root := strings.TrimSpace(os.Getenv(EnvInstallDir))
+	if root == "" {
+		root = filepath.Join(home, ".chatgpt-mcp")
+	}
+	binDir := strings.TrimSpace(os.Getenv(EnvBinDir))
+	if binDir == "" {
+		binDir = filepath.Join(home, ".local", "bin")
+	}
+	return NewLayout(root, binDir)
 }
 
 func defaultLayout(home string) (Layout, error) {

@@ -74,9 +74,6 @@ func DetectCurrent(buildVersion string) (Detection, error) {
 
 func detect(executable, buildVersion string, layout Layout, home, goBin, goPath, scoopRoot string) Detection {
 	executable = filepath.Clean(strings.TrimSpace(executable))
-	if buildVersion == "dev" || strings.TrimSpace(buildVersion) == "" {
-		return Detection{Method: MethodDevelopment, Executable: executable}
-	}
 	if executable == "" || executable == "." {
 		return Detection{Method: MethodUnknown}
 	}
@@ -91,6 +88,9 @@ func detect(executable, buildVersion string, layout Layout, home, goBin, goPath,
 	}
 	if root := directRootFromExecutable(executable); root != "" {
 		return Detection{Method: MethodDirect, Executable: executable, Root: root}
+	}
+	if buildVersion == "dev" || strings.TrimSpace(buildVersion) == "" {
+		return Detection{Method: MethodDevelopment, Executable: executable}
 	}
 	if isGoInstallPath(executable, home, goBin, goPath) {
 		return Detection{Method: MethodGo, Executable: executable}

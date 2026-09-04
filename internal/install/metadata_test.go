@@ -41,3 +41,18 @@ func TestMetadataValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteMetadataRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "install.json")
+	want := Metadata{Schema: MetadataSchema, Method: MethodDirect, Version: "v1.2.3", InstallDir: "/tmp/install", BinDir: "/tmp/bin"}
+	if err := WriteMetadata(path, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("metadata = %+v, want %+v", got, want)
+	}
+}

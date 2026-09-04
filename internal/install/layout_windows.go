@@ -13,7 +13,15 @@ func DefaultLayout() (Layout, error) {
 	if err != nil {
 		return Layout{}, err
 	}
-	return defaultLayout(home, os.Getenv("LOCALAPPDATA"))
+	root := strings.TrimSpace(os.Getenv(EnvInstallDir))
+	if root == "" {
+		localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
+		if localAppData == "" {
+			localAppData = filepath.Join(home, "AppData", "Local")
+		}
+		root = filepath.Join(localAppData, "chatgpt-mcp")
+	}
+	return NewLayout(root, filepath.Join(root, "current"))
 }
 
 func defaultLayout(home, localAppData string) (Layout, error) {

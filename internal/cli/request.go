@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
+	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 )
 
 const requestControlTimeout = 5 * time.Second
@@ -18,7 +19,7 @@ func requestCommand() *cobra.Command {
 }
 
 func requestListCommand() *cobra.Command {
-	var asJSON bool
+	var asJSON, forceInteractive, noInteractive bool
 	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List control approval requests from the running runtime", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		ctx, cancel := context.WithTimeout(cmd.Context(), requestControlTimeout)
 		defer cancel()
@@ -26,8 +27,17 @@ func requestListCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		interactiveMode, err := interactive.ResolveMode(cmd.InOrStdin(), cmd.OutOrStdout(), forceInteractive, noInteractive, asJSON)
+		if err != nil {
+			return err
+		}
 		if asJSON {
 			return printJSON(cmd, requests)
+		}
+		if interactiveMode {
+			model := newRequestInteractiveModel(cmd.Context(), requests, defaultRequestInteractiveClient())
+			_, err := interactive.Run(cmd.Context(), model, cmd.InOrStdin(), cmd.OutOrStdout())
+			return err
 		}
 		log := commandLogger(cmd)
 		log.Success("REQUEST", "control approval requests loaded", "count", len(requests))
@@ -37,6 +47,8 @@ func requestListCommand() *cobra.Command {
 		return nil
 	}}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	cmd.Flags().BoolVar(&forceInteractive, "interactive", false, "force interactive request list")
+	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false, "disable interactive request list")
 	return cmd
 }
 

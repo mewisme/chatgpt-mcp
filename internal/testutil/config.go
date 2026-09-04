@@ -36,9 +36,9 @@ func IsolateConfigHome() (string, func(), error) {
 		return "", nil, err
 	}
 	_ = configformat.SetRootPath("")
-	keyringCleanup := secretstore.UseMemoryForTesting()
+	secretStoreCleanup := secretstore.UseMemoryForTesting()
 	cleanup := func() {
-		keyringCleanup()
+		secretStoreCleanup()
 		_ = configformat.SetRootPath("")
 		for key, value := range previous {
 			if value == nil {

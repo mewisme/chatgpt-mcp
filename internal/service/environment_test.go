@@ -16,8 +16,6 @@ func TestCaptureEnvironmentKeepsExecutionPathWithoutSecrets(t *testing.T) {
 	t.Setenv("PATH", strings.Join([]string{nodeBin, systemBin}, string(os.PathListSeparator)))
 	t.Setenv("OPENAI_API_KEY", "secret")
 	t.Setenv("LANG", "en_US.UTF-8")
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
 	snapshot := CaptureEnvironment(Account{Username: "mew", HomeDir: accountHome}, []string{goBin, nodeBin})
 	path := snapshot.Values["PATH"]
 	for _, expected := range []string{goBin, nodeBin, systemBin} {
@@ -33,9 +31,6 @@ func TestCaptureEnvironmentKeepsExecutionPathWithoutSecrets(t *testing.T) {
 	}
 	if snapshot.Values["LANG"] != "en_US.UTF-8" {
 		t.Fatalf("LANG = %q", snapshot.Values["LANG"])
-	}
-	if snapshot.Values["DBUS_SESSION_BUS_ADDRESS"] != "unix:path=/run/user/1000/bus" || snapshot.Values["XDG_RUNTIME_DIR"] != "/run/user/1000" {
-		t.Fatalf("keyring session environment = %#v", snapshot.Values)
 	}
 	if runtime.GOOS == "windows" {
 		if snapshot.Values["USERPROFILE"] != accountHome || snapshot.Values["USERNAME"] != "mew" {

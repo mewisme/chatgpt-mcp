@@ -16,6 +16,17 @@ func updateCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		policy := updatepkg.PolicyForInstallation(detection)
+		log := commandLogger(cmd)
+		if policy.Action == updatepkg.PolicyDelegate {
+			log.Notice("UPDATE", "update.delegated", policy.Message)
+			log.Detail("method", policy.Method)
+			log.Detail("run", policy.Command)
+			return nil
+		}
+		if err := policy.Error(); err != nil {
+			return err
+		}
 		layout, err := detection.ManagedLayout()
 		if err != nil {
 			return fmt.Errorf("managed direct installation not found: %w", err)
@@ -35,7 +46,6 @@ func updateCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		log := commandLogger(cmd)
 		if !result.Changed {
 			if result.Current == result.Target {
 				log.Ready("UPDATE", "update.current", "Already up to date")

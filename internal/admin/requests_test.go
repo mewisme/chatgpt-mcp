@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -133,6 +134,64 @@ func TestApprovalSSEPublishesLifecycleWithoutArguments(t *testing.T) {
 	if !strings.Contains(line, created.ID) || strings.Contains(line, "cgm update") || strings.Contains(line, "arguments") {
 		t.Fatalf("unsafe approval SSE data=%q", line)
 	}
+}
+
+func TestApprovalSSESubscribesBeforeReadyFlush(t *testing.T) {
+	manager := approval.NewManager("instance-test")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request := httptest.NewRequest(http.MethodGet, "/api/requests/stream", nil).WithContext(ctx)
+	writer := &approvalFlushWriter{header: make(http.Header)}
+	writer.flush = func() {
+		if writer.flushed {
+			return
+		}
+		writer.flushed = true
+		seedAdminApprovalRequest(t, manager, "session-a", "ws_a", "cgm update --version v2")
+	}
+	done := make(chan struct{})
+	go func() {
+		serveApprovalEvents(writer, request, manager.Events(), time.Hour)
+		close(done)
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(writer.String(), "event: "+approval.EventRequested) {
+			cancel()
+			<-done
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+	t.Fatalf("approval event published during ready flush was lost: %q", writer.String())
+}
+
+type approvalFlushWriter struct {
+	mu      sync.Mutex
+	header  http.Header
+	body    strings.Builder
+	flush   func()
+	flushed bool
+}
+
+func (w *approvalFlushWriter) Header() http.Header { return w.header }
+func (w *approvalFlushWriter) WriteHeader(int)     {}
+func (w *approvalFlushWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.body.Write(data)
+}
+func (w *approvalFlushWriter) Flush() {
+	if w.flush != nil {
+		w.flush()
+	}
+}
+func (w *approvalFlushWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.body.String()
 }
 
 func localAdminRequest(method, target string, body *strings.Reader) *http.Request {

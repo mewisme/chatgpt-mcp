@@ -166,12 +166,12 @@ func serveApprovalEvents(w http.ResponseWriter, r *http.Request, stream *approva
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
+	sub := stream.Subscribe()
+	defer stream.Unsubscribe(sub)
 	if _, err := fmt.Fprintf(w, "event: ready\ndata: {\"latest_sequence\":%d}\n\n", stream.LatestSequence()); err != nil {
 		return
 	}
 	flusher.Flush()
-	sub := stream.Subscribe()
-	defer stream.Unsubscribe(sub)
 	heartbeat := time.NewTicker(heartbeatInterval)
 	defer heartbeat.Stop()
 	for {

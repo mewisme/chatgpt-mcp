@@ -2,11 +2,39 @@ package activity
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestFindCallAndCallHandler(t *testing.T) {
+	stream := NewStream()
+	stream.Publish(Event{CallID: "019a1111-2222-7333-8444-555555555555", Kind: string(EventToolCall), Tool: "run_command"})
+	event, ok := stream.FindCall("019a1111-2222-7333-8444-555555555555")
+	if !ok || event.Tool != "run_command" {
+		t.Fatalf("event=%#v ok=%v", event, ok)
+	}
+	recorder := httptest.NewRecorder()
+	CallHandler(stream).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/activity/019a1111-2222-7333-8444-555555555555", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	var decoded Event
+	if err := json.Unmarshal(recorder.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.CallID != event.CallID || decoded.Tool != event.Tool {
+		t.Fatalf("decoded=%#v", decoded)
+	}
+	recorder = httptest.NewRecorder()
+	CallHandler(stream).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/activity/missing", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("missing status=%d", recorder.Code)
+	}
+}
 
 func TestStreamRecentIsBoundedAndOrdered(t *testing.T) {
 	stream := NewStream()

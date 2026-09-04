@@ -3,9 +3,11 @@ package tools
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/caveman"
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
@@ -107,6 +109,11 @@ func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
 
 func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (Result, error) {
+	callUUID, err := uuid.NewV7()
+	if err != nil {
+		return Result{}, fmt.Errorf("generate tool call id: %w", err)
+	}
+	callID := callUUID.String()
 	started := time.Now()
 	source := CallSource(ctx)
 	receivedBy := ReceivedByInstanceID(ctx)
@@ -154,10 +161,11 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		ctx, claimedApproval, forcedResult, preflightErr = r.prepareApprovalRetry(ctx, sessionID, workspaceID, source, name, args)
 	}
 	raw := callRaw(ctx, source, name, args)
+	raw["call_id"] = callID
 	if sessionHash != "" {
 		raw["session"] = map[string]any{"hash": sessionHash, "binding": sessionBinding, "workspace_id": sessionWorkspaceID}
 	}
-	r.observeCall(CallObservation{Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy})
+	r.observeCall(CallObservation{CallID: callID, Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy})
 
 	result, err := Result{}, preflightErr
 	if err == nil && forcedResult != nil {
@@ -191,7 +199,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		finishRaw["status"] = status
 		finishRaw["result_type"] = result.ResultType
 		finishRaw["result"] = observedResult(name, result)
-		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return result, nil
 	}
 
@@ -202,13 +210,13 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["status"] = status
 	finishRaw["error"] = message
 	if errors.Is(err, ErrToolNotFound) {
-		r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return Result{}, err
 	}
 	result = ErrorResult(err)
 	finishRaw["result_type"] = result.ResultType
 	finishRaw["result"] = observedResult(name, result)
-	r.observeCall(CallObservation{Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
 }
 

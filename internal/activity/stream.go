@@ -85,6 +85,17 @@ func (s *Stream) Recent(limit int) []Event {
 	return recentEvents(s.recent, limit)
 }
 
+func (s *Stream) FindCall(callID string) (Event, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for index := len(s.recent) - 1; index >= 0; index-- {
+		if s.recent[index].CallID == callID {
+			return s.recent[index], true
+		}
+	}
+	return Event{}, false
+}
+
 func (s *Stream) LatestSequence() uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

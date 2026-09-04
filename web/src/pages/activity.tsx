@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createColumnHelper } from "@tanstack/react-table"
-import { CircleDot, Pause, Play, Radio, RefreshCw, Search, Trash2 } from "lucide-react"
+import { ArrowLeft, CircleDot, Pause, Play, Radio, RefreshCw, Search, Trash2 } from "lucide-react"
 import { DataTable } from "@/components/data-table"
 import { DataTableColumnHeader } from "@/components/data-table-column-header"
 import type { DataTableFeatures } from "@/components/data-table-features"
 import { DetailRow } from "@/components/detail-row"
 import { JsonViewer } from "@/components/json-viewer"
-import { PageError, PageEmpty } from "@/components/page-state"
+import { PageError, PageEmpty, PageLoading } from "@/components/page-state"
 import { PageHeader } from "@/components/page-header"
 import { ResponsiveDialog } from "@/components/responsive-dialog"
 import { TruncatedText } from "@/components/truncated-text"
@@ -17,9 +17,9 @@ import { Item, ItemContent, ItemDescription, ItemGroup, ItemHeader, ItemTitle } 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { authHeaders } from "@/lib/api"
+import { adminApi, authHeaders, type ActivityEvent } from "@/lib/api"
+import { useAdminRouter } from "@/lib/use-admin-router"
 
-export type ActivityEvent = { sequence?: number; kind: string; method?: string; source?: string; tool?: string; workspace_id?: string; session_hash?: string; session_binding?: string; session_workspace_id?: string; received_by_instance_id?: string; executed_by_instance_id?: string; status?: string; duration_ms?: number; message?: string; raw?: Record<string, unknown>; timestamp: string }
 type ActivityStreamHandlers = { onReady: () => void; onEvent: (event: ActivityEvent) => void; onGap: (from: number, to: number) => void }
 
 const columnHelper = createColumnHelper<DataTableFeatures, ActivityEvent>()
@@ -34,6 +34,7 @@ const columns = columnHelper.columns([
 
 export function ActivityPage() {
   const mobile = useIsMobile()
+  const { navigate } = useAdminRouter()
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [pending, setPending] = useState<ActivityEvent[]>([])
   const [selected, setSelected] = useState<ActivityEvent | null>(null)
@@ -80,8 +81,26 @@ export function ActivityPage() {
   function resume() { setEvents((items) => mergeActivity(pending, items)); setPending([]); setPaused(false) }
   function refresh() { setConnected(false); setConnecting(true); setError(""); setStreamVersion((value) => value + 1) }
   function clear() { setEvents([]); setPending([]) }
+  function openEvent(event: ActivityEvent) { if (event.call_id) navigate(`/activity/${encodeURIComponent(event.call_id)}`); else setSelected(event) }
 
-  return <div className="space-y-6"><PageHeader title="Activity" description="Live MCP requests, tool calls, and runtime lifecycle events. Open any event to inspect its complete metadata." actions={<><Badge variant={connected ? "secondary" : "outline"}><CircleDot className="size-3" />{connected ? "Live" : connecting ? "Connecting" : "Disconnected"}</Badge><Button size="sm" variant="outline" onClick={refresh}><RefreshCw className={connecting ? "animate-spin" : ""} />Refresh</Button><Button size="sm" variant="outline" onClick={() => paused ? resume() : setPaused(true)}>{paused ? <Play /> : <Pause />}{paused ? `Resume${pending.length ? ` (${pending.length})` : ""}` : "Pause"}</Button><Button size="sm" variant="outline" onClick={clear}><Trash2 />Clear</Button></>} /><PageError message={error} /><div className="flex flex-col gap-2 lg:flex-row"><div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search tool, workspace, source, message..." value={query} onChange={(event) => setQuery(event.target.value)} /></div><FilterSelect label="All event types" value={kind} values={kinds} onValueChange={setKind} /><FilterSelect label="All statuses" value={status} values={statuses} onValueChange={setStatus} /><FilterSelect label="All sources" value={source} values={sources} onValueChange={setSource} /></div>{paused && pending.length ? <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{pending.length} new event{pending.length === 1 ? "" : "s"} waiting while paused.</div> : null}{filtered.length === 0 ? <PageEmpty icon={Radio} title="No matching activity" description={events.length ? "Adjust the filters or resume the live stream." : "Activity will appear here as MCP requests and tools run."} /> : mobile ? <ActivityMobileList events={filtered} onSelect={setSelected} /> : <DataTable columns={columns} data={filtered} onRowClick={setSelected} pageSize={20} />}{selected ? <ActivityDetail event={selected} open onOpenChange={(open) => { if (!open) setSelected(null) }} /> : null}</div>
+  return <div className="space-y-6"><PageHeader title="Activity" description="Live MCP requests, tool calls, and runtime lifecycle events. Tool calls open as addressable child routes." actions={<><Badge variant={connected ? "secondary" : "outline"}><CircleDot className="size-3" />{connected ? "Live" : connecting ? "Connecting" : "Disconnected"}</Badge><Button size="sm" variant="outline" onClick={refresh}><RefreshCw className={connecting ? "animate-spin" : ""} />Refresh</Button><Button size="sm" variant="outline" onClick={() => paused ? resume() : setPaused(true)}>{paused ? <Play /> : <Pause />}{paused ? `Resume${pending.length ? ` (${pending.length})` : ""}` : "Pause"}</Button><Button size="sm" variant="outline" onClick={clear}><Trash2 />Clear</Button></>} /><PageError message={error} /><div className="flex flex-col gap-2 lg:flex-row"><div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search tool, workspace, source, message..." value={query} onChange={(event) => setQuery(event.target.value)} /></div><FilterSelect label="All event types" value={kind} values={kinds} onValueChange={setKind} /><FilterSelect label="All statuses" value={status} values={statuses} onValueChange={setStatus} /><FilterSelect label="All sources" value={source} values={sources} onValueChange={setSource} /></div>{paused && pending.length ? <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{pending.length} new event{pending.length === 1 ? "" : "s"} waiting while paused.</div> : null}{filtered.length === 0 ? <PageEmpty icon={Radio} title="No matching activity" description={events.length ? "Adjust the filters or resume the live stream." : "Activity will appear here as MCP requests and tools run."} /> : mobile ? <ActivityMobileList events={filtered} onSelect={openEvent} /> : <DataTable columns={columns} data={filtered} onRowClick={openEvent} pageSize={20} />}{selected ? <ActivityDetail event={selected} open onOpenChange={(open) => { if (!open) setSelected(null) }} /> : null}</div>
+}
+
+export function ActivityCallPage() {
+  const { route, navigate } = useAdminRouter()
+  const callID = route.callID ?? ""
+  const [event, setEvent] = useState<ActivityEvent | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    let active = true
+    void adminApi.activityCall(callID).then((value) => { if (active) { setEvent(value); setError("") } }).catch((value) => { if (active) setError(errorText(value)) }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [callID])
+
+  if (loading) return <PageLoading rows={6} />
+  return <div className="space-y-6"><PageHeader title={event ? activityTitle(event) : "Tool Call"} description={event ? `${event.call_id} · ${formatDateTime(event.timestamp)}` : callID} actions={<Button size="sm" variant="outline" onClick={() => navigate("/activity")}><ArrowLeft />Activity</Button>} /><PageError message={error} />{event ? <ActivityDetailContent event={event} /> : null}</div>
 }
 
 function ActivityMobileList({ events, onSelect }: { events: ActivityEvent[]; onSelect: (event: ActivityEvent) => void }) {
@@ -89,7 +108,11 @@ function ActivityMobileList({ events, onSelect }: { events: ActivityEvent[]; onS
 }
 
 function ActivityDetail({ event, open, onOpenChange }: { event: ActivityEvent; open: boolean; onOpenChange: (open: boolean) => void }) {
-  return <ResponsiveDialog open={open} onOpenChange={onOpenChange} title={activityTitle(event)} description={`${event.kind} · ${formatDateTime(event.timestamp)}`}><Tabs defaultValue="overview"><TabsList className="w-full"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="metadata">Metadata</TabsTrigger><TabsTrigger value="raw">Raw</TabsTrigger></TabsList><TabsContent className="mt-4 divide-y" value="overview"><DetailRow label="Status" value={event.status ? <StatusBadge status={event.status} /> : "-"} /><DetailRow label="Tool" value={event.tool || "-"} mono /><DetailRow label="Method" value={event.method || "-"} mono /><DetailRow label="Message" value={event.message || "-"} /><DetailRow label="Duration" value={event.duration_ms === undefined ? "-" : formatDuration(event.duration_ms)} /></TabsContent><TabsContent className="mt-4 divide-y" value="metadata"><DetailRow label="Sequence" value={event.sequence ?? "-"} mono /><DetailRow label="Timestamp" value={formatDateTime(event.timestamp)} /><DetailRow label="Source" value={event.source || "-"} mono /><DetailRow label="Workspace" value={event.workspace_id || "-"} mono /><DetailRow label="Session" value={event.session_hash || "-"} mono /><DetailRow label="Session binding" value={event.session_binding || "-"} mono /><DetailRow label="Session workspace" value={event.session_workspace_id || "-"} mono /><DetailRow label="Received by" value={event.received_by_instance_id || "-"} mono /><DetailRow label="Executed by" value={event.executed_by_instance_id || "-"} mono /><DetailRow label="Kind" value={event.kind} mono /></TabsContent><TabsContent className="mt-4" value="raw"><JsonViewer value={event.raw ?? event} /></TabsContent></Tabs></ResponsiveDialog>
+  return <ResponsiveDialog open={open} onOpenChange={onOpenChange} title={activityTitle(event)} description={`${event.kind} · ${formatDateTime(event.timestamp)}`}><ActivityDetailContent event={event} /></ResponsiveDialog>
+}
+
+function ActivityDetailContent({ event }: { event: ActivityEvent }) {
+  return <Tabs defaultValue="overview"><TabsList className="w-full"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="metadata">Metadata</TabsTrigger><TabsTrigger value="raw">Raw</TabsTrigger></TabsList><TabsContent className="mt-4 divide-y" value="overview"><DetailRow label="Status" value={event.status ? <StatusBadge status={event.status} /> : "-"} /><DetailRow label="Tool" value={event.tool || "-"} mono /><DetailRow label="Method" value={event.method || "-"} mono /><DetailRow label="Message" value={event.message || "-"} /><DetailRow label="Duration" value={event.duration_ms === undefined ? "-" : formatDuration(event.duration_ms)} /></TabsContent><TabsContent className="mt-4 divide-y" value="metadata"><DetailRow label="Call ID" value={event.call_id || "-"} mono /><DetailRow label="Sequence" value={event.sequence ?? "-"} mono /><DetailRow label="Timestamp" value={formatDateTime(event.timestamp)} /><DetailRow label="Source" value={event.source || "-"} mono /><DetailRow label="Workspace" value={event.workspace_id || "-"} mono /><DetailRow label="Session" value={event.session_hash || "-"} mono /><DetailRow label="Session binding" value={event.session_binding || "-"} mono /><DetailRow label="Session workspace" value={event.session_workspace_id || "-"} mono /><DetailRow label="Received by" value={event.received_by_instance_id || "-"} mono /><DetailRow label="Executed by" value={event.executed_by_instance_id || "-"} mono /><DetailRow label="Kind" value={event.kind} mono /></TabsContent><TabsContent className="mt-4" value="raw"><JsonViewer value={event.raw ?? event} /></TabsContent></Tabs>
 }
 
 function FilterSelect({ label, value, values, onValueChange }: { label: string; value: string; values: string[]; onValueChange: (value: string) => void }) {

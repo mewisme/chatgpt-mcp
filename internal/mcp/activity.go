@@ -22,14 +22,12 @@ func requestActivity(method string, params map[string]any, status, message strin
 		Message:    message,
 		Raw:        map[string]any{"method": method, "params": params},
 	}
-	if method != "tools/call" {
-		return event
+	if method == "tools/call" {
+		event.Tool, _ = params["name"].(string)
+		args, _ := params["arguments"].(map[string]any)
+		event.WorkspaceID, _ = args["workspace_id"].(string)
+		event.Raw["tool"] = event.Tool
+		event.Raw["arguments"] = args
 	}
-	event.Kind = string(activity.EventToolCall)
-	event.Tool, _ = params["name"].(string)
-	args, _ := params["arguments"].(map[string]any)
-	event.WorkspaceID, _ = args["workspace_id"].(string)
-	event.Raw["tool"] = event.Tool
-	event.Raw["arguments"] = args
 	return event
 }

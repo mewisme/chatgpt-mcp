@@ -15,6 +15,7 @@ describe("adminRouteFromPath", () => {
 
   it("matches global instructions and normalizes unknown routes", () => {
     expect(adminRouteFromPath("/workspaces/global")).toMatchObject({ id: "workspace-global", navID: "workspace-global" })
+    expect(adminRouteFromPath("/activity/019a1111-2222-7333-8444-555555555555")).toMatchObject({ id: "activity-call", navID: "activity", callID: "019a1111-2222-7333-8444-555555555555" })
     expect(adminRouteFromPath("/missing")).toMatchObject({ id: "overview", path: "/overview" })
   })
 })

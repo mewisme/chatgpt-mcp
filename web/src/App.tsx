@@ -1,17 +1,18 @@
 import { lazy, Suspense, useEffect, useState } from "react"
 import { LoaderCircle } from "lucide-react"
+import { useLocation, useNavigate } from "react-router-dom"
 import { AppSidebar } from "@/components/app-sidebar"
 import { RequestApprovalHost } from "@/components/request-approval-host"
 import { PageLoading } from "@/components/page-state"
 import { adminDocumentTitle, navItems } from "@/lib/admin-navigation"
-import { adminRouteFromPath, type AdminRoute } from "@/lib/admin-route"
-import { AdminRouterProvider } from "@/lib/admin-router-provider"
+import { adminRouteFromPath } from "@/lib/admin-route"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
 import { adminApi, adminToken, ApiError } from "@/lib/api"
 
 const ActivityPage = lazy(() => import("@/pages/activity").then((module) => ({ default: module.ActivityPage })))
+const ActivityCallPage = lazy(() => import("@/pages/activity").then((module) => ({ default: module.ActivityCallPage })))
 const GlobalInstructionsPage = lazy(() => import("@/pages/global-instructions").then((module) => ({ default: module.GlobalInstructionsPage })))
 const LoginPage = lazy(() => import("@/pages/login").then((module) => ({ default: module.LoginPage })))
 const OverviewPage = lazy(() => import("@/pages/overview").then((module) => ({ default: module.OverviewPage })))
@@ -31,6 +32,7 @@ const pages: Record<string, React.ComponentType> = {
   servers: ServersPage,
   tunnel: TunnelPage,
   activity: ActivityPage,
+  "activity-call": ActivityCallPage,
   settings: SettingsPage,
   workspace: WorkspacePage,
   "workspace-context": WorkspacePage,
@@ -40,22 +42,15 @@ const pages: Record<string, React.ComponentType> = {
 }
 
 export function App() {
-  const [route, setRoute] = useState<AdminRoute>(() => adminRouteFromPath(window.location.pathname))
+  const location = useLocation()
+  const routerNavigate = useNavigate()
+  const route = adminRouteFromPath(location.pathname)
   const [authenticated, setAuthenticated] = useState<boolean | null>(null)
   const [authRequired, setAuthRequired] = useState(true)
   const page = route.navID
   const Page = pages[route.id] ?? OverviewPage
 
-  useEffect(() => {
-    const sync = () => {
-      const current = adminRouteFromPath(window.location.pathname)
-      if (window.location.pathname !== current.path) window.history.replaceState(window.history.state, "", current.path)
-      setRoute(current)
-    }
-    sync()
-    window.addEventListener("popstate", sync)
-    return () => window.removeEventListener("popstate", sync)
-  }, [])
+  useEffect(() => { if (location.pathname !== route.path) routerNavigate(route.path, { replace: true }) }, [location.pathname, route.path, routerNavigate])
 
   useEffect(() => {
     void adminApi.health().then((health) => { setAuthRequired(health.auth_enabled); setAuthenticated(true) }).catch((value) => {
@@ -73,10 +68,10 @@ export function App() {
     const item = navItems.find((item) => item.id === next) ?? navItems[0]
     navigatePath(item.path)
   }
-  function navigatePath(path: string, options?: { replace?: boolean }) { const next = adminRouteFromPath(path); if (window.location.pathname !== next.path) window.history[options?.replace ? "replaceState" : "pushState"](window.history.state, "", next.path); setRoute(next) }
+  function navigatePath(path: string, options?: { replace?: boolean }) { routerNavigate(adminRouteFromPath(path).path, { replace: options?.replace }) }
   function signOut() { adminToken.clear(); setAuthenticated(false) }
 
-  return <AdminRouterProvider route={route} navigate={navigatePath}><TooltipProvider><SidebarProvider><AppSidebar authRequired={authRequired} page={page} onPageChange={navigate} onSignOut={signOut} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-4"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{route.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{route.description}</div></div></header><div className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1400px] p-4 sm:p-6 lg:p-8"><Suspense fallback={<PageLoading rows={6} />}><Page key={route.path} /></Suspense></div></div></SidebarInset><RequestApprovalHost /><Toaster /></SidebarProvider></TooltipProvider></AdminRouterProvider>
+  return <TooltipProvider><SidebarProvider><AppSidebar authRequired={authRequired} page={page} onPageChange={navigate} onSignOut={signOut} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-4"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{route.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{route.description}</div></div></header><div className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1400px] p-4 sm:p-6 lg:p-8"><Suspense fallback={<PageLoading rows={6} />}><Page key={route.path} /></Suspense></div></div></SidebarInset><RequestApprovalHost /><Toaster /></SidebarProvider></TooltipProvider>
 }
 
 function FullPageLoading({ label }: { label: string }) { return <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{label}</div> }

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { BrowserRouter } from "react-router-dom"
 import { App } from "@/App"
 import { ThemeProvider } from "@/components/theme-provider"
 import { adminDocumentTitle, navItems } from "@/lib/admin-navigation"
@@ -78,7 +79,7 @@ describe("admin app runtime smoke", () => {
       servers: "Add MCP server",
       tunnel: "OpenAI Secure MCP Tunnel",
       activity:
-        "Live MCP requests, tool calls, and runtime lifecycle events. Open any event to inspect its complete metadata.",
+        "Live MCP requests, tool calls, and runtime lifecycle events. Tool calls open as addressable child routes.",
       settings: "Config preset",
     }
     for (const item of navItems.slice(1)) {
@@ -180,6 +181,22 @@ describe("admin app runtime smoke", () => {
     expect(window.location.pathname).toBe("/workspaces/ws_test/activity")
   })
 
+  it("deep-links an activity tool call by call id", async () => {
+    const callID = "019a1111-2222-7333-8444-555555555555"
+    const event = { sequence: 7, call_id: callID, kind: "tool_call", method: "tools/call", source: "tunnel", tool: "run_command", workspace_id: "ws_test", status: "ok", duration_ms: 42, timestamp: "2026-09-05T00:00:00Z", raw: { call_id: callID, arguments: { workspace_id: "ws_test", command: "go test ./..." } } }
+    window.history.replaceState({}, "", `/activity/${callID}`)
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path === `/api/activity/${callID}`) return json(event)
+      return mockFetch(input)
+    }))
+    renderAdminApp()
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Tool Call")))
+    expect(await screen.findByText(new RegExp(callID))).toBeInTheDocument()
+    expect(screen.getAllByText("run_command").length).toBeGreaterThan(0)
+    expect(window.location.pathname).toBe(`/activity/${callID}`)
+  })
+
   it("only renders detected instruction sources and persists their toggles", async () => {
     const user = userEvent.setup()
     const detected = [{ provider: "claude", kind: "context", paths: ["/home/test/.claude/CLAUDE.md"], count: 1, enabled: true, loaded: false }]
@@ -261,7 +278,7 @@ describe("admin app runtime smoke", () => {
 function renderAdminApp() {
   return render(
     <ThemeProvider>
-      <App />
+      <BrowserRouter><App /></BrowserRouter>
     </ThemeProvider>
   )
 }

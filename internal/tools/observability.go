@@ -8,6 +8,7 @@ import (
 )
 
 type CallObservation struct {
+	CallID               string
 	Phase                string
 	Source               string
 	Tool                 string

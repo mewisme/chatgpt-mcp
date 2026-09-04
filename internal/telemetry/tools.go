@@ -15,6 +15,9 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 	}
 	runtime.SetCallObserver(func(observation tools.CallObservation) {
 		fields := []logger.Field{logger.With("tool", observation.Tool)}
+		if observation.CallID != "" {
+			fields = append(fields, logger.With("call_id", observation.CallID))
+		}
 		if observation.Source != "" {
 			fields = append(fields, logger.With("source", observation.Source))
 		}
@@ -72,7 +75,7 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 			log.Emit(event)
 		}
 		if stream != nil {
-			stream.Publish(activity.Event{Kind: string(activity.EventToolCall), Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, SessionHash: observation.SessionHash, SessionBinding: string(observation.SessionBinding), SessionWorkspaceID: observation.SessionWorkspaceID, ReceivedByInstanceID: observation.ReceivedByInstanceID, ExecutedByInstanceID: observation.ExecutedByInstanceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message), Raw: observation.Raw})
+			stream.Publish(activity.Event{CallID: observation.CallID, Kind: string(activity.EventToolCall), Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, SessionHash: observation.SessionHash, SessionBinding: string(observation.SessionBinding), SessionWorkspaceID: observation.SessionWorkspaceID, ReceivedByInstanceID: observation.ReceivedByInstanceID, ExecutedByInstanceID: observation.ExecutedByInstanceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message), Raw: observation.Raw})
 		}
 	})
 }

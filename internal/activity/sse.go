@@ -1,9 +1,11 @@
 package activity
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -11,6 +13,27 @@ const defaultHeartbeatInterval = 15 * time.Second
 
 func Handler(stream *Stream) http.Handler {
 	return handlerWithHeartbeat(stream, defaultHeartbeatInterval)
+}
+
+func CallHandler(stream *Stream) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		callID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/activity/"), "/")
+		if callID == "" || callID == "stream" {
+			http.NotFound(w, r)
+			return
+		}
+		event, ok := stream.FindCall(callID)
+		if !ok {
+			http.Error(w, "tool call not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(event)
+	})
 }
 
 func handlerWithHeartbeat(stream *Stream, heartbeatInterval time.Duration) http.Handler {

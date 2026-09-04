@@ -7,6 +7,7 @@ export type Tool = {
   annotations?: Record<string, unknown>
 }
 export type Workspace = { id: string; path: string; allow_dirs?: string[] }
+export type ActivityEvent = { sequence?: number; call_id?: string; kind: string; method?: string; source?: string; tool?: string; workspace_id?: string; session_hash?: string; session_binding?: string; session_workspace_id?: string; received_by_instance_id?: string; executed_by_instance_id?: string; status?: string; duration_ms?: number; message?: string; raw?: Record<string, unknown>; timestamp: string }
 export type ExecutionStatus = "running" | "success" | "failed" | "cancelled" | "timed_out" | string
 export type ExecutionInfo = {
   id: string
@@ -304,6 +305,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const adminApi = {
   health: () => api<{ ok: boolean; auth_enabled: boolean }>("/api/health"),
+  activityCall: (callID: string) => api<ActivityEvent>(`/api/activity/${encodeURIComponent(callID)}`),
   networkInterfaces: () => api<NetworkInterface[]>("/api/network/interfaces"),
   config: () => api<PublicConfig>("/api/config"),
   saveConfig: (config: Partial<PublicConfig>) =>

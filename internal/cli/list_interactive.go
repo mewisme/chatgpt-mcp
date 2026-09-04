@@ -37,52 +37,28 @@ func workspaceInteractiveRows(items []workspace.Workspace) []interactive.Row {
 		if len(item.AllowDirs) > 0 {
 			meta = fmt.Sprintf("%d extra roots", len(item.AllowDirs))
 		}
-		rows = append(rows, interactive.Row{ID: item.ID, Title: item.ID, Description: item.Path, Meta: meta, Summary: fmt.Sprintf("%-18s %s", item.ID, item.Path), Detail: workspaceInteractiveDetail(item), Search: strings.Join(append(append([]string{}, item.AllowDirs...), item.LegacyIDs...), " ")})
+		rows = append(rows, interactive.Row{ID: item.ID, Title: item.ID, Description: item.Path, Meta: meta, Summary: fmt.Sprintf("%-18s %s", item.ID, item.Path), DetailTitle: "Workspace · " + item.ID, DetailRows: workspaceInteractiveDetailRows(item), Search: strings.Join(append(append([]string{}, item.AllowDirs...), item.LegacyIDs...), " ")})
 	}
 	return rows
 }
 
-func workspaceInteractiveDetail(item workspace.Workspace) string {
-	var builder strings.Builder
-	builder.WriteString(interactive.Title("Workspace"))
-	builder.WriteString("\n")
-	builder.WriteString(interactive.KeyValue("ID", item.ID))
-	builder.WriteString("\n")
-	builder.WriteString(interactive.KeyValue("Root", item.Path))
-	builder.WriteString("\n\n")
-	builder.WriteString(interactive.Title("Access"))
-	builder.WriteString("\n")
-	builder.WriteString(interactive.KeyValue("Additional roots", fmt.Sprintf("%d", len(item.AllowDirs))))
-	builder.WriteString("\n")
+func workspaceInteractiveDetailRows(item workspace.Workspace) []interactive.Row {
+	rows := []interactive.Row{{ID: "root", Title: "Root", Description: item.Path}}
 	if len(item.AllowDirs) == 0 {
-		builder.WriteString("  ")
-		builder.WriteString(interactive.Muted("None"))
-		builder.WriteString("\n")
+		rows = append(rows, interactive.Row{ID: "additional-roots", Title: "Additional roots", Description: "None"})
 	} else {
-		for _, root := range item.AllowDirs {
-			builder.WriteString("  - ")
-			builder.WriteString(root)
-			builder.WriteString("\n")
+		for index, root := range item.AllowDirs {
+			rows = append(rows, interactive.Row{ID: fmt.Sprintf("additional-root-%d", index), Title: "Additional root", Description: root})
 		}
 	}
-	builder.WriteString("\n")
-	builder.WriteString(interactive.Title("Aliases"))
-	builder.WriteString("\n")
-	builder.WriteString(interactive.KeyValue("Legacy IDs", fmt.Sprintf("%d", len(item.LegacyIDs))))
-	builder.WriteString("\n")
 	if len(item.LegacyIDs) == 0 {
-		builder.WriteString("  ")
-		builder.WriteString(interactive.Muted("None"))
+		rows = append(rows, interactive.Row{ID: "legacy-ids", Title: "Legacy IDs", Description: "None"})
 	} else {
 		for index, id := range item.LegacyIDs {
-			if index > 0 {
-				builder.WriteString("\n")
-			}
-			builder.WriteString("  - ")
-			builder.WriteString(id)
+			rows = append(rows, interactive.Row{ID: fmt.Sprintf("legacy-id-%d", index), Title: "Legacy ID", Description: id})
 		}
 	}
-	return strings.TrimSpace(builder.String())
+	return rows
 }
 
 func upstreamInteractiveRows(items []upstream.Server) []interactive.Row {

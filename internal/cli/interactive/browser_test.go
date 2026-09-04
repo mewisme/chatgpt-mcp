@@ -91,6 +91,16 @@ func TestBrowserDetailViewportScrollsAndResizes(t *testing.T) {
 	}
 }
 
+func TestBrowserStructuredDetailUsesDefaultListLayout(t *testing.T) {
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "ws_one", Title: "ws_one", DetailTitle: "Workspace · ws_one", DetailRows: []Row{{ID: "root", Title: "Root", Description: "/tmp/project"}, {ID: "alias", Title: "Legacy ID", Description: "legacy_one"}}}}, nil)
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})
+	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
+	view := model.View().Content
+	if !model.detail || !strings.Contains(view, "Workspace · ws_one") || !strings.Contains(view, "Root") || !strings.Contains(view, "/tmp/project") || !strings.Contains(view, "Legacy ID") || !strings.Contains(view, "q") || !strings.Contains(view, "back") {
+		t.Fatalf("detail=%t view=%q", model.detail, view)
+	}
+}
+
 func TestBrowserRowActionUsesSelectedItemAndDefaultHelp(t *testing.T) {
 	copied := ""
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, nil).WithAction(RowAction{Key: "c", Desc: "copy ID", Run: func(row Row) (string, tea.Cmd, error) {

@@ -17,6 +17,8 @@ type Row struct {
 	Meta        string
 	Summary     string
 	Detail      string
+	DetailTitle string
+	DetailRows  []Row
 	Search      string
 }
 
@@ -58,6 +60,7 @@ func (i browserItem) FilterValue() string {
 type Browser struct {
 	ctx                context.Context
 	list               list.Model
+	detailList         list.Model
 	viewport           viewport.Model
 	refresh            RefreshFunc
 	actions            []RowAction
@@ -106,11 +109,18 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
 		ApplyDefaultListTheme(&m.list, msg.IsDark())
+		if m.detail && len(m.detailList.Items()) > 0 {
+			ApplyDefaultListTheme(&m.detailList, msg.IsDark())
+			m.syncDetailHelp()
+		}
 		m.syncHelp()
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.list.SetSize(msg.Width, msg.Height)
+		if m.detail && len(m.detailList.Items()) > 0 {
+			m.detailList.SetSize(msg.Width, msg.Height)
+		}
 		m.resizeViewport()
 		return m, nil
 	case browserRefreshMsg:
@@ -133,7 +143,7 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.detail {
 			if selected, ok := m.rowByID(selectedID); ok {
-				m.syncViewport(selected)
+				m.syncDetail(selected)
 			} else {
 				m.detail = false
 			}
@@ -157,6 +167,31 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.detail {
+		if len(m.detailList.Items()) > 0 {
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			if m.detailList.FilterState() == list.Filtering {
+				var cmd tea.Cmd
+				m.detailList, cmd = m.detailList.Update(msg)
+				return m, cmd
+			}
+			switch {
+			case msg.String() == "q", msg.String() == "esc":
+				m.detail = false
+				m.detailList = list.Model{}
+				return m, nil
+			case m.refresh != nil && key.Matches(msg, browserRefreshBinding):
+				return m.startRefresh()
+			default:
+				if handled, cmd := m.runAction(msg.String()); handled {
+					return m, cmd
+				}
+				var cmd tea.Cmd
+				m.detailList, cmd = m.detailList.Update(msg)
+				return m, cmd
+			}
+		}
 		switch {
 		case msg.String() == "ctrl+c":
 			return m, tea.Quit
@@ -183,8 +218,7 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, browserOpenBinding):
 		if selected, ok := m.selected(); ok {
 			m.detail = true
-			m.syncViewport(selected)
-			m.viewport.GotoTop()
+			m.syncDetail(selected)
 		}
 		return m, nil
 	case m.refresh != nil && key.Matches(msg, browserRefreshBinding):
@@ -202,7 +236,11 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Browser) View() tea.View {
 	content := m.list.View()
 	if m.detail {
-		content = m.detailView()
+		if len(m.detailList.Items()) > 0 {
+			content = m.detailList.View()
+		} else {
+			content = m.detailView()
+		}
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
@@ -264,6 +302,9 @@ func (m Browser) startRefresh() (tea.Model, tea.Cmd) {
 	}
 	m.loading = true
 	m.list.StartSpinner()
+	if m.detail && len(m.detailList.Items()) > 0 {
+		m.detailList.StartSpinner()
+	}
 	return m, func() tea.Msg {
 		rows, err := m.refresh(m.ctx)
 		return browserRefreshMsg{rows: rows, err: err}
@@ -281,13 +322,17 @@ func (m *Browser) runAction(keyValue string) (bool, tea.Cmd) {
 		}
 		m.notice, m.err = "", nil
 		notice, cmd, err := action.Run(selected)
+		statusTarget := &m.list
+		if m.detail && len(m.detailList.Items()) > 0 {
+			statusTarget = &m.detailList
+		}
 		if err != nil {
 			m.err = err
-			statusCmd := m.list.NewStatusMessage(err.Error())
+			statusCmd := statusTarget.NewStatusMessage(err.Error())
 			return true, tea.Batch(cmd, statusCmd)
 		}
 		m.notice = notice
-		statusCmd := m.list.NewStatusMessage(notice)
+		statusCmd := statusTarget.NewStatusMessage(notice)
 		return true, tea.Batch(cmd, statusCmd)
 	}
 	return false, nil
@@ -303,6 +348,18 @@ func (m *Browser) syncHelp() {
 	}
 	m.list.AdditionalShortHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
 	m.list.AdditionalFullHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
+}
+
+func (m *Browser) syncDetailHelp() {
+	bindings := make([]key.Binding, 0, len(m.actions)+1)
+	for _, action := range m.actions {
+		bindings = append(bindings, Binding([]string{action.Key}, action.Key, action.Desc))
+	}
+	if m.refresh != nil {
+		bindings = append(bindings, browserRefreshBinding)
+	}
+	m.detailList.AdditionalShortHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
+	m.detailList.AdditionalFullHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
 }
 
 func (m *Browser) restoreSelection(id string) {
@@ -324,6 +381,22 @@ func (m *Browser) restoreSelection(id string) {
 func (m *Browser) resizeViewport() {
 	m.viewport.SetWidth(max(12, m.contentWidth()-6))
 	m.viewport.SetHeight(max(4, m.height-6))
+}
+
+func (m *Browser) syncDetail(row Row) {
+	if len(row.DetailRows) > 0 {
+		title := strings.TrimSpace(row.DetailTitle)
+		if title == "" {
+			title = browserRowTitle(row)
+		}
+		m.detailList = NewDefaultList(title, browserListItems(row.DetailRows), max(20, m.width), max(10, m.height), "field", "fields")
+		m.detailList.KeyMap.Quit = Binding([]string{"q", "esc"}, "q", "back")
+		m.syncDetailHelp()
+		return
+	}
+	m.detailList = list.Model{}
+	m.syncViewport(row)
+	m.viewport.GotoTop()
 }
 
 func (m *Browser) syncViewport(row Row) {

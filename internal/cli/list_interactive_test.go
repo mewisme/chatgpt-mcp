@@ -108,7 +108,7 @@ func TestTunnelListInteractiveFlagsPreserveNonTTYJSON(t *testing.T) {
 
 func TestInteractiveRowsExposeUsefulDetailsWithoutUpstreamSecrets(t *testing.T) {
 	workspaceRows := workspaceInteractiveRows([]workspace.Workspace{{ID: "ws_one", Path: "/tmp/project", AllowDirs: []string{"/tmp/shared"}, LegacyIDs: []string{"legacy_one"}}})
-	if len(workspaceRows) != 1 || !strings.Contains(workspaceRows[0].Detail, "Workspace") || !strings.Contains(workspaceRows[0].Detail, "Additional roots") || !strings.Contains(workspaceRows[0].Detail, "/tmp/shared") || !strings.Contains(workspaceRows[0].Detail, "Legacy IDs") || !strings.Contains(workspaceRows[0].Detail, "legacy_one") || strings.Contains(workspaceRows[0].Detail, `"allow_dirs"`) {
+	if len(workspaceRows) != 1 || workspaceRows[0].DetailTitle != "Workspace · ws_one" || len(workspaceRows[0].DetailRows) != 3 || workspaceRows[0].DetailRows[0].Title != "Root" || workspaceRows[0].DetailRows[1].Description != "/tmp/shared" || workspaceRows[0].DetailRows[2].Description != "legacy_one" {
 		t.Fatalf("workspace rows=%#v", workspaceRows)
 	}
 	upstreamRows := upstreamInteractiveRows([]upstream.Server{{ID: "demo", Name: "Demo", Transport: "http", Enabled: true, URL: "https://mcp.example.test", Expose: "all", Headers: map[string]string{"Authorization": "secret-value"}}})

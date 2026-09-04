@@ -23,11 +23,18 @@ type Row struct {
 
 type RefreshFunc func(context.Context) ([]Row, error)
 
+type RowAction struct {
+	Key  string
+	Desc string
+	Run  func(Row) (string, tea.Cmd, error)
+}
+
 type Browser struct {
 	ctx       context.Context
 	title     string
 	rows      []Row
 	refresh   RefreshFunc
+	actions   []RowAction
 	keys      ListKeys
 	cursor    Cursor
 	viewport  viewport.Model
@@ -38,6 +45,7 @@ type Browser struct {
 	width     int
 	height    int
 	err       error
+	notice    string
 }
 
 type browserRefreshMsg struct {
@@ -53,6 +61,14 @@ func NewBrowser(ctx context.Context, title string, rows []Row, refresh RefreshFu
 	view.SoftWrap = true
 	view.FillHeight = false
 	return Browser{ctx: ctx, title: strings.TrimSpace(title), rows: append([]Row(nil), rows...), refresh: refresh, keys: DefaultListKeys(), viewport: view}
+}
+
+func (m Browser) WithAction(action RowAction) Browser {
+	action.Key, action.Desc = strings.TrimSpace(action.Key), strings.TrimSpace(action.Desc)
+	if action.Key != "" && action.Run != nil {
+		m.actions = append(m.actions, action)
+	}
+	return m
 }
 
 func (m Browser) Init() tea.Cmd { return nil }
@@ -119,6 +135,9 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Refresh):
 			return m.startRefresh()
 		default:
+			if handled, cmd := m.runAction(msg.String()); handled {
+				return m, cmd
+			}
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
@@ -150,6 +169,10 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.filtering = true
 	case key.Matches(msg, m.keys.Refresh):
 		return m.startRefresh()
+	default:
+		if handled, cmd := m.runAction(msg.String()); handled {
+			return m, cmd
+		}
 	}
 	return m, nil
 }
@@ -169,6 +192,10 @@ func (m Browser) View() tea.View {
 	if m.err != nil {
 		builder.WriteString("\n")
 		builder.WriteString(Banner(m.err.Error(), ToneDanger))
+	}
+	if m.notice != "" {
+		builder.WriteString("\n")
+		builder.WriteString(Banner(m.notice, ToneSuccess))
 	}
 	builder.WriteString("\n\n")
 	if m.detail {
@@ -195,6 +222,7 @@ func (m Browser) writeList(builder *strings.Builder) {
 	}
 	builder.WriteString("\n")
 	help := []HelpItem{{Key: "↑/k", Desc: "up"}, {Key: "↓/j", Desc: "down"}, {Key: "enter", Desc: "details"}, {Key: "/", Desc: "filter"}}
+	help = append(help, m.actionHelp()...)
 	if m.refresh != nil {
 		help = append(help, HelpItem{Key: "r", Desc: "refresh"})
 	}
@@ -245,6 +273,7 @@ func (m Browser) writeDetail(builder *strings.Builder) {
 	builder.WriteString(Panel(m.viewport.View(), max(12, m.contentWidth()-2)))
 	builder.WriteString("\n\n")
 	help := []HelpItem{{Key: "j/k", Desc: "scroll"}, {Key: "pgup/pgdn", Desc: "page"}, {Key: "esc", Desc: "back"}}
+	help = append(help, m.actionHelp()...)
 	if m.refresh != nil {
 		help = append(help, HelpItem{Key: "r", Desc: "refresh"})
 	}
@@ -285,6 +314,36 @@ func (m Browser) startRefresh() (tea.Model, tea.Cmd) {
 		rows, err := m.refresh(m.ctx)
 		return browserRefreshMsg{rows: rows, err: err}
 	}
+}
+
+func (m *Browser) runAction(keyValue string) (bool, tea.Cmd) {
+	for _, action := range m.actions {
+		if action.Key != keyValue {
+			continue
+		}
+		selected, ok := m.selected()
+		if !ok {
+			return true, nil
+		}
+		m.notice = ""
+		m.err = nil
+		notice, cmd, err := action.Run(selected)
+		if err != nil {
+			m.err = err
+		} else {
+			m.notice = notice
+		}
+		return true, cmd
+	}
+	return false, nil
+}
+
+func (m Browser) actionHelp() []HelpItem {
+	items := make([]HelpItem, 0, len(m.actions))
+	for _, action := range m.actions {
+		items = append(items, HelpItem{Key: action.Key, Desc: action.Desc})
+	}
+	return items
 }
 
 func (m *Browser) restoreSelection(id string) {

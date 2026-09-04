@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -14,10 +15,19 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
-func runInteractiveBrowser(cmd *cobra.Command, title string, rows []interactive.Row, refresh interactive.RefreshFunc) error {
+func runInteractiveBrowser(cmd *cobra.Command, title string, rows []interactive.Row, refresh interactive.RefreshFunc, actions ...interactive.RowAction) error {
 	model := interactive.NewBrowser(cmd.Context(), title, rows, refresh)
+	for _, action := range actions {
+		model = model.WithAction(action)
+	}
 	_, err := interactive.Run(cmd.Context(), model, cmd.InOrStdin(), cmd.OutOrStdout())
 	return err
+}
+
+func workspaceCopyIDAction() interactive.RowAction {
+	return interactive.RowAction{Key: "c", Desc: "copy ID", Run: func(row interactive.Row) (string, tea.Cmd, error) {
+		return "Copied " + row.ID, tea.SetClipboard(row.ID), nil
+	}}
 }
 
 func workspaceInteractiveRows(items []workspace.Workspace) []interactive.Row {

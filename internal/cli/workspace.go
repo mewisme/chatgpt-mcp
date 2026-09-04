@@ -109,7 +109,7 @@ func workspaceListCommand() *cobra.Command {
 				return printJSON(cmd, items)
 			}
 			if interactiveMode {
-				return runInteractiveBrowser(cmd, "Registered workspaces", workspaceInteractiveRows(items), workspaceInteractiveRefresh())
+				return runInteractiveBrowser(cmd, "Registered workspaces", workspaceInteractiveRows(items), workspaceInteractiveRefresh(), workspaceCopyIDAction())
 			}
 			log := commandLogger(cmd)
 			log.Success("WORKSPACE", "registered workspaces loaded", "count", len(items))

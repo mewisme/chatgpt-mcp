@@ -6,9 +6,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -115,5 +118,16 @@ func TestInteractiveRowsExposeUsefulDetailsWithoutUpstreamSecrets(t *testing.T) 
 	tunnelRows := tunnelInteractiveRows([]tunnel.Metadata{{ID: "tunnel_one", Name: "One", WorkspaceIDs: []string{"ws_admin"}}})
 	if len(tunnelRows) != 1 || !strings.Contains(tunnelRows[0].Summary, "ws_admin") {
 		t.Fatalf("tunnel rows=%#v", tunnelRows)
+	}
+}
+
+func TestWorkspaceCopyIDActionCopiesExactID(t *testing.T) {
+	action := workspaceCopyIDAction()
+	notice, cmd, err := action.Run(interactive.Row{ID: "ws_example"})
+	if err != nil || notice != "Copied ws_example" || cmd == nil {
+		t.Fatalf("notice=%q cmd=%v err=%v", notice, cmd, err)
+	}
+	if got, want := cmd(), tea.SetClipboard("ws_example")(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("clipboard command=%#v want=%#v", got, want)
 	}
 }

@@ -91,6 +91,23 @@ func TestBrowserDetailViewportScrollsAndResizes(t *testing.T) {
 	}
 }
 
+func TestBrowserRowActionUsesSelectedItemAndAppearsInHelp(t *testing.T) {
+	copied := ""
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, nil).WithAction(RowAction{Key: "c", Desc: "copy ID", Run: func(row Row) (string, tea.Cmd, error) {
+		copied = row.ID
+		return "Copied " + row.ID, nil, nil
+	}})
+	model = updateBrowser(t, model, browserKeyText("j"))
+	model = updateBrowser(t, model, browserKeyText("c"))
+	if copied != "two" || model.notice != "Copied two" || model.err != nil {
+		t.Fatalf("copied=%q notice=%q err=%v", copied, model.notice, model.err)
+	}
+	view := model.View().Content
+	if !strings.Contains(view, "copy ID") || !strings.Contains(view, "Copied two") {
+		t.Fatalf("view=%q", view)
+	}
+}
+
 func updateBrowser(t *testing.T, model Browser, msg tea.Msg) Browser {
 	t.Helper()
 	updated, _ := model.Update(msg)

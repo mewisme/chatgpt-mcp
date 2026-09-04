@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -15,6 +15,10 @@ const binary = path.resolve(input)
 const home = await mkdtemp(path.join(tmpdir(), "chatgpt-mcp-release-smoke-"))
 const env = { ...process.env, HOME: home, USERPROFILE: home }
 delete env.CHATGPT_MCP_TOOL_CONTEXT
+const installRoot = path.join(home, "managed-install")
+const installBin = process.platform === "win32" ? path.join(installRoot, "current") : path.join(home, "bin")
+env.CHATGPT_MCP_INSTALL_DIR = installRoot
+env.CHATGPT_MCP_BIN_DIR = installBin
 const configDir = path.join(home, "config")
 const defaultConfigDir = path.join(home, ".config", "chatgpt-mcp")
 const defaultSentinel = path.join(defaultConfigDir, "release-smoke-sentinel")
@@ -30,6 +34,9 @@ try {
   await mkdir(defaultConfigDir, { recursive: true })
   await mkdir(allowedDir, { recursive: true })
   await writeFile(defaultSentinel, "keep\n")
+  run(["install", "--force"], { quiet: true })
+  run(["install", "--force"], { quiet: true })
+  await verifySelfInstall()
   run(["--help"])
   run(["serve", "--help"])
   run(["auth", "mcp", "--help"])
@@ -150,7 +157,7 @@ try {
 
   run(["uninit"], { quiet: true })
   if (await readFile(defaultSentinel, "utf8") !== "keep\n") fail("isolated commands modified the default config root")
-  console.log("[OK] release smoke: init -> verify -> config -> serve/reload/rollback -> MCP -> logs -> managed runtime -> follow/clear -> stop -> uninit")
+  console.log("[OK] release smoke: self-install -> init -> verify -> config -> serve/reload/rollback -> MCP -> logs -> managed runtime -> follow/clear -> stop -> uninit")
 } finally {
   if (occupied) await closeServer(occupied.server).catch(() => undefined)
   if (follower) await stopChild(follower).catch(() => undefined)
@@ -173,6 +180,23 @@ function run(args, { quiet = false } = {}) {
     if (output) console.log(output)
   }
   return [result.stdout, result.stderr].filter(Boolean).join("").trim()
+}
+
+async function verifySelfInstall() {
+  const metadata = JSON.parse(await readFile(path.join(installRoot, "install.json"), "utf8"))
+  if (metadata.method !== "direct" || metadata.version !== "dev" || path.resolve(metadata.install_dir) !== path.resolve(installRoot)) {
+    fail(`self-install metadata mismatch: ${JSON.stringify(metadata)}`)
+  }
+  const executable = path.join(installRoot, "current", process.platform === "win32" ? "chatgpt-mcp.exe" : "chatgpt-mcp")
+  const versionResult = spawnSync(executable, ["version"], { env, encoding: "utf8", windowsHide: true })
+  if (versionResult.error || versionResult.status !== 0) fail(`installed binary is not executable: ${versionResult.error?.message || versionResult.stderr}`)
+  const alias = path.join(installBin, process.platform === "win32" ? "cgm.cmd" : "cgm")
+  if (process.platform === "win32") {
+    const content = await readFile(alias, "utf8")
+    if (!content.includes("CHATGPT_MCP_CLI_NAME=cgm") || !content.includes("chatgpt-mcp.exe")) fail(`invalid Windows alias: ${content}`)
+  } else if (await realpath(alias) !== await realpath(executable)) {
+    fail(`Unix alias does not resolve to current binary: ${alias}`)
+  }
 }
 
 function runExpectFailure(args) {

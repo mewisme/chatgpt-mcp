@@ -191,6 +191,8 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   if (path === "/api/config") return json(config)
   if (path === "/api/config/presets") return json(presets)
   if (path === "/api/network/interfaces") return json([])
+  if (path === "/api/requests?status=pending") return json([])
+  if (path === "/api/requests/stream") return approvalStream()
   if (path === "/api/activity/stream?history=100") return activityStream()
   throw new Error(`Unhandled test request: ${path}`)
 }
@@ -209,6 +211,22 @@ function json(value: unknown) {
 }
 
 function activityStream() {
+  const encoder = new TextEncoder()
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode('event: ready\ndata: {"latest_sequence":0}\n\n')
+      )
+      controller.close()
+    },
+  })
+  return new Response(body, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  })
+}
+
+function approvalStream() {
   const encoder = new TextEncoder()
   const body = new ReadableStream({
     start(controller) {

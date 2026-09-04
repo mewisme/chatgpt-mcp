@@ -1,0 +1,190 @@
+import { render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { RequestApprovalHost } from "@/components/request-approval-host"
+import { ThemeProvider } from "@/components/theme-provider"
+import { adminToken, type ApprovalRequest } from "@/lib/api"
+
+describe("RequestApprovalHost", () => {
+  beforeEach(() => adminToken.set("test-admin-token"))
+  afterEach(() => {
+    adminToken.clear()
+    vi.unstubAllGlobals()
+  })
+
+  it("shows queued requests with exact arguments and resolves them in order", async () => {
+    const user = userEvent.setup()
+    let pending = [
+      request("req_first", "cgm update"),
+      request("req_second", "cgm install"),
+    ]
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = requestPath(input)
+        if (path === "/api/requests?status=pending") return json(pending)
+        if (path === "/api/requests/stream") return approvalStream()
+        if (path === "/api/requests/req_first")
+          return json(pending.find((item) => item.id === "req_first"))
+        if (path === "/api/requests/req_second")
+          return json(pending.find((item) => item.id === "req_second"))
+        if (
+          path === "/api/requests/req_first/approve" &&
+          init?.method === "POST"
+        ) {
+          const resolved = { ...pending[0], status: "approved" }
+          pending = pending.slice(1)
+          return json(resolved)
+        }
+        if (
+          path === "/api/requests/req_second/deny" &&
+          init?.method === "POST"
+        ) {
+          const resolved = { ...pending[0], status: "denied" }
+          pending = []
+          return json(resolved)
+        }
+        throw new Error(`Unhandled test request: ${path}`)
+      })
+    )
+
+    renderHost()
+    expect(await screen.findByText("Allow cgm update")).toBeInTheDocument()
+    expect(
+      screen.getByText("Control approval request · 1 of 2")
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "Details" }))
+    expect(screen.getByRole("code").textContent).toContain(
+      '"command": "cgm update"'
+    )
+    await user.click(screen.getByRole("button", { name: /Approve/ }))
+    expect(await screen.findByText("Allow cgm install")).toBeInTheDocument()
+    expect(
+      screen.getByText("Control approval request · 1 of 1")
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Deny" }))
+    await waitFor(() =>
+      expect(screen.queryByText("Allow cgm install")).not.toBeInTheDocument()
+    )
+  })
+
+  it("refetches pending requests when the approval SSE reports a new request", async () => {
+    let listCalls = 0
+    const pending = request("req_stream", "cgm update --version v2")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = requestPath(input)
+        if (path === "/api/requests?status=pending") {
+          listCalls++
+          return json(listCalls === 1 ? [] : [pending])
+        }
+        if (path === "/api/requests/stream")
+          return approvalStream({
+            name: "approval.requested",
+            request_id: pending.id,
+          })
+        if (path === "/api/requests/req_stream") return json(pending)
+        throw new Error(`Unhandled test request: ${path}`)
+      })
+    )
+
+    renderHost()
+    expect(
+      await screen.findByText("Allow cgm update --version v2")
+    ).toBeInTheDocument()
+    expect(listCalls).toBeGreaterThanOrEqual(2)
+  })
+
+  it("drops a stale dialog when resolving it reports a conflict", async () => {
+    const user = userEvent.setup()
+    let pending = [request("req_stale", "cgm update")]
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = requestPath(input)
+        if (path === "/api/requests?status=pending") return json(pending)
+        if (path === "/api/requests/stream") return approvalStream()
+        if (path === "/api/requests/req_stale") return json(pending[0])
+        if (
+          path === "/api/requests/req_stale/approve" &&
+          init?.method === "POST"
+        ) {
+          pending = []
+          return new Response("approval request is already resolved", {
+            status: 409,
+          })
+        }
+        throw new Error(`Unhandled test request: ${path}`)
+      })
+    )
+
+    renderHost()
+    expect(await screen.findByText("Allow cgm update")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: /Approve/ }))
+    await waitFor(() =>
+      expect(screen.queryByText("Allow cgm update")).not.toBeInTheDocument()
+    )
+  })
+})
+
+function renderHost() {
+  return render(
+    <ThemeProvider>
+      <RequestApprovalHost />
+    </ThemeProvider>
+  )
+}
+
+function request(id: string, command: string): ApprovalRequest {
+  const now = Date.now()
+  return {
+    id,
+    status: "pending",
+    workspace_id: "ws_test",
+    session_hash: "hash-session",
+    source: "tunnel",
+    target_tool: "run_command",
+    arguments: { workspace_id: "ws_test", command },
+    guard_code: "control_plane_mutation",
+    guard_reason: "control-plane mutation denied",
+    title: `Allow ${command}`,
+    created_at: new Date(now).toISOString(),
+    expires_at: new Date(now + 60_000).toISOString(),
+  }
+}
+
+function requestPath(input: RequestInfo | URL) {
+  const raw = input instanceof Request ? input.url : String(input)
+  const url = new URL(raw, "http://localhost")
+  return `${url.pathname}${url.search}`
+}
+
+function json(value: unknown) {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+function approvalStream(event?: { name: string; request_id: string }) {
+  const encoder = new TextEncoder()
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode('event: ready\ndata: {"latest_sequence":0}\n\n')
+      )
+      if (event)
+        controller.enqueue(
+          encoder.encode(
+            `event: ${event.name}\ndata: ${JSON.stringify({ ...event, workspace_id: "ws_test", target_tool: "run_command", title: "Approval", status: "pending", created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 60_000).toISOString(), timestamp: new Date().toISOString() })}\n\n`
+          )
+        )
+      controller.close()
+    },
+  })
+  return new Response(body, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  })
+}

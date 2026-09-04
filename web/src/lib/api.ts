@@ -167,6 +167,50 @@ export type TunnelStatus = {
   admin_scope?: TunnelAdminScope
 }
 
+export type ApprovalStatus =
+  | "pending"
+  | "approved"
+  | "denied"
+  | "expired"
+  | "cancelled"
+  | "consumed"
+  | string
+export type ApprovalRequest = {
+  id: string
+  status: ApprovalStatus
+  workspace_id: string
+  session_hash?: string
+  source?: string
+  target_tool: string
+  arguments?: Record<string, unknown>
+  digest?: string
+  guard_code?: string
+  guard_reason?: string
+  title: string
+  created_at: string
+  expires_at: string
+  resolved_at?: string
+  resolved_by?: string
+  reason?: string
+  retry_until?: string
+  consumed_at?: string
+}
+export type ApprovalEvent = {
+  sequence?: number
+  name: string
+  request_id: string
+  workspace_id: string
+  session_hash?: string
+  source?: string
+  target_tool: string
+  title: string
+  status: ApprovalStatus
+  created_at: string
+  expires_at: string
+  retry_until?: string
+  timestamp: string
+}
+
 const adminTokenKey = "chatgpt-mcp-admin-token"
 try {
   localStorage.removeItem(adminTokenKey)
@@ -294,4 +338,20 @@ export const adminApi = {
     api<TunnelAdminKeyStatus>("/api/tunnel/admin/key", { method: "DELETE" }),
   startTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "POST" }),
   stopTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "DELETE" }),
+  approvalRequests: (status = "pending") =>
+    api<ApprovalRequest[]>(
+      `/api/requests?status=${encodeURIComponent(status)}`
+    ),
+  approvalRequest: (id: string) =>
+    api<ApprovalRequest>(`/api/requests/${encodeURIComponent(id)}`),
+  approveRequest: (id: string, reason = "") =>
+    api<ApprovalRequest>(`/api/requests/${encodeURIComponent(id)}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  denyRequest: (id: string, reason = "") =>
+    api<ApprovalRequest>(`/api/requests/${encodeURIComponent(id)}/deny`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -21,8 +22,15 @@ func TestUpdateCacheRoundTrip(t *testing.T) {
 	if cache.Schema != CacheSchema || cache.Latest != "v1.2.3" || !cache.CheckedAt.Equal(checkedAt.UTC()) {
 		t.Fatalf("cache = %+v", cache)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm()&0077 != 0 {
-		t.Fatalf("cache permissions = %v err=%v", info.Mode().Perm(), err)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() {
+		t.Fatalf("cache mode = %v", info.Mode())
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
+		t.Fatalf("cache permissions = %v", info.Mode().Perm())
 	}
 }
 

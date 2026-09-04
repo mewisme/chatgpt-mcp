@@ -71,6 +71,7 @@ describe("admin app runtime smoke", () => {
 
     const pageSmokeText: Record<string, string> = {
       workspaces: "Register workspace",
+      requests: "Review pending control grants and inspect resolved request history for every workspace.",
       tools:
         "Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.",
       servers: "Add MCP server",
@@ -192,6 +193,7 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   if (path === "/api/config/presets") return json(presets)
   if (path === "/api/network/interfaces") return json([])
   if (path === "/api/requests?status=pending") return json([])
+  if (path === "/api/requests?status=") return json([])
   if (path === "/api/requests/stream") return approvalStream()
   if (path === "/api/activity/stream?history=100") return activityStream()
   throw new Error(`Unhandled test request: ${path}`)

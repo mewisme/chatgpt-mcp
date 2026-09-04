@@ -22,43 +22,18 @@ type HelpItem struct {
 }
 
 var (
-	accentColor  = lipgloss.Color("6")
-	successColor = lipgloss.Color("2")
-	warningColor = lipgloss.Color("3")
-	dangerColor  = lipgloss.Color("1")
-	mutedColor   = lipgloss.Color("8")
-
-	titleStyle   = lipgloss.NewStyle().Bold(true)
-	accentStyle  = lipgloss.NewStyle().Foreground(accentColor).Bold(true)
-	successStyle = lipgloss.NewStyle().Foreground(successColor).Bold(true)
-	warningStyle = lipgloss.NewStyle().Foreground(warningColor).Bold(true)
-	dangerStyle  = lipgloss.NewStyle().Foreground(dangerColor).Bold(true)
-	mutedStyle   = lipgloss.NewStyle().Foreground(mutedColor)
-	labelStyle   = lipgloss.NewStyle().Foreground(mutedColor)
+	titleStyle = lipgloss.NewStyle().Bold(true)
+	keyStyle   = lipgloss.NewStyle().Bold(true)
 )
 
-func Title(value string) string  { return titleStyle.Render(value) }
-func Accent(value string) string { return accentStyle.Render(value) }
-func Muted(value string) string  { return mutedStyle.Render(value) }
-func Label(value string) string  { return labelStyle.Render(value) }
-
-func ToneText(value string, tone Tone) string {
-	switch tone {
-	case ToneAccent:
-		return accentStyle.Render(value)
-	case ToneSuccess:
-		return successStyle.Render(value)
-	case ToneWarning:
-		return warningStyle.Render(value)
-	case ToneDanger:
-		return dangerStyle.Render(value)
-	default:
-		return value
-	}
-}
+func Title(value string) string            { return titleStyle.Render(value) }
+func Accent(value string) string           { return keyStyle.Render(value) }
+func Muted(value string) string            { return value }
+func Label(value string) string            { return value }
+func ToneText(value string, _ Tone) string { return value }
 
 func Header(title, meta string, width int) string {
-	left, right := Title(title), Muted(meta)
+	left, right := Title(title), meta
 	line := left
 	if right != "" {
 		gap := 2
@@ -80,13 +55,13 @@ func Divider(width int) string {
 	if width < 12 {
 		width = 12
 	}
-	return Muted(strings.Repeat("─", width))
+	return strings.Repeat("─", width)
 }
 
 func Filter(value string, active bool) string {
 	cursor := ""
 	if active {
-		cursor = Accent("▌")
+		cursor = "▌"
 	}
 	if value == "" && !active {
 		return ""
@@ -106,12 +81,12 @@ func Banner(message string, tone Tone) string {
 	} else if tone == ToneSuccess {
 		marker = "✓"
 	}
-	return ToneText(marker, tone) + " " + message
+	return marker + " " + message
 }
 
 func CursorMark(selected bool) string {
 	if selected {
-		return Accent("›") + " "
+		return "› "
 	}
 	return "  "
 }
@@ -120,11 +95,11 @@ func Secondary(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return ""
 	}
-	return Muted(value)
+	return value
 }
 
 func Panel(body string, width int) string {
-	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(mutedColor).Padding(0, 1)
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
 	if width > 0 {
 		style = style.MaxWidth(max(12, width))
 	}
@@ -152,7 +127,7 @@ func Help(width int, items ...HelpItem) string {
 	var lines []string
 	line := ""
 	for _, item := range items {
-		chunk := Accent(item.Key) + " " + Muted(item.Desc)
+		chunk := Accent(item.Key) + " " + item.Desc
 		separator := "   "
 		candidate := chunk
 		if line != "" {
@@ -171,6 +146,4 @@ func Help(width int, items ...HelpItem) string {
 	return strings.Join(lines, "\n")
 }
 
-func KeyValue(label, value string) string {
-	return Label(label) + "  " + value
-}
+func KeyValue(label, value string) string { return label + "  " + value }

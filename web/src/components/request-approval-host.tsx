@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ShieldCheck } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ResponsiveDialog } from "@/components/responsive-dialog"
 import { DetailRow } from "@/components/detail-row"
 import { JsonViewer } from "@/components/json-viewer"
-import {
-  adminApi,
-  authHeaders,
-  type ApprovalEvent,
-  type ApprovalRequest,
-} from "@/lib/api"
+import { adminApi, type ApprovalRequest } from "@/lib/api"
+import { streamApprovals } from "@/lib/approval-stream"
 
 const reconnectDelay = 1000
 
@@ -22,6 +19,7 @@ export function RequestApprovalHost() {
   const [error, setError] = useState("")
   const [now, setNow] = useState(() => Date.now())
   const retryTimer = useRef<number | null>(null)
+  const notified = useRef(new Set<string>())
 
   const applyRequests = useCallback((next: ApprovalRequest[]) => {
     setRequests(next)
@@ -42,6 +40,17 @@ export function RequestApprovalHost() {
       setError(errorText(value))
     }
   }, [applyRequests])
+
+  const focusRequest = useCallback(async (id: string) => {
+    try {
+      const detail = await adminApi.approvalRequest(id)
+      if (detail.status !== "pending") return
+      setRequests((current) => current.some((item) => item.id === detail.id) ? current.map((item) => item.id === detail.id ? detail : item) : [detail, ...current])
+      setSelected(detail)
+    } catch {
+      await refresh()
+    }
+  }, [refresh])
 
   useEffect(() => {
     let active = true
@@ -88,7 +97,20 @@ export function RequestApprovalHost() {
     let stopped = false
     async function connect() {
       try {
-        await streamApprovals(controller.signal, () => void refresh())
+        await streamApprovals(controller.signal, {
+          onReady: () => void refresh(),
+          onEvent: (event) => {
+            if (event.name === "approval.requested" && !notified.current.has(event.request_id)) {
+              notified.current.add(event.request_id)
+              toast.warning("Control approval requested", {
+                description: `${event.title || event.target_tool} · ${event.workspace_id}`,
+                duration: 10000,
+                action: { label: "Review", onClick: () => void focusRequest(event.request_id) },
+              })
+            }
+            void refresh()
+          },
+        })
       } catch (value) {
         if (controller.signal.aborted || stopped) return
         setError(errorText(value))
@@ -104,7 +126,7 @@ export function RequestApprovalHost() {
       controller.abort()
       if (retryTimer.current !== null) window.clearTimeout(retryTimer.current)
     }
-  }, [refresh])
+  }, [focusRequest, refresh])
 
   const position = useMemo(
     () =>
@@ -232,55 +254,4 @@ function formatDateTime(value: string) {
 
 function errorText(value: unknown) {
   return value instanceof Error ? value.message : String(value)
-}
-
-async function streamApprovals(
-  signal: AbortSignal,
-  onEvent: (event: ApprovalEvent | null) => void
-) {
-  const response = await fetch("/api/requests/stream", {
-    headers: authHeaders(),
-    signal,
-  })
-  if (!response.ok || !response.body) {
-    const message = await response.text().catch(() => "")
-    throw new Error(message.trim() || `Approval stream ${response.status}`)
-  }
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ""
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) {
-      if (signal.aborted) return
-      throw new Error(
-        "Approval stream ended; reconnecting to resync pending requests."
-      )
-    }
-    buffer += decoder.decode(value, { stream: true })
-    let boundary = buffer.indexOf("\n\n")
-    while (boundary >= 0) {
-      const packet = buffer.slice(0, boundary)
-      buffer = buffer.slice(boundary + 2)
-      let eventType = "message"
-      let data = ""
-      for (const line of packet.split("\n")) {
-        if (line.startsWith("event: ")) eventType = line.slice(7).trim()
-        if (line.startsWith("data: ")) data += line.slice(6)
-      }
-      if (eventType === "overflow")
-        throw new Error(
-          "Approval stream overflowed; reconnecting to resync pending requests."
-        )
-      if (eventType === "ready" || eventType === "heartbeat") onEvent(null)
-      else if (eventType.startsWith("approval.")) {
-        try {
-          onEvent(data ? (JSON.parse(data) as ApprovalEvent) : null)
-        } catch (value) {
-          if (!(value instanceof SyntaxError)) throw value
-        }
-      }
-      boundary = buffer.indexOf("\n\n")
-    }
-  }
 }

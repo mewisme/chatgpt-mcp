@@ -1,14 +1,18 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { toast } from "sonner"
 import { RequestApprovalHost } from "@/components/request-approval-host"
 import { ThemeProvider } from "@/components/theme-provider"
 import { adminToken, type ApprovalRequest } from "@/lib/api"
+
+vi.mock("sonner", () => ({ toast: { warning: vi.fn() } }))
 
 describe("RequestApprovalHost", () => {
   beforeEach(() => adminToken.set("test-admin-token"))
   afterEach(() => {
     adminToken.clear()
+    vi.mocked(toast.warning).mockReset()
     vi.unstubAllGlobals()
   })
 
@@ -94,6 +98,7 @@ describe("RequestApprovalHost", () => {
       await screen.findByText("Allow cgm update --version v2")
     ).toBeInTheDocument()
     expect(listCalls).toBeGreaterThanOrEqual(2)
+    expect(toast.warning).toHaveBeenCalledWith("Control approval requested", expect.objectContaining({ description: expect.stringContaining("ws_test"), action: expect.objectContaining({ label: "Review" }) }))
   })
 
   it("drops a stale dialog when resolving it reports a conflict", async () => {

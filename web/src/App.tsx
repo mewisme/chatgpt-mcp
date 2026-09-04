@@ -6,11 +6,13 @@ import { PageLoading } from "@/components/page-state"
 import { adminDocumentTitle, adminNavItemFromPath, navItems } from "@/lib/admin-navigation"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Toaster } from "@/components/ui/sonner"
 import { adminApi, adminToken, ApiError } from "@/lib/api"
 
 const ActivityPage = lazy(() => import("@/pages/activity").then((module) => ({ default: module.ActivityPage })))
 const LoginPage = lazy(() => import("@/pages/login").then((module) => ({ default: module.LoginPage })))
 const OverviewPage = lazy(() => import("@/pages/overview").then((module) => ({ default: module.OverviewPage })))
+const RequestsPage = lazy(() => import("@/pages/requests").then((module) => ({ default: module.RequestsPage })))
 const ServersPage = lazy(() => import("@/pages/servers").then((module) => ({ default: module.ServersPage })))
 const SettingsPage = lazy(() => import("@/pages/settings").then((module) => ({ default: module.SettingsPage })))
 const ToolsPage = lazy(() => import("@/pages/tools").then((module) => ({ default: module.ToolsPage })))
@@ -20,6 +22,7 @@ const WorkspacesPage = lazy(() => import("@/pages/workspaces").then((module) => 
 const pages: Record<string, React.ComponentType> = {
   overview: OverviewPage,
   workspaces: WorkspacesPage,
+  requests: RequestsPage,
   tools: ToolsPage,
   servers: ServersPage,
   tunnel: TunnelPage,
@@ -64,7 +67,7 @@ export function App() {
   }
   function signOut() { adminToken.clear(); setAuthenticated(false) }
 
-  return <TooltipProvider><SidebarProvider><AppSidebar authRequired={authRequired} page={page} onPageChange={navigate} onSignOut={signOut} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-4"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{meta.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{meta.description}</div></div></header><div className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1400px] p-4 sm:p-6 lg:p-8"><Suspense fallback={<PageLoading rows={6} />}><Page /></Suspense></div></div></SidebarInset><RequestApprovalHost /></SidebarProvider></TooltipProvider>
+  return <TooltipProvider><SidebarProvider><AppSidebar authRequired={authRequired} page={page} onPageChange={navigate} onSignOut={signOut} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-4"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{meta.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{meta.description}</div></div></header><div className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1400px] p-4 sm:p-6 lg:p-8"><Suspense fallback={<PageLoading rows={6} />}><Page /></Suspense></div></div></SidebarInset><RequestApprovalHost /><Toaster /></SidebarProvider></TooltipProvider>
 }
 
 function FullPageLoading({ label }: { label: string }) { return <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{label}</div> }

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
@@ -24,25 +24,47 @@ type requestInteractiveClient struct {
 	deny    func(context.Context, string, string) (approval.Request, error)
 }
 
+type requestListItem struct {
+	request approval.Request
+	now     time.Time
+}
+
+func (i requestListItem) Title() string {
+	if value := strings.TrimSpace(i.request.Title); value != "" {
+		return value
+	}
+	return i.request.ID
+}
+
+func (i requestListItem) Description() string {
+	parts := nonEmptyStrings(shortRequestID(i.request.ID), i.request.WorkspaceID, i.request.TargetTool, strings.ToUpper(string(i.request.Status)))
+	if countdown := requestCountdown(i.request, i.now); countdown != "" && countdown != string(i.request.Status) {
+		parts = append(parts, countdown)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (i requestListItem) FilterValue() string {
+	return strings.Join([]string{i.request.ID, string(i.request.Status), i.request.WorkspaceID, i.request.TargetTool, i.request.Source, i.request.Title}, " ")
+}
+
 type requestInteractiveModel struct {
-	ctx           context.Context
-	client        requestInteractiveClient
-	keys          interactive.ListKeys
-	cursor        interactive.Cursor
-	confirm       interactive.Confirmation
-	viewport      viewport.Model
-	requests      []approval.Request
-	filter        string
-	filtering     bool
-	detail        bool
-	detailRequest approval.Request
-	loading       bool
-	busy          bool
-	width         int
-	height        int
-	now           time.Time
-	notice        string
-	err           error
+	ctx                context.Context
+	client             requestInteractiveClient
+	list               list.Model
+	confirm            interactive.Confirmation
+	viewport           viewport.Model
+	requests           []approval.Request
+	detail             bool
+	detailRequest      approval.Request
+	loading            bool
+	busy               bool
+	width              int
+	height             int
+	now                time.Time
+	notice             string
+	err                error
+	pendingSelectionID string
 }
 
 type requestInteractiveListMsg struct {
@@ -60,14 +82,23 @@ type requestInteractiveResolveMsg struct {
 }
 type requestInteractiveTickMsg time.Time
 
+var requestOpenBinding = interactive.Binding([]string{"enter", "v"}, "enter", "details")
+var requestApproveBinding = interactive.Binding([]string{"a"}, "a", "approve")
+var requestDenyBinding = interactive.Binding([]string{"d"}, "d", "deny")
+var requestRefreshBinding = interactive.Binding([]string{"r"}, "r", "refresh")
+
 func newRequestInteractiveModel(ctx context.Context, requests []approval.Request, client requestInteractiveClient) requestInteractiveModel {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	now := time.Now()
+	pending := requestInteractivePending(requests)
+	listModel := interactive.NewDefaultList("Pending control approvals", requestListItems(pending, now), 80, 20, "request", "requests")
+	syncRequestListHelp(&listModel)
 	view := viewport.New(viewport.WithWidth(74), viewport.WithHeight(12))
 	view.SoftWrap = true
 	view.FillHeight = false
-	return requestInteractiveModel{ctx: ctx, client: client, keys: interactive.DefaultListKeys(), viewport: view, requests: requestInteractivePending(requests), now: time.Now()}
+	return requestInteractiveModel{ctx: ctx, client: client, list: listModel, viewport: view, requests: pending, now: now}
 }
 
 func defaultRequestInteractiveClient() requestInteractiveClient {
@@ -79,25 +110,33 @@ func (m requestInteractiveModel) Init() tea.Cmd { return requestInteractiveTickC
 func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
-		interactive.SetDarkBackground(msg.IsDark())
+		interactive.ApplyDefaultListTheme(&m.list, msg.IsDark())
+		syncRequestListHelp(&m.list)
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.list.SetSize(msg.Width, msg.Height)
 		m.resizeViewport()
+		return m, nil
 	case requestInteractiveTickMsg:
 		m.now = time.Time(msg)
 		if m.detail {
 			m.syncDetailViewport()
 		}
-		return m, tea.Batch(requestInteractiveTickCmd(), m.refreshCmd())
+		selectedID := m.selectedID()
+		listCmd := m.syncListItems(selectedID)
+		return m, tea.Batch(requestInteractiveTickCmd(), m.refreshCmd(), listCmd)
 	case requestInteractiveListMsg:
 		m.loading = false
+		m.list.StopSpinner()
 		if msg.err != nil {
 			m.err = msg.err
-			return m, nil
+			return m, m.list.NewStatusMessage("Refresh failed: " + msg.err.Error())
 		}
 		m.err = nil
+		selectedID := m.selectedID()
 		m.requests = requestInteractivePending(msg.requests)
-		m.cursor.Clamp(len(m.filtered()))
+		listCmd := m.syncListItems(selectedID)
 		if m.detail {
 			if current, ok := requestFind(m.requests, m.detailRequest.ID); ok {
 				m.detailRequest = current
@@ -106,32 +145,45 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.detail, m.detailRequest = false, approval.Request{}
 			}
 		}
+		return m, listCmd
+	case list.FilterMatchesMsg:
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		if m.pendingSelectionID != "" {
+			m.restoreSelection(m.pendingSelectionID)
+			m.pendingSelectionID = ""
+		}
+		return m, cmd
 	case requestInteractiveDetailMsg:
 		m.loading = false
+		m.list.StopSpinner()
 		if msg.err != nil {
 			m.err = msg.err
-			return m, nil
+			return m, m.list.NewStatusMessage(msg.err.Error())
 		}
 		m.err = nil
 		m.detail, m.detailRequest = true, msg.request
 		m.syncDetailViewport()
 		m.viewport.GotoTop()
+		return m, nil
 	case requestInteractiveResolveMsg:
 		m.busy = false
 		if msg.err != nil {
 			m.err = msg.err
-			return m, m.refreshCmd()
+			return m, tea.Batch(m.list.NewStatusMessage(msg.err.Error()), m.refreshCmd())
 		}
 		m.err = nil
 		m.notice = fmt.Sprintf("%s %s", requestActionTitle(msg.action), msg.request.ID)
 		m.requests = requestRemove(m.requests, msg.request.ID)
-		m.cursor.Clamp(len(m.filtered()))
 		m.detail, m.detailRequest = false, approval.Request{}
-		return m, m.refreshCmd()
+		listCmd := m.syncListItems("")
+		return m, tea.Batch(m.list.NewStatusMessage(m.notice), listCmd, m.refreshCmd())
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
-	return m, nil
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(message)
+	return m, cmd
 }
 
 func (m requestInteractiveModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -149,42 +201,19 @@ func (m requestInteractiveModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.
 			return m, nil
 		}
 	}
-	if m.filtering {
-		keyValue := tea.Key(msg)
-		switch msg.String() {
-		case "enter", "esc":
-			m.filtering = false
-		case "backspace":
-			m.filter = trimLastRune(m.filter)
-			m.cursor.Clamp(len(m.filtered()))
-		case "ctrl+u":
-			m.filter = ""
-			m.cursor.Index = 0
-		case "ctrl+c":
-			return m, tea.Quit
-		default:
-			if keyValue.Text != "" {
-				m.filter += keyValue.Text
-				m.cursor.Index = 0
-			}
-		}
-		return m, nil
-	}
 	if m.detail {
 		switch {
-		case key.Matches(msg, m.keys.Quit):
-			if msg.String() == "ctrl+c" {
-				return m, tea.Quit
-			}
+		case msg.String() == "ctrl+c":
+			return m, tea.Quit
+		case msg.String() == "q", msg.String() == "esc", key.Matches(msg, requestOpenBinding):
 			m.detail, m.detailRequest = false, approval.Request{}
-		case msg.String() == "esc" || key.Matches(msg, m.keys.Open):
-			m.detail, m.detailRequest = false, approval.Request{}
-		case key.Matches(msg, m.keys.Approve):
+		case key.Matches(msg, requestApproveBinding):
 			m.startConfirmation("approve", m.detailRequest)
-		case key.Matches(msg, m.keys.Deny):
+		case key.Matches(msg, requestDenyBinding):
 			m.startConfirmation("deny", m.detailRequest)
-		case key.Matches(msg, m.keys.Refresh):
+		case key.Matches(msg, requestRefreshBinding):
 			m.loading = true
+			m.list.StartSpinner()
 			return m, tea.Batch(m.refreshCmd(), m.detailCmd(m.detailRequest.ID))
 		default:
 			var cmd tea.Cmd
@@ -193,39 +222,34 @@ func (m requestInteractiveModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.
 		}
 		return m, nil
 	}
-	items := m.filtered()
+	if m.list.FilterState() == list.Filtering {
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return m, cmd
+	}
 	switch {
-	case key.Matches(msg, m.keys.Quit):
-		return m, tea.Quit
-	case msg.String() == "esc":
-		if m.filter != "" {
-			m.filter = ""
-			m.cursor.Index = 0
-			return m, nil
-		}
-		return m, tea.Quit
-	case key.Matches(msg, m.keys.Up):
-		m.cursor.Move(-1, len(items))
-	case key.Matches(msg, m.keys.Down):
-		m.cursor.Move(1, len(items))
-	case key.Matches(msg, m.keys.Filter):
-		m.filtering = true
-	case key.Matches(msg, m.keys.Refresh):
-		m.loading = true
-		return m, m.refreshCmd()
-	case key.Matches(msg, m.keys.Open):
+	case key.Matches(msg, requestOpenBinding):
 		if selected, ok := m.selected(); ok {
 			m.loading = true
+			m.list.StartSpinner()
 			return m, m.detailCmd(selected.ID)
 		}
-	case key.Matches(msg, m.keys.Approve):
+	case key.Matches(msg, requestApproveBinding):
 		if selected, ok := m.selected(); ok {
 			m.startConfirmation("approve", selected)
 		}
-	case key.Matches(msg, m.keys.Deny):
+	case key.Matches(msg, requestDenyBinding):
 		if selected, ok := m.selected(); ok {
 			m.startConfirmation("deny", selected)
 		}
+	case key.Matches(msg, requestRefreshBinding):
+		m.loading = true
+		m.list.StartSpinner()
+		return m, m.refreshCmd()
+	default:
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -239,86 +263,19 @@ func (m *requestInteractiveModel) startConfirmation(action string, request appro
 }
 
 func (m requestInteractiveModel) View() tea.View {
-	var builder strings.Builder
-	items := m.filtered()
-	meta := fmt.Sprintf("%d requests", len(items))
-	if m.loading {
-		meta = interactive.Accent("⠋") + " " + interactive.Muted("refreshing")
-	}
-	builder.WriteString(interactive.Header("Pending control approvals", meta, m.contentWidth()))
-	if filter := interactive.Filter(m.filter, m.filtering); filter != "" {
-		builder.WriteString("\n")
-		builder.WriteString(filter)
-	}
-	if m.err != nil {
-		builder.WriteString("\n")
-		builder.WriteString(interactive.Banner(m.err.Error(), interactive.ToneDanger))
-	}
-	if m.notice != "" {
-		builder.WriteString("\n")
-		builder.WriteString(interactive.Banner(m.notice, interactive.ToneSuccess))
-	}
-	builder.WriteString("\n\n")
+	content := m.list.View()
 	if m.detail {
-		m.writeDetail(&builder)
-	} else {
-		m.writeList(&builder)
-	}
-	if m.confirm.Active() {
-		builder.WriteString("\n")
+		content = m.detailView()
+	} else if m.confirm.Active() {
 		message := fmt.Sprintf("%s %s? [y/N]", requestActionTitle(m.confirm.Action), m.confirm.Target)
-		builder.WriteString(interactive.Banner(message, interactive.ToneWarning))
-		builder.WriteString("\n")
+		content += "\n" + interactive.Banner(message, interactive.ToneWarning) + "\n"
 	}
-	view := tea.NewView(builder.String())
+	view := tea.NewView(content)
 	view.AltScreen = true
 	return view
 }
 
-func (m requestInteractiveModel) writeList(builder *strings.Builder) {
-	items := m.filtered()
-	if len(items) == 0 {
-		message := "No pending approval requests."
-		if strings.TrimSpace(m.filter) != "" {
-			message = "No pending requests match the current filter."
-		}
-		builder.WriteString(interactive.Muted(message))
-		builder.WriteString("\n")
-	} else {
-		maxRows := m.listCapacity()
-		start, end := requestVisibleWindow(m.cursor.Index, len(items), maxRows)
-		for index := start; index < end; index++ {
-			request := items[index]
-			selected := index == m.cursor.Index
-			title := request.Title
-			if strings.TrimSpace(title) == "" {
-				title = request.ID
-			}
-			status := interactive.ToneText(strings.ToUpper(string(request.Status)), requestStatusTone(request.Status))
-			countdown := requestCountdown(request, m.now)
-			right := status
-			if countdown != "" && countdown != string(request.Status) {
-				right += "  " + interactive.Secondary(countdown)
-			}
-			left := interactive.CursorMark(selected) + interactive.Primary(requestTruncate(title, max(12, m.contentWidth()-32)), selected)
-			builder.WriteString(interactive.TwoColumn(left, right, m.contentWidth()))
-			builder.WriteString("\n")
-			meta := strings.Join(nonEmptyStrings(shortRequestID(request.ID), request.WorkspaceID, request.TargetTool), " · ")
-			builder.WriteString("  ")
-			builder.WriteString(interactive.SelectedSecondary(requestTruncate(meta, max(12, m.contentWidth()-2)), selected))
-			builder.WriteString("\n")
-		}
-	}
-	builder.WriteString("\n")
-	builder.WriteString(interactive.Help(m.contentWidth(),
-		interactive.HelpItem{Key: "↑/k", Desc: "up"}, interactive.HelpItem{Key: "↓/j", Desc: "down"}, interactive.HelpItem{Key: "enter", Desc: "details"},
-		interactive.HelpItem{Key: "a", Desc: "approve"}, interactive.HelpItem{Key: "d", Desc: "deny"}, interactive.HelpItem{Key: "/", Desc: "filter"},
-		interactive.HelpItem{Key: "r", Desc: "refresh"}, interactive.HelpItem{Key: "q", Desc: "quit"},
-	))
-	builder.WriteString("\n")
-}
-
-func (m requestInteractiveModel) writeDetail(builder *strings.Builder) {
+func (m requestInteractiveModel) detailView() string {
 	request := m.detailRequest
 	title := request.Title
 	if strings.TrimSpace(title) == "" {
@@ -329,38 +286,64 @@ func (m requestInteractiveModel) writeDetail(builder *strings.Builder) {
 	if countdown := requestCountdown(request, m.now); countdown != "" && countdown != string(request.Status) {
 		right += "  " + interactive.Secondary(countdown)
 	}
+	var builder strings.Builder
 	builder.WriteString(interactive.TwoColumn(interactive.Title(title), right, m.contentWidth()))
+	if m.err != nil {
+		builder.WriteString("\n")
+		builder.WriteString(interactive.Banner(m.err.Error(), interactive.ToneDanger))
+	}
+	if m.notice != "" {
+		builder.WriteString("\n")
+		builder.WriteString(interactive.Banner(m.notice, interactive.ToneSuccess))
+	}
 	builder.WriteString("\n\n")
 	builder.WriteString(interactive.Panel(m.viewport.View(), max(12, m.contentWidth()-2)))
 	builder.WriteString("\n\n")
-	builder.WriteString(interactive.Help(m.contentWidth(),
-		interactive.HelpItem{Key: "j/k", Desc: "scroll"}, interactive.HelpItem{Key: "pgup/pgdn", Desc: "page"}, interactive.HelpItem{Key: "a", Desc: "approve"},
-		interactive.HelpItem{Key: "d", Desc: "deny"}, interactive.HelpItem{Key: "r", Desc: "refresh"}, interactive.HelpItem{Key: "esc", Desc: "back"}, interactive.HelpItem{Key: "ctrl+c", Desc: "quit"},
+	builder.WriteString(interactive.DefaultHelp(m.contentWidth(),
+		interactive.Binding([]string{"j", "k"}, "j/k", "scroll"), interactive.Binding([]string{"pgup", "pgdown"}, "pgup/pgdn", "page"), requestApproveBinding,
+		requestDenyBinding, requestRefreshBinding, interactive.Binding([]string{"esc"}, "esc", "back"), interactive.Binding([]string{"ctrl+c"}, "ctrl+c", "quit"),
 	))
 	builder.WriteString("\n")
-}
-
-func (m requestInteractiveModel) filtered() []approval.Request {
-	query := strings.ToLower(strings.TrimSpace(m.filter))
-	if query == "" {
-		return m.requests
-	}
-	result := make([]approval.Request, 0, len(m.requests))
-	for _, request := range m.requests {
-		haystack := strings.ToLower(strings.Join([]string{request.ID, string(request.Status), request.WorkspaceID, request.TargetTool, request.Source, request.Title}, " "))
-		if strings.Contains(haystack, query) {
-			result = append(result, request)
-		}
-	}
-	return result
+	return builder.String()
 }
 
 func (m requestInteractiveModel) selected() (approval.Request, bool) {
-	items := m.filtered()
-	if len(items) == 0 || m.cursor.Index < 0 || m.cursor.Index >= len(items) {
+	item, ok := m.list.SelectedItem().(requestListItem)
+	if !ok {
 		return approval.Request{}, false
 	}
-	return items[m.cursor.Index], true
+	return item.request, true
+}
+
+func (m requestInteractiveModel) selectedID() string {
+	selected, ok := m.selected()
+	if !ok {
+		return ""
+	}
+	return selected.ID
+}
+
+func (m *requestInteractiveModel) syncListItems(selectedID string) tea.Cmd {
+	cmd := m.list.SetItems(requestListItems(m.requests, m.now))
+	if cmd != nil {
+		m.pendingSelectionID = selectedID
+	} else {
+		m.restoreSelection(selectedID)
+	}
+	return cmd
+}
+
+func (m *requestInteractiveModel) restoreSelection(id string) {
+	if id == "" {
+		return
+	}
+	for index, item := range m.list.VisibleItems() {
+		value, ok := item.(requestListItem)
+		if ok && value.request.ID == id {
+			m.list.Select(index)
+			return
+		}
+	}
 }
 
 func (m requestInteractiveModel) refreshCmd() tea.Cmd {
@@ -398,7 +381,7 @@ func (m requestInteractiveModel) resolveCmd(action, id string) tea.Cmd {
 
 func (m *requestInteractiveModel) resizeViewport() {
 	m.viewport.SetWidth(max(12, m.contentWidth()-6))
-	m.viewport.SetHeight(max(5, m.height-12))
+	m.viewport.SetHeight(max(5, m.height-6))
 }
 
 func (m *requestInteractiveModel) syncDetailViewport() {
@@ -450,11 +433,18 @@ func (m requestInteractiveModel) contentWidth() int {
 	return max(20, m.width-2)
 }
 
-func (m requestInteractiveModel) listCapacity() int {
-	if m.height <= 0 {
-		return 8
+func syncRequestListHelp(model *list.Model) {
+	bindings := []key.Binding{requestOpenBinding, requestApproveBinding, requestDenyBinding, requestRefreshBinding}
+	model.AdditionalShortHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
+	model.AdditionalFullHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
+}
+
+func requestListItems(requests []approval.Request, now time.Time) []list.Item {
+	items := make([]list.Item, 0, len(requests))
+	for _, request := range requests {
+		items = append(items, requestListItem{request: request, now: now})
 	}
-	return max(3, (m.height-10)/2)
+	return items
 }
 
 func requestInteractiveTickCmd() tea.Cmd {
@@ -528,43 +518,11 @@ func requestStatusTone(status approval.Status) interactive.Tone {
 	}
 }
 
-func requestVisibleWindow(cursor, length, maxRows int) (int, int) {
-	if length <= maxRows {
-		return 0, length
-	}
-	start := cursor - maxRows/2
-	if start < 0 {
-		start = 0
-	}
-	if start+maxRows > length {
-		start = length - maxRows
-	}
-	return start, start + maxRows
-}
-
-func requestTruncate(value string, width int) string {
-	if width <= 0 || utf8.RuneCountInString(value) <= width {
-		return value
-	}
-	if width <= 3 {
-		return string([]rune(value)[:width])
-	}
-	return string([]rune(value)[:width-3]) + "..."
-}
-
 func shortRequestID(id string) string {
 	if len(id) <= 14 {
 		return id
 	}
 	return id[:14]
-}
-
-func trimLastRune(value string) string {
-	if value == "" {
-		return ""
-	}
-	_, size := utf8.DecodeLastRuneInString(value)
-	return value[:len(value)-size]
 }
 
 func requestActionTitle(action string) string {

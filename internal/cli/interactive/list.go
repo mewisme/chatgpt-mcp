@@ -6,45 +6,9 @@ import (
 	"io"
 	"os"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 )
-
-type ListKeys struct {
-	Up, Down, Open, Approve, Deny, Filter, Refresh, Quit key.Binding
-}
-
-func DefaultListKeys() ListKeys {
-	return ListKeys{
-		Up: key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("up/k", "up")), Down: key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("down/j", "down")),
-		Open: key.NewBinding(key.WithKeys("enter", "v"), key.WithHelp("enter/v", "details")), Approve: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "approve")), Deny: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "deny")),
-		Filter: key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")), Refresh: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")), Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
-	}
-}
-
-type Cursor struct{ Index int }
-
-func (c *Cursor) Clamp(length int) {
-	if length <= 0 {
-		c.Index = 0
-		return
-	}
-	if c.Index < 0 {
-		c.Index = 0
-	}
-	if c.Index >= length {
-		c.Index = length - 1
-	}
-}
-
-func (c *Cursor) Move(delta, length int) {
-	if length <= 0 {
-		c.Index = 0
-		return
-	}
-	c.Index = (c.Index + delta + length) % length
-}
 
 type Confirmation struct {
 	Action string

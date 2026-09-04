@@ -28,11 +28,9 @@ func TestRequestInteractiveFilterConfirmAndResolve(t *testing.T) {
 	}
 	model := newRequestInteractiveModel(context.Background(), []approval.Request{first, second}, client)
 	model.now = now
-	model = updateRequestInteractive(t, model, keyText("/"))
-	model = updateRequestInteractive(t, model, keyText("ws_b"))
-	model = updateRequestInteractive(t, model, keyCode(tea.KeyEnter))
-	if model.filter != "ws_b" || model.filtering || len(model.filtered()) != 1 {
-		t.Fatalf("filter=%q filtering=%t items=%d", model.filter, model.filtering, len(model.filtered()))
+	model.list.SetFilterText("ws_b")
+	if model.list.FilterValue() != "ws_b" || len(model.list.VisibleItems()) != 1 {
+		t.Fatalf("filter=%q items=%d", model.list.FilterValue(), len(model.list.VisibleItems()))
 	}
 	model = updateRequestInteractive(t, model, keyText("a"))
 	if !model.confirm.Active() || model.confirm.Action != "approve" || model.confirm.Target != second.ID {

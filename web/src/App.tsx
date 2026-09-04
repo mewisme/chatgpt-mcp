@@ -3,7 +3,9 @@ import { LoaderCircle } from "lucide-react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { RequestApprovalHost } from "@/components/request-approval-host"
 import { PageLoading } from "@/components/page-state"
-import { adminDocumentTitle, adminNavItemFromPath, navItems } from "@/lib/admin-navigation"
+import { adminDocumentTitle, navItems } from "@/lib/admin-navigation"
+import { adminRouteFromPath, type AdminRoute } from "@/lib/admin-route"
+import { AdminRouterProvider } from "@/lib/admin-router-provider"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
@@ -18,6 +20,7 @@ const SettingsPage = lazy(() => import("@/pages/settings").then((module) => ({ d
 const ToolsPage = lazy(() => import("@/pages/tools").then((module) => ({ default: module.ToolsPage })))
 const TunnelPage = lazy(() => import("@/pages/tunnel").then((module) => ({ default: module.TunnelPage })))
 const WorkspacesPage = lazy(() => import("@/pages/workspaces").then((module) => ({ default: module.WorkspacesPage })))
+const WorkspacePage = lazy(() => import("@/pages/workspace").then((module) => ({ default: module.WorkspacePage })))
 
 const pages: Record<string, React.ComponentType> = {
   overview: OverviewPage,
@@ -28,20 +31,25 @@ const pages: Record<string, React.ComponentType> = {
   tunnel: TunnelPage,
   activity: ActivityPage,
   settings: SettingsPage,
+  workspace: WorkspacePage,
+  "workspace-context": WorkspacePage,
+  "workspace-requests": WorkspacePage,
+  "workspace-activity": WorkspacePage,
+  "workspace-global": WorkspacesPage,
 }
 
 export function App() {
-  const [page, setPage] = useState(() => adminNavItemFromPath(window.location.pathname).id)
+  const [route, setRoute] = useState<AdminRoute>(() => adminRouteFromPath(window.location.pathname))
   const [authenticated, setAuthenticated] = useState<boolean | null>(null)
   const [authRequired, setAuthRequired] = useState(true)
-  const meta = navItems.find((item) => item.id === page) ?? navItems[0]
-  const Page = pages[meta.id] ?? OverviewPage
+  const page = route.navID
+  const Page = pages[route.id] ?? OverviewPage
 
   useEffect(() => {
     const sync = () => {
-      const current = adminNavItemFromPath(window.location.pathname)
+      const current = adminRouteFromPath(window.location.pathname)
       if (window.location.pathname !== current.path) window.history.replaceState(window.history.state, "", current.path)
-      setPage(current.id)
+      setRoute(current)
     }
     sync()
     window.addEventListener("popstate", sync)
@@ -55,19 +63,19 @@ export function App() {
     })
   }, [])
 
-  useEffect(() => { document.title = adminDocumentTitle(authenticated === null ? "Connecting" : authenticated ? meta.title : "Login") }, [authenticated, meta.title])
+  useEffect(() => { document.title = adminDocumentTitle(authenticated === null ? "Connecting" : authenticated ? route.title : "Login") }, [authenticated, route.title])
 
   if (authenticated === null) return <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />Connecting to admin API...</div>
   if (!authenticated) return <Suspense fallback={<FullPageLoading label="Loading sign in..." />}><LoginPage onAuthenticated={() => { setAuthRequired(true); setAuthenticated(true) }} /></Suspense>
 
   function navigate(next: string) {
     const item = navItems.find((item) => item.id === next) ?? navItems[0]
-    if (window.location.pathname !== item.path) window.history.pushState(window.history.state, "", item.path)
-    setPage(item.id)
+    navigatePath(item.path)
   }
+  function navigatePath(path: string, options?: { replace?: boolean }) { const next = adminRouteFromPath(path); if (window.location.pathname !== next.path) window.history[options?.replace ? "replaceState" : "pushState"](window.history.state, "", next.path); setRoute(next) }
   function signOut() { adminToken.clear(); setAuthenticated(false) }
 
-  return <TooltipProvider><SidebarProvider><AppSidebar authRequired={authRequired} page={page} onPageChange={navigate} onSignOut={signOut} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-4"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{meta.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{meta.description}</div></div></header><div className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1400px] p-4 sm:p-6 lg:p-8"><Suspense fallback={<PageLoading rows={6} />}><Page /></Suspense></div></div></SidebarInset><RequestApprovalHost /><Toaster /></SidebarProvider></TooltipProvider>
+  return <AdminRouterProvider route={route} navigate={navigatePath}><TooltipProvider><SidebarProvider><AppSidebar authRequired={authRequired} page={page} onPageChange={navigate} onSignOut={signOut} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-20 flex min-h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-4"><SidebarTrigger /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{route.title}</div><div className="hidden truncate text-xs text-muted-foreground sm:block">{route.description}</div></div></header><div className="min-w-0 flex-1 bg-muted/20"><div className="mx-auto w-full max-w-[1400px] p-4 sm:p-6 lg:p-8"><Suspense fallback={<PageLoading rows={6} />}><Page key={route.path} /></Suspense></div></div></SidebarInset><RequestApprovalHost /><Toaster /></SidebarProvider></TooltipProvider></AdminRouterProvider>
 }
 
 function FullPageLoading({ label }: { label: string }) { return <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{label}</div> }

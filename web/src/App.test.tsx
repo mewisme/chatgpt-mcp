@@ -113,6 +113,23 @@ describe("admin app runtime smoke", () => {
     ).toBeInTheDocument()
   })
 
+  it("navigates from the workspace list to the workspace-id child route", async () => {
+    const user = userEvent.setup()
+    const workspace = { id: "ws_test", path: "/projects/test", allow_dirs: [] }
+    window.history.replaceState({}, "", "/workspaces")
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path === "/api/workspaces") return json([workspace])
+      if (path === "/api/workspaces/ws_test") return json(workspace)
+      return mockFetch(input)
+    }))
+    renderAdminApp()
+    await user.click(await screen.findByText("/projects/test"))
+    await waitFor(() => expect(window.location.pathname).toBe("/workspaces/ws_test"))
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Workspace")))
+    expect((await screen.findAllByText("ws_test")).length).toBeGreaterThan(0)
+  })
+
   it("normalizes root and unknown paths to overview", async () => {
     window.history.replaceState({}, "", "/missing")
     renderAdminApp()

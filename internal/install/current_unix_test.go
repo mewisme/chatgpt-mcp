@@ -5,7 +5,6 @@ package install
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -113,11 +112,15 @@ func assertCurrentVersion(t *testing.T, layout Layout, want string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolvedExpected, err := filepath.Abs(expected)
+	targetInfo, err := os.Stat(target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !samePath(target, resolvedExpected) {
-		t.Fatalf("current target = %q, want %q", target, resolvedExpected)
+	expectedInfo, err := os.Stat(expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(targetInfo, expectedInfo) {
+		t.Fatalf("current target = %q, want filesystem target %q", target, expected)
 	}
 }

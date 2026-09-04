@@ -1,15 +1,16 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { WorkspaceExecutions } from "@/components/workspace-executions"
+import { WorkspaceExecutionDetail, WorkspaceExecutions } from "@/components/workspace-executions"
 import { adminToken, type ExecutionInfo, type ExecutionSnapshot } from "@/lib/api"
 
 describe("WorkspaceExecutions", () => {
   afterEach(() => { adminToken.clear(); vi.unstubAllGlobals() })
 
-  it("hydrates a running execution from snapshot and streams stdout, stderr, and completion", async () => {
+  it("routes to execution detail, hydrates snapshot, and streams stdout, stderr, and completion", async () => {
     const user = userEvent.setup()
     const execution: ExecutionInfo = { id: "exec_1", workspace_id: "ws_test", tool: "run_command", command: "pnpm test", cwd: "/projects/test", source: "mcp", started_at: new Date().toISOString(), status: "running" }
     const snapshot: ExecutionSnapshot = { execution, stdout: "start\n", stderr: "", latest_sequence: 1 }
@@ -22,8 +23,10 @@ describe("WorkspaceExecutions", () => {
       throw new Error(`Unhandled test request: ${path}`)
     }))
 
-    render(<ThemeProvider><TooltipProvider><WorkspaceExecutions workspaceID="ws_test" /></TooltipProvider></ThemeProvider>)
+    render(<MemoryRouter initialEntries={["/workspaces/ws_test/activity"]}><ThemeProvider><TooltipProvider><LocationProbe /><Routes><Route path="/workspaces/:workspaceID/activity" element={<WorkspaceExecutions workspaceID="ws_test" />} /><Route path="/workspaces/:workspaceID/activity/:executionID" element={<WorkspaceExecutionDetail workspaceID="ws_test" executionID="exec_1" />} /></Routes></TooltipProvider></ThemeProvider></MemoryRouter>)
     await user.click(await screen.findByText("pnpm test"))
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/workspaces/ws_test/activity/exec_1"))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole("code").textContent).toContain("start\nnext\n"))
     expect(await screen.findByText("success")).toBeInTheDocument()
     expect(screen.getByText("exit 0")).toBeInTheDocument()
@@ -31,6 +34,8 @@ describe("WorkspaceExecutions", () => {
     expect(screen.getByRole("code").textContent).toContain("warn\n")
   })
 })
+
+function LocationProbe() { const location = useLocation(); return <span className="sr-only" data-testid="location">{location.pathname}</span> }
 
 function executionStream(snapshot: ExecutionSnapshot) {
   const encoder = new TextEncoder()

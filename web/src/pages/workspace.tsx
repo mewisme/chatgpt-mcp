@@ -6,7 +6,7 @@ import { DetailRow } from "@/components/detail-row"
 import { PageError, PageLoading } from "@/components/page-state"
 import { PageHeader } from "@/components/page-header"
 import { WorkspaceContext } from "@/components/workspace-context"
-import { WorkspaceExecutions } from "@/components/workspace-executions"
+import { WorkspaceExecutionDetail, WorkspaceExecutions } from "@/components/workspace-executions"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { RequestsPage } from "@/pages/requests"
@@ -41,6 +41,7 @@ export function WorkspaceOverviewPage() {
 export function WorkspaceContextPage() { const { workspace } = useWorkspaceContext(); return <WorkspaceContext workspaceID={workspace.id} /> }
 export function WorkspaceRequestsPage() { const { workspace } = useWorkspaceContext(); return <RequestsPage workspaceID={workspace.id} /> }
 export function WorkspaceActivityPage() { const { workspace } = useWorkspaceContext(); return <WorkspaceExecutions workspaceID={workspace.id} /> }
+export function WorkspaceExecutionPage() { const { workspace } = useWorkspaceContext(); const { executionID = "" } = useParams<{ executionID: string }>(); return <WorkspaceExecutionDetail workspaceID={workspace.id} executionID={executionID} /> }
 
 function WorkspaceNav({ workspaceID }: { workspaceID: string }) {
   const base = `/workspaces/${encodeURIComponent(workspaceID)}`

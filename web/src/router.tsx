@@ -29,6 +29,7 @@ export const adminRoutes: RouteObject[] = [{
         { path: "context", lazy: () => import("@/pages/workspace").then((module) => ({ Component: module.WorkspaceContextPage })), handle: { title: "Project Context", description: "Preview the effective instruction context for this workspace." } satisfies AdminRouteHandle },
         { path: "requests", lazy: () => import("@/pages/workspace").then((module) => ({ Component: module.WorkspaceRequestsPage })), handle: { title: "Workspace Requests", description: "Review control approval requests scoped to this workspace." } satisfies AdminRouteHandle },
         { path: "activity", lazy: () => import("@/pages/workspace").then((module) => ({ Component: module.WorkspaceActivityPage })), handle: { title: "Workspace Activity", description: "Inspect activity and command executions scoped to this workspace." } satisfies AdminRouteHandle },
+        { path: "activity/:executionID", lazy: () => import("@/pages/workspace").then((module) => ({ Component: module.WorkspaceExecutionPage })), handle: { title: "Command Execution", description: "Inspect one run_command execution and its live output." } satisfies AdminRouteHandle },
       ],
     },
     { path: "tools", lazy: () => import("@/pages/tools").then((module) => ({ Component: module.ToolsPage })), handle: navHandle("tools") },

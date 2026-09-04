@@ -186,6 +186,25 @@ describe("admin app runtime smoke", () => {
     expect(window.location.pathname).toBe("/workspaces/ws_test/activity")
   })
 
+  it("deep-links a workspace command execution as an activity child route", async () => {
+    const workspace = { id: "ws_test", path: "/projects/test", allow_dirs: [] }
+    const execution = { id: "exec_1", workspace_id: "ws_test", tool: "run_command", command: "go test ./...", cwd: "/projects/test", source: "mcp", started_at: "2026-09-05T00:00:00Z", finished_at: "2026-09-05T00:00:01Z", status: "success", exit_code: 0 }
+    const snapshot = { execution, stdout: "ok\n", stderr: "", latest_sequence: 4 }
+    window.history.replaceState({}, "", "/workspaces/ws_test/activity/exec_1")
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path === "/api/workspaces/ws_test") return json(workspace)
+      if (path === "/api/workspaces/ws_test/executions/exec_1") return json(snapshot)
+      return mockFetch(input)
+    }))
+    renderAdminApp()
+    await waitFor(() => expect(document.title).toBe(adminDocumentTitle("Command Execution")))
+    expect(await screen.findByText("go test ./...")).toBeInTheDocument()
+    expect(screen.getByRole("code").textContent).toContain("ok\n")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(window.location.pathname).toBe("/workspaces/ws_test/activity/exec_1")
+  })
+
   it("deep-links an activity tool call by call id", async () => {
     const callID = "019a1111-2222-7333-8444-555555555555"
     const event = { sequence: 7, call_id: callID, kind: "tool_call", method: "tools/call", source: "tunnel", tool: "run_command", workspace_id: "ws_test", status: "ok", duration_ms: 42, timestamp: "2026-09-05T00:00:00Z", raw: { call_id: callID, arguments: { workspace_id: "ws_test", command: "go test ./..." } } }

@@ -9,6 +9,7 @@ function ScrollArea({ className, children, scrollbars = "both", ...props }: Scro
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
+      data-scrollbars={scrollbars}
       className={cn("relative", className)}
       {...props}
     >

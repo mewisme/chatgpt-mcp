@@ -4,10 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
@@ -124,6 +127,30 @@ func TestBootstrapRewiresToolRuntime(t *testing.T) {
 	}
 	if app.Upstream != app.Tools.Upstream {
 		t.Fatal("bootstrap did not wire shared upstream manager")
+	}
+	if app.Activity == nil || app.Logger == nil || app.MCP.Activity != app.Activity {
+		t.Fatal("bootstrap did not wire runtime telemetry")
+	}
+}
+
+func TestAdminHandlerSharesApprovalManager(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.AdminEnabled = false
+	app := New(cfg)
+	challenge, _, err := app.Tools.Approvals.CreateChallenge(approval.ChallengeInput{SessionID: "session-a", SessionHash: "hash-a", WorkspaceID: "ws_test", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_test", "command": "cgm update"}, GuardCode: controlguard.CodeControlPlaneMutation, GuardReason: "guarded", Title: "Allow cgm update"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _, err := app.Tools.Approvals.CreateRequest(challenge.ID, "session-a", "ws_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpRequest := httptest.NewRequest(http.MethodGet, "/api/requests?status=pending", nil)
+	httpRequest.RemoteAddr = "127.0.0.1:43123"
+	recorder := httptest.NewRecorder()
+	app.AdminHandler().ServeHTTP(recorder, httpRequest)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), request.ID) {
+		t.Fatalf("approval API status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

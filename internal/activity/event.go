@@ -7,4 +7,5 @@ const (
 	EventRequest  Type = "mcp_request"
 	EventSession  Type = "session"
 	EventSystem   Type = "system"
+	EventApproval Type = "approval"
 )

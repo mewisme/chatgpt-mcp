@@ -43,13 +43,32 @@ type Manager struct {
 	retryTTL              time.Duration
 	pendingLimit          int
 	workspacePendingLimit int
+	events                *EventStream
+	observer              EventObserver
 }
 
 func NewManager(instanceID string) *Manager {
 	return &Manager{
 		instanceID: strings.TrimSpace(instanceID), challenges: map[string]*challengeRecord{}, challengeByTarget: map[string]string{}, requests: map[string]*requestRecord{}, activeBySession: map[string]string{},
 		cliCapabilities: map[string]*cliCapabilityRecord{}, now: time.Now, newID: randomID, challengeTTL: DefaultChallengeTTL, requestTTL: DefaultRequestTTL, retryTTL: DefaultRetryTTL, pendingLimit: DefaultPendingLimit, workspacePendingLimit: DefaultWorkspacePendingLimit,
+		events: newEventStream(),
 	}
+}
+
+func (m *Manager) Events() *EventStream {
+	if m == nil {
+		return nil
+	}
+	return m.events
+}
+
+func (m *Manager) SetEventObserver(observer EventObserver) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.observer = observer
+	m.mu.Unlock()
 }
 
 func (m *Manager) CreateChallenge(input ChallengeInput) (Challenge, bool, error) {
@@ -156,6 +175,7 @@ func (m *Manager) CreateRequest(challengeID, sessionID, workspaceID string) (Req
 	m.requests[id] = &requestRecord{value: value, resolved: make(chan struct{})}
 	m.activeBySession[sessionID] = id
 	challenge.value.requestID = id
+	m.emitLocked(EventRequested, value)
 	return cloneRequest(value), true, nil
 }
 
@@ -200,6 +220,14 @@ func (m *Manager) resolve(id string, status Status, resolvedBy, reason string) (
 		m.clearActiveLocked(record.value)
 	}
 	m.closeResolvedLocked(record)
+	switch status {
+	case StatusApproved:
+		m.emitLocked(EventApproved, record.value)
+	case StatusDenied:
+		m.emitLocked(EventDenied, record.value)
+	case StatusCancelled:
+		m.emitLocked(EventCancelled, record.value)
+	}
 	return cloneRequest(record.value), nil
 }
 
@@ -303,6 +331,7 @@ func (m *Manager) ClaimApprovedCLI(input RetryInput, cli CLIInvocation) (Request
 	}
 	record.value.Status, record.value.ConsumedAt = StatusConsumed, now
 	m.clearActiveLocked(record.value)
+	m.emitLocked(EventConsumed, record.value)
 	return cloneRequest(record.value), capability, true, nil
 }
 
@@ -350,6 +379,7 @@ func (m *Manager) matchApprovedLocked(input RetryInput) (Request, bool, error) {
 		return Request{}, false, err
 	}
 	if digest != active.value.Digest {
+		m.emitLocked(EventMismatch, active.value)
 		return Request{}, false, &MismatchError{RequestID: active.value.ID, TargetTool: active.value.TargetTool, Expected: cloneRaw(active.value.Arguments), Actual: actual}
 	}
 	return cloneRequest(active.value), true, nil
@@ -372,6 +402,7 @@ func (m *Manager) Consume(id string) (Request, error) {
 	}
 	record.value.Status, record.value.ConsumedAt = StatusConsumed, now
 	m.clearActiveLocked(record.value)
+	m.emitLocked(EventConsumed, record.value)
 	return cloneRequest(record.value), nil
 }
 
@@ -466,6 +497,7 @@ func (m *Manager) purgeExpiredLocked(now time.Time) int {
 			record.value.Status, record.value.ResolvedAt, record.value.Reason = StatusExpired, now, "approval request expired"
 			m.clearActiveLocked(record.value)
 			m.closeResolvedLocked(record)
+			m.emitLocked(EventExpired, record.value)
 			changed++
 		case StatusApproved:
 			if record.value.RetryUntil.IsZero() || now.Before(record.value.RetryUntil) {
@@ -473,6 +505,7 @@ func (m *Manager) purgeExpiredLocked(now time.Time) int {
 			}
 			record.value.Status, record.value.ResolvedAt, record.value.Reason = StatusExpired, now, "approved retry window expired"
 			m.clearActiveLocked(record.value)
+			m.emitLocked(EventExpired, record.value)
 			changed++
 		}
 	}
@@ -490,6 +523,22 @@ func (m *Manager) purgeExpiredLocked(now time.Time) int {
 		}
 	}
 	return changed
+}
+
+func (m *Manager) emitLocked(name string, request Request) {
+	if m == nil || name == "" {
+		return
+	}
+	event := Event{
+		Name: name, RequestID: request.ID, WorkspaceID: request.WorkspaceID, SessionHash: request.SessionHash, Source: request.Source,
+		TargetTool: request.TargetTool, Title: request.Title, Status: request.Status, CreatedAt: request.CreatedAt, ExpiresAt: request.ExpiresAt, RetryUntil: request.RetryUntil, Timestamp: m.now().UTC(),
+	}
+	if m.events != nil {
+		m.events.Publish(event)
+	}
+	if m.observer != nil {
+		m.observer(event)
+	}
 }
 
 func (m *Manager) pendingCountLocked(workspaceID string) int {

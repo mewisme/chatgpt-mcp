@@ -44,6 +44,7 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 		appLogger = logger.New(logger.Info)
 	}
 	telemetry.AttachTools(toolRuntime, stream, appLogger)
+	telemetry.AttachApprovals(toolRuntime.Approvals, stream, appLogger)
 	configStore := config.NewRuntimeStore(cfg)
 	tunnelClient := tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger)
 	if metadata, err := config.LoadTunnelMetadata(cfg.Tunnel.ID); err == nil {
@@ -80,7 +81,7 @@ func (a *App) AdminHandler() http.Handler {
 		return http.NotFoundHandler()
 	}
 	adminAPI := admin.API{
-		Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: a.Config, OAuth: a.OAuth, OAuthFlows: a.OAuthFlows, ReloadConfig: a.ReloadConfig,
+		Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Config: a.Config, OAuth: a.OAuth, OAuthFlows: a.OAuthFlows, ReloadConfig: a.ReloadConfig, Approvals: a.Tools.Approvals,
 	}
 	adminAuth := func() (bool, string) {
 		cfg := a.Config.Snapshot()

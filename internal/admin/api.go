@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
@@ -18,6 +19,7 @@ import (
 const maxRequestBodyBytes int64 = 1 << 20
 
 type API struct {
+	Approvals    *approval.Manager
 	Upstream     *upstream.Manager
 	Tools        *tools.Runtime
 	Workspaces   *workspace.Manager
@@ -78,6 +80,8 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/api/workspaces/", api.handleWorkspace)
 	mux.HandleFunc("/api/tools", api.handleTools)
+	mux.HandleFunc("/api/requests", api.handleRequests)
+	mux.HandleFunc("/api/requests/", api.handleRequest)
 	mux.HandleFunc("/api/upstream", api.handleUpstreams)
 	mux.HandleFunc("/api/upstream/", api.handleUpstream)
 	mux.HandleFunc("/api/tunnel/config", api.handleTunnelConfig)

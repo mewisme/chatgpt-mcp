@@ -36,6 +36,8 @@ describe("WorkspaceExecutions", () => {
 
   it("streams all workspace commands into one combined view separated by execution id", async () => {
     const user = userEvent.setup()
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView })
     adminToken.set("test-admin-token")
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = requestPath(input)
@@ -55,6 +57,7 @@ describe("WorkspaceExecutions", () => {
     expect(log).toContain("exec_id=exec_2")
     expect(log).toContain("$ second")
     expect(log).toContain("two\n")
+    expect(scrollIntoView).toHaveBeenCalled()
   })
 })
 

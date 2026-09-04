@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { ArrowLeft, CircleDot, RefreshCw, TerminalSquare } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { PageEmpty, PageError, PageLoading } from "@/components/page-state"
@@ -49,6 +49,8 @@ function WorkspaceExecutionFeed({ workspaceID }: { workspaceID: string }) {
   const [error, setError] = useState("")
   const [streamVersion, setStreamVersion] = useState(0)
   const retryTimer = useRef<number | null>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -70,8 +72,24 @@ function WorkspaceExecutionFeed({ workspaceID }: { workspaceID: string }) {
     return () => { stopped = true; controller.abort(); if (retryTimer.current !== null) window.clearTimeout(retryTimer.current) }
   }, [streamVersion, workspaceID])
 
+  useEffect(() => {
+    function updateStickToBottom() {
+      const root = document.documentElement
+      stickToBottomRef.current = root.scrollHeight - window.scrollY - window.innerHeight <= 96
+    }
+    updateStickToBottom()
+    window.addEventListener("scroll", updateStickToBottom, { passive: true })
+    return () => window.removeEventListener("scroll", updateStickToBottom)
+  }, [])
+
+  const latestSequence = events.at(-1)?.sequence ?? 0
+  useLayoutEffect(() => {
+    if (!latestSequence || !stickToBottomRef.current) return
+    bottomRef.current?.scrollIntoView({ block: "end" })
+  }, [latestSequence])
+
   const log = formatExecutionFeed(events)
-  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="text-sm font-medium">Combined command stream</div><div className="text-xs text-muted-foreground">All run_command output for this workspace is merged in event order. Each execution starts with its execution ID.</div></div><div className="flex flex-wrap items-center gap-2"><Badge variant={connected ? "secondary" : "outline"}><CircleDot className="size-3" />{connected ? "Live" : "Reconnecting"}</Badge><Button size="sm" variant="outline" onClick={() => { setConnected(false); setError(""); setStreamVersion((value) => value + 1) }}><RefreshCw />Reconnect</Button><Button size="sm" variant="outline" onClick={() => setEvents([])}>Clear view</Button></div></div><PageError message={error} />{events.length === 0 ? <PageEmpty icon={TerminalSquare} title="Waiting for command output" description="Recent and future run_command output will stream here automatically." /> : <TextViewer maxHeight={null} value={log} />}</div>
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="text-sm font-medium">Combined command stream</div><div className="text-xs text-muted-foreground">All run_command output for this workspace is merged in event order. Each execution starts with its execution ID.</div></div><div className="flex flex-wrap items-center gap-2"><Badge variant={connected ? "secondary" : "outline"}><CircleDot className="size-3" />{connected ? "Live" : "Reconnecting"}</Badge><Button size="sm" variant="outline" onClick={() => { setConnected(false); setError(""); setStreamVersion((value) => value + 1) }}><RefreshCw />Reconnect</Button><Button size="sm" variant="outline" onClick={() => setEvents([])}>Clear view</Button></div></div><PageError message={error} />{events.length === 0 ? <PageEmpty icon={TerminalSquare} title="Waiting for command output" description="Recent and future run_command output will stream here automatically." /> : <TextViewer maxHeight={null} value={log} />}<div ref={bottomRef} /></div>
 }
 
 export function WorkspaceExecutionDetail({ workspaceID, executionID }: { workspaceID: string; executionID: string }) {

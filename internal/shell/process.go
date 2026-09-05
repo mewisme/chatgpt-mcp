@@ -17,7 +17,11 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
-const maxProcessLogChars = 400_000
+const (
+	maxProcessLogChars       = 400_000
+	maxFinishedProcesses     = 100
+	finishedProcessRetention = 24 * time.Hour
+)
 
 type ProcessInfo struct {
 	ID        string  `json:"id"`
@@ -54,24 +58,28 @@ type StopResult struct {
 }
 
 type managedProcess struct {
-	mu        sync.Mutex
-	workspace string
-	id        string
-	command   string
-	cwd       string
-	startedAt string
-	cmd       *exec.Cmd
-	stdout    *logBuffer
-	stderr    *logBuffer
-	exitCode  *int
-	signal    *string
+	mu         sync.Mutex
+	workspace  string
+	id         string
+	command    string
+	cwd        string
+	startedAt  string
+	cmd        *exec.Cmd
+	stdout     *logBuffer
+	stderr     *logBuffer
+	exitCode   *int
+	signal     *string
+	finishedAt time.Time
 }
 
 type ProcessManager struct {
-	workspaces *workspace.Manager
-	shell      *Manager
-	mu         sync.RWMutex
-	processes  map[string]*managedProcess
+	workspaces  *workspace.Manager
+	shell       *Manager
+	mu          sync.RWMutex
+	processes   map[string]*managedProcess
+	order       []string
+	maxFinished int
+	retention   time.Duration
 }
 
 type logBuffer struct {
@@ -80,7 +88,7 @@ type logBuffer struct {
 }
 
 func NewProcessManager(workspaces *workspace.Manager, shell *Manager) *ProcessManager {
-	return &ProcessManager{workspaces: workspaces, shell: shell, processes: map[string]*managedProcess{}}
+	return &ProcessManager{workspaces: workspaces, shell: shell, processes: map[string]*managedProcess{}, maxFinished: maxFinishedProcesses, retention: finishedProcessRetention}
 }
 
 func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string) (StartResult, error) {
@@ -123,7 +131,9 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 		startedAt: time.Now().UTC().Format(time.RFC3339Nano), cmd: cmd, stdout: &logBuffer{}, stderr: &logBuffer{},
 	}
 	m.mu.Lock()
+	m.pruneLocked(time.Now().UTC())
 	m.processes[id] = process
+	m.order = append(m.order, id)
 	m.mu.Unlock()
 
 	go copyLog(process.stdout, stdoutPipe)
@@ -131,7 +141,6 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	go func() {
 		waitErr := cmd.Wait()
 		process.mu.Lock()
-		defer process.mu.Unlock()
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) {
 			code := exitErr.ExitCode()
@@ -148,6 +157,11 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 				process.signal = &text
 			}
 		}
+		process.finishedAt = time.Now().UTC()
+		process.mu.Unlock()
+		m.mu.Lock()
+		m.pruneLocked(time.Now().UTC())
+		m.mu.Unlock()
 	}()
 
 	return StartResult{ID: id, PID: cmd.Process.Pid, Command: command, CWD: cwd, StartedAt: process.startedAt}, nil
@@ -159,14 +173,15 @@ func (m *ProcessManager) Status(workspaceID, id string) ([]ProcessInfo, error) {
 		return nil, err
 	}
 	workspaceID = item.ID
-	m.mu.RLock()
+	m.mu.Lock()
+	m.pruneLocked(time.Now().UTC())
 	items := make([]*managedProcess, 0, len(m.processes))
 	for _, item := range m.processes {
 		if item.workspace == workspaceID && (id == "" || item.id == id) {
 			items = append(items, item)
 		}
 	}
-	m.mu.RUnlock()
+	m.mu.Unlock()
 	sort.Slice(items, func(i, j int) bool { return items[i].startedAt < items[j].startedAt })
 	result := make([]ProcessInfo, 0, len(items))
 	for _, item := range items {
@@ -232,6 +247,7 @@ func (m *ProcessManager) Clear(workspaceID string) (int, error) {
 	workspaceID = item.ID
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.pruneLocked(time.Now().UTC())
 	cleared := 0
 	for id, item := range m.processes {
 		if item.workspace != workspaceID {
@@ -245,6 +261,7 @@ func (m *ProcessManager) Clear(workspaceID string) (int, error) {
 			cleared++
 		}
 	}
+	m.compactOrderLocked()
 	return cleared, nil
 }
 
@@ -254,13 +271,76 @@ func (m *ProcessManager) get(workspaceID, id string) (*managedProcess, error) {
 		return nil, err
 	}
 	workspaceID = workspace.ID
-	m.mu.RLock()
+	m.mu.Lock()
+	m.pruneLocked(time.Now().UTC())
 	item := m.processes[id]
-	m.mu.RUnlock()
+	m.mu.Unlock()
 	if item == nil || item.workspace != workspaceID {
 		return nil, fmt.Errorf("unknown process id: %s", id)
 	}
 	return item, nil
+}
+
+func (m *ProcessManager) pruneLocked(now time.Time) {
+	if m == nil || len(m.order) == 0 {
+		return
+	}
+	retention := m.retention
+	if retention <= 0 {
+		retention = finishedProcessRetention
+	}
+	maxFinished := m.maxFinished
+	if maxFinished <= 0 {
+		maxFinished = maxFinishedProcesses
+	}
+	finished := 0
+	for _, id := range m.order {
+		item := m.processes[id]
+		if item == nil {
+			continue
+		}
+		item.mu.Lock()
+		isFinished := item.exitCode != nil
+		finishedAt := item.finishedAt
+		item.mu.Unlock()
+		if isFinished && !finishedAt.IsZero() && now.Sub(finishedAt) > retention {
+			delete(m.processes, id)
+			continue
+		}
+		if isFinished {
+			finished++
+		}
+	}
+	remove := finished - maxFinished
+	if remove > 0 {
+		for _, id := range m.order {
+			if remove == 0 {
+				break
+			}
+			item := m.processes[id]
+			if item == nil {
+				continue
+			}
+			item.mu.Lock()
+			isFinished := item.exitCode != nil
+			item.mu.Unlock()
+			if isFinished {
+				delete(m.processes, id)
+				remove--
+			}
+		}
+	}
+	m.compactOrderLocked()
+}
+
+func (m *ProcessManager) compactOrderLocked() {
+	kept := m.order[:0]
+	for _, id := range m.order {
+		if m.processes[id] != nil {
+			kept = append(kept, id)
+		}
+	}
+	m.order = kept
 }
 
 func (p *managedProcess) info() ProcessInfo {

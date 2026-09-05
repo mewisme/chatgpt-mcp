@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -15,23 +16,23 @@ const (
 	maxLines = 200
 )
 
+type Entry struct {
+	Scope string `json:"scope"`
+	Key   string `json:"key"`
+	Note  string `json:"note"`
+}
+
+type Document struct {
+	Entries []Entry `json:"entries"`
+}
+
 type Store struct {
 	Path string
 	Root string
 }
 
-type entry struct {
-	Scope string
-	Note  string
-}
-
-func DefaultRoot() string {
-	return configformat.RootPath()
-}
-
-func NewStore(root string) Store {
-	return Store{Root: root}
-}
+func DefaultRoot() string        { return configformat.RootPath() }
+func NewStore(root string) Store { return Store{Root: root} }
 
 func (s Store) Read() (string, error) {
 	path := s.Path
@@ -77,111 +78,151 @@ func (s Store) Load(workspaceID string) (string, error) {
 	return strings.TrimSpace(value), nil
 }
 
-func (s Store) Upsert(workspaceID, scope, note string) (string, error) {
-	scope = normalizeLine(strings.TrimLeft(strings.TrimSpace(scope), "#"))
-	if scope == "" {
-		return "", errors.New("scope is required")
+func (s Store) LoadDocument(workspaceID string) (Document, error) {
+	data, err := os.ReadFile(s.WorkspacePath(workspaceID))
+	if os.IsNotExist(err) {
+		return Document{}, nil
 	}
-	note = normalizeLine(note)
-	if note == "" {
-		return "", errors.New("note is required")
+	if err != nil {
+		return Document{}, err
 	}
+	return Parse(string(data)), nil
+}
+
+func (s Store) SaveDocument(workspaceID string, document Document) (string, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" {
+		return "", errors.New("workspace id is required")
+	}
+	document = normalizeDocument(document)
 	path := s.WorkspacePath(workspaceID)
-	existing, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return "", err
-	}
-	entries := parseEntries(string(existing))
-	updated := false
-	for index := range entries {
-		if strings.EqualFold(entries[index].Scope, scope) {
-			entries[index] = entry{Scope: scope, Note: note}
-			updated = true
-			break
-		}
-	}
-	if !updated {
-		entries = append(entries, entry{Scope: scope, Note: note})
-	}
-	if err := state.WriteFileAtomic(path, []byte(formatEntries(entries)), 0600); err != nil {
+	if err := state.WriteFileAtomic(path, []byte(Render(document)), 0600); err != nil {
 		return "", err
 	}
 	return path, nil
 }
 
-func normalizeLine(value string) string {
-	return strings.Join(strings.Fields(strings.ReplaceAll(strings.ReplaceAll(value, "\r", " "), "\n", " ")), " ")
-}
-
-func parseEntries(value string) []entry {
-	entries := []entry{}
-	currentScope := ""
-	legacy := []string{}
+func Parse(value string) Document {
+	document := Document{}
+	currentScope, currentKey := "", ""
+	lastScope, lastKey := "", ""
 	for _, raw := range strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n") {
 		line := strings.TrimSpace(raw)
-		if strings.HasPrefix(line, "## ") {
-			currentScope = normalizeLine(strings.TrimSpace(strings.TrimPrefix(line, "## ")))
-			continue
-		}
-		if line == "" || strings.HasPrefix(line, "# ") {
-			continue
-		}
-		if strings.HasPrefix(line, "- ") {
-			note := normalizeLine(strings.TrimPrefix(line, "- "))
-			if currentScope == "" {
-				note = stripLegacyDate(note)
-				if note != "" {
-					legacy = append(legacy, note)
-				}
-				continue
+		switch {
+		case strings.HasPrefix(line, "## ") && !strings.HasPrefix(line, "### "):
+			currentScope = normalizeName(strings.TrimPrefix(line, "## "))
+			currentKey, lastScope, lastKey = "", "", ""
+		case strings.HasPrefix(line, "### "):
+			if currentScope != "" {
+				currentKey = normalizeName(strings.TrimPrefix(line, "### "))
 			}
-			entries = mergeParsedEntry(entries, currentScope, note)
+			lastScope, lastKey = "", ""
+		case line == "" || strings.HasPrefix(line, "# "):
 			continue
-		}
-		if currentScope != "" {
-			entries = mergeParsedEntry(entries, currentScope, normalizeLine(line))
+		case strings.HasPrefix(line, "- "):
+			note := normalizeNote(strings.TrimPrefix(line, "- "))
+			scope, key := currentScope, currentKey
+			if scope == "" {
+				scope, key, note = "general", "general", stripLegacyDate(note)
+			} else if key == "" {
+				key = "general"
+			}
+			if scope != "" && key != "" && note != "" {
+				document.Entries = mergeEntry(document.Entries, Entry{Scope: scope, Key: key, Note: note})
+				lastScope, lastKey = scope, key
+			}
+		default:
+			if lastScope != "" && lastKey != "" {
+				document.Entries = mergeEntry(document.Entries, Entry{Scope: lastScope, Key: lastKey, Note: normalizeNote(line)})
+			}
 		}
 	}
-	if len(legacy) > 0 {
-		entries = append([]entry{{Scope: "general", Note: normalizeLine(strings.Join(legacy, " "))}}, entries...)
-	}
-	return entries
+	return normalizeDocument(document)
 }
 
-func mergeParsedEntry(entries []entry, scope, note string) []entry {
-	if scope == "" || note == "" {
+func Render(document Document) string {
+	document = normalizeDocument(document)
+	if len(document.Entries) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	currentScope := ""
+	for _, item := range document.Entries {
+		if !strings.EqualFold(currentScope, item.Scope) {
+			builder.WriteString("## ")
+			builder.WriteString(item.Scope)
+			builder.WriteString("\n\n")
+			currentScope = item.Scope
+		}
+		builder.WriteString("### ")
+		builder.WriteString(item.Key)
+		builder.WriteString("\n- ")
+		builder.WriteString(item.Note)
+		builder.WriteString("\n\n")
+	}
+	return strings.TrimRight(builder.String(), "\n") + "\n"
+}
+
+func normalizeDocument(document Document) Document {
+	entries := make([]Entry, 0, len(document.Entries))
+	for _, item := range document.Entries {
+		item.Scope, item.Key, item.Note = normalizeName(item.Scope), normalizeName(item.Key), normalizeNote(item.Note)
+		if item.Scope == "" || item.Key == "" || item.Note == "" {
+			continue
+		}
+		entries = mergeEntry(entries, item)
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		leftScope, rightScope := strings.ToLower(entries[i].Scope), strings.ToLower(entries[j].Scope)
+		if leftScope != rightScope {
+			return leftScope < rightScope
+		}
+		leftKey, rightKey := strings.ToLower(entries[i].Key), strings.ToLower(entries[j].Key)
+		if leftKey != rightKey {
+			return leftKey < rightKey
+		}
+		if entries[i].Scope != entries[j].Scope {
+			return entries[i].Scope < entries[j].Scope
+		}
+		return entries[i].Key < entries[j].Key
+	})
+	return Document{Entries: entries}
+}
+
+func mergeEntry(entries []Entry, incoming Entry) []Entry {
+	if incoming.Scope == "" || incoming.Key == "" || incoming.Note == "" {
 		return entries
 	}
 	for index := range entries {
-		if strings.EqualFold(entries[index].Scope, scope) {
-			entries[index].Note = normalizeLine(entries[index].Note + " " + note)
+		if strings.EqualFold(entries[index].Scope, incoming.Scope) && strings.EqualFold(entries[index].Key, incoming.Key) {
+			entries[index].Note = mergeNotes(entries[index].Note, incoming.Note)
 			return entries
 		}
 	}
-	return append(entries, entry{Scope: scope, Note: note})
+	return append(entries, incoming)
+}
+
+func mergeNotes(current, incoming string) string {
+	current, incoming = normalizeNote(current), normalizeNote(incoming)
+	if current == "" {
+		return incoming
+	}
+	if incoming == "" || strings.EqualFold(current, incoming) {
+		return current
+	}
+	return normalizeNote(current + " " + incoming)
+}
+
+func normalizeName(value string) string {
+	return normalizeNote(strings.TrimLeft(strings.TrimSpace(value), "#"))
+}
+func normalizeNote(value string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(strings.ReplaceAll(value, "\r", " "), "\n", " ")), " ")
 }
 
 func stripLegacyDate(note string) string {
 	if len(note) >= 12 && note[4] == '-' && note[7] == '-' && note[10] == ':' {
-		return normalizeLine(note[11:])
+		return normalizeNote(note[11:])
 	}
 	return note
-}
-
-func formatEntries(entries []entry) string {
-	var builder strings.Builder
-	for _, item := range entries {
-		if item.Scope == "" || item.Note == "" {
-			continue
-		}
-		if builder.Len() > 0 {
-			builder.WriteByte('\n')
-		}
-		builder.WriteString("## ")
-		builder.WriteString(item.Scope)
-		builder.WriteString("\n- ")
-		builder.WriteString(item.Note)
-		builder.WriteByte('\n')
-	}
-	return builder.String()
 }

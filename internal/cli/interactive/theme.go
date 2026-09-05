@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/list"
+	"charm.land/huh/v2"
 	lipgloss "charm.land/lipgloss/v2"
 )
 
@@ -18,12 +19,14 @@ const (
 )
 
 type charmTheme struct {
+	isDark      bool
 	item        list.DefaultItemStyles
 	title       lipgloss.Style
 	accent      lipgloss.Style
 	muted       lipgloss.Style
 	subtle      lipgloss.Style
 	success     lipgloss.Style
+	danger      lipgloss.Style
 	panelBorder lipgloss.Style
 }
 
@@ -32,14 +35,17 @@ var currentTheme = newCharmTheme(true)
 func newCharmTheme(isDark bool) charmTheme {
 	listStyles := list.DefaultStyles(isDark)
 	itemStyles := list.NewDefaultItemStyles(isDark)
+	huhStyles := huh.ThemeCharm(isDark)
 	return charmTheme{
+		isDark:      isDark,
 		item:        itemStyles,
-		title:       lipgloss.NewStyle().Foreground(itemStyles.NormalTitle.GetForeground()).Bold(true),
-		accent:      lipgloss.NewStyle().Foreground(itemStyles.SelectedTitle.GetForeground()).Bold(true),
-		muted:       lipgloss.NewStyle().Foreground(itemStyles.NormalDesc.GetForeground()),
+		title:       huhStyles.Focused.Title,
+		accent:      lipgloss.NewStyle().Foreground(huhStyles.Focused.SelectSelector.GetForeground()),
+		muted:       huhStyles.Focused.Description,
 		subtle:      lipgloss.NewStyle().Foreground(listStyles.NoItems.GetForeground()),
-		success:     lipgloss.NewStyle().Foreground(listStyles.Filter.Focused.Prompt.GetForeground()).Bold(true),
-		panelBorder: lipgloss.NewStyle().Foreground(itemStyles.SelectedTitle.GetBorderLeftForeground()),
+		success:     lipgloss.NewStyle().Foreground(huhStyles.Focused.SelectedOption.GetForeground()),
+		danger:      lipgloss.NewStyle().Foreground(huhStyles.Focused.ErrorMessage.GetForeground()),
+		panelBorder: huhStyles.Focused.Base,
 	}
 }
 
@@ -51,10 +57,12 @@ func Label(value string) string { return currentTheme.muted.Render(value) }
 
 func ToneText(value string, tone Tone) string {
 	switch tone {
-	case ToneAccent, ToneWarning, ToneDanger:
+	case ToneAccent, ToneWarning:
 		return currentTheme.accent.Render(value)
 	case ToneSuccess:
 		return currentTheme.success.Render(value)
+	case ToneDanger:
+		return currentTheme.danger.Render(value)
 	default:
 		return value
 	}
@@ -83,7 +91,7 @@ func Secondary(value string) string {
 }
 
 func Panel(body string, width int) string {
-	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetForeground()).Padding(0, 1)
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetBorderLeftForeground()).Padding(0, 1)
 	if width > 0 {
 		style = style.MaxWidth(max(12, width))
 	}
@@ -91,7 +99,7 @@ func Panel(body string, width int) string {
 }
 
 func Modal(body string, width int) string {
-	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetForeground()).Padding(1, 2)
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetBorderLeftForeground()).Padding(1, 2)
 	if width > 0 {
 		style = style.Width(max(24, width))
 	}

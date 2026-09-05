@@ -96,6 +96,7 @@ func (m workspaceInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) 
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
 		interactive.ApplyDefaultListTheme(&m.list, msg.IsDark())
+		m.input.SetStyles(textinput.DefaultStyles(msg.IsDark()))
 		m.confirm.Update(msg)
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -432,7 +433,7 @@ func (m workspaceInteractiveModel) workspaceMenuView() string {
 	for index, item := range workspaceMenuItems {
 		prefix := "  "
 		if index == m.menuCursor {
-			prefix = "> "
+			prefix = interactive.ToneText("> ", interactive.ToneAccent)
 		}
 		builder.WriteString(prefix + item + "\n")
 	}
@@ -491,9 +492,14 @@ func (m workspaceInteractiveModel) workspaceSelectorView() string {
 			if checked || disabled {
 				mark = "[x]"
 			}
+			if checked {
+				mark = interactive.ToneText(mark, interactive.ToneSuccess)
+			} else if disabled {
+				mark = interactive.Muted(mark)
+			}
 			prefix := "  "
 			if index == m.selectorCursor {
-				prefix = "> "
+				prefix = interactive.ToneText("> ", interactive.ToneAccent)
 			}
 			line := fmt.Sprintf("%s%s %s", prefix, mark, value.Name)
 			if disabled {

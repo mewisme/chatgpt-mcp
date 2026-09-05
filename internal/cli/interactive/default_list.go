@@ -30,6 +30,7 @@ func Binding(keys []string, helpKey, description string) key.Binding {
 
 func DefaultHelp(width int, bindings ...key.Binding) string {
 	model := help.New()
+	model.Styles = help.DefaultStyles(currentTheme.isDark)
 	model.SetWidth(width)
 	return model.ShortHelpView(bindings)
 }

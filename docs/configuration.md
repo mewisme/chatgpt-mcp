@@ -162,13 +162,20 @@ The operation preflights the managed structured state tree before mutation and r
 Export the selected config root into one portable bundle:
 
 ```bash
-cgm config export backup.cgm
+cgm config export
 ```
 
 Import it on another supported machine:
 
 ```bash
-cgm config import backup.cgm
+cgm config import
+```
+
+When no file is supplied, both commands use `chatgpt-mcp-config.cgm` in the current directory. A custom path remains supported:
+
+```bash
+cgm config export laptop.cgm
+cgm config import laptop.cgm
 ```
 
 The `.cgm` bundle is platform-neutral and can move in any direction between supported Linux, macOS, and Windows installations, including between amd64 and arm64 machines. It contains the persistent configuration/state that can meaningfully be restored plus all currently managed reversible secrets. MCP/Admin token hashes are preserved as part of the config, so existing endpoint tokens keep working even though their plaintext values are not stored by `chatgpt-mcp`.
@@ -190,13 +197,13 @@ The bundle intentionally excludes transient or machine-owned state that should b
 Export refuses to overwrite an existing output file unless requested explicitly:
 
 ```bash
-cgm config export backup.cgm --force
+cgm config export --force
 ```
 
 Import refuses to replace an existing config root unless requested explicitly:
 
 ```bash
-cgm config import backup.cgm --force
+cgm config import --force
 ```
 
 Import must run while the selected runtime is stopped. It stages the imported tree, swaps it into place, restores logical secrets, verifies the resulting configuration, and restores the previous config root if activation or verification fails.

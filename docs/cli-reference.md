@@ -332,9 +332,11 @@ cgm config transform toml
 Portable backup/migration:
 
 ```bash
-cgm config export backup.cgm
-cgm config import backup.cgm
+cgm config export
+cgm config import
 ```
+
+Both commands default to `chatgpt-mcp-config.cgm` in the current directory. Pass an explicit file only when a custom path/name is needed, for example `cgm config export laptop.cgm` and `cgm config import laptop.cgm`.
 
 `config export` creates one sealed bundle containing portable persistent config/state plus all currently managed reversible secrets. `config import` restores that bundle on Linux, macOS, or Windows and rebuilds the destination secret store instead of copying source secret files. Existing config/state requires `--force` on import; an existing bundle requires `--force` on export. Import requires the selected runtime to be stopped.
 

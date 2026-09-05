@@ -182,8 +182,8 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 | Migrate legacy credentials | `cgm config migrate` |
 | Verify config/state | `cgm config verify` |
 | Reload persisted config | `cgm config reload` |
-| Export portable config/state + secrets | `cgm config export backup.cgm` |
-| Import portable config/state + secrets | `cgm config import backup.cgm` |
+| Export portable config/state + secrets | `cgm config export` |
+| Import portable config/state + secrets | `cgm config import` |
 | Register workspace | `cgm workspace register <path>` |
 | Add workspace access | `cgm workspace access add <workspace_id> <path>` |
 | Inspect tunnel | `cgm tunnel status` |

@@ -270,6 +270,26 @@ func TestConfigCommandAliases(t *testing.T) {
 	}
 }
 
+func TestConfigBundleCommandsUseOptionalDefaultFile(t *testing.T) {
+	if got := configBundleFile(nil); got != defaultConfigBundleFile {
+		t.Fatalf("default bundle file = %q", got)
+	}
+	if got := configBundleFile([]string{"custom.cgm"}); got != "custom.cgm" {
+		t.Fatalf("custom bundle file = %q", got)
+	}
+	for _, command := range []*cobra.Command{configExportCommand(), configImportCommand()} {
+		if err := command.Args(command, nil); err != nil {
+			t.Fatalf("%s rejected default file: %v", command.Name(), err)
+		}
+		if err := command.Args(command, []string{"custom.cgm"}); err != nil {
+			t.Fatalf("%s rejected custom file: %v", command.Name(), err)
+		}
+		if err := command.Args(command, []string{"one.cgm", "two.cgm"}); err == nil {
+			t.Fatalf("%s accepted multiple files", command.Name())
+		}
+	}
+}
+
 func TestConfigHasNoAllowDirSubcommand(t *testing.T) {
 	for _, command := range configCommand().Commands() {
 		if command.Name() == "allow-dir" {

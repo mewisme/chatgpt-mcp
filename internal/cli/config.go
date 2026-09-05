@@ -16,6 +16,8 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
+const defaultConfigBundleFile = "chatgpt-mcp-config.cgm"
+
 func configCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "config", Aliases: []string{"cfg"}, Short: "Read and update validated runtime configuration"}
 	cmd.AddCommand(
@@ -47,14 +49,15 @@ func configCommand() *cobra.Command {
 func configExportCommand() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
-		Use:   "export <file>",
+		Use:   "export [file]",
 		Short: "Export portable configuration, state, and secrets into one sealed bundle",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Export portable configuration, state, and secrets into one sealed bundle. The default file is " + defaultConfigBundleFile + " in the current directory.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := migrateLegacySecrets(); err != nil {
 				return err
 			}
-			result, err := configbundle.Export(config.RootPath(), args[0], configbundle.ExportOptions{Force: force})
+			result, err := configbundle.Export(config.RootPath(), configBundleFile(args), configbundle.ExportOptions{Force: force})
 			if err != nil {
 				return err
 			}
@@ -75,9 +78,10 @@ func configExportCommand() *cobra.Command {
 func configImportCommand() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
-		Use:   "import <file>",
+		Use:   "import [file]",
 		Short: "Import a portable configuration bundle and restore its secrets",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Import a portable configuration bundle and restore its secrets. The default file is " + defaultConfigBundleFile + " in the current directory.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
 			_, running, err := managedRuntimeStatus(ctx)
@@ -88,7 +92,7 @@ func configImportCommand() *cobra.Command {
 			if running {
 				return errors.New("runtime is running; stop it before importing configuration")
 			}
-			result, err := configbundle.Import(config.RootPath(), args[0], configbundle.ImportOptions{Force: force})
+			result, err := configbundle.Import(config.RootPath(), configBundleFile(args), configbundle.ImportOptions{Force: force})
 			if err != nil {
 				return err
 			}
@@ -110,6 +114,13 @@ func configImportCommand() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "replace existing configuration/state")
 	return cmd
+}
+
+func configBundleFile(args []string) string {
+	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
+		return args[0]
+	}
+	return defaultConfigBundleFile
 }
 
 func configReloadCommand() *cobra.Command {

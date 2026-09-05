@@ -14,14 +14,18 @@ import (
 )
 
 const (
-	maxArchiveSize  int64 = 256 << 20
-	maxChecksumSize int64 = 1 << 20
+	maxArchiveSize   int64 = 256 << 20
+	maxChecksumSize  int64 = 1 << 20
+	maxSignatureSize int64 = 1 << 20
 )
 
+type SignatureVerifier func(ctx context.Context, checksumPath, signaturePath, version string) error
+
 type Downloader struct {
-	HTTPClient *http.Client
-	TempDir    string
-	UserAgent  string
+	HTTPClient        *http.Client
+	TempDir           string
+	UserAgent         string
+	SignatureVerifier SignatureVerifier
 }
 
 type Artifact struct {
@@ -54,11 +58,22 @@ func (d Downloader) Download(ctx context.Context, release Release) (Artifact, er
 	}()
 	archivePath := filepath.Join(dir, release.ArchiveName)
 	checksumPath := filepath.Join(dir, release.ChecksumName)
-	if err := d.downloadFile(ctx, release.ArchiveURL, archivePath, maxArchiveSize); err != nil {
-		return Artifact{}, fmt.Errorf("download release archive: %w", err)
-	}
+	signaturePath := filepath.Join(dir, release.SignatureName)
 	if err := d.downloadFile(ctx, release.ChecksumURL, checksumPath, maxChecksumSize); err != nil {
 		return Artifact{}, fmt.Errorf("download release checksums: %w", err)
+	}
+	if err := d.downloadFile(ctx, release.SignatureURL, signaturePath, maxSignatureSize); err != nil {
+		return Artifact{}, fmt.Errorf("download release checksum signature: %w", err)
+	}
+	verifier := d.SignatureVerifier
+	if verifier == nil {
+		verifier = VerifyChecksumSignature
+	}
+	if err := verifier(ctx, checksumPath, signaturePath, release.Version); err != nil {
+		return Artifact{}, fmt.Errorf("verify release checksum signature: %w", err)
+	}
+	if err := d.downloadFile(ctx, release.ArchiveURL, archivePath, maxArchiveSize); err != nil {
+		return Artifact{}, fmt.Errorf("download release archive: %w", err)
 	}
 	if err := VerifyChecksum(archivePath, checksumPath, release.ArchiveName); err != nil {
 		return Artifact{}, err
@@ -172,10 +187,13 @@ func validateReleaseDownload(release Release) error {
 	if release.ArchiveName != expectedArchive {
 		return fmt.Errorf("release archive name %q does not match expected asset %q", release.ArchiveName, expectedArchive)
 	}
-	if release.ChecksumName != "checksums.txt" {
-		return errors.New("release checksum asset must be checksums.txt")
+	if release.ChecksumName != ChecksumName {
+		return fmt.Errorf("release checksum asset must be %s", ChecksumName)
 	}
-	if strings.TrimSpace(release.ArchiveURL) == "" || strings.TrimSpace(release.ChecksumURL) == "" {
+	if release.SignatureName != ChecksumSignatureName {
+		return fmt.Errorf("release checksum signature asset must be %s", ChecksumSignatureName)
+	}
+	if strings.TrimSpace(release.ArchiveURL) == "" || strings.TrimSpace(release.ChecksumURL) == "" || strings.TrimSpace(release.SignatureURL) == "" {
 		return errors.New("release download URLs are required")
 	}
 	return nil

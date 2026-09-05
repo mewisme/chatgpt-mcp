@@ -107,13 +107,15 @@ func (c Client) getRelease(ctx context.Context, endpoint string) (Release, error
 	if err != nil {
 		return Release{}, err
 	}
-	release := Release{Version: version, ArchiveName: archiveName, ChecksumName: "checksums.txt"}
+	release := Release{Version: version, ArchiveName: archiveName, ChecksumName: ChecksumName, SignatureName: ChecksumSignatureName}
 	for _, asset := range payload.Assets {
 		switch asset.Name {
 		case archiveName:
 			release.ArchiveURL = strings.TrimSpace(asset.BrowserDownloadURL)
 		case release.ChecksumName:
 			release.ChecksumURL = strings.TrimSpace(asset.BrowserDownloadURL)
+		case release.SignatureName:
+			release.SignatureURL = strings.TrimSpace(asset.BrowserDownloadURL)
 		}
 	}
 	if release.ArchiveURL == "" {
@@ -121,6 +123,9 @@ func (c Client) getRelease(ctx context.Context, endpoint string) (Release, error
 	}
 	if release.ChecksumURL == "" {
 		return Release{}, fmt.Errorf("latest release %s is missing asset %s", version, release.ChecksumName)
+	}
+	if release.SignatureURL == "" {
+		return Release{}, fmt.Errorf("latest release %s is missing asset %s", version, release.SignatureName)
 	}
 	return release, nil
 }

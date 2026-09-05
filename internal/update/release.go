@@ -7,16 +7,20 @@ import (
 )
 
 const (
-	DefaultOwner = "mewisme"
-	DefaultRepo  = "chatgpt-mcp"
+	DefaultOwner          = "mewisme"
+	DefaultRepo           = "chatgpt-mcp"
+	ChecksumName          = "checksums.txt"
+	ChecksumSignatureName = "checksums.txt.sigstore.json"
 )
 
 type Release struct {
-	Version      string
-	ArchiveName  string
-	ArchiveURL   string
-	ChecksumName string
-	ChecksumURL  string
+	Version       string
+	ArchiveName   string
+	ArchiveURL    string
+	ChecksumName  string
+	ChecksumURL   string
+	SignatureName string
+	SignatureURL  string
 }
 
 func AssetName(version, goos, goarch string) (string, error) {

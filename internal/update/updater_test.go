@@ -148,7 +148,7 @@ func TestUpdaterVerifiedReleaseDownloadActivates(t *testing.T) {
 	installCurrentVersion(t, layout, "v1.0.0", "old-release")
 	server, release := updateReleaseFixture(t, "v1.1.0", []byte("new-release"), true)
 	defer server.Close()
-	updater := Updater{Resolver: fakeResolver{latest: release}, Downloader: Downloader{HTTPClient: server.Client(), TempDir: t.TempDir()}}
+	updater := Updater{Resolver: fakeResolver{latest: release}, Downloader: Downloader{HTTPClient: server.Client(), TempDir: t.TempDir(), SignatureVerifier: acceptTestSignature}}
 	result, err := updater.Apply(context.Background(), ApplyOptions{Layout: layout, CurrentVersion: "v1.0.0", NoAlias: true})
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestUpdaterBadChecksumNeverActivates(t *testing.T) {
 	installCurrentVersion(t, layout, "v1.0.0", "old-release")
 	server, release := updateReleaseFixture(t, "v1.1.0", []byte("new-release"), false)
 	defer server.Close()
-	updater := Updater{Resolver: fakeResolver{latest: release}, Downloader: Downloader{HTTPClient: server.Client(), TempDir: t.TempDir()}}
+	updater := Updater{Resolver: fakeResolver{latest: release}, Downloader: Downloader{HTTPClient: server.Client(), TempDir: t.TempDir(), SignatureVerifier: acceptTestSignature}}
 	_, err := updater.Apply(context.Background(), ApplyOptions{Layout: layout, CurrentVersion: "v1.0.0", NoAlias: true})
 	if !errors.Is(err, ErrChecksumMismatch) {
 		t.Fatalf("error = %v", err)
@@ -223,11 +223,13 @@ func updateReleaseFixture(t *testing.T, version string, binary []byte, validChec
 			_, _ = w.Write(archive)
 		case "/checksums.txt":
 			_, _ = w.Write(checksums)
+		case "/checksums.txt.sigstore.json":
+			_, _ = w.Write([]byte("test-signature"))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
-	return server, Release{Version: version, ArchiveName: assetName, ArchiveURL: server.URL + "/" + assetName, ChecksumName: "checksums.txt", ChecksumURL: server.URL + "/checksums.txt"}
+	return server, testDownloadRelease(version, assetName, server.URL)
 }
 
 func updateTestLayout(t *testing.T) install.Layout {

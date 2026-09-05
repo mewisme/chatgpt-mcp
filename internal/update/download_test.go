@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,16 +29,28 @@ func TestDownloaderDownload(t *testing.T) {
 			_, _ = w.Write(archive)
 		case "/checksums.txt":
 			_, _ = w.Write(checksums)
+		case "/checksums.txt.sigstore.json":
+			_, _ = w.Write([]byte("test-signature"))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer server.Close()
 	parent := t.TempDir()
-	release := Release{Version: "v1.2.3", ArchiveName: assetName, ArchiveURL: server.URL + "/" + assetName, ChecksumName: "checksums.txt", ChecksumURL: server.URL + "/checksums.txt"}
-	artifact, err := (Downloader{HTTPClient: server.Client(), TempDir: parent}).Download(context.Background(), release)
+	release := testDownloadRelease("v1.2.3", assetName, server.URL)
+	verified := false
+	artifact, err := (Downloader{HTTPClient: server.Client(), TempDir: parent, SignatureVerifier: func(_ context.Context, checksumPath, signaturePath, version string) error {
+		verified = true
+		if version != "v1.2.3" || filepath.Base(checksumPath) != ChecksumName || filepath.Base(signaturePath) != ChecksumSignatureName {
+			t.Fatalf("unexpected signature inputs: %q %q %q", checksumPath, signaturePath, version)
+		}
+		return nil
+	}}).Download(context.Background(), release)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !verified {
+		t.Fatal("checksum signature was not verified")
 	}
 	content, err := os.ReadFile(artifact.Binary)
 	if err != nil {
@@ -57,6 +70,46 @@ func TestDownloaderDownload(t *testing.T) {
 	}
 }
 
+func TestDownloaderRejectsSignatureBeforeDownloadingArchive(t *testing.T) {
+	assetName, err := CurrentAssetName("v1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveRequested := false
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/" + ChecksumName:
+			fmt.Fprintf(w, "%064d  %s\n", 0, assetName)
+		case "/" + ChecksumSignatureName:
+			_, _ = w.Write([]byte("bad-signature"))
+		case "/" + assetName:
+			archiveRequested = true
+			_, _ = w.Write([]byte("untrusted-archive"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	parent := t.TempDir()
+	release := testDownloadRelease("v1.2.3", assetName, server.URL)
+	_, err = (Downloader{HTTPClient: server.Client(), TempDir: parent, SignatureVerifier: func(context.Context, string, string, string) error {
+		return errors.New("invalid signature")
+	}}).Download(context.Background(), release)
+	if err == nil || !strings.Contains(err.Error(), "invalid signature") {
+		t.Fatalf("error = %v", err)
+	}
+	if archiveRequested {
+		t.Fatal("archive was downloaded before checksum signature verification")
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("failed signature verification left temporary files: %v", entries)
+	}
+}
+
 func TestDownloaderCleansUpOnChecksumMismatch(t *testing.T) {
 	assetName, err := CurrentAssetName("v1.2.3")
 	if err != nil {
@@ -64,6 +117,10 @@ func TestDownloaderCleansUpOnChecksumMismatch(t *testing.T) {
 	}
 	archive := releaseArchive(t, assetName, []byte("release-binary"))
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ChecksumSignatureName) {
+			_, _ = w.Write([]byte("test-signature"))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "checksums.txt") {
 			fmt.Fprintf(w, "%064d  %s\n", 0, assetName)
 			return
@@ -72,8 +129,8 @@ func TestDownloaderCleansUpOnChecksumMismatch(t *testing.T) {
 	}))
 	defer server.Close()
 	parent := t.TempDir()
-	release := Release{Version: "v1.2.3", ArchiveName: assetName, ArchiveURL: server.URL + "/" + assetName, ChecksumName: "checksums.txt", ChecksumURL: server.URL + "/checksums.txt"}
-	if _, err := (Downloader{HTTPClient: server.Client(), TempDir: parent}).Download(context.Background(), release); err == nil {
+	release := testDownloadRelease("v1.2.3", assetName, server.URL)
+	if _, err := (Downloader{HTTPClient: server.Client(), TempDir: parent, SignatureVerifier: acceptTestSignature}).Download(context.Background(), release); err == nil {
 		t.Fatal("checksum mismatch was accepted")
 	}
 	entries, err := os.ReadDir(parent)
@@ -90,14 +147,14 @@ func TestDownloaderRejectsHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	release := Release{Version: "v1.2.3", ArchiveName: assetName, ArchiveURL: "http://example.test/" + assetName, ChecksumName: "checksums.txt", ChecksumURL: "https://example.test/checksums.txt"}
+	release := Release{Version: "v1.2.3", ArchiveName: assetName, ArchiveURL: "http://example.test/" + assetName, ChecksumName: ChecksumName, ChecksumURL: "https://example.test/checksums.txt", SignatureName: ChecksumSignatureName, SignatureURL: "https://example.test/checksums.txt.sigstore.json"}
 	if _, err := (Downloader{TempDir: t.TempDir()}).Download(context.Background(), release); err == nil {
 		t.Fatal("HTTP release URL was accepted")
 	}
 }
 
 func TestDownloaderRejectsUnexpectedAssetName(t *testing.T) {
-	release := Release{Version: "v1.2.3", ArchiveName: "unexpected.tar.gz", ArchiveURL: "https://example.test/unexpected.tar.gz", ChecksumName: "checksums.txt", ChecksumURL: "https://example.test/checksums.txt"}
+	release := Release{Version: "v1.2.3", ArchiveName: "unexpected.tar.gz", ArchiveURL: "https://example.test/unexpected.tar.gz", ChecksumName: ChecksumName, ChecksumURL: "https://example.test/checksums.txt", SignatureName: ChecksumSignatureName, SignatureURL: "https://example.test/checksums.txt.sigstore.json"}
 	if _, err := (Downloader{TempDir: t.TempDir()}).Download(context.Background(), release); err == nil {
 		t.Fatal("unexpected release asset name was accepted")
 	}
@@ -144,3 +201,13 @@ func releaseArchive(t *testing.T, assetName string, binary []byte) []byte {
 	}
 	return content
 }
+
+func testDownloadRelease(version, assetName, baseURL string) Release {
+	return Release{
+		Version: version, ArchiveName: assetName, ArchiveURL: baseURL + "/" + assetName,
+		ChecksumName: ChecksumName, ChecksumURL: baseURL + "/" + ChecksumName,
+		SignatureName: ChecksumSignatureName, SignatureURL: baseURL + "/" + ChecksumSignatureName,
+	}
+}
+
+func acceptTestSignature(context.Context, string, string, string) error { return nil }

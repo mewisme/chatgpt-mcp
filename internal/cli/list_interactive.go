@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -216,15 +215,4 @@ func interactiveTime(value time.Time) string {
 		return "-"
 	}
 	return value.Local().Format("2006-01-02 15:04:05 MST")
-}
-
-func workspaceInteractiveRefresh() interactive.RefreshFunc {
-	return func(context.Context) ([]interactive.Row, error) {
-		manager := workspace.NewManager(workspace.DefaultStorePath())
-		items, err := manager.List()
-		if err != nil {
-			return nil, err
-		}
-		return workspaceInteractiveRows(items), nil
-	}
 }

@@ -160,6 +160,9 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			return Result{}, err
 		}
 		pathValue, err := optionalString(args, "path")
+		if err != nil {
+			return Result{}, err
+		}
 		memoryQuery, err := optionalString(args, "memory_query")
 		if err != nil {
 			return Result{}, err
@@ -169,9 +172,6 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			return Result{}, err
 		}
 		maxMemoryBytes, err := optionalInt(args, "max_memory_bytes", 8192, 256, 100_000)
-		if err != nil {
-			return Result{}, err
-		}
 		if err != nil {
 			return Result{}, err
 		}

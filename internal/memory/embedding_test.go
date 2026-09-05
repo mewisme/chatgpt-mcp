@@ -1,10 +1,13 @@
 package memory
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestLocalEmbedderProducesNormalizedDeterministicVectors(t *testing.T) {
 	embedder := NewLocalEmbedder()
-	vectors, err := embedder.Embed(nil, []string{"Charm default theme", "Charm default theme"})
+	vectors, err := embedder.Embed(context.Background(), []string{"Charm default theme", "Charm default theme"})
 	if err != nil {
 		t.Fatal(err)
 	}

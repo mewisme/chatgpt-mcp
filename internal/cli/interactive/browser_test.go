@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestBrowserDefaultListFilterDetailAndRefreshPreservesSelection(t *testing.T) {
@@ -113,8 +114,31 @@ func TestBrowserStructuredDetailUsesDefaultListLayout(t *testing.T) {
 	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})
 	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
 	view := model.View().Content
-	if !model.detail || !strings.Contains(view, "Items") || !strings.Contains(view, "Workspace · ws_one") || !strings.Contains(view, "Root") || !strings.Contains(view, "/tmp/project") || !strings.Contains(view, "Legacy ID") || !strings.Contains(view, "esc/q") || !strings.Contains(view, "close") {
+	if !model.detail || !strings.Contains(view, "Workspace · ws_one") || !strings.Contains(view, "Root") || !strings.Contains(view, "/tmp/project") || !strings.Contains(view, "Legacy ID") || !strings.Contains(view, "esc/q") || !strings.Contains(view, "close") {
 		t.Fatalf("detail=%t view=%q", model.detail, view)
+	}
+}
+
+func TestBrowserCentersDefaultLayout(t *testing.T) {
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}}, nil)
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 120, Height: 40})
+	if model.list.Width() != defaultLayoutWidth || model.list.Height() != defaultLayoutHeight {
+		t.Fatalf("list size=%dx%d", model.list.Width(), model.list.Height())
+	}
+	view := ansi.Strip(model.View().Content)
+	lines := strings.Split(view, "\n")
+	titleLine := -1
+	for index, line := range lines {
+		if strings.Contains(line, "Items") {
+			titleLine = index
+			if strings.Index(line, "Items") <= 0 {
+				t.Fatalf("layout is not horizontally centered: %q", line)
+			}
+			break
+		}
+	}
+	if titleLine <= 0 {
+		t.Fatalf("layout is not vertically centered: title line=%d", titleLine)
 	}
 }
 

@@ -115,7 +115,7 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.list.SetSize(msg.Width, msg.Height)
+		ResizeDefaultList(&m.list, msg.Width, msg.Height)
 		m.resizeViewport()
 		return m, nil
 	case browserRefreshMsg:
@@ -208,7 +208,7 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Browser) View() tea.View {
-	content := m.list.View()
+	content := CenterLayout(m.list.View(), m.width, m.height)
 	if m.detail {
 		content = m.overlayDetail(content)
 	}

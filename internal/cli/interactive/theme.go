@@ -122,6 +122,13 @@ func CenterOverlay(background, foreground string, width, height int) string {
 	return canvas.Render()
 }
 
+func CenterLayout(content string, width, height int) string {
+	if width <= 0 || height <= 0 {
+		return content
+	}
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
+}
+
 func Divider(width int) string {
 	if width <= 0 {
 		return ""

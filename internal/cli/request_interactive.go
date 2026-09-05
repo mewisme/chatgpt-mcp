@@ -126,7 +126,7 @@ func (m requestInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.list.SetSize(msg.Width, msg.Height)
+		interactive.ResizeDefaultList(&m.list, msg.Width, msg.Height)
 		m.resizeViewport()
 		m.resizeActions()
 		return m, nil
@@ -313,7 +313,7 @@ func (m *requestInteractiveModel) startConfirmation(action string, request appro
 }
 
 func (m requestInteractiveModel) View() tea.View {
-	content := m.list.View()
+	content := interactive.CenterLayout(m.list.View(), m.width, m.height)
 	if m.detail {
 		content = interactive.CenterOverlay(content, m.detailView(), m.width, m.height)
 	}

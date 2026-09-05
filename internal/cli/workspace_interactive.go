@@ -101,7 +101,7 @@ func (m workspaceInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) 
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.list.SetSize(msg.Width, msg.Height)
+		interactive.ResizeDefaultList(&m.list, msg.Width, msg.Height)
 		m.input.SetWidth(max(24, min(60, msg.Width-14)))
 		m.confirm.SetWidth(max(24, min(54, msg.Width-16)))
 		return m, nil
@@ -394,7 +394,7 @@ func workspaceConfirmLabel(action string) string {
 }
 
 func (m workspaceInteractiveModel) View() tea.View {
-	background := m.list.View()
+	background := interactive.CenterLayout(m.list.View(), m.width, m.height)
 	var dialog string
 	switch m.mode {
 	case workspaceModeMenu:

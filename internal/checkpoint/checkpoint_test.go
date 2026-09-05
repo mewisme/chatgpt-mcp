@@ -63,6 +63,43 @@ func TestCheckpointNewFileRestoreDeletes(t *testing.T) {
 	}
 }
 
+func TestCheckpointRestorePreservesFileAndDirectoryModes(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("Windows does not expose Unix permission bits consistently")
+	}
+	root := t.TempDir()
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	dir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(dir, 0710); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "tool.sh")
+	if err := os.WriteFile(file, []byte("before"), 0751); err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.Before("ws_test", root, "delete_directory", []string{dir}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Restore("ws_test", root, id); err != nil {
+		t.Fatal(err)
+	}
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileInfo, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirInfo.Mode().Perm() != 0710 || fileInfo.Mode().Perm() != 0751 {
+		t.Fatalf("restored modes dir=%#o file=%#o", dirInfo.Mode().Perm(), fileInfo.Mode().Perm())
+	}
+}
+
 func TestCheckpointDryRunDoesNothing(t *testing.T) {
 	root := t.TempDir()
 	store := NewStore(filepath.Join(t.TempDir(), "state"))

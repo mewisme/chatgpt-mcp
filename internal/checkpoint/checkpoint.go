@@ -40,6 +40,7 @@ type FileSnapshot struct {
 	Path        string         `json:"path"`
 	Existed     bool           `json:"existed"`
 	IsDirectory bool           `json:"is_directory,omitempty"`
+	Mode        uint32         `json:"mode,omitempty"`
 	Encoding    string         `json:"encoding,omitempty"`
 	Content     string         `json:"content,omitempty"`
 	Children    []FileSnapshot `json:"children,omitempty"`
@@ -271,10 +272,16 @@ func (s *Store) Restore(workspaceID, workspaceRoot, id string) (RestoreResult, e
 func (s *Store) RestoreAllowed(workspaceID, workspaceRoot string, allowedRoots []string, id string) (RestoreResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, effectiveRoots(workspaceRoot, allowedRoots), id)
+	allowedRoots = effectiveRoots(workspaceRoot, allowedRoots)
+	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, allowedRoots, id)
 	if err != nil {
 		return RestoreResult{}, err
 	}
+	roots, err := openRestoreRoots(allowedRoots)
+	if err != nil {
+		return RestoreResult{}, err
+	}
+	defer roots.Close()
 	type pair struct {
 		path     string
 		snapshot FileSnapshot
@@ -292,13 +299,13 @@ func (s *Store) RestoreAllowed(workspaceID, workspaceRoot string, allowedRoots [
 			continue
 		}
 		if !item.snapshot.Existed {
-			if err := os.RemoveAll(item.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := roots.RemoveAll(item.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return RestoreResult{}, err
 			}
 			result.Deleted = append(result.Deleted, item.path)
 			continue
 		}
-		if err := restoreSnapshot(item.snapshot); err != nil {
+		if err := roots.Restore(item.snapshot); err != nil {
 			return RestoreResult{}, err
 		}
 		result.Restored = append(result.Restored, item.path)
@@ -364,21 +371,25 @@ func (s *Store) snapshot(path string, depth int) (FileSnapshot, error) {
 		return s.snapshotDirectory(resolved, depth)
 	}
 	if info.Size() > s.maxFileBytes() {
-		return FileSnapshot{Path: resolved, Existed: true, Skipped: true, SkipReason: fmt.Sprintf("file exceeds max file bytes (%d bytes)", info.Size())}, nil
+		return FileSnapshot{Path: resolved, Existed: true, Mode: uint32(info.Mode().Perm()), Skipped: true, SkipReason: fmt.Sprintf("file exceeds max file bytes (%d bytes)", info.Size())}, nil
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return FileSnapshot{}, err
 	}
 	if utf8.Valid(data) {
-		return FileSnapshot{Path: resolved, Existed: true, Encoding: "utf-8", Content: string(data)}, nil
+		return FileSnapshot{Path: resolved, Existed: true, Mode: uint32(info.Mode().Perm()), Encoding: "utf-8", Content: string(data)}, nil
 	}
-	return FileSnapshot{Path: resolved, Existed: true, Encoding: "base64", Content: base64.StdEncoding.EncodeToString(data)}, nil
+	return FileSnapshot{Path: resolved, Existed: true, Mode: uint32(info.Mode().Perm()), Encoding: "base64", Content: base64.StdEncoding.EncodeToString(data)}, nil
 }
 
 func (s *Store) snapshotDirectory(path string, depth int) (FileSnapshot, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return FileSnapshot{}, err
+	}
 	if depth > s.maxDepth() {
-		return FileSnapshot{Path: path, Existed: true, IsDirectory: true, Skipped: true, SkipReason: fmt.Sprintf("directory depth exceeds %d", s.maxDepth())}, nil
+		return FileSnapshot{Path: path, Existed: true, IsDirectory: true, Mode: uint32(info.Mode().Perm()), Skipped: true, SkipReason: fmt.Sprintf("directory depth exceeds %d", s.maxDepth())}, nil
 	}
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -411,39 +422,7 @@ func (s *Store) snapshotDirectory(path string, depth int) (FileSnapshot, error) 
 		}
 		children = append(children, child)
 	}
-	return FileSnapshot{Path: path, Existed: true, IsDirectory: true, Children: children}, nil
-}
-
-func restoreSnapshot(snapshot FileSnapshot) error {
-	if snapshot.Skipped {
-		return fmt.Errorf("cannot restore skipped snapshot for %s: %s", snapshot.Path, snapshot.SkipReason)
-	}
-	if snapshot.IsDirectory {
-		if err := os.MkdirAll(snapshot.Path, 0755); err != nil {
-			return err
-		}
-		for _, child := range snapshot.Children {
-			if err := restoreSnapshot(child); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(snapshot.Path), 0755); err != nil {
-		return err
-	}
-	var data []byte
-	var err error
-	switch snapshot.Encoding {
-	case "base64":
-		data, err = base64.StdEncoding.DecodeString(snapshot.Content)
-	default:
-		data = []byte(snapshot.Content)
-	}
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(snapshot.Path, data, 0644)
+	return FileSnapshot{Path: path, Existed: true, IsDirectory: true, Mode: uint32(info.Mode().Perm()), Children: children}, nil
 }
 
 func (s *Store) collectRestorePlanLocked(workspaceID, workspaceRoot string, allowedRoots []string, id string) (Summary, map[string]FileSnapshot, error) {

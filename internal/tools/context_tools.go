@@ -95,6 +95,7 @@ type AgentStatusResult struct {
 func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
 	memoryStore := memory.NewStore(memory.DefaultRoot())
 	memoryIndex := memory.NewHybridIndex(memory.NewLocalEmbedder(), memory.DefaultHybridWeights())
+	memoryLifecycle := memory.NewIndexLifecycle(memoryStore, memoryIndex)
 	policyStore := instructionpolicy.DefaultStore()
 	contextService := projectcontext.New(workspaces, func() instructioncontext.ToolProfile {
 		return instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())}
@@ -271,6 +272,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
+		_ = memoryLifecycle.Ensure(item.ID)
 		return JSONResult(RememberResult{SavedTo: path, Scope: strings.TrimSpace(scope), Key: strings.TrimSpace(key), Note: strings.TrimSpace(note)}), nil
 	})
 
@@ -311,6 +313,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
+		_ = memoryLifecycle.Ensure(item.ID)
 		return JSONResult(ForgetResult{Removed: removed, Scope: strings.TrimSpace(scope), Key: strings.TrimSpace(key)}), nil
 	})
 
@@ -331,11 +334,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
-		document, err := memoryStore.LoadDocument(item.ID)
-		if err != nil {
-			return Result{}, err
-		}
-		if err := memoryIndex.Rebuild(item.ID, document.Entries); err != nil {
+		if err := memoryLifecycle.Ensure(item.ID); err != nil {
 			return Result{}, err
 		}
 		found, err := memoryIndex.Search(item.ID, memory.Query{Text: query, Scope: scope, Limit: limit})

@@ -43,6 +43,12 @@ type MemoryGetResult struct {
 	Count   int            `json:"count"`
 }
 
+type ForgetResult struct {
+	Removed int    `json:"removed"`
+	Scope   string `json:"scope"`
+	Key     string `json:"key,omitempty"`
+}
+
 type ProjectContextMemoryFile = projectcontext.MemoryFile
 type ProjectContextGitSummary = projectcontext.GitSummary
 type ProjectContextSummary = projectcontext.Summary
@@ -251,6 +257,26 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			return Result{}, err
 		}
 		return JSONResult(MemoryGetResult{Entries: entries, Count: len(entries)}), nil
+	})
+
+	register("forget", "Forget", "Remove canonical cross-session memory by exact scope and optional key. Scope only removes the entire scope; fuzzy deletion is not supported.", workspaceOnlySchema(`"scope":{"type":"string"},"key":{"type":"string"},`), `{"type":"object","properties":{"removed":{"type":"integer"},"scope":{"type":"string"},"key":{"type":"string"}},"required":["removed","scope"],"additionalProperties":false}`, RiskEdit, func(_ context.Context, args map[string]any) (Result, error) {
+		item, err := workspaceFromArgs(workspaces, args)
+		if err != nil {
+			return Result{}, err
+		}
+		scope, err := requiredString(args, "scope")
+		if err != nil {
+			return Result{}, err
+		}
+		key, err := optionalString(args, "key")
+		if err != nil {
+			return Result{}, err
+		}
+		removed, _, err := memoryStore.Remove(item.ID, scope, key)
+		if err != nil {
+			return Result{}, err
+		}
+		return JSONResult(ForgetResult{Removed: removed, Scope: strings.TrimSpace(scope), Key: strings.TrimSpace(key)}), nil
 	})
 
 	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from .claude/.claudes/.agents/.cursor/.codex rule directories.", workspaceOnlySchema(`"path":{"type":"string"},`), `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {

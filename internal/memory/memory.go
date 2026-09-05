@@ -153,6 +153,33 @@ func (s Store) Get(workspaceID, scope, key string) ([]Entry, error) {
 	return entries, nil
 }
 
+func (s Store) Remove(workspaceID, scope, key string) (int, string, error) {
+	scope, key = normalizeName(scope), normalizeName(key)
+	if scope == "" {
+		return 0, "", errors.New("scope is required")
+	}
+	document, err := s.LoadDocument(workspaceID)
+	if err != nil {
+		return 0, "", err
+	}
+	kept := make([]Entry, 0, len(document.Entries))
+	removed := 0
+	for _, item := range document.Entries {
+		match := strings.EqualFold(item.Scope, scope) && (key == "" || strings.EqualFold(item.Key, key))
+		if match {
+			removed++
+			continue
+		}
+		kept = append(kept, item)
+	}
+	if removed == 0 {
+		return 0, s.WorkspacePath(workspaceID), nil
+	}
+	document.Entries = kept
+	path, err := s.SaveDocument(workspaceID, document)
+	return removed, path, err
+}
+
 func Parse(value string) Document {
 	document := Document{}
 	currentScope, currentKey := "", ""

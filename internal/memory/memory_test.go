@@ -191,3 +191,35 @@ func TestGetRejectsKeyWithoutScope(t *testing.T) {
 		t.Fatal("expected key without scope to fail")
 	}
 }
+
+func TestRemoveDeletesExactEntryOrWholeScope(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	for _, item := range []Entry{{Scope: "tui", Key: "theme", Note: "Charm"}, {Scope: "tui", Key: "layout", Note: "Center"}, {Scope: "web", Key: "theme", Note: "System"}} {
+		if _, err := store.Upsert("ws_test", item.Scope, item.Key, item.Note); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, _, err := store.Remove("ws_test", "TUI", "THEME")
+	if err != nil || removed != 1 {
+		t.Fatalf("removed=%d err=%v", removed, err)
+	}
+	removed, _, err = store.Remove("ws_test", "tui", "")
+	if err != nil || removed != 1 {
+		t.Fatalf("removed=%d err=%v", removed, err)
+	}
+	entries, err := store.Get("ws_test", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Scope != "web" {
+		t.Fatalf("entries = %#v", entries)
+	}
+}
+
+func TestRemoveMissingEntryIsNoop(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	removed, _, err := store.Remove("ws_test", "missing", "key")
+	if err != nil || removed != 0 {
+		t.Fatalf("removed=%d err=%v", removed, err)
+	}
+}

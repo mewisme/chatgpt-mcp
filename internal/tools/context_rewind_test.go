@@ -273,6 +273,33 @@ func TestMemoryGetRejectsKeyWithoutScope(t *testing.T) {
 	}
 }
 
+func TestForgetRemovesExactEntryAndScope(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	for _, args := range []map[string]any{
+		{"workspace_id": workspaceID, "scope": "tui", "key": "theme", "note": "Charm"},
+		{"workspace_id": workspaceID, "scope": "tui", "key": "layout", "note": "Center"},
+	} {
+		result, err := runtime.Call(context.Background(), "remember", args)
+		if err != nil || result.IsError {
+			t.Fatalf("remember failed: %#v %v", result, err)
+		}
+	}
+	result, err := runtime.Call(context.Background(), "forget", map[string]any{"workspace_id": workspaceID, "scope": "tui", "key": "theme"})
+	if err != nil || result.IsError {
+		t.Fatalf("forget exact failed: %#v %v", result, err)
+	}
+	if got := result.StructuredContent.(ForgetResult); got.Removed != 1 {
+		t.Fatalf("forget exact = %#v", got)
+	}
+	result, err = runtime.Call(context.Background(), "forget", map[string]any{"workspace_id": workspaceID, "scope": "tui"})
+	if err != nil || result.IsError {
+		t.Fatalf("forget scope failed: %#v %v", result, err)
+	}
+	if got := result.StructuredContent.(ForgetResult); got.Removed != 1 {
+		t.Fatalf("forget scope = %#v", got)
+	}
+}
+
 func TestProjectContextInputControlsCollectorsAndLimits(t *testing.T) {
 	runtime, workspaceID, root, _ := newContextToolRuntime(t)
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("first line\nsecond line with more content"), 0644); err != nil {

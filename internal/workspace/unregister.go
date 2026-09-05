@@ -14,6 +14,15 @@ func (m *Manager) Unregister(id string) error {
 		return fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
 	delete(m.items, canonical)
+	previousContainers := make(map[string]WorkspaceContainer)
+	for containerID, container := range m.containers {
+		if !containsString(container.WorkspaceIDs, canonical) {
+			continue
+		}
+		previousContainers[containerID] = container
+		container.WorkspaceIDs = removeStrings(container.WorkspaceIDs, []string{canonical})
+		m.containers[containerID] = container
+	}
 	removedAliases := map[string]string{}
 	for alias, target := range m.aliases {
 		if target == canonical {
@@ -23,6 +32,9 @@ func (m *Manager) Unregister(id string) error {
 	}
 	if err := m.saveLocked(); err != nil {
 		m.items[canonical] = item
+		for containerID, container := range previousContainers {
+			m.containers[containerID] = container
+		}
 		for alias, target := range removedAliases {
 			m.aliases[alias] = target
 		}

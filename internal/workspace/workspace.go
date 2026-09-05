@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,7 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
-const storeVersion = 3
+const storeVersion = 4
 
 var ErrNotFound = errors.New("workspace not found")
 
@@ -28,9 +29,16 @@ type Workspace struct {
 	LegacyIDs []string `json:"legacy_ids,omitempty"`
 }
 
+type WorkspaceContainer struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	WorkspaceIDs []string `json:"workspace_ids,omitempty"`
+}
+
 type storeFile struct {
-	Version    int         `json:"version"`
-	Workspaces []Workspace `json:"workspaces"`
+	Version    int                  `json:"version"`
+	Workspaces []Workspace          `json:"workspaces"`
+	Containers []WorkspaceContainer `json:"containers,omitempty"`
 }
 
 type Manager struct {
@@ -43,6 +51,7 @@ type Manager struct {
 	mu              sync.RWMutex
 	loaded          bool
 	items           map[string]Workspace
+	containers      map[string]WorkspaceContainer
 	aliases         map[string]string
 	globalAllowDirs []string
 }
@@ -58,7 +67,7 @@ func NewManager(path string) *Manager {
 	if storeRoot != "" && configRoot != "" && storeRoot == configRoot {
 		protectedRoot = configRoot
 	}
-	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, aliases: map[string]string{}}
+	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}}
 }
 
 func NewManagerWithGlobalAllowDirs(path string, allowDirs []string) *Manager {
@@ -340,6 +349,18 @@ func (m *Manager) ensureLoaded() error {
 			}
 		}
 	}
+	for _, container := range stored.Containers {
+		container.ID = strings.TrimSpace(container.ID)
+		container.Name = strings.TrimSpace(container.Name)
+		if container.ID == "" || container.Name == "" || !strings.HasPrefix(container.ID, "wsc_") {
+			return errors.New("workspace registry contains invalid container entry")
+		}
+		if _, exists := m.containers[container.ID]; exists {
+			return fmt.Errorf("workspace container id collision: %s", container.ID)
+		}
+		container.WorkspaceIDs = normalizeContainerWorkspaceIDs(container.WorkspaceIDs, m.items)
+		m.containers[container.ID] = container
+	}
 	m.loaded = true
 	if migrated {
 		if err := m.saveLocked(); err != nil {
@@ -550,7 +571,19 @@ func (m *Manager) saveLocked() error {
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Path < items[j].Path })
-	data, err := configformat.MarshalPath(m.path, storeFile{Version: storeVersion, Workspaces: items})
+	containers := make([]WorkspaceContainer, 0, len(m.containers))
+	for _, container := range m.containers {
+		container.WorkspaceIDs = normalizeContainerWorkspaceIDs(container.WorkspaceIDs, m.items)
+		containers = append(containers, container)
+	}
+	sort.Slice(containers, func(i, j int) bool {
+		left, right := strings.ToLower(containers[i].Name), strings.ToLower(containers[j].Name)
+		if left == right {
+			return containers[i].ID < containers[j].ID
+		}
+		return left < right
+	})
+	data, err := configformat.MarshalPath(m.path, storeFile{Version: storeVersion, Workspaces: items, Containers: containers})
 	if err != nil {
 		return err
 	}
@@ -635,6 +668,14 @@ func normalizeForID(path string) string {
 func workspaceID(path string) string {
 	sum := sha256.Sum256([]byte(normalizeForID(path)))
 	return "ws_" + hex.EncodeToString(sum[:])[:16]
+}
+
+func workspaceContainerID() (string, error) {
+	var bytes [8]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return "", err
+	}
+	return "wsc_" + hex.EncodeToString(bytes[:]), nil
 }
 
 func IDForPath(path string) string { return workspaceID(path) }

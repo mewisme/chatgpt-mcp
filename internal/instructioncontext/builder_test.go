@@ -21,7 +21,7 @@ func TestBuildAssemblesInstructionContext(t *testing.T) {
 	writeRuleFile(t, root, ".agents", "global.md", "global rule")
 	writeSkillFile(t, root, ".agents", "release", "release", "Release workflow", "skill body must stay out")
 	store := memory.NewStore(memoryRoot)
-	if _, err := store.Upsert("ws_test", "tooling", "use pnpm"); err != nil {
+	if _, err := store.Upsert("ws_test", "tooling", "package-manager", "use pnpm"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := gitutil.OrThrow(context.Background(), root, "init", "-b", "main"); err != nil {
@@ -82,7 +82,7 @@ func TestBuildSkipsOptionalCollectors(t *testing.T) {
 	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), "project instruction")
 	writeSkillFile(t, root, ".agents", "release", "release", "Release workflow", "body")
 	store := memory.NewStore(t.TempDir())
-	if _, err := store.Upsert("ws_test", "general", "memory note"); err != nil {
+	if _, err := store.Upsert("ws_test", "general", "general", "memory note"); err != nil {
 		t.Fatal(err)
 	}
 	value, err := Build(context.Background(), BuildOptions{

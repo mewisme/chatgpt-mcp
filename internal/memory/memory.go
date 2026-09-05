@@ -102,6 +102,35 @@ func (s Store) SaveDocument(workspaceID string, document Document) (string, erro
 	return path, nil
 }
 
+func (s Store) Upsert(workspaceID, scope, key, note string) (string, error) {
+	scope, key, note = normalizeName(scope), normalizeName(key), normalizeNote(note)
+	if scope == "" {
+		return "", errors.New("scope is required")
+	}
+	if key == "" {
+		return "", errors.New("key is required")
+	}
+	if note == "" {
+		return "", errors.New("note is required")
+	}
+	document, err := s.LoadDocument(workspaceID)
+	if err != nil {
+		return "", err
+	}
+	updated := false
+	for index := range document.Entries {
+		if strings.EqualFold(document.Entries[index].Scope, scope) && strings.EqualFold(document.Entries[index].Key, key) {
+			document.Entries[index] = Entry{Scope: document.Entries[index].Scope, Key: document.Entries[index].Key, Note: note}
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		document.Entries = append(document.Entries, Entry{Scope: scope, Key: key, Note: note})
+	}
+	return s.SaveDocument(workspaceID, document)
+}
+
 func Parse(value string) Document {
 	document := Document{}
 	currentScope, currentKey := "", ""

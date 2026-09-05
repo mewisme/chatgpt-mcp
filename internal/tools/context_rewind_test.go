@@ -101,15 +101,15 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 		t.Fatalf("rules = %#v", rulesResult.StructuredContent)
 	}
 
-	rememberResult, err := runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "scope": "coding-style", "note": "use compact imports"})
+	rememberResult, err := runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "scope": "coding-style", "key": "imports", "note": "use compact imports"})
 	if err != nil || rememberResult.IsError {
 		t.Fatalf("remember failed: %#v %v", rememberResult, err)
 	}
 	remembered := rememberResult.StructuredContent.(RememberResult)
-	if remembered.Scope != "coding-style" || remembered.Note != "use compact imports" {
+	if remembered.Scope != "coding-style" || remembered.Key != "imports" || remembered.Note != "use compact imports" {
 		t.Fatalf("remember result = %#v", remembered)
 	}
-	rememberResult, err = runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "scope": "coding-style", "note": "use compact imports and keep imports contiguous"})
+	rememberResult, err = runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "scope": "coding-style", "key": "imports", "note": "use compact imports and keep imports contiguous"})
 	if err != nil || rememberResult.IsError {
 		t.Fatalf("remember update failed: %#v %v", rememberResult, err)
 	}
@@ -118,7 +118,7 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 		t.Fatalf("project_context after remember failed: %#v %v", ctxAfterRemember, err)
 	}
 	after := ctxAfterRemember.StructuredContent.(ProjectContextResult)
-	if !after.InstructionContext.AutoMemory.Loaded || !strings.Contains(after.InstructionContext.InstructionsText, "## coding-style\n- use compact imports and keep imports contiguous") || strings.Count(after.InstructionContext.AutoMemory.Content, "## coding-style") != 1 {
+	if !after.InstructionContext.AutoMemory.Loaded || !strings.Contains(after.InstructionContext.InstructionsText, "## coding-style\n\n### imports\n- use compact imports and keep imports contiguous") || strings.Count(after.InstructionContext.AutoMemory.Content, "### imports") != 1 {
 		t.Fatalf("auto memory not included: %#v", after.InstructionContext.AutoMemory)
 	}
 }
@@ -223,14 +223,14 @@ func TestProjectContextOutputSchemaUsesInstructionBundle(t *testing.T) {
 	}
 }
 
-func TestRememberSchemaRequiresScopeAndNote(t *testing.T) {
+func TestRememberSchemaRequiresScopeKeyAndNote(t *testing.T) {
 	runtime, _, _, _ := newContextToolRuntime(t)
 	schema, ok := runtime.Registry.Schema("remember")
 	if !ok {
 		t.Fatal("missing remember schema")
 	}
 	input := string(schema.InputSchema)
-	for _, expected := range []string{`"workspace_id"`, `"scope"`, `"note"`, `"required":["workspace_id","scope","note"]`} {
+	for _, expected := range []string{`"workspace_id"`, `"scope"`, `"key"`, `"note"`, `"required":["workspace_id","scope","key","note"]`} {
 		if !strings.Contains(input, expected) {
 			t.Fatalf("remember input schema missing %s: %s", expected, input)
 		}

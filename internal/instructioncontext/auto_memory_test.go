@@ -11,7 +11,7 @@ import (
 
 func TestLoadAutoMemory(t *testing.T) {
 	store := memory.NewStore(t.TempDir())
-	path, err := store.Upsert("ws_test", "tooling", "use pnpm")
+	path, err := store.Upsert("ws_test", "tooling", "package-manager", "use pnpm")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -111,3 +111,46 @@ func TestStoreMigrationPersistsOnlyOnSave(t *testing.T) {
 		t.Fatalf("save did not persist migration: %q", raw)
 	}
 }
+
+func TestUpsertInsertsAndReplacesCanonicalEntry(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	if _, err := store.Upsert("ws_test", "tui", "theme", "Use Nord colors."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Upsert("ws_test", "TUI", "THEME", "Use Charm default component styles."); err != nil {
+		t.Fatal(err)
+	}
+	document, err := store.LoadDocument("ws_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Entries) != 1 || document.Entries[0].Note != "Use Charm default component styles." {
+		t.Fatalf("document = %#v", document)
+	}
+}
+
+func TestUpsertAllowsSameKeyInDifferentScopes(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	if _, err := store.Upsert("ws_test", "tui", "theme", "Charm"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Upsert("ws_test", "web", "theme", "System"); err != nil {
+		t.Fatal(err)
+	}
+	document, err := store.LoadDocument("ws_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Entries) != 2 {
+		t.Fatalf("document = %#v", document)
+	}
+}
+
+func TestUpsertRequiresScopeKeyAndNote(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	for _, args := range [][3]string{{"", "key", "note"}, {"scope", "", "note"}, {"scope", "key", ""}} {
+		if _, err := store.Upsert("ws_test", args[0], args[1], args[2]); err == nil {
+			t.Fatalf("expected error for %#v", args)
+		}
+	}
+}

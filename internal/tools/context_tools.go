@@ -34,6 +34,7 @@ type PathRulesResult struct {
 type RememberResult struct {
 	SavedTo string `json:"saved_to"`
 	Scope   string `json:"scope"`
+	Key     string `json:"key"`
 	Note    string `json:"note"`
 }
 
@@ -203,7 +204,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		}), nil
 	})
 
-	register("remember", "Remember", "Save one scoped cross-session memory paragraph. Each scope has one mutable paragraph; writing an existing scope replaces it, so merge and deduplicate still-relevant existing scope content into note before calling.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"scope":{"type":"string"},"note":{"type":"string"}},"required":["workspace_id","scope","note"],"additionalProperties":false}`, `{"type":"object","properties":{"saved_to":{"type":"string"},"scope":{"type":"string"},"note":{"type":"string"}},"required":["saved_to","scope","note"],"additionalProperties":false}`, RiskEdit, func(_ context.Context, args map[string]any) (Result, error) {
+	register("remember", "Remember", "Upsert one canonical cross-session memory entry by scope and key. Read existing memory first; when updating an existing key, submit the complete canonical replacement note containing all still-relevant facts.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"}},"required":["workspace_id","scope","key","note"],"additionalProperties":false}`, `{"type":"object","properties":{"saved_to":{"type":"string"},"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"}},"required":["saved_to","scope","key","note"],"additionalProperties":false}`, RiskEdit, func(_ context.Context, args map[string]any) (Result, error) {
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -212,15 +213,19 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
+		key, err := requiredString(args, "key")
+		if err != nil {
+			return Result{}, err
+		}
 		note, err := requiredString(args, "note")
 		if err != nil {
 			return Result{}, err
 		}
-		path, err := memoryStore.Upsert(item.ID, scope, note)
+		path, err := memoryStore.Upsert(item.ID, scope, key, note)
 		if err != nil {
 			return Result{}, err
 		}
-		return JSONResult(RememberResult{SavedTo: path, Scope: strings.TrimSpace(scope), Note: strings.TrimSpace(note)}), nil
+		return JSONResult(RememberResult{SavedTo: path, Scope: strings.TrimSpace(scope), Key: strings.TrimSpace(key), Note: strings.TrimSpace(note)}), nil
 	})
 
 	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from .claude/.claudes/.agents/.cursor/.codex rule directories.", workspaceOnlySchema(`"path":{"type":"string"},`), `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {

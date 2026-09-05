@@ -322,6 +322,31 @@ func TestMemorySearchRanksRelevantEntries(t *testing.T) {
 	}
 }
 
+func TestOptimizeMemoryIsAnalysisOnly(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	for _, args := range []map[string]any{
+		{"workspace_id": workspaceID, "scope": "tui", "key": "theme", "note": "Use Charm default styles and preserve automatic dark mode adaptation"},
+		{"workspace_id": workspaceID, "scope": "tui", "key": "colors", "note": "Use Charm default styles and preserve automatic dark mode colors"},
+	} {
+		result, err := runtime.Call(context.Background(), "remember", args)
+		if err != nil || result.IsError {
+			t.Fatalf("remember failed: %#v %v", result, err)
+		}
+	}
+	result, err := runtime.Call(context.Background(), "optimize_memory", map[string]any{"workspace_id": workspaceID, "scope": "tui"})
+	if err != nil || result.IsError {
+		t.Fatalf("optimize_memory failed: %#v %v", result, err)
+	}
+	got := result.StructuredContent.(OptimizeMemoryResult)
+	if !got.DryRun || !got.OptimizationRecommended || len(got.Groups) == 0 {
+		t.Fatalf("optimize_memory = %#v", got)
+	}
+	get, err := runtime.Call(context.Background(), "memory_get", map[string]any{"workspace_id": workspaceID, "scope": "tui"})
+	if err != nil || get.IsError || get.StructuredContent.(MemoryGetResult).Count != 2 {
+		t.Fatalf("analysis mutated memory: %#v %v", get, err)
+	}
+}
+
 func TestProjectContextInputControlsCollectorsAndLimits(t *testing.T) {
 	runtime, workspaceID, root, _ := newContextToolRuntime(t)
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("first line\nsecond line with more content"), 0644); err != nil {

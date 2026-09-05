@@ -61,6 +61,15 @@ type MemorySearchResult struct {
 	Count   int                 `json:"count"`
 }
 
+type OptimizeMemoryResult struct {
+	Groups                  []memory.OptimizationGroup `json:"groups"`
+	BeforeBytes             int                        `json:"before_bytes"`
+	CandidateSavingsBytes   int                        `json:"candidate_savings_bytes"`
+	LegacyFormat            bool                       `json:"legacy_format"`
+	OptimizationRecommended bool                       `json:"optimization_recommended"`
+	DryRun                  bool                       `json:"dry_run"`
+}
+
 type ProjectContextMemoryFile = projectcontext.MemoryFile
 type ProjectContextGitSummary = projectcontext.GitSummary
 type ProjectContextSummary = projectcontext.Summary
@@ -338,6 +347,25 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			matches = append(matches, MemorySearchMatch{Scope: match.Entry.Scope, Key: match.Entry.Key, Note: match.Entry.Note, Score: match.Score})
 		}
 		return JSONResult(MemorySearchResult{Matches: matches, Count: len(matches)}), nil
+	})
+
+	register("optimize_memory", "Optimize Memory", "Analyze canonical memory for legacy format, oversized notes, fragmented keys, and high-overlap candidates. This phase is analysis-only and never rewrites semantic memory; reconcile candidates with remember/forget.", workspaceOnlySchema(`"scope":{"type":"string"},"dry_run":{"type":"boolean","default":true},`), `{"type":"object","properties":{"groups":{"type":"array","items":{"type":"object","additionalProperties":true}},"before_bytes":{"type":"integer"},"candidate_savings_bytes":{"type":"integer"},"legacy_format":{"type":"boolean"},"optimization_recommended":{"type":"boolean"},"dry_run":{"type":"boolean"}},"required":["groups","before_bytes","candidate_savings_bytes","legacy_format","optimization_recommended","dry_run"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+		item, err := workspaceFromArgs(workspaces, args)
+		if err != nil {
+			return Result{}, err
+		}
+		scope, err := optionalString(args, "scope")
+		if err != nil {
+			return Result{}, err
+		}
+		if _, err := optionalBool(args, "dry_run", true); err != nil {
+			return Result{}, err
+		}
+		analysis, err := memoryStore.Analyze(item.ID, scope)
+		if err != nil {
+			return Result{}, err
+		}
+		return JSONResult(OptimizeMemoryResult{Groups: analysis.Groups, BeforeBytes: analysis.BeforeBytes, CandidateSavingsBytes: analysis.CandidateSavingsBytes, LegacyFormat: analysis.LegacyFormat, OptimizationRecommended: analysis.OptimizationRecommended, DryRun: true}), nil
 	})
 
 	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from .claude/.claudes/.agents/.cursor/.codex rule directories.", workspaceOnlySchema(`"path":{"type":"string"},`), `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {

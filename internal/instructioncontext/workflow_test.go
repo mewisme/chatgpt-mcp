@@ -18,9 +18,18 @@ func TestAgentWorkflowCoversNativeToolFlow(t *testing.T) {
 
 func TestAgentWorkflowRequiresImmediateRememberOnExplicitUserRequest(t *testing.T) {
 	workflow := AgentWorkflow()
-	for _, expected := range []string{"explicitly asks to remember", "call remember immediately in that same turn", "do not merely acknowledge or defer", "one mutable paragraph per scope", "merged and deduplicated paragraph"} {
+	for _, expected := range []string{"explicitly asks to remember", "call remember immediately in that same turn", "do not merely acknowledge or defer", "scope and key", "memory_get", "complete canonical replacement note", "supersedes conflicting older memory", "instead of concatenating contradictory statements"} {
 		if !strings.Contains(workflow, expected) {
 			t.Fatalf("workflow missing immediate remember guidance %q: %s", expected, workflow)
+		}
+	}
+}
+
+func TestAgentWorkflowStoresMemoryConclusionsNotConversationHistory(t *testing.T) {
+	workflow := AgentWorkflow()
+	for _, expected := range []string{"durable workspace-specific conclusions", "do not store conversation history"} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("workflow missing canonical memory guidance %q: %s", expected, workflow)
 		}
 	}
 }

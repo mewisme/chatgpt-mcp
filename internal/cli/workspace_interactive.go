@@ -96,7 +96,7 @@ func (m workspaceInteractiveModel) Update(message tea.Msg) (tea.Model, tea.Cmd) 
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
 		interactive.ApplyDefaultListTheme(&m.list, msg.IsDark())
-		m.input.SetStyles(textinput.DefaultStyles(msg.IsDark()))
+		interactive.ApplyDefaultTextInputTheme(&m.input, msg.IsDark())
 		m.confirm.Update(msg)
 		return m, nil
 	case tea.WindowSizeMsg:

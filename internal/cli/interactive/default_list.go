@@ -4,16 +4,24 @@ import (
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
 )
 
 func NewDefaultList(title string, items []list.Item, width, height int, singular, plural string) list.Model {
 	delegate := list.NewDefaultDelegate()
 	model := list.New(items, delegate, width, height)
+	ApplyDefaultListTheme(&model, true)
 	model.Title = title
 	model.KeyMap.Quit = key.NewBinding(key.WithKeys("q", "esc"), key.WithHelp("q", "quit"))
 	model.KeyMap.ForceQuit = key.NewBinding(key.WithKeys("ctrl+c"))
 	model.SetStatusBarItemName(singular, plural)
 	return model
+}
+
+func ApplyDefaultTextInputTheme(model *textinput.Model, isDark bool) {
+	if model != nil {
+		model.SetStyles(textinput.DefaultStyles(isDark))
+	}
 }
 
 func ApplyDefaultListTheme(model *list.Model, isDark bool) {

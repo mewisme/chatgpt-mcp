@@ -33,7 +33,7 @@ func (e NGramEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 			hash := fnv.New64a()
 			_, _ = hash.Write([]byte(feature))
 			value := hash.Sum64()
-			bucket := int(value % uint64(dimensions))
+			bucket := value % uint64(dimensions)
 			sign := float32(1)
 			if value&(1<<63) != 0 {
 				sign = -1

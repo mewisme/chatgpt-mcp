@@ -64,7 +64,7 @@ func (windowsManager) Status(spec Spec) (Status, error) {
 
 func WindowsTaskXML(spec Spec) string {
 	arguments := windowsCommandLine(Args(spec))
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	return fmt.Sprintf(`<?xml version="1.0"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Description>ChatGPT MCP managed runtime</Description>

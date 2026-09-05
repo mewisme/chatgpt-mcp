@@ -2,3 +2,4 @@ apply-*
 /internal/web/dist/
 .agents/skills/
 .local/
+*.cgm

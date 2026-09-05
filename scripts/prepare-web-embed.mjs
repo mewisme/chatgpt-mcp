@@ -21,15 +21,13 @@ for (const arg of args) {
   } else fail(`unknown argument: ${arg}`)
 }
 
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm"
-
 await requireFile("web/package.json")
 await requireFile("web/pnpm-lock.yaml")
 if (options.fromDist) await requireFile("web/dist/index.html")
 
 if (!options.fromDist) {
-  if (options.installDeps) run(pnpm, ["--dir", "web", "install", "--frozen-lockfile"])
-  run(pnpm, ["--dir", "web", "build"])
+  if (options.installDeps) run("pnpm", ["--dir", "web", "install", "--frozen-lockfile"])
+  run("pnpm", ["--dir", "web", "build"])
 }
 
 await access(resolve(source, "index.html"))
@@ -50,7 +48,7 @@ async function requireFile(relative) {
 
 function run(command, commandArgs) {
   console.log(`[RUN] ${command} ${commandArgs.join(" ")}`)
-  const result = spawnSync(command, commandArgs, { cwd: root, stdio: "inherit", windowsHide: true })
+  const result = spawnSync(command, commandArgs, { cwd: root, stdio: "inherit", windowsHide: true, shell: true })
   if (result.error) fail(`${command}: ${result.error.message}`)
   if (result.status !== 0) fail(`${command} exited with code ${result.status}`)
 }

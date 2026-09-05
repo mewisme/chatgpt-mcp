@@ -7,8 +7,32 @@ export type Tool = {
   annotations?: Record<string, unknown>
 }
 export type Workspace = { id: string; path: string; allow_dirs?: string[] }
-export type ActivityEvent = { sequence?: number; call_id?: string; kind: string; method?: string; source?: string; tool?: string; workspace_id?: string; session_hash?: string; session_binding?: string; session_workspace_id?: string; received_by_instance_id?: string; executed_by_instance_id?: string; status?: string; duration_ms?: number; message?: string; raw?: Record<string, unknown>; timestamp: string }
-export type ExecutionStatus = "running" | "success" | "failed" | "cancelled" | "timed_out" | string
+export type WorkspaceContainer = {
+  id: string
+  name: string
+  workspace_ids?: string[]
+}
+export type ActivityEvent = {
+  sequence?: number
+  call_id?: string
+  kind: string
+  method?: string
+  source?: string
+  tool?: string
+  workspace_id?: string
+  session_hash?: string
+  session_binding?: string
+  session_workspace_id?: string
+  received_by_instance_id?: string
+  executed_by_instance_id?: string
+  status?: string
+  duration_ms?: number
+  message?: string
+  raw?: Record<string, unknown>
+  timestamp: string
+}
+export type ExecutionStatus =
+  "running" | "success" | "failed" | "cancelled" | "timed_out" | string
 export type ExecutionInfo = {
   id: string
   workspace_id: string
@@ -22,7 +46,12 @@ export type ExecutionInfo = {
   exit_code?: number
   timed_out?: boolean
 }
-export type ExecutionSnapshot = { execution: ExecutionInfo; stdout: string; stderr: string; latest_sequence: number }
+export type ExecutionSnapshot = {
+  execution: ExecutionInfo
+  stdout: string
+  stderr: string
+  latest_sequence: number
+}
 export type ExecutionEvent = {
   sequence: number
   type: "output" | "completed" | string
@@ -47,29 +76,118 @@ export type ExecutionFeedEvent = {
   timed_out?: boolean
   timestamp: string
 }
-export type ExecutionFeedSnapshot = { events: ExecutionFeedEvent[]; latest_sequence: number }
-export type InstructionSourcePolicy = { enabled?: boolean; context?: boolean; rules?: boolean; skills?: boolean }
-export type GlobalInstructionRule = { id: string; name?: string; enabled: boolean; content: string }
-export type InstructionSource = { provider: string; kind: "context" | "rules" | "skills" | string; paths: string[]; count: number; enabled: boolean; loaded: boolean }
-export type GlobalInstructions = { version: number; context: string; rules: GlobalInstructionRule[]; source_policy: Record<string, InstructionSourcePolicy>; detected_sources: InstructionSource[] }
-export type InstructionRule = { path: string; source: string; patterns?: string[]; content: string; always_apply?: boolean }
-export type InstructionSkill = { name: string; description?: string; path?: string; source?: string }
-export type InstructionSection = { path: string; kind: string; source?: string; content: string; truncated: boolean; original_bytes?: number; loaded_bytes: number }
+export type ExecutionFeedSnapshot = {
+  events: ExecutionFeedEvent[]
+  latest_sequence: number
+}
+export type InstructionSourcePolicy = {
+  enabled?: boolean
+  context?: boolean
+  rules?: boolean
+  skills?: boolean
+}
+export type GlobalInstructionRule = {
+  id: string
+  name?: string
+  enabled: boolean
+  content: string
+}
+export type InstructionSource = {
+  provider: string
+  kind: "context" | "rules" | "skills" | string
+  paths: string[]
+  count: number
+  enabled: boolean
+  loaded: boolean
+}
+export type GlobalInstructions = {
+  version: number
+  context: string
+  rules: GlobalInstructionRule[]
+  source_policy: Record<string, InstructionSourcePolicy>
+  detected_sources: InstructionSource[]
+}
+export type InstructionRule = {
+  path: string
+  source: string
+  patterns?: string[]
+  content: string
+  always_apply?: boolean
+}
+export type InstructionSkill = {
+  name: string
+  description?: string
+  path?: string
+  source?: string
+}
+export type InstructionSection = {
+  path: string
+  kind: string
+  source?: string
+  content: string
+  truncated: boolean
+  original_bytes?: number
+  loaded_bytes: number
+}
 export type ProjectContextResult = {
   root: string
   workspace_id: string
-  summary: { memory_files: { path: string; kind: string; source?: string; truncated: boolean }[]; memory_bytes: number; instruction_bytes: number; git: { skipped?: boolean; is_repo: boolean; branch?: string; commits: number }; rules: number; skills: number }
+  summary: {
+    memory_files: {
+      path: string
+      kind: string
+      source?: string
+      truncated: boolean
+    }[]
+    memory_bytes: number
+    instruction_bytes: number
+    git: {
+      skipped?: boolean
+      is_repo: boolean
+      branch?: string
+      commits: number
+    }
+    rules: number
+    skills: number
+  }
   instruction_context: {
-    root: string; workspace_id: string; instructions_text: string; instruction_bytes: number; instruction_truncated?: boolean
-    global_context?: string; global_rules: InstructionRule[]; rules: InstructionRule[]; skills: InstructionSkill[]; sources: InstructionSource[]
-    project_memory: { sections: InstructionSection[]; imports?: InstructionSection[]; total_bytes: number; budget_bytes: number; budget_truncated: boolean }
+    root: string
+    workspace_id: string
+    instructions_text: string
+    instruction_bytes: number
+    instruction_truncated?: boolean
+    global_context?: string
+    global_rules: InstructionRule[]
+    rules: InstructionRule[]
+    skills: InstructionSkill[]
+    sources: InstructionSource[]
+    project_memory: {
+      sections: InstructionSection[]
+      imports?: InstructionSection[]
+      total_bytes: number
+      budget_bytes: number
+      budget_truncated: boolean
+    }
     auto_memory: { loaded: boolean; content?: string; bytes: number }
-    git: { skipped?: boolean; is_repo: boolean; root?: string; branch?: string; status_short?: string; recent_commits?: string[]; error?: string }
+    git: {
+      skipped?: boolean
+      is_repo: boolean
+      root?: string
+      branch?: string
+      status_short?: string
+      recent_commits?: string[]
+      error?: string
+    }
     environment: Record<string, unknown>
     [key: string]: unknown
   }
 }
-export type ProjectContextOptions = { path?: string; include_git?: boolean; include_memory?: boolean; include_skills?: boolean }
+export type ProjectContextOptions = {
+  path?: string
+  include_git?: boolean
+  include_memory?: boolean
+  include_skills?: boolean
+}
 export type MCPAuth = {
   type?: "auto" | "oauth" | "none" | string
   scope?: string
@@ -319,7 +437,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const adminApi = {
   health: () => api<{ ok: boolean; auth_enabled: boolean }>("/api/health"),
-  activityCall: (callID: string) => api<ActivityEvent>(`/api/activity/${encodeURIComponent(callID)}`),
+  activityCall: (callID: string) =>
+    api<ActivityEvent>(`/api/activity/${encodeURIComponent(callID)}`),
   networkInterfaces: () => api<NetworkInterface[]>("/api/network/interfaces"),
   config: () => api<PublicConfig>("/api/config"),
   saveConfig: (config: Partial<PublicConfig>) =>
@@ -346,19 +465,75 @@ export const adminApi = {
     api<void>(`/api/workspaces/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+  workspaceContainers: () =>
+    api<WorkspaceContainer[]>("/api/workspace-containers"),
+  workspaceContainer: (id: string) =>
+    api<WorkspaceContainer>(
+      `/api/workspace-containers/${encodeURIComponent(id)}`
+    ),
+  createWorkspaceContainer: (name: string) =>
+    api<WorkspaceContainer>("/api/workspace-containers", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  renameWorkspaceContainer: (id: string, name: string) =>
+    api<WorkspaceContainer>(
+      `/api/workspace-containers/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify({ name }) }
+    ),
+  removeWorkspaceContainer: (id: string) =>
+    api<void>(`/api/workspace-containers/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+  workspaceContainersForWorkspace: (id: string) =>
+    api<WorkspaceContainer[]>(
+      `/api/workspaces/${encodeURIComponent(id)}/containers`
+    ),
+  addWorkspaceContainers: (id: string, containerIDs: string[]) =>
+    api<WorkspaceContainer[]>(
+      `/api/workspaces/${encodeURIComponent(id)}/containers`,
+      { method: "POST", body: JSON.stringify({ container_ids: containerIDs }) }
+    ),
+  removeWorkspaceContainers: (id: string, containerIDs: string[]) =>
+    api<WorkspaceContainer[]>(
+      `/api/workspaces/${encodeURIComponent(id)}/containers`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ container_ids: containerIDs }),
+      }
+    ),
   globalInstructions: () => api<GlobalInstructions>("/api/instructions/global"),
-  saveGlobalInstructions: (patch: Partial<Pick<GlobalInstructions, "context" | "rules" | "source_policy">>) => api<GlobalInstructions>("/api/instructions/global", { method: "PUT", body: JSON.stringify(patch) }),
+  saveGlobalInstructions: (
+    patch: Partial<
+      Pick<GlobalInstructions, "context" | "rules" | "source_policy">
+    >
+  ) =>
+    api<GlobalInstructions>("/api/instructions/global", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
   workspaceContext: (id: string, options: ProjectContextOptions = {}) => {
     const query = new URLSearchParams()
     if (options.path?.trim()) query.set("path", options.path.trim())
-    if (options.include_git !== undefined) query.set("include_git", String(options.include_git))
-    if (options.include_memory !== undefined) query.set("include_memory", String(options.include_memory))
-    if (options.include_skills !== undefined) query.set("include_skills", String(options.include_skills))
+    if (options.include_git !== undefined)
+      query.set("include_git", String(options.include_git))
+    if (options.include_memory !== undefined)
+      query.set("include_memory", String(options.include_memory))
+    if (options.include_skills !== undefined)
+      query.set("include_skills", String(options.include_skills))
     const suffix = query.size ? `?${query}` : ""
-    return api<ProjectContextResult>(`/api/workspaces/${encodeURIComponent(id)}/context${suffix}`)
+    return api<ProjectContextResult>(
+      `/api/workspaces/${encodeURIComponent(id)}/context${suffix}`
+    )
   },
-  workspaceExecutions: (id: string, limit = 50) => api<ExecutionInfo[]>(`/api/workspaces/${encodeURIComponent(id)}/executions?limit=${limit}`),
-  workspaceExecution: (id: string, executionID: string) => api<ExecutionSnapshot>(`/api/workspaces/${encodeURIComponent(id)}/executions/${encodeURIComponent(executionID)}`),
+  workspaceExecutions: (id: string, limit = 50) =>
+    api<ExecutionInfo[]>(
+      `/api/workspaces/${encodeURIComponent(id)}/executions?limit=${limit}`
+    ),
+  workspaceExecution: (id: string, executionID: string) =>
+    api<ExecutionSnapshot>(
+      `/api/workspaces/${encodeURIComponent(id)}/executions/${encodeURIComponent(executionID)}`
+    ),
   tools: () => api<Tool[]>("/api/tools"),
   upstream: () => api<MCPServer[]>("/api/upstream"),
   upstreamServer: (id: string) =>

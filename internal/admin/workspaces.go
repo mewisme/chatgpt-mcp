@@ -121,6 +121,9 @@ func (api API) handleWorkspaceContext(w http.ResponseWriter, r *http.Request, ma
 	}
 	result, err := service.Build(r.Context(), item.ID, projectcontext.Options{
 		Path:                strings.TrimSpace(r.URL.Query().Get("path")),
+		MemoryQuery:         strings.TrimSpace(r.URL.Query().Get("memory_query")),
+		MaxMemoryEntries:    queryInt(r, "max_memory_entries", 12, 1, 100),
+		MaxMemoryBytes:      queryInt(r, "max_memory_bytes", 8192, 256, 100_000),
 		MaxInstructionBytes: queryInt(r, "max_instruction_bytes", instructioncontext.DefaultInstructionMaxBytes, 1, 1_000_000),
 		MaxSectionBytes:     queryInt(r, "max_section_bytes", instructioncontext.DefaultSectionMaxBytes, 1, 500_000),
 		MaxLinesPerSection:  queryInt(r, "max_lines_per_section", instructioncontext.DefaultSectionMaxLines, 1, 5_000),

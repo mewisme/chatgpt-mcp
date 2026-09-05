@@ -28,6 +28,8 @@ func TestConvertFormatAtConvertsStructuredTree(t *testing.T) {
 	write("workspaces/ws_test/checkpoints/data/cp_test/manifest.json", `{"version":1,"id":"cp_test"}`)
 	write("tunnels/tunnel_test.json", `{"id":"tunnel_test","name":"Test tunnel"}`)
 	write("workspaces/ws_test/activity.jsonl", "{}\n")
+	memoryContent := "## tooling\n\n### package-manager\n- use pnpm\n"
+	write("workspaces/ws_test/MEMORY.md", memoryContent)
 
 	converted, err := convertFormatAt(root, configformat.TOML)
 	if err != nil {
@@ -49,6 +51,13 @@ func TestConvertFormatAtConvertsStructuredTree(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "workspaces/ws_test/activity.jsonl")); err != nil {
 		t.Fatalf("jsonl log should not be converted: %v", err)
+	}
+	memoryData, err := os.ReadFile(filepath.Join(root, "workspaces/ws_test/MEMORY.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(memoryData) != memoryContent {
+		t.Fatalf("memory should not be converted: %q", memoryData)
 	}
 	upstreamData, err := os.ReadFile(filepath.Join(root, "upstream.toml"))
 	if err != nil {

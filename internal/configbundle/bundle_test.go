@@ -172,6 +172,29 @@ func TestMaterializeMapsHomePathsAndWorkspaceStateAcrossPlatforms(t *testing.T) 
 	}
 }
 
+func TestMaterializeCanonicalizesFilePermissions(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("Windows does not expose Unix permission bits consistently")
+	}
+	cfg := validConfig()
+	data, err := configformat.Marshal(configformat.JSON, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(t.TempDir(), "stage")
+	_, err = materialize(stage, Bundle{Version: Version, Source: currentPlatform(), Files: []File{{Path: "config.json", Mode: 0777, Data: data}}}, currentPlatform())
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(stage, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("imported config mode = %#o", info.Mode().Perm())
+	}
+}
+
 func TestImportRestoresSecretAndRollsBackInvalidReplacement(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "config")
 	bundleFile := filepath.Join(t.TempDir(), "portable.cgm")

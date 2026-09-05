@@ -448,11 +448,7 @@ func materialize(root string, bundle Bundle, target Platform) (materializeResult
 		if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
 			return result, err
 		}
-		mode := os.FileMode(item.Mode) & 0777
-		if mode == 0 {
-			mode = 0600
-		}
-		if err := state.WriteFileAtomic(destination, data, mode); err != nil {
+		if err := state.WriteFileAtomic(destination, data, 0600); err != nil {
 			return result, err
 		}
 		result.files++

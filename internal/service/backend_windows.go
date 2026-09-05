@@ -5,7 +5,10 @@ package service
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/windows"
 )
 
 type windowsManager struct{}
@@ -14,11 +17,15 @@ func NewManager() Manager              { return windowsManager{} }
 func (windowsManager) Backend() string { return "task-scheduler" }
 
 func (windowsManager) DefinitionMatches(spec Spec) (bool, error) {
+	command, err := windowsTaskCommand()
+	if err != nil {
+		return false, err
+	}
 	output, ok := commandSucceeded("schtasks.exe", "/Query", "/TN", windowsTaskName(spec), "/XML")
 	if !ok {
 		return false, nil
 	}
-	return strings.Contains(output, "<Command>"+xmlText(windowsTaskCommand())+"</Command>") && strings.Contains(output, "<Arguments>"+xmlText(windowsTaskArguments(spec))+"</Arguments>"), nil
+	return strings.Contains(output, "<Command>"+xmlText(command)+"</Command>") && strings.Contains(output, "<Arguments>"+xmlText(windowsTaskArguments(spec))+"</Arguments>"), nil
 }
 
 func (windowsManager) Install(spec Spec) error {
@@ -31,7 +38,12 @@ func (windowsManager) Install(spec Spec) error {
 	}
 	path := file.Name()
 	defer os.Remove(path)
-	if _, err := file.WriteString(WindowsTaskXML(spec)); err != nil {
+	xml, err := WindowsTaskXML(spec)
+	if err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.WriteString(xml); err != nil {
 		_ = file.Close()
 		return err
 	}
@@ -62,8 +74,11 @@ func (windowsManager) Status(spec Spec) (Status, error) {
 	return Status{Installed: installed, Backend: "task-scheduler"}, nil
 }
 
-func WindowsTaskXML(spec Spec) string {
-	command := windowsTaskCommand()
+func WindowsTaskXML(spec Spec) (string, error) {
+	command, err := windowsTaskCommand()
+	if err != nil {
+		return "", err
+	}
 	arguments := windowsTaskArguments(spec)
 	return fmt.Sprintf(`<?xml version="1.0"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -103,10 +118,16 @@ func WindowsTaskXML(spec Spec) string {
     </Exec>
   </Actions>
 </Task>
-`, xmlText(spec.Account.Username), xmlText(spec.Account.Username), xmlText(command), xmlText(arguments), xmlText(spec.Account.HomeDir))
+`, xmlText(spec.Account.Username), xmlText(spec.Account.Username), xmlText(command), xmlText(arguments), xmlText(spec.Account.HomeDir)), nil
 }
 
-func windowsTaskCommand() string { return "powershell.exe" }
+func windowsTaskCommand() (string, error) {
+	systemDir, err := windows.GetSystemDirectory()
+	if err != nil {
+		return "", fmt.Errorf("resolve Windows system directory: %w", err)
+	}
+	return filepath.Join(systemDir, "WindowsPowerShell", "v1.0", "powershell.exe"), nil
+}
 
 func windowsTaskArguments(spec Spec) string {
 	parts := make([]string, 0, len(Args(spec))+1)

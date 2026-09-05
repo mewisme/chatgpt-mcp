@@ -16,6 +16,15 @@ func TestAgentWorkflowCoversNativeToolFlow(t *testing.T) {
 	}
 }
 
+func TestAgentWorkflowRequiresImmediateRememberOnExplicitUserRequest(t *testing.T) {
+	workflow := AgentWorkflow()
+	for _, expected := range []string{"explicitly asks to remember", "call remember immediately in that same turn", "do not merely acknowledge or defer"} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("workflow missing immediate remember guidance %q: %s", expected, workflow)
+		}
+	}
+}
+
 func TestAgentWorkflowDocumentsMultiWorkspaceIsolationInvariant(t *testing.T) {
 	workflow := AgentWorkflow()
 	for _, expected := range []string{"multiple registered workspaces", "explicitly target workspace_id", "persisted shell cwd", "never carry workspace-specific state into another workspace"} {

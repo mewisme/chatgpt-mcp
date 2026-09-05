@@ -13,7 +13,7 @@ const (
 	guidanceEdit      = "Prefer deterministic edits with apply_patch, edit_file, or multi_edit. Use run_command for commands, builds, tests, formatting, and other shell operations within the persisted workspace cwd."
 	guidanceVerify    = "For non-trivial work, make a short plan, implement incrementally, and verify with the repository's relevant tests, lint, typecheck, build, or other documented checks."
 	guidanceRewind    = "Use rewind to inspect or recover automatic file checkpoints when an edit must be reviewed or reverted."
-	guidanceRemember  = "Use remember only for durable workspace-specific notes that will help future sessions; do not store secrets, transient status, or raw MCP session identifiers."
+	guidanceRemember  = "When the user explicitly asks to remember, save, persist, or retain an eligible workspace-specific note for future sessions, call remember immediately in that same turn before replying; do not merely acknowledge or defer the request. Use remember only for durable workspace-specific notes that will help future sessions; do not store secrets, transient status, or raw MCP session identifiers."
 	guidanceMissing   = "Do not assume instructions, rules, skill bodies, Git state, or environment details that are absent from the supplied context. Query the appropriate tool instead of guessing."
 	guidanceScope     = "Preserve unrelated user changes and keep mutations scoped to the requested task."
 

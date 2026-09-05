@@ -89,7 +89,7 @@ func WindowsTaskXML(spec Spec) string {
     <StartWhenAvailable>true</StartWhenAvailable>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <RestartOnFailure>
-      <Interval>PT3S</Interval>
+      <Interval>PT1M</Interval>
       <Count>5</Count>
     </RestartOnFailure>
     <Enabled>true</Enabled>

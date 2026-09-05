@@ -1,6 +1,7 @@
 package instructioncontext
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,6 +73,23 @@ func TestLoadAutoMemorySelectedUsesQueryAndBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !snapshot.Loaded || snapshot.Entries != 1 || !snapshot.Truncated || snapshot.Query != "tui theme" || !strings.Contains(snapshot.Content, "### theme") || strings.Contains(snapshot.Content, "### ci") {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+}
+
+func TestLoadAutoMemorySurfacesCompactionRecommendation(t *testing.T) {
+	store := memory.NewStore(t.TempDir())
+	for index := 0; index <= memory.ScopeEntriesSoftLimit; index++ {
+		key := fmt.Sprintf("key-%02d", index)
+		if _, err := store.Upsert("ws_test", "large-scope", key, "distinct note "+key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := LoadAutoMemorySelected(store, "ws_test", "", 100, 100_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.OptimizationRecommended {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 }

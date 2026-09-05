@@ -49,3 +49,23 @@ func TestStoreAnalyzeDetectsLegacyFormatWithoutMutating(t *testing.T) {
 		t.Fatalf("analysis mutated memory: %q", raw)
 	}
 }
+
+func TestCompactionRecommendedByScopeSizeMemorySizeOrOverlap(t *testing.T) {
+	many := make([]Entry, 0, ScopeEntriesSoftLimit+1)
+	for index := 0; index <= ScopeEntriesSoftLimit; index++ {
+		many = append(many, Entry{Scope: "tui", Key: string(rune('a' + index)), Note: "unique note"})
+	}
+	if !CompactionRecommended(many, 0) {
+		t.Fatal("scope soft limit did not recommend compaction")
+	}
+	if !CompactionRecommended([]Entry{{Scope: "general", Key: "one", Note: "short"}}, MemorySoftLimitBytes+1) {
+		t.Fatal("memory byte soft limit did not recommend compaction")
+	}
+	overlap := []Entry{{Scope: "tui", Key: "theme", Note: "Use Charm default styles and preserve automatic dark mode adaptation"}, {Scope: "tui", Key: "colors", Note: "Use Charm default styles and preserve automatic dark mode colors"}}
+	if !CompactionRecommended(overlap, 0) {
+		t.Fatal("overlap did not recommend compaction")
+	}
+	if CompactionRecommended([]Entry{{Scope: "general", Key: "one", Note: "short unique note"}}, 20) {
+		t.Fatal("small memory unexpectedly recommended compaction")
+	}
+}

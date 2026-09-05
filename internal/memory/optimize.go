@@ -6,9 +6,11 @@ import (
 )
 
 const (
-	OversizedNoteBytes  = 400
-	FragmentedNoteBytes = 60
-	OverlapThreshold    = 0.65
+	OversizedNoteBytes    = 400
+	FragmentedNoteBytes   = 60
+	OverlapThreshold      = 0.65
+	ScopeEntriesSoftLimit = 12
+	MemorySoftLimitBytes  = 16 * 1024
 )
 
 type OptimizationGroup struct {
@@ -93,6 +95,27 @@ func AnalyzeEntries(entries []Entry) OptimizationAnalysis {
 	}
 	analysis.OptimizationRecommended = len(analysis.Groups) > 0
 	return analysis
+}
+
+func CompactionRecommended(entries []Entry, memoryBytes int) bool {
+	if memoryBytes > MemorySoftLimitBytes {
+		return true
+	}
+	counts := map[string]int{}
+	for _, entry := range entries {
+		id := strings.ToLower(normalizeName(entry.Scope))
+		counts[id]++
+		if counts[id] > ScopeEntriesSoftLimit {
+			return true
+		}
+	}
+	analysis := AnalyzeEntries(entries)
+	for _, group := range analysis.Groups {
+		if group.Reason == "high semantic overlap candidate" {
+			return true
+		}
+	}
+	return false
 }
 
 func tokenOverlap(left, right string) float64 {

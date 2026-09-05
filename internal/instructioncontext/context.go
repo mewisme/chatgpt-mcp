@@ -67,12 +67,13 @@ type GitSnapshot struct {
 }
 
 type AutoMemorySnapshot struct {
-	Loaded    bool   `json:"loaded"`
-	Content   string `json:"content,omitempty"`
-	Bytes     int    `json:"bytes"`
-	Entries   int    `json:"entries"`
-	Query     string `json:"query,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
+	Loaded                  bool   `json:"loaded"`
+	Content                 string `json:"content,omitempty"`
+	Bytes                   int    `json:"bytes"`
+	Entries                 int    `json:"entries"`
+	Query                   string `json:"query,omitempty"`
+	Truncated               bool   `json:"truncated,omitempty"`
+	OptimizationRecommended bool   `json:"optimization_recommended,omitempty"`
 }
 
 type ToolProfile struct {

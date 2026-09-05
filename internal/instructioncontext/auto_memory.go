@@ -21,6 +21,8 @@ func LoadAutoMemorySelected(store memory.Store, workspaceID, query string, maxEn
 		return AutoMemorySnapshot{}, err
 	}
 	entries := document.Entries
+	canonicalBytes := len([]byte(memory.Render(document)))
+	optimizationRecommended := memory.CompactionRecommended(document.Entries, canonicalBytes)
 	if strings.TrimSpace(query) != "" {
 		index := memory.NewMemoryIndex()
 		if err := index.Rebuild(workspaceID, entries); err != nil {
@@ -57,5 +59,5 @@ func LoadAutoMemorySelected(store memory.Store, workspaceID, query string, maxEn
 	if content == "" {
 		return AutoMemorySnapshot{}, nil
 	}
-	return AutoMemorySnapshot{Loaded: true, Content: content, Bytes: len([]byte(content)), Entries: len(entries), Query: strings.TrimSpace(query), Truncated: truncated}, nil
+	return AutoMemorySnapshot{Loaded: true, Content: content, Bytes: len([]byte(content)), Entries: len(entries), Query: strings.TrimSpace(query), Truncated: truncated, OptimizationRecommended: optimizationRecommended}, nil
 }

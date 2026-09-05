@@ -92,7 +92,11 @@ func (i *MemoryIndex) Search(workspaceID string, query Query) ([]Match, error) {
 		if scope != "" && !strings.EqualFold(item.Scope, scope) {
 			continue
 		}
-		matches = append(matches, Match{Entry: item, Score: lexicalScore(item, query.Text)})
+		score := lexicalScore(item, query.Text)
+		if strings.TrimSpace(query.Text) != "" && score <= 0 {
+			continue
+		}
+		matches = append(matches, Match{Entry: item, Score: score})
 	}
 	sort.SliceStable(matches, func(a, b int) bool {
 		if matches[a].Score != matches[b].Score {

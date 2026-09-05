@@ -300,6 +300,28 @@ func TestForgetRemovesExactEntryAndScope(t *testing.T) {
 	}
 }
 
+func TestMemorySearchRanksRelevantEntries(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	for _, args := range []map[string]any{
+		{"workspace_id": workspaceID, "scope": "tui", "key": "theme", "note": "Use Charm defaults"},
+		{"workspace_id": workspaceID, "scope": "coding-style", "key": "imports", "note": "Keep imports contiguous"},
+		{"workspace_id": workspaceID, "scope": "release", "key": "ci", "note": "Use GitHub Actions"},
+	} {
+		result, err := runtime.Call(context.Background(), "remember", args)
+		if err != nil || result.IsError {
+			t.Fatalf("remember failed: %#v %v", result, err)
+		}
+	}
+	result, err := runtime.Call(context.Background(), "memory_search", map[string]any{"workspace_id": workspaceID, "query": "tui theme", "limit": 2})
+	if err != nil || result.IsError {
+		t.Fatalf("memory_search failed: %#v %v", result, err)
+	}
+	got := result.StructuredContent.(MemorySearchResult)
+	if got.Count == 0 || got.Matches[0].Scope != "tui" || got.Matches[0].Key != "theme" {
+		t.Fatalf("memory_search = %#v", got)
+	}
+}
+
 func TestProjectContextInputControlsCollectorsAndLimits(t *testing.T) {
 	runtime, workspaceID, root, _ := newContextToolRuntime(t)
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("first line\nsecond line with more content"), 0644); err != nil {

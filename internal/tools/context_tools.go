@@ -49,6 +49,18 @@ type ForgetResult struct {
 	Key     string `json:"key,omitempty"`
 }
 
+type MemorySearchMatch struct {
+	Scope string  `json:"scope"`
+	Key   string  `json:"key"`
+	Note  string  `json:"note"`
+	Score float64 `json:"score"`
+}
+
+type MemorySearchResult struct {
+	Matches []MemorySearchMatch `json:"matches"`
+	Count   int                 `json:"count"`
+}
+
 type ProjectContextMemoryFile = projectcontext.MemoryFile
 type ProjectContextGitSummary = projectcontext.GitSummary
 type ProjectContextSummary = projectcontext.Summary
@@ -73,6 +85,7 @@ type AgentStatusResult struct {
 
 func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
 	memoryStore := memory.NewStore(memory.DefaultRoot())
+	memoryIndex := memory.NewMemoryIndex()
 	policyStore := instructionpolicy.DefaultStore()
 	contextService := projectcontext.New(workspaces, func() instructioncontext.ToolProfile {
 		return instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())}
@@ -277,6 +290,41 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			return Result{}, err
 		}
 		return JSONResult(ForgetResult{Removed: removed, Scope: strings.TrimSpace(scope), Key: strings.TrimSpace(key)}), nil
+	})
+
+	register("memory_search", "Memory Search", "Search canonical cross-session memory by lexical relevance with optional scope filtering. Results rank key matches above scope and note matches.", workspaceOnlySchema(`"query":{"type":"string"},"scope":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":50,"default":5},`), `{"type":"object","properties":{"matches":{"type":"array","items":{"type":"object","properties":{"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"},"score":{"type":"number"}},"required":["scope","key","note","score"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["matches","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+		item, err := workspaceFromArgs(workspaces, args)
+		if err != nil {
+			return Result{}, err
+		}
+		query, err := requiredString(args, "query")
+		if err != nil {
+			return Result{}, err
+		}
+		scope, err := optionalString(args, "scope")
+		if err != nil {
+			return Result{}, err
+		}
+		limit, err := optionalInt(args, "limit", 5, 1, 50)
+		if err != nil {
+			return Result{}, err
+		}
+		document, err := memoryStore.LoadDocument(item.ID)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := memoryIndex.Rebuild(item.ID, document.Entries); err != nil {
+			return Result{}, err
+		}
+		found, err := memoryIndex.Search(item.ID, memory.Query{Text: query, Scope: scope, Limit: limit})
+		if err != nil {
+			return Result{}, err
+		}
+		matches := make([]MemorySearchMatch, 0, len(found))
+		for _, match := range found {
+			matches = append(matches, MemorySearchMatch{Scope: match.Entry.Scope, Key: match.Entry.Key, Note: match.Entry.Note, Score: match.Score})
+		}
+		return JSONResult(MemorySearchResult{Matches: matches, Count: len(matches)}), nil
 	})
 
 	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from .claude/.claudes/.agents/.cursor/.codex rule directories.", workspaceOnlySchema(`"path":{"type":"string"},`), `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {

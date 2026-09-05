@@ -44,3 +44,19 @@ func TestMemoryIndexIsWorkspaceIsolated(t *testing.T) {
 		t.Fatalf("a=%#v b=%#v", a, b)
 	}
 }
+
+func TestMemoryIndexSearchRanksKeyAndScopeMatches(t *testing.T) {
+	index := NewMemoryIndex()
+	_ = index.Rebuild("ws_test", []Entry{
+		{Scope: "tui", Key: "theme", Note: "Use component defaults"},
+		{Scope: "ui", Key: "colors", Note: "Theme settings"},
+		{Scope: "release", Key: "ci", Note: "GitHub actions"},
+	})
+	matches, err := index.Search("ws_test", Query{Text: "tui theme", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 2 || matches[0].Entry.Scope != "tui" || matches[0].Entry.Key != "theme" || matches[0].Score <= matches[1].Score {
+		t.Fatalf("matches=%#v", matches)
+	}
+}

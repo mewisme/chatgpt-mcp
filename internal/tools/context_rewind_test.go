@@ -118,7 +118,7 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 		t.Fatalf("project_context after remember failed: %#v %v", ctxAfterRemember, err)
 	}
 	after := ctxAfterRemember.StructuredContent.(ProjectContextResult)
-	if !after.InstructionContext.AutoMemory.Loaded || !strings.Contains(after.InstructionContext.InstructionsText, "## coding-style\n\n### imports\n- use compact imports and keep imports contiguous") || strings.Count(after.InstructionContext.AutoMemory.Content, "### imports") != 1 {
+	if !after.InstructionContext.AutoMemory.Loaded || !strings.Contains(after.InstructionContext.InstructionsText, "## Auto memory\n### coding-style\n\n#### imports\n- use compact imports and keep imports contiguous") || strings.Count(after.InstructionContext.AutoMemory.Content, "### imports") != 1 {
 		t.Fatalf("auto memory not included: %#v", after.InstructionContext.AutoMemory)
 	}
 }

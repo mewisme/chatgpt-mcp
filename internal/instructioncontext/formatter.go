@@ -31,7 +31,7 @@ func FormatInstructions(value InstructionContext) (string, int) {
 		blocks = append(blocks, formatBlock("Git", formatGit(value.Git)))
 	}
 	if value.AutoMemory.Loaded && strings.TrimSpace(value.AutoMemory.Content) != "" {
-		blocks = append(blocks, formatBlock("Auto memory", strings.TrimSpace(value.AutoMemory.Content)))
+		blocks = append(blocks, formatBlock("Auto memory", shiftMarkdownHeadings(strings.TrimSpace(value.AutoMemory.Content), 1)))
 	}
 	if strings.TrimSpace(value.GlobalContext) != "" {
 		blocks = append(blocks, formatBlock("Global context", strings.TrimSpace(value.GlobalContext)))
@@ -90,6 +90,33 @@ func ApplyFormattedInstructionsLimit(value *InstructionContext, maxBytes int) {
 
 func formatBlock(title, content string) string {
 	return "## " + title + "\n" + strings.TrimSpace(content)
+}
+
+func shiftMarkdownHeadings(value string, levels int) string {
+	if levels <= 0 {
+		return value
+	}
+	lines := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
+	for index, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		if trimmed == "" || trimmed[0] != '#' {
+			continue
+		}
+		headingLevel := 0
+		for headingLevel < len(trimmed) && headingLevel < 6 && trimmed[headingLevel] == '#' {
+			headingLevel++
+		}
+		if headingLevel == 0 || headingLevel >= len(trimmed) || trimmed[headingLevel] != ' ' {
+			continue
+		}
+		shiftedLevel := headingLevel + levels
+		if shiftedLevel > 6 {
+			shiftedLevel = 6
+		}
+		indent := line[:len(line)-len(trimmed)]
+		lines[index] = indent + strings.Repeat("#", shiftedLevel) + trimmed[headingLevel:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func formatToolProfile(profile ToolProfile) string {

@@ -85,6 +85,18 @@ func TestFormatInstructionsOmitsEmptyOptionalBlocks(t *testing.T) {
 	}
 }
 
+func TestFormatInstructionsNestsAutoMemoryHeadings(t *testing.T) {
+	value := InstructionContext{AutoMemory: AutoMemorySnapshot{Loaded: true, Content: "## general\n\n### general\n- use Charm defaults"}}
+	text, _ := FormatInstructions(value)
+	expected := "## Auto memory\n### general\n\n#### general\n- use Charm defaults"
+	if !strings.Contains(text, expected) {
+		t.Fatalf("auto memory hierarchy is not nested:\n%s", text)
+	}
+	if strings.Contains(text, "## Auto memory\n## general") {
+		t.Fatalf("auto memory scope leaked at block level:\n%s", text)
+	}
+}
+
 func TestFormatInstructionsDetachedAndNonRepoGit(t *testing.T) {
 	detached := formatGit(GitSnapshot{IsRepo: true, Root: "/workspace"})
 	if !strings.Contains(detached, "- branch: (detached)") {

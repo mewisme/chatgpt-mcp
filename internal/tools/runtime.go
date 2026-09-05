@@ -25,7 +25,7 @@ type Runtime struct {
 	Checkpoints     *checkpoint.Store
 	Upstream        *upstream.Manager
 	CallObserver    CallObserver
-	SessionBindings *SessionWorkspaceBinder
+	SessionAccess   *SessionWorkspaceAccessManager
 	Approvals       *approval.Manager
 	Executions      *shellruntime.ExecutionHub
 	callSequence    atomic.Uint64
@@ -55,7 +55,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 		panic(err)
 	}
 	executions := shellruntime.NewExecutionHub()
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionBindings: NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID), Executions: executions, ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
 	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
@@ -120,8 +120,8 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	workspaceID := ""
 	sessionID := MCPSessionID(ctx)
 	sessionHash := MCPSessionFingerprint(sessionID)
-	sessionBinding := SessionBindingDecision("")
-	sessionWorkspaceID := ""
+	sessionAccess := SessionWorkspaceAccessDecision("")
+	sessionWorkspaceCount := 0
 	var preflightErr error
 	if r.Registry != nil {
 		workspaceScoped, err := r.Registry.WorkspaceScoped(name)
@@ -143,9 +143,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 					}
 					workspaceID = canonical
 					if sessionID != "" {
-						binding, decision, err := r.sessionBinder().CheckOrBind(sessionID, workspaceID)
-						sessionBinding = decision
-						sessionWorkspaceID = binding.WorkspaceID
+						_, decision, count, err := r.sessionAccessManager().CheckOrGrant(sessionID, workspaceID)
+						sessionAccess = decision
+						sessionWorkspaceCount = count
 						preflightErr = err
 					}
 				}
@@ -160,9 +160,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	raw := callRaw(ctx, source, name, args)
 	raw["call_id"] = callID
 	if sessionHash != "" {
-		raw["session"] = map[string]any{"hash": sessionHash, "binding": sessionBinding, "workspace_id": sessionWorkspaceID}
+		raw["session"] = map[string]any{"hash": sessionHash, "access": sessionAccess, "workspace_count": sessionWorkspaceCount}
 	}
-	r.observeCall(CallObservation{CallID: callID, Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy})
+	r.observeCall(CallObservation{CallID: callID, Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy})
 
 	result, err := Result{}, preflightErr
 	if err == nil && forcedResult != nil {
@@ -196,7 +196,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		finishRaw["status"] = status
 		finishRaw["result_type"] = result.ResultType
 		finishRaw["result"] = observedResult(name, result)
-		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return result, nil
 	}
 
@@ -207,13 +207,13 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["status"] = status
 	finishRaw["error"] = message
 	if errors.Is(err, ErrToolNotFound) {
-		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return Result{}, err
 	}
 	result = ErrorResult(err)
 	finishRaw["result_type"] = result.ResultType
 	finishRaw["result"] = observedResult(name, result)
-	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionBinding: sessionBinding, SessionWorkspaceID: sessionWorkspaceID, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
 }
 
@@ -239,13 +239,13 @@ func observedResult(name string, result Result) any {
 	}
 }
 
-func (r *Runtime) sessionBinder() *SessionWorkspaceBinder {
+func (r *Runtime) sessionAccessManager() *SessionWorkspaceAccessManager {
 	r.sessionMu.Lock()
 	defer r.sessionMu.Unlock()
-	if r.SessionBindings == nil {
-		r.SessionBindings = NewSessionWorkspaceBinder()
+	if r.SessionAccess == nil {
+		r.SessionAccess = NewSessionWorkspaceAccessManager()
 	}
-	return r.SessionBindings
+	return r.SessionAccess
 }
 
 func (r *Runtime) runtimeInstanceID() string {

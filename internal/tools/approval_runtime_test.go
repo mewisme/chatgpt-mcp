@@ -33,7 +33,7 @@ func newApprovalRuntime(t *testing.T) (*Runtime, string) {
 		t.Fatal(err)
 	}
 	registry := NewRegistry()
-	runtime := &Runtime{Registry: registry, Workspaces: manager, SessionBindings: NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID)}
+	runtime := &Runtime{Registry: registry, Workspaces: manager, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID)}
 	guardedSchema := Schema{Name: "guarded_action", InputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`)}
 	registry.MustRegister("guarded_action", guardedSchema, func(ctx context.Context, args map[string]any) (Result, error) {
 		if requestID := ApprovalRequestID(ctx); requestID != "" {
@@ -63,7 +63,7 @@ func newApprovalShellRuntime(t *testing.T) (*Runtime, string) {
 	registry := NewRegistry()
 	shell := shellruntime.NewManager(manager, filepath.Join(t.TempDir(), "shell-state"))
 	processes := shellruntime.NewProcessManager(manager, shell)
-	runtime := &Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints")), SessionBindings: NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID)}
+	runtime := &Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints")), SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID)}
 	RegisterShellTools(registry, manager, shell, processes)
 	RegisterApprovalTools(registry, runtime)
 	return runtime, item.ID
@@ -81,7 +81,7 @@ func newApprovalDispatchRuntime(t *testing.T) (*Runtime, string) {
 		t.Fatal(err)
 	}
 	registry := NewRegistry()
-	runtime := &Runtime{Registry: registry, Workspaces: manager, SessionBindings: NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID)}
+	runtime := &Runtime{Registry: registry, Workspaces: manager, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID)}
 	registry.MustRegister("run_command", Schema{Name: "run_command", InputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`)}, func(ctx context.Context, args map[string]any) (Result, error) {
 		if granted, ok := controlguard.ApprovalFromContext(ctx); ok {
 			return JSONResult(map[string]any{"request_id": granted.RequestID, "capability": granted.Capability, "command": granted.Invocation.Command}), nil

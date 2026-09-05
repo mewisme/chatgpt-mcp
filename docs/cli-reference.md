@@ -184,7 +184,7 @@ The following commands support interactive mode. On a terminal they open the TUI
 | Command | Interactive detail |
 | --- | --- |
 | `cgm request list` | pending approval inbox; detail modal with `Overview`, `Arguments`, and `Guard` tabs plus interactive Allow/Deny actions |
-| `cgm workspace list` | workspace browser with modal details and `c` to copy the selected workspace ID |
+| `cgm workspace list` | workspace browser with workspace action menus, container create/add/remove dialogs, multi-select membership, confirmations, details, and copy-ID support |
 | `cgm mcp server list` | upstream server browser; detail tabs group `Overview`, `Connection`, and `Tools` |
 | `cgm mcp server list --refresh` | refreshed health browser; detail tabs group `Overview`, `Tools`, and `Error` |
 | `cgm tunnel list` | managed tunnel browser; detail tabs group `Overview` and `Scope` |
@@ -383,6 +383,20 @@ Inspect:
 cgm workspace list
 cgm workspace show ws_...
 ```
+
+Manage logical workspace containers:
+
+```bash
+cgm workspace container list
+cgm workspace container create "Backend projects"
+cgm workspace container show wsc_...
+cgm workspace container rename wsc_... "Services"
+cgm workspace container add wsc_... ws_... [ws_...]
+cgm workspace container remove wsc_... ws_... [ws_...]
+cgm workspace container delete wsc_...
+```
+
+Container IDs use the `wsc_` prefix. Containers group registered workspaces without merging filesystem scope, project context, shell/REPL state, memory, or checkpoints.
 
 Remove the registry handle without deleting project files:
 

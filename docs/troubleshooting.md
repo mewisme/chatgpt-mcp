@@ -10,17 +10,11 @@ cgm tunnel status
 cgm logs --debug -n 200
 ```
 
-## MCP session is bound to another workspace
+## MCP session needs to work across multiple workspaces
 
-A workspace-scoped tool can return an error like:
+No workspace-switch command is required. A single MCP session may call workspace-scoped tools against multiple registered projects as long as every call supplies the intended valid `workspace_id`.
 
-```text
-MCP session workspace mismatch: session is bound to workspace ws_x and cannot access ws_y
-```
-
-This is intentional fail-closed behavior. The first valid workspace-scoped call binds the current MCP session to that workspace. Later calls in the same session may keep using that workspace, but they cannot switch to another registered workspace. Start a separate ChatGPT conversation/MCP session for the other workspace. Multiple sessions may bind to the same workspace.
-
-If the error appears unexpectedly, inspect the Activity page. It shows a short session fingerprint, the requested workspace, the bound workspace, and whether the decision was `new`, `existing`, or `denied`; the raw MCP session ID is never exposed.
+If a call targets the wrong project, correct the `workspace_id` on that call rather than changing global session state. The runtime keeps filesystem scope, project context, memory, shell cwd, REPL state, checkpoints, and approvals isolated per workspace. The Activity page shows the target workspace, a short session fingerprint, whether that workspace was a `new` or `existing` access for the session, and the session workspace count; the raw MCP session ID is never exposed.
 
 ## Workspace ID changed after a registry v2 upgrade
 

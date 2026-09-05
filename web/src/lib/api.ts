@@ -21,8 +21,8 @@ export type ActivityEvent = {
   tool?: string
   workspace_id?: string
   session_hash?: string
-  session_binding?: string
-  session_workspace_id?: string
+  session_access?: string
+  session_workspace_count?: number
   received_by_instance_id?: string
   executed_by_instance_id?: string
   status?: string

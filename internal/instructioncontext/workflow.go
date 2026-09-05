@@ -1,12 +1,12 @@
 package instructioncontext
 
 const (
-	agentWorkflowIntroduction = "Use chatgpt-mcp as a workspace-bound coding agent."
+	agentWorkflowIntroduction = "Use chatgpt-mcp as a multi-workspace coding agent with explicit workspace targeting."
 	serverIntroduction        = "Use chatgpt-mcp for local, workspace-aware coding and project operations."
 	serverWorkspaceBootstrap  = "For project work, obtain a workspace_id with workspace_register unless one is already provided; use workspace_status to inspect its registered root, persisted shell cwd, and allowed directories."
 	serverContextBootstrap    = "Before substantial workspace work, call agent_status and project_context. Use list_skills when skill summaries need to be discovered independently from project_context."
 
-	guidanceWorkspace = "Stay inside the workspace selected by the current MCP session. The first valid workspace-scoped call binds the session; never switch that session to another workspace."
+	guidanceWorkspace = "One MCP session may work across multiple registered workspaces. Every workspace-scoped call must explicitly target workspace_id; keep each workspace's project context, rules, memory, persisted shell cwd, REPL state, checkpoints, and assumptions isolated and never carry workspace-specific state into another workspace."
 	guidanceContext   = "Treat project_context as the workspace instruction bundle. Follow project/user instructions and unconditional rules from it before acting."
 	guidanceRead      = "Inspect relevant files before changing them. Use read_files/read_text_file for source context and load_path_rules for path-scoped rules before modifying matching files."
 	guidanceSkills    = "Review the skill summaries in project_context. When a skill is applicable, call load_skill with its exact name before using that workflow."

@@ -16,11 +16,11 @@ func TestAgentWorkflowCoversNativeToolFlow(t *testing.T) {
 	}
 }
 
-func TestAgentWorkflowDocumentsWorkspaceBindingInvariant(t *testing.T) {
+func TestAgentWorkflowDocumentsMultiWorkspaceIsolationInvariant(t *testing.T) {
 	workflow := AgentWorkflow()
-	for _, expected := range []string{"first valid workspace-scoped call binds the session", "never switch that session to another workspace"} {
+	for _, expected := range []string{"multiple registered workspaces", "explicitly target workspace_id", "persisted shell cwd", "never carry workspace-specific state into another workspace"} {
 		if !strings.Contains(workflow, expected) {
-			t.Fatalf("workflow missing workspace binding invariant %q", expected)
+			t.Fatalf("workflow missing multi-workspace isolation invariant %q", expected)
 		}
 	}
 }

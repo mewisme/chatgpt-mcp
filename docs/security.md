@@ -38,11 +38,11 @@ Revoking an allowed root also prevents old checkpoints from restoring files back
 
 ## MCP session workspace isolation
 
-Workspace selection is fail-closed per MCP session. The first valid workspace-scoped tool call binds the session to that workspace. A later call carrying a different valid `workspace_id` is denied before the tool handler executes, so filesystem, shell, Git, process, Node REPL, and checkpoint state cannot be reached through an accidental cross-workspace tool call.
+One MCP session may access multiple registered workspaces. Every workspace-scoped call must explicitly carry a valid `workspace_id`; the runtime does not infer a current workspace or silently switch arguments. A valid target is added to the session's ephemeral in-memory workspace access set, while an invalid workspace is rejected before tool execution.
 
-The mapping is many-to-one: multiple MCP sessions may bind to the same workspace, but one MCP session cannot bind to multiple workspaces. Bindings are ephemeral in-memory state, refreshed while active, and expire after 30 days of inactivity. They are not persisted to disk.
+Multi-workspace access does not merge workspace state. Filesystem roots, shell cwd, Git/process working directories, project context, rules, memory, Node REPL state, checkpoints, and approvals remain scoped by the explicitly targeted workspace. Path containment and symlink checks still apply independently on every call. Session access sets are refreshed while active, expire after 30 days of inactivity, and are not persisted to disk.
 
-Activity/log observability stores only a short SHA-256-derived session fingerprint plus the binding decision (`new`, `existing`, or `denied`); raw MCP session IDs are not exposed.
+Activity/log observability stores only a short SHA-256-derived session fingerprint, whether the targeted workspace access was `new` or `existing`, and the number of workspaces seen by that session; raw MCP session IDs are not exposed.
 
 ## Control-guard approvals and self-grant prevention
 
@@ -67,7 +67,7 @@ Human approval never grants a general shell or CLI bypass. Only typed direct con
 - path escape or protected config/state access
 - attempts to clear or tamper with the MCP tool-context marker
 - nested shell/wrapper/compound commands where the exact child mutation cannot be safely bound
-- workspace/session rebinding
+- attempts to bypass explicit workspace/session scoping
 - request approval/deny commands invoked from MCP tool context
 - other guards explicitly marked non-approvable
 

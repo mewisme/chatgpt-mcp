@@ -18,9 +18,22 @@ func TestAgentWorkflowCoversNativeToolFlow(t *testing.T) {
 
 func TestAgentWorkflowRequiresImmediateRememberOnExplicitUserRequest(t *testing.T) {
 	workflow := AgentWorkflow()
-	for _, expected := range []string{"explicitly asks to remember", "call remember immediately in that same turn", "do not merely acknowledge or defer"} {
+	for _, expected := range []string{"explicitly asks to remember", "call remember immediately in that same turn", "do not merely acknowledge or defer", "one mutable paragraph per scope", "merged and deduplicated paragraph"} {
 		if !strings.Contains(workflow, expected) {
 			t.Fatalf("workflow missing immediate remember guidance %q: %s", expected, workflow)
+		}
+	}
+}
+
+func TestServerInstructionsRequireMemoryFetchEverySession(t *testing.T) {
+	workflow := AgentWorkflow()
+	server := StaticServerInstructions()
+	for _, expected := range []string{"start of every MCP session", "fetch workspace memory", "project_context with memory enabled", "first work in each additional workspace"} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("workflow missing session memory bootstrap %q: %s", expected, workflow)
+		}
+		if !strings.Contains(server, expected) {
+			t.Fatalf("server instructions missing session memory bootstrap %q: %s", expected, server)
 		}
 	}
 }

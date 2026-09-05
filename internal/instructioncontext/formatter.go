@@ -14,7 +14,8 @@ const DefaultInstructionMaxBytes = 100_000
 const QuickPointers = `- Use load_path_rules(path) before editing files covered by path-scoped rules.
 - Use load_skill(name) only for skills whose summaries match the current task.
 - Use workspace_status when workspace root, persisted cwd, or allowed directories need to be re-checked.
-- When the user explicitly asks to remember/save/persist an eligible workspace note, call remember(note) immediately in that same turn; otherwise use remember only for durable workspace notes. Use rewind for checkpoint inspection or recovery.`
+- At the start of every MCP session, call project_context with memory enabled before substantial workspace work; repeat it before first work in each additional workspace.
+- When the user explicitly asks to remember/save/persist an eligible workspace note, call remember(scope, note) immediately in that same turn. Keep one concise merged/deduplicated paragraph per scope; same-scope writes replace the previous paragraph. Use rewind for checkpoint inspection or recovery.`
 
 func FormatInstructions(value InstructionContext) (string, int) {
 	workflow := strings.TrimSpace(value.AgentWorkflow)

@@ -128,6 +128,27 @@ func completeWorkspaceID(cmd *cobra.Command, args []string, toComplete string) (
 	return workspaceCompletions(cmd, toComplete)
 }
 
+func completeWorkspaceContainerID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return workspaceContainerCompletions(cmd, toComplete)
+}
+
+func completeWorkspaceContainerThenName(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return workspaceContainerCompletions(cmd, toComplete)
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeWorkspaceContainerThenWorkspaces(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return workspaceContainerCompletions(cmd, toComplete)
+	}
+	return workspaceCompletions(cmd, toComplete)
+}
+
 func completeWorkspaceThenDirectory(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) == 0 {
 		return workspaceCompletions(cmd, toComplete)
@@ -154,6 +175,19 @@ func workspaceCompletions(cmd *cobra.Command, toComplete string) ([]string, cobr
 	values := make([]string, 0, len(items))
 	for _, item := range items {
 		values = append(values, item.ID+"\t"+item.Path)
+	}
+	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
+func workspaceContainerCompletions(cmd *cobra.Command, toComplete string) ([]string, cobra.ShellCompDirective) {
+	prepareCompletionConfigRoot(cmd)
+	items, err := workspace.NewManager(workspace.DefaultStorePath()).ListContainers()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		values = append(values, item.ID+"\t"+item.Name)
 	}
 	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
 }

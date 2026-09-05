@@ -232,7 +232,7 @@ describe("admin app runtime smoke", () => {
       if (path === "/api/instructions/global" && init?.method === "PUT") {
         const body = JSON.parse(String(init.body)) as { source_policy: Record<string, unknown> }
         savedPolicy = body.source_policy
-        return json({ version: 1, context: "", rules: [], source_policy: body.source_policy, detected_sources: [{ ...detected[0], enabled: false }] })
+        return json({ version: 1, context: null, rules: null, source_policy: null, detected_sources: null })
       }
       if (path === "/api/instructions/global") return json({ version: 1, context: "", rules: [], source_policy: {}, detected_sources: detected })
       return mockFetch(input)
@@ -245,6 +245,8 @@ describe("admin app runtime smoke", () => {
     await user.click(screen.getByRole("switch", { name: "Claude Context" }))
     await user.click(screen.getByRole("button", { name: /Save/ }))
     await waitFor(() => expect(savedPolicy).toEqual({ claude: { context: false } }))
+    expect(await screen.findByText("Saved. New project_context calls use these instructions immediately.")).toBeInTheDocument()
+    expect(screen.getByText("0 detected sources")).toBeInTheDocument()
   })
 
   it("normalizes root and unknown paths to overview", async () => {

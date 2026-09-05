@@ -20,7 +20,7 @@ export function GlobalInstructionsPage() {
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
 
-  useEffect(() => { let active = true; void adminApi.globalInstructions().then((value) => { if (active) { setSettings(value); setSaved(value); setError("") } }).catch((value) => { if (active) setError(errorText(value)) }); return () => { active = false } }, [])
+  useEffect(() => { let active = true; void adminApi.globalInstructions().then((value) => { if (active) { const next = normalizeGlobalInstructions(value); setSettings(next); setSaved(next); setError("") } }).catch((value) => { if (active) setError(errorText(value)) }); return () => { active = false } }, [])
   const dirty = useMemo(() => Boolean(settings && saved && editableJSON(settings) !== editableJSON(saved)), [settings, saved])
   const providers = useMemo(() => groupSources(settings?.detected_sources ?? []), [settings?.detected_sources])
 
@@ -28,7 +28,7 @@ export function GlobalInstructionsPage() {
     if (!settings) return
     setBusy(true)
     try {
-      const next = await adminApi.saveGlobalInstructions({ context: settings.context, rules: settings.rules, source_policy: settings.source_policy })
+      const next = normalizeGlobalInstructions(await adminApi.saveGlobalInstructions({ context: settings.context, rules: settings.rules, source_policy: settings.source_policy }))
       setSettings(next); setSaved(next); setMessage("Saved. New project_context calls use these instructions immediately."); setError("")
     } catch (value) { setError(errorText(value)); setMessage("") } finally { setBusy(false) }
   }
@@ -53,5 +53,9 @@ function groupSources(values: InstructionSource[]) { const groups = new Map<stri
 function resourceEnabled(policy: InstructionSourcePolicy, kind: "context" | "rules" | "skills") { return policy[kind] ?? true }
 function providerLabel(provider: string) { return provider === "agents" ? "Agents" : provider === "claude" ? "Claude" : provider === "claudes" ? "Claudes" : provider === "cursor" ? "Cursor" : provider === "codex" ? "Codex" : provider }
 function editableJSON(value: GlobalInstructions) { return JSON.stringify({ context: value.context, rules: value.rules, source_policy: value.source_policy }) }
+function normalizeGlobalInstructions(value: GlobalInstructions): GlobalInstructions {
+  const sources = Array.isArray(value?.detected_sources) ? value.detected_sources.filter((source) => source && typeof source === "object").map((source) => ({ ...source, paths: Array.isArray(source.paths) ? source.paths : [] })) : []
+  return { ...value, context: typeof value?.context === "string" ? value.context : "", rules: Array.isArray(value?.rules) ? value.rules : [], source_policy: value?.source_policy && typeof value.source_policy === "object" && !Array.isArray(value.source_policy) ? value.source_policy : {}, detected_sources: sources }
+}
 function newRuleID() { return `rule_${crypto.randomUUID()}` }
 function errorText(value: unknown) { return value instanceof Error ? value.message : String(value) }

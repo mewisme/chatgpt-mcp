@@ -157,6 +157,50 @@ cgm config transform toml
 
 The operation preflights the managed structured state tree before mutation and rolls back if persistence fails.
 
+## Portable export and import
+
+Export the selected config root into one portable bundle:
+
+```bash
+cgm config export backup.cgm
+```
+
+Import it on another supported machine:
+
+```bash
+cgm config import backup.cgm
+```
+
+The `.cgm` bundle is platform-neutral and can move in any direction between supported Linux, macOS, and Windows installations, including between amd64 and arm64 machines. It contains the persistent configuration/state that can meaningfully be restored plus all currently managed reversible secrets. MCP/Admin token hashes are preserved as part of the config, so existing endpoint tokens keep working even though their plaintext values are not stored by `chatgpt-mcp`.
+
+Secrets are serialized by logical secret name and recreated through the destination secret store. Raw `state/secrets/*` files are never copied, because their on-disk names are namespaced to the source config root and are not portable across machines.
+
+The bundle is compressed and sealed with authenticated encryption using an application-level key and a random nonce. It requires no password and rejects modified/corrupted ciphertext, but it is intentionally a portability/obfuscation boundary rather than password-grade secret storage: possession of both the bundle and a compatible `chatgpt-mcp` binary should not be treated as strong cryptographic separation.
+
+Filesystem state is normalized for the destination machine:
+
+- paths under the source user's home are mapped to the same relative location under the destination user's home when that directory exists
+- other absolute paths are kept only on the same OS when they still exist
+- unavailable `permissions.allow_dirs`, `shell.path`, workspace roots, and workspace allow directories are skipped
+- mapped workspaces receive the stable ID for their destination path, retain the source ID as a legacy alias, and portable workspace state such as auto memory follows the new ID
+- interface-specific network exposure is reset to loopback-only when moving between different OSes
+
+The bundle intentionally excludes transient or machine-owned state that should be regenerated on the destination: runtime control state/PIDs, runtime logs, managed-service environment snapshots, instance identity, shell session state/history, checkpoints, update cache, and service-manager definitions. The original source values remain inside the bundle only where they are part of portable data; import never requires the source filesystem to exist.
+
+Export refuses to overwrite an existing output file unless requested explicitly:
+
+```bash
+cgm config export backup.cgm --force
+```
+
+Import refuses to replace an existing config root unless requested explicitly:
+
+```bash
+cgm config import backup.cgm --force
+```
+
+Import must run while the selected runtime is stopped. It stages the imported tree, swaps it into place, restores logical secrets, verifies the resulting configuration, and restores the previous config root if activation or verification fails.
+
 ## Network exposure
 
 Default exposure is loopback-only:

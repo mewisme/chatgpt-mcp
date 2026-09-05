@@ -20,6 +20,10 @@ func Verify() (VerifyResult, error) {
 	return verifyAt(RootPath(), false)
 }
 
+func VerifyAt(root string) (VerifyResult, error) {
+	return verifyAt(root, false)
+}
+
 func VerifyRuntime() (VerifyResult, error) {
 	return verifyAt(RootPath(), true)
 }

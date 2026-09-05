@@ -637,6 +637,8 @@ func workspaceID(path string) string {
 	return "ws_" + hex.EncodeToString(sum[:])[:16]
 }
 
+func IDForPath(path string) string { return workspaceID(path) }
+
 func instanceScopedWorkspaceID(instanceID, path string) string {
 	sum := sha256.Sum256([]byte(instanceID + "\x00" + normalizeForID(path)))
 	return "ws_" + hex.EncodeToString(sum[:])[:16]

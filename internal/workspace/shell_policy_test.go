@@ -205,6 +205,8 @@ func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 	for _, command := range []string{
 		"cmcp config set permissions.allow_dirs /tmp",
 		"cgm config set permissions.allow_dirs /tmp",
+		"cgm config export backup.cgm",
+		"cgm config import backup.cgm",
 		"chatgpt-mcp auth mcp create",
 		"cmcp workspace access add ws_test /tmp",
 		"cgm update",

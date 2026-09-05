@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/configbundle"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -35,9 +36,79 @@ func configCommand() *cobra.Command {
 		configReloadCommand(),
 		configMigrateCommand(),
 		configConvertCommand(),
+		configExportCommand(),
+		configImportCommand(),
 		configPresetCommand(),
 		configVerifyCommand(),
 	)
+	return cmd
+}
+
+func configExportCommand() *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "export <file>",
+		Short: "Export portable configuration, state, and secrets into one sealed bundle",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := migrateLegacySecrets(); err != nil {
+				return err
+			}
+			result, err := configbundle.Export(config.RootPath(), args[0], configbundle.ExportOptions{Force: force})
+			if err != nil {
+				return err
+			}
+			log := commandLogger(cmd)
+			log.Success("CONFIG", "configuration exported", "files", result.Files, "secrets", result.Secrets)
+			log.Detail("file", result.Path)
+			log.Detail("source", result.Source.OS+"/"+result.Source.Arch)
+			if result.SkippedFiles > 0 {
+				log.Detail("non-portable/runtime files skipped", result.SkippedFiles)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing export file")
+	return cmd
+}
+
+func configImportCommand() *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "import <file>",
+		Short: "Import a portable configuration bundle and restore its secrets",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
+			_, running, err := managedRuntimeStatus(ctx)
+			cancel()
+			if err != nil {
+				return err
+			}
+			if running {
+				return errors.New("runtime is running; stop it before importing configuration")
+			}
+			result, err := configbundle.Import(config.RootPath(), args[0], configbundle.ImportOptions{Force: force})
+			if err != nil {
+				return err
+			}
+			log := commandLogger(cmd)
+			log.Success("CONFIG", "configuration imported", "files", result.Files, "secrets", result.Secrets)
+			log.Detail("source", result.Source.OS+"/"+result.Source.Arch)
+			log.Detail("target", result.Target.OS+"/"+result.Target.Arch)
+			if result.SkippedPaths > 0 {
+				log.Detail("unavailable platform paths skipped", result.SkippedPaths)
+			}
+			if result.SkippedFiles > 0 {
+				log.Detail("orphaned workspace state skipped", result.SkippedFiles)
+			}
+			if result.BackupPath != "" {
+				log.Detail("previous config backup retained", result.BackupPath)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "replace existing configuration/state")
 	return cmd
 }
 

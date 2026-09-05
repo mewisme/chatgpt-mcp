@@ -68,8 +68,11 @@ chatgpt-mcp
 │   └── status
 ├── config
 │   ├── convert
+│   ├── export
 │   ├── get
+│   ├── import
 │   ├── list
+│   ├── migrate
 │   ├── path
 │   ├── preset
 │   ├── reload
@@ -325,6 +328,17 @@ cgm config convert yaml
 cgm config convert toml
 cgm config transform toml
 ```
+
+Portable backup/migration:
+
+```bash
+cgm config export backup.cgm
+cgm config import backup.cgm
+```
+
+`config export` creates one sealed bundle containing portable persistent config/state plus all currently managed reversible secrets. `config import` restores that bundle on Linux, macOS, or Windows and rebuilds the destination secret store instead of copying source secret files. Existing config/state requires `--force` on import; an existing bundle requires `--force` on export. Import requires the selected runtime to be stopped.
+
+Machine-local filesystem paths are normalized during import. Home-relative paths are mapped to the destination user's home when the corresponding directory exists; unavailable paths and workspaces are skipped. Runtime control state, logs, managed-service environment snapshots, instance identity, shell session state, checkpoints, update cache, and raw secret-store files are intentionally not migrated.
 
 Structured display:
 

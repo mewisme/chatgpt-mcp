@@ -253,7 +253,12 @@ func collectFiles(root string) ([]File, int, error) {
 	files := []File{}
 	skipped := 0
 	total := int64(0)
-	err := filepath.WalkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
+	rootFS, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, skipped, err
+	}
+	defer rootFS.Close()
+	err = filepath.WalkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -269,20 +274,38 @@ func collectFiles(root string) ([]File, int, error) {
 			skipped++
 			return nil
 		}
-		info, err := entry.Info()
+		file, err := rootFS.Open(filepath.FromSlash(relative))
 		if err != nil {
 			return err
+		}
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			_ = file.Close()
+			skipped++
+			return nil
 		}
 		if info.Size() > maxBundleFileBytes {
+			_ = file.Close()
 			return fmt.Errorf("config state file is too large to export: %s", relative)
 		}
-		total += info.Size()
-		if total > maxStateBytes {
-			return errors.New("config bundle payload exceeds size limit")
-		}
-		data, err := os.ReadFile(filePath)
+		data, err := io.ReadAll(io.LimitReader(file, maxBundleFileBytes+1))
+		closeErr := file.Close()
 		if err != nil {
 			return err
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if len(data) > maxBundleFileBytes {
+			return fmt.Errorf("config state file is too large to export: %s", relative)
+		}
+		total += int64(len(data))
+		if total > maxStateBytes {
+			return errors.New("config bundle payload exceeds size limit")
 		}
 		files = append(files, File{Path: relative, Mode: uint32(info.Mode().Perm()), Data: data})
 		return nil

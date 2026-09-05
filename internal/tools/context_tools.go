@@ -94,7 +94,7 @@ type AgentStatusResult struct {
 
 func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
 	memoryStore := memory.NewStore(memory.DefaultRoot())
-	memoryIndex := memory.NewMemoryIndex()
+	memoryIndex := memory.NewHybridIndex(memory.NewLocalEmbedder(), memory.DefaultHybridWeights())
 	policyStore := instructionpolicy.DefaultStore()
 	contextService := projectcontext.New(workspaces, func() instructioncontext.ToolProfile {
 		return instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())}

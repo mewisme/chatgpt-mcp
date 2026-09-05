@@ -82,6 +82,8 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/instructions/global", api.handleGlobalInstructions)
 	mux.HandleFunc("/api/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/api/workspaces/", api.handleWorkspace)
+	mux.HandleFunc("/api/workspace-containers", api.handleWorkspaceContainers)
+	mux.HandleFunc("/api/workspace-containers/", api.handleWorkspaceContainer)
 	mux.HandleFunc("/api/tools", api.handleTools)
 	mux.HandleFunc("/api/requests", api.handleRequests)
 	mux.HandleFunc("/api/requests/", api.handleRequest)

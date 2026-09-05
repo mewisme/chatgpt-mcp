@@ -75,6 +75,10 @@ func (api API) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		api.handleWorkspaceContext(w, r, manager, value)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "containers" {
+		api.handleWorkspaceContainersMembership(w, r, manager, value)
+		return
+	}
 	if len(parts) >= 2 && parts[1] == "executions" {
 		api.handleWorkspaceExecutions(w, r, value, parts[2:])
 		return

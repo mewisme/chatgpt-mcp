@@ -25,6 +25,9 @@ type BuildOptions struct {
 	Policy              instructionpolicy.Config
 	ToolProfile         ToolProfile
 	MaxInstructionBytes int
+	MemoryQuery         string
+	MaxMemoryEntries    int
+	MaxMemoryBytes      int
 	SkipGit             bool
 	SkipMemory          bool
 	SkipSkills          bool
@@ -88,7 +91,7 @@ func Build(ctx context.Context, opts BuildOptions) (InstructionContext, error) {
 		if err != nil {
 			return InstructionContext{}, err
 		}
-		autoMemory, err = LoadAutoMemory(opts.MemoryStore, workspaceID)
+		autoMemory, err = LoadAutoMemorySelected(opts.MemoryStore, workspaceID, opts.MemoryQuery, opts.MaxMemoryEntries, opts.MaxMemoryBytes)
 		if err != nil {
 			return InstructionContext{}, err
 		}

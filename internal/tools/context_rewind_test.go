@@ -202,7 +202,7 @@ func TestProjectContextOutputSchemaUsesInstructionBundle(t *testing.T) {
 		t.Fatal("missing project_context schema")
 	}
 	input := string(schema.InputSchema)
-	for _, expected := range []string{"\"max_instruction_bytes\"", "\"max_section_bytes\"", "\"max_lines_per_section\"", "\"include_git\"", "\"include_memory\"", "\"include_skills\""} {
+	for _, expected := range []string{"\"memory_query\"", "\"max_memory_entries\"", "\"max_memory_bytes\"", "\"max_instruction_bytes\"", "\"max_section_bytes\"", "\"max_lines_per_section\"", "\"include_git\"", "\"include_memory\"", "\"include_skills\""} {
 		if !strings.Contains(input, expected) {
 			t.Fatalf("input schema missing %s: %s", expected, input)
 		}

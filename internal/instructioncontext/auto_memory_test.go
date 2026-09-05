@@ -59,3 +59,19 @@ func TestLoadAutoMemoryPropagatesReadErrors(t *testing.T) {
 		t.Fatal("expected memory read error")
 	}
 }
+
+func TestLoadAutoMemorySelectedUsesQueryAndBudget(t *testing.T) {
+	store := memory.NewStore(t.TempDir())
+	for _, entry := range []memory.Entry{{Scope: "tui", Key: "theme", Note: "Use Charm defaults"}, {Scope: "release", Key: "ci", Note: "Use GitHub Actions"}, {Scope: "coding-style", Key: "imports", Note: "Keep imports contiguous"}} {
+		if _, err := store.Upsert("ws_test", entry.Scope, entry.Key, entry.Note); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := LoadAutoMemorySelected(store, "ws_test", "tui theme", 1, 8192)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Loaded || snapshot.Entries != 1 || !snapshot.Truncated || snapshot.Query != "tui theme" || !strings.Contains(snapshot.Content, "### theme") || strings.Contains(snapshot.Content, "### ci") {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+}

@@ -144,12 +144,24 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		return JSONResult(value), nil
 	})
 
-	register("project_context", "Project Context", "Build the complete workspace instruction context with environment, Git, memory, rules, skills, and ready-to-use instructions.", workspaceOnlySchema(`"path":{"type":"string"},"max_instruction_bytes":{"type":"integer","minimum":1,"maximum":1000000,"default":100000},"max_section_bytes":{"type":"integer","minimum":1,"maximum":500000,"default":25000},"max_lines_per_section":{"type":"integer","minimum":1,"maximum":5000,"default":200},"include_git":{"type":"boolean","default":true},"include_memory":{"type":"boolean","default":true},"include_skills":{"type":"boolean","default":true},`), `{"type":"object","properties":{"root":{"type":"string"},"workspace_id":{"type":"string"},"instruction_context":{"type":"object","additionalProperties":true},"summary":{"type":"object","additionalProperties":true}},"required":["root","workspace_id","instruction_context","summary"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("project_context", "Project Context", "Build the complete workspace instruction context with environment, Git, selected memory, rules, skills, and ready-to-use instructions.", workspaceOnlySchema(`"path":{"type":"string"},"memory_query":{"type":"string"},"max_memory_entries":{"type":"integer","minimum":1,"maximum":100,"default":12},"max_memory_bytes":{"type":"integer","minimum":256,"maximum":100000,"default":8192},"max_instruction_bytes":{"type":"integer","minimum":1,"maximum":1000000,"default":100000},"max_section_bytes":{"type":"integer","minimum":1,"maximum":500000,"default":25000},"max_lines_per_section":{"type":"integer","minimum":1,"maximum":5000,"default":200},"include_git":{"type":"boolean","default":true},"include_memory":{"type":"boolean","default":true},"include_skills":{"type":"boolean","default":true},`), `{"type":"object","properties":{"root":{"type":"string"},"workspace_id":{"type":"string"},"instruction_context":{"type":"object","additionalProperties":true},"summary":{"type":"object","additionalProperties":true}},"required":["root","workspace_id","instruction_context","summary"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err
 		}
 		pathValue, err := optionalString(args, "path")
+		memoryQuery, err := optionalString(args, "memory_query")
+		if err != nil {
+			return Result{}, err
+		}
+		maxMemoryEntries, err := optionalInt(args, "max_memory_entries", 12, 1, 100)
+		if err != nil {
+			return Result{}, err
+		}
+		maxMemoryBytes, err := optionalInt(args, "max_memory_bytes", 8192, 256, 100_000)
+		if err != nil {
+			return Result{}, err
+		}
 		if err != nil {
 			return Result{}, err
 		}
@@ -179,6 +191,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		}
 		value, err := contextService.Build(ctx, item.ID, projectcontext.Options{
 			Path: pathValue, MaxInstructionBytes: maxInstructionBytes, MaxSectionBytes: maxSectionBytes, MaxLinesPerSection: maxLinesPerSection,
+			MemoryQuery: memoryQuery, MaxMemoryEntries: maxMemoryEntries, MaxMemoryBytes: maxMemoryBytes,
 			IncludeGit: includeGit, IncludeMemory: includeMemory, IncludeSkills: includeSkills,
 		})
 		if err != nil {

@@ -31,11 +31,5 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(temp, path); err == nil {
-		return nil
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return os.Rename(temp, path)
+	return replaceFile(temp, path)
 }

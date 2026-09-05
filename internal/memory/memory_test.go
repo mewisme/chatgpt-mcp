@@ -154,3 +154,40 @@ func TestUpsertRequiresScopeKeyAndNote(t *testing.T) {
 		}
 	}
 }
+
+func TestGetFiltersScopeAndExactKey(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	for _, item := range []Entry{{Scope: "tui", Key: "theme", Note: "Charm"}, {Scope: "tui", Key: "layout", Note: "Center"}, {Scope: "web", Key: "theme", Note: "System"}} {
+		if _, err := store.Upsert("ws_test", item.Scope, item.Key, item.Note); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := store.Get("ws_test", "TUI", "THEME")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Note != "Charm" {
+		t.Fatalf("entries = %#v", entries)
+	}
+	entries, err = store.Get("ws_test", "tui", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("entries = %#v", entries)
+	}
+	entries, err = store.Get("ws_test", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("entries = %#v", entries)
+	}
+}
+
+func TestGetRejectsKeyWithoutScope(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	if _, err := store.Get("ws_test", "", "theme"); err == nil {
+		t.Fatal("expected key without scope to fail")
+	}
+}

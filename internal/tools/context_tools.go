@@ -38,6 +38,11 @@ type RememberResult struct {
 	Note    string `json:"note"`
 }
 
+type MemoryGetResult struct {
+	Entries []memory.Entry `json:"entries"`
+	Count   int            `json:"count"`
+}
+
 type ProjectContextMemoryFile = projectcontext.MemoryFile
 type ProjectContextGitSummary = projectcontext.GitSummary
 type ProjectContextSummary = projectcontext.Summary
@@ -226,6 +231,26 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			return Result{}, err
 		}
 		return JSONResult(RememberResult{SavedTo: path, Scope: strings.TrimSpace(scope), Key: strings.TrimSpace(key), Note: strings.TrimSpace(note)}), nil
+	})
+
+	register("memory_get", "Memory Get", "Read canonical cross-session memory entries. Omit filters for all entries, set scope for one scope, or set scope and key for one exact entry.", workspaceOnlySchema(`"scope":{"type":"string"},"key":{"type":"string"},`), `{"type":"object","properties":{"entries":{"type":"array","items":{"type":"object","properties":{"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"}},"required":["scope","key","note"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["entries","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+		item, err := workspaceFromArgs(workspaces, args)
+		if err != nil {
+			return Result{}, err
+		}
+		scope, err := optionalString(args, "scope")
+		if err != nil {
+			return Result{}, err
+		}
+		key, err := optionalString(args, "key")
+		if err != nil {
+			return Result{}, err
+		}
+		entries, err := memoryStore.Get(item.ID, scope, key)
+		if err != nil {
+			return Result{}, err
+		}
+		return JSONResult(MemoryGetResult{Entries: entries, Count: len(entries)}), nil
 	})
 
 	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from .claude/.claudes/.agents/.cursor/.codex rule directories.", workspaceOnlySchema(`"path":{"type":"string"},`), `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {

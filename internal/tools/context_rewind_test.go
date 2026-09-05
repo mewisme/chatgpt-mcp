@@ -237,6 +237,42 @@ func TestRememberSchemaRequiresScopeKeyAndNote(t *testing.T) {
 	}
 }
 
+func TestMemoryGetReadsAllScopeAndExactEntry(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	for _, args := range []map[string]any{
+		{"workspace_id": workspaceID, "scope": "tui", "key": "theme", "note": "Charm"},
+		{"workspace_id": workspaceID, "scope": "tui", "key": "layout", "note": "Center"},
+	} {
+		result, err := runtime.Call(context.Background(), "remember", args)
+		if err != nil || result.IsError {
+			t.Fatalf("remember failed: %#v %v", result, err)
+		}
+	}
+	result, err := runtime.Call(context.Background(), "memory_get", map[string]any{"workspace_id": workspaceID, "scope": "tui"})
+	if err != nil || result.IsError {
+		t.Fatalf("memory_get failed: %#v %v", result, err)
+	}
+	if got := result.StructuredContent.(MemoryGetResult); got.Count != 2 {
+		t.Fatalf("memory_get = %#v", got)
+	}
+	result, err = runtime.Call(context.Background(), "memory_get", map[string]any{"workspace_id": workspaceID, "scope": "TUI", "key": "THEME"})
+	if err != nil || result.IsError {
+		t.Fatalf("memory_get exact failed: %#v %v", result, err)
+	}
+	got := result.StructuredContent.(MemoryGetResult)
+	if got.Count != 1 || got.Entries[0].Note != "Charm" {
+		t.Fatalf("memory_get exact = %#v", got)
+	}
+}
+
+func TestMemoryGetRejectsKeyWithoutScope(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	result, err := runtime.Call(context.Background(), "memory_get", map[string]any{"workspace_id": workspaceID, "key": "theme"})
+	if err == nil && !result.IsError {
+		t.Fatalf("key without scope accepted: %#v", result)
+	}
+}
+
 func TestProjectContextInputControlsCollectorsAndLimits(t *testing.T) {
 	runtime, workspaceID, root, _ := newContextToolRuntime(t)
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("first line\nsecond line with more content"), 0644); err != nil {

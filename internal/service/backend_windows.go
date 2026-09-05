@@ -18,7 +18,7 @@ func (windowsManager) DefinitionMatches(spec Spec) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	return strings.Contains(output, "<Command>"+xmlText(spec.Binary)+"</Command>") && strings.Contains(output, "<Arguments>"+xmlText(windowsCommandLine(Args(spec)))+"</Arguments>"), nil
+	return strings.Contains(output, "<Command>"+xmlText(windowsTaskCommand())+"</Command>") && strings.Contains(output, "<Arguments>"+xmlText(windowsTaskArguments(spec))+"</Arguments>"), nil
 }
 
 func (windowsManager) Install(spec Spec) error {
@@ -63,7 +63,8 @@ func (windowsManager) Status(spec Spec) (Status, error) {
 }
 
 func WindowsTaskXML(spec Spec) string {
-	arguments := windowsCommandLine(Args(spec))
+	command := windowsTaskCommand()
+	arguments := windowsTaskArguments(spec)
 	return fmt.Sprintf(`<?xml version="1.0"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -102,7 +103,21 @@ func WindowsTaskXML(spec Spec) string {
     </Exec>
   </Actions>
 </Task>
-`, xmlText(spec.Account.Username), xmlText(spec.Account.Username), xmlText(spec.Binary), xmlText(arguments), xmlText(spec.Account.HomeDir))
+`, xmlText(spec.Account.Username), xmlText(spec.Account.Username), xmlText(command), xmlText(arguments), xmlText(spec.Account.HomeDir))
+}
+
+func windowsTaskCommand() string { return "powershell.exe" }
+
+func windowsTaskArguments(spec Spec) string {
+	parts := make([]string, 0, len(Args(spec))+1)
+	parts = append(parts, spec.Binary)
+	parts = append(parts, Args(spec)...)
+	quoted := make([]string, len(parts))
+	for i, value := range parts {
+		quoted[i] = "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	}
+	script := "& " + strings.Join(quoted, " ")
+	return windowsCommandLine([]string{"-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script})
 }
 
 func windowsTaskName(spec Spec) string { return spec.ID }

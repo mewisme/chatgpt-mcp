@@ -60,7 +60,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 
 	startedAt := time.Now().UTC()
 	serviceInfo := runtimeServiceInfo(cmd)
-	interrupt := newForegroundInterrupt(cmd, !serviceInfo.Managed)
+	interrupt := newForegroundInterrupt(cmd, false)
 	defer interrupt.Close()
 	log := commandLogger(cmd)
 	defer log.Close()
@@ -286,8 +286,11 @@ func shutdownServers(servers []*http.Server) error {
 	defer cancel()
 	var first error
 	for _, server := range servers {
-		if err := server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) && first == nil {
-			first = err
+		if err := server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			closeErr := server.Close()
+			if closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) && first == nil {
+				first = errors.Join(err, closeErr)
+			}
 		}
 	}
 	return first

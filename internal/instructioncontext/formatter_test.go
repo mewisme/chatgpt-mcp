@@ -86,13 +86,13 @@ func TestFormatInstructionsOmitsEmptyOptionalBlocks(t *testing.T) {
 }
 
 func TestFormatInstructionsNestsAutoMemoryHeadings(t *testing.T) {
-	value := InstructionContext{AutoMemory: AutoMemorySnapshot{Loaded: true, Content: "## general\n\n### general\n- use Charm defaults"}}
+	value := InstructionContext{AutoMemory: AutoMemorySnapshot{Loaded: true, Content: "## general\n\n- use Charm defaults"}}
 	text, _ := FormatInstructions(value)
-	expected := "## Auto memory\n### general\n\n#### general\n- use Charm defaults"
+	expected := "## Auto memory\n### general\n\n- use Charm defaults"
 	if !strings.Contains(text, expected) {
 		t.Fatalf("auto memory hierarchy is not nested:\n%s", text)
 	}
-	if strings.Contains(text, "## Auto memory\n## general") {
+	if strings.Contains(text, "## Auto memory\n## general") || strings.Contains(text, "#### general") {
 		t.Fatalf("auto memory scope leaked at block level:\n%s", text)
 	}
 }

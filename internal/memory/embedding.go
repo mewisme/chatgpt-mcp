@@ -123,14 +123,16 @@ func (i *HybridIndex) Upsert(workspaceID string, entry Entry) error {
 }
 
 func (i *HybridIndex) Delete(workspaceID, scope, key string) error {
+	hasKey := strings.TrimSpace(key) != ""
+	canonical := canonicalKey(scope, key)
 	if err := i.base.Delete(workspaceID, scope, key); err != nil {
 		return err
 	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	values := i.vectors[workspaceID]
-	if key != "" {
-		delete(values, indexKey(scope, key))
+	if hasKey {
+		delete(values, indexKey(scope, canonical))
 		return nil
 	}
 	prefix := strings.ToLower(normalizeName(scope)) + "\x00"
@@ -229,7 +231,7 @@ func exactBoost(entry Entry, query string) float64 {
 	if query == "" {
 		return 0
 	}
-	if strings.Contains(query, strings.ToLower(entry.Key)) {
+	if entry.Key != "" && strings.Contains(query, strings.ToLower(entry.Key)) {
 		return 1
 	}
 	if strings.Contains(query, strings.ToLower(entry.Scope)) {

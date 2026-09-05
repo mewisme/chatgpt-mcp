@@ -18,7 +18,7 @@ const (
 
 type Entry struct {
 	Scope string `json:"scope"`
-	Key   string `json:"key"`
+	Key   string `json:"key,omitempty"`
 	Note  string `json:"note"`
 }
 
@@ -103,13 +103,11 @@ func (s Store) SaveDocument(workspaceID string, document Document) (string, erro
 }
 
 func (s Store) Upsert(workspaceID, scope, key, note string) (string, error) {
-	scope, key, note = normalizeName(scope), normalizeName(key), normalizeNote(note)
+	scope, note = normalizeName(scope), normalizeNote(note)
 	if scope == "" {
 		return "", errors.New("scope is required")
 	}
-	if key == "" {
-		return "", errors.New("key is required")
-	}
+	key = canonicalKey(scope, key)
 	if note == "" {
 		return "", errors.New("note is required")
 	}
@@ -136,16 +134,18 @@ func (s Store) Get(workspaceID, scope, key string) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	scope, key = normalizeName(scope), normalizeName(key)
-	if key != "" && scope == "" {
+	scope = normalizeName(scope)
+	hasKey := strings.TrimSpace(key) != ""
+	if hasKey && scope == "" {
 		return nil, errors.New("scope is required when key is provided")
 	}
+	key = canonicalKey(scope, key)
 	entries := make([]Entry, 0, len(document.Entries))
 	for _, item := range document.Entries {
 		if scope != "" && !strings.EqualFold(item.Scope, scope) {
 			continue
 		}
-		if key != "" && !strings.EqualFold(item.Key, key) {
+		if hasKey && !strings.EqualFold(item.Key, key) {
 			continue
 		}
 		entries = append(entries, item)
@@ -154,10 +154,12 @@ func (s Store) Get(workspaceID, scope, key string) ([]Entry, error) {
 }
 
 func (s Store) Remove(workspaceID, scope, key string) (int, string, error) {
-	scope, key = normalizeName(scope), normalizeName(key)
+	scope = normalizeName(scope)
 	if scope == "" {
 		return 0, "", errors.New("scope is required")
 	}
+	hasKey := strings.TrimSpace(key) != ""
+	key = canonicalKey(scope, key)
 	document, err := s.LoadDocument(workspaceID)
 	if err != nil {
 		return 0, "", err
@@ -165,7 +167,7 @@ func (s Store) Remove(workspaceID, scope, key string) (int, string, error) {
 	kept := make([]Entry, 0, len(document.Entries))
 	removed := 0
 	for _, item := range document.Entries {
-		match := strings.EqualFold(item.Scope, scope) && (key == "" || strings.EqualFold(item.Key, key))
+		match := strings.EqualFold(item.Scope, scope) && (!hasKey || strings.EqualFold(item.Key, key))
 		if match {
 			removed++
 			continue
@@ -192,7 +194,7 @@ func Parse(value string) Document {
 			currentKey, lastScope, lastKey = "", "", ""
 		case strings.HasPrefix(line, "### "):
 			if currentScope != "" {
-				currentKey = normalizeName(strings.TrimPrefix(line, "### "))
+				currentKey = canonicalKey(currentScope, strings.TrimPrefix(line, "### "))
 			}
 			lastScope, lastKey = "", ""
 		case line == "" || strings.HasPrefix(line, "# "):
@@ -201,16 +203,14 @@ func Parse(value string) Document {
 			note := normalizeNote(strings.TrimPrefix(line, "- "))
 			scope, key := currentScope, currentKey
 			if scope == "" {
-				scope, key, note = "general", "general", stripLegacyDate(note)
-			} else if key == "" {
-				key = "general"
+				scope, key, note = "general", "", stripLegacyDate(note)
 			}
-			if scope != "" && key != "" && note != "" {
+			if scope != "" && note != "" {
 				document.Entries = mergeEntry(document.Entries, Entry{Scope: scope, Key: key, Note: note})
 				lastScope, lastKey = scope, key
 			}
 		default:
-			if lastScope != "" && lastKey != "" {
+			if lastScope != "" {
 				document.Entries = mergeEntry(document.Entries, Entry{Scope: lastScope, Key: lastKey, Note: normalizeNote(line)})
 			}
 		}
@@ -232,9 +232,12 @@ func Render(document Document) string {
 			builder.WriteString("\n\n")
 			currentScope = item.Scope
 		}
-		builder.WriteString("### ")
-		builder.WriteString(item.Key)
-		builder.WriteString("\n- ")
+		if item.Key != "" {
+			builder.WriteString("### ")
+			builder.WriteString(item.Key)
+			builder.WriteByte('\n')
+		}
+		builder.WriteString("- ")
 		builder.WriteString(item.Note)
 		builder.WriteString("\n\n")
 	}
@@ -244,8 +247,9 @@ func Render(document Document) string {
 func normalizeDocument(document Document) Document {
 	entries := make([]Entry, 0, len(document.Entries))
 	for _, item := range document.Entries {
-		item.Scope, item.Key, item.Note = normalizeName(item.Scope), normalizeName(item.Key), normalizeNote(item.Note)
-		if item.Scope == "" || item.Key == "" || item.Note == "" {
+		item.Scope, item.Note = normalizeName(item.Scope), normalizeNote(item.Note)
+		item.Key = canonicalKey(item.Scope, item.Key)
+		if item.Scope == "" || item.Note == "" {
 			continue
 		}
 		entries = mergeEntry(entries, item)
@@ -268,7 +272,7 @@ func normalizeDocument(document Document) Document {
 }
 
 func mergeEntry(entries []Entry, incoming Entry) []Entry {
-	if incoming.Scope == "" || incoming.Key == "" || incoming.Note == "" {
+	if incoming.Scope == "" || incoming.Note == "" {
 		return entries
 	}
 	for index := range entries {
@@ -294,6 +298,15 @@ func mergeNotes(current, incoming string) string {
 func normalizeName(value string) string {
 	return normalizeNote(strings.TrimLeft(strings.TrimSpace(value), "#"))
 }
+
+func canonicalKey(scope, key string) string {
+	key = normalizeName(key)
+	if strings.EqualFold(normalizeName(scope), key) {
+		return ""
+	}
+	return key
+}
+
 func normalizeNote(value string) string {
 	return strings.Join(strings.Fields(strings.ReplaceAll(strings.ReplaceAll(value, "\r", " "), "\n", " ")), " ")
 }

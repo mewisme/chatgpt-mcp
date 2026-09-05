@@ -30,19 +30,38 @@ func TestParseDeduplicatesCaseInsensitiveScopeKey(t *testing.T) {
 	}
 }
 
-func TestParseMigratesScopedParagraphFormatToGeneralKey(t *testing.T) {
+func TestParseKeepsScopedParagraphAsScopeLevelNote(t *testing.T) {
 	document := Parse("## tooling\n- use pnpm\n\n## tui\n- use Charm defaults\n")
-	want := "## tooling\n\n### general\n- use pnpm\n\n## tui\n\n### general\n- use Charm defaults\n"
+	want := "## tooling\n\n- use pnpm\n\n## tui\n\n- use Charm defaults\n"
 	if rendered := Render(document); rendered != want {
 		t.Fatalf("rendered = %q, want %q", rendered, want)
 	}
+	for _, entry := range document.Entries {
+		if entry.Key != "" {
+			t.Fatalf("scope-level entry unexpectedly has key: %#v", entry)
+		}
+	}
 }
 
-func TestParseMigratesLegacyDateNotesToGeneralEntry(t *testing.T) {
+func TestParseMigratesLegacyDateNotesToGeneralScope(t *testing.T) {
 	document := Parse("# Auto memory (cross-session notes)\n\n- 2026-09-04: use compact imports\n- 2026-09-05: prefer pnpm\n")
-	want := "## general\n\n### general\n- use compact imports prefer pnpm\n"
+	want := "## general\n\n- use compact imports prefer pnpm\n"
 	if rendered := Render(document); rendered != want {
 		t.Fatalf("rendered = %q, want %q", rendered, want)
+	}
+	if len(document.Entries) != 1 || document.Entries[0].Key != "" {
+		t.Fatalf("document = %#v", document)
+	}
+}
+
+func TestParseCollapsesDuplicateScopeKey(t *testing.T) {
+	document := Parse("## general\n\n### general\n- use Charm defaults\n")
+	want := "## general\n\n- use Charm defaults\n"
+	if rendered := Render(document); rendered != want {
+		t.Fatalf("rendered = %q, want %q", rendered, want)
+	}
+	if len(document.Entries) != 1 || document.Entries[0].Key != "" {
+		t.Fatalf("document = %#v", document)
 	}
 }
 
@@ -107,7 +126,7 @@ func TestStoreMigrationPersistsOnlyOnSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "### general") {
+	if strings.Contains(string(raw), "### general") || !strings.Contains(string(raw), "## tooling\n\n- use pnpm") {
 		t.Fatalf("save did not persist migration: %q", raw)
 	}
 }
@@ -146,9 +165,29 @@ func TestUpsertAllowsSameKeyInDifferentScopes(t *testing.T) {
 	}
 }
 
-func TestUpsertRequiresScopeKeyAndNote(t *testing.T) {
+func TestUpsertAllowsScopeLevelNoteAndCollapsesDuplicateKey(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "state"))
-	for _, args := range [][3]string{{"", "key", "note"}, {"scope", "", "note"}, {"scope", "key", ""}} {
+	if _, err := store.Upsert("ws_test", "general", "general", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Upsert("ws_test", "GENERAL", "", "replacement"); err != nil {
+		t.Fatal(err)
+	}
+	document, err := store.LoadDocument("ws_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Entries) != 1 || document.Entries[0].Key != "" || document.Entries[0].Note != "replacement" {
+		t.Fatalf("document = %#v", document)
+	}
+	if rendered := Render(document); strings.Contains(rendered, "### general") || rendered != "## general\n\n- replacement\n" {
+		t.Fatalf("rendered = %q", rendered)
+	}
+}
+
+func TestUpsertRequiresScopeAndNote(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	for _, args := range [][3]string{{"", "key", "note"}, {"scope", "key", ""}} {
 		if _, err := store.Upsert("ws_test", args[0], args[1], args[2]); err == nil {
 			t.Fatalf("expected error for %#v", args)
 		}
@@ -192,6 +231,23 @@ func TestGetRejectsKeyWithoutScope(t *testing.T) {
 	}
 }
 
+func TestGetCanAddressScopeLevelNoteWithRepeatedScopeKey(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	if _, err := store.Upsert("ws_test", "general", "", "scope note"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Upsert("ws_test", "general", "detail", "child note"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := store.Get("ws_test", "general", "general")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Key != "" || entries[0].Note != "scope note" {
+		t.Fatalf("entries = %#v", entries)
+	}
+}
+
 func TestRemoveDeletesExactEntryOrWholeScope(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "state"))
 	for _, item := range []Entry{{Scope: "tui", Key: "theme", Note: "Charm"}, {Scope: "tui", Key: "layout", Note: "Center"}, {Scope: "web", Key: "theme", Note: "System"}} {
@@ -221,5 +277,23 @@ func TestRemoveMissingEntryIsNoop(t *testing.T) {
 	removed, _, err := store.Remove("ws_test", "missing", "key")
 	if err != nil || removed != 0 {
 		t.Fatalf("removed=%d err=%v", removed, err)
+	}
+}
+
+func TestRemoveCanTargetScopeLevelNoteWithoutRemovingChildren(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	if _, err := store.Upsert("ws_test", "general", "", "scope note"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Upsert("ws_test", "general", "detail", "child note"); err != nil {
+		t.Fatal(err)
+	}
+	removed, _, err := store.Remove("ws_test", "general", "general")
+	if err != nil || removed != 1 {
+		t.Fatalf("removed=%d err=%v", removed, err)
+	}
+	entries, err := store.Get("ws_test", "general", "")
+	if err != nil || len(entries) != 1 || entries[0].Key != "detail" {
+		t.Fatalf("entries=%#v err=%v", entries, err)
 	}
 }

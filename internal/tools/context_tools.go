@@ -34,7 +34,7 @@ type PathRulesResult struct {
 type RememberResult struct {
 	SavedTo string `json:"saved_to"`
 	Scope   string `json:"scope"`
-	Key     string `json:"key"`
+	Key     string `json:"key,omitempty"`
 	Note    string `json:"note"`
 }
 
@@ -51,7 +51,7 @@ type ForgetResult struct {
 
 type MemorySearchMatch struct {
 	Scope string  `json:"scope"`
-	Key   string  `json:"key"`
+	Key   string  `json:"key,omitempty"`
 	Note  string  `json:"note"`
 	Score float64 `json:"score"`
 }
@@ -251,7 +251,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		}), nil
 	})
 
-	register("remember", "Remember", "Upsert one canonical cross-session memory entry by scope and key. Read existing memory first; when updating an existing key, submit the complete canonical replacement note containing all still-relevant facts.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"}},"required":["workspace_id","scope","key","note"],"additionalProperties":false}`, `{"type":"object","properties":{"saved_to":{"type":"string"},"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"}},"required":["saved_to","scope","key","note"],"additionalProperties":false}`, RiskEdit, func(_ context.Context, args map[string]any) (Result, error) {
+	register("remember", "Remember", "Upsert one canonical cross-session memory entry by scope and optional child key. Omit key for a scope-level note; a key equal to scope is normalized to no child key for compatibility. Read existing memory first and submit the complete canonical replacement note.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"}},"required":["workspace_id","scope","note"],"additionalProperties":false}`, `{"type":"object","properties":{"saved_to":{"type":"string"},"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"}},"required":["saved_to","scope","note"],"additionalProperties":false}`, RiskEdit, func(_ context.Context, args map[string]any) (Result, error) {
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -260,7 +260,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
-		key, err := requiredString(args, "key")
+		key, err := optionalString(args, "key")
 		if err != nil {
 			return Result{}, err
 		}
@@ -273,10 +273,14 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			return Result{}, err
 		}
 		_ = memoryLifecycle.Ensure(item.ID)
-		return JSONResult(RememberResult{SavedTo: path, Scope: strings.TrimSpace(scope), Key: strings.TrimSpace(key), Note: strings.TrimSpace(note)}), nil
+		resultKey := strings.TrimSpace(key)
+		if strings.EqualFold(strings.TrimSpace(scope), resultKey) {
+			resultKey = ""
+		}
+		return JSONResult(RememberResult{SavedTo: path, Scope: strings.TrimSpace(scope), Key: resultKey, Note: strings.TrimSpace(note)}), nil
 	})
 
-	register("memory_get", "Memory Get", "Read canonical cross-session memory entries. Omit filters for all entries, set scope for one scope, or set scope and key for one exact entry.", workspaceOnlySchema(`"scope":{"type":"string"},"key":{"type":"string"},`), `{"type":"object","properties":{"entries":{"type":"array","items":{"type":"object","properties":{"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"}},"required":["scope","key","note"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["entries","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("memory_get", "Memory Get", "Read canonical cross-session memory entries. Omit filters for all entries, set scope for all entries in one scope, or set scope and key for one exact child entry. A repeated scope key addresses the scope-level note for compatibility.", workspaceOnlySchema(`"scope":{"type":"string"},"key":{"type":"string"},`), `{"type":"object","properties":{"entries":{"type":"array","items":{"type":"object","properties":{"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"}},"required":["scope","note"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["entries","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -314,10 +318,14 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			return Result{}, err
 		}
 		_ = memoryLifecycle.Ensure(item.ID)
-		return JSONResult(ForgetResult{Removed: removed, Scope: strings.TrimSpace(scope), Key: strings.TrimSpace(key)}), nil
+		resultKey := strings.TrimSpace(key)
+		if strings.EqualFold(strings.TrimSpace(scope), resultKey) {
+			resultKey = ""
+		}
+		return JSONResult(ForgetResult{Removed: removed, Scope: strings.TrimSpace(scope), Key: resultKey}), nil
 	})
 
-	register("memory_search", "Memory Search", "Search canonical cross-session memory by lexical relevance with optional scope filtering. Results rank key matches above scope and note matches.", workspaceOnlySchema(`"query":{"type":"string"},"scope":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":50,"default":5},`), `{"type":"object","properties":{"matches":{"type":"array","items":{"type":"object","properties":{"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"},"score":{"type":"number"}},"required":["scope","key","note","score"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["matches","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("memory_search", "Memory Search", "Search canonical cross-session memory by relevance with optional scope filtering. Child-key matches rank above scope and note matches; scope-level entries have no key.", workspaceOnlySchema(`"query":{"type":"string"},"scope":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":50,"default":5},`), `{"type":"object","properties":{"matches":{"type":"array","items":{"type":"object","properties":{"scope":{"type":"string"},"key":{"type":"string"},"note":{"type":"string"},"score":{"type":"number"}},"required":["scope","note","score"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["matches","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err

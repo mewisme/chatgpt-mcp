@@ -62,11 +62,13 @@ func (i *MemoryIndex) Upsert(workspaceID string, entry Entry) error {
 }
 
 func (i *MemoryIndex) Delete(workspaceID, scope, key string) error {
-	scope, key = normalizeName(scope), normalizeName(key)
+	scope = normalizeName(scope)
+	hasKey := strings.TrimSpace(key) != ""
+	key = canonicalKey(scope, key)
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	values := i.workspaces[workspaceID]
-	if key != "" {
+	if hasKey {
 		delete(values, indexKey(scope, key))
 		return nil
 	}

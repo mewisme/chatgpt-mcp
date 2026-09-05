@@ -223,17 +223,37 @@ func TestProjectContextOutputSchemaUsesInstructionBundle(t *testing.T) {
 	}
 }
 
-func TestRememberSchemaRequiresScopeKeyAndNote(t *testing.T) {
+func TestRememberSchemaRequiresScopeAndNoteWithOptionalKey(t *testing.T) {
 	runtime, _, _, _ := newContextToolRuntime(t)
 	schema, ok := runtime.Registry.Schema("remember")
 	if !ok {
 		t.Fatal("missing remember schema")
 	}
 	input := string(schema.InputSchema)
-	for _, expected := range []string{`"workspace_id"`, `"scope"`, `"key"`, `"note"`, `"required":["workspace_id","scope","key","note"]`} {
+	for _, expected := range []string{`"workspace_id"`, `"scope"`, `"key"`, `"note"`, `"required":["workspace_id","scope","note"]`} {
 		if !strings.Contains(input, expected) {
 			t.Fatalf("remember input schema missing %s: %s", expected, input)
 		}
+	}
+}
+
+func TestRememberScopeLevelNoteOmitsDuplicateKey(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	result, err := runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "scope": "general", "key": "general", "note": "scope note"})
+	if err != nil || result.IsError {
+		t.Fatalf("remember failed: %#v %v", result, err)
+	}
+	remembered := result.StructuredContent.(RememberResult)
+	if remembered.Key != "" {
+		t.Fatalf("duplicate key was not collapsed: %#v", remembered)
+	}
+	ctx, err := runtime.Call(context.Background(), "project_context", map[string]any{"workspace_id": workspaceID, "include_git": false})
+	if err != nil || ctx.IsError {
+		t.Fatalf("project_context failed: %#v %v", ctx, err)
+	}
+	project := ctx.StructuredContent.(ProjectContextResult)
+	if !strings.Contains(project.InstructionContext.InstructionsText, "## Auto memory\n### general\n\n- scope note") || strings.Contains(project.InstructionContext.InstructionsText, "#### general") {
+		t.Fatalf("duplicate key leaked into context: %s", project.InstructionContext.InstructionsText)
 	}
 }
 

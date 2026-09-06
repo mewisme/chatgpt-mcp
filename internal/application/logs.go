@@ -35,11 +35,12 @@ type LogsQueryOptions struct {
 }
 
 type LogsSnapshot struct {
-	Events    []runtimeevent.Event
-	Query     runtimeevent.Query
-	Session   string
-	Total     int
-	Truncated bool
+	Events         []runtimeevent.Event
+	Query          runtimeevent.Query
+	Session        string
+	Total          int
+	Truncated      bool
+	LatestSequence map[string]uint64
 }
 
 type LogsInfo struct {
@@ -101,6 +102,12 @@ func LoadLogs(options LogsQueryOptions, visibility logger.Visibility, bufferCap 
 	if !options.All && query.RunID == "" {
 		query.RunID = LatestRuntimeSession(allEvents)
 	}
+	latestSequence := map[string]uint64{}
+	for _, event := range allEvents {
+		if event.RunID != "" && event.Sequence > latestSequence[event.RunID] {
+			latestSequence[event.RunID] = event.Sequence
+		}
+	}
 	events := MatchLogs(allEvents, query, visibility)
 	total := len(events)
 	if options.Tail > 0 && len(events) > options.Tail {
@@ -111,7 +118,7 @@ func LoadLogs(options LogsQueryOptions, visibility logger.Visibility, bufferCap 
 		events = append([]runtimeevent.Event(nil), events[len(events)-bufferCap:]...)
 		truncated = true
 	}
-	return LogsSnapshot{Events: events, Query: query, Session: query.RunID, Total: total, Truncated: truncated}, nil
+	return LogsSnapshot{Events: events, Query: query, Session: query.RunID, Total: total, Truncated: truncated, LatestSequence: latestSequence}, nil
 }
 
 func MatchLogs(events []runtimeevent.Event, query runtimeevent.Query, visibility logger.Visibility) []runtimeevent.Event {

@@ -212,3 +212,108 @@ func TestSinkReceivesNormalizedEventBeforeVisibilityFiltering(t *testing.T) {
 		t.Fatalf("sink event = %#v", event)
 	}
 }
+
+func TestLogFormatModeAndEnumMappings(t *testing.T) {
+	for input, want := range map[string]Format{"": FormatText, "TEXT": FormatText, "json": FormatJSON} {
+		got, err := ParseFormat(input)
+		if err != nil || got != want {
+			t.Fatalf("ParseFormat(%q)=%q, %v", input, got, err)
+		}
+	}
+	if _, err := ParseFormat("yaml"); err == nil {
+		t.Fatal("invalid format accepted")
+	}
+	if ModeFor(false, false) != ModeDefault || ModeFor(true, false) != ModeVerbose || ModeFor(false, true) != ModeDebug || ModeFor(true, true) != ModeDebug {
+		t.Fatal("ModeFor mapping mismatch")
+	}
+	for level, want := range map[Level]string{Debug: "debug", Info: "info", Warn: "warn", Error: "error", Level(99): "info"} {
+		if got := level.String(); got != want {
+			t.Fatalf("level %d=%q want %q", level, got, want)
+		}
+	}
+	for kind, want := range map[Kind]string{KindInfo: "info", KindAction: "action", KindSuccess: "success", KindWarning: "warning", KindError: "error", Kind(99): "info"} {
+		if got := kind.String(); got != want {
+			t.Fatalf("kind %d=%q want %q", kind, got, want)
+		}
+	}
+}
+
+func TestLoggerConvenienceMethodsNormalizeAndReachSinks(t *testing.T) {
+	var output bytes.Buffer
+	log := NewCLIWithWriter(&output)
+	sink := &captureSink{}
+	log.AddSink(nil)
+	log.AddSink(sink)
+	log.now = func() time.Time { return time.Date(2026, 9, 6, 1, 2, 3, 0, time.UTC) }
+	log.Notice("", "", "notice")
+	log.Warning("WARN", "warn.event", "warning", errors.New("warn"))
+	log.Verbose("VERBOSE", "verbose.event", "verbose")
+	log.Debug("DEBUG", "debug", "value", 1)
+	log.Warn("WARN", "warn")
+	log.Error("ERROR", "error")
+	log.Success("SUCCESS", "success")
+	log.Detail("key", "value")
+	log.Close()
+	if len(sink.events) != 8 {
+		t.Fatalf("sink events=%d", len(sink.events))
+	}
+	if sink.events[0].Name == "" || sink.events[0].Component != "CLI" || sink.events[0].Time.IsZero() {
+		t.Fatalf("normalized notice=%#v", sink.events[0])
+	}
+	if sink.events[1].Kind != KindWarning || sink.events[1].Err == nil || sink.events[2].Visibility != VisibilityVerbose || sink.events[3].Visibility != VisibilityDebug || sink.events[4].Kind != KindWarning || sink.events[5].Kind != KindError || sink.events[6].Kind != KindSuccess || sink.events[7].Name != "cli.detail" {
+		t.Fatalf("events=%#v", sink.events)
+	}
+}
+
+func TestLegacyFieldsAndEventNamesCoverErrorShapes(t *testing.T) {
+	fields, err := legacyFields("one", 1, "error", errors.New("boom"), "two", 2)
+	if err == nil || err.Error() != "boom" || len(fields) != 2 {
+		t.Fatalf("fields=%#v err=%v", fields, err)
+	}
+	fields, err = legacyFields("error", "string-error", "dangling")
+	if err == nil || err.Error() != "string-error" || len(fields) != 0 {
+		t.Fatalf("fields=%#v err=%v", fields, err)
+	}
+	if name := legacyEventName("", ""); name != "log" {
+		t.Fatalf("empty event name=%q", name)
+	}
+	if name := legacyEventName("Component", ""); name != "component" {
+		t.Fatalf("component event name=%q", name)
+	}
+	if kindForLevel(Debug) != KindInfo || kindForLevel(Warn) != KindWarning || kindForLevel(Error) != KindError {
+		t.Fatal("kindForLevel mismatch")
+	}
+}
+
+func TestRenderHelpersCoverSlicesErrorsSymbolsAndLevels(t *testing.T) {
+	var output bytes.Buffer
+	renderField(&output, "items", []string{"one", "two"})
+	renderField(&output, "single", [1]string{"value"})
+	renderField(&output, "", 42)
+	text := output.String()
+	for _, want := range []string{"items:", "- one", "- two", "single: value", "value: 42"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered %q missing %q", text, want)
+		}
+	}
+	if values, ok := stringSlice(nil); ok || values != nil {
+		t.Fatalf("nil stringSlice=%#v,%t", values, ok)
+	}
+	if values, ok := stringSlice("value"); ok || values != nil {
+		t.Fatalf("scalar stringSlice=%#v,%t", values, ok)
+	}
+	if got := jsonValue(errors.New("boom")); got != "boom" {
+		t.Fatalf("json error=%v", got)
+	}
+	for _, kind := range []Kind{KindInfo, KindAction, KindSuccess, KindWarning, KindError} {
+		if symbol(kind) == "" || symbolStyle(kind) == nil {
+			t.Fatalf("kind=%v symbol/style missing", kind)
+		}
+	}
+	for _, level := range []Level{Debug, Info, Warn, Error} {
+		code := levelCode(level)
+		if code == "" || levelStyle(code) == nil {
+			t.Fatalf("level=%v code/style missing", level)
+		}
+	}
+}

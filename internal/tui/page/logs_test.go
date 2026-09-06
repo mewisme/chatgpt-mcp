@@ -3,6 +3,7 @@ package page
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -33,10 +34,15 @@ func TestLogsPageLoadsHistoryAndShowsOfflineReconnectState(t *testing.T) {
 	}
 	defer page.Close()
 	msg := page.Init()()
-	updated, reconnect := page.Update(msg)
+	updated, connect := page.Update(msg)
 	page = updated.(*LogsPage)
-	if len(page.events) != 1 || !page.loaded || page.connected || !page.reconnecting || reconnect == nil {
-		t.Fatalf("page loaded=%t connected=%t reconnect=%t events=%d cmd=%v", page.loaded, page.connected, page.reconnecting, len(page.events), reconnect)
+	if len(page.events) != 1 || !page.loaded || page.connected || !page.reconnecting || connect == nil {
+		t.Fatalf("journal loaded=%t connected=%t reconnect=%t events=%d cmd=%v", page.loaded, page.connected, page.reconnecting, len(page.events), connect)
+	}
+	updated, reconnect := page.Update(connect())
+	page = updated.(*LogsPage)
+	if page.connected || !page.reconnecting || reconnect == nil {
+		t.Fatalf("offline stream connected=%t reconnect=%t cmd=%v", page.connected, page.reconnecting, reconnect)
 	}
 	plain := ansi.Strip(page.View(180, 28))
 	for _, want := range []string{"Logs", "RECONNECTING", "server.ready", "space pause", "f filters", "d clear"} {
@@ -69,10 +75,15 @@ func TestLogsPageMergesLiveStreamAfterHistory(t *testing.T) {
 	writeLogsRuntimeState(t, root, server.URL, "run_live")
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
-	updated, next := page.Update(page.Init()())
+	updated, connect := page.Update(page.Init()())
 	page = updated.(*LogsPage)
-	if !page.connected || next == nil || len(page.events) != 1 {
-		t.Fatalf("connected=%t next=%v events=%d", page.connected, next, len(page.events))
+	if page.connected || connect == nil || len(page.events) != 1 {
+		t.Fatalf("history connected=%t connect=%v events=%d", page.connected, connect, len(page.events))
+	}
+	updated, next := page.Update(connect())
+	page = updated.(*LogsPage)
+	if !page.connected || next == nil {
+		t.Fatalf("connected=%t next=%v", page.connected, next)
 	}
 	updated, next = page.Update(next())
 	page = updated.(*LogsPage)
@@ -223,7 +234,12 @@ func TestLogsPageCloseCancelsLiveStream(t *testing.T) {
 	defer server.Close()
 	writeLogsRuntimeState(t, root, server.URL, "run")
 	page, _ := NewLogs(t.Context())
-	updated, next := page.Update(page.Init()())
+	updated, connect := page.Update(page.Init()())
+	page = updated.(*LogsPage)
+	if connect == nil || page.connected {
+		t.Fatalf("connect=%v connected=%t", connect, page.connected)
+	}
+	updated, next := page.Update(connect())
 	page = updated.(*LogsPage)
 	if next == nil || !page.connected {
 		t.Fatalf("next=%v connected=%t", next, page.connected)
@@ -233,6 +249,289 @@ func TestLogsPageCloseCancelsLiveStream(t *testing.T) {
 	case <-closed:
 	case <-time.After(time.Second):
 		t.Fatal("stream context not cancelled on page close")
+	}
+}
+
+func TestLogsPageLoadsCurrentRuntimeSessionBeforeOpeningStream(t *testing.T) {
+	root := setupLogsPageRoot(t)
+	base := time.Now().UTC()
+	appendLogEvents(t, root,
+		runtimeevent.Event{Sequence: 1, Time: base, RunID: "run_current", Level: "info", Name: "current", Message: "Current runtime"},
+		runtimeevent.Event{Sequence: 1, Time: base.Add(time.Second), RunID: "run_old", Level: "info", Name: "old", Message: "Latest journal entry but old session"},
+	)
+	writeLogsRuntimeState(t, root, "http://127.0.0.1:1", "run_current")
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	updated, connect := page.Update(page.Init()())
+	page = updated.(*LogsPage)
+	if connect == nil || page.query.RunID != "run_current" || len(page.events) != 1 || page.events[0].Name != "current" {
+		t.Fatalf("session=%q events=%#v connect=%v", page.query.RunID, page.events, connect)
+	}
+}
+
+func TestLogsPageResyncsJournalWhenLiveSequenceHasGap(t *testing.T) {
+	root := setupLogsPageRoot(t)
+	appendLogEvents(t, root,
+		runtimeevent.Event{Sequence: 1, Time: time.Now().UTC(), RunID: "run_gap", Level: "info", Name: "one", Message: "one"},
+		runtimeevent.Event{Sequence: 2, Time: time.Now().UTC(), RunID: "run_gap", Level: "info", Name: "two", Message: "two"},
+		runtimeevent.Event{Sequence: 3, Time: time.Now().UTC(), RunID: "run_gap", Level: "info", Name: "three", Message: "three"},
+	)
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.generation = 4
+	page.connected = true
+	page.query.RunID = "run_gap"
+	page.streamRunID, page.streamSeq = "run_gap", 1
+	cmd := page.finishStreamEvent(logsStreamEventMsg{generation: 4, event: runtimeevent.Event{Sequence: 3, Time: time.Now().UTC(), RunID: "run_gap", Level: "info", Name: "three", Message: "three"}})
+	if cmd == nil || page.generation != 5 || len(page.events) != 0 || !strings.Contains(page.notice, "gap") {
+		t.Fatalf("gap resync generation=%d events=%d notice=%q cmd=%v", page.generation, len(page.events), page.notice, cmd)
+	}
+}
+
+func TestLogsPageResyncsWhenStreamAdvancedDuringJournalLoad(t *testing.T) {
+	root := setupLogsPageRoot(t)
+	base := time.Now().UTC()
+	appendLogEvents(t, root, runtimeevent.Event{Sequence: 1, Time: base, RunID: "run_race", Level: "info", Name: "one", Message: "one"})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "event: ready\ndata: {\"latest_sequence\":2}\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	writeLogsRuntimeState(t, root, server.URL, "run_race")
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	updated, connect := page.Update(page.Init()())
+	page = updated.(*LogsPage)
+	if page.streamSeq != 1 || connect == nil {
+		t.Fatalf("journal watermark=%d connect=%v", page.streamSeq, connect)
+	}
+	generation := page.generation
+	updated, resync := page.Update(connect())
+	page = updated.(*LogsPage)
+	if resync == nil || page.generation != generation+1 || page.connected || !strings.Contains(page.notice, "advanced") {
+		t.Fatalf("resync generation=%d connected=%t notice=%q cmd=%v", page.generation, page.connected, page.notice, resync)
+	}
+}
+
+func TestLogsPageExplicitSessionAndAllOverrideRuntimeSessionSelection(t *testing.T) {
+	root := setupLogsPageRoot(t)
+	base := time.Now().UTC()
+	appendLogEvents(t, root,
+		runtimeevent.Event{Sequence: 1, Time: base, RunID: "run_current", Level: "info", Name: "current", Message: "current"},
+		runtimeevent.Event{Sequence: 1, Time: base.Add(time.Second), RunID: "run_old", Level: "info", Name: "old", Message: "old"},
+	)
+	writeLogsRuntimeState(t, root, "http://127.0.0.1:1", "run_current")
+	for _, test := range []struct {
+		name      string
+		configure func(*LogsPage)
+		wantRun   string
+		wantCount int
+	}{
+		{name: "explicit-session", configure: func(page *LogsPage) { page.options.Session = "run_old" }, wantRun: "run_old", wantCount: 1},
+		{name: "all", configure: func(page *LogsPage) { page.options.All = true }, wantRun: "", wantCount: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page, _ := NewLogs(t.Context())
+			defer page.Close()
+			test.configure(page)
+			updated, connect := page.Update(page.Init()())
+			page = updated.(*LogsPage)
+			if connect == nil || page.query.RunID != test.wantRun || len(page.events) != test.wantCount {
+				t.Fatalf("run=%q events=%d connect=%v", page.query.RunID, len(page.events), connect)
+			}
+		})
+	}
+}
+
+func TestLogsPageStreamSequenceTracksFilteredEventsWithoutFalseGap(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.generation = 7
+	page.query = runtimeevent.Query{RunID: "run_filter", MinLevel: "error"}
+	page.streamRunID = "run_filter"
+	if cmd := page.finishStreamEvent(logsStreamEventMsg{generation: 7, event: runtimeevent.Event{Sequence: 1, Time: time.Now().UTC(), RunID: "run_filter", Level: "info", Name: "hidden", Message: "hidden"}}); cmd != nil {
+		t.Fatalf("filtered event unexpectedly scheduled command: %v", cmd)
+	}
+	if page.streamSeq != 1 || len(page.events) != 0 || page.generation != 7 {
+		t.Fatalf("filtered sequence=%d events=%d generation=%d", page.streamSeq, len(page.events), page.generation)
+	}
+	page.finishStreamEvent(logsStreamEventMsg{generation: 7, event: runtimeevent.Event{Sequence: 2, Time: time.Now().UTC(), RunID: "run_filter", Level: "error", Name: "visible", Message: "visible"}})
+	if page.streamSeq != 2 || len(page.events) != 1 || page.events[0].Name != "visible" || page.generation != 7 {
+		t.Fatalf("visible sequence=%d events=%#v generation=%d", page.streamSeq, page.events, page.generation)
+	}
+}
+
+func TestLogsPageUpdateCoversBrowserActionsAndOverlays(t *testing.T) {
+	root := setupLogsPageRoot(t)
+	appendLogEvents(t, root, runtimeevent.Event{Sequence: 1, Time: time.Now().UTC(), RunID: "run_ui", Level: "info", Name: "one", Message: "one"})
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	if page.OverlayActive() || page.InputActive() {
+		t.Fatal("new logs page unexpectedly active")
+	}
+	updated, _ := page.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	page = updated.(*LogsPage)
+	if page.width != 120 || page.height != 30 {
+		t.Fatalf("size=%dx%d", page.width, page.height)
+	}
+
+	updated, _ = page.Update(LogsCommandMsg{Command: LogsFilter})
+	page = updated.(*LogsPage)
+	if page.overlay != logsOverlayForm || !page.OverlayActive() || !page.InputActive() {
+		t.Fatalf("filter overlay=%d active=%t input=%t", page.overlay, page.OverlayActive(), page.InputActive())
+	}
+	updated, _ = page.Update(component.FormCancelledMsg{})
+	page = updated.(*LogsPage)
+	if page.overlay != logsOverlayNone || page.OverlayActive() || page.InputActive() {
+		t.Fatalf("cancel overlay=%d active=%t input=%t", page.overlay, page.OverlayActive(), page.InputActive())
+	}
+
+	updated, _ = page.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
+	page = updated.(*LogsPage)
+	if page.overlay != logsOverlayInfo || !page.OverlayActive() {
+		t.Fatalf("info overlay=%d", page.overlay)
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	page = updated.(*LogsPage)
+	if page.overlay != logsOverlayNone {
+		t.Fatalf("info close overlay=%d", page.overlay)
+	}
+
+	updated, _ = page.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	page = updated.(*LogsPage)
+	if page.overlay != logsOverlayConfirm || page.confirm.AffirmativeSelected() {
+		t.Fatalf("clear overlay=%d affirmative=%t", page.overlay, page.confirm.AffirmativeSelected())
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	page = updated.(*LogsPage)
+	if page.overlay != logsOverlayNone {
+		t.Fatalf("clear cancel overlay=%d", page.overlay)
+	}
+
+	updated, _ = page.Update(LogsCommandMsg{Command: LogsToggle})
+	page = updated.(*LogsPage)
+	if !page.paused {
+		t.Fatal("toggle command did not pause")
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	page = updated.(*LogsPage)
+	if page.paused {
+		t.Fatal("space did not resume")
+	}
+}
+
+func TestLogsPageUpdateSubmitsAndRejectsFilters(t *testing.T) {
+	setupLogsPageRoot(t)
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.form, page.filterForm = newLogsFilterForm(page.options)
+	page.overlay = logsOverlayForm
+	page.filterForm.Tail = "25"
+	page.filterForm.Level = "warn"
+	page.filterForm.Event = "tool.*"
+	updated, bootstrap := page.Update(component.FormSubmittedMsg{})
+	page = updated.(*LogsPage)
+	if bootstrap == nil || page.overlay != logsOverlayNone || page.options.Tail != 25 || page.options.Level != "warn" || page.options.Event != "tool.*" {
+		t.Fatalf("options=%#v overlay=%d cmd=%v", page.options, page.overlay, bootstrap)
+	}
+
+	page.form, page.filterForm = newLogsFilterForm(page.options)
+	page.overlay = logsOverlayForm
+	page.filterForm.Tail = "-1"
+	updated, bootstrap = page.Update(component.FormSubmittedMsg{})
+	page = updated.(*LogsPage)
+	if bootstrap != nil || page.err == nil || page.overlay != logsOverlayForm {
+		t.Fatalf("invalid filter err=%v overlay=%d cmd=%v", page.err, page.overlay, bootstrap)
+	}
+}
+
+func TestLogsPageStreamOpenAndReconnectBranches(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.generation = 10
+	page.loaded = true
+	page.query.RunID = "run_one"
+	page.streamRunID, page.streamSeq = "run_one", 3
+
+	staleServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "event: ready\ndata: {\"latest_sequence\":3}\n\n")
+	}))
+	defer staleServer.Close()
+	root := setupLogsPageRoot(t)
+	writeLogsRuntimeState(t, root, staleServer.URL, "run_one")
+	stream, state, err := runtimecontrol.OpenEvents(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd := page.finishStreamOpen(logsStreamOpenMsg{generation: 9, stream: stream, state: state}); cmd != nil {
+		t.Fatalf("stale stream scheduled cmd=%v", cmd)
+	}
+
+	page.generation = 10
+	page.err = nil
+	cmd := page.finishStreamOpen(logsStreamOpenMsg{generation: 10, state: state, err: fmt.Errorf("offline")})
+	if cmd == nil || page.connected || !page.reconnecting || !strings.Contains(page.notice, "offline") {
+		t.Fatalf("offline connected=%t reconnect=%t notice=%q cmd=%v", page.connected, page.reconnecting, page.notice, cmd)
+	}
+
+	page.generation = 10
+	page.connected = false
+	page.reconnecting = true
+	updated, connect := page.Update(logsReconnectMsg(9))
+	page = updated.(*LogsPage)
+	if connect != nil || page.generation != 10 {
+		t.Fatalf("stale reconnect generation=%d cmd=%v", page.generation, connect)
+	}
+}
+
+func TestLogsPageStreamEventDisconnectAndGapHelpers(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.generation = 2
+	page.connected = true
+	page.streamRunID, page.streamSeq = "run", 4
+	if page.streamGap(runtimeevent.Event{}) {
+		t.Fatal("empty event reported gap")
+	}
+	if page.streamGap(runtimeevent.Event{RunID: "other", Sequence: 7}) || page.streamRunID != "other" || page.streamSeq != 7 {
+		t.Fatalf("new run tracking=%q/%d", page.streamRunID, page.streamSeq)
+	}
+	if page.streamGap(runtimeevent.Event{RunID: "other", Sequence: 8}) {
+		t.Fatal("sequential event reported gap")
+	}
+	if !page.streamGap(runtimeevent.Event{RunID: "other", Sequence: 10}) {
+		t.Fatal("sequence gap not detected")
+	}
+
+	page.connected = true
+	cmd := page.finishStreamEvent(logsStreamEventMsg{generation: 2, err: io.EOF})
+	if cmd == nil || page.connected || !page.reconnecting || !strings.Contains(page.notice, "disconnected") {
+		t.Fatalf("disconnect connected=%t reconnect=%t notice=%q cmd=%v", page.connected, page.reconnecting, page.notice, cmd)
+	}
+	if cmd := page.finishStreamEvent(logsStreamEventMsg{generation: 1, event: runtimeevent.Event{RunID: "run", Sequence: 1}}); cmd != nil {
+		t.Fatalf("stale event scheduled cmd=%v", cmd)
+	}
+}
+
+func TestLogsFormattingHelpersCoverBoundaries(t *testing.T) {
+	if logEventID(runtimeevent.Event{Time: time.Unix(1, 2), Name: "event", Message: "message"}) == "" {
+		t.Fatal("fallback event id empty")
+	}
+	if durationLabel(0) != "" || durationLabel(12) != "12ms" {
+		t.Fatalf("duration labels=%q/%q", durationLabel(0), durationLabel(12))
+	}
+	if shortValue("abc", 0) != "" || shortValue("abc", 3) != "abc" || lipgloss.Width(shortValue("abcdef", 1)) > 1 {
+		t.Fatalf("short values=%q/%q/%q", shortValue("abc", 0), shortValue("abc", 3), shortValue("abcdef", 1))
+	}
+	for value, want := range map[int64]string{10: "10 B", 2048: "2.0 KiB", 2 * 1024 * 1024: "2.0 MiB"} {
+		if got := humanBytes(value); got != want {
+			t.Fatalf("humanBytes(%d)=%q want %q", value, got, want)
+		}
 	}
 }
 
@@ -273,5 +572,34 @@ func writeLogsRuntimeState(t *testing.T, root, rawURL, runID string) {
 	}
 	if err := os.WriteFile(filepath.Join(root, runtimecontrol.FileName), data, 0600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLogsPageBootstrapLoadsJournalBeforeOpeningLiveHTTP(t *testing.T) {
+	root := setupLogsPageRoot(t)
+	appendLogEvents(t, root, runtimeevent.Event{Sequence: 1, Time: time.Now().UTC(), RunID: "run_fast", Level: "info", Name: "journal.ready", Message: "Journal ready"})
+	requests := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- struct{}{}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	writeLogsRuntimeState(t, root, server.URL, "run_fast")
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	bootstrap := page.Init()
+	if bootstrap == nil {
+		t.Fatal("bootstrap command missing")
+	}
+	msg := bootstrap()
+	select {
+	case <-requests:
+		t.Fatal("bootstrap contacted live HTTP before journal load completed")
+	default:
+	}
+	updated, connect := page.Update(msg)
+	page = updated.(*LogsPage)
+	if connect == nil || len(page.events) != 1 || page.events[0].Name != "journal.ready" || !page.loaded {
+		t.Fatalf("journal bootstrap loaded=%t events=%#v connect=%v", page.loaded, page.events, connect)
 	}
 }

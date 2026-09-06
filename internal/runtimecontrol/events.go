@@ -15,8 +15,9 @@ import (
 )
 
 type EventStream struct {
-	response *http.Response
-	scanner  *bufio.Scanner
+	response       *http.Response
+	scanner        *bufio.Scanner
+	latestSequence uint64
 }
 
 func OpenEvents(ctx context.Context) (*EventStream, State, error) {
@@ -26,23 +27,73 @@ func OpenEvents(ctx context.Context) (*EventStream, State, error) {
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+state.Address+"/events", nil)
 	if err != nil {
-		return nil, State{}, err
+		return nil, state, err
 	}
 	request.Header.Set("Authorization", "Bearer "+state.Token)
 	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
 	client := &http.Client{Transport: &http.Transport{Proxy: nil, DialContext: dialer.DialContext, ResponseHeaderTimeout: 5 * time.Second}}
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, State{}, fmt.Errorf("running server control endpoint unavailable: %w", err)
+		return nil, state, fmt.Errorf("running server control endpoint unavailable: %w", err)
 	}
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 		_ = response.Body.Close()
-		return nil, State{}, fmt.Errorf("runtime event stream failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return nil, state, fmt.Errorf("runtime event stream failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	return &EventStream{response: response, scanner: scanner}, state, nil
+	latestSequence, err := readEventStreamReady(scanner)
+	if err != nil {
+		_ = response.Body.Close()
+		return nil, state, err
+	}
+	return &EventStream{response: response, scanner: scanner, latestSequence: latestSequence}, state, nil
+}
+
+func readEventStreamReady(scanner *bufio.Scanner) (uint64, error) {
+	eventType := ""
+	var data strings.Builder
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if eventType != "ready" {
+				eventType = ""
+				data.Reset()
+				continue
+			}
+			var ready struct {
+				LatestSequence uint64 `json:"latest_sequence"`
+			}
+			if strings.TrimSpace(data.String()) != "" {
+				if err := json.Unmarshal([]byte(data.String()), &ready); err != nil {
+					return 0, fmt.Errorf("decode runtime event stream ready frame: %w", err)
+				}
+			}
+			return ready.LatestSequence, nil
+		}
+		if strings.HasPrefix(line, "event:") {
+			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			if data.Len() > 0 {
+				data.WriteByte('\n')
+			}
+			data.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return 0, io.EOF
+}
+
+func (stream *EventStream) LatestSequence() uint64 {
+	if stream == nil {
+		return 0
+	}
+	return stream.latestSequence
 }
 
 func (stream *EventStream) Next() (runtimeevent.Event, error) {

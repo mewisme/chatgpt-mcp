@@ -53,3 +53,43 @@ func TestJournalRotatesOldestFirst(t *testing.T) {
 		t.Fatalf("unexpected order: %#v", files)
 	}
 }
+
+func TestJournalClearRemovesCurrentAndRotatedFiles(t *testing.T) {
+	journal, err := NewJournal(t.TempDir(), Options{MaxBytes: 300, MaxFiles: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 8; i++ {
+		if err := journal.Append(Event{Time: time.Now().UTC(), Level: "info", Name: "clear.test", Message: strings.Repeat("x", 100)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(journal.FilesOldestFirst()) < 2 {
+		t.Fatal("test did not create rotated journal files")
+	}
+	if err := journal.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if files := journal.FilesOldestFirst(); len(files) != 0 {
+		t.Fatalf("journal files remain: %#v", files)
+	}
+	if _, err := os.Stat(journal.Path()); !os.IsNotExist(err) {
+		t.Fatalf("current journal still exists: %v", err)
+	}
+}
+
+func TestNilJournalOperationsAreSafe(t *testing.T) {
+	var journal *Journal
+	if journal.Path() != "" {
+		t.Fatalf("nil path=%q", journal.Path())
+	}
+	if err := journal.WriteEvent(logger.Event{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(Event{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Clear(); err != nil {
+		t.Fatal(err)
+	}
+}

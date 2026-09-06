@@ -48,11 +48,16 @@ type logsBootstrapMsg struct {
 	generation uint64
 	snapshot   application.LogsSnapshot
 	info       application.LogsInfo
-	stream     *runtimecontrol.EventStream
 	state      runtimecontrol.State
-	streamErr  error
 	historyErr error
 	infoErr    error
+}
+
+type logsStreamOpenMsg struct {
+	generation uint64
+	stream     *runtimecontrol.EventStream
+	state      runtimecontrol.State
+	err        error
 }
 
 type logsStreamEventMsg struct {
@@ -82,7 +87,10 @@ type LogsPage struct {
 	connected    bool
 	reconnecting bool
 	stream       *runtimecontrol.EventStream
+	streamCtx    context.Context
 	streamCancel context.CancelFunc
+	streamRunID  string
+	streamSeq    uint64
 	generation   uint64
 	overlay      logsOverlay
 	form         component.Form
@@ -138,6 +146,8 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case logsBootstrapMsg:
 		return page, page.finishBootstrap(msg)
+	case logsStreamOpenMsg:
+		return page, page.finishStreamOpen(msg)
 	case logsStreamEventMsg:
 		return page, page.finishStreamEvent(msg)
 	case logsReconnectMsg:
@@ -383,22 +393,24 @@ func (page *LogsPage) startBootstrap() tea.Cmd {
 	page.generation++
 	generation := page.generation
 	ctx, cancel := context.WithCancel(page.ctx)
-	page.streamCancel = cancel
+	page.streamCtx, page.streamCancel = ctx, cancel
+	page.streamRunID, page.streamSeq = "", 0
 	page.loading, page.reconnecting = true, page.loaded
 	options, visibility := page.options, page.visibility
 	return func() tea.Msg {
-		stream, state, streamErr := runtimecontrol.OpenEvents(ctx)
-		snapshot, historyErr := application.LoadLogs(options, visibility, logsBufferCap, time.Now())
+		state, _ := runtimecontrol.Load()
+		historyOptions := options
+		if historyOptions.Session == "" && !historyOptions.All && state.RunID != "" {
+			historyOptions.Session = state.RunID
+		}
+		snapshot, historyErr := application.LoadLogs(historyOptions, visibility, logsBufferCap, time.Now())
 		info, infoErr := application.LoadLogsInfo()
-		return logsBootstrapMsg{generation: generation, snapshot: snapshot, info: info, stream: stream, state: state, streamErr: streamErr, historyErr: historyErr, infoErr: infoErr}
+		return logsBootstrapMsg{generation: generation, snapshot: snapshot, info: info, state: state, historyErr: historyErr, infoErr: infoErr}
 	}
 }
 
 func (page *LogsPage) finishBootstrap(msg logsBootstrapMsg) tea.Cmd {
 	if msg.generation != page.generation {
-		if msg.stream != nil {
-			_ = msg.stream.Close()
-		}
 		return nil
 	}
 	page.loading, page.loaded = false, true
@@ -407,26 +419,63 @@ func (page *LogsPage) finishBootstrap(msg logsBootstrapMsg) tea.Cmd {
 		page.err = msg.historyErr
 	} else {
 		page.query = msg.snapshot.Query
+		if msg.state.RunID != "" {
+			page.streamRunID = msg.state.RunID
+			page.streamSeq = msg.snapshot.LatestSequence[msg.state.RunID]
+		}
 		browserCmd = page.mergeEvents(msg.snapshot.Events)
 		page.err = nil
 	}
 	if msg.infoErr == nil {
 		page.info = msg.info
 	}
-	if msg.streamErr != nil {
+	page.reconnecting = !page.connected
+	if page.err == nil && page.reconnecting {
+		page.notice = "Journal loaded; connecting live stream"
+	}
+	return tea.Batch(browserCmd, page.openStreamCmd(msg.generation))
+}
+
+func (page *LogsPage) openStreamCmd(generation uint64) tea.Cmd {
+	ctx := page.streamCtx
+	if ctx == nil {
+		ctx = page.ctx
+	}
+	return func() tea.Msg {
+		stream, state, err := runtimecontrol.OpenEvents(ctx)
+		return logsStreamOpenMsg{generation: generation, stream: stream, state: state, err: err}
+	}
+}
+
+func (page *LogsPage) finishStreamOpen(msg logsStreamOpenMsg) tea.Cmd {
+	if msg.generation != page.generation {
+		if msg.stream != nil {
+			_ = msg.stream.Close()
+		}
+		return nil
+	}
+	if msg.err != nil {
 		page.connected, page.reconnecting = false, true
 		page.stream = nil
 		if page.err == nil {
 			page.notice = "Runtime offline; showing journal history and retrying live stream"
 		}
-		return tea.Batch(browserCmd, page.reconnectCmd(msg.generation))
+		return page.reconnectCmd(msg.generation)
 	}
 	page.stream, page.connected, page.reconnecting = msg.stream, true, false
-	if page.options.Session == "" && !page.options.All && msg.state.RunID != "" && page.query.RunID == "" {
-		page.query.RunID = msg.state.RunID
+	if page.streamRunID != msg.state.RunID {
+		page.streamRunID, page.streamSeq = msg.state.RunID, 0
+	}
+	if msg.stream.LatestSequence() > page.streamSeq {
+		page.notice = "Live stream advanced during journal load; resyncing journal"
+		return page.startBootstrap()
+	}
+	if page.options.Session == "" && !page.options.All && msg.state.RunID != "" && page.query.RunID != msg.state.RunID {
+		page.notice = "Runtime session changed; resyncing journal"
+		return page.startBootstrap()
 	}
 	page.notice = ""
-	return tea.Batch(browserCmd, page.nextEventCmd(msg.generation))
+	return page.nextEventCmd(msg.generation)
 }
 
 func (page *LogsPage) nextEventCmd(generation uint64) tea.Cmd {
@@ -453,6 +502,10 @@ func (page *LogsPage) finishStreamEvent(msg logsStreamEventMsg) tea.Cmd {
 		}
 		return nil
 	}
+	if page.streamGap(msg.event) {
+		page.notice = "Live stream gap detected; resyncing journal"
+		return page.startBootstrap()
+	}
 	if page.options.Session == "" && !page.options.All && msg.event.RunID != "" && page.query.RunID != msg.event.RunID {
 		page.query.RunID = msg.event.RunID
 		page.events = nil
@@ -462,6 +515,21 @@ func (page *LogsPage) finishStreamEvent(msg logsStreamEventMsg) tea.Cmd {
 		return tea.Batch(page.appendEvent(msg.event), page.nextEventCmd(msg.generation))
 	}
 	return page.nextEventCmd(msg.generation)
+}
+
+func (page *LogsPage) streamGap(event runtimeevent.Event) bool {
+	if event.RunID == "" || event.Sequence == 0 {
+		return false
+	}
+	if page.streamRunID != event.RunID {
+		page.streamRunID, page.streamSeq = event.RunID, event.Sequence
+		return false
+	}
+	gap := page.streamSeq > 0 && event.Sequence > page.streamSeq+1
+	if event.Sequence > page.streamSeq {
+		page.streamSeq = event.Sequence
+	}
+	return gap
 }
 
 func (page *LogsPage) reconnectCmd(generation uint64) tea.Cmd {
@@ -630,6 +698,7 @@ func (page *LogsPage) stopStream() {
 		page.streamCancel()
 		page.streamCancel = nil
 	}
+	page.streamCtx = nil
 }
 func (page *LogsPage) stopStreamOnly() {
 	if page.stream != nil {

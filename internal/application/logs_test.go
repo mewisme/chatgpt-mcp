@@ -15,6 +15,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func TestLoadLogsAppliesLatestSessionVisibilityTailAndBufferCap(t *testing.T) {
@@ -39,7 +40,7 @@ func TestLoadLogsAppliesLatestSessionVisibilityTailAndBufferCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Session != "run_new" || snapshot.Total != 3 || !snapshot.Truncated || len(snapshot.Events) != 2 || snapshot.Events[0].Name != "two" || snapshot.Events[1].Name != "three" {
+	if snapshot.Session != "run_new" || snapshot.Total != 3 || !snapshot.Truncated || len(snapshot.Events) != 2 || snapshot.Events[0].Name != "two" || snapshot.Events[1].Name != "three" || snapshot.LatestSequence["run_old"] != 1 || snapshot.LatestSequence["run_new"] != 4 {
 		t.Fatalf("snapshot=%#v", snapshot)
 	}
 }
@@ -96,6 +97,67 @@ func TestClearLogsUsesRuntimeControlThenFallsBackWhenStopped(t *testing.T) {
 	}
 	if _, err := os.Stat(runtimeevent.Path(root)); !os.IsNotExist(err) {
 		t.Fatalf("journal still exists: %v", err)
+	}
+}
+
+func TestResolveLogWorkspaceByIDAndPath(t *testing.T) {
+	setupLogsRoot(t)
+	root := t.TempDir()
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{item.ID, root} {
+		got, err := ResolveLogWorkspace(value)
+		if err != nil || got != item.ID {
+			t.Fatalf("resolve %q = %q, %v", value, got, err)
+		}
+	}
+	if _, err := ResolveLogWorkspace(t.TempDir()); err == nil {
+		t.Fatal("unregistered workspace path resolved")
+	}
+}
+
+func TestLoadLogsInfoReportsJournalFilesAndBytes(t *testing.T) {
+	root := setupLogsRoot(t)
+	journal, err := runtimeevent.NewJournal(root, runtimeevent.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(runtimeevent.Event{Sequence: 1, Time: time.Now().UTC(), RunID: "run_info", Level: "info", Name: "one", Message: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := LoadLogsInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Path != runtimeevent.Path(root) || info.Files != 1 || info.Bytes <= 0 {
+		t.Fatalf("info=%#v", info)
+	}
+}
+
+func TestBuildLogsQueryRejectsInvalidInputs(t *testing.T) {
+	now := time.Now().UTC()
+	for _, options := range []LogsQueryOptions{
+		{Tail: -1},
+		{Level: "trace"},
+		{Event: "["},
+		{Since: "-1m"},
+		{Since: "not-a-time"},
+		{Until: "not-a-time"},
+	} {
+		if _, err := BuildLogsQuery(options, now); err == nil {
+			t.Fatalf("invalid options accepted: %#v", options)
+		}
+	}
+}
+
+func TestParseLogsSinceAcceptsAbsoluteTimestamp(t *testing.T) {
+	want := time.Date(2026, 9, 6, 12, 34, 56, 123, time.UTC)
+	got, err := ParseLogsSince(want.Format(time.RFC3339Nano), time.Now())
+	if err != nil || !got.Equal(want) {
+		t.Fatalf("got=%s err=%v want=%s", got, err, want)
 	}
 }
 

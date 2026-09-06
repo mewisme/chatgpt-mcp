@@ -144,6 +144,19 @@ func (page *TunnelPage) InputActive() bool {
 	return page != nil && (page.overlay == tunnelOverlayForm || page.kind == tunnelPageManaged && page.browser.InputActive())
 }
 
+func (page *TunnelPage) Notice() string {
+	if page == nil {
+		return ""
+	}
+	return page.notice
+}
+
+func (page *TunnelPage) SetNotice(value string) {
+	if page != nil {
+		page.notice = strings.TrimSpace(value)
+	}
+}
+
 func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil

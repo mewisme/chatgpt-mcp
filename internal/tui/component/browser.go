@@ -63,6 +63,8 @@ func (i browserItem) FilterValue() string {
 type Browser struct {
 	ctx                context.Context
 	title              string
+	titleNotice        string
+	titleVisible       bool
 	list               list.Model
 	viewport           viewport.Model
 	refresh            RefreshFunc
@@ -106,7 +108,7 @@ func NewBrowser(ctx context.Context, title string, rows []Row, refresh RefreshFu
 	view := viewport.New(viewport.WithWidth(74), viewport.WithHeight(12))
 	view.SoftWrap = true
 	view.FillHeight = false
-	result := Browser{ctx: ctx, title: strings.TrimSpace(title), list: model, viewport: view, refresh: refresh}
+	result := Browser{ctx: ctx, title: strings.TrimSpace(title), titleVisible: true, list: model, viewport: view, refresh: refresh}
 	result.syncHelp()
 	return result
 }
@@ -135,6 +137,7 @@ func (m *Browser) SetHelpBindings(bindings ...key.Binding) {
 
 func (m Browser) WithTitleVisible(visible bool) Browser {
 	m.list.SetShowTitle(visible)
+	m.titleVisible = visible
 	return m
 }
 
@@ -142,7 +145,7 @@ func (m *Browser) SetTitleNotice(notice string) {
 	if m == nil {
 		return
 	}
-	m.list.Title = pageTitleText(m.title, notice)
+	m.titleNotice = strings.TrimSpace(notice)
 }
 
 func (m Browser) Init() tea.Cmd { return nil }
@@ -256,6 +259,13 @@ func (m Browser) View() tea.View {
 
 func (m Browser) Content() string {
 	content := m.list.View()
+	if m.titleVisible && m.titleNotice != "" {
+		lines := strings.Split(content, "\n")
+		if len(lines) > 0 {
+			lines[0] = pageTitleNoticeLine(m.title, m.titleNotice, m.width)
+			content = strings.Join(lines, "\n")
+		}
+	}
 	if m.detail {
 		content = m.overlayDetail(content)
 	}

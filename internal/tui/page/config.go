@@ -108,6 +108,19 @@ func (page *ConfigPage) InputActive() bool {
 	return page != nil && (page.overlay == configOverlayForm || page.browser.InputActive())
 }
 
+func (page *ConfigPage) Notice() string {
+	if page == nil {
+		return ""
+	}
+	return page.notice
+}
+
+func (page *ConfigPage) SetNotice(value string) {
+	if page != nil {
+		page.notice = strings.TrimSpace(value)
+	}
+}
+
 func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil

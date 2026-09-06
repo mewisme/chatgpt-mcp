@@ -32,7 +32,7 @@ const (
 
 const navbarMinHeight = 9
 const approvalPollInterval = time.Second
-const toastDuration = 4 * time.Second
+const toastDuration = 3 * time.Second
 
 type approvalStage uint8
 
@@ -60,9 +60,7 @@ type toastDismissMsg struct{ id uint64 }
 
 type toastState struct {
 	id      uint64
-	title   string
 	message string
-	tone    component.Tone
 }
 
 type Model struct {
@@ -127,12 +125,16 @@ func (model Model) Init() tea.Cmd {
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tuipage.ToastMsg:
-		model.toastSeq++
-		model.toast = toastState{id: model.toastSeq, title: msg.Title, message: msg.Message, tone: msg.Tone}
-		id := model.toast.id
-		return model, tea.Tick(toastDuration, func(time.Time) tea.Msg { return toastDismissMsg{id: id} })
+		text := strings.TrimSpace(msg.Message)
+		if text == "" {
+			text = strings.TrimSpace(msg.Title)
+		}
+		return model, model.showPageToast(text)
 	case toastDismissMsg:
 		if msg.id == model.toast.id {
+			if page, ok := model.currentPage.(tuipage.NoticeModel); ok && strings.TrimSpace(page.Notice()) == model.toast.message {
+				page.SetNotice("")
+			}
 			model.toast = toastState{}
 		}
 		return model, nil
@@ -370,14 +372,6 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (model Model) View() tea.View {
 	content, targets := model.render()
-	if model.toast.id != 0 {
-		width, height := model.layoutSize()
-		toastWidth := max(1, min(44, width-2))
-		foreground := component.Toast(model.toast.title, model.toast.message, model.toast.tone, toastWidth)
-		x := max(0, width-lipgloss.Width(foreground)-2)
-		y := max(0, height-lipgloss.Height(foreground)-2)
-		content = component.OverlayAt(content, foreground, width, height, x, y)
-	}
 	if model.palette != nil {
 		width, height := model.layoutSize()
 		paletteWidth := max(1, min(78, width-4))
@@ -843,6 +837,9 @@ func (model *Model) loadPage(route Route) {
 		return
 	}
 	model.currentPage = value
+	if page, ok := model.currentPage.(tuipage.NoticeModel); ok && model.toast.id != 0 {
+		page.SetNotice(model.toast.message)
+	}
 	if model.currentPage != nil && model.width > 0 && model.height > 0 {
 		metrics := model.frameMetrics(model.width, model.height)
 		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})
@@ -926,9 +923,49 @@ func (model Model) updatePage(message tea.Msg) (tea.Model, tea.Cmd) {
 	if model.currentPage == nil {
 		return model, nil
 	}
+	before := pageNotice(model.currentPage)
 	updated, cmd := model.currentPage.Update(message)
 	model.currentPage = updated
+	after := pageNotice(model.currentPage)
+	if after == "" && before != "" && model.toast.id != 0 && model.toast.message == before {
+		model.toastSeq++
+		model.toast = toastState{}
+	}
+	if after != "" && after != before {
+		return model, tea.Batch(cmd, model.trackPageToast(after))
+	}
 	return model, cmd
+}
+
+func pageNotice(value tuipage.Model) string {
+	if page, ok := value.(tuipage.NoticeModel); ok {
+		return strings.TrimSpace(page.Notice())
+	}
+	return ""
+}
+
+func (model *Model) showPageToast(message string) tea.Cmd {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return nil
+	}
+	if page, ok := model.currentPage.(tuipage.NoticeModel); ok {
+		page.SetNotice(message)
+	} else {
+		return nil
+	}
+	return model.trackPageToast(message)
+}
+
+func (model *Model) trackPageToast(message string) tea.Cmd {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return nil
+	}
+	model.toastSeq++
+	model.toast = toastState{id: model.toastSeq, message: message}
+	id := model.toast.id
+	return tea.Tick(toastDuration, func(time.Time) tea.Msg { return toastDismissMsg{id: id} })
 }
 
 func (model *Model) ensureWorkspacePage(command tuipage.WorkspaceCommand, resourceID string) error {

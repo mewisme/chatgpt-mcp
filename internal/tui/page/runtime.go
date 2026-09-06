@@ -137,6 +137,19 @@ func (page *RuntimePage) InputActive() bool {
 	return page != nil && (page.overlay == systemOverlayForm || page.browser.InputActive())
 }
 
+func (page *RuntimePage) Notice() string {
+	if page == nil {
+		return ""
+	}
+	return page.notice
+}
+
+func (page *RuntimePage) SetNotice(value string) {
+	if page != nil {
+		page.notice = strings.TrimSpace(value)
+	}
+}
+
 func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil

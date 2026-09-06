@@ -57,7 +57,7 @@ func SetDarkBackground(isDark bool) { currentTheme = newCharmTheme(isDark) }
 
 func Title(value string) string { return currentTheme.title.Render(value) }
 func PageTitle(value string, width int) string {
-	title := currentTheme.pageTitle.Render(pageTitleText(value, ""))
+	title := currentTheme.pageTitle.Render(strings.TrimSpace(value))
 	style := currentTheme.pageTitleBar
 	if width > 0 {
 		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
@@ -65,19 +65,27 @@ func PageTitle(value string, width int) string {
 	return style.Render(title)
 }
 func PageTitleNotice(value, notice string, width int) string {
-	title := currentTheme.pageTitle.Render(pageTitleText(value, notice))
+	title := pageTitleNoticeContent(value, notice)
 	style := currentTheme.pageTitleBar
 	if width > 0 {
 		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
 	}
 	return style.Render(title)
 }
-func pageTitleText(value, notice string) string {
-	value, notice = strings.TrimSpace(value), strings.TrimSpace(notice)
-	if notice == "" {
-		return value
+func pageTitleNoticeLine(value, notice string, width int) string {
+	title := pageTitleNoticeContent(value, notice)
+	style := currentTheme.pageTitleBar.PaddingTop(0).PaddingBottom(0)
+	if width > 0 {
+		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
 	}
-	return value + "  · " + notice
+	return style.Render(title)
+}
+func pageTitleNoticeContent(value, notice string) string {
+	title := currentTheme.pageTitle.Render(strings.TrimSpace(value))
+	if notice = strings.TrimSpace(notice); notice != "" {
+		title += " " + Muted("· "+notice)
+	}
+	return title
 }
 func Muted(value string) string { return currentTheme.muted.Render(value) }
 func Label(value string) string { return currentTheme.muted.Render(value) }
@@ -129,35 +137,6 @@ func Modal(body string, width int) string {
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetBorderLeftForeground()).Padding(1, 2)
 	if width > 0 {
 		style = style.Width(width)
-	}
-	return style.Render(body)
-}
-
-func Toast(title, message string, tone Tone, width int) string {
-	title, message = strings.TrimSpace(title), strings.TrimSpace(message)
-	if title == "" && message == "" {
-		return ""
-	}
-	marker := "·"
-	switch tone {
-	case ToneSuccess:
-		marker = "✓"
-	case ToneWarning:
-		marker = "!"
-	case ToneDanger:
-		marker = "×"
-	}
-	header := ToneText(marker, tone)
-	if title != "" {
-		header += " " + Title(title)
-	}
-	body := header
-	if message != "" {
-		body += "\n" + Muted(message)
-	}
-	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetBorderLeftForeground()).Padding(0, 1)
-	if width > 0 {
-		style = style.MaxWidth(width)
 	}
 	return style.Render(body)
 }

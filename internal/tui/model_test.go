@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -671,31 +672,31 @@ func TestModelApprovalPollKeepsActiveRequestStableAcrossReorder(t *testing.T) {
 	}
 }
 
-func TestModelToastRendersBottomRightAcrossEveryRoute(t *testing.T) {
+func TestModelToastRendersBesidePageTitle(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	for _, route := range []Route{{Kind: RouteHome}, {Kind: RouteWorkspaces}, {Kind: RouteContainers}, {Kind: RouteMCP}, {Kind: RouteTunnel}, {Kind: RouteTunnels}, {Kind: RouteRequests}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteRuntime}, {Kind: RouteAbout}} {
+	for _, route := range []Route{{Kind: RouteWorkspaces}, {Kind: RouteContainers}, {Kind: RouteMCP}, {Kind: RouteTunnel}, {Kind: RouteTunnels}, {Kind: RouteRequests}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteRuntime}} {
 		t.Run(string(route.Kind), func(t *testing.T) {
 			model := NewModel(route)
 			updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 			model = updated.(Model)
-			updated, dismiss := model.Update(tuipage.ToastMsg{Title: "Update", Message: "toast-bottom-right", Tone: component.ToneSuccess})
+			updated, dismiss := model.Update(tuipage.ToastMsg{Title: "Update", Message: "toast-inline", Tone: component.ToneSuccess})
 			model = updated.(Model)
 			if dismiss == nil || model.toast.id == 0 {
 				t.Fatal("toast did not schedule dismissal")
 			}
 			lines := strings.Split(ansi.Strip(model.View().Content), "\n")
-			y, x := -1, -1
+			y := -1
 			for index, line := range lines {
-				if column := strings.Index(line, "toast-bottom-right"); column >= 0 {
-					y, x = index, column
+				if strings.Contains(line, "· toast-inline") {
+					y = index
 					break
 				}
 			}
-			if y < 30 || x < 60 {
-				t.Fatalf("route %s toast not bottom-right: x=%d y=%d", route.Kind, x, y)
+			if y < 0 || y > 6 {
+				t.Fatalf("route %s toast not on page title row: y=%d view=%q", route.Kind, y, ansi.Strip(model.View().Content))
 			}
 			if width, height := lipgloss.Width(model.View().Content), lipgloss.Height(model.View().Content); width != 120 || height != 40 {
 				t.Fatalf("route %s geometry=%dx%d", route.Kind, width, height)
@@ -705,7 +706,7 @@ func TestModelToastRendersBottomRightAcrossEveryRoute(t *testing.T) {
 }
 
 func TestModelToastDismissalDoesNotClearNewerToast(t *testing.T) {
-	model := NewModel(Route{Kind: RouteHome})
+	model := NewModel(Route{Kind: RouteRuntime})
 	updated, _ := model.Update(tuipage.ToastMsg{Title: "First", Message: "one", Tone: component.ToneSuccess})
 	model = updated.(Model)
 	firstID := model.toast.id
@@ -714,18 +715,18 @@ func TestModelToastDismissalDoesNotClearNewerToast(t *testing.T) {
 	secondID := model.toast.id
 	updated, _ = model.Update(toastDismissMsg{id: firstID})
 	model = updated.(Model)
-	if model.toast.id != secondID || model.toast.title != "Second" {
+	if model.toast.id != secondID || model.toast.message != "two" || pageNotice(model.currentPage) != "two" {
 		t.Fatalf("stale dismiss cleared newer toast: %#v", model.toast)
 	}
 	updated, _ = model.Update(toastDismissMsg{id: secondID})
 	model = updated.(Model)
-	if model.toast.id != 0 {
-		t.Fatalf("matching dismiss did not clear toast: %#v", model.toast)
+	if model.toast.id != 0 || pageNotice(model.currentPage) != "" {
+		t.Fatalf("matching dismiss did not clear toast: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
 	}
 }
 
 func TestModelToastKeepsExactGeometryAtTinySizes(t *testing.T) {
-	model := NewModel(Route{Kind: RouteHome})
+	model := NewModel(Route{Kind: RouteRuntime})
 	updated, _ := model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
 	model = updated.(Model)
 	for _, size := range [][2]int{{40, 10}, {20, 6}, {3, 3}, {1, 1}} {
@@ -737,3 +738,58 @@ func TestModelToastKeepsExactGeometryAtTinySizes(t *testing.T) {
 		}
 	}
 }
+
+func TestModelPageToastAutoDismissDuration(t *testing.T) {
+	if toastDuration != 3*time.Second {
+		t.Fatalf("toast duration=%s", toastDuration)
+	}
+	model := NewModel(Route{Kind: RouteHome})
+	model.currentPage = &noticeTestPage{}
+	updated, dismiss := model.updatePage(noticeTestMsg("Created"))
+	model = updated.(Model)
+	if dismiss == nil || model.toast.id == 0 || pageNotice(model.currentPage) != "Created" {
+		t.Fatalf("page notice did not start toast timer: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
+	}
+	updated, _ = model.Update(toastDismissMsg{id: model.toast.id})
+	model = updated.(Model)
+	if pageNotice(model.currentPage) != "" || model.toast.id != 0 {
+		t.Fatalf("toast did not auto-clear state: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
+	}
+}
+
+func TestModelPageClearInvalidatesPendingToast(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	model.currentPage = &noticeTestPage{}
+	updated, _ := model.updatePage(noticeTestMsg("Created"))
+	model = updated.(Model)
+	oldID := model.toast.id
+	updated, _ = model.updatePage(noticeTestMsg(""))
+	model = updated.(Model)
+	if model.toast.id != 0 || pageNotice(model.currentPage) != "" {
+		t.Fatalf("cleared page kept toast state: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
+	}
+	updated, _ = model.Update(toastDismissMsg{id: oldID})
+	model = updated.(Model)
+	if model.toast.id != 0 || pageNotice(model.currentPage) != "" {
+		t.Fatalf("stale timer restored cleared toast: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
+	}
+}
+
+type noticeTestMsg string
+
+type noticeTestPage struct{ notice string }
+
+func (*noticeTestPage) Init() tea.Cmd { return nil }
+func (page *noticeTestPage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {
+	if value, ok := message.(noticeTestMsg); ok {
+		page.notice = string(value)
+	}
+	return page, nil
+}
+func (page *noticeTestPage) View(width, height int) string {
+	return component.PageTitleNotice("Test", page.notice, width)
+}
+func (*noticeTestPage) OverlayActive() bool         { return false }
+func (*noticeTestPage) InputActive() bool           { return false }
+func (page *noticeTestPage) Notice() string         { return page.notice }
+func (page *noticeTestPage) SetNotice(value string) { page.notice = value }

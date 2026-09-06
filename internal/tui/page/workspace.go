@@ -99,6 +99,19 @@ func (page *WorkspacePage) InputActive() bool {
 	return page != nil && (page.overlay == workspaceOverlayForm || page.browser.InputActive())
 }
 
+func (page *WorkspacePage) Notice() string {
+	if page == nil {
+		return ""
+	}
+	return page.notice
+}
+
+func (page *WorkspacePage) SetNotice(value string) {
+	if page != nil {
+		page.notice = strings.TrimSpace(value)
+	}
+}
+
 func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil

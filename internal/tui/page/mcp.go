@@ -137,6 +137,19 @@ func (page *MCPPage) InputActive() bool {
 	return page != nil && (page.overlay == mcpOverlayForm || page.browser.InputActive())
 }
 
+func (page *MCPPage) Notice() string {
+	if page == nil {
+		return ""
+	}
+	return page.notice
+}
+
+func (page *MCPPage) SetNotice(value string) {
+	if page != nil {
+		page.notice = strings.TrimSpace(value)
+	}
+}
+
 func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil

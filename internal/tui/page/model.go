@@ -16,6 +16,12 @@ type Model interface {
 	InputActive() bool
 }
 
+type NoticeModel interface {
+	Model
+	Notice() string
+	SetNotice(string)
+}
+
 type NavigateMsg struct {
 	Path []string
 }

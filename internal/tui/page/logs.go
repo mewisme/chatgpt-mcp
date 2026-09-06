@@ -143,6 +143,19 @@ func (page *LogsPage) InputActive() bool {
 	return page != nil && (page.overlay == logsOverlayForm || (page.tab == logsTabRuntime && page.browser.InputActive()))
 }
 
+func (page *LogsPage) Notice() string {
+	if page == nil {
+		return ""
+	}
+	return page.notice
+}
+
+func (page *LogsPage) SetNotice(value string) {
+	if page != nil {
+		page.notice = strings.TrimSpace(value)
+	}
+}
+
 func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil

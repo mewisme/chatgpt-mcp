@@ -33,7 +33,7 @@ The application uses the terminal's current size, adapts to light/dark backgroun
 | `Esc` | close the top overlay, navigate back, or open exit confirmation at the root |
 | `Backspace` | navigate back when route history is available |
 
-Lists, forms, tabs, and detail views expose their own contextual key hints. Browser lists keep up to five custom actions in the compact hint row; when a page has more than five custom actions, those actions are hidden from the compact row and are available through `? more`. Expanded help stays expanded across automatic refreshes and list rebuilds. The app footer stays focused on global navigation instead of duplicating local controls.
+Lists, forms, tabs, and detail views expose their own contextual key hints. Page-level hints and Browser-list hints are anchored to the bottom of the page body, directly above the app footer, so switching pages does not move the local control row vertically. Transient notices and errors consume space above the main content instead of pushing hints away from the footer. Browser lists keep up to five custom actions in the compact hint row; when a page has more than five custom actions, those actions are hidden from the compact row and are available through `? more`. Expanded help stays expanded across automatic refreshes and list rebuilds. The app footer stays focused on global navigation instead of duplicating local controls.
 
 ## Command Palette
 

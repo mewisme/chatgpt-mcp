@@ -65,15 +65,16 @@ func (page *AboutPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	return page, nil
 }
 
-func (page *AboutPage) View(width, _ int) string {
+func (page *AboutPage) View(width, height int) string {
 	if page == nil {
 		return component.StateView(component.PageError, "About unavailable", "")
 	}
+	help := component.DefaultHelp(width, component.Binding([]string{"r"}, "r", "refresh"))
 	if !page.loaded && page.loading {
-		return component.StateView(component.PageLoading, "Loading build and runtime information", "")
+		return component.BottomHelp(component.StateView(component.PageLoading, "Loading build and runtime information", ""), help, width, height)
 	}
 	if page.err != nil {
-		return component.PageTitle("About", width) + "\n" + component.Banner(page.err.Error(), component.ToneDanger)
+		return component.BottomHelp(component.PageTitle("About", width)+"\n"+component.Banner(page.err.Error(), component.ToneDanger), help, width, height)
 	}
 	serverUptime := "stopped"
 	if page.info.RuntimeRunning {
@@ -113,9 +114,8 @@ func (page *AboutPage) View(width, _ int) string {
 			[2]string{"Install method", string(page.info.InstallMethod)},
 			[2]string{"Install root", page.info.InstallRoot},
 		),
-		component.Muted("r refresh"),
 	}
-	return strings.Join(sections, "\n")
+	return component.BottomHelp(strings.Join(sections, "\n"), help, width, height)
 }
 
 func (page *AboutPage) loadCmd() tea.Cmd {

@@ -200,18 +200,16 @@ func (page *ConfigPage) View(width, height int) string {
 	title := component.PageTitle("Configuration", width)
 	overview := page.overviewView(width)
 	headerHeight := lipgloss.Height(title) + lipgloss.Height(overview) + 1
-	browserHeight := max(1, height-headerHeight)
-	if page.err != nil || page.notice != "" {
-		browserHeight = max(1, browserHeight-2)
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
+	browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 	page.browser = updated.(component.Browser)
-	content := title + "\n" + overview + "\n" + page.browser.Content()
-	if page.err != nil {
-		content += "\n" + component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		content += "\n" + component.Banner(page.notice, component.ToneSuccess)
-	}
+	content := title + "\n" + overview + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	switch page.overlay {
 	case configOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 80)), width, height)
@@ -236,7 +234,13 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 	case configOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
-		offsetY := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + 1
+		feedback := ""
+		if page.err != nil {
+			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		} else if page.notice != "" {
+			feedback = component.Banner(page.notice, component.ToneSuccess)
+		}
+		offsetY := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + 1 + pageFeedbackHeight(feedback)
 		return page.browser.MouseTargets(originX, originY+offsetY, z)
 	}
 }
@@ -474,7 +478,13 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 
 func (page *ConfigPage) resizeBrowser() tea.Cmd {
 	headerHeight := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + 1
-	height := max(1, page.height-headerHeight)
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Banner(page.notice, component.ToneSuccess)
+	}
+	height := max(1, page.height-headerHeight-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd

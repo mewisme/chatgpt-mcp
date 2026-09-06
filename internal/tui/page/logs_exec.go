@@ -266,7 +266,7 @@ func (page *LogsPage) executionView(width, height int) string {
 	if message != "" {
 		content += "\n" + message
 	}
-	return content + "\n" + help
+	return component.BottomHelp(content, help, width, height)
 }
 
 func (page *LogsPage) logsTabMouseTargets(originX, originY, z int) []component.MouseTarget {

@@ -171,21 +171,19 @@ func (page *WorkspacePage) View(width, height int) string {
 	if page == nil {
 		return component.StateView(component.PageError, "Workspace page unavailable", "")
 	}
-	browserHeight := height
-	if page.err != nil || page.notice != "" {
-		browserHeight = max(1, height-2)
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
+	browserHeight := max(1, height-pageFeedbackHeight(feedback))
 	if width > 0 && browserHeight > 0 && (page.width != width || page.height != browserHeight) {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
 		page.width, page.height = width, browserHeight
 	}
-	content := page.browser.Content()
-	if page.err != nil {
-		content += "\n" + component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		content += "\n" + component.Banner(page.notice, component.ToneSuccess)
-	}
+	content := prependPageFeedback(feedback, page.browser.Content())
 	switch page.overlay {
 	case workspaceOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 72)), width, height)
@@ -206,7 +204,13 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 	case workspaceOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
 	default:
-		return page.browser.MouseTargets(originX, originY, z)
+		feedback := ""
+		if page.err != nil {
+			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		} else if page.notice != "" {
+			feedback = component.Banner(page.notice, component.ToneSuccess)
+		}
+		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
 	}
 }
 

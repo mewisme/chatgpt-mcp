@@ -243,6 +243,19 @@ func TestBrowserUsesPageBindingsInListHelp(t *testing.T) {
 	}
 }
 
+func TestBrowserHelpStaysAtBottomOfAssignedHeight(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(Binding([]string{"a"}, "a", "add"))
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 80, Height: 20})
+	lines := strings.Split(ansi.Strip(model.Content()), "\n")
+	last := len(lines) - 1
+	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	if last != 19 || !strings.Contains(lines[last], "add") {
+		t.Fatalf("help line=%d want=19 content=%q", last, ansi.Strip(model.Content()))
+	}
+}
+
 func TestBrowserHidesMoreThanFiveCustomBindingsFromShortHelp(t *testing.T) {
 	bindings := []key.Binding{
 		Binding([]string{"1"}, "1", "one"), Binding([]string{"2"}, "2", "two"), Binding([]string{"3"}, "3", "three"),

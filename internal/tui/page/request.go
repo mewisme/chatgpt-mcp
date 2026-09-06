@@ -249,18 +249,16 @@ func (page *RequestsPage) View(width, height int) string {
 		return component.StateView(component.PageError, "Approval inbox unavailable", "")
 	}
 	page.width, page.height = width, height
-	browserHeight := height
-	if page.err != nil || page.notice != "" {
-		browserHeight = max(1, height-2)
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
+	browserHeight := max(1, height-pageFeedbackHeight(feedback))
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 	page.browser = updated.(component.Browser)
-	content := page.browser.Content()
-	if page.err != nil {
-		content += "\n" + component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		content += "\n" + component.Banner(page.notice, component.ToneSuccess)
-	}
+	content := prependPageFeedback(feedback, page.browser.Content())
 	if page.overlay == requestOverlayForm {
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 76)), width, height)
 	}
@@ -285,7 +283,13 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 	case requestOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
-		return page.browser.MouseTargets(originX, originY, z)
+		feedback := ""
+		if page.err != nil {
+			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		} else if page.notice != "" {
+			feedback = component.Banner(page.notice, component.ToneSuccess)
+		}
+		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
 	}
 }
 

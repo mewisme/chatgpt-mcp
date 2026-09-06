@@ -1,7 +1,10 @@
 package page
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
@@ -21,4 +24,18 @@ type ToastMsg struct {
 	Title   string
 	Message string
 	Tone    component.Tone
+}
+
+func pageFeedbackHeight(value string) int {
+	if strings.TrimSpace(value) == "" {
+		return 0
+	}
+	return lipgloss.Height(value)
+}
+
+func prependPageFeedback(feedback, content string) string {
+	if strings.TrimSpace(feedback) == "" {
+		return content
+	}
+	return feedback + "\n" + content
 }

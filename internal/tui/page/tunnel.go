@@ -264,20 +264,18 @@ func (page *TunnelPage) View(width, height int) string {
 		return component.StateView(component.PageError, "Tunnel page unavailable", "")
 	}
 	page.width, page.height = width, height
-	content := page.runtimeView(width)
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Banner(page.notice, component.ToneSuccess)
+	}
+	content := page.runtimeViewWithFeedback(width, feedback)
 	if page.kind == tunnelPageManaged {
-		browserHeight := height
-		if page.err != nil || page.notice != "" {
-			browserHeight = max(1, height-2)
-		}
+		browserHeight := max(1, height-pageFeedbackHeight(feedback))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
-		content = page.browser.Content()
-	}
-	if page.err != nil {
-		content += "\n" + component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		content += "\n" + component.Banner(page.notice, component.ToneSuccess)
+		content = prependPageFeedback(feedback, page.browser.Content())
 	}
 	switch page.overlay {
 	case tunnelOverlayForm:
@@ -315,10 +313,16 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 	case tunnelOverlayOperation, tunnelOverlayExternal:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
-	if page.kind == tunnelPageManaged {
-		return page.browser.MouseTargets(originX, originY, z)
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
-	view := page.runtimeView(page.width)
+	if page.kind == tunnelPageManaged {
+		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
+	}
+	view := page.runtimeViewWithFeedback(page.width, feedback)
 	return keyHintMouseTargets(view, map[string]string{
 		"Configure": "e", "Toggle": "space", "Sync": "s", "Foreground": "f", "Admin key": "a", "Verify": "v", "Remove admin": "d", "Managed tunnels": "m",
 	}, originX, originY, z)
@@ -759,6 +763,10 @@ func (page *TunnelPage) managedRows() []component.Row {
 }
 
 func (page *TunnelPage) runtimeView(width int) string {
+	return page.runtimeViewWithFeedback(width, "")
+}
+
+func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) string {
 	cfg, status := page.dashboard.Config, page.dashboard.Status
 	configured := tunnel.Configured(cfg)
 	statusSection := tunnelSection("Status",
@@ -788,10 +796,8 @@ func (page *TunnelPage) runtimeView(width int) string {
 		tunnelSectionPair(adminSection, metadataSection, width),
 		"",
 		component.Muted("Live process state is handled by Runtime; this page shows persisted tunnel configuration and metadata."),
-		"",
-		actions,
 	}
-	return strings.Join(lines, "\n")
+	return component.BottomHelp(prependPageFeedback(feedback, strings.Join(lines, "\n")), actions, width, page.height)
 }
 
 func tunnelSection(title string, fields ...[2]string) string {

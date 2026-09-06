@@ -57,6 +57,22 @@ func TestTunnelRuntimeTitleStartsAtWorkspaceTitlePosition(t *testing.T) {
 	}
 }
 
+func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewTunnelDashboard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(ansi.Strip(page.View(120, 32)), "\n")
+	last := len(lines) - 1
+	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	if last != 31 || !strings.Contains(lines[last], "Managed tunnels") {
+		t.Fatalf("tunnel help line=%d want=31 view=%q", last, strings.Join(lines, "\n"))
+	}
+}
+
 func TestTunnelConfigureSwitchAndEscapeFlow(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret"})
 	page, err := NewTunnelDashboard(t.Context())

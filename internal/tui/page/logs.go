@@ -283,19 +283,17 @@ func (page *LogsPage) View(width, height int) string {
 		content += "\n" + page.executionView(width, bodyHeight)
 	} else {
 		status := page.statusView(width)
-		headerHeight := lipgloss.Height(tabs) + lipgloss.Height(status) + 1
-		browserHeight := max(1, height-headerHeight)
-		if page.err != nil || page.notice != "" {
-			browserHeight = max(1, browserHeight-2)
+		feedback := ""
+		if page.err != nil {
+			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		} else if page.notice != "" {
+			feedback = component.Muted(page.notice)
 		}
+		headerHeight := lipgloss.Height(tabs) + lipgloss.Height(status) + 1
+		browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
-		content += "\n" + status + "\n" + page.browser.Content()
-		if page.err != nil {
-			content += "\n" + component.Banner(page.err.Error(), component.ToneDanger)
-		} else if page.notice != "" {
-			content += "\n" + component.Muted(page.notice)
-		}
+		content += "\n" + status + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	}
 	switch page.overlay {
 	case logsOverlayForm:
@@ -335,8 +333,14 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 		bodyY := originY + tabsHeight + 1
 		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, max(1, page.height-tabsHeight-1))...)
 	}
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Muted(page.notice)
+	}
 	statusHeight := lipgloss.Height(page.statusView(page.width))
-	browserY := originY + tabsHeight + statusHeight + 1
+	browserY := originY + tabsHeight + statusHeight + 1 + pageFeedbackHeight(feedback)
 	return append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
 }
 
@@ -660,7 +664,13 @@ func (page *LogsPage) rebuildBrowser(selected string) tea.Cmd {
 func (page *LogsPage) resizeBrowser() tea.Cmd {
 	titleHeight := lipgloss.Height(component.PageTabs(logsTabLabels, int(page.tab), page.width))
 	statusHeight := lipgloss.Height(page.statusView(page.width))
-	height := max(1, page.height-titleHeight-statusHeight-1)
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Muted(page.notice)
+	}
+	height := max(1, page.height-titleHeight-statusHeight-1-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd

@@ -22,4 +22,12 @@ func TestAboutPageRendersBuildUptimeAndPaths(t *testing.T) {
 			t.Fatalf("about view missing %q: %q", value, view)
 		}
 	}
+	lines := strings.Split(view, "\n")
+	last := len(lines) - 1
+	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	if last != 29 || !strings.Contains(lines[last], "refresh") {
+		t.Fatalf("about help line=%d want=29 view=%q", last, view)
+	}
 }

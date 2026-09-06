@@ -259,18 +259,16 @@ func (page *RuntimePage) View(width, height int) string {
 	}
 	title := component.PageTitle("Runtime & System", width)
 	status := page.statusView(width)
-	browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-1)
-	if page.err != nil || page.notice != "" {
-		browserHeight = max(1, browserHeight-2)
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Muted(page.notice)
 	}
+	browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-1-pageFeedbackHeight(feedback))
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 	page.browser = updated.(component.Browser)
-	content := title + "\n" + status + "\n" + page.browser.Content()
-	if page.err != nil {
-		content += "\n" + component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		content += "\n" + component.Muted(page.notice)
-	}
+	content := title + "\n" + status + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	switch page.overlay {
 	case systemOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 82)), width, height)
@@ -305,7 +303,13 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 	case systemOverlayOperation, systemOverlaySecret, systemOverlayExternal:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
-	y := originY + lipgloss.Height(component.PageTitle("Runtime & System", page.width)) + lipgloss.Height(page.statusView(page.width)) + 1
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Muted(page.notice)
+	}
+	y := originY + lipgloss.Height(component.PageTitle("Runtime & System", page.width)) + lipgloss.Height(page.statusView(page.width)) + 1 + pageFeedbackHeight(feedback)
 	return page.browser.MouseTargets(originX, y, z)
 }
 
@@ -686,7 +690,13 @@ func (page *RuntimePage) rebuildBrowser(selected string) tea.Cmd {
 }
 
 func (page *RuntimePage) resizeBrowser() tea.Cmd {
-	height := max(1, page.height-lipgloss.Height(component.PageTitle("Runtime & System", page.width))-lipgloss.Height(page.statusView(page.width))-1)
+	feedback := ""
+	if page.err != nil {
+		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	} else if page.notice != "" {
+		feedback = component.Muted(page.notice)
+	}
+	height := max(1, page.height-lipgloss.Height(component.PageTitle("Runtime & System", page.width))-lipgloss.Height(page.statusView(page.width))-1-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	page.syncBrowserHelp()

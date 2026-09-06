@@ -1,10 +1,13 @@
 package component
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/lipgloss/v2"
 )
 
 const defaultLayoutWidth = 80
@@ -62,4 +65,21 @@ func DefaultHelp(width int, bindings ...key.Binding) string {
 	model.Styles = help.DefaultStyles(currentTheme.isDark)
 	model.SetWidth(width)
 	return model.ShortHelpView(bindings)
+}
+
+func BottomHelp(content, footer string, width, height int) string {
+	content, footer = strings.TrimRight(content, "\n"), strings.TrimRight(footer, "\n")
+	if footer == "" {
+		return content
+	}
+	if height <= 0 {
+		return content + "\n" + footer
+	}
+	footerHeight := lipgloss.Height(footer)
+	bodyHeight := max(0, height-footerHeight)
+	if bodyHeight == 0 {
+		return footer
+	}
+	body := lipgloss.NewStyle().Width(max(1, width)).Height(bodyHeight).MaxHeight(bodyHeight).Render(content)
+	return body + "\n" + footer
 }

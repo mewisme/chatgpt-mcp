@@ -3,9 +3,11 @@ package page
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
@@ -127,6 +129,31 @@ func TestWorkspaceContainerLifecycleAndMembership(t *testing.T) {
 	workspaces, err := page.manager.List()
 	if err != nil || len(workspaces) != 2 {
 		t.Fatalf("workspace records changed by container delete: %#v err=%v", workspaces, err)
+	}
+}
+
+func TestWorkspaceBrowserHelpStaysAboveAppFooterWithFeedback(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.notice = "Workspace updated"
+	plain := ansi.Strip(page.View(100, 24))
+	lines := strings.Split(plain, "\n")
+	last := len(lines) - 1
+	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	if last != 23 || !strings.Contains(lines[last], "? more") {
+		t.Fatalf("workspace help line=%d want=23 view=%q", last, plain)
+	}
+	notice, help := strings.Index(plain, "Workspace updated"), strings.LastIndex(plain, "? more")
+	if notice < 0 || help < 0 || notice >= help {
+		t.Fatalf("feedback/help order invalid: notice=%d help=%d view=%q", notice, help, plain)
 	}
 }
 

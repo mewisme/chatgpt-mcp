@@ -32,6 +32,7 @@ var configKeyCompletions = []configKeyCompletion{
 	{Key: "permissions.allow_dirs", Description: "additional filesystem roots", Settable: true},
 	{Key: "shell.path", Description: "additional executable search paths", Settable: true},
 	{Key: "features.ponytail.active", Description: "Ponytail mode active by default", Settable: true},
+	{Key: "features.ponytail.mode", Description: "Ponytail default intensity", Settable: true},
 	{Key: "features.caveman.active", Description: "Caveman mode active by default", Settable: true},
 	{Key: "tunnel.enabled", Description: "OpenAI tunnel enabled", Settable: true},
 	{Key: "tunnel.id", Description: "OpenAI tunnel ID", Settable: true},
@@ -89,6 +90,8 @@ func completeConfigSet(_ *cobra.Command, args []string, toComplete string) ([]st
 		return filterCompletions([]string{"none", "all", "0.0.0.0"}, toComplete), cobra.ShellCompDirectiveNoFileComp
 	case "server.expose.mode":
 		return filterCompletions([]string{"none", "all", "0.0.0.0", "interfaces"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+	case "features.ponytail.mode":
+		return filterCompletions([]string{"lite", "full", "ultra"}, toComplete), cobra.ShellCompDirectiveNoFileComp
 	case "server.expose.interfaces":
 		interfaces, err := net.Interfaces()
 		if err != nil {

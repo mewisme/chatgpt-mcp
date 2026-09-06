@@ -277,8 +277,26 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 
 func TestDefaultFeaturesActive(t *testing.T) {
 	cfg := Default()
-	if !cfg.Features.Ponytail.Active || !cfg.Features.Caveman.Active {
+	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active {
 		t.Fatalf("features = %#v", cfg.Features)
+	}
+}
+
+func TestValidatePonytailDefaultMode(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	for _, mode := range []string{"lite", "full", "ultra"} {
+		cfg.Features.Ponytail.Mode = mode
+		if err := Validate(cfg); err != nil {
+			t.Fatalf("mode %q rejected: %v", mode, err)
+		}
+	}
+	for _, mode := range []string{"", "off", "review", "max"} {
+		cfg.Features.Ponytail.Mode = mode
+		if err := Validate(cfg); err == nil {
+			t.Fatalf("mode %q accepted", mode)
+		}
 	}
 }
 
@@ -320,7 +338,7 @@ func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !loaded.Features.Ponytail.Active || !loaded.Features.Caveman.Active {
+			if !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active {
 				t.Fatalf("legacy %s features = %#v", format, loaded.Features)
 			}
 		})
@@ -351,7 +369,7 @@ func TestPartialFeaturesKeepMissingFeatureDefault(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Features.Ponytail.Active || !loaded.Features.Caveman.Active {
+			if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active {
 				t.Fatalf("partial %s features = %#v", format, loaded.Features)
 			}
 		})
@@ -380,7 +398,7 @@ func TestFeatureConfigSerializesActiveOnly(t *testing.T) {
 				t.Fatalf("features = %#v", root["features"])
 			}
 			ponytail, ok := featureValues["ponytail"].(map[string]any)
-			if !ok || ponytail["active"] != false {
+			if !ok || ponytail["active"] != false || ponytail["mode"] != "full" {
 				t.Fatalf("ponytail = %#v", featureValues["ponytail"])
 			}
 			if _, exists := ponytail["enabled"]; exists {

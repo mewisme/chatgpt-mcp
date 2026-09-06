@@ -264,6 +264,7 @@ func configPresetCommand() *cobra.Command {
 			log.Detail("admin auth", preset.AdminAuthEnabled)
 			log.Detail("tunnel", preset.TunnelEnabled)
 			log.Detail("ponytail active", preset.Features.Ponytail.Active)
+			log.Detail("ponytail mode", preset.Features.Ponytail.Mode)
 			log.Detail("caveman active", preset.Features.Caveman.Active)
 			return nil
 		},
@@ -403,6 +404,12 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 			return err
 		}
 		cfg.Features.Ponytail.Active = value
+	case "features.ponytail.mode":
+		value := strings.ToLower(strings.TrimSpace(raw))
+		if value != "lite" && value != "full" && value != "ultra" {
+			return errors.New("features.ponytail.mode must be lite, full, or ultra")
+		}
+		cfg.Features.Ponytail.Mode = value
 	case "features.caveman.active", "features.caveman.enabled":
 		value, err := parseBool(raw, key)
 		if err != nil {

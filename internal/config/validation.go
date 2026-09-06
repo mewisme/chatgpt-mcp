@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -27,6 +28,9 @@ func Validate(cfg Config) error {
 	}
 	if _, err := NormalizeShellPath(cfg.Shell.Path); err != nil {
 		return err
+	}
+	if _, ok := ponytail.NormalizeRuntimeMode(cfg.Features.Ponytail.Mode); !ok {
+		return fmt.Errorf("features.ponytail.mode must be lite, full, or ultra: %q", cfg.Features.Ponytail.Mode)
 	}
 	exposure := NormalizeExposure(cfg.Server.Expose)
 	switch exposure.Mode {

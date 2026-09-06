@@ -273,7 +273,10 @@ export type PublicConfig = {
   }
   permissions: { allow_dirs: string[] }
   shell: { path: string[] }
-  features: { ponytail: { active: boolean }; caveman: { active: boolean } }
+  features: {
+    ponytail: { active: boolean; mode: "lite" | "full" | "ultra" }
+    caveman: { active: boolean }
+  }
 }
 export type NetworkAddress = {
   address: string

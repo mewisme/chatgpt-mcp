@@ -63,6 +63,7 @@ try {
   run(["config", "set", "auth.mcp_enabled", "false"])
   run(["config", "set", "auth.admin_enabled", "false"])
   run(["config", "set", "features.ponytail.active", "false"])
+  run(["config", "set", "features.ponytail.mode", "ultra"])
   run(["config", "set", "features.caveman.active", "false"])
   run(["config", "set", "features.caveman.active", "true"])
   run(["config", "verify"])
@@ -77,8 +78,9 @@ try {
 
   await waitForHealth(`http://127.0.0.1:${serverPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${adminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
+  const workspaceID = await registerWorkspace(adminPort, allowedDir)
   await verifyActivitySSE(adminPort)
-  await verifyMCP(serverPort)
+  await verifyMCP(serverPort, workspaceID, false, "off")
   verifyApprovalCLI()
   const foregroundStatus = run(["status"], { quiet: true })
   for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "OpenAI Secure MCP Tunnel is disabled"]) {
@@ -91,11 +93,12 @@ try {
   run(["config", "set", "server.port", String(reloadedServerPort)])
   run(["config", "set", "admin.port", String(reloadedAdminPort)])
   run(["config", "set", "features.ponytail.active", "true"])
+  run(["config", "set", "features.ponytail.mode", "lite"])
   run(["config", "reload"])
   if (child.pid !== servePID || child.exitCode !== null) fail("config reload restarted or stopped the serve process")
   await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
-  await verifyMCP(reloadedServerPort)
+  await verifyMCP(reloadedServerPort, workspaceID, true, "lite")
 
   occupied = await occupyPort()
   run(["config", "set", "server.port", String(occupied.port)])
@@ -266,7 +269,7 @@ function runExpectFailure(args) {
   if (result.status === 0) fail(`${args.join(" ")} unexpectedly succeeded`)
 }
 
-async function verifyMCP(port) {
+async function verifyMCP(port, workspaceID, ponytailActive, ponytailMode) {
   const discover = await mcpRequest(port, "server/discover", {}, 1)
   assertStatus(discover.response, 200, "server/discover")
   if (discover.response.headers.get("mcp-session-id")) fail("modern MCP response unexpectedly returned Mcp-Session-Id")
@@ -295,11 +298,35 @@ async function verifyMCP(port) {
     fail(`get_version returned invalid structured content: ${JSON.stringify(version.body)}`)
   }
 
-  const legacy = await mcpRequest(port, "initialize", {}, 4)
+  const ponytail = await mcpRequest(port, "tools/call", { name: "ponytail_turn", arguments: { workspace_id: workspaceID, prompt: "continue", action: "refresh" } }, 4)
+  assertStatus(ponytail.response, 200, "ponytail_turn")
+  const ponytailState = ponytail.body?.result?.structuredContent
+  if (!ponytailState || ponytailState.available !== true || ponytailState.active !== ponytailActive || ponytailState.mode !== ponytailMode) {
+    fail(`ponytail_turn state mismatch: expected active=${ponytailActive} mode=${ponytailMode}, got ${JSON.stringify(ponytail.body)}`)
+  }
+  if (ponytailActive && (typeof ponytailState.active_instructions !== "string" || !ponytailState.active_instructions.includes("PONYTAIL MODE ACTIVE") || !ponytailState.active_instructions.includes("## The ladder"))) {
+    fail(`ponytail_turn did not return built-in instructions: ${JSON.stringify(ponytail.body)}`)
+  }
+  if (!ponytailActive && ponytailState.active_instructions) fail(`inactive ponytail_turn returned instructions: ${JSON.stringify(ponytail.body)}`)
+
+  const legacy = await mcpRequest(port, "initialize", {}, 5)
   assertStatus(legacy.response, 404, "initialize")
   if (legacy.body?.error?.code !== -32601) {
     fail(`initialize error code = ${legacy.body?.error?.code}, want -32601`)
   }
+}
+
+async function registerWorkspace(port, workspacePath) {
+  const response = await fetch(`http://127.0.0.1:${port}/api/workspaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: workspacePath }),
+    signal: AbortSignal.timeout(5000),
+  })
+  assertStatus(response, 200, "workspace register")
+  const body = await response.json()
+  if (typeof body?.id !== "string" || !body.id) fail(`workspace register returned invalid body: ${JSON.stringify(body)}`)
+  return body.id
 }
 
 async function verifyActivitySSE(port) {

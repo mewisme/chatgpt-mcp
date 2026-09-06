@@ -328,11 +328,12 @@ Examples:
 
 ```bash
 cgm config set features.ponytail.active true
+cgm config set features.ponytail.mode full
 cgm config set features.caveman.active false
 cgm config reload
 ```
 
-Admin Settings applies persisted active-state changes to the live runtime immediately. Legacy `enabled` values are accepted when loading older configuration and are written back as `active`.
+Ponytail is built into `chatgpt-mcp`; it does not require the external Ponytail plugin, hooks, or Node.js. `features.ponytail.mode` accepts `lite`, `full`, or `ultra`; `review` is a session-only mode selected with `/ponytail-review`. Admin Settings applies persisted mode changes to the live runtime immediately. Legacy `enabled` values are accepted when loading older configuration and are written back as `active`.
 
 ## Tunnel configuration
 

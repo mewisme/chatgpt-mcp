@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -64,8 +65,9 @@ type featurePatch struct {
 }
 
 type featureStatePatch struct {
-	Active  *bool `json:"active,omitempty"`
-	Enabled *bool `json:"enabled,omitempty"`
+	Active  *bool   `json:"active,omitempty"`
+	Enabled *bool   `json:"enabled,omitempty"`
+	Mode    *string `json:"mode,omitempty"`
 }
 
 func (patch *featureStatePatch) active() *bool {
@@ -165,6 +167,9 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if err == nil && patch.Features != nil {
 			if active := patch.Features.Ponytail.active(); active != nil {
 				next.Features.Ponytail.Active = *active
+			}
+			if patch.Features.Ponytail != nil && patch.Features.Ponytail.Mode != nil {
+				next.Features.Ponytail.Mode = strings.ToLower(strings.TrimSpace(*patch.Features.Ponytail.Mode))
 			}
 			if active := patch.Features.Caveman.active(); active != nil {
 				next.Features.Caveman.Active = *active

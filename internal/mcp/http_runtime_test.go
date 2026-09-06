@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
@@ -155,6 +157,30 @@ func TestHTTPRuntimeToolCallRequiresMatchingNameHeader(t *testing.T) {
 	response := decodeResponse(t, res)
 	if response.Error == nil || response.Error.Code != ErrHeaderMismatch {
 		t.Fatalf("error = %#v, want code %d", response.Error, ErrHeaderMismatch)
+	}
+}
+
+func TestHTTPRuntimePonytailUsesBuiltInConfiguredMode(t *testing.T) {
+	featureConfig := features.Default()
+	featureConfig.Ponytail.Mode = "ultra"
+	toolRuntime := tools.NewRuntimeWithFeatures(featureConfig)
+	item, err := toolRuntime.Workspaces.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := NewHTTPRuntimeWithTools(toolRuntime)
+	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"ponytail_turn","arguments":{"workspace_id":%q,"prompt":"continue","action":"refresh"}}}`, item.ID)
+	req := modernRequest("tools/call", body)
+	req.Header.Set(NameHeader, "ponytail_turn")
+	res := httptest.NewRecorder()
+	runtime.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", res.Code, res.Body.String())
+	}
+	for _, expected := range []string{`"available":true`, `"active":true`, `"mode":"ultra"`, "PONYTAIL MODE ACTIVE", "## The ladder"} {
+		if !strings.Contains(res.Body.String(), expected) {
+			t.Fatalf("response missing %q: %s", expected, res.Body.String())
+		}
 	}
 }
 

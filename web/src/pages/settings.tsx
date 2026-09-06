@@ -467,15 +467,47 @@ export function SettingsPage() {
               <FieldGroup>
                 <Toggle
                   label="Ponytail"
-                  description="Keep Ponytail active by default when its trusted plugin is available."
+                  description="Keep the built-in Ponytail coding mode active by default."
                   checked={config.features.ponytail.active}
                   onCheckedChange={(active) =>
                     setConfig({
                       ...config,
-                      features: { ...config.features, ponytail: { active } },
+                      features: {
+                        ...config.features,
+                        ponytail: { ...config.features.ponytail, active },
+                      },
                     })
                   }
                 />
+                <SettingField
+                  label="Ponytail intensity"
+                  description="Default intensity for new workspace mode state. Review remains session-only."
+                >
+                  <Select
+                    value={config.features.ponytail.mode}
+                    onValueChange={(mode) =>
+                      setConfig({
+                        ...config,
+                        features: {
+                          ...config.features,
+                          ponytail: {
+                            ...config.features.ponytail,
+                            mode: mode as PublicConfig["features"]["ponytail"]["mode"],
+                          },
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full sm:w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lite">Lite</SelectItem>
+                      <SelectItem value="full">Full</SelectItem>
+                      <SelectItem value="ultra">Ultra</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingField>
                 <Toggle
                   label="Caveman"
                   description="Keep Caveman mode active by default."

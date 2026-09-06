@@ -457,11 +457,13 @@ func (page *ConfigPage) loadCmd() tea.Cmd {
 }
 
 func (page *ConfigPage) rebuildBrowser(selected string) {
+	helpExpanded := page.browser.HelpExpanded()
 	rows := page.configRows()
 	page.browser = component.NewBrowser(page.ctx, "Configuration fields", rows, nil).WithTitleVisible(false).WithHelpBindings(
 		component.Binding([]string{"e"}, "e", "edit"), component.Binding([]string{"v"}, "v", "verify"), component.Binding([]string{"r"}, "r", "reload"), component.Binding([]string{"m"}, "m", "migrate"),
 		component.Binding([]string{"c"}, "c", "convert"), component.Binding([]string{"x"}, "x", "export"), component.Binding([]string{"i"}, "i", "import"), component.Binding([]string{"f"}, "f", "refresh"),
 	)
+	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		_ = page.resizeBrowser()
 	}

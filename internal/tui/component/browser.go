@@ -389,13 +389,13 @@ func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
 		if label == "" || len(keys) == 0 {
 			continue
 		}
-		line, column := findRenderedLine(viewLines, label, 0)
+		line, column, width := findBrowserHelpBinding(viewLines, help.Key, help.Desc)
 		if line < 0 {
 			continue
 		}
 		keyValue := keys[0]
 		targets = append(targets, MouseTarget{
-			ID: "browser.help", Rect: Rect{X: originX + column, Y: originY + line, Width: lipgloss.Width(label), Height: 1}, Z: z + 2,
+			ID: "browser.help", Rect: Rect{X: originX + column, Y: originY + line, Width: width, Height: 1}, Z: z + 2,
 			Handle: func(event MouseEvent) tea.Msg {
 				if event.Button != tea.MouseLeft {
 					return nil
@@ -405,6 +405,29 @@ func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
 		})
 	}
 	return targets
+}
+
+func findBrowserHelpBinding(lines []string, helpKey, description string) (int, int, int) {
+	label := strings.TrimSpace(helpKey + " " + description)
+	if line, column := findRenderedLine(lines, label, 0); line >= 0 {
+		return line, column, lipgloss.Width(label)
+	}
+	for lineIndex, line := range lines {
+		descIndex := strings.Index(line, description)
+		if descIndex < 0 {
+			continue
+		}
+		prefix := line[:descIndex]
+		for keyIndex := strings.LastIndex(prefix, helpKey); keyIndex >= 0; keyIndex = strings.LastIndex(prefix[:keyIndex], helpKey) {
+			if strings.TrimSpace(line[keyIndex+len(helpKey):descIndex]) != "" {
+				continue
+			}
+			start := lipgloss.Width(line[:keyIndex])
+			width := lipgloss.Width(line[keyIndex : descIndex+len(description)])
+			return lineIndex, start, width
+		}
+	}
+	return -1, -1, 0
 }
 
 func browserHelpKeyMsg(value string) tea.KeyPressMsg {

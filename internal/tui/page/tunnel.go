@@ -721,10 +721,12 @@ func (page *TunnelPage) reloadDashboard() {
 }
 
 func (page *TunnelPage) reloadManagedBrowser() error {
+	helpExpanded := page.browser.HelpExpanded()
 	rows := page.managedRows()
 	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(
 		component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"a"}, "a", "add"), component.Binding([]string{"e"}, "e", "update"), component.Binding([]string{"c"}, "c", "configure"), component.Binding([]string{"d"}, "d", "delete"),
 	)
+	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
 		page.browser = updated.(component.Browser)

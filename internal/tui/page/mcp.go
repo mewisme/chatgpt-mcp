@@ -685,6 +685,7 @@ func (page *MCPPage) closeOverlay() {
 }
 
 func (page *MCPPage) reload() error {
+	helpExpanded := page.browser.HelpExpanded()
 	rows, err := page.rows()
 	if err != nil {
 		return err
@@ -693,6 +694,7 @@ func (page *MCPPage) reload() error {
 		component.Binding([]string{"a"}, "a", "add"), component.Binding([]string{"e"}, "e", "configure"), component.Binding([]string{"space"}, "space", "toggle"),
 		component.Binding([]string{"r"}, "r", "health"), component.Binding([]string{"t"}, "t", "tools"), component.Binding([]string{"o"}, "o", "login"), component.Binding([]string{"l"}, "l", "logout"), component.Binding([]string{"d"}, "d", "remove"),
 	)
+	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
 		page.browser = updated.(component.Browser)

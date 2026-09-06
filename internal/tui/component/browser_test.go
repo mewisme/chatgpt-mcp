@@ -280,6 +280,34 @@ func TestBrowserShowsUpToFiveCustomBindingsInShortHelp(t *testing.T) {
 	}
 }
 
+func TestBrowserExpandedHelpMouseTargetsAlignedCustomBindings(t *testing.T) {
+	bindings := []key.Binding{
+		Binding([]string{"1"}, "1", "one"), Binding([]string{"2"}, "2", "two"), Binding([]string{"3"}, "3", "three"),
+		Binding([]string{"4"}, "4", "four"), Binding([]string{"5"}, "5", "five"), Binding([]string{"6"}, "6", "six"),
+	}
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(bindings...)
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 100, Height: 24})
+	model = updateBrowser(t, model, browserKeyText("?"))
+	if !model.HelpExpanded() {
+		t.Fatal("full help did not expand")
+	}
+	found := map[string]bool{}
+	for _, target := range model.MouseTargets(0, 0, 1) {
+		if target.ID != "browser.help" {
+			continue
+		}
+		message, ok := target.Handle(MouseEvent{Button: tea.MouseLeft}).(tea.KeyPressMsg)
+		if ok {
+			found[message.String()] = true
+		}
+	}
+	for _, key := range []string{"1", "2", "3", "4", "5", "6"} {
+		if !found[key] {
+			t.Fatalf("expanded help mouse target %q missing: %#v", key, found)
+		}
+	}
+}
+
 func TestBrowserExportsSelectionAndDetail(t *testing.T) {
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "a", Title: "A"}, {ID: "b", Title: "B", Detail: "details"}}, nil)
 	if !model.SelectID("b") {

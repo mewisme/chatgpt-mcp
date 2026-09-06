@@ -451,6 +451,7 @@ func (page *WorkspacePage) updateMembers() error {
 }
 
 func (page *WorkspacePage) reload() error {
+	helpExpanded := page.browser.HelpExpanded()
 	var rows []component.Row
 	var err error
 	if page.kind == workspacePageContainers {
@@ -477,6 +478,7 @@ func (page *WorkspacePage) reload() error {
 		}
 		return "Copied " + row.ID, nil, nil
 	}})
+	page.browser.SetHelpExpanded(helpExpanded)
 	if page.kind == workspacePageContainers {
 		page.browser.SetHelpBindings(component.Binding([]string{"a"}, "a", "create"), component.Binding([]string{"e"}, "e", "rename"), component.Binding([]string{"m"}, "m", "members"), component.Binding([]string{"d"}, "d", "delete"))
 	} else {

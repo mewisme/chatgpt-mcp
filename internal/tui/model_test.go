@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func TestModelRendersDeepLinkAndNavigation(t *testing.T) {
@@ -74,5 +75,29 @@ func TestModelPaletteFallbackKeys(t *testing.T) {
 		if model.palette == nil {
 			t.Fatalf("%q did not open palette", key.String())
 		}
+	}
+}
+
+func TestModelQuickOpenNavigatesPage(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(Route{Kind: RouteHome})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if model.palette == nil || model.overlay != overlayQuickOpen {
+		t.Fatal("Ctrl+O did not open Quick Open")
+	}
+	model.palette.SetQuery("config")
+	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("Quick Open enter returned no command")
+	}
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	if model.router.Current().Kind != RouteConfig || model.palette != nil {
+		t.Fatalf("route=%#v overlay=%d", model.router.Current(), model.overlay)
 	}
 }

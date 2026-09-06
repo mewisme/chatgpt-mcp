@@ -17,23 +17,48 @@ const maxVisibleResults = 9
 type SelectedMsg struct{ ID string }
 type ClosedMsg struct{}
 
+type Options struct {
+	Title       string
+	Hint        string
+	Placeholder string
+	Footer      string
+	Recent      []string
+}
+
 type Model struct {
 	input    textinput.Model
 	actions  []action.Action
 	results  []Result
 	context  action.Context
+	options  Options
 	selected int
 	isDark   bool
 }
 
 func New(actions []action.Action, ctx action.Context) Model {
+	return NewWithOptions(actions, ctx, Options{})
+}
+
+func NewWithOptions(actions []action.Action, ctx action.Context, options Options) Model {
+	if strings.TrimSpace(options.Title) == "" {
+		options.Title = "Command Palette"
+	}
+	if strings.TrimSpace(options.Hint) == "" {
+		options.Hint = "Ctrl+Shift+P · Ctrl+P · :"
+	}
+	if strings.TrimSpace(options.Placeholder) == "" {
+		options.Placeholder = "Type a command"
+	}
+	if strings.TrimSpace(options.Footer) == "" {
+		options.Footer = "↑/↓ navigate  ·  Enter run  ·  Esc close"
+	}
 	input := textinput.New()
 	input.Prompt = "> "
-	input.Placeholder = "Type a command"
+	input.Placeholder = options.Placeholder
 	input.CharLimit = 160
 	input.SetStyles(textinput.DefaultStyles(true))
 	input.Focus()
-	model := Model{input: input, actions: append([]action.Action(nil), actions...), context: ctx, isDark: true}
+	model := Model{input: input, actions: append([]action.Action(nil), actions...), context: ctx, options: options, isDark: true}
 	model.refresh()
 	return model
 }
@@ -116,9 +141,9 @@ func (model Model) View(width int) string {
 	selectedStyle := lipgloss.NewStyle().Foreground(huhStyles.Focused.SelectSelector.GetForeground()).Bold(true)
 	borderColor := huhStyles.Focused.Base.GetBorderLeftForeground()
 	var builder strings.Builder
-	builder.WriteString(titleStyle.Render("Command Palette"))
+	builder.WriteString(titleStyle.Render(model.options.Title))
 	builder.WriteString("\n")
-	builder.WriteString(mutedStyle.Render("Ctrl+Shift+P · Ctrl+P · :"))
+	builder.WriteString(mutedStyle.Render(model.options.Hint))
 	builder.WriteString("\n\n")
 	builder.WriteString(input.View())
 	builder.WriteString("\n")
@@ -165,12 +190,12 @@ func (model Model) View(width int) string {
 		}
 	}
 	builder.WriteString("\n\n")
-	builder.WriteString(mutedStyle.Render("↑/↓ navigate  ·  Enter run  ·  Esc close"))
+	builder.WriteString(mutedStyle.Render(model.options.Footer))
 	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(borderColor).Padding(1, 2).Width(width).Render(builder.String())
 }
 
 func (model *Model) refresh() {
-	model.results = Rank(model.actions, model.input.Value(), model.context)
+	model.results = RankWithRecent(model.actions, model.input.Value(), model.context, model.options.Recent)
 	if len(model.results) == 0 {
 		model.selected = 0
 	} else if model.selected >= len(model.results) {

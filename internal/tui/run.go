@@ -7,6 +7,7 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"golang.org/x/term"
 )
 
@@ -23,6 +24,6 @@ func Run(ctx context.Context, route Route, in io.Reader, out io.Writer) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	_, err := tea.NewProgram(NewModelWithContext(ctx, route), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out)).Run()
+	_, err := tea.NewProgram(NewModelWithState(ctx, route, config.RootPath()), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out)).Run()
 	return err
 }

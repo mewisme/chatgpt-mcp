@@ -10,16 +10,31 @@ import (
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	"go.mewis.me/chatgpt-mcp/internal/tui/palette"
+	"go.mewis.me/chatgpt-mcp/internal/tui/quickopen"
+	tuistate "go.mewis.me/chatgpt-mcp/internal/tui/state"
+)
+
+type overlayKind uint8
+
+const (
+	overlayNone overlayKind = iota
+	overlayCommands
+	overlayQuickOpen
 )
 
 type Model struct {
-	ctx     context.Context
-	router  Router
-	actions *action.Registry
-	palette *palette.Model
-	theme   theme
-	width   int
-	height  int
+	ctx            context.Context
+	router         Router
+	actions        *action.Registry
+	palette        *palette.Model
+	overlay        overlayKind
+	quickResources map[string]quickopen.Resource
+	stateRoot      string
+	state          tuistate.State
+	notice         string
+	theme          theme
+	width          int
+	height         int
 }
 
 func NewModel(initial Route) Model {
@@ -27,10 +42,20 @@ func NewModel(initial Route) Model {
 }
 
 func NewModelWithContext(ctx context.Context, initial Route) Model {
+	return NewModelWithState(ctx, initial, "")
+}
+
+func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), theme: newTheme(true)}
+	state := tuistate.Default()
+	if root != "" {
+		if loaded, err := tuistate.Load(root); err == nil {
+			state = loaded
+		}
+	}
+	return Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), stateRoot: root, state: state, theme: newTheme(true)}
 }
 
 func (model Model) Init() tea.Cmd { return nil }
@@ -47,12 +72,29 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		model.width, model.height = msg.Width, msg.Height
 	case palette.ClosedMsg:
-		model.palette = nil
+		model.closeOverlay()
 		return model, nil
 	case palette.SelectedMsg:
-		model.palette = nil
+		if model.overlay == overlayQuickOpen {
+			resource, ok := model.quickResources[msg.ID]
+			model.closeOverlay()
+			if !ok {
+				model.notice = "Quick Open resource is no longer available"
+				return model, nil
+			}
+			route, err := ParseRoute(resource.Path)
+			if err != nil {
+				model.notice = err.Error()
+				return model, nil
+			}
+			model.router.Navigate(route)
+			return model, nil
+		}
+		model.closeOverlay()
+		model.recordRecent(msg.ID)
 		cmd, err := model.actions.Execute(model.ctx, msg.ID, actionContext(model.router.Current()))
 		if err != nil {
+			model.notice = err.Error()
 			return model, nil
 		}
 		return model, cmd
@@ -66,6 +108,10 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if isPaletteKey(msg) {
 			model.openPalette()
+			return model, nil
+		}
+		if isQuickOpenKey(msg) {
+			model.openQuickOpen()
 			return model, nil
 		}
 		switch msg.String() {
@@ -100,14 +146,56 @@ func (model *Model) openPalette() {
 		return
 	}
 	context := actionContext(model.router.Current())
-	value := palette.New(model.actions.Actions(context), context)
+	value := palette.NewWithOptions(model.actions.Actions(context), context, palette.Options{Recent: model.state.RecentActions})
 	model.palette = &value
+	model.overlay = overlayCommands
+	model.quickResources = nil
 }
 
 func isPaletteKey(message tea.KeyPressMsg) bool {
 	value := message.String()
 	return value == "ctrl+shift+p" || value == "ctrl+p" || value == ":"
 }
+
+func (model *Model) openQuickOpen() {
+	if model == nil {
+		return
+	}
+	resources, err := loadQuickOpenResources()
+	if err != nil {
+		model.notice = err.Error()
+		return
+	}
+	actions, index := quickopen.Actions(resources)
+	context := actionContext(model.router.Current())
+	value := palette.NewWithOptions(actions, context, palette.Options{Title: "Quick Open", Hint: "Ctrl+O", Placeholder: "Search pages and resources", Footer: "↑/↓ navigate  ·  Enter open  ·  Esc close"})
+	model.palette = &value
+	model.overlay = overlayQuickOpen
+	model.quickResources = index
+}
+
+func (model *Model) closeOverlay() {
+	if model == nil {
+		return
+	}
+	model.palette = nil
+	model.overlay = overlayNone
+	model.quickResources = nil
+}
+
+func (model *Model) recordRecent(id string) {
+	if model == nil {
+		return
+	}
+	tuistate.RecordRecent(&model.state, id)
+	if model.stateRoot != "" {
+		if err := tuistate.Save(model.stateRoot, model.state); err != nil {
+			model.notice = "TUI state: " + err.Error()
+		}
+	}
+}
+
+func isQuickOpenKey(message tea.KeyPressMsg) bool { return message.String() == "ctrl+o" }
 
 func (model Model) render() string {
 	width, height := model.width, model.height
@@ -139,6 +227,7 @@ func (model Model) shortcutFooter() string {
 	}
 	sort.Strings(parts)
 	parts = append(parts, "Esc Back", "q Quit")
+	parts = append([]string{"Ctrl+Shift+P Commands", "Ctrl+O Open"}, parts...)
 	return strings.Join(parts, "  ·  ")
 }
 
@@ -153,7 +242,11 @@ func (model Model) page(width int) string {
 	route := model.router.Current()
 	title := model.theme.current.Render(route.Title())
 	description := routeDescription(route)
-	return "\n" + title + "\n\n" + model.theme.muted.Render(description) + "\n\n" + model.theme.subtle.Render("Command Center shell is ready. Domain actions will be added through the shared action registry.") + "\n"
+	notice := ""
+	if model.notice != "" {
+		notice = "\n\n" + model.theme.muted.Render(model.notice)
+	}
+	return "\n" + title + "\n\n" + model.theme.muted.Render(description) + notice + "\n\n" + model.theme.subtle.Render("Command Center shell is ready. Domain actions will be added through the shared action registry.") + "\n"
 }
 
 func (model Model) divider(width int) string {
@@ -169,6 +262,8 @@ func routeDescription(route Route) string {
 		return "Keyboard-first command center for chatgpt-mcp."
 	case RouteWorkspaces:
 		return "Browse registered workspaces and workspace containers."
+	case RouteContainers:
+		return "Browse workspace containers and membership."
 	case RouteMCP:
 		return "Manage configured upstream MCP servers."
 	case RouteTunnel:

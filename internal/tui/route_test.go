@@ -10,6 +10,7 @@ func TestParseRoute(t *testing.T) {
 		{nil, Route{Kind: RouteHome}},
 		{[]string{"workspace"}, Route{Kind: RouteWorkspaces}},
 		{[]string{"ws", "ws_abc"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_abc"}},
+		{[]string{"containers", "wsc_abc"}, Route{Kind: RouteContainers, ResourceID: "wsc_abc"}},
 		{[]string{"mcp", "github"}, Route{Kind: RouteMCP, ResourceID: "github"}},
 		{[]string{"tunnel"}, Route{Kind: RouteTunnel}},
 		{[]string{"logs"}, Route{Kind: RouteLogs}},

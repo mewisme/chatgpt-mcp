@@ -13,6 +13,7 @@ type navigateMsg struct{ route Route }
 func defaultActionRegistry() *action.Registry {
 	registry, err := action.NewRegistry(
 		navigationAction("app.go.workspaces", "Workspaces", "1", Route{Kind: RouteWorkspaces}, []string{"workspace", "workspaces", "ws"}),
+		navigationAction("app.go.containers", "Containers", "", Route{Kind: RouteContainers}, []string{"workspace", "container", "containers"}),
 		navigationAction("app.go.mcp", "MCP Servers", "2", Route{Kind: RouteMCP}, []string{"mcp", "server", "upstream"}),
 		navigationAction("app.go.tunnel", "Tunnel", "3", Route{Kind: RouteTunnel}, []string{"tunnel", "secure"}),
 		navigationAction("app.go.requests", "Requests", "4", Route{Kind: RouteRequests}, []string{"request", "approval"}),
@@ -27,13 +28,17 @@ func defaultActionRegistry() *action.Registry {
 }
 
 func navigationAction(id, title, shortcut string, route Route, keywords []string) action.Action {
-	return action.Action{
+	result := action.Action{
 		ID: id, Title: "Go to " + title, Category: "App", Description: "Open the " + title + " page", Keywords: keywords,
-		CommandPath: []string{"tui", string(route.Kind)}, Shortcut: key.NewBinding(key.WithKeys(shortcut), key.WithHelp(shortcut, title)), Scope: action.ScopeGlobal,
+		CommandPath: []string{"tui", string(route.Kind)}, Scope: action.ScopeGlobal,
 		Run: func(context.Context, action.Context) tea.Cmd {
 			return func() tea.Msg { return navigateMsg{route: route} }
 		},
 	}
+	if shortcut != "" {
+		result.Shortcut = key.NewBinding(key.WithKeys(shortcut), key.WithHelp(shortcut, title))
+	}
+	return result
 }
 
 func actionContext(route Route) action.Context {

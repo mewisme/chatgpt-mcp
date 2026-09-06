@@ -32,3 +32,18 @@ func TestRankBoostsCurrentResource(t *testing.T) {
 		t.Fatalf("results = %#v", results)
 	}
 }
+
+func TestRecentActionsBoostEmptyPaletteButNotStrongQuery(t *testing.T) {
+	actions := []action.Action{
+		{ID: "logs", Title: "Go to Logs", Category: "App"},
+		{ID: "config", Title: "Verify configuration", Category: "Config", CommandPath: []string{"config", "verify"}},
+	}
+	results := RankWithRecent(actions, "", action.Context{}, []string{"config"})
+	if len(results) != 2 || results[0].Action.ID != "config" {
+		t.Fatalf("recent results = %#v", results)
+	}
+	results = RankWithRecent(actions, "logs", action.Context{}, []string{"config"})
+	if len(results) != 1 || results[0].Action.ID != "logs" {
+		t.Fatalf("query results = %#v", results)
+	}
+}

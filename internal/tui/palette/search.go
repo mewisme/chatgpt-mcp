@@ -14,11 +14,28 @@ type Result struct {
 }
 
 func Rank(actions []action.Action, query string, ctx action.Context) []Result {
+	return RankWithRecent(actions, query, ctx, nil)
+}
+
+func RankWithRecent(actions []action.Action, query string, ctx action.Context, recent []string) []Result {
 	query = normalize(query)
+	recentRank := make(map[string]int, len(recent))
+	for index, id := range recent {
+		if _, exists := recentRank[id]; !exists {
+			recentRank[id] = index
+		}
+	}
 	results := make([]Result, 0, len(actions))
 	for _, item := range actions {
 		score, ok := actionScore(item, query, ctx)
 		if ok {
+			if index, exists := recentRank[item.ID]; exists {
+				if query == "" {
+					score += max(1, 80-index*4)
+				} else {
+					score += max(1, 20-index)
+				}
+			}
 			results = append(results, Result{Action: item, Score: score})
 		}
 	}

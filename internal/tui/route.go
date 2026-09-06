@@ -1,0 +1,119 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+)
+
+type RouteKind string
+
+const (
+	RouteHome       RouteKind = "home"
+	RouteWorkspaces RouteKind = "workspaces"
+	RouteMCP        RouteKind = "mcp"
+	RouteTunnel     RouteKind = "tunnel"
+	RouteRequests   RouteKind = "requests"
+	RouteLogs       RouteKind = "logs"
+	RouteConfig     RouteKind = "config"
+	RouteRuntime    RouteKind = "runtime"
+	RouteAbout      RouteKind = "about"
+)
+
+type Route struct {
+	Kind       RouteKind
+	ResourceID string
+}
+
+func ParseRoute(args []string) (Route, error) {
+	if len(args) == 0 {
+		return Route{Kind: RouteHome}, nil
+	}
+	parts := make([]string, 0, len(args))
+	for _, value := range args {
+		if value = strings.TrimSpace(value); value != "" {
+			parts = append(parts, value)
+		}
+	}
+	if len(parts) == 0 {
+		return Route{Kind: RouteHome}, nil
+	}
+	kind, ok := parseRouteKind(parts[0])
+	if !ok {
+		return Route{}, fmt.Errorf("unknown TUI path %q", strings.Join(parts, " "))
+	}
+	if len(parts) > 2 {
+		return Route{}, fmt.Errorf("TUI path accepts at most one resource id: %s", strings.Join(parts, " "))
+	}
+	resourceID := ""
+	if len(parts) == 2 {
+		if kind != RouteWorkspaces && kind != RouteMCP && kind != RouteTunnel && kind != RouteRequests {
+			return Route{}, fmt.Errorf("TUI path %q does not accept a resource id", parts[0])
+		}
+		resourceID = parts[1]
+	}
+	return Route{Kind: kind, ResourceID: resourceID}, nil
+}
+
+func parseRouteKind(value string) (RouteKind, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "home":
+		return RouteHome, true
+	case "workspace", "workspaces", "ws":
+		return RouteWorkspaces, true
+	case "mcp", "server", "servers":
+		return RouteMCP, true
+	case "tunnel", "tunnels":
+		return RouteTunnel, true
+	case "request", "requests", "req":
+		return RouteRequests, true
+	case "log", "logs":
+		return RouteLogs, true
+	case "config", "cfg":
+		return RouteConfig, true
+	case "runtime", "status":
+		return RouteRuntime, true
+	case "about", "version":
+		return RouteAbout, true
+	default:
+		return "", false
+	}
+}
+
+func (route Route) Title() string {
+	base := map[RouteKind]string{
+		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel",
+		RouteRequests: "Requests", RouteLogs: "Logs", RouteConfig: "Config", RouteRuntime: "Runtime", RouteAbout: "About",
+	}[route.Kind]
+	if route.ResourceID != "" {
+		return base + " · " + route.ResourceID
+	}
+	return base
+}
+
+type Router struct {
+	stack []Route
+}
+
+func NewRouter(initial Route) Router { return Router{stack: []Route{initial}} }
+
+func (router Router) Current() Route {
+	if len(router.stack) == 0 {
+		return Route{Kind: RouteHome}
+	}
+	return router.stack[len(router.stack)-1]
+}
+
+func (router *Router) Navigate(route Route) {
+	if router == nil || route == router.Current() {
+		return
+	}
+	router.stack = append(router.stack, route)
+}
+
+func (router *Router) Back() bool {
+	if router == nil || len(router.stack) < 2 {
+		return false
+	}
+	router.stack = router.stack[:len(router.stack)-1]
+	return true
+}

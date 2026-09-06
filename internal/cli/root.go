@@ -37,6 +37,7 @@ func newRootCommand() *cobra.Command {
 		restartCommand(),
 		logsCommand(),
 		requestCommand(),
+		tuiCommand(),
 		configCommand(),
 		aliasCommand(),
 		authCommand(),

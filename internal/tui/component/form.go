@@ -61,6 +61,10 @@ func PasswordInput(title string, value *string) *huh.Input {
 	return Input(title, value).EchoMode(huh.EchoModePassword)
 }
 
+func Text(title string, value *string) *huh.Text {
+	return huh.NewText().Title(strings.TrimSpace(title)).Value(value).Lines(4)
+}
+
 func Select[T comparable](title string, value *T, options ...huh.Option[T]) *huh.Select[T] {
 	return huh.NewSelect[T]().Title(strings.TrimSpace(title)).Options(options...).Value(value)
 }

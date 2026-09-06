@@ -25,7 +25,7 @@ const (
 )
 
 const minTerminalWidth = 56
-const minTerminalHeight = 20
+const minTerminalHeight = 24
 
 type Model struct {
 	ctx            context.Context
@@ -133,6 +133,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, nil
 	case tuipage.WorkspaceCommandMsg:
 		if err := model.ensureWorkspacePage(msg.Command, msg.ResourceID); err != nil {
+			model.notice = err.Error()
+			return model, nil
+		}
+		return model.updatePage(msg)
+	case tuipage.MCPCommandMsg:
+		if err := model.ensureMCPPage(msg.ResourceID); err != nil {
 			model.notice = err.Error()
 			return model, nil
 		}
@@ -263,6 +269,8 @@ func (model *Model) loadPage(route Route) {
 		value, err = tuipage.NewWorkspaces(model.ctx, route.ResourceID)
 	case RouteContainers:
 		value, err = tuipage.NewContainers(model.ctx, route.ResourceID)
+	case RouteMCP:
+		value, err = tuipage.NewMCP(model.ctx, route.ResourceID)
 	}
 	if err != nil {
 		model.notice = err.Error()
@@ -273,6 +281,16 @@ func (model *Model) loadPage(route Route) {
 		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, model.width-8), Height: max(10, model.height-10)})
 		model.currentPage = updated
 	}
+}
+
+func (model *Model) ensureMCPPage(resourceID string) error {
+	if model.router.Current().Kind != RouteMCP || (resourceID != "" && model.router.Current().ResourceID != resourceID) {
+		model.navigate(Route{Kind: RouteMCP, ResourceID: resourceID})
+	}
+	if model.currentPage == nil {
+		return fmt.Errorf("MCP page is unavailable")
+	}
+	return nil
 }
 
 func (model Model) updatePage(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -304,7 +322,23 @@ func isQuickOpenKey(message tea.KeyPressMsg) bool { return message.String() == "
 func (model Model) render() string {
 	width, height := model.layoutSize()
 	contentWidth := max(48, width-6)
-	pageHeight := max(10, height-8)
+	pageHeight := max(1, height-8)
+	for range 3 {
+		output := model.renderFrame(width, height, contentWidth, pageHeight)
+		overflow := lipgloss.Height(output) - height
+		if overflow <= 0 {
+			return output
+		}
+		next := max(1, pageHeight-overflow)
+		if next == pageHeight {
+			return output
+		}
+		pageHeight = next
+	}
+	return model.renderFrame(width, height, contentWidth, pageHeight)
+}
+
+func (model Model) renderFrame(width, height, contentWidth, pageHeight int) string {
 	body := strings.Join([]string{
 		model.header(contentWidth),
 		model.divider(contentWidth),

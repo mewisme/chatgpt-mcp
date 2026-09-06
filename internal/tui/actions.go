@@ -23,11 +23,38 @@ func defaultActionRegistry() *action.Registry {
 		navigationAction("app.go.runtime", "Runtime", "7", Route{Kind: RouteRuntime}, []string{"runtime", "status", "service"}),
 	}
 	actions = append(actions, workspaceActions()...)
+	actions = append(actions, mcpActions()...)
 	registry, err := action.NewRegistry(actions...)
 	if err != nil {
 		panic(err)
 	}
 	return registry
+}
+
+func mcpActions() []action.Action {
+	return []action.Action{
+		mcpAction("mcp.server.add", "Add server", "Add an upstream MCP server", []string{"mcp", "server", "add", "upstream"}, []string{"mcp", "server", "add"}, tuipage.MCPServerAdd, false),
+		mcpAction("mcp.server.configure", "Configure server", "Configure the current upstream MCP server", []string{"mcp", "server", "configure", "set"}, []string{"mcp", "server", "configure"}, tuipage.MCPServerConfigure, true),
+		mcpAction("mcp.server.remove", "Remove server", "Remove the current upstream MCP server", []string{"mcp", "server", "remove", "delete"}, []string{"mcp", "server", "remove"}, tuipage.MCPServerRemove, true),
+		mcpAction("mcp.server.enable", "Enable server", "Enable the current upstream MCP server", []string{"mcp", "server", "enable"}, []string{"mcp", "server", "enable"}, tuipage.MCPServerEnable, true),
+		mcpAction("mcp.server.disable", "Disable server", "Disable the current upstream MCP server", []string{"mcp", "server", "disable"}, []string{"mcp", "server", "disable"}, tuipage.MCPServerDisable, true),
+		mcpAction("mcp.server.status", "Refresh health", "Refresh upstream MCP health and connection status", []string{"mcp", "server", "status", "health", "refresh"}, []string{"mcp", "server", "status"}, tuipage.MCPServerHealth, false),
+		mcpAction("mcp.server.tools", "View tools", "Load tools exposed by the current upstream MCP server", []string{"mcp", "server", "tools", "refresh"}, []string{"mcp", "server", "tools"}, tuipage.MCPServerTools, true),
+		mcpAction("mcp.server.auth.login", "OAuth login", "Authorize the current HTTP MCP server with OAuth", []string{"mcp", "server", "auth", "login", "oauth"}, []string{"mcp", "server", "auth", "login"}, tuipage.MCPAuthLogin, true),
+		mcpAction("mcp.server.auth.logout", "OAuth logout", "Remove stored OAuth authorization for the current MCP server", []string{"mcp", "server", "auth", "logout", "oauth"}, []string{"mcp", "server", "auth", "logout"}, tuipage.MCPAuthLogout, true),
+	}
+}
+
+func mcpAction(id, title, description string, keywords, commandPath []string, command tuipage.MCPCommand, needsResource bool) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "MCP", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool {
+			return !needsResource || ctx.Route == string(RouteMCP) && ctx.ResourceID != ""
+		},
+		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
+			return func() tea.Msg { return tuipage.MCPCommandMsg{Command: command, ResourceID: ctx.ResourceID} }
+		},
+	}
 }
 
 func workspaceActions() []action.Action {

@@ -1,0 +1,257 @@
+package page
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+
+	"charm.land/huh/v2"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/upstream"
+)
+
+type mcpServerFormData struct {
+	ID                string
+	Name              string
+	Transport         string
+	Enabled           bool
+	URL               string
+	Headers           string
+	SensitiveHeaders  string
+	BearerTokenEnvVar string
+	AuthType          string
+	AuthScope         string
+	Command           string
+	Args              string
+	CWD               string
+	Env               string
+	SensitiveEnv      string
+	ToolPrefix        string
+	Expose            string
+	Tools             string
+	DisabledTools     string
+	IdleTimeout       string
+	existingHeaders   map[string]string
+	existingEnv       map[string]string
+}
+
+type mcpOAuthFormData struct {
+	Issuer             string
+	ClientID           string
+	ClientSecretEnvVar string
+	ClientMetadataURL  string
+	ExtraScope         string
+	OpenBrowser        bool
+}
+
+func newMCPServerForm(server upstream.Server, create bool) (component.Form, *mcpServerFormData) {
+	data := mcpServerFormData{
+		ID: server.ID, Name: server.Name, Transport: server.Transport, Enabled: server.Enabled, URL: server.URL,
+		BearerTokenEnvVar: server.BearerTokenEnvVar, AuthType: server.Auth.Type, AuthScope: server.Auth.Scope,
+		Command: server.Command, Args: strings.Join(server.Args, "\n"), CWD: server.CWD,
+		ToolPrefix: server.ToolPrefix, Expose: server.Expose, Tools: strings.Join(server.Tools, "\n"), DisabledTools: strings.Join(server.DisabledTools, "\n"),
+		existingHeaders: upstream.CloneStringMap(server.Headers), existingEnv: upstream.CloneStringMap(server.Env),
+	}
+	if create {
+		data.Enabled = true
+		if data.Transport == "" {
+			data.Transport = "http"
+		}
+		if data.Expose == "" {
+			data.Expose = "all"
+		}
+	}
+	if data.AuthType == "" {
+		if data.Transport == "http" {
+			data.AuthType = "auto"
+		} else {
+			data.AuthType = "none"
+		}
+	}
+	if server.IdleTimeoutSec > 0 {
+		data.IdleTimeout = strconv.Itoa(server.IdleTimeoutSec)
+	} else {
+		data.IdleTimeout = "600"
+	}
+	data.Headers = assignmentText(nonSensitiveMap(server.Headers))
+	data.Env = assignmentText(nonSensitiveMap(server.Env))
+
+	general := []*huh.Group{}
+	fields := []huh.Field{}
+	if create {
+		fields = append(fields, component.Input("Server ID", &data.ID).Validate(requiredValue("server id")))
+	}
+	fields = append(fields,
+		component.Input("Display name", &data.Name),
+		component.Select("Transport", &data.Transport, huh.NewOption("HTTP", "http"), huh.NewOption("stdio", "stdio")),
+		component.Confirm("Enabled", &data.Enabled),
+	)
+	general = append(general, huh.NewGroup(fields...))
+
+	httpGroup := huh.NewGroup(
+		component.Input("HTTP MCP URL", &data.URL),
+		component.Text("Non-sensitive headers (KEY=VALUE, one per line)", &data.Headers),
+		component.PasswordInput("Sensitive headers JSON", &data.SensitiveHeaders).Description(`Optional JSON object, e.g. {"Authorization":"Bearer ..."}. Blank keeps existing sensitive headers.`),
+		component.Input("Bearer token environment variable", &data.BearerTokenEnvVar),
+		component.Select("Auth mode", &data.AuthType, huh.NewOption("Auto", "auto"), huh.NewOption("OAuth", "oauth"), huh.NewOption("None", "none")),
+		component.Input("OAuth scope", &data.AuthScope),
+	).WithHideFunc(func() bool { return data.Transport != "http" })
+
+	stdioGroup := huh.NewGroup(
+		component.Input("Command", &data.Command),
+		component.Text("Arguments (one per line)", &data.Args),
+		component.Input("Working directory", &data.CWD),
+		component.Text("Non-sensitive environment (KEY=VALUE, one per line)", &data.Env),
+		component.PasswordInput("Sensitive environment JSON", &data.SensitiveEnv).Description(`Optional JSON object, e.g. {"API_TOKEN":"..."}. Blank keeps existing sensitive environment values.`),
+	).WithHideFunc(func() bool { return data.Transport != "stdio" })
+
+	policyGroup := huh.NewGroup(
+		component.Input("Tool prefix", &data.ToolPrefix),
+		component.Select("Expose", &data.Expose, huh.NewOption("All", "all"), huh.NewOption("Allowlist", "allowlist"), huh.NewOption("Metadata only", "meta_only"), huh.NewOption("None", "none")),
+		component.Text("Allowlisted tools (one per line)", &data.Tools),
+		component.Text("Disabled tools (one per line)", &data.DisabledTools),
+		component.Input("Idle timeout (seconds)", &data.IdleTimeout).Validate(validatePositiveInt("idle timeout")),
+	)
+	groups := append(general, httpGroup, stdioGroup, policyGroup)
+	return component.NewForm(groups...), &data
+}
+
+func newMCPOAuthForm() (component.Form, *mcpOAuthFormData) {
+	data := mcpOAuthFormData{OpenBrowser: true}
+	form := component.NewForm(huh.NewGroup(
+		component.Input("Issuer override", &data.Issuer),
+		component.Input("Pre-registered client ID", &data.ClientID),
+		component.Input("Client secret environment variable", &data.ClientSecretEnvVar),
+		component.Input("Client metadata URL", &data.ClientMetadataURL),
+		component.Input("Additional scopes", &data.ExtraScope),
+		component.Confirm("Open authorization URL in browser", &data.OpenBrowser),
+	))
+	return form, &data
+}
+
+func serverFromMCPForm(data *mcpServerFormData, existing upstream.Server, create bool) (upstream.Server, error) {
+	if data == nil {
+		return upstream.Server{}, fmt.Errorf("MCP server form is unavailable")
+	}
+	server := existing
+	if create {
+		server = upstream.Server{ID: strings.TrimSpace(data.ID), Name: strings.TrimSpace(data.ID), Enabled: true, Expose: "all"}
+	}
+	server.ID = strings.TrimSpace(data.ID)
+	server.Name = strings.TrimSpace(data.Name)
+	server.Transport = strings.TrimSpace(data.Transport)
+	server.Enabled = data.Enabled
+	server.URL = strings.TrimSpace(data.URL)
+	server.BearerTokenEnvVar = strings.TrimSpace(data.BearerTokenEnvVar)
+	server.Auth.Type = strings.TrimSpace(data.AuthType)
+	server.Auth.Scope = strings.TrimSpace(data.AuthScope)
+	server.Command = strings.TrimSpace(data.Command)
+	server.Args = splitLines(data.Args)
+	server.CWD = strings.TrimSpace(data.CWD)
+	server.ToolPrefix = strings.TrimSpace(data.ToolPrefix)
+	server.Expose = strings.TrimSpace(data.Expose)
+	server.Tools = splitLines(data.Tools)
+	server.DisabledTools = splitLines(data.DisabledTools)
+	idleTimeout, err := strconv.Atoi(strings.TrimSpace(data.IdleTimeout))
+	if err != nil || idleTimeout <= 0 {
+		return upstream.Server{}, fmt.Errorf("idle timeout must be a positive integer")
+	}
+	server.IdleTimeoutSec = idleTimeout
+	server.Headers, err = mergeAssignmentForm(data.Headers, data.SensitiveHeaders, data.existingHeaders, "header")
+	if err != nil {
+		return upstream.Server{}, err
+	}
+	server.Env, err = mergeAssignmentForm(data.Env, data.SensitiveEnv, data.existingEnv, "env")
+	if err != nil {
+		return upstream.Server{}, err
+	}
+	return upstream.NormalizeServer(server)
+}
+
+func mergeAssignmentForm(plainText, sensitiveJSON string, existing map[string]string, label string) (map[string]string, error) {
+	plain, err := upstream.ParseAssignments(splitLines(plainText), label)
+	if err != nil {
+		return nil, err
+	}
+	for key := range plain {
+		if upstream.SensitiveConfigKey(key) {
+			return nil, fmt.Errorf("sensitive %s %s must be entered in the masked JSON field", label, key)
+		}
+	}
+	sensitive := sensitiveMap(existing)
+	if strings.TrimSpace(sensitiveJSON) != "" {
+		sensitive = map[string]string{}
+		if err := json.Unmarshal([]byte(sensitiveJSON), &sensitive); err != nil {
+			return nil, fmt.Errorf("decode sensitive %s JSON: %w", label, err)
+		}
+		for key := range sensitive {
+			if !upstream.SensitiveConfigKey(key) {
+				return nil, fmt.Errorf("non-sensitive %s %s belongs in the regular assignments field", label, key)
+			}
+		}
+	}
+	for key, value := range sensitive {
+		if value == "" {
+			delete(plain, key)
+			continue
+		}
+		plain[key] = value
+	}
+	return plain, nil
+}
+
+func nonSensitiveMap(values map[string]string) map[string]string {
+	result := map[string]string{}
+	for key, value := range values {
+		if !upstream.SensitiveConfigKey(key) {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+func sensitiveMap(values map[string]string) map[string]string {
+	result := map[string]string{}
+	for key, value := range values {
+		if upstream.SensitiveConfigKey(key) {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+func assignmentText(values map[string]string) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		lines = append(lines, key+"="+values[key])
+	}
+	return strings.Join(lines, "\n")
+}
+
+func splitLines(value string) []string {
+	lines := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line = strings.TrimSpace(line); line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
+}
+
+func validatePositiveInt(label string) func(string) error {
+	return func(value string) error {
+		parsed, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || parsed <= 0 {
+			return fmt.Errorf("%s must be a positive integer", label)
+		}
+		return nil
+	}
+}

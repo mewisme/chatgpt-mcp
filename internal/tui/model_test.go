@@ -10,6 +10,10 @@ import (
 )
 
 func TestModelFillsTerminalAndEnforcesMinimumLayout(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
 	model := NewModel(Route{Kind: RouteHome})
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	model = updated.(Model)
@@ -22,6 +26,21 @@ func TestModelFillsTerminalAndEnforcesMinimumLayout(t *testing.T) {
 	view = model.View().Content
 	if width, height := lipgloss.Width(view), lipgloss.Height(view); width != minTerminalWidth || height != minTerminalHeight {
 		t.Fatalf("minimum layout=%dx%d want %dx%d", width, height, minTerminalWidth, minTerminalHeight)
+	}
+	for _, route := range []Route{{Kind: RouteWorkspaces}, {Kind: RouteMCP}} {
+		model = NewModel(route)
+		updated, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+		model = updated.(Model)
+		view = model.View().Content
+		if width, height := lipgloss.Width(view), lipgloss.Height(view); width != 120 || height != 40 {
+			t.Fatalf("%s domain layout=%dx%d want 120x40", route.Kind, width, height)
+		}
+		updated, _ = model.Update(tea.WindowSizeMsg{Width: 20, Height: 8})
+		model = updated.(Model)
+		view = model.View().Content
+		if width, height := lipgloss.Width(view), lipgloss.Height(view); width != minTerminalWidth || height != minTerminalHeight {
+			t.Fatalf("%s minimum domain layout=%dx%d want %dx%d", route.Kind, width, height, minTerminalWidth, minTerminalHeight)
+		}
 	}
 }
 

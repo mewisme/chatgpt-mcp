@@ -3,13 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 )
 
@@ -56,7 +54,7 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 				log.Info("OAUTH", "authorization required")
 				log.Detail("url", raw)
 				if !noOpen {
-					if err := openBrowser(raw); err != nil {
+					if err := application.OpenBrowser(raw); err != nil {
 						log.Warn("OAUTH", "could not open browser; use the URL above", "error", err)
 					}
 				}
@@ -156,29 +154,4 @@ func mcpServerAuthLogoutCommand() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-func openBrowser(raw string) error {
-	var command *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		command = exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", raw)
-	case "darwin":
-		command = exec.Command("open", raw)
-	default:
-		if os.Getenv("WSL_DISTRO_NAME") != "" {
-			if _, err := exec.LookPath("explorer.exe"); err == nil {
-				command = exec.Command("explorer.exe", raw)
-				break
-			}
-		}
-		command = exec.Command("xdg-open", raw)
-	}
-	if command == nil {
-		return fmt.Errorf("no browser opener available")
-	}
-	if err := command.Start(); err != nil {
-		return err
-	}
-	return nil
 }

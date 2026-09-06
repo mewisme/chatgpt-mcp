@@ -131,7 +131,7 @@ func subsequence(needle, haystack string) bool {
 	}
 	needleRunes := []rune(needle)
 	index := 0
-	for _, value := range []rune(haystack) {
+	for _, value := range haystack {
 		if value == needleRunes[index] {
 			index++
 			if index == len(needleRunes) {

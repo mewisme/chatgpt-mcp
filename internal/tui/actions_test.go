@@ -29,3 +29,27 @@ func TestWorkspaceActionAvailabilityFollowsRouteContext(t *testing.T) {
 		t.Fatal("container context actions missing")
 	}
 }
+
+func TestMCPActionAvailabilityFollowsRouteContext(t *testing.T) {
+	registry := defaultActionRegistry()
+	has := func(ctx action.Context, id string) bool {
+		for _, item := range registry.Actions(ctx) {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(action.Context{Route: string(RouteHome)}, "mcp.server.add") || !has(action.Context{Route: string(RouteHome)}, "mcp.server.status") {
+		t.Fatal("global MCP actions are unavailable")
+	}
+	if has(action.Context{Route: string(RouteMCP)}, "mcp.server.configure") || has(action.Context{Route: string(RouteMCP)}, "mcp.server.tools") {
+		t.Fatal("resource MCP actions available without a resource")
+	}
+	ctx := action.Context{Route: string(RouteMCP), ResourceID: "github"}
+	for _, id := range []string{"mcp.server.configure", "mcp.server.remove", "mcp.server.enable", "mcp.server.disable", "mcp.server.tools", "mcp.server.auth.login", "mcp.server.auth.logout"} {
+		if !has(ctx, id) {
+			t.Fatalf("MCP context action missing: %s", id)
+		}
+	}
+}

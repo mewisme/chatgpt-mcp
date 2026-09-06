@@ -489,7 +489,7 @@ func applyUpstreamFlags(cmd *cobra.Command, server upstream.Server, flags upstre
 		server.Args = append([]string(nil), flags.args...)
 	}
 	if cmd.Flags().Changed("env") {
-		env, err := parseAssignments(flags.env, "env")
+		env, err := upstream.ParseAssignments(flags.env, "env")
 		if err != nil {
 			return upstream.Server{}, err
 		}
@@ -502,7 +502,7 @@ func applyUpstreamFlags(cmd *cobra.Command, server upstream.Server, flags upstre
 		server.URL = flags.url
 	}
 	if cmd.Flags().Changed("header") {
-		headers, err := parseAssignments(flags.headers, "header")
+		headers, err := upstream.ParseAssignments(flags.headers, "header")
 		if err != nil {
 			return upstream.Server{}, err
 		}
@@ -535,42 +535,12 @@ func applyUpstreamFlags(cmd *cobra.Command, server upstream.Server, flags upstre
 	return upstream.NormalizeServer(server)
 }
 
-func parseAssignments(values []string, label string) (map[string]string, error) {
-	result := map[string]string{}
-	for _, value := range values {
-		key, item, ok := strings.Cut(value, "=")
-		key = strings.TrimSpace(key)
-		if !ok || key == "" {
-			return nil, fmt.Errorf("%s must use KEY=VALUE: %s", label, value)
-		}
-		result[key] = item
-	}
-	return result, nil
-}
-
 func redactUpstreamServer(server upstream.Server) upstream.Server {
-	value := server
-	value.Headers = cloneStringMap(server.Headers)
-	for key := range value.Headers {
-		if upstream.SensitiveConfigKey(key) {
-			value.Headers[key] = "<redacted>"
-		}
-	}
-	value.Env = cloneStringMap(server.Env)
-	for key := range value.Env {
-		if upstream.SensitiveConfigKey(key) {
-			value.Env[key] = "<redacted>"
-		}
-	}
-	return value
+	return upstream.RedactServer(server)
 }
 
-func cloneStringMap(value map[string]string) map[string]string {
-	result := make(map[string]string, len(value))
-	for key, item := range value {
-		result[key] = item
-	}
-	return result
+func parseAssignments(values []string, label string) (map[string]string, error) {
+	return upstream.ParseAssignments(values, label)
 }
 
 func loadUpstreamManager() (*upstream.Manager, error) {

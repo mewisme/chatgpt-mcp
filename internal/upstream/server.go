@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -34,6 +35,44 @@ type Server struct {
 func SensitiveConfigKey(key string) bool {
 	lower := strings.ToLower(strings.TrimSpace(key))
 	return strings.Contains(lower, "authorization") || strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "password") || strings.Contains(lower, "api-key") || strings.Contains(lower, "cookie") || strings.HasSuffix(lower, "_key") || strings.HasSuffix(lower, "key")
+}
+
+func ParseAssignments(values []string, label string) (map[string]string, error) {
+	result := map[string]string{}
+	for _, value := range values {
+		key, item, ok := strings.Cut(value, "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			return nil, fmt.Errorf("%s must use KEY=VALUE: %s", label, value)
+		}
+		result[key] = item
+	}
+	return result, nil
+}
+
+func RedactServer(server Server) Server {
+	value := server
+	value.Headers = CloneStringMap(server.Headers)
+	for key := range value.Headers {
+		if SensitiveConfigKey(key) {
+			value.Headers[key] = "<redacted>"
+		}
+	}
+	value.Env = CloneStringMap(server.Env)
+	for key := range value.Env {
+		if SensitiveConfigKey(key) {
+			value.Env[key] = "<redacted>"
+		}
+	}
+	return value
+}
+
+func CloneStringMap(value map[string]string) map[string]string {
+	result := make(map[string]string, len(value))
+	for key, item := range value {
+		result[key] = item
+	}
+	return result
 }
 
 var invalidPrefix = regexp.MustCompile(`[^a-zA-Z0-9_-]`)

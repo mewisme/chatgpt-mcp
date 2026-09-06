@@ -41,7 +41,6 @@ func TestUsefulCommandAliasesResolve(t *testing.T) {
 	}{
 		{[]string{"cfg"}, "config"},
 		{[]string{"cfg", "ls"}, "list"},
-		{[]string{"cfg", "preset", "ls"}, "list"},
 		{[]string{"ws"}, "workspace"},
 		{[]string{"ws", "ls"}, "list"},
 		{[]string{"ws", "access", "ls"}, "list"},

@@ -129,6 +129,9 @@ The portable smoke verifies behavior such as:
 
 - managed direct self-install and idempotent reinstall
 - fresh `install --no-alias` preserves the canonical command without creating `cgm`
+- `cgm tui --help` is present and documents the Command Center
+- `cgm tui` refuses redirected/non-TTY execution without writing a full-screen UI
+- stable workspace/request/upstream plain and JSON CLI output remains usable outside the TUI
 - isolated init/uninit
 - config verify/convert/transform
 - config/status commands
@@ -160,10 +163,10 @@ Control-approval native smoke additionally verifies:
 - deny/cancel/expiry lifecycle
 - hard-deny guards remain non-approvable
 - MCP tool context cannot self-approve through `cgm request approve/deny`
-- CLI plain/JSON/non-TTY interactive fallback
+- CLI plain/JSON behavior and non-TTY safety
 - Admin loopback and remote-auth policy
 
-The portable runtime smoke also checks that `request_control_approval` is present in the MCP catalog, `cgm request list` reaches the running runtime, JSON suppresses the TUI, and `--interactive` fails clearly when no terminal is attached. The documented workspace, upstream MCP, and tunnel interactive list commands use the same deterministic fallback behavior.
+The portable runtime smoke also checks that `request_control_approval` is present in the MCP catalog and that `cgm request list` reaches the running runtime. A dedicated native TUI release gate exercises route parsing, non-TTY refusal, Command Palette and Quick Open model integration, and public-command capability parity without attempting to drive a real alternate-screen terminal session inside CI.
 
 Updater and control-approval integration gates run in every native Linux, macOS, and Windows CI/release job. Cross-build jobs continue to compile all six release OS/architecture targets.
 
@@ -209,6 +212,7 @@ Pushes to `main` and pull requests run:
 - local install smoke
 - package alias smoke
 - control approval smoke
+- TUI route/model/parity release gate
 - Go tests
 - race detector
 - vet
@@ -221,6 +225,7 @@ Pushes to `main` and pull requests run:
 - module verification
 - local install/package alias smoke
 - control approval smoke
+- TUI route/model/parity release gate
 - Go tests
 - vet
 - native build
@@ -232,6 +237,7 @@ Pushes to `main` and pull requests run:
 - module verification
 - local install/package alias smoke
 - control approval smoke
+- TUI route/model/parity release gate
 - Go tests
 - vet
 - native build

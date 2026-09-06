@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 func TestMCPToolContextAllowsOnlyReadOnlyCLICommands(t *testing.T) {
 	t.Setenv(controlplane.ToolContextEnv, "1")
 	root := newRootCommand()
-	for _, path := range [][]string{{"status"}, {"config", "list"}, {"config", "preset", "show"}, {"auth", "status"}, {"request", "list"}, {"request", "view"}, {"workspace", "access", "list"}, {"mcp", "server", "show"}, {"tunnel", "status"}, {"alias", "status"}, {"update", "check"}} {
+	for _, path := range [][]string{{"status"}, {"config", "list"}, {"auth", "status"}, {"request", "list"}, {"request", "view"}, {"workspace", "access", "list"}, {"mcp", "server", "show"}, {"tunnel", "status"}, {"alias", "status"}, {"update", "check"}} {
 		cmd, _, err := root.Find(path)
 		if err != nil {
 			t.Fatal(err)

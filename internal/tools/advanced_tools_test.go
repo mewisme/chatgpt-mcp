@@ -24,7 +24,7 @@ func newAdvancedRuntime(t *testing.T) (*Runtime, string, string) {
 	registry := NewRegistry()
 	RegisterWorkspaceTools(registry, workspaces)
 	RegisterAdvancedTools(registry, workspaces)
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, ponytailManager: ponytail.NewManager(true, ponytail.Full), cavemanManager: caveman.NewManager(true, caveman.Full)}
 	if err := runtime.SyncFeatures(features.Default()); err != nil {
 		t.Fatal(err)
 	}
@@ -44,40 +44,78 @@ func TestAdvancedToolCatalog(t *testing.T) {
 	}
 }
 
-func TestFeatureToolRegistrationCanToggleIndependently(t *testing.T) {
-	runtime, _, _ := newAdvancedRuntime(t)
+func TestFeatureToolsStayRegisteredWhileActiveStateChanges(t *testing.T) {
+	runtime, workspaceID, _ := newAdvancedRuntime(t)
+	first, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue"})
+	if err != nil || first.IsError {
+		t.Fatalf("default caveman call = %#v %v", first, err)
+	}
+	if value, ok := first.StructuredContent.(caveman.Result); !ok || !value.Active {
+		t.Fatalf("default caveman result = %#v", first.StructuredContent)
+	}
 	featureConfig := features.Default()
-	featureConfig.Ponytail.Enabled = false
-	if err := runtime.SyncFeatures(featureConfig); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := runtime.Registry.Schema("ponytail_turn"); ok {
-		t.Fatal("ponytail tool survived disable")
-	}
-	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("caveman tool was removed with ponytail")
-	}
-	featureConfig.Ponytail.Enabled = true
-	featureConfig.Caveman.Enabled = false
+	featureConfig.Ponytail.Active = false
+	featureConfig.Caveman.Active = false
 	if err := runtime.SyncFeatures(featureConfig); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := runtime.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("ponytail tool was not restored")
+		t.Fatal("ponytail controller tool disappeared")
 	}
-	if _, ok := runtime.Registry.Schema("caveman_turn"); ok {
-		t.Fatal("caveman tool survived disable")
+	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
+		t.Fatal("caveman controller tool disappeared")
+	}
+	second, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue"})
+	if err != nil || second.IsError {
+		t.Fatalf("inactive caveman call = %#v %v", second, err)
+	}
+	if value, ok := second.StructuredContent.(caveman.Result); !ok || value.Active {
+		t.Fatalf("inactive caveman result = %#v", second.StructuredContent)
+	}
+	featureConfig.Caveman.Active = true
+	if err := runtime.SyncFeatures(featureConfig); err != nil {
+		t.Fatal(err)
+	}
+	third, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue"})
+	if err != nil || third.IsError {
+		t.Fatalf("reactivated caveman call = %#v %v", third, err)
+	}
+	if value, ok := third.StructuredContent.(caveman.Result); !ok || !value.Active {
+		t.Fatalf("reactivated caveman result = %#v", third.StructuredContent)
 	}
 }
 
 func TestCavemanToolReturnsBuiltInInstructions(t *testing.T) {
 	runtime, workspaceID, _ := newAdvancedRuntime(t)
-	result, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "/caveman"})
+	featureConfig := features.Default()
+	featureConfig.Caveman.Mode = "wenyan-full"
+	if err := runtime.SyncFeatures(featureConfig); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue", "action": "refresh"})
 	if err != nil || result.IsError {
 		t.Fatalf("caveman call = %#v %v", result, err)
 	}
-	if len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "CAVEMAN MODE ACTIVE") {
-		t.Fatalf("caveman result = %#v", result)
+	value, ok := result.StructuredContent.(caveman.Result)
+	if !ok || !value.Available || !value.Active || value.Mode != caveman.WenyanFull || !strings.Contains(value.ActiveInstructions, "CAVEMAN MODE ACTIVE") || !strings.Contains(value.ActiveInstructions, "| **wenyan-full** |") || strings.Contains(value.ActiveInstructions, "| **ultra** |") {
+		t.Fatalf("caveman result = %#v", result.StructuredContent)
+	}
+}
+
+func TestPonytailToolReturnsBuiltInInstructionsAndConfiguredMode(t *testing.T) {
+	runtime, workspaceID, _ := newAdvancedRuntime(t)
+	featureConfig := features.Default()
+	featureConfig.Ponytail.Mode = "ultra"
+	if err := runtime.SyncFeatures(featureConfig); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.Call(context.Background(), "ponytail_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue"})
+	if err != nil || result.IsError {
+		t.Fatalf("ponytail call = %#v %v", result, err)
+	}
+	value, ok := result.StructuredContent.(ponytail.Result)
+	if !ok || !value.Available || !value.Active || value.Mode != ponytail.Ultra || !strings.Contains(value.ActiveInstructions, "PONYTAIL MODE ACTIVE") || !strings.Contains(value.ActiveInstructions, "## The ladder") {
+		t.Fatalf("ponytail result = %#v", result.StructuredContent)
 	}
 }
 

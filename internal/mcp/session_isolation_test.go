@@ -35,7 +35,7 @@ func newIsolationHTTPFixture(t *testing.T) isolationHTTPFixture {
 	checkpoints := checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints"))
 	registry := tools.NewRegistry()
 	tools.RegisterCore(registry, manager, checkpoints)
-	toolRuntime := &tools.Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoints, SessionBindings: tools.NewSessionWorkspaceBinder()}
+	toolRuntime := &tools.Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoints, SessionAccess: tools.NewSessionWorkspaceAccessManager()}
 	return isolationHTTPFixture{runtime: NewHTTPRuntimeWithTools(toolRuntime), first: first, second: second}
 }
 
@@ -74,7 +74,7 @@ func httptestResponse(runtime *HTTPRuntime, req *http.Request) *httptest.Respons
 	return res
 }
 
-func TestHTTPSessionsCannotCrossBoundWorkspaces(t *testing.T) {
+func TestHTTPSessionCanAccessMultipleWorkspacesWithoutPathLeakage(t *testing.T) {
 	fixture := newIsolationHTTPFixture(t)
 	firstPath := filepath.Join(fixture.first.Path, "session-a.txt")
 	secondPath := filepath.Join(fixture.second.Path, "session-b.txt")
@@ -90,17 +90,21 @@ func TestHTTPSessionsCannotCrossBoundWorkspaces(t *testing.T) {
 	if data, err := os.ReadFile(secondPath); err != nil || string(data) != "b" {
 		t.Fatalf("second workspace content = %q err=%v", data, err)
 	}
-	deniedPath := filepath.Join(fixture.second.Path, "must-not-exist.txt")
-	result := callWorkspaceToolHTTP(t, fixture.runtime, "session-a", "write_file", map[string]any{"workspace_id": fixture.second.ID, "path": "must-not-exist.txt", "content": "wrong"}, 3)
-	if !result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "cannot access") {
-		t.Fatalf("cross-workspace call was not denied: %#v", result)
+	result := callWorkspaceToolHTTP(t, fixture.runtime, "session-a", "write_file", map[string]any{"workspace_id": fixture.second.ID, "path": "session-a-second.txt", "content": "a2"}, 3)
+	if result.IsError {
+		t.Fatalf("session A second workspace failed: %#v", result)
 	}
-	if _, err := os.Stat(deniedPath); !os.IsNotExist(err) {
-		t.Fatalf("denied cross-workspace write mutated filesystem: %v", err)
+	if data, err := os.ReadFile(filepath.Join(fixture.second.Path, "session-a-second.txt")); err != nil || string(data) != "a2" {
+		t.Fatalf("second workspace content = %q err=%v", data, err)
 	}
-	binding, ok := fixture.runtime.Server.Tools.SessionBindings.Lookup("session-a")
-	if !ok || binding.WorkspaceID != fixture.first.ID {
-		t.Fatalf("session A binding = %#v ok=%t", binding, ok)
+	escape := filepath.Join(fixture.second.Path, "escape.txt")
+	result = callWorkspaceToolHTTP(t, fixture.runtime, "session-a", "write_file", map[string]any{"workspace_id": fixture.first.ID, "path": escape, "content": "wrong"}, 4)
+	if !result.IsError {
+		t.Fatalf("workspace path escape was allowed: %#v", result)
+	}
+	access, ok := fixture.runtime.Server.Tools.SessionAccess.Lookup("session-a")
+	if !ok || len(access.Workspaces) != 2 {
+		t.Fatalf("session A access = %#v ok=%t", access, ok)
 	}
 }
 
@@ -119,7 +123,7 @@ func TestHTTPManySessionsCanShareWorkspace(t *testing.T) {
 	}
 }
 
-func TestHTTPSessionProjectContextCannotSwitchWorkspaces(t *testing.T) {
+func TestHTTPSessionProjectContextCanTargetMultipleIsolatedWorkspaces(t *testing.T) {
 	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
 	fixture := newIsolationHTTPFixture(t)
 	if err := os.WriteFile(filepath.Join(fixture.first.Path, "AGENTS.md"), []byte("first workspace"), 0644); err != nil {
@@ -132,12 +136,12 @@ func TestHTTPSessionProjectContextCannotSwitchWorkspaces(t *testing.T) {
 	if first.IsError || len(first.Content) == 0 || !strings.Contains(first.Content[0].Text, "first workspace") {
 		t.Fatalf("first project_context failed: %#v", first)
 	}
-	denied := callWorkspaceToolHTTP(t, fixture.runtime, "project-session", "project_context", map[string]any{"workspace_id": fixture.second.ID, "include_git": false}, 21)
-	if !denied.IsError || len(denied.Content) == 0 || !strings.Contains(denied.Content[0].Text, "cannot access") {
-		t.Fatalf("cross-workspace project_context was not denied: %#v", denied)
+	second := callWorkspaceToolHTTP(t, fixture.runtime, "project-session", "project_context", map[string]any{"workspace_id": fixture.second.ID, "include_git": false}, 21)
+	if second.IsError || len(second.Content) == 0 || !strings.Contains(second.Content[0].Text, "second workspace") || strings.Contains(second.Content[0].Text, "first workspace") {
+		t.Fatalf("second project_context was not isolated: %#v", second)
 	}
-	binding, ok := fixture.runtime.Server.Tools.SessionBindings.Lookup("project-session")
-	if !ok || binding.WorkspaceID != fixture.first.ID {
-		t.Fatalf("project_context session binding = %#v ok=%t", binding, ok)
+	access, ok := fixture.runtime.Server.Tools.SessionAccess.Lookup("project-session")
+	if !ok || len(access.Workspaces) != 2 {
+		t.Fatalf("project_context session access = %#v ok=%t", access, ok)
 	}
 }

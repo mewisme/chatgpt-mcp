@@ -101,16 +101,24 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 		t.Fatalf("rules = %#v", rulesResult.StructuredContent)
 	}
 
-	rememberResult, err := runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "note": "use compact imports"})
+	rememberResult, err := runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "scope": "coding-style", "key": "imports", "note": "use compact imports"})
 	if err != nil || rememberResult.IsError {
 		t.Fatalf("remember failed: %#v %v", rememberResult, err)
+	}
+	remembered := rememberResult.StructuredContent.(RememberResult)
+	if remembered.Scope != "coding-style" || remembered.Key != "imports" || remembered.Note != "use compact imports" {
+		t.Fatalf("remember result = %#v", remembered)
+	}
+	rememberResult, err = runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "scope": "coding-style", "key": "imports", "note": "use compact imports and keep imports contiguous"})
+	if err != nil || rememberResult.IsError {
+		t.Fatalf("remember update failed: %#v %v", rememberResult, err)
 	}
 	ctxAfterRemember, err := runtime.Call(context.Background(), "project_context", map[string]any{"workspace_id": workspaceID})
 	if err != nil || ctxAfterRemember.IsError {
 		t.Fatalf("project_context after remember failed: %#v %v", ctxAfterRemember, err)
 	}
 	after := ctxAfterRemember.StructuredContent.(ProjectContextResult)
-	if !after.InstructionContext.AutoMemory.Loaded || !strings.Contains(after.InstructionContext.InstructionsText, "use compact imports") {
+	if !after.InstructionContext.AutoMemory.Loaded || !strings.Contains(after.InstructionContext.InstructionsText, "## Auto memory\n### coding-style\n\n#### imports\n- use compact imports and keep imports contiguous") || strings.Count(after.InstructionContext.AutoMemory.Content, "### imports") != 1 {
 		t.Fatalf("auto memory not included: %#v", after.InstructionContext.AutoMemory)
 	}
 }
@@ -194,7 +202,7 @@ func TestProjectContextOutputSchemaUsesInstructionBundle(t *testing.T) {
 		t.Fatal("missing project_context schema")
 	}
 	input := string(schema.InputSchema)
-	for _, expected := range []string{"\"max_instruction_bytes\"", "\"max_section_bytes\"", "\"max_lines_per_section\"", "\"include_git\"", "\"include_memory\"", "\"include_skills\""} {
+	for _, expected := range []string{"\"memory_query\"", "\"max_memory_entries\"", "\"max_memory_bytes\"", "\"max_instruction_bytes\"", "\"max_section_bytes\"", "\"max_lines_per_section\"", "\"include_git\"", "\"include_memory\"", "\"include_skills\""} {
 		if !strings.Contains(input, expected) {
 			t.Fatalf("input schema missing %s: %s", expected, input)
 		}
@@ -212,6 +220,150 @@ func TestProjectContextOutputSchemaUsesInstructionBundle(t *testing.T) {
 	}
 	if strings.Contains(output, "\"count\"") || strings.Contains(output, "\"files\":") {
 		t.Fatalf("legacy project_context output remains: %s", output)
+	}
+}
+
+func TestRememberSchemaRequiresScopeAndNoteWithOptionalKey(t *testing.T) {
+	runtime, _, _, _ := newContextToolRuntime(t)
+	schema, ok := runtime.Registry.Schema("remember")
+	if !ok {
+		t.Fatal("missing remember schema")
+	}
+	input := string(schema.InputSchema)
+	for _, expected := range []string{`"workspace_id"`, `"scope"`, `"key"`, `"note"`, `"required":["workspace_id","scope","note"]`} {
+		if !strings.Contains(input, expected) {
+			t.Fatalf("remember input schema missing %s: %s", expected, input)
+		}
+	}
+}
+
+func TestRememberScopeLevelNoteOmitsDuplicateKey(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	result, err := runtime.Call(context.Background(), "remember", map[string]any{"workspace_id": workspaceID, "scope": "general", "key": "general", "note": "scope note"})
+	if err != nil || result.IsError {
+		t.Fatalf("remember failed: %#v %v", result, err)
+	}
+	remembered := result.StructuredContent.(RememberResult)
+	if remembered.Key != "" {
+		t.Fatalf("duplicate key was not collapsed: %#v", remembered)
+	}
+	ctx, err := runtime.Call(context.Background(), "project_context", map[string]any{"workspace_id": workspaceID, "include_git": false})
+	if err != nil || ctx.IsError {
+		t.Fatalf("project_context failed: %#v %v", ctx, err)
+	}
+	project := ctx.StructuredContent.(ProjectContextResult)
+	if !strings.Contains(project.InstructionContext.InstructionsText, "## Auto memory\n### general\n\n- scope note") || strings.Contains(project.InstructionContext.InstructionsText, "#### general") {
+		t.Fatalf("duplicate key leaked into context: %s", project.InstructionContext.InstructionsText)
+	}
+}
+
+func TestMemoryGetReadsAllScopeAndExactEntry(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	for _, args := range []map[string]any{
+		{"workspace_id": workspaceID, "scope": "tui", "key": "theme", "note": "Charm"},
+		{"workspace_id": workspaceID, "scope": "tui", "key": "layout", "note": "Center"},
+	} {
+		result, err := runtime.Call(context.Background(), "remember", args)
+		if err != nil || result.IsError {
+			t.Fatalf("remember failed: %#v %v", result, err)
+		}
+	}
+	result, err := runtime.Call(context.Background(), "memory_get", map[string]any{"workspace_id": workspaceID, "scope": "tui"})
+	if err != nil || result.IsError {
+		t.Fatalf("memory_get failed: %#v %v", result, err)
+	}
+	if got := result.StructuredContent.(MemoryGetResult); got.Count != 2 {
+		t.Fatalf("memory_get = %#v", got)
+	}
+	result, err = runtime.Call(context.Background(), "memory_get", map[string]any{"workspace_id": workspaceID, "scope": "TUI", "key": "THEME"})
+	if err != nil || result.IsError {
+		t.Fatalf("memory_get exact failed: %#v %v", result, err)
+	}
+	got := result.StructuredContent.(MemoryGetResult)
+	if got.Count != 1 || got.Entries[0].Note != "Charm" {
+		t.Fatalf("memory_get exact = %#v", got)
+	}
+}
+
+func TestMemoryGetRejectsKeyWithoutScope(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	result, err := runtime.Call(context.Background(), "memory_get", map[string]any{"workspace_id": workspaceID, "key": "theme"})
+	if err == nil && !result.IsError {
+		t.Fatalf("key without scope accepted: %#v", result)
+	}
+}
+
+func TestForgetRemovesExactEntryAndScope(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	for _, args := range []map[string]any{
+		{"workspace_id": workspaceID, "scope": "tui", "key": "theme", "note": "Charm"},
+		{"workspace_id": workspaceID, "scope": "tui", "key": "layout", "note": "Center"},
+	} {
+		result, err := runtime.Call(context.Background(), "remember", args)
+		if err != nil || result.IsError {
+			t.Fatalf("remember failed: %#v %v", result, err)
+		}
+	}
+	result, err := runtime.Call(context.Background(), "forget", map[string]any{"workspace_id": workspaceID, "scope": "tui", "key": "theme"})
+	if err != nil || result.IsError {
+		t.Fatalf("forget exact failed: %#v %v", result, err)
+	}
+	if got := result.StructuredContent.(ForgetResult); got.Removed != 1 {
+		t.Fatalf("forget exact = %#v", got)
+	}
+	result, err = runtime.Call(context.Background(), "forget", map[string]any{"workspace_id": workspaceID, "scope": "tui"})
+	if err != nil || result.IsError {
+		t.Fatalf("forget scope failed: %#v %v", result, err)
+	}
+	if got := result.StructuredContent.(ForgetResult); got.Removed != 1 {
+		t.Fatalf("forget scope = %#v", got)
+	}
+}
+
+func TestMemorySearchRanksRelevantEntries(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	for _, args := range []map[string]any{
+		{"workspace_id": workspaceID, "scope": "tui", "key": "theme", "note": "Use Charm defaults"},
+		{"workspace_id": workspaceID, "scope": "coding-style", "key": "imports", "note": "Keep imports contiguous"},
+		{"workspace_id": workspaceID, "scope": "release", "key": "ci", "note": "Use GitHub Actions"},
+	} {
+		result, err := runtime.Call(context.Background(), "remember", args)
+		if err != nil || result.IsError {
+			t.Fatalf("remember failed: %#v %v", result, err)
+		}
+	}
+	result, err := runtime.Call(context.Background(), "memory_search", map[string]any{"workspace_id": workspaceID, "query": "tui theme", "limit": 2})
+	if err != nil || result.IsError {
+		t.Fatalf("memory_search failed: %#v %v", result, err)
+	}
+	got := result.StructuredContent.(MemorySearchResult)
+	if got.Count == 0 || got.Matches[0].Scope != "tui" || got.Matches[0].Key != "theme" {
+		t.Fatalf("memory_search = %#v", got)
+	}
+}
+
+func TestOptimizeMemoryIsAnalysisOnly(t *testing.T) {
+	runtime, workspaceID, _, _ := newContextToolRuntime(t)
+	for _, args := range []map[string]any{
+		{"workspace_id": workspaceID, "scope": "tui", "key": "theme", "note": "Use Charm default styles and preserve automatic dark mode adaptation"},
+		{"workspace_id": workspaceID, "scope": "tui", "key": "colors", "note": "Use Charm default styles and preserve automatic dark mode colors"},
+	} {
+		result, err := runtime.Call(context.Background(), "remember", args)
+		if err != nil || result.IsError {
+			t.Fatalf("remember failed: %#v %v", result, err)
+		}
+	}
+	result, err := runtime.Call(context.Background(), "optimize_memory", map[string]any{"workspace_id": workspaceID, "scope": "tui"})
+	if err != nil || result.IsError {
+		t.Fatalf("optimize_memory failed: %#v %v", result, err)
+	}
+	got := result.StructuredContent.(OptimizeMemoryResult)
+	if !got.DryRun || !got.OptimizationRecommended || len(got.Groups) == 0 {
+		t.Fatalf("optimize_memory = %#v", got)
+	}
+	get, err := runtime.Call(context.Background(), "memory_get", map[string]any{"workspace_id": workspaceID, "scope": "tui"})
+	if err != nil || get.IsError || get.StructuredContent.(MemoryGetResult).Count != 2 {
+		t.Fatalf("analysis mutated memory: %#v %v", get, err)
 	}
 }
 

@@ -14,7 +14,8 @@ const DefaultInstructionMaxBytes = 100_000
 const QuickPointers = `- Use load_path_rules(path) before editing files covered by path-scoped rules.
 - Use load_skill(name) only for skills whose summaries match the current task.
 - Use workspace_status when workspace root, persisted cwd, or allowed directories need to be re-checked.
-- Use remember(note) for durable workspace notes and rewind for checkpoint inspection or recovery.`
+- At the start of every MCP session, call project_context with memory enabled before substantial workspace work; repeat it before first work in each additional workspace.
+- When the user explicitly asks to remember/save/persist an eligible workspace note, identify a scope and an optional child key. Omit key for a scope-level note and never repeat the scope as its child key. Call memory_get for the target scope/key, reconcile current and new information, then call remember with the complete canonical replacement. New explicit user preferences supersede conflicting older memory; never concatenate contradictions. Use rewind for checkpoint inspection or recovery.`
 
 func FormatInstructions(value InstructionContext) (string, int) {
 	workflow := strings.TrimSpace(value.AgentWorkflow)
@@ -30,7 +31,7 @@ func FormatInstructions(value InstructionContext) (string, int) {
 		blocks = append(blocks, formatBlock("Git", formatGit(value.Git)))
 	}
 	if value.AutoMemory.Loaded && strings.TrimSpace(value.AutoMemory.Content) != "" {
-		blocks = append(blocks, formatBlock("Auto memory", strings.TrimSpace(value.AutoMemory.Content)))
+		blocks = append(blocks, formatBlock("Auto memory", shiftMarkdownHeadings(strings.TrimSpace(value.AutoMemory.Content), 1)))
 	}
 	if strings.TrimSpace(value.GlobalContext) != "" {
 		blocks = append(blocks, formatBlock("Global context", strings.TrimSpace(value.GlobalContext)))
@@ -89,6 +90,33 @@ func ApplyFormattedInstructionsLimit(value *InstructionContext, maxBytes int) {
 
 func formatBlock(title, content string) string {
 	return "## " + title + "\n" + strings.TrimSpace(content)
+}
+
+func shiftMarkdownHeadings(value string, levels int) string {
+	if levels <= 0 {
+		return value
+	}
+	lines := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
+	for index, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		if trimmed == "" || trimmed[0] != '#' {
+			continue
+		}
+		headingLevel := 0
+		for headingLevel < len(trimmed) && headingLevel < 6 && trimmed[headingLevel] == '#' {
+			headingLevel++
+		}
+		if headingLevel == 0 || headingLevel >= len(trimmed) || trimmed[headingLevel] != ' ' {
+			continue
+		}
+		shiftedLevel := headingLevel + levels
+		if shiftedLevel > 6 {
+			shiftedLevel = 6
+		}
+		indent := line[:len(line)-len(trimmed)]
+		lines[index] = indent + strings.Repeat("#", shiftedLevel) + trimmed[headingLevel:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func formatToolProfile(profile ToolProfile) string {

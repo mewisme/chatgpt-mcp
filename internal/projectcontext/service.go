@@ -47,6 +47,9 @@ type Options struct {
 	MaxInstructionBytes int
 	MaxSectionBytes     int
 	MaxLinesPerSection  int
+	MemoryQuery         string
+	MaxMemoryEntries    int
+	MaxMemoryBytes      int
 	IncludeGit          bool
 	IncludeMemory       bool
 	IncludeSkills       bool
@@ -106,6 +109,7 @@ func (s *Service) Build(ctx context.Context, workspaceID string, opts Options) (
 		Root: root, WorkspaceID: item.ID, WorkspaceRoot: item.Path, CWD: item.Path, WorkspaceRoots: roots, MemoryStore: s.MemoryStore,
 		Memory: instructioncontext.MemoryLoadOptions{ImportMaxDepth: instructioncontext.DefaultImportMaxDepth, MaxBytesPerSection: opts.MaxSectionBytes, MaxLinesPerSection: opts.MaxLinesPerSection},
 		Policy: policy, ToolProfile: profile, MaxInstructionBytes: opts.MaxInstructionBytes,
+		MemoryQuery: opts.MemoryQuery, MaxMemoryEntries: opts.MaxMemoryEntries, MaxMemoryBytes: opts.MaxMemoryBytes,
 		SkipGit: !opts.IncludeGit, SkipMemory: !opts.IncludeMemory, SkipSkills: !opts.IncludeSkills,
 		AdminEnabled: opts.AdminEnabled, AdminPort: opts.AdminPort,
 	})

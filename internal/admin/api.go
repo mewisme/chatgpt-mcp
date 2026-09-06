@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -59,12 +60,24 @@ type configPatch struct {
 }
 
 type featurePatch struct {
-	Ponytail *featureEnabledPatch `json:"ponytail,omitempty"`
-	Caveman  *featureEnabledPatch `json:"caveman,omitempty"`
+	Ponytail *featureStatePatch `json:"ponytail,omitempty"`
+	Caveman  *featureStatePatch `json:"caveman,omitempty"`
 }
 
-type featureEnabledPatch struct {
-	Enabled *bool `json:"enabled,omitempty"`
+type featureStatePatch struct {
+	Active  *bool   `json:"active,omitempty"`
+	Enabled *bool   `json:"enabled,omitempty"`
+	Mode    *string `json:"mode,omitempty"`
+}
+
+func (patch *featureStatePatch) active() *bool {
+	if patch == nil {
+		return nil
+	}
+	if patch.Active != nil {
+		return patch.Active
+	}
+	return patch.Enabled
 }
 
 func New(api API) http.Handler {
@@ -77,11 +90,11 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/network/interfaces", api.handleNetworkInterfaces)
 
 	mux.HandleFunc("/api/config", api.handleConfig)
-	mux.HandleFunc("/api/config/presets", api.handleConfigPresets)
-	mux.HandleFunc("/api/config/presets/", api.handleConfigPreset)
 	mux.HandleFunc("/api/instructions/global", api.handleGlobalInstructions)
 	mux.HandleFunc("/api/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/api/workspaces/", api.handleWorkspace)
+	mux.HandleFunc("/api/workspace-containers", api.handleWorkspaceContainers)
+	mux.HandleFunc("/api/workspace-containers/", api.handleWorkspaceContainer)
 	mux.HandleFunc("/api/tools", api.handleTools)
 	mux.HandleFunc("/api/requests", api.handleRequests)
 	mux.HandleFunc("/api/requests/", api.handleRequest)
@@ -150,11 +163,17 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err == nil && patch.Features != nil {
-			if patch.Features.Ponytail != nil && patch.Features.Ponytail.Enabled != nil {
-				next.Features.Ponytail.Enabled = *patch.Features.Ponytail.Enabled
+			if active := patch.Features.Ponytail.active(); active != nil {
+				next.Features.Ponytail.Active = *active
 			}
-			if patch.Features.Caveman != nil && patch.Features.Caveman.Enabled != nil {
-				next.Features.Caveman.Enabled = *patch.Features.Caveman.Enabled
+			if patch.Features.Ponytail != nil && patch.Features.Ponytail.Mode != nil {
+				next.Features.Ponytail.Mode = strings.ToLower(strings.TrimSpace(*patch.Features.Ponytail.Mode))
+			}
+			if active := patch.Features.Caveman.active(); active != nil {
+				next.Features.Caveman.Active = *active
+			}
+			if patch.Features.Caveman != nil && patch.Features.Caveman.Mode != nil {
+				next.Features.Caveman.Mode = strings.ToLower(strings.TrimSpace(*patch.Features.Caveman.Mode))
 			}
 		}
 		if err == nil {

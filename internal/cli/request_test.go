@@ -59,7 +59,7 @@ func TestRequestCLIListViewApproveDenyAliasesAndOutput(t *testing.T) {
 	}
 }
 
-func TestRequestCLIInteractiveFlagsFallbackAndJSON(t *testing.T) {
+func TestRequestCLIPlainAndJSON(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := t.TempDir()
 	if err := configformat.SetRootPath(root); err != nil {
@@ -73,20 +73,14 @@ func TestRequestCLIInteractiveFlagsFallbackAndJSON(t *testing.T) {
 	}
 	defer control.Close()
 
-	plain := executeRequestCommand(t, root, []string{"request", "list", "--no-interactive"})
+	plain := executeRequestCommand(t, root, []string{"request", "list"})
 	if !strings.Contains(plain, request.ID) {
 		t.Fatalf("plain=%q", plain)
 	}
-	jsonOutput := executeRequestCommand(t, root, []string{"request", "list", "--json", "--interactive"})
+	jsonOutput := executeRequestCommand(t, root, []string{"request", "list", "--json"})
 	var values []approval.Request
 	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &values); err != nil || len(values) != 1 || values[0].ID != request.ID {
 		t.Fatalf("json=%q values=%#v err=%v", jsonOutput, values, err)
-	}
-	if _, err := executeRequestCommandError(root, []string{"request", "list", "--interactive"}); err == nil || !strings.Contains(err.Error(), "requires terminal") {
-		t.Fatalf("forced interactive err=%v", err)
-	}
-	if _, err := executeRequestCommandError(root, []string{"request", "list", "--interactive", "--no-interactive"}); err == nil || !strings.Contains(err.Error(), "cannot be used together") {
-		t.Fatalf("conflicting interactive err=%v", err)
 	}
 }
 

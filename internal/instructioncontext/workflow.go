@@ -1,19 +1,19 @@
 package instructioncontext
 
 const (
-	agentWorkflowIntroduction = "Use chatgpt-mcp as a workspace-bound coding agent."
+	agentWorkflowIntroduction = "Use chatgpt-mcp as a multi-workspace coding agent with explicit workspace targeting."
 	serverIntroduction        = "Use chatgpt-mcp for local, workspace-aware coding and project operations."
 	serverWorkspaceBootstrap  = "For project work, obtain a workspace_id with workspace_register unless one is already provided; use workspace_status to inspect its registered root, persisted shell cwd, and allowed directories."
-	serverContextBootstrap    = "Before substantial workspace work, call agent_status and project_context. Use list_skills when skill summaries need to be discovered independently from project_context."
+	serverContextBootstrap    = "Call agent_status when runtime or permission details are needed. Use list_skills when skill summaries need to be discovered independently from project_context."
 
-	guidanceWorkspace = "Stay inside the workspace selected by the current MCP session. The first valid workspace-scoped call binds the session; never switch that session to another workspace."
-	guidanceContext   = "Treat project_context as the workspace instruction bundle. Follow project/user instructions and unconditional rules from it before acting."
+	guidanceWorkspace = "One MCP session may work across multiple registered workspaces. Every workspace-scoped call must explicitly target workspace_id; keep each workspace's project context, rules, memory, persisted shell cwd, REPL state, checkpoints, and assumptions isolated and never carry workspace-specific state into another workspace."
+	guidanceContext   = "At the start of every MCP session, fetch workspace memory by calling project_context with memory enabled before substantial work; repeat project_context before first work in each additional workspace targeted by that session. Treat project_context as the workspace instruction bundle and follow project/user instructions and unconditional rules from it before acting."
 	guidanceRead      = "Inspect relevant files before changing them. Use read_files/read_text_file for source context and load_path_rules for path-scoped rules before modifying matching files."
 	guidanceSkills    = "Review the skill summaries in project_context. When a skill is applicable, call load_skill with its exact name before using that workflow."
 	guidanceEdit      = "Prefer deterministic edits with apply_patch, edit_file, or multi_edit. Use run_command for commands, builds, tests, formatting, and other shell operations within the persisted workspace cwd."
 	guidanceVerify    = "For non-trivial work, make a short plan, implement incrementally, and verify with the repository's relevant tests, lint, typecheck, build, or other documented checks."
 	guidanceRewind    = "Use rewind to inspect or recover automatic file checkpoints when an edit must be reviewed or reverted."
-	guidanceRemember  = "Use remember only for durable workspace-specific notes that will help future sessions; do not store secrets, transient status, or raw MCP session identifiers."
+	guidanceRemember  = "When the user explicitly asks to remember, save, persist, or retain an eligible workspace-specific note for future sessions, call remember immediately in that same turn before replying; do not merely acknowledge or defer the request. Identify a concise scope and an optional child key: omit key for a scope-level note, and never repeat the scope as its child key. Call memory_get for that target, reconcile the current canonical note with the new information, then call remember with the complete canonical replacement note. A newer explicit user preference supersedes conflicting older memory; rewrite the entry instead of concatenating contradictory statements. Use remember only for durable workspace-specific conclusions that will help future sessions; do not store conversation history, secrets, transient status, or raw MCP session identifiers. If project_context reports memory optimization recommended and the current task permits maintenance, call optimize_memory and reconcile candidates with remember/forget instead of letting memory grow unbounded."
 	guidanceMissing   = "Do not assume instructions, rules, skill bodies, Git state, or environment details that are absent from the supplied context. Query the appropriate tool instead of guessing."
 	guidanceScope     = "Preserve unrelated user changes and keep mutations scoped to the requested task."
 

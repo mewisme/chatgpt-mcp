@@ -51,3 +51,43 @@ func TestRecorderRecordAddsRuntimeMetadataToSyntheticEvent(t *testing.T) {
 		t.Fatalf("synthetic event = %#v", got)
 	}
 }
+
+func TestStreamPublishWriteAndLatestSequence(t *testing.T) {
+	stream := NewStream(Metadata{RunID: "run_stream", PID: 99})
+	sub := stream.Subscribe()
+	defer stream.Unsubscribe(sub)
+	first := stream.Publish(Event{RunID: "run_stream", Level: "info", Name: "one", Message: "one"})
+	if first.Sequence != 1 || stream.LatestSequence() != 1 {
+		t.Fatalf("first=%#v latest=%d", first, stream.LatestSequence())
+	}
+	if live := <-sub; live.Sequence != 1 || live.Name != "one" {
+		t.Fatalf("live=%#v", live)
+	}
+	if err := stream.WriteEvent(logger.Event{Level: logger.Info, Kind: logger.KindInfo, Name: "two", Message: "two"}); err != nil {
+		t.Fatal(err)
+	}
+	if live := <-sub; live.Sequence != 2 || live.RunID != "run_stream" || live.PID != 99 {
+		t.Fatalf("live=%#v", live)
+	}
+	if stream.LatestSequence() != 2 {
+		t.Fatalf("latest=%d", stream.LatestSequence())
+	}
+}
+
+func TestNilStreamOperationsAreSafe(t *testing.T) {
+	var stream *Stream
+	if got := stream.Publish(Event{Name: "one"}); got.Name != "one" {
+		t.Fatalf("publish=%#v", got)
+	}
+	if err := stream.WriteEvent(logger.Event{}); err != nil {
+		t.Fatal(err)
+	}
+	if stream.LatestSequence() != 0 {
+		t.Fatal("nil stream latest sequence was non-zero")
+	}
+	sub := stream.Subscribe()
+	if _, ok := <-sub; ok {
+		t.Fatal("nil stream subscription was not closed")
+	}
+	stream.Unsubscribe(nil)
+}

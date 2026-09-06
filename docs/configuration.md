@@ -86,19 +86,6 @@ cgm config set admin.enabled true
 
 Changes are validated before persistence.
 
-## Presets
-
-Built-in presets provide named baseline configurations while preserving configured secrets and tunnel details when applied.
-
-```bash
-cgm config preset list
-cgm config preset show <name>
-cgm config preset current
-cgm config preset apply <name>
-```
-
-Use `current` to see whether the active configuration still matches a known preset or has become `custom`.
-
 ## Reload a running runtime
 
 After persisting a change:
@@ -293,7 +280,7 @@ cgm workspace register ~/projects/my-project
 
 Workspace IDs are stable hashes of canonical workspace paths. Older registry-v2 instance-scoped IDs are migrated to the stable ID and retained as aliases. The runtime never guesses or falls back to another registered workspace when an ID is invalid.
 
-When an MCP session makes its first valid workspace-scoped tool call, that session is bound to the canonical workspace ID. Later workspace-scoped calls in the same session must use the same workspace. Multiple independent MCP sessions may bind to the same workspace.
+An MCP session may access multiple registered workspaces. Every workspace-scoped tool call must explicitly provide a valid `workspace_id`; the runtime canonicalizes that ID and records the workspace in the session's in-memory access set. Invalid workspace IDs do not create access entries. Workspace-specific filesystem scope and state remain isolated even when the same session moves between projects.
 
 Global extra roots apply to every workspace:
 
@@ -320,19 +307,23 @@ workspace root
 
 Filesystem operations, shell mutation validation, Git/process working directories, and rewind/checkpoint validation use the same canonical root set. Symlink escapes remain denied.
 
-## Feature flags
+## Built-in mode state
 
-Built-in features live under `features` and can be updated through config or Admin Settings.
+Built-in response modes live under `features` and can be updated through config or Admin Settings. Their controller tools remain registered; `active` controls the default runtime state.
 
 Examples:
 
 ```bash
-cgm config set features.ponytail.enabled true
-cgm config set features.caveman.enabled false
+cgm config set features.ponytail.active true
+cgm config set features.ponytail.mode full
+cgm config set features.caveman.active true
+cgm config set features.caveman.mode full
 cgm config reload
 ```
 
-Admin Settings applies persisted feature changes to the live tool catalog directly when possible.
+Ponytail is built into `chatgpt-mcp`; it does not require the external Ponytail plugin, hooks, or Node.js. `features.ponytail.mode` accepts `lite`, `full`, or `ultra`; `review` is a session-only mode selected with `/ponytail-review`. Admin Settings applies persisted mode changes to the live runtime immediately. Legacy `enabled` values are accepted when loading older configuration and are written back as `active`.
+
+Caveman response mode is also built into `chatgpt-mcp`; it does not require the external Caveman plugin, hooks, proxy, engine, or Node.js. `features.caveman.mode` accepts `lite`, `full`, `ultra`, `wenyan-lite`, `wenyan-full`, or `wenyan-ultra`. Runtime commands use the same modes, with `/caveman wenyan` accepted as an alias for `wenyan-full`; `/caveman off`, `stop caveman`, and `normal mode` disable it for that workspace state. Only the MIT-licensed upstream response-mode/ruleset behavior is adapted. Upstream BSL-1.1 engine, proxy, MCP, rewriter, shrink, browse, and Cavemem runtime components are not embedded.
 
 ## Tunnel configuration
 

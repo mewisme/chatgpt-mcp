@@ -41,6 +41,10 @@ try {
   await verifySelfInstall()
   await verifyNoAliasInstall()
   run(["--help"])
+  const tuiHelp = run(["tui", "--help"], { quiet: true })
+  if (!tuiHelp.includes("Open the full-screen ChatGPT MCP command center")) fail(`tui help is missing command-center guidance:\n${tuiHelp}`)
+  const tuiNonTTY = runExpectFailure(["tui"])
+  if (!tuiNonTTY.includes("requires terminal stdin and stdout")) fail(`tui non-TTY refusal is unclear:\n${tuiNonTTY}`)
   run(["serve", "--help"])
   run(["auth", "mcp", "--help"])
   run(["workspace", "access", "--help"])
@@ -62,12 +66,14 @@ try {
   run(["config", "set", "admin.port", String(adminPort)])
   run(["config", "set", "auth.mcp_enabled", "false"])
   run(["config", "set", "auth.admin_enabled", "false"])
-  run(["config", "set", "features.ponytail.enabled", "false"])
-  run(["config", "set", "features.caveman.enabled", "false"])
-  run(["config", "set", "features.caveman.enabled", "true"])
+  run(["config", "set", "features.ponytail.active", "false"])
+  run(["config", "set", "features.ponytail.mode", "ultra"])
+  run(["config", "set", "features.caveman.active", "false"])
+  run(["config", "set", "features.caveman.mode", "wenyan-ultra"])
+  run(["config", "set", "features.caveman.active", "true"])
   run(["config", "verify"])
   run(["status"])
-  await verifyInteractiveListFallbacks()
+  await verifyStableCLIOutputs()
 
   child = spawn(binary, [...globalArgs, "serve"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
   let stdout = ""
@@ -77,8 +83,9 @@ try {
 
   await waitForHealth(`http://127.0.0.1:${serverPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${adminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
+  const workspaceID = await registerWorkspace(adminPort, allowedDir)
   await verifyActivitySSE(adminPort)
-  await verifyMCP(serverPort, false)
+  await verifyMCP(serverPort, workspaceID, false, "off", true, "wenyan-ultra")
   verifyApprovalCLI()
   const foregroundStatus = run(["status"], { quiet: true })
   for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "OpenAI Secure MCP Tunnel is disabled"]) {
@@ -90,12 +97,14 @@ try {
   const reloadedAdminPort = await freePort()
   run(["config", "set", "server.port", String(reloadedServerPort)])
   run(["config", "set", "admin.port", String(reloadedAdminPort)])
-  run(["config", "set", "features.ponytail.enabled", "true"])
+  run(["config", "set", "features.ponytail.active", "true"])
+  run(["config", "set", "features.ponytail.mode", "lite"])
+  run(["config", "set", "features.caveman.mode", "full"])
   run(["config", "reload"])
   if (child.pid !== servePID || child.exitCode !== null) fail("config reload restarted or stopped the serve process")
   await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
-  await verifyMCP(reloadedServerPort, true)
+  await verifyMCP(reloadedServerPort, workspaceID, true, "lite", true, "full")
 
   occupied = await occupyPort()
   run(["config", "set", "server.port", String(occupied.port)])
@@ -188,30 +197,27 @@ function run(args, { quiet = false } = {}) {
 }
 
 function verifyApprovalCLI() {
-  const plain = run(["request", "list", "--no-interactive"], { quiet: true })
+  const plain = run(["request", "list"], { quiet: true })
   if (!plain.includes("Control approval requests loaded")) fail(`request list fallback did not render plain output:
 ${plain}`)
-  const json = run(["request", "list", "--json", "--interactive"], { quiet: true })
+  const json = run(["request", "list", "--json"], { quiet: true })
   const requests = JSON.parse(json)
   if (!Array.isArray(requests) || requests.length !== 0) fail(`request list JSON fallback expected no pending requests:
 ${json}`)
-  runExpectFailure(["request", "list", "--interactive"])
 }
 
-async function verifyInteractiveListFallbacks() {
-  const workspacePlain = run(["workspace", "list", "--no-interactive"], { quiet: true })
+async function verifyStableCLIOutputs() {
+  const workspacePlain = run(["workspace", "list"], { quiet: true })
   if (!workspacePlain.includes("Registered workspaces loaded")) fail(`workspace list fallback did not render plain output:
 ${workspacePlain}`)
-  const workspaceJSON = JSON.parse(run(["workspace", "list", "--json", "--interactive"], { quiet: true }))
+  const workspaceJSON = JSON.parse(run(["workspace", "list", "--json"], { quiet: true }))
   if (!Array.isArray(workspaceJSON)) fail("workspace list JSON fallback did not return an array")
-  runExpectFailure(["workspace", "list", "--interactive"])
 
-  const upstreamPlain = run(["mcp", "server", "list", "--no-interactive"], { quiet: true })
+  const upstreamPlain = run(["mcp", "server", "list"], { quiet: true })
   if (!upstreamPlain.includes("Upstream servers loaded")) fail(`MCP server list fallback did not render plain output:
 ${upstreamPlain}`)
-  const upstreamJSON = JSON.parse(run(["mcp", "server", "list", "--json", "--interactive"], { quiet: true }))
+  const upstreamJSON = JSON.parse(run(["mcp", "server", "list", "--json"], { quiet: true }))
   if (!Array.isArray(upstreamJSON)) fail("MCP server list JSON fallback did not return an array")
-  runExpectFailure(["mcp", "server", "list", "--interactive"])
 }
 
 async function verifySelfInstall() {
@@ -264,9 +270,10 @@ function runExpectFailure(args) {
   const result = spawnSync(binary, [...globalArgs, ...args], { env, encoding: "utf8", windowsHide: true })
   if (result.error) fail(`${args.join(" ")}: ${result.error.message}`)
   if (result.status === 0) fail(`${args.join(" ")} unexpectedly succeeded`)
+  return [result.stdout, result.stderr].filter(Boolean).join("").trim()
 }
 
-async function verifyMCP(port, ponytailEnabled) {
+async function verifyMCP(port, workspaceID, ponytailActive, ponytailMode, cavemanActive, cavemanMode) {
   const discover = await mcpRequest(port, "server/discover", {}, 1)
   assertStatus(discover.response, 200, "server/discover")
   if (discover.response.headers.get("mcp-session-id")) fail("modern MCP response unexpectedly returned Mcp-Session-Id")
@@ -282,8 +289,8 @@ async function verifyMCP(port, ponytailEnabled) {
   const toolNames = new Set(tools.body.result.tools.map((tool) => tool?.name))
   if (!toolNames.has("get_version")) fail(`get_version missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!toolNames.has("request_control_approval")) fail(`request_control_approval missing from tools/list: ${JSON.stringify(tools.body)}`)
-  if (toolNames.has("ponytail_turn") !== ponytailEnabled) fail(`ponytail_turn state did not match runtime config: ${JSON.stringify(tools.body)}`)
-  if (!toolNames.has("caveman_turn")) fail(`enabled caveman_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
+  if (!toolNames.has("ponytail_turn")) fail(`ponytail_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
+  if (!toolNames.has("caveman_turn")) fail(`caveman_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!Number.isFinite(tools.body.result.ttlMs) || typeof tools.body.result.cacheScope !== "string") {
     fail(`tools/list cache hints are missing: ${JSON.stringify(tools.body)}`)
   }
@@ -295,11 +302,46 @@ async function verifyMCP(port, ponytailEnabled) {
     fail(`get_version returned invalid structured content: ${JSON.stringify(version.body)}`)
   }
 
-  const legacy = await mcpRequest(port, "initialize", {}, 4)
+  const ponytail = await mcpRequest(port, "tools/call", { name: "ponytail_turn", arguments: { workspace_id: workspaceID, prompt: "continue", action: "refresh" } }, 4)
+  assertStatus(ponytail.response, 200, "ponytail_turn")
+  const ponytailState = ponytail.body?.result?.structuredContent
+  if (!ponytailState || ponytailState.available !== true || ponytailState.active !== ponytailActive || ponytailState.mode !== ponytailMode) {
+    fail(`ponytail_turn state mismatch: expected active=${ponytailActive} mode=${ponytailMode}, got ${JSON.stringify(ponytail.body)}`)
+  }
+  if (ponytailActive && (typeof ponytailState.active_instructions !== "string" || !ponytailState.active_instructions.includes("PONYTAIL MODE ACTIVE") || !ponytailState.active_instructions.includes("## The ladder"))) {
+    fail(`ponytail_turn did not return built-in instructions: ${JSON.stringify(ponytail.body)}`)
+  }
+  if (!ponytailActive && ponytailState.active_instructions) fail(`inactive ponytail_turn returned instructions: ${JSON.stringify(ponytail.body)}`)
+
+  const caveman = await mcpRequest(port, "tools/call", { name: "caveman_turn", arguments: { workspace_id: workspaceID, prompt: "continue", action: "refresh" } }, 5)
+  assertStatus(caveman.response, 200, "caveman_turn")
+  const cavemanState = caveman.body?.result?.structuredContent
+  if (!cavemanState || cavemanState.available !== true || cavemanState.active !== cavemanActive || cavemanState.mode !== cavemanMode) {
+    fail(`caveman_turn state mismatch: expected active=${cavemanActive} mode=${cavemanMode}, got ${JSON.stringify(caveman.body)}`)
+  }
+  if (cavemanActive && (typeof cavemanState.active_instructions !== "string" || !cavemanState.active_instructions.includes("CAVEMAN MODE ACTIVE") || !cavemanState.active_instructions.includes("## Rules"))) {
+    fail(`caveman_turn did not return built-in instructions: ${JSON.stringify(caveman.body)}`)
+  }
+  if (!cavemanActive && cavemanState.active_instructions) fail(`inactive caveman_turn returned instructions: ${JSON.stringify(caveman.body)}`)
+
+  const legacy = await mcpRequest(port, "initialize", {}, 6)
   assertStatus(legacy.response, 404, "initialize")
   if (legacy.body?.error?.code !== -32601) {
     fail(`initialize error code = ${legacy.body?.error?.code}, want -32601`)
   }
+}
+
+async function registerWorkspace(port, workspacePath) {
+  const response = await fetch(`http://127.0.0.1:${port}/api/workspaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: workspacePath }),
+    signal: AbortSignal.timeout(5000),
+  })
+  assertStatus(response, 200, "workspace register")
+  const body = await response.json()
+  if (typeof body?.id !== "string" || !body.id) fail(`workspace register returned invalid body: ${JSON.stringify(body)}`)
+  return body.id
 }
 
 async function verifyActivitySSE(port) {

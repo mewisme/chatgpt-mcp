@@ -17,31 +17,18 @@ type configKeyCompletion struct {
 	Settable    bool
 }
 
-var configKeyCompletions = []configKeyCompletion{
-	{Key: "server.expose", Description: "server network exposure", Settable: true},
-	{Key: "server.expose.mode", Description: "exposure mode", Settable: true},
-	{Key: "server.expose.interfaces", Description: "exposed network interfaces", Settable: true},
-	{Key: "server.port", Description: "MCP server port", Settable: true},
-	{Key: "server.allow_insecure_http", Description: "allow authenticated HTTP beyond loopback", Settable: true},
-	{Key: "admin.enabled", Description: "admin server enabled", Settable: true},
-	{Key: "admin.port", Description: "admin server port", Settable: true},
-	{Key: "auth.mcp_enabled", Description: "MCP authentication enabled", Settable: true},
-	{Key: "auth.admin_enabled", Description: "admin authentication enabled", Settable: true},
-	{Key: "auth.mcp_token_hash", Description: "MCP token hash (read-only)"},
-	{Key: "auth.admin_token_hash", Description: "admin token hash (read-only)"},
-	{Key: "permissions.allow_dirs", Description: "additional filesystem roots", Settable: true},
-	{Key: "shell.path", Description: "additional executable search paths", Settable: true},
-	{Key: "features.ponytail.enabled", Description: "Ponytail feature enabled", Settable: true},
-	{Key: "features.caveman.enabled", Description: "Caveman feature enabled", Settable: true},
-	{Key: "tunnel.enabled", Description: "OpenAI tunnel enabled", Settable: true},
-	{Key: "tunnel.id", Description: "OpenAI tunnel ID", Settable: true},
-	{Key: "tunnel.api_key", Description: "OpenAI tunnel runtime API key", Settable: true},
-	{Key: "tunnel.admin_key", Description: "OpenAI tunnel admin key (manage with tunnel admin key)"},
-	{Key: "tunnel.admin_organization_id", Description: "verified admin organization scope (read-only)"},
-	{Key: "tunnel.admin_workspace_id", Description: "verified admin workspace scope (read-only)"},
-	{Key: "tunnel.admin_tenant_id", Description: "verified admin tenant scope (read-only)"},
-	{Key: "tunnel.control_plane_base_url", Description: "OpenAI tunnel control-plane URL", Settable: true},
-	{Key: "tunnel.organization_id", Description: "OpenAI organization ID", Settable: true},
+func configKeyCompletions() []configKeyCompletion {
+	fields := config.Fields()
+	result := make([]configKeyCompletion, 0, len(fields)+1)
+	result = append(result, configKeyCompletion{Key: "server.expose", Description: "server network exposure", Settable: true})
+	for _, spec := range fields {
+		settable := spec.Editable
+		if spec.Key == "tunnel.api_key" {
+			settable = true
+		}
+		result = append(result, configKeyCompletion{Key: spec.Key, Description: spec.Description, Settable: settable})
+	}
+	return result
 }
 
 func completeConfigSelection(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -49,7 +36,7 @@ func completeConfigSelection(_ *cobra.Command, args []string, toComplete string)
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	seen := map[string]string{}
-	for _, spec := range configKeyCompletions {
+	for _, spec := range configKeyCompletions() {
 		seen[spec.Key] = spec.Description
 		parts := strings.Split(spec.Key, ".")
 		for index := 1; index < len(parts); index++ {
@@ -69,8 +56,9 @@ func completeConfigSelection(_ *cobra.Command, args []string, toComplete string)
 
 func completeConfigSet(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) == 0 {
-		values := make([]string, 0, len(configKeyCompletions))
-		for _, spec := range configKeyCompletions {
+		completions := configKeyCompletions()
+		values := make([]string, 0, len(completions))
+		for _, spec := range completions {
 			if spec.Settable {
 				values = append(values, spec.Key+"\t"+spec.Description)
 			}
@@ -82,13 +70,15 @@ func completeConfigSet(_ *cobra.Command, args []string, toComplete string) ([]st
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	key := args[0]
-	switch key {
-	case "server.allow_insecure_http", "admin.enabled", "auth.mcp_enabled", "auth.admin_enabled", "features.ponytail.enabled", "features.caveman.enabled", "tunnel.enabled":
+	if spec, ok := config.FieldByKey(key); ok && spec.Kind == config.FieldEnum {
+		return filterCompletions(spec.Options, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+	if spec, ok := config.FieldByKey(key); ok && spec.Kind == config.FieldBool {
 		return filterCompletions([]string{"true", "false"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+	switch key {
 	case "server.expose":
 		return filterCompletions([]string{"none", "all", "0.0.0.0"}, toComplete), cobra.ShellCompDirectiveNoFileComp
-	case "server.expose.mode":
-		return filterCompletions([]string{"none", "all", "0.0.0.0", "interfaces"}, toComplete), cobra.ShellCompDirectiveNoFileComp
 	case "server.expose.interfaces":
 		interfaces, err := net.Interfaces()
 		if err != nil {
@@ -114,16 +104,30 @@ func completeConfigFormat(_ *cobra.Command, args []string, toComplete string) ([
 	return filterCompletions([]string{"json", "yaml", "toml"}, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
-func completePresetName(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) > 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	return filterCompletions(config.PresetNames(), toComplete), cobra.ShellCompDirectiveNoFileComp
-}
-
 func completeWorkspaceID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) > 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return workspaceCompletions(cmd, toComplete)
+}
+
+func completeWorkspaceContainerID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return workspaceContainerCompletions(cmd, toComplete)
+}
+
+func completeWorkspaceContainerThenName(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return workspaceContainerCompletions(cmd, toComplete)
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeWorkspaceContainerThenWorkspaces(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return workspaceContainerCompletions(cmd, toComplete)
 	}
 	return workspaceCompletions(cmd, toComplete)
 }
@@ -154,6 +158,19 @@ func workspaceCompletions(cmd *cobra.Command, toComplete string) ([]string, cobr
 	values := make([]string, 0, len(items))
 	for _, item := range items {
 		values = append(values, item.ID+"\t"+item.Path)
+	}
+	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
+func workspaceContainerCompletions(cmd *cobra.Command, toComplete string) ([]string, cobra.ShellCompDirective) {
+	prepareCompletionConfigRoot(cmd)
+	items, err := workspace.NewManager(workspace.DefaultStorePath()).ListContainers()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		values = append(values, item.ID+"\t"+item.Name)
 	}
 	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
 }

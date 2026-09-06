@@ -88,7 +88,7 @@ Install an exact release, including an intentional downgrade:
 cgm update --version vX.Y.Z
 ```
 
-If the selected config root has a running managed service, update switches the stable `current` target, restarts that service, and waits for runtime readiness. If the new runtime fails to become healthy, `chatgpt-mcp` restores the previous `current` target and metadata, then restarts the previous version.
+If the selected config root has a running managed service, update switches the stable `current` target, restarts that service, and waits for full runtime readiness. When the Secure MCP Tunnel is enabled, that includes waiting for the tunnel to become ready instead of returning while it is still connecting. If the new runtime fails to become healthy, `chatgpt-mcp` restores the previous `current` target and metadata, then restarts the previous version.
 
 Skip the managed-service restart when you intentionally want the running process to remain on the old binary until a later restart:
 
@@ -205,6 +205,28 @@ cgm workspace access list ws_...
 ```
 
 See [Configuration](configuration.md) and [Security](security.md) before broadening filesystem scope.
+
+## Open the interactive Command Center
+
+For human-driven administration, launch the full-screen TUI explicitly:
+
+```bash
+cgm tui
+```
+
+You can also deep-link to a page or resource:
+
+```bash
+cgm tui workspace
+cgm tui workspace ws_...
+cgm tui mcp github
+cgm tui logs
+cgm tui config
+```
+
+`Ctrl+P` opens the Command Palette, `Ctrl+O` opens resource/page search, and `Alt+Left` / `Alt+Right` cycle the main pages. The TUI requires terminal stdin/stdout; use ordinary `cgm ...` commands and structured flags such as `--json` in scripts or pipelines.
+
+See [TUI Command Center](tui.md) for the complete interaction model.
 
 ## Start the runtime
 

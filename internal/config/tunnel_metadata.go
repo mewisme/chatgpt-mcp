@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -91,6 +93,57 @@ func RemoveTunnelMetadata(id string) error {
 		return err
 	}
 	return nil
+}
+
+func ListTunnelMetadata() ([]tunnel.Metadata, error) {
+	dir := TunnelMetadataDir()
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return []tunnel.Metadata{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	result := make([]tunnel.Metadata, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if _, err := configformat.Detect(path); err != nil {
+			continue
+		}
+		file, err := root.Open(entry.Name())
+		if err != nil {
+			return nil, err
+		}
+		data, readErr := io.ReadAll(file)
+		closeErr := file.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		var metadata tunnel.Metadata
+		if err := configformat.UnmarshalPath(path, data, &metadata); err != nil {
+			return nil, fmt.Errorf("decode tunnel metadata %s: %w", path, err)
+		}
+		if strings.TrimSpace(metadata.ID) == "" {
+			metadata.ID = strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		}
+		if _, err := TunnelMetadataPath(metadata.ID); err != nil {
+			return nil, err
+		}
+		result = append(result, metadata)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result, nil
 }
 
 func SyncTunnelMetadata(ctx context.Context, cfg tunnel.Config) (tunnel.Metadata, string, error) {

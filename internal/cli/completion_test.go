@@ -32,11 +32,7 @@ func TestConfigCompletionIncludesKeysAndTypedValues(t *testing.T) {
 	}
 }
 
-func TestPresetAndFormatCompletion(t *testing.T) {
-	presets, _ := completePresetName(nil, nil, "la")
-	if !hasCompletion(presets, "lan") || !hasCompletion(presets, "lan-admin") {
-		t.Fatalf("preset completions = %#v", presets)
-	}
+func TestConfigFormatCompletion(t *testing.T) {
 	formats, _ := completeConfigFormat(nil, nil, "t")
 	if len(formats) != 1 || formats[0] != "toml" {
 		t.Fatalf("format completions = %#v", formats)

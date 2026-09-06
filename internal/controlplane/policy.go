@@ -13,7 +13,6 @@ const (
 var readOnlyPaths = map[string]bool{
 	"help": true, "version": true, "status": true, "completion": true,
 	"config path": true, "config get": true, "config list": true, "config verify": true, "config validate": true,
-	"config preset list": true, "config preset show": true, "config preset current": true,
 	"auth status": true, "alias status": true, "update check": true,
 	"request list": true, "request view": true,
 	"workspace list": true, "workspace show": true, "workspace access list": true,
@@ -74,9 +73,6 @@ func PathFromArgs(args []string) string {
 	}
 	switch args[0] {
 	case "config":
-		if args[1] == "preset" && len(args) >= 3 {
-			return strings.Join(args[:3], " ")
-		}
 		return strings.Join(args[:2], " ")
 	case "alias", "auth", "request", "workspace", "tunnel", "update":
 		if args[0] == "workspace" && args[1] == "access" && len(args) >= 3 {

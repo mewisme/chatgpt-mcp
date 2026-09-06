@@ -11,6 +11,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	memorypkg "go.mewis.me/chatgpt-mcp/internal/memory"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -123,10 +124,11 @@ func TestMaterializeMapsHomePathsAndWorkspaceStateAcrossPlatforms(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	canonicalMemory := "## tooling\n\n### package-manager\n- use pnpm\n\n## tui\n\n### theme\n- use Charm defaults\n"
 	bundle := Bundle{Version: Version, Source: source, Files: []File{
 		{Path: "config.json", Mode: 0600, Data: configData},
 		{Path: "workspaces.json", Mode: 0600, Data: registryData},
-		{Path: "workspaces/" + oldID + "/MEMORY.md", Mode: 0600, Data: []byte("portable memory\n")},
+		{Path: "workspaces/" + oldID + "/MEMORY.md", Mode: 0600, Data: []byte(canonicalMemory)},
 	}}
 	target := Platform{OS: runtime.GOOS, Arch: runtime.GOARCH, Home: targetHome}
 	stage := filepath.Join(t.TempDir(), "stage")
@@ -167,8 +169,12 @@ func TestMaterializeMapsHomePathsAndWorkspaceStateAcrossPlatforms(t *testing.T) 
 		t.Fatalf("workspace identity = %#v", registry.Workspaces[0])
 	}
 	memory, err := os.ReadFile(filepath.Join(stage, "workspaces", newID, "MEMORY.md"))
-	if err != nil || string(memory) != "portable memory\n" {
+	if err != nil || string(memory) != canonicalMemory {
 		t.Fatalf("memory = %q err=%v", memory, err)
+	}
+	document := memorypkg.Parse(string(memory))
+	if len(document.Entries) != 2 || document.Entries[0].Scope != "tooling" || document.Entries[0].Key != "package-manager" || document.Entries[1].Scope != "tui" || document.Entries[1].Key != "theme" {
+		t.Fatalf("portable memory document = %#v", document)
 	}
 }
 

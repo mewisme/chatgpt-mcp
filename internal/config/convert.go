@@ -69,6 +69,11 @@ func convertFormatAt(root string, target configformat.Format) (int, error) {
 				raw = map[string]any{"servers": values}
 			}
 		}
+		if item.base == "config" {
+			if values, ok := raw.(map[string]any); ok {
+				delete(values, "interactive")
+			}
+		}
 		if targetPath == item.path {
 			continue
 		}

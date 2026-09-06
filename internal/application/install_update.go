@@ -1,0 +1,219 @@
+package application
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/install"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
+	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
+	"go.mewis.me/chatgpt-mcp/internal/version"
+)
+
+type InstallationOverview struct {
+	Detection      install.Detection
+	Policy         updatepkg.InstallPolicy
+	Managed        bool
+	Layout         install.Layout
+	ManagedVersion string
+	Alias          install.AliasStatus
+	AliasAvailable bool
+	CachedUpdate   *updatepkg.CachedCheck
+}
+
+type InstallCurrentOptions struct {
+	NoAlias       bool
+	Force         bool
+	MigrateLegacy bool
+}
+
+type UpdateApplyOptions struct {
+	TargetVersion string
+	NoRestart     bool
+}
+
+type UpdateApplyResult struct {
+	Result   updatepkg.ApplyResult
+	External *ExternalCommand
+	Notice   string
+}
+
+func LoadInstallationOverview() (InstallationOverview, error) {
+	detection, err := install.DetectCurrent(version.Version)
+	if err != nil {
+		return InstallationOverview{}, err
+	}
+	overview := InstallationOverview{Detection: detection, Policy: updatepkg.PolicyForInstallation(detection)}
+	if detection.Method != install.MethodDirect || detection.Metadata == nil {
+		return overview, nil
+	}
+	layout, err := detection.ManagedLayout()
+	if err != nil {
+		return InstallationOverview{}, err
+	}
+	overview.Managed, overview.Layout, overview.AliasAvailable = true, layout, true
+	if managedVersion, _, currentErr := install.CurrentVersion(layout); currentErr == nil {
+		overview.ManagedVersion = managedVersion
+	}
+	alias, err := install.StatusAlias(layout)
+	if err != nil {
+		return InstallationOverview{}, err
+	}
+	overview.Alias = alias
+	if cached, ok, cacheErr := updatepkg.ReadFreshCache(layout.UpdateCache, version.Version, time.Now(), updatepkg.DefaultCacheTTL); cacheErr == nil && ok {
+		overview.CachedUpdate = &cached
+	}
+	return overview, nil
+}
+
+func InstallCurrent(options InstallCurrentOptions) (install.Result, error) {
+	return install.Install(install.Options{Version: version.Version, NoAlias: options.NoAlias, Force: options.Force, MigrateLegacy: options.MigrateLegacy})
+}
+
+func CleanupLegacyInstallations() (install.LegacyCleanupResult, error) {
+	layout, err := install.DefaultLayout()
+	if err != nil {
+		return install.LegacyCleanupResult{}, err
+	}
+	source, err := os.Executable()
+	if err != nil {
+		return install.LegacyCleanupResult{}, err
+	}
+	return install.CleanupLegacyInstallations(install.LegacyCleanupOptions{Layout: layout, Source: source, PreserveSource: true})
+}
+
+func SetAliasInstalled(enabled bool) (install.AliasStatus, error) {
+	overview, err := LoadInstallationOverview()
+	if err != nil {
+		return install.AliasStatus{}, err
+	}
+	if !overview.Managed {
+		return install.AliasStatus{}, errors.New("managed installation not found; run cgm install first")
+	}
+	if enabled {
+		return install.InstallAlias(overview.Layout)
+	}
+	return install.RemoveAlias(overview.Layout)
+}
+
+func CheckForUpdate(ctx context.Context) (updatepkg.CheckResult, error) {
+	checker := updatepkg.Checker{Source: updatepkg.Client{UserAgent: "chatgpt-mcp/" + version.Version}}
+	result, err := checker.Check(ctx, version.Version)
+	if err != nil {
+		return updatepkg.CheckResult{}, err
+	}
+	if overview, overviewErr := LoadInstallationOverview(); overviewErr == nil && overview.Managed {
+		_ = updatepkg.WriteCache(overview.Layout.UpdateCache, result.Latest, time.Now())
+	}
+	return result, nil
+}
+
+func ApplyUpdate(ctx context.Context, options UpdateApplyOptions) (UpdateApplyResult, error) {
+	overview, err := LoadInstallationOverview()
+	if err != nil {
+		return UpdateApplyResult{}, err
+	}
+	policy := overview.Policy
+	if policy.Action == updatepkg.PolicyDelegate {
+		return UpdateApplyResult{External: &ExternalCommand{Command: policy.Command, Reason: policy.Message}}, nil
+	}
+	if err := policy.Error(); err != nil {
+		return UpdateApplyResult{}, err
+	}
+	if !overview.Managed {
+		return UpdateApplyResult{}, errors.New("managed direct installation not found")
+	}
+	if overview.Alias.State == install.AliasConflict {
+		return UpdateApplyResult{}, fmt.Errorf("cannot preserve cgm alias state: %w: %s", install.ErrAliasConflict, overview.Alias.Path)
+	}
+	runtimeState, running, err := runtimeStatusFast(ctx)
+	if err != nil {
+		return UpdateApplyResult{}, err
+	}
+	if running && runtimeState.Managed && runtimeState.ServiceScope == string(managed.ScopeSystem) && detectServiceScope() == managed.ScopeUser && !options.NoRestart {
+		return UpdateApplyResult{External: &ExternalCommand{Command: "cgm update", Reason: "Updating a running system service requires elevation and must be launched outside the TUI."}}, nil
+	}
+	updater := updatepkg.Updater{Resolver: updatepkg.Client{UserAgent: "chatgpt-mcp/" + version.Version}, Downloader: updatepkg.Downloader{UserAgent: "chatgpt-mcp/" + version.Version}}
+	result, err := updater.Apply(ctx, updatepkg.ApplyOptions{Layout: overview.Layout, CurrentVersion: version.Version, TargetVersion: strings.TrimSpace(options.TargetVersion), NoAlias: overview.Alias.State == install.AliasMissing})
+	if err != nil {
+		return UpdateApplyResult{}, err
+	}
+	if strings.TrimSpace(options.TargetVersion) == "" && result.Target != "" {
+		_ = updatepkg.WriteCache(overview.Layout.UpdateCache, result.Target, time.Now())
+	}
+	output := UpdateApplyResult{Result: result}
+	if !result.Changed {
+		if result.Current == result.Target {
+			output.Notice = "Already up to date"
+		} else {
+			output.Notice = "Current version is newer than the latest release"
+		}
+		return output, nil
+	}
+	if running && !options.NoRestart {
+		if runtimeState.Managed {
+			if err := restartUpdatedManagedRuntime(ctx, result.Install.Layout, runtimeState); err != nil {
+				if rollbackErr := install.RollbackResult(result.Install); rollbackErr != nil {
+					return UpdateApplyResult{}, fmt.Errorf("managed runtime restart failed: %w; rollback failed: %v", err, rollbackErr)
+				}
+				if rollbackRestartErr := restartUpdatedManagedRuntime(ctx, result.Install.Layout, runtimeState); rollbackRestartErr != nil {
+					return UpdateApplyResult{}, fmt.Errorf("managed runtime restart failed: %w; rollback succeeded but previous runtime restart failed: %v", err, rollbackRestartErr)
+				}
+				return UpdateApplyResult{}, fmt.Errorf("managed runtime restart failed: %w; previous version restored", err)
+			}
+		} else {
+			output.Notice = fmt.Sprintf("Foreground runtime pid %d still uses the previous version; restart it manually", runtimeState.PID)
+		}
+	} else if running && options.NoRestart {
+		output.Notice = fmt.Sprintf("Runtime restart skipped; pid %d still uses the previous version", runtimeState.PID)
+	}
+	if err := install.FinalizeResult(result.Install); err != nil {
+		if output.Notice != "" {
+			output.Notice += "; "
+		}
+		output.Notice += "update succeeded but old version cleanup failed: " + err.Error()
+	}
+	return output, nil
+}
+
+func restartUpdatedManagedRuntime(ctx context.Context, layout install.Layout, status runtimecontrol.RuntimeStatus) error {
+	if filepath.Clean(status.ConfigRoot) != filepath.Clean(config.RootPath()) {
+		return fmt.Errorf("managed runtime config root mismatch: runtime %s, selected %s", status.ConfigRoot, config.RootPath())
+	}
+	scope := managed.Scope(status.ServiceScope)
+	if scope != managed.ScopeUser && scope != managed.ScopeSystem {
+		return fmt.Errorf("managed runtime has invalid service scope %q", status.ServiceScope)
+	}
+	spec, manager, err := managedService(scope, layout.CanonicalBinary)
+	if err != nil {
+		return err
+	}
+	if status.ServiceID == "" || spec.ID != status.ServiceID {
+		return fmt.Errorf("managed runtime service mismatch: runtime %s, expected %s", status.ServiceID, spec.ID)
+	}
+	backend, err := manager.Status(spec)
+	if err != nil {
+		return err
+	}
+	if !backend.Installed {
+		return errors.New("managed service is not installed")
+	}
+	if err := stopManagedBackend(spec, manager); err != nil {
+		return err
+	}
+	if err := waitRuntimeStopped(ctx, managedReadyTimeout); err != nil {
+		return err
+	}
+	if err := manager.Start(spec); err != nil {
+		return err
+	}
+	_, err = waitManagedReady(ctx, spec, status.RunID, managedReadyTimeout)
+	return err
+}

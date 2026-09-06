@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-func TestDiscoverTrustedPonytailHooks(t *testing.T) {
+func TestDiscoverTrustedPluginHooks(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
-	pluginRoot := filepath.Join(home, "plugins", "cache", "ponytail", "ponytail", "1.0.0")
+	pluginRoot := filepath.Join(home, "plugins", "cache", "sample", "sample", "1.0.0")
 	hooksDir := filepath.Join(pluginRoot, "hooks")
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
 		t.Fatal(err)
@@ -18,8 +18,8 @@ func TestDiscoverTrustedPonytailHooks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(hooksDir, "codex-hooks.json"), []byte(manifest), 0644); err != nil {
 		t.Fatal(err)
 	}
-	activationID := "ponytail@ponytail:hooks/codex-hooks.json:session_start:0:0"
-	config := `[plugins."ponytail@ponytail"]
+	activationID := "sample@sample:hooks/codex-hooks.json:session_start:0:0"
+	config := `[plugins."sample@sample"]
 enabled = true
 
 [hooks.state."` + activationID + `"]

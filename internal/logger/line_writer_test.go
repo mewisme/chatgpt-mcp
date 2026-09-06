@@ -2,6 +2,7 @@ package logger
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -120,5 +121,66 @@ func TestLineWriterRedactsSensitiveRawTokens(t *testing.T) {
 	text := output.String()
 	if strings.Contains(text, "api_key=secret") || strings.Contains(text, "token=hidden") || !strings.Contains(text, "api_key=[redacted]") || !strings.Contains(text, "token=[redacted]") {
 		t.Fatalf("raw diagnostic redaction = %q", text)
+	}
+}
+
+func TestLineWriterNilAndDefaultComponent(t *testing.T) {
+	var nilLog *Logger
+	if nilLog.LineWriter("TEST") != io.Discard {
+		t.Fatal("nil logger did not return io.Discard")
+	}
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Debug, Mode: ModeDebug, Writer: &output})
+	writer := log.LineWriter("   ")
+	if _, err := writer.Write([]byte("level=INFO msg=hello\n\n")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "LOG") || !strings.Contains(output.String(), "hello") {
+		t.Fatalf("default component output=%q", output.String())
+	}
+}
+
+func TestLineWriterFlushesOversizedFragment(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Debug, Mode: ModeDebug, Writer: &output})
+	writer := log.LineWriter("RAW")
+	line := strings.Repeat("x", maxBufferedLogLine+1)
+	if n, err := writer.Write([]byte(line)); err != nil || n != len(line) {
+		t.Fatalf("write n=%d err=%v", n, err)
+	}
+	if !strings.Contains(output.String(), "diagnostic.raw") || !strings.Contains(output.String(), "RAW") {
+		t.Fatalf("oversized output=%q", output.String()[:min(output.Len(), 200)])
+	}
+}
+
+func TestStructuredLineParsesMetadataErrorsAndInvalidTime(t *testing.T) {
+	event, ok := parseStructuredLine(`time=bad level=ERROR event=test.failed component=INNER msg="request failed" error="secret failure" source=remote tunnel_id=tunnel_1`)
+	if !ok || event.Level != Error || event.Kind != KindError || event.Name != "test.failed" || event.Component != "INNER" || event.Message != "request failed" || event.Err == nil || event.Err.Error() != "secret failure" {
+		t.Fatalf("event=%#v ok=%t", event, ok)
+	}
+	keys := map[string]Visibility{}
+	for _, field := range event.Fields {
+		keys[field.Key] = field.Visibility
+	}
+	if keys["time"] != VisibilityDebug || keys["source"] != VisibilityDebug || keys["tunnel_id"] != VisibilityVerbose {
+		t.Fatalf("fields=%#v", event.Fields)
+	}
+	if _, ok := parseStructuredLine(`level=INFO event=no-message`); ok {
+		t.Fatal("structured line without message accepted")
+	}
+	if _, ok := parseStructuredLine(`key=value raw`); ok {
+		t.Fatal("unrecognized structured tokens accepted")
+	}
+}
+
+func TestStructuredTokenizerAndLevelAliases(t *testing.T) {
+	tokens := splitStructuredTokens(`msg="hello \"quoted\" world" level=DBG key=value`)
+	if len(tokens) != 3 || decodeStructuredValue(strings.TrimPrefix(tokens[0], "msg=")) != `hello "quoted" world` {
+		t.Fatalf("tokens=%#v", tokens)
+	}
+	for input, want := range map[string]Level{"debug": Debug, "DBG": Debug, "warn": Warn, "WARNING": Warn, "WRN": Warn, "error": Error, "ERR": Error, "info": Info, "other": Info} {
+		if got := parseStructuredLevel(input); got != want {
+			t.Fatalf("parseStructuredLevel(%q)=%v want %v", input, got, want)
+		}
 	}
 }

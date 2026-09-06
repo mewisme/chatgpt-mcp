@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -36,10 +35,16 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "tunnel.organization_id", "org-test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setConfigValue(&cfg, "features.ponytail.enabled", "false"); err != nil {
+	if err := setConfigValue(&cfg, "features.ponytail.active", "false"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setConfigValue(&cfg, "features.caveman.enabled", "false"); err != nil {
+	if err := setConfigValue(&cfg, "features.ponytail.mode", "ULTRA"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setConfigValue(&cfg, "features.caveman.active", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setConfigValue(&cfg, "features.caveman.mode", "WENYAN-ULTRA"); err != nil {
 		t.Fatal(err)
 	}
 	if err := setConfigValue(&cfg, "permissions.allow_dirs", "/tmp,/var/tmp"); err != nil {
@@ -48,8 +53,38 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "shell.path", "/opt/tools,/usr/local/custom/bin"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Enabled || cfg.Features.Caveman.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
 		t.Fatalf("cfg = %#v", cfg)
+	}
+	if err := setConfigValue(&cfg, "features.ponytail.mode", "review"); err == nil {
+		t.Fatal("session-only review accepted as configured Ponytail mode")
+	}
+	if err := setConfigValue(&cfg, "features.caveman.mode", "wenyan"); err == nil {
+		t.Fatal("Caveman runtime alias accepted as configured mode")
+	}
+}
+
+func TestConfigSetValidationMatchesSharedDomain(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "config")
+	previous := configformat.RootPath()
+	defer configformat.SetRootPath(previous)
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-hash"
+	cfg.Auth.AdminTokenHash = "admin-hash"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	want := cfg
+	wantErr := config.SetValueValidated(&want, "server.port", "70000")
+	if wantErr == nil {
+		t.Fatal("shared config validation unexpectedly accepted invalid port")
+	}
+	_, err := executeRequestCommandError(root, []string{"config", "set", "server.port", "70000"})
+	if err == nil || err.Error() != wantErr.Error() {
+		t.Fatalf("CLI err=%v want=%v", err, wantErr)
 	}
 }
 
@@ -73,12 +108,30 @@ func TestFeatureConfigTraversal(t *testing.T) {
 		t.Fatalf("features = %#v", value)
 	}
 	ponytail, ok := features["ponytail"].(map[string]any)
-	if !ok || ponytail["enabled"] != true {
+	if !ok || ponytail["active"] != true || ponytail["mode"] != "full" {
 		t.Fatalf("ponytail = %#v", features["ponytail"])
 	}
-	leaf, err := getConfigValue(cfg, "features.caveman.enabled")
+	mode, err := getConfigValue(cfg, "features.ponytail.mode")
+	if err != nil || mode != "full" {
+		t.Fatalf("ponytail mode = %#v %v", mode, err)
+	}
+	leaf, err := getConfigValue(cfg, "features.caveman.active")
 	if err != nil || leaf != true {
 		t.Fatalf("caveman leaf = %#v %v", leaf, err)
+	}
+	cavemanMode, err := getConfigValue(cfg, "features.caveman.mode")
+	if err != nil || cavemanMode != "full" {
+		t.Fatalf("caveman mode = %#v %v", cavemanMode, err)
+	}
+}
+
+func TestInteractiveConfigKeyIsRemoved(t *testing.T) {
+	cfg := config.Default()
+	if err := setConfigValue(&cfg, "interactive", "false"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+		t.Fatalf("set interactive err=%v", err)
+	}
+	if _, err := getConfigValue(cfg, "interactive"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+		t.Fatalf("get interactive err=%v", err)
 	}
 }
 
@@ -191,70 +244,6 @@ func TestConfigOutputFormatConflict(t *testing.T) {
 	format, selected, err := resolveConfigOutputFormat(configOutputOptions{format: "json", json: true})
 	if err != nil || !selected || format != configformat.JSON {
 		t.Fatalf("same format flags = %q selected=%t err=%v", format, selected, err)
-	}
-}
-
-func TestConfigPresetApplyPreservesSecrets(t *testing.T) {
-	cfg := config.Default()
-	cfg.Auth.MCPTokenHash = "mcp-secret"
-	cfg.Auth.AdminTokenHash = "admin-secret"
-	cfg.Tunnel.APIKey = "tunnel-secret"
-	cfg.Tunnel.ID = "tunnel-id"
-	cfg.Tunnel.ControlPlaneBaseURL = "https://api.openai.com"
-	cfg.Tunnel.OrganizationID = "org-test"
-	if err := config.ApplyPreset(&cfg, "lan"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Server.Expose.Mode != config.ExposureAll || cfg.Admin.Enabled {
-		t.Fatalf("preset not applied: %#v", cfg)
-	}
-	if cfg.Auth.MCPTokenHash != "mcp-secret" || cfg.Auth.AdminTokenHash != "admin-secret" {
-		t.Fatal("auth secrets changed")
-	}
-	if cfg.Tunnel.APIKey != "tunnel-secret" || cfg.Tunnel.ID != "tunnel-id" ||
-		cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
-		t.Fatal("tunnel details changed")
-	}
-}
-
-func TestConfigPresetRequiresConfiguredAuth(t *testing.T) {
-	cfg := config.Default()
-	cfg.Auth.MCPTokenHash = ""
-	cfg.Auth.AdminTokenHash = ""
-	if err := config.ApplyPreset(&cfg, "default"); err == nil {
-		t.Fatal("preset unexpectedly bypassed auth validation")
-	}
-}
-
-func TestMatchingConfigPreset(t *testing.T) {
-	cfg := config.Default()
-	cfg.Auth.MCPTokenHash = "mcp"
-	cfg.Auth.AdminTokenHash = "admin"
-	if got := config.MatchPreset(cfg); got != "default" {
-		t.Fatalf("preset = %q", got)
-	}
-	cfg.Server.Port++
-	if got := config.MatchPreset(cfg); got != "custom" {
-		t.Fatalf("preset = %q", got)
-	}
-}
-
-func TestUnknownConfigPreset(t *testing.T) {
-	if _, err := config.PresetByName("missing"); err == nil {
-		t.Fatal("unknown preset was accepted")
-	}
-}
-
-func TestConfigPresetShowDefaultsToTextAndSupportsJSON(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "config")
-	plain := executeRequestCommand(t, root, []string{"config", "preset", "show", "default"})
-	if !strings.Contains(plain, "Configuration preset") || !strings.Contains(plain, "name: default") || strings.HasPrefix(strings.TrimSpace(plain), "{") {
-		t.Fatalf("plain=%q", plain)
-	}
-	structured := executeRequestCommand(t, root, []string{"config", "preset", "show", "default", "--json"})
-	var preset config.Preset
-	if err := json.Unmarshal([]byte(strings.TrimSpace(structured)), &preset); err != nil || preset.Name != "default" {
-		t.Fatalf("json=%q preset=%#v err=%v", structured, preset, err)
 	}
 }
 

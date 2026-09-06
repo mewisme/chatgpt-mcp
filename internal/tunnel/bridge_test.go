@@ -192,7 +192,7 @@ func TestSDKBridgeApprovalFlowUsesSessionFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	registry := tools.NewRegistry()
-	runtime := &tools.Runtime{Registry: registry, Workspaces: manager, SessionBindings: tools.NewSessionWorkspaceBinder(), Approvals: approval.NewManager(identity.ID)}
+	runtime := &tools.Runtime{Registry: registry, Workspaces: manager, SessionAccess: tools.NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID)}
 	registry.MustRegister("guarded_action", tools.Schema{Name: "guarded_action", InputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`)}, func(ctx context.Context, args map[string]any) (tools.Result, error) {
 		if requestID := tools.ApprovalRequestID(ctx); requestID != "" {
 			return tools.JSONResult(map[string]any{"approved_request": requestID}), nil

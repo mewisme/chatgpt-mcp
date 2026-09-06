@@ -22,13 +22,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify tag belongs to main
+      - name: Verify tag points to current main
         run: |
           git fetch origin main:refs/remotes/origin/main --no-tags
-          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main || {
-            echo "::error::Release tag ${GITHUB_REF_NAME} points to a commit that is not on origin/main."
+          main_sha=$(git rev-parse origin/main)
+          if [ "${GITHUB_SHA}" != "${main_sha}" ]; then
+            echo "::error::Release tag ${GITHUB_REF_NAME} points to ${GITHUB_SHA}, but origin/main is ${main_sha}."
             exit 1
-          }
+          fi
 
   web:
     name: Web release checks
@@ -60,8 +61,8 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit --prod
 
-      - name: Test
-        run: pnpm test
+      - name: Test with coverage
+        run: pnpm test:coverage
 
       - name: Lint
         run: pnpm lint
@@ -119,11 +120,25 @@ jobs:
       - name: Vulnerability scan
         run: govulncheck ./...
 
+      - name: Verify tidy module metadata
+        run: go mod tidy -diff
+
       - name: Static analysis
         run: staticcheck ./...
 
       - name: Security analysis
-        run: gosec -quiet -exclude=G204,G301,G302,G304,G306,G702,G703,G705 ./...
+        run: |
+          gosec -quiet -fmt=json ./... > "${RUNNER_TEMP}/gosec.json" || true
+          node scripts/check-gosec-baseline.mjs "${RUNNER_TEMP}/gosec.json" scripts/gosec-baseline.json
+
+      - name: Go coverage gate
+        env:
+          CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-coverage-test
+        run: |
+          go test -coverprofile="${RUNNER_TEMP}/coverage.out" ./...
+          coverage=$(go tool cover -func="${RUNNER_TEMP}/coverage.out" | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
+          echo "Go coverage: ${coverage}%"
+          awk -v coverage="${coverage}" 'BEGIN { if (coverage + 0 < 64.0) { print "Go coverage must be at least 64.0%" > "/dev/stderr"; exit 1 } }'
 
       - name: Workflow lint
         run: actionlint .github/workflows/ci.yml .github/workflows/release.yml
@@ -187,6 +202,11 @@ jobs:
         env:
           CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-approval-test
         run: go test -count=1 ./internal/approval ./internal/tools ./internal/cli ./internal/admin
+
+      - name: TUI release gate
+        env:
+          CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-tui-test
+        run: go test -count=1 -run 'Test(ParseRoute|RunRejectsNonTTYWithoutWritingANSI|EveryPublicCapabilityHasTUIRepresentation|MappedCapabilitiesArePaletteDiscoverableByCanonicalCLIPath|ModelRendersDeepLinkAndNavigation|ModelOpensAndRunsCommandPalette|ModelQuickOpenNavigatesPage)$' ./internal/tui
 
       - name: Test
         env:
@@ -268,7 +288,10 @@ jobs:
         run: git diff --exit-code -- go.mod go.sum
 
       - name: Install UPX
-        run: sudo apt-get update && sudo apt-get install -y upx-ucl
+        uses: crazy-max/ghaction-upx@db8cc9515a4a7ea1b312cb82fbeae6d716daf777 # v3
+        with:
+          version: '5.2.0'
+          install-only: true
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2

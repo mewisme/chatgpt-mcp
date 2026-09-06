@@ -1,19 +1,14 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"go.mewis.me/chatgpt-mcp/internal/auth"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
-	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
-	"go.mewis.me/chatgpt-mcp/internal/secretstore"
-	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
@@ -42,6 +37,7 @@ func newRootCommand() *cobra.Command {
 		restartCommand(),
 		logsCommand(),
 		requestCommand(),
+		tuiCommand(),
 		configCommand(),
 		aliasCommand(),
 		authCommand(),
@@ -77,53 +73,22 @@ func initCommand() *cobra.Command {
 		Use:   "init",
 		Short: "Initialize configuration and authentication tokens",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			source, err := config.Source()
-			if err != nil {
-				return err
-			}
 			options := configOutputOptions{format: formatName, json: jsonFormat, yaml: yamlFormat, toml: tomlFormat}
 			format, selected, err := resolveConfigOutputFormat(options)
 			if err != nil {
 				return err
 			}
-			if !selected {
-				format = configformat.JSON
-				if source.Exists {
-					format = source.Format
-				}
-			}
-			if source.Exists && !force {
-				return errors.New("configuration already exists; use --force to rotate tokens and rewrite config")
-			}
-			if source.Exists && selected && format != source.Format {
-				return fmt.Errorf("cannot change storage format with init --force; run chatgpt-mcp config convert %s first", format)
-			}
-			cfg := config.Default()
-			mcpToken := auth.GenerateToken("mcp")
-			adminToken := auth.GenerateToken("admin")
-			cfg.Auth.MCPTokenHash = auth.HashToken(mcpToken)
-			cfg.Auth.AdminTokenHash = auth.HashToken(adminToken)
-			if err := config.Validate(cfg); err != nil {
-				return err
-			}
-			if source.Exists {
-				if err := config.Save(cfg); err != nil {
-					return err
-				}
-			} else if err := config.SaveAs(cfg, format); err != nil {
+			result, err := application.Initialize(application.InitOptions{Force: force, Format: format, FormatSelected: selected})
+			if err != nil {
 				return err
 			}
 			log := commandLogger(cmd)
 			log.Success("INIT", "configuration created")
-			if source.Exists {
-				log.Detail("config", source.Path)
-			} else {
-				log.Detail("config", config.PathForFormat(format))
-			}
-			log.Detail("format", format)
-			logEndpointDetails(log, cfg)
-			log.Detail("mcp token", mcpToken)
-			log.Detail("admin token", adminToken)
+			log.Detail("config", result.ConfigPath)
+			log.Detail("format", result.Format)
+			logEndpointDetails(log, result.Config)
+			log.Detail("mcp token", result.MCPToken)
+			log.Detail("admin token", result.AdminToken)
 			return nil
 		},
 	}
@@ -141,10 +106,7 @@ func uninitCommand() *cobra.Command {
 		Short: "Remove all local chatgpt-mcp configuration and state",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := config.RootPath()
-			if err := purgeStoredSecrets(root); err != nil {
-				return err
-			}
-			if err := removeConfigRoot(root); err != nil {
+			if err := application.Uninitialize(root); err != nil {
 				return err
 			}
 			log := commandLogger(cmd)
@@ -155,43 +117,8 @@ func uninitCommand() *cobra.Command {
 	}
 }
 
-func purgeStoredSecrets(root string) error {
-	entries, err := config.TunnelSecretEntries(root)
-	if err != nil {
-		return err
-	}
-	oauthEntries, err := mcpoauth.NewStore(configformat.StructuredPath(root, "oauth")).SecretEntries()
-	if err != nil {
-		return err
-	}
-	upstreamEntries, err := upstream.NewStore(configformat.StructuredPath(root, "upstream")).SecretEntries()
-	if err != nil {
-		return err
-	}
-	entries = append(entries, secretstore.Name("cluster", "relay-token"))
-	entries = append(entries, oauthEntries...)
-	entries = append(entries, upstreamEntries...)
-	changes := make([]secretstore.Change, 0, len(entries))
-	for _, entry := range entries {
-		changes = append(changes, secretstore.Change{Name: entry})
-	}
-	return secretstore.New(root).Apply(changes)
-}
-
-func removeConfigRoot(root string) error {
-	clean := filepath.Clean(root)
-	if clean == "." || clean == string(filepath.Separator) {
-		return fmt.Errorf("refusing to remove unsafe config root: %s", clean)
-	}
-	volume := filepath.VolumeName(clean)
-	if clean == volume+string(filepath.Separator) {
-		return fmt.Errorf("refusing to remove volume root: %s", clean)
-	}
-	if clean != filepath.Clean(configformat.DefaultRootPath()) && !configformat.IsManagedRoot(clean) {
-		return fmt.Errorf("refusing to remove unmanaged config root: %s", clean)
-	}
-	return os.RemoveAll(clean)
-}
+func purgeStoredSecrets(root string) error { return application.PurgeStoredSecrets(root) }
+func removeConfigRoot(root string) error   { return application.RemoveConfigRoot(root) }
 
 func authCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "auth", Short: "Manage MCP and admin authentication"}
@@ -214,24 +141,8 @@ func authCreateCommand(kind string) *cobra.Command {
 		Use:   "create",
 		Short: "Create or rotate the " + kind + " token",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			token, _, err := application.RotateAuthToken(kind)
 			if err != nil {
-				return err
-			}
-			token := auth.GenerateToken(kind)
-			hash := auth.HashToken(token)
-			if kind == "mcp" {
-				cfg.Auth.MCPTokenHash = hash
-				cfg.Auth.MCPEnabled = true
-			} else {
-				cfg.Auth.AdminTokenHash = hash
-				cfg.Auth.AdminEnabled = true
-				cfg.Admin.Enabled = true
-			}
-			if err := config.Validate(cfg); err != nil {
-				return err
-			}
-			if err := config.Save(cfg); err != nil {
 				return err
 			}
 			log := commandLogger(cmd)
@@ -251,25 +162,7 @@ func authToggleCommand(kind string, enabled bool) *cobra.Command {
 		Use:   action,
 		Short: action + " " + kind + " authentication",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			if kind == "mcp" {
-				if enabled && cfg.Auth.MCPTokenHash == "" {
-					return errors.New("MCP token is not configured; run chatgpt-mcp auth mcp create")
-				}
-				cfg.Auth.MCPEnabled = enabled
-			} else {
-				if enabled && cfg.Auth.AdminTokenHash == "" {
-					return errors.New("admin token is not configured; run chatgpt-mcp auth admin create")
-				}
-				cfg.Auth.AdminEnabled = enabled
-			}
-			if err := config.Validate(cfg); err != nil {
-				return err
-			}
-			if err := config.Save(cfg); err != nil {
+			if _, err := application.SetAuthEnabled(kind, enabled); err != nil {
 				return err
 			}
 			state := "disabled"
@@ -288,14 +181,14 @@ func authStatusCommand() *cobra.Command {
 		Aliases: []string{"st"},
 		Short:   "Show authentication state without revealing token hashes",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			status, err := application.GetAuthStatus()
 			if err != nil {
 				return err
 			}
 			log := commandLogger(cmd)
 			log.Info("AUTH", "authentication status")
-			log.Detail("mcp", fmt.Sprintf("enabled=%t configured=%t", cfg.Auth.MCPEnabled, cfg.Auth.MCPTokenHash != ""))
-			log.Detail("admin", fmt.Sprintf("enabled=%t configured=%t", cfg.Auth.AdminEnabled, cfg.Auth.AdminTokenHash != ""))
+			log.Detail("mcp", fmt.Sprintf("enabled=%t configured=%t", status.MCPEnabled, status.MCPConfigured))
+			log.Detail("admin", fmt.Sprintf("enabled=%t configured=%t", status.AdminEnabled, status.AdminConfigured))
 			return nil
 		},
 	}

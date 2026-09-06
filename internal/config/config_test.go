@@ -275,10 +275,46 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 	}
 }
 
-func TestDefaultFeaturesEnabled(t *testing.T) {
+func TestDefaultFeaturesActive(t *testing.T) {
 	cfg := Default()
-	if !cfg.Features.Ponytail.Enabled || !cfg.Features.Caveman.Enabled {
+	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "full" {
 		t.Fatalf("features = %#v", cfg.Features)
+	}
+}
+
+func TestValidatePonytailDefaultMode(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	for _, mode := range []string{"lite", "full", "ultra"} {
+		cfg.Features.Ponytail.Mode = mode
+		if err := Validate(cfg); err != nil {
+			t.Fatalf("mode %q rejected: %v", mode, err)
+		}
+	}
+	for _, mode := range []string{"", "off", "review", "max"} {
+		cfg.Features.Ponytail.Mode = mode
+		if err := Validate(cfg); err == nil {
+			t.Fatalf("mode %q accepted", mode)
+		}
+	}
+}
+
+func TestValidateCavemanDefaultMode(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	for _, mode := range []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"} {
+		cfg.Features.Caveman.Mode = mode
+		if err := Validate(cfg); err != nil {
+			t.Fatalf("mode %q rejected: %v", mode, err)
+		}
+	}
+	for _, mode := range []string{"", "off", "wenyan", "commit", "review", "compress", "max"} {
+		cfg.Features.Caveman.Mode = mode
+		if err := Validate(cfg); err == nil {
+			t.Fatalf("mode %q accepted", mode)
+		}
 	}
 }
 
@@ -299,31 +335,70 @@ func TestNormalizeShellPath(t *testing.T) {
 
 func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
-		t.Run(string(format), func(t *testing.T) {
-			root := t.TempDir()
-			configPath := configformat.PathFor(root, "config", format)
-			secretPath := configformat.PathFor(root, "tunnel", format)
-			legacy := map[string]any{
-				"server": map[string]any{"port": int64(37421), "expose": map[string]any{"mode": "none", "interfaces": []any{}}},
-				"admin":  map[string]any{"enabled": false, "port": int64(37422)},
-				"auth":   map[string]any{"mcp_enabled": false, "admin_enabled": false},
-				"tunnel": map[string]any{"enabled": false},
-			}
-			data, err := configformat.EncodeGeneric(format, legacy)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(configPath, data, 0600); err != nil {
-				t.Fatal(err)
-			}
-			loaded, err := loadAt(configPath, secretPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !loaded.Features.Ponytail.Enabled || !loaded.Features.Caveman.Enabled {
-				t.Fatalf("legacy %s features = %#v", format, loaded.Features)
-			}
-		})
+		for _, legacyInteractive := range []struct {
+			name  string
+			value bool
+		}{{name: "interactive-true", value: true}, {name: "interactive-false", value: false}} {
+			t.Run(string(format)+"/"+legacyInteractive.name, func(t *testing.T) {
+				root := t.TempDir()
+				configPath := configformat.PathFor(root, "config", format)
+				secretPath := configformat.PathFor(root, "tunnel", format)
+				legacy := map[string]any{
+					"interactive": legacyInteractive.value,
+					"server":      map[string]any{"port": int64(37421), "expose": map[string]any{"mode": "none", "interfaces": []any{}}},
+					"admin":       map[string]any{"enabled": false, "port": int64(37422)},
+					"auth":        map[string]any{"mcp_enabled": false, "admin_enabled": false},
+					"tunnel":      map[string]any{"enabled": false},
+				}
+				data, err := configformat.EncodeGeneric(format, legacy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(configPath, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				loaded, err := loadAt(configPath, secretPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
+					t.Fatalf("legacy %s features = %#v", format, loaded.Features)
+				}
+				unchanged, err := os.ReadFile(configPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				unchangedValue, err := configformat.DecodeGeneric(format, unchanged)
+				if err != nil {
+					t.Fatal(err)
+				}
+				unchangedRoot, ok := unchangedValue.(map[string]any)
+				if !ok {
+					t.Fatalf("loaded config = %#v", unchangedValue)
+				}
+				if _, exists := unchangedRoot["interactive"]; !exists {
+					t.Fatalf("read-only load rewrote legacy %s config", format)
+				}
+				if err := saveAt(configPath, secretPath, loaded); err != nil {
+					t.Fatal(err)
+				}
+				saved, err := os.ReadFile(configPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				value, err := configformat.DecodeGeneric(format, saved)
+				if err != nil {
+					t.Fatal(err)
+				}
+				savedRoot, ok := value.(map[string]any)
+				if !ok {
+					t.Fatalf("saved config = %#v", value)
+				}
+				if _, exists := savedRoot["interactive"]; exists {
+					t.Fatalf("legacy interactive key survived %s migration: %s", format, saved)
+				}
+			})
+		}
 	}
 }
 
@@ -351,8 +426,50 @@ func TestPartialFeaturesKeepMissingFeatureDefault(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Features.Ponytail.Enabled || !loaded.Features.Caveman.Enabled {
+			if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
 				t.Fatalf("partial %s features = %#v", format, loaded.Features)
+			}
+		})
+	}
+}
+
+func TestFeatureConfigSerializesActiveOnly(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		t.Run(string(format), func(t *testing.T) {
+			cfg := Default()
+			cfg.Features.Ponytail.Active = false
+			data, err := configformat.Marshal(format, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := configformat.DecodeGeneric(format, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("root = %#v", raw)
+			}
+			if _, exists := root["interactive"]; exists {
+				t.Fatalf("obsolete interactive key serialized: %#v", root)
+			}
+			featureValues, ok := root["features"].(map[string]any)
+			if !ok {
+				t.Fatalf("features = %#v", root["features"])
+			}
+			ponytail, ok := featureValues["ponytail"].(map[string]any)
+			if !ok || ponytail["active"] != false || ponytail["mode"] != "full" {
+				t.Fatalf("ponytail = %#v", featureValues["ponytail"])
+			}
+			if _, exists := ponytail["enabled"]; exists {
+				t.Fatalf("legacy enabled key was serialized: %#v", ponytail)
+			}
+			caveman, ok := featureValues["caveman"].(map[string]any)
+			if !ok || caveman["active"] != true || caveman["mode"] != "full" {
+				t.Fatalf("caveman = %#v", featureValues["caveman"])
+			}
+			if _, exists := caveman["enabled"]; exists {
+				t.Fatalf("legacy enabled key was serialized: %#v", caveman)
 			}
 		})
 	}

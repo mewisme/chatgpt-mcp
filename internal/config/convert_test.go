@@ -28,6 +28,8 @@ func TestConvertFormatAtConvertsStructuredTree(t *testing.T) {
 	write("workspaces/ws_test/checkpoints/data/cp_test/manifest.json", `{"version":1,"id":"cp_test"}`)
 	write("tunnels/tunnel_test.json", `{"id":"tunnel_test","name":"Test tunnel"}`)
 	write("workspaces/ws_test/activity.jsonl", "{}\n")
+	memoryContent := "## tooling\n\n### package-manager\n- use pnpm\n"
+	write("workspaces/ws_test/MEMORY.md", memoryContent)
 
 	converted, err := convertFormatAt(root, configformat.TOML)
 	if err != nil {
@@ -50,6 +52,13 @@ func TestConvertFormatAtConvertsStructuredTree(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "workspaces/ws_test/activity.jsonl")); err != nil {
 		t.Fatalf("jsonl log should not be converted: %v", err)
 	}
+	memoryData, err := os.ReadFile(filepath.Join(root, "workspaces/ws_test/MEMORY.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(memoryData) != memoryContent {
+		t.Fatalf("memory should not be converted: %q", memoryData)
+	}
 	upstreamData, err := os.ReadFile(filepath.Join(root, "upstream.toml"))
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +71,32 @@ func TestConvertFormatAtConvertsStructuredTree(t *testing.T) {
 	}
 	if len(upstream.Servers) != 1 || upstream.Servers[0]["id"] != "alpha" {
 		t.Fatalf("upstream = %#v", upstream.Servers)
+	}
+}
+
+func TestConvertFormatAtDropsLegacyInteractiveKey(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "config.json")
+	if err := os.WriteFile(source, []byte(`{"interactive":true,"server":{"port":37421}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := convertFormatAt(root, configformat.TOML); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := configformat.DecodeGeneric(configformat.TOML, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configValue, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("converted config = %#v", value)
+	}
+	if _, exists := configValue["interactive"]; exists {
+		t.Fatalf("legacy interactive key survived conversion: %s", data)
 	}
 }
 

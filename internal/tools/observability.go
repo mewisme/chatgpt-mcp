@@ -8,21 +8,21 @@ import (
 )
 
 type CallObservation struct {
-	CallID               string
-	Phase                string
-	Source               string
-	Tool                 string
-	WorkspaceID          string
-	Status               string
-	DurationMS           int64
-	Message              string
-	ResultType           string
-	Raw                  map[string]any
-	SessionHash          string
-	SessionBinding       SessionBindingDecision
-	SessionWorkspaceID   string
-	ReceivedByInstanceID string
-	ExecutedByInstanceID string
+	CallID                string
+	Phase                 string
+	Source                string
+	Tool                  string
+	WorkspaceID           string
+	Status                string
+	DurationMS            int64
+	Message               string
+	ResultType            string
+	Raw                   map[string]any
+	SessionHash           string
+	SessionAccess         SessionWorkspaceAccessDecision
+	SessionWorkspaceCount int
+	ReceivedByInstanceID  string
+	ExecutedByInstanceID  string
 }
 
 type CallObserver func(CallObservation)

@@ -10,7 +10,8 @@ This directory contains the detailed documentation for `chatgpt-mcp`. The reposi
 | Connect ChatGPT to a private/local runtime | [OpenAI + ChatGPT setup](openai-chatgpt.md) |
 | Run as a foreground process or managed service | [Runtime and services](runtime.md) |
 | Configure ports, auth, exposure, formats, and workspaces | [Configuration](configuration.md) |
-| Browse commands, interactive TUI support, and common flag combinations | [CLI reference](cli-reference.md) |
+| Use the full-screen interactive Command Center | [TUI Command Center](tui.md) |
+| Browse commands and common flag combinations | [CLI reference](cli-reference.md) |
 | Understand MCP protocol behavior and upstream servers | [MCP and upstreams](mcp.md) |
 | Review filesystem, shell, auth, tunnel, and control-plane boundaries | [Security](security.md) |
 | Build, test, run smoke tests, CI, and release | [Development](development.md) |
@@ -43,7 +44,8 @@ This directory contains the detailed documentation for `chatgpt-mcp`. The reposi
 1. [MCP and upstreams](mcp.md)
 2. [Configuration](configuration.md)
 3. [Security](security.md)
-4. [Development](development.md)
+4. [TUI Command Center](tui.md)
+5. [Development](development.md)
 
 ## External references
 

@@ -34,7 +34,6 @@ import { ScrollableTabsList, Tabs, TabsContent, TabsTrigger } from "@/components
 import { Textarea } from "@/components/ui/textarea"
 import {
   adminApi,
-  type ConfigPresetList,
   type NetworkInterface,
   type PublicConfig,
 } from "@/lib/api"
@@ -42,9 +41,7 @@ import {
 export function SettingsPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [savedConfig, setSavedConfig] = useState<PublicConfig | null>(null)
-  const [presets, setPresets] = useState<ConfigPresetList | null>(null)
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
-  const [selectedPreset, setSelectedPreset] = useState("")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
@@ -52,18 +49,13 @@ export function SettingsPage() {
   useEffect(() => {
     void Promise.all([
       adminApi.config(),
-      adminApi.configPresets(),
       adminApi.networkInterfaces(),
     ])
-      .then(([nextConfig, nextPresets, nextInterfaces]) => {
+      .then(([nextConfig, nextInterfaces]) => {
         const normalized = normalizeConfig(nextConfig)
         setConfig(normalized)
         setSavedConfig(normalized)
-        setPresets(nextPresets)
         setInterfaces(nextInterfaces)
-        setSelectedPreset(
-          nextPresets.current === "custom" ? "" : nextPresets.current
-        )
       })
       .catch((value) => setError(errorText(value)))
   }, [])
@@ -83,41 +75,10 @@ export function SettingsPage() {
     setBusy(true)
     try {
       const next = normalizeConfig(await adminApi.saveConfig(config))
-      const nextPresets = await adminApi.configPresets()
       setConfig(next)
       setSavedConfig(next)
-      setPresets(nextPresets)
-      setSelectedPreset(
-        nextPresets.current === "custom" ? "" : nextPresets.current
-      )
       setMessage(
         "Saved. Runtime, listener, feature, auth, filesystem, and shell-path changes were applied live."
-      )
-      setError("")
-    } catch (value) {
-      setError(errorText(value))
-      setMessage("")
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function applyPreset() {
-    if (!selectedPreset) return
-    setBusy(true)
-    try {
-      const next = normalizeConfig(
-        await adminApi.applyConfigPreset(selectedPreset)
-      )
-      const nextPresets = await adminApi.configPresets()
-      setConfig(next)
-      setSavedConfig(next)
-      setPresets(nextPresets)
-      setSelectedPreset(
-        nextPresets.current === "custom" ? selectedPreset : nextPresets.current
-      )
-      setMessage(
-        `Preset ${selectedPreset} applied. Secrets, permissions, and shell paths were preserved.`
       )
       setError("")
     } catch (value) {
@@ -164,7 +125,7 @@ export function SettingsPage() {
     })
   }
 
-  if (!config || !savedConfig || !presets)
+  if (!config || !savedConfig)
     return (
       <div className="text-sm text-muted-foreground">
         {error || "Loading settings..."}
@@ -190,7 +151,6 @@ export function SettingsPage() {
       <PageHeader
         title="Settings"
         description="Configure runtime listeners, security, filesystem access, features, and the managed execution environment."
-        actions={<Badge variant="secondary">{presets.current}</Badge>}
       />
       <PageError message={error} />
       {message ? (
@@ -208,50 +168,6 @@ export function SettingsPage() {
           <TabsTrigger value="environment">Environment</TabsTrigger>
         </ScrollableTabsList>
         <TabsContent className="mt-6 space-y-6" value="general">
-          <Card>
-            <CardHeader>
-              <CardTitle>Config preset</CardTitle>
-              <CardDescription>
-                Apply the same built-in presets used by the CLI. Secrets,
-                filesystem permissions, and shell paths are preserved.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Select
-                  value={selectedPreset}
-                  onValueChange={setSelectedPreset}
-                >
-                  <SelectTrigger className="w-full sm:w-64">
-                    <SelectValue placeholder="Select preset" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {presets.presets.map((preset) => (
-                      <SelectItem key={preset.name} value={preset.name}>
-                        {preset.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  disabled={busy || !selectedPreset}
-                  variant="outline"
-                  onClick={() => void applyPreset()}
-                >
-                  Apply preset
-                </Button>
-              </div>
-              {selectedPreset ? (
-                <p className="mt-3 text-sm text-muted-foreground">
-                  {
-                    presets.presets.find(
-                      (preset) => preset.name === selectedPreset
-                    )?.description
-                  }
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
           <Card>
             <CardHeader>
               <CardTitle>Runtime</CardTitle>
@@ -458,35 +374,102 @@ export function SettingsPage() {
         <TabsContent className="mt-6" value="features">
           <Card>
             <CardHeader>
-              <CardTitle>Built-in features</CardTitle>
+              <CardTitle>Built-in modes</CardTitle>
               <CardDescription>
-                Feature tool registration updates immediately after saving.
+                Set the default active state for built-in response modes. Their controller tools remain available.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <FieldGroup>
                 <Toggle
                   label="Ponytail"
-                  description="Enable Ponytail feature tools."
-                  checked={config.features.ponytail.enabled}
-                  onCheckedChange={(enabled) =>
+                  description="Keep the built-in Ponytail coding mode active by default."
+                  checked={config.features.ponytail.active}
+                  onCheckedChange={(active) =>
                     setConfig({
                       ...config,
-                      features: { ...config.features, ponytail: { enabled } },
+                      features: {
+                        ...config.features,
+                        ponytail: { ...config.features.ponytail, active },
+                      },
                     })
                   }
                 />
+                <SettingField
+                  label="Ponytail intensity"
+                  description="Default intensity for new workspace mode state. Review remains session-only."
+                >
+                  <Select
+                    value={config.features.ponytail.mode}
+                    onValueChange={(mode) =>
+                      setConfig({
+                        ...config,
+                        features: {
+                          ...config.features,
+                          ponytail: {
+                            ...config.features.ponytail,
+                            mode: mode as PublicConfig["features"]["ponytail"]["mode"],
+                          },
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full sm:w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lite">Lite</SelectItem>
+                      <SelectItem value="full">Full</SelectItem>
+                      <SelectItem value="ultra">Ultra</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingField>
                 <Toggle
                   label="Caveman"
-                  description="Enable Caveman feature tools."
-                  checked={config.features.caveman.enabled}
-                  onCheckedChange={(enabled) =>
+                  description="Keep Caveman mode active by default."
+                  checked={config.features.caveman.active}
+                  onCheckedChange={(active) =>
                     setConfig({
                       ...config,
-                      features: { ...config.features, caveman: { enabled } },
+                      features: {
+                        ...config.features,
+                        caveman: { ...config.features.caveman, active },
+                      },
                     })
                   }
                 />
+                <SettingField
+                  label="Caveman intensity"
+                  description="Default Caveman level for new workspace mode state. Wenyan levels use classical Chinese compression."
+                >
+                  <Select
+                    value={config.features.caveman.mode}
+                    onValueChange={(mode) =>
+                      setConfig({
+                        ...config,
+                        features: {
+                          ...config.features,
+                          caveman: {
+                            ...config.features.caveman,
+                            mode: mode as PublicConfig["features"]["caveman"]["mode"],
+                          },
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full sm:w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lite">Lite</SelectItem>
+                      <SelectItem value="full">Full</SelectItem>
+                      <SelectItem value="ultra">Ultra</SelectItem>
+                      <SelectItem value="wenyan-lite">Wenyan Lite</SelectItem>
+                      <SelectItem value="wenyan-full">Wenyan Full</SelectItem>
+                      <SelectItem value="wenyan-ultra">Wenyan Ultra</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingField>
               </FieldGroup>
             </CardContent>
           </Card>

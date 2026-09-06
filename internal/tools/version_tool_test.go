@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"testing"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/version"
@@ -11,8 +12,16 @@ import (
 
 func TestGetVersionTool(t *testing.T) {
 	oldVersion, oldCommit, oldDate := version.Version, version.Commit, version.Date
-	defer func() { version.Version, version.Commit, version.Date = oldVersion, oldCommit, oldDate }()
+	oldStartedAt := processStartedAt
+	oldMachineUptime := machineUptime
+	defer func() {
+		version.Version, version.Commit, version.Date = oldVersion, oldCommit, oldDate
+		processStartedAt = oldStartedAt
+		machineUptime = oldMachineUptime
+	}()
 	version.Version, version.Commit, version.Date = "0.0.7", "abc123", "2026-08-30T19:26:57Z"
+	processStartedAt = time.Now().UTC().Add(-90 * time.Second)
+	machineUptime = func() (time.Duration, error) { return 36*time.Hour + 2*time.Minute + 3*time.Second, nil }
 	registry := NewRegistry()
 	RegisterCore(registry, workspace.NewManager(t.TempDir()+"/workspaces.json"), checkpoint.NewStore(t.TempDir()))
 	schema, ok := registry.Schema("get_version")
@@ -27,7 +36,7 @@ func TestGetVersionTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("structured content = %#v", result.StructuredContent)
 	}
-	if got.Version != "0.0.7" || got.Commit != "abc123" || got.BuildTime != "2026-08-30T19:26:57Z" {
+	if got.Version != "0.0.7" || got.Commit != "abc123" || got.BuildTime != "2026-08-30T19:26:57Z" || got.ServerStartedAt == "" || got.ServerUptime == "" || got.ServerUptimeSeconds < 89 || got.ServerUptimeSeconds > 91 || got.MachineUptime != "36h2m3s" || got.MachineUptimeSeconds != 129723 {
 		t.Fatalf("version result = %#v", got)
 	}
 }

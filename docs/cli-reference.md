@@ -41,7 +41,7 @@ cgm completion fish | source
 cgm completion powershell | Out-String | Invoke-Expression
 ```
 
-Dynamic completion includes config keys and typed values, preset names, workspace IDs, upstream MCP IDs, recent runtime session IDs, and directory arguments where appropriate. For example, `cgm cfg set per<Tab>` completes `permissions.allow_dirs`, while `cgm cfg set auth.mcp_enabled <Tab>` offers `true` and `false`.
+Dynamic completion includes config keys and typed values, workspace IDs, upstream MCP IDs, recent runtime session IDs, and directory arguments where appropriate. For example, `cgm cfg set per<Tab>` completes `permissions.allow_dirs`, while `cgm cfg set auth.mcp_enabled <Tab>` offers `true` and `false`.
 
 ## Global flags
 
@@ -74,7 +74,6 @@ chatgpt-mcp
 │   ├── list
 │   ├── migrate
 │   ├── path
-│   ├── preset
 │   ├── reload
 │   ├── set
 │   └── verify
@@ -96,6 +95,7 @@ chatgpt-mcp
 │   └── view
 ├── serve
 ├── status
+├── tui
 ├── tunnel
 │   ├── admin
 │   ├── configure
@@ -155,7 +155,7 @@ cgm update --no-restart
 
 Direct updates download the expected platform archive and `checksums.txt`, verify SHA-256 before extraction/activation, preserve the current `cgm` alias state, and switch the stable `current` target transactionally. Exact `--version` allows an intentional downgrade.
 
-When the selected config root has a managed runtime, `cgm update` restarts it and waits for readiness. Failure restores the previous install target and metadata and restarts the previous runtime. `--no-restart` leaves an existing process on the previous binary; foreground `serve` is also never killed by the updater.
+When the selected config root has a managed runtime, `cgm update` restarts it and waits for full readiness. If the Secure MCP Tunnel is enabled, readiness includes the tunnel reaching its ready state; connecting/reconnecting is not treated as success. Failure restores the previous install target and metadata and restarts the previous runtime. `--no-restart` leaves an existing process on the previous binary; foreground `serve` is also never killed by the updater.
 
 `cgm status` never performs a network update check. It may show availability from the fresh install-global cache at `<install-root>/state/update.json`.
 
@@ -177,25 +177,24 @@ Pending requests expire after 60 seconds. Approval does not grant a general CLI 
 
 `cgm request create dummy` creates a short-lived pending request through the same runtime approval manager and event stream as production requests. It is intended for testing the request TUI and admin approval UI; its random dummy session cannot match a real MCP retry grant.
 
-## Interactive TUI commands
+## TUI Command Center
 
-The following commands support interactive mode. On a terminal they open the TUI automatically unless `--no-interactive` is supplied.
+`cgm tui` is the dedicated full-screen interactive application. Normal CLI commands remain the stable scriptable interface.
 
-| Command | Interactive detail |
-| --- | --- |
-| `cgm request list` | pending approval inbox; detail modal with `Overview`, `Arguments`, and `Guard` tabs plus interactive Allow/Deny actions |
-| `cgm workspace list` | workspace browser with modal details and `c` to copy the selected workspace ID |
-| `cgm mcp server list` | upstream server browser; detail tabs group `Overview`, `Connection`, and `Tools` |
-| `cgm mcp server list --refresh` | refreshed health browser; detail tabs group `Overview`, `Tools`, and `Error` |
-| `cgm tunnel list` | managed tunnel browser; detail tabs group `Overview` and `Scope` |
+```bash
+cgm tui
+cgm tui workspace
+cgm tui workspace ws_...
+cgm tui mcp github
+cgm tui logs
+cgm tui config
+```
 
-Mode flags are consistent across these commands: `--interactive` forces the TUI and requires terminal stdin/stdout, `--no-interactive` forces deterministic text/legacy output, and `--json` suppresses the TUI for machine-readable output. For compatibility, non-interactive `cgm tunnel list` remains JSON by default.
+The TUI requires terminal stdin/stdout. Its global navigation uses `Ctrl+P` for the Command Palette, `Ctrl+O` for Quick Open, `Alt+Left` / `Alt+Right` to cycle top-level pages, and `Esc` to close the current overlay or navigate back.
 
-Common list controls are `j/k` or arrows to move, `/` to filter, `enter`/`v` to open details, `r` to refresh when available, `?` for full help, and `q` to quit. In tabbed detail dialogs, `←/→` or `h/l` switch tabs and `j/k` or `↑/↓` scroll the active tab.
+Use explicit `cgm tui` for interactive work and ordinary CLI/JSON output for automation. List commands do not auto-open a TUI and no longer expose per-command `--interactive` / `--no-interactive` flags.
 
-The request detail dialog keeps action focus separate from tab navigation: `Tab`/`Shift+Tab` switch between Allow and Deny, `Enter` activates the focused action, and `a`/`d` remain direct shortcuts. Resolution opens a second confirmation dialog; that dialog defaults to Cancel, uses `←/→`, `h/l`, or `Tab` to change focus, and `Enter` to choose the focused button. `y` confirms directly while `n`, `Esc`, or `q` cancel.
-
-See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for challenge binding and one-shot capability semantics.
+See [TUI Command Center](tui.md) for Command Palette search, Quick Open, mouse behavior, deep links, forms, confirmations, and scripting guidance. See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for approval challenge binding and one-shot capability semantics.
 
 ## Lifecycle
 
@@ -383,6 +382,20 @@ Inspect:
 cgm workspace list
 cgm workspace show ws_...
 ```
+
+Manage logical workspace containers:
+
+```bash
+cgm workspace container list
+cgm workspace container create "Backend projects"
+cgm workspace container show wsc_...
+cgm workspace container rename wsc_... "Services"
+cgm workspace container add wsc_... ws_... [ws_...]
+cgm workspace container remove wsc_... ws_... [ws_...]
+cgm workspace container delete wsc_...
+```
+
+Container IDs use the `wsc_` prefix. Containers group registered workspaces without merging filesystem scope, project context, shell/REPL state, memory, or checkpoints.
 
 Remove the registry handle without deleting project files:
 

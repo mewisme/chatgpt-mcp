@@ -4,7 +4,7 @@ import "testing"
 
 func TestReadOnlyCommandPolicy(t *testing.T) {
 	for _, args := range [][]string{
-		{"status"}, {"config", "list"}, {"config", "preset", "show", "default"}, {"auth", "status"},
+		{"status"}, {"config", "list"}, {"auth", "status"},
 		{"workspace", "access", "list", "ws_test"}, {"mcp", "server", "show", "server"}, {"tunnel", "status"}, {"alias", "status"}, {"update", "check"},
 		{"request", "list"}, {"request", "view", "req_test"}, {"req", "ls"}, {"req", "show", "req_test"}, {"req", "info", "req_test"},
 		{"st"}, {"cfg", "ls"}, {"ws", "access", "ls", "ws_test"}, {"mcp", "server", "st", "server"}, {"tunnel", "st"}, {"completion", "bash"},
@@ -15,7 +15,7 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 		}
 	}
 	for _, args := range [][]string{
-		{"config", "set", "permissions.allow_dirs", "/tmp"}, {"config", "convert", "yaml"}, {"config", "export", "backup.cgm"}, {"config", "import", "backup.cgm"}, {"config", "preset", "apply", "lan"},
+		{"config", "set", "permissions.allow_dirs", "/tmp"}, {"config", "convert", "yaml"}, {"config", "export", "backup.cgm"}, {"config", "import", "backup.cgm"},
 		{"cfg", "set", "permissions.allow_dirs", "/tmp"}, {"ws", "register", "."},
 		{"auth", "mcp", "create"}, {"workspace", "register", "."}, {"workspace", "access", "add", "ws_test", "/tmp"},
 		{"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"req", "accept", "req_test"}, {"req", "allow", "req_test"}, {"req", "reject", "req_test"},

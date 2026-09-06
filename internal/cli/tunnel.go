@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/telemetry"
@@ -24,20 +25,7 @@ func tunnelCommand() *cobra.Command {
 }
 
 func normalizeTunnelIDs(values []string) []string {
-	result := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	return result
+	return application.NormalizeTunnelIDs(values)
 }
 
 func tunnelStatusCommand() *cobra.Command {
@@ -179,19 +167,12 @@ func fetchTunnelStatus(_ context.Context, cfg tunnel.Config) tunnel.Status {
 
 func tunnelSyncCommand() *cobra.Command {
 	return &cobra.Command{Use: "sync", Short: "Fetch and persist metadata for the configured tunnel", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if !tunnel.Configured(cfg.Tunnel) {
-			return errors.New("configured tunnel id and runtime API key are required")
-		}
 		log := commandLogger(cmd)
 		defer log.Close()
 		log.Action("TUNNEL", "tunnel.metadata.syncing", "Syncing tunnel metadata")
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
-		metadata, path, err := config.SyncTunnelMetadata(ctx, cfg.Tunnel)
+		metadata, path, err := application.SyncConfiguredTunnel(ctx)
 		if err != nil {
 			return err
 		}
@@ -209,48 +190,31 @@ func tunnelConfigureCommand() *cobra.Command {
 	var enabled bool
 	var id, apiKey, controlPlaneBaseURL, organizationID string
 	cmd := &cobra.Command{Use: "configure", Short: "Configure the builtin OpenAI Secure MCP Tunnel", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		loadConfig := config.Load
-		if cmd.Flags().Changed("api-key") {
-			loadConfig = config.LoadForTunnelRuntimeKeyReplacement
-		}
-		cfg, err := loadConfig()
-		if err != nil {
-			return err
-		}
-		previous := cfg.Tunnel
-		next := previous
+		input := application.TunnelRuntimeInput{}
 		if cmd.Flags().Changed("enabled") {
-			next.Enabled = enabled
+			input.Enabled = &enabled
 		}
 		if cmd.Flags().Changed("id") {
-			next.ID = id
+			input.ID = &id
 		}
 		if cmd.Flags().Changed("api-key") {
-			next.APIKey = apiKey
+			input.APIKey = &apiKey
 		}
 		if cmd.Flags().Changed("control-plane-base-url") {
-			next.ControlPlaneBaseURL = controlPlaneBaseURL
+			input.ControlPlaneBaseURL = &controlPlaneBaseURL
 		}
 		if cmd.Flags().Changed("organization-id") {
-			next.OrganizationID = organizationID
-		}
-		cfg.Tunnel = next
-		if err := config.Validate(cfg); err != nil {
-			return err
+			input.OrganizationID = &organizationID
 		}
 		log := commandLogger(cmd)
 		defer log.Close()
-		metadataSync := tunnel.Configured(next) && (previous.ID != next.ID || previous.APIKey != next.APIKey || previous.ControlPlaneBaseURL != next.ControlPlaneBaseURL)
-		if metadataSync {
+		if cmd.Flags().Changed("id") || cmd.Flags().Changed("api-key") || cmd.Flags().Changed("control-plane-base-url") {
 			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.metadata.syncing", "Syncing tunnel metadata")
-			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
-			_, _, metadataErr := config.SyncTunnelMetadata(ctx, next)
-			cancel()
-			if metadataErr != nil {
-				return fmt.Errorf("persist tunnel metadata: %w", metadataErr)
-			}
 		}
-		if err := config.Save(cfg); err != nil {
+		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
+		_, err := application.ConfigureTunnelRuntime(ctx, input)
+		cancel()
+		if err != nil {
 			return err
 		}
 		log.Success("TUNNEL", "OpenAI Secure MCP Tunnel configuration saved")
@@ -270,15 +234,7 @@ func tunnelToggleCommand(enabled bool) *cobra.Command {
 		use, short = "enable", "Enable the builtin OpenAI Secure MCP Tunnel"
 	}
 	return &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		cfg.Tunnel.Enabled = enabled
-		if err := config.Validate(cfg); err != nil {
-			return err
-		}
-		if err := config.Save(cfg); err != nil {
+		if _, err := application.SetTunnelEnabled(enabled); err != nil {
 			return err
 		}
 		state := "disabled"

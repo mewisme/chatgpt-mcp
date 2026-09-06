@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	"go.mewis.me/chatgpt-mcp/internal/memory"
 	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -120,6 +121,43 @@ func TestWorkspaceContextAPISupportsSubprojectAndLimits(t *testing.T) {
 	section := result.InstructionContext.ProjectMemory.Sections[0]
 	if !section.Truncated || section.LoadedBytes > 8 || strings.Contains(section.Content, "second") {
 		t.Fatalf("section = %#v", section)
+	}
+}
+
+func TestWorkspaceContextAPISupportsSelectiveMemory(t *testing.T) {
+	configRoot := t.TempDir()
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", configRoot)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	root := t.TempDir()
+	manager := workspace.NewManager(filepath.Join(configRoot, "workspaces.json"))
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := memory.NewStore(configRoot)
+	for _, entry := range []memory.Entry{
+		{Scope: "tui", Key: "theme", Note: "Use Charm default component styles."},
+		{Scope: "release", Key: "ci", Note: "Publish with GitHub Actions."},
+	} {
+		if _, err := store.Upsert(item.ID, entry.Scope, entry.Key, entry.Note); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+item.ID+"/context?include_git=false&memory_query=tui+theme&max_memory_entries=1&max_memory_bytes=8192", nil)
+	New(API{Workspaces: manager}).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var result projectcontext.Result
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	auto := result.InstructionContext.AutoMemory
+	if !auto.Loaded || auto.Query != "tui theme" || auto.Entries != 1 || !auto.Truncated || !strings.Contains(auto.Content, "### theme") || strings.Contains(auto.Content, "### ci") {
+		t.Fatalf("auto memory = %#v", auto)
 	}
 }
 

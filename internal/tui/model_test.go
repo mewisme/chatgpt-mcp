@@ -78,6 +78,20 @@ func TestModelQuitAndBack(t *testing.T) {
 	}
 }
 
+func TestModelBackIntoRequestsRestartsPageInit(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	model.navigate(Route{Kind: RouteRequests})
+	model.navigate(Route{Kind: RouteLogs})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if model.router.Current().Kind != RouteRequests {
+		t.Fatalf("route = %#v", model.router.Current())
+	}
+	if cmd == nil {
+		t.Fatal("returning to requests did not restart page init")
+	}
+}
+
 func TestModelOpensAndRunsCommandPalette(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
 	updated, _ := model.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})

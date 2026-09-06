@@ -166,6 +166,12 @@ func TestRuntimeControlRequestListViewApproveAndDeny(t *testing.T) {
 	}
 }
 
+func TestRuntimeControlRejectsUnknownApprovalActionBeforeMutation(t *testing.T) {
+	if _, err := requestRuntimeApprovalResolve(t.Context(), "unknown", "req_test", ""); err == nil || !strings.Contains(err.Error(), "unsupported approval action") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestRuntimeControlRejectsUnauthenticatedCLIApprovalConsume(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {

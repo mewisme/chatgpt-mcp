@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -10,33 +9,21 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
-const runtimeControlFile = ".runtime-control.json"
-
-type runtimeControlState struct {
-	PID          int       `json:"pid"`
-	Address      string    `json:"address"`
-	Token        string    `json:"token"`
-	RunID        string    `json:"run_id,omitempty"`
-	Managed      bool      `json:"managed,omitempty"`
-	ServiceID    string    `json:"service_id,omitempty"`
-	ServiceScope string    `json:"service_scope,omitempty"`
-	StartedAt    time.Time `json:"started_at,omitempty"`
-	ConfigRoot   string    `json:"config_root"`
-}
+type runtimeControlState = runtimecontrol.State
 
 type runtimeReloadResult struct {
 	PID              int                 `json:"pid"`
@@ -89,7 +76,7 @@ type runtimeControl struct {
 	path     string
 }
 
-func runtimeControlPath() string { return filepath.Join(config.RootPath(), runtimeControlFile) }
+func runtimeControlPath() string { return runtimecontrol.Path() }
 
 func reloadResult(cfg config.Config, networkRestarted bool) runtimeReloadResult {
 	return runtimeReloadResult{PID: os.Getpid(), NetworkRestarted: networkRestarted, ServerPort: cfg.Server.Port, AdminEnabled: cfg.Admin.Enabled, AdminPort: cfg.Admin.Port, Exposure: cfg.Server.Expose.Mode}
@@ -336,78 +323,15 @@ func (c *runtimeControl) Close() error {
 }
 
 func loadRuntimeControlState() (runtimeControlState, error) {
-	data, err := os.ReadFile(runtimeControlPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return runtimeControlState{}, errors.New("no running server found for this config directory")
-		}
-		return runtimeControlState{}, err
-	}
-	var control runtimeControlState
-	if err := json.Unmarshal(data, &control); err != nil {
-		return runtimeControlState{}, fmt.Errorf("decode runtime control state: %w", err)
-	}
-	if control.PID <= 0 || strings.TrimSpace(control.Token) == "" {
-		return runtimeControlState{}, errors.New("runtime control state is invalid")
-	}
-	host, _, err := net.SplitHostPort(control.Address)
-	if err != nil {
-		return runtimeControlState{}, errors.New("runtime control address is invalid")
-	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	if ip == nil || !ip.IsLoopback() {
-		return runtimeControlState{}, errors.New("runtime control address is not loopback")
-	}
-	return control, nil
+	return runtimecontrol.Load()
 }
 
 func runtimeControlRequest(ctx context.Context, method, path string, output any) (runtimeControlState, error) {
-	return runtimeControlJSONRequest(ctx, method, path, nil, output)
+	return runtimecontrol.Request(ctx, method, path, nil, output)
 }
 
 func runtimeControlJSONRequest(ctx context.Context, method, path string, input, output any) (runtimeControlState, error) {
-	control, err := loadRuntimeControlState()
-	if err != nil {
-		return runtimeControlState{}, err
-	}
-	var body io.Reader
-	if input != nil {
-		data, err := json.Marshal(input)
-		if err != nil {
-			return runtimeControlState{}, fmt.Errorf("encode runtime control request: %w", err)
-		}
-		body = bytes.NewReader(data)
-	}
-	request, err := http.NewRequestWithContext(ctx, method, "http://"+control.Address+path, body)
-	if err != nil {
-		return runtimeControlState{}, err
-	}
-	request.Header.Set("Authorization", "Bearer "+control.Token)
-	if input != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	client := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: nil}}
-	response, err := client.Do(request)
-	if err != nil {
-		return runtimeControlState{}, fmt.Errorf("running server control endpoint unavailable: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
-		var failure struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(body, &failure) == nil && failure.Error != "" {
-			return runtimeControlState{}, errors.New(failure.Error)
-		}
-		return runtimeControlState{}, fmt.Errorf("runtime control request failed with HTTP %d", response.StatusCode)
-	}
-	if output != nil {
-		if err := json.NewDecoder(response.Body).Decode(output); err != nil {
-			return runtimeControlState{}, fmt.Errorf("decode runtime control response: %w", err)
-		}
-	}
-	return control, nil
+	return runtimecontrol.Request(ctx, method, path, input, output)
 }
 
 func requestRuntimeCLIApproval(ctx context.Context, capability string, args []string) error {
@@ -425,29 +349,26 @@ func requestRuntimeCLIApproval(ctx context.Context, capability string, args []st
 }
 
 func requestRuntimeApprovalList(ctx context.Context) ([]approval.Request, error) {
-	var result []approval.Request
-	_, err := runtimeControlRequest(ctx, http.MethodGet, "/requests", &result)
-	return result, err
+	return application.ListApprovalRequests(ctx)
 }
 
 func requestRuntimeApprovalView(ctx context.Context, id string) (approval.Request, error) {
-	var result approval.Request
-	_, err := runtimeControlRequest(ctx, http.MethodGet, "/requests/view?id="+url.QueryEscape(strings.TrimSpace(id)), &result)
-	return result, err
+	return application.GetApprovalRequest(ctx, id)
 }
 
 func requestRuntimeApprovalCreateDummy(ctx context.Context, workspaceID, title, command string) (approval.Request, error) {
-	var result approval.Request
-	_, err := runtimeControlJSONRequest(ctx, http.MethodPost, "/requests/create-dummy", map[string]string{
-		"workspace_id": strings.TrimSpace(workspaceID), "title": strings.TrimSpace(title), "command": strings.TrimSpace(command),
-	}, &result)
-	return result, err
+	return application.CreateDummyApprovalRequest(ctx, workspaceID, title, command)
 }
 
 func requestRuntimeApprovalResolve(ctx context.Context, action, id, reason string) (approval.Request, error) {
-	var result approval.Request
-	_, err := runtimeControlJSONRequest(ctx, http.MethodPost, "/requests/"+action, map[string]string{"id": strings.TrimSpace(id), "reason": strings.TrimSpace(reason)}, &result)
-	return result, err
+	switch action {
+	case "approve":
+		return application.ResolveApprovalRequest(ctx, id, true, reason)
+	case "deny":
+		return application.ResolveApprovalRequest(ctx, id, false, reason)
+	default:
+		return approval.Request{}, fmt.Errorf("unsupported approval action: %s", action)
+	}
 }
 
 func requestRuntimeApprovalApprove(ctx context.Context, id, reason string) (approval.Request, error) {

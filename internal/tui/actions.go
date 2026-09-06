@@ -26,11 +26,38 @@ func defaultActionRegistry() *action.Registry {
 	actions = append(actions, workspaceActions()...)
 	actions = append(actions, mcpActions()...)
 	actions = append(actions, tunnelActions()...)
+	actions = append(actions, requestActions()...)
 	registry, err := action.NewRegistry(actions...)
 	if err != nil {
 		panic(err)
 	}
 	return registry
+}
+
+func requestActions() []action.Action {
+	return []action.Action{
+		requestAction("request.refresh", "Refresh requests", "Refresh approval requests from the running runtime", []string{"request", "approval", "refresh", "list"}, []string{"request", "list"}, tuipage.RequestRefresh, false),
+		requestAction("request.show.pending", "Show pending requests", "Show only pending approval requests", []string{"request", "pending", "filter"}, []string{"request", "list"}, tuipage.RequestShowPending, false),
+		requestAction("request.show.history", "Show request history", "Show resolved and expired approval requests", []string{"request", "history", "resolved", "filter"}, []string{"request", "list"}, tuipage.RequestShowHistory, false),
+		requestAction("request.show.all", "Show all requests", "Show pending and historical approval requests", []string{"request", "all", "filter"}, []string{"request", "list"}, tuipage.RequestShowAll, false),
+		requestAction("request.approve", "Approve request", "Approve the selected pending control request", []string{"request", "approve", "allow", "accept"}, []string{"request", "approve"}, tuipage.RequestApprove, false),
+		requestAction("request.deny", "Deny request", "Deny the selected pending control request", []string{"request", "deny", "reject"}, []string{"request", "deny"}, tuipage.RequestDeny, false),
+	}
+}
+
+func requestAction(id, title, description string, keywords, commandPath []string, command tuipage.RequestCommand, needsResource bool) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "Requests", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool {
+			if ctx.Route != string(RouteRequests) {
+				return false
+			}
+			return !needsResource || ctx.ResourceID != ""
+		},
+		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
+			return func() tea.Msg { return tuipage.RequestCommandMsg{Command: command, ResourceID: ctx.ResourceID} }
+		},
+	}
 }
 
 func tunnelActions() []action.Action {

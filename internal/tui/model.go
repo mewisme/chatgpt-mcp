@@ -65,7 +65,12 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 	return model
 }
 
-func (model Model) Init() tea.Cmd { return nil }
+func (model Model) Init() tea.Cmd {
+	if model.currentPage != nil {
+		return model.currentPage.Init()
+	}
+	return nil
+}
 
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
@@ -110,7 +115,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			model.router.Navigate(route)
 			model.loadPage(route)
-			return model, nil
+			return model, model.initCurrentPage()
 		}
 		model.closeOverlay()
 		model.recordRecent(msg.ID)
@@ -122,6 +127,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, cmd
 	case navigateMsg:
 		model.navigate(msg.route)
+		return model, model.initCurrentPage()
 	case tuipage.NavigateMsg:
 		route, err := ParseRoute(msg.Path)
 		if err != nil {
@@ -129,7 +135,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		model.navigate(route)
-		return model, nil
+		return model, model.initCurrentPage()
 	case tuipage.WorkspaceCommandMsg:
 		if err := model.ensureWorkspacePage(msg.Command, msg.ResourceID); err != nil {
 			model.notice = err.Error()
@@ -144,6 +150,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model.updatePage(msg)
 	case tuipage.TunnelCommandMsg:
 		if err := model.ensureTunnelPage(msg.Command, msg.ResourceID); err != nil {
+			model.notice = err.Error()
+			return model, nil
+		}
+		return model.updatePage(msg)
+	case tuipage.RequestCommandMsg:
+		if err := model.ensureRequestPage(msg.ResourceID); err != nil {
 			model.notice = err.Error()
 			return model, nil
 		}
@@ -173,6 +185,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc", "backspace":
 			if model.router.Back() {
 				model.loadPage(model.router.Current())
+				return model, model.initCurrentPage()
 			}
 		default:
 			if selected, ok := model.actions.MatchShortcut(msg, actionContext(model.router.Current())); ok {
@@ -279,6 +292,8 @@ func (model *Model) loadPage(route Route) {
 		value, err = tuipage.NewTunnelDashboard(model.ctx)
 	case RouteTunnels:
 		value, err = tuipage.NewManagedTunnels(model.ctx, route.ResourceID)
+	case RouteRequests:
+		value, err = tuipage.NewRequests(model.ctx, route.ResourceID)
 	}
 	if err != nil {
 		model.notice = err.Error()
@@ -289,6 +304,13 @@ func (model *Model) loadPage(route Route) {
 		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, model.width-8), Height: max(10, model.height-10)})
 		model.currentPage = updated
 	}
+}
+
+func (model Model) initCurrentPage() tea.Cmd {
+	if model.currentPage == nil {
+		return nil
+	}
+	return model.currentPage.Init()
 }
 
 func (model *Model) ensureMCPPage(resourceID string) error {
@@ -312,6 +334,16 @@ func (model *Model) ensureTunnelPage(command tuipage.TunnelCommand, resourceID s
 	}
 	if model.currentPage == nil {
 		return fmt.Errorf("tunnel page is unavailable")
+	}
+	return nil
+}
+
+func (model *Model) ensureRequestPage(resourceID string) error {
+	if model.router.Current().Kind != RouteRequests || (resourceID != "" && model.router.Current().ResourceID != resourceID) {
+		model.navigate(Route{Kind: RouteRequests, ResourceID: resourceID})
+	}
+	if model.currentPage == nil {
+		return fmt.Errorf("approval inbox is unavailable")
 	}
 	return nil
 }

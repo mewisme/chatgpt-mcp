@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
@@ -80,6 +81,39 @@ func TestTunnelActionAvailabilityFollowsRouteContext(t *testing.T) {
 	for _, id := range []string{"tunnel.managed.update", "tunnel.managed.configure", "tunnel.managed.delete"} {
 		if !has(ctx, id) {
 			t.Fatalf("managed tunnel context action missing: %s", id)
+		}
+	}
+}
+
+func TestRequestActionAvailabilityFollowsRouteContext(t *testing.T) {
+	registry := defaultActionRegistry()
+	has := func(ctx action.Context, id string) bool {
+		for _, item := range registry.Actions(ctx) {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	list := action.Context{Route: string(RouteRequests)}
+	for _, id := range []string{"request.refresh", "request.show.pending", "request.show.history", "request.show.all"} {
+		if !has(list, id) {
+			t.Fatalf("request list action missing: %s", id)
+		}
+	}
+	if !has(list, "request.approve") || !has(list, "request.deny") {
+		t.Fatal("request resolution actions unavailable on requests list")
+	}
+	resource := action.Context{Route: string(RouteRequests), ResourceID: "req_demo"}
+	if !has(resource, "request.approve") || !has(resource, "request.deny") {
+		t.Fatal("request resource resolution actions unavailable")
+	}
+	if has(action.Context{Route: string(RouteHome)}, "request.refresh") {
+		t.Fatal("request actions leaked outside requests route")
+	}
+	for _, item := range registry.Actions(list) {
+		if item.ID == "request.create.dummy" || strings.Contains(strings.Join(item.CommandPath, " "), "create dummy") {
+			t.Fatalf("dummy request action leaked into TUI palette: %#v", item)
 		}
 	}
 }

@@ -109,7 +109,7 @@ func NewLogs(ctx context.Context) (*LogsPage, error) {
 		ctx = context.Background()
 	}
 	pageCtx, cancel := context.WithCancel(ctx)
-	page := &LogsPage{ctx: pageCtx, cancel: cancel, options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityDefault}
+	page := &LogsPage{ctx: pageCtx, cancel: cancel, options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose}
 	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false)
 	page.syncBrowserHelp()
 	return page, nil
@@ -321,7 +321,7 @@ func (page *LogsPage) openCommand(command LogsCommand) tea.Cmd {
 	case LogsRefresh:
 		return page.startBootstrap()
 	case LogsFilter:
-		page.form, page.filterForm = newLogsFilterForm(page.options)
+		page.form, page.filterForm = newLogsFilterForm(page.options, page.visibility)
 		page.overlay = logsOverlayForm
 		return page.form.Init()
 	case LogsToggle:
@@ -345,12 +345,12 @@ func (page *LogsPage) openCommand(command LogsCommand) tea.Cmd {
 }
 
 func (page *LogsPage) submitFilter() tea.Cmd {
-	options, err := page.filterForm.Options()
+	options, visibility, err := page.filterForm.Options()
 	if err != nil {
 		page.err = err
 		return nil
 	}
-	page.options = options
+	page.options, page.visibility = options, visibility
 	page.filterForm = nil
 	page.overlay = logsOverlayNone
 	page.events = nil
@@ -663,7 +663,7 @@ func (page *LogsPage) statusView(width int) string {
 	if session == "" {
 		session = "all / none yet"
 	}
-	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.events), logsBufferCap))
+	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("View", logsVisibilityValue(page.visibility)) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.events), logsBufferCap))
 	right := component.KeyValue("Session", shortValue(session, 24))
 	return component.TwoColumn(left, right, width)
 }

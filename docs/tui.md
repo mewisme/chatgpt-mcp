@@ -114,6 +114,8 @@ Workspaces  MCP  Tunnel  Requests  Logs  Config  Runtime
 
 Additional resources such as workspace containers, managed tunnels, and About/build information are reachable through actions, Quick Open, or deep links.
 
+The Logs page loads persistent runtime history before opening its live stream and follows new events in real time. Its default visibility is `Verbose`, which includes useful lifecycle, approval, tunnel, and completed tool-call events while keeping debug diagnostics hidden. The Filters form can switch visibility between `Normal`, `Verbose`, and `Debug`; the selected visibility applies consistently to both journal history and live events.
+
 The Command Center covers the public CLI capability inventory rather than mechanically copying Cobra into nested menus. Related commands are grouped around the resource they operate on.
 
 ## Scripting and automation

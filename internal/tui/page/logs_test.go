@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -168,31 +169,120 @@ func TestShortValuePreservesUTF8AndDisplayWidth(t *testing.T) {
 	}
 }
 
-func TestLogsPageDoesNotExposeDebugFields(t *testing.T) {
+func TestLogsPageDefaultsToVerboseWithoutExposingDebugFields(t *testing.T) {
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
-	event := runtimeevent.Event{Sequence: 1, Time: time.Now(), RunID: "run", Level: "info", Name: "safe", Message: "message", Fields: []runtimeevent.Field{{Key: "visible", Value: "ok"}, {Key: "secret-debug", Value: "never-show", Visibility: logger.VisibilityDebug}}}
+	if page.visibility != logger.VisibilityVerbose {
+		t.Fatalf("default visibility=%d", page.visibility)
+	}
+	event := runtimeevent.Event{Sequence: 1, Time: time.Now(), RunID: "run", Level: "info", Name: "safe", Message: "message", Fields: []runtimeevent.Field{{Key: "visible", Value: "ok"}, {Key: "verbose", Value: "useful", Visibility: logger.VisibilityVerbose}, {Key: "secret-debug", Value: "never-show", Visibility: logger.VisibilityDebug}}}
 	row := page.logRow(event)
 	joined := row.Search
 	for _, tab := range row.DetailTabs {
 		joined += "\n" + tab.Content
 	}
-	if !strings.Contains(joined, "visible") || strings.Contains(joined, "secret-debug") || strings.Contains(joined, "never-show") {
+	if !strings.Contains(joined, "visible") || !strings.Contains(joined, "verbose") || !strings.Contains(joined, "useful") || strings.Contains(joined, "secret-debug") || strings.Contains(joined, "never-show") {
 		t.Fatalf("row leaked hidden field: %q", joined)
 	}
 }
 
+func TestLogsPageDefaultVerboseShowsRuntimeEventsButHidesDebugNoise(t *testing.T) {
+	root := setupLogsPageRoot(t)
+	base := time.Now().UTC()
+	appendLogEvents(t, root,
+		runtimeevent.Event{Sequence: 1, Time: base, RunID: "run_visibility", Level: "info", Kind: "info", Name: "approval.requested", Component: "APPROVAL", Message: "Control approval requested", Visibility: logger.VisibilityDefault},
+		runtimeevent.Event{Sequence: 2, Time: base.Add(time.Millisecond), RunID: "run_visibility", Level: "info", Kind: "success", Name: "tunnel.connected", Component: "TUNNEL", Message: "Tunnel connected", Visibility: logger.VisibilityDefault},
+		runtimeevent.Event{Sequence: 3, Time: base.Add(2 * time.Millisecond), RunID: "run_visibility", Level: "info", Kind: "success", Name: "tool.call.completed", Component: "TOOL", Message: "Tool call completed", Tool: "run_command", Status: "ok", Visibility: logger.VisibilityVerbose},
+		runtimeevent.Event{Sequence: 4, Time: base.Add(3 * time.Millisecond), RunID: "run_visibility", Level: "debug", Kind: "info", Name: "tool.call.started", Component: "TOOL", Message: "Tool call started", Tool: "run_command", Visibility: logger.VisibilityDebug},
+	)
+	writeLogsRuntimeState(t, root, "http://127.0.0.1:1", "run_visibility")
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*LogsPage)
+	got := make([]string, 0, len(page.events))
+	for _, event := range page.events {
+		got = append(got, event.Name)
+	}
+	want := []string{"approval.requested", "tunnel.connected", "tool.call.completed"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("default verbose events=%#v want %#v", got, want)
+	}
+	status := ansi.Strip(page.statusView(180))
+	if !strings.Contains(status, "View") || !strings.Contains(status, "verbose") {
+		t.Fatalf("status missing visibility: %q", status)
+	}
+}
+
+func TestLogsPageLiveVisibilityNormalVerboseAndDebug(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.generation = 1
+	page.query.RunID = "run_live_visibility"
+	page.streamRunID = "run_live_visibility"
+	base := time.Now().UTC()
+	feed := func(sequence uint64, name string, visibility logger.Visibility) {
+		page.finishStreamEvent(logsStreamEventMsg{generation: 1, event: runtimeevent.Event{Sequence: sequence, Time: base.Add(time.Duration(sequence) * time.Millisecond), RunID: "run_live_visibility", Level: "info", Name: name, Message: name, Visibility: visibility}})
+	}
+
+	page.visibility = logger.VisibilityDefault
+	feed(1, "normal", logger.VisibilityDefault)
+	feed(2, "verbose-hidden", logger.VisibilityVerbose)
+	if len(page.events) != 1 || page.events[0].Name != "normal" || page.streamSeq != 2 {
+		t.Fatalf("normal view events=%#v seq=%d", page.events, page.streamSeq)
+	}
+
+	page.visibility = logger.VisibilityVerbose
+	feed(3, "verbose", logger.VisibilityVerbose)
+	feed(4, "debug-hidden", logger.VisibilityDebug)
+	if len(page.events) != 2 || page.events[1].Name != "verbose" || page.streamSeq != 4 {
+		t.Fatalf("verbose view events=%#v seq=%d", page.events, page.streamSeq)
+	}
+
+	page.visibility = logger.VisibilityDebug
+	feed(5, "debug", logger.VisibilityDebug)
+	if len(page.events) != 3 || page.events[2].Name != "debug" || page.streamSeq != 5 {
+		t.Fatalf("debug view events=%#v seq=%d", page.events, page.streamSeq)
+	}
+}
+
 func TestLogsFilterFormUsesSharedQueryValidation(t *testing.T) {
-	form, data := newLogsFilterForm(application.LogsQueryOptions{Tail: 100})
+	form, data := newLogsFilterForm(application.LogsQueryOptions{Tail: 100}, logger.VisibilityVerbose)
 	_ = form
+	if data.Visibility != "verbose" {
+		t.Fatalf("form visibility=%q", data.Visibility)
+	}
 	data.Tail, data.Level, data.Event = "25", "warn", "tool.*"
-	options, err := data.Options()
-	if err != nil || options.Tail != 25 || options.Level != "warn" || options.Event != "tool.*" {
-		t.Fatalf("options=%#v err=%v", options, err)
+	options, visibility, err := data.Options()
+	if err != nil || options.Tail != 25 || options.Level != "warn" || options.Event != "tool.*" || visibility != logger.VisibilityVerbose {
+		t.Fatalf("options=%#v visibility=%d err=%v", options, visibility, err)
 	}
 	data.All, data.Session = true, "run_one"
-	if _, err := data.Options(); err == nil {
+	if _, _, err := data.Options(); err == nil {
 		t.Fatal("all + session was accepted")
+	}
+	data.All, data.Session, data.Visibility = false, "", "invalid"
+	if _, _, err := data.Options(); err == nil {
+		t.Fatal("invalid visibility was accepted")
+	}
+}
+
+func TestLogsVisibilityValuesRoundTrip(t *testing.T) {
+	for _, test := range []struct {
+		visibility logger.Visibility
+		value      string
+	}{
+		{visibility: logger.VisibilityDefault, value: "normal"},
+		{visibility: logger.VisibilityVerbose, value: "verbose"},
+		{visibility: logger.VisibilityDebug, value: "debug"},
+	} {
+		if got := logsVisibilityValue(test.visibility); got != test.value {
+			t.Fatalf("logsVisibilityValue(%d)=%q want %q", test.visibility, got, test.value)
+		}
+		got, err := parseLogsVisibility(test.value)
+		if err != nil || got != test.visibility {
+			t.Fatalf("parseLogsVisibility(%q)=%d,%v want %d", test.value, got, err, test.visibility)
+		}
 	}
 }
 
@@ -428,18 +518,19 @@ func TestLogsPageUpdateSubmitsAndRejectsFilters(t *testing.T) {
 	setupLogsPageRoot(t)
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
-	page.form, page.filterForm = newLogsFilterForm(page.options)
+	page.form, page.filterForm = newLogsFilterForm(page.options, page.visibility)
 	page.overlay = logsOverlayForm
 	page.filterForm.Tail = "25"
+	page.filterForm.Visibility = "debug"
 	page.filterForm.Level = "warn"
 	page.filterForm.Event = "tool.*"
 	updated, bootstrap := page.Update(component.FormSubmittedMsg{})
 	page = updated.(*LogsPage)
-	if bootstrap == nil || page.overlay != logsOverlayNone || page.options.Tail != 25 || page.options.Level != "warn" || page.options.Event != "tool.*" {
-		t.Fatalf("options=%#v overlay=%d cmd=%v", page.options, page.overlay, bootstrap)
+	if bootstrap == nil || page.overlay != logsOverlayNone || page.options.Tail != 25 || page.options.Level != "warn" || page.options.Event != "tool.*" || page.visibility != logger.VisibilityDebug {
+		t.Fatalf("options=%#v visibility=%d overlay=%d cmd=%v", page.options, page.visibility, page.overlay, bootstrap)
 	}
 
-	page.form, page.filterForm = newLogsFilterForm(page.options)
+	page.form, page.filterForm = newLogsFilterForm(page.options, page.visibility)
 	page.overlay = logsOverlayForm
 	page.filterForm.Tail = "-1"
 	updated, bootstrap = page.Update(component.FormSubmittedMsg{})

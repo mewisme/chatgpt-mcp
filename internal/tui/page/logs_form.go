@@ -8,6 +8,7 @@ import (
 
 	"charm.land/huh/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
@@ -17,6 +18,7 @@ type logsFilterFormData struct {
 	Session    string
 	Since      string
 	Until      string
+	Visibility string
 	Level      string
 	Components string
 	Workspace  string
@@ -27,13 +29,13 @@ type logsFilterFormData struct {
 	Grep       string
 }
 
-func newLogsFilterForm(options application.LogsQueryOptions) (component.Form, *logsFilterFormData) {
+func newLogsFilterForm(options application.LogsQueryOptions, visibility logger.Visibility) (component.Form, *logsFilterFormData) {
 	level := options.Level
 	if strings.TrimSpace(level) == "" {
 		level = "all"
 	}
 	data := &logsFilterFormData{
-		Tail: strconv.Itoa(options.Tail), All: options.All, Session: options.Session, Since: options.Since, Until: options.Until, Level: level,
+		Tail: strconv.Itoa(options.Tail), All: options.All, Session: options.Session, Since: options.Since, Until: options.Until, Visibility: logsVisibilityValue(visibility), Level: level,
 		Components: options.Components, Workspace: options.Workspace, Tool: options.Tool, Status: options.Status, Source: options.Source, Event: options.Event, Grep: options.Grep,
 	}
 	form := component.NewForm(
@@ -51,6 +53,8 @@ func newLogsFilterForm(options application.LogsQueryOptions) (component.Form, *l
 			component.Input("Until", &data.Until).Description("RFC3339 timestamp"),
 		).Title("Range"),
 		component.Group(
+			component.Select("Visibility", &data.Visibility,
+				huh.NewOption("Normal", "normal"), huh.NewOption("Verbose", "verbose"), huh.NewOption("Debug", "debug")),
 			component.Select("Minimum level", &data.Level,
 				huh.NewOption("All", "all"), huh.NewOption("Debug", "debug"), huh.NewOption("Info", "info"), huh.NewOption("Warn", "warn"), huh.NewOption("Error", "error")),
 			component.Input("Components", &data.Components).Description("Comma-separated, e.g. SERVER,TOOL"),
@@ -65,16 +69,20 @@ func newLogsFilterForm(options application.LogsQueryOptions) (component.Form, *l
 	return form, data
 }
 
-func (data *logsFilterFormData) Options() (application.LogsQueryOptions, error) {
+func (data *logsFilterFormData) Options() (application.LogsQueryOptions, logger.Visibility, error) {
 	if data == nil {
-		return application.LogsQueryOptions{}, fmt.Errorf("log filters are unavailable")
+		return application.LogsQueryOptions{}, logger.VisibilityDefault, fmt.Errorf("log filters are unavailable")
 	}
 	tail, err := strconv.Atoi(strings.TrimSpace(data.Tail))
 	if err != nil || tail < 0 {
-		return application.LogsQueryOptions{}, fmt.Errorf("tail must be zero or greater")
+		return application.LogsQueryOptions{}, logger.VisibilityDefault, fmt.Errorf("tail must be zero or greater")
 	}
 	if data.All && strings.TrimSpace(data.Session) != "" {
-		return application.LogsQueryOptions{}, fmt.Errorf("all sessions and session filter cannot be used together")
+		return application.LogsQueryOptions{}, logger.VisibilityDefault, fmt.Errorf("all sessions and session filter cannot be used together")
+	}
+	visibility, err := parseLogsVisibility(data.Visibility)
+	if err != nil {
+		return application.LogsQueryOptions{}, logger.VisibilityDefault, err
 	}
 	level := strings.TrimSpace(data.Level)
 	if level == "all" {
@@ -82,7 +90,31 @@ func (data *logsFilterFormData) Options() (application.LogsQueryOptions, error) 
 	}
 	options := application.LogsQueryOptions{Tail: tail, All: data.All, Session: strings.TrimSpace(data.Session), Since: strings.TrimSpace(data.Since), Until: strings.TrimSpace(data.Until), Level: level, Components: strings.TrimSpace(data.Components), Workspace: strings.TrimSpace(data.Workspace), Tool: strings.TrimSpace(data.Tool), Status: strings.TrimSpace(data.Status), Source: strings.TrimSpace(data.Source), Event: strings.TrimSpace(data.Event), Grep: strings.TrimSpace(data.Grep)}
 	if _, err := application.BuildLogsQuery(options, time.Now()); err != nil {
-		return application.LogsQueryOptions{}, err
+		return application.LogsQueryOptions{}, logger.VisibilityDefault, err
 	}
-	return options, nil
+	return options, visibility, nil
+}
+
+func logsVisibilityValue(visibility logger.Visibility) string {
+	switch visibility {
+	case logger.VisibilityDebug:
+		return "debug"
+	case logger.VisibilityVerbose:
+		return "verbose"
+	default:
+		return "normal"
+	}
+}
+
+func parseLogsVisibility(value string) (logger.Visibility, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "normal":
+		return logger.VisibilityDefault, nil
+	case "verbose":
+		return logger.VisibilityVerbose, nil
+	case "debug":
+		return logger.VisibilityDebug, nil
+	default:
+		return logger.VisibilityDefault, fmt.Errorf("visibility must be normal, verbose, or debug")
+	}
 }

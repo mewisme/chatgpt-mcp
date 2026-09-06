@@ -80,10 +80,10 @@ func TestModelQuitAndBack(t *testing.T) {
 
 func TestModelOpensAndRunsCommandPalette(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
-	updated, _ := model.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl | tea.ModShift})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 	model = updated.(Model)
 	if model.palette == nil {
-		t.Fatal("Ctrl+Shift+P did not open palette")
+		t.Fatal("Ctrl+P did not open palette")
 	}
 	model.palette.SetQuery("logs")
 	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -103,14 +103,27 @@ func TestModelOpensAndRunsCommandPalette(t *testing.T) {
 	}
 }
 
-func TestModelPaletteFallbackKeys(t *testing.T) {
-	for _, key := range []tea.KeyPressMsg{{Code: 'p', Mod: tea.ModCtrl}, {Text: ":", Code: ':'}} {
+func TestModelCommandPaletteOnlyUsesCtrlP(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{{Code: 'p', Mod: tea.ModCtrl | tea.ModShift}, {Text: ":", Code: ':'}} {
 		model := NewModel(Route{Kind: RouteHome})
 		updated, _ := model.Update(key)
 		model = updated.(Model)
-		if model.palette == nil {
-			t.Fatalf("%q did not open palette", key.String())
+		if model.palette != nil {
+			t.Fatalf("%q unexpectedly opened palette", key.String())
 		}
+	}
+}
+
+func TestModelFooterKeepsOnlyGlobalShortcuts(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	footer := model.shortcutFooter()
+	if footer != "Ctrl+P Commands  ·  Ctrl+O Open  ·  q Quit" {
+		t.Fatalf("footer=%q", footer)
+	}
+	model.router.Navigate(Route{Kind: RouteLogs})
+	footer = model.shortcutFooter()
+	if footer != "Ctrl+P Commands  ·  Ctrl+O Open  ·  Esc Back  ·  q Quit" {
+		t.Fatalf("nested footer=%q", footer)
 	}
 }
 

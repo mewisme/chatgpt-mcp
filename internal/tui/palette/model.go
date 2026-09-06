@@ -44,7 +44,7 @@ func NewWithOptions(actions []action.Action, ctx action.Context, options Options
 		options.Title = "Command Palette"
 	}
 	if strings.TrimSpace(options.Hint) == "" {
-		options.Hint = "Ctrl+Shift+P · Ctrl+P · :"
+		options.Hint = "Ctrl+P"
 	}
 	if strings.TrimSpace(options.Placeholder) == "" {
 		options.Placeholder = "Type a command"

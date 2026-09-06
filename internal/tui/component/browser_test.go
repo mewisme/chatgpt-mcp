@@ -139,6 +139,18 @@ func TestBrowserEnforcesMinimumLayout(t *testing.T) {
 	}
 }
 
+func TestBrowserListScrollWrapsInfinitely(t *testing.T) {
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}, {ID: "three", Title: "Three"}}, nil)
+	model = updateBrowser(t, model, browserKeyText("k"))
+	if selected, ok := model.Selected(); !ok || selected.ID != "three" {
+		t.Fatalf("up wrap selected=%#v ok=%t", selected, ok)
+	}
+	model = updateBrowser(t, model, browserKeyText("j"))
+	if selected, ok := model.Selected(); !ok || selected.ID != "one" {
+		t.Fatalf("down wrap selected=%#v ok=%t", selected, ok)
+	}
+}
+
 func TestBrowserTabbedDetailSwitchesContent(t *testing.T) {
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One", DetailTabs: []DetailTab{{Title: "Overview", Content: "overview body"}, {Title: "Scope", Content: "scope body"}}}}, nil)
 	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})

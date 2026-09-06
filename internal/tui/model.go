@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -207,8 +206,7 @@ func (model *Model) openPalette() {
 }
 
 func isPaletteKey(message tea.KeyPressMsg) bool {
-	value := message.String()
-	return value == "ctrl+shift+p" || value == "ctrl+p" || value == ":"
+	return message.String() == "ctrl+p"
 }
 
 func (model *Model) openQuickOpen() {
@@ -350,16 +348,11 @@ func (model Model) renderFrame(width, height, contentWidth, pageHeight int) stri
 }
 
 func (model Model) shortcutFooter() string {
-	parts := make([]string, 0, 10)
-	for _, item := range model.actions.Actions(actionContext(model.router.Current())) {
-		help := item.Shortcut.Help()
-		if help.Key != "" && help.Desc != "" {
-			parts = append(parts, help.Key+" "+help.Desc)
-		}
+	parts := []string{"Ctrl+P Commands", "Ctrl+O Open"}
+	if len(model.router.stack) > 1 {
+		parts = append(parts, "Esc Back")
 	}
-	sort.Strings(parts)
-	parts = append(parts, "Esc Back", "q Quit")
-	parts = append([]string{"Ctrl+Shift+P Commands", "Ctrl+O Open"}, parts...)
+	parts = append(parts, "q Quit")
 	return strings.Join(parts, "  ·  ")
 }
 

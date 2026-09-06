@@ -2,13 +2,17 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"go.mewis.me/chatgpt-mcp/internal/application"
+	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
@@ -27,22 +31,53 @@ const (
 )
 
 const navbarMinHeight = 9
+const approvalPollInterval = time.Second
+
+type approvalStage uint8
+
+const (
+	approvalStageNone approvalStage = iota
+	approvalStageChoice
+	approvalStageConfirm
+	approvalStageResolving
+)
+
+type approvalPollMsg struct {
+	requests []approval.Request
+	err      error
+}
+
+type approvalPollTickMsg struct{}
+
+type approvalResolvedMsg struct {
+	id      string
+	approve bool
+	err     error
+}
 
 type Model struct {
-	ctx            context.Context
-	router         Router
-	actions        *action.Registry
-	palette        *palette.Model
-	overlay        overlayKind
-	exitConfirm    component.ConfirmButtons
-	quickResources map[string]quickopen.Resource
-	stateRoot      string
-	state          tuistate.State
-	notice         string
-	currentPage    tuipage.Model
-	theme          theme
-	width          int
-	height         int
+	ctx             context.Context
+	router          Router
+	actions         *action.Registry
+	palette         *palette.Model
+	overlay         overlayKind
+	exitConfirm     component.ConfirmButtons
+	quickResources  map[string]quickopen.Resource
+	stateRoot       string
+	state           tuistate.State
+	notice          string
+	currentPage     tuipage.Model
+	theme           theme
+	width           int
+	height          int
+	approvals       []approval.Request
+	approvalStage   approvalStage
+	approvalChoice  component.ConfirmButtons
+	approvalConfirm component.ConfirmButtons
+	approvalApprove bool
+	approvalErr     error
+	approvalList    func(context.Context) ([]approval.Request, error)
+	approvalResolve func(context.Context, string, bool, string) (approval.Request, error)
 }
 
 func NewModel(initial Route) Model {
@@ -63,20 +98,28 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 			state = loaded
 		}
 	}
-	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), stateRoot: root, state: state, theme: newTheme(true)}
+	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), stateRoot: root, state: state, theme: newTheme(true), approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest}
 	model.loadPage(initial)
 	return model
 }
 
 func (model Model) Init() tea.Cmd {
+	commands := []tea.Cmd{model.pollApprovalsCmd()}
 	if model.currentPage != nil {
-		return model.currentPage.Init()
+		commands = append(commands, model.currentPage.Init())
 	}
-	return nil
+	return tea.Batch(commands...)
 }
 
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
+	case approvalPollMsg:
+		model.applyApprovalPoll(msg)
+		return model, model.approvalTickCmd()
+	case approvalPollTickMsg:
+		return model, model.pollApprovalsCmd()
+	case approvalResolvedMsg:
+		return model.finishApprovalResolution(msg)
 	case tea.BackgroundColorMsg:
 		model.theme = newTheme(msg.IsDark())
 		component.SetDarkBackground(msg.IsDark())
@@ -106,6 +149,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.closeOverlay()
 		return model, nil
 	case component.ConfirmChoiceMsg:
+		if model.approvalActive() {
+			return model.updateApprovalChoice(msg)
+		}
 		if model.overlay == overlayExitConfirm {
 			model.exitConfirm.Select(msg.Affirmative)
 			return model.updateExitConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -205,6 +251,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseClickMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg, tea.MouseMotionMsg:
 		return model, nil
 	case tea.KeyPressMsg:
+		if model.approvalActive() {
+			return model.updateApprovalKey(msg)
+		}
 		if model.palette != nil {
 			updated, cmd := model.palette.Update(msg)
 			model.palette = &updated
@@ -279,11 +328,300 @@ func (model Model) View() tea.View {
 			targets = append(targets, model.exitConfirm.MouseTargets(x+rect.X, y+rect.Y, 100)...)
 		}
 	}
+	if model.approvalActive() {
+		width, height := model.layoutSize()
+		body := model.approvalDialogView()
+		foreground := component.Modal(body, max(1, min(88, width-4)))
+		x, y := max(0, (width-lipgloss.Width(foreground))/2), max(0, (height-lipgloss.Height(foreground))/2)
+		content = centerOverlay(content, foreground, width, height)
+		targets = append(targets, component.MouseTarget{ID: "app.approval.blocker", Rect: component.Rect{X: 0, Y: 0, Width: width, Height: height}, Z: 199, Handle: func(component.MouseEvent) tea.Msg { return nil }})
+		buttons := model.approvalButtonsView()
+		if buttons != "" {
+			if rect, ok := component.FindRenderedRect(foreground, buttons); ok {
+				var buttonTargets []component.MouseTarget
+				if model.approvalStage == approvalStageChoice {
+					buttonTargets = model.approvalChoice.MouseTargets(x+rect.X, y+rect.Y, 200)
+				} else if model.approvalStage == approvalStageConfirm {
+					buttonTargets = model.approvalConfirm.MouseTargets(x+rect.X, y+rect.Y, 200)
+				}
+				targets = append(targets, buttonTargets...)
+			}
+		}
+	}
 	view := tea.NewView(content)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
 	view.OnMouse = func(message tea.MouseMsg) tea.Cmd { return component.DispatchMouse(targets, message) }
 	return view
+}
+
+func (model Model) pollApprovalsCmd() tea.Cmd {
+	list := model.approvalList
+	ctx := model.ctx
+	if list == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		requests, err := list(ctx)
+		return approvalPollMsg{requests: requests, err: err}
+	}
+}
+
+func (model Model) approvalTickCmd() tea.Cmd {
+	return tea.Tick(approvalPollInterval, func(time.Time) tea.Msg { return approvalPollTickMsg{} })
+}
+
+func (model *Model) applyApprovalPoll(msg approvalPollMsg) {
+	if model == nil || msg.err != nil {
+		return
+	}
+	pending := make([]approval.Request, 0, len(msg.requests))
+	for _, request := range msg.requests {
+		if request.Status == approval.StatusPending {
+			pending = append(pending, request)
+		}
+	}
+	activeID := model.activeApprovalID()
+	if activeID != "" {
+		pending = moveApprovalFirst(pending, activeID)
+	}
+	model.approvals = pending
+	if len(pending) == 0 {
+		model.resetApprovalDialog()
+		return
+	}
+	if activeID == "" || pending[0].ID != activeID {
+		model.openApprovalChoice()
+	}
+}
+
+func (model Model) approvalActive() bool {
+	return len(model.approvals) > 0 && model.approvalStage != approvalStageNone
+}
+
+func (model Model) activeApproval() (approval.Request, bool) {
+	if len(model.approvals) == 0 {
+		return approval.Request{}, false
+	}
+	return model.approvals[0], true
+}
+
+func (model Model) activeApprovalID() string {
+	request, ok := model.activeApproval()
+	if !ok {
+		return ""
+	}
+	return request.ID
+}
+
+func (model *Model) openApprovalChoice() {
+	if model == nil || len(model.approvals) == 0 {
+		return
+	}
+	model.approvalStage = approvalStageChoice
+	model.approvalChoice = component.NewConfirmButtons("Approve", "Deny", false)
+	model.approvalConfirm = component.ConfirmButtons{}
+	model.approvalApprove = false
+	model.approvalErr = nil
+}
+
+func (model *Model) resetApprovalDialog() {
+	if model == nil {
+		return
+	}
+	model.approvalStage = approvalStageNone
+	model.approvalChoice = component.ConfirmButtons{}
+	model.approvalConfirm = component.ConfirmButtons{}
+	model.approvalApprove = false
+	model.approvalErr = nil
+}
+
+func (model Model) updateApprovalChoice(msg component.ConfirmChoiceMsg) (tea.Model, tea.Cmd) {
+	if model.approvalStage == approvalStageChoice {
+		model.approvalChoice.Select(msg.Affirmative)
+		return model.beginApprovalConfirmation(model.approvalChoice.AffirmativeSelected())
+	}
+	if model.approvalStage == approvalStageConfirm {
+		model.approvalConfirm.Select(msg.Affirmative)
+		return model.confirmApprovalSelection()
+	}
+	return model, nil
+}
+
+func (model Model) updateApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch model.approvalStage {
+	case approvalStageChoice:
+		switch msg.String() {
+		case "a":
+			return model.beginApprovalConfirmation(true)
+		case "d":
+			return model.beginApprovalConfirmation(false)
+		case "enter":
+			return model.beginApprovalConfirmation(model.approvalChoice.AffirmativeSelected())
+		case "esc":
+			return model, nil
+		default:
+			return model, model.approvalChoice.Update(msg)
+		}
+	case approvalStageConfirm:
+		switch msg.String() {
+		case "esc":
+			model.openApprovalChoice()
+			return model, nil
+		case "enter":
+			return model.confirmApprovalSelection()
+		default:
+			return model, model.approvalConfirm.Update(msg)
+		}
+	case approvalStageResolving:
+		return model, nil
+	default:
+		return model, nil
+	}
+}
+
+func (model Model) beginApprovalConfirmation(approve bool) (tea.Model, tea.Cmd) {
+	model.approvalApprove = approve
+	label := "Deny"
+	if approve {
+		label = "Approve"
+	}
+	model.approvalConfirm = component.NewConfirmButtons(label, "Cancel", false)
+	model.approvalStage = approvalStageConfirm
+	model.approvalErr = nil
+	return model, nil
+}
+
+func (model Model) confirmApprovalSelection() (tea.Model, tea.Cmd) {
+	if !model.approvalConfirm.AffirmativeSelected() {
+		model.openApprovalChoice()
+		return model, nil
+	}
+	request, ok := model.activeApproval()
+	if !ok || model.approvalResolve == nil {
+		model.resetApprovalDialog()
+		return model, nil
+	}
+	id, approve, resolve, ctx := request.ID, model.approvalApprove, model.approvalResolve, model.ctx
+	model.approvalStage = approvalStageResolving
+	return model, func() tea.Msg {
+		_, err := resolve(ctx, id, approve, "")
+		return approvalResolvedMsg{id: id, approve: approve, err: err}
+	}
+}
+
+func (model Model) finishApprovalResolution(msg approvalResolvedMsg) (tea.Model, tea.Cmd) {
+	if msg.id != model.activeApprovalID() {
+		return model, nil
+	}
+	if msg.err != nil {
+		model.openApprovalChoice()
+		model.approvalErr = msg.err
+		return model, nil
+	}
+	model.approvals = removeApprovalRequest(model.approvals, msg.id)
+	action := "Denied"
+	if msg.approve {
+		action = "Approved"
+	}
+	model.notice = action + " " + msg.id
+	if len(model.approvals) == 0 {
+		model.resetApprovalDialog()
+	} else {
+		model.openApprovalChoice()
+	}
+	return model, nil
+}
+
+func (model Model) approvalButtonsView() string {
+	switch model.approvalStage {
+	case approvalStageChoice:
+		return model.approvalChoice.View()
+	case approvalStageConfirm:
+		return model.approvalConfirm.View()
+	default:
+		return ""
+	}
+}
+
+func (model Model) approvalDialogView() string {
+	request, ok := model.activeApproval()
+	if !ok {
+		return ""
+	}
+	title := strings.TrimSpace(request.Title)
+	if title == "" {
+		title = request.ID
+	}
+	lines := []string{
+		component.Title("Approval request"), "",
+		component.KeyValue("Title", title), component.KeyValue("Request", request.ID), component.KeyValue("Workspace", request.WorkspaceID), component.KeyValue("Tool", request.TargetTool),
+	}
+	if request.Source != "" {
+		lines = append(lines, component.KeyValue("Source", request.Source))
+	}
+	if request.GuardCode != "" {
+		lines = append(lines, component.KeyValue("Guard", string(request.GuardCode)))
+	}
+	if !request.ExpiresAt.IsZero() {
+		lines = append(lines, component.KeyValue("Expires", request.ExpiresAt.Local().Format("15:04:05")))
+	}
+	lines = append(lines, "", component.Label("Arguments"), approvalArguments(request.Arguments), "")
+	if model.approvalErr != nil {
+		lines = append(lines, component.Banner(model.approvalErr.Error(), component.ToneDanger), "")
+	}
+	switch model.approvalStage {
+	case approvalStageChoice:
+		lines = append(lines, model.approvalChoice.View(), component.Muted("a approve · d deny · ←/→ choose · Enter continue"))
+	case approvalStageConfirm:
+		action := "deny"
+		if model.approvalApprove {
+			action = "approve"
+		}
+		lines = append(lines, component.ToneText("Confirm "+action+"?", component.ToneWarning), "", model.approvalConfirm.View(), component.Muted("Enter confirm · Esc back"))
+	case approvalStageResolving:
+		lines = append(lines, component.Muted("Resolving request..."))
+	}
+	if len(model.approvals) > 1 {
+		lines = append(lines, "", component.Muted(fmt.Sprintf("%d more pending request(s)", len(model.approvals)-1)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func approvalArguments(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return component.Muted("None")
+	}
+	var value any
+	if json.Unmarshal(raw, &value) == nil {
+		if data, err := json.MarshalIndent(value, "", "  "); err == nil {
+			return string(data)
+		}
+	}
+	return string(raw)
+}
+
+func moveApprovalFirst(requests []approval.Request, id string) []approval.Request {
+	for index, request := range requests {
+		if request.ID != id || index == 0 {
+			continue
+		}
+		active := requests[index]
+		copy(requests[1:index+1], requests[:index])
+		requests[0] = active
+		break
+	}
+	return requests
+}
+
+func removeApprovalRequest(requests []approval.Request, id string) []approval.Request {
+	result := requests[:0]
+	for _, request := range requests {
+		if request.ID != id {
+			result = append(result, request)
+		}
+	}
+	return result
 }
 
 func (model *Model) openPalette() {

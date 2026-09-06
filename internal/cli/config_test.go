@@ -68,6 +68,30 @@ func TestSetConfigValueTyped(t *testing.T) {
 	}
 }
 
+func TestConfigSetValidationMatchesSharedDomain(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "config")
+	previous := configformat.RootPath()
+	defer configformat.SetRootPath(previous)
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-hash"
+	cfg.Auth.AdminTokenHash = "admin-hash"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	want := cfg
+	wantErr := config.SetValueValidated(&want, "server.port", "70000")
+	if wantErr == nil {
+		t.Fatal("shared config validation unexpectedly accepted invalid port")
+	}
+	_, err := executeRequestCommandError(root, []string{"config", "set", "server.port", "70000"})
+	if err == nil || err.Error() != wantErr.Error() {
+		t.Fatalf("CLI err=%v want=%v", err, wantErr)
+	}
+}
+
 func TestTunnelAdminCredentialsCannotBypassVerificationThroughConfigSet(t *testing.T) {
 	cfg := config.Default()
 	for _, key := range []string{"tunnel.admin_key", "tunnel.admin_organization_id", "tunnel.admin_workspace_id", "tunnel.admin_tenant_id"} {

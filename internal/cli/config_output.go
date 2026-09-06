@@ -13,7 +13,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
-const redactedValue = "<redacted>"
+const redactedValue = config.RedactedValue
 
 type configOutputOptions struct {
 	format string
@@ -60,37 +60,7 @@ func resolveConfigOutputFormat(options configOutputOptions) (configformat.Format
 }
 
 func redactedConfigTree(cfg config.Config) (map[string]any, error) {
-	data, err := configformat.Marshal(configformat.JSON, cfg)
-	if err != nil {
-		return nil, err
-	}
-	value, err := configformat.DecodeGeneric(configformat.JSON, data)
-	if err != nil {
-		return nil, err
-	}
-	tree, ok := value.(map[string]any)
-	if !ok {
-		return nil, errors.New("config view is not an object")
-	}
-	setConfigTreeValue(tree, "auth.mcp_token_hash", redactedValue)
-	setConfigTreeValue(tree, "auth.admin_token_hash", redactedValue)
-	setConfigTreeValue(tree, "tunnel.api_key", redactedValue)
-	setConfigTreeValue(tree, "tunnel.admin_key", redactedValue)
-	return tree, nil
-}
-
-func setConfigTreeValue(tree map[string]any, path string, value any) {
-	parts := strings.Split(path, ".")
-	current := tree
-	for _, part := range parts[:len(parts)-1] {
-		next, ok := current[part].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			current[part] = next
-		}
-		current = next
-	}
-	current[parts[len(parts)-1]] = value
+	return config.RedactedTree(cfg)
 }
 
 func getConfigTreeValue(tree map[string]any, key string) (any, error) {

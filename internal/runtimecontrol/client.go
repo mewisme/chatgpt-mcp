@@ -107,3 +107,11 @@ func Request(ctx context.Context, method, path string, input, output any) (State
 	}
 	return state, nil
 }
+
+func IsUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "no running server found") || strings.Contains(message, "control endpoint unavailable") || strings.Contains(message, "connection refused") || strings.Contains(message, "actively refused")
+}

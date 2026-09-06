@@ -117,3 +117,24 @@ func TestRequestActionAvailabilityFollowsRouteContext(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigActionAvailabilityFollowsRouteContext(t *testing.T) {
+	registry := defaultActionRegistry()
+	has := func(ctx action.Context, id string) bool {
+		for _, item := range registry.Actions(ctx) {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	ctx := action.Context{Route: string(RouteConfig)}
+	for _, id := range []string{"config.refresh", "config.edit", "config.preset", "config.verify", "config.reload", "config.migrate", "config.convert", "config.export", "config.import"} {
+		if !has(ctx, id) {
+			t.Fatalf("config action missing: %s", id)
+		}
+	}
+	if has(action.Context{Route: string(RouteHome)}, "config.verify") {
+		t.Fatal("config actions leaked outside config route")
+	}
+}

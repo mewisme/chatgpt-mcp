@@ -160,6 +160,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		return model.updatePage(msg)
+	case tuipage.ConfigCommandMsg:
+		if err := model.ensureConfigPage(); err != nil {
+			model.notice = err.Error()
+			return model, nil
+		}
+		return model.updatePage(msg)
 	case component.FormSubmittedMsg, component.FormCancelledMsg:
 		return model.updatePage(msg)
 	case tea.KeyPressMsg:
@@ -294,6 +300,8 @@ func (model *Model) loadPage(route Route) {
 		value, err = tuipage.NewManagedTunnels(model.ctx, route.ResourceID)
 	case RouteRequests:
 		value, err = tuipage.NewRequests(model.ctx, route.ResourceID)
+	case RouteConfig:
+		value, err = tuipage.NewConfig(model.ctx)
 	}
 	if err != nil {
 		model.notice = err.Error()
@@ -344,6 +352,16 @@ func (model *Model) ensureRequestPage(resourceID string) error {
 	}
 	if model.currentPage == nil {
 		return fmt.Errorf("approval inbox is unavailable")
+	}
+	return nil
+}
+
+func (model *Model) ensureConfigPage() error {
+	if model.router.Current().Kind != RouteConfig {
+		model.navigate(Route{Kind: RouteConfig})
+	}
+	if model.currentPage == nil {
+		return fmt.Errorf("config center is unavailable")
 	}
 	return nil
 }

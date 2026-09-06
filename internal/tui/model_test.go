@@ -27,7 +27,7 @@ func TestModelFillsTerminalAndEnforcesMinimumLayout(t *testing.T) {
 	if width, height := lipgloss.Width(view), lipgloss.Height(view); width != minTerminalWidth || height != minTerminalHeight {
 		t.Fatalf("minimum layout=%dx%d want %dx%d", width, height, minTerminalWidth, minTerminalHeight)
 	}
-	for _, route := range []Route{{Kind: RouteWorkspaces}, {Kind: RouteMCP}} {
+	for _, route := range []Route{{Kind: RouteWorkspaces}, {Kind: RouteMCP}, {Kind: RouteConfig}} {
 		model = NewModel(route)
 		updated, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 		model = updated.(Model)

@@ -27,11 +27,36 @@ func defaultActionRegistry() *action.Registry {
 	actions = append(actions, mcpActions()...)
 	actions = append(actions, tunnelActions()...)
 	actions = append(actions, requestActions()...)
+	actions = append(actions, configActions()...)
 	registry, err := action.NewRegistry(actions...)
 	if err != nil {
 		panic(err)
 	}
 	return registry
+}
+
+func configActions() []action.Action {
+	return []action.Action{
+		configAction("config.refresh", "Refresh config", "Reload persisted configuration and runtime state", []string{"config", "refresh", "reload", "view"}, []string{"config", "list"}, tuipage.ConfigRefresh),
+		configAction("config.edit", "Edit config field", "Edit the selected typed configuration field", []string{"config", "edit", "set", "field"}, []string{"config", "set"}, tuipage.ConfigEdit),
+		configAction("config.preset", "Apply config preset", "Browse and apply a built-in configuration preset", []string{"config", "preset", "apply", "use"}, []string{"config", "preset", "apply"}, tuipage.ConfigPreset),
+		configAction("config.verify", "Verify config", "Verify structured config/state format consistency and configuration validity", []string{"config", "verify", "validate"}, []string{"config", "verify"}, tuipage.ConfigVerify),
+		configAction("config.reload", "Reload runtime config", "Reload persisted configuration into the running runtime", []string{"config", "reload", "runtime"}, []string{"config", "reload"}, tuipage.ConfigReload),
+		configAction("config.migrate", "Migrate config secrets", "Migrate legacy plaintext credentials into the secret store", []string{"config", "migrate", "secrets"}, []string{"config", "migrate"}, tuipage.ConfigMigrate),
+		configAction("config.convert", "Convert config format", "Convert structured config/state files between JSON, YAML, and TOML", []string{"config", "convert", "transform", "format"}, []string{"config", "convert"}, tuipage.ConfigConvert),
+		configAction("config.export", "Export config bundle", "Export portable configuration, state, and secrets into a sealed bundle", []string{"config", "export", "bundle", "backup"}, []string{"config", "export"}, tuipage.ConfigExport),
+		configAction("config.import", "Import config bundle", "Import a portable configuration bundle and restore its secrets", []string{"config", "import", "bundle", "restore"}, []string{"config", "import"}, tuipage.ConfigImport),
+	}
+}
+
+func configAction(id, title, description string, keywords, commandPath []string, command tuipage.ConfigCommand) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "Config", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool { return ctx.Route == string(RouteConfig) },
+		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
+			return func() tea.Msg { return tuipage.ConfigCommandMsg{Command: command, ResourceID: ctx.ResourceID} }
+		},
+	}
 }
 
 func requestActions() []action.Action {

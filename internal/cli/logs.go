@@ -198,7 +198,7 @@ func buildLogsQuery(options logsOptions) (runtimeevent.Query, error) {
 	if options.tail < 0 {
 		return runtimeevent.Query{}, errors.New("tail must be zero or greater")
 	}
-	query := runtimeevent.Query{RunID: strings.TrimSpace(options.session), MinLevel: strings.ToLower(strings.TrimSpace(options.level)), Components: parseCSV(options.components), Tool: strings.TrimSpace(options.tool), Status: strings.TrimSpace(options.status), Source: strings.TrimSpace(options.source), EventGlob: strings.TrimSpace(options.event), Grep: strings.TrimSpace(options.grep)}
+	query := runtimeevent.Query{RunID: strings.TrimSpace(options.session), MinLevel: strings.ToLower(strings.TrimSpace(options.level)), Components: splitCSV(options.components), Tool: strings.TrimSpace(options.tool), Status: strings.TrimSpace(options.status), Source: strings.TrimSpace(options.source), EventGlob: strings.TrimSpace(options.event), Grep: strings.TrimSpace(options.grep)}
 	if query.MinLevel != "" {
 		switch query.MinLevel {
 		case "debug", "info", "warn", "warning", "error":
@@ -383,6 +383,20 @@ func shortSessionID(value string) string {
 		return value
 	}
 	return value[:max]
+}
+
+func splitCSV(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}
+	}
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if value := strings.TrimSpace(part); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func followRuntimeEventStream(ctx context.Context, cmd *cobra.Command, response *http.Response, query runtimeevent.Query, visibility logger.Visibility, lastByRun map[string]uint64, replay *runtimeReplay) error {

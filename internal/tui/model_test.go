@@ -15,7 +15,12 @@ func TestModelRendersDeepLinkAndNavigation(t *testing.T) {
 	if !strings.Contains(view, "MCP Servers · github") || !strings.Contains(view, "Deep-linked resource: github") {
 		t.Fatalf("view = %q", view)
 	}
-	updated, _ = model.Update(tea.KeyPressMsg{Text: "5", Code: '5'})
+	updated, command := model.Update(tea.KeyPressMsg{Text: "5", Code: '5'})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("navigation action returned no command")
+	}
+	updated, _ = model.Update(command())
 	model = updated.(Model)
 	if model.router.Current().Kind != RouteLogs {
 		t.Fatalf("route = %#v", model.router.Current())

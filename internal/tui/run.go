@@ -23,6 +23,6 @@ func Run(ctx context.Context, route Route, in io.Reader, out io.Writer) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	_, err := tea.NewProgram(NewModel(route), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out)).Run()
+	_, err := tea.NewProgram(NewModelWithContext(ctx, route), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out)).Run()
 	return err
 }

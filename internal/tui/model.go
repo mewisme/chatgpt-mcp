@@ -1,22 +1,34 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 )
 
 type Model struct {
-	router Router
-	theme  theme
-	width  int
-	height int
+	ctx     context.Context
+	router  Router
+	actions *action.Registry
+	theme   theme
+	width   int
+	height  int
 }
 
 func NewModel(initial Route) Model {
-	return Model{router: NewRouter(initial), theme: newTheme(true)}
+	return NewModelWithContext(context.Background(), initial)
+}
+
+func NewModelWithContext(ctx context.Context, initial Route) Model {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), theme: newTheme(true)}
 }
 
 func (model Model) Init() tea.Cmd { return nil }
@@ -27,26 +39,21 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.theme = newTheme(msg.IsDark())
 	case tea.WindowSizeMsg:
 		model.width, model.height = msg.Width, msg.Height
+	case navigateMsg:
+		model.router.Navigate(msg.route)
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return model, tea.Quit
 		case "esc", "backspace":
 			model.router.Back()
-		case "1":
-			model.router.Navigate(Route{Kind: RouteWorkspaces})
-		case "2":
-			model.router.Navigate(Route{Kind: RouteMCP})
-		case "3":
-			model.router.Navigate(Route{Kind: RouteTunnel})
-		case "4":
-			model.router.Navigate(Route{Kind: RouteRequests})
-		case "5":
-			model.router.Navigate(Route{Kind: RouteLogs})
-		case "6":
-			model.router.Navigate(Route{Kind: RouteConfig})
-		case "7":
-			model.router.Navigate(Route{Kind: RouteRuntime})
+		default:
+			if selected, ok := model.actions.MatchShortcut(msg, actionContext(model.router.Current())); ok {
+				cmd, err := model.actions.Execute(model.ctx, selected.ID, actionContext(model.router.Current()))
+				if err == nil {
+					return model, cmd
+				}
+			}
 		}
 	}
 	return model, nil
@@ -72,10 +79,23 @@ func (model Model) render() string {
 		model.divider(contentWidth),
 		model.page(contentWidth),
 		model.divider(contentWidth),
-		model.theme.muted.Render("1 Workspaces  2 MCP  3 Tunnel  4 Requests  5 Logs  6 Config  7 Runtime  ·  Esc Back  ·  q Quit"),
+		model.theme.muted.Render(model.shortcutFooter()),
 	}, "\n")
 	panel := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(model.theme.border.GetBorderLeftForeground()).Padding(1, 2).Width(contentWidth).Render(body)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, panel)
+}
+
+func (model Model) shortcutFooter() string {
+	parts := make([]string, 0, 10)
+	for _, item := range model.actions.Actions(actionContext(model.router.Current())) {
+		help := item.Shortcut.Help()
+		if help.Key != "" && help.Desc != "" {
+			parts = append(parts, help.Key+" "+help.Desc)
+		}
+	}
+	sort.Strings(parts)
+	parts = append(parts, "Esc Back", "q Quit")
+	return strings.Join(parts, "  ·  ")
 }
 
 func (model Model) header(width int) string {

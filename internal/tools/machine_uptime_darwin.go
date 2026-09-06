@@ -3,24 +3,18 @@
 package tools
 
 import (
-	"encoding/binary"
 	"fmt"
-	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func readMachineUptime() (time.Duration, error) {
-	raw, err := syscall.Sysctl("kern.boottime")
+	bootTime, err := unix.SysctlTimeval("kern.boottime")
 	if err != nil {
 		return 0, err
 	}
-	data := []byte(raw)
-	if len(data) < 16 {
-		return 0, fmt.Errorf("unexpected kern.boottime size: %d", len(data))
-	}
-	seconds := int64(binary.LittleEndian.Uint64(data[:8]))
-	microseconds := int64(binary.LittleEndian.Uint64(data[8:16]))
-	bootedAt := time.Unix(seconds, microseconds*int64(time.Microsecond))
+	bootedAt := time.Unix(bootTime.Unix())
 	now := time.Now()
 	if bootedAt.After(now) {
 		return 0, fmt.Errorf("kern.boottime is in the future")

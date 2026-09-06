@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
@@ -172,7 +173,9 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		page.loaded, page.err = true, nil
 		page.runtime, page.auth, page.install, page.about = msg.runtime, msg.auth, msg.install, msg.about
-		return page, page.rebuildBrowser(page.selectedID())
+		cmd := page.rebuildBrowser(page.selectedID())
+		page.syncBrowserHelp()
+		return page, cmd
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		browserCmd := page.resizeBrowser()
@@ -228,6 +231,7 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
+			page.syncBrowserHelp()
 			return page, cmd
 		}
 		if cmd, handled := page.handleKey(msg); handled {
@@ -241,6 +245,7 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	}
 	updated, cmd := page.browser.Update(message)
 	page.browser = updated.(component.Browser)
+	page.syncBrowserHelp()
 	return page, cmd
 }
 
@@ -254,8 +259,7 @@ func (page *RuntimePage) View(width, height int) string {
 	}
 	title := component.PageTitle("Runtime & System", width)
 	status := page.statusView(width)
-	actions := page.actionBar(width)
-	browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-lipgloss.Height(actions)-2)
+	browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-1)
 	if page.err != nil || page.notice != "" {
 		browserHeight = max(1, browserHeight-2)
 	}
@@ -267,7 +271,6 @@ func (page *RuntimePage) View(width, height int) string {
 	} else if page.notice != "" {
 		content += "\n" + component.Muted(page.notice)
 	}
-	content += "\n" + actions
 	switch page.overlay {
 	case systemOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 82)), width, height)
@@ -303,16 +306,7 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
 	y := originY + lipgloss.Height(component.PageTitle("Runtime & System", page.width)) + lipgloss.Height(page.statusView(page.width)) + 1
-	targets := page.browser.MouseTargets(originX, y, z)
-	actionView := page.actionBar(page.width)
-	actionY := originY + max(0, page.height-lipgloss.Height(actionView))
-	bindings := map[string]string{
-		"r Refresh": "r", "u Up": "u", "x Restart": "x", "d Down": "d", "l Reload": "l",
-		"f Foreground": "f",
-		"e Enable":     "e", "e Disable": "e", "t Rotate token": "t", "i Install": "i", "c Cleanup": "c",
-		"a Install": "a", "a Remove": "a", "k Check": "k", "u Update": "u",
-	}
-	return append(targets, keyHintMouseTargets(actionView, bindings, originX, actionY, z+1)...)
+	return page.browser.MouseTargets(originX, y, z)
 }
 
 func (page *RuntimePage) loadCmd() tea.Cmd {
@@ -681,13 +675,16 @@ func (page *RuntimePage) rebuildBrowser(selected string) tea.Cmd {
 		rows = append(rows, page.serviceRow(page.runtime.SystemService))
 	}
 	rows = append(rows, page.authRow("mcp"), page.authRow("admin"), page.installRow(), page.aliasRow(), page.updateRow(), page.aboutRow())
-	return page.browser.ReplaceRows(rows, selected)
+	cmd := page.browser.ReplaceRows(rows, selected)
+	page.syncBrowserHelp()
+	return cmd
 }
 
 func (page *RuntimePage) resizeBrowser() tea.Cmd {
-	height := max(1, page.height-lipgloss.Height(component.PageTitle("Runtime & System", page.width))-lipgloss.Height(page.statusView(page.width))-lipgloss.Height(page.actionBar(page.width))-2)
+	height := max(1, page.height-lipgloss.Height(component.PageTitle("Runtime & System", page.width))-lipgloss.Height(page.statusView(page.width))-1)
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
+	page.syncBrowserHelp()
 	return cmd
 }
 
@@ -793,40 +790,55 @@ func (page *RuntimePage) statusView(width int) string {
 	return component.TwoColumn(component.KeyValue("Runtime", state), component.KeyValue("Mode", mode), width)
 }
 
-func (page *RuntimePage) actionBar(width int) string {
-	left := []component.ActionHint{{Key: "r", Label: "Refresh", Enabled: true}}
-	right := []component.ActionHint{}
+func (page *RuntimePage) syncBrowserHelp() {
+	refresh := component.Binding([]string{"r"}, "r", "refresh")
 	switch page.selectedID() {
 	case "runtime", "service.user", "service.system":
-		left = append(left, component.ActionHint{Key: "u", Label: "Up", Enabled: true}, component.ActionHint{Key: "x", Label: "Restart", Enabled: true})
-		right = append(right, component.ActionHint{Key: "d", Label: "Down", Enabled: true, Danger: true})
+		bindings := []key.Binding{refresh, component.Binding([]string{"u"}, "u", "up"), component.Binding([]string{"x"}, "x", "restart"), component.Binding([]string{"d"}, "d", "down")}
 		if page.selectedID() == "runtime" {
-			left = append(left, component.ActionHint{Key: "l", Label: "Reload", Enabled: page.runtime.Running}, component.ActionHint{Key: "f", Label: "Foreground", Enabled: true})
+			if page.runtime.Running {
+				bindings = append(bindings, component.Binding([]string{"l"}, "l", "reload"))
+			}
+			bindings = append(bindings, component.Binding([]string{"f"}, "f", "foreground"))
 		}
+		page.browser.SetHelpBindings(bindings...)
 	case "auth.mcp":
-		label := "Enable"
+		label := "enable"
 		if page.auth.MCPEnabled {
-			label = "Disable"
+			label = "disable"
 		}
-		left = append(left, component.ActionHint{Key: "e", Label: label, Enabled: page.auth.MCPConfigured || page.auth.MCPEnabled}, component.ActionHint{Key: "t", Label: "Rotate token", Enabled: true})
+		bindings := []key.Binding{refresh, component.Binding([]string{"t"}, "t", "rotate token")}
+		if page.auth.MCPConfigured || page.auth.MCPEnabled {
+			bindings = append(bindings, component.Binding([]string{"e"}, "e", label))
+		}
+		page.browser.SetHelpBindings(bindings...)
 	case "auth.admin":
-		label := "Enable"
+		label := "enable"
 		if page.auth.AdminEnabled {
-			label = "Disable"
+			label = "disable"
 		}
-		left = append(left, component.ActionHint{Key: "e", Label: label, Enabled: page.auth.AdminConfigured || page.auth.AdminEnabled}, component.ActionHint{Key: "t", Label: "Rotate token", Enabled: true})
+		bindings := []key.Binding{refresh, component.Binding([]string{"t"}, "t", "rotate token")}
+		if page.auth.AdminConfigured || page.auth.AdminEnabled {
+			bindings = append(bindings, component.Binding([]string{"e"}, "e", label))
+		}
+		page.browser.SetHelpBindings(bindings...)
 	case "installation":
-		left = append(left, component.ActionHint{Key: "i", Label: "Install", Enabled: true}, component.ActionHint{Key: "c", Label: "Cleanup", Enabled: true})
+		page.browser.SetHelpBindings(refresh, component.Binding([]string{"i"}, "i", "install"), component.Binding([]string{"c"}, "c", "cleanup"))
 	case "alias":
-		label := "Install"
+		label := "install"
 		if page.install.Alias.State == install.AliasInstalled {
-			label = "Remove"
+			label = "remove"
 		}
-		left = append(left, component.ActionHint{Key: "a", Label: label, Enabled: page.install.AliasAvailable})
+		if page.install.AliasAvailable {
+			page.browser.SetHelpBindings(refresh, component.Binding([]string{"a"}, "a", label))
+		} else {
+			page.browser.SetHelpBindings(refresh)
+		}
 	case "update":
-		left = append(left, component.ActionHint{Key: "k", Label: "Check", Enabled: true}, component.ActionHint{Key: "u", Label: "Update", Enabled: true})
+		page.browser.SetHelpBindings(refresh, component.Binding([]string{"k"}, "k", "check"), component.Binding([]string{"u"}, "u", "update"))
+	default:
+		page.browser.SetHelpBindings(refresh)
 	}
-	return component.PageActionBar(width, left, right)
 }
 
 func (page *RuntimePage) confirmActionLabel() string {

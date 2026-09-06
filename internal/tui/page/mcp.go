@@ -689,8 +689,10 @@ func (page *MCPPage) reload() error {
 	if err != nil {
 		return err
 	}
-	refresh := func(context.Context) ([]component.Row, error) { return page.rows() }
-	page.browser = component.NewBrowser(page.ctx, "Upstream MCP servers", rows, refresh)
+	page.browser = component.NewBrowser(page.ctx, "Upstream MCP servers", rows, nil).WithHelpBindings(
+		component.Binding([]string{"a"}, "a", "add"), component.Binding([]string{"e"}, "e", "configure"), component.Binding([]string{"space"}, "space", "toggle"),
+		component.Binding([]string{"r"}, "r", "health"), component.Binding([]string{"t"}, "t", "tools"), component.Binding([]string{"o"}, "o", "login"), component.Binding([]string{"l"}, "l", "logout"), component.Binding([]string{"d"}, "d", "remove"),
+	)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
 		page.browser = updated.(component.Browser)

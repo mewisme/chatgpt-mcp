@@ -458,7 +458,10 @@ func (page *ConfigPage) loadCmd() tea.Cmd {
 
 func (page *ConfigPage) rebuildBrowser(selected string) {
 	rows := page.configRows()
-	page.browser = component.NewBrowser(page.ctx, "Configuration fields", rows, nil).WithTitleVisible(false)
+	page.browser = component.NewBrowser(page.ctx, "Configuration fields", rows, nil).WithTitleVisible(false).WithHelpBindings(
+		component.Binding([]string{"e"}, "e", "edit"), component.Binding([]string{"v"}, "v", "verify"), component.Binding([]string{"r"}, "r", "reload"), component.Binding([]string{"m"}, "m", "migrate"),
+		component.Binding([]string{"c"}, "c", "convert"), component.Binding([]string{"x"}, "x", "export"), component.Binding([]string{"i"}, "i", "import"), component.Binding([]string{"f"}, "f", "refresh"),
+	)
 	if page.width > 0 && page.height > 0 {
 		_ = page.resizeBrowser()
 	}
@@ -528,6 +531,5 @@ func (page *ConfigPage) overviewView(width int) string {
 		component.KeyValue("Config", page.overview.Source.Path),
 		component.KeyValue("Root", page.overview.Root),
 		component.KeyValue("Runtime", status),
-		component.Muted("e Edit · v Verify · r Reload · m Migrate · c Convert · x Export · i Import · f Refresh"),
 	}, "\n")
 }

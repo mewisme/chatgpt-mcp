@@ -418,6 +418,7 @@ func (page *RequestsPage) rebuildBrowser(selectedID string) {
 	}
 	rows := page.requestRows()
 	browser := component.NewBrowser(page.ctx, "Approval requests · "+page.modeLabel(), rows, nil)
+	browser = browser.WithHelpBindings(component.Binding([]string{"1"}, "1", "pending"), component.Binding([]string{"2"}, "2", "history"), component.Binding([]string{"3"}, "3", "all"), component.Binding([]string{"r"}, "r", "refresh"))
 	browser = browser.WithAction(component.RowAction{Key: "a", Desc: "approve", Run: requestRowAction(RequestApprove)})
 	browser = browser.WithAction(component.RowAction{Key: "d", Desc: "deny", Run: requestRowAction(RequestDeny)})
 	page.browser = browser

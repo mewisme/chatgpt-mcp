@@ -477,6 +477,11 @@ func (page *WorkspacePage) reload() error {
 		}
 		return "Copied " + row.ID, nil, nil
 	}})
+	if page.kind == workspacePageContainers {
+		page.browser.SetHelpBindings(component.Binding([]string{"a"}, "a", "create"), component.Binding([]string{"e"}, "e", "rename"), component.Binding([]string{"m"}, "m", "members"), component.Binding([]string{"d"}, "d", "delete"))
+	} else {
+		page.browser.SetHelpBindings(component.Binding([]string{"a"}, "a", "register"), component.Binding([]string{"+"}, "+", "add access"), component.Binding([]string{"-"}, "-", "remove access"), component.Binding([]string{"d"}, "d", "unregister"))
+	}
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
 		page.browser = updated.(component.Browser)

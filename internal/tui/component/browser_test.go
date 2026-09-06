@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -223,6 +224,22 @@ func TestBrowserRowActionUsesSelectedItemAndDefaultHelp(t *testing.T) {
 	}
 	if !strings.Contains(model.list.View(), "copy ID") {
 		t.Fatalf("view=%q", model.list.View())
+	}
+}
+
+func TestBrowserUsesPageBindingsInListHelp(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(
+		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
+		key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	)
+	view := model.list.View()
+	if !strings.Contains(view, "add") || !strings.Contains(view, "delete") {
+		t.Fatalf("list help missing page bindings: %q", view)
+	}
+	model.SetHelpBindings(key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reload")))
+	view = model.list.View()
+	if strings.Contains(view, "add") || !strings.Contains(view, "reload") {
+		t.Fatalf("mutable list help not replaced: %q", view)
 	}
 }
 

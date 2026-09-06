@@ -38,8 +38,8 @@ func TestLogsPageLoadsHistoryAndShowsOfflineReconnectState(t *testing.T) {
 	if len(page.events) != 1 || !page.loaded || page.connected || !page.reconnecting || reconnect == nil {
 		t.Fatalf("page loaded=%t connected=%t reconnect=%t events=%d cmd=%v", page.loaded, page.connected, page.reconnecting, len(page.events), reconnect)
 	}
-	plain := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"Logs", "RECONNECTING", "server.ready", "space Pause", "f Filters", "d Clear"} {
+	plain := ansi.Strip(page.View(180, 28))
+	for _, want := range []string{"Logs", "RECONNECTING", "server.ready", "space pause", "f filters", "d clear"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view missing %q: %q", want, plain)
 		}
@@ -116,12 +116,12 @@ func TestLogsPageBufferIsBounded(t *testing.T) {
 func TestLogsPageMouseActionsUseKeyboardMessages(t *testing.T) {
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
-	page.width, page.height = 100, 28
+	page.width, page.height = 180, 28
 	_ = page.View(page.width, page.height)
 	targets := page.MouseTargets(0, 0, 1)
 	want := map[string]bool{"space": false, "f": false, "r": false, "i": false, "d": false}
 	for _, target := range targets {
-		if target.ID != "page.action" {
+		if target.ID != "browser.help" {
 			continue
 		}
 		message, ok := target.Handle(component.MouseEvent{Button: tea.MouseLeft}).(tea.KeyPressMsg)

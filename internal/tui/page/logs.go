@@ -103,6 +103,7 @@ func NewLogs(ctx context.Context) (*LogsPage, error) {
 	pageCtx, cancel := context.WithCancel(ctx)
 	page := &LogsPage{ctx: pageCtx, cancel: cancel, options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityDefault}
 	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false)
+	page.syncBrowserHelp()
 	return page, nil
 }
 
@@ -237,10 +238,8 @@ func (page *LogsPage) View(width, height int) string {
 	page.width, page.height = width, height
 	title := component.PageTitle("Logs", width)
 	status := page.statusView(width)
-	actions := page.actionBar(width)
 	headerHeight := lipgloss.Height(title) + lipgloss.Height(status) + 1
-	footerHeight := lipgloss.Height(actions) + 1
-	browserHeight := max(1, height-headerHeight-footerHeight)
+	browserHeight := max(1, height-headerHeight)
 	if page.err != nil || page.notice != "" {
 		browserHeight = max(1, browserHeight-2)
 	}
@@ -252,7 +251,6 @@ func (page *LogsPage) View(width, height int) string {
 	} else if page.notice != "" {
 		content += "\n" + component.Muted(page.notice)
 	}
-	content += "\n" + actions
 	switch page.overlay {
 	case logsOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 86)), width, height)
@@ -287,11 +285,7 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	titleHeight := lipgloss.Height(component.PageTitle("Logs", page.width))
 	statusHeight := lipgloss.Height(page.statusView(page.width))
 	browserY := originY + titleHeight + statusHeight + 1
-	targets := page.browser.MouseTargets(originX, browserY, z)
-	actionView := page.actionBar(page.width)
-	actionY := originY + max(0, page.height-lipgloss.Height(actionView))
-	bindings := map[string]string{"space Pause": "space", "space Resume": "space", "f Filters": "f", "r Refresh": "r", "i Info": "i", "d Clear": "d"}
-	return append(targets, keyHintMouseTargets(actionView, bindings, originX, actionY, z+1)...)
+	return page.browser.MouseTargets(originX, browserY, z)
 }
 
 func (page *LogsPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
@@ -380,6 +374,7 @@ func (page *LogsPage) togglePause() tea.Cmd {
 	if !page.paused {
 		page.browser.SelectLast()
 	}
+	page.syncBrowserHelp()
 	return nil
 }
 
@@ -542,8 +537,7 @@ func (page *LogsPage) rebuildBrowser(selected string) tea.Cmd {
 func (page *LogsPage) resizeBrowser() tea.Cmd {
 	titleHeight := lipgloss.Height(component.PageTitle("Logs", page.width))
 	statusHeight := lipgloss.Height(page.statusView(page.width))
-	actionHeight := lipgloss.Height(page.actionBar(page.width))
-	height := max(1, page.height-titleHeight-statusHeight-actionHeight-2)
+	height := max(1, page.height-titleHeight-statusHeight-1)
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd
@@ -606,14 +600,14 @@ func (page *LogsPage) statusView(width int) string {
 	return component.TwoColumn(left, right, width)
 }
 
-func (page *LogsPage) actionBar(width int) string {
-	toggle := "Pause"
+func (page *LogsPage) syncBrowserHelp() {
+	toggle := "pause"
 	if page.paused {
-		toggle = "Resume"
+		toggle = "resume"
 	}
-	return component.PageActionBar(width,
-		[]component.ActionHint{{Key: "space", Label: toggle, Enabled: true}, {Key: "f", Label: "Filters", Enabled: true}, {Key: "r", Label: "Refresh", Enabled: true}},
-		[]component.ActionHint{{Key: "i", Label: "Info", Enabled: true}, {Key: "d", Label: "Clear", Enabled: true, Danger: true}},
+	page.browser.SetHelpBindings(
+		component.Binding([]string{"space"}, "space", toggle), component.Binding([]string{"f"}, "f", "filters"), component.Binding([]string{"r"}, "r", "refresh"),
+		component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"),
 	)
 }
 

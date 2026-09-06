@@ -66,6 +66,7 @@ type Browser struct {
 	viewport           viewport.Model
 	refresh            RefreshFunc
 	actions            []RowAction
+	helpBindings       []key.Binding
 	detail             bool
 	loading            bool
 	width              int
@@ -113,6 +114,19 @@ func (m Browser) WithAction(action RowAction) Browser {
 		m.syncHelp()
 	}
 	return m
+}
+
+func (m Browser) WithHelpBindings(bindings ...key.Binding) Browser {
+	m.SetHelpBindings(bindings...)
+	return m
+}
+
+func (m *Browser) SetHelpBindings(bindings ...key.Binding) {
+	if m == nil {
+		return
+	}
+	m.helpBindings = append([]key.Binding(nil), bindings...)
+	m.syncHelp()
 }
 
 func (m Browser) WithTitleVisible(visible bool) Browser {
@@ -346,7 +360,54 @@ func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
 			},
 		})
 	}
+	viewLines := strings.Split(ansi.Strip(m.list.View()), "\n")
+	helpBindings := append([]key.Binding(nil), m.helpBindings...)
+	for _, action := range m.actions {
+		helpBindings = append(helpBindings, Binding([]string{action.Key}, action.Key, action.Desc))
+	}
+	if m.refresh != nil {
+		helpBindings = append(helpBindings, browserRefreshBinding)
+	}
+	for _, binding := range helpBindings {
+		help := binding.Help()
+		label := strings.TrimSpace(help.Key + " " + help.Desc)
+		keys := binding.Keys()
+		if label == "" || len(keys) == 0 {
+			continue
+		}
+		line, column := findRenderedLine(viewLines, label, 0)
+		if line < 0 {
+			continue
+		}
+		keyValue := keys[0]
+		targets = append(targets, MouseTarget{
+			ID: "browser.help", Rect: Rect{X: originX + column, Y: originY + line, Width: lipgloss.Width(label), Height: 1}, Z: z + 2,
+			Handle: func(event MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return browserHelpKeyMsg(keyValue)
+			},
+		})
+	}
 	return targets
+}
+
+func browserHelpKeyMsg(value string) tea.KeyPressMsg {
+	switch value {
+	case "space", " ":
+		return tea.KeyPressMsg{Code: tea.KeySpace}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	default:
+		runes := []rune(value)
+		if len(runes) == 0 {
+			return tea.KeyPressMsg{}
+		}
+		return tea.KeyPressMsg{Code: runes[0]}
+	}
 }
 
 func (m Browser) overlayDetail(background string) string {
@@ -534,6 +595,7 @@ func (m *Browser) runAction(keyValue string) (bool, tea.Cmd) {
 
 func (m *Browser) syncHelp() {
 	bindings := []key.Binding{browserOpenBinding}
+	bindings = append(bindings, m.helpBindings...)
 	for _, action := range m.actions {
 		bindings = append(bindings, Binding([]string{action.Key}, action.Key, action.Desc))
 	}

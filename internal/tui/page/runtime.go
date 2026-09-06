@@ -265,7 +265,7 @@ func (page *RuntimePage) View(width, height int) string {
 	} else if page.notice != "" {
 		feedback = component.Muted(page.notice)
 	}
-	browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-1-pageFeedbackHeight(feedback))
+	browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-pageFeedbackHeight(feedback))
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 	page.browser = updated.(component.Browser)
 	content := title + "\n" + status + "\n" + prependPageFeedback(feedback, page.browser.Content())
@@ -309,7 +309,7 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 	} else if page.notice != "" {
 		feedback = component.Muted(page.notice)
 	}
-	y := originY + lipgloss.Height(component.PageTitle("Runtime & System", page.width)) + lipgloss.Height(page.statusView(page.width)) + 1 + pageFeedbackHeight(feedback)
+	y := originY + lipgloss.Height(component.PageTitle("Runtime & System", page.width)) + lipgloss.Height(page.statusView(page.width)) + pageFeedbackHeight(feedback)
 	return page.browser.MouseTargets(originX, y, z)
 }
 
@@ -696,7 +696,7 @@ func (page *RuntimePage) resizeBrowser() tea.Cmd {
 	} else if page.notice != "" {
 		feedback = component.Muted(page.notice)
 	}
-	height := max(1, page.height-lipgloss.Height(component.PageTitle("Runtime & System", page.width))-lipgloss.Height(page.statusView(page.width))-1-pageFeedbackHeight(feedback))
+	height := max(1, page.height-lipgloss.Height(component.PageTitle("Runtime & System", page.width))-lipgloss.Height(page.statusView(page.width))-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	page.syncBrowserHelp()

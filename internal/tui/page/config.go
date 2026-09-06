@@ -199,7 +199,7 @@ func (page *ConfigPage) View(width, height int) string {
 	}
 	title := component.PageTitle("Configuration", width)
 	overview := page.overviewView(width)
-	headerHeight := lipgloss.Height(title) + lipgloss.Height(overview) + 1
+	headerHeight := lipgloss.Height(title) + lipgloss.Height(overview)
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
@@ -240,7 +240,7 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 		} else if page.notice != "" {
 			feedback = component.Banner(page.notice, component.ToneSuccess)
 		}
-		offsetY := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + 1 + pageFeedbackHeight(feedback)
+		offsetY := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + pageFeedbackHeight(feedback)
 		return page.browser.MouseTargets(originX, originY+offsetY, z)
 	}
 }
@@ -477,7 +477,7 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 }
 
 func (page *ConfigPage) resizeBrowser() tea.Cmd {
-	headerHeight := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + 1
+	headerHeight := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width))
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)

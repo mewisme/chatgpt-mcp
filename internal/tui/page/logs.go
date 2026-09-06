@@ -279,7 +279,7 @@ func (page *LogsPage) View(width, height int) string {
 	tabs := component.PageTabs(logsTabLabels, int(page.tab), width)
 	content := tabs
 	if page.tab == logsTabCommandExec {
-		bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
+		bodyHeight := max(1, height-lipgloss.Height(tabs))
 		content += "\n" + page.executionView(width, bodyHeight)
 	} else {
 		status := page.statusView(width)
@@ -289,7 +289,7 @@ func (page *LogsPage) View(width, height int) string {
 		} else if page.notice != "" {
 			feedback = component.Muted(page.notice)
 		}
-		headerHeight := lipgloss.Height(tabs) + lipgloss.Height(status) + 1
+		headerHeight := lipgloss.Height(tabs) + lipgloss.Height(status)
 		browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
@@ -330,8 +330,8 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	tabTargets := page.logsTabMouseTargets(originX, originY, z+2)
 	tabsHeight := lipgloss.Height(tabs)
 	if page.tab == logsTabCommandExec {
-		bodyY := originY + tabsHeight + 1
-		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, max(1, page.height-tabsHeight-1))...)
+		bodyY := originY + tabsHeight
+		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, max(1, page.height-tabsHeight))...)
 	}
 	feedback := ""
 	if page.err != nil {
@@ -340,7 +340,7 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 		feedback = component.Muted(page.notice)
 	}
 	statusHeight := lipgloss.Height(page.statusView(page.width))
-	browserY := originY + tabsHeight + statusHeight + 1 + pageFeedbackHeight(feedback)
+	browserY := originY + tabsHeight + statusHeight + pageFeedbackHeight(feedback)
 	return append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
 }
 
@@ -670,7 +670,7 @@ func (page *LogsPage) resizeBrowser() tea.Cmd {
 	} else if page.notice != "" {
 		feedback = component.Muted(page.notice)
 	}
-	height := max(1, page.height-titleHeight-statusHeight-1-pageFeedbackHeight(feedback))
+	height := max(1, page.height-titleHeight-statusHeight-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd

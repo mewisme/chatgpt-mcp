@@ -23,6 +23,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
@@ -46,7 +47,7 @@ func TestLogsPageLoadsHistoryAndShowsOfflineReconnectState(t *testing.T) {
 		t.Fatalf("offline stream connected=%t reconnect=%t cmd=%v", page.connected, page.reconnecting, reconnect)
 	}
 	plain := ansi.Strip(page.View(180, 28))
-	for _, want := range []string{"Logs", "RECONNECTING", "server.ready", "space pause", "f filters", "d clear"} {
+	for _, want := range []string{"Runtime", "Command Exec", "RECONNECTING", "server.ready", "? more"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view missing %q: %q", want, plain)
 		}
@@ -159,6 +160,8 @@ func TestLogsPageMouseActionsUseKeyboardMessages(t *testing.T) {
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
 	page.width, page.height = 180, 28
+	updated, _ := page.browser.Update(tea.KeyPressMsg{Code: '?'})
+	page.browser = updated.(component.Browser)
 	_ = page.View(page.width, page.height)
 	targets := page.MouseTargets(0, 0, 1)
 	want := map[string]bool{"space": false, "f": false, "r": false, "i": false, "d": false}
@@ -636,6 +639,110 @@ func TestLogsPageStreamEventDisconnectAndGapHelpers(t *testing.T) {
 	}
 	if cmd := page.finishStreamEvent(logsStreamEventMsg{generation: 1, event: runtimeevent.Event{RunID: "run", Sequence: 1}}); cmd != nil {
 		t.Fatalf("stale event scheduled cmd=%v", cmd)
+	}
+}
+
+func TestLogsCommandExecTabStreamsCombinedOutputInEventOrder(t *testing.T) {
+	root := setupLogsPageRoot(t)
+	code := 0
+	info := shellruntime.ExecutionInfo{ID: "exec_test", WorkspaceID: "ws_a", Tool: "run_command", Command: "printf demo", CWD: "/tmp", Source: "mcp", StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: shellruntime.ExecutionStatusRunning}
+	snapshot := shellruntime.ExecutionFeedSnapshot{Events: []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Status: shellruntime.ExecutionStatusRunning},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Stream: "stdout", Data: "out\n"},
+	}, LatestSequence: 2}
+	ready, _ := json.Marshal(snapshot)
+	live := shellruntime.ExecutionFeedEvent{Sequence: 3, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Stream: "stderr", Data: "err\n"}
+	liveData, _ := json.Marshal(live)
+	completed := shellruntime.ExecutionFeedEvent{Sequence: 4, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code}
+	completedData, _ := json.Marshal(completed)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/executions/stream" || r.Header.Get("Authorization") != "Bearer token" {
+			t.Fatalf("request=%s auth=%q", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "event: ready\ndata: %s\n\nid: 3\nevent: output\ndata: %s\n\nid: 4\nevent: completed\ndata: %s\n\n", ready, liveData, completedData)
+	}))
+	defer server.Close()
+	writeLogsRuntimeState(t, root, server.URL, "run_exec")
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	updated, open := page.Update(tea.KeyPressMsg{Code: '2'})
+	page = updated.(*LogsPage)
+	if page.tab != logsTabCommandExec || open == nil {
+		t.Fatalf("tab=%d open=%v", page.tab, open)
+	}
+	updated, next := page.Update(open())
+	page = updated.(*LogsPage)
+	if !page.exec.connected || len(page.exec.events) != 2 || next == nil {
+		t.Fatalf("connected=%t events=%#v next=%v", page.exec.connected, page.exec.events, next)
+	}
+	updated, next = page.Update(next())
+	page = updated.(*LogsPage)
+	if len(page.exec.events) != 3 || next == nil {
+		t.Fatalf("live events=%#v next=%v", page.exec.events, next)
+	}
+	updated, next = page.Update(next())
+	page = updated.(*LogsPage)
+	if len(page.exec.events) != 4 || next == nil {
+		t.Fatalf("completed events=%#v next=%v", page.exec.events, next)
+	}
+	plain := ansi.Strip(page.View(120, 28))
+	for _, want := range []string{"Runtime   Command Exec", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("command exec view missing %q: %q", want, plain)
+		}
+	}
+	if strings.Contains(plain, "stdout:") || strings.Contains(plain, "stderr:") {
+		t.Fatalf("combined view split streams: %q", plain)
+	}
+}
+
+func TestFormatExecutionFeedCombinesStdoutAndStderrWithoutStreamSections(t *testing.T) {
+	code := 7
+	info := shellruntime.ExecutionInfo{ID: "exec_order", WorkspaceID: "ws_a", Command: "demo", CWD: "/work"}
+	events := []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, Execution: &info},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, Stream: "stdout", Data: "A"},
+		{Sequence: 3, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, Stream: "stderr", Data: "B"},
+		{Sequence: 4, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, Stream: "stdout", Data: "C\n"},
+		{Sequence: 5, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, Status: shellruntime.ExecutionStatusFailed, ExitCode: &code},
+	}
+	view := formatExecutionFeed(events)
+	if !strings.Contains(view, "ABC\n[failed, exit 7]") || strings.Contains(view, "stdout") || strings.Contains(view, "stderr") {
+		t.Fatalf("combined feed=%q", view)
+	}
+}
+
+func TestLogsCommandExecTabNavigationAndMouseTargets(t *testing.T) {
+	setupLogsPageRoot(t)
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.width, page.height = 100, 24
+	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime   Command Exec") {
+		t.Fatalf("tabs view=%q", view)
+	}
+	targets := page.MouseTargets(0, 0, 1)
+	var commandTab component.MouseTarget
+	for _, target := range targets {
+		if target.ID == "logs.tab" {
+			if msg, ok := target.Handle(component.MouseEvent{Button: tea.MouseLeft}).(tea.KeyPressMsg); ok && msg.String() == "2" {
+				commandTab = target
+				break
+			}
+		}
+	}
+	if commandTab.Handle == nil {
+		t.Fatal("command exec tab mouse target missing")
+	}
+	updated, _ := page.Update(commandTab.Handle(component.MouseEvent{Button: tea.MouseLeft}))
+	page = updated.(*LogsPage)
+	if page.tab != logsTabCommandExec {
+		t.Fatalf("tab=%d", page.tab)
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	page = updated.(*LogsPage)
+	if page.tab != logsTabRuntime {
+		t.Fatalf("left did not return runtime tab: %d", page.tab)
 	}
 }
 

@@ -52,3 +52,12 @@ func Tabs(labels []string, active int) string {
 	}
 	return strings.Join(parts, "   ")
 }
+
+func PageTabs(labels []string, active, width int) string {
+	tabs := Tabs(labels, active)
+	style := currentTheme.pageTitleBar
+	if width > 0 {
+		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
+	}
+	return style.Render(tabs)
+}

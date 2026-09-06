@@ -20,6 +20,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
@@ -40,6 +41,7 @@ type runtimeControlOptions struct {
 	Shutdown     func()
 	ClearLogs    func() error
 	Approvals    *approval.Manager
+	Executions   *shellruntime.ExecutionHub
 }
 
 type runtimeControl struct {
@@ -195,10 +197,77 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 	mux.HandleFunc("/events", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		serveRuntimeEvents(w, r, options.Events)
 	}))
+	mux.HandleFunc("/executions/stream", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		serveRuntimeExecutionFeed(w, r, options.Executions)
+	}))
 	server := newHTTPServer(mux)
 	control := &runtimeControl{state: controlState, listener: listener, server: server, path: path}
 	go func() { _ = server.Serve(listener) }()
 	return control, nil
+}
+
+func serveRuntimeExecutionFeed(w http.ResponseWriter, r *http.Request, hub *shellruntime.ExecutionHub) {
+	if hub == nil {
+		http.Error(w, "execution stream unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	sub, snapshot := hub.SubscribeFeed("")
+	if sub == nil {
+		http.Error(w, "execution stream unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	defer hub.UnsubscribeFeed(sub)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := fmt.Fprintf(w, "event: ready\ndata: %s\n\n", data); err != nil {
+		return
+	}
+	flusher.Flush()
+	latestSequence := snapshot.LatestSequence
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case overflow := <-sub.Overflow:
+			if overflow.DroppedSequence == 0 {
+				return
+			}
+			_, _ = fmt.Fprintf(w, "event: overflow\ndata: {\"dropped_sequence\":%d}\n\n", overflow.DroppedSequence)
+			flusher.Flush()
+			return
+		case <-heartbeat.C:
+			if _, err := fmt.Fprintf(w, "event: heartbeat\ndata: {\"latest_sequence\":%d}\n\n", latestSequence); err != nil {
+				return
+			}
+			flusher.Flush()
+		case event, ok := <-sub.Events:
+			if !ok {
+				return
+			}
+			latestSequence = event.Sequence
+			data, err := json.Marshal(event)
+			if err != nil {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, event.Type, data); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }
 
 func decodeControlJSON(r *http.Request, output any) error {

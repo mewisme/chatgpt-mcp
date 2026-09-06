@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 )
 
 func TestRuntimeControlReloadStatusAndShutdownRoundTrip(t *testing.T) {
@@ -166,6 +168,60 @@ func TestRuntimeControlRequestListViewApproveAndDeny(t *testing.T) {
 	}
 }
 
+func TestRuntimeControlExecutionFeedReplaysAndStreamsCombinedOutput(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	hub := shellruntime.NewExecutionHub()
+	run := hub.Begin(shellruntime.ExecutionInput{WorkspaceID: "ws_a", Tool: "run_command", Command: "printf test", CWD: "/tmp", Source: "mcp"})
+	_, _ = run.Writer("stdout").Write([]byte("before\n"))
+	control, err := startRuntimeControl(runtimeControlOptions{Executions: hub, Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult { return runtimeStatusResult{PID: os.Getpid()} }, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	request, _ := http.NewRequest(http.MethodGet, "http://"+control.state.Address+"/executions/stream", nil)
+	request.Header.Set("Authorization", "Bearer "+control.state.Token)
+	response, err := (&http.Client{Timeout: time.Second}).Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	ready := scanRuntimeControlEventData(t, scanner, "ready")
+	if !strings.Contains(ready, run.ID()) || !strings.Contains(ready, "before") {
+		t.Fatalf("ready=%q", ready)
+	}
+	_, _ = run.Writer("stderr").Write([]byte("after\n"))
+	output := scanRuntimeControlEventData(t, scanner, shellruntime.ExecutionEventOutput)
+	if !strings.Contains(output, `"stream":"stderr"`) || !strings.Contains(output, "after") {
+		t.Fatalf("output=%q", output)
+	}
+}
+
+func scanRuntimeControlEventData(t *testing.T, scanner *bufio.Scanner, eventName string) string {
+	t.Helper()
+	current, data := "", ""
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if current == eventName {
+				return data
+			}
+			current, data = "", ""
+			continue
+		}
+		if strings.HasPrefix(line, "event: ") {
+			current = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+		} else if strings.HasPrefix(line, "data: ") {
+			data += strings.TrimPrefix(line, "data: ")
+		}
+	}
+	t.Fatalf("event %q not found", eventName)
+	return ""
+}
+
 func TestRuntimeControlRejectsUnknownApprovalActionBeforeMutation(t *testing.T) {
 	if _, err := requestRuntimeApprovalResolve(t.Context(), "unknown", "req_test", ""); err == nil || !strings.Contains(err.Error(), "unsupported approval action") {
 		t.Fatalf("err=%v", err)
@@ -189,6 +245,14 @@ func TestRuntimeControlRejectsUnauthenticatedCLIApprovalConsume(t *testing.T) {
 	defer listResponse.Body.Close()
 	if listResponse.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("request list status = %d", listResponse.StatusCode)
+	}
+	executionResponse, err := (&http.Client{Timeout: time.Second}).Get("http://" + control.state.Address + "/executions/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer executionResponse.Body.Close()
+	if executionResponse.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("execution stream status = %d", executionResponse.StatusCode)
 	}
 	request, err := http.NewRequest(http.MethodPost, "http://"+control.state.Address+"/requests/consume-cli", strings.NewReader(`{"capability":"cap_test","args":["update"]}`))
 	if err != nil {

@@ -33,7 +33,7 @@ The application uses the terminal's current size, adapts to light/dark backgroun
 | `Esc` | close the top overlay, navigate back, or open exit confirmation at the root |
 | `Backspace` | navigate back when route history is available |
 
-Lists, forms, tabs, and detail views expose their own contextual key hints. The app footer stays focused on global navigation instead of duplicating local controls.
+Lists, forms, tabs, and detail views expose their own contextual key hints. Browser lists keep up to five custom actions in the compact hint row; when a page has more than five custom actions, those actions are hidden from the compact row and are available through `? more`. Expanded help stays expanded across automatic refreshes and list rebuilds. The app footer stays focused on global navigation instead of duplicating local controls.
 
 ## Command Palette
 
@@ -114,7 +114,9 @@ Workspaces  MCP  Tunnel  Requests  Logs  Config  Runtime
 
 Additional resources such as workspace containers, managed tunnels, and About/build information are reachable through actions, Quick Open, or deep links.
 
-The Logs page loads persistent runtime history before opening its live stream and follows new events in real time. Its default visibility is `Verbose`, which includes useful lifecycle, approval, tunnel, and completed tool-call events while keeping debug diagnostics hidden. The Filters form can switch visibility between `Normal`, `Verbose`, and `Debug`; the selected visibility applies consistently to both journal history and live events.
+The Logs page uses a natural-width `Runtime | Command Exec` tab list rather than an evenly divided navigation bar. `Runtime` loads persistent runtime history before opening its live stream and follows new events in real time. Its default visibility is `Verbose`, which includes useful lifecycle, approval, tunnel, and completed tool-call events while keeping debug diagnostics hidden. The Filters form can switch visibility between `Normal`, `Verbose`, and `Debug`; the selected visibility applies consistently to both journal history and live events.
+
+`Command Exec` reuses the same bounded execution feed produced by the runtime for Admin UI command observability, across all registered workspaces. It replays the recent feed before continuing live and renders stdout and stderr as one combined stream in execution-event order instead of splitting them into separate panels. The view keeps at most 4000 feed events and supports follow/pause, reconnect, clear-view, keyboard scrolling, and mouse scrolling.
 
 The Command Center covers the public CLI capability inventory rather than mechanically copying Cobra into nested menus. Related commands are grouped around the resource they operate on.
 

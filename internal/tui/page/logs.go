@@ -75,6 +75,8 @@ type logsClearMsg struct {
 
 type LogsPage struct {
 	ctx          context.Context
+	tab          logsTab
+	exec         logsExecutionFeed
 	cancel       context.CancelFunc
 	browser      component.Browser
 	events       []runtimeevent.Event
@@ -109,7 +111,7 @@ func NewLogs(ctx context.Context) (*LogsPage, error) {
 		ctx = context.Background()
 	}
 	pageCtx, cancel := context.WithCancel(ctx)
-	page := &LogsPage{ctx: pageCtx, cancel: cancel, options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose}
+	page := &LogsPage{ctx: pageCtx, cancel: cancel, options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose, exec: newLogsExecutionFeed()}
 	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false)
 	page.syncBrowserHelp()
 	return page, nil
@@ -127,16 +129,17 @@ func (page *LogsPage) Close() {
 		return
 	}
 	page.stopStream()
+	page.stopExecutionFeed()
 	if page.cancel != nil {
 		page.cancel()
 	}
 }
 
 func (page *LogsPage) OverlayActive() bool {
-	return page != nil && (page.overlay != logsOverlayNone || page.browser.DetailOpen())
+	return page != nil && (page.overlay != logsOverlayNone || (page.tab == logsTabRuntime && page.browser.DetailOpen()))
 }
 func (page *LogsPage) InputActive() bool {
-	return page != nil && (page.overlay == logsOverlayForm || page.browser.InputActive())
+	return page != nil && (page.overlay == logsOverlayForm || (page.tab == logsTabRuntime && page.browser.InputActive()))
 }
 
 func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
@@ -144,6 +147,20 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, nil
 	}
 	switch msg := message.(type) {
+	case logsExecutionOpenMsg:
+		return page, page.finishExecutionFeedOpen(msg)
+	case logsExecutionEventMsg:
+		return page, page.finishExecutionFeedEvent(msg)
+	case logsExecutionReconnectMsg:
+		if uint64(msg) != page.exec.generation || page.exec.connected {
+			return page, nil
+		}
+		return page, page.startExecutionFeed()
+	case logsExecutionMouseMsg:
+		if page.tab == logsTabCommandExec {
+			page.handleExecutionMouse(msg)
+		}
+		return page, nil
 	case logsBootstrapMsg:
 		return page, page.finishBootstrap(msg)
 	case logsStreamOpenMsg:
@@ -191,6 +208,7 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		browserCmd := page.resizeBrowser()
+		page.resizeExecutionViewport(msg.Width, max(1, msg.Height-lipgloss.Height(component.PageTabs(logsTabLabels, int(page.tab), msg.Width))-4))
 		if page.overlay == logsOverlayForm {
 			updated, formCmd := page.form.Update(msg)
 			page.form = updated
@@ -218,9 +236,18 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return page, nil
 		}
-		if page.browser.InputActive() {
+		if page.tab == logsTabCommandExec {
+			if cmd, handled := page.handleTabKey(msg); handled {
+				return page, cmd
+			}
+			return page, page.handleExecutionKey(msg)
+		}
+		if page.browser.InputActive() || page.browser.DetailOpen() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
+			return page, cmd
+		}
+		if cmd, handled := page.handleTabKey(msg); handled {
 			return page, cmd
 		}
 		if cmd, handled := page.handleKey(msg); handled {
@@ -231,6 +258,9 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		updated, cmd := page.form.Update(message)
 		page.form = updated
 		return page, cmd
+	}
+	if page.tab == logsTabCommandExec {
+		return page, nil
 	}
 	before := page.selectedID()
 	updated, cmd := page.browser.Update(message)
@@ -246,20 +276,26 @@ func (page *LogsPage) View(width, height int) string {
 		return component.StateView(component.PageError, "Logs unavailable", "")
 	}
 	page.width, page.height = width, height
-	title := component.PageTitle("Logs", width)
-	status := page.statusView(width)
-	headerHeight := lipgloss.Height(title) + lipgloss.Height(status) + 1
-	browserHeight := max(1, height-headerHeight)
-	if page.err != nil || page.notice != "" {
-		browserHeight = max(1, browserHeight-2)
-	}
-	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
-	page.browser = updated.(component.Browser)
-	content := title + "\n" + status + "\n" + page.browser.Content()
-	if page.err != nil {
-		content += "\n" + component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		content += "\n" + component.Muted(page.notice)
+	tabs := component.PageTabs(logsTabLabels, int(page.tab), width)
+	content := tabs
+	if page.tab == logsTabCommandExec {
+		bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
+		content += "\n" + page.executionView(width, bodyHeight)
+	} else {
+		status := page.statusView(width)
+		headerHeight := lipgloss.Height(tabs) + lipgloss.Height(status) + 1
+		browserHeight := max(1, height-headerHeight)
+		if page.err != nil || page.notice != "" {
+			browserHeight = max(1, browserHeight-2)
+		}
+		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
+		page.browser = updated.(component.Browser)
+		content += "\n" + status + "\n" + page.browser.Content()
+		if page.err != nil {
+			content += "\n" + component.Banner(page.err.Error(), component.ToneDanger)
+		} else if page.notice != "" {
+			content += "\n" + component.Muted(page.notice)
+		}
 	}
 	switch page.overlay {
 	case logsOverlayForm:
@@ -292,10 +328,29 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	case logsOverlayInfo, logsOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
-	titleHeight := lipgloss.Height(component.PageTitle("Logs", page.width))
+	tabs := component.PageTabs(logsTabLabels, int(page.tab), page.width)
+	tabTargets := page.logsTabMouseTargets(originX, originY, z+2)
+	tabsHeight := lipgloss.Height(tabs)
+	if page.tab == logsTabCommandExec {
+		bodyY := originY + tabsHeight + 1
+		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, max(1, page.height-tabsHeight-1))...)
+	}
 	statusHeight := lipgloss.Height(page.statusView(page.width))
-	browserY := originY + titleHeight + statusHeight + 1
-	return page.browser.MouseTargets(originX, browserY, z)
+	browserY := originY + tabsHeight + statusHeight + 1
+	return append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
+}
+
+func (page *LogsPage) handleTabKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	case "1":
+		return page.switchLogsTab(logsTabRuntime), true
+	case "2":
+		return page.switchLogsTab(logsTabCommandExec), true
+	}
+	if delta, ok := component.TabDelta(msg); ok {
+		return page.moveLogsTab(delta), true
+	}
+	return nil, false
 }
 
 func (page *LogsPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
@@ -603,7 +658,7 @@ func (page *LogsPage) rebuildBrowser(selected string) tea.Cmd {
 }
 
 func (page *LogsPage) resizeBrowser() tea.Cmd {
-	titleHeight := lipgloss.Height(component.PageTitle("Logs", page.width))
+	titleHeight := lipgloss.Height(component.PageTabs(logsTabLabels, int(page.tab), page.width))
 	statusHeight := lipgloss.Height(page.statusView(page.width))
 	height := max(1, page.height-titleHeight-statusHeight-1)
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
@@ -674,8 +729,8 @@ func (page *LogsPage) syncBrowserHelp() {
 		toggle = "resume"
 	}
 	page.browser.SetHelpBindings(
-		component.Binding([]string{"space"}, "space", toggle), component.Binding([]string{"f"}, "f", "filters"), component.Binding([]string{"r"}, "r", "refresh"),
-		component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"),
+		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"space"}, "space", toggle), component.Binding([]string{"f"}, "f", "filters"),
+		component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"),
 	)
 }
 

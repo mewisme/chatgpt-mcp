@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestTabsMoveWrapAndRender(t *testing.T) {
@@ -22,5 +23,12 @@ func TestTabsMoveWrapAndRender(t *testing.T) {
 		if !strings.Contains(view, label) {
 			t.Fatalf("tabs view missing %q: %q", label, view)
 		}
+	}
+}
+
+func TestPageTabsUseNaturalWidthLabels(t *testing.T) {
+	view := ansi.Strip(PageTabs([]string{"Runtime", "Command Exec"}, 1, 80))
+	if !strings.Contains(view, "Runtime   Command Exec") || strings.Contains(view, "Runtime                                  Command Exec") {
+		t.Fatalf("page tabs are not naturally spaced: %q", view)
 	}
 }

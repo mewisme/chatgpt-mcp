@@ -35,6 +35,21 @@ func TestPageTitleMatchesDefaultListTitleBar(t *testing.T) {
 	}
 }
 
+func TestPageTitleNoticeStaysInlineAndMatchesBrowserTitle(t *testing.T) {
+	SetDarkBackground(true)
+	const notice = "Workspace created"
+	plain := ansi.Strip(PageTitleNotice("Workspaces", notice, 80))
+	if !strings.Contains(strings.Split(plain, "\n")[0], "Workspaces  · Workspace created") || lipgloss.Height(PageTitleNotice("Workspaces", notice, 80)) != lipgloss.Height(PageTitle("Workspaces", 80)) {
+		t.Fatalf("page title notice=%q", plain)
+	}
+	browser := NewBrowser(context.Background(), "Workspaces", []Row{{ID: "one", Title: "One"}}, nil)
+	browser.SetTitleNotice(notice)
+	browser = updateBrowser(t, browser, tea.WindowSizeMsg{Width: 80, Height: 20})
+	if !strings.Contains(ansi.Strip(browser.Content()), "Workspaces  · Workspace created") {
+		t.Fatalf("browser title notice=%q", ansi.Strip(browser.Content()))
+	}
+}
+
 func TestToastUsesCompactBorderedSemanticLayout(t *testing.T) {
 	SetDarkBackground(true)
 	view := Toast("Update", "v1.2.3 installed", ToneSuccess, 36)

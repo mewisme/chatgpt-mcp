@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -63,6 +64,15 @@ func newMCPPageTestHarness(t *testing.T, client *mcpPageClient) (*MCPPage, *upst
 		t.Fatal(err)
 	}
 	return page, manager, oauthStore, serverStore
+}
+
+func TestMCPMutationNoticeRendersBesidePageTitle(t *testing.T) {
+	page, _, _, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page.notice = "MCP server added"
+	line := strings.Split(ansi.Strip(page.View(100, 24)), "\n")[0]
+	if !strings.Contains(line, "Upstream MCP servers  · MCP server added") {
+		t.Fatalf("MCP title notice=%q", line)
+	}
 }
 
 func TestMCPPageServerLifecycleAndSecretRedaction(t *testing.T) {

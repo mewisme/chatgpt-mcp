@@ -419,6 +419,7 @@ func (model Model) View() tea.View {
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
+	view.WindowTitle = "ChatGPT MCP · " + model.router.Current().Title()
 	view.MouseMode = tea.MouseModeCellMotion
 	view.OnMouse = func(message tea.MouseMsg) tea.Cmd { return component.DispatchMouse(targets, message) }
 	return view

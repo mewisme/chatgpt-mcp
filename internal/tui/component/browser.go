@@ -62,6 +62,7 @@ func (i browserItem) FilterValue() string {
 
 type Browser struct {
 	ctx                context.Context
+	title              string
 	list               list.Model
 	viewport           viewport.Model
 	refresh            RefreshFunc
@@ -105,7 +106,7 @@ func NewBrowser(ctx context.Context, title string, rows []Row, refresh RefreshFu
 	view := viewport.New(viewport.WithWidth(74), viewport.WithHeight(12))
 	view.SoftWrap = true
 	view.FillHeight = false
-	result := Browser{ctx: ctx, list: model, viewport: view, refresh: refresh}
+	result := Browser{ctx: ctx, title: strings.TrimSpace(title), list: model, viewport: view, refresh: refresh}
 	result.syncHelp()
 	return result
 }
@@ -135,6 +136,13 @@ func (m *Browser) SetHelpBindings(bindings ...key.Binding) {
 func (m Browser) WithTitleVisible(visible bool) Browser {
 	m.list.SetShowTitle(visible)
 	return m
+}
+
+func (m *Browser) SetTitleNotice(notice string) {
+	if m == nil {
+		return
+	}
+	m.list.Title = pageTitleText(m.title, notice)
 }
 
 func (m Browser) Init() tea.Cmd { return nil }

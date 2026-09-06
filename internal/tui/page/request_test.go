@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
@@ -74,6 +75,18 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("deep view missing %q: %q", expected, view)
 		}
+	}
+}
+
+func TestRequestMutationNoticeRendersBesidePageTitle(t *testing.T) {
+	page, err := NewRequests(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.notice = "Request approved"
+	line := strings.Split(ansi.Strip(page.View(100, 24)), "\n")[0]
+	if !strings.Contains(line, "Approval requests · Pending  · Request approved") {
+		t.Fatalf("request title notice=%q", line)
 	}
 }
 

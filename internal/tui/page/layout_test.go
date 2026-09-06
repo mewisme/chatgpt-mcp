@@ -19,7 +19,9 @@ func TestBrowserPageHintsStayOnBottomRow(t *testing.T) {
 	configPage = updated.(*ConfigPage)
 	assertPageBottomHint(t, "config", configPage.View(width, height), height, "? more")
 	configPage.notice = "Config saved"
-	assertPageBottomHint(t, "config with feedback", configPage.View(width, height), height, "? more")
+	configView := configPage.View(width, height)
+	assertPageBottomHint(t, "config with feedback", configView, height, "? more")
+	assertPageTitleNotice(t, "config", configView, "Configuration", configPage.notice)
 
 	logsPage, err := NewLogs(t.Context())
 	if err != nil {
@@ -28,7 +30,9 @@ func TestBrowserPageHintsStayOnBottomRow(t *testing.T) {
 	defer logsPage.Close()
 	assertPageBottomHint(t, "logs runtime", logsPage.View(width, height), height, "? more")
 	logsPage.notice = "Reconnecting"
-	assertPageBottomHint(t, "logs runtime with feedback", logsPage.View(width, height), height, "? more")
+	logsView := logsPage.View(width, height)
+	assertPageBottomHint(t, "logs runtime with feedback", logsView, height, "? more")
+	assertPageTitleNotice(t, "logs", logsView, "Runtime", logsPage.notice)
 	logsPage.notice = ""
 	logsPage.tab = logsTabCommandExec
 	assertPageBottomHint(t, "logs command execution", logsPage.View(width, height), height, "clear view")
@@ -41,7 +45,9 @@ func TestBrowserPageHintsStayOnBottomRow(t *testing.T) {
 	runtimePage.rebuildBrowser("")
 	assertPageBottomHint(t, "runtime", runtimePage.View(width, height), height, "r refresh")
 	runtimePage.notice = "Runtime updated"
-	assertPageBottomHint(t, "runtime with feedback", runtimePage.View(width, height), height, "r refresh")
+	runtimeView := runtimePage.View(width, height)
+	assertPageBottomHint(t, "runtime with feedback", runtimeView, height, "r refresh")
+	assertPageTitleNotice(t, "runtime", runtimeView, "Runtime & System", runtimePage.notice)
 }
 
 func assertPageBottomHint(t *testing.T, name, view string, height int, marker string) {
@@ -52,5 +58,13 @@ func assertPageBottomHint(t *testing.T, name, view string, height int, marker st
 	}
 	if !strings.Contains(lines[height-1], marker) {
 		t.Fatalf("%s bottom row missing %q: %q", name, marker, lines[height-1])
+	}
+}
+
+func assertPageTitleNotice(t *testing.T, name, view, title, notice string) {
+	t.Helper()
+	line := strings.Split(ansi.Strip(view), "\n")[0]
+	if !strings.Contains(line, title) || !strings.Contains(line, "· "+notice) {
+		t.Fatalf("%s title notice missing: %q", name, line)
 	}
 }

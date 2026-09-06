@@ -197,14 +197,12 @@ func (page *ConfigPage) View(width, height int) string {
 	if !page.loaded && page.loading {
 		return component.StateView(component.PageLoading, "Loading configuration", "")
 	}
-	title := component.PageTitle("Configuration", width)
+	title := component.PageTitleNotice("Configuration", page.notice, width)
 	overview := page.overviewView(width)
 	headerHeight := lipgloss.Height(title) + lipgloss.Height(overview)
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
 	browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
@@ -237,10 +235,8 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 		feedback := ""
 		if page.err != nil {
 			feedback = component.Banner(page.err.Error(), component.ToneDanger)
-		} else if page.notice != "" {
-			feedback = component.Banner(page.notice, component.ToneSuccess)
 		}
-		offsetY := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + pageFeedbackHeight(feedback)
+		offsetY := lipgloss.Height(component.PageTitleNotice("Configuration", page.notice, page.width)) + lipgloss.Height(page.overviewView(page.width)) + pageFeedbackHeight(feedback)
 		return page.browser.MouseTargets(originX, originY+offsetY, z)
 	}
 }
@@ -477,12 +473,10 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 }
 
 func (page *ConfigPage) resizeBrowser() tea.Cmd {
-	headerHeight := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width))
+	headerHeight := lipgloss.Height(component.PageTitleNotice("Configuration", page.notice, page.width)) + lipgloss.Height(page.overviewView(page.width))
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
 	height := max(1, page.height-headerHeight-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})

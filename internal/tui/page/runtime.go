@@ -259,13 +259,11 @@ func (page *RuntimePage) View(width, height int) string {
 	if !page.loaded && page.loading {
 		return component.StateView(component.PageLoading, "Loading runtime and system state", "")
 	}
-	title := component.PageTitle("Runtime & System", width)
+	title := component.PageTitleNotice("Runtime & System", page.notice, width)
 	status := page.statusView(width)
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		feedback = component.Muted(page.notice)
 	}
 	browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-pageFeedbackHeight(feedback))
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
@@ -308,10 +306,8 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		feedback = component.Muted(page.notice)
 	}
-	y := originY + lipgloss.Height(component.PageTitle("Runtime & System", page.width)) + lipgloss.Height(page.statusView(page.width)) + pageFeedbackHeight(feedback)
+	y := originY + lipgloss.Height(component.PageTitleNotice("Runtime & System", page.notice, page.width)) + lipgloss.Height(page.statusView(page.width)) + pageFeedbackHeight(feedback)
 	return page.browser.MouseTargets(originX, y, z)
 }
 
@@ -506,11 +502,10 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 	}
 	page.cancelOperation()
 	page.progress = nil
-	toast := updateToastCmd(msg)
 	if msg.err != nil {
 		page.overlay = systemOverlayNone
 		page.err = msg.err
-		return toast
+		return nil
 	}
 	if msg.token != "" {
 		page.secret = msg.token
@@ -523,14 +518,10 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		page.external, page.overlay = msg.external, systemOverlayExternal
 	} else {
 		page.overlay = systemOverlayNone
-		if msg.command == UpdateCheck || msg.command == UpdateApply {
-			page.notice = ""
-		} else {
-			page.notice = operationNotice(msg)
-		}
+		page.notice = operationNotice(msg)
 	}
 	page.installForm, page.updateForm = nil, nil
-	return tea.Batch(page.loadCmd(), toast)
+	return page.loadCmd()
 }
 
 func (page *RuntimePage) cancelOperation() {
@@ -721,10 +712,8 @@ func (page *RuntimePage) resizeBrowser() tea.Cmd {
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		feedback = component.Muted(page.notice)
 	}
-	height := max(1, page.height-lipgloss.Height(component.PageTitle("Runtime & System", page.width))-lipgloss.Height(page.statusView(page.width))-pageFeedbackHeight(feedback))
+	height := max(1, page.height-lipgloss.Height(component.PageTitleNotice("Runtime & System", page.notice, page.width))-lipgloss.Height(page.statusView(page.width))-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	page.syncBrowserHelp()
@@ -1031,29 +1020,6 @@ func operationNotice(msg systemOperationMsg) string {
 	default:
 		return "Runtime/system action completed"
 	}
-}
-
-func updateToast(msg systemOperationMsg) (ToastMsg, bool) {
-	if msg.command != UpdateCheck && msg.command != UpdateApply || msg.external != nil {
-		return ToastMsg{}, false
-	}
-	title := "Update"
-	if msg.command == UpdateCheck {
-		title = "Update check"
-	}
-	tone, message := component.ToneSuccess, operationNotice(msg)
-	if msg.err != nil {
-		tone, message = component.ToneDanger, msg.err.Error()
-	}
-	return ToastMsg{Title: title, Message: message, Tone: tone}, true
-}
-
-func updateToastCmd(msg systemOperationMsg) tea.Cmd {
-	toast, ok := updateToast(msg)
-	if !ok {
-		return nil
-	}
-	return func() tea.Msg { return toast }
 }
 
 func systemOperationTitle(command SystemCommand) string {

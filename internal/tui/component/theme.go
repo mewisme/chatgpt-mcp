@@ -57,12 +57,27 @@ func SetDarkBackground(isDark bool) { currentTheme = newCharmTheme(isDark) }
 
 func Title(value string) string { return currentTheme.title.Render(value) }
 func PageTitle(value string, width int) string {
-	title := currentTheme.pageTitle.Render(strings.TrimSpace(value))
+	title := currentTheme.pageTitle.Render(pageTitleText(value, ""))
 	style := currentTheme.pageTitleBar
 	if width > 0 {
 		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
 	}
 	return style.Render(title)
+}
+func PageTitleNotice(value, notice string, width int) string {
+	title := currentTheme.pageTitle.Render(pageTitleText(value, notice))
+	style := currentTheme.pageTitleBar
+	if width > 0 {
+		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
+	}
+	return style.Render(title)
+}
+func pageTitleText(value, notice string) string {
+	value, notice = strings.TrimSpace(value), strings.TrimSpace(notice)
+	if notice == "" {
+		return value
+	}
+	return value + "  · " + notice
 }
 func Muted(value string) string { return currentTheme.muted.Render(value) }
 func Label(value string) string { return currentTheme.muted.Render(value) }

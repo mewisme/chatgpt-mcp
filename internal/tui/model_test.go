@@ -16,6 +16,17 @@ import (
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 )
 
+func TestModelWindowTitleTracksCurrentRoute(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	if got := model.View().WindowTitle; got != "ChatGPT MCP · Home" {
+		t.Fatalf("window title=%q", got)
+	}
+	model.router.Switch(Route{Kind: RouteRuntime})
+	if got := model.View().WindowTitle; got != "ChatGPT MCP · Runtime" {
+		t.Fatalf("window title after route change=%q", got)
+	}
+}
+
 func TestModelFillsExactTerminalSizeWithoutMinimumLayout(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {

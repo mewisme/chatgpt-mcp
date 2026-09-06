@@ -14,7 +14,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
-	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 )
 
@@ -265,7 +264,7 @@ func TestRuntimeCloseCancelsOperation(t *testing.T) {
 	}
 }
 
-func TestRuntimeUpdateOperationsEmitToastWithoutInlineNotice(t *testing.T) {
+func TestRuntimeUpdateOperationsUseInlineTitleNotice(t *testing.T) {
 	page, _ := NewRuntime(t.Context())
 	for _, test := range []struct {
 		name string
@@ -278,28 +277,25 @@ func TestRuntimeUpdateOperationsEmitToastWithoutInlineNotice(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			page.operationID = test.msg.id
 			cmd := page.finishOperation(test.msg)
-			if page.notice != "" {
-				t.Fatalf("update left inline notice=%q", page.notice)
-			}
-			toast, ok := updateToast(test.msg)
-			if !ok || toast.Tone != component.ToneSuccess || !strings.Contains(toast.Message, test.want) {
-				t.Fatalf("toast=%#v ok=%t", toast, ok)
+			if !strings.Contains(page.notice, test.want) {
+				t.Fatalf("update title notice=%q", page.notice)
 			}
 			if cmd == nil {
-				t.Fatal("update completion did not schedule reload/toast")
+				t.Fatal("update completion did not schedule reload")
+			}
+			view := page.View(100, 30)
+			if !strings.Contains(view, page.notice) {
+				t.Fatalf("update notice missing beside page title: %q", view)
 			}
 		})
 	}
 }
 
-func TestRuntimeUpdateFailureEmitsDangerToastAndExternalWorkflowDoesNot(t *testing.T) {
-	failure := systemOperationMsg{id: 3, command: UpdateApply, err: errors.New("update failed")}
-	toast, ok := updateToast(failure)
-	if !ok || toast.Tone != component.ToneDanger || toast.Message != "update failed" {
-		t.Fatalf("failure toast=%#v ok=%t", toast, ok)
-	}
-	external := systemOperationMsg{id: 4, command: UpdateApply, external: &application.ExternalCommand{Command: "cgm update"}}
-	if toast, ok := updateToast(external); ok || toast != (ToastMsg{}) {
-		t.Fatalf("external update unexpectedly toasted: %#v ok=%t", toast, ok)
+func TestRuntimeUpdateFailureRemainsErrorFeedback(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	page.operationID = 3
+	page.finishOperation(systemOperationMsg{id: 3, command: UpdateApply, err: errors.New("update failed")})
+	if page.err == nil || page.err.Error() != "update failed" || page.notice != "" {
+		t.Fatalf("failure err=%v notice=%q", page.err, page.notice)
 	}
 }

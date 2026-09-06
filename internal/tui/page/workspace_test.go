@@ -151,6 +151,9 @@ func TestWorkspaceBrowserHelpStaysAboveAppFooterWithFeedback(t *testing.T) {
 	if last != 23 || !strings.Contains(lines[last], "? more") {
 		t.Fatalf("workspace help line=%d want=23 view=%q", last, plain)
 	}
+	if !strings.Contains(lines[0], "Workspaces  · Workspace updated") {
+		t.Fatalf("workspace notice is not beside title: %q", lines[0])
+	}
 	notice, help := strings.Index(plain, "Workspace updated"), strings.LastIndex(plain, "? more")
 	if notice < 0 || help < 0 || notice >= help {
 		t.Fatalf("feedback/help order invalid: notice=%d help=%d view=%q", notice, help, plain)

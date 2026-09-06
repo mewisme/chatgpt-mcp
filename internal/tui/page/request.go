@@ -249,11 +249,10 @@ func (page *RequestsPage) View(width, height int) string {
 		return component.StateView(component.PageError, "Approval inbox unavailable", "")
 	}
 	page.width, page.height = width, height
+	page.browser.SetTitleNotice(page.notice)
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
 	browserHeight := max(1, height-pageFeedbackHeight(feedback))
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
@@ -283,11 +282,10 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 	case requestOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
+		page.browser.SetTitleNotice(page.notice)
 		feedback := ""
 		if page.err != nil {
 			feedback = component.Banner(page.err.Error(), component.ToneDanger)
-		} else if page.notice != "" {
-			feedback = component.Banner(page.notice, component.ToneSuccess)
 		}
 		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
 	}

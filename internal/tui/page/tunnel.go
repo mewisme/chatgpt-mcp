@@ -268,11 +268,10 @@ func (page *TunnelPage) View(width, height int) string {
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
 	content := page.runtimeViewWithFeedback(width, feedback)
 	if page.kind == tunnelPageManaged {
+		page.browser.SetTitleNotice(page.notice)
 		browserHeight := max(1, height-pageFeedbackHeight(feedback))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
@@ -317,10 +316,9 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
 	if page.kind == tunnelPageManaged {
+		page.browser.SetTitleNotice(page.notice)
 		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
 	}
 	view := page.runtimeViewWithFeedback(page.width, feedback)
@@ -795,7 +793,7 @@ func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) stri
 	metadataSection := tunnelMetadataSection(status.Metadata, status.MetadataError)
 	actions := component.DefaultHelp(width, page.runtimeHelpBindings()...)
 	lines := []string{
-		component.PageTitle("OpenAI Secure MCP Tunnel", width),
+		component.PageTitleNotice("OpenAI Secure MCP Tunnel", page.notice, width),
 		tunnelSectionPair(statusSection, tunnelSectionView, width),
 		"",
 		tunnelSectionPair(adminSection, metadataSection, width),

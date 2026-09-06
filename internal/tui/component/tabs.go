@@ -54,7 +54,14 @@ func Tabs(labels []string, active int) string {
 }
 
 func PageTabs(labels []string, active, width int) string {
+	return PageTabsNotice(labels, active, "", width)
+}
+
+func PageTabsNotice(labels []string, active int, notice string, width int) string {
 	tabs := Tabs(labels, active)
+	if notice = strings.TrimSpace(notice); notice != "" {
+		tabs += "   " + Muted("· "+notice)
+	}
 	style := currentTheme.pageTitleBar
 	if width > 0 {
 		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))

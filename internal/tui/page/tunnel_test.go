@@ -58,6 +58,19 @@ func TestTunnelRuntimeTitleStartsAtWorkspaceTitlePosition(t *testing.T) {
 	}
 }
 
+func TestManagedTunnelMutationNoticeRendersBesidePageTitle(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewManagedTunnels(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.notice = "Managed tunnel created"
+	line := strings.Split(ansi.Strip(page.View(100, 24)), "\n")[0]
+	if !strings.Contains(line, "Managed tunnels  · Managed tunnel created") {
+		t.Fatalf("managed tunnel title notice=%q", line)
+	}
+}
+
 func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{})
 	page, err := NewTunnelDashboard(t.Context())

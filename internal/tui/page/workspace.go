@@ -171,11 +171,10 @@ func (page *WorkspacePage) View(width, height int) string {
 	if page == nil {
 		return component.StateView(component.PageError, "Workspace page unavailable", "")
 	}
+	page.browser.SetTitleNotice(page.notice)
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	} else if page.notice != "" {
-		feedback = component.Banner(page.notice, component.ToneSuccess)
 	}
 	browserHeight := max(1, height-pageFeedbackHeight(feedback))
 	if width > 0 && browserHeight > 0 && (page.width != width || page.height != browserHeight) {
@@ -204,11 +203,10 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 	case workspaceOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
 	default:
+		page.browser.SetTitleNotice(page.notice)
 		feedback := ""
 		if page.err != nil {
 			feedback = component.Banner(page.err.Error(), component.ToneDanger)
-		} else if page.notice != "" {
-			feedback = component.Banner(page.notice, component.ToneSuccess)
 		}
 		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
 	}

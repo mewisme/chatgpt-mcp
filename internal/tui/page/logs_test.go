@@ -11,14 +11,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
 func TestLogsPageLoadsHistoryAndShowsOfflineReconnectState(t *testing.T) {
@@ -107,6 +110,50 @@ func TestLogsPageBufferIsBounded(t *testing.T) {
 	page.mergeEvents(events)
 	if len(page.events) != logsBufferCap || page.events[0].Sequence != 501 || page.events[len(page.events)-1].Sequence != uint64(logsBufferCap+500) {
 		t.Fatalf("bounded events=%d first=%d last=%d", len(page.events), page.events[0].Sequence, page.events[len(page.events)-1].Sequence)
+	}
+}
+
+func TestLogsPageMouseActionsUseKeyboardMessages(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.width, page.height = 100, 28
+	_ = page.View(page.width, page.height)
+	targets := page.MouseTargets(0, 0, 1)
+	want := map[string]bool{"space": false, "f": false, "r": false, "i": false, "d": false}
+	for _, target := range targets {
+		if target.ID != "page.action" {
+			continue
+		}
+		message, ok := target.Handle(component.MouseEvent{Button: tea.MouseLeft}).(tea.KeyPressMsg)
+		if ok {
+			if _, exists := want[message.String()]; exists {
+				want[message.String()] = true
+			}
+		}
+	}
+	for key, found := range want {
+		if !found {
+			t.Errorf("logs mouse action %q not found", key)
+		}
+	}
+}
+
+func TestShortValuePreservesUTF8AndDisplayWidth(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		limit int
+	}{
+		{value: "workspace-你好-very-long", limit: 12},
+		{value: "café-déjà-vu", limit: 8},
+		{value: "🙂🙂🙂", limit: 3},
+	} {
+		got := shortValue(tc.value, tc.limit)
+		if !utf8.ValidString(got) {
+			t.Fatalf("shortValue(%q, %d) returned invalid UTF-8: %q", tc.value, tc.limit, got)
+		}
+		if lipgloss.Width(got) > tc.limit {
+			t.Fatalf("shortValue(%q, %d) width=%d value=%q", tc.value, tc.limit, lipgloss.Width(got), got)
+		}
 	}
 }
 

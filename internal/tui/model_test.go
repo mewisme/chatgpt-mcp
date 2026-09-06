@@ -30,6 +30,31 @@ func TestModelFillsExactTerminalSizeWithoutMinimumLayout(t *testing.T) {
 	}
 }
 
+func TestModelResizeAndThemeStressKeepsExactGeometry(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(Route{Kind: RouteLogs})
+	sizes := [][2]int{{160, 50}, {80, 24}, {40, 10}, {20, 6}, {3, 3}, {1, 1}, {100, 32}}
+	for round := range 8 {
+		updated, _ := model.Update(tea.BackgroundColorMsg{Color: lipgloss.Color("#ffffff")})
+		model = updated.(Model)
+		if round%2 == 1 {
+			updated, _ = model.Update(tea.BackgroundColorMsg{Color: lipgloss.Color("#000000")})
+			model = updated.(Model)
+		}
+		for _, size := range sizes {
+			updated, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			model = updated.(Model)
+			view := model.View().Content
+			if width, height := lipgloss.Width(view), lipgloss.Height(view); width != size[0] || height != size[1] {
+				t.Fatalf("round=%d layout=%dx%d want=%dx%d", round, width, height, size[0], size[1])
+			}
+		}
+	}
+}
+
 func TestModelRendersDeepLinkAndNavigation(t *testing.T) {
 	model := NewModel(Route{Kind: RouteMCP, ResourceID: "github"})
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 32})

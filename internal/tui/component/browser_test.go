@@ -3,6 +3,7 @@ package component
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -169,6 +170,26 @@ func TestBrowserListScrollWrapsInfinitely(t *testing.T) {
 	model = updateBrowser(t, model, browserKeyText("j"))
 	if selected, ok := model.Selected(); !ok || selected.ID != "one" {
 		t.Fatalf("down wrap selected=%#v ok=%t", selected, ok)
+	}
+}
+
+func TestBrowserLargeResourceListRemainsSelectableAndFilterable(t *testing.T) {
+	rows := make([]Row, 5000)
+	for index := range rows {
+		rows[index] = Row{ID: fmt.Sprintf("resource-%04d", index), Title: fmt.Sprintf("Resource %04d", index), Search: fmt.Sprintf("group-%d", index%10)}
+	}
+	model := NewBrowser(context.Background(), "Resources", rows, nil)
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 100, Height: 30})
+	if !model.SelectID("resource-4999") {
+		t.Fatal("large browser could not select last resource")
+	}
+	if selected, ok := model.Selected(); !ok || selected.ID != "resource-4999" {
+		t.Fatalf("selected=%#v ok=%t", selected, ok)
+	}
+	model.list.SetFilterText("resource 3210")
+	visible := model.list.VisibleItems()
+	if len(visible) == 0 {
+		t.Fatal("large browser filter returned no results")
 	}
 }
 

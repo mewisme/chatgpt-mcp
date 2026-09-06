@@ -1,6 +1,7 @@
 package component
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -106,6 +107,30 @@ func TestFormEscapeClosesCleanFormAndConfirmsDirtyForm(t *testing.T) {
 	}
 	if _, ok := cmd().(FormCancelledMsg); !ok {
 		t.Fatalf("discard confirmation message=%T", cmd())
+	}
+}
+
+func TestFormValidationKeepsFocusOnInvalidField(t *testing.T) {
+	value := ""
+	field := Input("Required", &value).Validate(func(value string) error {
+		if strings.TrimSpace(value) == "" {
+			return errors.New("value is required")
+		}
+		return nil
+	})
+	form := NewForm(Group(field))
+	form = runFormCmd(t, form, form.Init())
+	updated, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	form = updated
+	form = runFormCmd(t, form, cmd)
+	if form.State() == huh.StateCompleted {
+		t.Fatal("invalid form completed")
+	}
+	if form.model.GetFocusedField() != field {
+		t.Fatalf("validation moved focus to %T", form.model.GetFocusedField())
+	}
+	if !strings.Contains(ansi.Strip(form.View()), "value is required") {
+		t.Fatalf("validation error not visible: %q", ansi.Strip(form.View()))
 	}
 }
 

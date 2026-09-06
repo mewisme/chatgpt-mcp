@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
@@ -673,13 +674,16 @@ func durationLabel(ms int64) string {
 	return fmt.Sprintf("%dms", ms)
 }
 func shortValue(value string, limit int) string {
-	if len(value) <= limit {
+	if limit <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= limit {
 		return value
 	}
-	if limit <= 1 {
-		return value[:limit]
+	if limit == 1 {
+		return ansi.Truncate(value, 1, "")
 	}
-	return value[:limit-1] + "…"
+	return ansi.Truncate(value, limit-1, "") + "…"
 }
 func humanBytes(value int64) string {
 	if value < 1024 {

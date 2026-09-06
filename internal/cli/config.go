@@ -344,6 +344,12 @@ func parseConfigSetArgs(args []string) (string, string, error) {
 
 func setConfigValue(cfg *config.Config, key, raw string) error {
 	switch key {
+	case "interactive":
+		value, err := parseBool(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Interactive = value
 	case "server.expose":
 		value, err := config.ParseExposure(raw)
 		if err != nil {

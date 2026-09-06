@@ -68,7 +68,7 @@ func requestListCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		interactiveMode, err := interactive.ResolveMode(cmd.InOrStdin(), cmd.OutOrStdout(), forceInteractive, noInteractive, asJSON)
+		interactiveMode, err := resolveInteractiveCommandMode(cmd, forceInteractive, noInteractive, asJSON)
 		if err != nil {
 			return err
 		}

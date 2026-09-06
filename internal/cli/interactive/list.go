@@ -25,18 +25,24 @@ func TerminalIO(in io.Reader, out io.Writer) bool {
 	return inputOK && outputOK && term.IsTerminal(int(input.Fd())) && term.IsTerminal(int(output.Fd()))
 }
 
-func ResolveMode(in io.Reader, out io.Writer, force, disable, json bool) (bool, error) {
+func ResolveMode(in io.Reader, out io.Writer, force, disable, configured, structured bool) (bool, error) {
+	return resolveMode(force, disable, configured, structured, TerminalIO(in, out))
+}
+
+func resolveMode(force, disable, configured, structured, terminal bool) (bool, error) {
 	if force && disable {
 		return false, errors.New("--interactive and --no-interactive cannot be used together")
 	}
-	if json || disable {
+	if structured || disable {
 		return false, nil
 	}
-	terminal := TerminalIO(in, out)
-	if force && !terminal {
-		return false, errors.New("--interactive requires terminal stdin and stdout")
+	if force {
+		if !terminal {
+			return false, errors.New("--interactive requires terminal stdin and stdout")
+		}
+		return true, nil
 	}
-	return force || terminal, nil
+	return configured && terminal, nil
 }
 
 func Run(ctx context.Context, model tea.Model, in io.Reader, out io.Writer) (tea.Model, error) {

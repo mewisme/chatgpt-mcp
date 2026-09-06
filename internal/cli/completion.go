@@ -18,6 +18,7 @@ type configKeyCompletion struct {
 }
 
 var configKeyCompletions = []configKeyCompletion{
+	{Key: "interactive", Description: "enable automatic interactive TUI mode", Settable: true},
 	{Key: "server.expose", Description: "server network exposure", Settable: true},
 	{Key: "server.expose.mode", Description: "exposure mode", Settable: true},
 	{Key: "server.expose.interfaces", Description: "exposed network interfaces", Settable: true},
@@ -85,7 +86,7 @@ func completeConfigSet(_ *cobra.Command, args []string, toComplete string) ([]st
 	}
 	key := args[0]
 	switch key {
-	case "server.allow_insecure_http", "admin.enabled", "auth.mcp_enabled", "auth.admin_enabled", "features.ponytail.active", "features.caveman.active", "tunnel.enabled":
+	case "interactive", "server.allow_insecure_http", "admin.enabled", "auth.mcp_enabled", "auth.admin_enabled", "features.ponytail.active", "features.caveman.active", "tunnel.enabled":
 		return filterCompletions([]string{"true", "false"}, toComplete), cobra.ShellCompDirectiveNoFileComp
 	case "server.expose":
 		return filterCompletions([]string{"none", "all", "0.0.0.0"}, toComplete), cobra.ShellCompDirectiveNoFileComp

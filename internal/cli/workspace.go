@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"github.com/spf13/cobra"
-	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -250,7 +249,7 @@ func workspaceListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			interactiveMode, err := interactive.ResolveMode(cmd.InOrStdin(), cmd.OutOrStdout(), forceInteractive, noInteractive, asJSON)
+			interactiveMode, err := resolveInteractiveCommandMode(cmd, forceInteractive, noInteractive, asJSON)
 			if err != nil {
 				return err
 			}

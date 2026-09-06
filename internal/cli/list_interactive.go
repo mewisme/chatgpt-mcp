@@ -9,10 +9,19 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
+
+func resolveInteractiveCommandMode(cmd *cobra.Command, force, disable, structured bool) (bool, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return false, err
+	}
+	return interactive.ResolveMode(cmd.InOrStdin(), cmd.OutOrStdout(), force, disable, cfg.Interactive, structured)
+}
 
 func runInteractiveBrowser(cmd *cobra.Command, title string, rows []interactive.Row, refresh interactive.RefreshFunc, actions ...interactive.RowAction) error {
 	model := interactive.NewBrowser(cmd.Context(), title, rows, refresh)

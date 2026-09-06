@@ -275,6 +275,12 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 	}
 }
 
+func TestDefaultInteractiveEnabled(t *testing.T) {
+	if !Default().Interactive {
+		t.Fatal("interactive mode must default to enabled")
+	}
+}
+
 func TestDefaultFeaturesActive(t *testing.T) {
 	cfg := Default()
 	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "full" {
@@ -356,7 +362,7 @@ func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
+			if !loaded.Interactive || !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
 				t.Fatalf("legacy %s features = %#v", format, loaded.Features)
 			}
 		})

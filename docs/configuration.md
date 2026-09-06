@@ -86,6 +86,15 @@ cgm config set admin.enabled true
 
 Changes are validated before persistence.
 
+Interactive TUI mode is enabled by default:
+
+```bash
+cgm config set interactive true
+cgm config set interactive false
+```
+
+When enabled, commands with a TUI open it automatically only when both stdin and stdout are terminals. `--interactive` forces TUI mode for that invocation and `--no-interactive` disables it; explicit command flags take precedence over the persisted setting. Structured output such as `--json` remains non-interactive.
+
 ## Presets
 
 Built-in presets provide named baseline configurations while preserving configured secrets and tunnel details when applied.

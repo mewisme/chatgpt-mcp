@@ -8,6 +8,7 @@ import { adminToken } from "@/lib/api"
 import { createAdminRouter } from "@/router"
 
 const config = {
+  interactive: true,
   server: {
     port: 37421,
     expose: { mode: "none", interfaces: [] },

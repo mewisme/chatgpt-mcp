@@ -256,6 +256,7 @@ export type MCPServerOAuthSession = {
   expires_at: string
 }
 export type PublicConfig = {
+  interactive: boolean
   server: {
     port: number
     expose: {

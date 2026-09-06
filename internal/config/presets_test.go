@@ -14,6 +14,7 @@ func TestPresetNamesAreDeterministic(t *testing.T) {
 
 func TestApplyPresetPreservesSecretsAndTunnelDetails(t *testing.T) {
 	cfg := Default()
+	cfg.Interactive = false
 	cfg.Auth.MCPTokenHash = "mcp-secret"
 	cfg.Auth.AdminTokenHash = "admin-secret"
 	cfg.Tunnel.APIKey = "tunnel-secret"
@@ -39,6 +40,9 @@ func TestApplyPresetPreservesSecretsAndTunnelDetails(t *testing.T) {
 	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "full" {
 		t.Fatalf("preset features = %#v", cfg.Features)
 	}
+	if cfg.Interactive {
+		t.Fatal("preset changed interactive preference")
+	}
 }
 
 func TestApplyPresetDoesNotMutateOnValidationFailure(t *testing.T) {
@@ -57,6 +61,11 @@ func TestMatchPreset(t *testing.T) {
 	if got := MatchPreset(cfg); got != "default" {
 		t.Fatalf("preset = %q", got)
 	}
+	cfg.Interactive = false
+	if got := MatchPreset(cfg); got != "default" {
+		t.Fatalf("interactive preference changed preset match = %q", got)
+	}
+	cfg.Interactive = true
 	cfg.Server.Port++
 	if got := MatchPreset(cfg); got != "custom" {
 		t.Fatalf("preset = %q", got)

@@ -254,6 +254,24 @@ export function SettingsPage() {
           </Card>
           <Card>
             <CardHeader>
+              <CardTitle>CLI behavior</CardTitle>
+              <CardDescription>
+                Control whether supported commands automatically open their TUI on a terminal.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Toggle
+                label="Interactive mode"
+                description="Automatically use TUI mode when stdin and stdout are terminals. Command flags still override this setting."
+                checked={config.interactive}
+                onCheckedChange={(interactive) =>
+                  setConfig({ ...config, interactive })
+                }
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
               <CardTitle>Runtime</CardTitle>
               <CardDescription>
                 Listener ports and Admin availability.

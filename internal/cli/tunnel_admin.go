@@ -3,12 +3,12 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
@@ -48,40 +48,6 @@ func resolveTunnelAdminScope(cmd *cobra.Command, cfg tunnel.Config, flags tunnel
 	return scope, nil
 }
 
-func resolveTunnelAdminSetScope(ctx context.Context, cmd *cobra.Command, cfg tunnel.Config, flags tunnelAdminScopeFlags) (tunnel.AdminScope, error) {
-	if flags.changed(cmd) {
-		scope := flags.scope()
-		return scope, tunnel.ValidateAdminScope(scope)
-	}
-	if scope := tunnel.AdminScopeFromConfig(cfg); tunnel.ValidateAdminScope(scope) == nil {
-		return scope, nil
-	}
-	if strings.TrimSpace(cfg.ID) == "" {
-		return tunnel.AdminScope{}, errors.New("provide exactly one admin scope or configure a tunnel first")
-	}
-	metadata, err := tunnel.GetManaged(ctx, cfg, cfg.ID)
-	if err != nil {
-		return tunnel.AdminScope{}, fmt.Errorf("derive admin scope from configured tunnel: %w", err)
-	}
-	for _, candidate := range []tunnel.AdminScope{
-		{OrganizationID: singleTunnelID(metadata.OrganizationIDs)},
-		{WorkspaceID: singleTunnelID(metadata.WorkspaceIDs)},
-		{TenantID: singleTunnelID(metadata.TenantIDs)},
-	} {
-		if tunnel.ValidateAdminScope(candidate) == nil {
-			return candidate, nil
-		}
-	}
-	return tunnel.AdminScope{}, errors.New("configured tunnel does not expose one unambiguous admin scope; provide --organization-id, --workspace-id, or --tenant-id")
-}
-
-func singleTunnelID(values []string) string {
-	if len(values) == 1 {
-		return strings.TrimSpace(values[0])
-	}
-	return ""
-}
-
 func tunnelAdminCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "admin", Short: "Manage OpenAI tunnel administration"}
 	cmd.AddCommand(tunnelAdminKeyCommand())
@@ -103,10 +69,6 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 		Long:  "Verify Tunnels Manage access by listing an organization, workspace, or tenant scope, then store the admin key in the secret file store and verification scope in tunnel.<ext>. If no scope flag is provided, cgm first reuses a stored scope or derives one from the currently configured tunnel metadata.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.LoadForTunnelAdminKeyReplacement()
-			if err != nil {
-				return err
-			}
 			key := strings.TrimSpace(adminKey)
 			if key == "" {
 				key = strings.TrimSpace(os.Getenv("OPENAI_ADMIN_KEY"))
@@ -114,28 +76,22 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 			if key == "" {
 				return errors.New("OpenAI admin key is required; use --admin-key or OPENAI_ADMIN_KEY")
 			}
-			candidate := cfg.Tunnel
-			candidate.AdminKey = key
 			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 			defer cancel()
 			log := commandLogger(cmd)
 			defer log.Close()
 			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.admin.verifying", "Verifying tunnel admin key")
-			scope, err := resolveTunnelAdminSetScope(ctx, cmd, candidate, scopeFlags)
-			if err != nil {
-				return fmt.Errorf("admin key verification scope: %w", err)
+			var scope *tunnel.AdminScope
+			if scopeFlags.changed(cmd) {
+				value := scopeFlags.scope()
+				scope = &value
 			}
-			tunnel.ApplyAdminScope(&candidate, scope)
-			count, err := tunnel.VerifyAdminKey(ctx, candidate)
+			count, verifiedScope, err := application.SetTunnelAdminKey(ctx, application.TunnelAdminKeyInput{Key: key, Scope: scope})
 			if err != nil {
-				return fmt.Errorf("admin key verification failed: %w", err)
-			}
-			cfg.Tunnel = candidate
-			if err := config.Save(cfg); err != nil {
 				return err
 			}
 			log.Success("TUNNEL", "Admin key verified and saved")
-			log.Detail("scope", formatTunnelAdminScope(scope))
+			log.Detail("scope", formatTunnelAdminScope(verifiedScope))
 			log.Detail("tunnels", count)
 			log.Detail("secret store", "secret file store")
 			return nil
@@ -148,18 +104,17 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 
 func tunnelAdminKeyStatusCommand() *cobra.Command {
 	return &cobra.Command{Use: "status", Aliases: []string{"st"}, Short: "Show stored tunnel admin key state without revealing the key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		status, err := application.TunnelAdminKeyStatus()
 		if err != nil {
 			return err
 		}
 		log := commandLogger(cmd)
-		configured := tunnel.AdminConfigured(cfg.Tunnel)
-		log.Detail("configured", configured)
-		if strings.TrimSpace(cfg.Tunnel.AdminKey) != "" {
+		log.Detail("configured", status.Configured)
+		if status.Configured {
 			log.Detail("key", "<redacted>")
 		}
-		if scope := tunnel.AdminScopeFromConfig(cfg.Tunnel); tunnel.ValidateAdminScope(scope) == nil {
-			log.Detail("scope", formatTunnelAdminScope(scope))
+		if tunnel.ValidateAdminScope(status.Scope) == nil {
+			log.Detail("scope", formatTunnelAdminScope(status.Scope))
 		}
 		log.Detail("secret store", "secret file store")
 		return nil
@@ -168,24 +123,17 @@ func tunnelAdminKeyStatusCommand() *cobra.Command {
 
 func tunnelAdminKeyVerifyCommand() *cobra.Command {
 	return &cobra.Command{Use: "verify", Short: "Re-verify the stored admin key has Tunnels Manage access", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if !tunnel.AdminConfigured(cfg.Tunnel) {
-			return errors.New("tunnel admin key is not configured; run tunnel admin key set first")
-		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		log := commandLogger(cmd)
 		defer log.Close()
 		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.admin.verifying", "Verifying tunnel admin key")
-		count, err := tunnel.VerifyAdminKey(ctx, cfg.Tunnel)
+		count, scope, err := application.VerifyTunnelAdminKey(ctx)
 		if err != nil {
-			return fmt.Errorf("admin key verification failed: %w", err)
+			return err
 		}
 		log.Success("TUNNEL", "Admin key verified")
-		log.Detail("scope", formatTunnelAdminScope(tunnel.AdminScopeFromConfig(cfg.Tunnel)))
+		log.Detail("scope", formatTunnelAdminScope(scope))
 		log.Detail("tunnels", count)
 		return nil
 	}}
@@ -193,13 +141,7 @@ func tunnelAdminKeyVerifyCommand() *cobra.Command {
 
 func tunnelAdminKeyRemoveCommand() *cobra.Command {
 	return &cobra.Command{Use: "remove", Aliases: []string{"rm"}, Short: "Remove the stored tunnel admin key and verification scope", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.LoadForTunnelAdminKeyReplacement()
-		if err != nil {
-			return err
-		}
-		cfg.Tunnel.AdminKey = ""
-		tunnel.ApplyAdminScope(&cfg.Tunnel, tunnel.AdminScope{})
-		if err := config.Save(cfg); err != nil {
+		if err := application.RemoveTunnelAdminKey(); err != nil {
 			return err
 		}
 		commandLogger(cmd).Success("TUNNEL", "Admin key removed")
@@ -271,13 +213,6 @@ func tunnelGetCommand() *cobra.Command {
 	var asJSON bool
 	var runtimeAPIKey string
 	cmd := &cobra.Command{Use: "get <tunnel_id>", Short: "Fetch a managed tunnel by id", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if !tunnel.AdminConfigured(cfg.Tunnel) {
-			return errors.New("verified tunnel admin key is required; run tunnel admin key set first")
-		}
 		log := commandLogger(cmd)
 		defer log.Close()
 		if !asJSON {
@@ -285,21 +220,11 @@ func tunnelGetCommand() *cobra.Command {
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
-		metadata, err := tunnel.GetManaged(ctx, cfg.Tunnel, args[0])
+		result, err := application.GetManagedTunnel(ctx, args[0], application.ManagedTunnelOptions{Configure: configure, RuntimeAPIKey: runtimeAPIKey, Enable: enable})
 		if err != nil {
 			return err
 		}
-		if _, err := config.SaveTunnelMetadata(metadata); err != nil {
-			return err
-		}
-		if configure {
-			if err := configureManagedTunnel(&cfg, metadata, runtimeAPIKey, enable); err != nil {
-				return err
-			}
-			if err := config.Save(cfg); err != nil {
-				return err
-			}
-		}
+		metadata := result.Metadata
 		if asJSON {
 			return printJSON(cmd, metadata)
 		}
@@ -325,43 +250,17 @@ func tunnelCreateCommand() *cobra.Command {
 		Long:  "Create tunnel metadata through the OpenAI Tunnel Management API. The stored admin key must already pass tunnel admin key verify. Use --configure to select the new tunnel for cgm with a separate runtime API key.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			if !tunnel.AdminConfigured(cfg.Tunnel) {
-				return errors.New("verified tunnel admin key is required; run tunnel admin key set first")
-			}
-			orgs, workspaces, tenants := normalizeTunnelIDs(organizationIDs), normalizeTunnelIDs(workspaceIDs), normalizeTunnelIDs(tenantIDs)
-			if len(orgs) == 0 && len(workspaces) == 0 {
-				scope := tunnel.AdminScopeFromConfig(cfg.Tunnel)
-				if scope.OrganizationID != "" {
-					orgs = []string{scope.OrganizationID}
-				} else if scope.WorkspaceID != "" {
-					workspaces = []string{scope.WorkspaceID}
-				}
-			}
-			request := tunnel.CreateRequest{Name: strings.TrimSpace(name), Description: strings.TrimSpace(description), OrganizationIDs: orgs, WorkspaceIDs: workspaces, TenantIDs: tenants}
+			request := tunnel.CreateRequest{Name: strings.TrimSpace(name), Description: strings.TrimSpace(description), OrganizationIDs: normalizeTunnelIDs(organizationIDs), WorkspaceIDs: normalizeTunnelIDs(workspaceIDs), TenantIDs: normalizeTunnelIDs(tenantIDs)}
 			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 			defer cancel()
 			log := commandLogger(cmd)
 			defer log.Close()
 			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.create.creating", "Creating managed tunnel")
-			metadata, err := tunnel.CreateManaged(ctx, cfg.Tunnel, request)
+			result, err := application.CreateManagedTunnel(ctx, request, application.ManagedTunnelOptions{Configure: configure, RuntimeAPIKey: runtimeAPIKey, Enable: enable})
 			if err != nil {
 				return err
 			}
-			if _, err := config.SaveTunnelMetadata(metadata); err != nil {
-				return err
-			}
-			if configure {
-				if err := configureManagedTunnel(&cfg, metadata, runtimeAPIKey, enable); err != nil {
-					return err
-				}
-				if err := config.Save(cfg); err != nil {
-					return err
-				}
-			}
+			metadata := result.Metadata
 			log.Success("TUNNEL", "Tunnel created")
 			logManagedTunnelDetails(log, metadata, configure)
 			log.Detail("ready", "allow 25-30 seconds before expecting the new tunnel to be active")
@@ -384,13 +283,6 @@ func tunnelUpdateCommand() *cobra.Command {
 	var organizationIDs, workspaceIDs, tenantIDs []string
 	var configure, enable bool
 	cmd := &cobra.Command{Use: "update <tunnel_id>", Short: "Update a tunnel with the stored verified admin key", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if !tunnel.AdminConfigured(cfg.Tunnel) {
-			return errors.New("verified tunnel admin key is required; run tunnel admin key set first")
-		}
 		request := tunnel.UpdateRequest{}
 		if cmd.Flags().Changed("name") {
 			value := strings.TrimSpace(name)
@@ -417,21 +309,11 @@ func tunnelUpdateCommand() *cobra.Command {
 		log := commandLogger(cmd)
 		defer log.Close()
 		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.update.updating", "Updating managed tunnel")
-		metadata, err := tunnel.UpdateManaged(ctx, cfg.Tunnel, args[0], request)
+		result, err := application.UpdateManagedTunnel(ctx, args[0], request, application.ManagedTunnelOptions{Configure: configure, RuntimeAPIKey: runtimeAPIKey, Enable: enable})
 		if err != nil {
 			return err
 		}
-		if _, err := config.SaveTunnelMetadata(metadata); err != nil {
-			return err
-		}
-		if configure {
-			if err := configureManagedTunnel(&cfg, metadata, runtimeAPIKey, enable); err != nil {
-				return err
-			}
-			if err := config.Save(cfg); err != nil {
-				return err
-			}
-		}
+		metadata := result.Metadata
 		log.Success("TUNNEL", "Tunnel updated")
 		logManagedTunnelDetails(log, metadata, configure)
 		return nil
@@ -451,35 +333,16 @@ func tunnelDeleteCommand() *cobra.Command {
 		if !confirm {
 			return errors.New("refusing to delete tunnel without --confirm")
 		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if !tunnel.AdminConfigured(cfg.Tunnel) {
-			return errors.New("verified tunnel admin key is required; run tunnel admin key set first")
-		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		log := commandLogger(cmd)
 		defer log.Close()
 		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.delete.deleting", "Deleting managed tunnel")
-		metadata, err := tunnel.DeleteManaged(ctx, cfg.Tunnel, args[0])
+		result, err := application.DeleteManagedTunnel(ctx, args[0], clearConfig)
 		if err != nil {
 			return err
 		}
-		cleared := clearConfig && cfg.Tunnel.ID == metadata.ID
-		if cleared {
-			cfg.Tunnel.Enabled = false
-			cfg.Tunnel.ID = ""
-			cfg.Tunnel.APIKey = ""
-			cfg.Tunnel.OrganizationID = ""
-			if err := config.Save(cfg); err != nil {
-				return err
-			}
-		}
-		if err := config.RemoveTunnelMetadata(metadata.ID); err != nil {
-			return err
-		}
+		metadata, cleared := result.Metadata, result.Cleared
 		log.Success("TUNNEL", "Tunnel deleted")
 		logManagedTunnelDetails(log, metadata, cleared)
 		return nil

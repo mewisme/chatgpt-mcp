@@ -53,3 +53,33 @@ func TestMCPActionAvailabilityFollowsRouteContext(t *testing.T) {
 		}
 	}
 }
+
+func TestTunnelActionAvailabilityFollowsRouteContext(t *testing.T) {
+	registry := defaultActionRegistry()
+	has := func(ctx action.Context, id string) bool {
+		for _, item := range registry.Actions(ctx) {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(action.Context{Route: string(RouteTunnel)}, "tunnel.configure") || !has(action.Context{Route: string(RouteTunnel)}, "tunnel.admin.key.set") {
+		t.Fatal("runtime tunnel actions are unavailable on tunnel route")
+	}
+	if has(action.Context{Route: string(RouteHome)}, "tunnel.configure") || has(action.Context{Route: string(RouteTunnel)}, "tunnel.managed.create") {
+		t.Fatal("tunnel actions leaked into the wrong route")
+	}
+	if !has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.create") || !has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.refresh") {
+		t.Fatal("managed tunnel list actions are unavailable")
+	}
+	if has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.update") || has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.delete") {
+		t.Fatal("managed tunnel resource actions available without a resource")
+	}
+	ctx := action.Context{Route: string(RouteTunnels), ResourceID: "tunnel_demo"}
+	for _, id := range []string{"tunnel.managed.update", "tunnel.managed.configure", "tunnel.managed.delete"} {
+		if !has(ctx, id) {
+			t.Fatalf("managed tunnel context action missing: %s", id)
+		}
+	}
+}

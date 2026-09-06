@@ -13,6 +13,7 @@ const (
 	RouteContainers RouteKind = "containers"
 	RouteMCP        RouteKind = "mcp"
 	RouteTunnel     RouteKind = "tunnel"
+	RouteTunnels    RouteKind = "tunnels"
 	RouteRequests   RouteKind = "requests"
 	RouteLogs       RouteKind = "logs"
 	RouteConfig     RouteKind = "config"
@@ -47,7 +48,7 @@ func ParseRoute(args []string) (Route, error) {
 	}
 	resourceID := ""
 	if len(parts) == 2 {
-		if kind != RouteWorkspaces && kind != RouteContainers && kind != RouteMCP && kind != RouteTunnel && kind != RouteRequests {
+		if kind != RouteWorkspaces && kind != RouteContainers && kind != RouteMCP && kind != RouteTunnels && kind != RouteRequests {
 			return Route{}, fmt.Errorf("TUI path %q does not accept a resource id", parts[0])
 		}
 		resourceID = parts[1]
@@ -65,8 +66,10 @@ func parseRouteKind(value string) (RouteKind, bool) {
 		return RouteContainers, true
 	case "mcp", "server", "servers":
 		return RouteMCP, true
-	case "tunnel", "tunnels":
+	case "tunnel":
 		return RouteTunnel, true
+	case "tunnels", "managed-tunnels":
+		return RouteTunnels, true
 	case "request", "requests", "req":
 		return RouteRequests, true
 	case "log", "logs":
@@ -84,7 +87,7 @@ func parseRouteKind(value string) (RouteKind, bool) {
 
 func (route Route) Title() string {
 	base := map[RouteKind]string{
-		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel",
+		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
 		RouteRequests: "Requests", RouteLogs: "Logs", RouteConfig: "Config", RouteRuntime: "Runtime", RouteAbout: "About",
 	}[route.Kind]
 	if route.ResourceID != "" {

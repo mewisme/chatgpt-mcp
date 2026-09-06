@@ -13,6 +13,8 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"containers", "wsc_abc"}, Route{Kind: RouteContainers, ResourceID: "wsc_abc"}},
 		{[]string{"mcp", "github"}, Route{Kind: RouteMCP, ResourceID: "github"}},
 		{[]string{"tunnel"}, Route{Kind: RouteTunnel}},
+		{[]string{"tunnels"}, Route{Kind: RouteTunnels}},
+		{[]string{"tunnels", "tunnel_abc"}, Route{Kind: RouteTunnels, ResourceID: "tunnel_abc"}},
 		{[]string{"logs"}, Route{Kind: RouteLogs}},
 		{[]string{"cfg"}, Route{Kind: RouteConfig}},
 		{[]string{"status"}, Route{Kind: RouteRuntime}},
@@ -24,7 +26,7 @@ func TestParseRoute(t *testing.T) {
 			t.Fatalf("ParseRoute(%v) = %#v, %v; want %#v", test.args, got, err, test.want)
 		}
 	}
-	for _, args := range [][]string{{"missing"}, {"logs", "extra"}, {"mcp", "a", "b"}} {
+	for _, args := range [][]string{{"missing"}, {"logs", "extra"}, {"tunnel", "extra"}, {"mcp", "a", "b"}} {
 		if _, err := ParseRoute(args); err == nil {
 			t.Fatalf("ParseRoute(%v) unexpectedly succeeded", args)
 		}

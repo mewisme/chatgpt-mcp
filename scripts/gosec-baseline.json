@@ -3,15 +3,7 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/cli/managed_elevation_unix.go",
-    "details": "Subprocess launched with variable",
-    "code": "}\n\tchild := exec.CommandContext(cmd.Context(), sudo, args...)\n\tchild.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()"
-  },
-  {
-    "rule_id": "G204",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/cli/mcp_auth.go",
+    "file": "internal/application/browser.go",
     "details": "Subprocess launched with variable",
     "code": "}\n\t\tcommand = exec.Command(\"xdg-open\", raw)\n\t}"
   },
@@ -19,7 +11,7 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/cli/mcp_auth.go",
+    "file": "internal/application/browser.go",
     "details": "Subprocess launched with variable",
     "code": "case \"darwin\":\n\t\tcommand = exec.Command(\"open\", raw)\n\tdefault:"
   },
@@ -27,7 +19,7 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/cli/mcp_auth.go",
+    "file": "internal/application/browser.go",
     "details": "Subprocess launched with variable",
     "code": "case \"windows\":\n\t\tcommand = exec.Command(\"rundll32.exe\", \"url.dll,FileProtocolHandler\", raw)\n\tcase \"darwin\":"
   },
@@ -35,9 +27,17 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/cli/mcp_auth.go",
+    "file": "internal/application/browser.go",
     "details": "Subprocess launched with variable",
     "code": "if _, err := exec.LookPath(\"explorer.exe\"); err == nil {\n\t\t\t\tcommand = exec.Command(\"explorer.exe\", raw)\n\t\t\t\tbreak"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/cli/managed_elevation_unix.go",
+    "details": "Subprocess launched with variable",
+    "code": "}\n\tchild := exec.CommandContext(cmd.Context(), sudo, args...)\n\tchild.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()"
   },
   {
     "rule_id": "G204",

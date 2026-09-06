@@ -142,6 +142,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		return model.updatePage(msg)
+	case tuipage.TunnelCommandMsg:
+		if err := model.ensureTunnelPage(msg.Command, msg.ResourceID); err != nil {
+			model.notice = err.Error()
+			return model, nil
+		}
+		return model.updatePage(msg)
 	case component.FormSubmittedMsg, component.FormCancelledMsg:
 		return model.updatePage(msg)
 	case tea.KeyPressMsg:
@@ -269,6 +275,10 @@ func (model *Model) loadPage(route Route) {
 		value, err = tuipage.NewContainers(model.ctx, route.ResourceID)
 	case RouteMCP:
 		value, err = tuipage.NewMCP(model.ctx, route.ResourceID)
+	case RouteTunnel:
+		value, err = tuipage.NewTunnelDashboard(model.ctx)
+	case RouteTunnels:
+		value, err = tuipage.NewManagedTunnels(model.ctx, route.ResourceID)
 	}
 	if err != nil {
 		model.notice = err.Error()
@@ -287,6 +297,21 @@ func (model *Model) ensureMCPPage(resourceID string) error {
 	}
 	if model.currentPage == nil {
 		return fmt.Errorf("MCP page is unavailable")
+	}
+	return nil
+}
+
+func (model *Model) ensureTunnelPage(command tuipage.TunnelCommand, resourceID string) error {
+	managed := command == tuipage.TunnelManagedRefresh || command == tuipage.TunnelManagedCreate || command == tuipage.TunnelManagedUpdate || command == tuipage.TunnelManagedConfigure || command == tuipage.TunnelManagedDelete
+	kind := RouteTunnel
+	if managed {
+		kind = RouteTunnels
+	}
+	if model.router.Current().Kind != kind || (resourceID != "" && model.router.Current().ResourceID != resourceID) {
+		model.navigate(Route{Kind: kind, ResourceID: resourceID})
+	}
+	if model.currentPage == nil {
+		return fmt.Errorf("tunnel page is unavailable")
 	}
 	return nil
 }
@@ -407,6 +432,8 @@ func routeDescription(route Route) string {
 		return "Manage configured upstream MCP servers."
 	case RouteTunnel:
 		return "Manage runtime and OpenAI Secure MCP Tunnel state."
+	case RouteTunnels:
+		return "Browse and manage tunnels available through the OpenAI Tunnel Management API."
 	case RouteRequests:
 		return "Review control approval requests."
 	case RouteLogs:

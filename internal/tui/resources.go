@@ -43,19 +43,21 @@ func loadQuickOpenResources() ([]quickopen.Resource, error) {
 		return nil, err
 	}
 	if source.Exists {
-		cfg, err := config.Load()
+		_, err := config.Load()
 		if err != nil {
 			return nil, err
 		}
-		if id := strings.TrimSpace(cfg.Tunnel.ID); id != "" {
-			title, description := id, "Configured tunnel"
-			if metadata, err := config.LoadTunnelMetadata(id); err == nil {
-				if strings.TrimSpace(metadata.Name) != "" {
-					title = metadata.Name
-				}
-				description = id
+		metadata, err := config.ListTunnelMetadata()
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range metadata {
+			title := item.ID
+			if strings.TrimSpace(item.Name) != "" {
+				title = item.Name
 			}
-			resources = append(resources, quickopen.Resource{ID: id, Title: title, Kind: "Tunnel", Description: description, Keywords: []string{id}, Path: []string{"tunnel", id}})
+			keywords := append(append(append([]string{item.ID}, item.OrganizationIDs...), item.WorkspaceIDs...), item.TenantIDs...)
+			resources = append(resources, quickopen.Resource{ID: item.ID, Title: title, Kind: "Tunnel", Description: item.Description, Keywords: keywords, Path: []string{"tunnels", item.ID}})
 		}
 	}
 	return resources, nil
@@ -68,6 +70,7 @@ func pageQuickOpenResources() []quickopen.Resource {
 		{ID: "containers", Title: "Containers", Kind: "Page", Path: []string{"containers"}},
 		{ID: "mcp", Title: "MCP Servers", Kind: "Page", Path: []string{"mcp"}},
 		{ID: "tunnel", Title: "Tunnel", Kind: "Page", Path: []string{"tunnel"}},
+		{ID: "tunnels", Title: "Managed Tunnels", Kind: "Page", Path: []string{"tunnels"}},
 		{ID: "requests", Title: "Requests", Kind: "Page", Path: []string{"requests"}},
 		{ID: "logs", Title: "Logs", Kind: "Page", Path: []string{"logs"}},
 		{ID: "config", Title: "Config", Kind: "Page", Path: []string{"config"}},

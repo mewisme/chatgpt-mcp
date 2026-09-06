@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
@@ -19,14 +20,34 @@ type ReadFilesResult struct {
 }
 
 type VersionResult struct {
-	Version   string `json:"version"`
-	Commit    string `json:"commit"`
-	BuildTime string `json:"build_time"`
+	Version              string `json:"version"`
+	Commit               string `json:"commit"`
+	BuildTime            string `json:"build_time"`
+	ServerStartedAt      string `json:"server_started_at"`
+	ServerUptime         string `json:"server_uptime"`
+	ServerUptimeSeconds  int64  `json:"server_uptime_seconds"`
+	MachineUptime        string `json:"machine_uptime"`
+	MachineUptimeSeconds int64  `json:"machine_uptime_seconds"`
 }
 
+var processStartedAt = time.Now().UTC()
+var machineUptime = readMachineUptime
+
 func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store, shells ...*shellruntime.Manager) {
-	registry.MustRegister("get_version", coreSchema("get_version", "Get the running chatgpt-mcp binary version, commit, and build time.", `{"type":"object","properties":{},"additionalProperties":false}`, `{"type":"object","properties":{"version":{"type":"string"},"commit":{"type":"string"},"build_time":{"type":"string"}},"required":["version","commit","build_time"],"additionalProperties":false}`, RiskRead), func(context.Context, map[string]any) (Result, error) {
-		return JSONResult(VersionResult{Version: version.Version, Commit: version.Commit, BuildTime: version.Date}), nil
+	registry.MustRegister("get_version", coreSchema("get_version", "Get the running chatgpt-mcp server version, build metadata, server uptime, and machine uptime.", `{"type":"object","properties":{},"additionalProperties":false}`, `{"type":"object","properties":{"version":{"type":"string"},"commit":{"type":"string"},"build_time":{"type":"string"},"server_started_at":{"type":"string"},"server_uptime":{"type":"string"},"server_uptime_seconds":{"type":"integer","minimum":0},"machine_uptime":{"type":"string"},"machine_uptime_seconds":{"type":"integer","minimum":0}},"required":["version","commit","build_time","server_started_at","server_uptime","server_uptime_seconds","machine_uptime","machine_uptime_seconds"],"additionalProperties":false}`, RiskRead), func(context.Context, map[string]any) (Result, error) {
+		now := time.Now().UTC()
+		serverUptime := now.Sub(processStartedAt)
+		if serverUptime < 0 {
+			serverUptime = 0
+		}
+		machineUptime, err := machineUptime()
+		if err != nil {
+			return Result{}, fmt.Errorf("machine uptime: %w", err)
+		}
+		if machineUptime < 0 {
+			machineUptime = 0
+		}
+		return JSONResult(VersionResult{Version: version.Version, Commit: version.Commit, BuildTime: version.Date, ServerStartedAt: processStartedAt.Format(time.RFC3339), ServerUptime: serverUptime.Truncate(time.Second).String(), ServerUptimeSeconds: int64(serverUptime / time.Second), MachineUptime: machineUptime.Truncate(time.Second).String(), MachineUptimeSeconds: int64(machineUptime / time.Second)}), nil
 	})
 	RegisterFilesystemTools(registry, workspaces, checkpoints)
 	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())

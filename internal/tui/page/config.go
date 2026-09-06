@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -20,7 +21,6 @@ type ConfigCommand string
 const (
 	ConfigRefresh ConfigCommand = "config.refresh"
 	ConfigEdit    ConfigCommand = "config.edit"
-	ConfigPreset  ConfigCommand = "config.preset"
 	ConfigVerify  ConfigCommand = "config.verify"
 	ConfigReload  ConfigCommand = "config.reload"
 	ConfigMigrate ConfigCommand = "config.migrate"
@@ -72,7 +72,6 @@ type ConfigPage struct {
 	command         ConfigCommand
 	targetKey       string
 	fieldForm       *configFieldFormData
-	presetForm      *configPresetFormData
 	convertForm     *configConvertFormData
 	bundleForm      *configBundleFormData
 	operationCancel context.CancelFunc
@@ -130,6 +129,13 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case component.FormCancelledMsg:
 		page.closeOverlay()
 		return page, nil
+	case component.FormMouseMsg:
+		if page.overlay == configOverlayForm {
+			updated, cmd := page.form.Update(msg)
+			page.form = updated
+			return page, cmd
+		}
+		return page, nil
 	case ConfigCommandMsg:
 		cmd, err := page.openCommand(msg.Command, msg.ResourceID)
 		if err != nil {
@@ -171,14 +177,16 @@ func (page *ConfigPage) View(width, height int) string {
 	if !page.loaded && page.loading {
 		return component.StateView(component.PageLoading, "Loading configuration", "")
 	}
-	header := page.overviewView(width)
-	browserHeight := max(8, height-7)
+	title := component.PageTitle("Configuration", width)
+	overview := page.overviewView(width)
+	headerHeight := lipgloss.Height(title) + lipgloss.Height(overview) + 1
+	browserHeight := max(8, height-headerHeight)
 	if page.err != nil || page.notice != "" {
 		browserHeight = max(8, browserHeight-2)
 	}
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 	page.browser = updated.(component.Browser)
-	content := header + "\n" + page.browser.Content()
+	content := title + "\n" + overview + "\n" + page.browser.Content()
 	if page.err != nil {
 		content += "\n" + component.Banner(page.err.Error(), component.ToneDanger)
 	} else if page.notice != "" {
@@ -198,9 +206,24 @@ func (page *ConfigPage) View(width, height int) string {
 	return content
 }
 
+func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseTarget {
+	if page == nil {
+		return nil
+	}
+	switch page.overlay {
+	case configOverlayForm:
+		return formOverlayMouseTargets(page.form, min(80, max(48, page.width-8)), page.width, page.height, originX, originY, z+20)
+	case configOverlayOperation:
+		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
+	default:
+		offsetY := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + 1
+		return page.browser.MouseTargets(originX, originY+offsetY, z)
+	}
+}
+
 func (page *ConfigPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	commands := map[string]ConfigCommand{
-		"f": ConfigRefresh, "e": ConfigEdit, "p": ConfigPreset, "v": ConfigVerify, "r": ConfigReload,
+		"f": ConfigRefresh, "e": ConfigEdit, "v": ConfigVerify, "r": ConfigReload,
 		"m": ConfigMigrate, "c": ConfigConvert, "x": ConfigExport, "i": ConfigImport,
 	}
 	command, ok := commands[msg.String()]
@@ -248,10 +271,6 @@ func (page *ConfigPage) openCommand(command ConfigCommand, resourceID string) (t
 		}
 		page.form, page.fieldForm, page.overlay = form, data, configOverlayForm
 		return page.form.Init(), nil
-	case ConfigPreset:
-		page.form, page.presetForm = newConfigPresetForm(page.overview.Preset)
-		page.overlay = configOverlayForm
-		return page.form.Init(), nil
 	case ConfigVerify:
 		return page.startOperation(command, "Verifying configuration", func(context.Context) configOperationMsg {
 			result, err := application.VerifyConfig()
@@ -295,18 +314,6 @@ func (page *ConfigPage) submitForm() tea.Cmd {
 		return page.startOperation(page.command, "Saving configuration", func(context.Context) configOperationMsg {
 			result, err := application.SetConfigField(key, raw)
 			return configOperationMsg{command: ConfigEdit, mutation: result, err: err}
-		})
-	case ConfigPreset:
-		data := page.presetForm
-		page.presetForm = nil
-		if data == nil || !data.Confirm {
-			page.closeOverlay()
-			page.notice = "Preset apply cancelled"
-			return nil
-		}
-		return page.startOperation(page.command, "Applying configuration preset", func(context.Context) configOperationMsg {
-			result, err := application.ApplyConfigPreset(data.Name)
-			return configOperationMsg{command: ConfigPreset, mutation: result, err: err}
 		})
 	case ConfigConvert:
 		data := page.convertForm
@@ -382,9 +389,8 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 	}
 	page.err = nil
 	switch msg.command {
-	case ConfigEdit, ConfigPreset:
+	case ConfigEdit:
 		page.overview.Config = msg.mutation.Config
-		page.overview.Preset = config.MatchPreset(msg.mutation.Config)
 		page.notice = application.ConfigOperationNotice(page.overview.RuntimeRunning)
 	case ConfigVerify:
 		page.notice = fmt.Sprintf("Configuration verified · %s · %d structured files", msg.verify.Format, msg.verify.Files)
@@ -419,7 +425,7 @@ func (page *ConfigPage) cancelOperation() {
 func (page *ConfigPage) closeOverlay() {
 	page.overlay = configOverlayNone
 	page.form = component.Form{}
-	page.fieldForm, page.presetForm, page.convertForm, page.bundleForm = nil, nil, nil, nil
+	page.fieldForm, page.convertForm, page.bundleForm = nil, nil, nil
 	page.command, page.targetKey = "", ""
 }
 
@@ -432,7 +438,7 @@ func (page *ConfigPage) loadCmd() tea.Cmd {
 
 func (page *ConfigPage) rebuildBrowser(selected string) {
 	rows := page.configRows()
-	page.browser = component.NewBrowser(page.ctx, "Configuration fields", rows, nil)
+	page.browser = component.NewBrowser(page.ctx, "Configuration fields", rows, nil).WithTitleVisible(false)
 	if page.width > 0 && page.height > 0 {
 		_ = page.resizeBrowser()
 	}
@@ -442,7 +448,8 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 }
 
 func (page *ConfigPage) resizeBrowser() tea.Cmd {
-	height := max(8, page.height-7)
+	headerHeight := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + 1
+	height := max(8, page.height-headerHeight)
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd
@@ -497,11 +504,10 @@ func (page *ConfigPage) overviewView(width int) string {
 		initialized = "yes"
 	}
 	return strings.Join([]string{
-		component.TwoColumn(component.Title("Configuration"), component.Secondary("preset "+page.overview.Preset), max(24, width)),
 		component.KeyValue("Storage", fmt.Sprintf("%s · initialized %s", page.overview.Source.Format, initialized)),
 		component.KeyValue("Config", page.overview.Source.Path),
 		component.KeyValue("Root", page.overview.Root),
 		component.KeyValue("Runtime", status),
-		component.Muted("e Edit · p Preset · v Verify · r Reload · m Migrate · c Convert · x Export · i Import · f Refresh"),
+		component.Muted("e Edit · v Verify · r Reload · m Migrate · c Convert · x Export · i Import · f Refresh"),
 	}, "\n")
 }

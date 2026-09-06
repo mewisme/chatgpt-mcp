@@ -9,7 +9,10 @@ import (
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 )
 
-type navigateMsg struct{ route Route }
+type navigateMsg struct {
+	route   Route
+	sibling bool
+}
 
 func defaultActionRegistry() *action.Registry {
 	actions := []action.Action{
@@ -39,7 +42,6 @@ func configActions() []action.Action {
 	return []action.Action{
 		configAction("config.refresh", "Refresh config", "Reload persisted configuration and runtime state", []string{"config", "refresh", "reload", "view"}, []string{"config", "list"}, tuipage.ConfigRefresh),
 		configAction("config.edit", "Edit config field", "Edit the selected typed configuration field", []string{"config", "edit", "set", "field"}, []string{"config", "set"}, tuipage.ConfigEdit),
-		configAction("config.preset", "Apply config preset", "Browse and apply a built-in configuration preset", []string{"config", "preset", "apply", "use"}, []string{"config", "preset", "apply"}, tuipage.ConfigPreset),
 		configAction("config.verify", "Verify config", "Verify structured config/state format consistency and configuration validity", []string{"config", "verify", "validate"}, []string{"config", "verify"}, tuipage.ConfigVerify),
 		configAction("config.reload", "Reload runtime config", "Reload persisted configuration into the running runtime", []string{"config", "reload", "runtime"}, []string{"config", "reload"}, tuipage.ConfigReload),
 		configAction("config.migrate", "Migrate config secrets", "Migrate legacy plaintext credentials into the secret store", []string{"config", "migrate", "secrets"}, []string{"config", "migrate"}, tuipage.ConfigMigrate),
@@ -181,7 +183,7 @@ func navigationAction(id, title, shortcut string, route Route, keywords []string
 		ID: id, Title: "Go to " + title, Category: "App", Description: "Open the " + title + " page", Keywords: keywords,
 		CommandPath: []string{"tui", string(route.Kind)}, Scope: action.ScopeGlobal,
 		Run: func(context.Context, action.Context) tea.Cmd {
-			return func() tea.Msg { return navigateMsg{route: route} }
+			return func() tea.Msg { return navigateMsg{route: route, sibling: true} }
 		},
 	}
 	if shortcut != "" {

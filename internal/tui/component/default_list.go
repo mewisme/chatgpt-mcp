@@ -17,8 +17,7 @@ func NewDefaultList(title string, items []list.Item, width, height int, singular
 	model := list.New(items, delegate, width, height)
 	ApplyDefaultListTheme(&model, true)
 	model.Title = title
-	model.KeyMap.Quit = key.NewBinding(key.WithKeys("q", "esc"), key.WithHelp("q", "quit"))
-	model.KeyMap.ForceQuit = key.NewBinding(key.WithKeys("ctrl+c"))
+	model.DisableQuitKeybindings()
 	model.SetStatusBarItemName(singular, plural)
 	return model
 }

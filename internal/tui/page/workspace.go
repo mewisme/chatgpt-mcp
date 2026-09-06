@@ -109,6 +109,19 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case component.FormCancelledMsg:
 		page.closeOverlay()
 		return page, nil
+	case component.FormMouseMsg:
+		if page.overlay == workspaceOverlayForm {
+			updated, cmd := page.form.Update(msg)
+			page.form = updated
+			return page, cmd
+		}
+		return page, nil
+	case component.ConfirmChoiceMsg:
+		if page.overlay == workspaceOverlayConfirm {
+			page.confirm.Select(msg.Affirmative)
+			return page, page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+		}
+		return page, nil
 	case WorkspaceCommandMsg:
 		if err := page.openCommand(msg.Command, msg.ResourceID); err != nil {
 			page.err = err
@@ -161,6 +174,20 @@ func (page *WorkspacePage) View(width, height int) string {
 		content = component.CenterOverlay(content, component.Modal(body, min(64, max(40, width-8))), width, height)
 	}
 	return content
+}
+
+func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.MouseTarget {
+	if page == nil {
+		return nil
+	}
+	switch page.overlay {
+	case workspaceOverlayForm:
+		return formOverlayMouseTargets(page.form, min(72, max(42, page.width-8)), page.width, page.height, originX, originY, z+20)
+	case workspaceOverlayConfirm:
+		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), min(64, max(40, page.width-8)), page.width, page.height, originX, originY, z+20)
+	default:
+		return page.browser.MouseTargets(originX, originY, z)
+	}
 }
 
 func (page *WorkspacePage) handleListKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
@@ -236,13 +263,13 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 		if cwd, err := os.Getwd(); err == nil {
 			page.value = cwd
 		}
-		page.form = component.NewForm(huh.NewGroup(component.Input("Workspace path", &page.value).Validate(requiredValue("workspace path"))))
+		page.form = component.NewForm(component.Group(component.Input("Workspace path", &page.value).Validate(requiredValue("workspace path"))))
 		page.overlay = workspaceOverlayForm
 	case WorkspaceAccessAdd:
 		if _, err := page.manager.Get(page.targetID); err != nil {
 			return err
 		}
-		page.form = component.NewForm(huh.NewGroup(component.Input("Additional directory", &page.value).Validate(requiredValue("directory"))))
+		page.form = component.NewForm(component.Group(component.Input("Additional directory", &page.value).Validate(requiredValue("directory"))))
 		page.overlay = workspaceOverlayForm
 	case WorkspaceAccessRemove:
 		item, err := page.manager.Get(page.targetID)
@@ -257,10 +284,10 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 		for _, value := range item.AllowDirs {
 			options = append(options, huh.NewOption(value, value))
 		}
-		page.form = component.NewForm(huh.NewGroup(component.Select("Directory to remove", &page.value, options...)))
+		page.form = component.NewForm(component.Group(component.Select("Directory to remove", &page.value, options...)))
 		page.overlay = workspaceOverlayForm
 	case WorkspaceContainerCreate:
-		page.form = component.NewForm(huh.NewGroup(component.Input("Container name", &page.value).Validate(requiredValue("container name"))))
+		page.form = component.NewForm(component.Group(component.Input("Container name", &page.value).Validate(requiredValue("container name"))))
 		page.overlay = workspaceOverlayForm
 	case WorkspaceContainerRename:
 		item, err := page.manager.GetContainer(page.targetID)
@@ -268,7 +295,7 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 			return err
 		}
 		page.value = item.Name
-		page.form = component.NewForm(huh.NewGroup(component.Input("Container name", &page.value).Validate(requiredValue("container name"))))
+		page.form = component.NewForm(component.Group(component.Input("Container name", &page.value).Validate(requiredValue("container name"))))
 		page.overlay = workspaceOverlayForm
 	case WorkspaceContainerMembers:
 		item, err := page.manager.GetContainer(page.targetID)
@@ -284,7 +311,7 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 		for _, workspaceItem := range items {
 			options = append(options, huh.NewOption(workspaceItem.ID+" · "+workspaceItem.Path, workspaceItem.ID))
 		}
-		page.form = component.NewForm(huh.NewGroup(component.MultiSelect("Container workspaces", &page.members, options...)))
+		page.form = component.NewForm(component.Group(component.MultiSelect("Container workspaces", &page.members, options...)))
 		page.overlay = workspaceOverlayForm
 	case WorkspaceUnregister, WorkspaceContainerDelete:
 		if command == WorkspaceUnregister {

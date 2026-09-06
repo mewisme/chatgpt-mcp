@@ -19,15 +19,17 @@ const (
 )
 
 type charmTheme struct {
-	isDark      bool
-	item        list.DefaultItemStyles
-	title       lipgloss.Style
-	accent      lipgloss.Style
-	muted       lipgloss.Style
-	subtle      lipgloss.Style
-	success     lipgloss.Style
-	danger      lipgloss.Style
-	panelBorder lipgloss.Style
+	isDark       bool
+	item         list.DefaultItemStyles
+	pageTitle    lipgloss.Style
+	pageTitleBar lipgloss.Style
+	title        lipgloss.Style
+	accent       lipgloss.Style
+	muted        lipgloss.Style
+	subtle       lipgloss.Style
+	success      lipgloss.Style
+	danger       lipgloss.Style
+	panelBorder  lipgloss.Style
 }
 
 var currentTheme = newCharmTheme(true)
@@ -37,21 +39,31 @@ func newCharmTheme(isDark bool) charmTheme {
 	itemStyles := list.NewDefaultItemStyles(isDark)
 	huhStyles := huh.ThemeCharm(isDark)
 	return charmTheme{
-		isDark:      isDark,
-		item:        itemStyles,
-		title:       huhStyles.Focused.Title,
-		accent:      lipgloss.NewStyle().Foreground(huhStyles.Focused.SelectSelector.GetForeground()),
-		muted:       huhStyles.Focused.Description,
-		subtle:      lipgloss.NewStyle().Foreground(listStyles.NoItems.GetForeground()),
-		success:     lipgloss.NewStyle().Foreground(huhStyles.Focused.SelectedOption.GetForeground()),
-		danger:      lipgloss.NewStyle().Foreground(huhStyles.Focused.ErrorMessage.GetForeground()),
-		panelBorder: huhStyles.Focused.Base,
+		isDark:       isDark,
+		item:         itemStyles,
+		pageTitle:    listStyles.Title,
+		pageTitleBar: listStyles.TitleBar,
+		title:        huhStyles.Focused.Title,
+		accent:       lipgloss.NewStyle().Foreground(huhStyles.Focused.SelectSelector.GetForeground()),
+		muted:        huhStyles.Focused.Description,
+		subtle:       lipgloss.NewStyle().Foreground(listStyles.NoItems.GetForeground()),
+		success:      lipgloss.NewStyle().Foreground(huhStyles.Focused.SelectedOption.GetForeground()),
+		danger:       lipgloss.NewStyle().Foreground(huhStyles.Focused.ErrorMessage.GetForeground()),
+		panelBorder:  huhStyles.Focused.Base,
 	}
 }
 
 func SetDarkBackground(isDark bool) { currentTheme = newCharmTheme(isDark) }
 
 func Title(value string) string { return currentTheme.title.Render(value) }
+func PageTitle(value string, width int) string {
+	title := currentTheme.pageTitle.Render(strings.TrimSpace(value))
+	style := currentTheme.pageTitleBar
+	if width > 0 {
+		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
+	}
+	return style.Render(title)
+}
 func Muted(value string) string { return currentTheme.muted.Render(value) }
 func Label(value string) string { return currentTheme.muted.Render(value) }
 

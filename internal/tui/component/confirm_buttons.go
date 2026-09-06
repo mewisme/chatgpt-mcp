@@ -10,9 +10,13 @@ import (
 )
 
 type ConfirmButtons struct {
-	field *huh.Confirm
-	value *bool
+	field       *huh.Confirm
+	value       *bool
+	affirmative string
+	negative    string
 }
+
+type ConfirmChoiceMsg struct{ Affirmative bool }
 
 func NewConfirmButtons(affirmative, negative string, affirmativeSelected bool) ConfirmButtons {
 	value := new(bool)
@@ -28,7 +32,7 @@ func NewConfirmButtons(affirmative, negative string, affirmativeSelected bool) C
 	field.WithKeyMap(keymap)
 	field.WithTheme(huh.ThemeFunc(compactConfirmTheme))
 	field.Focus()
-	return ConfirmButtons{field: field, value: value}
+	return ConfirmButtons{field: field, value: value, affirmative: strings.TrimSpace(affirmative), negative: strings.TrimSpace(negative)}
 }
 
 func (b *ConfirmButtons) Update(msg tea.Msg) tea.Cmd {
@@ -57,6 +61,43 @@ func (b ConfirmButtons) View() string {
 }
 
 func (b ConfirmButtons) AffirmativeSelected() bool { return b.value != nil && *b.value }
+
+func (b *ConfirmButtons) Select(affirmative bool) {
+	if b != nil && b.value != nil {
+		*b.value = affirmative
+	}
+}
+
+func (b ConfirmButtons) MouseTargets(originX, originY, z int) []MouseTarget {
+	view := b.View()
+	if view == "" {
+		return nil
+	}
+	targets := make([]MouseTarget, 0, 2)
+	for _, choice := range []struct {
+		label       string
+		affirmative bool
+	}{{b.affirmative, true}, {b.negative, false}} {
+		if choice.label == "" {
+			continue
+		}
+		rect, ok := FindRenderedRect(view, choice.label)
+		if !ok {
+			continue
+		}
+		affirmative := choice.affirmative
+		targets = append(targets, MouseTarget{
+			ID: "confirm.choice", Rect: Rect{X: originX + rect.X, Y: originY + rect.Y, Width: rect.Width, Height: 1}, Z: z,
+			Handle: func(event MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return ConfirmChoiceMsg{Affirmative: affirmative}
+			},
+		})
+	}
+	return targets
+}
 
 func compactConfirmTheme(isDark bool) *huh.Styles {
 	styles := huh.ThemeCharm(isDark)

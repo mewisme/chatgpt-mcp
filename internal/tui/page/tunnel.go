@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/huh/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -168,6 +167,19 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case component.FormCancelledMsg:
 		page.closeOverlay()
 		return page, nil
+	case component.FormMouseMsg:
+		if page.overlay == tunnelOverlayForm {
+			updated, cmd := page.form.Update(msg)
+			page.form = updated
+			return page, cmd
+		}
+		return page, nil
+	case component.ConfirmChoiceMsg:
+		if page.overlay == tunnelOverlayConfirm {
+			page.confirm.Select(msg.Affirmative)
+			return page, page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+		}
+		return page, nil
 	case TunnelCommandMsg:
 		cmd, err := page.openCommand(msg.Command, msg.ResourceID)
 		if err != nil {
@@ -232,6 +244,27 @@ func (page *TunnelPage) View(width, height int) string {
 	return content
 }
 
+func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseTarget {
+	if page == nil {
+		return nil
+	}
+	switch page.overlay {
+	case tunnelOverlayForm:
+		return formOverlayMouseTargets(page.form, min(80, max(48, page.width-8)), page.width, page.height, originX, originY, z+20)
+	case tunnelOverlayConfirm:
+		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), min(72, max(44, page.width-8)), page.width, page.height, originX, originY, z+20)
+	case tunnelOverlayOperation:
+		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
+	}
+	if page.kind == tunnelPageManaged {
+		return page.browser.MouseTargets(originX, originY, z)
+	}
+	view := page.runtimeView(page.width)
+	return keyHintMouseTargets(view, map[string]string{
+		"Configure": "e", "Enable/Disable": " ", "Sync": "s", "Admin key": "a", "Verify": "v", "Remove admin": "d", "Managed tunnels": "m",
+	}, originX, originY, z)
+}
+
 func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	if page.kind == tunnelPageRuntime {
 		switch msg.String() {
@@ -239,7 +272,7 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			cmd, err := page.openCommand(TunnelConfigure, "")
 			page.err = err
 			return cmd, true
-		case " ":
+		case "space":
 			command := TunnelEnable
 			if page.dashboard.Config.Enabled {
 				command = TunnelDisable
@@ -398,7 +431,7 @@ func (page *TunnelPage) openCommand(command TunnelCommand, resourceID string) (t
 		}
 		if page.deleteClear {
 			page.deleteOptions = true
-			page.form = component.NewForm(huh.NewGroup(component.Confirm("Also clear the selected runtime tunnel configuration", &page.deleteClear)))
+			page.form = component.NewForm(component.Group(component.Confirm("Also clear the selected runtime tunnel configuration", &page.deleteClear)))
 			page.overlay = tunnelOverlayForm
 			return page.form.Init(), nil
 		}
@@ -655,8 +688,7 @@ func (page *TunnelPage) runtimeView(width int) string {
 		admin = "configured · " + tunnelScopeLabel(page.adminStatus.Scope)
 	}
 	lines := []string{
-		component.Title("OpenAI Secure MCP Tunnel"),
-		component.Divider(max(1, width)),
+		component.PageTitle("OpenAI Secure MCP Tunnel", width),
 		detailFields(
 			[2]string{"Enabled", fmt.Sprint(cfg.Enabled)}, [2]string{"Configured", fmt.Sprint(tunnel.Configured(cfg))}, [2]string{"Tunnel ID", cfg.ID},
 			[2]string{"Runtime key", configuredLabel(cfg.APIKey != "")}, [2]string{"Control plane", defaultLabel(cfg.ControlPlaneBaseURL)}, [2]string{"Organization", cfg.OrganizationID},

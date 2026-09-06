@@ -9,13 +9,16 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
 const maxVisibleResults = 9
 
 type SelectedMsg struct{ ID string }
 type ClosedMsg struct{}
+type MouseScrollMsg struct{ Delta int }
 
 type Options struct {
 	Title       string
@@ -115,6 +118,11 @@ func (model Model) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return model, nil
 		}
+	case MouseScrollMsg:
+		if len(model.results) > 0 {
+			model.selected = (model.selected + msg.Delta + len(model.results)) % len(model.results)
+		}
+		return model, nil
 	}
 	previous := model.input.Value()
 	updated, cmd := model.input.Update(message)
@@ -124,6 +132,64 @@ func (model Model) Update(message tea.Msg) (Model, tea.Cmd) {
 		model.refresh()
 	}
 	return model, cmd
+}
+
+func (model Model) MouseTargets(originX, originY, z, width int) []component.MouseTarget {
+	view := model.View(width)
+	renderedWidth, renderedHeight := lipgloss.Width(view), lipgloss.Height(view)
+	targets := []component.MouseTarget{{
+		ID: "palette.scroll", Rect: component.Rect{X: originX, Y: originY, Width: renderedWidth, Height: renderedHeight}, Z: z,
+		Handle: func(event component.MouseEvent) tea.Msg {
+			switch event.Button {
+			case tea.MouseWheelUp:
+				return MouseScrollMsg{Delta: -1}
+			case tea.MouseWheelDown:
+				return MouseScrollMsg{Delta: 1}
+			default:
+				return nil
+			}
+		},
+	}}
+	lines := strings.Split(ansi.Strip(view), "\n")
+	start := 0
+	visible := model.results
+	if len(visible) > maxVisibleResults {
+		start = max(0, min(model.selected-maxVisibleResults/2, len(visible)-maxVisibleResults))
+		visible = visible[start : start+maxVisibleResults]
+	}
+	searchLine := 0
+	for _, result := range visible {
+		item := result.Action
+		title := item.Title
+		if item.Category != "" {
+			title = item.Category + ": " + item.Title
+		}
+		line, column := findPaletteLine(lines, title, searchLine)
+		if line < 0 {
+			continue
+		}
+		id := item.ID
+		targets = append(targets, component.MouseTarget{
+			ID: "palette.result", Rect: component.Rect{X: originX + max(0, column-2), Y: originY + line, Width: max(1, renderedWidth-max(0, column-2)-2), Height: 1}, Z: z + 1,
+			Handle: func(event component.MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return SelectedMsg{ID: id}
+			},
+		})
+		searchLine = line + 1
+	}
+	return targets
+}
+
+func findPaletteLine(lines []string, needle string, start int) (int, int) {
+	for index := max(0, start); index < len(lines); index++ {
+		if column := strings.Index(lines[index], needle); column >= 0 {
+			return index, column
+		}
+	}
+	return -1, -1
 }
 
 func (model Model) View(width int) string {

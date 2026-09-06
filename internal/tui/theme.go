@@ -7,12 +7,14 @@ import (
 )
 
 type theme struct {
-	title   lipgloss.Style
-	accent  lipgloss.Style
-	muted   lipgloss.Style
-	subtle  lipgloss.Style
-	border  lipgloss.Style
-	current lipgloss.Style
+	title       lipgloss.Style
+	accent      lipgloss.Style
+	muted       lipgloss.Style
+	subtle      lipgloss.Style
+	border      lipgloss.Style
+	current     lipgloss.Style
+	navActive   lipgloss.Style
+	navInactive lipgloss.Style
 }
 
 func newTheme(isDark bool) theme {
@@ -22,7 +24,7 @@ func newTheme(isDark bool) theme {
 	return theme{
 		title: huhStyles.Focused.Title, accent: accent, muted: huhStyles.Focused.Description,
 		subtle: lipgloss.NewStyle().Foreground(listStyles.NoItems.GetForeground()), border: huhStyles.Focused.Base,
-		current: accent.Bold(true),
+		current: accent.Bold(true), navActive: listStyles.Title, navInactive: lipgloss.NewStyle(),
 	}
 }
 

@@ -217,7 +217,7 @@ func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 			t.Fatalf("control-plane mutation was not denied: %s: %v", command, err)
 		}
 	}
-	for _, command := range []string{"exec cmcp auth admin disable", `bash -lc "cmcp config preset apply lan"`, `cgm update && echo done`} {
+	for _, command := range []string{"exec cmcp auth admin disable", `bash -lc "cmcp config set server.port 41001"`, `cgm update && echo done`} {
 		err := manager.ValidateShellCommand(item.ID, root, command)
 		guard, ok := controlguard.As(err)
 		if err == nil || !ok || guard.Code != controlguard.CodeControlPlaneMutation || guard.Approvable || guard.Invocation != nil {

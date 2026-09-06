@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -41,6 +42,18 @@ func TestTunnelRuntimeFormsRedactSecretsAndBlankRuntimeKeyPreservesSecret(t *tes
 	}
 	if page.adminForm == nil || page.adminForm.AdminKey != "" || strings.Contains(page.form.View(), "admin-secret") {
 		t.Fatalf("admin secret leaked in form: %#v view=%q", page.adminForm, page.form.View())
+	}
+}
+
+func TestTunnelRuntimeTitleStartsAtWorkspaceTitlePosition(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewTunnelDashboard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(ansi.Strip(page.View(100, 32)), "\n")
+	if len(lines) < 2 || !strings.Contains(lines[0], "OpenAI Secure MCP Tunnel") || strings.TrimSpace(lines[1]) != "" {
+		t.Fatalf("tunnel title lines=%q", lines[:min(2, len(lines))])
 	}
 }
 

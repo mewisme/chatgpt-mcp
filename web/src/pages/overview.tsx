@@ -32,7 +32,6 @@ type DashboardData = {
   enabledServers: number
   tunnel: "Ready" | "Connecting" | "Stopped"
   tunnelName: string
-  preset: string
   mcpEndpoint: string
   adminEndpoint: string
   mcpAuth: boolean
@@ -141,11 +140,10 @@ export function OverviewPage() {
               Runtime
             </CardTitle>
             <CardDescription>
-              Active listeners and configuration preset.
+              Active runtime listeners and endpoints.
             </CardDescription>
           </CardHeader>
           <CardContent className="divide-y">
-            <DetailRow label="Preset" value={data?.preset ?? "-"} />
             <EndpointDetail
               label="MCP endpoint"
               value={data?.mcpEndpoint ?? "-"}
@@ -206,13 +204,12 @@ function AuthState({ label, enabled }: { label: string; enabled?: boolean }) {
 }
 
 async function loadDashboard(): Promise<DashboardData> {
-  const [workspaces, tools, servers, tunnel, presets, config] =
+  const [workspaces, tools, servers, tunnel, config] =
     await Promise.all([
       adminApi.workspaces(),
       adminApi.tools(),
       adminApi.upstream(),
       adminApi.tunnel(),
-      adminApi.configPresets(),
       adminApi.config(),
     ])
   const host = window.location.hostname || "127.0.0.1"
@@ -227,7 +224,6 @@ async function loadDashboard(): Promise<DashboardData> {
         : "Connecting"
       : "Stopped",
     tunnelName: tunnel.metadata?.name ?? "",
-    preset: presets.current,
     mcpEndpoint: `http://${host}:${config.server.port}/mcp`,
     adminEndpoint: config.admin.enabled
       ? `http://${host}:${config.admin.port}`

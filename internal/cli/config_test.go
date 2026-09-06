@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -242,70 +241,6 @@ func TestConfigOutputFormatConflict(t *testing.T) {
 	format, selected, err := resolveConfigOutputFormat(configOutputOptions{format: "json", json: true})
 	if err != nil || !selected || format != configformat.JSON {
 		t.Fatalf("same format flags = %q selected=%t err=%v", format, selected, err)
-	}
-}
-
-func TestConfigPresetApplyPreservesSecrets(t *testing.T) {
-	cfg := config.Default()
-	cfg.Auth.MCPTokenHash = "mcp-secret"
-	cfg.Auth.AdminTokenHash = "admin-secret"
-	cfg.Tunnel.APIKey = "tunnel-secret"
-	cfg.Tunnel.ID = "tunnel-id"
-	cfg.Tunnel.ControlPlaneBaseURL = "https://api.openai.com"
-	cfg.Tunnel.OrganizationID = "org-test"
-	if err := config.ApplyPreset(&cfg, "lan"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Server.Expose.Mode != config.ExposureAll || cfg.Admin.Enabled {
-		t.Fatalf("preset not applied: %#v", cfg)
-	}
-	if cfg.Auth.MCPTokenHash != "mcp-secret" || cfg.Auth.AdminTokenHash != "admin-secret" {
-		t.Fatal("auth secrets changed")
-	}
-	if cfg.Tunnel.APIKey != "tunnel-secret" || cfg.Tunnel.ID != "tunnel-id" ||
-		cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
-		t.Fatal("tunnel details changed")
-	}
-}
-
-func TestConfigPresetRequiresConfiguredAuth(t *testing.T) {
-	cfg := config.Default()
-	cfg.Auth.MCPTokenHash = ""
-	cfg.Auth.AdminTokenHash = ""
-	if err := config.ApplyPreset(&cfg, "default"); err == nil {
-		t.Fatal("preset unexpectedly bypassed auth validation")
-	}
-}
-
-func TestMatchingConfigPreset(t *testing.T) {
-	cfg := config.Default()
-	cfg.Auth.MCPTokenHash = "mcp"
-	cfg.Auth.AdminTokenHash = "admin"
-	if got := config.MatchPreset(cfg); got != "default" {
-		t.Fatalf("preset = %q", got)
-	}
-	cfg.Server.Port++
-	if got := config.MatchPreset(cfg); got != "custom" {
-		t.Fatalf("preset = %q", got)
-	}
-}
-
-func TestUnknownConfigPreset(t *testing.T) {
-	if _, err := config.PresetByName("missing"); err == nil {
-		t.Fatal("unknown preset was accepted")
-	}
-}
-
-func TestConfigPresetShowDefaultsToTextAndSupportsJSON(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "config")
-	plain := executeRequestCommand(t, root, []string{"config", "preset", "show", "default"})
-	if !strings.Contains(plain, "Configuration preset") || !strings.Contains(plain, "name: default") || strings.HasPrefix(strings.TrimSpace(plain), "{") {
-		t.Fatalf("plain=%q", plain)
-	}
-	structured := executeRequestCommand(t, root, []string{"config", "preset", "show", "default", "--json"})
-	var preset config.Preset
-	if err := json.Unmarshal([]byte(strings.TrimSpace(structured)), &preset); err != nil || preset.Name != "default" {
-		t.Fatalf("json=%q preset=%#v err=%v", structured, preset, err)
 	}
 }
 

@@ -41,7 +41,7 @@ cgm completion fish | source
 cgm completion powershell | Out-String | Invoke-Expression
 ```
 
-Dynamic completion includes config keys and typed values, preset names, workspace IDs, upstream MCP IDs, recent runtime session IDs, and directory arguments where appropriate. For example, `cgm cfg set per<Tab>` completes `permissions.allow_dirs`, while `cgm cfg set auth.mcp_enabled <Tab>` offers `true` and `false`.
+Dynamic completion includes config keys and typed values, workspace IDs, upstream MCP IDs, recent runtime session IDs, and directory arguments where appropriate. For example, `cgm cfg set per<Tab>` completes `permissions.allow_dirs`, while `cgm cfg set auth.mcp_enabled <Tab>` offers `true` and `false`.
 
 ## Global flags
 
@@ -74,7 +74,6 @@ chatgpt-mcp
 │   ├── list
 │   ├── migrate
 │   ├── path
-│   ├── preset
 │   ├── reload
 │   ├── set
 │   └── verify

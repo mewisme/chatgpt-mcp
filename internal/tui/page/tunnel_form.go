@@ -41,7 +41,7 @@ type managedConfigureFormData struct {
 
 func newTunnelRuntimeForm(dashboard application.TunnelDashboard) (component.Form, *tunnelRuntimeFormData) {
 	data := &tunnelRuntimeFormData{Enabled: dashboard.Config.Enabled, ID: dashboard.Config.ID, ControlPlane: dashboard.Config.ControlPlaneBaseURL, OrganizationID: dashboard.Config.OrganizationID}
-	form := component.NewForm(huh.NewGroup(
+	form := component.NewForm(component.Group(
 		component.Confirm("Enabled", &data.Enabled),
 		component.Input("Tunnel ID", &data.ID),
 		component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Description("Blank keeps the current key."),
@@ -62,7 +62,7 @@ func newTunnelAdminForm(status application.TunnelAdminStatus) (component.Form, *
 	case scope.TenantID != "":
 		data.ScopeKind, data.ScopeID = "tenant", scope.TenantID
 	}
-	form := component.NewForm(huh.NewGroup(
+	form := component.NewForm(component.Group(
 		component.PasswordInput("Admin API key", &data.AdminKey).Description("OpenAI admin key with Tunnels Manage access."),
 		component.Select("Verification scope", &data.ScopeKind,
 			huh.NewOption("Auto (reuse or derive)", "auto"), huh.NewOption("Organization", "organization"), huh.NewOption("Workspace", "workspace"), huh.NewOption("Tenant", "tenant"),
@@ -83,13 +83,13 @@ func newManagedTunnelForm(metadata tunnel.Metadata, create bool) (component.Form
 		description = component.Text("Description", &data.Description)
 	}
 	form := component.NewForm(
-		huh.NewGroup(name, description),
-		huh.NewGroup(
+		component.Group(name, description),
+		component.Group(
 			component.Text("Organization IDs (one per line)", &data.OrganizationIDs),
 			component.Text("Workspace IDs (one per line)", &data.WorkspaceIDs),
 			component.Text("Tenant IDs (one per line)", &data.TenantIDs),
 		),
-		huh.NewGroup(
+		component.Group(
 			component.Confirm("Configure cgm to use this tunnel", &data.Configure),
 			component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Description("Blank reuses the current runtime key."),
 			component.Confirm("Enable tunnel after configure", &data.Enable),
@@ -100,7 +100,7 @@ func newManagedTunnelForm(metadata tunnel.Metadata, create bool) (component.Form
 
 func newManagedConfigureForm() (component.Form, *managedConfigureFormData) {
 	data := &managedConfigureFormData{}
-	form := component.NewForm(huh.NewGroup(
+	form := component.NewForm(component.Group(
 		component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Description("Blank reuses the current runtime key."),
 		component.Confirm("Enable tunnel", &data.Enable),
 	))

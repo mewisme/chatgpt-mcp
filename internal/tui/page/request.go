@@ -174,6 +174,13 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case component.FormCancelledMsg:
 		page.closeOverlay()
 		return page, nil
+	case component.FormMouseMsg:
+		if page.overlay == requestOverlayForm {
+			updated, cmd := page.form.Update(msg)
+			page.form = updated
+			return page, cmd
+		}
+		return page, nil
 	case RequestCommandMsg:
 		return page, page.handleCommand(msg.Command, msg.ResourceID)
 	case tea.KeyPressMsg:
@@ -247,6 +254,20 @@ func (page *RequestsPage) View(width, height int) string {
 		content = component.CenterOverlay(content, component.Modal(body, min(68, max(44, width-8))), width, height)
 	}
 	return content
+}
+
+func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.MouseTarget {
+	if page == nil {
+		return nil
+	}
+	switch page.overlay {
+	case requestOverlayForm:
+		return formOverlayMouseTargets(page.form, min(76, max(46, page.width-8)), page.width, page.height, originX, originY, z+20)
+	case requestOverlayOperation:
+		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
+	default:
+		return page.browser.MouseTargets(originX, originY, z)
+	}
 }
 
 func (page *RequestsPage) handleCommand(command RequestCommand, resourceID string) tea.Cmd {

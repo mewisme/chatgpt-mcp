@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -48,6 +49,17 @@ func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
 		if !strings.Contains(model, want) {
 			t.Fatalf("config rows missing %q: %q", want, model)
 		}
+	}
+}
+
+func TestConfigPageTitleStartsAtWorkspaceTitlePosition(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfig(t.Context())
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	lines := strings.Split(ansi.Strip(page.View(100, 32)), "\n")
+	if len(lines) < 2 || !strings.Contains(lines[0], "Configuration") || strings.TrimSpace(lines[1]) != "" {
+		t.Fatalf("config title lines=%q", lines[:min(2, len(lines))])
 	}
 }
 
@@ -165,9 +177,6 @@ func TestConfigPageFormsExposeSafetyConfirmations(t *testing.T) {
 	_, exportData := newConfigBundleForm(true)
 	if exportData.Force || exportData.Path != "chatgpt-mcp-config.cgm" {
 		t.Fatalf("export defaults=%#v", exportData)
-	}
-	if detail := configPresetSummary("headless"); !strings.Contains(detail, "admin UI disabled") || !strings.Contains(detail, "Ponytail") {
-		t.Fatalf("preset detail=%q", detail)
 	}
 }
 

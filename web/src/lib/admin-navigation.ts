@@ -15,5 +15,5 @@ export const navItems: NavItem[] = [
   { id: "servers", path: "/servers", title: "MCP Servers", description: "Configure upstream MCP servers, health, tools, and OAuth.", icon: Server },
   { id: "tunnel", path: "/tunnel", title: "Tunnel", description: "Configure and monitor the OpenAI Secure MCP Tunnel.", icon: Cloud },
   { id: "activity", path: "/activity", title: "Activity", description: "Watch live MCP requests and tool execution events.", icon: Activity },
-  { id: "settings", path: "/settings", title: "Settings", description: "Configure listeners, presets, and authentication.", icon: Settings },
+  { id: "settings", path: "/settings", title: "Settings", description: "Configure listeners, runtime behavior, and authentication.", icon: Settings },
 ]

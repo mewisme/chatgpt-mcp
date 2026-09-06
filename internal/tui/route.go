@@ -26,6 +26,21 @@ type Route struct {
 	ResourceID string
 }
 
+type headerPage struct {
+	Kind  RouteKind
+	Label string
+}
+
+var headerPages = []headerPage{
+	{Kind: RouteWorkspaces, Label: "Workspaces"},
+	{Kind: RouteMCP, Label: "MCP"},
+	{Kind: RouteTunnel, Label: "Tunnel"},
+	{Kind: RouteRequests, Label: "Requests"},
+	{Kind: RouteLogs, Label: "Logs"},
+	{Kind: RouteConfig, Label: "Config"},
+	{Kind: RouteRuntime, Label: "Runtime"},
+}
+
 func ParseRoute(args []string) (Route, error) {
 	if len(args) == 0 {
 		return Route{Kind: RouteHome}, nil
@@ -116,10 +131,52 @@ func (router *Router) Navigate(route Route) {
 	router.stack = append(router.stack, route)
 }
 
+func (router *Router) Switch(route Route) {
+	if router == nil {
+		return
+	}
+	if len(router.stack) == 0 {
+		router.stack = []Route{route}
+		return
+	}
+	router.stack[len(router.stack)-1] = route
+}
+
 func (router *Router) Back() bool {
 	if router == nil || len(router.stack) < 2 {
 		return false
 	}
 	router.stack = router.stack[:len(router.stack)-1]
 	return true
+}
+
+func headerOwner(kind RouteKind) RouteKind {
+	switch kind {
+	case RouteContainers:
+		return RouteWorkspaces
+	case RouteTunnels:
+		return RouteTunnel
+	default:
+		return kind
+	}
+}
+
+func cycleHeaderRoute(current Route, delta int) Route {
+	owner := headerOwner(current.Kind)
+	index := -1
+	for candidate := range headerPages {
+		if headerPages[candidate].Kind == owner {
+			index = candidate
+			break
+		}
+	}
+	if index < 0 {
+		if delta < 0 {
+			index = 0
+		} else {
+			index = -1
+		}
+	}
+	index = ((index+delta)%len(headerPages) + len(headerPages)) % len(headerPages)
+	return Route{Kind: headerPages[index].Kind}
 }

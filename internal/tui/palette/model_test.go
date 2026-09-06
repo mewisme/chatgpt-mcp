@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
 func TestPaletteQueryAndSelection(t *testing.T) {
@@ -36,5 +37,40 @@ func TestPaletteClose(t *testing.T) {
 	}
 	if _, ok := cmd().(ClosedMsg); !ok {
 		t.Fatalf("message = %#v", cmd())
+	}
+}
+
+func TestPaletteMouseClickAndWheelUseSemanticMessages(t *testing.T) {
+	model := New([]action.Action{
+		{ID: "one", Title: "One", Category: "App"},
+		{ID: "two", Title: "Two", Category: "App"},
+		{ID: "three", Title: "Three", Category: "App"},
+	}, action.Context{})
+	targets := model.MouseTargets(5, 3, 20, 72)
+	var result component.MouseTarget
+	found := false
+	for _, target := range targets {
+		if target.ID == "palette.result" {
+			result, found = target, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("palette result target not found")
+	}
+	message, ok := result.Handle(component.MouseEvent{Button: tea.MouseLeft}).(SelectedMsg)
+	if !ok || message.ID == "" {
+		t.Fatalf("palette click message=%#v", message)
+	}
+
+	scroll := targets[0]
+	before := model.SelectedID()
+	wheel, ok := scroll.Handle(component.MouseEvent{Button: tea.MouseWheelDown}).(MouseScrollMsg)
+	if !ok || wheel.Delta != 1 {
+		t.Fatalf("wheel message=%#v", wheel)
+	}
+	updated, _ := model.Update(wheel)
+	if updated.SelectedID() == before {
+		t.Fatalf("wheel did not move selection from %q", before)
 	}
 }

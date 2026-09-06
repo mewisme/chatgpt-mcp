@@ -6,7 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
 func TestModelFillsTerminalAndEnforcesMinimumLayout(t *testing.T) {
@@ -49,18 +51,51 @@ func TestModelRendersDeepLinkAndNavigation(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 32})
 	model = updated.(Model)
 	view := model.View().Content
-	if !strings.Contains(view, "MCP Servers · github") || !strings.Contains(view, "Deep-linked resource: github") {
+	plain := ansi.Strip(view)
+	lines := strings.Split(plain, "\n")
+	if len(lines) < 2 || !strings.Contains(lines[0], "ChatGPT MCP") || strings.Contains(lines[1], "ChatGPT MCP") || !strings.Contains(plain, "Deep-linked resource: github") {
 		t.Fatalf("view = %q", view)
 	}
-	updated, command := model.Update(tea.KeyPressMsg{Text: "5", Code: '5'})
-	model = updated.(Model)
-	if command == nil {
-		t.Fatal("navigation action returned no command")
+	cellWidth := (100 - 4) / len(headerPages)
+	if 1 < (100-4)%len(headerPages) {
+		cellWidth++
 	}
-	updated, _ = model.Update(command())
+	active := model.theme.navActive.Padding(0).Width(cellWidth).Align(lipgloss.Center).Render("MCP")
+	if !strings.Contains(view, active) {
+		t.Fatal("MCP header button is not active")
+	}
+	updated, command := model.Update(navigateMsg{route: Route{Kind: RouteLogs}, sibling: true})
 	model = updated.(Model)
 	if model.router.Current().Kind != RouteLogs {
 		t.Fatalf("route = %#v", model.router.Current())
+	}
+	if command != nil {
+		updated, _ = model.Update(command())
+		model = updated.(Model)
+	}
+}
+
+func TestModelHeaderCellsFillUsableWidth(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRequests})
+	for _, width := range []int{52, 73, 96, 117} {
+		header, targets := model.header(width, 2, 1)
+		if lipgloss.Width(header) != width {
+			t.Fatalf("header width=%d want=%d", lipgloss.Width(header), width)
+		}
+		if len(targets) != len(headerPages) {
+			t.Fatalf("targets=%d want=%d", len(targets), len(headerPages))
+		}
+		x, total := 2, 0
+		for index, target := range targets {
+			if target.Rect.X != x || target.Rect.Y != 1 || target.Rect.Height != 1 {
+				t.Fatalf("target %d rect=%#v want x=%d y=1", index, target.Rect, x)
+			}
+			x += target.Rect.Width
+			total += target.Rect.Width
+		}
+		if total != width || x != width+2 {
+			t.Fatalf("navbar coverage total=%d end=%d want total=%d end=%d", total, x, width, width+2)
+		}
 	}
 }
 
@@ -130,14 +165,73 @@ func TestModelCommandPaletteOnlyUsesCtrlP(t *testing.T) {
 
 func TestModelFooterKeepsOnlyGlobalShortcuts(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
-	footer := model.shortcutFooter()
-	if footer != "Ctrl+P Commands  ·  Ctrl+O Open  ·  q Quit" {
+	footer := ansi.Strip(model.shortcutFooter())
+	for _, want := range []string{"ctrl+p commands", "ctrl+o open", "alt+←/→ pages", "q quit"} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("footer missing %q: %q", want, footer)
+		}
+	}
+	if strings.Contains(footer, "Commands") || strings.Contains(footer, "Quit") || strings.Contains(footer, "esc back") {
 		t.Fatalf("footer=%q", footer)
 	}
 	model.router.Navigate(Route{Kind: RouteLogs})
-	footer = model.shortcutFooter()
-	if footer != "Ctrl+P Commands  ·  Ctrl+O Open  ·  Esc Back  ·  q Quit" {
+	footer = ansi.Strip(model.shortcutFooter())
+	if !strings.Contains(footer, "esc back") {
 		t.Fatalf("nested footer=%q", footer)
+	}
+}
+
+func TestModelHeaderPageCyclingWrapsWithoutGrowingHistory(t *testing.T) {
+	model := NewModel(Route{Kind: RouteWorkspaces})
+	for range 3 {
+		updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+		model = updated.(Model)
+		if model.router.Current().Kind != RouteRuntime {
+			t.Fatalf("left wrap route=%#v", model.router.Current())
+		}
+		updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt})
+		model = updated.(Model)
+		if model.router.Current().Kind != RouteWorkspaces {
+			t.Fatalf("right wrap route=%#v", model.router.Current())
+		}
+	}
+	if len(model.router.stack) != 1 {
+		t.Fatalf("sibling page cycling grew route history: %#v", model.router.stack)
+	}
+}
+
+func TestModelHeaderMouseClickUsesTypedNavigation(t *testing.T) {
+	model := NewModel(Route{Kind: RouteWorkspaces})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 32})
+	model = updated.(Model)
+	view := model.View()
+	if view.OnMouse == nil || view.MouseMode == tea.MouseModeNone {
+		t.Fatal("mouse support is not enabled")
+	}
+	_, targets := model.render()
+	var target *component.MouseTarget
+	for index := range targets {
+		if targets[index].ID == "app.header.config" {
+			target = &targets[index]
+			break
+		}
+	}
+	if target == nil {
+		t.Fatal("config header hitbox not found")
+	}
+	cmd := view.OnMouse(tea.MouseClickMsg(tea.Mouse{X: target.Rect.X, Y: target.Rect.Y, Button: tea.MouseLeft}))
+	if cmd == nil {
+		t.Fatal("header click produced no command")
+	}
+	message := cmd()
+	navigation, ok := message.(navigateMsg)
+	if !ok || navigation.route.Kind != RouteConfig || !navigation.sibling {
+		t.Fatalf("header click message=%#v", message)
+	}
+	updated, _ = model.Update(message)
+	model = updated.(Model)
+	if model.router.Current().Kind != RouteConfig {
+		t.Fatalf("route=%#v", model.router.Current())
 	}
 }
 

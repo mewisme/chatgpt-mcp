@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/huh/v2"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
@@ -25,6 +24,6 @@ func newRequestResolveForm(request approval.Request, approve bool) (component.Fo
 		title = request.ID
 	}
 	confirm := component.Confirm(fmt.Sprintf("%s this exact request", action), &data.Confirm).Description(fmt.Sprintf("%s · %s · %s", request.ID, request.TargetTool, title))
-	form := component.NewForm(huh.NewGroup(component.Input("Reason (optional)", &data.Reason), confirm))
+	form := component.NewForm(component.Group(component.Input("Reason (optional)", &data.Reason), confirm))
 	return form, data
 }

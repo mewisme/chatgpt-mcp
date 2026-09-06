@@ -176,6 +176,19 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case component.FormCancelledMsg:
 		page.closeOverlay()
 		return page, nil
+	case component.FormMouseMsg:
+		if page.overlay == mcpOverlayForm {
+			updated, cmd := page.form.Update(msg)
+			page.form = updated
+			return page, cmd
+		}
+		return page, nil
+	case component.ConfirmChoiceMsg:
+		if page.overlay == mcpOverlayConfirm {
+			page.confirm.Select(msg.Affirmative)
+			return page, page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+		}
+		return page, nil
 	case MCPCommandMsg:
 		cmd, err := page.openCommand(msg.Command, msg.ResourceID)
 		if err != nil {
@@ -239,6 +252,22 @@ func (page *MCPPage) View(width, height int) string {
 	return content
 }
 
+func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarget {
+	if page == nil {
+		return nil
+	}
+	switch page.overlay {
+	case mcpOverlayForm:
+		return formOverlayMouseTargets(page.form, min(78, max(46, page.width-8)), page.width, page.height, originX, originY, z+20)
+	case mcpOverlayConfirm:
+		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), min(68, max(42, page.width-8)), page.width, page.height, originX, originY, z+20)
+	case mcpOverlayOperation:
+		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
+	default:
+		return page.browser.MouseTargets(originX, originY, z)
+	}
+}
+
 func (page *MCPPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	selected, _ := page.browser.Selected()
 	id := selected.ID
@@ -269,7 +298,7 @@ func (page *MCPPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		cmd, err := page.openCommand(MCPServerRemove, id)
 		page.err = err
 		return cmd, true
-	case " ":
+	case "space":
 		if id == "" {
 			return nil, true
 		}

@@ -23,7 +23,6 @@ type ConfigOverview struct {
 	Config         config.Config
 	Source         configformat.Source
 	Root           string
-	Preset         string
 	RuntimeRunning bool
 }
 
@@ -162,7 +161,7 @@ func LoadConfigOverview(ctx context.Context) (ConfigOverview, error) {
 	if err != nil {
 		return ConfigOverview{}, err
 	}
-	return ConfigOverview{Config: cfg, Source: source, Root: config.RootPath(), Preset: config.MatchPreset(cfg), RuntimeRunning: running}, nil
+	return ConfigOverview{Config: cfg, Source: source, Root: config.RootPath(), RuntimeRunning: running}, nil
 }
 
 func SetConfigField(key, raw string) (ConfigMutationResult, error) {
@@ -171,20 +170,6 @@ func SetConfigField(key, raw string) (ConfigMutationResult, error) {
 		return ConfigMutationResult{}, err
 	}
 	if err := config.SetValueValidated(&cfg, key, raw); err != nil {
-		return ConfigMutationResult{}, err
-	}
-	if err := config.Save(cfg); err != nil {
-		return ConfigMutationResult{}, err
-	}
-	return ConfigMutationResult{Config: cfg}, nil
-}
-
-func ApplyConfigPreset(name string) (ConfigMutationResult, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return ConfigMutationResult{}, err
-	}
-	if err := config.ApplyPreset(&cfg, name); err != nil {
 		return ConfigMutationResult{}, err
 	}
 	if err := config.Save(cfg); err != nil {

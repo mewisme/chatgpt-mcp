@@ -95,19 +95,6 @@ cgm config set interactive false
 
 When enabled, commands with a TUI open it automatically only when both stdin and stdout are terminals. `--interactive` forces TUI mode for that invocation and `--no-interactive` disables it; explicit command flags take precedence over the persisted setting. Structured output such as `--json` remains non-interactive.
 
-## Presets
-
-Built-in presets provide named baseline configurations while preserving configured secrets and tunnel details when applied.
-
-```bash
-cgm config preset list
-cgm config preset show <name>
-cgm config preset current
-cgm config preset apply <name>
-```
-
-Use `current` to see whether the active configuration still matches a known preset or has become `custom`.
-
 ## Reload a running runtime
 
 After persisting a change:

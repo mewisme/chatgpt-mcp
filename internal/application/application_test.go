@@ -149,13 +149,6 @@ func TestConfigMutationUsesDomainValidationAndPreservesSecrets(t *testing.T) {
 	if result.Config.Server.Port != 40123 || result.Config.Auth.MCPTokenHash != "mcp-hash" || result.Config.Auth.AdminTokenHash != "admin-hash" || result.Config.Tunnel.APIKey != "runtime-secret" {
 		t.Fatalf("config mutation changed unrelated values: %#v", result.Config)
 	}
-	preset, err := ApplyConfigPreset("headless")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if preset.Config.Admin.Enabled || preset.Config.Auth.MCPTokenHash != "mcp-hash" || preset.Config.Auth.AdminTokenHash != "admin-hash" || preset.Config.Tunnel.APIKey != "runtime-secret" {
-		t.Fatalf("preset changed preserved secrets: %#v", preset.Config)
-	}
 }
 
 func TestConfigConvertRoundTripJSONYAMLTOML(t *testing.T) {

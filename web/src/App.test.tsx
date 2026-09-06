@@ -25,21 +25,6 @@ const config = {
   shell: { path: [] },
   features: { ponytail: { active: true, mode: "full" }, caveman: { active: true, mode: "full" } },
 }
-const presets = {
-  current: "default",
-  presets: [
-    {
-      name: "default",
-      description: "Default",
-      server: config.server,
-      admin: config.admin,
-      mcp_auth_enabled: true,
-      admin_auth_enabled: true,
-      tunnel_enabled: false,
-      features: config.features,
-    },
-  ],
-}
 const tunnel = {
   provider: "openai",
   enabled: false,
@@ -68,7 +53,7 @@ describe("admin app runtime smoke", () => {
       expect(document.title).toBe(adminDocumentTitle("Overview"))
     )
     expect(
-      await screen.findByText("Active listeners and configuration preset.")
+      await screen.findByText("Active runtime listeners and endpoints.")
     ).toBeInTheDocument()
 
     const pageSmokeText: Record<string, string> = {
@@ -81,7 +66,7 @@ describe("admin app runtime smoke", () => {
       tunnel: "OpenAI Secure MCP Tunnel",
       activity:
         "Live MCP requests, tool calls, and runtime lifecycle events. Tool calls open as addressable child routes.",
-      settings: "Config preset",
+      settings: "CLI behavior",
     }
     for (const item of navItems.slice(1)) {
       await user.click(screen.getByRole("link", { name: item.title }))
@@ -467,7 +452,6 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   if (path === "/api/tunnel/admin/key")
     return json({ configured: false, scope: {} })
   if (path === "/api/config") return json(config)
-  if (path === "/api/config/presets") return json(presets)
   if (path === "/api/network/interfaces") return json([])
   if (path === "/api/requests?status=pending") return json([])
   if (path === "/api/requests?status=") return json([])

@@ -114,7 +114,7 @@ func TestBrowserStructuredDetailUsesDefaultListLayout(t *testing.T) {
 	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})
 	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
 	view := model.View().Content
-	if !model.detail || !strings.Contains(view, "Workspace · ws_one") || !strings.Contains(view, "Root") || !strings.Contains(view, "/tmp/project") || !strings.Contains(view, "Legacy ID") || !strings.Contains(view, "esc/q") || !strings.Contains(view, "close") {
+	if !model.detail || !strings.Contains(view, "Workspace · ws_one") || !strings.Contains(view, "Root") || !strings.Contains(view, "/tmp/project") || !strings.Contains(view, "Legacy ID") || !strings.Contains(view, "esc") || strings.Contains(view, "esc/q") || !strings.Contains(view, "close") {
 		t.Fatalf("detail=%t view=%q", model.detail, view)
 	}
 }
@@ -195,6 +195,89 @@ func TestBrowserExportsSelectionAndDetail(t *testing.T) {
 	if !model.OpenDetail("b") || !model.DetailOpen() || !strings.Contains(model.Content(), "details") {
 		t.Fatalf("detail open=%t content=%q", model.DetailOpen(), model.Content())
 	}
+}
+
+func TestBrowserMouseSelectOpenTabAndWheel(t *testing.T) {
+	longScope := strings.Repeat("scope line\n", 30)
+	model := NewBrowser(context.Background(), "Items", []Row{
+		{ID: "one", Title: "One"},
+		{ID: "two", Title: "Two", DetailTabs: []DetailTab{{Title: "Overview", Content: "overview"}, {Title: "Scope", Content: longScope}}},
+		{ID: "three", Title: "Three"},
+	}, nil)
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})
+
+	targets := model.MouseTargets(0, 0, 1)
+	scroll := mouseTarget(t, targets, "browser.scroll", 0)
+	message := scroll.Handle(MouseEvent{Button: tea.MouseWheelDown})
+	model = updateBrowser(t, model, message)
+	if selected, ok := model.Selected(); !ok || selected.ID != "two" {
+		t.Fatalf("wheel selected=%#v ok=%t", selected, ok)
+	}
+
+	targets = model.MouseTargets(0, 0, 1)
+	var selectedRow MouseTarget
+	found := false
+	for _, target := range targets {
+		if target.ID != "browser.row" {
+			continue
+		}
+		msg, ok := target.Handle(MouseEvent{Button: tea.MouseLeft}).(browserMouseMsg)
+		if ok && msg.Index == 1 && msg.Open {
+			selectedRow, found = target, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("selected browser row mouse target not found")
+	}
+	model = updateBrowser(t, model, selectedRow.Handle(MouseEvent{Button: tea.MouseLeft}))
+	if !model.DetailOpen() {
+		t.Fatal("selected row click did not open detail")
+	}
+
+	targets = model.MouseTargets(0, 0, 1)
+	var scopeTab MouseTarget
+	found = false
+	for _, target := range targets {
+		if target.ID != "browser.detail.tab" {
+			continue
+		}
+		msg, ok := target.Handle(MouseEvent{Button: tea.MouseLeft}).(browserMouseMsg)
+		if ok && msg.Tab == 2 {
+			scopeTab, found = target, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("scope tab mouse target not found")
+	}
+	model = updateBrowser(t, model, scopeTab.Handle(MouseEvent{Button: tea.MouseLeft}))
+	if model.detailTab != 1 {
+		t.Fatalf("detail tab=%d want=1", model.detailTab)
+	}
+
+	before := model.viewport.YOffset()
+	targets = model.MouseTargets(0, 0, 1)
+	detailScroll := mouseTarget(t, targets, "browser.detail.scroll", 0)
+	model = updateBrowser(t, model, detailScroll.Handle(MouseEvent{Button: tea.MouseWheelDown}))
+	if model.viewport.YOffset() <= before {
+		t.Fatalf("detail wheel did not scroll: before=%d after=%d", before, model.viewport.YOffset())
+	}
+}
+
+func mouseTarget(t *testing.T, targets []MouseTarget, id string, occurrence int) MouseTarget {
+	t.Helper()
+	for _, target := range targets {
+		if target.ID != id {
+			continue
+		}
+		if occurrence == 0 {
+			return target
+		}
+		occurrence--
+	}
+	t.Fatalf("mouse target %q not found", id)
+	return MouseTarget{}
 }
 
 func updateBrowser(t *testing.T, model Browser, msg tea.Msg) Browser {

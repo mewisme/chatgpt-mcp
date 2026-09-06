@@ -8,6 +8,8 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type Row struct {
@@ -79,6 +81,13 @@ type browserRefreshMsg struct {
 	err  error
 }
 
+type browserMouseMsg struct {
+	Index int
+	Tab   int
+	Wheel int
+	Open  bool
+}
+
 var browserOpenBinding = Binding([]string{"enter", "v"}, "enter", "details")
 var browserRefreshBinding = Binding([]string{"r"}, "r", "refresh")
 
@@ -103,6 +112,11 @@ func (m Browser) WithAction(action RowAction) Browser {
 		m.actions = append(m.actions, action)
 		m.syncHelp()
 	}
+	return m
+}
+
+func (m Browser) WithTitleVisible(visible bool) Browser {
+	m.list.SetShowTitle(visible)
 	return m
 }
 
@@ -154,6 +168,8 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingSelectionID = ""
 		}
 		return m, cmd
+	case browserMouseMsg:
+		return m.handleMouse(msg)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
@@ -167,7 +183,7 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.String() == "ctrl+c":
 			return m, tea.Quit
-		case msg.String() == "q", msg.String() == "esc", key.Matches(msg, browserOpenBinding):
+		case msg.String() == "esc", key.Matches(msg, browserOpenBinding):
 			m.detail = false
 			return m, nil
 		case m.moveDetailTab(msg):
@@ -254,6 +270,52 @@ func (m *Browser) OpenDetail(id string) bool {
 
 func (m Browser) DetailOpen() bool { return m.detail }
 
+func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
+	if m.width <= 0 || m.height <= 0 {
+		return nil
+	}
+	targets := []MouseTarget{{
+		ID: "browser.scroll", Rect: Rect{X: originX, Y: originY, Width: m.width, Height: m.height}, Z: z,
+		Handle: func(event MouseEvent) tea.Msg {
+			switch event.Button {
+			case tea.MouseWheelUp:
+				return browserMouseMsg{Wheel: -1}
+			case tea.MouseWheelDown:
+				return browserMouseMsg{Wheel: 1}
+			default:
+				return nil
+			}
+		},
+	}}
+	if m.detail {
+		return append(targets, m.detailMouseTargets(originX, originY, z+10)...)
+	}
+	startY := 0
+	if m.list.ShowTitle() || m.list.ShowFilter() {
+		startY += 1 + m.list.Styles.TitleBar.GetPaddingTop() + m.list.Styles.TitleBar.GetPaddingBottom()
+	}
+	if m.list.ShowStatusBar() {
+		startY += 1 + m.list.Styles.StatusBar.GetPaddingTop() + m.list.Styles.StatusBar.GetPaddingBottom()
+	}
+	visible := m.list.VisibleItems()
+	start, end := m.list.Paginator.GetSliceBounds(len(visible))
+	for index := start; index < end; index++ {
+		rowIndex := index
+		y := originY + startY + (index-start)*3
+		open := index == m.list.GlobalIndex()
+		targets = append(targets, MouseTarget{
+			ID: "browser.row", Rect: Rect{X: originX, Y: y, Width: m.width, Height: 2}, Z: z + 1,
+			Handle: func(event MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return browserMouseMsg{Index: rowIndex, Open: open}
+			},
+		})
+	}
+	return targets
+}
+
 func (m Browser) overlayDetail(background string) string {
 	return CenterOverlay(background, m.detailView(), m.width, m.height)
 }
@@ -288,7 +350,7 @@ func (m Browser) detailView() string {
 	builder.WriteString("\n")
 	builder.WriteString(m.viewport.View())
 	builder.WriteString("\n\n")
-	help := []key.Binding{Binding([]string{"j", "k"}, "j/k", "scroll"), Binding([]string{"esc", "q"}, "esc/q", "close")}
+	help := []key.Binding{Binding([]string{"j", "k"}, "j/k", "scroll"), Binding([]string{"esc"}, "esc", "close")}
 	if len(selected.DetailTabs) > 1 {
 		help = append([]key.Binding{Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs")}, help...)
 	}
@@ -300,6 +362,88 @@ func (m Browser) detailView() string {
 	}
 	builder.WriteString(DefaultHelp(m.modalContentWidth(), help...))
 	return Modal(builder.String(), m.modalWidth())
+}
+
+func (m Browser) detailMouseTargets(originX, originY, z int) []MouseTarget {
+	detail := m.detailView()
+	width, height := lipgloss.Width(detail), lipgloss.Height(detail)
+	x := originX + max(0, (m.width-width)/2)
+	y := originY + max(0, (m.height-height)/2)
+	targets := []MouseTarget{{
+		ID: "browser.detail.scroll", Rect: Rect{X: x, Y: y, Width: width, Height: height}, Z: z,
+		Handle: func(event MouseEvent) tea.Msg {
+			switch event.Button {
+			case tea.MouseWheelUp:
+				return browserMouseMsg{Wheel: -1}
+			case tea.MouseWheelDown:
+				return browserMouseMsg{Wheel: 1}
+			default:
+				return nil
+			}
+		},
+	}}
+	selected, ok := m.selected()
+	if !ok || len(selected.DetailTabs) < 2 {
+		return targets
+	}
+	lines := strings.Split(ansi.Strip(detail), "\n")
+	for tabIndex, tab := range selected.DetailTabs {
+		label := strings.TrimSpace(tab.Title)
+		if label == "" {
+			continue
+		}
+		line, column := findRenderedLine(lines, label, 0)
+		if line < 0 {
+			continue
+		}
+		index := tabIndex
+		targets = append(targets, MouseTarget{
+			ID: "browser.detail.tab", Rect: Rect{X: x + column, Y: y + line, Width: lipgloss.Width(label), Height: 1}, Z: z + 1,
+			Handle: func(event MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return browserMouseMsg{Tab: index + 1}
+			},
+		})
+	}
+	return targets
+}
+
+func (m Browser) handleMouse(msg browserMouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Tab > 0 && m.detail {
+		selected, ok := m.selected()
+		if ok && msg.Tab-1 < len(selected.DetailTabs) {
+			m.detailTab = msg.Tab - 1
+			m.syncDetail(selected)
+		}
+		return m, nil
+	}
+	if msg.Wheel != 0 {
+		if m.detail {
+			if msg.Wheel < 0 {
+				m.viewport.ScrollUp(3)
+			} else {
+				m.viewport.ScrollDown(3)
+			}
+		} else if msg.Wheel < 0 {
+			m.list.CursorUp()
+		} else {
+			m.list.CursorDown()
+		}
+		return m, nil
+	}
+	if msg.Index >= 0 && msg.Index < len(m.list.VisibleItems()) {
+		m.list.Select(msg.Index)
+		if msg.Open {
+			if selected, ok := m.selected(); ok {
+				m.detail = true
+				m.detailTab = 0
+				m.syncDetail(selected)
+			}
+		}
+	}
+	return m, nil
 }
 
 func (m Browser) selected() (Row, bool) {

@@ -19,11 +19,6 @@ type configFieldFormData struct {
 	Kind config.FieldKind
 }
 
-type configPresetFormData struct {
-	Name    string
-	Confirm bool
-}
-
 type configConvertFormData struct {
 	Format  string
 	Confirm bool
@@ -68,7 +63,7 @@ func newConfigFieldForm(cfg config.Config, spec config.FieldSpec) (component.For
 	default:
 		return component.Form{}, nil, fmt.Errorf("unsupported config field type: %s", spec.Kind)
 	}
-	return component.NewForm(huh.NewGroup(field)), data, nil
+	return component.NewForm(component.Group(field)), data, nil
 }
 
 func configFieldFormValue(data *configFieldFormData) string {
@@ -88,44 +83,9 @@ func configFieldFormValue(data *configFieldFormData) string {
 	}
 }
 
-func newConfigPresetForm(current string) (component.Form, *configPresetFormData) {
-	data := &configPresetFormData{Name: current}
-	presets := config.Presets()
-	if data.Name == "" || data.Name == "custom" {
-		data.Name = presets[0].Name
-	}
-	options := make([]huh.Option[string], 0, len(presets))
-	for _, preset := range presets {
-		options = append(options, huh.NewOption(preset.Name+" · "+preset.Description, preset.Name))
-	}
-	form := component.NewForm(huh.NewGroup(
-		component.Select("Preset", &data.Name, options...),
-		huh.NewNote().Title("Preset details").DescriptionFunc(func() string { return configPresetSummary(data.Name) }, &data.Name),
-		component.Confirm("Apply this preset while preserving configured secrets and tunnel details", &data.Confirm),
-	))
-	return form, data
-}
-
-func configPresetSummary(name string) string {
-	preset, err := config.PresetByName(name)
-	if err != nil {
-		return err.Error()
-	}
-	exposure := string(preset.Server.Expose.Mode)
-	if len(preset.Server.Expose.Interfaces) > 0 {
-		exposure += " · " + strings.Join(preset.Server.Expose.Interfaces, ", ")
-	}
-	return strings.Join([]string{
-		preset.Description,
-		fmt.Sprintf("MCP: :%d · expose %s · auth %t", preset.Server.Port, exposure, preset.MCPAuthEnabled),
-		fmt.Sprintf("Admin: enabled %t · :%d · auth %t", preset.Admin.Enabled, preset.Admin.Port, preset.AdminAuthEnabled),
-		fmt.Sprintf("Tunnel: %t · Ponytail: %t/%s · Caveman: %t/%s", preset.TunnelEnabled, preset.Features.Ponytail.Active, preset.Features.Ponytail.Mode, preset.Features.Caveman.Active, preset.Features.Caveman.Mode),
-	}, "\n")
-}
-
 func newConfigConvertForm(current configformat.Format) (component.Form, *configConvertFormData) {
 	data := &configConvertFormData{Format: string(current)}
-	form := component.NewForm(huh.NewGroup(
+	form := component.NewForm(component.Group(
 		component.Select("Target format", &data.Format, huh.NewOption("JSON", "json"), huh.NewOption("YAML", "yaml"), huh.NewOption("TOML", "toml")),
 		component.Confirm("Convert all structured config/state files", &data.Confirm),
 	))
@@ -139,7 +99,7 @@ func newConfigBundleForm(export bool) (component.Form, *configBundleFormData) {
 	if export {
 		confirmTitle = "Overwrite the destination if it already exists"
 	}
-	form := component.NewForm(huh.NewGroup(
+	form := component.NewForm(component.Group(
 		component.Input(title, &data.Path).Validate(func(value string) error {
 			if strings.TrimSpace(value) == "" {
 				return fmt.Errorf("bundle file is required")
@@ -153,7 +113,7 @@ func newConfigBundleForm(export bool) (component.Form, *configBundleFormData) {
 	))
 	if !export {
 		data.Confirm = false
-		form = component.NewForm(huh.NewGroup(
+		form = component.NewForm(component.Group(
 			component.Input(title, &data.Path).Validate(requiredValue("bundle file")),
 			component.Confirm("Replace existing configuration/state", &data.Force),
 			component.Confirm("I understand the current configuration may be replaced", &data.Confirm),

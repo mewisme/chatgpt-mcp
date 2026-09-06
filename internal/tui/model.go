@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
@@ -76,6 +78,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
 		model.theme = newTheme(msg.IsDark())
+		component.SetDarkBackground(msg.IsDark())
 		if model.currentPage != nil {
 			updated, cmd := model.currentPage.Update(msg)
 			model.currentPage = updated
@@ -91,7 +94,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		model.width, model.height = msg.Width, msg.Height
 		if model.currentPage != nil {
-			updated, cmd := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, msg.Width-8), Height: max(10, msg.Height-10)})
+			updated, cmd := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, msg.Width-4), Height: max(10, msg.Height-6)})
 			model.currentPage = updated
 			if cmd != nil {
 				return model, cmd
@@ -125,8 +128,19 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		return model, cmd
+	case palette.MouseScrollMsg:
+		if model.palette != nil {
+			updated, cmd := model.palette.Update(msg)
+			model.palette = &updated
+			return model, cmd
+		}
+		return model, nil
 	case navigateMsg:
-		model.navigate(msg.route)
+		if msg.sibling {
+			model.switchPage(msg.route)
+		} else {
+			model.navigate(msg.route)
+		}
 		return model, model.initCurrentPage()
 	case tuipage.NavigateMsg:
 		route, err := ParseRoute(msg.Path)
@@ -168,6 +182,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model.updatePage(msg)
 	case component.FormSubmittedMsg, component.FormCancelledMsg:
 		return model.updatePage(msg)
+	case tea.MouseClickMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg, tea.MouseMotionMsg:
+		return model, nil
 	case tea.KeyPressMsg:
 		if model.palette != nil {
 			updated, cmd := model.palette.Update(msg)
@@ -188,6 +204,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return model, tea.Quit
+		case "alt+left":
+			model.switchPage(cycleHeaderRoute(model.router.Current(), -1))
+			return model, model.initCurrentPage()
+		case "alt+right":
+			model.switchPage(cycleHeaderRoute(model.router.Current(), 1))
+			return model, model.initCurrentPage()
 		case "esc", "backspace":
 			if model.router.Back() {
 				model.loadPage(model.router.Current())
@@ -209,13 +231,19 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model Model) View() tea.View {
-	content := model.render()
+	content, targets := model.render()
 	if model.palette != nil {
 		width, height := model.layoutSize()
-		content = centerOverlay(content, model.palette.View(min(78, max(48, width-8))), width, height)
+		paletteWidth := min(78, max(48, width-8))
+		foreground := model.palette.View(paletteWidth)
+		x, y := max(0, (width-lipgloss.Width(foreground))/2), max(0, (height-lipgloss.Height(foreground))/2)
+		content = centerOverlay(content, foreground, width, height)
+		targets = append(targets, model.palette.MouseTargets(x, y, 100, paletteWidth)...)
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
+	view.OnMouse = func(message tea.MouseMsg) tea.Cmd { return component.DispatchMouse(targets, message) }
 	return view
 }
 
@@ -280,6 +308,14 @@ func (model *Model) navigate(route Route) {
 	model.loadPage(route)
 }
 
+func (model *Model) switchPage(route Route) {
+	if model == nil {
+		return
+	}
+	model.router.Switch(route)
+	model.loadPage(route)
+}
+
 func (model *Model) loadPage(route Route) {
 	if model == nil {
 		return
@@ -309,7 +345,7 @@ func (model *Model) loadPage(route Route) {
 	}
 	model.currentPage = value
 	if model.currentPage != nil && model.width > 0 && model.height > 0 {
-		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, model.width-8), Height: max(10, model.height-10)})
+		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, model.width-4), Height: max(10, model.height-6)})
 		model.currentPage = updated
 	}
 }
@@ -392,50 +428,85 @@ func (model *Model) ensureWorkspacePage(command tuipage.WorkspaceCommand, resour
 
 func isQuickOpenKey(message tea.KeyPressMsg) bool { return message.String() == "ctrl+o" }
 
-func (model Model) render() string {
-	width, height := model.layoutSize()
-	contentWidth := max(48, width-6)
-	pageHeight := max(1, height-8)
-	for range 3 {
-		output := model.renderFrame(width, height, contentWidth, pageHeight)
-		overflow := lipgloss.Height(output) - height
-		if overflow <= 0 {
-			return output
-		}
-		next := max(1, pageHeight-overflow)
-		if next == pageHeight {
-			return output
-		}
-		pageHeight = next
-	}
-	return model.renderFrame(width, height, contentWidth, pageHeight)
+type mousePage interface {
+	MouseTargets(originX, originY, z int) []component.MouseTarget
 }
 
-func (model Model) renderFrame(width, height, contentWidth, pageHeight int) string {
-	body := strings.Join([]string{
-		model.header(contentWidth),
-		model.divider(contentWidth),
-		model.page(contentWidth, pageHeight),
-		model.divider(contentWidth),
-		model.theme.muted.Render(model.shortcutFooter()),
-	}, "\n")
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(model.theme.border.GetBorderLeftForeground()).Padding(1, 2).Width(width).Height(height).Render(body)
+func (model Model) render() (string, []component.MouseTarget) {
+	width, height := model.layoutSize()
+	contentWidth := max(48, width-4)
+	pageHeight := max(1, height-6)
+	header, targets := model.header(contentWidth, 2, 1)
+	body := fitFrameContent(model.page(contentWidth, pageHeight), contentWidth, pageHeight)
+	footer := fitFrameLine(model.shortcutFooter(), contentWidth)
+	border := lipgloss.NewStyle().Foreground(model.theme.border.GetBorderLeftForeground())
+	lines := make([]string, 0, height)
+	lines = append(lines, model.topBorder(width, border))
+	lines = append(lines, frameLine(header, contentWidth, border))
+	lines = append(lines, frameDivider(width, border))
+	for _, line := range body {
+		lines = append(lines, frameLine(line, contentWidth, border))
+	}
+	lines = append(lines, frameDivider(width, border))
+	lines = append(lines, frameLine(footer, contentWidth, border))
+	lines = append(lines, border.Render("╰"+strings.Repeat("─", width-2)+"╯"))
+	if page, ok := model.currentPage.(mousePage); ok {
+		targets = append(targets, page.MouseTargets(2, 3, 10)...)
+	}
+	return strings.Join(lines, "\n"), targets
+}
+
+func (model Model) topBorder(width int, border lipgloss.Style) string {
+	label := " " + model.theme.title.Render("ChatGPT MCP") + " "
+	used := 2 + lipgloss.Width(label) + 1
+	return border.Render("╭─") + label + border.Render(strings.Repeat("─", max(0, width-used))+"╮")
 }
 
 func (model Model) shortcutFooter() string {
-	parts := []string{"Ctrl+P Commands", "Ctrl+O Open"}
-	if len(model.router.stack) > 1 {
-		parts = append(parts, "Esc Back")
+	width, _ := model.layoutSize()
+	width = max(48, width-4)
+	bindings := []key.Binding{
+		component.Binding([]string{"ctrl+p"}, "ctrl+p", "commands"),
+		component.Binding([]string{"ctrl+o"}, "ctrl+o", "open"),
+		component.Binding([]string{"alt+left", "alt+right"}, "alt+←/→", "pages"),
 	}
-	parts = append(parts, "q Quit")
-	return strings.Join(parts, "  ·  ")
+	if len(model.router.stack) > 1 {
+		bindings = append(bindings, component.Binding([]string{"esc"}, "esc", "back"))
+	}
+	bindings = append(bindings, component.Binding([]string{"q"}, "q", "quit"))
+	return component.DefaultHelp(width, bindings...)
 }
 
-func (model Model) header(width int) string {
-	left := model.theme.title.Render("ChatGPT MCP")
-	right := model.theme.muted.Render(model.router.Current().Title())
-	gap := max(2, width-lipgloss.Width(left)-lipgloss.Width(right)-4)
-	return left + strings.Repeat(" ", gap) + right
+func (model Model) header(width, originX, originY int) (string, []component.MouseTarget) {
+	owner := headerOwner(model.router.Current().Kind)
+	parts := make([]string, 0, len(headerPages))
+	targets := make([]component.MouseTarget, 0, len(headerPages))
+	x := 0
+	for index, page := range headerPages {
+		style := model.theme.navInactive
+		if page.Kind == owner {
+			style = model.theme.navActive
+		}
+		cellWidth := width / len(headerPages)
+		if index < width%len(headerPages) {
+			cellWidth++
+		}
+		label := ansi.Truncate(page.Label, max(1, cellWidth), "")
+		button := style.Padding(0).Width(cellWidth).Align(lipgloss.Center).Render(label)
+		kind := page.Kind
+		targets = append(targets, component.MouseTarget{
+			ID: "app.header." + string(kind), Rect: component.Rect{X: originX + x, Y: originY, Width: cellWidth, Height: 1}, Z: 1,
+			Handle: func(event component.MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return navigateMsg{route: Route{Kind: kind}, sibling: true}
+			},
+		})
+		parts = append(parts, button)
+		x += cellWidth
+	}
+	return fitFrameLine(strings.Join(parts, ""), width), targets
 }
 
 func (model Model) page(width, height int) string {
@@ -443,13 +514,12 @@ func (model Model) page(width, height int) string {
 		return model.currentPage.View(width, height)
 	}
 	route := model.router.Current()
-	title := model.theme.current.Render(route.Title())
 	description := routeDescription(route)
 	notice := ""
 	if model.notice != "" {
 		notice = "\n\n" + model.theme.muted.Render(model.notice)
 	}
-	return "\n" + title + "\n\n" + model.theme.muted.Render(description) + notice + "\n\n" + model.theme.subtle.Render("Command Center shell is ready. Domain actions will be added through the shared action registry.") + "\n"
+	return component.PageTitle(route.Title(), width) + "\n" + model.theme.muted.Render(description) + notice + "\n\n" + model.theme.subtle.Render("Command Center shell is ready. Domain actions will be added through the shared action registry.")
 }
 
 func (model Model) layoutSize() (int, int) {
@@ -463,8 +533,30 @@ func (model Model) layoutSize() (int, int) {
 	return max(minTerminalWidth, width), max(minTerminalHeight, height)
 }
 
-func (model Model) divider(width int) string {
-	return model.theme.subtle.Render(strings.Repeat("─", max(1, width-4)))
+func frameLine(content string, width int, border lipgloss.Style) string {
+	return border.Render("│") + " " + fitFrameLine(content, width) + " " + border.Render("│")
+}
+
+func frameDivider(width int, border lipgloss.Style) string {
+	return border.Render("├" + strings.Repeat("─", width-2) + "┤")
+}
+
+func fitFrameContent(content string, width, height int) []string {
+	lines := strings.Split(content, "\n")
+	result := make([]string, height)
+	for index := range result {
+		if index < len(lines) {
+			result[index] = fitFrameLine(lines[index], width)
+		} else {
+			result[index] = strings.Repeat(" ", width)
+		}
+	}
+	return result
+}
+
+func fitFrameLine(line string, width int) string {
+	line = ansi.Truncate(line, width, "")
+	return line + strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
 }
 
 func routeDescription(route Route) string {

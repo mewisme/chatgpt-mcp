@@ -34,7 +34,6 @@ import { ScrollableTabsList, Tabs, TabsContent, TabsTrigger } from "@/components
 import { Textarea } from "@/components/ui/textarea"
 import {
   adminApi,
-  type ConfigPresetList,
   type NetworkInterface,
   type PublicConfig,
 } from "@/lib/api"
@@ -42,9 +41,7 @@ import {
 export function SettingsPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [savedConfig, setSavedConfig] = useState<PublicConfig | null>(null)
-  const [presets, setPresets] = useState<ConfigPresetList | null>(null)
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
-  const [selectedPreset, setSelectedPreset] = useState("")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
@@ -52,18 +49,13 @@ export function SettingsPage() {
   useEffect(() => {
     void Promise.all([
       adminApi.config(),
-      adminApi.configPresets(),
       adminApi.networkInterfaces(),
     ])
-      .then(([nextConfig, nextPresets, nextInterfaces]) => {
+      .then(([nextConfig, nextInterfaces]) => {
         const normalized = normalizeConfig(nextConfig)
         setConfig(normalized)
         setSavedConfig(normalized)
-        setPresets(nextPresets)
         setInterfaces(nextInterfaces)
-        setSelectedPreset(
-          nextPresets.current === "custom" ? "" : nextPresets.current
-        )
       })
       .catch((value) => setError(errorText(value)))
   }, [])
@@ -83,41 +75,10 @@ export function SettingsPage() {
     setBusy(true)
     try {
       const next = normalizeConfig(await adminApi.saveConfig(config))
-      const nextPresets = await adminApi.configPresets()
       setConfig(next)
       setSavedConfig(next)
-      setPresets(nextPresets)
-      setSelectedPreset(
-        nextPresets.current === "custom" ? "" : nextPresets.current
-      )
       setMessage(
         "Saved. Runtime, listener, feature, auth, filesystem, and shell-path changes were applied live."
-      )
-      setError("")
-    } catch (value) {
-      setError(errorText(value))
-      setMessage("")
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function applyPreset() {
-    if (!selectedPreset) return
-    setBusy(true)
-    try {
-      const next = normalizeConfig(
-        await adminApi.applyConfigPreset(selectedPreset)
-      )
-      const nextPresets = await adminApi.configPresets()
-      setConfig(next)
-      setSavedConfig(next)
-      setPresets(nextPresets)
-      setSelectedPreset(
-        nextPresets.current === "custom" ? selectedPreset : nextPresets.current
-      )
-      setMessage(
-        `Preset ${selectedPreset} applied. Secrets, permissions, and shell paths were preserved.`
       )
       setError("")
     } catch (value) {
@@ -164,7 +125,7 @@ export function SettingsPage() {
     })
   }
 
-  if (!config || !savedConfig || !presets)
+  if (!config || !savedConfig)
     return (
       <div className="text-sm text-muted-foreground">
         {error || "Loading settings..."}
@@ -190,7 +151,6 @@ export function SettingsPage() {
       <PageHeader
         title="Settings"
         description="Configure runtime listeners, security, filesystem access, features, and the managed execution environment."
-        actions={<Badge variant="secondary">{presets.current}</Badge>}
       />
       <PageError message={error} />
       {message ? (
@@ -208,50 +168,6 @@ export function SettingsPage() {
           <TabsTrigger value="environment">Environment</TabsTrigger>
         </ScrollableTabsList>
         <TabsContent className="mt-6 space-y-6" value="general">
-          <Card>
-            <CardHeader>
-              <CardTitle>Config preset</CardTitle>
-              <CardDescription>
-                Apply the same built-in presets used by the CLI. Secrets,
-                filesystem permissions, and shell paths are preserved.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Select
-                  value={selectedPreset}
-                  onValueChange={setSelectedPreset}
-                >
-                  <SelectTrigger className="w-full sm:w-64">
-                    <SelectValue placeholder="Select preset" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {presets.presets.map((preset) => (
-                      <SelectItem key={preset.name} value={preset.name}>
-                        {preset.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  disabled={busy || !selectedPreset}
-                  variant="outline"
-                  onClick={() => void applyPreset()}
-                >
-                  Apply preset
-                </Button>
-              </div>
-              {selectedPreset ? (
-                <p className="mt-3 text-sm text-muted-foreground">
-                  {
-                    presets.presets.find(
-                      (preset) => preset.name === selectedPreset
-                    )?.description
-                  }
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
           <Card>
             <CardHeader>
               <CardTitle>CLI behavior</CardTitle>

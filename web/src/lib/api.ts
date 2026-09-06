@@ -285,17 +285,6 @@ export type NetworkAddress = {
   scope: "local" | "lan" | "network" | string
 }
 export type NetworkInterface = { name: string; addresses: NetworkAddress[] }
-export type ConfigPreset = {
-  name: string
-  description: string
-  server: PublicConfig["server"]
-  admin: PublicConfig["admin"]
-  mcp_auth_enabled: boolean
-  admin_auth_enabled: boolean
-  tunnel_enabled: boolean
-  features: PublicConfig["features"]
-}
-export type ConfigPresetList = { current: string; presets: ConfigPreset[] }
 export type TunnelAdminScope = {
   organization_id?: string
   workspace_id?: string
@@ -449,13 +438,6 @@ export const adminApi = {
     api<PublicConfig>("/api/config", {
       method: "PUT",
       body: JSON.stringify(config),
-    }),
-  configPresets: () => api<ConfigPresetList>("/api/config/presets"),
-  configPreset: (name: string) =>
-    api<ConfigPreset>(`/api/config/presets/${encodeURIComponent(name)}`),
-  applyConfigPreset: (name: string) =>
-    api<PublicConfig>(`/api/config/presets/${encodeURIComponent(name)}`, {
-      method: "POST",
     }),
   workspaces: () => api<Workspace[]>("/api/workspaces"),
   workspace: (id: string) =>

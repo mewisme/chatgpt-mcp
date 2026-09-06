@@ -78,7 +78,7 @@ func newMCPServerForm(server upstream.Server, create bool) (component.Form, *mcp
 	data.Headers = assignmentText(nonSensitiveMap(server.Headers))
 	data.Env = assignmentText(nonSensitiveMap(server.Env))
 
-	general := []*huh.Group{}
+	general := []component.FormGroup{}
 	fields := []huh.Field{}
 	if create {
 		fields = append(fields, component.Input("Server ID", &data.ID).Validate(requiredValue("server id")))
@@ -88,9 +88,9 @@ func newMCPServerForm(server upstream.Server, create bool) (component.Form, *mcp
 		component.Select("Transport", &data.Transport, huh.NewOption("HTTP", "http"), huh.NewOption("stdio", "stdio")),
 		component.Confirm("Enabled", &data.Enabled),
 	)
-	general = append(general, huh.NewGroup(fields...))
+	general = append(general, component.Group(fields...))
 
-	httpGroup := huh.NewGroup(
+	httpGroup := component.Group(
 		component.Input("HTTP MCP URL", &data.URL),
 		component.Text("Non-sensitive headers (KEY=VALUE, one per line)", &data.Headers),
 		component.PasswordInput("Sensitive headers JSON", &data.SensitiveHeaders).Description(`Optional JSON object, e.g. {"Authorization":"Bearer ..."}. Blank keeps existing sensitive headers.`),
@@ -99,7 +99,7 @@ func newMCPServerForm(server upstream.Server, create bool) (component.Form, *mcp
 		component.Input("OAuth scope", &data.AuthScope),
 	).WithHideFunc(func() bool { return data.Transport != "http" })
 
-	stdioGroup := huh.NewGroup(
+	stdioGroup := component.Group(
 		component.Input("Command", &data.Command),
 		component.Text("Arguments (one per line)", &data.Args),
 		component.Input("Working directory", &data.CWD),
@@ -107,7 +107,7 @@ func newMCPServerForm(server upstream.Server, create bool) (component.Form, *mcp
 		component.PasswordInput("Sensitive environment JSON", &data.SensitiveEnv).Description(`Optional JSON object, e.g. {"API_TOKEN":"..."}. Blank keeps existing sensitive environment values.`),
 	).WithHideFunc(func() bool { return data.Transport != "stdio" })
 
-	policyGroup := huh.NewGroup(
+	policyGroup := component.Group(
 		component.Input("Tool prefix", &data.ToolPrefix),
 		component.Select("Expose", &data.Expose, huh.NewOption("All", "all"), huh.NewOption("Allowlist", "allowlist"), huh.NewOption("Metadata only", "meta_only"), huh.NewOption("None", "none")),
 		component.Text("Allowlisted tools (one per line)", &data.Tools),
@@ -120,7 +120,7 @@ func newMCPServerForm(server upstream.Server, create bool) (component.Form, *mcp
 
 func newMCPOAuthForm() (component.Form, *mcpOAuthFormData) {
 	data := mcpOAuthFormData{OpenBrowser: true}
-	form := component.NewForm(huh.NewGroup(
+	form := component.NewForm(component.Group(
 		component.Input("Issuer override", &data.Issuer),
 		component.Input("Pre-registered client ID", &data.ClientID),
 		component.Input("Client secret environment variable", &data.ClientSecretEnvVar),

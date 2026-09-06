@@ -36,7 +36,6 @@ func configCommand() *cobra.Command {
 		configConvertCommand(),
 		configExportCommand(),
 		configImportCommand(),
-		configPresetCommand(),
 		configVerifyCommand(),
 	)
 	return cmd
@@ -204,96 +203,6 @@ func configSetCommand() *cobra.Command {
 		},
 	}
 	cmd.ValidArgsFunction = completeConfigSet
-	return cmd
-}
-
-func configPresetCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "preset", Short: "List, inspect, and apply built-in configuration presets"}
-	var showJSON bool
-	show := &cobra.Command{
-		Use:               "show <name>",
-		Short:             "Show one built-in configuration preset",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: completePresetName,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			preset, err := config.PresetByName(args[0])
-			if err != nil {
-				return err
-			}
-			if showJSON {
-				return printJSON(cmd, preset)
-			}
-			log := commandLogger(cmd)
-			log.Info("PRESET", "configuration preset")
-			log.Detail("name", preset.Name)
-			log.Detail("description", preset.Description)
-			log.Detail("mcp port", preset.Server.Port)
-			log.Detail("expose", preset.Server.Expose.Mode)
-			if len(preset.Server.Expose.Interfaces) > 0 {
-				log.Detail("interfaces", preset.Server.Expose.Interfaces)
-			}
-			log.Detail("admin", preset.Admin.Enabled)
-			if preset.Admin.Enabled {
-				log.Detail("admin port", preset.Admin.Port)
-			}
-			log.Detail("mcp auth", preset.MCPAuthEnabled)
-			log.Detail("admin auth", preset.AdminAuthEnabled)
-			log.Detail("tunnel", preset.TunnelEnabled)
-			log.Detail("ponytail active", preset.Features.Ponytail.Active)
-			log.Detail("ponytail mode", preset.Features.Ponytail.Mode)
-			log.Detail("caveman active", preset.Features.Caveman.Active)
-			log.Detail("caveman mode", preset.Features.Caveman.Mode)
-			return nil
-		},
-	}
-	show.Flags().BoolVar(&showJSON, "json", false, "print JSON")
-	cmd.AddCommand(
-		&cobra.Command{
-			Use:     "list",
-			Aliases: []string{"ls"},
-			Short:   "List built-in configuration presets",
-			RunE: func(cmd *cobra.Command, args []string) error {
-				log := commandLogger(cmd)
-				presets := config.Presets()
-				log.Success("PRESET", "configuration presets loaded", "count", len(presets))
-				for _, preset := range presets {
-					log.Detail(preset.Name, preset.Description)
-				}
-				return nil
-			},
-		},
-		show,
-		&cobra.Command{
-			Use:               "apply <name>",
-			Aliases:           []string{"use"},
-			Short:             "Apply a preset while preserving configured secrets and tunnel details",
-			Args:              cobra.ExactArgs(1),
-			ValidArgsFunction: completePresetName,
-			RunE: func(cmd *cobra.Command, args []string) error {
-				result, err := application.ApplyConfigPreset(args[0])
-				if err != nil {
-					return err
-				}
-				log := commandLogger(cmd)
-				log.Success("PRESET", "configuration preset applied", "name", config.MatchPreset(result.Config))
-				logEndpointDetails(log, result.Config)
-				log.Detail("secrets", "preserved")
-				return nil
-			},
-		},
-		&cobra.Command{
-			Use:   "current",
-			Short: "Print the matching preset name or custom",
-			RunE: func(cmd *cobra.Command, args []string) error {
-				cfg, err := config.Load()
-				if err != nil {
-					return err
-				}
-				cmd.Println(config.MatchPreset(cfg))
-				return nil
-			},
-		},
-	)
 	return cmd
 }
 

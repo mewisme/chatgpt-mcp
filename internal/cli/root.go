@@ -46,6 +46,7 @@ func newRootCommand() *cobra.Command {
 		tunnelCommand(),
 		serveCommand(),
 		statusCommand(),
+		completionCommand(),
 		internalServiceCommand(),
 		&cobra.Command{Use: "version", Short: "Show the chatgpt-mcp version and build information", Args: cobra.NoArgs, Run: func(cmd *cobra.Command, args []string) {
 			commandLogger(cmd).Notice("VERSION", "cli.version", version.String())

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -80,19 +79,56 @@ func TestDynamicEntityAndSessionCompletionUsesSelectedConfigRoot(t *testing.T) {
 	}
 }
 
-func TestCGMCompletionScriptUsesAliasName(t *testing.T) {
-	t.Setenv("CHATGPT_MCP_CLI_NAME", "cgm")
-	cmd := newRootCommand()
-	if cmd.Name() != "cgm" {
-		t.Fatalf("root name = %q", cmd.Name())
+func TestCompletionScriptsRegisterBinaryAndAlias(t *testing.T) {
+	for _, rootName := range []string{"chatgpt-mcp", "cgm"} {
+		t.Run(rootName, func(t *testing.T) {
+			if rootName == "cgm" {
+				t.Setenv("CHATGPT_MCP_CLI_NAME", "cgm")
+			}
+			root := newRootCommand()
+			if root.Name() != rootName {
+				t.Fatalf("root name=%q", root.Name())
+			}
+			for _, test := range []struct {
+				shell string
+				want  []string
+			}{
+				{shell: "bash", want: []string{"__start_" + rootName, "chatgpt-mcp cgm"}},
+				{shell: "zsh", want: []string{"#compdef chatgpt-mcp cgm", "compdef _" + rootName + " chatgpt-mcp cgm"}},
+				{shell: "fish", want: []string{"complete -c chatgpt-mcp", "complete -c cgm"}},
+				{shell: "powershell", want: []string{"-CommandName 'chatgpt-mcp','cgm'"}},
+			} {
+				script, err := generateCompletion(root, test.shell, true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				script = registerCompletionAliases(test.shell, root.Name(), script)
+				for _, want := range test.want {
+					if !strings.Contains(script, want) {
+						t.Fatalf("%s completion missing %q", test.shell, want)
+					}
+				}
+			}
+		})
 	}
-	var output bytes.Buffer
-	if err := cmd.GenBashCompletion(&output); err != nil {
-		t.Fatal(err)
+}
+
+func TestCompletionGoRunHooksUseDirectSourceInvocation(t *testing.T) {
+	for _, test := range []struct {
+		shell string
+		start string
+	}{{shell: "bash", start: "__start_chatgpt-mcp"}, {shell: "zsh", start: "_chatgpt-mcp"}} {
+		script := goRunCompletion(test.shell, "chatgpt-mcp")
+		for _, want := range []string{"go run .", test.start, "chatgpt_mcp_go_run_completion"} {
+			if !strings.Contains(script, want) {
+				t.Fatalf("%s go-run completion missing %q", test.shell, want)
+			}
+		}
 	}
-	text := output.String()
-	if !strings.Contains(text, "__start_cgm") || strings.Contains(text, "__start_chatgpt-mcp") {
-		t.Fatalf("unexpected completion script header")
+	cmd := completionCommand()
+	cmd.SetArgs([]string{"fish", "--go-run"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "supported for bash and zsh") {
+		t.Fatalf("fish --go-run err=%v", err)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 var publicCapabilityExemptions = map[string]string{
 	"tui":                  "TUI entrypoint; it is the surface being checked",
+	"completion":           "local shell integration; it does not access runtime capabilities",
 	"request create dummy": "public test-only helper for approval UI development",
 }
 

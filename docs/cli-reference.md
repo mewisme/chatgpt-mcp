@@ -41,7 +41,17 @@ cgm completion fish | source
 cgm completion powershell | Out-String | Invoke-Expression
 ```
 
-Dynamic completion includes config keys and typed values, workspace IDs, upstream MCP IDs, recent runtime session IDs, and directory arguments where appropriate. For example, `cgm cfg set per<Tab>` completes `permissions.allow_dirs`, while `cgm cfg set auth.mcp_enabled <Tab>` offers `true` and `false`.
+Each generated script registers both `chatgpt-mcp` and `cgm`, so completion keeps working regardless of which binary name or installed alias is used. Dynamic completion includes config keys and typed values, workspace IDs, upstream MCP IDs, recent runtime session IDs, and directory arguments where appropriate. For example, `cgm cfg set per<Tab>` completes `permissions.allow_dirs`, while `cgm cfg set auth.mcp_enabled <Tab>` offers `true` and `false`.
+
+For source-tree development with direct `go run .` invocations, Bash and Zsh can opt into the Go wrapper hook:
+
+```bash
+source <(go run . completion bash --go-run)
+# or, in Zsh:
+source <(go run . completion zsh --go-run)
+```
+
+The hook only redirects completion when the command starts with `go run .`; otherwise it delegates to the previously registered Go completion function when one exists.
 
 ## Global flags
 
@@ -66,6 +76,7 @@ chatgpt-mcp
 │   ├── mcp
 │   ├── admin
 │   └── status
+├── completion
 ├── config
 │   ├── convert
 │   ├── export

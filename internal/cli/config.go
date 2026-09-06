@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configbundle"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
-	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
 const defaultConfigBundleFile = "chatgpt-mcp-config.cgm"
@@ -494,16 +493,7 @@ func configMigrateCommand() *cobra.Command {
 }
 
 func migrateLegacySecrets() error {
-	if _, err := config.Load(); err != nil {
-		return err
-	}
-	if _, err := upstream.NewStore(upstream.Path()).Load(); err != nil {
-		return err
-	}
-	if err := mcpoauth.NewStore(mcpoauth.Path()).Migrate(); err != nil {
-		return err
-	}
-	return nil
+	return application.MigrateLegacySecrets()
 }
 
 func configConvertCommand() *cobra.Command {

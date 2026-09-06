@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -65,6 +64,8 @@ type WorkspacePage struct {
 	width      int
 	height     int
 }
+
+var copyWorkspaceID = component.CopyText
 
 func NewWorkspaces(ctx context.Context, resourceID string) (*WorkspacePage, error) {
 	return newWorkspacePage(ctx, workspacePageWorkspaces, resourceID)
@@ -470,7 +471,12 @@ func (page *WorkspacePage) reload() error {
 		}
 		return page.workspaceRows()
 	}
-	page.browser = component.NewBrowser(page.ctx, title, rows, refresh)
+	page.browser = component.NewBrowser(page.ctx, title, rows, refresh).WithAction(component.RowAction{Key: "c", Desc: "copy ID", Run: func(row component.Row) (string, tea.Cmd, error) {
+		if err := copyWorkspaceID(row.ID); err != nil {
+			return "", nil, err
+		}
+		return "Copied " + row.ID, nil, nil
+	}})
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
 		page.browser = updated.(component.Browser)
@@ -616,9 +622,3 @@ func joinedOrNone(values []string) string {
 	}
 	return strings.Join(values, ", ")
 }
-
-var workspacePageHelp = []key.Binding{
-	component.Binding([]string{"a"}, "a", "add"), component.Binding([]string{"d"}, "d", "delete"),
-}
-
-var _ = workspacePageHelp

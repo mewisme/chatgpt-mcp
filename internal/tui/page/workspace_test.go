@@ -129,3 +129,55 @@ func TestWorkspaceContainerLifecycleAndMembership(t *testing.T) {
 		t.Fatalf("workspace records changed by container delete: %#v err=%v", workspaces, err)
 	}
 }
+
+func TestWorkspaceAndContainerCopySelectedID(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	workspacePage, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceItem, err := workspacePage.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := workspacePage.reload(); err != nil {
+		t.Fatal(err)
+	}
+	container, err := workspacePage.manager.CreateContainer("Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	containerPage, err := NewContainers(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := copyWorkspaceID
+	t.Cleanup(func() { copyWorkspaceID = previous })
+	var copied string
+	copyWorkspaceID = func(value string) error { copied = value; return nil }
+
+	for _, test := range []struct {
+		name string
+		page *WorkspacePage
+		id   string
+	}{{"workspace", workspacePage, workspaceItem.ID}, {"container", containerPage, container.ID}} {
+		t.Run(test.name, func(t *testing.T) {
+			copied = ""
+			if !test.page.browser.SelectID(test.id) {
+				t.Fatalf("could not select %s", test.id)
+			}
+			updated, _ := test.page.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+			test.page = updated.(*WorkspacePage)
+			if copied != test.id {
+				t.Fatalf("copied=%q want=%q", copied, test.id)
+			}
+		})
+	}
+}

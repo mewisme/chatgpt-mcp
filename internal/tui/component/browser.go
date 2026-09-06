@@ -68,6 +68,7 @@ type Browser struct {
 	actions            []RowAction
 	helpBindings       []key.Binding
 	detail             bool
+	detailID           string
 	loading            bool
 	width              int
 	height             int
@@ -167,10 +168,10 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.restoreSelection(selectedID)
 		}
 		if m.detail {
-			if selected, ok := m.rowByID(selectedID); ok {
+			if selected, ok := m.detailRow(); ok {
 				m.syncDetail(selected)
 			} else {
-				m.detail = false
+				m.closeDetail()
 			}
 		}
 		return m, cmd
@@ -196,7 +197,7 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.detail {
 		switch {
 		case msg.String() == "esc", key.Matches(msg, browserOpenBinding):
-			m.detail = false
+			m.closeDetail()
 			return m, nil
 		case m.moveDetailTab(msg):
 			return m, nil
@@ -220,6 +221,7 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, browserOpenBinding):
 		if selected, ok := m.selected(); ok {
 			m.detail = true
+			m.detailID = selected.ID
 			m.detailTab = 0
 			m.syncDetail(selected)
 		}
@@ -264,10 +266,10 @@ func (m *Browser) ReplaceRows(rows []Row, selectedID string) tea.Cmd {
 		m.restoreSelection(selectedID)
 	}
 	if m.detail {
-		if selected, ok := m.rowByID(selectedID); ok {
+		if selected, ok := m.detailRow(); ok {
 			m.syncDetail(selected)
 		} else {
-			m.detail = false
+			m.closeDetail()
 		}
 	}
 	return cmd
@@ -308,6 +310,7 @@ func (m *Browser) OpenDetail(id string) bool {
 		return false
 	}
 	m.detail = true
+	m.detailID = selected.ID
 	m.detailTab = 0
 	m.syncDetail(selected)
 	return true
@@ -415,7 +418,7 @@ func (m Browser) overlayDetail(background string) string {
 }
 
 func (m Browser) detailView() string {
-	selected, ok := m.selected()
+	selected, ok := m.detailRow()
 	if !ok {
 		return Modal(Muted("The selected item is no longer available."), m.modalWidth())
 	}
@@ -476,7 +479,7 @@ func (m Browser) detailMouseTargets(originX, originY, z int) []MouseTarget {
 			}
 		},
 	}}
-	selected, ok := m.selected()
+	selected, ok := m.detailRow()
 	if !ok || len(selected.DetailTabs) < 2 {
 		return targets
 	}
@@ -506,7 +509,7 @@ func (m Browser) detailMouseTargets(originX, originY, z int) []MouseTarget {
 
 func (m Browser) handleMouse(msg browserMouseMsg) (tea.Model, tea.Cmd) {
 	if msg.Tab > 0 && m.detail {
-		selected, ok := m.selected()
+		selected, ok := m.detailRow()
 		if ok && msg.Tab-1 < len(selected.DetailTabs) {
 			m.detailTab = msg.Tab - 1
 			m.syncDetail(selected)
@@ -532,6 +535,7 @@ func (m Browser) handleMouse(msg browserMouseMsg) (tea.Model, tea.Cmd) {
 		if msg.Open {
 			if selected, ok := m.selected(); ok {
 				m.detail = true
+				m.detailID = selected.ID
 				m.detailTab = 0
 				m.syncDetail(selected)
 			}
@@ -558,6 +562,16 @@ func (m Browser) rowByID(id string) (Row, bool) {
 	return Row{}, false
 }
 
+func (m Browser) detailRow() (Row, bool) {
+	if !m.detail {
+		return Row{}, false
+	}
+	if m.detailID != "" {
+		return m.rowByID(m.detailID)
+	}
+	return m.selected()
+}
+
 func (m Browser) startRefresh() (tea.Model, tea.Cmd) {
 	if m.refresh == nil || m.loading {
 		return m, nil
@@ -576,6 +590,9 @@ func (m *Browser) runAction(keyValue string) (bool, tea.Cmd) {
 			continue
 		}
 		selected, ok := m.selected()
+		if m.detail {
+			selected, ok = m.detailRow()
+		}
 		if !ok {
 			return true, nil
 		}
@@ -617,9 +634,14 @@ func (m *Browser) restoreSelection(id string) {
 			return
 		}
 	}
-	if m.detail {
-		m.detail = false
+}
+
+func (m *Browser) closeDetail() {
+	if m == nil {
+		return
 	}
+	m.detail = false
+	m.detailID = ""
 }
 
 func (m *Browser) resizeViewport() {
@@ -655,7 +677,7 @@ func (m *Browser) syncDetail(row Row) {
 }
 
 func (m *Browser) moveDetailTab(msg tea.KeyPressMsg) bool {
-	selected, ok := m.selected()
+	selected, ok := m.detailRow()
 	if !ok || len(selected.DetailTabs) < 2 {
 		return false
 	}

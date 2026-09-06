@@ -256,6 +256,35 @@ func TestBrowserExportsSelectionAndDetail(t *testing.T) {
 	}
 }
 
+func TestBrowserDetailPinsOpenedRowWhileListSelectionMoves(t *testing.T) {
+	actedOn := ""
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One", Detail: "one detail"}, {ID: "two", Title: "Two", Detail: "two detail"}}, nil).WithAction(RowAction{
+		Key: "x", Desc: "act", Run: func(row Row) (string, tea.Cmd, error) {
+			actedOn = row.ID
+			return "", nil, nil
+		},
+	})
+	if !model.OpenDetail("two") {
+		t.Fatal("detail did not open")
+	}
+	cmd := model.ReplaceRows([]Row{{ID: "one", Title: "One", Detail: "one updated"}, {ID: "two", Title: "Two", Detail: "two updated"}, {ID: "three", Title: "Three", Detail: "three detail"}}, "three")
+	model = runBrowserCmd(t, model, cmd)
+	if selected, ok := model.Selected(); !ok || selected.ID != "three" {
+		t.Fatalf("selected=%#v ok=%t", selected, ok)
+	}
+	if !model.DetailOpen() || model.detailID != "two" || !strings.Contains(model.detailView(), "two updated") || strings.Contains(model.detailView(), "three detail") {
+		t.Fatalf("detail open=%t id=%q view=%q", model.DetailOpen(), model.detailID, model.detailView())
+	}
+	model = updateBrowser(t, model, browserKeyText("x"))
+	if actedOn != "two" {
+		t.Fatalf("detail action targeted %q", actedOn)
+	}
+	model = updateBrowser(t, model, browserKeyCode(tea.KeyEscape))
+	if model.DetailOpen() || model.detailID != "" {
+		t.Fatalf("detail close open=%t id=%q", model.DetailOpen(), model.detailID)
+	}
+}
+
 func TestBrowserMouseSelectOpenTabAndWheel(t *testing.T) {
 	longScope := strings.Repeat("scope line\n", 30)
 	model := NewBrowser(context.Background(), "Items", []Row{

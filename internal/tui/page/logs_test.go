@@ -111,6 +111,36 @@ func TestLogsPagePauseBuffersWithoutFollowingAndResumeReturnsToTail(t *testing.T
 	}
 }
 
+func TestLogsPageFollowKeepsOpenDetailPinnedWhileSelectingLatest(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	base := time.Now().UTC()
+	page.mergeEvents([]runtimeevent.Event{
+		{Sequence: 1, Time: base, RunID: "run", Level: "info", Name: "one", Message: "one"},
+		{Sequence: 2, Time: base.Add(time.Second), RunID: "run", Level: "info", Name: "two", Message: "two"},
+	})
+	if !page.browser.OpenDetail("run:2") || page.paused {
+		t.Fatalf("detail=%t paused=%t", page.browser.DetailOpen(), page.paused)
+	}
+	page.appendEvent(runtimeevent.Event{Sequence: 3, Time: base.Add(2 * time.Second), RunID: "run", Level: "info", Name: "three", Message: "three"})
+	if page.paused || page.selectedID() != "run:3" || !page.browser.DetailOpen() {
+		t.Fatalf("follow paused=%t selected=%q detail=%t", page.paused, page.selectedID(), page.browser.DetailOpen())
+	}
+	detail := ansi.Strip(page.browser.Content())
+	if !strings.Contains(detail, "Log event · two") || strings.Contains(detail, "Log event · three") {
+		t.Fatalf("detail jumped after live append: %q", detail)
+	}
+	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	page = updated.(*LogsPage)
+	if page.browser.DetailOpen() || page.paused || page.selectedID() != "run:3" {
+		t.Fatalf("after close detail=%t paused=%t selected=%q", page.browser.DetailOpen(), page.paused, page.selectedID())
+	}
+	page.appendEvent(runtimeevent.Event{Sequence: 4, Time: base.Add(3 * time.Second), RunID: "run", Level: "info", Name: "four", Message: "four"})
+	if page.paused || page.selectedID() != "run:4" {
+		t.Fatalf("follow did not continue paused=%t selected=%q", page.paused, page.selectedID())
+	}
+}
+
 func TestLogsPageBufferIsBounded(t *testing.T) {
 	page, _ := NewLogs(t.Context())
 	defer page.Close()

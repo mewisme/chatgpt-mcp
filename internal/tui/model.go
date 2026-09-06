@@ -9,12 +9,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
+	"go.mewis.me/chatgpt-mcp/internal/tui/palette"
 )
 
 type Model struct {
 	ctx     context.Context
 	router  Router
 	actions *action.Registry
+	palette *palette.Model
 	theme   theme
 	width   int
 	height  int
@@ -37,11 +39,35 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
 		model.theme = newTheme(msg.IsDark())
+		if model.palette != nil {
+			updated, cmd := model.palette.Update(msg)
+			model.palette = &updated
+			return model, cmd
+		}
 	case tea.WindowSizeMsg:
 		model.width, model.height = msg.Width, msg.Height
+	case palette.ClosedMsg:
+		model.palette = nil
+		return model, nil
+	case palette.SelectedMsg:
+		model.palette = nil
+		cmd, err := model.actions.Execute(model.ctx, msg.ID, actionContext(model.router.Current()))
+		if err != nil {
+			return model, nil
+		}
+		return model, cmd
 	case navigateMsg:
 		model.router.Navigate(msg.route)
 	case tea.KeyPressMsg:
+		if model.palette != nil {
+			updated, cmd := model.palette.Update(msg)
+			model.palette = &updated
+			return model, cmd
+		}
+		if isPaletteKey(msg) {
+			model.openPalette()
+			return model, nil
+		}
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return model, tea.Quit
@@ -60,9 +86,27 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model Model) View() tea.View {
-	view := tea.NewView(model.render())
+	content := model.render()
+	if model.palette != nil {
+		content = centerOverlay(content, model.palette.View(min(78, max(48, model.width-8))), model.width, model.height)
+	}
+	view := tea.NewView(content)
 	view.AltScreen = true
 	return view
+}
+
+func (model *Model) openPalette() {
+	if model == nil {
+		return
+	}
+	context := actionContext(model.router.Current())
+	value := palette.New(model.actions.Actions(context), context)
+	model.palette = &value
+}
+
+func isPaletteKey(message tea.KeyPressMsg) bool {
+	value := message.String()
+	return value == "ctrl+shift+p" || value == "ctrl+p" || value == ":"
 }
 
 func (model Model) render() string {

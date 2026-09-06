@@ -40,3 +40,39 @@ func TestModelQuitAndBack(t *testing.T) {
 		t.Fatal("quit command is nil")
 	}
 }
+
+func TestModelOpensAndRunsCommandPalette(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl | tea.ModShift})
+	model = updated.(Model)
+	if model.palette == nil {
+		t.Fatal("Ctrl+Shift+P did not open palette")
+	}
+	model.palette.SetQuery("logs")
+	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("palette enter returned no command")
+	}
+	updated, command = model.Update(command())
+	model = updated.(Model)
+	if command == nil {
+		t.Fatal("palette action returned no navigation command")
+	}
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	if model.router.Current().Kind != RouteLogs || model.palette != nil {
+		t.Fatalf("route=%#v palette=%v", model.router.Current(), model.palette != nil)
+	}
+}
+
+func TestModelPaletteFallbackKeys(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{{Code: 'p', Mod: tea.ModCtrl}, {Text: ":", Code: ':'}} {
+		model := NewModel(Route{Kind: RouteHome})
+		updated, _ := model.Update(key)
+		model = updated.(Model)
+		if model.palette == nil {
+			t.Fatalf("%q did not open palette", key.String())
+		}
+	}
+}

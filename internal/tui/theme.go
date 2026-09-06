@@ -25,3 +25,17 @@ func newTheme(isDark bool) theme {
 		current: accent.Bold(true),
 	}
 }
+
+func centerOverlay(background, foreground string, width, height int) string {
+	if width <= 0 {
+		width = max(80, lipgloss.Width(background))
+	}
+	if height <= 0 {
+		height = max(24, lipgloss.Height(background))
+	}
+	x := max(0, (width-lipgloss.Width(foreground))/2)
+	y := max(0, (height-lipgloss.Height(foreground))/2)
+	canvas := lipgloss.NewCanvas(width, height)
+	canvas.Compose(lipgloss.NewCompositor(lipgloss.NewLayer(background).X(0).Y(0).Z(0), lipgloss.NewLayer(foreground).X(x).Y(y).Z(1)))
+	return canvas.Render()
+}

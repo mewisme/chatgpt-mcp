@@ -18,7 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-const serviceReadyTimeout = 15 * time.Second
+const serviceReadyTimeout = 45 * time.Second
 
 func upCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "up", Short: "Install and start the managed MCP service", Args: cobra.NoArgs, RunE: runUp}
@@ -432,6 +432,11 @@ func waitManagedRuntimeReadyAfter(parent context.Context, spec managed.Spec, pre
 			}
 			if previousRunID != "" && status.RunID == previousRunID {
 				lastErr = errors.New("previous managed runtime is still shutting down")
+			} else if status.TunnelEnabled && !status.TunnelReady {
+				lastErr = errors.New("OpenAI Secure MCP Tunnel is not ready")
+				if status.TunnelLastError != "" {
+					lastErr = fmt.Errorf("OpenAI Secure MCP Tunnel is not ready: %s", status.TunnelLastError)
+				}
 			} else {
 				return status, nil
 			}

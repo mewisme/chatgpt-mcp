@@ -88,7 +88,7 @@ Install an exact release, including an intentional downgrade:
 cgm update --version vX.Y.Z
 ```
 
-If the selected config root has a running managed service, update switches the stable `current` target, restarts that service, and waits for runtime readiness. If the new runtime fails to become healthy, `chatgpt-mcp` restores the previous `current` target and metadata, then restarts the previous version.
+If the selected config root has a running managed service, update switches the stable `current` target, restarts that service, and waits for full runtime readiness. When the Secure MCP Tunnel is enabled, that includes waiting for the tunnel to become ready instead of returning while it is still connecting. If the new runtime fails to become healthy, `chatgpt-mcp` restores the previous `current` target and metadata, then restarts the previous version.
 
 Skip the managed-service restart when you intentionally want the running process to remain on the old binary until a later restart:
 

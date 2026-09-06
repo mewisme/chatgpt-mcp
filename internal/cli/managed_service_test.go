@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -170,6 +171,37 @@ func TestManagedRestartKeepsServiceInstalledAndStartsNewRuntime(t *testing.T) {
 		if strings.Contains(text, unexpected) {
 			t.Fatalf("restart unexpectedly reinstalled service: %s", text)
 		}
+	}
+}
+
+func TestWaitManagedRuntimeReadyWaitsForTunnelReady(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root}
+	var tunnelReady atomic.Bool
+	control, err := startRuntimeControl(runtimeControlOptions{RunID: "run_ready", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) {
+		return runtimeReloadResult{PID: os.Getpid()}, nil
+	}, Status: func() runtimeStatusResult {
+		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_ready", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: root, TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelReady: tunnelReady.Load()}
+	}, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		tunnelReady.Store(true)
+	}()
+	started := time.Now()
+	status, err := waitManagedRuntimeReady(t.Context(), spec, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.TunnelReady || time.Since(started) < 100*time.Millisecond {
+		t.Fatalf("returned before tunnel ready: status=%#v elapsed=%s", status, time.Since(started))
 	}
 }
 

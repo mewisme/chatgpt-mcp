@@ -8,7 +8,6 @@ import { adminToken } from "@/lib/api"
 import { createAdminRouter } from "@/router"
 
 const config = {
-  interactive: true,
   server: {
     port: 37421,
     expose: { mode: "none", interfaces: [] },
@@ -66,7 +65,7 @@ describe("admin app runtime smoke", () => {
       tunnel: "OpenAI Secure MCP Tunnel",
       activity:
         "Live MCP requests, tool calls, and runtime lifecycle events. Tool calls open as addressable child routes.",
-      settings: "CLI behavior",
+      settings: "Runtime",
     }
     for (const item of navItems.slice(1)) {
       await user.click(screen.getByRole("link", { name: item.title }))

@@ -6,27 +6,23 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-	"go.mewis.me/chatgpt-mcp/internal/cli/interactive"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
-	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
-func TestWorkspaceListInteractiveFlagsPreserveNonTTYOutputs(t *testing.T) {
+func TestWorkspaceListDefaultsToPlainAndSupportsJSON(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "config")
 	workspaceRoot := t.TempDir()
 	registered := executeRequestCommand(t, root, []string{"workspace", "register", workspaceRoot})
 	if !strings.Contains(registered, "Workspace registered") {
 		t.Fatalf("register=%q", registered)
 	}
-	jsonOutput := executeRequestCommand(t, root, []string{"workspace", "list", "--json", "--interactive"})
+	jsonOutput := executeRequestCommand(t, root, []string{"workspace", "list", "--json"})
 	var items []workspace.Workspace
 	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &items); err != nil || len(items) != 1 {
 		t.Fatalf("json=%q items=%#v err=%v", jsonOutput, items, err)
@@ -42,34 +38,28 @@ func TestWorkspaceListInteractiveFlagsPreserveNonTTYOutputs(t *testing.T) {
 	if !os.SameFile(registeredInfo, listedInfo) {
 		t.Fatalf("listed path %q does not identify registered root %q", items[0].Path, workspaceRoot)
 	}
-	plain := executeRequestCommand(t, root, []string{"workspace", "list", "--no-interactive"})
+	plain := executeRequestCommand(t, root, []string{"workspace", "list"})
 	if !strings.Contains(plain, items[0].Path) || !strings.Contains(plain, "Registered workspaces loaded") {
 		t.Fatalf("plain=%q", plain)
 	}
-	if _, err := executeRequestCommandError(root, []string{"workspace", "list", "--interactive"}); err == nil || !strings.Contains(err.Error(), "requires terminal") {
-		t.Fatalf("forced interactive err=%v", err)
-	}
 }
 
-func TestMCPServerListInteractiveFlagsPreserveNonTTYOutputsAndRedaction(t *testing.T) {
+func TestMCPServerListDefaultsToPlainAndSupportsRedactedJSON(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "config")
 	if _, err := executeRequestCommandError(root, []string{"mcp", "server", "add", "demo", "--transport", "http", "--url", "https://mcp.example.test", "--header", "Authorization=secret-value"}); err != nil {
 		t.Fatal(err)
 	}
-	plain := executeRequestCommand(t, root, []string{"mcp", "server", "list", "--no-interactive"})
+	plain := executeRequestCommand(t, root, []string{"mcp", "server", "list"})
 	if !strings.Contains(plain, "demo") || !strings.Contains(plain, "https://mcp.example.test") || strings.Contains(plain, "secret-value") {
 		t.Fatalf("plain=%q", plain)
 	}
-	jsonOutput := executeRequestCommand(t, root, []string{"mcp", "server", "list", "--json", "--interactive"})
+	jsonOutput := executeRequestCommand(t, root, []string{"mcp", "server", "list", "--json"})
 	if strings.Contains(jsonOutput, "secret-value") || !strings.Contains(jsonOutput, "redacted") {
 		t.Fatalf("json=%q", jsonOutput)
 	}
-	if _, err := executeRequestCommandError(root, []string{"mcp", "server", "list", "--interactive"}); err == nil || !strings.Contains(err.Error(), "requires terminal") {
-		t.Fatalf("forced interactive err=%v", err)
-	}
 }
 
-func TestTunnelListInteractiveFlagsPreserveNonTTYOutputs(t *testing.T) {
+func TestTunnelListDefaultsToPlainAndSupportsJSON(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,17 +82,14 @@ func TestTunnelListInteractiveFlagsPreserveNonTTYOutputs(t *testing.T) {
 	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
 		t.Fatal(err)
 	}
-	output := executeRequestCommand(t, root, []string{"tunnel", "list", "--no-interactive"})
-	if !strings.Contains(output, "Managed tunnels loaded") || !strings.Contains(output, "tunnel_one") || strings.HasPrefix(strings.TrimSpace(output), "[") {
-		t.Fatalf("plain=%q", output)
+	plain := executeRequestCommand(t, root, []string{"tunnel", "list"})
+	if !strings.Contains(plain, "Managed tunnels loaded") || !strings.Contains(plain, "tunnel_one") || strings.HasPrefix(strings.TrimSpace(plain), "[") {
+		t.Fatalf("plain=%q", plain)
 	}
-	jsonOutput := executeRequestCommand(t, root, []string{"tunnel", "list", "--json", "--interactive"})
+	jsonOutput := executeRequestCommand(t, root, []string{"tunnel", "list", "--json"})
 	var items []tunnel.Metadata
 	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &items); err != nil || len(items) != 1 || items[0].Name != "One" {
 		t.Fatalf("json=%q items=%#v err=%v", jsonOutput, items, err)
-	}
-	if _, err := executeRequestCommandError(root, []string{"tunnel", "list", "--interactive"}); err == nil || !strings.Contains(err.Error(), "requires terminal") {
-		t.Fatalf("forced interactive err=%v", err)
 	}
 }
 
@@ -111,7 +98,6 @@ func TestWorkspaceShowAndAccessListDefaultToText(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	registered := executeRequestCommand(t, root, []string{"workspace", "register", workspaceRoot})
 	id := strings.TrimSpace(strings.Split(strings.Split(registered, "id:")[1], "\n")[0])
-
 	showJSON := executeRequestCommand(t, root, []string{"workspace", "show", id, "--json"})
 	var item workspace.Workspace
 	if err := json.Unmarshal([]byte(strings.TrimSpace(showJSON)), &item); err != nil || item.ID != id {
@@ -121,7 +107,6 @@ func TestWorkspaceShowAndAccessListDefaultToText(t *testing.T) {
 	if !strings.Contains(show, "Workspace details") || !strings.Contains(show, item.Path) || strings.HasPrefix(strings.TrimSpace(show), "{") {
 		t.Fatalf("show=%q canonical=%q requested=%q", show, item.Path, workspaceRoot)
 	}
-
 	access := executeRequestCommand(t, root, []string{"workspace", "access", "list", id})
 	if !strings.Contains(access, "Allowed directories loaded") || !strings.Contains(access, "allow dirs: none") || strings.HasPrefix(strings.TrimSpace(access), "[") {
 		t.Fatalf("access=%q", access)
@@ -130,31 +115,5 @@ func TestWorkspaceShowAndAccessListDefaultToText(t *testing.T) {
 	var allowDirs []string
 	if err := json.Unmarshal([]byte(strings.TrimSpace(accessJSON)), &allowDirs); err != nil || len(allowDirs) != 0 {
 		t.Fatalf("access json=%q allowDirs=%#v err=%v", accessJSON, allowDirs, err)
-	}
-}
-
-func TestInteractiveRowsExposeUsefulDetailsWithoutUpstreamSecrets(t *testing.T) {
-	workspaceRows := workspaceInteractiveRows([]workspace.Workspace{{ID: "ws_one", Path: "/tmp/project", AllowDirs: []string{"/tmp/shared"}, LegacyIDs: []string{"legacy_one"}}})
-	if len(workspaceRows) != 1 || workspaceRows[0].DetailTitle != "Workspace · ws_one" || len(workspaceRows[0].DetailRows) != 3 || workspaceRows[0].DetailRows[0].Title != "Root" || workspaceRows[0].DetailRows[1].Description != "/tmp/shared" || workspaceRows[0].DetailRows[2].Description != "legacy_one" {
-		t.Fatalf("workspace rows=%#v", workspaceRows)
-	}
-	upstreamRows := upstreamInteractiveRows([]upstream.Server{{ID: "demo", Name: "Demo", Transport: "http", Enabled: true, URL: "https://mcp.example.test", Expose: "all", Headers: map[string]string{"Authorization": "secret-value"}}})
-	if len(upstreamRows) != 1 || len(upstreamRows[0].DetailTabs) != 3 || strings.Contains(upstreamRows[0].DetailTabs[1].Content, "secret-value") || !strings.Contains(upstreamRows[0].DetailTabs[1].Content, "<redacted>") {
-		t.Fatalf("upstream rows=%#v", upstreamRows)
-	}
-	tunnelRows := tunnelInteractiveRows([]tunnel.Metadata{{ID: "tunnel_one", Name: "One", WorkspaceIDs: []string{"ws_admin"}}})
-	if len(tunnelRows) != 1 || len(tunnelRows[0].DetailTabs) != 2 || !strings.Contains(tunnelRows[0].Summary, "ws_admin") || !strings.Contains(tunnelRows[0].DetailTabs[1].Content, "ws_admin") {
-		t.Fatalf("tunnel rows=%#v", tunnelRows)
-	}
-}
-
-func TestWorkspaceCopyIDActionCopiesExactID(t *testing.T) {
-	action := workspaceCopyIDAction()
-	notice, cmd, err := action.Run(interactive.Row{ID: "ws_example"})
-	if err != nil || notice != "Copied ws_example" || cmd == nil {
-		t.Fatalf("notice=%q cmd=%v err=%v", notice, cmd, err)
-	}
-	if got, want := cmd(), tea.SetClipboard("ws_example")(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("clipboard command=%#v want=%#v", got, want)
 	}
 }

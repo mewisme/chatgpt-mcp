@@ -42,7 +42,6 @@ type authSettings struct {
 }
 
 type publicConfig struct {
-	Interactive bool                     `json:"interactive"`
 	Server      config.ServerConfig      `json:"server"`
 	Admin       config.AdminConfig       `json:"admin"`
 	Auth        authSettings             `json:"auth"`
@@ -52,7 +51,6 @@ type publicConfig struct {
 }
 
 type configPatch struct {
-	Interactive *bool                     `json:"interactive,omitempty"`
 	Server      *config.ServerConfig      `json:"server,omitempty"`
 	Admin       *config.AdminConfig       `json:"admin,omitempty"`
 	Auth        *authSettings             `json:"auth,omitempty"`
@@ -139,9 +137,6 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 		previous := api.Config.Snapshot()
 		next := previous
 		var err error
-		if patch.Interactive != nil {
-			next.Interactive = *patch.Interactive
-		}
 		if patch.Server != nil {
 			next.Server = *patch.Server
 		}
@@ -231,7 +226,7 @@ func (api API) upstreamManager() *upstream.Manager {
 
 func publicConfigView(cfg config.Config) publicConfig {
 	return publicConfig{
-		Interactive: cfg.Interactive, Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell, Features: cfg.Features,
+		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell, Features: cfg.Features,
 		Auth: authSettings{
 			MCPEnabled: cfg.Auth.MCPEnabled, AdminEnabled: cfg.Auth.AdminEnabled,
 			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",

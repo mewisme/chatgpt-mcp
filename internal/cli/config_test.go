@@ -23,9 +23,6 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "server.port", "4000"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setConfigValue(&cfg, "interactive", "false"); err != nil {
-		t.Fatal(err)
-	}
 	if err := setConfigValue(&cfg, "server.expose", "true"); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +53,7 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "shell.path", "/opt/tools,/usr/local/custom/bin"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Interactive || cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
 		t.Fatalf("cfg = %#v", cfg)
 	}
 	if err := setConfigValue(&cfg, "features.ponytail.mode", "review"); err == nil {
@@ -102,10 +99,6 @@ func TestTunnelAdminCredentialsCannotBypassVerificationThroughConfigSet(t *testi
 
 func TestFeatureConfigTraversal(t *testing.T) {
 	cfg := config.Default()
-	interactiveValue, err := getConfigValue(cfg, "interactive")
-	if err != nil || interactiveValue != true {
-		t.Fatalf("interactive = %#v %v", interactiveValue, err)
-	}
 	value, err := getConfigValue(cfg, "features")
 	if err != nil {
 		t.Fatal(err)
@@ -129,6 +122,16 @@ func TestFeatureConfigTraversal(t *testing.T) {
 	cavemanMode, err := getConfigValue(cfg, "features.caveman.mode")
 	if err != nil || cavemanMode != "full" {
 		t.Fatalf("caveman mode = %#v %v", cavemanMode, err)
+	}
+}
+
+func TestInteractiveConfigKeyIsRemoved(t *testing.T) {
+	cfg := config.Default()
+	if err := setConfigValue(&cfg, "interactive", "false"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+		t.Fatalf("set interactive err=%v", err)
+	}
+	if _, err := getConfigValue(cfg, "interactive"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+		t.Fatalf("get interactive err=%v", err)
 	}
 }
 

@@ -33,7 +33,6 @@ type FieldSpec struct {
 }
 
 var fieldSpecs = []FieldSpec{
-	{Key: "interactive", Description: "enable automatic interactive TUI mode", Kind: FieldBool, Editable: true},
 	{Key: "server.expose.mode", Description: "network exposure mode", Kind: FieldEnum, Options: []string{"none", "all", "0.0.0.0", "interfaces"}, Editable: true},
 	{Key: "server.expose.interfaces", Description: "network interfaces used by interfaces exposure mode", Kind: FieldList, Editable: true},
 	{Key: "server.port", Description: "MCP server port", Kind: FieldInt, Editable: true},
@@ -87,12 +86,6 @@ func SetValue(cfg *Config, key, raw string) error {
 	}
 	key = canonicalFieldKey(key)
 	switch key {
-	case "interactive":
-		value, err := parseBoolField(raw, key)
-		if err != nil {
-			return err
-		}
-		cfg.Interactive = value
 	case "server.expose":
 		value, err := ParseExposure(raw)
 		if err != nil {
@@ -216,8 +209,6 @@ func SetValueValidated(cfg *Config, key, raw string) error {
 func RawValue(cfg Config, key string) (string, error) {
 	key = canonicalFieldKey(key)
 	switch key {
-	case "interactive":
-		return strconv.FormatBool(cfg.Interactive), nil
 	case "server.expose":
 		exposure := NormalizeExposure(cfg.Server.Expose)
 		if exposure.Mode == ExposureInterfaces {

@@ -74,6 +74,32 @@ func TestConvertFormatAtConvertsStructuredTree(t *testing.T) {
 	}
 }
 
+func TestConvertFormatAtDropsLegacyInteractiveKey(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "config.json")
+	if err := os.WriteFile(source, []byte(`{"interactive":true,"server":{"port":37421}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := convertFormatAt(root, configformat.TOML); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := configformat.DecodeGeneric(configformat.TOML, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configValue, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("converted config = %#v", value)
+	}
+	if _, exists := configValue["interactive"]; exists {
+		t.Fatalf("legacy interactive key survived conversion: %s", data)
+	}
+}
+
 func TestConvertFormatAtRepairsMixedStructuredFormats(t *testing.T) {
 	root := t.TempDir()
 	write := func(relative, content string) {

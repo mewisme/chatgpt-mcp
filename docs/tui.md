@@ -130,7 +130,7 @@ cgm status
 
 Use `--json` or other structured-output flags where supported. Normal CLI commands remain the compatibility surface for scripts and pipelines; `cgm tui` is intentionally TTY-only.
 
-The documented target interaction model is explicit: interactive work starts with `cgm tui`, while normal `cgm ...` commands stay deterministic. Legacy command-local interactive compatibility still present during the migration should not be used as a new automation or UX dependency; it is removed only after Command Center parity has been proven.
+The interaction model is explicit: interactive work starts with `cgm tui`, while normal `cgm ...` commands stay deterministic. Per-command interactive flags and automatic TUI branching are not part of the public CLI surface.
 
 ## Release and parity guarantees
 

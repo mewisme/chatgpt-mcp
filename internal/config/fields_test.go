@@ -12,7 +12,7 @@ func TestFieldSetValuePreservesTypedBehaviorAndLegacyAliases(t *testing.T) {
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
 	for key, value := range map[string]string{
-		"server.port": "4000", "interactive": "false", "server.expose": "true", "admin.enabled": "false",
+		"server.port": "4000", "server.expose": "true", "admin.enabled": "false",
 		"features.ponytail.enabled": "false", "features.ponytail.mode": "ULTRA", "features.caveman.enabled": "false", "features.caveman.mode": "WENYAN-ULTRA",
 		"permissions.allow_dirs": "/tmp\n/var/tmp", "shell.path": "/opt/tools,/usr/local/custom/bin",
 	} {
@@ -20,8 +20,18 @@ func TestFieldSetValuePreservesTypedBehaviorAndLegacyAliases(t *testing.T) {
 			t.Fatalf("%s: %v", key, err)
 		}
 	}
-	if cfg.Interactive || cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
 		t.Fatalf("cfg=%#v", cfg)
+	}
+}
+
+func TestInteractiveFieldIsRemoved(t *testing.T) {
+	if _, ok := FieldByKey("interactive"); ok {
+		t.Fatal("interactive field still exposed")
+	}
+	cfg := Default()
+	if err := SetValue(&cfg, "interactive", "false"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+		t.Fatalf("err=%v", err)
 	}
 }
 

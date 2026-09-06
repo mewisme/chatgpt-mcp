@@ -192,7 +192,7 @@ cgm tui config
 
 The TUI requires terminal stdin/stdout. Its global navigation uses `Ctrl+P` for the Command Palette, `Ctrl+O` for Quick Open, `Alt+Left` / `Alt+Right` to cycle top-level pages, and `Esc` to close the current overlay or navigate back.
 
-Legacy command-local interactive compatibility may still exist during the migration, but it is not the target user interface and should not be used as a new script or workflow dependency. Use explicit `cgm tui` for interactive work and ordinary CLI/JSON output for automation.
+Use explicit `cgm tui` for interactive work and ordinary CLI/JSON output for automation. List commands do not auto-open a TUI and no longer expose per-command `--interactive` / `--no-interactive` flags.
 
 See [TUI Command Center](tui.md) for Command Palette search, Quick Open, mouse behavior, deep links, forms, confirmations, and scripting guidance. See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for approval challenge binding and one-shot capability semantics.
 

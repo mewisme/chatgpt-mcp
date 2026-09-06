@@ -16,7 +16,6 @@ import (
 )
 
 type Config struct {
-	Interactive bool              `json:"interactive"`
 	Server      ServerConfig      `json:"server"`
 	Admin       AdminConfig       `json:"admin"`
 	Auth        AuthConfig        `json:"auth"`
@@ -69,7 +68,7 @@ type AuthConfig struct {
 type FeaturesConfig = features.Config
 
 func Default() Config {
-	return Config{Interactive: true, Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {

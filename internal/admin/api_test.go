@@ -176,19 +176,19 @@ func TestHealthReportsAdminAuthState(t *testing.T) {
 	}
 }
 
-func TestConfigAPIInteractivePatch(t *testing.T) {
+func TestConfigAPIOmitsLegacyInteractiveField(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Config: store, saveConfig: func(config.Config) error { return nil }})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"interactive":false}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/config", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if store.Snapshot().Interactive || !strings.Contains(recorder.Body.String(), `"interactive":false`) {
-		t.Fatalf("interactive config not updated: %s", recorder.Body.String())
+	if strings.Contains(recorder.Body.String(), `"interactive"`) {
+		t.Fatalf("legacy interactive field exposed: %s", recorder.Body.String())
 	}
 }
 

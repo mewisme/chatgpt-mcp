@@ -238,7 +238,7 @@ func workspaceRegisterCommand() *cobra.Command {
 }
 
 func workspaceListCommand() *cobra.Command {
-	var asJSON, forceInteractive, noInteractive bool
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
@@ -249,15 +249,8 @@ func workspaceListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			interactiveMode, err := resolveInteractiveCommandMode(cmd, forceInteractive, noInteractive, asJSON)
-			if err != nil {
-				return err
-			}
 			if asJSON {
 				return printJSON(cmd, items)
-			}
-			if interactiveMode {
-				return runWorkspaceInteractive(cmd, manager, items)
 			}
 			log := commandLogger(cmd)
 			log.Success("WORKSPACE", "registered workspaces loaded", "count", len(items))
@@ -268,8 +261,6 @@ func workspaceListCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
-	cmd.Flags().BoolVar(&forceInteractive, "interactive", false, "force interactive workspace list")
-	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false, "disable interactive workspace list")
 	return cmd
 }
 

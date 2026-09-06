@@ -1,6 +1,7 @@
 package page
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/huh/v2"
@@ -41,8 +42,20 @@ type managedConfigureFormData struct {
 
 func newTunnelRuntimeForm(dashboard application.TunnelDashboard) (component.Form, *tunnelRuntimeFormData) {
 	data := &tunnelRuntimeFormData{Enabled: dashboard.Config.Enabled, ID: dashboard.Config.ID, ControlPlane: dashboard.Config.ControlPlaneBaseURL, OrganizationID: dashboard.Config.OrganizationID}
+	enabled := component.Switch("Enabled", &data.Enabled)
+	if !dashboard.MCPHTTPEnabled {
+		enabled.Description("Required while MCP HTTP is disabled.")
+		enabled.Validate(func(value bool) error {
+			if !value {
+				return fmt.Errorf("tunnel must remain enabled while MCP HTTP is disabled")
+			}
+			return nil
+		})
+	} else {
+		enabled.Description("At least one MCP transport must remain enabled.")
+	}
 	form := component.NewForm(component.Group(
-		component.Switch("Enabled", &data.Enabled),
+		enabled,
 		component.Input("Tunnel ID", &data.ID),
 		component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Description("Blank keeps the current key."),
 		component.Input("Control plane base URL", &data.ControlPlane),

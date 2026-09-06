@@ -324,7 +324,7 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 	}
 	view := page.runtimeViewWithFeedback(page.width, feedback)
 	return keyHintMouseTargets(view, map[string]string{
-		"Configure": "e", "Toggle": "space", "Sync": "s", "Foreground": "f", "Admin key": "a", "Verify": "v", "Remove admin": "d", "Managed tunnels": "m",
+		"configure": "e", "toggle": "space", "sync": "s", "foreground": "f", "admin key": "a", "verify": "v", "remove admin": "d", "managed tunnels": "m",
 	}, originX, originY, z)
 }
 
@@ -337,6 +337,10 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return cmd, true
 		case "space":
 			if !page.dashboard.Config.Enabled && !tunnel.Configured(page.dashboard.Config) {
+				return nil, true
+			}
+			if page.dashboard.Config.Enabled && !page.dashboard.MCPHTTPEnabled {
+				page.err = fmt.Errorf("tunnel must remain enabled while MCP HTTP is disabled")
 				return nil, true
 			}
 			command := TunnelEnable
@@ -511,6 +515,9 @@ func (page *TunnelPage) openCommand(command TunnelCommand, resourceID string) (t
 		if dashboard, err := application.TunnelStatus(); err == nil {
 			page.dashboard = dashboard
 			page.deleteClear = dashboard.Config.ID == page.targetID
+		}
+		if page.deleteClear && !page.dashboard.MCPHTTPEnabled {
+			return nil, fmt.Errorf("cannot delete the configured tunnel while MCP HTTP is disabled")
 		}
 		if page.deleteClear {
 			page.deleteOptions = true
@@ -771,6 +778,7 @@ func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) stri
 	configured := tunnel.Configured(cfg)
 	statusSection := tunnelSection("Status",
 		[2]string{"Enabled", tunnelEnabledIndicator(cfg.Enabled)},
+		[2]string{"MCP HTTP", tunnelEnabledIndicator(page.dashboard.MCPHTTPEnabled)},
 		[2]string{"Configured", tunnelYesNo(configured)},
 		[2]string{"Runtime key", tunnelConfiguredIndicator(cfg.APIKey != "")},
 	)
@@ -784,10 +792,11 @@ func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) stri
 		[2]string{"Scope", tunnelScopeLabel(page.adminStatus.Scope)},
 	)
 	metadataSection := tunnelMetadataSection(status.Metadata, status.MetadataError)
+	toggleEnabled := !cfg.Enabled && configured || cfg.Enabled && page.dashboard.MCPHTTPEnabled
 	actions := component.PageActionBar(width,
-		[]component.ActionHint{{Key: "e", Label: "Configure", Enabled: true}, {Key: "space", Label: "Toggle", Enabled: cfg.Enabled || configured}, {Key: "s", Label: "Sync", Enabled: configured}, {Key: "f", Label: "Foreground", Enabled: configured}},
-		[]component.ActionHint{{Key: "a", Label: "Admin key", Enabled: true}, {Key: "v", Label: "Verify", Enabled: page.adminStatus.Configured}, {Key: "d", Label: "Remove admin", Enabled: page.adminStatus.Configured, Danger: true}},
-		[]component.ActionHint{{Key: "m", Label: "Managed tunnels", Enabled: true}},
+		[]component.ActionHint{{Key: "e", Label: "configure", Enabled: true}, {Key: "space", Label: "toggle", Enabled: toggleEnabled}, {Key: "s", Label: "sync", Enabled: configured}, {Key: "f", Label: "foreground", Enabled: configured}},
+		[]component.ActionHint{{Key: "a", Label: "admin key", Enabled: true}, {Key: "v", Label: "verify", Enabled: page.adminStatus.Configured}, {Key: "d", Label: "remove admin", Enabled: page.adminStatus.Configured, Danger: true}},
+		[]component.ActionHint{{Key: "m", Label: "managed tunnels", Enabled: true}},
 	)
 	lines := []string{
 		component.PageTitle("OpenAI Secure MCP Tunnel", width),
@@ -795,7 +804,7 @@ func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) stri
 		"",
 		tunnelSectionPair(adminSection, metadataSection, width),
 		"",
-		component.Muted("Live process state is handled by Runtime; this page shows persisted tunnel configuration and metadata."),
+		component.Muted("At least one MCP transport must remain enabled. Live process state is handled by Runtime."),
 	}
 	return component.BottomHelp(prependPageFeedback(feedback, strings.Join(lines, "\n")), actions, width, page.height)
 }

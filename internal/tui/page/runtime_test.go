@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/install"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
@@ -38,6 +39,22 @@ func TestRuntimePageBuildsSystemRows(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" && !page.browser.SelectID("service.system") {
 		t.Fatal("system service row missing")
+	}
+}
+
+func TestRuntimeRowsUseDescriptiveTitlesAndDescriptions(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	page.runtime = application.RuntimeOverview{Running: true, Status: runtimecontrol.RuntimeStatus{PID: 4242, Managed: true, ServiceScope: "user"}, UserService: application.ServiceOverview{Scope: managed.ScopeUser, Supported: true, Installed: true, Running: true, Backend: "systemd --user", PID: 4242}}
+	runtimeRow := page.runtimeRow()
+	if runtimeRow.Title != "MCP runtime process" || !strings.Contains(runtimeRow.Description, "running · pid 4242 · managed / user") {
+		t.Fatalf("runtime row=%#v", runtimeRow)
+	}
+	serviceRow := page.serviceRow(page.runtime.UserService)
+	if serviceRow.Title != "User managed service" || !strings.Contains(serviceRow.Description, "systemd --user") || !strings.Contains(serviceRow.Description, "pid 4242") {
+		t.Fatalf("service row=%#v", serviceRow)
+	}
+	if page.authRow("mcp").Title != "MCP HTTP authentication" || page.authRow("admin").Title != "Admin UI authentication" {
+		t.Fatal("authentication rows are not transport-specific")
 	}
 }
 

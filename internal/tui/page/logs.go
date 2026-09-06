@@ -729,7 +729,7 @@ func (page *LogsPage) statusView(width int) string {
 		session = "all / none yet"
 	}
 	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("View", logsVisibilityValue(page.visibility)) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.events), logsBufferCap))
-	right := component.KeyValue("Session", shortValue(session, 24))
+	right := component.KeyValue("Session", session)
 	return component.TwoColumn(left, right, width)
 }
 

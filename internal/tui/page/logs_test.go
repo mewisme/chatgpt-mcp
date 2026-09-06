@@ -392,6 +392,16 @@ func TestLogsPageLoadsCurrentRuntimeSessionBeforeOpeningStream(t *testing.T) {
 	}
 }
 
+func TestLogsStatusShowsFullSessionID(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	session := "run_0123456789abcdef0123456789abcdef0123456789abcdef"
+	page.query.RunID = session
+	plain := ansi.Strip(page.statusView(160))
+	if !strings.Contains(plain, session) || strings.Contains(plain, "run_0123456789abcdef0123…") {
+		t.Fatalf("session was truncated: %q", plain)
+	}
+}
+
 func TestLogsPageResyncsJournalWhenLiveSequenceHasGap(t *testing.T) {
 	root := setupLogsPageRoot(t)
 	appendLogEvents(t, root,

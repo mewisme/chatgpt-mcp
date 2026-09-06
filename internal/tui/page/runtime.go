@@ -706,6 +706,7 @@ func (page *RuntimePage) resizeBrowser() tea.Cmd {
 func (page *RuntimePage) runtimeRow() component.Row {
 	state := "stopped"
 	fields := [][2]string{{"State", state}}
+	description := "stopped · no active process"
 	if page.runtime.Running {
 		status := page.runtime.Status
 		mode := "foreground"
@@ -713,9 +714,14 @@ func (page *RuntimePage) runtimeRow() component.Row {
 			mode = "managed / " + status.ServiceScope
 		}
 		state = "running"
-		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP", endpoint(status.ServerPort, "/mcp")}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}}
+		mcpHTTP := "disabled"
+		if status.ServerEnabled {
+			mcpHTTP = endpoint(status.ServerPort, "/mcp")
+		}
+		description = fmt.Sprintf("running · pid %d · %s", status.PID, mode)
+		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP HTTP", mcpHTTP}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}}
 	}
-	return component.Row{ID: "runtime", Title: "Runtime", Description: state, Search: "runtime status service server", DetailTitle: "Runtime", Detail: detailFields(fields...)}
+	return component.Row{ID: "runtime", Title: "MCP runtime process", Description: description, Search: "runtime process status service server", DetailTitle: "MCP runtime process", Detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) serviceRow(service application.ServiceOverview) component.Row {
@@ -729,12 +735,19 @@ func (page *RuntimePage) serviceRow(service application.ServiceOverview) compone
 	if service.Err != "" {
 		state = "unavailable"
 	}
-	title := "User service"
+	title := "User managed service"
 	if service.Scope == managed.ScopeSystem {
-		title = "System service"
+		title = "System managed service"
+	}
+	description := state
+	if service.Backend != "" {
+		description += " · " + service.Backend
+	}
+	if service.PID > 0 {
+		description += fmt.Sprintf(" · pid %d", service.PID)
 	}
 	fields := [][2]string{{"Scope", string(service.Scope)}, {"State", state}, {"Backend", service.Backend}, {"Service", service.ID}, {"PID", valueInt(service.PID)}, {"Config", service.ConfigRoot}, {"Persistence", service.Warning}, {"Error", service.Err}}
-	return component.Row{ID: "service." + string(service.Scope), Title: title, Description: state, Search: "service " + string(service.Scope) + " " + service.Backend, DetailTitle: title, Detail: detailFields(fields...)}
+	return component.Row{ID: "service." + string(service.Scope), Title: title, Description: description, Search: "managed service " + string(service.Scope) + " " + service.Backend, DetailTitle: title, Detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) authRow(kind string) component.Row {
@@ -750,7 +763,11 @@ func (page *RuntimePage) authRow(kind string) component.Row {
 	if configured {
 		configuredText = "configured"
 	}
-	return component.Row{ID: "auth." + kind, Title: strings.ToUpper(kind) + " authentication", Description: state + " · token " + configuredText, Search: "auth token " + kind, DetailTitle: strings.ToUpper(kind) + " authentication", Detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Security", "Token hashes are persisted; plaintext is shown once after rotation."})}
+	title := "MCP HTTP authentication"
+	if kind == "admin" {
+		title = "Admin UI authentication"
+	}
+	return component.Row{ID: "auth." + kind, Title: title, Description: state + " · token " + configuredText, Search: "auth token " + kind, DetailTitle: title, Detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Security", "Token hashes are persisted; plaintext is shown once after rotation."})}
 }
 
 func (page *RuntimePage) installRow() component.Row {
@@ -759,7 +776,7 @@ func (page *RuntimePage) installRow() component.Row {
 	if page.install.Managed {
 		state = "managed direct · " + page.install.ManagedVersion
 	}
-	return component.Row{ID: "installation", Title: "Installation", Description: state, Search: "install managed layout cleanup migration", DetailTitle: "Installation", Detail: detailFields([2]string{"Method", method}, [2]string{"Executable", page.install.Detection.Executable}, [2]string{"Root", page.install.Detection.Root}, [2]string{"Managed", fmt.Sprint(page.install.Managed)}, [2]string{"Current", page.install.ManagedVersion}, [2]string{"Update policy", string(page.install.Policy.Action)}, [2]string{"Guidance", page.install.Policy.Message})}
+	return component.Row{ID: "installation", Title: "Managed installation", Description: state, Search: "install managed layout cleanup migration", DetailTitle: "Managed installation", Detail: detailFields([2]string{"Method", method}, [2]string{"Executable", page.install.Detection.Executable}, [2]string{"Root", page.install.Detection.Root}, [2]string{"Managed", fmt.Sprint(page.install.Managed)}, [2]string{"Current", page.install.ManagedVersion}, [2]string{"Update policy", string(page.install.Policy.Action)}, [2]string{"Guidance", page.install.Policy.Message})}
 }
 
 func (page *RuntimePage) aliasRow() component.Row {
@@ -767,7 +784,11 @@ func (page *RuntimePage) aliasRow() component.Row {
 	if page.install.AliasAvailable {
 		state, path, target = string(page.install.Alias.State), page.install.Alias.Path, page.install.Alias.Target
 	}
-	return component.Row{ID: "alias", Title: "cgm alias", Description: state, Search: "alias cgm command", DetailTitle: "cgm alias", Detail: detailFields([2]string{"State", state}, [2]string{"Path", path}, [2]string{"Target", target})}
+	description := state
+	if path != "" {
+		description += " · " + path
+	}
+	return component.Row{ID: "alias", Title: "CLI alias (cgm)", Description: description, Search: "alias cgm command", DetailTitle: "CLI alias (cgm)", Detail: detailFields([2]string{"State", state}, [2]string{"Path", path}, [2]string{"Target", target})}
 }
 
 func (page *RuntimePage) updateRow() component.Row {
@@ -775,7 +796,11 @@ func (page *RuntimePage) updateRow() component.Row {
 	if page.install.CachedUpdate != nil {
 		status, latest, checked = string(page.install.CachedUpdate.Status), page.install.CachedUpdate.Latest, page.install.CachedUpdate.CheckedAt.Local().Format(time.RFC3339)
 	}
-	return component.Row{ID: "update", Title: "Update", Description: status, Search: "update release version latest", DetailTitle: "Update", Detail: detailFields([2]string{"Current", page.about.Version}, [2]string{"Status", status}, [2]string{"Latest", latest}, [2]string{"Checked", checked}, [2]string{"Policy", page.install.Policy.Message}, [2]string{"External command", page.install.Policy.Command})}
+	description := status
+	if latest != "" {
+		description += " · latest " + latest
+	}
+	return component.Row{ID: "update", Title: "Software update", Description: description, Search: "update release version latest", DetailTitle: "Software update", Detail: detailFields([2]string{"Current", page.about.Version}, [2]string{"Status", status}, [2]string{"Latest", latest}, [2]string{"Checked", checked}, [2]string{"Policy", page.install.Policy.Message}, [2]string{"External command", page.install.Policy.Command})}
 }
 
 func (page *RuntimePage) aboutRow() component.Row {
@@ -787,7 +812,7 @@ func (page *RuntimePage) aboutRow() component.Row {
 	if page.about.MachineUptimeOK {
 		machine = page.about.MachineUptime.String()
 	}
-	return component.Row{ID: "about", Title: "About", Description: page.about.Version + " · " + runtime.GOOS + "/" + runtime.GOARCH, Search: "about version commit build uptime paths", DetailTitle: "About", Detail: detailFields([2]string{"Version", page.about.Version}, [2]string{"Commit", page.about.Commit}, [2]string{"Build time", page.about.BuildTime}, [2]string{"Server uptime", serverUptime}, [2]string{"Machine uptime", machine}, [2]string{"Executable", page.about.Executable}, [2]string{"Config", page.about.ConfigPath}, [2]string{"Config root", page.about.ConfigRoot}, [2]string{"Logs", page.about.LogsPath}, [2]string{"Install method", string(page.about.InstallMethod)}, [2]string{"Install root", page.about.InstallRoot})}
+	return component.Row{ID: "about", Title: "Build & environment", Description: page.about.Version + " · " + runtime.GOOS + "/" + runtime.GOARCH, Search: "about version commit build uptime paths environment", DetailTitle: "Build & environment", Detail: detailFields([2]string{"Version", page.about.Version}, [2]string{"Commit", page.about.Commit}, [2]string{"Build time", page.about.BuildTime}, [2]string{"Server uptime", serverUptime}, [2]string{"Machine uptime", machine}, [2]string{"Executable", page.about.Executable}, [2]string{"Config", page.about.ConfigPath}, [2]string{"Config root", page.about.ConfigRoot}, [2]string{"Logs", page.about.LogsPath}, [2]string{"Install method", string(page.about.InstallMethod)}, [2]string{"Install root", page.about.InstallRoot})}
 }
 
 func (page *RuntimePage) statusView(width int) string {
@@ -802,7 +827,7 @@ func (page *RuntimePage) statusView(width int) string {
 			mode = page.runtime.Status.ServiceScope + " · " + page.runtime.Status.ServiceID
 		}
 	}
-	return component.TwoColumn(component.KeyValue("Runtime", state), component.KeyValue("Mode", mode), width)
+	return component.TwoColumn(component.KeyValue("Runtime process", state), component.KeyValue("Execution mode", mode), width)
 }
 
 func (page *RuntimePage) syncBrowserHelp() {

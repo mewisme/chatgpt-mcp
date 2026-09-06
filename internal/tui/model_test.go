@@ -143,6 +143,23 @@ func TestModelNumberKeysDoNotSwitchHeaderPages(t *testing.T) {
 	}
 }
 
+func TestHomeDashboardShowsMetricsActivityAndQuickAccess(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	model.state.RecentActions = []string{"runtime.restart.user", "runtime.reload", "config.set", "tunnel.sync", "mcp.server.health"}
+	model.approvals = []approval.Request{testPendingApproval("req_home")}
+	plain := ansi.Strip(model.homeView(100, 28))
+	for _, want := range []string{"Command Center", "Pending approvals", "Recent commands", "Available actions", "Recent command mix", "Runtime", "Config", "Tunnel", "MCP", "Quick access", "ctrl+o", "ctrl+p"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("home dashboard missing %q: %q", want, plain)
+		}
+	}
+	for _, width := range []int{76, 100, 120} {
+		if got := lipgloss.Width(model.homeMetrics(width)); got > width {
+			t.Fatalf("home metrics width=%d exceeds available width=%d", got, width)
+		}
+	}
+}
+
 func TestModelQuitAndBack(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
 	model.router.Navigate(Route{Kind: RouteConfig})

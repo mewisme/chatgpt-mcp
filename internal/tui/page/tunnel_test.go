@@ -68,7 +68,7 @@ func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
 	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
 		last--
 	}
-	if last != 31 || !strings.Contains(lines[last], "Managed tunnels") {
+	if last != 31 || !strings.Contains(lines[last], "managed tunnels") {
 		t.Fatalf("tunnel help line=%d want=31 view=%q", last, strings.Join(lines, "\n"))
 	}
 }
@@ -132,7 +132,7 @@ func TestTunnelRuntimeLayoutUsesHierarchyAndGroupWrapping(t *testing.T) {
 	}
 	page.dashboard.Status.Metadata = &tunnel.Metadata{ID: page.dashboard.Config.ID, Name: "MCP_Tunnel_WSL", FetchedAt: time.Now()}
 	wide := ansi.Strip(page.runtimeView(120))
-	for _, want := range []string{"Status", "Tunnel", "Admin", "Metadata", "● ON", "Configured", "Runtime key", "MCP_Tunnel_WSL", "e Configure", "space Toggle", "d Remove admin", "m Managed tunnels"} {
+	for _, want := range []string{"Status", "Tunnel", "Admin", "Metadata", "● ON", "Configured", "Runtime key", "MCP_Tunnel_WSL", "e configure", "space toggle", "d remove admin", "m managed tunnels"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide tunnel layout missing %q: %q", want, wide)
 		}
@@ -155,11 +155,11 @@ func TestTunnelRuntimeLayoutUsesHierarchyAndGroupWrapping(t *testing.T) {
 	narrow := ansi.Strip(page.runtimeView(72))
 	actionLines := []string{}
 	for _, line := range strings.Split(narrow, "\n") {
-		if strings.Contains(line, "e Configure") || strings.Contains(line, "a Admin key") || strings.Contains(line, "m Managed tunnels") {
+		if strings.Contains(line, "e configure") || strings.Contains(line, "a admin key") || strings.Contains(line, "m managed tunnels") {
 			actionLines = append(actionLines, strings.TrimSpace(line))
 		}
 	}
-	if len(actionLines) != 3 || !strings.Contains(actionLines[0], "e Configure") || !strings.Contains(actionLines[0], "space Toggle") || !strings.Contains(actionLines[0], "s Sync") || !strings.Contains(actionLines[1], "a Admin key") || !strings.Contains(actionLines[1], "d Remove admin") || !strings.Contains(actionLines[2], "m Managed tunnels") {
+	if len(actionLines) != 3 || !strings.Contains(actionLines[0], "e configure") || !strings.Contains(actionLines[0], "space toggle") || !strings.Contains(actionLines[0], "s sync") || !strings.Contains(actionLines[1], "a admin key") || !strings.Contains(actionLines[1], "d remove admin") || !strings.Contains(actionLines[2], "m managed tunnels") {
 		t.Fatalf("narrow action groups=%q", actionLines)
 	}
 }

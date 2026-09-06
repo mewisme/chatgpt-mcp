@@ -540,8 +540,16 @@ func (page *ConfigPage) overviewView(width int) string {
 	}
 	return strings.Join([]string{
 		component.KeyValue("Storage", fmt.Sprintf("%s · initialized %s", page.overview.Source.Format, initialized)),
+		component.KeyValue("MCP transports", fmt.Sprintf("HTTP %s · Tunnel %s", configOnOff(page.overview.Config.Server.Enabled), configOnOff(page.overview.Config.Tunnel.Enabled))),
 		component.KeyValue("Config", page.overview.Source.Path),
 		component.KeyValue("Root", page.overview.Root),
 		component.KeyValue("Runtime", status),
 	}, "\n")
+}
+
+func configOnOff(enabled bool) string {
+	if enabled {
+		return "on"
+	}
+	return "off"
 }

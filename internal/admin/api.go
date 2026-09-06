@@ -174,6 +174,9 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			if active := patch.Features.Caveman.active(); active != nil {
 				next.Features.Caveman.Active = *active
 			}
+			if patch.Features.Caveman != nil && patch.Features.Caveman.Mode != nil {
+				next.Features.Caveman.Mode = strings.ToLower(strings.TrimSpace(*patch.Features.Caveman.Mode))
+			}
 		}
 		if err == nil {
 			err = config.Validate(next)

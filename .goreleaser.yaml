@@ -43,6 +43,8 @@ archives:
       - README.md
       - third_party/ponytail/LICENSE
       - third_party/ponytail/NOTICE.md
+      - third_party/caveman/LICENSE
+      - third_party/caveman/NOTICE.md
     format_overrides:
       - goos: windows
         formats: [zip]

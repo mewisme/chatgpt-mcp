@@ -275,7 +275,7 @@ export type PublicConfig = {
   shell: { path: string[] }
   features: {
     ponytail: { active: boolean; mode: "lite" | "full" | "ultra" }
-    caveman: { active: boolean }
+    caveman: { active: boolean; mode: "lite" | "full" | "ultra" | "wenyan-lite" | "wenyan-full" | "wenyan-ultra" }
   }
 }
 export type NetworkAddress = {

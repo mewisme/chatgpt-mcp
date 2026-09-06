@@ -207,7 +207,7 @@ func TestConfigAPIFeaturePatchUpdatesRuntimeActiveState(t *testing.T) {
 	if err != nil || result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, `"active":false`) {
 		t.Fatalf("caveman runtime result = %#v err=%v", result, err)
 	}
-	if !strings.Contains(recorder.Body.String(), `"features":{"ponytail":{"active":true,"mode":"full"},"caveman":{"active":false}}`) {
+	if !strings.Contains(recorder.Body.String(), `"features":{"ponytail":{"active":true,"mode":"full"},"caveman":{"active":false,"mode":"full"}}`) {
 		t.Fatalf("feature config missing from response: %s", recorder.Body.String())
 	}
 }
@@ -255,6 +255,49 @@ func TestConfigAPIRejectsInvalidPonytailMode(t *testing.T) {
 	}
 }
 
+func TestConfigAPICavemanModeUpdatesLiveRuntime(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
+	item, err := runtime.Workspaces.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(API{Config: store, Tools: runtime})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"caveman":{"active":true,"mode":"WENYAN-ULTRA"}}}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Features.Caveman; !got.Active || got.Mode != "wenyan-ultra" {
+		t.Fatalf("stored caveman = %#v", got)
+	}
+	result, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": item.ID, "prompt": "continue"})
+	if err != nil || result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, `"mode":"wenyan-ultra"`) || !strings.Contains(result.Content[0].Text, "CAVEMAN MODE ACTIVE") {
+		t.Fatalf("caveman runtime result = %#v err=%v", result, err)
+	}
+}
+
+func TestConfigAPIRejectsInvalidCavemanMode(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Config: store})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"caveman":{"mode":"wenyan"}}}`)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	}
+	if got := store.Snapshot().Features.Caveman.Mode; got != "full" {
+		t.Fatalf("invalid mode mutated store: %q", got)
+	}
+}
+
 func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeState(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
@@ -298,7 +341,7 @@ func TestConfigAPILegacyFeatureEnabledPatchMigratesToActive(t *testing.T) {
 	if got := store.Snapshot().Features; !got.Ponytail.Active || got.Caveman.Active {
 		t.Fatalf("legacy patch did not migrate: %#v", got)
 	}
-	if strings.Contains(recorder.Body.String(), `"caveman":{"enabled"`) || !strings.Contains(recorder.Body.String(), `"caveman":{"active":false}`) {
+	if strings.Contains(recorder.Body.String(), `"caveman":{"enabled"`) || !strings.Contains(recorder.Body.String(), `"caveman":{"active":false,"mode":"full"}`) {
 		t.Fatalf("legacy feature key leaked into response: %s", recorder.Body.String())
 	}
 }

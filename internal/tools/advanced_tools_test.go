@@ -24,7 +24,7 @@ func newAdvancedRuntime(t *testing.T) (*Runtime, string, string) {
 	registry := NewRegistry()
 	RegisterWorkspaceTools(registry, workspaces)
 	RegisterAdvancedTools(registry, workspaces)
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, ponytailManager: ponytail.NewManager(true, ponytail.Full), cavemanManager: caveman.NewManager()}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, ponytailManager: ponytail.NewManager(true, ponytail.Full), cavemanManager: caveman.NewManager(true, caveman.Full)}
 	if err := runtime.SyncFeatures(features.Default()); err != nil {
 		t.Fatal(err)
 	}
@@ -87,12 +87,18 @@ func TestFeatureToolsStayRegisteredWhileActiveStateChanges(t *testing.T) {
 
 func TestCavemanToolReturnsBuiltInInstructions(t *testing.T) {
 	runtime, workspaceID, _ := newAdvancedRuntime(t)
-	result, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "/caveman"})
+	featureConfig := features.Default()
+	featureConfig.Caveman.Mode = "wenyan-full"
+	if err := runtime.SyncFeatures(featureConfig); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue", "action": "refresh"})
 	if err != nil || result.IsError {
 		t.Fatalf("caveman call = %#v %v", result, err)
 	}
-	if len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "CAVEMAN MODE ACTIVE") {
-		t.Fatalf("caveman result = %#v", result)
+	value, ok := result.StructuredContent.(caveman.Result)
+	if !ok || !value.Available || !value.Active || value.Mode != caveman.WenyanFull || !strings.Contains(value.ActiveInstructions, "CAVEMAN MODE ACTIVE") || !strings.Contains(value.ActiveInstructions, "| **wenyan-full** |") || strings.Contains(value.ActiveInstructions, "| **ultra** |") {
+		t.Fatalf("caveman result = %#v", result.StructuredContent)
 	}
 }
 

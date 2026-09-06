@@ -65,6 +65,7 @@ try {
   run(["config", "set", "features.ponytail.active", "false"])
   run(["config", "set", "features.ponytail.mode", "ultra"])
   run(["config", "set", "features.caveman.active", "false"])
+  run(["config", "set", "features.caveman.mode", "wenyan-ultra"])
   run(["config", "set", "features.caveman.active", "true"])
   run(["config", "verify"])
   run(["status"])
@@ -80,7 +81,7 @@ try {
   await waitForHealth(`http://127.0.0.1:${adminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
   const workspaceID = await registerWorkspace(adminPort, allowedDir)
   await verifyActivitySSE(adminPort)
-  await verifyMCP(serverPort, workspaceID, false, "off")
+  await verifyMCP(serverPort, workspaceID, false, "off", true, "wenyan-ultra")
   verifyApprovalCLI()
   const foregroundStatus = run(["status"], { quiet: true })
   for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "OpenAI Secure MCP Tunnel is disabled"]) {
@@ -94,11 +95,12 @@ try {
   run(["config", "set", "admin.port", String(reloadedAdminPort)])
   run(["config", "set", "features.ponytail.active", "true"])
   run(["config", "set", "features.ponytail.mode", "lite"])
+  run(["config", "set", "features.caveman.mode", "full"])
   run(["config", "reload"])
   if (child.pid !== servePID || child.exitCode !== null) fail("config reload restarted or stopped the serve process")
   await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
-  await verifyMCP(reloadedServerPort, workspaceID, true, "lite")
+  await verifyMCP(reloadedServerPort, workspaceID, true, "lite", true, "full")
 
   occupied = await occupyPort()
   run(["config", "set", "server.port", String(occupied.port)])
@@ -269,7 +271,7 @@ function runExpectFailure(args) {
   if (result.status === 0) fail(`${args.join(" ")} unexpectedly succeeded`)
 }
 
-async function verifyMCP(port, workspaceID, ponytailActive, ponytailMode) {
+async function verifyMCP(port, workspaceID, ponytailActive, ponytailMode, cavemanActive, cavemanMode) {
   const discover = await mcpRequest(port, "server/discover", {}, 1)
   assertStatus(discover.response, 200, "server/discover")
   if (discover.response.headers.get("mcp-session-id")) fail("modern MCP response unexpectedly returned Mcp-Session-Id")
@@ -309,7 +311,18 @@ async function verifyMCP(port, workspaceID, ponytailActive, ponytailMode) {
   }
   if (!ponytailActive && ponytailState.active_instructions) fail(`inactive ponytail_turn returned instructions: ${JSON.stringify(ponytail.body)}`)
 
-  const legacy = await mcpRequest(port, "initialize", {}, 5)
+  const caveman = await mcpRequest(port, "tools/call", { name: "caveman_turn", arguments: { workspace_id: workspaceID, prompt: "continue", action: "refresh" } }, 5)
+  assertStatus(caveman.response, 200, "caveman_turn")
+  const cavemanState = caveman.body?.result?.structuredContent
+  if (!cavemanState || cavemanState.available !== true || cavemanState.active !== cavemanActive || cavemanState.mode !== cavemanMode) {
+    fail(`caveman_turn state mismatch: expected active=${cavemanActive} mode=${cavemanMode}, got ${JSON.stringify(caveman.body)}`)
+  }
+  if (cavemanActive && (typeof cavemanState.active_instructions !== "string" || !cavemanState.active_instructions.includes("CAVEMAN MODE ACTIVE") || !cavemanState.active_instructions.includes("## Rules"))) {
+    fail(`caveman_turn did not return built-in instructions: ${JSON.stringify(caveman.body)}`)
+  }
+  if (!cavemanActive && cavemanState.active_instructions) fail(`inactive caveman_turn returned instructions: ${JSON.stringify(caveman.body)}`)
+
+  const legacy = await mcpRequest(port, "initialize", {}, 6)
   assertStatus(legacy.response, 404, "initialize")
   if (legacy.body?.error?.code !== -32601) {
     fail(`initialize error code = ${legacy.body?.error?.code}, want -32601`)

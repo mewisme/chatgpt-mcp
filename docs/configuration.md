@@ -329,11 +329,14 @@ Examples:
 ```bash
 cgm config set features.ponytail.active true
 cgm config set features.ponytail.mode full
-cgm config set features.caveman.active false
+cgm config set features.caveman.active true
+cgm config set features.caveman.mode full
 cgm config reload
 ```
 
 Ponytail is built into `chatgpt-mcp`; it does not require the external Ponytail plugin, hooks, or Node.js. `features.ponytail.mode` accepts `lite`, `full`, or `ultra`; `review` is a session-only mode selected with `/ponytail-review`. Admin Settings applies persisted mode changes to the live runtime immediately. Legacy `enabled` values are accepted when loading older configuration and are written back as `active`.
+
+Caveman response mode is also built into `chatgpt-mcp`; it does not require the external Caveman plugin, hooks, proxy, engine, or Node.js. `features.caveman.mode` accepts `lite`, `full`, `ultra`, `wenyan-lite`, `wenyan-full`, or `wenyan-ultra`. Runtime commands use the same modes, with `/caveman wenyan` accepted as an alias for `wenyan-full`; `/caveman off`, `stop caveman`, and `normal mode` disable it for that workspace state. Only the MIT-licensed upstream response-mode/ruleset behavior is adapted. Upstream BSL-1.1 engine, proxy, MCP, rewriter, shrink, browse, and Cavemem runtime components are not embedded.
 
 ## Tunnel configuration
 

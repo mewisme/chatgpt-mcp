@@ -277,7 +277,7 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 
 func TestDefaultFeaturesActive(t *testing.T) {
 	cfg := Default()
-	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active {
+	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "full" {
 		t.Fatalf("features = %#v", cfg.Features)
 	}
 }
@@ -294,6 +294,24 @@ func TestValidatePonytailDefaultMode(t *testing.T) {
 	}
 	for _, mode := range []string{"", "off", "review", "max"} {
 		cfg.Features.Ponytail.Mode = mode
+		if err := Validate(cfg); err == nil {
+			t.Fatalf("mode %q accepted", mode)
+		}
+	}
+}
+
+func TestValidateCavemanDefaultMode(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	for _, mode := range []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"} {
+		cfg.Features.Caveman.Mode = mode
+		if err := Validate(cfg); err != nil {
+			t.Fatalf("mode %q rejected: %v", mode, err)
+		}
+	}
+	for _, mode := range []string{"", "off", "wenyan", "commit", "review", "compress", "max"} {
+		cfg.Features.Caveman.Mode = mode
 		if err := Validate(cfg); err == nil {
 			t.Fatalf("mode %q accepted", mode)
 		}
@@ -338,7 +356,7 @@ func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active {
+			if !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
 				t.Fatalf("legacy %s features = %#v", format, loaded.Features)
 			}
 		})
@@ -369,7 +387,7 @@ func TestPartialFeaturesKeepMissingFeatureDefault(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active {
+			if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
 				t.Fatalf("partial %s features = %#v", format, loaded.Features)
 			}
 		})
@@ -403,6 +421,13 @@ func TestFeatureConfigSerializesActiveOnly(t *testing.T) {
 			}
 			if _, exists := ponytail["enabled"]; exists {
 				t.Fatalf("legacy enabled key was serialized: %#v", ponytail)
+			}
+			caveman, ok := featureValues["caveman"].(map[string]any)
+			if !ok || caveman["active"] != true || caveman["mode"] != "full" {
+				t.Fatalf("caveman = %#v", featureValues["caveman"])
+			}
+			if _, exists := caveman["enabled"]; exists {
+				t.Fatalf("legacy enabled key was serialized: %#v", caveman)
 			}
 		})
 	}

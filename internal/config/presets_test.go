@@ -36,7 +36,7 @@ func TestApplyPresetPreservesSecretsAndTunnelDetails(t *testing.T) {
 		cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" {
 		t.Fatal("tunnel details changed")
 	}
-	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active {
+	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "full" {
 		t.Fatalf("preset features = %#v", cfg.Features)
 	}
 }

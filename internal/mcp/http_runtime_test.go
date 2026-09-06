@@ -184,6 +184,33 @@ func TestHTTPRuntimePonytailUsesBuiltInConfiguredMode(t *testing.T) {
 	}
 }
 
+func TestHTTPRuntimeCavemanUsesBuiltInConfiguredMode(t *testing.T) {
+	featureConfig := features.Default()
+	featureConfig.Caveman.Mode = "wenyan-ultra"
+	toolRuntime := tools.NewRuntimeWithFeatures(featureConfig)
+	item, err := toolRuntime.Workspaces.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := NewHTTPRuntimeWithTools(toolRuntime)
+	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"caveman_turn","arguments":{"workspace_id":%q,"prompt":"continue","action":"refresh"}}}`, item.ID)
+	req := modernRequest("tools/call", body)
+	req.Header.Set(NameHeader, "caveman_turn")
+	res := httptest.NewRecorder()
+	runtime.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", res.Code, res.Body.String())
+	}
+	for _, expected := range []string{`"available":true`, `"active":true`, `"mode":"wenyan-ultra"`, "CAVEMAN MODE ACTIVE", "## Rules", "| **wenyan-ultra** |"} {
+		if !strings.Contains(res.Body.String(), expected) {
+			t.Fatalf("response missing %q: %s", expected, res.Body.String())
+		}
+	}
+	if strings.Contains(res.Body.String(), "| **full** |") {
+		t.Fatalf("response retained inactive Caveman intensity row: %s", res.Body.String())
+	}
+}
+
 func TestHTTPRuntimePropagatesSessionID(t *testing.T) {
 	registry := tools.NewRegistry()
 	seen := make(chan string, 1)

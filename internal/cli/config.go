@@ -266,6 +266,7 @@ func configPresetCommand() *cobra.Command {
 			log.Detail("ponytail active", preset.Features.Ponytail.Active)
 			log.Detail("ponytail mode", preset.Features.Ponytail.Mode)
 			log.Detail("caveman active", preset.Features.Caveman.Active)
+			log.Detail("caveman mode", preset.Features.Caveman.Mode)
 			return nil
 		},
 	}
@@ -416,6 +417,14 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 			return err
 		}
 		cfg.Features.Caveman.Active = value
+	case "features.caveman.mode":
+		value := strings.ToLower(strings.TrimSpace(raw))
+		switch value {
+		case "lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra":
+			cfg.Features.Caveman.Mode = value
+		default:
+			return errors.New("features.caveman.mode must be lite, full, ultra, wenyan-lite, wenyan-full, or wenyan-ultra")
+		}
 	case "tunnel.enabled":
 		value, err := parseBool(raw, key)
 		if err != nil {

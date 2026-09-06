@@ -55,7 +55,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 		panic(err)
 	}
 	executions := shellruntime.NewExecutionHub()
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active)}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
 	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
@@ -82,13 +82,13 @@ func (r *Runtime) SyncFeatures(featureConfig features.Config) error {
 		r.ponytailManager = ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode))
 	}
 	if r.cavemanManager == nil {
-		r.cavemanManager = caveman.NewManager(featureConfig.Caveman.Active)
+		r.cavemanManager = caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))
 	}
 	if err := r.Registry.ReplaceOwnedPrefix("feature:", featureToolEntries(r.Workspaces, r.ponytailManager, r.cavemanManager)); err != nil {
 		return err
 	}
 	r.ponytailManager.SetDefaults(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode))
-	r.cavemanManager.SetDefaultActive(featureConfig.Caveman.Active)
+	r.cavemanManager.SetDefaults(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))
 	r.features = featureConfig
 	return nil
 }

@@ -515,10 +515,45 @@ export function SettingsPage() {
                   onCheckedChange={(active) =>
                     setConfig({
                       ...config,
-                      features: { ...config.features, caveman: { active } },
+                      features: {
+                        ...config.features,
+                        caveman: { ...config.features.caveman, active },
+                      },
                     })
                   }
                 />
+                <SettingField
+                  label="Caveman intensity"
+                  description="Default Caveman level for new workspace mode state. Wenyan levels use classical Chinese compression."
+                >
+                  <Select
+                    value={config.features.caveman.mode}
+                    onValueChange={(mode) =>
+                      setConfig({
+                        ...config,
+                        features: {
+                          ...config.features,
+                          caveman: {
+                            ...config.features.caveman,
+                            mode: mode as PublicConfig["features"]["caveman"]["mode"],
+                          },
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full sm:w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lite">Lite</SelectItem>
+                      <SelectItem value="full">Full</SelectItem>
+                      <SelectItem value="ultra">Ultra</SelectItem>
+                      <SelectItem value="wenyan-lite">Wenyan Lite</SelectItem>
+                      <SelectItem value="wenyan-full">Wenyan Full</SelectItem>
+                      <SelectItem value="wenyan-ultra">Wenyan Ultra</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingField>
               </FieldGroup>
             </CardContent>
           </Card>

@@ -15,7 +15,10 @@ import (
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 )
 
-var ErrExecutionFeedOverflow = errors.New("execution feed overflowed")
+var (
+	ErrExecutionFeedOverflow    = errors.New("execution feed overflowed")
+	ErrExecutionFeedUnsupported = errors.New("execution feed unsupported by running server")
+)
 
 type ExecutionFeedStream struct {
 	response *http.Response
@@ -42,6 +45,9 @@ func OpenExecutionFeed(ctx context.Context) (*ExecutionFeedStream, State, error)
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 		_ = response.Body.Close()
+		if response.StatusCode == http.StatusNotFound {
+			return nil, state, fmt.Errorf("%w: restart the running server to enable command execution streaming", ErrExecutionFeedUnsupported)
+		}
 		return nil, state, fmt.Errorf("runtime execution stream failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	scanner := bufio.NewScanner(response.Body)

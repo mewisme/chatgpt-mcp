@@ -40,6 +40,17 @@ func TestExecutionFeedStreamReplaysCombinedEventsAndContinues(t *testing.T) {
 	}
 }
 
+func TestExecutionFeedStreamReportsUnsupportedRunningServer(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	root := setupRuntimeControlRoot(t)
+	writeRuntimeControlState(t, root, server.URL, "runtime-secret")
+	stream, state, err := OpenExecutionFeed(t.Context())
+	if stream != nil || state.PID <= 0 || !errors.Is(err, ErrExecutionFeedUnsupported) {
+		t.Fatalf("stream=%v state=%#v err=%v", stream, state, err)
+	}
+}
+
 func TestExecutionFeedStreamReportsOverflowAndPreservesStateOnFailure(t *testing.T) {
 	t.Run("overflow", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -26,7 +26,7 @@ const (
 	logsTabCommandExec
 )
 
-var logsTabLabels = []string{"Runtime", "Command Exec"}
+var logsTabLabels = []string{"Runtime", "Command Execution"}
 
 type logsExecutionFeed struct {
 	viewport     viewport.Model
@@ -40,6 +40,7 @@ type logsExecutionFeed struct {
 	loading      bool
 	connected    bool
 	reconnecting bool
+	unsupported  bool
 	paused       bool
 	notice       string
 	err          error
@@ -94,6 +95,7 @@ func (page *LogsPage) startExecutionFeed() tea.Cmd {
 	ctx, cancel := context.WithCancel(page.ctx)
 	page.exec.streamCtx, page.exec.streamCancel = ctx, cancel
 	page.exec.loading, page.exec.reconnecting = true, page.exec.loaded
+	page.exec.unsupported = false
 	page.exec.err = nil
 	return func() tea.Msg {
 		stream, _, err := runtimecontrol.OpenExecutionFeed(ctx)
@@ -110,13 +112,19 @@ func (page *LogsPage) finishExecutionFeedOpen(msg logsExecutionOpenMsg) tea.Cmd 
 	}
 	page.exec.loading = false
 	if msg.err != nil {
-		page.exec.connected, page.exec.reconnecting, page.exec.loaded = false, true, true
 		page.exec.stream = nil
-		page.exec.notice = "Runtime offline; reconnecting command stream"
+		page.exec.loaded = true
 		page.exec.err = nil
+		if errors.Is(msg.err, runtimecontrol.ErrExecutionFeedUnsupported) {
+			page.exec.connected, page.exec.reconnecting, page.exec.unsupported = false, false, true
+			page.exec.notice = "Restart the running server to enable command execution streaming"
+			return nil
+		}
+		page.exec.connected, page.exec.reconnecting, page.exec.unsupported = false, true, false
+		page.exec.notice = "Runtime offline; reconnecting command execution stream"
 		return page.executionReconnectCmd(msg.generation)
 	}
-	page.exec.stream, page.exec.connected, page.exec.reconnecting, page.exec.loaded = msg.stream, true, false, true
+	page.exec.stream, page.exec.connected, page.exec.reconnecting, page.exec.loaded, page.exec.unsupported = msg.stream, true, false, true, false
 	snapshot := msg.stream.Snapshot()
 	page.exec.latestSeq = snapshot.LatestSequence
 	page.exec.events = trimExecutionFeed(snapshot.Events)
@@ -213,6 +221,8 @@ func (page *LogsPage) executionStatusView(width int) string {
 	stream := component.ToneText("● LIVE", component.ToneSuccess)
 	if page.exec.loading && !page.exec.loaded {
 		stream = component.Muted("↻ LOADING")
+	} else if page.exec.unsupported {
+		stream = component.ToneText("○ RESTART REQUIRED", component.ToneWarning)
 	} else if page.exec.reconnecting {
 		stream = component.ToneText("↻ RECONNECTING", component.ToneWarning)
 	} else if !page.exec.connected {
@@ -234,20 +244,29 @@ func (page *LogsPage) executionView(width, height int) string {
 		component.Binding([]string{"space"}, "space", executionFollowLabel(page.exec.paused)),
 		component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
 	)
-	reserved := lipgloss.Height(status) + lipgloss.Height(help) + 2
-	page.resizeExecutionViewport(width, max(1, height-reserved))
-	formatted := formatExecutionFeed(page.exec.events)
-	body := page.exec.viewport.View()
-	if strings.TrimSpace(formatted) == "" {
-		body = component.Muted("Waiting for command output")
-	}
-	content := status + "\n" + body + "\n" + help
+	message := ""
 	if page.exec.err != nil {
-		content += "\n" + component.Banner(page.exec.err.Error(), component.ToneDanger)
+		message = component.Banner(page.exec.err.Error(), component.ToneDanger)
 	} else if page.exec.notice != "" {
-		content += "\n" + component.Muted(page.exec.notice)
+		message = component.Muted(page.exec.notice)
 	}
-	return content
+	reserved := lipgloss.Height(status) + lipgloss.Height(help) + 2
+	if message != "" {
+		reserved += lipgloss.Height(message) + 1
+	}
+	bodyHeight := max(1, height-reserved)
+	page.resizeExecutionViewport(width, bodyHeight)
+	body := page.exec.viewport.View()
+	if strings.TrimSpace(formatExecutionFeed(page.exec.events)) == "" {
+		empty := page.exec.viewport
+		empty.SetContent(component.Muted("Waiting for command output"))
+		body = empty.View()
+	}
+	content := status + "\n" + body
+	if message != "" {
+		content += "\n" + message
+	}
+	return content + "\n" + help
 }
 
 func (page *LogsPage) logsTabMouseTargets(originX, originY, z int) []component.MouseTarget {

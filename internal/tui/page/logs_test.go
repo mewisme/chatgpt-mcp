@@ -47,7 +47,7 @@ func TestLogsPageLoadsHistoryAndShowsOfflineReconnectState(t *testing.T) {
 		t.Fatalf("offline stream connected=%t reconnect=%t cmd=%v", page.connected, page.reconnecting, reconnect)
 	}
 	plain := ansi.Strip(page.View(180, 28))
-	for _, want := range []string{"Runtime", "Command Exec", "RECONNECTING", "server.ready", "? more"} {
+	for _, want := range []string{"Runtime", "Command Execution", "RECONNECTING", "server.ready", "? more"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view missing %q: %q", want, plain)
 		}
@@ -687,13 +687,54 @@ func TestLogsCommandExecTabStreamsCombinedOutputInEventOrder(t *testing.T) {
 		t.Fatalf("completed events=%#v next=%v", page.exec.events, next)
 	}
 	plain := ansi.Strip(page.View(120, 28))
-	for _, want := range []string{"Runtime   Command Exec", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]"} {
+	for _, want := range []string{"Runtime   Command Execution", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("command exec view missing %q: %q", want, plain)
 		}
 	}
 	if strings.Contains(plain, "stdout:") || strings.Contains(plain, "stderr:") {
 		t.Fatalf("combined view split streams: %q", plain)
+	}
+}
+
+func TestLogsCommandExecutionUnsupportedRuntimeStopsReconnectLoop(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.exec.generation = 7
+	page.exec.loading = true
+	cmd := page.finishExecutionFeedOpen(logsExecutionOpenMsg{generation: 7, err: runtimecontrol.ErrExecutionFeedUnsupported})
+	if cmd != nil || page.exec.connected || page.exec.reconnecting || !page.exec.unsupported || !page.exec.loaded {
+		t.Fatalf("cmd=%v connected=%t reconnecting=%t unsupported=%t loaded=%t", cmd, page.exec.connected, page.exec.reconnecting, page.exec.unsupported, page.exec.loaded)
+	}
+	view := ansi.Strip(page.executionStatusView(100))
+	if !strings.Contains(view, "RESTART REQUIRED") || !strings.Contains(page.exec.notice, "Restart the running server") {
+		t.Fatalf("status=%q notice=%q", view, page.exec.notice)
+	}
+}
+
+func TestLogsCommandExecutionEmptyViewPinsHelpToBottom(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.tab = logsTabCommandExec
+	page.exec.connected, page.exec.loaded = true, true
+	plain := ansi.Strip(page.View(120, 28))
+	lines := strings.Split(plain, "\n")
+	last := len(lines) - 1
+	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	if last < 0 || !strings.Contains(lines[last], "reconnect") || !strings.Contains(lines[last], "clear view") {
+		t.Fatalf("bottom help not pinned: last=%d line=%q view=%q", last, lines[last], plain)
+	}
+	waiting := -1
+	for index, line := range lines {
+		if strings.Contains(line, "Waiting for command output") {
+			waiting = index
+			break
+		}
+	}
+	if waiting < 0 || last-waiting < 10 {
+		t.Fatalf("empty body did not reserve vertical space: waiting=%d help=%d", waiting, last)
 	}
 }
 
@@ -718,7 +759,7 @@ func TestLogsCommandExecTabNavigationAndMouseTargets(t *testing.T) {
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
 	page.width, page.height = 100, 24
-	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime   Command Exec") {
+	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime   Command Execution") {
 		t.Fatalf("tabs view=%q", view)
 	}
 	targets := page.MouseTargets(0, 0, 1)

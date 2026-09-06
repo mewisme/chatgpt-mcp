@@ -95,6 +95,7 @@ chatgpt-mcp
 │   └── view
 ├── serve
 ├── status
+├── tui
 ├── tunnel
 │   ├── admin
 │   ├── configure
@@ -176,25 +177,24 @@ Pending requests expire after 60 seconds. Approval does not grant a general CLI 
 
 `cgm request create dummy` creates a short-lived pending request through the same runtime approval manager and event stream as production requests. It is intended for testing the request TUI and admin approval UI; its random dummy session cannot match a real MCP retry grant.
 
-## Interactive TUI commands
+## TUI Command Center
 
-The following commands support interactive mode. On a terminal they open the TUI automatically unless `--no-interactive` is supplied.
+`cgm tui` is the dedicated full-screen interactive application. Normal CLI commands remain the stable scriptable interface.
 
-| Command | Interactive detail |
-| --- | --- |
-| `cgm request list` | pending approval inbox; detail modal with `Overview`, `Arguments`, and `Guard` tabs plus interactive Allow/Deny actions |
-| `cgm workspace list` | workspace browser with workspace action menus, container create/add/remove dialogs, multi-select membership, confirmations, details, and copy-ID support |
-| `cgm mcp server list` | upstream server browser; detail tabs group `Overview`, `Connection`, and `Tools` |
-| `cgm mcp server list --refresh` | refreshed health browser; detail tabs group `Overview`, `Tools`, and `Error` |
-| `cgm tunnel list` | managed tunnel browser; detail tabs group `Overview` and `Scope` |
+```bash
+cgm tui
+cgm tui workspace
+cgm tui workspace ws_...
+cgm tui mcp github
+cgm tui logs
+cgm tui config
+```
 
-Mode flags are consistent across these commands: `--interactive` forces the TUI and requires terminal stdin/stdout, `--no-interactive` forces deterministic text/legacy output, and `--json` suppresses the TUI for machine-readable output. For compatibility, non-interactive `cgm tunnel list` remains JSON by default.
+The TUI requires terminal stdin/stdout. Its global navigation uses `Ctrl+P` for the Command Palette, `Ctrl+O` for Quick Open, `Alt+Left` / `Alt+Right` to cycle top-level pages, and `Esc` to close the current overlay or navigate back.
 
-Common list controls are `j/k` or arrows to move, `/` to filter, `enter`/`v` to open details, `r` to refresh when available, `?` for full help, and `q` to quit. In tabbed detail dialogs, `←/→` or `h/l` switch tabs and `j/k` or `↑/↓` scroll the active tab.
+Legacy command-local interactive compatibility may still exist during the migration, but it is not the target user interface and should not be used as a new script or workflow dependency. Use explicit `cgm tui` for interactive work and ordinary CLI/JSON output for automation.
 
-The request detail dialog keeps action focus separate from tab navigation: `Tab`/`Shift+Tab` switch between Allow and Deny, `Enter` activates the focused action, and `a`/`d` remain direct shortcuts. Resolution opens a second confirmation dialog; that dialog defaults to Cancel, uses `←/→`, `h/l`, or `Tab` to change focus, and `Enter` to choose the focused button. `y` confirms directly while `n`, `Esc`, or `q` cancel.
-
-See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for challenge binding and one-shot capability semantics.
+See [TUI Command Center](tui.md) for Command Palette search, Quick Open, mouse behavior, deep links, forms, confirmations, and scripting guidance. See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for approval challenge binding and one-shot capability semantics.
 
 ## Lifecycle
 

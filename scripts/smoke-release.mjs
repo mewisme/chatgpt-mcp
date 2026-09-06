@@ -41,6 +41,10 @@ try {
   await verifySelfInstall()
   await verifyNoAliasInstall()
   run(["--help"])
+  const tuiHelp = run(["tui", "--help"], { quiet: true })
+  if (!tuiHelp.includes("Open the full-screen ChatGPT MCP command center")) fail(`tui help is missing command-center guidance:\n${tuiHelp}`)
+  const tuiNonTTY = runExpectFailure(["tui"])
+  if (!tuiNonTTY.includes("requires terminal stdin and stdout")) fail(`tui non-TTY refusal is unclear:\n${tuiNonTTY}`)
   run(["serve", "--help"])
   run(["auth", "mcp", "--help"])
   run(["workspace", "access", "--help"])
@@ -75,7 +79,7 @@ try {
   run(["config", "set", "features.caveman.active", "true"])
   run(["config", "verify"])
   run(["status"])
-  await verifyInteractiveListFallbacks()
+  await verifyStableCLIOutputs()
 
   child = spawn(binary, [...globalArgs, "serve"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
   let stdout = ""
@@ -199,30 +203,27 @@ function run(args, { quiet = false } = {}) {
 }
 
 function verifyApprovalCLI() {
-  const plain = run(["request", "list", "--no-interactive"], { quiet: true })
+  const plain = run(["request", "list"], { quiet: true })
   if (!plain.includes("Control approval requests loaded")) fail(`request list fallback did not render plain output:
 ${plain}`)
-  const json = run(["request", "list", "--json", "--interactive"], { quiet: true })
+  const json = run(["request", "list", "--json"], { quiet: true })
   const requests = JSON.parse(json)
   if (!Array.isArray(requests) || requests.length !== 0) fail(`request list JSON fallback expected no pending requests:
 ${json}`)
-  runExpectFailure(["request", "list", "--interactive"])
 }
 
-async function verifyInteractiveListFallbacks() {
-  const workspacePlain = run(["workspace", "list", "--no-interactive"], { quiet: true })
+async function verifyStableCLIOutputs() {
+  const workspacePlain = run(["workspace", "list"], { quiet: true })
   if (!workspacePlain.includes("Registered workspaces loaded")) fail(`workspace list fallback did not render plain output:
 ${workspacePlain}`)
-  const workspaceJSON = JSON.parse(run(["workspace", "list", "--json", "--interactive"], { quiet: true }))
+  const workspaceJSON = JSON.parse(run(["workspace", "list", "--json"], { quiet: true }))
   if (!Array.isArray(workspaceJSON)) fail("workspace list JSON fallback did not return an array")
-  runExpectFailure(["workspace", "list", "--interactive"])
 
-  const upstreamPlain = run(["mcp", "server", "list", "--no-interactive"], { quiet: true })
+  const upstreamPlain = run(["mcp", "server", "list"], { quiet: true })
   if (!upstreamPlain.includes("Upstream servers loaded")) fail(`MCP server list fallback did not render plain output:
 ${upstreamPlain}`)
-  const upstreamJSON = JSON.parse(run(["mcp", "server", "list", "--json", "--interactive"], { quiet: true }))
+  const upstreamJSON = JSON.parse(run(["mcp", "server", "list", "--json"], { quiet: true }))
   if (!Array.isArray(upstreamJSON)) fail("MCP server list JSON fallback did not return an array")
-  runExpectFailure(["mcp", "server", "list", "--interactive"])
 }
 
 async function verifySelfInstall() {
@@ -275,6 +276,7 @@ function runExpectFailure(args) {
   const result = spawnSync(binary, [...globalArgs, ...args], { env, encoding: "utf8", windowsHide: true })
   if (result.error) fail(`${args.join(" ")}: ${result.error.message}`)
   if (result.status === 0) fail(`${args.join(" ")} unexpectedly succeeded`)
+  return [result.stdout, result.stderr].filter(Boolean).join("").trim()
 }
 
 async function verifyMCP(port, workspaceID, ponytailActive, ponytailMode, cavemanActive, cavemanMode) {

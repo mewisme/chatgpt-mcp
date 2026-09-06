@@ -14,7 +14,7 @@ Single Go binary · MCP `2026-07-28` · OpenAI Secure MCP Tunnel · Managed serv
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-555?style=flat-square)](#installation)
 [![License](https://img.shields.io/github/license/mewisme/chatgpt-mcp?style=flat-square)](LICENSE)
 
-[Getting started](docs/getting-started.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [CLI reference](docs/cli-reference.md) · [Security](docs/security.md) · [Troubleshooting](docs/troubleshooting.md)
+[Getting started](docs/getting-started.md) · [TUI Command Center](docs/tui.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [CLI reference](docs/cli-reference.md) · [Security](docs/security.md) · [Troubleshooting](docs/troubleshooting.md)
 
 </div>
 
@@ -45,6 +45,7 @@ chatgpt-mcp
 - Managed global context/rules plus detected user-level instruction sources, with per-provider context/rules/skills policy
 - Dynamic upstream MCP aggregation with OAuth and MRTR relay
 - Managed background runtime via systemd, launchd, or Task Scheduler
+- Full-screen `cgm tui` Command Center with Command Palette, Quick Open, deep links, forms, confirmations, live logs, and mouse/keyboard parity
 - Persistent structured logs with session boundaries, replay timestamps, filters, `--verbose`, `--debug`, JSON, and live follow
 - Live configuration reload with transactional listener rebind and rollback
 - Embedded React admin dashboard
@@ -121,6 +122,15 @@ cgm workspace register ~/projects/my-project
 
 The returned `workspace_id` is the stable handle used by workspace-bound tools.
 
+For interactive administration, open the Command Center at any time:
+
+```bash
+cgm tui
+cgm tui workspace
+```
+
+Normal `cgm ...` commands remain the scriptable interface. See [TUI Command Center](docs/tui.md) for shortcuts, Quick Open, deep links, and interaction details.
+
 ### 3. Connect OpenAI Secure MCP Tunnel
 
 Create a tunnel and a restricted runtime API key in OpenAI Platform, then configure them locally:
@@ -172,6 +182,7 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 | Check for an update | `cgm update check` |
 | Update managed direct install | `cgm update` |
 | Initialize | `cgm init` |
+| Open the interactive Command Center | `cgm tui` |
 | Start foreground | `cgm serve` |
 | Start managed service | `cgm up` |
 | Stop/remove managed service | `cgm down` |
@@ -212,6 +223,7 @@ The default exposure mode is loopback-only. Network exposure, authentication, co
 | Connect ChatGPT through OpenAI Secure MCP Tunnel | [OpenAI + ChatGPT setup](docs/openai-chatgpt.md) |
 | Understand `serve`, `up`, `down`, services, status, and logs | [Runtime and services](docs/runtime.md) |
 | Configure auth, exposure, formats, reload, and workspace access | [Configuration](docs/configuration.md) |
+| Use Command Palette, Quick Open, forms, and interactive resource pages | [TUI Command Center](docs/tui.md) |
 | Find commands and useful flag combinations | [CLI reference](docs/cli-reference.md) |
 | Understand MCP protocol behavior and upstream aggregation | [MCP and upstreams](docs/mcp.md) |
 | Understand trust boundaries and security controls | [Security](docs/security.md) |

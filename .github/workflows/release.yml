@@ -203,6 +203,11 @@ jobs:
           CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-approval-test
         run: go test -count=1 ./internal/approval ./internal/tools ./internal/cli ./internal/admin
 
+      - name: TUI release gate
+        env:
+          CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-tui-test
+        run: go test -count=1 -run 'Test(ParseRoute|RunRejectsNonTTYWithoutWritingANSI|EveryPublicCapabilityHasTUIRepresentation|MappedCapabilitiesArePaletteDiscoverableByCanonicalCLIPath|ModelRendersDeepLinkAndNavigation|ModelOpensAndRunsCommandPalette|ModelQuickOpenNavigatesPage)$' ./internal/tui
+
       - name: Test
         env:
           CHATGPT_MCP_CONFIG_DIR: ${{ runner.temp }}/chatgpt-mcp-go-test

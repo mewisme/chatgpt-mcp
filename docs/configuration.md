@@ -86,14 +86,16 @@ cgm config set admin.enabled true
 
 Changes are validated before persistence.
 
-Interactive TUI mode is enabled by default:
+### Legacy command-local interactive compatibility
+
+The dedicated interactive surface is now `cgm tui`; see [TUI Command Center](tui.md). During the migration, older command-local interactive behavior may still be controlled by the legacy `interactive` setting:
 
 ```bash
 cgm config set interactive true
 cgm config set interactive false
 ```
 
-When enabled, commands with a TUI open it automatically only when both stdin and stdout are terminals. `--interactive` forces TUI mode for that invocation and `--no-interactive` disables it; explicit command flags take precedence over the persisted setting. Structured output such as `--json` remains non-interactive.
+This setting and command-local `--interactive` / `--no-interactive` flags are compatibility-only and should not be used as new workflow dependencies. Structured output such as `--json` remains non-interactive. The final interaction model is explicit `cgm tui` for human use and normal deterministic CLI commands for scripts; the legacy setting is retired only after Command Center parity is complete.
 
 ## Reload a running runtime
 

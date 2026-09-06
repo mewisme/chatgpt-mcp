@@ -206,6 +206,28 @@ cgm workspace access list ws_...
 
 See [Configuration](configuration.md) and [Security](security.md) before broadening filesystem scope.
 
+## Open the interactive Command Center
+
+For human-driven administration, launch the full-screen TUI explicitly:
+
+```bash
+cgm tui
+```
+
+You can also deep-link to a page or resource:
+
+```bash
+cgm tui workspace
+cgm tui workspace ws_...
+cgm tui mcp github
+cgm tui logs
+cgm tui config
+```
+
+`Ctrl+P` opens the Command Palette, `Ctrl+O` opens resource/page search, and `Alt+Left` / `Alt+Right` cycle the main pages. The TUI requires terminal stdin/stdout; use ordinary `cgm ...` commands and structured flags such as `--json` in scripts or pipelines.
+
+See [TUI Command Center](tui.md) for the complete interaction model.
+
 ## Start the runtime
 
 Foreground:

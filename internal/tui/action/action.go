@@ -5,6 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/capability"
 )
 
 type Scope string
@@ -21,16 +22,17 @@ type Context struct {
 }
 
 type Action struct {
-	ID          string
-	Title       string
-	Category    string
-	Description string
-	Keywords    []string
-	CommandPath []string
-	Shortcut    key.Binding
-	Scope       Scope
-	Available   func(Context) bool
-	Run         func(context.Context, Context) tea.Cmd
+	ID           string
+	Title        string
+	Category     string
+	Description  string
+	Keywords     []string
+	CommandPath  []string
+	Capabilities []capability.ID
+	Shortcut     key.Binding
+	Scope        Scope
+	Available    func(Context) bool
+	Run          func(context.Context, Context) tea.Cmd
 }
 
 func (action Action) IsAvailable(ctx Context) bool {

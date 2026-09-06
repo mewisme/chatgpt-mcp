@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/capability"
 )
 
 type Registry struct {
@@ -41,6 +42,16 @@ func (registry *Registry) Register(action Action) error {
 	if _, exists := registry.items[action.ID]; exists {
 		return fmt.Errorf("duplicate action id: %s", action.ID)
 	}
+	seenCapabilities := map[capability.ID]bool{}
+	for _, id := range action.Capabilities {
+		if _, ok := capability.Lookup(id); !ok {
+			return fmt.Errorf("action %q references unknown capability %q", action.ID, id)
+		}
+		if seenCapabilities[id] {
+			return fmt.Errorf("action %q repeats capability %q", action.ID, id)
+		}
+		seenCapabilities[id] = true
+	}
 	registry.items[action.ID] = action
 	registry.order = append(registry.order, action.ID)
 	registry.sort()
@@ -65,6 +76,17 @@ func (registry *Registry) Actions(ctx Context) []Action {
 		if action.IsAvailable(ctx) {
 			result = append(result, action)
 		}
+	}
+	return result
+}
+
+func (registry *Registry) All() []Action {
+	if registry == nil {
+		return nil
+	}
+	result := make([]Action, 0, len(registry.order))
+	for _, id := range registry.order {
+		result = append(result, registry.items[id])
 	}
 	return result
 }

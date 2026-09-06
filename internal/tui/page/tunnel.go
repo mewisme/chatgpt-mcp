@@ -22,6 +22,7 @@ const (
 	TunnelConfigure        TunnelCommand = "tunnel.configure"
 	TunnelEnable           TunnelCommand = "tunnel.enable"
 	TunnelDisable          TunnelCommand = "tunnel.disable"
+	TunnelForeground       TunnelCommand = "tunnel.foreground"
 	TunnelSync             TunnelCommand = "tunnel.sync"
 	TunnelAdminKeySet      TunnelCommand = "tunnel.admin.key.set"
 	TunnelAdminKeyVerify   TunnelCommand = "tunnel.admin.key.verify"
@@ -52,7 +53,10 @@ const (
 	tunnelOverlayForm
 	tunnelOverlayConfirm
 	tunnelOverlayOperation
+	tunnelOverlayExternal
 )
+
+type tunnelCopyMsg struct{ err error }
 
 type tunnelOperationMsg struct {
 	command   TunnelCommand
@@ -89,6 +93,7 @@ type TunnelPage struct {
 	configureForm      *managedConfigureFormData
 	deleteClear        bool
 	deleteOptions      bool
+	external           *application.ExternalCommand
 	notice             string
 	err                error
 	width              int
@@ -144,6 +149,14 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	}
 	if msg, ok := message.(tunnelOperationMsg); ok {
 		return page, page.finishOperation(msg)
+	}
+	if msg, ok := message.(tunnelCopyMsg); ok {
+		if msg.err != nil {
+			page.notice = "Clipboard unavailable: " + msg.err.Error()
+		} else {
+			page.notice = "Copied command to clipboard"
+		}
+		return page, nil
 	}
 	if page.overlay == tunnelOverlayOperation {
 		if key, ok := message.(tea.KeyPressMsg); ok && key.String() == "esc" {
@@ -210,6 +223,20 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.overlay == tunnelOverlayConfirm {
 			return page, page.updateConfirm(msg)
 		}
+		if page.overlay == tunnelOverlayExternal {
+			switch msg.String() {
+			case "esc":
+				page.closeOverlay()
+				return page, nil
+			case "c":
+				value := ""
+				if page.external != nil {
+					value = page.external.Command
+				}
+				return page, func() tea.Msg { return tunnelCopyMsg{err: component.CopyText(value)} }
+			}
+			return page, nil
+		}
 		if page.kind == tunnelPageManaged && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
@@ -265,6 +292,13 @@ func (page *TunnelPage) View(width, height int) string {
 		}
 		body += "\n\n" + component.Muted("Esc cancel")
 		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 72)), width, height)
+	case tunnelOverlayExternal:
+		body := component.Title("Run outside the TUI")
+		if page.external != nil {
+			body += "\n\n" + component.Muted(page.external.Reason) + "\n\n" + page.external.Command
+		}
+		body += "\n\n" + component.Muted("c copy command · Esc close")
+		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 88)), width, height)
 	}
 	return content
 }
@@ -278,7 +312,7 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 80), page.width, page.height, originX, originY, z+20)
 	case tunnelOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
-	case tunnelOverlayOperation:
+	case tunnelOverlayOperation, tunnelOverlayExternal:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
 	if page.kind == tunnelPageManaged {
@@ -286,7 +320,7 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 	}
 	view := page.runtimeView(page.width)
 	return keyHintMouseTargets(view, map[string]string{
-		"Configure": "e", "Toggle": "space", "Sync": "s", "Admin key": "a", "Verify": "v", "Remove admin": "d", "Managed tunnels": "m",
+		"Configure": "e", "Toggle": "space", "Sync": "s", "Foreground": "f", "Admin key": "a", "Verify": "v", "Remove admin": "d", "Managed tunnels": "m",
 	}, originX, originY, z)
 }
 
@@ -313,6 +347,10 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 				return nil, true
 			}
 			cmd, err := page.openCommand(TunnelSync, "")
+			page.err = err
+			return cmd, true
+		case "f":
+			cmd, err := page.openCommand(TunnelForeground, "")
 			page.err = err
 			return cmd, true
 		case "a":
@@ -401,6 +439,10 @@ func (page *TunnelPage) openCommand(command TunnelCommand, resourceID string) (t
 			dashboard, err := application.SetTunnelEnabled(enabled)
 			return tunnelOperationMsg{command: command, dashboard: dashboard, err: err}
 		}), nil
+	case TunnelForeground:
+		page.external = &application.ExternalCommand{Command: "cgm tunnel run", Reason: "The foreground tunnel owns the terminal. Exit the TUI before starting it."}
+		page.overlay = tunnelOverlayExternal
+		return nil, nil
 	case TunnelSync:
 		return page.startOperation(command, "", "Syncing tunnel metadata", func(ctx context.Context) tunnelOperationMsg {
 			metadata, _, err := application.SyncConfiguredTunnel(ctx)
@@ -662,6 +704,7 @@ func (page *TunnelPage) closeOverlay() {
 	page.runtimeForm, page.adminForm, page.managedForm, page.configureForm = nil, nil, nil, nil
 	page.managedUpdateFetch = false
 	page.deleteOptions = false
+	page.external = nil
 }
 
 func (page *TunnelPage) reloadDashboard() {
@@ -730,7 +773,7 @@ func (page *TunnelPage) runtimeView(width int) string {
 	)
 	metadataSection := tunnelMetadataSection(status.Metadata, status.MetadataError)
 	actions := component.PageActionBar(width,
-		[]component.ActionHint{{Key: "e", Label: "Configure", Enabled: true}, {Key: "space", Label: "Toggle", Enabled: cfg.Enabled || configured}, {Key: "s", Label: "Sync", Enabled: configured}},
+		[]component.ActionHint{{Key: "e", Label: "Configure", Enabled: true}, {Key: "space", Label: "Toggle", Enabled: cfg.Enabled || configured}, {Key: "s", Label: "Sync", Enabled: configured}, {Key: "f", Label: "Foreground", Enabled: configured}},
 		[]component.ActionHint{{Key: "a", Label: "Admin key", Enabled: true}, {Key: "v", Label: "Verify", Enabled: page.adminStatus.Configured}, {Key: "d", Label: "Remove admin", Enabled: page.adminStatus.Configured, Danger: true}},
 		[]component.ActionHint{{Key: "m", Label: "Managed tunnels", Enabled: true}},
 	)

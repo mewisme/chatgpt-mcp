@@ -3,8 +3,10 @@ package tui
 import (
 	"context"
 	"runtime"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/capability"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 )
@@ -16,16 +18,16 @@ type navigateMsg struct {
 
 func defaultActionRegistry() *action.Registry {
 	actions := []action.Action{
-		navigationAction("app.go.workspaces", "Workspaces", Route{Kind: RouteWorkspaces}, []string{"workspace", "workspaces", "ws"}),
-		navigationAction("app.go.containers", "Containers", Route{Kind: RouteContainers}, []string{"workspace", "container", "containers"}),
-		navigationAction("app.go.mcp", "MCP Servers", Route{Kind: RouteMCP}, []string{"mcp", "server", "upstream"}),
-		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure"}),
-		navigationAction("app.go.tunnels", "Managed Tunnels", Route{Kind: RouteTunnels}, []string{"tunnel", "tunnels", "managed", "openai"}),
-		navigationAction("app.go.requests", "Requests", Route{Kind: RouteRequests}, []string{"request", "approval"}),
+		navigationAction("app.go.workspaces", "Workspaces", Route{Kind: RouteWorkspaces}, []string{"workspace", "workspaces", "ws"}, capability.WorkspaceList, capability.WorkspaceShow, capability.WorkspaceAccessList),
+		navigationAction("app.go.containers", "Containers", Route{Kind: RouteContainers}, []string{"workspace", "container", "containers"}, capability.WorkspaceContainerList, capability.WorkspaceContainerShow),
+		navigationAction("app.go.mcp", "MCP Servers", Route{Kind: RouteMCP}, []string{"mcp", "server", "upstream"}, capability.MCPServerList, capability.MCPServerShow, capability.MCPAuthStatus),
+		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure"}, capability.TunnelStatus, capability.TunnelAdminKeyStatus),
+		navigationAction("app.go.tunnels", "Managed Tunnels", Route{Kind: RouteTunnels}, []string{"tunnel", "tunnels", "managed", "openai"}, capability.TunnelList, capability.TunnelGet),
+		navigationAction("app.go.requests", "Requests", Route{Kind: RouteRequests}, []string{"request", "approval"}, capability.RequestView),
 		navigationAction("app.go.logs", "Logs", Route{Kind: RouteLogs}, []string{"logs", "events", "journal"}),
-		navigationAction("app.go.config", "Config", Route{Kind: RouteConfig}, []string{"config", "settings", "cfg"}),
-		navigationAction("app.go.runtime", "Runtime", Route{Kind: RouteRuntime}, []string{"runtime", "status", "service"}),
-		navigationAction("app.go.about", "About", Route{Kind: RouteAbout}, []string{"about", "version", "build", "uptime"}),
+		navigationAction("app.go.config", "Config", Route{Kind: RouteConfig}, []string{"config", "settings", "cfg"}, capability.ConfigPath, capability.ConfigGet),
+		navigationAction("app.go.runtime", "Runtime", Route{Kind: RouteRuntime}, []string{"runtime", "status", "service"}, capability.AuthStatus, capability.AliasStatus),
+		navigationAction("app.go.about", "About", Route{Kind: RouteAbout}, []string{"about", "version", "build", "uptime"}, capability.VersionAbout),
 	}
 	actions = append(actions, workspaceActions()...)
 	actions = append(actions, mcpActions()...)
@@ -52,6 +54,8 @@ func systemActions() []action.Action {
 		systemAction("runtime.restart.system", "Restart system service", "Restart the machine-level managed runtime", []string{"runtime", "service", "restart", "system"}, []string{"restart", "--system"}, tuipage.RuntimeRestartSystem, true),
 		systemAction("runtime.reload", "Reload runtime config", "Reload persisted configuration into the running runtime", []string{"runtime", "config", "reload"}, []string{"config", "reload"}, tuipage.RuntimeReload, false),
 		systemAction("runtime.foreground", "Run foreground runtime", "Show the foreground serve command to run after leaving the TUI", []string{"runtime", "foreground", "serve", "terminal"}, []string{"serve"}, tuipage.RuntimeForeground, false),
+		systemAction("config.initialize.external", "Initialize configuration", "Show the initialization command that creates configuration and one-time authentication tokens", []string{"config", "init", "initialize", "token"}, []string{"init"}, tuipage.ConfigInitialize, false),
+		systemAction("config.uninitialize.external", "Uninitialize configuration", "Show the destructive command that removes local configuration and state", []string{"config", "uninit", "uninitialize", "remove", "state"}, []string{"uninit"}, tuipage.ConfigUninitialize, false),
 		systemAction("auth.mcp.enable", "Enable MCP authentication", "Enable MCP token authentication", []string{"auth", "mcp", "enable"}, []string{"auth", "mcp", "enable"}, tuipage.AuthMCPEnable, false),
 		systemAction("auth.mcp.disable", "Disable MCP authentication", "Disable MCP token authentication", []string{"auth", "mcp", "disable"}, []string{"auth", "mcp", "disable"}, tuipage.AuthMCPDisable, false),
 		systemAction("auth.mcp.rotate", "Rotate MCP token", "Rotate the MCP token and reveal the replacement once", []string{"auth", "mcp", "token", "rotate", "create"}, []string{"auth", "mcp", "create"}, tuipage.AuthMCPRotate, false),
@@ -69,7 +73,7 @@ func systemActions() []action.Action {
 
 func systemAction(id, title, description string, keywords, commandPath []string, command tuipage.SystemCommand, systemOnly bool) action.Action {
 	return action.Action{
-		ID: id, Title: title, Category: "System", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		ID: id, Title: title, Category: "System", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
 		Available: func(ctx action.Context) bool {
 			return ctx.Route == string(RouteRuntime) && (!systemOnly || runtime.GOOS != "windows")
 		},
@@ -91,7 +95,7 @@ func logsActions() []action.Action {
 
 func logsAction(id, title, description string, keywords, commandPath []string, command tuipage.LogsCommand) action.Action {
 	return action.Action{
-		ID: id, Title: title, Category: "Logs", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		ID: id, Title: title, Category: "Logs", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
 		Available: func(ctx action.Context) bool { return ctx.Route == string(RouteLogs) },
 		Run: func(context.Context, action.Context) tea.Cmd {
 			return func() tea.Msg { return tuipage.LogsCommandMsg{Command: command} }
@@ -114,7 +118,7 @@ func configActions() []action.Action {
 
 func configAction(id, title, description string, keywords, commandPath []string, command tuipage.ConfigCommand) action.Action {
 	return action.Action{
-		ID: id, Title: title, Category: "Config", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		ID: id, Title: title, Category: "Config", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
 		Available: func(ctx action.Context) bool { return ctx.Route == string(RouteConfig) },
 		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
 			return func() tea.Msg { return tuipage.ConfigCommandMsg{Command: command, ResourceID: ctx.ResourceID} }
@@ -135,7 +139,7 @@ func requestActions() []action.Action {
 
 func requestAction(id, title, description string, keywords, commandPath []string, command tuipage.RequestCommand, needsResource bool) action.Action {
 	return action.Action{
-		ID: id, Title: title, Category: "Requests", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		ID: id, Title: title, Category: "Requests", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
 		Available: func(ctx action.Context) bool {
 			if ctx.Route != string(RouteRequests) {
 				return false
@@ -153,6 +157,7 @@ func tunnelActions() []action.Action {
 		tunnelAction("tunnel.configure", "Configure runtime tunnel", "Configure the local OpenAI Secure MCP Tunnel", []string{"tunnel", "configure", "runtime"}, []string{"tunnel", "configure"}, tuipage.TunnelConfigure, RouteTunnel, false),
 		tunnelAction("tunnel.enable", "Enable runtime tunnel", "Enable the local OpenAI Secure MCP Tunnel", []string{"tunnel", "enable", "runtime"}, []string{"tunnel", "enable"}, tuipage.TunnelEnable, RouteTunnel, false),
 		tunnelAction("tunnel.disable", "Disable runtime tunnel", "Disable the local OpenAI Secure MCP Tunnel", []string{"tunnel", "disable", "runtime"}, []string{"tunnel", "disable"}, tuipage.TunnelDisable, RouteTunnel, false),
+		tunnelAction("tunnel.foreground", "Run foreground tunnel", "Show the foreground tunnel command to run after leaving the TUI", []string{"tunnel", "foreground", "run", "terminal"}, []string{"tunnel", "run"}, tuipage.TunnelForeground, RouteTunnel, false),
 		tunnelAction("tunnel.sync", "Sync tunnel metadata", "Fetch and persist metadata for the configured runtime tunnel", []string{"tunnel", "sync", "metadata"}, []string{"tunnel", "sync"}, tuipage.TunnelSync, RouteTunnel, false),
 		tunnelAction("tunnel.admin.key.set", "Set admin key", "Verify and store an OpenAI tunnel admin key", []string{"tunnel", "admin", "key", "set"}, []string{"tunnel", "admin", "key", "set"}, tuipage.TunnelAdminKeySet, RouteTunnel, false),
 		tunnelAction("tunnel.admin.key.verify", "Verify admin key", "Re-verify Tunnels Manage access for the stored admin key", []string{"tunnel", "admin", "key", "verify"}, []string{"tunnel", "admin", "key", "verify"}, tuipage.TunnelAdminKeyVerify, RouteTunnel, false),
@@ -167,7 +172,7 @@ func tunnelActions() []action.Action {
 
 func tunnelAction(id, title, description string, keywords, commandPath []string, command tuipage.TunnelCommand, route RouteKind, needsResource bool) action.Action {
 	return action.Action{
-		ID: id, Title: title, Category: "Tunnel", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		ID: id, Title: title, Category: "Tunnel", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
 		Available: func(ctx action.Context) bool {
 			if ctx.Route != string(route) {
 				return false
@@ -196,7 +201,7 @@ func mcpActions() []action.Action {
 
 func mcpAction(id, title, description string, keywords, commandPath []string, command tuipage.MCPCommand, needsResource bool) action.Action {
 	return action.Action{
-		ID: id, Title: title, Category: "MCP", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		ID: id, Title: title, Category: "MCP", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
 		Available: func(ctx action.Context) bool {
 			return !needsResource || ctx.Route == string(RouteMCP) && ctx.ResourceID != ""
 		},
@@ -222,7 +227,7 @@ func workspaceActions() []action.Action {
 
 func workspaceAction(id, title, description string, keywords, commandPath []string, command tuipage.WorkspaceCommand, needsResource, container bool) action.Action {
 	return action.Action{
-		ID: id, Title: title, Category: "Workspace", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		ID: id, Title: title, Category: "Workspace", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
 		Available: func(ctx action.Context) bool {
 			if !needsResource {
 				return true
@@ -239,14 +244,22 @@ func workspaceAction(id, title, description string, keywords, commandPath []stri
 	}
 }
 
-func navigationAction(id, title string, route Route, keywords []string) action.Action {
+func navigationAction(id, title string, route Route, keywords []string, capabilities ...capability.ID) action.Action {
 	return action.Action{
 		ID: id, Title: "Go to " + title, Category: "App", Description: "Open the " + title + " page", Keywords: keywords,
-		CommandPath: []string{"tui", string(route.Kind)}, Scope: action.ScopeGlobal,
+		CommandPath: []string{"tui", string(route.Kind)}, Capabilities: capabilities, Scope: action.ScopeGlobal,
 		Run: func(context.Context, action.Context) tea.Cmd {
 			return func() tea.Msg { return navigateMsg{route: route, sibling: true} }
 		},
 	}
+}
+
+func capabilitiesForCommandPath(commandPath []string) []capability.ID {
+	id, ok := capability.ForPath(strings.Join(commandPath, " "))
+	if !ok {
+		return nil
+	}
+	return []capability.ID{id}
 }
 
 func actionContext(route Route) action.Context {

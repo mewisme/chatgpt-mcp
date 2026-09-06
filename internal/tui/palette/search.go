@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	"go.mewis.me/chatgpt-mcp/internal/capability"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 )
 
@@ -57,10 +58,11 @@ func actionScore(item action.Action, query string, ctx action.Context) (int, boo
 	title := normalize(item.Title)
 	category := normalize(item.Category)
 	command := normalize(strings.Join(item.CommandPath, " "))
+	capabilities := normalize(capability.SearchText(item.Capabilities))
 	keywords := normalize(strings.Join(item.Keywords, " "))
 	description := normalize(item.Description)
 	tokens := strings.Fields(query)
-	haystack := strings.Join([]string{title, category, command, keywords, description}, " ")
+	haystack := strings.Join([]string{title, category, command, capabilities, keywords, description}, " ")
 	for _, token := range tokens {
 		if !strings.Contains(haystack, token) && !subsequence(token, haystack) {
 			return 0, false
@@ -82,6 +84,9 @@ func actionScore(item action.Action, query string, ctx action.Context) (int, boo
 	if strings.Contains(command, query) {
 		score += 350
 	}
+	if strings.Contains(capabilities, query) {
+		score += 340
+	}
 	for _, token := range tokens {
 		switch {
 		case strings.HasPrefix(title, token):
@@ -90,6 +95,8 @@ func actionScore(item action.Action, query string, ctx action.Context) (int, boo
 			score += 120
 		case strings.Contains(command, token):
 			score += 100
+		case strings.Contains(capabilities, token):
+			score += 95
 		case strings.Contains(keywords, token):
 			score += 80
 		case strings.Contains(category, token):

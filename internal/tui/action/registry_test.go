@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/capability"
 )
 
 func TestRegistryRejectsInvalidAndDuplicateActions(t *testing.T) {
@@ -15,6 +16,12 @@ func TestRegistryRejectsInvalidAndDuplicateActions(t *testing.T) {
 	}
 	if _, err := NewRegistry(Action{ID: "a", Title: "A"}, Action{ID: "a", Title: "B"}); err == nil {
 		t.Fatal("duplicate action unexpectedly accepted")
+	}
+	if _, err := NewRegistry(Action{ID: "cap", Title: "Capability", Capabilities: []capability.ID{"unknown"}}); err == nil {
+		t.Fatal("unknown capability unexpectedly accepted")
+	}
+	if _, err := NewRegistry(Action{ID: "cap", Title: "Capability", Capabilities: []capability.ID{capability.VersionAbout, capability.VersionAbout}}); err == nil {
+		t.Fatal("duplicate capability unexpectedly accepted")
 	}
 }
 

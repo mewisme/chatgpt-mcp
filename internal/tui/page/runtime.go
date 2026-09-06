@@ -31,6 +31,8 @@ const (
 	RuntimeRestartSystem SystemCommand = "runtime.restart.system"
 	RuntimeReload        SystemCommand = "runtime.reload"
 	RuntimeForeground    SystemCommand = "runtime.foreground"
+	ConfigInitialize     SystemCommand = "config.initialize.external"
+	ConfigUninitialize   SystemCommand = "config.uninitialize.external"
 	AuthMCPEnable        SystemCommand = "auth.mcp.enable"
 	AuthMCPDisable       SystemCommand = "auth.mcp.disable"
 	AuthMCPRotate        SystemCommand = "auth.mcp.rotate"
@@ -349,6 +351,14 @@ func (page *RuntimePage) openCommand(command SystemCommand) (tea.Cmd, error) {
 		return page.form.Init(), nil
 	case RuntimeForeground:
 		page.external = &application.ExternalCommand{Command: "cgm serve", Reason: "The foreground runtime owns the terminal. Exit the TUI before starting it."}
+		page.overlay = systemOverlayExternal
+		return nil, nil
+	case ConfigInitialize:
+		page.external = &application.ExternalCommand{Command: "cgm init", Reason: "Initialization creates new plaintext MCP/admin tokens. Run it outside the TUI so the CLI can present the one-time credentials directly."}
+		page.overlay = systemOverlayExternal
+		return nil, nil
+	case ConfigUninitialize:
+		page.external = &application.ExternalCommand{Command: "cgm uninit", Reason: "Uninitialize permanently removes local ChatGPT MCP configuration and state. Run this destructive command explicitly outside the TUI."}
 		page.overlay = systemOverlayExternal
 		return nil, nil
 	case AuthMCPRotate, AuthAdminRotate, InstallCleanup, AliasRemove, RuntimeDownUser, RuntimeDownSystem, RuntimeRestartUser, RuntimeRestartSystem:

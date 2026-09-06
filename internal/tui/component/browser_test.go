@@ -335,3 +335,15 @@ func browserKeyText(value string) tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Text: value, Code: []rune(value)[0]})
 }
 func browserKeyCode(code rune) tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: code}) }
+
+func TestBrowserDetailDoesNotQuitOnCtrlC(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One", Detail: "detail"}}, nil)
+	if !model.OpenDetail("one") {
+		t.Fatal("detail did not open")
+	}
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	model = updated.(Browser)
+	if cmd != nil || !model.DetailOpen() {
+		t.Fatalf("ctrl+c escaped browser detail: cmd=%v detail=%t", cmd, model.DetailOpen())
+	}
+}

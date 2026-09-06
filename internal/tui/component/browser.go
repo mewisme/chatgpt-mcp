@@ -181,8 +181,6 @@ func (m Browser) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.detail {
 		switch {
-		case msg.String() == "ctrl+c":
-			return m, tea.Quit
 		case msg.String() == "esc", key.Matches(msg, browserOpenBinding):
 			m.detail = false
 			return m, nil
@@ -239,6 +237,39 @@ func (m Browser) Content() string {
 }
 
 func (m Browser) Selected() (Row, bool) { return m.selected() }
+
+func (m *Browser) ReplaceRows(rows []Row, selectedID string) tea.Cmd {
+	if m == nil {
+		return nil
+	}
+	m.list.SetShowStatusBar(len(rows) > 0)
+	cmd := m.list.SetItems(browserListItems(rows))
+	if cmd != nil {
+		m.pendingSelectionID = selectedID
+	} else if selectedID != "" {
+		m.restoreSelection(selectedID)
+	}
+	if m.detail {
+		if selected, ok := m.rowByID(selectedID); ok {
+			m.syncDetail(selected)
+		} else {
+			m.detail = false
+		}
+	}
+	return cmd
+}
+
+func (m *Browser) SelectLast() bool {
+	if m == nil {
+		return false
+	}
+	items := m.list.VisibleItems()
+	if len(items) == 0 {
+		return false
+	}
+	m.list.Select(len(items) - 1)
+	return true
+}
 
 func (m *Browser) SelectID(id string) bool {
 	if m == nil {

@@ -138,3 +138,24 @@ func TestConfigActionAvailabilityFollowsRouteContext(t *testing.T) {
 		t.Fatal("config actions leaked outside config route")
 	}
 }
+
+func TestLogsActionAvailabilityFollowsRouteContext(t *testing.T) {
+	registry := defaultActionRegistry()
+	has := func(ctx action.Context, id string) bool {
+		for _, item := range registry.Actions(ctx) {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	ctx := action.Context{Route: string(RouteLogs)}
+	for _, id := range []string{"logs.refresh", "logs.filter", "logs.toggle", "logs.info", "logs.clear"} {
+		if !has(ctx, id) {
+			t.Fatalf("logs action missing: %s", id)
+		}
+	}
+	if has(action.Context{Route: string(RouteHome)}, "logs.clear") {
+		t.Fatal("logs actions leaked outside logs route")
+	}
+}

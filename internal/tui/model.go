@@ -182,6 +182,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		return model.updatePage(msg)
+	case tuipage.LogsCommandMsg:
+		if err := model.ensureLogsPage(); err != nil {
+			model.notice = err.Error()
+			return model, nil
+		}
+		return model.updatePage(msg)
 	case tuipage.ConfigCommandMsg:
 		if err := model.ensureConfigPage(); err != nil {
 			model.notice = err.Error()
@@ -385,6 +391,9 @@ func (model *Model) loadPage(route Route) {
 	if model == nil {
 		return
 	}
+	if page, ok := model.currentPage.(interface{ Close() }); ok {
+		page.Close()
+	}
 	model.currentPage = nil
 	var value tuipage.Model
 	var err error
@@ -401,6 +410,8 @@ func (model *Model) loadPage(route Route) {
 		value, err = tuipage.NewManagedTunnels(model.ctx, route.ResourceID)
 	case RouteRequests:
 		value, err = tuipage.NewRequests(model.ctx, route.ResourceID)
+	case RouteLogs:
+		value, err = tuipage.NewLogs(model.ctx)
 	case RouteConfig:
 		value, err = tuipage.NewConfig(model.ctx)
 	}
@@ -414,6 +425,16 @@ func (model *Model) loadPage(route Route) {
 		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})
 		model.currentPage = updated
 	}
+}
+
+func (model *Model) ensureLogsPage() error {
+	if model.router.Current().Kind != RouteLogs {
+		model.navigate(Route{Kind: RouteLogs})
+	}
+	if model.currentPage == nil {
+		return fmt.Errorf("logs viewer is unavailable")
+	}
+	return nil
 }
 
 func (model Model) initCurrentPage() tea.Cmd {

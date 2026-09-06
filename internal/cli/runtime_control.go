@@ -322,10 +322,6 @@ func (c *runtimeControl) Close() error {
 	return err
 }
 
-func loadRuntimeControlState() (runtimeControlState, error) {
-	return runtimecontrol.Load()
-}
-
 func runtimeControlRequest(ctx context.Context, method, path string, output any) (runtimeControlState, error) {
 	return runtimecontrol.Request(ctx, method, path, nil, output)
 }
@@ -406,32 +402,4 @@ func requestRuntimeStatus(ctx context.Context) (runtimeStatusResult, error) {
 func requestRuntimeShutdown(ctx context.Context) error {
 	_, err := runtimeControlRequest(ctx, http.MethodPost, "/shutdown", &map[string]bool{})
 	return err
-}
-
-func requestRuntimeClearLogs(ctx context.Context) error {
-	_, err := runtimeControlRequest(ctx, http.MethodPost, "/logs/clear", &map[string]bool{})
-	return err
-}
-
-func openRuntimeEventStream(ctx context.Context) (*http.Response, runtimeControlState, error) {
-	control, err := loadRuntimeControlState()
-	if err != nil {
-		return nil, runtimeControlState{}, err
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+control.Address+"/events", nil)
-	if err != nil {
-		return nil, runtimeControlState{}, err
-	}
-	request.Header.Set("Authorization", "Bearer "+control.Token)
-	client := &http.Client{Transport: &http.Transport{Proxy: nil}}
-	response, err := client.Do(request)
-	if err != nil {
-		return nil, runtimeControlState{}, fmt.Errorf("running server control endpoint unavailable: %w", err)
-	}
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
-		_ = response.Body.Close()
-		return nil, runtimeControlState{}, fmt.Errorf("runtime event stream failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
-	}
-	return response, control, nil
 }

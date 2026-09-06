@@ -29,12 +29,33 @@ func defaultActionRegistry() *action.Registry {
 	actions = append(actions, mcpActions()...)
 	actions = append(actions, tunnelActions()...)
 	actions = append(actions, requestActions()...)
+	actions = append(actions, logsActions()...)
 	actions = append(actions, configActions()...)
 	registry, err := action.NewRegistry(actions...)
 	if err != nil {
 		panic(err)
 	}
 	return registry
+}
+
+func logsActions() []action.Action {
+	return []action.Action{
+		logsAction("logs.refresh", "Refresh logs", "Reload journal history and reconnect the live stream", []string{"logs", "refresh", "history", "reconnect"}, []string{"logs"}, tuipage.LogsRefresh),
+		logsAction("logs.filter", "Filter logs", "Configure structured runtime log filters", []string{"logs", "filter", "grep", "session", "level"}, []string{"logs"}, tuipage.LogsFilter),
+		logsAction("logs.toggle", "Pause or resume logs", "Toggle live tail following without dropping buffered events", []string{"logs", "pause", "resume", "follow"}, []string{"logs", "follow"}, tuipage.LogsToggle),
+		logsAction("logs.info", "Show logs info", "Show the runtime journal path, file count, and size", []string{"logs", "path", "info", "journal"}, []string{"logs", "path"}, tuipage.LogsInfo),
+		logsAction("logs.clear", "Clear logs", "Clear current and rotated runtime logs after confirmation", []string{"logs", "clear", "delete"}, []string{"logs", "clear"}, tuipage.LogsClear),
+	}
+}
+
+func logsAction(id, title, description string, keywords, commandPath []string, command tuipage.LogsCommand) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "Logs", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool { return ctx.Route == string(RouteLogs) },
+		Run: func(context.Context, action.Context) tea.Cmd {
+			return func() tea.Msg { return tuipage.LogsCommandMsg{Command: command} }
+		},
+	}
 }
 
 func configActions() []action.Action {

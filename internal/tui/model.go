@@ -9,6 +9,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 	"go.mewis.me/chatgpt-mcp/internal/tui/palette"
 	"go.mewis.me/chatgpt-mcp/internal/tui/quickopen"
 	tuistate "go.mewis.me/chatgpt-mcp/internal/tui/state"
@@ -32,6 +34,7 @@ type Model struct {
 	stateRoot      string
 	state          tuistate.State
 	notice         string
+	currentPage    tuipage.Model
 	theme          theme
 	width          int
 	height         int
@@ -55,7 +58,9 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 			state = loaded
 		}
 	}
-	return Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), stateRoot: root, state: state, theme: newTheme(true)}
+	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), stateRoot: root, state: state, theme: newTheme(true)}
+	model.loadPage(initial)
+	return model
 }
 
 func (model Model) Init() tea.Cmd { return nil }
@@ -64,6 +69,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
 		model.theme = newTheme(msg.IsDark())
+		if model.currentPage != nil {
+			updated, cmd := model.currentPage.Update(msg)
+			model.currentPage = updated
+			if model.palette == nil && cmd != nil {
+				return model, cmd
+			}
+		}
 		if model.palette != nil {
 			updated, cmd := model.palette.Update(msg)
 			model.palette = &updated
@@ -71,6 +83,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		model.width, model.height = msg.Width, msg.Height
+		if model.currentPage != nil {
+			updated, cmd := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, msg.Width-8), Height: max(10, msg.Height-10)})
+			model.currentPage = updated
+			if cmd != nil {
+				return model, cmd
+			}
+		}
 	case palette.ClosedMsg:
 		model.closeOverlay()
 		return model, nil
@@ -88,6 +107,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return model, nil
 			}
 			model.router.Navigate(route)
+			model.loadPage(route)
 			return model, nil
 		}
 		model.closeOverlay()
@@ -99,7 +119,23 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return model, cmd
 	case navigateMsg:
-		model.router.Navigate(msg.route)
+		model.navigate(msg.route)
+	case tuipage.NavigateMsg:
+		route, err := ParseRoute(msg.Path)
+		if err != nil {
+			model.notice = err.Error()
+			return model, nil
+		}
+		model.navigate(route)
+		return model, nil
+	case tuipage.WorkspaceCommandMsg:
+		if err := model.ensureWorkspacePage(msg.Command, msg.ResourceID); err != nil {
+			model.notice = err.Error()
+			return model, nil
+		}
+		return model.updatePage(msg)
+	case component.FormSubmittedMsg, component.FormCancelledMsg:
+		return model.updatePage(msg)
 	case tea.KeyPressMsg:
 		if model.palette != nil {
 			updated, cmd := model.palette.Update(msg)
@@ -114,11 +150,16 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.openQuickOpen()
 			return model, nil
 		}
+		if model.currentPage != nil && model.currentPage.OverlayActive() && msg.String() != "ctrl+c" {
+			return model.updatePage(msg)
+		}
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return model, tea.Quit
 		case "esc", "backspace":
-			model.router.Back()
+			if model.router.Back() {
+				model.loadPage(model.router.Current())
+			}
 		default:
 			if selected, ok := model.actions.MatchShortcut(msg, actionContext(model.router.Current())); ok {
 				cmd, err := model.actions.Execute(model.ctx, selected.ID, actionContext(model.router.Current()))
@@ -127,6 +168,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	}
+	if model.currentPage != nil {
+		return model.updatePage(message)
 	}
 	return model, nil
 }
@@ -195,6 +239,62 @@ func (model *Model) recordRecent(id string) {
 	}
 }
 
+func (model *Model) navigate(route Route) {
+	if model == nil {
+		return
+	}
+	model.router.Navigate(route)
+	model.loadPage(route)
+}
+
+func (model *Model) loadPage(route Route) {
+	if model == nil {
+		return
+	}
+	model.currentPage = nil
+	var value tuipage.Model
+	var err error
+	switch route.Kind {
+	case RouteWorkspaces:
+		value, err = tuipage.NewWorkspaces(model.ctx, route.ResourceID)
+	case RouteContainers:
+		value, err = tuipage.NewContainers(model.ctx, route.ResourceID)
+	}
+	if err != nil {
+		model.notice = err.Error()
+		return
+	}
+	model.currentPage = value
+	if model.currentPage != nil && model.width > 0 && model.height > 0 {
+		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, model.width-8), Height: max(10, model.height-10)})
+		model.currentPage = updated
+	}
+}
+
+func (model Model) updatePage(message tea.Msg) (tea.Model, tea.Cmd) {
+	if model.currentPage == nil {
+		return model, nil
+	}
+	updated, cmd := model.currentPage.Update(message)
+	model.currentPage = updated
+	return model, cmd
+}
+
+func (model *Model) ensureWorkspacePage(command tuipage.WorkspaceCommand, resourceID string) error {
+	container := command == tuipage.WorkspaceContainerCreate || command == tuipage.WorkspaceContainerRename || command == tuipage.WorkspaceContainerDelete || command == tuipage.WorkspaceContainerMembers
+	kind := RouteWorkspaces
+	if container {
+		kind = RouteContainers
+	}
+	if model.router.Current().Kind != kind || (resourceID != "" && model.router.Current().ResourceID != resourceID) {
+		model.navigate(Route{Kind: kind, ResourceID: resourceID})
+	}
+	if model.currentPage == nil {
+		return fmt.Errorf("workspace page is unavailable")
+	}
+	return nil
+}
+
 func isQuickOpenKey(message tea.KeyPressMsg) bool { return message.String() == "ctrl+o" }
 
 func (model Model) render() string {
@@ -239,6 +339,9 @@ func (model Model) header(width int) string {
 }
 
 func (model Model) page(width int) string {
+	if model.currentPage != nil {
+		return model.currentPage.View(width, max(10, model.height-10))
+	}
 	route := model.router.Current()
 	title := model.theme.current.Render(route.Title())
 	description := routeDescription(route)

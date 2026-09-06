@@ -208,14 +208,50 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Browser) View() tea.View {
+	view := tea.NewView(m.Content())
+	view.AltScreen = true
+	return view
+}
+
+func (m Browser) Content() string {
 	content := CenterLayout(m.list.View(), m.width, m.height)
 	if m.detail {
 		content = m.overlayDetail(content)
 	}
-	view := tea.NewView(content)
-	view.AltScreen = true
-	return view
+	return content
 }
+
+func (m Browser) Selected() (Row, bool) { return m.selected() }
+
+func (m *Browser) SelectID(id string) bool {
+	if m == nil {
+		return false
+	}
+	for index, item := range m.list.VisibleItems() {
+		value, ok := item.(browserItem)
+		if ok && value.ID == id {
+			m.list.Select(index)
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Browser) OpenDetail(id string) bool {
+	if m == nil || !m.SelectID(id) {
+		return false
+	}
+	selected, ok := m.selected()
+	if !ok {
+		return false
+	}
+	m.detail = true
+	m.detailTab = 0
+	m.syncDetail(selected)
+	return true
+}
+
+func (m Browser) DetailOpen() bool { return m.detail }
 
 func (m Browser) overlayDetail(background string) string {
 	return CenterOverlay(background, m.detailView(), m.width, m.height)

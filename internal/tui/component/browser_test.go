@@ -175,6 +175,19 @@ func TestBrowserRowActionUsesSelectedItemAndDefaultHelp(t *testing.T) {
 	}
 }
 
+func TestBrowserExportsSelectionAndDetail(t *testing.T) {
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "a", Title: "A"}, {ID: "b", Title: "B", Detail: "details"}}, nil)
+	if !model.SelectID("b") {
+		t.Fatal("SelectID did not find b")
+	}
+	if selected, ok := model.Selected(); !ok || selected.ID != "b" {
+		t.Fatalf("selected=%#v ok=%t", selected, ok)
+	}
+	if !model.OpenDetail("b") || !model.DetailOpen() || !strings.Contains(model.Content(), "details") {
+		t.Fatalf("detail open=%t content=%q", model.DetailOpen(), model.Content())
+	}
+}
+
 func updateBrowser(t *testing.T, model Browser, msg tea.Msg) Browser {
 	t.Helper()
 	updated, cmd := model.Update(msg)

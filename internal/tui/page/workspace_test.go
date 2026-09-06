@@ -1,0 +1,131 @@
+package page
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+)
+
+func TestWorkspacePageLifecycle(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	extra := filepath.Join(t.TempDir(), "extra")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(extra, 0700); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := page.openCommand(WorkspaceRegister, ""); err != nil {
+		t.Fatal(err)
+	}
+	page.value = project
+	page.submitForm()
+	items, err := page.manager.List()
+	if err != nil || len(items) != 1 {
+		t.Fatalf("workspaces=%#v err=%v", items, err)
+	}
+	id := items[0].ID
+	if err := page.openCommand(WorkspaceAccessAdd, id); err != nil {
+		t.Fatal(err)
+	}
+	page.value = extra
+	page.submitForm()
+	item, err := page.manager.Get(id)
+	if err != nil || len(item.AllowDirs) != 1 {
+		t.Fatalf("workspace=%#v err=%v", item, err)
+	}
+	if err := page.openCommand(WorkspaceAccessRemove, id); err != nil {
+		t.Fatal(err)
+	}
+	page.value = extra
+	page.submitForm()
+	item, _ = page.manager.Get(id)
+	if len(item.AllowDirs) != 0 {
+		t.Fatalf("allow dirs=%v", item.AllowDirs)
+	}
+	if err := page.openCommand(WorkspaceUnregister, id); err != nil {
+		t.Fatal(err)
+	}
+	page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+	page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	items, err = page.manager.List()
+	if err != nil || len(items) != 0 {
+		t.Fatalf("workspaces after unregister=%#v err=%v", items, err)
+	}
+}
+
+func TestWorkspaceContainerLifecycleAndMembership(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	managerPage, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, 2)
+	for _, name := range []string{"one", "two"} {
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+		item, err := managerPage.manager.Register(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, item.ID)
+	}
+	page, err := NewContainers(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := page.openCommand(WorkspaceContainerCreate, ""); err != nil {
+		t.Fatal(err)
+	}
+	page.value = "Primary"
+	page.submitForm()
+	containers, err := page.manager.ListContainers()
+	if err != nil || len(containers) != 1 {
+		t.Fatalf("containers=%#v err=%v", containers, err)
+	}
+	id := containers[0].ID
+	if err := page.openCommand(WorkspaceContainerRename, id); err != nil {
+		t.Fatal(err)
+	}
+	page.value = "Renamed"
+	page.submitForm()
+	if err := page.openCommand(WorkspaceContainerMembers, id); err != nil {
+		t.Fatal(err)
+	}
+	page.members = append([]string(nil), ids...)
+	page.submitForm()
+	container, err := page.manager.GetContainer(id)
+	if err != nil || len(container.WorkspaceIDs) != 2 || container.Name != "Renamed" {
+		t.Fatalf("container=%#v err=%v", container, err)
+	}
+	if err := page.openCommand(WorkspaceContainerDelete, id); err != nil {
+		t.Fatal(err)
+	}
+	page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+	page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	containers, err = page.manager.ListContainers()
+	if err != nil || len(containers) != 0 {
+		t.Fatalf("containers after delete=%#v err=%v", containers, err)
+	}
+	workspaces, err := page.manager.List()
+	if err != nil || len(workspaces) != 2 {
+		t.Fatalf("workspace records changed by container delete: %#v err=%v", workspaces, err)
+	}
+}

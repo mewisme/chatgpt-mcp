@@ -9,39 +9,23 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 )
 
-func TestModelFillsTerminalAndEnforcesMinimumLayout(t *testing.T) {
+func TestModelFillsExactTerminalSizeWithoutMinimumLayout(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	model := NewModel(Route{Kind: RouteHome})
-	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	model = updated.(Model)
-	view := model.View().Content
-	if width, height := lipgloss.Width(view), lipgloss.Height(view); width != 120 || height != 40 {
-		t.Fatalf("full terminal layout=%dx%d want 120x40", width, height)
-	}
-	updated, _ = model.Update(tea.WindowSizeMsg{Width: 20, Height: 8})
-	model = updated.(Model)
-	view = model.View().Content
-	if width, height := lipgloss.Width(view), lipgloss.Height(view); width != minTerminalWidth || height != minTerminalHeight {
-		t.Fatalf("minimum layout=%dx%d want %dx%d", width, height, minTerminalWidth, minTerminalHeight)
-	}
-	for _, route := range []Route{{Kind: RouteWorkspaces}, {Kind: RouteMCP}, {Kind: RouteConfig}} {
-		model = NewModel(route)
-		updated, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-		model = updated.(Model)
-		view = model.View().Content
-		if width, height := lipgloss.Width(view), lipgloss.Height(view); width != 120 || height != 40 {
-			t.Fatalf("%s domain layout=%dx%d want 120x40", route.Kind, width, height)
-		}
-		updated, _ = model.Update(tea.WindowSizeMsg{Width: 20, Height: 8})
-		model = updated.(Model)
-		view = model.View().Content
-		if width, height := lipgloss.Width(view), lipgloss.Height(view); width != minTerminalWidth || height != minTerminalHeight {
-			t.Fatalf("%s minimum domain layout=%dx%d want %dx%d", route.Kind, width, height, minTerminalWidth, minTerminalHeight)
+	for _, route := range []Route{{Kind: RouteHome}, {Kind: RouteWorkspaces}, {Kind: RouteMCP}, {Kind: RouteConfig}} {
+		for _, size := range [][2]int{{120, 40}, {20, 8}, {3, 3}, {1, 1}} {
+			model := NewModel(route)
+			updated, _ := model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			model = updated.(Model)
+			view := model.View().Content
+			if width, height := lipgloss.Width(view), lipgloss.Height(view); width != size[0] || height != size[1] {
+				t.Fatalf("%s layout=%dx%d want %dx%d", route.Kind, width, height, size[0], size[1])
+			}
 		}
 	}
 }
@@ -99,6 +83,37 @@ func TestModelHeaderCellsFillUsableWidth(t *testing.T) {
 	}
 }
 
+func TestModelHidesNavbarWhenTerminalIsTooNarrow(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRequests})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	model = updated.(Model)
+	if model.frameMetrics(60, 20).showNavbar {
+		t.Fatal("narrow terminal kept navbar visible")
+	}
+	_, targets := model.render()
+	for _, target := range targets {
+		if strings.HasPrefix(target.ID, "app.header.") {
+			t.Fatalf("hidden navbar exposed mouse target %q", target.ID)
+		}
+	}
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	model = updated.(Model)
+	if !model.frameMetrics(100, 20).showNavbar {
+		t.Fatal("wide terminal did not restore navbar")
+	}
+}
+
+func TestModelNumberKeysDoNotSwitchHeaderPages(t *testing.T) {
+	for _, value := range "1234567" {
+		model := NewModel(Route{Kind: RouteHome})
+		updated, cmd := model.Update(tea.KeyPressMsg{Code: value, Text: string(value)})
+		model = updated.(Model)
+		if cmd != nil || model.router.Current().Kind != RouteHome {
+			t.Fatalf("number %q switched page: route=%s cmd=%v", value, model.router.Current().Kind, cmd)
+		}
+	}
+}
+
 func TestModelQuitAndBack(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
 	model.router.Navigate(Route{Kind: RouteConfig})
@@ -107,9 +122,15 @@ func TestModelQuitAndBack(t *testing.T) {
 	if model.router.Current().Kind != RouteHome {
 		t.Fatalf("route = %#v", model.router.Current())
 	}
-	_, cmd := model.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
-	if cmd == nil {
-		t.Fatal("quit command is nil")
+	updated, cmd := model.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	model = updated.(Model)
+	if cmd != nil || model.overlay != overlayNone {
+		t.Fatalf("q triggered quit flow: overlay=%d cmd=%v", model.overlay, cmd)
+	}
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if cmd != nil || model.overlay != overlayExitConfirm {
+		t.Fatalf("root escape did not open exit confirmation: overlay=%d cmd=%v", model.overlay, cmd)
 	}
 }
 
@@ -166,12 +187,12 @@ func TestModelCommandPaletteOnlyUsesCtrlP(t *testing.T) {
 func TestModelFooterKeepsOnlyGlobalShortcuts(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
 	footer := ansi.Strip(model.shortcutFooter())
-	for _, want := range []string{"ctrl+p commands", "ctrl+o open", "alt+←/→ pages", "q quit"} {
+	for _, want := range []string{"ctrl+p commands", "ctrl+o open", "alt+←/→ pages", "esc quit"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer missing %q: %q", want, footer)
 		}
 	}
-	if strings.Contains(footer, "Commands") || strings.Contains(footer, "Quit") || strings.Contains(footer, "esc back") {
+	if strings.Contains(footer, "Commands") || strings.Contains(footer, "Quit") || strings.Contains(footer, "esc back") || strings.Contains(footer, "q quit") {
 		t.Fatalf("footer=%q", footer)
 	}
 	model.router.Navigate(Route{Kind: RouteLogs})
@@ -258,3 +279,87 @@ func TestModelQuickOpenNavigatesPage(t *testing.T) {
 		t.Fatalf("route=%#v overlay=%d", model.router.Current(), model.overlay)
 	}
 }
+
+func TestModelRoutesKeysToActiveDialogBeforeGlobalShortcuts(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	page := &captureOverlayPage{overlay: true}
+	model.currentPage = page
+	for _, message := range []tea.KeyPressMsg{
+		{Code: 'p', Mod: tea.ModCtrl},
+		{Code: 'o', Mod: tea.ModCtrl},
+		{Code: 'c', Mod: tea.ModCtrl},
+		{Code: 'q', Text: "q"},
+		{Code: tea.KeyRight, Mod: tea.ModAlt},
+		{Code: 'e', Text: "e"},
+	} {
+		updated, cmd := model.Update(message)
+		model = updated.(Model)
+		if cmd != nil {
+			t.Fatalf("overlay key %q escaped to global command", message.String())
+		}
+		if model.palette != nil || model.router.Current().Kind != RouteHome {
+			t.Fatalf("overlay key %q changed global UI palette=%v route=%s", message.String(), model.palette != nil, model.router.Current().Kind)
+		}
+	}
+	want := []string{"ctrl+p", "ctrl+o", "ctrl+c", "q", "alt+right", "e"}
+	if strings.Join(page.keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("captured keys=%v want=%v", page.keys, want)
+	}
+}
+
+func TestModelRoutesKeysToActiveInputBeforeGlobalShortcuts(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	page := &captureOverlayPage{input: true}
+	model.currentPage = page
+	for _, message := range []tea.KeyPressMsg{
+		{Code: 'p', Mod: tea.ModCtrl},
+		{Code: 'o', Mod: tea.ModCtrl},
+		{Code: 'c', Mod: tea.ModCtrl},
+		{Code: 'q', Text: "q"},
+		{Code: tea.KeyRight, Mod: tea.ModAlt},
+		{Code: 'e', Text: "e"},
+	} {
+		updated, cmd := model.Update(message)
+		model = updated.(Model)
+		if cmd != nil || model.palette != nil || model.router.Current().Kind != RouteHome {
+			t.Fatalf("input key %q escaped capture: cmd=%v palette=%v route=%s", message.String(), cmd, model.palette != nil, model.router.Current().Kind)
+		}
+	}
+	want := []string{"ctrl+p", "ctrl+o", "ctrl+c", "q", "alt+right", "e"}
+	if strings.Join(page.keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("captured keys=%v want=%v", page.keys, want)
+	}
+}
+
+func TestModelSingleEscapeOpensExitConfirmation(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if cmd != nil || model.overlay != overlayExitConfirm {
+		t.Fatalf("escape overlay=%d cmd=%v", model.overlay, cmd)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if model.overlay != overlayNone {
+		t.Fatalf("escape did not close exit dialog: overlay=%d", model.overlay)
+	}
+}
+
+type captureOverlayPage struct {
+	overlay bool
+	input   bool
+	keys    []string
+}
+
+func (page *captureOverlayPage) Init() tea.Cmd { return nil }
+
+func (page *captureOverlayPage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {
+	if key, ok := message.(tea.KeyPressMsg); ok {
+		page.keys = append(page.keys, key.String())
+	}
+	return page, nil
+}
+
+func (page *captureOverlayPage) View(width, height int) string { return "" }
+func (page *captureOverlayPage) OverlayActive() bool           { return page.overlay }
+func (page *captureOverlayPage) InputActive() bool             { return page.input }

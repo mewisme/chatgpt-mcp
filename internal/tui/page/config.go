@@ -104,6 +104,10 @@ func (page *ConfigPage) OverlayActive() bool {
 	return page != nil && (page.overlay != configOverlayNone || page.browser.DetailOpen())
 }
 
+func (page *ConfigPage) InputActive() bool {
+	return page != nil && (page.overlay == configOverlayForm || page.browser.InputActive())
+}
+
 func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil
@@ -123,7 +127,13 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, page.finishOperation(msg)
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
-		return page, page.resizeBrowser()
+		browserCmd := page.resizeBrowser()
+		if page.overlay == configOverlayForm {
+			form, formCmd := page.form.Update(msg)
+			page.form = form
+			return page, tea.Batch(browserCmd, formCmd)
+		}
+		return page, browserCmd
 	case component.FormSubmittedMsg:
 		return page, page.submitForm()
 	case component.FormCancelledMsg:
@@ -160,9 +170,19 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.form = updated
 			return page, cmd
 		}
+		if page.browser.InputActive() {
+			updated, cmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
+			return page, cmd
+		}
 		if cmd, handled := page.handleKey(msg); handled {
 			return page, cmd
 		}
+	}
+	if page.overlay == configOverlayForm {
+		updated, cmd := page.form.Update(message)
+		page.form = updated
+		return page, cmd
 	}
 	updated, cmd := page.browser.Update(message)
 	page.browser = updated.(component.Browser)
@@ -180,9 +200,9 @@ func (page *ConfigPage) View(width, height int) string {
 	title := component.PageTitle("Configuration", width)
 	overview := page.overviewView(width)
 	headerHeight := lipgloss.Height(title) + lipgloss.Height(overview) + 1
-	browserHeight := max(8, height-headerHeight)
+	browserHeight := max(1, height-headerHeight)
 	if page.err != nil || page.notice != "" {
-		browserHeight = max(8, browserHeight-2)
+		browserHeight = max(1, browserHeight-2)
 	}
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 	page.browser = updated.(component.Browser)
@@ -194,14 +214,14 @@ func (page *ConfigPage) View(width, height int) string {
 	}
 	switch page.overlay {
 	case configOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), min(80, max(48, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 80)), width, height)
 	case configOverlayOperation:
 		body := ""
 		if page.progress != nil {
 			body = page.progress.View()
 		}
 		body += "\n\n" + component.Muted("Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, min(72, max(44, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 72)), width, height)
 	}
 	return content
 }
@@ -212,7 +232,7 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 	}
 	switch page.overlay {
 	case configOverlayForm:
-		return formOverlayMouseTargets(page.form, min(80, max(48, page.width-8)), page.width, page.height, originX, originY, z+20)
+		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 80), page.width, page.height, originX, originY, z+20)
 	case configOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
@@ -449,7 +469,7 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 
 func (page *ConfigPage) resizeBrowser() tea.Cmd {
 	headerHeight := lipgloss.Height(component.PageTitle("Configuration", page.width)) + lipgloss.Height(page.overviewView(page.width)) + 1
-	height := max(8, page.height-headerHeight)
+	height := max(1, page.height-headerHeight)
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd

@@ -270,6 +270,8 @@ func (m *Browser) OpenDetail(id string) bool {
 
 func (m Browser) DetailOpen() bool { return m.detail }
 
+func (m Browser) InputActive() bool { return m.list.FilterState() == list.Filtering }
+
 func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
 	if m.width <= 0 || m.height <= 0 {
 		return nil
@@ -528,12 +530,12 @@ func (m *Browser) restoreSelection(id string) {
 }
 
 func (m *Browser) resizeViewport() {
-	m.viewport.SetWidth(max(12, m.modalContentWidth()))
+	m.viewport.SetWidth(max(1, m.modalContentWidth()))
 	height := m.height
 	if height <= 0 {
 		height = 20
 	}
-	m.viewport.SetHeight(max(4, min(14, height-10)))
+	m.viewport.SetHeight(max(1, min(14, height-10)))
 }
 
 func (m *Browser) syncDetail(row Row) {
@@ -578,10 +580,10 @@ func (m Browser) modalWidth() int {
 	if width <= 0 {
 		width = 80
 	}
-	return max(36, min(78, width-10))
+	return max(1, min(78, width-2))
 }
 
-func (m Browser) modalContentWidth() int { return max(24, m.modalWidth()-6) }
+func (m Browser) modalContentWidth() int { return max(1, m.modalWidth()-6) }
 
 func renderDetailRows(rows []Row) string {
 	var builder strings.Builder

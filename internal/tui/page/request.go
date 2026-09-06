@@ -111,6 +111,10 @@ func (page *RequestsPage) OverlayActive() bool {
 	return page != nil && (page.overlay != requestOverlayNone || page.browser.DetailOpen())
 }
 
+func (page *RequestsPage) InputActive() bool {
+	return page != nil && (page.overlay == requestOverlayForm || page.browser.InputActive())
+}
+
 func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil
@@ -168,6 +172,11 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.width, page.height = msg.Width, msg.Height
 		updated, cmd := page.browser.Update(msg)
 		page.browser = updated.(component.Browser)
+		if page.overlay == requestOverlayForm {
+			form, formCmd := page.form.Update(msg)
+			page.form = form
+			return page, tea.Batch(cmd, formCmd)
+		}
 		return page, cmd
 	case component.FormSubmittedMsg:
 		return page, page.submitResolveForm()
@@ -201,6 +210,11 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.form = updated
 			return page, cmd
 		}
+		if page.browser.InputActive() {
+			updated, cmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
+			return page, cmd
+		}
 		if page.browser.DetailOpen() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
@@ -220,6 +234,11 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, page.manualRefreshCmd()
 		}
 	}
+	if page.overlay == requestOverlayForm {
+		updated, cmd := page.form.Update(message)
+		page.form = updated
+		return page, cmd
+	}
 	updated, cmd := page.browser.Update(message)
 	page.browser = updated.(component.Browser)
 	return page, cmd
@@ -232,7 +251,7 @@ func (page *RequestsPage) View(width, height int) string {
 	page.width, page.height = width, height
 	browserHeight := height
 	if page.err != nil || page.notice != "" {
-		browserHeight = max(10, height-2)
+		browserHeight = max(1, height-2)
 	}
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 	page.browser = updated.(component.Browser)
@@ -243,7 +262,7 @@ func (page *RequestsPage) View(width, height int) string {
 		content += "\n" + component.Banner(page.notice, component.ToneSuccess)
 	}
 	if page.overlay == requestOverlayForm {
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), min(76, max(46, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 76)), width, height)
 	}
 	if page.overlay == requestOverlayOperation {
 		body := ""
@@ -251,7 +270,7 @@ func (page *RequestsPage) View(width, height int) string {
 			body = page.progress.View()
 		}
 		body += "\n\n" + component.Muted("Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, min(68, max(44, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 68)), width, height)
 	}
 	return content
 }
@@ -262,7 +281,7 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 	}
 	switch page.overlay {
 	case requestOverlayForm:
-		return formOverlayMouseTargets(page.form, min(76, max(46, page.width-8)), page.width, page.height, originX, originY, z+20)
+		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 76), page.width, page.height, originX, originY, z+20)
 	case requestOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:

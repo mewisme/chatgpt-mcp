@@ -42,7 +42,7 @@ type managedConfigureFormData struct {
 func newTunnelRuntimeForm(dashboard application.TunnelDashboard) (component.Form, *tunnelRuntimeFormData) {
 	data := &tunnelRuntimeFormData{Enabled: dashboard.Config.Enabled, ID: dashboard.Config.ID, ControlPlane: dashboard.Config.ControlPlaneBaseURL, OrganizationID: dashboard.Config.OrganizationID}
 	form := component.NewForm(component.Group(
-		component.Confirm("Enabled", &data.Enabled),
+		component.Switch("Enabled", &data.Enabled),
 		component.Input("Tunnel ID", &data.ID),
 		component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Description("Blank keeps the current key."),
 		component.Input("Control plane base URL", &data.ControlPlane),

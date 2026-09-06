@@ -23,10 +23,10 @@ const (
 	overlayNone overlayKind = iota
 	overlayCommands
 	overlayQuickOpen
+	overlayExitConfirm
 )
 
-const minTerminalWidth = 56
-const minTerminalHeight = 24
+const navbarMinHeight = 9
 
 type Model struct {
 	ctx            context.Context
@@ -34,6 +34,7 @@ type Model struct {
 	actions        *action.Registry
 	palette        *palette.Model
 	overlay        overlayKind
+	exitConfirm    component.ConfirmButtons
 	quickResources map[string]quickopen.Resource
 	stateRoot      string
 	state          tuistate.State
@@ -94,7 +95,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		model.width, model.height = msg.Width, msg.Height
 		if model.currentPage != nil {
-			updated, cmd := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, msg.Width-4), Height: max(10, msg.Height-6)})
+			metrics := model.frameMetrics(msg.Width, msg.Height)
+			updated, cmd := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})
 			model.currentPage = updated
 			if cmd != nil {
 				return model, cmd
@@ -102,6 +104,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case palette.ClosedMsg:
 		model.closeOverlay()
+		return model, nil
+	case component.ConfirmChoiceMsg:
+		if model.overlay == overlayExitConfirm {
+			model.exitConfirm.Select(msg.Affirmative)
+			return model.updateExitConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+		}
 		return model, nil
 	case palette.SelectedMsg:
 		if model.overlay == overlayQuickOpen {
@@ -190,6 +198,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.palette = &updated
 			return model, cmd
 		}
+		if model.overlay == overlayExitConfirm {
+			return model.updateExitConfirm(msg)
+		}
+		if model.currentPage != nil && (model.currentPage.OverlayActive() || model.currentPage.InputActive()) {
+			return model.updatePage(msg)
+		}
 		if isPaletteKey(msg) {
 			model.openPalette()
 			return model, nil
@@ -198,19 +212,21 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.openQuickOpen()
 			return model, nil
 		}
-		if model.currentPage != nil && model.currentPage.OverlayActive() && msg.String() != "ctrl+c" {
-			return model.updatePage(msg)
-		}
 		switch msg.String() {
-		case "ctrl+c", "q":
-			return model, tea.Quit
 		case "alt+left":
 			model.switchPage(cycleHeaderRoute(model.router.Current(), -1))
 			return model, model.initCurrentPage()
 		case "alt+right":
 			model.switchPage(cycleHeaderRoute(model.router.Current(), 1))
 			return model, model.initCurrentPage()
-		case "esc", "backspace":
+		case "esc":
+			if model.router.Back() {
+				model.loadPage(model.router.Current())
+				return model, model.initCurrentPage()
+			}
+			model.openExitConfirm()
+			return model, nil
+		case "backspace":
 			if model.router.Back() {
 				model.loadPage(model.router.Current())
 				return model, model.initCurrentPage()
@@ -234,11 +250,22 @@ func (model Model) View() tea.View {
 	content, targets := model.render()
 	if model.palette != nil {
 		width, height := model.layoutSize()
-		paletteWidth := min(78, max(48, width-8))
+		paletteWidth := max(1, min(78, width-4))
 		foreground := model.palette.View(paletteWidth)
 		x, y := max(0, (width-lipgloss.Width(foreground))/2), max(0, (height-lipgloss.Height(foreground))/2)
 		content = centerOverlay(content, foreground, width, height)
 		targets = append(targets, model.palette.MouseTargets(x, y, 100, paletteWidth)...)
+	}
+	if model.overlay == overlayExitConfirm {
+		width, height := model.layoutSize()
+		body := model.exitConfirmView()
+		foreground := component.Modal(body, max(1, min(58, width-4)))
+		x, y := max(0, (width-lipgloss.Width(foreground))/2), max(0, (height-lipgloss.Height(foreground))/2)
+		content = centerOverlay(content, foreground, width, height)
+		targets = append(targets, component.MouseTarget{ID: "app.exit.blocker", Rect: component.Rect{X: 0, Y: 0, Width: width, Height: height}, Z: 99, Handle: func(component.MouseEvent) tea.Msg { return nil }})
+		if rect, ok := component.FindRenderedRect(foreground, model.exitConfirm.View()); ok {
+			targets = append(targets, model.exitConfirm.MouseTargets(x+rect.X, y+rect.Y, 100)...)
+		}
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
@@ -285,7 +312,45 @@ func (model *Model) closeOverlay() {
 	}
 	model.palette = nil
 	model.overlay = overlayNone
+	model.exitConfirm = component.ConfirmButtons{}
 	model.quickResources = nil
+}
+
+func (model *Model) openExitConfirm() {
+	if model == nil {
+		return
+	}
+	model.palette = nil
+	model.quickResources = nil
+	model.overlay = overlayExitConfirm
+	model.exitConfirm = component.NewConfirmButtons("Exit", "Cancel", false)
+}
+
+func (model Model) updateExitConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		model.closeOverlay()
+		return model, nil
+	case "enter":
+		if model.exitConfirm.AffirmativeSelected() {
+			return model, tea.Quit
+		}
+		model.closeOverlay()
+		return model, nil
+	default:
+		return model, model.exitConfirm.Update(msg)
+	}
+}
+
+func (model Model) exitConfirmView() string {
+	return strings.Join([]string{
+		component.Title("Exit ChatGPT MCP?"),
+		"",
+		component.Muted("The TUI will close. Running managed services are unchanged."),
+		"",
+		model.exitConfirm.View(),
+		component.Muted("Enter confirm · Esc cancel"),
+	}, "\n")
 }
 
 func (model *Model) recordRecent(id string) {
@@ -345,7 +410,8 @@ func (model *Model) loadPage(route Route) {
 	}
 	model.currentPage = value
 	if model.currentPage != nil && model.width > 0 && model.height > 0 {
-		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: max(20, model.width-4), Height: max(10, model.height-6)})
+		metrics := model.frameMetrics(model.width, model.height)
+		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})
 		model.currentPage = updated
 	}
 }
@@ -432,39 +498,94 @@ type mousePage interface {
 	MouseTargets(originX, originY, z int) []component.MouseTarget
 }
 
+type frameMetrics struct {
+	contentWidth int
+	contentX     int
+	bodyY        int
+	bodyHeight   int
+	showNavbar   bool
+	showFooter   bool
+}
+
 func (model Model) render() (string, []component.MouseTarget) {
 	width, height := model.layoutSize()
-	contentWidth := max(48, width-4)
-	pageHeight := max(1, height-6)
-	header, targets := model.header(contentWidth, 2, 1)
-	body := fitFrameContent(model.page(contentWidth, pageHeight), contentWidth, pageHeight)
-	footer := fitFrameLine(model.shortcutFooter(), contentWidth)
+	if width <= 0 || height <= 0 {
+		return "", nil
+	}
+	metrics := model.frameMetrics(width, height)
+	targets := []component.MouseTarget{}
 	border := lipgloss.NewStyle().Foreground(model.theme.border.GetBorderLeftForeground())
 	lines := make([]string, 0, height)
 	lines = append(lines, model.topBorder(width, border))
-	lines = append(lines, frameLine(header, contentWidth, border))
-	lines = append(lines, frameDivider(width, border))
-	for _, line := range body {
-		lines = append(lines, frameLine(line, contentWidth, border))
+	if metrics.showNavbar {
+		header, headerTargets := model.header(metrics.contentWidth, metrics.contentX, 1)
+		targets = append(targets, headerTargets...)
+		lines = append(lines, frameLine(header, width, border))
+		lines = append(lines, frameDivider(width, border))
 	}
-	lines = append(lines, frameDivider(width, border))
-	lines = append(lines, frameLine(footer, contentWidth, border))
-	lines = append(lines, border.Render("╰"+strings.Repeat("─", width-2)+"╯"))
+	body := fitFrameContent(model.page(metrics.contentWidth, metrics.bodyHeight), metrics.contentWidth, metrics.bodyHeight)
+	for _, line := range body {
+		lines = append(lines, frameLine(line, width, border))
+	}
+	if metrics.showFooter {
+		lines = append(lines, frameDivider(width, border))
+		lines = append(lines, frameLine(fitFrameLine(model.shortcutFooter(), metrics.contentWidth), width, border))
+	}
+	if len(lines) < height {
+		lines = append(lines, bottomBorder(width, border))
+	}
+	for len(lines) < height {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
 	if page, ok := model.currentPage.(mousePage); ok {
-		targets = append(targets, page.MouseTargets(2, 3, 10)...)
+		targets = append(targets, page.MouseTargets(metrics.contentX, metrics.bodyY, 10)...)
+	}
+	for index := range lines {
+		lines[index] = fitTerminalLine(lines[index], width)
 	}
 	return strings.Join(lines, "\n"), targets
 }
 
 func (model Model) topBorder(width int, border lipgloss.Style) string {
+	if width <= 0 {
+		return ""
+	}
+	if width == 1 {
+		return border.Render("─")
+	}
+	if width == 2 {
+		return border.Render("╭╮")
+	}
 	label := " " + model.theme.title.Render("ChatGPT MCP") + " "
 	used := 2 + lipgloss.Width(label) + 1
+	if used > width {
+		return border.Render("╭" + strings.Repeat("─", width-2) + "╮")
+	}
 	return border.Render("╭─") + label + border.Render(strings.Repeat("─", max(0, width-used))+"╮")
+}
+
+func bottomBorder(width int, border lipgloss.Style) string {
+	if width <= 0 {
+		return ""
+	}
+	if width == 1 {
+		return border.Render("─")
+	}
+	if width == 2 {
+		return border.Render("╰╯")
+	}
+	return border.Render("╰" + strings.Repeat("─", width-2) + "╯")
 }
 
 func (model Model) shortcutFooter() string {
 	width, _ := model.layoutSize()
-	width = max(48, width-4)
+	width, _ = frameContentMetrics(width)
+	if width <= 0 {
+		return ""
+	}
 	bindings := []key.Binding{
 		component.Binding([]string{"ctrl+p"}, "ctrl+p", "commands"),
 		component.Binding([]string{"ctrl+o"}, "ctrl+o", "open"),
@@ -472,8 +593,9 @@ func (model Model) shortcutFooter() string {
 	}
 	if len(model.router.stack) > 1 {
 		bindings = append(bindings, component.Binding([]string{"esc"}, "esc", "back"))
+	} else {
+		bindings = append(bindings, component.Binding([]string{"esc"}, "esc", "quit"))
 	}
-	bindings = append(bindings, component.Binding([]string{"q"}, "q", "quit"))
 	return component.DefaultHelp(width, bindings...)
 }
 
@@ -530,14 +652,80 @@ func (model Model) layoutSize() (int, int) {
 	if height <= 0 {
 		height = 24
 	}
-	return max(minTerminalWidth, width), max(minTerminalHeight, height)
+	return width, height
+}
+
+func frameContentMetrics(width int) (contentWidth, originX int) {
+	switch {
+	case width >= 4:
+		return width - 4, 2
+	case width == 3:
+		return 1, 1
+	default:
+		return 0, 0
+	}
+}
+
+func (model Model) frameMetrics(width, height int) frameMetrics {
+	contentWidth, contentX := frameContentMetrics(width)
+	showNavbar := model.showNavbar(contentWidth, height)
+	showFooter := height >= 6 && contentWidth >= 16
+	fixedHeight := 2
+	bodyY := 1
+	if showNavbar {
+		fixedHeight += 2
+		bodyY = 3
+	}
+	if showFooter {
+		fixedHeight += 2
+	}
+	return frameMetrics{
+		contentWidth: contentWidth,
+		contentX:     contentX,
+		bodyY:        bodyY,
+		bodyHeight:   max(0, height-fixedHeight),
+		showNavbar:   showNavbar,
+		showFooter:   showFooter,
+	}
+}
+
+func (model Model) showNavbar(contentWidth, height int) bool {
+	if height < navbarMinHeight || contentWidth <= 0 || len(headerPages) == 0 {
+		return false
+	}
+	maxLabelWidth := 0
+	for _, page := range headerPages {
+		maxLabelWidth = max(maxLabelWidth, lipgloss.Width(page.Label))
+	}
+	return contentWidth/len(headerPages) >= maxLabelWidth
 }
 
 func frameLine(content string, width int, border lipgloss.Style) string {
-	return border.Render("│") + " " + fitFrameLine(content, width) + " " + border.Render("│")
+	if width <= 0 {
+		return ""
+	}
+	if width == 1 {
+		return border.Render("│")
+	}
+	if width == 2 {
+		return border.Render("││")
+	}
+	if width == 3 {
+		return border.Render("│") + fitFrameLine(content, 1) + border.Render("│")
+	}
+	return border.Render("│") + " " + fitFrameLine(content, width-4) + " " + border.Render("│")
 }
 
 func frameDivider(width int, border lipgloss.Style) string {
+	if width <= 0 {
+		return ""
+	}
+	if width == 1 {
+		return border.Render("─")
+	}
+	if width == 2 {
+		return border.Render("├┤")
+	}
 	return border.Render("├" + strings.Repeat("─", width-2) + "┤")
 }
 
@@ -555,6 +743,17 @@ func fitFrameContent(content string, width, height int) []string {
 }
 
 func fitFrameLine(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	line = ansi.Truncate(line, width, "")
+	return line + strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
+}
+
+func fitTerminalLine(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
 	line = ansi.Truncate(line, width, "")
 	return line + strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
 }

@@ -30,10 +30,10 @@ func newTheme(isDark bool) theme {
 
 func centerOverlay(background, foreground string, width, height int) string {
 	if width <= 0 {
-		width = max(80, lipgloss.Width(background))
+		width = max(1, lipgloss.Width(background))
 	}
 	if height <= 0 {
-		height = max(24, lipgloss.Height(background))
+		height = max(1, lipgloss.Height(background))
 	}
 	x := max(0, (width-lipgloss.Width(foreground))/2)
 	y := max(0, (height-lipgloss.Height(foreground))/2)

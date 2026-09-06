@@ -94,6 +94,10 @@ func (page *WorkspacePage) OverlayActive() bool {
 	return page != nil && (page.overlay != workspaceOverlayNone || page.browser.DetailOpen())
 }
 
+func (page *WorkspacePage) InputActive() bool {
+	return page != nil && (page.overlay == workspaceOverlayForm || page.browser.InputActive())
+}
+
 func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil
@@ -103,6 +107,11 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.width, page.height = msg.Width, msg.Height
 		updated, cmd := page.browser.Update(msg)
 		page.browser = updated.(component.Browser)
+		if page.overlay == workspaceOverlayForm {
+			form, formCmd := page.form.Update(msg)
+			page.form = form
+			return page, tea.Batch(cmd, formCmd)
+		}
 		return page, cmd
 	case component.FormSubmittedMsg:
 		return page, page.submitForm()
@@ -136,11 +145,21 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.overlay == workspaceOverlayConfirm {
 			return page, page.updateConfirm(msg)
 		}
+		if page.browser.InputActive() {
+			updated, cmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
+			return page, cmd
+		}
 		if !page.browser.DetailOpen() {
 			if cmd, handled := page.handleListKey(msg); handled {
 				return page, cmd
 			}
 		}
+	}
+	if page.overlay == workspaceOverlayForm {
+		updated, cmd := page.form.Update(message)
+		page.form = updated
+		return page, cmd
 	}
 	updated, cmd := page.browser.Update(message)
 	page.browser = updated.(component.Browser)
@@ -153,7 +172,7 @@ func (page *WorkspacePage) View(width, height int) string {
 	}
 	browserHeight := height
 	if page.err != nil || page.notice != "" {
-		browserHeight = max(10, height-2)
+		browserHeight = max(1, height-2)
 	}
 	if width > 0 && browserHeight > 0 && (page.width != width || page.height != browserHeight) {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
@@ -168,10 +187,10 @@ func (page *WorkspacePage) View(width, height int) string {
 	}
 	switch page.overlay {
 	case workspaceOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), min(72, max(42, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 72)), width, height)
 	case workspaceOverlayConfirm:
 		body := component.Title(page.confirmTitle()) + "\n\n" + component.Muted(page.confirmDescription()) + "\n\n" + page.confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, min(64, max(40, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 64)), width, height)
 	}
 	return content
 }
@@ -182,9 +201,9 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 	}
 	switch page.overlay {
 	case workspaceOverlayForm:
-		return formOverlayMouseTargets(page.form, min(72, max(42, page.width-8)), page.width, page.height, originX, originY, z+20)
+		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
 	case workspaceOverlayConfirm:
-		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), min(64, max(40, page.width-8)), page.width, page.height, originX, originY, z+20)
+		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
 	default:
 		return page.browser.MouseTargets(originX, originY, z)
 	}

@@ -105,7 +105,7 @@ func Secondary(value string) string {
 func Panel(body string, width int) string {
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetBorderLeftForeground()).Padding(0, 1)
 	if width > 0 {
-		style = style.MaxWidth(max(12, width))
+		style = style.MaxWidth(width)
 	}
 	return style.Render(body)
 }
@@ -113,17 +113,17 @@ func Panel(body string, width int) string {
 func Modal(body string, width int) string {
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetBorderLeftForeground()).Padding(1, 2)
 	if width > 0 {
-		style = style.Width(max(24, width))
+		style = style.Width(width)
 	}
 	return style.Render(body)
 }
 
 func CenterOverlay(background, foreground string, width, height int) string {
 	if width <= 0 {
-		width = max(80, lipgloss.Width(background))
+		width = max(1, lipgloss.Width(background))
 	}
 	if height <= 0 {
-		height = max(20, lipgloss.Height(background))
+		height = max(1, lipgloss.Height(background))
 	}
 	x := max(0, (width-lipgloss.Width(foreground))/2)
 	y := max(0, (height-lipgloss.Height(foreground))/2)
@@ -163,3 +163,80 @@ func TwoColumn(left, right string, width int) string {
 }
 
 func KeyValue(label, value string) string { return Label(label) + "  " + value }
+
+type ActionHint struct {
+	Key     string
+	Label   string
+	Enabled bool
+	Danger  bool
+}
+
+func PageActionBar(width int, groups ...[]ActionHint) string {
+	if width <= 0 {
+		width = 80
+	}
+	separator := "   " + Muted("│") + "   "
+	renderedGroups := make([][]string, 0, len(groups))
+	for _, group := range groups {
+		actions := make([]string, 0, len(group))
+		for _, action := range group {
+			if strings.TrimSpace(action.Key) == "" || strings.TrimSpace(action.Label) == "" {
+				continue
+			}
+			actions = append(actions, renderActionHint(action))
+		}
+		if len(actions) == 0 {
+			continue
+		}
+		renderedGroups = append(renderedGroups, actions)
+	}
+	groupLines := make([]string, 0, len(renderedGroups))
+	for _, actions := range renderedGroups {
+		groupLines = append(groupLines, strings.Join(actions, "   "))
+	}
+	joined := strings.Join(groupLines, separator)
+	if lipgloss.Width(joined) <= width {
+		return joined
+	}
+	lines := make([]string, 0, len(groupLines))
+	for groupIndex, groupLine := range groupLines {
+		if lipgloss.Width(groupLine) <= width {
+			lines = append(lines, groupLine)
+			continue
+		}
+		current := ""
+		flush := func() {
+			if strings.TrimSpace(current) != "" {
+				lines = append(lines, current)
+			}
+			current = ""
+		}
+		actions := renderedGroups[groupIndex]
+		for _, action := range actions {
+			candidate := action
+			if current != "" {
+				candidate = current + "   " + action
+			}
+			if current != "" && lipgloss.Width(candidate) > width {
+				flush()
+				current = action
+			} else {
+				current = candidate
+			}
+		}
+		flush()
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderActionHint(action ActionHint) string {
+	keyText, labelText := strings.TrimSpace(action.Key), strings.TrimSpace(action.Label)
+	if !action.Enabled {
+		return currentTheme.subtle.Render(keyText + " " + labelText)
+	}
+	keyStyle := currentTheme.accent
+	if action.Danger {
+		keyStyle = currentTheme.danger
+	}
+	return keyStyle.Render(keyText) + " " + currentTheme.muted.Render(labelText)
+}

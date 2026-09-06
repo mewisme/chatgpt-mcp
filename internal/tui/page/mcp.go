@@ -133,6 +133,10 @@ func (page *MCPPage) OverlayActive() bool {
 	return page != nil && (page.overlay != mcpOverlayNone || page.browser.DetailOpen())
 }
 
+func (page *MCPPage) InputActive() bool {
+	return page != nil && (page.overlay == mcpOverlayForm || page.browser.InputActive())
+}
+
 func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil
@@ -154,6 +158,11 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.width, page.height = msg.Width, msg.Height
 		updated, cmd := page.browser.Update(msg)
 		page.browser = updated.(component.Browser)
+		if page.overlay == mcpOverlayForm {
+			form, formCmd := page.form.Update(msg)
+			page.form = form
+			return page, tea.Batch(cmd, formCmd)
+		}
 		return page, cmd
 	}
 
@@ -204,9 +213,19 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.overlay == mcpOverlayConfirm {
 			return page, page.updateConfirm(msg)
 		}
+		if page.browser.InputActive() {
+			updated, cmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
+			return page, cmd
+		}
 		if cmd, handled := page.handleKey(msg); handled {
 			return page, cmd
 		}
+	}
+	if page.overlay == mcpOverlayForm {
+		updated, cmd := page.form.Update(message)
+		page.form = updated
+		return page, cmd
 	}
 	updated, cmd := page.browser.Update(message)
 	page.browser = updated.(component.Browser)
@@ -219,7 +238,7 @@ func (page *MCPPage) View(width, height int) string {
 	}
 	browserHeight := height
 	if page.err != nil || page.notice != "" {
-		browserHeight = max(10, height-2)
+		browserHeight = max(1, height-2)
 	}
 	if width > 0 && browserHeight > 0 && (page.width != width || page.height != browserHeight) {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
@@ -234,10 +253,10 @@ func (page *MCPPage) View(width, height int) string {
 	}
 	switch page.overlay {
 	case mcpOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), min(78, max(46, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 78)), width, height)
 	case mcpOverlayConfirm:
 		body := component.Title(page.confirmTitle()) + "\n\n" + component.Muted(page.confirmDescription()) + "\n\n" + page.confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, min(68, max(42, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 68)), width, height)
 	case mcpOverlayOperation:
 		body := ""
 		if page.progress != nil {
@@ -247,7 +266,7 @@ func (page *MCPPage) View(width, height int) string {
 			body += "\n\n" + component.Label("Authorization URL") + "\n" + page.operationURL
 		}
 		body += "\n\n" + component.Muted("Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, min(82, max(48, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 82)), width, height)
 	}
 	return content
 }
@@ -258,9 +277,9 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 	}
 	switch page.overlay {
 	case mcpOverlayForm:
-		return formOverlayMouseTargets(page.form, min(78, max(46, page.width-8)), page.width, page.height, originX, originY, z+20)
+		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 78), page.width, page.height, originX, originY, z+20)
 	case mcpOverlayConfirm:
-		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), min(68, max(42, page.width-8)), page.width, page.height, originX, originY, z+20)
+		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 68), page.width, page.height, originX, originY, z+20)
 	case mcpOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:

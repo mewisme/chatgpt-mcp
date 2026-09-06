@@ -8,6 +8,10 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
+func overlayWidth(pageWidth, preferred int) int {
+	return max(1, min(preferred, pageWidth-4))
+}
+
 func mouseBlocker(originX, originY, width, height, z int) component.MouseTarget {
 	return component.MouseTarget{ID: "page.overlay", Rect: component.Rect{X: originX, Y: originY, Width: width, Height: height}, Z: z, Handle: func(component.MouseEvent) tea.Msg { return nil }}
 }
@@ -55,9 +59,22 @@ func keyHintMouseTargets(view string, bindings map[string]string, originX, origi
 				if event.Button != tea.MouseLeft {
 					return nil
 				}
-				return tea.KeyPressMsg{Code: []rune(keyValue)[0]}
+				return pageActionKeyMsg(keyValue)
 			},
 		})
 	}
 	return targets
+}
+
+func pageActionKeyMsg(value string) tea.KeyPressMsg {
+	switch value {
+	case "space":
+		return tea.KeyPressMsg{Code: tea.KeySpace}
+	default:
+		runes := []rune(value)
+		if len(runes) == 0 {
+			return tea.KeyPressMsg{}
+		}
+		return tea.KeyPressMsg{Code: runes[0]}
+	}
 }

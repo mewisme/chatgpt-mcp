@@ -57,6 +57,104 @@ func TestTunnelRuntimeTitleStartsAtWorkspaceTitlePosition(t *testing.T) {
 	}
 }
 
+func TestTunnelConfigureSwitchAndEscapeFlow(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret"})
+	page, err := NewTunnelDashboard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, err := page.openCommand(TunnelConfigure, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = runTunnelPageCmd(t, page, cmd)
+	plain := ansi.Strip(page.form.View())
+	if !strings.Contains(plain, "Enabled [ TRUE ]") || strings.Contains(plain, "[ FALSE ]") {
+		t.Fatalf("configure switch view=%q", plain)
+	}
+	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	page = updated.(*TunnelPage)
+	if page.runtimeForm.Enabled || !strings.Contains(ansi.Strip(page.form.View()), "Enabled [ FALSE ]") {
+		t.Fatalf("space did not toggle enabled: %#v view=%q", page.runtimeForm, ansi.Strip(page.form.View()))
+	}
+	updated, next := page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	before := page.runtimeForm.ID
+	page = advanceTunnelFormAndType(t, updated.(*TunnelPage), next, 'x')
+	if page.runtimeForm.ID == before {
+		t.Fatalf("switch did not advance to tunnel id input: before=%q after=%q", before, page.runtimeForm.ID)
+	}
+	updated, next = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	page = updated.(*TunnelPage)
+	if next != nil || !page.form.ConfirmingExit() || page.overlay != tunnelOverlayForm {
+		t.Fatalf("dirty escape overlay=%d confirm=%t cmd=%v", page.overlay, page.form.ConfirmingExit(), next)
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	page = updated.(*TunnelPage)
+	if page.form.ConfirmingExit() || page.overlay != tunnelOverlayForm {
+		t.Fatalf("escape from discard confirmation overlay=%d confirm=%t", page.overlay, page.form.ConfirmingExit())
+	}
+
+	page.closeOverlay()
+	cmd, err = page.openCommand(TunnelConfigure, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = runTunnelPageCmd(t, page, cmd)
+	updated, next = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	page = updated.(*TunnelPage)
+	page = runTunnelPageCmd(t, page, next)
+	if page.overlay != tunnelOverlayNone {
+		t.Fatalf("clean escape did not close configure dialog: overlay=%d", page.overlay)
+	}
+}
+
+func TestTunnelRuntimeLayoutUsesHierarchyAndGroupWrapping(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_6a9462c95f008191a665c3330bcd8368", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminOrganizationID: "org_demo"})
+	page, err := NewTunnelDashboard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.dashboard.Status.Metadata = &tunnel.Metadata{ID: page.dashboard.Config.ID, Name: "MCP_Tunnel_WSL", FetchedAt: time.Now()}
+	wide := ansi.Strip(page.runtimeView(120))
+	for _, want := range []string{"Status", "Tunnel", "Admin", "Metadata", "● ON", "Configured", "Runtime key", "MCP_Tunnel_WSL", "e Configure", "space Toggle", "d Remove admin", "m Managed tunnels"} {
+		if !strings.Contains(wide, want) {
+			t.Fatalf("wide tunnel layout missing %q: %q", want, wide)
+		}
+	}
+	if strings.Contains(wide, "Enabled        true") || strings.Contains(wide, " · ") {
+		t.Fatalf("wide tunnel layout retained raw boolean or dot-joined hints: %q", wide)
+	}
+	wideLines := strings.Split(wide, "\n")
+	foundPair := false
+	for _, line := range wideLines {
+		if strings.Contains(line, "Status") && strings.Contains(line, "Tunnel") {
+			foundPair = true
+			break
+		}
+	}
+	if !foundPair {
+		t.Fatalf("wide layout did not place Status and Tunnel in two columns: %q", wideLines)
+	}
+
+	narrow := ansi.Strip(page.runtimeView(72))
+	actionLines := []string{}
+	for _, line := range strings.Split(narrow, "\n") {
+		if strings.Contains(line, "e Configure") || strings.Contains(line, "a Admin key") || strings.Contains(line, "m Managed tunnels") {
+			actionLines = append(actionLines, strings.TrimSpace(line))
+		}
+	}
+	if len(actionLines) != 3 || !strings.Contains(actionLines[0], "e Configure") || !strings.Contains(actionLines[0], "space Toggle") || !strings.Contains(actionLines[0], "s Sync") || !strings.Contains(actionLines[1], "a Admin key") || !strings.Contains(actionLines[1], "d Remove admin") || !strings.Contains(actionLines[2], "m Managed tunnels") {
+		t.Fatalf("narrow action groups=%q", actionLines)
+	}
+}
+
+func TestTunnelPageActionMouseSpaceUsesSpaceKey(t *testing.T) {
+	message := pageActionKeyMsg("space")
+	if message.String() != "space" {
+		t.Fatalf("space action key=%q", message.String())
+	}
+}
+
 func TestManagedTunnelRefreshPersistsCacheAndUpdatePrefetchesRemoteState(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer admin-secret" {
@@ -186,4 +284,60 @@ func setupTunnelPageConfig(t *testing.T, value tunnel.Config) {
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func runTunnelPageCmd(t *testing.T, page *TunnelPage, cmd tea.Cmd) *TunnelPage {
+	t.Helper()
+	if cmd == nil {
+		return page
+	}
+	message := cmd()
+	if batch, ok := message.(tea.BatchMsg); ok {
+		for _, next := range batch {
+			page = runTunnelPageCmd(t, page, next)
+		}
+		return page
+	}
+	updated, next := page.Update(message)
+	value, ok := updated.(*TunnelPage)
+	if !ok {
+		t.Fatalf("tunnel page update returned %T", updated)
+	}
+	return runTunnelPageCmd(t, value, next)
+}
+
+func advanceTunnelFormAndType(t *testing.T, page *TunnelPage, cmd tea.Cmd, value rune) *TunnelPage {
+	t.Helper()
+	queue := []tea.Cmd{cmd}
+	before := page.runtimeForm.ID
+	for steps := 0; steps < 32 && len(queue) > 0; steps++ {
+		next := queue[0]
+		queue = queue[1:]
+		if next == nil {
+			continue
+		}
+		message := next()
+		if batch, ok := message.(tea.BatchMsg); ok {
+			queue = append(queue, batch...)
+			continue
+		}
+		updated, follow := page.Update(message)
+		updatedPage, ok := updated.(*TunnelPage)
+		if !ok {
+			t.Fatalf("tunnel page update returned %T", updated)
+		}
+		page = updatedPage
+		typed, typedCmd := page.Update(tea.KeyPressMsg{Code: value, Text: string(value)})
+		page = typed.(*TunnelPage)
+		if page.runtimeForm.ID != before {
+			return page
+		}
+		if typedCmd != nil {
+			queue = append(queue, typedCmd)
+		}
+		if follow != nil {
+			queue = append(queue, follow)
+		}
+	}
+	return page
 }

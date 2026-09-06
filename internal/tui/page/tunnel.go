@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -133,6 +134,10 @@ func (page *TunnelPage) OverlayActive() bool {
 	return page != nil && (page.overlay != tunnelOverlayNone || page.kind == tunnelPageManaged && page.browser.DetailOpen())
 }
 
+func (page *TunnelPage) InputActive() bool {
+	return page != nil && (page.overlay == tunnelOverlayForm || page.kind == tunnelPageManaged && page.browser.InputActive())
+}
+
 func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page == nil {
 		return page, nil
@@ -159,6 +164,16 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.kind == tunnelPageManaged {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
+			if page.overlay == tunnelOverlayForm {
+				form, formCmd := page.form.Update(msg)
+				page.form = form
+				return page, tea.Batch(cmd, formCmd)
+			}
+			return page, cmd
+		}
+		if page.overlay == tunnelOverlayForm {
+			updated, cmd := page.form.Update(msg)
+			page.form = updated
 			return page, cmd
 		}
 		return page, nil
@@ -195,9 +210,19 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.overlay == tunnelOverlayConfirm {
 			return page, page.updateConfirm(msg)
 		}
+		if page.kind == tunnelPageManaged && page.browser.InputActive() {
+			updated, cmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
+			return page, cmd
+		}
 		if cmd, handled := page.handleKey(msg); handled {
 			return page, cmd
 		}
+	}
+	if page.overlay == tunnelOverlayForm {
+		updated, cmd := page.form.Update(message)
+		page.form = updated
+		return page, cmd
 	}
 	if page.kind == tunnelPageManaged {
 		updated, cmd := page.browser.Update(message)
@@ -216,7 +241,7 @@ func (page *TunnelPage) View(width, height int) string {
 	if page.kind == tunnelPageManaged {
 		browserHeight := height
 		if page.err != nil || page.notice != "" {
-			browserHeight = max(10, height-2)
+			browserHeight = max(1, height-2)
 		}
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
@@ -229,17 +254,17 @@ func (page *TunnelPage) View(width, height int) string {
 	}
 	switch page.overlay {
 	case tunnelOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), min(80, max(48, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 80)), width, height)
 	case tunnelOverlayConfirm:
 		body := component.Title(page.confirmTitle()) + "\n\n" + component.Muted(page.confirmDescription()) + "\n\n" + page.confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, min(72, max(44, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 72)), width, height)
 	case tunnelOverlayOperation:
 		body := ""
 		if page.progress != nil {
 			body = page.progress.View()
 		}
 		body += "\n\n" + component.Muted("Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, min(72, max(44, width-8))), width, height)
+		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 72)), width, height)
 	}
 	return content
 }
@@ -250,9 +275,9 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 	}
 	switch page.overlay {
 	case tunnelOverlayForm:
-		return formOverlayMouseTargets(page.form, min(80, max(48, page.width-8)), page.width, page.height, originX, originY, z+20)
+		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 80), page.width, page.height, originX, originY, z+20)
 	case tunnelOverlayConfirm:
-		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), min(72, max(44, page.width-8)), page.width, page.height, originX, originY, z+20)
+		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
 	case tunnelOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
@@ -261,7 +286,7 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 	}
 	view := page.runtimeView(page.width)
 	return keyHintMouseTargets(view, map[string]string{
-		"Configure": "e", "Enable/Disable": " ", "Sync": "s", "Admin key": "a", "Verify": "v", "Remove admin": "d", "Managed tunnels": "m",
+		"Configure": "e", "Toggle": "space", "Sync": "s", "Admin key": "a", "Verify": "v", "Remove admin": "d", "Managed tunnels": "m",
 	}, originX, originY, z)
 }
 
@@ -273,6 +298,9 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			page.err = err
 			return cmd, true
 		case "space":
+			if !page.dashboard.Config.Enabled && !tunnel.Configured(page.dashboard.Config) {
+				return nil, true
+			}
 			command := TunnelEnable
 			if page.dashboard.Config.Enabled {
 				command = TunnelDisable
@@ -281,6 +309,9 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			page.err = err
 			return cmd, true
 		case "s":
+			if !tunnel.Configured(page.dashboard.Config) {
+				return nil, true
+			}
 			cmd, err := page.openCommand(TunnelSync, "")
 			page.err = err
 			return cmd, true
@@ -289,10 +320,16 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			page.err = err
 			return cmd, true
 		case "v":
+			if !page.adminStatus.Configured {
+				return nil, true
+			}
 			cmd, err := page.openCommand(TunnelAdminKeyVerify, "")
 			page.err = err
 			return cmd, true
 		case "d":
+			if !page.adminStatus.Configured {
+				return nil, true
+			}
 			cmd, err := page.openCommand(TunnelAdminKeyRemove, "")
 			page.err = err
 			return cmd, true
@@ -676,29 +713,106 @@ func (page *TunnelPage) managedRows() []component.Row {
 
 func (page *TunnelPage) runtimeView(width int) string {
 	cfg, status := page.dashboard.Config, page.dashboard.Status
-	metadata := "None"
-	if status.Metadata != nil {
-		metadata = status.Metadata.Name
-		if metadata == "" {
-			metadata = status.Metadata.ID
-		}
-	}
-	admin := "not configured"
-	if page.adminStatus.Configured {
-		admin = "configured · " + tunnelScopeLabel(page.adminStatus.Scope)
-	}
+	configured := tunnel.Configured(cfg)
+	statusSection := tunnelSection("Status",
+		[2]string{"Enabled", tunnelEnabledIndicator(cfg.Enabled)},
+		[2]string{"Configured", tunnelYesNo(configured)},
+		[2]string{"Runtime key", tunnelConfiguredIndicator(cfg.APIKey != "")},
+	)
+	tunnelSectionView := tunnelSection("Tunnel",
+		[2]string{"ID", valueOrNone(cfg.ID)},
+		[2]string{"Control plane", defaultLabel(cfg.ControlPlaneBaseURL)},
+		[2]string{"Organization", valueOrNone(cfg.OrganizationID)},
+	)
+	adminSection := tunnelSection("Admin",
+		[2]string{"State", tunnelConfiguredIndicator(page.adminStatus.Configured)},
+		[2]string{"Scope", tunnelScopeLabel(page.adminStatus.Scope)},
+	)
+	metadataSection := tunnelMetadataSection(status.Metadata, status.MetadataError)
+	actions := component.PageActionBar(width,
+		[]component.ActionHint{{Key: "e", Label: "Configure", Enabled: true}, {Key: "space", Label: "Toggle", Enabled: cfg.Enabled || configured}, {Key: "s", Label: "Sync", Enabled: configured}},
+		[]component.ActionHint{{Key: "a", Label: "Admin key", Enabled: true}, {Key: "v", Label: "Verify", Enabled: page.adminStatus.Configured}, {Key: "d", Label: "Remove admin", Enabled: page.adminStatus.Configured, Danger: true}},
+		[]component.ActionHint{{Key: "m", Label: "Managed tunnels", Enabled: true}},
+	)
 	lines := []string{
 		component.PageTitle("OpenAI Secure MCP Tunnel", width),
-		detailFields(
-			[2]string{"Enabled", fmt.Sprint(cfg.Enabled)}, [2]string{"Configured", fmt.Sprint(tunnel.Configured(cfg))}, [2]string{"Tunnel ID", cfg.ID},
-			[2]string{"Runtime key", configuredLabel(cfg.APIKey != "")}, [2]string{"Control plane", defaultLabel(cfg.ControlPlaneBaseURL)}, [2]string{"Organization", cfg.OrganizationID},
-			[2]string{"Metadata", metadata}, [2]string{"Admin", admin},
-		),
+		tunnelSectionPair(statusSection, tunnelSectionView, width),
 		"",
-		component.Muted("e Configure · Space Enable/Disable · s Sync · a Admin key · v Verify · d Remove admin · m Managed tunnels"),
-		component.Muted("Live process state is handled by the Runtime surface; this page shows persisted tunnel configuration and metadata."),
+		tunnelSectionPair(adminSection, metadataSection, width),
+		"",
+		component.Muted("Live process state is handled by Runtime; this page shows persisted tunnel configuration and metadata."),
+		"",
+		actions,
 	}
 	return strings.Join(lines, "\n")
+}
+
+func tunnelSection(title string, fields ...[2]string) string {
+	lines := []string{component.Title(title)}
+	for _, field := range fields {
+		label := strings.TrimSpace(field[0])
+		value := field[1]
+		if strings.TrimSpace(value) == "" {
+			value = component.Muted("None")
+		}
+		lines = append(lines, component.Label(fmt.Sprintf("%-14s", label))+value)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func tunnelSectionPair(left, right string, width int) string {
+	if width < 84 {
+		return left + "\n\n" + right
+	}
+	gap := 4
+	leftWidth := (width - gap) / 2
+	rightWidth := width - gap - leftWidth
+	leftView := lipgloss.NewStyle().Width(leftWidth).Render(left)
+	rightView := lipgloss.NewStyle().Width(rightWidth).Render(right)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftView, strings.Repeat(" ", gap), rightView)
+}
+
+func tunnelMetadataSection(metadata *tunnel.Metadata, metadataError string) string {
+	if metadata == nil {
+		state := component.Muted("not loaded")
+		if strings.TrimSpace(metadataError) != "" {
+			state = component.ToneText("unavailable", component.ToneWarning)
+		}
+		return tunnelSection("Metadata", [2]string{"State", state}, [2]string{"Error", valueOrNone(metadataError)})
+	}
+	return tunnelSection("Metadata",
+		[2]string{"Name", valueOrNone(metadata.Name)},
+		[2]string{"ID", valueOrNone(metadata.ID)},
+		[2]string{"Fetched", formatTunnelTime(metadata.FetchedAt)},
+	)
+}
+
+func tunnelEnabledIndicator(enabled bool) string {
+	if enabled {
+		return component.ToneText("● ON", component.ToneSuccess)
+	}
+	return component.Muted("○ OFF")
+}
+
+func tunnelYesNo(value bool) string {
+	if value {
+		return component.ToneText("yes", component.ToneSuccess)
+	}
+	return component.Muted("no")
+}
+
+func tunnelConfiguredIndicator(value bool) string {
+	if value {
+		return component.ToneText("configured", component.ToneSuccess)
+	}
+	return component.Muted("not configured")
+}
+
+func valueOrNone(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return component.Muted("None")
+	}
+	return value
 }
 
 func (page *TunnelPage) confirmTitle() string {
@@ -749,13 +863,6 @@ func tunnelScopeLabel(scope tunnel.AdminScope) string {
 	default:
 		return "none"
 	}
-}
-
-func configuredLabel(configured bool) string {
-	if configured {
-		return "configured"
-	}
-	return "not configured"
 }
 
 func defaultLabel(value string) string {

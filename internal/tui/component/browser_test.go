@@ -131,11 +131,32 @@ func TestBrowserFillsAvailableLayout(t *testing.T) {
 	}
 }
 
-func TestBrowserEnforcesMinimumLayout(t *testing.T) {
+func TestBrowserUsesExactAvailableLayout(t *testing.T) {
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}}, nil)
 	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 20, Height: 6})
-	if model.list.Width() != minLayoutWidth || model.list.Height() != minLayoutHeight {
-		t.Fatalf("minimum list size=%dx%d", model.list.Width(), model.list.Height())
+	if model.list.Width() != 20 || model.list.Height() != 6 {
+		t.Fatalf("list size=%dx%d want 20x6", model.list.Width(), model.list.Height())
+	}
+}
+
+func TestBrowserFilterCapturesActionLikeKeys(t *testing.T) {
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "alpha", Title: "Alpha"}, {ID: "beta", Title: "Beta"}}, nil)
+	updated, _ := model.Update(browserKeyText("/"))
+	model = updated.(Browser)
+	if !model.InputActive() {
+		t.Fatal("browser filter did not become active")
+	}
+	for _, value := range []string{"a", "e", "q"} {
+		updated, _ = model.Update(browserKeyText(value))
+		model = updated.(Browser)
+	}
+	if got := model.list.FilterValue(); got != "aeq" {
+		t.Fatalf("filter=%q want %q", got, "aeq")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	model = updated.(Browser)
+	if !model.InputActive() {
+		t.Fatal("global-looking key escaped browser filter")
 	}
 }
 

@@ -7,6 +7,7 @@ type Model interface {
 	Update(tea.Msg) (Model, tea.Cmd)
 	View(width, height int) string
 	OverlayActive() bool
+	InputActive() bool
 }
 
 type NavigateMsg struct {

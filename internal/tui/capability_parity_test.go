@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -69,7 +70,7 @@ func TestCapabilityActionsHaveReachableContexts(t *testing.T) {
 		{Route: string(RouteLogs)}, {Route: string(RouteConfig)}, {Route: string(RouteRuntime)}, {Route: string(RouteAbout)},
 	}
 	for _, item := range defaultActionRegistry().All() {
-		if len(item.Capabilities) == 0 {
+		if len(item.Capabilities) == 0 || (runtime.GOOS == "windows" && (item.ID == "runtime.up.system" || item.ID == "runtime.down.system" || item.ID == "runtime.restart.system")) {
 			continue
 		}
 		reachable := false

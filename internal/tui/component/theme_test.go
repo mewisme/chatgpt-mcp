@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -31,5 +32,29 @@ func TestPageTitleMatchesDefaultListTitleBar(t *testing.T) {
 	gotLines := strings.Split(ansi.Strip(PageTitle("Workspaces", 80)), "\n")
 	if len(wantLines) < 2 || len(gotLines) < 2 || strings.TrimRight(gotLines[0], " ") != strings.TrimRight(wantLines[0], " ") || strings.TrimSpace(gotLines[1]) != "" || strings.TrimSpace(wantLines[1]) != "" {
 		t.Fatalf("page title=%q list title=%q", gotLines, wantLines[:min(2, len(wantLines))])
+	}
+}
+
+func TestToastUsesCompactBorderedSemanticLayout(t *testing.T) {
+	SetDarkBackground(true)
+	view := Toast("Update", "v1.2.3 installed", ToneSuccess, 36)
+	plain := ansi.Strip(view)
+	if !strings.Contains(plain, "Update") || !strings.Contains(plain, "v1.2.3 installed") || !strings.Contains(plain, "╭") || !strings.Contains(plain, "╯") {
+		t.Fatalf("toast=%q", plain)
+	}
+	if lipgloss.Width(view) > 36 {
+		t.Fatalf("toast width=%d want <=36", lipgloss.Width(view))
+	}
+}
+
+func TestOverlayAtPlacesForegroundWithoutChangingCanvasGeometry(t *testing.T) {
+	background := strings.Repeat(".", 20) + "\n" + strings.Repeat(".", 20) + "\n" + strings.Repeat(".", 20) + "\n" + strings.Repeat(".", 20)
+	view := OverlayAt(background, "OK", 20, 4, 16, 3)
+	if lipgloss.Width(view) != 20 || lipgloss.Height(view) != 4 {
+		t.Fatalf("overlay geometry=%dx%d", lipgloss.Width(view), lipgloss.Height(view))
+	}
+	lines := strings.Split(ansi.Strip(view), "\n")
+	if len(lines) != 4 || len(lines[3]) < 18 || lines[3][16:18] != "OK" {
+		t.Fatalf("overlay placement=%q", lines)
 	}
 }

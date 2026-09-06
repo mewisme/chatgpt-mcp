@@ -118,6 +118,48 @@ func Modal(body string, width int) string {
 	return style.Render(body)
 }
 
+func Toast(title, message string, tone Tone, width int) string {
+	title, message = strings.TrimSpace(title), strings.TrimSpace(message)
+	if title == "" && message == "" {
+		return ""
+	}
+	marker := "·"
+	switch tone {
+	case ToneSuccess:
+		marker = "✓"
+	case ToneWarning:
+		marker = "!"
+	case ToneDanger:
+		marker = "×"
+	}
+	header := ToneText(marker, tone)
+	if title != "" {
+		header += " " + Title(title)
+	}
+	body := header
+	if message != "" {
+		body += "\n" + Muted(message)
+	}
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(currentTheme.panelBorder.GetBorderLeftForeground()).Padding(0, 1)
+	if width > 0 {
+		style = style.MaxWidth(width)
+	}
+	return style.Render(body)
+}
+
+func OverlayAt(background, foreground string, width, height, x, y int) string {
+	if width <= 0 {
+		width = max(1, lipgloss.Width(background))
+	}
+	if height <= 0 {
+		height = max(1, lipgloss.Height(background))
+	}
+	x, y = max(0, x), max(0, y)
+	canvas := lipgloss.NewCanvas(width, height)
+	canvas.Compose(lipgloss.NewCompositor(lipgloss.NewLayer(background).X(0).Y(0).Z(0), lipgloss.NewLayer(foreground).X(x).Y(y).Z(1)))
+	return canvas.Render()
+}
+
 func CenterOverlay(background, foreground string, width, height int) string {
 	if width <= 0 {
 		width = max(1, lipgloss.Width(background))
@@ -127,11 +169,7 @@ func CenterOverlay(background, foreground string, width, height int) string {
 	}
 	x := max(0, (width-lipgloss.Width(foreground))/2)
 	y := max(0, (height-lipgloss.Height(foreground))/2)
-	canvas := lipgloss.NewCanvas(width, height)
-	base := lipgloss.NewLayer(background).X(0).Y(0).Z(0)
-	dialog := lipgloss.NewLayer(foreground).X(x).Y(y).Z(1)
-	canvas.Compose(lipgloss.NewCompositor(base, dialog))
-	return canvas.Render()
+	return OverlayAt(background, foreground, width, height, x, y)
 }
 
 func CenterLayout(content string, width, height int) string {

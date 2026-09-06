@@ -32,6 +32,7 @@ const (
 
 const navbarMinHeight = 9
 const approvalPollInterval = time.Second
+const toastDuration = 4 * time.Second
 
 type approvalStage uint8
 
@@ -53,6 +54,15 @@ type approvalResolvedMsg struct {
 	id      string
 	approve bool
 	err     error
+}
+
+type toastDismissMsg struct{ id uint64 }
+
+type toastState struct {
+	id      uint64
+	title   string
+	message string
+	tone    component.Tone
 }
 
 type Model struct {
@@ -78,6 +88,8 @@ type Model struct {
 	approvalErr     error
 	approvalList    func(context.Context) ([]approval.Request, error)
 	approvalResolve func(context.Context, string, bool, string) (approval.Request, error)
+	toast           toastState
+	toastSeq        uint64
 }
 
 func NewModel(initial Route) Model {
@@ -113,6 +125,16 @@ func (model Model) Init() tea.Cmd {
 
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
+	case tuipage.ToastMsg:
+		model.toastSeq++
+		model.toast = toastState{id: model.toastSeq, title: msg.Title, message: msg.Message, tone: msg.Tone}
+		id := model.toast.id
+		return model, tea.Tick(toastDuration, func(time.Time) tea.Msg { return toastDismissMsg{id: id} })
+	case toastDismissMsg:
+		if msg.id == model.toast.id {
+			model.toast = toastState{}
+		}
+		return model, nil
 	case approvalPollMsg:
 		model.applyApprovalPoll(msg)
 		return model, model.approvalTickCmd()
@@ -309,6 +331,14 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (model Model) View() tea.View {
 	content, targets := model.render()
+	if model.toast.id != 0 {
+		width, height := model.layoutSize()
+		toastWidth := max(1, min(44, width-2))
+		foreground := component.Toast(model.toast.title, model.toast.message, model.toast.tone, toastWidth)
+		x := max(0, width-lipgloss.Width(foreground)-2)
+		y := max(0, height-lipgloss.Height(foreground)-2)
+		content = component.OverlayAt(content, foreground, width, height, x, y)
+	}
 	if model.palette != nil {
 		width, height := model.layoutSize()
 		paletteWidth := max(1, min(78, width-4))

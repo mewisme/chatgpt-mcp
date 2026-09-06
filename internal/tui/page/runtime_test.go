@@ -2,6 +2,7 @@ package page
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"strings"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 )
 
 func TestRuntimePageBuildsSystemRows(t *testing.T) {
@@ -133,5 +136,44 @@ func TestRuntimeCloseCancelsOperation(t *testing.T) {
 	case <-ctx.Done():
 	default:
 		t.Fatal("page close did not cancel operation")
+	}
+}
+
+func TestRuntimeUpdateOperationsEmitToastWithoutInlineNotice(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	for _, test := range []struct {
+		name string
+		msg  systemOperationMsg
+		want string
+	}{
+		{name: "check", msg: systemOperationMsg{id: 1, command: UpdateCheck, update: updatepkg.CheckResult{Status: updatepkg.StatusUpToDate, Latest: "v1.2.3"}}, want: "latest v1.2.3"},
+		{name: "apply", msg: systemOperationMsg{id: 2, command: UpdateApply, notice: "Updated to v1.2.3"}, want: "Updated to v1.2.3"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page.operationID = test.msg.id
+			cmd := page.finishOperation(test.msg)
+			if page.notice != "" {
+				t.Fatalf("update left inline notice=%q", page.notice)
+			}
+			toast, ok := updateToast(test.msg)
+			if !ok || toast.Tone != component.ToneSuccess || !strings.Contains(toast.Message, test.want) {
+				t.Fatalf("toast=%#v ok=%t", toast, ok)
+			}
+			if cmd == nil {
+				t.Fatal("update completion did not schedule reload/toast")
+			}
+		})
+	}
+}
+
+func TestRuntimeUpdateFailureEmitsDangerToastAndExternalWorkflowDoesNot(t *testing.T) {
+	failure := systemOperationMsg{id: 3, command: UpdateApply, err: errors.New("update failed")}
+	toast, ok := updateToast(failure)
+	if !ok || toast.Tone != component.ToneDanger || toast.Message != "update failed" {
+		t.Fatalf("failure toast=%#v ok=%t", toast, ok)
+	}
+	external := systemOperationMsg{id: 4, command: UpdateApply, external: &application.ExternalCommand{Command: "cgm update"}}
+	if toast, ok := updateToast(external); ok || toast != (ToastMsg{}) {
+		t.Fatalf("external update unexpectedly toasted: %#v ok=%t", toast, ok)
 	}
 }

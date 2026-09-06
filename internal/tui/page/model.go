@@ -1,6 +1,9 @@
 package page
 
-import tea "charm.land/bubbletea/v2"
+import (
+	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+)
 
 type Model interface {
 	Init() tea.Cmd
@@ -12,4 +15,10 @@ type Model interface {
 
 type NavigateMsg struct {
 	Path []string
+}
+
+type ToastMsg struct {
+	Title   string
+	Message string
+	Tone    component.Tone
 }

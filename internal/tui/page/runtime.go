@@ -483,10 +483,11 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 	}
 	page.cancelOperation()
 	page.progress = nil
+	toast := updateToastCmd(msg)
 	if msg.err != nil {
 		page.overlay = systemOverlayNone
 		page.err = msg.err
-		return nil
+		return toast
 	}
 	if msg.token != "" {
 		page.secret = msg.token
@@ -499,10 +500,14 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		page.external, page.overlay = msg.external, systemOverlayExternal
 	} else {
 		page.overlay = systemOverlayNone
-		page.notice = operationNotice(msg)
+		if msg.command == UpdateCheck || msg.command == UpdateApply {
+			page.notice = ""
+		} else {
+			page.notice = operationNotice(msg)
+		}
 	}
 	page.installForm, page.updateForm = nil, nil
-	return page.loadCmd()
+	return tea.Batch(page.loadCmd(), toast)
 }
 
 func (page *RuntimePage) cancelOperation() {
@@ -921,6 +926,29 @@ func operationNotice(msg systemOperationMsg) string {
 	default:
 		return "Runtime/system action completed"
 	}
+}
+
+func updateToast(msg systemOperationMsg) (ToastMsg, bool) {
+	if msg.command != UpdateCheck && msg.command != UpdateApply || msg.external != nil {
+		return ToastMsg{}, false
+	}
+	title := "Update"
+	if msg.command == UpdateCheck {
+		title = "Update check"
+	}
+	tone, message := component.ToneSuccess, operationNotice(msg)
+	if msg.err != nil {
+		tone, message = component.ToneDanger, msg.err.Error()
+	}
+	return ToastMsg{Title: title, Message: message, Tone: tone}, true
+}
+
+func updateToastCmd(msg systemOperationMsg) tea.Cmd {
+	toast, ok := updateToast(msg)
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg { return toast }
 }
 
 func systemOperationTitle(command SystemCommand) string {

@@ -598,3 +598,70 @@ func TestModelApprovalPollKeepsActiveRequestStableAcrossReorder(t *testing.T) {
 		t.Fatalf("active approval changed after reorder: active=%q stage=%d approve=%t", model.activeApprovalID(), model.approvalStage, model.approvalApprove)
 	}
 }
+
+func TestModelToastRendersBottomRightAcrossEveryRoute(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range []Route{{Kind: RouteHome}, {Kind: RouteWorkspaces}, {Kind: RouteContainers}, {Kind: RouteMCP}, {Kind: RouteTunnel}, {Kind: RouteTunnels}, {Kind: RouteRequests}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteRuntime}, {Kind: RouteAbout}} {
+		t.Run(string(route.Kind), func(t *testing.T) {
+			model := NewModel(route)
+			updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+			model = updated.(Model)
+			updated, dismiss := model.Update(tuipage.ToastMsg{Title: "Update", Message: "toast-bottom-right", Tone: component.ToneSuccess})
+			model = updated.(Model)
+			if dismiss == nil || model.toast.id == 0 {
+				t.Fatal("toast did not schedule dismissal")
+			}
+			lines := strings.Split(ansi.Strip(model.View().Content), "\n")
+			y, x := -1, -1
+			for index, line := range lines {
+				if column := strings.Index(line, "toast-bottom-right"); column >= 0 {
+					y, x = index, column
+					break
+				}
+			}
+			if y < 30 || x < 60 {
+				t.Fatalf("route %s toast not bottom-right: x=%d y=%d", route.Kind, x, y)
+			}
+			if width, height := lipgloss.Width(model.View().Content), lipgloss.Height(model.View().Content); width != 120 || height != 40 {
+				t.Fatalf("route %s geometry=%dx%d", route.Kind, width, height)
+			}
+		})
+	}
+}
+
+func TestModelToastDismissalDoesNotClearNewerToast(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	updated, _ := model.Update(tuipage.ToastMsg{Title: "First", Message: "one", Tone: component.ToneSuccess})
+	model = updated.(Model)
+	firstID := model.toast.id
+	updated, _ = model.Update(tuipage.ToastMsg{Title: "Second", Message: "two", Tone: component.ToneWarning})
+	model = updated.(Model)
+	secondID := model.toast.id
+	updated, _ = model.Update(toastDismissMsg{id: firstID})
+	model = updated.(Model)
+	if model.toast.id != secondID || model.toast.title != "Second" {
+		t.Fatalf("stale dismiss cleared newer toast: %#v", model.toast)
+	}
+	updated, _ = model.Update(toastDismissMsg{id: secondID})
+	model = updated.(Model)
+	if model.toast.id != 0 {
+		t.Fatalf("matching dismiss did not clear toast: %#v", model.toast)
+	}
+}
+
+func TestModelToastKeepsExactGeometryAtTinySizes(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	updated, _ := model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
+	model = updated.(Model)
+	for _, size := range [][2]int{{40, 10}, {20, 6}, {3, 3}, {1, 1}} {
+		updated, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		model = updated.(Model)
+		view := model.View().Content
+		if width, height := lipgloss.Width(view), lipgloss.Height(view); width != size[0] || height != size[1] {
+			t.Fatalf("toast layout=%dx%d want=%dx%d", width, height, size[0], size[1])
+		}
+	}
+}

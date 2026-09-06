@@ -37,8 +37,11 @@ func New(cfg config.Config) *App { return NewWithLogger(cfg, nil) }
 func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	stream := activity.NewStream()
 	toolRuntime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
-	mcpRuntime := mcp.NewHTTPRuntimeWithTools(toolRuntime)
-	mcpRuntime.Activity = stream
+	var mcpRuntime *mcp.HTTPRuntime
+	if cfg.Server.Enabled {
+		mcpRuntime = mcp.NewHTTPRuntimeWithTools(toolRuntime)
+		mcpRuntime.Activity = stream
+	}
 	oauthStore := mcpoauth.NewStore(mcpoauth.Path())
 	if appLogger == nil {
 		appLogger = logger.New(logger.Info)
@@ -60,6 +63,9 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 }
 
 func (a *App) MCPHandler() http.Handler {
+	if a == nil || a.MCP == nil {
+		return http.NotFoundHandler()
+	}
 	mux := http.NewServeMux()
 	mcpHandler := auth.DynamicHashedMiddleware(func() (bool, string) {
 		cfg := a.Config.Snapshot()

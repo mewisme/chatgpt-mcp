@@ -549,7 +549,11 @@ func logRuntimeDetails(log *logger.Logger, status runtimeStatusResult) {
 		log.Detail("session", shortSessionID(status.RunID))
 	}
 	log.Detail("pid", status.PID)
-	log.Detail("mcp", fmt.Sprintf("http://127.0.0.1:%d/mcp", status.ServerPort))
+	if status.ServerEnabled {
+		log.Detail("mcp http", fmt.Sprintf("http://127.0.0.1:%d/mcp", status.ServerPort))
+	} else {
+		log.Detail("mcp http", "disabled")
+	}
 	if status.AdminEnabled {
 		log.Detail("admin", fmt.Sprintf("http://127.0.0.1:%d/", status.AdminPort))
 	}

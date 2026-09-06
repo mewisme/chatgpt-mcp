@@ -46,6 +46,14 @@ func (api API) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, api.tunnelStatus(r.Context()))
 	case http.MethodDelete:
+		if api.Config == nil {
+			http.Error(w, "config unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !api.Config.Snapshot().Server.Enabled {
+			http.Error(w, "cannot stop OpenAI Secure MCP Tunnel while MCP HTTP is disabled", http.StatusBadRequest)
+			return
+		}
 		if err := api.Tunnel.Stop(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

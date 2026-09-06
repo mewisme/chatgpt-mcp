@@ -52,6 +52,23 @@ func TestWaitRuntimeHTTPReadyRejectsMissingListener(t *testing.T) {
 	}
 }
 
+func TestTunnelOnlyRuntimeRequiresNoHTTPListeners(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Enabled = false
+	cfg.Admin.Enabled = false
+	bindings, err := openHTTPBindings(cfg, listenerPlan{Hosts: []string{"127.0.0.1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bindings.CloseUnstarted()
+	if len(bindings.mcpListeners) != 0 || len(bindings.adminListeners) != 0 {
+		t.Fatalf("tunnel-only listeners mcp=%d admin=%d", len(bindings.mcpListeners), len(bindings.adminListeners))
+	}
+	if err := waitRuntimeHTTPReady(context.Background(), cfg, 10*time.Millisecond); err != nil {
+		t.Fatalf("tunnel-only HTTP readiness = %v", err)
+	}
+}
+
 func testServerPort(t *testing.T, address net.Addr) int {
 	t.Helper()
 	_, portText, err := net.SplitHostPort(address.String())

@@ -2,7 +2,15 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { TunnelPage } from "@/pages/tunnel"
-import { adminApi, type TunnelStatus } from "@/lib/api"
+import { adminApi, type PublicConfig, type TunnelStatus } from "@/lib/api"
+
+const publicConfig = {
+  server: { enabled: true, port: 37421, expose: { mode: "none", interfaces: [] }, allow_insecure_http: false },
+  admin: { enabled: true, port: 37422 },
+  auth: { mcp_enabled: true, admin_enabled: true, mcp_token_configured: true, admin_token_configured: true },
+  permissions: { allow_dirs: [] }, shell: { path: [] },
+  features: { ponytail: { active: true, mode: "full" }, caveman: { active: true, mode: "full" } },
+} satisfies PublicConfig
 
 const tunnelStatus: TunnelStatus = {
   provider: "openai",
@@ -34,6 +42,7 @@ describe("TunnelPage", () => {
     vi.spyOn(adminApi, "tunnelConfig").mockResolvedValue({ enabled: true, id: "tunnel_one", runtime_key_configured: true, admin_key_configured: true })
     vi.spyOn(adminApi, "tunnel").mockResolvedValue(tunnelStatus)
     vi.spyOn(adminApi, "tunnelAdminKey").mockResolvedValue({ configured: true, scope: { workspace_id: "ws_admin" }, tunnels: 2 })
+    vi.spyOn(adminApi, "config").mockResolvedValue(publicConfig)
     vi.spyOn(adminApi, "removeTunnelAdminKey").mockResolvedValue({ configured: false, scope: {} })
     vi.spyOn(adminApi, "startTunnel").mockResolvedValue(tunnelStatus)
     vi.spyOn(adminApi, "stopTunnel").mockResolvedValue({ ...tunnelStatus, running: false, ready: false })
@@ -65,5 +74,13 @@ describe("TunnelPage", () => {
     expect(screen.getByText("Tunnel scope")).toBeInTheDocument()
     expect(screen.getByText("tenant_one")).toBeInTheDocument()
     expect(screen.getByText("req_meta")).toBeInTheDocument()
+  })
+
+  it("locks the tunnel when MCP HTTP is disabled", async () => {
+    vi.mocked(adminApi.config).mockResolvedValue({ ...publicConfig, server: { ...publicConfig.server, enabled: false } })
+    render(<TunnelPage />)
+    expect(await screen.findByText(/Secure MCP Tunnel is the required MCP transport/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Stop tunnel" })).toBeDisabled()
+    expect(screen.getByRole("switch", { name: "Enable tunnel" })).toBeDisabled()
   })
 })

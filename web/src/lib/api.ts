@@ -257,6 +257,7 @@ export type MCPServerOAuthSession = {
 }
 export type PublicConfig = {
   server: {
+    enabled: boolean
     port: number
     expose: {
       mode: "none" | "all" | "0.0.0.0" | "interfaces"

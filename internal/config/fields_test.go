@@ -46,6 +46,12 @@ func TestFieldSetValueValidationIsTransactional(t *testing.T) {
 	if cfg.Server.Port != original {
 		t.Fatalf("invalid value mutated config: %d", cfg.Server.Port)
 	}
+	if err := SetValueValidated(&cfg, "server.enabled", "false"); err == nil || !strings.Contains(err.Error(), "at least one MCP transport") {
+		t.Fatalf("last MCP transport disable err=%v", err)
+	}
+	if !cfg.Server.Enabled {
+		t.Fatal("invalid transport update mutated config")
+	}
 	if err := SetValue(&cfg, "features.ponytail.mode", "review"); err == nil || err.Error() != "features.ponytail.mode must be lite, full, or ultra" {
 		t.Fatalf("ponytail err=%v", err)
 	}

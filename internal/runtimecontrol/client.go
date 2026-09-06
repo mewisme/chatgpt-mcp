@@ -22,6 +22,7 @@ const FileName = ".runtime-control.json"
 type ReloadResult struct {
 	PID              int                 `json:"pid"`
 	NetworkRestarted bool                `json:"network_restarted"`
+	ServerEnabled    bool                `json:"server_enabled"`
 	ServerPort       int                 `json:"server_port"`
 	AdminEnabled     bool                `json:"admin_enabled"`
 	AdminPort        int                 `json:"admin_port"`
@@ -36,6 +37,7 @@ type RuntimeStatus struct {
 	ServiceScope     string              `json:"service_scope,omitempty"`
 	StartedAt        time.Time           `json:"started_at"`
 	ConfigRoot       string              `json:"config_root"`
+	ServerEnabled    bool                `json:"server_enabled"`
 	ServerPort       int                 `json:"server_port"`
 	AdminEnabled     bool                `json:"admin_enabled"`
 	AdminPort        int                 `json:"admin_port"`

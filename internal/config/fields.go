@@ -33,9 +33,10 @@ type FieldSpec struct {
 }
 
 var fieldSpecs = []FieldSpec{
+	{Key: "server.enabled", Description: "MCP HTTP transport enabled", Kind: FieldBool, Editable: true},
 	{Key: "server.expose.mode", Description: "network exposure mode", Kind: FieldEnum, Options: []string{"none", "all", "0.0.0.0", "interfaces"}, Editable: true},
 	{Key: "server.expose.interfaces", Description: "network interfaces used by interfaces exposure mode", Kind: FieldList, Editable: true},
-	{Key: "server.port", Description: "MCP server port", Kind: FieldInt, Editable: true},
+	{Key: "server.port", Description: "MCP HTTP server port", Kind: FieldInt, Editable: true},
 	{Key: "server.allow_insecure_http", Description: "allow authenticated HTTP beyond loopback", Kind: FieldBool, Editable: true},
 	{Key: "admin.enabled", Description: "admin server enabled", Kind: FieldBool, Editable: true},
 	{Key: "admin.port", Description: "admin server port", Kind: FieldInt, Editable: true},
@@ -86,6 +87,12 @@ func SetValue(cfg *Config, key, raw string) error {
 	}
 	key = canonicalFieldKey(key)
 	switch key {
+	case "server.enabled":
+		value, err := parseBoolField(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Server.Enabled = value
 	case "server.expose":
 		value, err := ParseExposure(raw)
 		if err != nil {
@@ -209,6 +216,8 @@ func SetValueValidated(cfg *Config, key, raw string) error {
 func RawValue(cfg Config, key string) (string, error) {
 	key = canonicalFieldKey(key)
 	switch key {
+	case "server.enabled":
+		return strconv.FormatBool(cfg.Server.Enabled), nil
 	case "server.expose":
 		exposure := NormalizeExposure(cfg.Server.Expose)
 		if exposure.Mode == ExposureInterfaces {

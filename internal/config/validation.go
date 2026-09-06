@@ -15,13 +15,16 @@ import (
 )
 
 func Validate(cfg Config) error {
+	if err := ValidateMCPTransports(cfg); err != nil {
+		return err
+	}
 	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("server port must be between 1 and 65535: %d", cfg.Server.Port)
 	}
 	if cfg.Admin.Enabled && (cfg.Admin.Port < 1 || cfg.Admin.Port > 65535) {
 		return fmt.Errorf("admin port must be between 1 and 65535: %d", cfg.Admin.Port)
 	}
-	if cfg.Admin.Enabled && cfg.Admin.Port == cfg.Server.Port {
+	if cfg.Server.Enabled && cfg.Admin.Enabled && cfg.Admin.Port == cfg.Server.Port {
 		return errors.New("admin port must differ from server port")
 	}
 	if _, err := NormalizeAllowDirs(cfg.Permissions.AllowDirs); err != nil {
@@ -49,18 +52,18 @@ func Validate(cfg Config) error {
 	default:
 		return fmt.Errorf("server expose mode must be none, all, 0.0.0.0, or interfaces: %q", cfg.Server.Expose.Mode)
 	}
-	if exposure.Mode != ExposureNone {
+	if exposure.Mode != ExposureNone && (cfg.Server.Enabled || cfg.Admin.Enabled) {
 		if !cfg.Server.AllowInsecureHTTP {
 			return errors.New("non-loopback HTTP exposure requires server.allow_insecure_http=true; prefer Secure MCP Tunnel or a TLS reverse proxy")
 		}
-		if !cfg.Auth.MCPEnabled || cfg.Auth.MCPTokenHash == "" {
+		if cfg.Server.Enabled && (!cfg.Auth.MCPEnabled || cfg.Auth.MCPTokenHash == "") {
 			return errors.New("network exposure requires MCP authentication with a configured token; run chatgpt-mcp auth mcp create")
 		}
 		if cfg.Admin.Enabled && (!cfg.Auth.AdminEnabled || cfg.Auth.AdminTokenHash == "") {
 			return errors.New("network exposure with the admin endpoint enabled requires admin authentication with a configured token; run chatgpt-mcp auth admin create")
 		}
 	}
-	if cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {
+	if cfg.Server.Enabled && cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {
 		return errors.New("MCP auth is enabled but no token is configured; run chatgpt-mcp auth mcp create")
 	}
 	if cfg.Admin.Enabled && cfg.Auth.AdminEnabled && cfg.Auth.AdminTokenHash == "" {
@@ -68,6 +71,13 @@ func Validate(cfg Config) error {
 	}
 	if err := tunnel.ValidateConfig(cfg.Tunnel); err != nil {
 		return err
+	}
+	return nil
+}
+
+func ValidateMCPTransports(cfg Config) error {
+	if !cfg.Server.Enabled && !cfg.Tunnel.Enabled {
+		return errors.New("at least one MCP transport must be enabled: MCP HTTP (server.enabled) or OpenAI Secure MCP Tunnel (tunnel.enabled)")
 	}
 	return nil
 }

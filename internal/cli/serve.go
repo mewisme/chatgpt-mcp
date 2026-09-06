@@ -172,7 +172,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		reloadMu.Lock()
 		defer reloadMu.Unlock()
 		tunnelStatus := runtime.Tunnel.Status()
-		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID), TunnelLastError: tunnelStatus.LastError}
+		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerEnabled: currentCfg.Server.Enabled, ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID), TunnelLastError: tunnelStatus.LastError}
 	}
 	control, err = startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Shutdown: func() {
 		select {
@@ -231,9 +231,15 @@ func newHTTPServer(handler http.Handler) *http.Server {
 }
 
 func waitRuntimeHTTPReady(parent context.Context, cfg config.Config, timeout time.Duration) error {
-	endpoints := []string{endpointURL("127.0.0.1", cfg.Server.Port, "/health")}
+	endpoints := []string{}
+	if cfg.Server.Enabled {
+		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Server.Port, "/health"))
+	}
 	if cfg.Admin.Enabled {
 		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Admin.Port, "/"))
+	}
+	if len(endpoints) == 0 {
+		return nil
 	}
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 500 * time.Millisecond, Transport: &http.Transport{Proxy: nil}}

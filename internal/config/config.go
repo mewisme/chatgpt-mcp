@@ -34,6 +34,7 @@ type ShellConfig struct {
 }
 
 type ServerConfig struct {
+	Enabled           bool           `json:"enabled"`
 	Port              int            `json:"port"`
 	Expose            ExposureConfig `json:"expose"`
 	AllowInsecureHTTP bool           `json:"allow_insecure_http"`
@@ -68,7 +69,7 @@ type AuthConfig struct {
 type FeaturesConfig = features.Config
 
 func Default() Config {
-	return Config{Server: ServerConfig{Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {
@@ -247,6 +248,9 @@ func saveAt(configPath, secretPath string, cfg Config) error {
 }
 
 func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret func(string, tunnel.Config) error) error {
+	if err := ValidateMCPTransports(cfg); err != nil {
+		return err
+	}
 	root := filepath.Dir(configPath)
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return err

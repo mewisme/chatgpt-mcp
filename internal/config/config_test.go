@@ -26,6 +26,41 @@ func TestValidateRequiresAuthTokens(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresAtLeastOneMCPTransport(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.Enabled = false
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "at least one MCP transport") {
+		t.Fatalf("both transports disabled err=%v", err)
+	}
+	cfg.Tunnel.Enabled = true
+	cfg.Tunnel.ID = "tunnel_test"
+	cfg.Tunnel.APIKey = "runtime-secret"
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("tunnel-only config rejected: %v", err)
+	}
+	cfg.Server.Enabled = true
+	cfg.Tunnel.Enabled = false
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("HTTP-only config rejected: %v", err)
+	}
+}
+
+func TestConfigSaveRejectsDisablingAllMCPTransports(t *testing.T) {
+	root := t.TempDir()
+	cfg := Default()
+	cfg.Server.Enabled = false
+	cfg.Tunnel.Enabled = false
+	err := saveAt(filepath.Join(root, "config.json"), filepath.Join(root, "tunnel.json"), cfg)
+	if err == nil || !strings.Contains(err.Error(), "at least one MCP transport") {
+		t.Fatalf("save err=%v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "config.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid transport config was persisted: %v", statErr)
+	}
+}
+
 func TestValidateNetworkExposureRequiresAuth(t *testing.T) {
 	for _, exposure := range []ExposureConfig{
 		{Mode: ExposureAll, Interfaces: []string{}},
@@ -270,7 +305,7 @@ func TestLegacyGenericTunnelFieldsAreIgnored(t *testing.T) {
 
 func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 	cfg := Default()
-	if cfg.Server.Port != 37421 || cfg.Server.Expose.Mode != ExposureNone || len(cfg.Server.Expose.Interfaces) != 0 {
+	if !cfg.Server.Enabled || cfg.Server.Port != 37421 || cfg.Server.Expose.Mode != ExposureNone || len(cfg.Server.Expose.Interfaces) != 0 {
 		t.Fatalf("server = %#v", cfg.Server)
 	}
 }
@@ -360,6 +395,9 @@ func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 				loaded, err := loadAt(configPath, secretPath)
 				if err != nil {
 					t.Fatal(err)
+				}
+				if !loaded.Server.Enabled {
+					t.Fatalf("legacy %s config disabled MCP HTTP", format)
 				}
 				if !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
 					t.Fatalf("legacy %s features = %#v", format, loaded.Features)

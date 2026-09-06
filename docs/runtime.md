@@ -163,7 +163,7 @@ Behavior depends on that selected runtime:
 
 The updater does not uninstall/reinstall a healthy service definition just to change versions. Managed services keep using the stable launcher/current path, so restart naturally resolves the newly activated binary.
 
-Managed readiness is composite. The new runtime must answer through its runtime-control plane with the new run identity, and when `tunnel.enabled=true`, the embedded OpenAI Secure MCP Tunnel must also report `ready`. `up`, managed restart, and transactional update therefore do not report success while the tunnel is still connecting or reconnecting. Managed restart is transactional across that full readiness boundary: if the new runtime cannot become healthy, the updater restores the previous `current` target and install metadata, then attempts to restart the previous managed runtime. The failed target is not treated as a successful update. After a healthy update, version cleanup retains the active version and its immediate previous version for rollback safety.
+Managed readiness is composite. The new runtime must answer through its runtime-control plane with the new run identity; when `server.enabled=true`, its direct MCP HTTP listener must become reachable; and when `tunnel.enabled=true`, the embedded OpenAI Secure MCP Tunnel must also report `ready`. `up`, managed restart, and transactional update therefore do not report success while an enabled transport is still unavailable. Configuration requires at least one of `server.enabled` or `tunnel.enabled`, so HTTP-only, tunnel-only, and dual-transport runtimes are all valid. Managed restart is transactional across that full readiness boundary: if the new runtime cannot become healthy, the updater restores the previous `current` target and install metadata, then attempts to restart the previous managed runtime. The failed target is not treated as a successful update. After a healthy update, version cleanup retains the active version and its immediate previous version for rollback safety.
 
 With multiple config roots, the binary installation is shared but runtime ownership is not. Updating from one selected config root only coordinates the managed service associated with that root. Other foreground or managed instances continue running their loaded binary and pick up the new stable version on their next restart.
 
@@ -186,6 +186,7 @@ Status reports information such as:
 - service ID
 - current runtime session ID
 - PID and start information
+- MCP HTTP enabled/disabled state and endpoint when enabled
 - tunnel enabled/configured/live state and tunnel ID
 - workspaces and upstream state
 

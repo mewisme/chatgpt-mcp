@@ -206,14 +206,14 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 
 ## Runtime endpoints
 
-Defaults:
+Defaults when both local HTTP endpoints are enabled:
 
 ```text
 MCP:   http://127.0.0.1:37421/mcp
 Admin: http://127.0.0.1:37422/
 ```
 
-The default exposure mode is loopback-only. Network exposure, authentication, config formats, reload semantics, and isolated config roots are documented in [Configuration](docs/configuration.md).
+MCP connectivity can use the direct HTTP transport (`server.enabled=true`), OpenAI Secure MCP Tunnel (`tunnel.enabled=true`), or both. At least one MCP transport must remain enabled. The default exposure mode is loopback-only. Network exposure, authentication, config formats, reload semantics, and isolated config roots are documented in [Configuration](docs/configuration.md).
 
 ## Documentation
 

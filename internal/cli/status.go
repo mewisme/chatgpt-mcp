@@ -182,7 +182,11 @@ func renderStatusEndpoints(out io.Writer, snapshot statusSnapshot, verbose bool)
 	cfg := snapshot.Config
 	fmt.Fprintln(out, "\n"+cliHeading("Endpoints"))
 	if !verbose {
-		statusField(out, "mcp", endpointURL(mcpnetwork.LoopbackHost, cfg.Server.Port, "/mcp"))
+		if cfg.Server.Enabled {
+			statusField(out, "mcp http", endpointURL(mcpnetwork.LoopbackHost, cfg.Server.Port, "/mcp"))
+		} else {
+			statusField(out, "mcp http", "disabled")
+		}
 		if cfg.Admin.Enabled {
 			statusField(out, "admin", endpointURL(mcpnetwork.LoopbackHost, cfg.Admin.Port, "/"))
 		} else {
@@ -216,10 +220,15 @@ func renderStatusEndpoints(out io.Writer, snapshot statusSnapshot, verbose bool)
 			name = address.Scope
 		}
 		fmt.Fprintf(out, "\n  %s\n", cliHeading(name))
-		statusNestedField(out, "mcp", endpointURL(address.Host, cfg.Server.Port, "/mcp"))
+		if cfg.Server.Enabled {
+			statusNestedField(out, "mcp http", endpointURL(address.Host, cfg.Server.Port, "/mcp"))
+		}
 		if cfg.Admin.Enabled {
 			statusNestedField(out, "admin", endpointURL(address.Host, cfg.Admin.Port, "/"))
 		}
+	}
+	if !cfg.Server.Enabled {
+		statusField(out, "mcp http", "disabled")
 	}
 	if !cfg.Admin.Enabled && len(addresses) == 0 {
 		statusField(out, "admin", "disabled")
@@ -288,6 +297,7 @@ func renderStatusConfig(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	if verbose {
 		statusField(out, "format", snapshot.Source.Format)
 	}
+	statusField(out, "transports", fmt.Sprintf("http %s · tunnel %s", onOff(cfg.Server.Enabled), onOff(cfg.Tunnel.Enabled)))
 	statusField(out, "auth", fmt.Sprintf("mcp %s · admin %s", onOff(cfg.Auth.MCPEnabled), onOff(cfg.Auth.AdminEnabled)))
 	statusField(out, "workspaces", snapshot.Workspaces)
 	statusField(out, "upstreams", snapshot.Upstreams)
@@ -312,6 +322,7 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 	log.Detail("initialized", snapshot.Source.Exists)
 	log.Detail("config", snapshot.Source.Path)
 	log.Detail("format", snapshot.Source.Format)
+	log.Detail("transports", fmt.Sprintf("http=%t tunnel=%t", cfg.Server.Enabled, cfg.Tunnel.Enabled))
 	logEndpointDetails(log, cfg)
 	log.Detail("auth", fmt.Sprintf("mcp=%t admin=%t", cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled))
 	if snapshot.Running {

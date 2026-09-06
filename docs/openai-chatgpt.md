@@ -37,6 +37,8 @@ Before configuring `chatgpt-mcp`, you need:
 5. ChatGPT Developer Mode access for the user creating the app.
 6. A configured and running `chatgpt-mcp` instance.
 
+For a private tunnel-only runtime, set `server.enabled=false` and keep `tunnel.enabled=true`. You may also keep both transports enabled. Configuration rejects turning both off, so the runtime always retains at least one MCP transport.
+
 ## Keep these values separate
 
 | Value | Example | Secret? | Purpose |

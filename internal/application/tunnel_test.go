@@ -169,6 +169,31 @@ func TestDeleteManagedTunnelCanClearSelectedRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestTunnelOnlyConfigCannotDisableTunnel(t *testing.T) {
+	setupTunnelApplicationRoot(t, tunnel.Config{Enabled: true, ID: "tunnel_only", APIKey: "runtime-secret"})
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Server.Enabled = false
+	cfg.Admin.Enabled = false
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetTunnelEnabled(false); err == nil || !strings.Contains(err.Error(), "at least one MCP transport") {
+		t.Fatalf("disable sole tunnel err=%v", err)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Tunnel.Enabled || loaded.Server.Enabled {
+		t.Fatalf("invalid transport mutation persisted: server=%#v tunnel=%#v", loaded.Server, loaded.Tunnel)
+	}
+}
+
 func TestManagedCreateFailureDoesNotChangeRuntimeConfig(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

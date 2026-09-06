@@ -71,12 +71,17 @@ func logReadyEndpoints(log *logger.Logger, cfg config.Config, plan listenerPlan)
 	mcpEndpoints := make([]string, 0, len(plan.Addresses))
 	adminEndpoints := make([]string, 0, len(plan.Addresses))
 	for _, address := range plan.Addresses {
-		mcpEndpoints = append(mcpEndpoints, endpointURL(address.Host, cfg.Server.Port, "/mcp"))
+		if cfg.Server.Enabled {
+			mcpEndpoints = append(mcpEndpoints, endpointURL(address.Host, cfg.Server.Port, "/mcp"))
+		}
 		if cfg.Admin.Enabled {
 			adminEndpoints = append(adminEndpoints, endpointURL(address.Host, cfg.Admin.Port, "/"))
 		}
 	}
-	fields := []logger.Field{logger.With("mcp", mcpEndpoints)}
+	fields := []logger.Field{logger.With("mcp_http_enabled", cfg.Server.Enabled)}
+	if cfg.Server.Enabled {
+		fields = append(fields, logger.With("mcp", mcpEndpoints))
+	}
 	if cfg.Admin.Enabled {
 		fields = append(fields, logger.With("admin", adminEndpoints))
 	}
@@ -103,10 +108,15 @@ func logEndpointDetails(log *logger.Logger, cfg config.Config) {
 		return
 	}
 	for _, address := range plan.Addresses {
-		log.Detail(endpointDetailLabel("mcp", address), endpointURL(address.Host, cfg.Server.Port, "/mcp"))
+		if cfg.Server.Enabled {
+			log.Detail(endpointDetailLabel("mcp", address), endpointURL(address.Host, cfg.Server.Port, "/mcp"))
+		}
 		if cfg.Admin.Enabled {
 			log.Detail(endpointDetailLabel("admin", address), endpointURL(address.Host, cfg.Admin.Port, "/"))
 		}
+	}
+	if !cfg.Server.Enabled {
+		log.Detail("mcp http", "disabled")
 	}
 	if !cfg.Admin.Enabled {
 		log.Detail("admin", "disabled")

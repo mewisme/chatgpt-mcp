@@ -295,10 +295,13 @@ cgm config list admin
 Set:
 
 ```bash
+cgm config set server.enabled false
 cgm config set server.port 41021
 cgm config set admin.port 41022
 cgm config set server.expose none
 ```
+
+At least one MCP transport must remain enabled: `server.enabled` for direct MCP HTTP or `tunnel.enabled` for OpenAI Secure MCP Tunnel.
 
 Apply to a running process:
 
@@ -470,6 +473,7 @@ Status is the main read-only overview for:
 - service scope/backend/ID
 - runtime session ID
 - PID/start information
+- MCP HTTP enabled/disabled state and endpoint when enabled
 - tunnel enabled/configured/live state
 - registered workspaces
 - upstream servers

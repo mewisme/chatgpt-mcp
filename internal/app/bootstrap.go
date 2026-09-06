@@ -25,6 +25,19 @@ func (a *App) Bootstrap() error {
 	telemetry.AttachTools(a.Tools, a.Activity, a.Logger)
 	telemetry.AttachApprovals(a.Tools.Approvals, a.Activity, a.Logger)
 	a.Upstream = a.Tools.Upstream
+	a.syncMCPHTTP(a.Config.Snapshot().Server.Enabled)
+	a.attachTunnelLifecycle()
+	return nil
+}
+
+func (a *App) syncMCPHTTP(enabled bool) {
+	if !enabled {
+		if a.MCP != nil {
+			a.MCP.CloseSubscriptions()
+			a.MCP = nil
+		}
+		return
+	}
 	if a.MCP == nil {
 		a.MCP = mcp.NewHTTPRuntimeWithTools(a.Tools)
 	} else if a.MCP.Server == nil {
@@ -33,6 +46,4 @@ func (a *App) Bootstrap() error {
 		a.MCP.Server.Tools = a.Tools
 	}
 	a.MCP.Activity = a.Activity
-	a.attachTunnelLifecycle()
-	return nil
 }

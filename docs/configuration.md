@@ -77,6 +77,7 @@ Sensitive values keep their real key names but render as:
 ## Set values
 
 ```bash
+cgm config set server.enabled false
 cgm config set server.port 41021
 cgm config set admin.port 41022
 cgm config set admin.enabled true
@@ -84,7 +85,7 @@ cgm config set admin.enabled true
 
 `key=value` syntax is also accepted by the CLI.
 
-Changes are validated before persistence.
+Changes are validated before persistence. MCP must remain reachable through at least one transport: direct HTTP (`server.enabled`) or OpenAI Secure MCP Tunnel (`tunnel.enabled`). Either can be disabled independently, but not both.
 
 ## Reload a running runtime
 
@@ -100,6 +101,7 @@ Changes to auth, feature flags, filesystem permissions, and tunnel settings can 
 
 Changes to these network settings trigger listener rebind inside the same process:
 
+- `server.enabled`
 - `server.port`
 - `server.expose`
 - `admin.enabled`
@@ -202,6 +204,7 @@ Default exposure is loopback-only:
 ```json
 {
   "server": {
+    "enabled": true,
     "port": 37421,
     "expose": {
       "mode": "none",
@@ -210,6 +213,8 @@ Default exposure is loopback-only:
   }
 }
 ```
+
+`server.enabled=false` removes the direct MCP HTTP listener entirely. This is valid only while `tunnel.enabled=true`. Conversely, the tunnel can be disabled while MCP HTTP remains enabled. The default is HTTP enabled and tunnel disabled.
 
 Supported modes:
 

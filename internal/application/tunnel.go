@@ -11,8 +11,9 @@ import (
 )
 
 type TunnelDashboard struct {
-	Config tunnel.Config
-	Status tunnel.Status
+	Config         tunnel.Config
+	Status         tunnel.Status
+	MCPHTTPEnabled bool
 }
 
 type TunnelRuntimeInput struct {
@@ -54,7 +55,7 @@ func TunnelStatus() (TunnelDashboard, error) {
 	if metadata, err := config.LoadTunnelMetadata(cfg.Tunnel.ID); err == nil {
 		_ = client.SeedMetadata(metadata)
 	}
-	return TunnelDashboard{Config: cfg.Tunnel, Status: client.Status()}, nil
+	return TunnelDashboard{Config: cfg.Tunnel, Status: client.Status(), MCPHTTPEnabled: cfg.Server.Enabled}, nil
 }
 
 func ConfigureTunnelRuntime(ctx context.Context, input TunnelRuntimeInput) (TunnelDashboard, error) {
@@ -335,20 +336,33 @@ func DeleteManagedTunnel(ctx context.Context, id string, clearConfig bool) (Mana
 	if !tunnel.AdminConfigured(cfg.Tunnel) {
 		return ManagedTunnelResult{}, errors.New("verified tunnel admin key is required")
 	}
+	id = strings.TrimSpace(id)
+	configuredTunnel := id != "" && id == strings.TrimSpace(cfg.Tunnel.ID)
+	if configuredTunnel && !cfg.Server.Enabled {
+		return ManagedTunnelResult{}, errors.New("cannot delete the configured OpenAI tunnel while MCP HTTP is disabled")
+	}
+	clearConfigured := clearConfig && configuredTunnel
+	var clearedConfig config.Config
+	if clearConfigured {
+		clearedConfig = cfg
+		clearedConfig.Tunnel.Enabled = false
+		clearedConfig.Tunnel.ID = ""
+		clearedConfig.Tunnel.APIKey = ""
+		clearedConfig.Tunnel.OrganizationID = ""
+		if err := config.Validate(clearedConfig); err != nil {
+			return ManagedTunnelResult{}, err
+		}
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	metadata, err := tunnel.DeleteManaged(ctx, cfg.Tunnel, strings.TrimSpace(id))
+	metadata, err := tunnel.DeleteManaged(ctx, cfg.Tunnel, id)
 	if err != nil {
 		return ManagedTunnelResult{}, err
 	}
-	cleared := clearConfig && cfg.Tunnel.ID == metadata.ID
+	cleared := clearConfigured && cfg.Tunnel.ID == metadata.ID
 	if cleared {
-		cfg.Tunnel.Enabled = false
-		cfg.Tunnel.ID = ""
-		cfg.Tunnel.APIKey = ""
-		cfg.Tunnel.OrganizationID = ""
-		if err := config.Save(cfg); err != nil {
+		if err := config.Save(clearedConfig); err != nil {
 			return ManagedTunnelResult{}, err
 		}
 	}

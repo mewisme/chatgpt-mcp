@@ -51,12 +51,19 @@ type publicConfig struct {
 }
 
 type configPatch struct {
-	Server      *config.ServerConfig      `json:"server,omitempty"`
+	Server      *serverPatch              `json:"server,omitempty"`
 	Admin       *config.AdminConfig       `json:"admin,omitempty"`
 	Auth        *authSettings             `json:"auth,omitempty"`
 	Permissions *config.PermissionsConfig `json:"permissions,omitempty"`
 	Shell       *config.ShellConfig       `json:"shell,omitempty"`
 	Features    *featurePatch             `json:"features,omitempty"`
+}
+
+type serverPatch struct {
+	Enabled           *bool                  `json:"enabled,omitempty"`
+	Port              *int                   `json:"port,omitempty"`
+	Expose            *config.ExposureConfig `json:"expose,omitempty"`
+	AllowInsecureHTTP *bool                  `json:"allow_insecure_http,omitempty"`
 }
 
 type featurePatch struct {
@@ -138,7 +145,18 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 		next := previous
 		var err error
 		if patch.Server != nil {
-			next.Server = *patch.Server
+			if patch.Server.Enabled != nil {
+				next.Server.Enabled = *patch.Server.Enabled
+			}
+			if patch.Server.Port != nil {
+				next.Server.Port = *patch.Server.Port
+			}
+			if patch.Server.Expose != nil {
+				next.Server.Expose = *patch.Server.Expose
+			}
+			if patch.Server.AllowInsecureHTTP != nil {
+				next.Server.AllowInsecureHTTP = *patch.Server.AllowInsecureHTTP
+			}
 		}
 		if patch.Admin != nil {
 			next.Admin = *patch.Admin

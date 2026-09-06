@@ -4,11 +4,13 @@
 
 ## Local MCP endpoint
 
-Default endpoint:
+Default endpoint when the direct HTTP transport is enabled:
 
 ```text
 http://127.0.0.1:37421/mcp
 ```
+
+`server.enabled` controls this direct MCP HTTP listener. OpenAI Secure MCP Tunnel is controlled independently by `tunnel.enabled`. Either transport may be used alone or both may run together, but configuration validation rejects disabling both.
 
 Modern requests use `POST /mcp` and carry protocol/routing metadata on each request.
 

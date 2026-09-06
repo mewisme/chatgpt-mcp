@@ -41,6 +41,7 @@ import {
 export function SettingsPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [savedConfig, setSavedConfig] = useState<PublicConfig | null>(null)
+  const [tunnelEnabled, setTunnelEnabled] = useState(false)
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
@@ -50,12 +51,14 @@ export function SettingsPage() {
     void Promise.all([
       adminApi.config(),
       adminApi.networkInterfaces(),
+      adminApi.tunnelConfig(),
     ])
-      .then(([nextConfig, nextInterfaces]) => {
+      .then(([nextConfig, nextInterfaces, nextTunnel]) => {
         const normalized = normalizeConfig(nextConfig)
         setConfig(normalized)
         setSavedConfig(normalized)
         setInterfaces(nextInterfaces)
+        setTunnelEnabled(nextTunnel.enabled)
       })
       .catch((value) => setError(errorText(value)))
   }, [])
@@ -78,7 +81,7 @@ export function SettingsPage() {
       setConfig(next)
       setSavedConfig(next)
       setMessage(
-        "Saved. Runtime, listener, feature, auth, filesystem, and shell-path changes were applied live."
+        "Saved. Runtime, transport, listener, feature, auth, filesystem, and shell-path changes were applied live."
       )
       setError("")
     } catch (value) {
@@ -102,7 +105,7 @@ export function SettingsPage() {
       auth: exposed
         ? {
             ...config.auth,
-            mcp_enabled: true,
+            mcp_enabled: config.server.enabled ? true : config.auth.mcp_enabled,
             admin_enabled: config.admin.enabled
               ? true
               : config.auth.admin_enabled,
@@ -135,12 +138,13 @@ export function SettingsPage() {
   const exposed = config.server.expose.mode !== "none"
   const exposureAuthReady =
     !exposed ||
-    (config.auth.mcp_enabled &&
-      config.auth.mcp_token_configured &&
+    ((!config.server.enabled ||
+      (config.auth.mcp_enabled && config.auth.mcp_token_configured)) &&
       (!config.admin.enabled ||
         (config.auth.admin_enabled && config.auth.admin_token_configured)))
   const saveDisabled =
     busy ||
+    (!config.server.enabled && !tunnelEnabled) ||
     (config.server.expose.mode === "interfaces" &&
       config.server.expose.interfaces.length === 0) ||
     !exposureAuthReady ||
@@ -172,17 +176,42 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Runtime</CardTitle>
               <CardDescription>
-                Listener ports and Admin availability.
+                MCP transports, listener ports, and Admin availability.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <FieldGroup>
+                <Toggle
+                  label="MCP HTTP"
+                  description={
+                    tunnelEnabled
+                      ? "Serve MCP directly over HTTP. Secure MCP Tunnel remains available if this transport is disabled."
+                      : "Serve MCP directly over HTTP. This transport is required while Secure MCP Tunnel is disabled."
+                  }
+                  checked={config.server.enabled}
+                  disabled={config.server.enabled && !tunnelEnabled}
+                  onCheckedChange={(enabled) =>
+                    setConfig({
+                      ...config,
+                      server: { ...config.server, enabled },
+                    })
+                  }
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant={config.server.enabled ? "secondary" : "outline"}>
+                    MCP HTTP {config.server.enabled ? "enabled" : "disabled"}
+                  </Badge>
+                  <Badge variant={tunnelEnabled ? "secondary" : "outline"}>
+                    Secure MCP Tunnel {tunnelEnabled ? "enabled" : "disabled"}
+                  </Badge>
+                </div>
                 <div className="grid gap-5 md:grid-cols-2">
                   <SettingField
-                    label="Server port"
-                    description="MCP listener port."
+                    label="MCP HTTP port"
+                    description="Direct MCP HTTP listener port."
                   >
                     <Input
+                      disabled={!config.server.enabled}
                       max={65535}
                       min={1}
                       type="number"
@@ -239,7 +268,7 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Network exposure</CardTitle>
               <CardDescription>
-                Choose which interfaces receive direct MCP and Admin listeners.
+                Choose which interfaces receive enabled direct MCP HTTP and Admin listeners.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -254,7 +283,7 @@ export function SettingsPage() {
                 <ExposureOption
                   value="none"
                   title="Local only"
-                  description="Bind MCP and Admin only to 127.0.0.1."
+                  description="Bind enabled MCP HTTP and Admin listeners only to 127.0.0.1."
                 />
                 <ExposureOption
                   value="all"
@@ -309,8 +338,8 @@ export function SettingsPage() {
                 <Alert variant="destructive">
                   <AlertDescription>
                     Direct network exposure requires configured MCP
-                    authentication and, when Admin is enabled, configured Admin
-                    authentication.
+                    authentication when MCP HTTP is enabled and, when Admin is
+                    enabled, configured Admin authentication.
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -486,7 +515,7 @@ export function SettingsPage() {
             <CardContent>
               <FieldGroup>
                 <AuthToggle
-                  locked={exposed}
+                  locked={exposed && config.server.enabled}
                   label="MCP authentication"
                   configured={config.auth.mcp_token_configured}
                   checked={config.auth.mcp_enabled}
@@ -599,11 +628,13 @@ function Toggle({
   label,
   description,
   checked,
+  disabled = false,
   onCheckedChange,
 }: {
   label: string
   description: string
   checked: boolean
+  disabled?: boolean
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
@@ -612,7 +643,7 @@ function Toggle({
         <FieldLabel>{label}</FieldLabel>
         <FieldDescription>{description}</FieldDescription>
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
     </Field>
   )
 }
@@ -672,7 +703,11 @@ function AuthToggle({
   )
 }
 function normalizeConfig(value: PublicConfig): PublicConfig {
-  return { ...value, shell: value.shell || { path: [] } }
+  return {
+    ...value,
+    server: { ...value.server, enabled: value.server?.enabled ?? true },
+    shell: value.shell || { path: [] },
+  }
 }
 function parseLines(value: string) {
   return value

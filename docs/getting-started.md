@@ -236,12 +236,14 @@ Foreground:
 cgm serve
 ```
 
-Default endpoints:
+Default local endpoints:
 
 ```text
 MCP:   http://127.0.0.1:37421/mcp
 Admin: http://127.0.0.1:37422/
 ```
+
+The MCP HTTP endpoint exists only while `server.enabled=true`. You may instead run tunnel-only with `server.enabled=false` and `tunnel.enabled=true`; both MCP transports cannot be disabled at the same time.
 
 For a managed background runtime:
 

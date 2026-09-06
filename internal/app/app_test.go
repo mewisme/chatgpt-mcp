@@ -34,6 +34,49 @@ func TestNewSharesToolRuntime(t *testing.T) {
 	}
 }
 
+func TestTunnelOnlyRuntimeDoesNotCreateMCPHTTPRuntime(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Enabled = false
+	cfg.Tunnel.Enabled = true
+	cfg.Tunnel.ID = "tunnel_test"
+	cfg.Tunnel.APIKey = "runtime-secret"
+	app := New(cfg)
+	if app.MCP != nil || app.Tools == nil || app.Tunnel == nil {
+		t.Fatalf("tunnel-only runtime MCP=%#v tools=%#v tunnel=%#v", app.MCP, app.Tools, app.Tunnel)
+	}
+	recorder := httptest.NewRecorder()
+	app.MCPHandler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("disabled MCP HTTP status=%d", recorder.Code)
+	}
+}
+
+func TestReloadConfigSwitchesMCPHTTPRuntime(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	app := New(cfg)
+	next := cfg
+	next.Server.Enabled = false
+	next.Tunnel.Enabled = true
+	next.Tunnel.ID = "tunnel_test"
+	next.Tunnel.APIKey = "runtime-secret"
+	if err := app.ReloadConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	if app.MCP != nil {
+		t.Fatal("MCP HTTP runtime survived transport disable")
+	}
+	next.Server.Enabled = true
+	next.Tunnel.Enabled = false
+	if err := app.ReloadConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	if app.MCP == nil || app.MCP.Server == nil || app.MCP.Server.Tools != app.Tools {
+		t.Fatal("MCP HTTP runtime was not restored with shared tools")
+	}
+}
+
 func TestNewKeepsControllerToolsWhenFeatureInactive(t *testing.T) {
 	cfg := config.Default()
 	cfg.Features.Ponytail.Active = false

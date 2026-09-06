@@ -132,8 +132,40 @@ func TestConfigAPIHidesTokenHashes(t *testing.T) {
 	if !strings.Contains(body, `"mcp_token_configured":true`) || !strings.Contains(body, `"admin_token_configured":true`) {
 		t.Fatalf("configured state missing: %s", body)
 	}
-	if strings.Contains(body, `"host"`) || !strings.Contains(body, `"expose":{"mode":"none","interfaces":[]}`) {
+	if strings.Contains(body, `"host"`) || !strings.Contains(body, `"server":{"enabled":true`) || !strings.Contains(body, `"expose":{"mode":"none","interfaces":[]}`) {
 		t.Fatalf("server exposure view is invalid: %s", body)
+	}
+}
+
+func TestConfigAPIRejectsDisablingLastMCPTransport(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Config: store, saveConfig: func(config.Config) error { t.Fatal("invalid transport config must not persist"); return nil }})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"server":{"enabled":false}}`)))
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "at least one MCP transport") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !store.Snapshot().Server.Enabled {
+		t.Fatal("invalid transport config mutated store")
+	}
+}
+
+func TestTunnelAPICannotStopLastMCPTransport(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Enabled = false
+	cfg.Admin.Enabled = false
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Tunnel = tunnel.Config{Enabled: true, ID: "tunnel_only", APIKey: "runtime-secret"}
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: store})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/api/tunnel", nil))
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "MCP HTTP is disabled") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

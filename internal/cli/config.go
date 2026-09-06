@@ -126,7 +126,10 @@ func configReloadCommand() *cobra.Command {
 			log.Success("CONFIG", "configuration reloaded")
 			log.Detail("pid", result.PID)
 			log.Detail("network restarted", result.NetworkRestarted)
-			log.Detail("mcp port", result.ServerPort)
+			log.Detail("mcp http", onOff(result.ServerEnabled))
+			if result.ServerEnabled {
+				log.Detail("mcp port", result.ServerPort)
+			}
 			if result.AdminEnabled {
 				log.Detail("admin port", result.AdminPort)
 			} else {

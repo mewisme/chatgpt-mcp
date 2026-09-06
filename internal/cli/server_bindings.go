@@ -19,15 +19,18 @@ type httpBindings struct {
 }
 
 func openHTTPBindings(cfg config.Config, plan listenerPlan) (*httpBindings, error) {
-	mcpListeners, err := listenOnHosts(plan.Hosts, cfg.Server.Port)
-	if err != nil {
-		return nil, err
+	bindings := &httpBindings{cfg: cfg, plan: plan}
+	var err error
+	if cfg.Server.Enabled {
+		bindings.mcpListeners, err = listenOnHosts(plan.Hosts, cfg.Server.Port)
+		if err != nil {
+			return nil, err
+		}
 	}
-	bindings := &httpBindings{cfg: cfg, plan: plan, mcpListeners: mcpListeners}
 	if cfg.Admin.Enabled {
 		bindings.adminListeners, err = listenOnHosts(plan.Hosts, cfg.Admin.Port)
 		if err != nil {
-			closeListeners(mcpListeners)
+			closeListeners(bindings.mcpListeners)
 			return nil, err
 		}
 	}
@@ -75,7 +78,7 @@ func (b *httpBindings) CloseUnstarted() {
 }
 
 func networkConfigEqual(left, right config.Config) bool {
-	return left.Server.Port == right.Server.Port && config.ExposureEqual(left.Server.Expose, right.Server.Expose) && left.Admin == right.Admin
+	return left.Server.Enabled == right.Server.Enabled && left.Server.Port == right.Server.Port && config.ExposureEqual(left.Server.Expose, right.Server.Expose) && left.Admin == right.Admin
 }
 
 func listenerPlanEqual(left, right listenerPlan) bool { return slices.Equal(left.Hosts, right.Hosts) }

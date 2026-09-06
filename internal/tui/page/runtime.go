@@ -32,6 +32,8 @@ const (
 	RuntimeRestartSystem SystemCommand = "runtime.restart.system"
 	RuntimeReload        SystemCommand = "runtime.reload"
 	RuntimeForeground    SystemCommand = "runtime.foreground"
+	MCPHTTPEnable        SystemCommand = "transport.mcp-http.enable"
+	MCPHTTPDisable       SystemCommand = "transport.mcp-http.disable"
 	ConfigInitialize     SystemCommand = "config.initialize.external"
 	ConfigUninitialize   SystemCommand = "config.uninitialize.external"
 	AuthMCPEnable        SystemCommand = "auth.mcp.enable"
@@ -364,7 +366,7 @@ func (page *RuntimePage) openCommand(command SystemCommand) (tea.Cmd, error) {
 		page.confirm = component.NewConfirmButtons(page.confirmActionLabel(), "Cancel", false)
 		page.overlay = systemOverlayConfirm
 		return nil, nil
-	case RuntimeUpUser, RuntimeUpSystem, RuntimeReload, AuthMCPEnable, AuthMCPDisable, AuthAdminEnable, AuthAdminDisable, AliasInstall, UpdateCheck:
+	case RuntimeUpUser, RuntimeUpSystem, RuntimeReload, MCPHTTPEnable, MCPHTTPDisable, AuthMCPEnable, AuthMCPDisable, AuthAdminEnable, AuthAdminDisable, AliasInstall, UpdateCheck:
 		return page.startOperation(command), nil
 	default:
 		return nil, fmt.Errorf("unsupported system action: %s", command)
@@ -450,6 +452,23 @@ func (page *RuntimePage) startOperation(command SystemCommand) tea.Cmd {
 			msg.err, msg.external = err, result.External
 		case RuntimeReload:
 			_, msg.err = application.ReloadConfig(ctx)
+		case MCPHTTPEnable, MCPHTTPDisable:
+			enabled := command == MCPHTTPEnable
+			_, msg.err = application.SetConfigField("server.enabled", fmt.Sprint(enabled))
+			if msg.err == nil && page.runtime.Running {
+				_, msg.err = application.ReloadConfig(ctx)
+			}
+			if msg.err == nil {
+				state := "disabled"
+				if enabled {
+					state = "enabled"
+				}
+				if page.runtime.Running {
+					msg.notice = "MCP HTTP server " + state + " · runtime reloaded"
+				} else {
+					msg.notice = "MCP HTTP server " + state + " · applies on next runtime start"
+				}
+			}
 		case AuthMCPEnable:
 			_, msg.err = application.SetAuthEnabled("mcp", true)
 		case AuthMCPDisable:
@@ -561,6 +580,15 @@ func (page *RuntimePage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return cmd, true
 		case "f":
 			cmd, _ := page.openCommand(RuntimeForeground)
+			return cmd, true
+		}
+	case "transport.mcp-http":
+		if msg.String() == "space" || msg.String() == "e" {
+			command := MCPHTTPEnable
+			if page.runtime.MCPHTTPEnabled {
+				command = MCPHTTPDisable
+			}
+			cmd, _ := page.openCommand(command)
 			return cmd, true
 		}
 	case "service.user":
@@ -679,7 +707,7 @@ func (page *RuntimePage) selectedID() string {
 }
 
 func (page *RuntimePage) rebuildBrowser(selected string) tea.Cmd {
-	rows := []component.Row{page.runtimeRow(), page.serviceRow(page.runtime.UserService)}
+	rows := []component.Row{page.runtimeRow(), page.mcpHTTPRow(), page.serviceRow(page.runtime.UserService)}
 	if page.runtime.SystemService.Supported {
 		rows = append(rows, page.serviceRow(page.runtime.SystemService))
 	}
@@ -724,6 +752,37 @@ func (page *RuntimePage) runtimeRow() component.Row {
 	return component.Row{ID: "runtime", Title: "MCP runtime process", Description: description, Search: "runtime process status service server", DetailTitle: "MCP runtime process", Detail: detailFields(fields...)}
 }
 
+func (page *RuntimePage) mcpHTTPRow() component.Row {
+	configured := "disabled"
+	if page.runtime.MCPHTTPEnabled {
+		configured = "enabled"
+	}
+	runtimeState := "stopped"
+	description := configured
+	endpointValue := ""
+	if page.runtime.Running {
+		if page.runtime.Status.ServerEnabled {
+			runtimeState = "listening"
+			endpointValue = endpoint(page.runtime.Status.ServerPort, "/mcp")
+			description = configured + " · listening"
+		} else {
+			runtimeState = "not listening"
+			description = configured + " · port closed"
+		}
+		if page.runtime.Status.ServerEnabled != page.runtime.MCPHTTPEnabled {
+			description += " · reload required"
+		}
+	} else if page.runtime.MCPHTTPEnabled {
+		description += " · starts with runtime"
+	}
+	fallback := "off"
+	if page.runtime.TunnelEnabled {
+		fallback = "on"
+	}
+	fields := [][2]string{{"Configured", configured}, {"Runtime", runtimeState}, {"Port", fmt.Sprint(page.runtime.MCPHTTPPort)}, {"Endpoint", endpointValue}, {"Tunnel", fallback}, {"Invariant", "MCP HTTP or OpenAI Secure MCP Tunnel must remain enabled."}}
+	return component.Row{ID: "transport.mcp-http", Title: "MCP HTTP server", Description: description, Search: "mcp http server transport listener port enable disable", DetailTitle: "MCP HTTP server", Detail: detailFields(fields...)}
+}
+
 func (page *RuntimePage) serviceRow(service application.ServiceOverview) component.Row {
 	state := "not installed"
 	if service.Installed {
@@ -764,10 +823,15 @@ func (page *RuntimePage) authRow(kind string) component.Row {
 		configuredText = "configured"
 	}
 	title := "MCP HTTP authentication"
+	description := state + " · token " + configuredText
+	scope := "Controls authentication only; the MCP HTTP listener is controlled by MCP HTTP server."
 	if kind == "admin" {
 		title = "Admin UI authentication"
+		scope = "Controls authentication for the Admin UI only."
+	} else {
+		description += " · auth only"
 	}
-	return component.Row{ID: "auth." + kind, Title: title, Description: state + " · token " + configuredText, Search: "auth token " + kind, DetailTitle: title, Detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Security", "Token hashes are persisted; plaintext is shown once after rotation."})}
+	return component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind, DetailTitle: title, Detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Scope", scope}, [2]string{"Security", "Token hashes are persisted; plaintext is shown once after rotation."})}
 }
 
 func (page *RuntimePage) installRow() component.Row {
@@ -842,6 +906,12 @@ func (page *RuntimePage) syncBrowserHelp() {
 			bindings = append(bindings, component.Binding([]string{"f"}, "f", "foreground"))
 		}
 		page.browser.SetHelpBindings(bindings...)
+	case "transport.mcp-http":
+		label := "enable"
+		if page.runtime.MCPHTTPEnabled {
+			label = "disable"
+		}
+		page.browser.SetHelpBindings(refresh, component.Binding([]string{"space", "e"}, "space", label))
 	case "auth.mcp":
 		label := "enable"
 		if page.auth.MCPEnabled {
@@ -998,6 +1068,8 @@ func systemOperationTitle(command SystemCommand) string {
 		return "Cleaning legacy installations"
 	case RuntimeReload:
 		return "Reloading runtime configuration"
+	case MCPHTTPEnable, MCPHTTPDisable:
+		return "Updating MCP HTTP server"
 	case AuthMCPRotate, AuthAdminRotate:
 		return "Rotating authentication token"
 	default:

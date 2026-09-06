@@ -9,6 +9,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
+	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
@@ -31,7 +33,7 @@ func TestRuntimePageBuildsSystemRows(t *testing.T) {
 	page.about = application.AboutInfo{Version: "v1.2.3"}
 	page.rebuildBrowser("")
 	ids := map[string]bool{}
-	for _, id := range []string{"runtime", "service.user", "auth.mcp", "auth.admin", "installation", "alias", "update", "about"} {
+	for _, id := range []string{"runtime", "transport.mcp-http", "service.user", "auth.mcp", "auth.admin", "installation", "alias", "update", "about"} {
 		if !page.browser.SelectID(id) {
 			t.Fatalf("row missing: %s", id)
 		}
@@ -53,8 +55,115 @@ func TestRuntimeRowsUseDescriptiveTitlesAndDescriptions(t *testing.T) {
 	if serviceRow.Title != "User managed service" || !strings.Contains(serviceRow.Description, "systemd --user") || !strings.Contains(serviceRow.Description, "pid 4242") {
 		t.Fatalf("service row=%#v", serviceRow)
 	}
-	if page.authRow("mcp").Title != "MCP HTTP authentication" || page.authRow("admin").Title != "Admin UI authentication" {
-		t.Fatal("authentication rows are not transport-specific")
+	mcpHTTP := page.mcpHTTPRow()
+	if mcpHTTP.Title != "MCP HTTP server" || !strings.Contains(mcpHTTP.Description, "port closed") {
+		t.Fatalf("MCP HTTP row=%#v", mcpHTTP)
+	}
+	mcpAuth, adminAuth := page.authRow("mcp"), page.authRow("admin")
+	if mcpAuth.Title != "MCP HTTP authentication" || adminAuth.Title != "Admin UI authentication" || !strings.Contains(mcpAuth.Description, "auth only") || !strings.Contains(mcpAuth.Detail, "listener is controlled by MCP HTTP server") {
+		t.Fatalf("authentication rows MCP=%#v admin=%#v", mcpAuth, adminAuth)
+	}
+}
+
+func TestRuntimeMCPHTTPRowDistinguishesConfigFromLiveListener(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	page.runtime = application.RuntimeOverview{Running: true, MCPHTTPEnabled: false, MCPHTTPPort: 37421, TunnelEnabled: true, Status: runtimecontrol.RuntimeStatus{ServerEnabled: true, ServerPort: 37421}}
+	row := page.mcpHTTPRow()
+	if !strings.Contains(row.Description, "disabled · listening · reload required") || !strings.Contains(row.Detail, "http://127.0.0.1:37421/mcp") || !strings.Contains(row.Detail, "Tunnel") {
+		t.Fatalf("MCP HTTP mismatch row=%#v", row)
+	}
+	page.runtime.Status.ServerEnabled = false
+	row = page.mcpHTTPRow()
+	if !strings.Contains(row.Description, "disabled · port closed") || strings.Contains(row.Detail, "http://127.0.0.1:37421/mcp") {
+		t.Fatalf("MCP HTTP disabled row=%#v", row)
+	}
+}
+
+func TestRuntimeMCPHTTPToggleUsesTransportAction(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	page.runtime = application.RuntimeOverview{MCPHTTPEnabled: true, MCPHTTPPort: 37421, TunnelEnabled: true}
+	page.rebuildBrowser("transport.mcp-http")
+	cmd, handled := page.handleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	if !handled || cmd == nil || page.pending != MCPHTTPDisable || page.overlay != systemOverlayOperation {
+		t.Fatalf("disable toggle handled=%t cmd=%v pending=%q overlay=%d", handled, cmd, page.pending, page.overlay)
+	}
+	page.cancelOperation()
+	page.runtime.MCPHTTPEnabled = false
+	page.overlay = systemOverlayNone
+	cmd, handled = page.handleKey(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	if !handled || cmd == nil || page.pending != MCPHTTPEnable || page.overlay != systemOverlayOperation {
+		t.Fatalf("enable toggle handled=%t cmd=%v pending=%q overlay=%d", handled, cmd, page.pending, page.overlay)
+	}
+	page.cancelOperation()
+}
+
+func TestRuntimeMCPHTTPStoppedTogglePersistsAndRespectsTransportInvariant(t *testing.T) {
+	previous := configformat.RootPath()
+	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Tunnel.Enabled, cfg.Tunnel.ID, cfg.Tunnel.APIKey = true, "tunnel_test", "tunnel-key"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	page, _ := NewRuntime(t.Context())
+	page.runtime = application.RuntimeOverview{MCPHTTPEnabled: true, MCPHTTPPort: cfg.Server.Port, TunnelEnabled: true}
+	cmd, err := page.openCommand(MCPHTTPDisable)
+	if err != nil || cmd == nil {
+		t.Fatalf("disable command err=%v cmd=%v", err, cmd)
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok || len(batch) < 2 {
+		t.Fatalf("disable command message=%T", msg)
+	}
+	var result systemOperationMsg
+	for _, next := range batch {
+		if next == nil {
+			continue
+		}
+		if value, ok := next().(systemOperationMsg); ok {
+			result = value
+			break
+		}
+	}
+	if result.err != nil || !strings.Contains(result.notice, "applies on next runtime start") {
+		t.Fatalf("disable result=%#v err=%v", result, result.err)
+	}
+	loaded, err := config.Load()
+	if err != nil || loaded.Server.Enabled {
+		t.Fatalf("server enabled=%t err=%v", loaded.Server.Enabled, err)
+	}
+	loaded.Tunnel.Enabled = false
+	loaded.Server.Enabled = true
+	if err := config.Save(loaded); err != nil {
+		t.Fatal(err)
+	}
+	page.runtime.MCPHTTPEnabled, page.runtime.TunnelEnabled = true, false
+	cmd, err = page.openCommand(MCPHTTPDisable)
+	if err != nil || cmd == nil {
+		t.Fatalf("invariant command err=%v cmd=%v", err, cmd)
+	}
+	msg = cmd()
+	batch, ok = msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("invariant message=%T", msg)
+	}
+	result = systemOperationMsg{}
+	for _, next := range batch {
+		if next == nil {
+			continue
+		}
+		if value, ok := next().(systemOperationMsg); ok {
+			result = value
+			break
+		}
+	}
+	if result.err == nil || !strings.Contains(result.err.Error(), "at least one MCP transport") {
+		t.Fatalf("invariant result=%#v", result)
 	}
 }
 

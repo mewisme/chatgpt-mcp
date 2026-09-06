@@ -24,10 +24,13 @@ type ExternalCommand struct {
 }
 
 type RuntimeOverview struct {
-	Running       bool
-	Status        runtimecontrol.RuntimeStatus
-	UserService   ServiceOverview
-	SystemService ServiceOverview
+	Running        bool
+	Status         runtimecontrol.RuntimeStatus
+	MCPHTTPEnabled bool
+	MCPHTTPPort    int
+	TunnelEnabled  bool
+	UserService    ServiceOverview
+	SystemService  ServiceOverview
 }
 
 type ServiceOverview struct {
@@ -82,7 +85,11 @@ func LoadRuntimeOverview(ctx context.Context) (RuntimeOverview, error) {
 	if system.Supported {
 		system = loadServiceOverview(managed.ScopeSystem)
 	}
-	return RuntimeOverview{Running: running, Status: status, UserService: user, SystemService: system}, nil
+	cfg, err := config.Load()
+	if err != nil {
+		return RuntimeOverview{}, err
+	}
+	return RuntimeOverview{Running: running, Status: status, MCPHTTPEnabled: cfg.Server.Enabled, MCPHTTPPort: cfg.Server.Port, TunnelEnabled: cfg.Tunnel.Enabled, UserService: user, SystemService: system}, nil
 }
 
 func loadServiceOverview(scope managed.Scope) ServiceOverview {

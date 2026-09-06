@@ -243,6 +243,43 @@ func TestBrowserUsesPageBindingsInListHelp(t *testing.T) {
 	}
 }
 
+func TestBrowserHidesMoreThanFiveCustomBindingsFromShortHelp(t *testing.T) {
+	bindings := []key.Binding{
+		Binding([]string{"1"}, "1", "one"), Binding([]string{"2"}, "2", "two"), Binding([]string{"3"}, "3", "three"),
+		Binding([]string{"4"}, "4", "four"), Binding([]string{"5"}, "5", "five"), Binding([]string{"6"}, "6", "six"),
+	}
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(bindings...)
+	short := model.list.ShortHelp()
+	for _, binding := range bindings {
+		for _, got := range short {
+			if got.Help().Desc == binding.Help().Desc {
+				t.Fatalf("custom binding %q leaked into short help", binding.Help().Desc)
+			}
+		}
+	}
+	full := model.list.FullHelp()
+	view := model.list.Help.FullHelpView(full)
+	for _, want := range []string{"one", "two", "three", "four", "five", "six"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("full help missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestBrowserShowsUpToFiveCustomBindingsInShortHelp(t *testing.T) {
+	bindings := []key.Binding{
+		Binding([]string{"1"}, "1", "one"), Binding([]string{"2"}, "2", "two"), Binding([]string{"3"}, "3", "three"),
+		Binding([]string{"4"}, "4", "four"), Binding([]string{"5"}, "5", "five"),
+	}
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(bindings...)
+	view := model.list.Help.ShortHelpView(model.list.ShortHelp())
+	for _, want := range []string{"one", "two", "three", "four", "five"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("short help missing %q: %q", want, view)
+		}
+	}
+}
+
 func TestBrowserExportsSelectionAndDetail(t *testing.T) {
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "a", Title: "A"}, {ID: "b", Title: "B", Detail: "details"}}, nil)
 	if !model.SelectID("b") {

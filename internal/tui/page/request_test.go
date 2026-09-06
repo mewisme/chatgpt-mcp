@@ -15,6 +15,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
 func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
@@ -73,6 +74,23 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("deep view missing %q: %q", expected, view)
 		}
+	}
+}
+
+func TestRequestsPagePreservesExpandedBrowserHelpAcrossRefresh(t *testing.T) {
+	now := time.Now().UTC()
+	request := approval.Request{ID: "req_pending", Status: approval.StatusPending, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Allow update", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	page, _ := NewRequests(t.Context(), "")
+	page.requests = []approval.Request{request}
+	page.rebuildBrowser(request.ID)
+	updated, _ := page.browser.Update(tea.KeyPressMsg{Code: '?'})
+	page.browser = updated.(component.Browser)
+	if !page.browser.HelpExpanded() {
+		t.Fatal("browser help did not expand")
+	}
+	page.rebuildBrowser(request.ID)
+	if !page.browser.HelpExpanded() {
+		t.Fatal("browser help collapsed after request refresh rebuild")
 	}
 }
 

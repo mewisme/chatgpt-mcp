@@ -90,6 +90,8 @@ type browserMouseMsg struct {
 	Open  bool
 }
 
+const browserShortCustomHelpLimit = 5
+
 var browserOpenBinding = Binding([]string{"enter", "v"}, "enter", "details")
 var browserRefreshBinding = Binding([]string{"r"}, "r", "refresh")
 
@@ -317,6 +319,15 @@ func (m *Browser) OpenDetail(id string) bool {
 }
 
 func (m Browser) DetailOpen() bool { return m.detail }
+
+func (m Browser) HelpExpanded() bool { return m.list.Help.ShowAll }
+
+func (m *Browser) SetHelpExpanded(expanded bool) {
+	if m == nil {
+		return
+	}
+	m.list.Help.ShowAll = expanded
+}
 
 func (m Browser) InputActive() bool { return m.list.FilterState() == list.Filtering }
 
@@ -611,16 +622,20 @@ func (m *Browser) runAction(keyValue string) (bool, tea.Cmd) {
 }
 
 func (m *Browser) syncHelp() {
-	bindings := []key.Binding{browserOpenBinding}
-	bindings = append(bindings, m.helpBindings...)
+	custom := append([]key.Binding(nil), m.helpBindings...)
 	for _, action := range m.actions {
-		bindings = append(bindings, Binding([]string{action.Key}, action.Key, action.Desc))
+		custom = append(custom, Binding([]string{action.Key}, action.Key, action.Desc))
 	}
 	if m.refresh != nil {
-		bindings = append(bindings, browserRefreshBinding)
+		custom = append(custom, browserRefreshBinding)
 	}
-	m.list.AdditionalShortHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
-	m.list.AdditionalFullHelpKeys = func() []key.Binding { return append([]key.Binding(nil), bindings...) }
+	short := []key.Binding{browserOpenBinding}
+	if len(custom) <= browserShortCustomHelpLimit {
+		short = append(short, custom...)
+	}
+	full := append([]key.Binding{browserOpenBinding}, custom...)
+	m.list.AdditionalShortHelpKeys = func() []key.Binding { return append([]key.Binding(nil), short...) }
+	m.list.AdditionalFullHelpKeys = func() []key.Binding { return append([]key.Binding(nil), full...) }
 }
 
 func (m *Browser) restoreSelection(id string) {

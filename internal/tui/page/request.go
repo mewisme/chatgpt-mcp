@@ -413,6 +413,7 @@ func (page *RequestsPage) setMode(mode requestMode) {
 
 func (page *RequestsPage) rebuildBrowser(selectedID string) {
 	detailOpen := page.browser.DetailOpen()
+	helpExpanded := page.browser.HelpExpanded()
 	if selectedID == "" {
 		selectedID = page.selectedID()
 	}
@@ -422,6 +423,7 @@ func (page *RequestsPage) rebuildBrowser(selectedID string) {
 	browser = browser.WithAction(component.RowAction{Key: "a", Desc: "approve", Run: requestRowAction(RequestApprove)})
 	browser = browser.WithAction(component.RowAction{Key: "d", Desc: "deny", Run: requestRowAction(RequestDeny)})
 	page.browser = browser
+	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
 		page.browser = updated.(component.Browser)

@@ -47,6 +47,8 @@ type Manager struct {
 }
 
 var modePattern = regexp.MustCompile(`(?i)PONYTAIL MODE ACTIVE\s*[—-]\s*level:\s*(lite|full|ultra|review|off)`)
+var discoverHooks = hooks.Discover
+var runHook = hooks.Run
 
 func NewManager() *Manager {
 	return &Manager{states: map[string]State{}}
@@ -59,7 +61,7 @@ func (m *Manager) Turn(ctx context.Context, workspaceID, workspaceRoot, prompt, 
 	if action != "turn" && action != "refresh" && action != "status" {
 		return Result{}, errors.New("action must be turn, refresh, or status")
 	}
-	all, err := hooks.Discover()
+	all, err := discoverHooks()
 	if err != nil {
 		return Result{}, err
 	}
@@ -75,7 +77,7 @@ func (m *Manager) Turn(ctx context.Context, workspaceID, workspaceRoot, prompt, 
 
 	if hasRequested && tracker != nil {
 		payload, _ := json.Marshal(map[string]string{"prompt": prompt})
-		_ = hooks.Run(ctx, *tracker, workspaceRoot, string(payload))
+		_ = runHook(ctx, *tracker, workspaceRoot, string(payload))
 	}
 	switch {
 	case hasRequested && requested == Off:
@@ -86,7 +88,7 @@ func (m *Manager) Turn(ctx context.Context, workspaceID, workspaceRoot, prompt, 
 		state = State{Mode: requested, Instructions: instructions}
 		exists = true
 	case !exists:
-		instructions := hooks.Run(ctx, *activation, workspaceRoot, "")
+		instructions := runHook(ctx, *activation, workspaceRoot, "")
 		state = State{Mode: ModeFromInstructions(instructions), Instructions: instructions}
 		exists = true
 	}

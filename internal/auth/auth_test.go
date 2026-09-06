@@ -1,9 +1,13 @@
 package auth
 
 import (
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"golang.org/x/crypto/argon2"
 )
 
 func TestTokenHashRoundTrip(t *testing.T) {
@@ -66,5 +70,71 @@ func TestDynamicHashedMiddlewareReadsCurrentSettingsPerRequest(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("updated auth status = %d", recorder.Code)
+	}
+}
+
+func TestMiddlewareAndTokenSources(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	for _, test := range []struct {
+		name, configured, header, fallback string
+		want                               int
+	}{
+		{name: "disabled", want: http.StatusNoContent},
+		{name: "authorization", configured: "secret", header: "secret", want: http.StatusNoContent},
+		{name: "fallback", configured: "secret", fallback: "secret", want: http.StatusNoContent},
+		{name: "invalid", configured: "secret", header: "wrong", want: http.StatusUnauthorized},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/", nil)
+			if test.header != "" {
+				request.Header.Set("Authorization", "Bearer "+test.header)
+			}
+			if test.fallback != "" {
+				request.Header.Set("X-MCP-Token", test.fallback)
+			}
+			recorder := httptest.NewRecorder()
+			Middleware(test.configured, next).ServeHTTP(recorder, request)
+			if recorder.Code != test.want {
+				t.Fatalf("status = %d, want %d", recorder.Code, test.want)
+			}
+		})
+	}
+}
+
+func TestVerifyTokenLegacyAndArgon2ID(t *testing.T) {
+	token := "secret-token"
+	legacy := argon2.IDKey([]byte(token), []byte("chatgpt-mcp-auth"), 1, 64*1024, 4, 32)
+	if !VerifyToken(token, base64.RawStdEncoding.EncodeToString(legacy)) {
+		t.Fatal("legacy argon2 token rejected")
+	}
+	salt := []byte("12345678")
+	hash := argon2.IDKey([]byte(token), salt, 2, 64*1024, 2, 32)
+	encoded := "argon2id$v=19$m=65536,t=2,p=2$" + base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(hash)
+	if !VerifyToken(token, encoded) || VerifyToken(token+"x", encoded) {
+		t.Fatal("argon2id verification mismatch")
+	}
+	for _, malformed := range []string{
+		"sha256$bad",
+		"argon2id$v=18$m=65536,t=2,p=2$MTIzNDU2Nzg$YWJj",
+		"argon2id$v=19$m=0,t=2,p=2$MTIzNDU2Nzg$YWJj",
+		"argon2id$v=19$m=65536,t=0,p=2$MTIzNDU2Nzg$YWJj",
+		"argon2id$v=19$m=65536,t=2,p=0$MTIzNDU2Nzg$YWJj",
+		"argon2id$v=19$m=65536,t=2,p=2$bad$YWJj",
+		"argon2id$v=19$m=65536,t=2,p=2$MTIzNDU2Nzg$",
+	} {
+		if VerifyToken(token, malformed) {
+			t.Fatalf("accepted malformed hash %q", malformed)
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Authorization", "bearer lower")
+	request.Header.Set("X-MCP-Token", "fallback")
+	if got := TokenFromRequest(request); got != "fallback" {
+		t.Fatalf("fallback token = %q", got)
+	}
+	recorder := httptest.NewRecorder()
+	unauthorized(recorder)
+	if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Header().Get("WWW-Authenticate"), "Bearer") {
+		t.Fatalf("unauthorized response = %d %#v", recorder.Code, recorder.Header())
 	}
 }

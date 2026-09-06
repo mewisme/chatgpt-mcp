@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -157,5 +158,36 @@ func TestLogsActionAvailabilityFollowsRouteContext(t *testing.T) {
 	}
 	if has(action.Context{Route: string(RouteHome)}, "logs.clear") {
 		t.Fatal("logs actions leaked outside logs route")
+	}
+}
+
+func TestSystemActionAvailabilityFollowsRouteAndPlatform(t *testing.T) {
+	registry := defaultActionRegistry()
+	has := func(ctx action.Context, id string) bool {
+		for _, item := range registry.Actions(ctx) {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	ctx := action.Context{Route: string(RouteRuntime)}
+	for _, id := range []string{"system.refresh", "runtime.up.user", "runtime.down.user", "runtime.restart.user", "runtime.reload", "runtime.foreground", "auth.mcp.rotate", "auth.admin.rotate", "alias.install", "alias.remove", "install.run", "install.cleanup", "update.check", "update.apply"} {
+		if !has(ctx, id) {
+			t.Fatalf("system action missing: %s", id)
+		}
+	}
+	if has(action.Context{Route: string(RouteHome)}, "update.apply") {
+		t.Fatal("system action leaked outside runtime route")
+	}
+	if runtime.GOOS == "windows" {
+		if has(ctx, "runtime.up.system") || has(ctx, "runtime.down.system") || has(ctx, "runtime.restart.system") {
+			t.Fatal("system-scope actions exposed on Windows")
+		}
+	} else if !has(ctx, "runtime.up.system") || !has(ctx, "runtime.down.system") || !has(ctx, "runtime.restart.system") {
+		t.Fatal("system-scope actions missing on supported platform")
+	}
+	if !has(action.Context{Route: string(RouteHome)}, "app.go.about") {
+		t.Fatal("About navigation action missing")
 	}
 }

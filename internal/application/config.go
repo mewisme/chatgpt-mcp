@@ -30,14 +30,7 @@ type ConfigMutationResult struct {
 	Config config.Config
 }
 
-type ConfigReloadResult struct {
-	PID              int                 `json:"pid"`
-	NetworkRestarted bool                `json:"network_restarted"`
-	ServerPort       int                 `json:"server_port"`
-	AdminEnabled     bool                `json:"admin_enabled"`
-	AdminPort        int                 `json:"admin_port"`
-	Exposure         config.ExposureMode `json:"exposure"`
-}
+type ConfigReloadResult = runtimecontrol.ReloadResult
 
 type InitOptions struct {
 	Force          bool

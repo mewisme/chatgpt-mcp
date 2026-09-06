@@ -17,7 +17,7 @@ func TestModelFillsExactTerminalSizeWithoutMinimumLayout(t *testing.T) {
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	for _, route := range []Route{{Kind: RouteHome}, {Kind: RouteWorkspaces}, {Kind: RouteMCP}, {Kind: RouteLogs}, {Kind: RouteConfig}} {
+	for _, route := range []Route{{Kind: RouteHome}, {Kind: RouteWorkspaces}, {Kind: RouteMCP}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteRuntime}, {Kind: RouteAbout}} {
 		for _, size := range [][2]int{{120, 40}, {20, 8}, {3, 3}, {1, 1}} {
 			model := NewModel(route)
 			updated, _ := model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})

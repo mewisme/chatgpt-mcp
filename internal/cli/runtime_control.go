@@ -25,35 +25,8 @@ import (
 
 type runtimeControlState = runtimecontrol.State
 
-type runtimeReloadResult struct {
-	PID              int                 `json:"pid"`
-	NetworkRestarted bool                `json:"network_restarted"`
-	ServerPort       int                 `json:"server_port"`
-	AdminEnabled     bool                `json:"admin_enabled"`
-	AdminPort        int                 `json:"admin_port"`
-	Exposure         config.ExposureMode `json:"exposure"`
-}
-
-type runtimeStatusResult struct {
-	PID              int                 `json:"pid"`
-	RunID            string              `json:"run_id,omitempty"`
-	Managed          bool                `json:"managed"`
-	ServiceID        string              `json:"service_id,omitempty"`
-	ServiceScope     string              `json:"service_scope,omitempty"`
-	StartedAt        time.Time           `json:"started_at"`
-	ConfigRoot       string              `json:"config_root"`
-	ServerPort       int                 `json:"server_port"`
-	AdminEnabled     bool                `json:"admin_enabled"`
-	AdminPort        int                 `json:"admin_port"`
-	Exposure         config.ExposureMode `json:"exposure"`
-	TunnelEnabled    bool                `json:"tunnel_enabled"`
-	TunnelConfigured bool                `json:"tunnel_configured"`
-	TunnelRunning    bool                `json:"tunnel_running"`
-	TunnelReady      bool                `json:"tunnel_ready"`
-	TunnelRestarting bool                `json:"tunnel_restarting"`
-	TunnelID         string              `json:"tunnel_id,omitempty"`
-	TunnelLastError  string              `json:"tunnel_last_error,omitempty"`
-}
+type runtimeReloadResult = runtimecontrol.ReloadResult
+type runtimeStatusResult = runtimecontrol.RuntimeStatus
 
 type runtimeControlOptions struct {
 	RunID        string

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"runtime"
 
 	tea "charm.land/bubbletea/v2"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
@@ -24,18 +25,58 @@ func defaultActionRegistry() *action.Registry {
 		navigationAction("app.go.logs", "Logs", Route{Kind: RouteLogs}, []string{"logs", "events", "journal"}),
 		navigationAction("app.go.config", "Config", Route{Kind: RouteConfig}, []string{"config", "settings", "cfg"}),
 		navigationAction("app.go.runtime", "Runtime", Route{Kind: RouteRuntime}, []string{"runtime", "status", "service"}),
+		navigationAction("app.go.about", "About", Route{Kind: RouteAbout}, []string{"about", "version", "build", "uptime"}),
 	}
 	actions = append(actions, workspaceActions()...)
 	actions = append(actions, mcpActions()...)
 	actions = append(actions, tunnelActions()...)
 	actions = append(actions, requestActions()...)
 	actions = append(actions, logsActions()...)
+	actions = append(actions, systemActions()...)
 	actions = append(actions, configActions()...)
 	registry, err := action.NewRegistry(actions...)
 	if err != nil {
 		panic(err)
 	}
 	return registry
+}
+
+func systemActions() []action.Action {
+	return []action.Action{
+		systemAction("system.refresh", "Refresh system status", "Refresh runtime, service, auth, installation, update, and build state", []string{"system", "runtime", "refresh", "status"}, []string{"status"}, tuipage.SystemRefresh, false),
+		systemAction("runtime.up.user", "Start user service", "Install or update and start the per-user managed runtime", []string{"runtime", "service", "up", "user", "start"}, []string{"up"}, tuipage.RuntimeUpUser, false),
+		systemAction("runtime.up.system", "Start system service", "Install or update and start the machine-level managed runtime", []string{"runtime", "service", "up", "system", "start"}, []string{"up", "--system"}, tuipage.RuntimeUpSystem, true),
+		systemAction("runtime.down.user", "Stop user service", "Stop and remove the per-user managed runtime while preserving config and logs", []string{"runtime", "service", "down", "user", "stop"}, []string{"down"}, tuipage.RuntimeDownUser, false),
+		systemAction("runtime.down.system", "Stop system service", "Stop and remove the machine-level managed runtime while preserving config and logs", []string{"runtime", "service", "down", "system", "stop"}, []string{"down", "--system"}, tuipage.RuntimeDownSystem, true),
+		systemAction("runtime.restart.user", "Restart user service", "Restart the per-user managed runtime", []string{"runtime", "service", "restart", "user"}, []string{"restart"}, tuipage.RuntimeRestartUser, false),
+		systemAction("runtime.restart.system", "Restart system service", "Restart the machine-level managed runtime", []string{"runtime", "service", "restart", "system"}, []string{"restart", "--system"}, tuipage.RuntimeRestartSystem, true),
+		systemAction("runtime.reload", "Reload runtime config", "Reload persisted configuration into the running runtime", []string{"runtime", "config", "reload"}, []string{"config", "reload"}, tuipage.RuntimeReload, false),
+		systemAction("runtime.foreground", "Run foreground runtime", "Show the foreground serve command to run after leaving the TUI", []string{"runtime", "foreground", "serve", "terminal"}, []string{"serve"}, tuipage.RuntimeForeground, false),
+		systemAction("auth.mcp.enable", "Enable MCP authentication", "Enable MCP token authentication", []string{"auth", "mcp", "enable"}, []string{"auth", "mcp", "enable"}, tuipage.AuthMCPEnable, false),
+		systemAction("auth.mcp.disable", "Disable MCP authentication", "Disable MCP token authentication", []string{"auth", "mcp", "disable"}, []string{"auth", "mcp", "disable"}, tuipage.AuthMCPDisable, false),
+		systemAction("auth.mcp.rotate", "Rotate MCP token", "Rotate the MCP token and reveal the replacement once", []string{"auth", "mcp", "token", "rotate", "create"}, []string{"auth", "mcp", "create"}, tuipage.AuthMCPRotate, false),
+		systemAction("auth.admin.enable", "Enable admin authentication", "Enable admin token authentication", []string{"auth", "admin", "enable"}, []string{"auth", "admin", "enable"}, tuipage.AuthAdminEnable, false),
+		systemAction("auth.admin.disable", "Disable admin authentication", "Disable admin token authentication", []string{"auth", "admin", "disable"}, []string{"auth", "admin", "disable"}, tuipage.AuthAdminDisable, false),
+		systemAction("auth.admin.rotate", "Rotate admin token", "Rotate the admin token and reveal the replacement once", []string{"auth", "admin", "token", "rotate", "create"}, []string{"auth", "admin", "create"}, tuipage.AuthAdminRotate, false),
+		systemAction("alias.install", "Install cgm alias", "Install the cgm alias for the managed direct installation", []string{"alias", "cgm", "install"}, []string{"alias", "install"}, tuipage.AliasInstall, false),
+		systemAction("alias.remove", "Remove cgm alias", "Remove the cgm alias without removing the managed installation", []string{"alias", "cgm", "remove"}, []string{"alias", "remove"}, tuipage.AliasRemove, false),
+		systemAction("install.run", "Install managed binary", "Install this binary into the versioned managed layout", []string{"install", "managed", "binary"}, []string{"install"}, tuipage.InstallRun, false),
+		systemAction("install.cleanup", "Clean legacy installations", "Remove verified legacy standalone installations from PATH", []string{"install", "cleanup", "migrate", "legacy"}, []string{"install", "cleanup"}, tuipage.InstallCleanup, false),
+		systemAction("update.check", "Check for updates", "Check the latest available verified release", []string{"update", "check", "latest", "release"}, []string{"update", "check"}, tuipage.UpdateCheck, false),
+		systemAction("update.apply", "Apply update", "Download, verify, install, and activate an update", []string{"update", "apply", "install", "release"}, []string{"update"}, tuipage.UpdateApply, false),
+	}
+}
+
+func systemAction(id, title, description string, keywords, commandPath []string, command tuipage.SystemCommand, systemOnly bool) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "System", Description: description, Keywords: keywords, CommandPath: commandPath, Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool {
+			return ctx.Route == string(RouteRuntime) && (!systemOnly || runtime.GOOS != "windows")
+		},
+		Run: func(context.Context, action.Context) tea.Cmd {
+			return func() tea.Msg { return tuipage.SystemCommandMsg{Command: command} }
+		},
+	}
 }
 
 func logsActions() []action.Action {

@@ -188,6 +188,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		return model.updatePage(msg)
+	case tuipage.SystemCommandMsg:
+		if err := model.ensureRuntimePage(); err != nil {
+			model.notice = err.Error()
+			return model, nil
+		}
+		return model.updatePage(msg)
 	case tuipage.ConfigCommandMsg:
 		if err := model.ensureConfigPage(); err != nil {
 			model.notice = err.Error()
@@ -412,6 +418,10 @@ func (model *Model) loadPage(route Route) {
 		value, err = tuipage.NewRequests(model.ctx, route.ResourceID)
 	case RouteLogs:
 		value, err = tuipage.NewLogs(model.ctx)
+	case RouteRuntime:
+		value, err = tuipage.NewRuntime(model.ctx)
+	case RouteAbout:
+		value, err = tuipage.NewAbout(model.ctx)
 	case RouteConfig:
 		value, err = tuipage.NewConfig(model.ctx)
 	}
@@ -433,6 +443,16 @@ func (model *Model) ensureLogsPage() error {
 	}
 	if model.currentPage == nil {
 		return fmt.Errorf("logs viewer is unavailable")
+	}
+	return nil
+}
+
+func (model *Model) ensureRuntimePage() error {
+	if model.router.Current().Kind != RouteRuntime {
+		model.navigate(Route{Kind: RouteRuntime})
+	}
+	if model.currentPage == nil {
+		return fmt.Errorf("runtime/system page is unavailable")
 	}
 	return nil
 }

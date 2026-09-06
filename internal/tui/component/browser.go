@@ -214,7 +214,7 @@ func (m Browser) View() tea.View {
 }
 
 func (m Browser) Content() string {
-	content := CenterLayout(m.list.View(), m.width, m.height)
+	content := m.list.View()
 	if m.detail {
 		content = m.overlayDetail(content)
 	}

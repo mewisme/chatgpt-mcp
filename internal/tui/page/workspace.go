@@ -138,10 +138,14 @@ func (page *WorkspacePage) View(width, height int) string {
 	if page == nil {
 		return component.StateView(component.PageError, "Workspace page unavailable", "")
 	}
-	if width > 0 && height > 0 && (page.width != width || page.height != height) {
-		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: height})
+	browserHeight := height
+	if page.err != nil || page.notice != "" {
+		browserHeight = max(10, height-2)
+	}
+	if width > 0 && browserHeight > 0 && (page.width != width || page.height != browserHeight) {
+		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
-		page.width, page.height = width, height
+		page.width, page.height = width, browserHeight
 	}
 	content := page.browser.Content()
 	if page.err != nil {

@@ -5,8 +5,25 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
+
+func TestModelFillsTerminalAndEnforcesMinimumLayout(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = updated.(Model)
+	view := model.View().Content
+	if width, height := lipgloss.Width(view), lipgloss.Height(view); width != 120 || height != 40 {
+		t.Fatalf("full terminal layout=%dx%d want 120x40", width, height)
+	}
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 20, Height: 8})
+	model = updated.(Model)
+	view = model.View().Content
+	if width, height := lipgloss.Width(view), lipgloss.Height(view); width != minTerminalWidth || height != minTerminalHeight {
+		t.Fatalf("minimum layout=%dx%d want %dx%d", width, height, minTerminalWidth, minTerminalHeight)
+	}
+}
 
 func TestModelRendersDeepLinkAndNavigation(t *testing.T) {
 	model := NewModel(Route{Kind: RouteMCP, ResourceID: "github"})

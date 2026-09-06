@@ -24,6 +24,9 @@ const (
 	overlayQuickOpen
 )
 
+const minTerminalWidth = 56
+const minTerminalHeight = 20
+
 type Model struct {
 	ctx            context.Context
 	router         Router
@@ -178,7 +181,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 func (model Model) View() tea.View {
 	content := model.render()
 	if model.palette != nil {
-		content = centerOverlay(content, model.palette.View(min(78, max(48, model.width-8))), model.width, model.height)
+		width, height := model.layoutSize()
+		content = centerOverlay(content, model.palette.View(min(78, max(48, width-8))), width, height)
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
@@ -298,23 +302,17 @@ func (model *Model) ensureWorkspacePage(command tuipage.WorkspaceCommand, resour
 func isQuickOpenKey(message tea.KeyPressMsg) bool { return message.String() == "ctrl+o" }
 
 func (model Model) render() string {
-	width, height := model.width, model.height
-	if width <= 0 {
-		width = 80
-	}
-	if height <= 0 {
-		height = 24
-	}
-	contentWidth := min(92, max(48, width-8))
+	width, height := model.layoutSize()
+	contentWidth := max(48, width-6)
+	pageHeight := max(10, height-8)
 	body := strings.Join([]string{
 		model.header(contentWidth),
 		model.divider(contentWidth),
-		model.page(contentWidth),
+		model.page(contentWidth, pageHeight),
 		model.divider(contentWidth),
 		model.theme.muted.Render(model.shortcutFooter()),
 	}, "\n")
-	panel := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(model.theme.border.GetBorderLeftForeground()).Padding(1, 2).Width(contentWidth).Render(body)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, panel)
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(model.theme.border.GetBorderLeftForeground()).Padding(1, 2).Width(width).Height(height).Render(body)
 }
 
 func (model Model) shortcutFooter() string {
@@ -338,9 +336,9 @@ func (model Model) header(width int) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
-func (model Model) page(width int) string {
+func (model Model) page(width, height int) string {
 	if model.currentPage != nil {
-		return model.currentPage.View(width, max(10, model.height-10))
+		return model.currentPage.View(width, height)
 	}
 	route := model.router.Current()
 	title := model.theme.current.Render(route.Title())
@@ -350,6 +348,17 @@ func (model Model) page(width int) string {
 		notice = "\n\n" + model.theme.muted.Render(model.notice)
 	}
 	return "\n" + title + "\n\n" + model.theme.muted.Render(description) + notice + "\n\n" + model.theme.subtle.Render("Command Center shell is ready. Domain actions will be added through the shared action registry.") + "\n"
+}
+
+func (model Model) layoutSize() (int, int) {
+	width, height := model.width, model.height
+	if width <= 0 {
+		width = 80
+	}
+	if height <= 0 {
+		height = 24
+	}
+	return max(minTerminalWidth, width), max(minTerminalHeight, height)
 }
 
 func (model Model) divider(width int) string {

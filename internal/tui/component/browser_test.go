@@ -119,26 +119,23 @@ func TestBrowserStructuredDetailUsesDefaultListLayout(t *testing.T) {
 	}
 }
 
-func TestBrowserCentersDefaultLayout(t *testing.T) {
+func TestBrowserFillsAvailableLayout(t *testing.T) {
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}}, nil)
 	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 120, Height: 40})
-	if model.list.Width() != defaultLayoutWidth || model.list.Height() != defaultLayoutHeight {
+	if model.list.Width() != 120 || model.list.Height() != 40 {
 		t.Fatalf("list size=%dx%d", model.list.Width(), model.list.Height())
 	}
 	view := ansi.Strip(model.View().Content)
-	lines := strings.Split(view, "\n")
-	titleLine := -1
-	for index, line := range lines {
-		if strings.Contains(line, "Items") {
-			titleLine = index
-			if strings.Index(line, "Items") <= 0 {
-				t.Fatalf("layout is not horizontally centered: %q", line)
-			}
-			break
-		}
+	if !strings.HasPrefix(view, "Items") && !strings.Contains(strings.Split(view, "\n")[0], "Items") {
+		t.Fatalf("layout does not start at terminal origin: %q", view)
 	}
-	if titleLine <= 0 {
-		t.Fatalf("layout is not vertically centered: title line=%d", titleLine)
+}
+
+func TestBrowserEnforcesMinimumLayout(t *testing.T) {
+	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}}, nil)
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 20, Height: 6})
+	if model.list.Width() != minLayoutWidth || model.list.Height() != minLayoutHeight {
+		t.Fatalf("minimum list size=%dx%d", model.list.Width(), model.list.Height())
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 
 const defaultLayoutWidth = 80
 const defaultLayoutHeight = 20
+const minLayoutWidth = 48
+const minLayoutHeight = 12
 
 func NewDefaultList(title string, items []list.Item, width, height int, singular, plural string) list.Model {
 	delegate := list.NewDefaultDelegate()
@@ -46,10 +48,10 @@ func ResizeDefaultList(model *list.Model, width, height int) {
 func DefaultLayoutSize(width, height int) (int, int) {
 	layoutWidth, layoutHeight := defaultLayoutWidth, defaultLayoutHeight
 	if width > 0 {
-		layoutWidth = min(layoutWidth, max(1, width-4))
+		layoutWidth = max(minLayoutWidth, width)
 	}
 	if height > 0 {
-		layoutHeight = min(layoutHeight, max(1, height-2))
+		layoutHeight = max(minLayoutHeight, height)
 	}
 	return layoutWidth, layoutHeight
 }

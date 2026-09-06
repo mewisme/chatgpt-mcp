@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -153,14 +154,22 @@ func TestTunnelRuntimeLayoutUsesHierarchyAndGroupWrapping(t *testing.T) {
 	}
 
 	narrow := ansi.Strip(page.runtimeView(72))
-	actionLines := []string{}
-	for _, line := range strings.Split(narrow, "\n") {
-		if strings.Contains(line, "e configure") || strings.Contains(line, "a admin key") || strings.Contains(line, "m managed tunnels") {
-			actionLines = append(actionLines, strings.TrimSpace(line))
-		}
+	if !strings.Contains(narrow, "e configure") || !strings.Contains(narrow, "space toggle") {
+		t.Fatalf("narrow default help missing core actions: %q", narrow)
 	}
-	if len(actionLines) != 3 || !strings.Contains(actionLines[0], "e configure") || !strings.Contains(actionLines[0], "space toggle") || !strings.Contains(actionLines[0], "s sync") || !strings.Contains(actionLines[1], "a admin key") || !strings.Contains(actionLines[1], "d remove admin") || !strings.Contains(actionLines[2], "m managed tunnels") {
-		t.Fatalf("narrow action groups=%q", actionLines)
+}
+
+func TestTunnelRuntimeKeyHintsUseDefaultHelpStyle(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminOrganizationID: "org_demo"})
+	page, err := NewTunnelDashboard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.height = 32
+	view := page.runtimeView(120)
+	want := component.DefaultHelp(120, page.runtimeHelpBindings()...)
+	if !strings.Contains(view, want) {
+		t.Fatalf("tunnel help does not use default help styling\nwant: %q\nview: %q", want, view)
 	}
 }
 

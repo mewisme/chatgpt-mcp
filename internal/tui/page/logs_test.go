@@ -402,6 +402,26 @@ func TestLogsStatusShowsFullSessionID(t *testing.T) {
 	}
 }
 
+func TestLogsClearKeepsLiveStreamAndStableNotice(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	page.connected = true
+	page.loaded = true
+	page.generation = 7
+	page.clearSeq = 3
+	page.streamRunID = "run_live"
+	page.streamSeq = 41
+	page.events = []runtimeevent.Event{{RunID: "run_live", Sequence: 41, Message: "before clear"}}
+	updated, _ := page.Update(logsClearMsg{operation: 3})
+	page = updated.(*LogsPage)
+	if !page.connected || page.generation != 7 || len(page.events) != 0 || page.notice != "Runtime logs cleared" {
+		t.Fatalf("clear state connected=%t generation=%d events=%d notice=%q", page.connected, page.generation, len(page.events), page.notice)
+	}
+	page.finishStreamEvent(logsStreamEventMsg{generation: 7, event: runtimeevent.Event{RunID: "run_live", Sequence: 42, Message: "after clear"}})
+	if page.notice != "Runtime logs cleared" || page.generation != 7 || page.streamSeq != 42 {
+		t.Fatalf("live stream changed clear feedback: notice=%q generation=%d sequence=%d", page.notice, page.generation, page.streamSeq)
+	}
+}
+
 func TestLogsPageResyncsJournalWhenLiveSequenceHasGap(t *testing.T) {
 	root := setupLogsPageRoot(t)
 	appendLogEvents(t, root,

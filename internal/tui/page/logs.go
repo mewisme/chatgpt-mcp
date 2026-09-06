@@ -69,8 +69,8 @@ type logsStreamEventMsg struct {
 type logsReconnectMsg uint64
 
 type logsClearMsg struct {
-	generation uint64
-	err        error
+	operation uint64
+	err       error
 }
 
 type LogsPage struct {
@@ -94,6 +94,7 @@ type LogsPage struct {
 	streamRunID  string
 	streamSeq    uint64
 	generation   uint64
+	clearSeq     uint64
 	overlay      logsOverlay
 	form         component.Form
 	filterForm   *logsFilterFormData
@@ -173,7 +174,7 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, page.startBootstrap()
 	case logsClearMsg:
-		if msg.generation != page.generation {
+		if msg.operation != page.clearSeq {
 			return page, nil
 		}
 		page.overlay, page.progress = logsOverlayNone, nil
@@ -184,6 +185,9 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.events = nil
 		page.notice, page.err = "Runtime logs cleared", nil
 		browserCmd := page.rebuildBrowser("")
+		if page.connected {
+			return page, browserCmd
+		}
 		return page, tea.Batch(browserCmd, page.startBootstrap())
 	case component.FormSubmittedMsg:
 		return page, page.submitFilter()
@@ -427,11 +431,11 @@ func (page *LogsPage) updateClearConfirm(msg tea.KeyPressMsg) tea.Cmd {
 			page.closeOverlay()
 			return nil
 		}
-		page.generation++
-		generation := page.generation
+		page.clearSeq++
+		operation := page.clearSeq
 		progress := component.NewProgress("Clearing runtime logs")
 		page.progress, page.overlay = &progress, logsOverlayOperation
-		return func() tea.Msg { return logsClearMsg{generation: generation, err: application.ClearLogs(page.ctx)} }
+		return func() tea.Msg { return logsClearMsg{operation: operation, err: application.ClearLogs(page.ctx)} }
 	default:
 		return page.confirm.Update(msg)
 	}

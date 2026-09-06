@@ -135,28 +135,68 @@ func TestModelHidesNavbarWhenTerminalIsTooNarrow(t *testing.T) {
 func TestModelNumberKeysDoNotSwitchHeaderPages(t *testing.T) {
 	for _, value := range "1234567" {
 		model := NewModel(Route{Kind: RouteHome})
-		updated, cmd := model.Update(tea.KeyPressMsg{Code: value, Text: string(value)})
+		updated, _ := model.Update(tea.KeyPressMsg{Code: value, Text: string(value)})
 		model = updated.(Model)
-		if cmd != nil || model.router.Current().Kind != RouteHome {
-			t.Fatalf("number %q switched page: route=%s cmd=%v", value, model.router.Current().Kind, cmd)
+		query := ""
+		if model.homeCommands != nil {
+			query = model.homeCommands.Query()
+		}
+		if model.router.Current().Kind != RouteHome || query != string(value) {
+			t.Fatalf("number %q route=%s query=%q", value, model.router.Current().Kind, query)
 		}
 	}
 }
 
-func TestHomeDashboardShowsMetricsActivityAndQuickAccess(t *testing.T) {
+func TestHomeEmbedsCenteredCommandPanel(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
-	model.state.RecentActions = []string{"runtime.restart.user", "runtime.reload", "config.set", "tunnel.sync", "mcp.server.health"}
-	model.approvals = []approval.Request{testPendingApproval("req_home")}
+	if model.homeCommands == nil || model.palette != nil || model.overlay != overlayNone {
+		t.Fatalf("home commands=%v palette=%v overlay=%d", model.homeCommands != nil, model.palette != nil, model.overlay)
+	}
 	plain := ansi.Strip(model.homeView(100, 28))
-	for _, want := range []string{"Command Center", "Pending approvals", "Recent commands", "Available actions", "Recent command mix", "Runtime", "Config", "Tunnel", "MCP", "Quick access", "ctrl+o", "ctrl+p"} {
+	for _, want := range []string{"Command Panel", "Type a command", "Enter run", "Esc exit", "Alt+←/→ pages"} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("home dashboard missing %q: %q", want, plain)
+			t.Fatalf("home panel missing %q: %q", want, plain)
 		}
 	}
-	for _, width := range []int{76, 100, 120} {
-		if got := lipgloss.Width(model.homeMetrics(width)); got > width {
-			t.Fatalf("home metrics width=%d exceeds available width=%d", got, width)
+	lines := strings.Split(plain, "\n")
+	first, last := -1, -1
+	for index, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			if first < 0 {
+				first = index
+			}
+			last = index
 		}
+	}
+	if first <= 0 || last >= len(lines)-1 {
+		t.Fatalf("command panel is not vertically centered: first=%d last=%d height=%d", first, last, len(lines))
+	}
+}
+
+func TestHomeCommandPanelKeepsGlobalNavigationAndEscape(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	model = updated.(Model)
+	query := "<nil>"
+	if model.homeCommands != nil {
+		query = model.homeCommands.Query()
+	}
+	if query != "l" {
+		t.Fatalf("home query=%q", query)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt})
+	model = updated.(Model)
+	if model.router.Current().Kind != RouteWorkspaces || model.homeCommands != nil {
+		t.Fatalf("alt+right route=%s homeCommands=%v", model.router.Current().Kind, model.homeCommands != nil)
+	}
+	model.switchPage(Route{Kind: RouteHome})
+	if model.homeCommands == nil {
+		t.Fatal("returning home did not restore embedded command panel")
+	}
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if cmd != nil || model.overlay != overlayExitConfirm {
+		t.Fatalf("home escape overlay=%d cmd=%v", model.overlay, cmd)
 	}
 }
 
@@ -168,12 +208,16 @@ func TestModelQuitAndBack(t *testing.T) {
 	if model.router.Current().Kind != RouteHome {
 		t.Fatalf("route = %#v", model.router.Current())
 	}
-	updated, cmd := model.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	updated, _ = model.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	model = updated.(Model)
-	if cmd != nil || model.overlay != overlayNone {
-		t.Fatalf("q triggered quit flow: overlay=%d cmd=%v", model.overlay, cmd)
+	query := ""
+	if model.homeCommands != nil {
+		query = model.homeCommands.Query()
 	}
-	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if model.overlay != overlayNone || query != "q" {
+		t.Fatalf("q triggered quit flow: overlay=%d query=%q", model.overlay, query)
+	}
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = updated.(Model)
 	if cmd != nil || model.overlay != overlayExitConfirm {
 		t.Fatalf("root escape did not open exit confirmation: overlay=%d cmd=%v", model.overlay, cmd)
@@ -195,7 +239,7 @@ func TestModelBackIntoRequestsRestartsPageInit(t *testing.T) {
 }
 
 func TestModelOpensAndRunsCommandPalette(t *testing.T) {
-	model := NewModel(Route{Kind: RouteHome})
+	model := NewModel(Route{Kind: RouteAbout})
 	updated, _ := model.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 	model = updated.(Model)
 	if model.palette == nil {

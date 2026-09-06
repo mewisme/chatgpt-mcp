@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
@@ -792,12 +793,7 @@ func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) stri
 		[2]string{"Scope", tunnelScopeLabel(page.adminStatus.Scope)},
 	)
 	metadataSection := tunnelMetadataSection(status.Metadata, status.MetadataError)
-	toggleEnabled := !cfg.Enabled && configured || cfg.Enabled && page.dashboard.MCPHTTPEnabled
-	actions := component.PageActionBar(width,
-		[]component.ActionHint{{Key: "e", Label: "configure", Enabled: true}, {Key: "space", Label: "toggle", Enabled: toggleEnabled}, {Key: "s", Label: "sync", Enabled: configured}, {Key: "f", Label: "foreground", Enabled: configured}},
-		[]component.ActionHint{{Key: "a", Label: "admin key", Enabled: true}, {Key: "v", Label: "verify", Enabled: page.adminStatus.Configured}, {Key: "d", Label: "remove admin", Enabled: page.adminStatus.Configured, Danger: true}},
-		[]component.ActionHint{{Key: "m", Label: "managed tunnels", Enabled: true}},
-	)
+	actions := component.DefaultHelp(width, page.runtimeHelpBindings()...)
 	lines := []string{
 		component.PageTitle("OpenAI Secure MCP Tunnel", width),
 		tunnelSectionPair(statusSection, tunnelSectionView, width),
@@ -807,6 +803,23 @@ func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) stri
 		component.Muted("At least one MCP transport must remain enabled. Live process state is handled by Runtime."),
 	}
 	return component.BottomHelp(prependPageFeedback(feedback, strings.Join(lines, "\n")), actions, width, page.height)
+}
+
+func (page *TunnelPage) runtimeHelpBindings() []key.Binding {
+	cfg := page.dashboard.Config
+	configured := tunnel.Configured(cfg)
+	bindings := []key.Binding{component.Binding([]string{"e"}, "e", "configure")}
+	if !cfg.Enabled && configured || cfg.Enabled && page.dashboard.MCPHTTPEnabled {
+		bindings = append(bindings, component.Binding([]string{"space"}, "space", "toggle"))
+	}
+	if configured {
+		bindings = append(bindings, component.Binding([]string{"s"}, "s", "sync"), component.Binding([]string{"f"}, "f", "foreground"))
+	}
+	bindings = append(bindings, component.Binding([]string{"a"}, "a", "admin key"))
+	if page.adminStatus.Configured {
+		bindings = append(bindings, component.Binding([]string{"v"}, "v", "verify"), component.Binding([]string{"d"}, "d", "remove admin"))
+	}
+	return append(bindings, component.Binding([]string{"m"}, "m", "managed tunnels"))
 }
 
 func tunnelSection(title string, fields ...[2]string) string {

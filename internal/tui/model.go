@@ -70,6 +70,7 @@ type Model struct {
 	router          Router
 	actions         *action.Registry
 	palette         *palette.Model
+	homeCommands    *palette.Model
 	overlay         overlayKind
 	exitConfirm     component.ConfirmButtons
 	quickResources  map[string]quickopen.Resource
@@ -145,6 +146,10 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		model.theme = newTheme(msg.IsDark())
 		component.SetDarkBackground(msg.IsDark())
+		if model.homeCommands != nil {
+			updated, _ := model.homeCommands.Update(msg)
+			model.homeCommands = &updated
+		}
 		if model.currentPage != nil {
 			updated, cmd := model.currentPage.Update(msg)
 			model.currentPage = updated
@@ -196,8 +201,14 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.loadPage(route)
 			return model, model.initCurrentPage()
 		}
-		model.closeOverlay()
+		homeSelection := model.router.Current().Kind == RouteHome && model.overlay == overlayNone && model.homeCommands != nil
+		if !homeSelection {
+			model.closeOverlay()
+		}
 		model.recordRecent(msg.ID)
+		if homeSelection {
+			model.resetHomeCommands()
+		}
 		cmd, err := model.actions.Execute(model.ctx, msg.ID, actionContext(model.router.Current()))
 		if err != nil {
 			model.notice = err.Error()
@@ -208,6 +219,11 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.palette != nil {
 			updated, cmd := model.palette.Update(msg)
 			model.palette = &updated
+			return model, cmd
+		}
+		if model.router.Current().Kind == RouteHome && model.homeCommands != nil {
+			updated, cmd := model.homeCommands.Update(msg)
+			model.homeCommands = &updated
 			return model, cmd
 		}
 		return model, nil
@@ -286,6 +302,29 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if model.currentPage != nil && (model.currentPage.OverlayActive() || model.currentPage.InputActive()) {
 			return model.updatePage(msg)
+		}
+		if model.router.Current().Kind == RouteHome && model.homeCommands != nil {
+			if isQuickOpenKey(msg) {
+				model.openQuickOpen()
+				return model, nil
+			}
+			switch msg.String() {
+			case "alt+left":
+				model.switchPage(cycleHeaderRoute(model.router.Current(), -1))
+				return model, model.initCurrentPage()
+			case "alt+right":
+				model.switchPage(cycleHeaderRoute(model.router.Current(), 1))
+				return model, model.initCurrentPage()
+			case "esc":
+				model.openExitConfirm()
+				return model, nil
+			case "ctrl+p":
+				return model, nil
+			default:
+				updated, cmd := model.homeCommands.Update(msg)
+				model.homeCommands = &updated
+				return model, cmd
+			}
 		}
 		if isPaletteKey(msg) {
 			model.openPalette()
@@ -769,6 +808,11 @@ func (model *Model) loadPage(route Route) {
 		page.Close()
 	}
 	model.currentPage = nil
+	model.homeCommands = nil
+	if route.Kind == RouteHome {
+		model.resetHomeCommands()
+		return
+	}
 	var value tuipage.Model
 	var err error
 	switch route.Kind {
@@ -952,6 +996,13 @@ func (model Model) render() (string, []component.MouseTarget) {
 	if page, ok := model.currentPage.(mousePage); ok {
 		targets = append(targets, page.MouseTargets(metrics.contentX, metrics.bodyY, 10)...)
 	}
+	if model.router.Current().Kind == RouteHome && model.homeCommands != nil {
+		panelWidth := homeCommandPanelWidth(metrics.contentWidth)
+		panel := model.homeCommands.View(panelWidth)
+		x := metrics.contentX + max(0, (metrics.contentWidth-lipgloss.Width(panel))/2)
+		y := metrics.bodyY + max(0, (metrics.bodyHeight-lipgloss.Height(panel))/2)
+		targets = append(targets, model.homeCommands.MouseTargets(x, y, 10, panelWidth)...)
+	}
 	for index := range lines {
 		lines[index] = fitTerminalLine(lines[index], width)
 	}
@@ -1000,7 +1051,9 @@ func (model Model) shortcutFooter() string {
 		component.Binding([]string{"ctrl+o"}, "ctrl+o", "open"),
 		component.Binding([]string{"alt+left", "alt+right"}, "alt+←/→", "pages"),
 	}
-	if len(model.router.stack) > 1 {
+	if model.router.Current().Kind == RouteHome {
+		bindings = append(bindings, component.Binding([]string{"esc"}, "esc", "quit"))
+	} else if len(model.router.stack) > 1 {
 		bindings = append(bindings, component.Binding([]string{"esc"}, "esc", "back"))
 	} else {
 		bindings = append(bindings, component.Binding([]string{"esc"}, "esc", "quit"))
@@ -1057,92 +1110,29 @@ func (model Model) page(width, height int) string {
 }
 
 func (model Model) homeView(width, height int) string {
-	title := component.PageTitle("Command Center", width)
-	intro := component.Muted("Local MCP operations, approvals, and recent command activity at a glance.")
-	if width < 52 || height < 12 {
-		return title + "\n" + intro + "\n\n" + component.KeyValue("Pending approvals", fmt.Sprint(len(model.approvals))) + "\n" + component.KeyValue("Recent commands", fmt.Sprint(len(model.state.RecentActions))) + "\n" + component.KeyValue("Available actions", fmt.Sprint(len(model.actions.All()))) + "\n\n" + component.Muted("ctrl+o open resources · ctrl+p commands")
+	if model.homeCommands == nil {
+		return component.CenterLayout(component.Muted("Command panel unavailable"), width, height)
 	}
-	metrics := model.homeMetrics(width)
-	activity := model.homeActivity(width)
-	quick := component.Panel(strings.Join([]string{
-		component.Title("Quick access"),
-		component.KeyValue("ctrl+o", "open pages and resources"),
-		component.KeyValue("ctrl+p", "search and run commands"),
-		component.KeyValue("alt+←/→", "move between command-center pages"),
-	}, "\n"), max(1, width))
-	sections := []string{title, intro, "", metrics, "", activity, "", quick}
-	if model.notice != "" {
-		sections = append(sections, "", component.Muted(model.notice))
-	}
-	return strings.Join(sections, "\n")
+	return component.CenterLayout(model.homeCommands.View(homeCommandPanelWidth(width)), width, height)
 }
 
-func (model Model) homeMetrics(width int) string {
-	values := [][3]string{
-		{"Pending approvals", fmt.Sprint(len(model.approvals)), "requests needing a decision"},
-		{"Recent commands", fmt.Sprint(len(model.state.RecentActions)), "remembered command-palette actions"},
-		{"Available actions", fmt.Sprint(len(model.actions.All())), "registered command-center actions"},
+func homeCommandPanelWidth(width int) int {
+	if width <= 0 {
+		return 72
 	}
-	if width < 76 {
-		lines := []string{component.Title("Overview")}
-		for _, value := range values {
-			lines = append(lines, component.KeyValue(value[0], value[1]+" · "+value[2]))
-		}
-		return component.Panel(strings.Join(lines, "\n"), width)
-	}
-	gap := 2
-	cardWidth := max(18, (width-gap*2)/3)
-	cards := make([]string, 0, len(values))
-	for _, value := range values {
-		body := component.Label(value[0]) + "\n" + component.Title(value[1]) + "\n" + component.Muted(value[2])
-		cards = append(cards, lipgloss.NewStyle().Width(cardWidth).Render(component.Panel(body, cardWidth)))
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, cards[0], strings.Repeat(" ", gap), cards[1], strings.Repeat(" ", gap), cards[2])
+	return max(1, min(78, width-4))
 }
 
-func (model Model) homeActivity(width int) string {
-	counts := map[string]int{}
-	for _, id := range model.state.RecentActions {
-		counts[homeActionCategory(id)]++
+func (model *Model) resetHomeCommands() {
+	if model == nil {
+		return
 	}
-	lines := []string{component.Title("Recent command mix")}
-	if len(model.state.RecentActions) == 0 {
-		lines = append(lines, component.Muted("No recent commands yet. Run actions from ctrl+p and this panel will fill in."))
-		return component.Panel(strings.Join(lines, "\n"), width)
-	}
-	barWidth := max(6, min(24, width-28))
-	for _, label := range []string{"Workspace", "MCP", "Tunnel", "Runtime", "Config", "Logs", "Requests", "Other"} {
-		count := counts[label]
-		if count == 0 {
-			continue
-		}
-		filled := min(barWidth, count*3)
-		bar := component.ToneText(strings.Repeat("█", filled), component.ToneAccent) + component.Muted(strings.Repeat("░", max(0, barWidth-filled)))
-		lines = append(lines, fmt.Sprintf("%-10s %s  %d", label, bar, count))
-	}
-	return component.Panel(strings.Join(lines, "\n"), width)
-}
-
-func homeActionCategory(id string) string {
-	id = strings.ToLower(strings.TrimSpace(id))
-	switch {
-	case strings.HasPrefix(id, "workspace"):
-		return "Workspace"
-	case strings.HasPrefix(id, "mcp"):
-		return "MCP"
-	case strings.HasPrefix(id, "tunnel"):
-		return "Tunnel"
-	case strings.HasPrefix(id, "runtime"), strings.HasPrefix(id, "system"), strings.HasPrefix(id, "auth"), strings.HasPrefix(id, "install"), strings.HasPrefix(id, "alias"), strings.HasPrefix(id, "update"):
-		return "Runtime"
-	case strings.HasPrefix(id, "config"):
-		return "Config"
-	case strings.HasPrefix(id, "logs"):
-		return "Logs"
-	case strings.HasPrefix(id, "request"):
-		return "Requests"
-	default:
-		return "Other"
-	}
+	ctx := actionContext(Route{Kind: RouteHome})
+	value := palette.NewWithOptions(model.actions.Actions(ctx), ctx, palette.Options{
+		Title: "Command Panel", Hint: "Home", Placeholder: "Type a command",
+		Footer: "↑/↓ navigate  ·  Enter run  ·  Esc exit  ·  Alt+←/→ pages", Recent: model.state.RecentActions,
+	})
+	model.homeCommands = &value
 }
 
 func (model Model) layoutSize() (int, int) {

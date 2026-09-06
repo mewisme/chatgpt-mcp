@@ -31,8 +31,8 @@ var configKeyCompletions = []configKeyCompletion{
 	{Key: "auth.admin_token_hash", Description: "admin token hash (read-only)"},
 	{Key: "permissions.allow_dirs", Description: "additional filesystem roots", Settable: true},
 	{Key: "shell.path", Description: "additional executable search paths", Settable: true},
-	{Key: "features.ponytail.enabled", Description: "Ponytail feature enabled", Settable: true},
-	{Key: "features.caveman.enabled", Description: "Caveman feature enabled", Settable: true},
+	{Key: "features.ponytail.active", Description: "Ponytail mode active by default", Settable: true},
+	{Key: "features.caveman.active", Description: "Caveman mode active by default", Settable: true},
 	{Key: "tunnel.enabled", Description: "OpenAI tunnel enabled", Settable: true},
 	{Key: "tunnel.id", Description: "OpenAI tunnel ID", Settable: true},
 	{Key: "tunnel.api_key", Description: "OpenAI tunnel runtime API key", Settable: true},
@@ -83,7 +83,7 @@ func completeConfigSet(_ *cobra.Command, args []string, toComplete string) ([]st
 	}
 	key := args[0]
 	switch key {
-	case "server.allow_insecure_http", "admin.enabled", "auth.mcp_enabled", "auth.admin_enabled", "features.ponytail.enabled", "features.caveman.enabled", "tunnel.enabled":
+	case "server.allow_insecure_http", "admin.enabled", "auth.mcp_enabled", "auth.admin_enabled", "features.ponytail.active", "features.caveman.active", "tunnel.enabled":
 		return filterCompletions([]string{"true", "false"}, toComplete), cobra.ShellCompDirectiveNoFileComp
 	case "server.expose":
 		return filterCompletions([]string{"none", "all", "0.0.0.0"}, toComplete), cobra.ShellCompDirectiveNoFileComp

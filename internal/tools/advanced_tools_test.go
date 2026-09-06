@@ -44,29 +44,44 @@ func TestAdvancedToolCatalog(t *testing.T) {
 	}
 }
 
-func TestFeatureToolRegistrationCanToggleIndependently(t *testing.T) {
-	runtime, _, _ := newAdvancedRuntime(t)
+func TestFeatureToolsStayRegisteredWhileActiveStateChanges(t *testing.T) {
+	runtime, workspaceID, _ := newAdvancedRuntime(t)
+	first, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue"})
+	if err != nil || first.IsError {
+		t.Fatalf("default caveman call = %#v %v", first, err)
+	}
+	if value, ok := first.StructuredContent.(caveman.Result); !ok || !value.Active {
+		t.Fatalf("default caveman result = %#v", first.StructuredContent)
+	}
 	featureConfig := features.Default()
-	featureConfig.Ponytail.Enabled = false
-	if err := runtime.SyncFeatures(featureConfig); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := runtime.Registry.Schema("ponytail_turn"); ok {
-		t.Fatal("ponytail tool survived disable")
-	}
-	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("caveman tool was removed with ponytail")
-	}
-	featureConfig.Ponytail.Enabled = true
-	featureConfig.Caveman.Enabled = false
+	featureConfig.Ponytail.Active = false
+	featureConfig.Caveman.Active = false
 	if err := runtime.SyncFeatures(featureConfig); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := runtime.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("ponytail tool was not restored")
+		t.Fatal("ponytail controller tool disappeared")
 	}
-	if _, ok := runtime.Registry.Schema("caveman_turn"); ok {
-		t.Fatal("caveman tool survived disable")
+	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
+		t.Fatal("caveman controller tool disappeared")
+	}
+	second, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue"})
+	if err != nil || second.IsError {
+		t.Fatalf("inactive caveman call = %#v %v", second, err)
+	}
+	if value, ok := second.StructuredContent.(caveman.Result); !ok || value.Active {
+		t.Fatalf("inactive caveman result = %#v", second.StructuredContent)
+	}
+	featureConfig.Caveman.Active = true
+	if err := runtime.SyncFeatures(featureConfig); err != nil {
+		t.Fatal(err)
+	}
+	third, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue"})
+	if err != nil || third.IsError {
+		t.Fatalf("reactivated caveman call = %#v %v", third, err)
+	}
+	if value, ok := third.StructuredContent.(caveman.Result); !ok || !value.Active {
+		t.Fatalf("reactivated caveman result = %#v", third.StructuredContent)
 	}
 }
 

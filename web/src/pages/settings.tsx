@@ -458,32 +458,32 @@ export function SettingsPage() {
         <TabsContent className="mt-6" value="features">
           <Card>
             <CardHeader>
-              <CardTitle>Built-in features</CardTitle>
+              <CardTitle>Built-in modes</CardTitle>
               <CardDescription>
-                Feature tool registration updates immediately after saving.
+                Set the default active state for built-in response modes. Their controller tools remain available.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <FieldGroup>
                 <Toggle
                   label="Ponytail"
-                  description="Enable Ponytail feature tools."
-                  checked={config.features.ponytail.enabled}
-                  onCheckedChange={(enabled) =>
+                  description="Keep Ponytail active by default when its trusted plugin is available."
+                  checked={config.features.ponytail.active}
+                  onCheckedChange={(active) =>
                     setConfig({
                       ...config,
-                      features: { ...config.features, ponytail: { enabled } },
+                      features: { ...config.features, ponytail: { active } },
                     })
                   }
                 />
                 <Toggle
                   label="Caveman"
-                  description="Enable Caveman feature tools."
-                  checked={config.features.caveman.enabled}
-                  onCheckedChange={(enabled) =>
+                  description="Keep Caveman mode active by default."
+                  checked={config.features.caveman.active}
+                  onCheckedChange={(active) =>
                     setConfig({
                       ...config,
-                      features: { ...config.features, caveman: { enabled } },
+                      features: { ...config.features, caveman: { active } },
                     })
                   }
                 />

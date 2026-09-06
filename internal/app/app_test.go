@@ -27,22 +27,25 @@ func TestNewSharesToolRuntime(t *testing.T) {
 		t.Fatal("Admin and tool runtime do not share the same upstream manager")
 	}
 	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("default app missing ponytail feature tool")
+		t.Fatal("default app missing ponytail controller tool")
 	}
 	if _, ok := app.Tools.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("default app missing caveman feature tool")
+		t.Fatal("default app missing caveman controller tool")
 	}
 }
 
-func TestNewHonorsDisabledFeatures(t *testing.T) {
+func TestNewKeepsControllerToolsWhenFeatureInactive(t *testing.T) {
 	cfg := config.Default()
-	cfg.Features.Ponytail.Enabled = false
+	cfg.Features.Ponytail.Active = false
 	app := New(cfg)
-	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); ok {
-		t.Fatal("disabled ponytail tool registered")
+	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
+		t.Fatal("inactive ponytail controller tool missing")
 	}
 	if _, ok := app.Tools.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("enabled caveman tool missing")
+		t.Fatal("caveman controller tool missing")
+	}
+	if app.Tools.Features().Ponytail.Active {
+		t.Fatal("ponytail active state was not preserved")
 	}
 }
 

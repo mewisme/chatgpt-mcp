@@ -1,7 +1,9 @@
 package features
 
+import "encoding/json"
+
 type Feature struct {
-	Enabled bool `json:"enabled"`
+	Active bool `json:"active"`
 }
 
 type Config struct {
@@ -10,5 +12,21 @@ type Config struct {
 }
 
 func Default() Config {
-	return Config{Ponytail: Feature{Enabled: true}, Caveman: Feature{Enabled: true}}
+	return Config{Ponytail: Feature{Active: true}, Caveman: Feature{Active: true}}
+}
+
+func (f *Feature) UnmarshalJSON(data []byte) error {
+	var value struct {
+		Active  *bool `json:"active"`
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	if value.Active != nil {
+		f.Active = *value.Active
+	} else if value.Enabled != nil {
+		f.Active = *value.Enabled
+	}
+	return nil
 }

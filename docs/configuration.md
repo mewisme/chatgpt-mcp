@@ -320,19 +320,19 @@ workspace root
 
 Filesystem operations, shell mutation validation, Git/process working directories, and rewind/checkpoint validation use the same canonical root set. Symlink escapes remain denied.
 
-## Feature flags
+## Built-in mode state
 
-Built-in features live under `features` and can be updated through config or Admin Settings.
+Built-in response modes live under `features` and can be updated through config or Admin Settings. Their controller tools remain registered; `active` controls the default runtime state.
 
 Examples:
 
 ```bash
-cgm config set features.ponytail.enabled true
-cgm config set features.caveman.enabled false
+cgm config set features.ponytail.active true
+cgm config set features.caveman.active false
 cgm config reload
 ```
 
-Admin Settings applies persisted feature changes to the live tool catalog directly when possible.
+Admin Settings applies persisted active-state changes to the live runtime immediately. Legacy `enabled` values are accepted when loading older configuration and are written back as `active`.
 
 ## Tunnel configuration
 

@@ -35,23 +35,38 @@ type State struct {
 type Result struct {
 	Available          bool   `json:"available"`
 	Mode               Mode   `json:"mode,omitempty"`
-	Active             bool   `json:"active,omitempty"`
+	Active             bool   `json:"active"`
 	ActiveInstructions string `json:"active_instructions,omitempty"`
 	RefreshHint        string `json:"refresh_hint,omitempty"`
 	Error              string `json:"error,omitempty"`
 }
 
 type Manager struct {
-	mu     sync.Mutex
-	states map[string]State
+	mu            sync.Mutex
+	defaultActive bool
+	states        map[string]State
 }
 
 var modePattern = regexp.MustCompile(`(?i)PONYTAIL MODE ACTIVE\s*[—-]\s*level:\s*(lite|full|ultra|review|off)`)
 var discoverHooks = hooks.Discover
 var runHook = hooks.Run
 
-func NewManager() *Manager {
-	return &Manager{states: map[string]State{}}
+func NewManager(defaultActive ...bool) *Manager {
+	active := false
+	if len(defaultActive) > 0 {
+		active = defaultActive[0]
+	}
+	return &Manager{defaultActive: active, states: map[string]State{}}
+}
+
+func (m *Manager) SetDefaultActive(active bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.defaultActive == active {
+		return
+	}
+	m.defaultActive = active
+	m.states = map[string]State{}
 }
 
 func (m *Manager) Turn(ctx context.Context, workspaceID, workspaceRoot, prompt, action string) (Result, error) {
@@ -61,18 +76,20 @@ func (m *Manager) Turn(ctx context.Context, workspaceID, workspaceRoot, prompt, 
 	if action != "turn" && action != "refresh" && action != "status" {
 		return Result{}, errors.New("action must be turn, refresh, or status")
 	}
+	requested, hasRequested := RequestedMode(prompt)
+	desiredMode := m.desiredMode(workspaceID, requested, hasRequested)
 	all, err := discoverHooks()
 	if err != nil {
 		return Result{}, err
 	}
 	activation, tracker := ponytailHooks(all)
 	if activation == nil {
-		return Result{Available: false, Error: "Ponytail plugin or its trusted SessionStart hook is disabled"}, nil
+		return Result{Available: false, Mode: desiredMode, Active: desiredMode != Off, Error: "Ponytail plugin or its trusted SessionStart hook is disabled"}, nil
 	}
 
-	requested, hasRequested := RequestedMode(prompt)
 	m.mu.Lock()
 	state, exists := m.states[workspaceID]
+	defaultActive := m.defaultActive
 	m.mu.Unlock()
 
 	if hasRequested && tracker != nil {
@@ -87,9 +104,17 @@ func (m *Manager) Turn(ctx context.Context, workspaceID, workspaceRoot, prompt, 
 		instructions := instructionsFor(ctx, activation.PluginRoot, requested, workspaceRoot)
 		state = State{Mode: requested, Instructions: instructions}
 		exists = true
+	case !exists && !defaultActive:
+		state = State{Mode: Off}
+		exists = true
 	case !exists:
 		instructions := runHook(ctx, *activation, workspaceRoot, "")
-		state = State{Mode: ModeFromInstructions(instructions), Instructions: instructions}
+		mode := ModeFromInstructions(instructions)
+		if mode == Off {
+			mode = Full
+			instructions = instructionsFor(ctx, activation.PluginRoot, mode, workspaceRoot)
+		}
+		state = State{Mode: mode, Instructions: instructions}
 		exists = true
 	}
 
@@ -106,6 +131,21 @@ func (m *Manager) Turn(ctx context.Context, workspaceID, workspaceRoot, prompt, 
 		result.RefreshHint = "Use action refresh if earlier Ponytail instructions are no longer in context."
 	}
 	return result, nil
+}
+
+func (m *Manager) desiredMode(workspaceID string, requested Mode, hasRequested bool) Mode {
+	if hasRequested {
+		return requested
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if state, exists := m.states[workspaceID]; exists {
+		return state.Mode
+	}
+	if m.defaultActive {
+		return Full
+	}
+	return Off
 }
 
 func RequestedMode(prompt string) (Mode, bool) {

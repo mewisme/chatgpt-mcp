@@ -29,3 +29,16 @@ func TestManagerTurn(t *testing.T) {
 		t.Fatalf("off = %#v %v", off, err)
 	}
 }
+
+func TestManagerUsesConfiguredDefaultActiveState(t *testing.T) {
+	manager := NewManager(true)
+	active, err := manager.Turn("workspace", "continue", "turn")
+	if err != nil || !active.Active || active.ActiveInstructions == "" {
+		t.Fatalf("default active = %#v %v", active, err)
+	}
+	manager.SetDefaultActive(false)
+	inactive, err := manager.Turn("workspace", "continue", "turn")
+	if err != nil || inactive.Active || inactive.ActiveInstructions != "" {
+		t.Fatalf("default inactive = %#v %v", inactive, err)
+	}
+}

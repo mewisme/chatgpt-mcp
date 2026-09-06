@@ -176,7 +176,7 @@ func TestHealthReportsAdminAuthState(t *testing.T) {
 	}
 }
 
-func TestConfigAPIFeaturePatchUpdatesRuntimeCatalog(t *testing.T) {
+func TestConfigAPIFeaturePatchUpdatesRuntimeActiveState(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := config.Default()
@@ -184,27 +184,35 @@ func TestConfigAPIFeaturePatchUpdatesRuntimeCatalog(t *testing.T) {
 	cfg.Auth.AdminEnabled = false
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
+	workspaceItem, err := runtime.Workspaces.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	handler := New(API{Config: store, Tools: runtime})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"ponytail":{"enabled":false}}}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"caveman":{"active":false}}}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if got := store.Snapshot().Features; got.Ponytail.Enabled || !got.Caveman.Enabled {
+	if got := store.Snapshot().Features; !got.Ponytail.Active || got.Caveman.Active {
 		t.Fatalf("stored features = %#v", got)
 	}
-	if _, ok := runtime.Registry.Schema("ponytail_turn"); ok {
-		t.Fatal("ponytail tool survived Admin disable")
+	if _, ok := runtime.Registry.Schema("ponytail_turn"); !ok {
+		t.Fatal("ponytail controller tool disappeared")
 	}
 	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("caveman tool disappeared after ponytail disable")
+		t.Fatal("caveman controller tool disappeared")
 	}
-	if !strings.Contains(recorder.Body.String(), `"features":{"ponytail":{"enabled":false},"caveman":{"enabled":true}}`) {
+	result, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceItem.ID, "prompt": "continue"})
+	if err != nil || result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, `"active":false`) {
+		t.Fatalf("caveman runtime result = %#v err=%v", result, err)
+	}
+	if !strings.Contains(recorder.Body.String(), `"features":{"ponytail":{"active":true},"caveman":{"active":false}}`) {
 		t.Fatalf("feature config missing from response: %s", recorder.Body.String())
 	}
 }
 
-func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeCatalog(t *testing.T) {
+func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeState(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
@@ -212,14 +220,14 @@ func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeCatalog(t *testing.T)
 	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
 	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return errors.New("persistence failed") }})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"ponytail":{"enabled":false}}}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"ponytail":{"active":false}}}`)))
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if got := store.Snapshot().Features; !got.Ponytail.Enabled || !got.Caveman.Enabled {
+	if got := store.Snapshot().Features; !got.Ponytail.Active || !got.Caveman.Active {
 		t.Fatalf("store changed after persistence failure: %#v", got)
 	}
-	if got := runtime.Features(); !got.Ponytail.Enabled || !got.Caveman.Enabled {
+	if got := runtime.Features(); !got.Ponytail.Active || !got.Caveman.Active {
 		t.Fatalf("runtime features changed after persistence failure: %#v", got)
 	}
 	if _, ok := runtime.Registry.Schema("ponytail_turn"); !ok {
@@ -230,41 +238,25 @@ func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeCatalog(t *testing.T)
 	}
 }
 
-func TestConfigAPIFeatureRuntimeFailureRollsBackPersistedConfig(t *testing.T) {
+func TestConfigAPILegacyFeatureEnabledPatchMigratesToActive(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
-	cfg.Features.Caveman.Enabled = false
-	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
-		t.Fatal(err)
-	}
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
-	if err := runtime.Registry.Register("caveman_turn", tools.Schema{Name: "caveman_turn"}, func(context.Context, map[string]any) (tools.Result, error) {
-		return tools.TextResult("collision"), nil
-	}); err != nil {
-		t.Fatal(err)
-	}
 	handler := New(API{Config: store, Tools: runtime})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"caveman":{"enabled":true}}}`)))
-	if recorder.Code != http.StatusInternalServerError {
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"features":{"caveman":{"enabled":false}}}`)))
+	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if got := store.Snapshot().Features; !got.Ponytail.Enabled || got.Caveman.Enabled {
-		t.Fatalf("store changed after runtime sync failure: %#v", got)
+	if got := store.Snapshot().Features; !got.Ponytail.Active || got.Caveman.Active {
+		t.Fatalf("legacy patch did not migrate: %#v", got)
 	}
-	loaded, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !loaded.Features.Ponytail.Enabled || loaded.Features.Caveman.Enabled {
-		t.Fatalf("persisted config was not rolled back: %#v", loaded.Features)
-	}
-	if got := runtime.Features(); !got.Ponytail.Enabled || got.Caveman.Enabled {
-		t.Fatalf("runtime features changed after failed sync: %#v", got)
+	if strings.Contains(recorder.Body.String(), `"caveman":{"enabled"`) || !strings.Contains(recorder.Body.String(), `"caveman":{"active":false}`) {
+		t.Fatalf("legacy feature key leaked into response: %s", recorder.Body.String())
 	}
 }
 

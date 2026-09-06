@@ -36,10 +36,10 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "tunnel.organization_id", "org-test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setConfigValue(&cfg, "features.ponytail.enabled", "false"); err != nil {
+	if err := setConfigValue(&cfg, "features.ponytail.active", "false"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setConfigValue(&cfg, "features.caveman.enabled", "false"); err != nil {
+	if err := setConfigValue(&cfg, "features.caveman.active", "false"); err != nil {
 		t.Fatal(err)
 	}
 	if err := setConfigValue(&cfg, "permissions.allow_dirs", "/tmp,/var/tmp"); err != nil {
@@ -48,7 +48,7 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "shell.path", "/opt/tools,/usr/local/custom/bin"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Enabled || cfg.Features.Caveman.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Caveman.Active || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
 		t.Fatalf("cfg = %#v", cfg)
 	}
 }
@@ -73,10 +73,10 @@ func TestFeatureConfigTraversal(t *testing.T) {
 		t.Fatalf("features = %#v", value)
 	}
 	ponytail, ok := features["ponytail"].(map[string]any)
-	if !ok || ponytail["enabled"] != true {
+	if !ok || ponytail["active"] != true {
 		t.Fatalf("ponytail = %#v", features["ponytail"])
 	}
-	leaf, err := getConfigValue(cfg, "features.caveman.enabled")
+	leaf, err := getConfigValue(cfg, "features.caveman.active")
 	if err != nil || leaf != true {
 		t.Fatalf("caveman leaf = %#v %v", leaf, err)
 	}

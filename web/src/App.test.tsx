@@ -22,7 +22,7 @@ const config = {
   },
   permissions: { allow_dirs: [] },
   shell: { path: [] },
-  features: { ponytail: { enabled: true }, caveman: { enabled: true } },
+  features: { ponytail: { active: true }, caveman: { active: true } },
 }
 const presets = {
   current: "default",

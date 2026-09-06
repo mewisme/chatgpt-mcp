@@ -275,9 +275,9 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 	}
 }
 
-func TestDefaultFeaturesEnabled(t *testing.T) {
+func TestDefaultFeaturesActive(t *testing.T) {
 	cfg := Default()
-	if !cfg.Features.Ponytail.Enabled || !cfg.Features.Caveman.Enabled {
+	if !cfg.Features.Ponytail.Active || !cfg.Features.Caveman.Active {
 		t.Fatalf("features = %#v", cfg.Features)
 	}
 }
@@ -320,7 +320,7 @@ func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !loaded.Features.Ponytail.Enabled || !loaded.Features.Caveman.Enabled {
+			if !loaded.Features.Ponytail.Active || !loaded.Features.Caveman.Active {
 				t.Fatalf("legacy %s features = %#v", format, loaded.Features)
 			}
 		})
@@ -351,8 +351,40 @@ func TestPartialFeaturesKeepMissingFeatureDefault(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Features.Ponytail.Enabled || !loaded.Features.Caveman.Enabled {
+			if loaded.Features.Ponytail.Active || !loaded.Features.Caveman.Active {
 				t.Fatalf("partial %s features = %#v", format, loaded.Features)
+			}
+		})
+	}
+}
+
+func TestFeatureConfigSerializesActiveOnly(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		t.Run(string(format), func(t *testing.T) {
+			cfg := Default()
+			cfg.Features.Ponytail.Active = false
+			data, err := configformat.Marshal(format, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := configformat.DecodeGeneric(format, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("root = %#v", raw)
+			}
+			featureValues, ok := root["features"].(map[string]any)
+			if !ok {
+				t.Fatalf("features = %#v", root["features"])
+			}
+			ponytail, ok := featureValues["ponytail"].(map[string]any)
+			if !ok || ponytail["active"] != false {
+				t.Fatalf("ponytail = %#v", featureValues["ponytail"])
+			}
+			if _, exists := ponytail["enabled"]; exists {
+				t.Fatalf("legacy enabled key was serialized: %#v", ponytail)
 			}
 		})
 	}

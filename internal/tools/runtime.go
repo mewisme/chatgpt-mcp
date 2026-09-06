@@ -55,7 +55,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 		panic(err)
 	}
 	executions := shellruntime.NewExecutionHub()
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, ponytailManager: ponytail.NewManager(), cavemanManager: caveman.NewManager()}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active)}
 	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
@@ -79,14 +79,16 @@ func (r *Runtime) SyncFeatures(featureConfig features.Config) error {
 	r.featureMu.Lock()
 	defer r.featureMu.Unlock()
 	if r.ponytailManager == nil {
-		r.ponytailManager = ponytail.NewManager()
+		r.ponytailManager = ponytail.NewManager(featureConfig.Ponytail.Active)
 	}
 	if r.cavemanManager == nil {
-		r.cavemanManager = caveman.NewManager()
+		r.cavemanManager = caveman.NewManager(featureConfig.Caveman.Active)
 	}
-	if err := r.Registry.ReplaceOwnedPrefix("feature:", featureToolEntries(r.Workspaces, r.ponytailManager, r.cavemanManager, featureConfig)); err != nil {
+	if err := r.Registry.ReplaceOwnedPrefix("feature:", featureToolEntries(r.Workspaces, r.ponytailManager, r.cavemanManager)); err != nil {
 		return err
 	}
+	r.ponytailManager.SetDefaultActive(featureConfig.Ponytail.Active)
+	r.cavemanManager.SetDefaultActive(featureConfig.Caveman.Active)
 	r.features = featureConfig
 	return nil
 }

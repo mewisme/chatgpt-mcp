@@ -263,8 +263,8 @@ func configPresetCommand() *cobra.Command {
 			log.Detail("mcp auth", preset.MCPAuthEnabled)
 			log.Detail("admin auth", preset.AdminAuthEnabled)
 			log.Detail("tunnel", preset.TunnelEnabled)
-			log.Detail("ponytail", preset.Features.Ponytail.Enabled)
-			log.Detail("caveman", preset.Features.Caveman.Enabled)
+			log.Detail("ponytail active", preset.Features.Ponytail.Active)
+			log.Detail("caveman active", preset.Features.Caveman.Active)
 			return nil
 		},
 	}
@@ -397,18 +397,18 @@ func setConfigValue(cfg *config.Config, key, raw string) error {
 		cfg.Permissions.AllowDirs = parseCSV(raw)
 	case "shell.path":
 		cfg.Shell.Path = parseCSV(raw)
-	case "features.ponytail.enabled":
+	case "features.ponytail.active", "features.ponytail.enabled":
 		value, err := parseBool(raw, key)
 		if err != nil {
 			return err
 		}
-		cfg.Features.Ponytail.Enabled = value
-	case "features.caveman.enabled":
+		cfg.Features.Ponytail.Active = value
+	case "features.caveman.active", "features.caveman.enabled":
 		value, err := parseBool(raw, key)
 		if err != nil {
 			return err
 		}
-		cfg.Features.Caveman.Enabled = value
+		cfg.Features.Caveman.Active = value
 	case "tunnel.enabled":
 		value, err := parseBool(raw, key)
 		if err != nil {
@@ -448,6 +448,12 @@ func parseCSV(raw string) []string {
 }
 
 func getConfigValue(cfg config.Config, key string) (any, error) {
+	switch key {
+	case "features.ponytail.enabled":
+		key = "features.ponytail.active"
+	case "features.caveman.enabled":
+		key = "features.caveman.active"
+	}
 	tree, err := redactedConfigTree(cfg)
 	if err != nil {
 		return nil, err

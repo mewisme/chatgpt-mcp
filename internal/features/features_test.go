@@ -2,9 +2,9 @@ package features
 
 import "testing"
 
-func TestDefaultEnablesBuiltInFeatures(t *testing.T) {
+func TestDefaultActivatesBuiltInModes(t *testing.T) {
 	value := Default()
-	if !value.Ponytail.Enabled || !value.Caveman.Enabled {
+	if !value.Ponytail.Active || !value.Caveman.Active {
 		t.Fatalf("default features = %#v", value)
 	}
 }

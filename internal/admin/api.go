@@ -59,12 +59,23 @@ type configPatch struct {
 }
 
 type featurePatch struct {
-	Ponytail *featureEnabledPatch `json:"ponytail,omitempty"`
-	Caveman  *featureEnabledPatch `json:"caveman,omitempty"`
+	Ponytail *featureStatePatch `json:"ponytail,omitempty"`
+	Caveman  *featureStatePatch `json:"caveman,omitempty"`
 }
 
-type featureEnabledPatch struct {
+type featureStatePatch struct {
+	Active  *bool `json:"active,omitempty"`
 	Enabled *bool `json:"enabled,omitempty"`
+}
+
+func (patch *featureStatePatch) active() *bool {
+	if patch == nil {
+		return nil
+	}
+	if patch.Active != nil {
+		return patch.Active
+	}
+	return patch.Enabled
 }
 
 func New(api API) http.Handler {
@@ -152,11 +163,11 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err == nil && patch.Features != nil {
-			if patch.Features.Ponytail != nil && patch.Features.Ponytail.Enabled != nil {
-				next.Features.Ponytail.Enabled = *patch.Features.Ponytail.Enabled
+			if active := patch.Features.Ponytail.active(); active != nil {
+				next.Features.Ponytail.Active = *active
 			}
-			if patch.Features.Caveman != nil && patch.Features.Caveman.Enabled != nil {
-				next.Features.Caveman.Enabled = *patch.Features.Caveman.Enabled
+			if active := patch.Features.Caveman.active(); active != nil {
+				next.Features.Caveman.Active = *active
 			}
 		}
 		if err == nil {

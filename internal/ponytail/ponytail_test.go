@@ -99,7 +99,7 @@ func TestManagerTurnLifecycle(t *testing.T) {
 		}
 		return "PONYTAIL MODE ACTIVE - level: ultra\nactivation instructions"
 	}
-	manager := NewManager()
+	manager := NewManager(true)
 	result, err := manager.Turn(context.Background(), "ws", t.TempDir(), "hello", "status")
 	if err != nil || !result.Available || result.Mode != Ultra || !result.Active || result.ActiveInstructions == "" {
 		t.Fatalf("first result=%#v err=%v", result, err)
@@ -114,6 +114,26 @@ func TestManagerTurnLifecycle(t *testing.T) {
 	}
 	if runCalls != 2 {
 		t.Fatalf("run calls = %d", runCalls)
+	}
+}
+
+func TestManagerHonorsConfiguredInactiveState(t *testing.T) {
+	oldDiscover, oldRun := discoverHooks, runHook
+	defer func() { discoverHooks, runHook = oldDiscover, oldRun }()
+	activation := hooks.Hook{ID: "activation", Plugin: "ponytail@ponytail", Event: hooks.SessionStart, Trusted: true, Enabled: true}
+	discoverHooks = func() ([]hooks.Hook, error) { return []hooks.Hook{activation}, nil }
+	runCalls := 0
+	runHook = func(context.Context, hooks.Hook, string, string) string {
+		runCalls++
+		return "PONYTAIL MODE ACTIVE - level: ultra"
+	}
+	manager := NewManager(false)
+	result, err := manager.Turn(context.Background(), "ws", t.TempDir(), "continue", "status")
+	if err != nil || !result.Available || result.Active || result.Mode != Off || result.ActiveInstructions != "" {
+		t.Fatalf("inactive result=%#v err=%v", result, err)
+	}
+	if runCalls != 0 {
+		t.Fatalf("inactive manager invoked activation hook %d times", runCalls)
 	}
 }
 
@@ -135,5 +155,16 @@ func TestManagerTurnValidationAndUnavailable(t *testing.T) {
 	result, err := manager.Turn(context.Background(), "ws", t.TempDir(), "x", "status")
 	if err != nil || result.Available || result.Error == "" {
 		t.Fatalf("unavailable result=%#v err=%v", result, err)
+	}
+}
+
+func TestUnavailablePonytailStillReportsConfiguredActiveState(t *testing.T) {
+	oldDiscover := discoverHooks
+	defer func() { discoverHooks = oldDiscover }()
+	discoverHooks = func() ([]hooks.Hook, error) { return nil, nil }
+	manager := NewManager(true)
+	result, err := manager.Turn(context.Background(), "ws", t.TempDir(), "continue", "status")
+	if err != nil || result.Available || !result.Active || result.Mode != Full {
+		t.Fatalf("unavailable active result=%#v err=%v", result, err)
 	}
 }

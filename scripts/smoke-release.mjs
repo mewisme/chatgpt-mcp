@@ -62,9 +62,9 @@ try {
   run(["config", "set", "admin.port", String(adminPort)])
   run(["config", "set", "auth.mcp_enabled", "false"])
   run(["config", "set", "auth.admin_enabled", "false"])
-  run(["config", "set", "features.ponytail.enabled", "false"])
-  run(["config", "set", "features.caveman.enabled", "false"])
-  run(["config", "set", "features.caveman.enabled", "true"])
+  run(["config", "set", "features.ponytail.active", "false"])
+  run(["config", "set", "features.caveman.active", "false"])
+  run(["config", "set", "features.caveman.active", "true"])
   run(["config", "verify"])
   run(["status"])
   await verifyInteractiveListFallbacks()
@@ -78,7 +78,7 @@ try {
   await waitForHealth(`http://127.0.0.1:${serverPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${adminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
   await verifyActivitySSE(adminPort)
-  await verifyMCP(serverPort, false)
+  await verifyMCP(serverPort)
   verifyApprovalCLI()
   const foregroundStatus = run(["status"], { quiet: true })
   for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "OpenAI Secure MCP Tunnel is disabled"]) {
@@ -90,12 +90,12 @@ try {
   const reloadedAdminPort = await freePort()
   run(["config", "set", "server.port", String(reloadedServerPort)])
   run(["config", "set", "admin.port", String(reloadedAdminPort)])
-  run(["config", "set", "features.ponytail.enabled", "true"])
+  run(["config", "set", "features.ponytail.active", "true"])
   run(["config", "reload"])
   if (child.pid !== servePID || child.exitCode !== null) fail("config reload restarted or stopped the serve process")
   await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
-  await verifyMCP(reloadedServerPort, true)
+  await verifyMCP(reloadedServerPort)
 
   occupied = await occupyPort()
   run(["config", "set", "server.port", String(occupied.port)])
@@ -266,7 +266,7 @@ function runExpectFailure(args) {
   if (result.status === 0) fail(`${args.join(" ")} unexpectedly succeeded`)
 }
 
-async function verifyMCP(port, ponytailEnabled) {
+async function verifyMCP(port) {
   const discover = await mcpRequest(port, "server/discover", {}, 1)
   assertStatus(discover.response, 200, "server/discover")
   if (discover.response.headers.get("mcp-session-id")) fail("modern MCP response unexpectedly returned Mcp-Session-Id")
@@ -282,8 +282,8 @@ async function verifyMCP(port, ponytailEnabled) {
   const toolNames = new Set(tools.body.result.tools.map((tool) => tool?.name))
   if (!toolNames.has("get_version")) fail(`get_version missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!toolNames.has("request_control_approval")) fail(`request_control_approval missing from tools/list: ${JSON.stringify(tools.body)}`)
-  if (toolNames.has("ponytail_turn") !== ponytailEnabled) fail(`ponytail_turn state did not match runtime config: ${JSON.stringify(tools.body)}`)
-  if (!toolNames.has("caveman_turn")) fail(`enabled caveman_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
+  if (!toolNames.has("ponytail_turn")) fail(`ponytail_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
+  if (!toolNames.has("caveman_turn")) fail(`caveman_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!Number.isFinite(tools.body.result.ttlMs) || typeof tools.body.result.cacheScope !== "string") {
     fail(`tools/list cache hints are missing: ${JSON.stringify(tools.body)}`)
   }

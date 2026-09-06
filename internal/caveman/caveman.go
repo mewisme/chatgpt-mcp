@@ -21,12 +21,27 @@ type Result struct {
 }
 
 type Manager struct {
-	mu     sync.Mutex
-	states map[string]State
+	mu            sync.Mutex
+	defaultActive bool
+	states        map[string]State
 }
 
-func NewManager() *Manager {
-	return &Manager{states: map[string]State{}}
+func NewManager(defaultActive ...bool) *Manager {
+	active := false
+	if len(defaultActive) > 0 {
+		active = defaultActive[0]
+	}
+	return &Manager{defaultActive: active, states: map[string]State{}}
+}
+
+func (m *Manager) SetDefaultActive(active bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.defaultActive == active {
+		return
+	}
+	m.defaultActive = active
+	m.states = map[string]State{}
 }
 
 func (m *Manager) Turn(workspaceID, prompt, action string) (Result, error) {
@@ -41,7 +56,10 @@ func (m *Manager) Turn(workspaceID, prompt, action string) (Result, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	state := m.states[workspaceID]
+	state, exists := m.states[workspaceID]
+	if !exists {
+		state.Active = m.defaultActive
+	}
 	if active, requested := RequestedState(prompt); requested {
 		state.Active = active
 		state.InstructionsSent = false

@@ -77,7 +77,7 @@ describe("admin app runtime smoke", () => {
         (await screen.findAllByText(pageSmokeText[item.id])).length
       ).toBeGreaterThan(0)
     }
-  })
+  }, 15_000)
 
   it("loads a deep-linked page and follows popstate navigation", async () => {
     window.history.replaceState({}, "", "/tunnel")

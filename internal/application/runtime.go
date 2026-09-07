@@ -134,6 +134,10 @@ func ManagedRuntimeAction(ctx context.Context, action string, scope managed.Scop
 	if err != nil {
 		return RuntimeActionResult{}, err
 	}
+	spec, err = prepareManagedActionSpec(spec, action)
+	if err != nil {
+		return RuntimeActionResult{}, err
+	}
 	switch action {
 	case "up":
 		return managedUp(ctx, spec, manager)
@@ -142,6 +146,18 @@ func ManagedRuntimeAction(ctx context.Context, action string, scope managed.Scop
 	default:
 		return managedRestart(ctx, spec, manager)
 	}
+}
+
+func prepareManagedActionSpec(spec managed.Spec, action string) (managed.Spec, error) {
+	if action == "down" {
+		return spec, nil
+	}
+	binary, err := managed.PrepareManagedBinary(spec.ConfigRoot, spec.Binary)
+	if err != nil {
+		return spec, err
+	}
+	spec.Binary = binary
+	return spec, nil
 }
 
 func managedService(scope managed.Scope, binary string) (managed.Spec, managed.Manager, error) {

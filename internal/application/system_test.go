@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -87,6 +88,35 @@ func TestManagedRuntimeSystemActionReturnsExternalElevationWorkflow(t *testing.T
 	}
 	if result.External == nil || !strings.Contains(result.External.Command, "restart --system") || !strings.Contains(strings.ToLower(result.External.Reason), "elevation") {
 		t.Fatalf("external=%#v", result.External)
+	}
+}
+
+func TestManagedRuntimeActionStagesTransientGoRunBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("go-run staging path assertion is platform-specific")
+	}
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "go-build123", "b001", "exe", "chatgpt-mcp")
+	if err := os.MkdirAll(filepath.Dir(source), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("dev-build"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	spec := managed.Spec{ConfigRoot: root, Binary: source}
+	prepared, err := prepareManagedActionSpec(spec, "restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Binary == spec.Binary || !strings.Contains(filepath.ToSlash(prepared.Binary), "/runtime/bin/go-run/") {
+		t.Fatalf("prepared binary = %q", prepared.Binary)
+	}
+	down, err := prepareManagedActionSpec(spec, "down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if down.Binary != spec.Binary {
+		t.Fatalf("down staged binary = %q want %q", down.Binary, spec.Binary)
 	}
 }
 

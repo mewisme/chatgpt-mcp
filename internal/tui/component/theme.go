@@ -60,6 +60,9 @@ func newCharmTheme(isDark bool) charmTheme {
 func SetDarkBackground(isDark bool) { currentTheme = newCharmTheme(isDark) }
 
 func Title(value string) string { return currentTheme.title.Render(value) }
+func Button(value string) string {
+	return huh.ThemeCharm(currentTheme.isDark).Focused.FocusedButton.Render(strings.TrimSpace(value))
+}
 func PageTitle(value string, width int) string {
 	title := currentTheme.pageTitle.Render(strings.TrimSpace(value))
 	style := currentTheme.pageTitleBar

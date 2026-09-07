@@ -56,11 +56,25 @@ type approvalResolvedMsg struct {
 	err     error
 }
 
-type toastDismissMsg struct{ id uint64 }
+type toastDismissMsg struct {
+	id    uint64
+	timer uint64
+}
+
+type toastCloseMsg struct{}
+
+type toastHoverMsg struct {
+	id      uint64
+	hovered bool
+}
 
 type toastState struct {
 	id      uint64
+	timer   uint64
+	title   string
 	message string
+	tone    component.Tone
+	hovered bool
 }
 
 type Model struct {
@@ -125,17 +139,23 @@ func (model Model) Init() tea.Cmd {
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tuipage.ToastMsg:
-		text := strings.TrimSpace(msg.Message)
-		if text == "" {
-			text = strings.TrimSpace(msg.Title)
+		return model, model.showToast(msg.Title, msg.Message, msg.Tone)
+	case toastCloseMsg:
+		model.dismissToast()
+		return model, nil
+	case toastHoverMsg:
+		if msg.id != model.toast.id || model.toast.id == 0 || msg.hovered == model.toast.hovered {
+			return model, nil
 		}
-		return model, model.showPageToast(text)
+		model.toast.hovered = msg.hovered
+		model.toast.timer++
+		if msg.hovered {
+			return model, nil
+		}
+		return model, model.toastTimerCmd()
 	case toastDismissMsg:
-		if msg.id == model.toast.id {
-			if page, ok := model.currentPage.(tuipage.NoticeModel); ok && strings.TrimSpace(page.Notice()) == model.toast.message {
-				page.SetNotice("")
-			}
-			model.toast = toastState{}
+		if msg.id == model.toast.id && msg.timer == model.toast.timer && !model.toast.hovered {
+			model.dismissToast()
 		}
 		return model, nil
 	case approvalPollMsg:
@@ -191,13 +211,11 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			resource, ok := model.quickResources[msg.ID]
 			model.closeOverlay()
 			if !ok {
-				model.notice = "Quick Open resource is no longer available"
-				return model, nil
+				return model, model.showToast("Quick Open", "Resource is no longer available", component.ToneWarning)
 			}
 			route, err := ParseRoute(resource.Path)
 			if err != nil {
-				model.notice = err.Error()
-				return model, nil
+				return model, model.showToast("Quick Open", err.Error(), component.ToneDanger)
 			}
 			model.router.Navigate(route)
 			model.loadPage(route)
@@ -207,16 +225,15 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if !homeSelection {
 			model.closeOverlay()
 		}
-		model.recordRecent(msg.ID)
+		recentCmd := model.recordRecent(msg.ID)
 		if homeSelection {
 			model.resetHomeCommands()
 		}
 		cmd, err := model.actions.Execute(model.ctx, msg.ID, actionContext(model.router.Current()))
 		if err != nil {
-			model.notice = err.Error()
-			return model, nil
+			return model, tea.Batch(recentCmd, model.showToast("Command", err.Error(), component.ToneDanger))
 		}
-		return model, cmd
+		return model, tea.Batch(recentCmd, cmd)
 	case palette.MouseScrollMsg:
 		if model.palette != nil {
 			updated, cmd := model.palette.Update(msg)
@@ -239,8 +256,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tuipage.NavigateMsg:
 		route, err := ParseRoute(msg.Path)
 		if err != nil {
-			model.notice = err.Error()
-			return model, nil
+			return model, model.showToast("Navigation", err.Error(), component.ToneDanger)
 		}
 		if msg.Replace {
 			model.switchPage(route)
@@ -250,44 +266,37 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, model.initCurrentPage()
 	case tuipage.WorkspaceCommandMsg:
 		if err := model.ensureWorkspacePage(msg.Command, msg.ResourceID); err != nil {
-			model.notice = err.Error()
-			return model, nil
+			return model, model.showToast("Workspaces", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
 	case tuipage.MCPCommandMsg:
 		if err := model.ensureMCPPage(msg.ResourceID); err != nil {
-			model.notice = err.Error()
-			return model, nil
+			return model, model.showToast("MCP", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
 	case tuipage.TunnelCommandMsg:
 		if err := model.ensureTunnelPage(msg.Command, msg.ResourceID); err != nil {
-			model.notice = err.Error()
-			return model, nil
+			return model, model.showToast("Tunnel", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
 	case tuipage.RequestCommandMsg:
 		if err := model.ensureRequestPage(msg.ResourceID); err != nil {
-			model.notice = err.Error()
-			return model, nil
+			return model, model.showToast("Requests", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
 	case tuipage.LogsCommandMsg:
 		if err := model.ensureLogsPage(); err != nil {
-			model.notice = err.Error()
-			return model, nil
+			return model, model.showToast("Logs", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
 	case tuipage.SystemCommandMsg:
 		if err := model.ensureRuntimePage(); err != nil {
-			model.notice = err.Error()
-			return model, nil
+			return model, model.showToast("Runtime", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
 	case tuipage.ConfigCommandMsg:
 		if err := model.ensureConfigPage(); err != nil {
-			model.notice = err.Error()
-			return model, nil
+			return model, model.showToast("Config", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
 	case component.FormSubmittedMsg, component.FormCancelledMsg:
@@ -295,6 +304,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseClickMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg, tea.MouseMotionMsg:
 		return model, nil
 	case tea.KeyPressMsg:
+		if model.toast.id != 0 {
+			switch msg.String() {
+			case "enter", "esc":
+				model.dismissToast()
+			}
+			return model, nil
+		}
 		if model.approvalActive() {
 			return model.updateApprovalKey(msg)
 		}
@@ -311,8 +327,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if model.router.Current().Kind == RouteHome && model.homeCommands != nil {
 			if isQuickOpenKey(msg) {
-				model.openQuickOpen()
-				return model, nil
+				return model, model.openQuickOpen()
 			}
 			switch msg.String() {
 			case "alt+left":
@@ -337,8 +352,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		if isQuickOpenKey(msg) {
-			model.openQuickOpen()
-			return model, nil
+			return model, model.openQuickOpen()
 		}
 		switch msg.String() {
 		case "alt+left":
@@ -413,6 +427,44 @@ func (model Model) View() tea.View {
 				}
 				targets = append(targets, buttonTargets...)
 			}
+		}
+	}
+	if model.toast.id != 0 {
+		width, height := model.layoutSize()
+		dialog := component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
+		foreground := component.Modal(dialog.View(), max(1, min(72, width-4)))
+		overlayTargets, x, y := component.CenteredOverlayTargets(foreground, width, height, 0, 0, 299, toastCloseMsg{})
+		id := model.toast.id
+		overlayTargets[0].Handle = func(event component.MouseEvent) tea.Msg {
+			if event.Motion {
+				return toastHoverMsg{id: id, hovered: false}
+			}
+			if event.Button == tea.MouseLeft {
+				return toastCloseMsg{}
+			}
+			return nil
+		}
+		overlayTargets[1].Handle = func(event component.MouseEvent) tea.Msg {
+			if event.Motion {
+				return toastHoverMsg{id: id, hovered: true}
+			}
+			return nil
+		}
+		content = centerOverlay(content, foreground, width, height)
+		targets = append(targets, overlayTargets...)
+		if rect, ok := component.FindRenderedRect(foreground, dialog.CloseButtonView()); ok {
+			targets = append(targets, component.MouseTarget{
+				ID: "toast.close", Rect: component.Rect{X: x + rect.X, Y: y + rect.Y, Width: rect.Width, Height: rect.Height}, Z: 301,
+				Handle: func(event component.MouseEvent) tea.Msg {
+					if event.Motion {
+						return toastHoverMsg{id: id, hovered: true}
+					}
+					if event.Button == tea.MouseLeft {
+						return toastCloseMsg{}
+					}
+					return nil
+				},
+			})
 		}
 	}
 	view := tea.NewView(content)
@@ -592,13 +644,12 @@ func (model Model) finishApprovalResolution(msg approvalResolvedMsg) (tea.Model,
 	if msg.approve {
 		action = "Approved"
 	}
-	model.notice = action + " " + msg.id
 	if len(model.approvals) == 0 {
 		model.resetApprovalDialog()
 	} else {
 		model.openApprovalChoice()
 	}
-	return model, nil
+	return model, model.showToast("Approval request", action+" "+msg.id, component.ToneSuccess)
 }
 
 func (model Model) approvalButtonsView() string {
@@ -707,14 +758,13 @@ func isPaletteKey(message tea.KeyPressMsg) bool {
 	return message.String() == "ctrl+p"
 }
 
-func (model *Model) openQuickOpen() {
+func (model *Model) openQuickOpen() tea.Cmd {
 	if model == nil {
-		return
+		return nil
 	}
 	resources, err := loadQuickOpenResources()
 	if err != nil {
-		model.notice = err.Error()
-		return
+		return model.showToast("Quick Open", err.Error(), component.ToneDanger)
 	}
 	actions, index := quickopen.Actions(resources)
 	context := actionContext(model.router.Current())
@@ -722,6 +772,7 @@ func (model *Model) openQuickOpen() {
 	model.palette = &value
 	model.overlay = overlayQuickOpen
 	model.quickResources = index
+	return nil
 }
 
 func (model *Model) closeOverlay() {
@@ -771,16 +822,17 @@ func (model Model) exitConfirmView() string {
 	}, "\n")
 }
 
-func (model *Model) recordRecent(id string) {
+func (model *Model) recordRecent(id string) tea.Cmd {
 	if model == nil {
-		return
+		return nil
 	}
 	tuistate.RecordRecent(&model.state, id)
 	if model.stateRoot != "" {
 		if err := tuistate.Save(model.stateRoot, model.state); err != nil {
-			model.notice = "TUI state: " + err.Error()
+			return model.showToast("TUI state", err.Error(), component.ToneDanger)
 		}
 	}
+	return nil
 }
 
 func (model *Model) navigate(route Route) {
@@ -843,9 +895,6 @@ func (model *Model) loadPage(route Route) {
 		return
 	}
 	model.currentPage = value
-	if page, ok := model.currentPage.(tuipage.NoticeModel); ok && model.toast.id != 0 {
-		page.SetNotice(model.toast.message)
-	}
 	if model.currentPage != nil && model.width > 0 && model.height > 0 {
 		metrics := model.frameMetrics(model.width, model.height)
 		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})
@@ -933,12 +982,11 @@ func (model Model) updatePage(message tea.Msg) (tea.Model, tea.Cmd) {
 	updated, cmd := model.currentPage.Update(message)
 	model.currentPage = updated
 	after := pageNotice(model.currentPage)
-	if after == "" && before != "" && model.toast.id != 0 && model.toast.message == before {
-		model.toastSeq++
-		model.toast = toastState{}
-	}
 	if after != "" && after != before {
-		return model, tea.Batch(cmd, model.trackPageToast(after))
+		if page, ok := model.currentPage.(tuipage.NoticeModel); ok {
+			page.SetNotice("")
+		}
+		return model, tea.Batch(cmd, model.showToast(model.router.Current().Title(), after, component.ToneNeutral))
 	}
 	return model, cmd
 }
@@ -950,28 +998,29 @@ func pageNotice(value tuipage.Model) string {
 	return ""
 }
 
-func (model *Model) showPageToast(message string) tea.Cmd {
+func (model *Model) showToast(title, message string, tone component.Tone) tea.Cmd {
+	title = strings.TrimSpace(title)
 	message = strings.TrimSpace(message)
-	if message == "" {
-		return nil
-	}
-	if page, ok := model.currentPage.(tuipage.NoticeModel); ok {
-		page.SetNotice(message)
-	} else {
-		return nil
-	}
-	return model.trackPageToast(message)
-}
-
-func (model *Model) trackPageToast(message string) tea.Cmd {
-	message = strings.TrimSpace(message)
-	if message == "" {
+	if title == "" && message == "" {
 		return nil
 	}
 	model.toastSeq++
-	model.toast = toastState{id: model.toastSeq, message: message}
-	id := model.toast.id
-	return tea.Tick(toastDuration, func(time.Time) tea.Msg { return toastDismissMsg{id: id} })
+	model.toast = toastState{id: model.toastSeq, timer: 1, title: title, message: message, tone: tone}
+	return model.toastTimerCmd()
+}
+
+func (model *Model) toastTimerCmd() tea.Cmd {
+	if model == nil || model.toast.id == 0 || model.toast.hovered {
+		return nil
+	}
+	id, timer := model.toast.id, model.toast.timer
+	return tea.Tick(toastDuration, func(time.Time) tea.Msg { return toastDismissMsg{id: id, timer: timer} })
+}
+
+func (model *Model) dismissToast() {
+	if model != nil {
+		model.toast = toastState{}
+	}
 }
 
 func (model *Model) ensureWorkspacePage(command tuipage.WorkspaceCommand, resourceID string) error {

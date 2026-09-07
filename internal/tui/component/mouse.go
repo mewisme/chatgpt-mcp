@@ -23,6 +23,7 @@ type MouseEvent struct {
 	X      int
 	Y      int
 	Button tea.MouseButton
+	Motion bool
 }
 
 type MouseTarget struct {
@@ -34,7 +35,8 @@ type MouseTarget struct {
 
 func DispatchMouse(targets []MouseTarget, message tea.MouseMsg) tea.Cmd {
 	mouse := message.Mouse()
-	if mouse.Button != tea.MouseLeft && mouse.Button != tea.MouseWheelUp && mouse.Button != tea.MouseWheelDown {
+	_, motion := message.(tea.MouseMotionMsg)
+	if !motion && mouse.Button != tea.MouseLeft && mouse.Button != tea.MouseWheelUp && mouse.Button != tea.MouseWheelDown {
 		return nil
 	}
 	index := -1
@@ -50,7 +52,7 @@ func DispatchMouse(targets []MouseTarget, message tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 	target := targets[index]
-	event := MouseEvent{X: mouse.X - target.Rect.X, Y: mouse.Y - target.Rect.Y, Button: mouse.Button}
+	event := MouseEvent{X: mouse.X - target.Rect.X, Y: mouse.Y - target.Rect.Y, Button: mouse.Button, Motion: motion}
 	result := target.Handle(event)
 	if result == nil {
 		return nil

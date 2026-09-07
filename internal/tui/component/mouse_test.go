@@ -22,6 +22,18 @@ func TestDispatchMouseUsesHighestZAndLocalCoordinates(t *testing.T) {
 	}
 }
 
+func TestDispatchMouseForwardsMotionEvents(t *testing.T) {
+	target := MouseTarget{Rect: Rect{X: 5, Y: 3, Width: 4, Height: 2}, Z: 1, Handle: func(event MouseEvent) tea.Msg { return event }}
+	cmd := DispatchMouse([]MouseTarget{target}, tea.MouseMotionMsg(tea.Mouse{X: 6, Y: 4}))
+	if cmd == nil {
+		t.Fatal("motion event returned no command")
+	}
+	event, ok := cmd().(MouseEvent)
+	if !ok || !event.Motion || event.X != 1 || event.Y != 1 {
+		t.Fatalf("motion event=%#v ok=%t", event, ok)
+	}
+}
+
 func TestDispatchMouseIgnoresUnsupportedButtonsAndOutsideTargets(t *testing.T) {
 	target := MouseTarget{Rect: Rect{X: 1, Y: 1, Width: 2, Height: 2}, Z: 1, Handle: func(MouseEvent) tea.Msg { return "hit" }}
 	if cmd := DispatchMouse([]MouseTarget{target}, tea.MouseClickMsg(tea.Mouse{X: 10, Y: 10, Button: tea.MouseLeft})); cmd != nil {

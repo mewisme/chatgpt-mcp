@@ -579,12 +579,14 @@ func TestModelApprovalRequiresConfirmationAndAdvancesQueue(t *testing.T) {
 	}
 	updated, follow := model.Update(cmd())
 	model = updated.(Model)
-	if follow != nil || model.activeApprovalID() != second.ID || model.approvalStage != approvalStageChoice {
+	if follow == nil || model.activeApprovalID() != second.ID || model.approvalStage != approvalStageChoice || model.toast.message != "Approved "+first.ID {
 		t.Fatalf("queue did not advance: active=%q stage=%d follow=%v", model.activeApprovalID(), model.approvalStage, follow)
 	}
 	if len(resolutions) != 1 || resolutions[0].id != first.ID || !resolutions[0].approve || resolutions[0].reason != "" {
 		t.Fatalf("approval resolution=%v", resolutions)
 	}
+	updated, _ = model.Update(toastCloseMsg{})
+	model = updated.(Model)
 	updated, cmd = model.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	model = updated.(Model)
 	if cmd != nil || model.approvalStage != approvalStageConfirm || model.approvalApprove {
@@ -689,7 +691,7 @@ func TestModelApprovalPollKeepsActiveRequestStableAcrossReorder(t *testing.T) {
 	}
 }
 
-func TestModelToastRendersBesidePageTitle(t *testing.T) {
+func TestModelToastRendersAsDialogAcrossRoutes(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -704,16 +706,14 @@ func TestModelToastRendersBesidePageTitle(t *testing.T) {
 			if dismiss == nil || model.toast.id == 0 {
 				t.Fatal("toast did not schedule dismissal")
 			}
-			lines := strings.Split(ansi.Strip(model.View().Content), "\n")
-			y := -1
-			for index, line := range lines {
-				if strings.Contains(line, "· toast-inline") {
-					y = index
-					break
+			plain := ansi.Strip(model.View().Content)
+			for _, want := range []string{"✓ Update", "toast-inline", "Close"} {
+				if !strings.Contains(plain, want) {
+					t.Fatalf("route %s dialog missing %q: %q", route.Kind, want, plain)
 				}
 			}
-			if y < 0 || y > 6 {
-				t.Fatalf("route %s toast not on page title row: y=%d view=%q", route.Kind, y, ansi.Strip(model.View().Content))
+			if strings.Contains(plain, "· toast-inline") || strings.Count(plain, "Close") != 1 {
+				t.Fatalf("route %s toast retained inline rendering or multiple close actions: %q", route.Kind, plain)
 			}
 			if width, height := lipgloss.Width(model.View().Content), lipgloss.Height(model.View().Content); width != 120 || height != 40 {
 				t.Fatalf("route %s geometry=%dx%d", route.Kind, width, height)
@@ -726,16 +726,16 @@ func TestModelToastDismissalDoesNotClearNewerToast(t *testing.T) {
 	model := NewModel(Route{Kind: RouteRuntime})
 	updated, _ := model.Update(tuipage.ToastMsg{Title: "First", Message: "one", Tone: component.ToneSuccess})
 	model = updated.(Model)
-	firstID := model.toast.id
+	firstID, firstTimer := model.toast.id, model.toast.timer
 	updated, _ = model.Update(tuipage.ToastMsg{Title: "Second", Message: "two", Tone: component.ToneWarning})
 	model = updated.(Model)
-	secondID := model.toast.id
-	updated, _ = model.Update(toastDismissMsg{id: firstID})
+	secondID, secondTimer := model.toast.id, model.toast.timer
+	updated, _ = model.Update(toastDismissMsg{id: firstID, timer: firstTimer})
 	model = updated.(Model)
-	if model.toast.id != secondID || model.toast.message != "two" || pageNotice(model.currentPage) != "two" {
+	if model.toast.id != secondID || model.toast.message != "two" || pageNotice(model.currentPage) != "" {
 		t.Fatalf("stale dismiss cleared newer toast: %#v", model.toast)
 	}
-	updated, _ = model.Update(toastDismissMsg{id: secondID})
+	updated, _ = model.Update(toastDismissMsg{id: secondID, timer: secondTimer})
 	model = updated.(Model)
 	if model.toast.id != 0 || pageNotice(model.currentPage) != "" {
 		t.Fatalf("matching dismiss did not clear toast: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
@@ -764,31 +764,114 @@ func TestModelPageToastAutoDismissDuration(t *testing.T) {
 	model.currentPage = &noticeTestPage{}
 	updated, dismiss := model.updatePage(noticeTestMsg("Created"))
 	model = updated.(Model)
-	if dismiss == nil || model.toast.id == 0 || pageNotice(model.currentPage) != "Created" {
+	if dismiss == nil || model.toast.id == 0 || model.toast.message != "Created" || pageNotice(model.currentPage) != "" {
 		t.Fatalf("page notice did not start toast timer: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
 	}
-	updated, _ = model.Update(toastDismissMsg{id: model.toast.id})
+	updated, _ = model.Update(toastDismissMsg{id: model.toast.id, timer: model.toast.timer})
 	model = updated.(Model)
 	if pageNotice(model.currentPage) != "" || model.toast.id != 0 {
 		t.Fatalf("toast did not auto-clear state: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
 	}
 }
 
-func TestModelPageClearInvalidatesPendingToast(t *testing.T) {
-	model := NewModel(Route{Kind: RouteHome})
-	model.currentPage = &noticeTestPage{}
-	updated, _ := model.updatePage(noticeTestMsg("Created"))
+func TestModelToastHoverPausesAndRestartsAutoDismiss(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, _ := model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
 	model = updated.(Model)
-	oldID := model.toast.id
-	updated, _ = model.updatePage(noticeTestMsg(""))
+	id, initialTimer := model.toast.id, model.toast.timer
+	updated, cmd := model.Update(toastHoverMsg{id: id, hovered: true})
 	model = updated.(Model)
-	if model.toast.id != 0 || pageNotice(model.currentPage) != "" {
-		t.Fatalf("cleared page kept toast state: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
+	if cmd != nil || !model.toast.hovered || model.toast.timer == initialTimer {
+		t.Fatalf("hover did not pause timer: toast=%#v cmd=%v", model.toast, cmd)
 	}
-	updated, _ = model.Update(toastDismissMsg{id: oldID})
+	updated, _ = model.Update(toastDismissMsg{id: id, timer: initialTimer})
 	model = updated.(Model)
-	if model.toast.id != 0 || pageNotice(model.currentPage) != "" {
-		t.Fatalf("stale timer restored cleared toast: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
+	if model.toast.id != id {
+		t.Fatal("stale pre-hover timer dismissed toast")
+	}
+	pausedTimer := model.toast.timer
+	updated, cmd = model.Update(toastHoverMsg{id: id, hovered: false})
+	model = updated.(Model)
+	if cmd == nil || model.toast.hovered || model.toast.timer == pausedTimer {
+		t.Fatalf("leaving toast did not restart timer: toast=%#v cmd=%v", model.toast, cmd)
+	}
+	updated, _ = model.Update(toastDismissMsg{id: id, timer: pausedTimer})
+	model = updated.(Model)
+	if model.toast.id != id {
+		t.Fatal("stale paused timer dismissed toast")
+	}
+	updated, _ = model.Update(toastDismissMsg{id: id, timer: model.toast.timer})
+	model = updated.(Model)
+	if model.toast.id != 0 {
+		t.Fatalf("matching resumed timer did not dismiss toast: %#v", model.toast)
+	}
+}
+
+func TestModelToastMouseHoverOutsideAndClose(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model = updated.(Model)
+	updated, _ = model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
+	model = updated.(Model)
+	dialog := component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
+	foreground := component.Modal(dialog.View(), min(72, model.width-4))
+	_, x, y := component.CenteredOverlayTargets(foreground, model.width, model.height, 0, 0, 299, toastCloseMsg{})
+	view := model.View()
+	cmd := view.OnMouse(tea.MouseMotionMsg(tea.Mouse{X: x, Y: y}))
+	if cmd == nil {
+		t.Fatal("motion inside toast returned no command")
+	}
+	hover, ok := cmd().(toastHoverMsg)
+	if !ok || !hover.hovered {
+		t.Fatalf("inside motion=%#v", hover)
+	}
+	updated, _ = model.Update(hover)
+	model = updated.(Model)
+	view = model.View()
+	cmd = view.OnMouse(tea.MouseMotionMsg(tea.Mouse{X: 0, Y: 0}))
+	if cmd == nil {
+		t.Fatal("motion outside toast returned no command")
+	}
+	leave, ok := cmd().(toastHoverMsg)
+	if !ok || leave.hovered {
+		t.Fatalf("outside motion=%#v", leave)
+	}
+	view = model.View()
+	cmd = view.OnMouse(tea.MouseClickMsg(tea.Mouse{X: 0, Y: 0, Button: tea.MouseLeft}))
+	if cmd == nil {
+		t.Fatal("outside click returned no command")
+	}
+	closeMsg := cmd()
+	if _, ok := closeMsg.(toastCloseMsg); !ok {
+		t.Fatalf("outside click=%#v", closeMsg)
+	}
+	updated, _ = model.Update(closeMsg)
+	model = updated.(Model)
+	if model.toast.id != 0 {
+		t.Fatalf("outside click did not close toast: %#v", model.toast)
+	}
+	updated, _ = model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
+	model = updated.(Model)
+	dialog = component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
+	foreground = component.Modal(dialog.View(), min(72, model.width-4))
+	_, x, y = component.CenteredOverlayTargets(foreground, model.width, model.height, 0, 0, 299, toastCloseMsg{})
+	view = model.View()
+	if rect, ok := component.FindRenderedRect(foreground, dialog.CloseButtonView()); ok {
+		cmd = view.OnMouse(tea.MouseClickMsg(tea.Mouse{X: x + rect.X, Y: y + rect.Y, Button: tea.MouseLeft}))
+		if cmd == nil {
+			t.Fatal("close button click returned no command")
+		}
+		closeMsg = cmd()
+		if _, ok := closeMsg.(toastCloseMsg); !ok {
+			t.Fatalf("close button click=%#v", closeMsg)
+		}
+		updated, _ = model.Update(closeMsg)
+		model = updated.(Model)
+		if model.toast.id != 0 {
+			t.Fatalf("close button did not close toast: %#v", model.toast)
+		}
+	} else {
+		t.Fatal("close button rect not found")
 	}
 }
 

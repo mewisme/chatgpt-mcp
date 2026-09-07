@@ -409,6 +409,21 @@ func TestNormalizeShellEnvironmentPolicyAndAllow(t *testing.T) {
 	}
 }
 
+func TestNormalizeShellSandboxPolicy(t *testing.T) {
+	if Default().Shell.SandboxPolicy != "auto" {
+		t.Fatalf("default shell sandbox policy = %q", Default().Shell.SandboxPolicy)
+	}
+	for input, expected := range map[string]string{"": "auto", "AUTO": "auto", "off": "off", " REQUIRED ": "required"} {
+		value, err := NormalizeShellSandboxPolicy(input)
+		if err != nil || value != expected {
+			t.Fatalf("NormalizeShellSandboxPolicy(%q)=%q err=%v", input, value, err)
+		}
+	}
+	if _, err := NormalizeShellSandboxPolicy("best-effort"); err == nil {
+		t.Fatal("invalid shell sandbox policy accepted")
+	}
+}
+
 func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
 		for _, legacyInteractive := range []struct {

@@ -188,6 +188,9 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			if err == nil && patch.Shell.EnvironmentAllow != nil {
 				next.Shell.EnvironmentAllow, err = config.NormalizeShellEnvironmentAllow(patch.Shell.EnvironmentAllow)
 			}
+			if err == nil && strings.TrimSpace(patch.Shell.SandboxPolicy) != "" {
+				next.Shell.SandboxPolicy, err = config.NormalizeShellSandboxPolicy(patch.Shell.SandboxPolicy)
+			}
 		}
 		if err == nil && patch.Features != nil {
 			if active := patch.Features.Ponytail.active(); active != nil {
@@ -290,6 +293,9 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 			return errors.Join(err, api.persistConfig(previous))
 		}
 		if err := api.Tools.SetShellEnvironmentPolicy(next.Shell.EnvironmentPolicy); err != nil {
+			return errors.Join(err, api.persistConfig(previous))
+		}
+		if err := api.Tools.SetShellSandboxPolicy(next.Shell.SandboxPolicy); err != nil {
 			return errors.Join(err, api.persistConfig(previous))
 		}
 		api.Tools.SetShellEnvironmentAllow(next.Shell.EnvironmentAllow)

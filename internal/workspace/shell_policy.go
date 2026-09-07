@@ -17,6 +17,7 @@ const maxNestedShellDepth = 4
 
 type ShellApprovalPolicy string
 type ShellEnvironmentPolicy string
+type ShellSandboxPolicy string
 
 const (
 	ShellApprovalBalanced    ShellApprovalPolicy    = "balanced"
@@ -25,6 +26,9 @@ const (
 	ShellEnvironmentInherit  ShellEnvironmentPolicy = "inherit"
 	ShellEnvironmentFiltered ShellEnvironmentPolicy = "filtered"
 	ShellEnvironmentMinimal  ShellEnvironmentPolicy = "minimal"
+	ShellSandboxAuto         ShellSandboxPolicy     = "auto"
+	ShellSandboxOff          ShellSandboxPolicy     = "off"
+	ShellSandboxRequired     ShellSandboxPolicy     = "required"
 )
 
 var (
@@ -133,6 +137,53 @@ func (m *Manager) EffectiveShellEnvironmentPolicy() ShellEnvironmentPolicy {
 		return ShellEnvironmentMinimal
 	}
 	return ShellEnvironmentInherit
+}
+
+func NormalizeShellSandboxPolicy(value string) (ShellSandboxPolicy, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", string(ShellSandboxAuto):
+		return ShellSandboxAuto, true
+	case string(ShellSandboxOff):
+		return ShellSandboxOff, true
+	case string(ShellSandboxRequired):
+		return ShellSandboxRequired, true
+	default:
+		return "", false
+	}
+}
+
+func (m *Manager) SetShellSandboxPolicy(value ShellSandboxPolicy) error {
+	policy, ok := NormalizeShellSandboxPolicy(string(value))
+	if !ok {
+		return fmt.Errorf("unsupported shell sandbox policy: %q", value)
+	}
+	m.mu.Lock()
+	m.shellSandboxPolicy = policy
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) ShellSandboxPolicy() ShellSandboxPolicy {
+	if m == nil {
+		return ShellSandboxAuto
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.shellSandboxPolicy == "" {
+		return ShellSandboxAuto
+	}
+	return m.shellSandboxPolicy
+}
+
+func (m *Manager) EffectiveShellSandboxPolicy() ShellSandboxPolicy {
+	policy := m.ShellSandboxPolicy()
+	if policy != ShellSandboxAuto {
+		return policy
+	}
+	if m.ShellApprovalPolicy() == ShellApprovalStrict {
+		return ShellSandboxAuto
+	}
+	return ShellSandboxOff
 }
 
 func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirectory, command string) error {

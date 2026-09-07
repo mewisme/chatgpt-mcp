@@ -41,6 +41,7 @@ func TestReloadConfigUpdatesShellApprovalPolicy(t *testing.T) {
 	next.Shell.EnvironmentPolicy = "filtered"
 	next.Shell.EnvironmentAllow = []string{"DATABASE_URL"}
 	next.Shell.Path = []string{t.TempDir()}
+	next.Shell.SandboxPolicy = "required"
 	if err := app.ReloadConfig(next); err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +59,9 @@ func TestReloadConfigUpdatesShellApprovalPolicy(t *testing.T) {
 	}
 	if got := app.Tools.Workspaces.ShellPath(); len(got) != 1 || got[0] != next.Shell.Path[0] {
 		t.Fatalf("runtime shell path = %#v", got)
+	}
+	if got := app.Tools.Workspaces.ShellSandboxPolicy(); got != "required" {
+		t.Fatalf("runtime shell sandbox policy = %q", got)
 	}
 }
 

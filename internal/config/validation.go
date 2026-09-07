@@ -42,6 +42,9 @@ func Validate(cfg Config) error {
 	if _, err := NormalizeShellEnvironmentAllow(cfg.Shell.EnvironmentAllow); err != nil {
 		return err
 	}
+	if _, err := NormalizeShellSandboxPolicy(cfg.Shell.SandboxPolicy); err != nil {
+		return err
+	}
 	if _, ok := ponytail.NormalizeRuntimeMode(cfg.Features.Ponytail.Mode); !ok {
 		return fmt.Errorf("features.ponytail.mode must be lite, full, or ultra: %q", cfg.Features.Ponytail.Mode)
 	}
@@ -107,6 +110,19 @@ func NormalizeShellEnvironmentPolicy(value string) (string, error) {
 		return "minimal", nil
 	default:
 		return "", fmt.Errorf("shell environment policy must be auto, inherit, filtered, or minimal: %q", value)
+	}
+}
+
+func NormalizeShellSandboxPolicy(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return "auto", nil
+	case "off":
+		return "off", nil
+	case "required":
+		return "required", nil
+	default:
+		return "", fmt.Errorf("shell sandbox policy must be auto, off, or required: %q", value)
 	}
 }
 

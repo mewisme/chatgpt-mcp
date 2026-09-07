@@ -20,7 +20,7 @@ func (a *App) ReloadConfig(next config.Config) error {
 	featuresChanged := previous.Features != next.Features
 	permissionsChanged := !slices.Equal(previous.Permissions.AllowDirs, next.Permissions.AllowDirs)
 	shellApprovalPolicyChanged := previous.Shell.ApprovalPolicy != next.Shell.ApprovalPolicy
-	shellEnvironmentChanged := previous.Shell.EnvironmentPolicy != next.Shell.EnvironmentPolicy || !slices.Equal(previous.Shell.EnvironmentAllow, next.Shell.EnvironmentAllow) || !slices.Equal(previous.Shell.Path, next.Shell.Path)
+	shellEnvironmentChanged := previous.Shell.EnvironmentPolicy != next.Shell.EnvironmentPolicy || previous.Shell.SandboxPolicy != next.Shell.SandboxPolicy || !slices.Equal(previous.Shell.EnvironmentAllow, next.Shell.EnvironmentAllow) || !slices.Equal(previous.Shell.Path, next.Shell.Path)
 	tunnelChanged := previous.Tunnel != next.Tunnel
 	tunnelRuntimeChanged := tunnelChanged && !tunnel.RuntimeConfigEqual(previous.Tunnel, next.Tunnel)
 	if featuresChanged {
@@ -38,6 +38,9 @@ func (a *App) ReloadConfig(next config.Config) error {
 	}
 	if shellEnvironmentChanged {
 		if err := a.Tools.SetShellEnvironmentPolicy(next.Shell.EnvironmentPolicy); err != nil {
+			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, false, false, false))
+		}
+		if err := a.Tools.SetShellSandboxPolicy(next.Shell.SandboxPolicy); err != nil {
 			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, false, false, false))
 		}
 		a.Tools.SetShellEnvironmentAllow(next.Shell.EnvironmentAllow)
@@ -96,6 +99,7 @@ func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, feature
 	}
 	if shellEnvironmentChanged {
 		rollbackErr = errors.Join(rollbackErr, a.Tools.SetShellEnvironmentPolicy(previous.Shell.EnvironmentPolicy))
+		rollbackErr = errors.Join(rollbackErr, a.Tools.SetShellSandboxPolicy(previous.Shell.SandboxPolicy))
 		a.Tools.SetShellEnvironmentAllow(previous.Shell.EnvironmentAllow)
 		a.Tools.SetShellPath(previous.Shell.Path)
 	}

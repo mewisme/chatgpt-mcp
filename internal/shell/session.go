@@ -177,7 +177,11 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 	}
 
 	run := m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "run_command", Command: effective, CWD: cwd, Source: executionSource(ctx)})
-	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow(), m.workspaces.ShellPath(), m.workspaces.ShellApprovalPolicy() == workspace.ShellApprovalStrict)
+	roots, err := m.workspaces.EffectiveRoots(workspaceID)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow(), m.workspaces.ShellPath(), m.workspaces.ShellApprovalPolicy() == workspace.ShellApprovalStrict, roots, m.workspaces.EffectiveShellSandboxPolicy())
 	if saveErr := m.save(current.state); saveErr != nil && err == nil {
 		return ExecResult{}, saveErr
 	}
@@ -338,7 +342,7 @@ func statusFromState(state SessionState) Status {
 	return Status{Active: true, CWD: state.CWD, StartedAt: state.StartedAt, RecentCommands: recent}
 }
 
-func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, execution *ExecutionRun, environmentPolicy workspace.ShellEnvironmentPolicy, environmentAllow, shellPath []string, strict bool) (ExecResult, error) {
+func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, execution *ExecutionRun, environmentPolicy workspace.ShellEnvironmentPolicy, environmentAllow, shellPath []string, strict bool, roots []string, sandboxPolicy workspace.ShellSandboxPolicy) (ExecResult, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd, err := commandForPlatformPolicy(runCtx, command, strict, shellPath)
@@ -350,6 +354,11 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, ex
 	cmd.Env = shellEnvironment(ctx, environmentPolicy, environmentAllow, shellPath, strict)
 	if strict && runtime.GOOS != "windows" {
 		cmd.Env = setEnvironmentValue(cmd.Env, "SHELL", cmd.Path)
+	}
+	cmd, err = wrapShellSandbox(runCtx, cmd, cwd, roots, shellPath, sandboxPolicy)
+	if err != nil {
+		execution.Finish(ExecutionStatusFailed, nil, false)
+		return ExecResult{}, err
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&stdout, execution.Writer("stdout"))

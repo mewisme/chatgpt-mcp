@@ -43,22 +43,23 @@ type storeFile struct {
 }
 
 type Manager struct {
-	path            string
-	protectedRoot   string
-	instanceStore   *instance.Store
-	identityOnce    sync.Once
-	identity        instance.Identity
-	identityErr     error
-	mu              sync.RWMutex
-	loaded          bool
-	items           map[string]Workspace
-	containers      map[string]WorkspaceContainer
-	aliases         map[string]string
-	globalAllowDirs []string
-	shellPolicy     ShellApprovalPolicy
-	shellEnvPolicy  ShellEnvironmentPolicy
-	shellEnvAllow   []string
-	shellPath       []string
+	path               string
+	protectedRoot      string
+	instanceStore      *instance.Store
+	identityOnce       sync.Once
+	identity           instance.Identity
+	identityErr        error
+	mu                 sync.RWMutex
+	loaded             bool
+	items              map[string]Workspace
+	containers         map[string]WorkspaceContainer
+	aliases            map[string]string
+	globalAllowDirs    []string
+	shellPolicy        ShellApprovalPolicy
+	shellEnvPolicy     ShellEnvironmentPolicy
+	shellEnvAllow      []string
+	shellPath          []string
+	shellSandboxPolicy ShellSandboxPolicy
 }
 
 func DefaultStorePath() string {
@@ -72,7 +73,7 @@ func NewManager(path string) *Manager {
 	if storeRoot != "" && configRoot != "" && storeRoot == configRoot {
 		protectedRoot = configRoot
 	}
-	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}, shellPolicy: ShellApprovalBalanced, shellEnvPolicy: ShellEnvironmentAuto}
+	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}, shellPolicy: ShellApprovalBalanced, shellEnvPolicy: ShellEnvironmentAuto, shellSandboxPolicy: ShellSandboxAuto}
 }
 
 func NewManagerWithGlobalAllowDirs(path string, allowDirs []string) *Manager {

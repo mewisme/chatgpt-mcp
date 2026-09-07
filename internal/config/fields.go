@@ -49,6 +49,7 @@ var fieldSpecs = []FieldSpec{
 	{Key: "shell.approval_policy", Description: "shell approval policy", Kind: FieldEnum, Options: []string{"balanced", "strict"}, Editable: true},
 	{Key: "shell.environment_policy", Description: "shell environment inheritance policy", Kind: FieldEnum, Options: []string{"auto", "inherit", "filtered", "minimal"}, Editable: true},
 	{Key: "shell.environment_allow", Description: "environment variables explicitly exposed to shell commands", Kind: FieldList, Editable: true},
+	{Key: "shell.sandbox_policy", Description: "OS-level shell sandbox policy", Kind: FieldEnum, Options: []string{"auto", "off", "required"}, Editable: true},
 	{Key: "features.ponytail.active", Description: "Ponytail mode active by default", Kind: FieldBool, Editable: true},
 	{Key: "features.ponytail.mode", Description: "Ponytail default intensity", Kind: FieldEnum, Options: []string{"lite", "full", "ultra"}, Editable: true},
 	{Key: "features.caveman.active", Description: "Caveman mode active by default", Kind: FieldBool, Editable: true},
@@ -169,6 +170,12 @@ func SetValue(cfg *Config, key, raw string) error {
 			return err
 		}
 		cfg.Shell.EnvironmentAllow = value
+	case "shell.sandbox_policy":
+		value, err := NormalizeShellSandboxPolicy(raw)
+		if err != nil {
+			return err
+		}
+		cfg.Shell.SandboxPolicy = value
 	case "features.ponytail.active":
 		value, err := parseBoolField(raw, key)
 		if err != nil {
@@ -275,6 +282,8 @@ func RawValue(cfg Config, key string) (string, error) {
 		return cfg.Shell.EnvironmentPolicy, nil
 	case "shell.environment_allow":
 		return strings.Join(cfg.Shell.EnvironmentAllow, ","), nil
+	case "shell.sandbox_policy":
+		return cfg.Shell.SandboxPolicy, nil
 	case "features.ponytail.active":
 		return strconv.FormatBool(cfg.Features.Ponytail.Active), nil
 	case "features.ponytail.mode":

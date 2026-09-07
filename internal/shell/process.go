@@ -106,7 +106,8 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 		return StartResult{}, err
 	}
 	strict := m.workspaces.ShellApprovalPolicy() == workspace.ShellApprovalStrict
-	cmd, err := commandForPlatformPolicy(context.WithoutCancel(ctx), command, strict, m.workspaces.ShellPath())
+	processCtx := context.WithoutCancel(ctx)
+	cmd, err := commandForPlatformPolicy(processCtx, command, strict, m.workspaces.ShellPath())
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -114,6 +115,14 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	cmd.Env = shellEnvironment(ctx, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow(), m.workspaces.ShellPath(), strict)
 	if strict && runtime.GOOS != "windows" {
 		cmd.Env = setEnvironmentValue(cmd.Env, "SHELL", cmd.Path)
+	}
+	roots, err := m.workspaces.EffectiveRoots(workspaceID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	cmd, err = wrapShellSandbox(processCtx, cmd, cwd, roots, m.workspaces.ShellPath(), m.workspaces.EffectiveShellSandboxPolicy())
+	if err != nil {
+		return StartResult{}, err
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {

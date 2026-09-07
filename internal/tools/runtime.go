@@ -130,6 +130,17 @@ func (r *Runtime) SetShellEnvironmentPolicy(value string) error {
 	return r.Workspaces.SetShellEnvironmentPolicy(policy)
 }
 
+func (r *Runtime) SetShellSandboxPolicy(value string) error {
+	if r == nil || r.Workspaces == nil {
+		return errors.New("tool runtime is unavailable")
+	}
+	policy, ok := workspace.NormalizeShellSandboxPolicy(value)
+	if !ok {
+		return fmt.Errorf("unsupported shell sandbox policy: %q", value)
+	}
+	return r.Workspaces.SetShellSandboxPolicy(policy)
+}
+
 func (r *Runtime) SetShellEnvironmentAllow(names []string) {
 	if r != nil && r.Workspaces != nil {
 		r.Workspaces.SetShellEnvironmentAllow(names)

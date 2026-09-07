@@ -22,6 +22,11 @@ type NoticeModel interface {
 	SetNotice(string)
 }
 
+type ToastNoticeModel interface {
+	NoticeModel
+	ShouldToastNotice() bool
+}
+
 type NavigateMsg struct {
 	Path    []string
 	Replace bool

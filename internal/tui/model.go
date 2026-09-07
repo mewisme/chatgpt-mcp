@@ -983,6 +983,9 @@ func (model Model) updatePage(message tea.Msg) (tea.Model, tea.Cmd) {
 	model.currentPage = updated
 	after := pageNotice(model.currentPage)
 	if after != "" && after != before {
+		if page, ok := model.currentPage.(tuipage.ToastNoticeModel); ok && !page.ShouldToastNotice() {
+			return model, cmd
+		}
 		if page, ok := model.currentPage.(tuipage.NoticeModel); ok {
 			page.SetNotice("")
 		}

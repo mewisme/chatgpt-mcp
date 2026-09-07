@@ -105,6 +105,7 @@ type LogsPage struct {
 	info         application.LogsInfo
 	progress     *component.Progress
 	notice       string
+	toastNotice  bool
 	err          error
 	width        int
 	height       int
@@ -172,7 +173,14 @@ func (page *LogsPage) Notice() string {
 func (page *LogsPage) SetNotice(value string) {
 	if page != nil {
 		page.notice = strings.TrimSpace(value)
+		if page.notice == "" {
+			page.toastNotice = false
+		}
 	}
+}
+
+func (page *LogsPage) ShouldToastNotice() bool {
+	return page != nil && page.toastNotice
 }
 
 func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
@@ -215,7 +223,7 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		page.events = nil
-		page.notice, page.err = "Runtime logs cleared", nil
+		page.notice, page.toastNotice, page.err = "Runtime logs cleared", true, nil
 		browserCmd := page.rebuildBrowser("")
 		if page.connected {
 			return page, browserCmd
@@ -439,7 +447,7 @@ func (page *LogsPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 }
 
 func (page *LogsPage) openCommand(command LogsCommand) tea.Cmd {
-	page.err, page.notice = nil, ""
+	page.err, page.notice, page.toastNotice = nil, "", false
 	switch command {
 	case LogsRefresh:
 		return page.startBootstrap()
@@ -503,7 +511,7 @@ func (page *LogsPage) updateClearConfirm(msg tea.KeyPressMsg) tea.Cmd {
 
 func (page *LogsPage) togglePause() tea.Cmd {
 	page.paused = !page.paused
-	page.notice = ""
+	page.notice, page.toastNotice = "", false
 	if !page.paused {
 		page.browser.SelectLast()
 	}
@@ -554,7 +562,7 @@ func (page *LogsPage) finishBootstrap(msg logsBootstrapMsg) tea.Cmd {
 	}
 	page.reconnecting = !page.connected
 	if page.err == nil && page.reconnecting {
-		page.notice = "Journal loaded; connecting live stream"
+		page.notice, page.toastNotice = "Journal loaded; connecting live stream", false
 	}
 	return tea.Batch(browserCmd, page.openStreamCmd(msg.generation))
 }
@@ -581,7 +589,7 @@ func (page *LogsPage) finishStreamOpen(msg logsStreamOpenMsg) tea.Cmd {
 		page.connected, page.reconnecting = false, true
 		page.stream = nil
 		if page.err == nil {
-			page.notice = "Runtime offline; showing journal history and retrying live stream"
+			page.notice, page.toastNotice = "Runtime offline; showing journal history and retrying live stream", false
 		}
 		return page.reconnectCmd(msg.generation)
 	}
@@ -590,14 +598,14 @@ func (page *LogsPage) finishStreamOpen(msg logsStreamOpenMsg) tea.Cmd {
 		page.streamRunID, page.streamSeq = msg.state.RunID, 0
 	}
 	if msg.stream.LatestSequence() > page.streamSeq {
-		page.notice = "Live stream advanced during journal load; resyncing journal"
+		page.notice, page.toastNotice = "Live stream advanced during journal load; resyncing journal", false
 		return page.startBootstrap()
 	}
 	if page.options.Session == "" && !page.options.All && msg.state.RunID != "" && page.query.RunID != msg.state.RunID {
-		page.notice = "Runtime session changed; resyncing journal"
+		page.notice, page.toastNotice = "Runtime session changed; resyncing journal", false
 		return page.startBootstrap()
 	}
-	page.notice = ""
+	page.notice, page.toastNotice = "", false
 	return page.nextEventCmd(msg.generation)
 }
 
@@ -620,13 +628,13 @@ func (page *LogsPage) finishStreamEvent(msg logsStreamEventMsg) tea.Cmd {
 		if msg.err == io.EOF || page.ctx.Err() == nil {
 			page.connected, page.reconnecting = false, true
 			page.stopStreamOnly()
-			page.notice = "Live stream disconnected; reconnecting"
+			page.notice, page.toastNotice = "Live stream disconnected; reconnecting", false
 			return page.reconnectCmd(msg.generation)
 		}
 		return nil
 	}
 	if page.streamGap(msg.event) {
-		page.notice = "Live stream gap detected; resyncing journal"
+		page.notice, page.toastNotice = "Live stream gap detected; resyncing journal", false
 		return page.startBootstrap()
 	}
 	if page.options.Session == "" && !page.options.All && msg.event.RunID != "" && page.query.RunID != msg.event.RunID {

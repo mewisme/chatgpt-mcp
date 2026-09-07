@@ -893,3 +893,31 @@ func (*noticeTestPage) OverlayActive() bool         { return false }
 func (*noticeTestPage) InputActive() bool           { return false }
 func (page *noticeTestPage) Notice() string         { return page.notice }
 func (page *noticeTestPage) SetNotice(value string) { page.notice = value }
+
+type statusNoticeTestPage struct{ notice string }
+
+func (*statusNoticeTestPage) Init() tea.Cmd { return nil }
+func (page *statusNoticeTestPage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {
+	if value, ok := message.(noticeTestMsg); ok {
+		page.notice = string(value)
+	}
+	return page, nil
+}
+func (page *statusNoticeTestPage) View(width, height int) string {
+	return component.PageTitleNotice("Test", page.notice, width)
+}
+func (*statusNoticeTestPage) OverlayActive() bool         { return false }
+func (*statusNoticeTestPage) InputActive() bool           { return false }
+func (page *statusNoticeTestPage) Notice() string         { return page.notice }
+func (page *statusNoticeTestPage) SetNotice(value string) { page.notice = value }
+func (*statusNoticeTestPage) ShouldToastNotice() bool     { return false }
+
+func TestModelKeepsStatusOnlyNoticeOutOfToastDialog(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	model.currentPage = &statusNoticeTestPage{}
+	updated, cmd := model.updatePage(noticeTestMsg("Live stream disconnected; reconnecting"))
+	model = updated.(Model)
+	if cmd != nil || model.toast.id != 0 || pageNotice(model.currentPage) == "" {
+		t.Fatalf("status notice promoted to toast: toast=%#v notice=%q cmd=%v", model.toast, pageNotice(model.currentPage), cmd)
+	}
+}

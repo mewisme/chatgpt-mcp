@@ -41,6 +41,9 @@ func TestLogsPageLoadsHistoryAndShowsOfflineReconnectState(t *testing.T) {
 	if len(page.events) != 1 || !page.loaded || page.connected || !page.reconnecting || connect == nil {
 		t.Fatalf("journal loaded=%t connected=%t reconnect=%t events=%d cmd=%v", page.loaded, page.connected, page.reconnecting, len(page.events), connect)
 	}
+	if !strings.Contains(page.notice, "Journal loaded") || page.ShouldToastNotice() {
+		t.Fatalf("bootstrap notice=%q toast=%t", page.notice, page.ShouldToastNotice())
+	}
 	updated, reconnect := page.Update(connect())
 	page = updated.(*LogsPage)
 	if page.connected || !page.reconnecting || reconnect == nil {
@@ -413,8 +416,8 @@ func TestLogsClearKeepsLiveStreamAndStableNotice(t *testing.T) {
 	page.events = []runtimeevent.Event{{RunID: "run_live", Sequence: 41, Message: "before clear"}}
 	updated, _ := page.Update(logsClearMsg{operation: 3})
 	page = updated.(*LogsPage)
-	if !page.connected || page.generation != 7 || len(page.events) != 0 || page.notice != "Runtime logs cleared" {
-		t.Fatalf("clear state connected=%t generation=%d events=%d notice=%q", page.connected, page.generation, len(page.events), page.notice)
+	if !page.connected || page.generation != 7 || len(page.events) != 0 || page.notice != "Runtime logs cleared" || !page.ShouldToastNotice() {
+		t.Fatalf("clear state connected=%t generation=%d events=%d notice=%q toast=%t", page.connected, page.generation, len(page.events), page.notice, page.ShouldToastNotice())
 	}
 	page.finishStreamEvent(logsStreamEventMsg{generation: 7, event: runtimeevent.Event{RunID: "run_live", Sequence: 42, Message: "after clear"}})
 	if page.notice != "Runtime logs cleared" || page.generation != 7 || page.streamSeq != 42 {
@@ -666,6 +669,9 @@ func TestLogsPageStreamEventDisconnectAndGapHelpers(t *testing.T) {
 	cmd := page.finishStreamEvent(logsStreamEventMsg{generation: 2, err: io.EOF})
 	if cmd == nil || page.connected || !page.reconnecting || !strings.Contains(page.notice, "disconnected") {
 		t.Fatalf("disconnect connected=%t reconnect=%t notice=%q cmd=%v", page.connected, page.reconnecting, page.notice, cmd)
+	}
+	if page.ShouldToastNotice() {
+		t.Fatal("stream disconnect status unexpectedly marked as toast")
 	}
 	if cmd := page.finishStreamEvent(logsStreamEventMsg{generation: 1, event: runtimeevent.Event{RunID: "run", Sequence: 1}}); cmd != nil {
 		t.Fatalf("stale event scheduled cmd=%v", cmd)

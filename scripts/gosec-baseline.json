@@ -93,7 +93,7 @@
     "confidence": "HIGH",
     "file": "internal/service/command.go",
     "details": "Subprocess launched with variable",
-    "code": "func runCommand(name string, args ...string) (string, error) {\n\tcommand := exec.Command(name, args...)\n\toutput, err := command.CombinedOutput()"
+    "code": "func runCommand(name string, args ...string) (string, error) {\n\tcommand := exec.Command(name, args...)\n\tconfigureCommand(command)"
   },
   {
     "rule_id": "G204",

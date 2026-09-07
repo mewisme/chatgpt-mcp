@@ -34,7 +34,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if !source.Exists {
 		return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init")
 	}
-	cfg, err := config.Load()
+	cfg, err := config.LoadRuntime()
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		if !runtimeReady {
 			return runtimeReloadResult{}, errors.New("runtime is still starting")
 		}
-		next, err := config.Load()
+		next, err := config.LoadRuntime()
 		if err != nil {
 			return runtimeReloadResult{}, err
 		}

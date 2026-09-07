@@ -114,7 +114,7 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 	if _, err := config.VerifyRuntime(); err != nil {
 		return err
 	}
-	cfg, err := config.Load()
+	cfg, err := config.LoadRuntime()
 	if err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func saveManagedEnvironment(spec managed.Spec) (string, error) {
 	if !source.Exists {
 		return "", errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init first")
 	}
-	cfg, err := config.Load()
+	cfg, err := config.LoadRuntime()
 	if err != nil {
 		return "", err
 	}
@@ -260,7 +260,7 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 	if _, err := config.VerifyRuntime(); err != nil {
 		return err
 	}
-	cfg, err := config.Load()
+	cfg, err := config.LoadRuntime()
 	if err != nil {
 		return err
 	}

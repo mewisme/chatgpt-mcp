@@ -17,6 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -126,6 +127,59 @@ func TestManagedUpAndDownLifecycle(t *testing.T) {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("down output missing %q: %s", expected, output.String())
 		}
+	}
+}
+
+func TestManagedUpAllowsHTTPTransportWhenDisabledTunnelSecretIsMissing(t *testing.T) {
+	defer configformat.SetRootPath("")
+	restoreSecrets := secretstore.UseMemoryForTesting()
+	defer restoreSecrets()
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.Enabled = true
+	cfg.Tunnel.Enabled = false
+	cfg.Tunnel.ID = "tunnel_disabled"
+	cfg.Tunnel.APIKey = "stale-runtime-key"
+	cfg.Tunnel.AdminKey = "stale-admin-key"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := config.TunnelSecretEntries(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := secretstore.New(root)
+	for _, entry := range entries {
+		if err := store.Set(entry, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := config.Load(); err == nil {
+		t.Fatal("strict config load unexpectedly accepted missing tunnel secrets")
+	}
+
+	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root, Binary: "/fake/cgm", Account: managed.Account{Username: "mew", HomeDir: t.TempDir()}}
+	manager := &fakeServiceManager{}
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(&bytes.Buffer{})
+	if _, err := saveManagedEnvironment(spec); err != nil {
+		t.Fatalf("disabled tunnel blocked managed environment capture: %v", err)
+	}
+	if err := runManagedUp(cmd, spec, manager); err != nil {
+		t.Fatalf("HTTP-only managed up failed: %v", err)
+	}
+	defer func() {
+		if manager.control != nil {
+			_ = manager.control.Close()
+		}
+	}()
+	if !manager.running || manager.starts != 1 {
+		t.Fatalf("managed HTTP runtime did not start: %#v", manager)
 	}
 }
 

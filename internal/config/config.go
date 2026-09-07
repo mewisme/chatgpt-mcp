@@ -161,6 +161,14 @@ func Load() (Config, error) {
 	return loadAt(source.Path, configformat.StructuredPathFrom(source.Path, "tunnel"))
 }
 
+func LoadRuntime() (Config, error) {
+	source, err := Source()
+	if err != nil {
+		return Config{}, err
+	}
+	return loadRuntimeAt(source.Path, configformat.StructuredPathFrom(source.Path, "tunnel"))
+}
+
 func LoadForTunnelRuntimeKeyReplacement() (Config, error) {
 	return loadForTunnelSecretReplacement(tunnelSecretLoadPolicy{allowMissingRuntime: true})
 }
@@ -179,6 +187,10 @@ func loadForTunnelSecretReplacement(policy tunnelSecretLoadPolicy) (Config, erro
 
 func loadAt(configPath, secretPath string) (Config, error) {
 	return loadAtWithTunnelSecretPolicy(configPath, secretPath, tunnelSecretLoadPolicy{})
+}
+
+func loadRuntimeAt(configPath, secretPath string) (Config, error) {
+	return loadAtWithTunnelSecretPolicy(configPath, secretPath, tunnelSecretLoadPolicy{allowMissingRuntime: true, allowMissingAdmin: true})
 }
 
 func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSecretLoadPolicy) (Config, error) {

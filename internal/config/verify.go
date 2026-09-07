@@ -28,7 +28,7 @@ func VerifyRuntime() (VerifyResult, error) {
 	return verifyAt(RootPath(), true)
 }
 
-func verifyAt(root string, skipCheckpoints bool) (VerifyResult, error) {
+func verifyAt(root string, runtimeMode bool) (VerifyResult, error) {
 	source, err := configformat.Discover(root)
 	if err != nil {
 		return VerifyResult{}, err
@@ -41,7 +41,7 @@ func verifyAt(root string, skipCheckpoints bool) (VerifyResult, error) {
 		return VerifyResult{}, err
 	}
 	for _, file := range files {
-		if skipCheckpoints && isCheckpointStateFile(root, file.path) {
+		if runtimeMode && isCheckpointStateFile(root, file.path) {
 			continue
 		}
 		if file.ext != source.Ext {
@@ -55,7 +55,11 @@ func verifyAt(root string, skipCheckpoints bool) (VerifyResult, error) {
 			return VerifyResult{}, fmt.Errorf("decode %s: %w", file.path, err)
 		}
 	}
-	cfg, err := loadAt(source.Path, configformat.StructuredPathFrom(source.Path, "tunnel"))
+	load := loadAt
+	if runtimeMode {
+		load = loadRuntimeAt
+	}
+	cfg, err := load(source.Path, configformat.StructuredPathFrom(source.Path, "tunnel"))
 	if err != nil {
 		return VerifyResult{}, err
 	}

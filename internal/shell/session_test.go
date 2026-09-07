@@ -184,9 +184,13 @@ func TestShellExecReturnsParentCancellationBeforeInternalTimeout(t *testing.T) {
 	manager.timeout = 2 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 	defer cancel()
-	_, err := manager.Exec(ctx, workspaceID, "sleep 1")
+	started := time.Now()
+	_, err := manager.Exec(ctx, workspaceID, "sleep 1; printf done")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error=%v want parent deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("parent cancellation took %s; child process likely kept shell pipes open", elapsed)
 	}
 	if strings.Contains(err.Error(), "timed out after 2s") {
 		t.Fatalf("parent cancellation was misreported as internal timeout: %v", err)

@@ -360,6 +360,7 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, ex
 		execution.Finish(ExecutionStatusFailed, nil, false)
 		return ExecResult{}, err
 	}
+	configureCommandLifecycle(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&stdout, execution.Writer("stdout"))
 	cmd.Stderr = io.MultiWriter(&stderr, execution.Writer("stderr"))

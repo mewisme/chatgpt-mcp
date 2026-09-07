@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"runtime"
 	"sort"
@@ -124,6 +123,7 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	if err != nil {
 		return StartResult{}, err
 	}
+	configureCommandLifecycle(cmd)
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return StartResult{}, err
@@ -137,7 +137,7 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	}
 	id, err := processID()
 	if err != nil {
-		_ = cmd.Process.Kill()
+		_ = signalCommandTree(cmd, true)
 		return StartResult{}, err
 	}
 	process := &managedProcess{
@@ -239,18 +239,10 @@ func (m *ProcessManager) Stop(workspaceID, id string, force bool) (StopResult, e
 	if item.cmd.Process == nil {
 		return StopResult{}, errors.New("process handle is unavailable")
 	}
-	if force {
-		if err := item.cmd.Process.Kill(); err != nil {
-			return StopResult{}, err
-		}
-		return StopResult{ID: id, Force: true}, nil
+	if err := signalCommandTree(item.cmd, force); err != nil {
+		return StopResult{}, err
 	}
-	if err := item.cmd.Process.Signal(os.Interrupt); err != nil {
-		if killErr := item.cmd.Process.Kill(); killErr != nil {
-			return StopResult{}, fmt.Errorf("interrupt process: %v; kill process: %w", err, killErr)
-		}
-	}
-	return StopResult{ID: id, Force: false}, nil
+	return StopResult{ID: id, Force: force}, nil
 }
 
 func (m *ProcessManager) Clear(workspaceID string) (int, error) {

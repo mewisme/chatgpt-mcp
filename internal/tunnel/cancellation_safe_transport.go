@@ -55,6 +55,9 @@ func newCancellationSafeInMemoryTransports() (sdkmcp.Transport, sdkmcp.Transport
 }
 
 func (t *cancellationSafeTransport) Connect(ctx context.Context) (sdkmcp.Connection, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.conn != nil {
@@ -73,7 +76,7 @@ func (t *cancellationSafeTransport) Connect(ctx context.Context) (sdkmcp.Connect
 		closed:  make(chan struct{}),
 	}
 	t.conn = conn
-	go conn.readLoop()
+	go conn.readLoop(context.WithoutCancel(ctx))
 	return conn, nil
 }
 
@@ -147,7 +150,7 @@ func (c *cancellationSafeConnection) Write(ctx context.Context, msg jsonrpc.Mess
 		return err
 	}
 	if route.done != nil {
-		go c.watchCancellation(route)
+		go c.watchCancellation(context.WithoutCancel(ctx), route)
 	}
 	return nil
 }
@@ -185,7 +188,7 @@ func (c *cancellationSafeConnection) prepareRoute(ctx context.Context, request *
 	return route, &wireRequest, nil
 }
 
-func (c *cancellationSafeConnection) watchCancellation(route *cancellationRoute) {
+func (c *cancellationSafeConnection) watchCancellation(ctx context.Context, route *cancellationRoute) {
 	<-route.done
 	if !c.retireRoute(route) {
 		return
@@ -195,7 +198,7 @@ func (c *cancellationSafeConnection) watchCancellation(route *cancellationRoute)
 		return
 	}
 	notification := &jsonrpc.Request{Method: "notifications/cancelled", Params: params}
-	ctx, cancel := context.WithTimeout(context.Background(), cancellationNotificationTimeout)
+	ctx, cancel := context.WithTimeout(ctx, cancellationNotificationTimeout)
 	defer cancel()
 	if err := c.base.Write(ctx, notification); err != nil && !isContextError(ctx, err) {
 		c.hardFailure.Store(true)
@@ -247,9 +250,9 @@ func (c *cancellationSafeConnection) routeForContext(ctx context.Context) *cance
 	return route
 }
 
-func (c *cancellationSafeConnection) readLoop() {
+func (c *cancellationSafeConnection) readLoop(ctx context.Context) {
 	for {
-		msg, err := c.base.Read(context.Background())
+		msg, err := c.base.Read(ctx)
 		if err != nil {
 			c.mu.Lock()
 			c.readErr = err

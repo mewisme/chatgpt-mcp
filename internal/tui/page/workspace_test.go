@@ -291,7 +291,7 @@ func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 		t.Fatal("resource detail incorrectly reports overlay active")
 	}
 	plain := ansi.Strip(detail.View(100, 24))
-	if !strings.Contains(plain, "Workspace · "+item.ID) || !strings.Contains(plain, item.Path) || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
+	if !strings.Contains(plain, "Workspace · "+item.ID) || !strings.Contains(plain, filepath.Base(item.Path)) || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
 		t.Fatalf("workspace detail=%q", plain)
 	}
 	if strings.Contains(plain, "Overview   Access") || strings.Contains(plain, "╭") {

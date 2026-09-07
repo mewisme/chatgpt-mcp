@@ -19,7 +19,7 @@ import (
 
 const logsExecutionFeedCap = 4000
 
-type logsTab uint8
+type logsTab int
 
 const (
 	logsTabRuntime logsTab = iota

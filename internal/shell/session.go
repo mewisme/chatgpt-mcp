@@ -419,15 +419,17 @@ func commandForPlatformPolicy(ctx context.Context, command string, strict bool, 
 		}
 		return exec.CommandContext(ctx, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", effective), nil
 	}
+	shell := ""
 	if strict {
-		shell, err := trustedUnixShell(shellPath)
+		var err error
+		shell, err = trustedUnixShell(shellPath)
 		if err != nil {
 			return nil, err
 		}
-		return exec.CommandContext(ctx, shell, "-c", command), nil
+	} else {
+		shell = strings.TrimSpace(os.Getenv("SHELL"))
 	}
-	shell := strings.TrimSpace(os.Getenv("SHELL"))
-	if shell == "" {
+	if !strict && shell == "" {
 		if found, err := exec.LookPath("bash"); err == nil {
 			shell = found
 		} else {

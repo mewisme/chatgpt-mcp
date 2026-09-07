@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -71,8 +72,8 @@ func TestPrepareManagedBinaryStagesTransientGoBuildBinaryByContent(t *testing.T)
 	if err != nil || string(data) != "first-build" {
 		t.Fatalf("staged binary data=%q err=%v", string(data), err)
 	}
-	if info, err := os.Stat(first); err != nil || info.Mode().Perm()&0111 == 0 {
-		t.Fatalf("staged binary is not executable: info=%v err=%v", info, err)
+	if info, err := os.Stat(first); err != nil || runtime.GOOS != "windows" && info.Mode().Perm()&0111 == 0 {
+		t.Fatalf("staged binary permissions are invalid: info=%v err=%v", info, err)
 	}
 	reused, err := PrepareManagedBinary(root, source)
 	if err != nil || reused != first {

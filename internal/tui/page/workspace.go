@@ -33,7 +33,7 @@ type WorkspaceCommandMsg struct {
 	ResourceID string
 }
 
-type workspaceTab uint8
+type workspaceTab int
 
 const (
 	workspaceTabWorkspaces workspaceTab = iota

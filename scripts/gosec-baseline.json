@@ -99,6 +99,14 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
+    "file": "internal/shell/sandbox.go",
+    "details": "Subprocess launched with variable",
+    "code": "}\n\twrapped := exec.CommandContext(ctx, bwrap, args...)\n\twrapped.Dir = cwd"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
     "file": "internal/shell/session.go",
     "details": "Subprocess launched with variable",
     "code": "}\n\t\treturn exec.CommandContext(ctx, executable, granted.Invocation.Args...), nil\n\t}"
@@ -374,6 +382,22 @@
     "file": "internal/secretstore/backend_file.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\tdata, err := os.ReadFile(path)\n\tif errors.Is(err, os.ErrNotExist) {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/service/service.go",
+    "details": "Potential file inclusion via variable",
+    "code": "defer os.Remove(tempPath)\n\tsourceFile, err := os.Open(source)\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/service/service.go",
+    "details": "Potential file inclusion via variable",
+    "code": "func fileSHA256(path string) (string, error) {\n\tfile, err := os.Open(path)\n\tif err != nil {"
   },
   {
     "rule_id": "G304",

@@ -47,7 +47,7 @@ func TestLogsPageLoadsHistoryAndShowsOfflineReconnectState(t *testing.T) {
 		t.Fatalf("offline stream connected=%t reconnect=%t cmd=%v", page.connected, page.reconnecting, reconnect)
 	}
 	plain := ansi.Strip(page.View(180, 28))
-	for _, want := range []string{"Runtime Logs", "RECONNECTING", "server.ready", "? more"} {
+	for _, want := range []string{"Runtime", "Command Execution", "RECONNECTING", "server.ready", "? more"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view missing %q: %q", want, plain)
 		}
@@ -697,8 +697,8 @@ func TestLogsCommandExecutionRouteStreamsCombinedOutputInEventOrder(t *testing.T
 	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()
 	open := page.Init()
-	if !page.execution || open == nil {
-		t.Fatalf("execution=%t open=%v", page.execution, open)
+	if page.tab != logsTabCommandExec || open == nil {
+		t.Fatalf("tab=%d open=%v", page.tab, open)
 	}
 	updated, next := page.Update(open())
 	page = updated.(*LogsPage)
@@ -716,7 +716,7 @@ func TestLogsCommandExecutionRouteStreamsCombinedOutputInEventOrder(t *testing.T
 		t.Fatalf("completed events=%#v next=%v", page.exec.events, next)
 	}
 	plain := ansi.Strip(page.View(120, 28))
-	for _, want := range []string{"Logs · Command Execution", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]", "v runtime logs"} {
+	for _, want := range []string{"Runtime", "Command Execution", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]", "←/→ tabs"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("command exec view missing %q: %q", want, plain)
 		}
@@ -782,38 +782,36 @@ func TestFormatExecutionFeedCombinesStdoutAndStderrWithoutStreamSections(t *test
 	}
 }
 
-func TestLogsRuntimeAndCommandExecutionNavigateAsRoutes(t *testing.T) {
+func TestLogsRuntimeAndCommandExecutionRemainTabbedParentViews(t *testing.T) {
 	setupLogsPageRoot(t)
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
 	page.width, page.height = 100, 24
-	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime Logs") || strings.Contains(view, "Command Execution   Runtime") {
-		t.Fatalf("runtime logs view=%q", view)
+	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime") || !strings.Contains(view, "Command Execution") {
+		t.Fatalf("runtime logs tab view=%q", view)
 	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	page = updated.(*LogsPage)
-	if cmd == nil {
-		t.Fatal("execution route navigation returned no command")
+	if page.tab != logsTabCommandExec || cmd == nil {
+		t.Fatalf("execution tab=%d cmd=%v", page.tab, cmd)
 	}
-	navigate, ok := cmd().(NavigateMsg)
-	if !ok || strings.Join(navigate.Path, "/") != "logs-exec" {
-		t.Fatalf("execution navigation=%#v", navigate)
+	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime") || !strings.Contains(view, "Command Execution") || !strings.Contains(view, "Waiting for command output") {
+		t.Fatalf("execution tab view=%q", view)
 	}
+	foundTabTarget := false
 	for _, target := range page.MouseTargets(0, 0, 1) {
 		if target.ID == "logs.tab" {
-			t.Fatal("legacy logs tab mouse target still present")
+			foundTabTarget = true
+			break
 		}
 	}
-	execPage, _ := NewCommandExecutionLogs(t.Context())
-	defer execPage.Close()
-	updated, cmd = execPage.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
-	execPage = updated.(*LogsPage)
-	if cmd == nil {
-		t.Fatal("runtime logs navigation returned no command")
+	if !foundTabTarget {
+		t.Fatal("logs tab mouse target missing")
 	}
-	navigate, ok = cmd().(NavigateMsg)
-	if !ok || strings.Join(navigate.Path, "/") != "logs" {
-		t.Fatalf("runtime logs navigation=%#v", navigate)
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	page = updated.(*LogsPage)
+	if page.tab != logsTabRuntime {
+		t.Fatalf("left did not return runtime tab: %d", page.tab)
 	}
 }
 

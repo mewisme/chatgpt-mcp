@@ -1,0 +1,29 @@
+package component
+
+import (
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+)
+
+func TestTabNavigationWraps(t *testing.T) {
+	if got := MoveTab(0, 2, -1); got != 1 {
+		t.Fatalf("left wrap=%d", got)
+	}
+	if got := MoveTab(1, 2, 1); got != 0 {
+		t.Fatalf("right wrap=%d", got)
+	}
+	if delta, ok := TabDelta(tea.KeyPressMsg{Code: tea.KeyRight}); !ok || delta != 1 {
+		t.Fatalf("right delta=%d ok=%t", delta, ok)
+	}
+}
+
+func TestPageTabsLayoutReturnsHitboxes(t *testing.T) {
+	view, spans := PageTabsLayout([]string{"Workspaces", "Containers"}, 0, "saved", 80)
+	plain := ansi.Strip(view)
+	if len(spans) != 2 || spans[0].X != 0 || spans[1].X <= spans[0].X || !strings.Contains(plain, "Workspaces") || !strings.Contains(plain, "Containers") || !strings.Contains(plain, "saved") {
+		t.Fatalf("view=%q spans=%#v", plain, spans)
+	}
+}

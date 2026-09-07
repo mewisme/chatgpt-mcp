@@ -183,10 +183,10 @@ func TestWorkspaceBrowserHelpStaysAboveAppFooterWithFeedback(t *testing.T) {
 	if last != 23 || !strings.Contains(lines[last], "? more") {
 		t.Fatalf("workspace help line=%d want=23 view=%q", last, plain)
 	}
-	if !strings.Contains(lines[0], "Workspaces") || strings.Contains(lines[0], "Containers") || !strings.Contains(lines[0], "Workspace updated") {
+	if !strings.Contains(lines[0], "Workspaces") || !strings.Contains(lines[0], "Containers") || !strings.Contains(lines[0], "Workspace updated") {
 		t.Fatalf("workspace title/notice invalid: %q", lines[0])
 	}
-	if !strings.Contains(plain, "enter open") || !strings.Contains(plain, "c containers") || strings.Contains(plain, "tabs") {
+	if !strings.Contains(plain, "enter open") || !strings.Contains(plain, "←/→ tabs") || strings.Contains(plain, "c containers") {
 		t.Fatalf("workspace list help invalid: %q", plain)
 	}
 	notice, help := strings.Index(plain, "Workspace updated"), strings.LastIndex(plain, "? more")
@@ -195,7 +195,7 @@ func TestWorkspaceBrowserHelpStaysAboveAppFooterWithFeedback(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAndContainersNavigateAsChildPages(t *testing.T) {
+func TestWorkspaceAndContainersRemainTabbedParentPages(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
 		t.Fatal(err)
@@ -204,13 +204,13 @@ func TestWorkspaceAndContainersNavigateAsChildPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	page = updated.(*WorkspacePage)
 	if cmd == nil {
-		t.Fatal("containers child navigation returned no command")
+		t.Fatal("containers tab navigation returned no command")
 	}
 	message, ok := cmd().(NavigateMsg)
-	if !ok || strings.Join(message.Path, "/") != "containers" {
+	if !ok || strings.Join(message.Path, "/") != "containers" || !message.Replace {
 		t.Fatalf("containers navigation=%#v", message)
 	}
 	containers, err := NewContainers(t.Context(), "")
@@ -218,16 +218,16 @@ func TestWorkspaceAndContainersNavigateAsChildPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := ansi.Strip(containers.View(100, 24))
-	if !strings.Contains(plain, "Containers") || !strings.Contains(plain, "w workspaces") || strings.Contains(plain, "←/→ tabs") {
-		t.Fatalf("containers child page=%q", plain)
+	if !strings.Contains(plain, "Workspaces") || !strings.Contains(plain, "Containers") || !strings.Contains(plain, "←/→ tabs") {
+		t.Fatalf("containers tab page=%q", plain)
 	}
-	updated, cmd = containers.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	updated, cmd = containers.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
 	containers = updated.(*WorkspacePage)
 	if cmd == nil {
-		t.Fatal("workspaces child navigation returned no command")
+		t.Fatal("workspaces tab navigation returned no command")
 	}
 	message, ok = cmd().(NavigateMsg)
-	if !ok || strings.Join(message.Path, "/") != "workspaces" {
+	if !ok || strings.Join(message.Path, "/") != "workspaces" || !message.Replace {
 		t.Fatalf("workspaces navigation=%#v", message)
 	}
 }

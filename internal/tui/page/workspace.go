@@ -33,6 +33,15 @@ type WorkspaceCommandMsg struct {
 	ResourceID string
 }
 
+type workspaceTab uint8
+
+const (
+	workspaceTabWorkspaces workspaceTab = iota
+	workspaceTabContainers
+)
+
+var workspaceTabLabels = []string{"Workspaces", "Containers"}
+
 type workspaceOverlayKind uint8
 
 const (
@@ -194,6 +203,9 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, cmd
 		}
 		if page.resourceID == "" {
+			if cmd, handled := page.handleTabKey(msg); handled {
+				return page, cmd
+			}
 			if cmd, handled := page.handleListKey(msg); handled {
 				return page, cmd
 			}
@@ -244,10 +256,65 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 			return page.detail.MouseTargets(originX, originY, z)
 		}
 		feedback := page.listFeedback()
-		title := component.PageTitleNotice(page.listTitle(), page.notice, page.width)
-		browserY := originY + lipgloss.Height(title) + pageFeedbackHeight(feedback)
-		return page.browser.MouseTargets(originX, browserY, z)
+		tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
+		targets := page.workspaceTabMouseTargets(originX, originY, z+2)
+		browserY := originY + lipgloss.Height(tabs) + pageFeedbackHeight(feedback)
+		return append(targets, page.browser.MouseTargets(originX, browserY, z)...)
 	}
+}
+
+func (page *WorkspacePage) activeTab() workspaceTab {
+	if page != nil && page.containers {
+		return workspaceTabContainers
+	}
+	return workspaceTabWorkspaces
+}
+
+func (page *WorkspacePage) handleTabKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	case "1":
+		return page.switchWorkspaceTab(workspaceTabWorkspaces), true
+	case "2":
+		return page.switchWorkspaceTab(workspaceTabContainers), true
+	}
+	delta, ok := component.TabDelta(msg)
+	if !ok {
+		return nil, false
+	}
+	next := component.MoveTab(int(page.activeTab()), len(workspaceTabLabels), delta)
+	return page.switchWorkspaceTab(workspaceTab(next)), true
+}
+
+func (page *WorkspacePage) switchWorkspaceTab(tab workspaceTab) tea.Cmd {
+	if page == nil || tab == page.activeTab() {
+		return nil
+	}
+	path := []string{"workspaces"}
+	if tab == workspaceTabContainers {
+		path = []string{"containers"}
+	}
+	return func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }
+}
+
+func (page *WorkspacePage) workspaceTabMouseTargets(originX, originY, z int) []component.MouseTarget {
+	_, spans := component.PageTabsLayout(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
+	targets := make([]component.MouseTarget, 0, len(spans))
+	for _, span := range spans {
+		tab := workspaceTab(span.Index)
+		targets = append(targets, component.MouseTarget{
+			ID: "workspace.tab", Rect: component.Rect{X: originX + span.X, Y: originY, Width: span.Width, Height: 1}, Z: z,
+			Handle: func(event component.MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				if tab == workspaceTabContainers {
+					return tea.KeyPressMsg{Code: '2'}
+				}
+				return tea.KeyPressMsg{Code: '1'}
+			},
+		})
+	}
+	return targets
 }
 
 func (page *WorkspacePage) handleListKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
@@ -262,14 +329,6 @@ func (page *WorkspacePage) handleListKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			page.err = err
 		}
 		return cmd, true
-	case "c":
-		if !page.containers {
-			return func() tea.Msg { return NavigateMsg{Path: []string{"containers"}} }, true
-		}
-	case "w":
-		if page.containers {
-			return func() tea.Msg { return NavigateMsg{Path: []string{"workspaces"}} }, true
-		}
 	}
 	return nil, false
 }
@@ -468,9 +527,9 @@ func (page *WorkspacePage) reload() error {
 	page.browser = component.NewBrowser(page.ctx, page.listTitle(), rows, refresh).WithTitleVisible(false)
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.containers {
-		page.browser.SetHelpBindings(component.Binding([]string{"a"}, "a", "create"), component.Binding([]string{"w"}, "w", "workspaces"))
+		page.browser.SetHelpBindings(component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"a"}, "a", "create"))
 	} else {
-		page.browser.SetHelpBindings(component.Binding([]string{"a"}, "a", "register"), component.Binding([]string{"c"}, "c", "containers"))
+		page.browser.SetHelpBindings(component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"a"}, "a", "register"))
 	}
 	if selected.ID != "" {
 		page.browser.SelectID(selected.ID)
@@ -533,17 +592,17 @@ func (page *WorkspacePage) baseView(width, height int) string {
 		return page.detail.View()
 	}
 	feedback := page.listFeedback()
-	title := component.PageTitleNotice(page.listTitle(), page.notice, width)
+	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, width)
 	page.resizeBrowser()
-	return title + "\n" + prependPageFeedback(feedback, page.browser.Content())
+	return tabs + "\n" + prependPageFeedback(feedback, page.browser.Content())
 }
 
 func (page *WorkspacePage) resizeBrowser() tea.Cmd {
 	if page.resourceID != "" || page.width <= 0 || page.height <= 0 {
 		return nil
 	}
-	title := component.PageTitleNotice(page.listTitle(), page.notice, page.width)
-	height := max(1, page.height-lipgloss.Height(title)-pageFeedbackHeight(page.listFeedback()))
+	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
+	height := max(1, page.height-lipgloss.Height(tabs)-pageFeedbackHeight(page.listFeedback()))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd

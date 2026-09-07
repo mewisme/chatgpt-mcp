@@ -70,6 +70,21 @@ func TestRouterBackStackHandlesNestedChildPages(t *testing.T) {
 	}
 }
 
+func TestRouterBackReturnsToTabbedParents(t *testing.T) {
+	workspaceRouter := NewRouter(Route{Kind: RouteWorkspaces})
+	workspaceRouter.Switch(Route{Kind: RouteContainers})
+	workspaceRouter.Navigate(Route{Kind: RouteContainers, ResourceID: "wsc_demo"})
+	if !workspaceRouter.Back() || workspaceRouter.Current() != (Route{Kind: RouteContainers}) {
+		t.Fatalf("workspace detail back=%#v stack=%#v", workspaceRouter.Current(), workspaceRouter.stack)
+	}
+
+	logsRouter := NewRouter(Route{Kind: RouteLogs})
+	logsRouter.Navigate(Route{Kind: RouteLogs, ResourceID: "run:1"})
+	if !logsRouter.Back() || logsRouter.Current() != (Route{Kind: RouteLogs}) {
+		t.Fatalf("logs detail back=%#v stack=%#v", logsRouter.Current(), logsRouter.stack)
+	}
+}
+
 func TestRouterBackStack(t *testing.T) {
 	router := NewRouter(Route{Kind: RouteHome})
 	router.Navigate(Route{Kind: RouteMCP})

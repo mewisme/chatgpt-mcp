@@ -19,6 +19,15 @@ import (
 
 const logsExecutionFeedCap = 4000
 
+type logsTab uint8
+
+const (
+	logsTabRuntime logsTab = iota
+	logsTabCommandExec
+)
+
+var logsTabLabels = []string{"Runtime", "Command Execution"}
+
 type logsExecutionFeed struct {
 	viewport     viewport.Model
 	events       []shellruntime.ExecutionFeedEvent
@@ -58,6 +67,25 @@ func newLogsExecutionFeed() logsExecutionFeed {
 	view.SoftWrap = false
 	view.FillHeight = false
 	return logsExecutionFeed{viewport: view}
+}
+
+func (page *LogsPage) switchLogsTab(tab logsTab) tea.Cmd {
+	if tab > logsTabCommandExec || page.resourceID != "" {
+		return nil
+	}
+	page.tab = tab
+	if tab == logsTabRuntime && !page.loaded && !page.loading {
+		return page.startBootstrap()
+	}
+	if tab == logsTabCommandExec && !page.exec.loaded && !page.exec.loading {
+		return page.startExecutionFeed()
+	}
+	return nil
+}
+
+func (page *LogsPage) moveLogsTab(delta int) tea.Cmd {
+	next := component.MoveTab(int(page.tab), len(logsTabLabels), delta)
+	return page.switchLogsTab(logsTab(next))
 }
 
 func (page *LogsPage) startExecutionFeed() tea.Cmd {
@@ -152,8 +180,6 @@ func (page *LogsPage) executionReconnectCmd(generation uint64) tea.Cmd {
 
 func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
-	case "v":
-		return func() tea.Msg { return NavigateMsg{Path: []string{"logs"}} }
 	case "space":
 		page.exec.paused = !page.exec.paused
 		if !page.exec.paused {
@@ -212,11 +238,12 @@ func (page *LogsPage) executionStatusView(width int) string {
 
 func (page *LogsPage) executionView(width, height int) string {
 	status := page.executionStatusView(width)
-	help := component.DefaultHelp(width,
+	help := component.NewHelpFooter(
+		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"),
 		component.Binding([]string{"j", "k", "up", "down"}, "j/k", "scroll"),
 		component.Binding([]string{"space"}, "space", executionFollowLabel(page.exec.paused)),
-		component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"), component.Binding([]string{"v"}, "v", "runtime logs"),
-	)
+		component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
+	).View(width)
 	message := ""
 	if page.exec.err != nil {
 		message = component.Banner(page.exec.err.Error(), component.ToneDanger)
@@ -240,6 +267,27 @@ func (page *LogsPage) executionView(width, height int) string {
 		content += "\n" + message
 	}
 	return component.BottomHelp(content, help, width, height)
+}
+
+func (page *LogsPage) logsTabMouseTargets(originX, originY, z int) []component.MouseTarget {
+	_, spans := component.PageTabsLayout(logsTabLabels, int(page.tab), page.notice, page.width)
+	targets := make([]component.MouseTarget, 0, len(spans))
+	for _, span := range spans {
+		tab := logsTab(span.Index)
+		targets = append(targets, component.MouseTarget{
+			ID: "logs.tab", Rect: component.Rect{X: originX + span.X, Y: originY, Width: span.Width, Height: 1}, Z: z,
+			Handle: func(event component.MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				if tab == logsTabCommandExec {
+					return tea.KeyPressMsg{Code: '2'}
+				}
+				return tea.KeyPressMsg{Code: '1'}
+			},
+		})
+	}
+	return targets
 }
 
 func (page *LogsPage) executionMouseTargets(originX, originY, z, width, height int) []component.MouseTarget {

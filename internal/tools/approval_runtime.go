@@ -34,12 +34,20 @@ func (r *Runtime) prepareApprovalRetry(ctx context.Context, sessionID, workspace
 		if err != nil || !matched {
 			return ctx, approval.Request{}, nil, err
 		}
-		return WithApprovalRequest(ctx, claimed.ID), claimed, nil, nil
+		ctx = WithApprovalRequest(ctx, claimed.ID)
+		ctx = controlguard.WithGrant(ctx, controlguard.Grant{RequestID: claimed.ID, Code: claimed.GuardCode})
+		return ctx, claimed, nil, nil
 	}
 	command, _ := args["command"].(string)
 	invocation, ok := workspace.DirectControlPlaneInvocation(command)
 	if !ok || invocation == nil {
-		return ctx, approval.Request{}, nil, errors.New("approved shell retry is not a direct approval-eligible control-plane invocation")
+		claimed, matched, err := r.Approvals.ClaimApproved(retry)
+		if err != nil || !matched {
+			return ctx, approval.Request{}, nil, err
+		}
+		ctx = WithApprovalRequest(ctx, claimed.ID)
+		ctx = controlguard.WithGrant(ctx, controlguard.Grant{RequestID: claimed.ID, Code: claimed.GuardCode})
+		return ctx, claimed, nil, nil
 	}
 	claimed, capability, matched, err := r.Approvals.ClaimApprovedCLI(retry, approval.CLIInvocation{Program: invocation.Program, Args: invocation.Args})
 	if err != nil || !matched {

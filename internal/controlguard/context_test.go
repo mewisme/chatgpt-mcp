@@ -29,6 +29,17 @@ func TestApprovalContextRequiresRequestAndCapability(t *testing.T) {
 	}
 }
 
+func TestGrantContextRoundTrip(t *testing.T) {
+	ctx := WithGrant(context.Background(), Grant{RequestID: " req_test ", Code: CodeDestructiveMutation})
+	value, ok := GrantFromContext(ctx)
+	if !ok || value.RequestID != "req_test" || value.Code != CodeDestructiveMutation {
+		t.Fatalf("grant = %#v ok=%t", value, ok)
+	}
+	if _, ok := GrantFromContext(context.Background()); ok {
+		t.Fatal("unexpected grant in empty context")
+	}
+}
+
 func TestSameInvocationIsExact(t *testing.T) {
 	base := Invocation{Program: "cgm", Args: []string{"config", "set", "server.port", "41001"}, Command: "cgm config set server.port 41001"}
 	if !SameInvocation(base, base) {

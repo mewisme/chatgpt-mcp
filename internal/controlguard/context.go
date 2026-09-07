@@ -13,6 +13,35 @@ type Approval struct {
 	Invocation Invocation
 }
 
+type Grant struct {
+	RequestID string
+	Code      Code
+}
+
+type grantContextKey struct{}
+
+func WithGrant(ctx context.Context, value Grant) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	value.RequestID = strings.TrimSpace(value.RequestID)
+	if value.RequestID == "" || value.Code == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, grantContextKey{}, value)
+}
+
+func GrantFromContext(ctx context.Context) (Grant, bool) {
+	if ctx == nil {
+		return Grant{}, false
+	}
+	value, ok := ctx.Value(grantContextKey{}).(Grant)
+	if !ok || strings.TrimSpace(value.RequestID) == "" || value.Code == "" {
+		return Grant{}, false
+	}
+	return value, true
+}
+
 func WithApproval(ctx context.Context, value Approval) context.Context {
 	if ctx == nil {
 		ctx = context.Background()

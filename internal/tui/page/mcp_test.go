@@ -75,6 +75,55 @@ func TestMCPMutationNoticeRendersBesidePageTitle(t *testing.T) {
 	}
 }
 
+func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
+	client := &mcpPageClient{}
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, client)
+	if err := manager.Add(upstream.Server{ID: "docs", Name: "Docs", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth"}, Expose: "all"}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := newMCPRoutePage(t.Context(), "docs", "", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.OverlayActive() {
+		t.Fatalf("resource detail state overlay=%t resource=%q", page.OverlayActive(), page.resourceID)
+	}
+	view := ansi.Strip(page.View(110, 28))
+	for _, want := range []string{"MCP server · docs", "https://example.test/mcp", "h health", "v tools", "u oauth", "e configure", "space toggle", "r health", "t tools", "o login"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("MCP detail missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "Overview   Health") || strings.Contains(view, "╭") {
+		t.Fatalf("MCP detail retained tab/modal chrome: %q", view)
+	}
+	updated, action := page.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	page = updated.(*MCPPage)
+	if action == nil {
+		t.Fatal("remove detail action returned no command")
+	}
+	remove, ok := action().(MCPCommandMsg)
+	if !ok || remove.Command != MCPServerRemove || remove.ResourceID != "docs" {
+		t.Fatalf("remove action=%#v", remove)
+	}
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	page = updated.(*MCPPage)
+	if cmd == nil {
+		t.Fatal("health child navigation returned no command")
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "mcp/docs/health" {
+		t.Fatalf("health navigation=%#v", navigate)
+	}
+	health, err := newMCPRoutePage(t.Context(), "docs", "health", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ansi.Strip(health.View(110, 28)); !strings.Contains(got, "Not checked yet") || strings.Contains(got, "u oauth") || strings.Contains(got, "v tools") {
+		t.Fatalf("health child=%q", got)
+	}
+}
+
 func TestMCPPageServerLifecycleAndSecretRedaction(t *testing.T) {
 	page, manager, _, store := newMCPPageTestHarness(t, &mcpPageClient{})
 	if _, err := page.openCommand(MCPServerAdd, ""); err != nil {

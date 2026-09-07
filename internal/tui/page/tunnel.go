@@ -75,10 +75,12 @@ type TunnelPage struct {
 	ctx                context.Context
 	kind               tunnelPageKind
 	resourceID         string
+	section            string
 	dashboard          application.TunnelDashboard
 	adminStatus        application.TunnelAdminStatus
 	items              []tunnel.Metadata
 	browser            component.Browser
+	detail             component.DetailPage
 	overlay            tunnelOverlayKind
 	form               component.Form
 	confirm            component.ConfirmButtons
@@ -117,6 +119,10 @@ func NewTunnelDashboard(ctx context.Context) (*TunnelPage, error) {
 }
 
 func NewManagedTunnels(ctx context.Context, resourceID string) (*TunnelPage, error) {
+	return NewManagedTunnelsRoute(ctx, resourceID, "")
+}
+
+func NewManagedTunnelsRoute(ctx context.Context, resourceID, section string) (*TunnelPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -124,12 +130,9 @@ func NewManagedTunnels(ctx context.Context, resourceID string) (*TunnelPage, err
 	if err != nil {
 		return nil, err
 	}
-	page := &TunnelPage{ctx: ctx, kind: tunnelPageManaged, resourceID: strings.TrimSpace(resourceID), items: items}
+	page := &TunnelPage{ctx: ctx, kind: tunnelPageManaged, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), items: items}
 	if err := page.reloadManagedBrowser(); err != nil {
 		return nil, err
-	}
-	if page.resourceID != "" && !page.browser.OpenDetail(page.resourceID) {
-		return nil, fmt.Errorf("managed tunnel not found in local cache: %s", page.resourceID)
 	}
 	return page, nil
 }
@@ -137,11 +140,11 @@ func NewManagedTunnels(ctx context.Context, resourceID string) (*TunnelPage, err
 func (page *TunnelPage) Init() tea.Cmd { return nil }
 
 func (page *TunnelPage) OverlayActive() bool {
-	return page != nil && (page.overlay != tunnelOverlayNone || page.kind == tunnelPageManaged && page.browser.DetailOpen())
+	return page != nil && page.overlay != tunnelOverlayNone
 }
 
 func (page *TunnelPage) InputActive() bool {
-	return page != nil && (page.overlay == tunnelOverlayForm || page.kind == tunnelPageManaged && page.browser.InputActive())
+	return page != nil && (page.overlay == tunnelOverlayForm || page.kind == tunnelPageManaged && page.resourceID == "" && page.browser.InputActive())
 }
 
 func (page *TunnelPage) Notice() string {
@@ -189,8 +192,14 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		if page.kind == tunnelPageManaged {
-			updated, cmd := page.browser.Update(msg)
-			page.browser = updated.(component.Browser)
+			var cmd tea.Cmd
+			if page.resourceID != "" {
+				page.detail.Resize(msg.Width, msg.Height)
+			} else {
+				updated, browserCmd := page.browser.Update(msg)
+				page.browser = updated.(component.Browser)
+				cmd = browserCmd
+			}
 			if page.overlay == tunnelOverlayForm {
 				form, formCmd := page.form.Update(msg)
 				page.form = form
@@ -228,6 +237,11 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.err = err
 		}
 		return page, cmd
+	case component.BrowserOpenMsg:
+		if page.kind == tunnelPageManaged && page.resourceID == "" && msg.Row.ID != "" {
+			return page, func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", msg.Row.ID}} }
+		}
+		return page, nil
 	case tea.KeyPressMsg:
 		if page.overlay == tunnelOverlayForm {
 			updated, cmd := page.form.Update(msg)
@@ -251,7 +265,7 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return page, nil
 		}
-		if page.kind == tunnelPageManaged && (page.browser.InputActive() || page.browser.DetailOpen()) {
+		if page.kind == tunnelPageManaged && page.resourceID == "" && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
@@ -266,6 +280,11 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, cmd
 	}
 	if page.kind == tunnelPageManaged {
+		if page.resourceID != "" {
+			updated, cmd := page.detail.Update(message)
+			page.detail = updated
+			return page, cmd
+		}
 		updated, cmd := page.browser.Update(message)
 		page.browser = updated.(component.Browser)
 		return page, cmd
@@ -284,11 +303,17 @@ func (page *TunnelPage) View(width, height int) string {
 	}
 	content := page.runtimeViewWithFeedback(width, feedback)
 	if page.kind == tunnelPageManaged {
-		page.browser.SetTitleNotice(page.notice)
-		browserHeight := max(1, height-pageFeedbackHeight(feedback))
-		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
-		page.browser = updated.(component.Browser)
-		content = prependPageFeedback(feedback, page.browser.Content())
+		if page.resourceID != "" {
+			page.detail.SetFeedback(page.notice, page.err)
+			page.detail.Resize(width, height)
+			content = page.detail.View()
+		} else {
+			page.browser.SetTitleNotice(page.notice)
+			browserHeight := max(1, height-pageFeedbackHeight(feedback))
+			updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
+			page.browser = updated.(component.Browser)
+			content = prependPageFeedback(feedback, page.browser.Content())
+		}
 	}
 	switch page.overlay {
 	case tunnelOverlayForm:
@@ -338,6 +363,9 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
 	}
 	if page.kind == tunnelPageManaged {
+		if page.resourceID != "" {
+			return page.detail.MouseTargets(originX, originY, z)
+		}
 		page.browser.SetTitleNotice(page.notice)
 		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
 	}
@@ -404,14 +432,7 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, false
 	}
 
-	selected, _ := page.browser.Selected()
-	id := selected.ID
 	switch msg.String() {
-	case "enter":
-		if id == "" {
-			return nil, false
-		}
-		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", id}} }, true
 	case "r":
 		cmd, err := page.openCommand(TunnelManagedRefresh, "")
 		page.err = err
@@ -683,7 +704,7 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 		page.resourceID = ""
 		_ = page.reloadManagedBrowser()
 		page.notice = "Managed tunnel deleted"
-		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}} }
+		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}, Replace: true} }
 	}
 	return nil
 }
@@ -723,27 +744,16 @@ func (page *TunnelPage) reloadDashboard() {
 }
 
 func (page *TunnelPage) reloadManagedBrowser() error {
+	if page.resourceID != "" {
+		return page.syncManagedDetail()
+	}
 	helpExpanded := page.browser.HelpExpanded()
 	rows := page.managedRows()
-	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"a"}, "a", "add"))
-	detailAction := func(key, desc string, command TunnelCommand) component.RowAction {
-		return component.RowAction{Key: key, Desc: desc, Run: func(row component.Row) (string, tea.Cmd, error) {
-			return "", func() tea.Msg { return TunnelCommandMsg{Command: command, ResourceID: row.ID} }, nil
-		}}
-	}
-	page.browser.SetDetailActions(
-		detailAction("r", "refresh", TunnelManagedRefresh),
-		detailAction("e", "update", TunnelManagedUpdate),
-		detailAction("c", "configure", TunnelManagedConfigure),
-		detailAction("d", "delete", TunnelManagedDelete),
-	)
+	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"a"}, "a", "add")).WithListOnly()
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
 		page.browser = updated.(component.Browser)
-	}
-	if page.resourceID != "" {
-		page.browser.OpenDetail(page.resourceID)
 	}
 	return nil
 }
@@ -758,15 +768,53 @@ func (page *TunnelPage) managedRows() []component.Row {
 		}
 		rows = append(rows, component.Row{
 			ID: item.ID, Title: item.Name, Description: item.ID + optionalTunnelDescription(item.Description), Meta: selected,
-			Search:      strings.Join(append(append(append([]string{item.ID, item.Name, item.Description}, item.OrganizationIDs...), item.WorkspaceIDs...), item.TenantIDs...), " "),
-			DetailTitle: "Managed tunnel · " + item.ID,
-			DetailTabs: []component.DetailTab{
-				{Title: "Overview", Content: detailFields([2]string{"ID", item.ID}, [2]string{"Name", item.Name}, [2]string{"Description", item.Description}, [2]string{"Creator", item.Creator}, [2]string{"Fetched", formatTunnelTime(item.FetchedAt)})},
-				{Title: "Scope", Content: detailFields([2]string{"Organizations", joinedOrNone(item.OrganizationIDs)}, [2]string{"Workspaces", joinedOrNone(item.WorkspaceIDs)}, [2]string{"Tenants", joinedOrNone(item.TenantIDs)})},
-			},
+			Search: strings.Join(append(append(append([]string{item.ID, item.Name, item.Description}, item.OrganizationIDs...), item.WorkspaceIDs...), item.TenantIDs...), " "),
 		})
 	}
 	return rows
+}
+
+func (page *TunnelPage) syncManagedDetail() error {
+	var item *tunnel.Metadata
+	for index := range page.items {
+		if page.items[index].ID == page.resourceID {
+			item = &page.items[index]
+			break
+		}
+	}
+	if item == nil {
+		return fmt.Errorf("managed tunnel not found in local cache: %s", page.resourceID)
+	}
+	content := ""
+	switch page.section {
+	case "":
+		content = detailFields([2]string{"ID", item.ID}, [2]string{"Name", item.Name}, [2]string{"Description", item.Description}, [2]string{"Creator", item.Creator}, [2]string{"Fetched", formatTunnelTime(item.FetchedAt)})
+	case "scope":
+		content = detailFields([2]string{"Organizations", joinedOrNone(item.OrganizationIDs)}, [2]string{"Workspaces", joinedOrNone(item.WorkspaceIDs)}, [2]string{"Tenants", joinedOrNone(item.TenantIDs)})
+	default:
+		return fmt.Errorf("unsupported managed tunnel child section: %s", page.section)
+	}
+	dashboard, _ := application.TunnelStatus()
+	meta := ""
+	if dashboard.Config.ID == item.ID {
+		meta = "selected runtime"
+	}
+	page.detail = component.NewDetailPage("Managed tunnel · "+item.ID, meta, content)
+	bindings := make([]component.DetailPageBinding, 0, 5)
+	if page.section == "" {
+		bindings = append(bindings, component.DetailPageBinding{Key: "s", Desc: "scope", Message: NavigateMsg{Path: []string{"tunnels", item.ID, "scope"}}})
+	}
+	bindings = append(bindings,
+		component.DetailPageBinding{Key: "r", Desc: "refresh", Message: TunnelCommandMsg{Command: TunnelManagedRefresh, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "e", Desc: "update", Message: TunnelCommandMsg{Command: TunnelManagedUpdate, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "c", Desc: "configure", Message: TunnelCommandMsg{Command: TunnelManagedConfigure, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "d", Desc: "delete", Message: TunnelCommandMsg{Command: TunnelManagedDelete, ResourceID: item.ID}},
+	)
+	page.detail.SetBindings(bindings...)
+	if page.width > 0 && page.height > 0 {
+		page.detail.Resize(page.width, page.height)
+	}
+	return nil
 }
 
 func (page *TunnelPage) runtimeView(width int) string {

@@ -71,7 +71,9 @@ type MCPPage struct {
 	manager            *upstream.Manager
 	oauthStore         *mcpoauth.Store
 	resourceID         string
+	section            string
 	browser            component.Browser
+	detail             component.DetailPage
 	overlay            mcpOverlayKind
 	form               component.Form
 	confirm            component.ConfirmButtons
@@ -95,15 +97,23 @@ type MCPPage struct {
 }
 
 func NewMCP(ctx context.Context, resourceID string) (*MCPPage, error) {
+	return NewMCPRoute(ctx, resourceID, "")
+}
+
+func NewMCPRoute(ctx context.Context, resourceID, section string) (*MCPPage, error) {
 	manager := upstream.NewManager(upstream.NewStore(upstream.Path()))
 	if err := manager.Load(); err != nil {
 		return nil, err
 	}
 	store := mcpoauth.NewStore(mcpoauth.Path())
-	return newMCPPage(ctx, resourceID, manager, store)
+	return newMCPRoutePage(ctx, resourceID, section, manager, store)
 }
 
 func newMCPPage(ctx context.Context, resourceID string, manager *upstream.Manager, store *mcpoauth.Store) (*MCPPage, error) {
+	return newMCPRoutePage(ctx, resourceID, "", manager, store)
+}
+
+func newMCPRoutePage(ctx context.Context, resourceID, section string, manager *upstream.Manager, store *mcpoauth.Store) (*MCPPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -114,15 +124,12 @@ func newMCPPage(ctx context.Context, resourceID string, manager *upstream.Manage
 		store = mcpoauth.NewStore(mcpoauth.Path())
 	}
 	page := &MCPPage{
-		ctx: ctx, manager: manager, oauthStore: store, resourceID: strings.TrimSpace(resourceID),
+		ctx: ctx, manager: manager, oauthStore: store, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section),
 		status: map[string]upstream.Status{}, tools: map[string][]upstream.Tool{}, openBrowser: application.OpenBrowser,
 	}
 	page.oauthLogin = store.Login
 	if err := page.reload(); err != nil {
 		return nil, err
-	}
-	if page.resourceID != "" && !page.browser.OpenDetail(page.resourceID) {
-		return nil, fmt.Errorf("MCP server not found: %s", page.resourceID)
 	}
 	return page, nil
 }
@@ -130,11 +137,11 @@ func newMCPPage(ctx context.Context, resourceID string, manager *upstream.Manage
 func (page *MCPPage) Init() tea.Cmd { return nil }
 
 func (page *MCPPage) OverlayActive() bool {
-	return page != nil && (page.overlay != mcpOverlayNone || page.browser.DetailOpen())
+	return page != nil && page.overlay != mcpOverlayNone
 }
 
 func (page *MCPPage) InputActive() bool {
-	return page != nil && (page.overlay == mcpOverlayForm || page.browser.InputActive())
+	return page != nil && (page.overlay == mcpOverlayForm || page.resourceID == "" && page.browser.InputActive())
 }
 
 func (page *MCPPage) Notice() string {
@@ -169,8 +176,14 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, page.finishOAuth(msg)
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
-		updated, cmd := page.browser.Update(msg)
-		page.browser = updated.(component.Browser)
+		var cmd tea.Cmd
+		if page.resourceID != "" {
+			page.detail.Resize(msg.Width, msg.Height)
+		} else {
+			updated, browserCmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
+			cmd = browserCmd
+		}
 		if page.overlay == mcpOverlayForm {
 			form, formCmd := page.form.Update(msg)
 			page.form = form
@@ -217,6 +230,11 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.err = err
 		}
 		return page, cmd
+	case component.BrowserOpenMsg:
+		if page.resourceID == "" && msg.Row.ID != "" {
+			return page, func() tea.Msg { return NavigateMsg{Path: []string{"mcp", msg.Row.ID}} }
+		}
+		return page, nil
 	case tea.KeyPressMsg:
 		if page.overlay == mcpOverlayForm {
 			updated, cmd := page.form.Update(msg)
@@ -226,7 +244,7 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.overlay == mcpOverlayConfirm {
 			return page, page.updateConfirm(msg)
 		}
-		if page.browser.InputActive() || page.browser.DetailOpen() {
+		if page.resourceID == "" && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
@@ -240,6 +258,11 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.form = updated
 		return page, cmd
 	}
+	if page.resourceID != "" {
+		updated, cmd := page.detail.Update(message)
+		page.detail = updated
+		return page, cmd
+	}
 	updated, cmd := page.browser.Update(message)
 	page.browser = updated.(component.Browser)
 	return page, cmd
@@ -249,18 +272,25 @@ func (page *MCPPage) View(width, height int) string {
 	if page == nil {
 		return component.StateView(component.PageError, "MCP page unavailable", "")
 	}
-	page.browser.SetTitleNotice(page.notice)
-	feedback := ""
-	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	page.width, page.height = width, height
+	var content string
+	if page.resourceID != "" {
+		page.detail.SetFeedback(page.notice, page.err)
+		page.detail.Resize(width, height)
+		content = page.detail.View()
+	} else {
+		page.browser.SetTitleNotice(page.notice)
+		feedback := ""
+		if page.err != nil {
+			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		}
+		browserHeight := max(1, height-pageFeedbackHeight(feedback))
+		if width > 0 && browserHeight > 0 {
+			updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
+			page.browser = updated.(component.Browser)
+		}
+		content = prependPageFeedback(feedback, page.browser.Content())
 	}
-	browserHeight := max(1, height-pageFeedbackHeight(feedback))
-	if width > 0 && browserHeight > 0 && (page.width != width || page.height != browserHeight) {
-		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
-		page.browser = updated.(component.Browser)
-		page.width, page.height = width, browserHeight
-	}
-	content := prependPageFeedback(feedback, page.browser.Content())
 	switch page.overlay {
 	case mcpOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 78)), width, height)
@@ -293,6 +323,9 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 	case mcpOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
+		if page.resourceID != "" {
+			return page.detail.MouseTargets(originX, originY, z)
+		}
 		page.browser.SetTitleNotice(page.notice)
 		feedback := ""
 		if page.err != nil {
@@ -303,14 +336,7 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 }
 
 func (page *MCPPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	selected, _ := page.browser.Selected()
-	id := selected.ID
 	switch msg.String() {
-	case "enter":
-		if id == "" {
-			return nil, false
-		}
-		return func() tea.Msg { return NavigateMsg{Path: []string{"mcp", id}} }, true
 	case "a":
 		cmd, err := page.openCommand(MCPServerAdd, "")
 		page.err = err
@@ -455,10 +481,7 @@ func (page *MCPPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		page.resourceID = ""
 		page.notice = "MCP server removed"
 		page.closeOverlay()
-		if err := page.reload(); err != nil {
-			page.err = err
-		}
-		return func() tea.Msg { return NavigateMsg{Path: []string{"mcp"}} }
+		return func() tea.Msg { return NavigateMsg{Path: []string{"mcp"}, Replace: true} }
 	case MCPAuthLogout:
 		if err := page.oauthStore.Delete(target); err != nil {
 			page.err = err
@@ -642,51 +665,19 @@ func (page *MCPPage) closeOverlay() {
 }
 
 func (page *MCPPage) reload() error {
+	if page.resourceID != "" {
+		return page.syncDetail()
+	}
 	helpExpanded := page.browser.HelpExpanded()
 	rows, err := page.rows()
 	if err != nil {
 		return err
 	}
-	page.browser = component.NewBrowser(page.ctx, "Upstream MCP servers", rows, nil).WithHelpBindings(component.Binding([]string{"a"}, "a", "add"))
-	detailAction := func(key, desc string, command MCPCommand, when func(upstream.Server) bool) component.RowAction {
-		return component.RowAction{Key: key, Desc: desc, When: func(row component.Row) bool {
-			server, ok := page.manager.Get(row.ID)
-			return ok && (when == nil || when(server))
-		}, Run: func(row component.Row) (string, tea.Cmd, error) {
-			resolved := command
-			if command == MCPServerEnable {
-				server, ok := page.manager.Get(row.ID)
-				if !ok {
-					return "", nil, fmt.Errorf("unknown upstream server: %s", row.ID)
-				}
-				if server.Enabled {
-					resolved = MCPServerDisable
-				}
-			}
-			return "", func() tea.Msg { return MCPCommandMsg{Command: resolved, ResourceID: row.ID} }, nil
-		}}
-	}
-	page.browser.SetDetailActions(
-		detailAction("e", "configure", MCPServerConfigure, nil),
-		detailAction("space", "toggle", MCPServerEnable, nil),
-		detailAction("r", "health", MCPServerHealth, nil),
-		detailAction("t", "tools", MCPServerTools, nil),
-		detailAction("o", "login", MCPAuthLogin, func(server upstream.Server) bool { return server.Transport == "http" && server.Auth.Type != "none" }),
-		component.RowAction{Key: "l", Desc: "logout", When: func(row component.Row) bool {
-			status, err := page.oauthStore.Status(row.ID)
-			return err == nil && status.Configured
-		}, Run: func(row component.Row) (string, tea.Cmd, error) {
-			return "", func() tea.Msg { return MCPCommandMsg{Command: MCPAuthLogout, ResourceID: row.ID} }, nil
-		}},
-		detailAction("d", "remove", MCPServerRemove, nil),
-	)
+	page.browser = component.NewBrowser(page.ctx, "Upstream MCP servers", rows, nil).WithHelpBindings(component.Binding([]string{"a"}, "a", "add")).WithListOnly()
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
 		page.browser = updated.(component.Browser)
-	}
-	if page.resourceID != "" {
-		page.browser.OpenDetail(page.resourceID)
 	}
 	return nil
 }
@@ -706,16 +697,66 @@ func (page *MCPPage) rows() ([]component.Row, error) {
 		}
 		rows = append(rows, component.Row{
 			ID: server.ID, Title: redacted.Name, Description: server.ID + " · " + endpoint, Meta: redacted.Transport + " · " + state,
-			Search: strings.Join([]string{server.ID, redacted.Name, endpoint, redacted.ToolPrefix, redacted.Expose}, " "), DetailTitle: "MCP server · " + server.ID,
-			DetailTabs: []component.DetailTab{
-				{Title: "Overview", Content: page.serverOverview(redacted)},
-				{Title: "Health", Content: page.serverHealth(server)},
-				{Title: "Tools", Content: page.serverTools(server)},
-				{Title: "OAuth", Content: page.serverOAuth(server)},
-			},
+			Search: strings.Join([]string{server.ID, redacted.Name, endpoint, redacted.ToolPrefix, redacted.Expose}, " "),
 		})
 	}
 	return rows, nil
+}
+
+func (page *MCPPage) syncDetail() error {
+	server, ok := page.manager.Get(page.resourceID)
+	if !ok {
+		return fmt.Errorf("MCP server not found: %s", page.resourceID)
+	}
+	redacted := upstream.RedactServer(server)
+	content := ""
+	switch page.section {
+	case "":
+		content = page.serverOverview(redacted)
+	case "health":
+		content = page.serverHealth(server)
+	case "tools":
+		content = page.serverTools(server)
+	case "oauth":
+		content = page.serverOAuth(server)
+	default:
+		return fmt.Errorf("unsupported MCP child section: %s", page.section)
+	}
+	state := "disabled"
+	if redacted.Enabled {
+		state = "enabled"
+	}
+	page.detail = component.NewDetailPage("MCP server · "+server.ID, redacted.Transport+" · "+state, content)
+	bindings := make([]component.DetailPageBinding, 0, 10)
+	if page.section == "" {
+		bindings = append(bindings,
+			component.DetailPageBinding{Key: "h", Desc: "health", Message: NavigateMsg{Path: []string{"mcp", server.ID, "health"}}},
+			component.DetailPageBinding{Key: "v", Desc: "tools", Message: NavigateMsg{Path: []string{"mcp", server.ID, "tools"}}},
+			component.DetailPageBinding{Key: "u", Desc: "oauth", Message: NavigateMsg{Path: []string{"mcp", server.ID, "oauth"}}},
+		)
+	}
+	toggle := MCPServerEnable
+	if server.Enabled {
+		toggle = MCPServerDisable
+	}
+	bindings = append(bindings,
+		component.DetailPageBinding{Key: "e", Desc: "configure", Message: MCPCommandMsg{Command: MCPServerConfigure, ResourceID: server.ID}},
+		component.DetailPageBinding{Key: "space", HelpKey: "space", Desc: "toggle", Message: MCPCommandMsg{Command: toggle, ResourceID: server.ID}},
+		component.DetailPageBinding{Key: "r", Desc: "health", Message: MCPCommandMsg{Command: MCPServerHealth, ResourceID: server.ID}},
+		component.DetailPageBinding{Key: "t", Desc: "tools", Message: MCPCommandMsg{Command: MCPServerTools, ResourceID: server.ID}},
+	)
+	if server.Transport == "http" && server.Auth.Type != "none" {
+		bindings = append(bindings, component.DetailPageBinding{Key: "o", Desc: "login", Message: MCPCommandMsg{Command: MCPAuthLogin, ResourceID: server.ID}})
+	}
+	if status, err := page.oauthStore.Status(server.ID); err == nil && status.Configured {
+		bindings = append(bindings, component.DetailPageBinding{Key: "l", Desc: "logout", Message: MCPCommandMsg{Command: MCPAuthLogout, ResourceID: server.ID}})
+	}
+	bindings = append(bindings, component.DetailPageBinding{Key: "d", Desc: "remove", Message: MCPCommandMsg{Command: MCPServerRemove, ResourceID: server.ID}})
+	page.detail.SetBindings(bindings...)
+	if page.width > 0 && page.height > 0 {
+		page.detail.Resize(page.width, page.height)
+	}
+	return nil
 }
 
 func (page *MCPPage) serverOverview(server upstream.Server) string {

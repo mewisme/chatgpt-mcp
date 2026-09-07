@@ -820,13 +820,13 @@ func (model *Model) loadPage(route Route) {
 	case RouteContainers:
 		value, err = tuipage.NewContainersRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteMCP:
-		value, err = tuipage.NewMCP(model.ctx, route.ResourceID)
+		value, err = tuipage.NewMCPRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteTunnel:
 		value, err = tuipage.NewTunnelDashboard(model.ctx)
 	case RouteTunnels:
-		value, err = tuipage.NewManagedTunnels(model.ctx, route.ResourceID)
+		value, err = tuipage.NewManagedTunnelsRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteRequests:
-		value, err = tuipage.NewRequests(model.ctx, route.ResourceID)
+		value, err = tuipage.NewRequestsRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteLogs:
 		value, err = tuipage.NewLogs(model.ctx)
 	case RouteLogsExec:

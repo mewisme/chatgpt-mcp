@@ -28,10 +28,14 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 		case "/requests":
 			_ = json.NewEncoder(w).Encode([]approval.Request{pending, approved})
 		case "/requests/view":
-			if r.URL.Query().Get("id") != "req_pending" {
+			switch r.URL.Query().Get("id") {
+			case "req_pending", pending.ID:
+				_ = json.NewEncoder(w).Encode(pending)
+			case approved.ID:
+				_ = json.NewEncoder(w).Encode(approved)
+			default:
 				t.Fatalf("view id=%q", r.URL.Query().Get("id"))
 			}
-			_ = json.NewEncoder(w).Encode(pending)
 		default:
 			t.Fatalf("unexpected path=%s", r.URL.Path)
 		}
@@ -67,14 +71,48 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 	}
 	updated, _ = deep.Update(deep.refreshCmd()())
 	deep = updated.(*RequestsPage)
-	if deep.resourceID != pending.ID || !deep.browser.DetailOpen() || deep.mode != requestModeAll {
-		t.Fatalf("deep resource=%q detail=%t mode=%d", deep.resourceID, deep.browser.DetailOpen(), deep.mode)
+	if deep.resourceID != pending.ID || deep.OverlayActive() || deep.mode != requestModeAll {
+		t.Fatalf("deep resource=%q overlay=%t mode=%d", deep.resourceID, deep.OverlayActive(), deep.mode)
 	}
-	view := deep.View(100, 28)
-	for _, expected := range []string{"Overview", "Arguments", "Guard", pending.ID, pending.WorkspaceID, pending.TargetTool} {
+	view := ansi.Strip(deep.View(100, 28))
+	for _, expected := range []string{"Approval request · " + pending.ID, pending.WorkspaceID, pending.TargetTool, "v arguments", "g guard", "a approve", "d deny"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("deep view missing %q: %q", expected, view)
 		}
+	}
+	if strings.Contains(view, "Overview   Arguments") || strings.Contains(view, "╭") {
+		t.Fatalf("deep view retained tab/modal chrome: %q", view)
+	}
+	updated, cmd := deep.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	deep = updated.(*RequestsPage)
+	if cmd == nil {
+		t.Fatal("arguments child navigation returned no command")
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "requests/"+pending.ID+"/arguments" {
+		t.Fatalf("arguments navigation=%#v", navigate)
+	}
+
+	arguments, err := NewRequestsRoute(t.Context(), pending.ID, "arguments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ = arguments.Update(arguments.refreshCmd()())
+	arguments = updated.(*RequestsPage)
+	argumentsView := ansi.Strip(arguments.View(100, 28))
+	if !strings.Contains(argumentsView, `"command": "cgm update"`) || strings.Contains(argumentsView, "v arguments") {
+		t.Fatalf("arguments child=%q", argumentsView)
+	}
+
+	history, err := NewRequestsRoute(t.Context(), approved.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ = history.Update(history.refreshCmd()())
+	history = updated.(*RequestsPage)
+	historyView := ansi.Strip(history.View(100, 28))
+	if strings.Contains(historyView, "a approve") || strings.Contains(historyView, "d deny") {
+		t.Fatalf("resolved detail exposed resolution actions: %q", historyView)
 	}
 }
 

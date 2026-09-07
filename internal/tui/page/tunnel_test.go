@@ -71,6 +71,49 @@ func TestManagedTunnelMutationNoticeRendersBesidePageTitle(t *testing.T) {
 	}
 }
 
+func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	item := tunnel.Metadata{ID: "tunnel_one", Name: "One", Description: "primary", OrganizationIDs: []string{"org_one"}, WorkspaceIDs: []string{"ws_one"}, TenantIDs: []string{"tenant_one"}}
+	if _, err := config.SaveTunnelMetadata(item); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewManagedTunnelsRoute(t.Context(), item.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.OverlayActive() {
+		t.Fatal("managed tunnel detail incorrectly reports overlay active")
+	}
+	view := ansi.Strip(page.View(100, 26))
+	for _, want := range []string{"Managed tunnel · tunnel_one", "primary", "s scope", "r refresh", "e update", "c configure", "d delete"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("managed detail missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "Overview   Scope") || strings.Contains(view, "╭") {
+		t.Fatalf("managed detail retained tab/modal chrome: %q", view)
+	}
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	page = updated.(*TunnelPage)
+	if cmd == nil {
+		t.Fatal("scope child navigation returned no command")
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "tunnels/tunnel_one/scope" {
+		t.Fatalf("scope navigation=%#v", navigate)
+	}
+	scope, err := NewManagedTunnelsRoute(t.Context(), item.ID, "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeView := ansi.Strip(scope.View(100, 26))
+	for _, want := range []string{"org_one", "ws_one", "tenant_one"} {
+		if !strings.Contains(scopeView, want) {
+			t.Fatalf("scope detail missing %q: %q", want, scopeView)
+		}
+	}
+}
+
 func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{})
 	page, err := NewTunnelDashboard(t.Context())

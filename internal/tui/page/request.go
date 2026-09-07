@@ -51,10 +51,11 @@ const (
 type requestTickMsg time.Time
 
 type requestListMsg struct {
-	requests   []approval.Request
-	resource   approval.Request
-	resourceOK bool
-	err        error
+	requests    []approval.Request
+	resource    approval.Request
+	resourceOK  bool
+	resourceErr error
+	err         error
 }
 
 type requestResolveMsg struct {
@@ -69,7 +70,9 @@ type RequestsPage struct {
 	browser            component.Browser
 	mode               requestMode
 	resourceID         string
-	pendingResourceID  string
+	section            string
+	resourceErr        error
+	detail             component.DetailPage
 	loading            bool
 	overlay            requestOverlay
 	form               component.Form
@@ -86,6 +89,10 @@ type RequestsPage struct {
 }
 
 func NewRequests(ctx context.Context, resourceID string) (*RequestsPage, error) {
+	return NewRequestsRoute(ctx, resourceID, "")
+}
+
+func NewRequestsRoute(ctx context.Context, resourceID, section string) (*RequestsPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -94,7 +101,7 @@ func NewRequests(ctx context.Context, resourceID string) (*RequestsPage, error) 
 	if resourceID != "" {
 		mode = requestModeAll
 	}
-	page := &RequestsPage{ctx: ctx, mode: mode, resourceID: resourceID, pendingResourceID: resourceID}
+	page := &RequestsPage{ctx: ctx, mode: mode, resourceID: resourceID, section: strings.TrimSpace(section)}
 	page.rebuildBrowser("")
 	return page, nil
 }
@@ -108,11 +115,11 @@ func (page *RequestsPage) Init() tea.Cmd {
 }
 
 func (page *RequestsPage) OverlayActive() bool {
-	return page != nil && (page.overlay != requestOverlayNone || page.browser.DetailOpen())
+	return page != nil && page.overlay != requestOverlayNone
 }
 
 func (page *RequestsPage) InputActive() bool {
-	return page != nil && (page.overlay == requestOverlayForm || page.browser.InputActive())
+	return page != nil && (page.overlay == requestOverlayForm || page.resourceID == "" && page.browser.InputActive())
 }
 
 func (page *RequestsPage) Notice() string {
@@ -147,11 +154,11 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		page.err = nil
+		page.resourceErr = msg.resourceErr
 		page.requests = append([]approval.Request(nil), msg.requests...)
 		if msg.resourceOK {
 			page.upsertRequest(msg.resource)
 			page.resourceID = msg.resource.ID
-			page.pendingResourceID = ""
 		}
 		selectedID := page.selectedID()
 		if page.resourceID != "" {
@@ -183,8 +190,14 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, page.manualRefreshCmd()
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
-		updated, cmd := page.browser.Update(msg)
-		page.browser = updated.(component.Browser)
+		var cmd tea.Cmd
+		if page.resourceID != "" {
+			page.detail.Resize(msg.Width, msg.Height)
+		} else {
+			updated, browserCmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
+			cmd = browserCmd
+		}
 		if page.overlay == requestOverlayForm {
 			form, formCmd := page.form.Update(msg)
 			page.form = form
@@ -205,6 +218,11 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, nil
 	case RequestCommandMsg:
 		return page, page.handleCommand(msg.Command, msg.ResourceID)
+	case component.BrowserOpenMsg:
+		if page.resourceID == "" && msg.Row.ID != "" {
+			return page, func() tea.Msg { return NavigateMsg{Path: []string{"requests", msg.Row.ID}} }
+		}
+		return page, nil
 	case tea.KeyPressMsg:
 		if page.overlay == requestOverlayOperation {
 			if msg.String() == "esc" {
@@ -223,14 +241,14 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.form = updated
 			return page, cmd
 		}
-		if page.browser.InputActive() {
+		if page.resourceID == "" && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
 		}
-		if page.browser.DetailOpen() {
-			updated, cmd := page.browser.Update(msg)
-			page.browser = updated.(component.Browser)
+		if page.resourceID != "" {
+			updated, cmd := page.detail.Update(msg)
+			page.detail = updated
 			return page, cmd
 		}
 		switch msg.String() {
@@ -252,6 +270,11 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.form = updated
 		return page, cmd
 	}
+	if page.resourceID != "" {
+		updated, cmd := page.detail.Update(message)
+		page.detail = updated
+		return page, cmd
+	}
 	updated, cmd := page.browser.Update(message)
 	page.browser = updated.(component.Browser)
 	return page, cmd
@@ -262,15 +285,22 @@ func (page *RequestsPage) View(width, height int) string {
 		return component.StateView(component.PageError, "Approval inbox unavailable", "")
 	}
 	page.width, page.height = width, height
-	page.browser.SetTitleNotice(page.notice)
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
 	}
-	browserHeight := max(1, height-pageFeedbackHeight(feedback))
-	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
-	page.browser = updated.(component.Browser)
-	content := prependPageFeedback(feedback, page.browser.Content())
+	var content string
+	if page.resourceID != "" {
+		page.detail.SetFeedback(page.notice, page.err)
+		page.detail.Resize(width, height)
+		content = page.detail.View()
+	} else {
+		page.browser.SetTitleNotice(page.notice)
+		browserHeight := max(1, height-pageFeedbackHeight(feedback))
+		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
+		page.browser = updated.(component.Browser)
+		content = prependPageFeedback(feedback, page.browser.Content())
+	}
 	if page.overlay == requestOverlayForm {
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 76)), width, height)
 	}
@@ -295,6 +325,9 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 	case requestOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
+		if page.resourceID != "" {
+			return page.detail.MouseTargets(originX, originY, z)
+		}
 		page.browser.SetTitleNotice(page.notice)
 		feedback := ""
 		if page.err != nil {
@@ -377,7 +410,7 @@ func (page *RequestsPage) manualRefreshCmd() tea.Cmd {
 }
 
 func (page *RequestsPage) refreshCmd() tea.Cmd {
-	resourceID := page.pendingResourceID
+	resourceID := page.resourceID
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
 		defer cancel()
@@ -389,7 +422,7 @@ func (page *RequestsPage) refreshCmd() tea.Cmd {
 		if resourceID != "" {
 			request, err := application.GetApprovalRequest(ctx, resourceID)
 			if err != nil {
-				result.err = err
+				result.resourceErr = err
 				return result
 			}
 			result.resource, result.resourceOK = request, true
@@ -427,16 +460,17 @@ func (page *RequestsPage) setMode(mode requestMode) {
 }
 
 func (page *RequestsPage) rebuildBrowser(selectedID string) {
-	detailOpen := page.browser.DetailOpen()
+	if page.resourceID != "" {
+		page.syncDetail()
+		return
+	}
 	helpExpanded := page.browser.HelpExpanded()
 	if selectedID == "" {
 		selectedID = page.selectedID()
 	}
 	rows := page.requestRows()
-	browser := component.NewBrowser(page.ctx, "Approval requests · "+page.modeLabel(), rows, nil)
+	browser := component.NewBrowser(page.ctx, "Approval requests · "+page.modeLabel(), rows, nil).WithListOnly()
 	browser = browser.WithHelpBindings(component.Binding([]string{"1"}, "1", "pending"), component.Binding([]string{"2"}, "2", "history"), component.Binding([]string{"3"}, "3", "all"), component.Binding([]string{"r"}, "r", "refresh"))
-	browser = browser.WithAction(component.RowAction{Key: "a", Desc: "approve", Run: requestRowAction(RequestApprove)})
-	browser = browser.WithAction(component.RowAction{Key: "d", Desc: "deny", Run: requestRowAction(RequestDeny)})
 	page.browser = browser
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
@@ -445,9 +479,6 @@ func (page *RequestsPage) rebuildBrowser(selectedID string) {
 	}
 	if selectedID != "" {
 		page.browser.SelectID(selectedID)
-		if detailOpen || page.resourceID == selectedID {
-			page.browser.OpenDetail(selectedID)
-		}
 	}
 }
 
@@ -468,16 +499,60 @@ func (page *RequestsPage) requestRows() []component.Row {
 		}
 		rows = append(rows, component.Row{
 			ID: request.ID, Title: title, Description: strings.Join(nonEmptyRequestStrings(shortApprovalRequestID(request.ID), request.WorkspaceID, request.TargetTool), " · "), Meta: meta,
-			Search:      strings.Join([]string{request.ID, string(request.Status), request.WorkspaceID, request.TargetTool, request.Source, request.Title}, " "),
-			DetailTitle: "Approval request · " + request.ID,
-			DetailTabs: []component.DetailTab{
-				{Title: "Overview", Content: requestOverview(request)},
-				{Title: "Arguments", Content: requestArguments(request)},
-				{Title: "Guard", Content: requestGuard(request)},
-			},
+			Search: strings.Join([]string{request.ID, string(request.Status), request.WorkspaceID, request.TargetTool, request.Source, request.Title}, " "),
 		})
 	}
 	return rows
+}
+
+func (page *RequestsPage) syncDetail() {
+	request, ok := page.findRequest(page.resourceID)
+	if !ok {
+		body := component.Muted("Loading approval request...")
+		if page.resourceErr != nil {
+			body = component.Muted("The approval request is no longer available.")
+		}
+		page.detail = component.NewDetailPage("Approval request · "+page.resourceID, "", body)
+		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: RequestCommandMsg{Command: RequestRefresh, ResourceID: page.resourceID}})
+		if page.width > 0 && page.height > 0 {
+			page.detail.Resize(page.width, page.height)
+		}
+		return
+	}
+	content := ""
+	switch page.section {
+	case "":
+		content = requestOverview(request)
+	case "arguments":
+		content = requestArguments(request)
+	case "guard":
+		content = requestGuard(request)
+	default:
+		content = component.Muted("Unsupported approval request child section: " + page.section)
+	}
+	meta := strings.ToUpper(string(request.Status))
+	if countdown := requestCountdownLabel(request, time.Now()); countdown != "" {
+		meta += " · " + countdown
+	}
+	page.detail = component.NewDetailPage("Approval request · "+request.ID, meta, content)
+	bindings := make([]component.DetailPageBinding, 0, 5)
+	if page.section == "" {
+		bindings = append(bindings,
+			component.DetailPageBinding{Key: "v", Desc: "arguments", Message: NavigateMsg{Path: []string{"requests", request.ID, "arguments"}}},
+			component.DetailPageBinding{Key: "g", Desc: "guard", Message: NavigateMsg{Path: []string{"requests", request.ID, "guard"}}},
+		)
+	}
+	if request.Status == approval.StatusPending {
+		bindings = append(bindings,
+			component.DetailPageBinding{Key: "a", Desc: "approve", Message: RequestCommandMsg{Command: RequestApprove, ResourceID: request.ID}},
+			component.DetailPageBinding{Key: "d", Desc: "deny", Message: RequestCommandMsg{Command: RequestDeny, ResourceID: request.ID}},
+		)
+	}
+	bindings = append(bindings, component.DetailPageBinding{Key: "r", Desc: "refresh", Message: RequestCommandMsg{Command: RequestRefresh, ResourceID: request.ID}})
+	page.detail.SetBindings(bindings...)
+	if page.width > 0 && page.height > 0 {
+		page.detail.Resize(page.width, page.height)
+	}
 }
 
 func (page *RequestsPage) modeIncludes(status approval.Status) bool {
@@ -528,12 +603,6 @@ func (page *RequestsPage) upsertRequest(value approval.Request) {
 		}
 	}
 	page.requests = append(page.requests, value)
-}
-
-func requestRowAction(command RequestCommand) func(component.Row) (string, tea.Cmd, error) {
-	return func(row component.Row) (string, tea.Cmd, error) {
-		return "", func() tea.Msg { return RequestCommandMsg{Command: command, ResourceID: row.ID} }, nil
-	}
 }
 
 func requestTickCmd() tea.Cmd {

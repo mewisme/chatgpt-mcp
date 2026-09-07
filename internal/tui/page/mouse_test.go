@@ -7,20 +7,27 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
-func TestFormOverlayMouseTargetsBlockBackgroundAndLiftControls(t *testing.T) {
+func TestFormOverlayMouseTargetsDismissOutsideAndShieldInside(t *testing.T) {
 	value := ""
 	form := component.NewForm(component.Group(component.Input("Name", &value)))
 	form = runMouseForm(form, form.Init())
 	targets := formOverlayMouseTargets(form, 60, 100, 30, 2, 3, 20)
-	if len(targets) < 2 || targets[0].ID != "page.overlay" {
+	if len(targets) < 3 || targets[0].ID != "overlay.backdrop" || targets[1].ID != "overlay.modal" {
 		t.Fatalf("targets=%#v", targets)
 	}
-	if targets[0].Z >= targets[1].Z {
-		t.Fatalf("blocker z=%d control z=%d", targets[0].Z, targets[1].Z)
+	if targets[0].Z >= targets[1].Z || targets[1].Z >= targets[2].Z {
+		t.Fatalf("z ordering=%d,%d,%d", targets[0].Z, targets[1].Z, targets[2].Z)
 	}
 	cmd := component.DispatchMouse(targets, tea.MouseClickMsg(tea.Mouse{X: 2, Y: 3, Button: tea.MouseLeft}))
-	if cmd != nil {
-		t.Fatal("background click escaped modal blocker")
+	if cmd == nil {
+		t.Fatal("outside click did not dismiss modal")
+	}
+	if message, ok := cmd().(tea.KeyPressMsg); !ok || message.String() != "esc" {
+		t.Fatalf("outside dismiss message=%#v", cmd())
+	}
+	insideX, insideY := targets[1].Rect.X, targets[1].Rect.Y
+	if cmd := component.DispatchMouse(targets, tea.MouseClickMsg(tea.Mouse{X: insideX, Y: insideY, Button: tea.MouseLeft})); cmd != nil {
+		t.Fatal("inside modal click incorrectly dismissed")
 	}
 }
 

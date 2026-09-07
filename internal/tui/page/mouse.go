@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
@@ -19,27 +18,29 @@ func mouseBlocker(originX, originY, width, height, z int) component.MouseTarget 
 func formOverlayMouseTargets(form component.Form, modalWidth, pageWidth, pageHeight, originX, originY, z int) []component.MouseTarget {
 	formView := form.View()
 	modal := component.Modal(formView, modalWidth)
-	modalX := max(0, (pageWidth-lipgloss.Width(modal))/2)
-	modalY := max(0, (pageHeight-lipgloss.Height(modal))/2)
+	targets, modalX, modalY := component.CenteredOverlayTargets(modal, pageWidth, pageHeight, originX, originY, z, tea.KeyPressMsg{Code: tea.KeyEscape})
 	rect, ok := component.FindRenderedRect(modal, formView)
 	if !ok {
-		return []component.MouseTarget{mouseBlocker(originX, originY, pageWidth, pageHeight, z)}
+		return targets
 	}
-	targets := []component.MouseTarget{mouseBlocker(originX, originY, pageWidth, pageHeight, z)}
-	return append(targets, form.MouseTargets(originX+modalX+rect.X, originY+modalY+rect.Y, z+1)...)
+	return append(targets, form.MouseTargets(originX+modalX+rect.X, originY+modalY+rect.Y, z+2)...)
 }
 
 func confirmOverlayMouseTargets(confirm component.ConfirmButtons, title, description string, modalWidth, pageWidth, pageHeight, originX, originY, z int) []component.MouseTarget {
 	body := component.Title(title) + "\n\n" + component.Muted(description) + "\n\n" + confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
 	modal := component.Modal(body, modalWidth)
-	modalX := max(0, (pageWidth-lipgloss.Width(modal))/2)
-	modalY := max(0, (pageHeight-lipgloss.Height(modal))/2)
+	targets, modalX, modalY := component.CenteredOverlayTargets(modal, pageWidth, pageHeight, originX, originY, z, tea.KeyPressMsg{Code: tea.KeyEscape})
 	rect, ok := component.FindRenderedRect(modal, confirm.View())
-	targets := []component.MouseTarget{mouseBlocker(originX, originY, pageWidth, pageHeight, z)}
 	if !ok {
 		return targets
 	}
-	return append(targets, confirm.MouseTargets(originX+modalX+rect.X, originY+modalY+rect.Y, z+1)...)
+	return append(targets, confirm.MouseTargets(originX+modalX+rect.X, originY+modalY+rect.Y, z+2)...)
+}
+
+func dismissibleOverlayMouseTargets(body string, modalWidth, pageWidth, pageHeight, originX, originY, z int) []component.MouseTarget {
+	modal := component.Modal(body, modalWidth)
+	targets, _, _ := component.CenteredOverlayTargets(modal, pageWidth, pageHeight, originX, originY, z, tea.KeyPressMsg{Code: tea.KeyEscape})
+	return targets
 }
 
 func keyHintMouseTargets(view string, bindings map[string]string, originX, originY, z int) []component.MouseTarget {

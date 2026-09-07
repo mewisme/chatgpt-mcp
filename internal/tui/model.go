@@ -384,28 +384,28 @@ func (model Model) View() tea.View {
 		width, height := model.layoutSize()
 		body := model.exitConfirmView()
 		foreground := component.Modal(body, max(1, min(58, width-4)))
-		x, y := max(0, (width-lipgloss.Width(foreground))/2), max(0, (height-lipgloss.Height(foreground))/2)
+		overlayTargets, x, y := component.CenteredOverlayTargets(foreground, width, height, 0, 0, 99, tea.KeyPressMsg{Code: tea.KeyEscape})
 		content = centerOverlay(content, foreground, width, height)
-		targets = append(targets, component.MouseTarget{ID: "app.exit.blocker", Rect: component.Rect{X: 0, Y: 0, Width: width, Height: height}, Z: 99, Handle: func(component.MouseEvent) tea.Msg { return nil }})
+		targets = append(targets, overlayTargets...)
 		if rect, ok := component.FindRenderedRect(foreground, model.exitConfirm.View()); ok {
-			targets = append(targets, model.exitConfirm.MouseTargets(x+rect.X, y+rect.Y, 100)...)
+			targets = append(targets, model.exitConfirm.MouseTargets(x+rect.X, y+rect.Y, 101)...)
 		}
 	}
 	if model.approvalActive() {
 		width, height := model.layoutSize()
 		body := model.approvalDialogView()
 		foreground := component.Modal(body, max(1, min(88, width-4)))
-		x, y := max(0, (width-lipgloss.Width(foreground))/2), max(0, (height-lipgloss.Height(foreground))/2)
+		overlayTargets, x, y := component.CenteredOverlayTargets(foreground, width, height, 0, 0, 199, tea.KeyPressMsg{Code: tea.KeyEscape})
 		content = centerOverlay(content, foreground, width, height)
-		targets = append(targets, component.MouseTarget{ID: "app.approval.blocker", Rect: component.Rect{X: 0, Y: 0, Width: width, Height: height}, Z: 199, Handle: func(component.MouseEvent) tea.Msg { return nil }})
+		targets = append(targets, overlayTargets...)
 		buttons := model.approvalButtonsView()
 		if buttons != "" {
 			if rect, ok := component.FindRenderedRect(foreground, buttons); ok {
 				var buttonTargets []component.MouseTarget
 				if model.approvalStage == approvalStageChoice {
-					buttonTargets = model.approvalChoice.MouseTargets(x+rect.X, y+rect.Y, 200)
+					buttonTargets = model.approvalChoice.MouseTargets(x+rect.X, y+rect.Y, 201)
 				} else if model.approvalStage == approvalStageConfirm {
-					buttonTargets = model.approvalConfirm.MouseTargets(x+rect.X, y+rect.Y, 200)
+					buttonTargets = model.approvalConfirm.MouseTargets(x+rect.X, y+rect.Y, 201)
 				}
 				targets = append(targets, buttonTargets...)
 			}

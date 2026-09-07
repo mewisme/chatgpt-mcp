@@ -323,7 +323,14 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 80), page.width, page.height, originX, originY, z+20)
 	case tunnelOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
-	case tunnelOverlayOperation, tunnelOverlayExternal:
+	case tunnelOverlayExternal:
+		body := component.Title("Run outside the TUI")
+		if page.external != nil {
+			body += "\n\n" + component.Muted(page.external.Reason) + "\n\n" + page.external.Command
+		}
+		body += "\n\n" + component.Muted("c copy command · Esc close")
+		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
+	case tunnelOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
 	feedback := ""

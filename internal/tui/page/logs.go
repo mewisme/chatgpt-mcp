@@ -338,7 +338,10 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 86), page.width, page.height, originX, originY, z+20)
 	case logsOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, "Clear runtime logs?", "Current and rotated runtime logs will be removed. This cannot be undone.", overlayWidth(page.width, 68), page.width, page.height, originX, originY, z+20)
-	case logsOverlayInfo, logsOverlayOperation:
+	case logsOverlayInfo:
+		body := component.Title("Logs info") + "\n\n" + detailFields([2]string{"Path", page.info.Path}, [2]string{"Files", fmt.Sprintf("%d", page.info.Files)}, [2]string{"Size", humanBytes(page.info.Bytes)}) + "\n\n" + component.Muted("Esc close")
+		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 78), page.width, page.height, originX, originY, z+20)
+	case logsOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
 	tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, page.width)

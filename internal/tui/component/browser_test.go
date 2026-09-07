@@ -460,6 +460,20 @@ func TestBrowserMouseSelectOpenTabAndWheel(t *testing.T) {
 	}
 }
 
+func TestBrowserDetailOutsideClickClosesWithoutClickThrough(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One", Detail: "detail"}}, nil)
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 80, Height: 20})
+	if !model.OpenDetail("one") {
+		t.Fatal("detail did not open")
+	}
+	targets := model.MouseTargets(0, 0, 1)
+	backdrop := mouseTarget(t, targets, "browser.detail.backdrop", 0)
+	model = updateBrowser(t, model, backdrop.Handle(MouseEvent{Button: tea.MouseLeft}))
+	if model.DetailOpen() {
+		t.Fatal("outside click did not close detail")
+	}
+}
+
 func mouseTarget(t *testing.T, targets []MouseTarget, id string, occurrence int) MouseTarget {
 	t.Helper()
 	for _, target := range targets {

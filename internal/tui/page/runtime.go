@@ -312,7 +312,16 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 82), page.width, page.height, originX, originY, z+20)
 	case systemOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
-	case systemOverlayOperation, systemOverlaySecret, systemOverlayExternal:
+	case systemOverlaySecret:
+		body := component.Title(strings.ToUpper(page.secretKind)+" token") + "\n\n" + page.secret + "\n\n" + component.Muted("Shown once · c copy · Esc close")
+		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
+	case systemOverlayExternal:
+		if page.external == nil {
+			return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
+		}
+		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + page.external.Command + "\n\n" + component.Muted("c copy command · Esc close")
+		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
+	case systemOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
 	feedback := ""
@@ -857,9 +866,13 @@ func (page *RuntimePage) syncBrowserHelp() {
 		component.RowAction{Key: "l", Desc: "reload", When: func(row component.Row) bool { return row.ID == "runtime" && page.runtime.Running }, Run: run(func(component.Row) SystemCommand { return RuntimeReload })},
 		component.RowAction{Key: "f", Desc: "foreground", When: rowIs("runtime"), Run: run(func(component.Row) SystemCommand { return RuntimeForeground })},
 		component.RowAction{Key: "space", Desc: toggleHTTPLabel, When: rowIs("transport.mcp-http"), Run: run(func(component.Row) SystemCommand { return toggleHTTP })},
-		component.RowAction{Key: "e", Desc: toggleMCPAuthLabel, When: func(row component.Row) bool { return row.ID == "auth.mcp" && (page.auth.MCPConfigured || page.auth.MCPEnabled) }, Run: run(func(component.Row) SystemCommand { return toggleMCPAuth })},
+		component.RowAction{Key: "e", Desc: toggleMCPAuthLabel, When: func(row component.Row) bool {
+			return row.ID == "auth.mcp" && (page.auth.MCPConfigured || page.auth.MCPEnabled)
+		}, Run: run(func(component.Row) SystemCommand { return toggleMCPAuth })},
 		component.RowAction{Key: "t", Desc: "rotate token", When: rowIs("auth.mcp"), Run: run(func(component.Row) SystemCommand { return AuthMCPRotate })},
-		component.RowAction{Key: "e", Desc: toggleAdminAuthLabel, When: func(row component.Row) bool { return row.ID == "auth.admin" && (page.auth.AdminConfigured || page.auth.AdminEnabled) }, Run: run(func(component.Row) SystemCommand { return toggleAdminAuth })},
+		component.RowAction{Key: "e", Desc: toggleAdminAuthLabel, When: func(row component.Row) bool {
+			return row.ID == "auth.admin" && (page.auth.AdminConfigured || page.auth.AdminEnabled)
+		}, Run: run(func(component.Row) SystemCommand { return toggleAdminAuth })},
 		component.RowAction{Key: "t", Desc: "rotate token", When: rowIs("auth.admin"), Run: run(func(component.Row) SystemCommand { return AuthAdminRotate })},
 		component.RowAction{Key: "i", Desc: "install", When: rowIs("installation"), Run: run(func(component.Row) SystemCommand { return InstallRun })},
 		component.RowAction{Key: "c", Desc: "cleanup", When: rowIs("installation"), Run: run(func(component.Row) SystemCommand { return InstallCleanup })},

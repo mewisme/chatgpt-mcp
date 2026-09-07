@@ -69,6 +69,23 @@ func OffsetMouseTargets(targets []MouseTarget, x, y, z int) []MouseTarget {
 	return result
 }
 
+func CenteredOverlayTargets(foreground string, canvasWidth, canvasHeight, originX, originY, z int, dismiss tea.Msg) ([]MouseTarget, int, int) {
+	width, height := lipgloss.Width(foreground), lipgloss.Height(foreground)
+	x := max(0, (canvasWidth-width)/2)
+	y := max(0, (canvasHeight-height)/2)
+	backdrop := MouseTarget{
+		ID: "overlay.backdrop", Rect: Rect{X: originX, Y: originY, Width: canvasWidth, Height: canvasHeight}, Z: z,
+		Handle: func(event MouseEvent) tea.Msg {
+			if event.Button != tea.MouseLeft {
+				return nil
+			}
+			return dismiss
+		},
+	}
+	modal := MouseTarget{ID: "overlay.modal", Rect: Rect{X: originX + x, Y: originY + y, Width: width, Height: height}, Z: z + 1, Handle: func(MouseEvent) tea.Msg { return nil }}
+	return []MouseTarget{backdrop, modal}, x, y
+}
+
 func FindRenderedRect(container, child string) (Rect, bool) {
 	containerLines := strings.Split(ansi.Strip(container), "\n")
 	childPlain := ansi.Strip(child)

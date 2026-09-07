@@ -31,3 +31,20 @@ func TestDispatchMouseIgnoresUnsupportedButtonsAndOutsideTargets(t *testing.T) {
 		t.Fatal("right click unexpectedly dispatched")
 	}
 }
+
+func TestCenteredOverlayTargetsDismissBackdropAndShieldModal(t *testing.T) {
+	targets, x, y := CenteredOverlayTargets("modal\nbody", 40, 20, 3, 4, 10, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if len(targets) != 2 || targets[0].ID != "overlay.backdrop" || targets[1].ID != "overlay.modal" || targets[1].Z <= targets[0].Z {
+		t.Fatalf("targets=%#v", targets)
+	}
+	cmd := DispatchMouse(targets, tea.MouseClickMsg(tea.Mouse{X: 3, Y: 4, Button: tea.MouseLeft}))
+	if cmd == nil {
+		t.Fatal("backdrop click returned no command")
+	}
+	if msg, ok := cmd().(tea.KeyPressMsg); !ok || msg.String() != "esc" {
+		t.Fatalf("dismiss=%#v", cmd())
+	}
+	if cmd := DispatchMouse(targets, tea.MouseClickMsg(tea.Mouse{X: 3 + x, Y: 4 + y, Button: tea.MouseLeft})); cmd != nil {
+		t.Fatal("modal shield allowed backdrop dismissal")
+	}
+}

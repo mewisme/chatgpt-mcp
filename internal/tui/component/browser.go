@@ -549,19 +549,28 @@ func (m Browser) detailMouseTargets(originX, originY, z int) []MouseTarget {
 	width, height := lipgloss.Width(detail), lipgloss.Height(detail)
 	x := originX + max(0, (m.width-width)/2)
 	y := originY + max(0, (m.height-height)/2)
-	targets := []MouseTarget{{
-		ID: "browser.detail.scroll", Rect: Rect{X: x, Y: y, Width: width, Height: height}, Z: z,
-		Handle: func(event MouseEvent) tea.Msg {
-			switch event.Button {
-			case tea.MouseWheelUp:
-				return browserMouseMsg{Wheel: -1}
-			case tea.MouseWheelDown:
-				return browserMouseMsg{Wheel: 1}
-			default:
-				return nil
-			}
-		},
-	}}
+	targets := []MouseTarget{
+		{
+			ID: "browser.detail.backdrop", Rect: Rect{X: originX, Y: originY, Width: m.width, Height: m.height}, Z: z,
+			Handle: func(event MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return tea.KeyPressMsg{Code: tea.KeyEscape}
+			},
+		}, {
+			ID: "browser.detail.scroll", Rect: Rect{X: x, Y: y, Width: width, Height: height}, Z: z + 1,
+			Handle: func(event MouseEvent) tea.Msg {
+				switch event.Button {
+				case tea.MouseWheelUp:
+					return browserMouseMsg{Wheel: -1}
+				case tea.MouseWheelDown:
+					return browserMouseMsg{Wheel: 1}
+				default:
+					return nil
+				}
+			},
+		}}
 	selected, ok := m.detailRow()
 	if !ok {
 		return targets
@@ -581,7 +590,7 @@ func (m Browser) detailMouseTargets(originX, originY, z int) []MouseTarget {
 		}
 		keyValue := action.Key
 		targets = append(targets, MouseTarget{
-			ID: "browser.detail.action", Rect: Rect{X: x + column, Y: y + line, Width: lipgloss.Width(label), Height: 1}, Z: z + 1,
+			ID: "browser.detail.action", Rect: Rect{X: x + column, Y: y + line, Width: lipgloss.Width(label), Height: 1}, Z: z + 2,
 			Handle: func(event MouseEvent) tea.Msg {
 				if event.Button != tea.MouseLeft {
 					return nil
@@ -604,7 +613,7 @@ func (m Browser) detailMouseTargets(originX, originY, z int) []MouseTarget {
 		}
 		index := tabIndex
 		targets = append(targets, MouseTarget{
-			ID: "browser.detail.tab", Rect: Rect{X: x + column, Y: y + line, Width: lipgloss.Width(label), Height: 1}, Z: z + 1,
+			ID: "browser.detail.tab", Rect: Rect{X: x + column, Y: y + line, Width: lipgloss.Width(label), Height: 1}, Z: z + 2,
 			Handle: func(event MouseEvent) tea.Msg {
 				if event.Button != tea.MouseLeft {
 					return nil

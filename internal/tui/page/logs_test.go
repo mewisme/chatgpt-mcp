@@ -47,7 +47,7 @@ func TestLogsPageLoadsHistoryAndShowsOfflineReconnectState(t *testing.T) {
 		t.Fatalf("offline stream connected=%t reconnect=%t cmd=%v", page.connected, page.reconnecting, reconnect)
 	}
 	plain := ansi.Strip(page.View(180, 28))
-	for _, want := range []string{"Runtime", "Command Execution", "RECONNECTING", "server.ready", "? more"} {
+	for _, want := range []string{"Runtime Logs", "RECONNECTING", "server.ready", "? more"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view missing %q: %q", want, plain)
 		}
@@ -112,33 +112,33 @@ func TestLogsPagePauseBuffersWithoutFollowingAndResumeReturnsToTail(t *testing.T
 	}
 }
 
-func TestLogsPageFollowKeepsOpenDetailPinnedWhileSelectingLatest(t *testing.T) {
-	page, _ := NewLogs(t.Context())
+func TestLogsEventChildDetailStaysPinnedWhileLiveEventsAppend(t *testing.T) {
+	page, _ := NewLogsRoute(t.Context(), "run:2", "")
 	defer page.Close()
 	base := time.Now().UTC()
 	page.mergeEvents([]runtimeevent.Event{
 		{Sequence: 1, Time: base, RunID: "run", Level: "info", Name: "one", Message: "one"},
 		{Sequence: 2, Time: base.Add(time.Second), RunID: "run", Level: "info", Name: "two", Message: "two"},
 	})
-	if !page.browser.OpenDetail("run:2") || page.paused {
-		t.Fatalf("detail=%t paused=%t", page.browser.DetailOpen(), page.paused)
+	if page.OverlayActive() || page.paused {
+		t.Fatalf("overlay=%t paused=%t", page.OverlayActive(), page.paused)
 	}
 	page.appendEvent(runtimeevent.Event{Sequence: 3, Time: base.Add(2 * time.Second), RunID: "run", Level: "info", Name: "three", Message: "three"})
-	if page.paused || page.selectedID() != "run:3" || !page.browser.DetailOpen() {
-		t.Fatalf("follow paused=%t selected=%q detail=%t", page.paused, page.selectedID(), page.browser.DetailOpen())
+	if page.paused {
+		t.Fatalf("detail child unexpectedly paused follow state")
 	}
-	detail := ansi.Strip(page.browser.Content())
+	detail := ansi.Strip(page.View(100, 26))
 	if !strings.Contains(detail, "Log event · two") || strings.Contains(detail, "Log event · three") {
 		t.Fatalf("detail jumped after live append: %q", detail)
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	page = updated.(*LogsPage)
-	if page.browser.DetailOpen() || page.paused || page.selectedID() != "run:3" {
-		t.Fatalf("after close detail=%t paused=%t selected=%q", page.browser.DetailOpen(), page.paused, page.selectedID())
+	if cmd == nil {
+		t.Fatal("fields child navigation returned no command")
 	}
-	page.appendEvent(runtimeevent.Event{Sequence: 4, Time: base.Add(3 * time.Second), RunID: "run", Level: "info", Name: "four", Message: "four"})
-	if page.paused || page.selectedID() != "run:4" {
-		t.Fatalf("follow did not continue paused=%t selected=%q", page.paused, page.selectedID())
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "logs/run:2/fields" {
+		t.Fatalf("fields navigation=%#v", navigate)
 	}
 }
 
@@ -211,9 +211,9 @@ func TestLogsPageDefaultsToVerboseWithoutExposingDebugFields(t *testing.T) {
 	event := runtimeevent.Event{Sequence: 1, Time: time.Now(), RunID: "run", Level: "info", Name: "safe", Message: "message", Fields: []runtimeevent.Field{{Key: "visible", Value: "ok"}, {Key: "verbose", Value: "useful", Visibility: logger.VisibilityVerbose}, {Key: "secret-debug", Value: "never-show", Visibility: logger.VisibilityDebug}}}
 	row := page.logRow(event)
 	joined := row.Search
-	for _, tab := range row.DetailTabs {
-		joined += "\n" + tab.Content
-	}
+	page.resourceID, page.section, page.events = "run:1", "fields", []runtimeevent.Event{event}
+	page.syncDetail()
+	joined += "\n" + ansi.Strip(page.detail.View())
 	if !strings.Contains(joined, "visible") || !strings.Contains(joined, "verbose") || !strings.Contains(joined, "useful") || strings.Contains(joined, "secret-debug") || strings.Contains(joined, "never-show") {
 		t.Fatalf("row leaked hidden field: %q", joined)
 	}
@@ -672,7 +672,7 @@ func TestLogsPageStreamEventDisconnectAndGapHelpers(t *testing.T) {
 	}
 }
 
-func TestLogsCommandExecTabStreamsCombinedOutputInEventOrder(t *testing.T) {
+func TestLogsCommandExecutionRouteStreamsCombinedOutputInEventOrder(t *testing.T) {
 	root := setupLogsPageRoot(t)
 	code := 0
 	info := shellruntime.ExecutionInfo{ID: "exec_test", WorkspaceID: "ws_a", Tool: "run_command", Command: "printf demo", CWD: "/tmp", Source: "mcp", StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: shellruntime.ExecutionStatusRunning}
@@ -694,12 +694,11 @@ func TestLogsCommandExecTabStreamsCombinedOutputInEventOrder(t *testing.T) {
 	}))
 	defer server.Close()
 	writeLogsRuntimeState(t, root, server.URL, "run_exec")
-	page, _ := NewLogs(t.Context())
+	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()
-	updated, open := page.Update(tea.KeyPressMsg{Code: '2'})
-	page = updated.(*LogsPage)
-	if page.tab != logsTabCommandExec || open == nil {
-		t.Fatalf("tab=%d open=%v", page.tab, open)
+	open := page.Init()
+	if !page.execution || open == nil {
+		t.Fatalf("execution=%t open=%v", page.execution, open)
 	}
 	updated, next := page.Update(open())
 	page = updated.(*LogsPage)
@@ -717,7 +716,7 @@ func TestLogsCommandExecTabStreamsCombinedOutputInEventOrder(t *testing.T) {
 		t.Fatalf("completed events=%#v next=%v", page.exec.events, next)
 	}
 	plain := ansi.Strip(page.View(120, 28))
-	for _, want := range []string{"Runtime", "Command Execution", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]"} {
+	for _, want := range []string{"Logs · Command Execution", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]", "v runtime logs"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("command exec view missing %q: %q", want, plain)
 		}
@@ -743,9 +742,8 @@ func TestLogsCommandExecutionUnsupportedRuntimeStopsReconnectLoop(t *testing.T) 
 }
 
 func TestLogsCommandExecutionEmptyViewPinsHelpToBottom(t *testing.T) {
-	page, _ := NewLogs(t.Context())
+	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()
-	page.tab = logsTabCommandExec
 	page.exec.connected, page.exec.loaded = true, true
 	plain := ansi.Strip(page.View(120, 28))
 	lines := strings.Split(plain, "\n")
@@ -784,36 +782,38 @@ func TestFormatExecutionFeedCombinesStdoutAndStderrWithoutStreamSections(t *test
 	}
 }
 
-func TestLogsCommandExecTabNavigationAndMouseTargets(t *testing.T) {
+func TestLogsRuntimeAndCommandExecutionNavigateAsRoutes(t *testing.T) {
 	setupLogsPageRoot(t)
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
 	page.width, page.height = 100, 24
-	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime") || !strings.Contains(view, "Command Execution") {
-		t.Fatalf("tabs view=%q", view)
+	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime Logs") || strings.Contains(view, "Command Execution   Runtime") {
+		t.Fatalf("runtime logs view=%q", view)
 	}
-	targets := page.MouseTargets(0, 0, 1)
-	var commandTab component.MouseTarget
-	for _, target := range targets {
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	page = updated.(*LogsPage)
+	if cmd == nil {
+		t.Fatal("execution route navigation returned no command")
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "logs-exec" {
+		t.Fatalf("execution navigation=%#v", navigate)
+	}
+	for _, target := range page.MouseTargets(0, 0, 1) {
 		if target.ID == "logs.tab" {
-			if msg, ok := target.Handle(component.MouseEvent{Button: tea.MouseLeft}).(tea.KeyPressMsg); ok && msg.String() == "2" {
-				commandTab = target
-				break
-			}
+			t.Fatal("legacy logs tab mouse target still present")
 		}
 	}
-	if commandTab.Handle == nil {
-		t.Fatal("command exec tab mouse target missing")
+	execPage, _ := NewCommandExecutionLogs(t.Context())
+	defer execPage.Close()
+	updated, cmd = execPage.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	execPage = updated.(*LogsPage)
+	if cmd == nil {
+		t.Fatal("runtime logs navigation returned no command")
 	}
-	updated, _ := page.Update(commandTab.Handle(component.MouseEvent{Button: tea.MouseLeft}))
-	page = updated.(*LogsPage)
-	if page.tab != logsTabCommandExec {
-		t.Fatalf("tab=%d", page.tab)
-	}
-	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
-	page = updated.(*LogsPage)
-	if page.tab != logsTabRuntime {
-		t.Fatalf("left did not return runtime tab: %d", page.tab)
+	navigate, ok = cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "logs" {
+		t.Fatalf("runtime logs navigation=%#v", navigate)
 	}
 }
 

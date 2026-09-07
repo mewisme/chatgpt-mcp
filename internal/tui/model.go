@@ -828,7 +828,7 @@ func (model *Model) loadPage(route Route) {
 	case RouteRequests:
 		value, err = tuipage.NewRequestsRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteLogs:
-		value, err = tuipage.NewLogs(model.ctx)
+		value, err = tuipage.NewLogsRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteLogsExec:
 		value, err = tuipage.NewCommandExecutionLogs(model.ctx)
 	case RouteRuntime:

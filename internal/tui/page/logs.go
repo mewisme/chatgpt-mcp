@@ -75,10 +75,13 @@ type logsClearMsg struct {
 
 type LogsPage struct {
 	ctx          context.Context
-	tab          logsTab
+	resourceID   string
+	section      string
+	execution    bool
 	exec         logsExecutionFeed
 	cancel       context.CancelFunc
 	browser      component.Browser
+	detail       component.DetailPage
 	events       []runtimeevent.Event
 	options      application.LogsQueryOptions
 	query        runtimeevent.Query
@@ -108,22 +111,26 @@ type LogsPage struct {
 }
 
 func NewLogs(ctx context.Context) (*LogsPage, error) {
+	return NewLogsRoute(ctx, "", "")
+}
+
+func NewLogsRoute(ctx context.Context, resourceID, section string) (*LogsPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	pageCtx, cancel := context.WithCancel(ctx)
-	page := &LogsPage{ctx: pageCtx, cancel: cancel, options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose, exec: newLogsExecutionFeed()}
-	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false)
+	page := &LogsPage{ctx: pageCtx, cancel: cancel, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose, exec: newLogsExecutionFeed()}
+	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false).WithListOnly()
 	page.syncBrowserHelp()
 	return page, nil
 }
 
 func NewCommandExecutionLogs(ctx context.Context) (*LogsPage, error) {
-	page, err := NewLogs(ctx)
+	page, err := NewLogsRoute(ctx, "", "")
 	if err != nil {
 		return nil, err
 	}
-	page.tab = logsTabCommandExec
+	page.execution = true
 	return page, nil
 }
 
@@ -131,7 +138,7 @@ func (page *LogsPage) Init() tea.Cmd {
 	if page == nil {
 		return nil
 	}
-	if page.tab == logsTabCommandExec {
+	if page.execution {
 		return page.startExecutionFeed()
 	}
 	return page.startBootstrap()
@@ -149,10 +156,10 @@ func (page *LogsPage) Close() {
 }
 
 func (page *LogsPage) OverlayActive() bool {
-	return page != nil && (page.overlay != logsOverlayNone || (page.tab == logsTabRuntime && page.browser.DetailOpen()))
+	return page != nil && page.overlay != logsOverlayNone
 }
 func (page *LogsPage) InputActive() bool {
-	return page != nil && (page.overlay == logsOverlayForm || (page.tab == logsTabRuntime && page.browser.InputActive()))
+	return page != nil && (page.overlay == logsOverlayForm || !page.execution && page.resourceID == "" && page.browser.InputActive())
 }
 
 func (page *LogsPage) Notice() string {
@@ -183,7 +190,7 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, page.startExecutionFeed()
 	case logsExecutionMouseMsg:
-		if page.tab == logsTabCommandExec {
+		if page.execution {
 			page.handleExecutionMouse(msg)
 		}
 		return page, nil
@@ -234,10 +241,22 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, nil
 	case LogsCommandMsg:
 		return page, page.openCommand(msg.Command)
+	case component.BrowserOpenMsg:
+		if !page.execution && page.resourceID == "" && msg.Row.ID != "" {
+			return page, func() tea.Msg { return NavigateMsg{Path: []string{"logs", msg.Row.ID}} }
+		}
+		return page, nil
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
-		browserCmd := page.resizeBrowser()
-		page.resizeExecutionViewport(msg.Width, max(1, msg.Height-lipgloss.Height(component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, msg.Width))-4))
+		var browserCmd tea.Cmd
+		switch {
+		case page.execution:
+			page.resizeExecutionViewport(msg.Width, max(1, msg.Height-lipgloss.Height(component.PageTitleNotice("Logs · Command Execution", page.notice, msg.Width))-1))
+		case page.resourceID != "":
+			page.detail.Resize(msg.Width, msg.Height)
+		default:
+			browserCmd = page.resizeBrowser()
+		}
 		if page.overlay == logsOverlayForm {
 			updated, formCmd := page.form.Update(msg)
 			page.form = updated
@@ -265,18 +284,17 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return page, nil
 		}
-		if page.tab == logsTabCommandExec {
-			if cmd, handled := page.handleTabKey(msg); handled {
-				return page, cmd
-			}
+		if page.execution {
 			return page, page.handleExecutionKey(msg)
 		}
-		if page.browser.InputActive() || page.browser.DetailOpen() {
-			updated, cmd := page.browser.Update(msg)
-			page.browser = updated.(component.Browser)
+		if page.resourceID != "" {
+			updated, cmd := page.detail.Update(msg)
+			page.detail = updated
 			return page, cmd
 		}
-		if cmd, handled := page.handleTabKey(msg); handled {
+		if page.browser.InputActive() {
+			updated, cmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
 			return page, cmd
 		}
 		if cmd, handled := page.handleKey(msg); handled {
@@ -288,8 +306,13 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.form = updated
 		return page, cmd
 	}
-	if page.tab == logsTabCommandExec {
+	if page.execution {
 		return page, nil
+	}
+	if page.resourceID != "" {
+		updated, cmd := page.detail.Update(message)
+		page.detail = updated
+		return page, cmd
 	}
 	before := page.selectedID()
 	updated, cmd := page.browser.Update(message)
@@ -305,22 +328,27 @@ func (page *LogsPage) View(width, height int) string {
 		return component.StateView(component.PageError, "Logs unavailable", "")
 	}
 	page.width, page.height = width, height
-	tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, width)
-	content := tabs
-	if page.tab == logsTabCommandExec {
-		bodyHeight := max(1, height-lipgloss.Height(tabs))
-		content += "\n" + page.executionView(width, bodyHeight)
+	var content string
+	if page.execution {
+		title := component.PageTitleNotice("Logs · Command Execution", page.notice, width)
+		bodyHeight := max(1, height-lipgloss.Height(title))
+		content = title + "\n" + page.executionView(width, bodyHeight)
+	} else if page.resourceID != "" {
+		page.detail.SetFeedback(page.notice, page.err)
+		page.detail.Resize(width, height)
+		content = page.detail.View()
 	} else {
+		title := component.PageTitleNotice("Runtime Logs", page.notice, width)
 		status := page.statusView(width)
 		feedback := ""
 		if page.err != nil {
 			feedback = component.Banner(page.err.Error(), component.ToneDanger)
 		}
-		headerHeight := lipgloss.Height(tabs) + lipgloss.Height(status)
+		headerHeight := lipgloss.Height(title) + lipgloss.Height(status)
 		browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
-		content += "\n" + status + "\n" + prependPageFeedback(feedback, page.browser.Content())
+		content = title + "\n" + status + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	}
 	switch page.overlay {
 	case logsOverlayForm:
@@ -356,33 +384,22 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	case logsOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
-	tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, page.width)
-	tabTargets := page.logsTabMouseTargets(originX, originY, z+2)
-	tabsHeight := lipgloss.Height(tabs)
-	if page.tab == logsTabCommandExec {
-		bodyY := originY + tabsHeight
-		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, max(1, page.height-tabsHeight))...)
+	if page.execution {
+		titleHeight := lipgloss.Height(component.PageTitleNotice("Logs · Command Execution", page.notice, page.width))
+		bodyY := originY + titleHeight
+		return page.executionMouseTargets(originX, bodyY, z, page.width, max(1, page.height-titleHeight))
+	}
+	if page.resourceID != "" {
+		return page.detail.MouseTargets(originX, originY, z)
 	}
 	feedback := ""
 	if page.err != nil {
 		feedback = component.Banner(page.err.Error(), component.ToneDanger)
 	}
 	statusHeight := lipgloss.Height(page.statusView(page.width))
-	browserY := originY + tabsHeight + statusHeight + pageFeedbackHeight(feedback)
-	return append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
-}
-
-func (page *LogsPage) handleTabKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	switch msg.String() {
-	case "1":
-		return page.switchLogsTab(logsTabRuntime), true
-	case "2":
-		return page.switchLogsTab(logsTabCommandExec), true
-	}
-	if delta, ok := component.TabDelta(msg); ok {
-		return page.moveLogsTab(delta), true
-	}
-	return nil, false
+	titleHeight := lipgloss.Height(component.PageTitleNotice("Runtime Logs", page.notice, page.width))
+	browserY := originY + titleHeight + statusHeight + pageFeedbackHeight(feedback)
+	return page.browser.MouseTargets(originX, browserY, z)
 }
 
 func (page *LogsPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
@@ -397,6 +414,8 @@ func (page *LogsPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return page.openCommand(LogsInfo), true
 	case "d":
 		return page.openCommand(LogsClear), true
+	case "x":
+		return func() tea.Msg { return NavigateMsg{Path: []string{"logs-exec"}} }, true
 	default:
 		return nil, false
 	}
@@ -675,6 +694,10 @@ func (page *LogsPage) appendEvent(event runtimeevent.Event) tea.Cmd {
 }
 
 func (page *LogsPage) rebuildBrowser(selected string) tea.Cmd {
+	if page.resourceID != "" {
+		page.syncDetail()
+		return nil
+	}
 	rows := make([]component.Row, 0, len(page.events))
 	for _, event := range page.events {
 		rows = append(rows, page.logRow(event))
@@ -690,7 +713,7 @@ func (page *LogsPage) rebuildBrowser(selected string) tea.Cmd {
 }
 
 func (page *LogsPage) resizeBrowser() tea.Cmd {
-	titleHeight := lipgloss.Height(component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, page.width))
+	titleHeight := lipgloss.Height(component.PageTitleNotice("Runtime Logs", page.notice, page.width))
 	statusHeight := lipgloss.Height(page.statusView(page.width))
 	feedback := ""
 	if page.err != nil {
@@ -716,6 +739,33 @@ func (page *LogsPage) logRow(event runtimeevent.Event) component.Row {
 		titleParts = append(titleParts, event.Name)
 	}
 	meta := compactParts(event.WorkspaceID, event.Tool, event.Status)
+	fields := application.LogFields(event, page.visibility)
+	search := []string{event.RunID, event.Level, event.Kind, event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.Status, event.ServiceID, event.ServiceScope}
+	for _, field := range fields {
+		value := fmt.Sprint(field.Value)
+		search = append(search, field.Key, value)
+	}
+	return component.Row{ID: logEventID(event), Title: strings.Join(titleParts, "  "), Description: event.Message, Meta: meta, Search: strings.Join(search, " ")}
+}
+
+func (page *LogsPage) syncDetail() {
+	var event runtimeevent.Event
+	found := false
+	for _, current := range page.events {
+		if logEventID(current) == page.resourceID {
+			event, found = current, true
+			break
+		}
+	}
+	if !found {
+		page.detail = component.NewDetailPage("Log event · "+page.resourceID, "unavailable", component.Muted("Log event not found in the current journal view."))
+		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: LogsCommandMsg{Command: LogsRefresh}})
+		if page.loaded {
+			page.err = fmt.Errorf("log event not found: %s", page.resourceID)
+		}
+		return
+	}
+	page.err = nil
 	overview := detailFields(
 		[2]string{"Time", event.Time.Local().Format(time.RFC3339Nano)}, [2]string{"Run", event.RunID}, [2]string{"Sequence", fmt.Sprintf("%d", event.Sequence)},
 		[2]string{"PID", fmt.Sprintf("%d", event.PID)}, [2]string{"Level", event.Level}, [2]string{"Kind", event.Kind}, [2]string{"Component", event.Component}, [2]string{"Event", event.Name},
@@ -724,17 +774,26 @@ func (page *LogsPage) logRow(event runtimeevent.Event) component.Row {
 	)
 	fields := application.LogFields(event, page.visibility)
 	fieldLines := make([]string, 0, len(fields))
-	search := []string{event.RunID, event.Level, event.Kind, event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.Status, event.ServiceID, event.ServiceScope}
 	for _, field := range fields {
-		value := fmt.Sprint(field.Value)
-		fieldLines = append(fieldLines, component.KeyValue(field.Key, value))
-		search = append(search, field.Key, value)
+		fieldLines = append(fieldLines, component.KeyValue(field.Key, fmt.Sprint(field.Value)))
 	}
 	if len(fieldLines) == 0 {
 		fieldLines = append(fieldLines, component.Muted("No visible structured fields"))
 	}
-	tabs := []component.DetailTab{{Title: "Overview", Content: overview}, {Title: "Fields", Content: strings.Join(fieldLines, "\n")}}
-	return component.Row{ID: logEventID(event), Title: strings.Join(titleParts, "  "), Description: event.Message, Meta: meta, Search: strings.Join(search, " "), DetailTitle: "Log event · " + event.Name, DetailTabs: tabs}
+	content := overview
+	if page.section == "fields" {
+		content = strings.Join(fieldLines, "\n")
+	}
+	meta := compactParts(event.Level, event.Component, event.RunID, fmt.Sprintf("seq %d", event.Sequence))
+	page.detail = component.NewDetailPage("Log event · "+event.Name, meta, content)
+	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: LogsCommandMsg{Command: LogsRefresh}}}
+	if page.section == "" {
+		bindings = append([]component.DetailPageBinding{{Key: "f", Desc: "fields", Message: NavigateMsg{Path: []string{"logs", page.resourceID, "fields"}}}}, bindings...)
+	}
+	page.detail.SetBindings(bindings...)
+	if page.width > 0 && page.height > 0 {
+		page.detail.Resize(page.width, page.height)
+	}
 }
 
 func (page *LogsPage) statusView(width int) string {
@@ -765,8 +824,8 @@ func (page *LogsPage) syncBrowserHelp() {
 		toggle = "resume"
 	}
 	page.browser.SetHelpBindings(
-		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"space"}, "space", toggle), component.Binding([]string{"f"}, "f", "filters"),
-		component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"),
+		component.Binding([]string{"space"}, "space", toggle), component.Binding([]string{"f"}, "f", "filters"), component.Binding([]string{"r"}, "r", "refresh"),
+		component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"), component.Binding([]string{"x"}, "x", "executions"),
 	)
 }
 

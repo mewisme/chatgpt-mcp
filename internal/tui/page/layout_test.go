@@ -34,8 +34,12 @@ func TestBrowserPageHintsStayOnBottomRow(t *testing.T) {
 	assertPageBottomHint(t, "logs runtime with feedback", logsView, height, "? more")
 	assertPageTitleNotice(t, "logs", logsView, "Runtime", logsPage.notice)
 	logsPage.notice = ""
-	logsPage.tab = logsTabCommandExec
-	assertPageBottomHint(t, "logs command execution", logsPage.View(width, height), height, "clear view")
+	execPage, err := NewCommandExecutionLogs(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer execPage.Close()
+	assertPageBottomHint(t, "logs command execution", execPage.View(width, height), height, "clear view")
 
 	runtimePage, err := NewRuntime(t.Context())
 	if err != nil {

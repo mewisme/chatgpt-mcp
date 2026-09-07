@@ -825,6 +825,8 @@ func (model *Model) loadPage(route Route) {
 		value, err = tuipage.NewRequests(model.ctx, route.ResourceID)
 	case RouteLogs:
 		value, err = tuipage.NewLogs(model.ctx)
+	case RouteLogsExec:
+		value, err = tuipage.NewCommandExecutionLogs(model.ctx)
 	case RouteRuntime:
 		value, err = tuipage.NewRuntime(model.ctx)
 	case RouteAbout:
@@ -1305,6 +1307,8 @@ func routeDescription(route Route) string {
 		return "Review control approval requests."
 	case RouteLogs:
 		return "Inspect runtime history and live events."
+	case RouteLogsExec:
+		return "Inspect live command execution output."
 	case RouteConfig:
 		return "Browse and manage validated runtime configuration."
 	case RouteRuntime:

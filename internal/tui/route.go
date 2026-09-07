@@ -16,6 +16,7 @@ const (
 	RouteTunnels    RouteKind = "tunnels"
 	RouteRequests   RouteKind = "requests"
 	RouteLogs       RouteKind = "logs"
+	RouteLogsExec   RouteKind = "logs-exec"
 	RouteConfig     RouteKind = "config"
 	RouteRuntime    RouteKind = "runtime"
 	RouteAbout      RouteKind = "about"
@@ -24,6 +25,7 @@ const (
 type Route struct {
 	Kind       RouteKind
 	ResourceID string
+	Section    string
 }
 
 type headerPage struct {
@@ -58,17 +60,28 @@ func ParseRoute(args []string) (Route, error) {
 	if !ok {
 		return Route{}, fmt.Errorf("unknown TUI path %q", strings.Join(parts, " "))
 	}
-	if len(parts) > 2 {
-		return Route{}, fmt.Errorf("TUI path accepts at most one resource id: %s", strings.Join(parts, " "))
+	if len(parts) > 3 {
+		return Route{}, fmt.Errorf("TUI path accepts at most one resource id and one child section: %s", strings.Join(parts, " "))
 	}
 	resourceID := ""
-	if len(parts) == 2 {
-		if kind != RouteWorkspaces && kind != RouteContainers && kind != RouteMCP && kind != RouteTunnels && kind != RouteRequests {
+	if len(parts) >= 2 {
+		if !routeAcceptsResource(kind) {
 			return Route{}, fmt.Errorf("TUI path %q does not accept a resource id", parts[0])
 		}
 		resourceID = parts[1]
 	}
-	return Route{Kind: kind, ResourceID: resourceID}, nil
+	section := ""
+	if len(parts) == 3 {
+		if resourceID == "" {
+			return Route{}, fmt.Errorf("TUI path %q requires a resource id before a child section", parts[0])
+		}
+		var ok bool
+		section, ok = normalizeRouteSection(kind, parts[2])
+		if !ok {
+			return Route{}, fmt.Errorf("unsupported %s child section %q", kind, parts[2])
+		}
+	}
+	return Route{Kind: kind, ResourceID: resourceID, Section: section}, nil
 }
 
 func parseRouteKind(value string) (RouteKind, bool) {
@@ -89,6 +102,8 @@ func parseRouteKind(value string) (RouteKind, bool) {
 		return RouteRequests, true
 	case "log", "logs":
 		return RouteLogs, true
+	case "logs-exec", "exec-logs", "command-execution", "command-execution-logs":
+		return RouteLogsExec, true
 	case "config", "cfg":
 		return RouteConfig, true
 	case "runtime", "status":
@@ -103,12 +118,53 @@ func parseRouteKind(value string) (RouteKind, bool) {
 func (route Route) Title() string {
 	base := map[RouteKind]string{
 		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
-		RouteRequests: "Requests", RouteLogs: "Logs", RouteConfig: "Config", RouteRuntime: "Runtime", RouteAbout: "About",
+		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteConfig: "Config", RouteRuntime: "Runtime", RouteAbout: "About",
 	}[route.Kind]
 	if route.ResourceID != "" {
-		return base + " · " + route.ResourceID
+		base += " · " + route.ResourceID
+	}
+	if route.Section != "" {
+		base += " · " + routeSectionTitle(route.Section)
 	}
 	return base
+}
+
+func routeAcceptsResource(kind RouteKind) bool {
+	switch kind {
+	case RouteWorkspaces, RouteContainers, RouteMCP, RouteTunnels, RouteRequests, RouteLogs, RouteConfig, RouteRuntime:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeRouteSection(kind RouteKind, value string) (string, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "overview" {
+		return "", true
+	}
+	allowed := map[RouteKind]map[string]bool{
+		RouteWorkspaces: {"access": true, "containers": true},
+		RouteContainers: {"workspaces": true},
+		RouteMCP:        {"health": true, "tools": true, "oauth": true},
+		RouteTunnels:    {"scope": true},
+		RouteRequests:   {"arguments": true, "guard": true},
+		RouteLogs:       {"fields": true},
+	}
+	return value, allowed[kind][value]
+}
+
+func routeSectionTitle(section string) string {
+	if section == "" {
+		return "Overview"
+	}
+	words := strings.Fields(strings.NewReplacer("-", " ", "_", " ", ".", " ").Replace(section))
+	for index := range words {
+		if words[index] != "" {
+			words[index] = strings.ToUpper(words[index][:1]) + words[index][1:]
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 type Router struct {
@@ -156,6 +212,8 @@ func headerOwner(kind RouteKind) RouteKind {
 		return RouteWorkspaces
 	case RouteTunnels:
 		return RouteTunnel
+	case RouteLogsExec:
+		return RouteLogs
 	default:
 		return kind
 	}

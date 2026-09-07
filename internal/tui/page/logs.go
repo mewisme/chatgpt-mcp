@@ -118,9 +118,21 @@ func NewLogs(ctx context.Context) (*LogsPage, error) {
 	return page, nil
 }
 
+func NewCommandExecutionLogs(ctx context.Context) (*LogsPage, error) {
+	page, err := NewLogs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	page.tab = logsTabCommandExec
+	return page, nil
+}
+
 func (page *LogsPage) Init() tea.Cmd {
 	if page == nil {
 		return nil
+	}
+	if page.tab == logsTabCommandExec {
+		return page.startExecutionFeed()
 	}
 	return page.startBootstrap()
 }

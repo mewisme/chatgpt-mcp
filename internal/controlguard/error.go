@@ -11,6 +11,7 @@ const (
 	CodeControlPlaneMutation Code = "control_plane_mutation"
 	CodeDestructiveMutation  Code = "destructive_mutation"
 	CodeHostMutation         Code = "host_mutation"
+	CodeExternalAccess       Code = "external_access"
 	CodeExternalMutation     Code = "external_mutation"
 	CodeShellExecution       Code = "shell_execution"
 	CodeProtectedState       Code = "protected_state_access"

@@ -60,6 +60,7 @@ type Manager struct {
 	shellEnvAllow      []string
 	shellPath          []string
 	shellSandboxPolicy ShellSandboxPolicy
+	shellNetworkPolicy ShellNetworkPolicy
 }
 
 func DefaultStorePath() string {
@@ -73,7 +74,7 @@ func NewManager(path string) *Manager {
 	if storeRoot != "" && configRoot != "" && storeRoot == configRoot {
 		protectedRoot = configRoot
 	}
-	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}, shellPolicy: ShellApprovalBalanced, shellEnvPolicy: ShellEnvironmentAuto, shellSandboxPolicy: ShellSandboxAuto}
+	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}, shellPolicy: ShellApprovalBalanced, shellEnvPolicy: ShellEnvironmentAuto, shellSandboxPolicy: ShellSandboxAuto, shellNetworkPolicy: ShellNetworkAuto}
 }
 
 func NewManagerWithGlobalAllowDirs(path string, allowDirs []string) *Manager {

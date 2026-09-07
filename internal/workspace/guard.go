@@ -138,6 +138,18 @@ func externalMutationReason(command string) (string, bool) {
 	return shellInvocationReason(command, externalMutationReasonForInvocation)
 }
 
+func externalAccessReason(command string) (string, bool) {
+	return shellInvocationReason(command, externalAccessReasonForInvocation)
+}
+
+func ShellCommandUsesExternalNetwork(command string) bool {
+	if _, ok := externalAccessReason(command); ok {
+		return true
+	}
+	_, ok := externalMutationReason(command)
+	return ok
+}
+
 func shellInvocationReason(command string, classify func(string, []string) (string, bool)) (string, bool) {
 	segments, err := splitShellSegments(command)
 	if err != nil {
@@ -261,6 +273,78 @@ func externalMutationReasonForInvocation(name string, args []string) (string, bo
 	return "", false
 }
 
+func externalAccessReasonForInvocation(name string, args []string) (string, bool) {
+	switch name {
+	case "curl", "wget":
+		for _, arg := range args {
+			value := strings.ToLower(strings.TrimSpace(arg))
+			if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") || strings.HasPrefix(value, "ftp://") || strings.HasPrefix(value, "ftps://") {
+				return "HTTP/FTP network access", true
+			}
+		}
+	case "git":
+		command, _, ok := gitCommand(args)
+		if !ok {
+			return "", false
+		}
+		switch command {
+		case "clone", "fetch", "pull", "push", "ls-remote":
+			return "remote Git access", true
+		case "submodule":
+			if containsAnyFold(args, "update", "sync", "foreach") {
+				return "Git submodule remote access", true
+			}
+		}
+	case "ssh", "scp", "sftp", "ftp", "telnet":
+		return "remote host access", true
+	case "rsync":
+		if rsyncUsesRemote(args) {
+			return "remote rsync access", true
+		}
+	case "kubectl":
+		if command := firstCommandArg(args, "--context", "--namespace", "-n", "--kubeconfig", "--cluster", "--user", "--server", "--token"); command != "" && command != "config" {
+			return "Kubernetes API access", true
+		}
+	case "helm":
+		command := firstCommandArg(args, "--namespace", "-n", "--kube-context", "--kubeconfig", "--registry-config", "--repository-cache", "--repository-config")
+		switch command {
+		case "list", "status", "get", "history", "search", "install", "upgrade", "rollback", "uninstall", "pull", "push", "repo", "registry", "dependency":
+			return "Helm network access", true
+		}
+	case "terraform", "tofu":
+		if command := firstCommandArg(args); command == "init" {
+			return "Terraform provider/module access", true
+		}
+	case "npm", "pnpm", "yarn", "bun":
+		command := firstCommandArg(args, "--prefix", "--dir", "-c", "--cwd", "--registry", "--config")
+		switch command {
+		case "install", "add", "update", "upgrade", "outdated", "view", "info", "search", "audit", "publish", "unpublish", "deprecate", "dist-tag", "owner", "access", "login", "logout", "whoami":
+			return "package registry access", true
+		}
+	case "cargo":
+		command := firstCommandArg(args, "--manifest-path", "--registry", "--config")
+		switch command {
+		case "install", "search", "publish", "yank", "login", "logout":
+			return "Cargo registry access", true
+		}
+	case "docker", "podman":
+		command := firstCommandArg(args, "--context", "-h", "--host", "--config", "--log-level")
+		switch command {
+		case "pull", "push", "login", "logout", "search":
+			return "container registry access", true
+		}
+	case "apt", "apt-get", "dnf", "yum", "zypper", "apk", "brew", "choco", "winget", "scoop":
+		if packageManagerMutation(args) {
+			return "package-manager network access", true
+		}
+	case "cgm", "cmcp", "chatgpt-mcp":
+		if firstCommandArg(args) == "update" {
+			return "control-plane update access", true
+		}
+	}
+	return "", false
+}
+
 func kubectlMutation(args []string) bool {
 	command := firstCommandArg(args, "--context", "--namespace", "-n", "--kubeconfig", "--cluster", "--user", "--server", "--token")
 	if command == "" {
@@ -339,29 +423,7 @@ func externalHTTPMutation(args []string) bool {
 	if method != "POST" && method != "PUT" && method != "PATCH" && method != "DELETE" {
 		return false
 	}
-	foundURL := false
-	for _, arg := range args {
-		lower := strings.ToLower(strings.TrimSpace(arg))
-		if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
-			continue
-		}
-		foundURL = true
-		if !isLoopbackHTTPURL(lower) {
-			return true
-		}
-	}
-	return !foundURL
-}
-
-func isLoopbackHTTPURL(value string) bool {
-	lower := strings.ToLower(strings.TrimSpace(value))
-	for _, prefix := range []string{"http://localhost", "https://localhost", "http://127.0.0.1", "https://127.0.0.1", "http://[::1]", "https://[::1]"} {
-		if strings.HasPrefix(lower, prefix) {
-			rest := strings.TrimPrefix(lower, prefix)
-			return rest == "" || strings.HasPrefix(rest, ":") || strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, "?") || strings.HasPrefix(rest, "#")
-		}
-	}
-	return false
+	return true
 }
 
 func firstCommandArg(args []string, valueFlags ...string) string {
@@ -991,6 +1053,19 @@ func rsyncDestination(args []string) (string, bool) {
 		return "", false
 	}
 	return positionals[len(positionals)-1], true
+}
+
+func rsyncUsesRemote(args []string) bool {
+	positionals, err := commandPositionals(args, map[string]bool{"-e": true, "--rsh": true, "--exclude-from": true, "--include-from": true, "--files-from": true, "--filter": true, "--password-file": true})
+	if err != nil {
+		return false
+	}
+	for _, value := range positionals {
+		if looksRemotePath(value) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) validateOptionPaths(id, cwd string, args []string, options map[string]bool) error {

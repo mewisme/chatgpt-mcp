@@ -46,6 +46,9 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	if err := toolRuntime.SetShellSandboxPolicy(cfg.Shell.SandboxPolicy); err != nil {
 		panic(err)
 	}
+	if err := toolRuntime.SetShellNetworkPolicy(cfg.Shell.NetworkPolicy); err != nil {
+		panic(err)
+	}
 	toolRuntime.SetShellEnvironmentAllow(cfg.Shell.EnvironmentAllow)
 	toolRuntime.SetShellPath(cfg.Shell.Path)
 	var mcpRuntime *mcp.HTTPRuntime

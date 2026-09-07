@@ -18,6 +18,7 @@ const maxNestedShellDepth = 4
 type ShellApprovalPolicy string
 type ShellEnvironmentPolicy string
 type ShellSandboxPolicy string
+type ShellNetworkPolicy string
 
 const (
 	ShellApprovalBalanced    ShellApprovalPolicy    = "balanced"
@@ -29,6 +30,9 @@ const (
 	ShellSandboxAuto         ShellSandboxPolicy     = "auto"
 	ShellSandboxOff          ShellSandboxPolicy     = "off"
 	ShellSandboxRequired     ShellSandboxPolicy     = "required"
+	ShellNetworkAuto         ShellNetworkPolicy     = "auto"
+	ShellNetworkInherit      ShellNetworkPolicy     = "inherit"
+	ShellNetworkDeny         ShellNetworkPolicy     = "deny"
 )
 
 var (
@@ -186,6 +190,53 @@ func (m *Manager) EffectiveShellSandboxPolicy() ShellSandboxPolicy {
 	return ShellSandboxOff
 }
 
+func NormalizeShellNetworkPolicy(value string) (ShellNetworkPolicy, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", string(ShellNetworkAuto):
+		return ShellNetworkAuto, true
+	case string(ShellNetworkInherit):
+		return ShellNetworkInherit, true
+	case string(ShellNetworkDeny):
+		return ShellNetworkDeny, true
+	default:
+		return "", false
+	}
+}
+
+func (m *Manager) SetShellNetworkPolicy(value ShellNetworkPolicy) error {
+	policy, ok := NormalizeShellNetworkPolicy(string(value))
+	if !ok {
+		return fmt.Errorf("unsupported shell network policy: %q", value)
+	}
+	m.mu.Lock()
+	m.shellNetworkPolicy = policy
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) ShellNetworkPolicy() ShellNetworkPolicy {
+	if m == nil {
+		return ShellNetworkAuto
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.shellNetworkPolicy == "" {
+		return ShellNetworkAuto
+	}
+	return m.shellNetworkPolicy
+}
+
+func (m *Manager) EffectiveShellNetworkPolicy() ShellNetworkPolicy {
+	policy := m.ShellNetworkPolicy()
+	if policy != ShellNetworkAuto {
+		return policy
+	}
+	if m.ShellApprovalPolicy() == ShellApprovalStrict {
+		return ShellNetworkAuto
+	}
+	return ShellNetworkInherit
+}
+
 func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirectory, command string) error {
 	_, cwd, err := m.ResolveDirectory(id, baseDirectory)
 	if err != nil {
@@ -199,6 +250,15 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 	}
 	if reason, denied := unboundedRemoteSessionReason(command); denied {
 		return controlguard.New(controlguard.CodeExternalMutation, "unbounded remote session denied from MCP shell: "+reason, false, nil)
+	}
+	networkPolicy := m.EffectiveShellNetworkPolicy()
+	if networkPolicy == ShellNetworkDeny {
+		if reason, ok := externalMutationReason(command); ok {
+			return controlguard.New(controlguard.CodeExternalMutation, "external mutation denied by shell network policy: "+reason, false, nil)
+		}
+		if reason, ok := externalAccessReason(command); ok {
+			return controlguard.New(controlguard.CodeExternalAccess, "external access denied by shell network policy: "+reason, false, nil)
+		}
 	}
 	if isControlPlaneMutation(command, 0) {
 		invocation, approvable := DirectControlPlaneInvocation(command)
@@ -221,6 +281,14 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 		}
 		invocation := &controlguard.Invocation{Command: strings.TrimSpace(command)}
 		return controlguard.New(code, category+" shell mutation requires local approval: "+reason, true, invocation)
+	}
+	if networkPolicy == ShellNetworkAuto {
+		if reason, ok := externalAccessReason(command); ok {
+			if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == controlguard.CodeExternalAccess {
+				return nil
+			}
+			return controlguard.New(controlguard.CodeExternalAccess, "external shell access requires local approval: "+reason, true, &controlguard.Invocation{Command: strings.TrimSpace(command)})
+		}
 	}
 	if m.ShellApprovalPolicy() == ShellApprovalStrict && !m.staticallyReadOnlyShellCommand(id, cwd, command) {
 		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == controlguard.CodeShellExecution {

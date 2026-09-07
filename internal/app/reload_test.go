@@ -42,6 +42,7 @@ func TestReloadConfigUpdatesShellApprovalPolicy(t *testing.T) {
 	next.Shell.EnvironmentAllow = []string{"DATABASE_URL"}
 	next.Shell.Path = []string{t.TempDir()}
 	next.Shell.SandboxPolicy = "required"
+	next.Shell.NetworkPolicy = "deny"
 	if err := app.ReloadConfig(next); err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +63,9 @@ func TestReloadConfigUpdatesShellApprovalPolicy(t *testing.T) {
 	}
 	if got := app.Tools.Workspaces.ShellSandboxPolicy(); got != "required" {
 		t.Fatalf("runtime shell sandbox policy = %q", got)
+	}
+	if got := app.Tools.Workspaces.ShellNetworkPolicy(); got != "deny" {
+		t.Fatalf("runtime shell network policy = %q", got)
 	}
 }
 

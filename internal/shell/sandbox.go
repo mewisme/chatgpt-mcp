@@ -14,26 +14,38 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
-func wrapShellSandbox(ctx context.Context, cmd *exec.Cmd, cwd string, roots, shellPath []string, policy workspace.ShellSandboxPolicy) (*exec.Cmd, error) {
-	if cmd == nil || policy == workspace.ShellSandboxOff || sandboxBypassApprovedHostMutation(ctx) || sandboxBypassApprovedControlPlane(ctx) {
+func wrapShellSandbox(ctx context.Context, cmd *exec.Cmd, command, cwd string, roots, shellPath []string, policy workspace.ShellSandboxPolicy, networkPolicy workspace.ShellNetworkPolicy) (*exec.Cmd, error) {
+	if cmd == nil {
 		return cmd, nil
 	}
+	isolateNetwork := shellNetworkIsolated(ctx, networkPolicy, command)
+	filesystemSandbox := policy != workspace.ShellSandboxOff && !sandboxBypassApprovedHostMutation(ctx) && !sandboxBypassApprovedControlPlane(ctx)
+	if !filesystemSandbox && !isolateNetwork {
+		return cmd, nil
+	}
+	required := policy == workspace.ShellSandboxRequired || networkPolicy == workspace.ShellNetworkDeny
 	if runtime.GOOS != "linux" {
-		if policy == workspace.ShellSandboxRequired {
-			return nil, errors.New("shell sandbox is required but no supported OS sandbox is available")
+		if required {
+			return nil, errors.New("shell sandbox/network isolation is required but no supported OS sandbox is available")
 		}
 		return cmd, nil
 	}
 	bwrap := executableInPath("bwrap", trustedExecutablePath(shellPath))
 	if bwrap == "" {
-		if policy == workspace.ShellSandboxRequired {
-			return nil, errors.New("shell sandbox is required but bubblewrap was not found in trusted executable paths")
+		if required {
+			return nil, errors.New("shell sandbox/network isolation is required but bubblewrap was not found in trusted executable paths")
 		}
 		return cmd, nil
 	}
-	args, err := bubblewrapArgs(cmd, cwd, roots, shellPath)
+	var args []string
+	var err error
+	if filesystemSandbox {
+		args, err = bubblewrapArgs(cmd, cwd, roots, shellPath, isolateNetwork)
+	} else {
+		args, err = bubblewrapNetworkArgs(cmd, cwd)
+	}
 	if err != nil {
-		if policy == workspace.ShellSandboxRequired {
+		if required {
 			return nil, err
 		}
 		return cmd, nil
@@ -47,6 +59,28 @@ func wrapShellSandbox(ctx context.Context, cmd *exec.Cmd, cwd string, roots, she
 	return wrapped, nil
 }
 
+func shellNetworkIsolated(ctx context.Context, policy workspace.ShellNetworkPolicy, command string) bool {
+	switch policy {
+	case workspace.ShellNetworkInherit:
+		return false
+	case workspace.ShellNetworkDeny:
+		return true
+	case workspace.ShellNetworkAuto:
+		if grant, ok := controlguard.GrantFromContext(ctx); ok && (grant.Code == controlguard.CodeExternalAccess || grant.Code == controlguard.CodeExternalMutation) {
+			return false
+		}
+		if _, ok := controlguard.GrantFromContext(ctx); ok && workspace.ShellCommandUsesExternalNetwork(command) {
+			return false
+		}
+		if _, ok := controlguard.ApprovalFromContext(ctx); ok && workspace.ShellCommandUsesExternalNetwork(command) {
+			return false
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 func sandboxBypassApprovedHostMutation(ctx context.Context) bool {
 	grant, ok := controlguard.GrantFromContext(ctx)
 	return ok && grant.Code == controlguard.CodeHostMutation
@@ -57,11 +91,14 @@ func sandboxBypassApprovedControlPlane(ctx context.Context) bool {
 	return ok
 }
 
-func bubblewrapArgs(cmd *exec.Cmd, cwd string, roots, shellPath []string) ([]string, error) {
+func bubblewrapArgs(cmd *exec.Cmd, cwd string, roots, shellPath []string, isolateNetwork bool) ([]string, error) {
 	if cmd == nil || strings.TrimSpace(cmd.Path) == "" {
 		return nil, errors.New("shell sandbox requires an executable path")
 	}
 	args := []string{"--die-with-parent", "--new-session", "--unshare-pid", "--unshare-ipc", "--unshare-uts"}
+	if isolateNetwork {
+		args = append(args, "--unshare-net")
+	}
 	args = appendBubblewrapSystemMounts(args)
 	args = append(args, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp")
 	rwRoots := collapseSandboxRoots(roots)
@@ -88,6 +125,15 @@ func bubblewrapArgs(cmd *exec.Cmd, cwd string, roots, shellPath []string) ([]str
 	}
 	args = appendBubblewrapParentDirs(args, cwd)
 	args = append(args, "--chdir", cwd, "--", cmd.Path)
+	args = append(args, cmd.Args[1:]...)
+	return args, nil
+}
+
+func bubblewrapNetworkArgs(cmd *exec.Cmd, cwd string) ([]string, error) {
+	if cmd == nil || strings.TrimSpace(cmd.Path) == "" {
+		return nil, errors.New("shell network isolation requires an executable path")
+	}
+	args := []string{"--die-with-parent", "--new-session", "--unshare-net", "--bind", "/", "/", "--chdir", cwd, "--", cmd.Path}
 	args = append(args, cmd.Args[1:]...)
 	return args, nil
 }

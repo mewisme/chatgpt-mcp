@@ -45,6 +45,9 @@ func Validate(cfg Config) error {
 	if _, err := NormalizeShellSandboxPolicy(cfg.Shell.SandboxPolicy); err != nil {
 		return err
 	}
+	if _, err := NormalizeShellNetworkPolicy(cfg.Shell.NetworkPolicy); err != nil {
+		return err
+	}
 	if _, ok := ponytail.NormalizeRuntimeMode(cfg.Features.Ponytail.Mode); !ok {
 		return fmt.Errorf("features.ponytail.mode must be lite, full, or ultra: %q", cfg.Features.Ponytail.Mode)
 	}
@@ -123,6 +126,19 @@ func NormalizeShellSandboxPolicy(value string) (string, error) {
 		return "required", nil
 	default:
 		return "", fmt.Errorf("shell sandbox policy must be auto, off, or required: %q", value)
+	}
+}
+
+func NormalizeShellNetworkPolicy(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return "auto", nil
+	case "inherit":
+		return "inherit", nil
+	case "deny":
+		return "deny", nil
+	default:
+		return "", fmt.Errorf("shell network policy must be auto, inherit, or deny: %q", value)
 	}
 }
 

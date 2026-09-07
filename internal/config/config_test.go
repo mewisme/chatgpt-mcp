@@ -424,6 +424,21 @@ func TestNormalizeShellSandboxPolicy(t *testing.T) {
 	}
 }
 
+func TestNormalizeShellNetworkPolicy(t *testing.T) {
+	if Default().Shell.NetworkPolicy != "auto" {
+		t.Fatalf("default shell network policy = %q", Default().Shell.NetworkPolicy)
+	}
+	for input, expected := range map[string]string{"": "auto", "AUTO": "auto", "inherit": "inherit", " DENY ": "deny"} {
+		value, err := NormalizeShellNetworkPolicy(input)
+		if err != nil || value != expected {
+			t.Fatalf("NormalizeShellNetworkPolicy(%q)=%q err=%v", input, value, err)
+		}
+	}
+	if _, err := NormalizeShellNetworkPolicy("allow"); err == nil {
+		t.Fatal("invalid shell network policy accepted")
+	}
+}
+
 func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
 		for _, legacyInteractive := range []struct {

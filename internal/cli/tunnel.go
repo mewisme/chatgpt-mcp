@@ -270,6 +270,9 @@ func tunnelRunCommand() *cobra.Command {
 		if err := runtime.SetShellSandboxPolicy(cfg.Shell.SandboxPolicy); err != nil {
 			return err
 		}
+		if err := runtime.SetShellNetworkPolicy(cfg.Shell.NetworkPolicy); err != nil {
+			return err
+		}
 		runtime.SetShellEnvironmentAllow(cfg.Shell.EnvironmentAllow)
 		runtime.SetShellPath(cfg.Shell.Path)
 		telemetry.AttachTools(runtime, nil, log)

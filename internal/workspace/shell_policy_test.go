@@ -298,6 +298,7 @@ func TestShellPolicyRequiresApprovalForExternalMutations(t *testing.T) {
 		"docker push example/app:latest",
 		"curl -X DELETE https://api.example.com/items/1",
 		"curl -X POST http://localhost:8080/local https://api.example.com/items",
+		"curl -X POST http://127.0.0.1:8080/items -d '{}'",
 	} {
 		t.Run(command, func(t *testing.T) {
 			err := manager.ValidateShellCommand(item.ID, root, command)
@@ -324,7 +325,6 @@ func TestShellPolicyAllowsReadOnlyHostAndExternalCommands(t *testing.T) {
 		"helm list",
 		"terraform plan",
 		"curl https://example.com/items",
-		"curl -X POST http://127.0.0.1:8080/items -d '{}'",
 	} {
 		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
 			t.Fatalf("read-only/local command rejected: %s: %v", command, err)
@@ -425,11 +425,18 @@ func TestStrictShellPolicyRequiresApprovalForNonReadOnlyExecution(t *testing.T) 
 			t.Fatalf("strict read-only command rejected: %s: %v", command, err)
 		}
 	}
-	for _, command := range []string{"git status", "git rev-parse HEAD", "git ls-files", "printenv", "ps aux", "systemctl status nginx", "docker ps", "kubectl get pods", "helm list"} {
+	for _, command := range []string{"git status", "git rev-parse HEAD", "git ls-files", "printenv", "ps aux", "systemctl status nginx", "docker ps"} {
 		err := manager.ValidateShellCommand(item.ID, root, command)
 		guard, ok := controlguard.As(err)
 		if err == nil || !ok || guard.Code != controlguard.CodeShellExecution || !guard.Approvable {
 			t.Fatalf("strict non-static read did not require approval: %s: %#v / %v", command, guard, err)
+		}
+	}
+	for _, command := range []string{"kubectl get pods", "helm list", "curl https://example.com/items"} {
+		err := manager.ValidateShellCommand(item.ID, root, command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeExternalAccess || !guard.Approvable {
+			t.Fatalf("strict external read did not require network approval: %s: %#v / %v", command, guard, err)
 		}
 	}
 	err = manager.ValidateShellCommand(item.ID, root, "rm file.txt")
@@ -527,6 +534,60 @@ func TestShellEnvironmentPolicyAutoTracksApprovalPolicy(t *testing.T) {
 	}
 	if manager.EffectiveShellEnvironmentPolicy() != ShellEnvironmentFiltered {
 		t.Fatalf("explicit environment policy = %q", manager.EffectiveShellEnvironmentPolicy())
+	}
+}
+
+func TestShellNetworkPolicyAutoApprovalAndDeny(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager.ShellNetworkPolicy() != ShellNetworkAuto || manager.EffectiveShellNetworkPolicy() != ShellNetworkInherit {
+		t.Fatalf("balanced auto network policy = raw %q effective %q", manager.ShellNetworkPolicy(), manager.EffectiveShellNetworkPolicy())
+	}
+	if err := manager.SetShellApprovalPolicy(ShellApprovalStrict); err != nil {
+		t.Fatal(err)
+	}
+	if manager.EffectiveShellNetworkPolicy() != ShellNetworkAuto {
+		t.Fatalf("strict auto network policy = %q", manager.EffectiveShellNetworkPolicy())
+	}
+	command := "curl https://example.com/items"
+	err = manager.ValidateShellCommand(item.ID, root, command)
+	guard, ok := controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeExternalAccess || !guard.Approvable {
+		t.Fatalf("strict auto network access was not approval-gated: %#v / %v", guard, err)
+	}
+	approved := controlguard.WithGrant(context.Background(), controlguard.Grant{RequestID: "req_external", Code: controlguard.CodeExternalAccess})
+	if err := manager.ValidateShellCommandContext(approved, item.ID, root, command); err != nil {
+		t.Fatalf("approved external access rejected: %v", err)
+	}
+	if err := manager.SetShellNetworkPolicy(ShellNetworkDeny); err != nil {
+		t.Fatal(err)
+	}
+	for _, denied := range []struct {
+		command string
+		code    controlguard.Code
+	}{{"curl https://example.com/items", controlguard.CodeExternalAccess}, {"git push origin main", controlguard.CodeExternalMutation}, {"cgm update", controlguard.CodeExternalAccess}} {
+		err := manager.ValidateShellCommand(item.ID, root, denied.command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != denied.code || guard.Approvable {
+			t.Fatalf("deny network policy was not fail-closed: %s: %#v / %v", denied.command, guard, err)
+		}
+	}
+}
+
+func TestShellCommandUsesExternalNetworkClassification(t *testing.T) {
+	for _, command := range []string{"rsync ./src host:/dst", "rsync host:/src ./dst", "apt install curl", "cgm update", "git fetch origin"} {
+		if !ShellCommandUsesExternalNetwork(command) {
+			t.Fatalf("network command was not classified: %s", command)
+		}
+	}
+	for _, command := range []string{"rsync ./src ./dst", "kill 123", "cgm status", "git status"} {
+		if ShellCommandUsesExternalNetwork(command) {
+			t.Fatalf("local command was classified as network access: %s", command)
+		}
 	}
 }
 

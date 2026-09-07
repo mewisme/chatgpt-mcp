@@ -120,7 +120,7 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	if err != nil {
 		return StartResult{}, err
 	}
-	cmd, err = wrapShellSandbox(processCtx, cmd, cwd, roots, m.workspaces.ShellPath(), m.workspaces.EffectiveShellSandboxPolicy())
+	cmd, err = wrapShellSandbox(processCtx, cmd, command, cwd, roots, m.workspaces.ShellPath(), m.workspaces.EffectiveShellSandboxPolicy(), m.workspaces.EffectiveShellNetworkPolicy())
 	if err != nil {
 		return StartResult{}, err
 	}

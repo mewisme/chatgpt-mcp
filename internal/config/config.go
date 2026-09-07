@@ -35,6 +35,7 @@ type ShellConfig struct {
 	EnvironmentPolicy string   `json:"environment_policy"`
 	EnvironmentAllow  []string `json:"environment_allow"`
 	SandboxPolicy     string   `json:"sandbox_policy"`
+	NetworkPolicy     string   `json:"network_policy"`
 }
 
 type ServerConfig struct {
@@ -73,7 +74,7 @@ type AuthConfig struct {
 type FeaturesConfig = features.Config
 
 func Default() Config {
-	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}, ApprovalPolicy: "balanced", EnvironmentPolicy: "auto", EnvironmentAllow: []string{}, SandboxPolicy: "auto"}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}, ApprovalPolicy: "balanced", EnvironmentPolicy: "auto", EnvironmentAllow: []string{}, SandboxPolicy: "auto", NetworkPolicy: "auto"}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {
@@ -287,12 +288,17 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	if err != nil {
 		return err
 	}
+	shellNetworkPolicy, err := NormalizeShellNetworkPolicy(persisted.Shell.NetworkPolicy)
+	if err != nil {
+		return err
+	}
 	persisted.Permissions.AllowDirs = allowDirs
 	persisted.Shell.Path = shellPath
 	persisted.Shell.ApprovalPolicy = shellApprovalPolicy
 	persisted.Shell.EnvironmentPolicy = shellEnvironmentPolicy
 	persisted.Shell.EnvironmentAllow = shellEnvironmentAllow
 	persisted.Shell.SandboxPolicy = shellSandboxPolicy
+	persisted.Shell.NetworkPolicy = shellNetworkPolicy
 	persisted.Server.Expose = NormalizeExposure(persisted.Server.Expose)
 	persisted.Tunnel.APIKey = ""
 	persisted.Tunnel.AdminKey = ""

@@ -181,7 +181,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 	if err != nil {
 		return ExecResult{}, err
 	}
-	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow(), m.workspaces.ShellPath(), m.workspaces.ShellApprovalPolicy() == workspace.ShellApprovalStrict, roots, m.workspaces.EffectiveShellSandboxPolicy())
+	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow(), m.workspaces.ShellPath(), m.workspaces.ShellApprovalPolicy() == workspace.ShellApprovalStrict, roots, m.workspaces.EffectiveShellSandboxPolicy(), m.workspaces.EffectiveShellNetworkPolicy())
 	if saveErr := m.save(current.state); saveErr != nil && err == nil {
 		return ExecResult{}, saveErr
 	}
@@ -342,7 +342,7 @@ func statusFromState(state SessionState) Status {
 	return Status{Active: true, CWD: state.CWD, StartedAt: state.StartedAt, RecentCommands: recent}
 }
 
-func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, execution *ExecutionRun, environmentPolicy workspace.ShellEnvironmentPolicy, environmentAllow, shellPath []string, strict bool, roots []string, sandboxPolicy workspace.ShellSandboxPolicy) (ExecResult, error) {
+func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, execution *ExecutionRun, environmentPolicy workspace.ShellEnvironmentPolicy, environmentAllow, shellPath []string, strict bool, roots []string, sandboxPolicy workspace.ShellSandboxPolicy, networkPolicy workspace.ShellNetworkPolicy) (ExecResult, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd, err := commandForPlatformPolicy(runCtx, command, strict, shellPath)
@@ -355,7 +355,7 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, ex
 	if strict && runtime.GOOS != "windows" {
 		cmd.Env = setEnvironmentValue(cmd.Env, "SHELL", cmd.Path)
 	}
-	cmd, err = wrapShellSandbox(runCtx, cmd, cwd, roots, shellPath, sandboxPolicy)
+	cmd, err = wrapShellSandbox(runCtx, cmd, command, cwd, roots, shellPath, sandboxPolicy, networkPolicy)
 	if err != nil {
 		execution.Finish(ExecutionStatusFailed, nil, false)
 		return ExecResult{}, err

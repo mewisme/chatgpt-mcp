@@ -141,6 +141,17 @@ func (r *Runtime) SetShellSandboxPolicy(value string) error {
 	return r.Workspaces.SetShellSandboxPolicy(policy)
 }
 
+func (r *Runtime) SetShellNetworkPolicy(value string) error {
+	if r == nil || r.Workspaces == nil {
+		return errors.New("tool runtime is unavailable")
+	}
+	policy, ok := workspace.NormalizeShellNetworkPolicy(value)
+	if !ok {
+		return fmt.Errorf("unsupported shell network policy: %q", value)
+	}
+	return r.Workspaces.SetShellNetworkPolicy(policy)
+}
+
 func (r *Runtime) SetShellEnvironmentAllow(names []string) {
 	if r != nil && r.Workspaces != nil {
 		r.Workspaces.SetShellEnvironmentAllow(names)

@@ -362,7 +362,7 @@ func TestStrictShellApprovalIsExactOneShot(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := approvalContext("session-strict")
-	args := map[string]any{"workspace_id": workspaceID, "command": "touch strict-created.txt"}
+	args := map[string]any{"workspace_id": workspaceID, "command": "echo created > strict-created.txt"}
 	guarded, err := runtime.Call(ctx, "run_command", args)
 	if err != nil || !guarded.IsError {
 		t.Fatalf("strict guard = %#v err=%v", guarded, err)

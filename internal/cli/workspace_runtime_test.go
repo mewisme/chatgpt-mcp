@@ -42,8 +42,12 @@ func TestWorkspaceRegisterSynchronizesRunningRuntime(t *testing.T) {
 
 	workspaceRoot := t.TempDir()
 	executeRequestCommand(t, root, []string{"workspace", "register", workspaceRoot})
-	id := workspace.IDForPath(workspaceRoot)
-	if _, err := runtimeManager.Get(id); err != nil {
-		t.Fatalf("running runtime did not see registered workspace: %v", err)
+	persistedManager := workspace.NewManager(workspace.DefaultStorePath())
+	persisted, err := persistedManager.List()
+	if err != nil || len(persisted) != 1 {
+		t.Fatalf("persisted workspaces=%#v err=%v", persisted, err)
+	}
+	if _, err := runtimeManager.Get(persisted[0].ID); err != nil {
+		t.Fatalf("running runtime did not see registered workspace %s: %v", persisted[0].ID, err)
 	}
 }

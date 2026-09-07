@@ -10,6 +10,8 @@ type Code string
 const (
 	CodeControlPlaneMutation Code = "control_plane_mutation"
 	CodeDestructiveMutation  Code = "destructive_mutation"
+	CodeHostMutation         Code = "host_mutation"
+	CodeExternalMutation     Code = "external_mutation"
 	CodeProtectedState       Code = "protected_state_access"
 	CodeContextTamper        Code = "tool_context_tamper"
 )

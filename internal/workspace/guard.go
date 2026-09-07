@@ -76,9 +76,6 @@ func destructiveMutationReason(command string) (string, bool) {
 			if hasAnyOption(args, "--delete", "--delete-before", "--delete-during", "--delete-delay", "--delete-after", "--delete-excluded") {
 				return "rsync destination deletion", true
 			}
-			if destination, ok := rsyncDestination(args); ok && looksRemotePath(destination) {
-				return "remote rsync mutation", true
-			}
 		}
 	}
 	return "", false
@@ -90,11 +87,10 @@ func isGitMutation(args []string) bool {
 }
 
 func destructiveGitReason(args []string) (string, bool) {
-	if len(args) == 0 {
+	command, rest, ok := gitCommand(args)
+	if !ok {
 		return "", false
 	}
-	command := strings.ToLower(args[0])
-	rest := args[1:]
 	switch command {
 	case "rm":
 		return "Git tracked-file deletion", true
@@ -126,10 +122,302 @@ func destructiveGitReason(args []string) (string, bool) {
 		if containsAnyFold(rest, "-d", "--delete") {
 			return "Git tag deletion", true
 		}
-	case "push":
-		return "remote Git mutation", true
 	}
 	return "", false
+}
+
+func hostMutationReason(command string) (string, bool) {
+	return shellInvocationReason(command, hostMutationReasonForInvocation)
+}
+
+func externalMutationReason(command string) (string, bool) {
+	return shellInvocationReason(command, externalMutationReasonForInvocation)
+}
+
+func shellInvocationReason(command string, classify func(string, []string) (string, bool)) (string, bool) {
+	segments, err := splitShellSegments(command)
+	if err != nil {
+		return "", false
+	}
+	for _, segment := range segments {
+		tokens, err := shellWords(segment)
+		if err != nil || len(tokens) == 0 {
+			continue
+		}
+		name, args := commandName(tokens)
+		if reason, ok := classify(name, args); ok {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
+func hostMutationReasonForInvocation(name string, args []string) (string, bool) {
+	switch name {
+	case "kill", "pkill", "killall", "taskkill", "stop-process":
+		return "process termination", true
+	case "shutdown", "reboot", "poweroff", "halt", "restart-computer", "stop-computer":
+		return "host power-state change", true
+	case "systemctl":
+		if containsAnyFold(args, "start", "stop", "restart", "reload", "reload-or-restart", "try-restart", "enable", "disable", "reenable", "mask", "unmask", "isolate", "set-default", "daemon-reload", "reboot", "poweroff", "halt", "suspend", "hibernate", "hybrid-sleep") {
+			return "system service mutation", true
+		}
+	case "service":
+		if len(args) > 1 && containsAnyFold([]string{"start", "stop", "restart", "reload", "force-reload"}, args[len(args)-1]) {
+			return "system service mutation", true
+		}
+	case "docker", "podman":
+		return containerHostMutationReason(args)
+	case "apt", "apt-get", "dnf", "yum", "zypper", "apk", "brew", "choco", "winget", "scoop":
+		if packageManagerMutation(args) {
+			return "host package-manager mutation", true
+		}
+	}
+	return "", false
+}
+
+func containerHostMutationReason(args []string) (string, bool) {
+	command := firstCommandArg(args, "--context", "-h", "--host", "--config", "--log-level")
+	if command == "" {
+		return "", false
+	}
+	commandIndex := indexFold(args, command)
+	rest := args
+	if commandIndex >= 0 && commandIndex+1 < len(args) {
+		rest = args[commandIndex+1:]
+	}
+	if command == "compose" && len(rest) > 0 {
+		switch firstCommandArg(rest, "-f", "--file", "--project-name", "--project-directory", "--env-file", "--profile") {
+		case "up", "down", "start", "stop", "restart", "rm", "create", "run":
+			return "container runtime state mutation", true
+		}
+		return "", false
+	}
+	switch command {
+	case "run", "create", "start", "stop", "restart", "kill", "rm", "rmi", "rename", "pause", "unpause", "update", "commit", "import", "load":
+		return "container runtime state mutation", true
+	case "container", "image", "volume", "network", "system", "builder":
+		if len(args) > 1 && containsAnyFold([]string{"rm", "prune", "create", "disconnect", "connect"}, args[1]) {
+			return "container runtime state mutation", true
+		}
+	}
+	return "", false
+}
+
+func packageManagerMutation(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		switch strings.ToLower(arg) {
+		case "install", "remove", "uninstall", "purge", "upgrade", "dist-upgrade", "full-upgrade", "update", "autoremove", "clean", "reinstall", "add", "del", "delete", "link", "unlink", "pin", "unpin":
+			return true
+		}
+	}
+	return false
+}
+
+func externalMutationReasonForInvocation(name string, args []string) (string, bool) {
+	switch name {
+	case "git":
+		if command, _, ok := gitCommand(args); ok && command == "push" {
+			return "remote Git mutation", true
+		}
+	case "rsync":
+		if destination, ok := rsyncDestination(args); ok && looksRemotePath(destination) {
+			return "remote rsync mutation", true
+		}
+	case "ssh", "scp":
+		return "remote host mutation capability", true
+	case "kubectl":
+		if kubectlMutation(args) {
+			return "Kubernetes cluster mutation", true
+		}
+	case "helm":
+		if helmMutation(args) {
+			return "Helm release mutation", true
+		}
+	case "terraform", "tofu":
+		if terraformMutation(args) {
+			return "infrastructure mutation", true
+		}
+	case "npm", "pnpm", "yarn", "bun", "cargo", "twine":
+		if registryPublishMutation(name, args) {
+			return "package registry mutation", true
+		}
+	case "docker", "podman":
+		if firstCommandArg(args, "--context", "-h", "--host", "--config", "--log-level") == "push" {
+			return "remote container registry mutation", true
+		}
+	case "curl":
+		if externalHTTPMutation(args) {
+			return "remote HTTP mutation", true
+		}
+	}
+	return "", false
+}
+
+func kubectlMutation(args []string) bool {
+	command := firstCommandArg(args, "--context", "--namespace", "-n", "--kubeconfig", "--cluster", "--user", "--server", "--token")
+	if command == "" {
+		return false
+	}
+	switch command {
+	case "get", "describe", "logs", "top", "api-resources", "api-versions", "cluster-info", "explain", "version":
+		return false
+	case "config":
+		return false
+	default:
+		return true
+	}
+}
+
+func helmMutation(args []string) bool {
+	command := firstCommandArg(args, "--namespace", "-n", "--kube-context", "--kubeconfig", "--registry-config", "--repository-cache", "--repository-config")
+	if command == "" {
+		return false
+	}
+	switch command {
+	case "list", "status", "get", "history", "show", "search", "template", "lint", "version", "env", "completion":
+		return false
+	default:
+		return true
+	}
+}
+
+func terraformMutation(args []string) bool {
+	command := firstCommandArg(args)
+	if command == "" {
+		return false
+	}
+	switch command {
+	case "plan", "show", "output", "validate", "fmt", "graph", "providers", "version":
+		return false
+	default:
+		return true
+	}
+}
+
+func registryPublishMutation(name string, args []string) bool {
+	command := firstCommandArg(args, "--prefix", "--dir", "-c", "--cwd", "--manifest-path", "--registry", "--config")
+	switch name {
+	case "npm", "pnpm", "yarn", "bun":
+		return command == "publish" || command == "unpublish" || command == "deprecate" || command == "dist-tag" || command == "owner" || command == "access"
+	case "cargo":
+		return command == "publish" || command == "yank"
+	case "twine":
+		return command == "upload"
+	default:
+		return false
+	}
+}
+
+func externalHTTPMutation(args []string) bool {
+	method := ""
+	hasBody := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.ToLower(args[i])
+		switch {
+		case arg == "-x" || arg == "--request":
+			if i+1 < len(args) {
+				method = strings.ToUpper(args[i+1])
+				i++
+			}
+		case strings.HasPrefix(arg, "--request="):
+			method = strings.ToUpper(args[i][len("--request="):])
+		case arg == "-d" || arg == "--data" || arg == "--data-raw" || arg == "--data-binary" || arg == "--data-urlencode" || arg == "-f" || arg == "--form" || arg == "--upload-file" || arg == "-t":
+			hasBody = true
+		}
+	}
+	if method == "" && hasBody {
+		method = "POST"
+	}
+	if method != "POST" && method != "PUT" && method != "PATCH" && method != "DELETE" {
+		return false
+	}
+	foundURL := false
+	for _, arg := range args {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+			continue
+		}
+		foundURL = true
+		if !isLoopbackHTTPURL(lower) {
+			return true
+		}
+	}
+	return !foundURL
+}
+
+func isLoopbackHTTPURL(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	for _, prefix := range []string{"http://localhost", "https://localhost", "http://127.0.0.1", "https://127.0.0.1", "http://[::1]", "https://[::1]"} {
+		if strings.HasPrefix(lower, prefix) {
+			rest := strings.TrimPrefix(lower, prefix)
+			return rest == "" || strings.HasPrefix(rest, ":") || strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, "?") || strings.HasPrefix(rest, "#")
+		}
+	}
+	return false
+}
+
+func firstCommandArg(args []string, valueFlags ...string) string {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			return strings.ToLower(arg)
+		}
+		lower := strings.ToLower(arg)
+		for _, flag := range valueFlags {
+			flag = strings.ToLower(flag)
+			if lower == flag {
+				i++
+				break
+			}
+		}
+	}
+	return ""
+}
+
+func gitCommand(args []string) (string, []string, bool) {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		lower := strings.ToLower(arg)
+		if arg == "--" {
+			return "", nil, false
+		}
+		if strings.HasPrefix(arg, "-") {
+			if strings.Contains(arg, "=") {
+				continue
+			}
+			if containsAnyFold([]string{"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path"}, arg) {
+				if index+1 >= len(args) {
+					return "", nil, false
+				}
+				index++
+			}
+			continue
+		}
+		return lower, args[index+1:], true
+	}
+	return "", nil, false
+}
+
+func indexFold(values []string, target string) int {
+	for index, value := range values {
+		if strings.EqualFold(value, target) {
+			return index
+		}
+	}
+	return -1
+}
+
+func firstNonFlag(args []string) string {
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "-") {
+			return strings.ToLower(arg)
+		}
+	}
+	return ""
 }
 
 func containsAnyFold(values []string, targets ...string) bool {
@@ -208,22 +496,28 @@ func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) err
 		}
 
 		if name == "git" && len(args) > 0 {
-			switch strings.ToLower(args[0]) {
+			gitCommandName, gitArgs, hasGitCommand := gitCommand(args)
+			if hasGitCommand && isGitMutation(args) {
+				if err := m.validateGitPaths(id, cwd, args); err != nil {
+					return fmt.Errorf("mutation command denied: git: %w", err)
+				}
+			}
+			switch gitCommandName {
 			case "mv":
 				recognizedMutation = true
-				if err := m.validateLiteralOperands(id, cwd, args[1:], 2); err != nil {
+				if err := m.validateLiteralOperands(id, cwd, gitArgs, 2); err != nil {
 					return fmt.Errorf("mutation command denied: git mv: %w", err)
 				}
 				continue
 			case "rm":
 				recognizedMutation = true
-				if err := m.validateLiteralOperands(id, cwd, args[1:], 1); err != nil {
+				if err := m.validateLiteralOperands(id, cwd, gitArgs, 1); err != nil {
 					return fmt.Errorf("mutation command denied: git rm: %w", err)
 				}
 				continue
 			case "clean":
 				recognizedMutation = true
-				for _, arg := range args[1:] {
+				for _, arg := range gitArgs {
 					if !strings.HasPrefix(arg, "-") {
 						if err := m.validateLiteralPath(id, cwd, arg, false); err != nil {
 							return fmt.Errorf("mutation command denied: git clean: %w", err)
@@ -247,6 +541,17 @@ func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) err
 				if err := m.validateLiteralPath(id, cwd, root, true); err != nil {
 					return fmt.Errorf("mutation command denied: find -delete: %w", err)
 				}
+			}
+			continue
+		}
+		if _, ok := hostMutationReasonForInvocation(name, args); ok {
+			recognizedMutation = true
+			continue
+		}
+		if _, ok := externalMutationReasonForInvocation(name, args); ok {
+			recognizedMutation = true
+			if err := m.validateExternalMutation(id, cwd, name, args); err != nil {
+				return fmt.Errorf("mutation command denied: %s: %w", name, err)
 			}
 			continue
 		}
@@ -286,6 +591,243 @@ func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) err
 		return errors.New("mutation command denied: destructive/rename operation cannot be proven workspace-safe")
 	}
 	return nil
+}
+
+func (m *Manager) validateExternalMutation(id, cwd, name string, args []string) error {
+	switch name {
+	case "ssh":
+		return validateSSHInvocation(args)
+	case "git":
+		return m.validateGitPaths(id, cwd, args)
+	case "scp":
+		return m.validateSCPInvocation(id, cwd, args)
+	case "rsync":
+		return m.validateRsyncTransfer(id, cwd, args)
+	case "terraform", "tofu":
+		return m.validateTerraformChdir(id, cwd, args)
+	case "curl":
+		return m.validateCurlInputs(id, cwd, args)
+	case "kubectl":
+		return m.validateFlagPaths(id, cwd, args, []string{"--kubeconfig"})
+	case "helm":
+		return m.validateFlagPaths(id, cwd, args, []string{"--kubeconfig", "--registry-config", "--repository-cache", "--repository-config"})
+	case "cargo":
+		return m.validateFlagPaths(id, cwd, args, []string{"--manifest-path"})
+	case "npm":
+		return m.validateFlagPaths(id, cwd, args, []string{"--prefix"})
+	case "pnpm":
+		return m.validateFlagPaths(id, cwd, args, []string{"--dir", "-c"})
+	case "yarn":
+		return m.validateFlagPaths(id, cwd, args, []string{"--cwd"})
+	default:
+		return nil
+	}
+}
+
+func (m *Manager) validateGitPaths(id, cwd string, args []string) error {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		lower := strings.ToLower(arg)
+		switch {
+		case arg == "-C":
+			if index+1 >= len(args) {
+				return errors.New("-C requires a path")
+			}
+			if err := m.validateLiteralPath(id, cwd, args[index+1], true); err != nil {
+				return err
+			}
+			index++
+		case strings.HasPrefix(arg, "-C") && len(arg) > 2:
+			if err := m.validateLiteralPath(id, cwd, arg[2:], true); err != nil {
+				return err
+			}
+		case lower == "--git-dir" || lower == "--work-tree":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a path", arg)
+			}
+			if err := m.validateLiteralPath(id, cwd, args[index+1], true); err != nil {
+				return err
+			}
+			index++
+		case strings.HasPrefix(lower, "--git-dir="):
+			if err := m.validateLiteralPath(id, cwd, arg[len("--git-dir="):], true); err != nil {
+				return err
+			}
+		case strings.HasPrefix(lower, "--work-tree="):
+			if err := m.validateLiteralPath(id, cwd, arg[len("--work-tree="):], true); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateSSHInvocation(args []string) error {
+	positionals, err := commandPositionals(args, map[string]bool{"-b": true, "-c": true, "-d": true, "-e": true, "-f": true, "-i": true, "-j": true, "-l": true, "-o": true, "-p": true, "-q": true, "-r": true, "-s": true, "-w": true})
+	if err != nil {
+		return err
+	}
+	if len(positionals) < 2 {
+		return errors.New("interactive ssh session cannot be proven bounded; provide an explicit remote command")
+	}
+	return nil
+}
+
+func (m *Manager) validateSCPInvocation(id, cwd string, args []string) error {
+	positionals, err := commandPositionals(args, map[string]bool{"-c": true, "-d": true, "-f": true, "-i": true, "-j": true, "-l": true, "-o": true, "-p": true, "-s": true})
+	if err != nil {
+		return err
+	}
+	if len(positionals) < 2 {
+		return errors.New("scp requires source and destination")
+	}
+	for index, value := range positionals {
+		remote := looksRemotePath(value)
+		if remote {
+			continue
+		}
+		mustExist := index < len(positionals)-1
+		if err := m.validateLiteralPath(id, cwd, value, mustExist); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) validateRsyncTransfer(id, cwd string, args []string) error {
+	positionals, err := commandPositionals(args, map[string]bool{"-e": true, "--rsh": true, "--exclude-from": true, "--include-from": true, "--files-from": true, "--filter": true, "--password-file": true})
+	if err != nil {
+		return err
+	}
+	if len(positionals) < 2 {
+		return errors.New("rsync requires source and destination")
+	}
+	for index, value := range positionals {
+		if looksRemotePath(value) {
+			continue
+		}
+		mustExist := index < len(positionals)-1
+		if err := m.validateLiteralPath(id, cwd, value, mustExist); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) validateTerraformChdir(id, cwd string, args []string) error {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		lower := strings.ToLower(arg)
+		if strings.HasPrefix(lower, "-chdir=") {
+			return m.validateLiteralPath(id, cwd, arg[len("-chdir="):], true)
+		}
+		if lower == "-chdir" {
+			if index+1 >= len(args) {
+				return errors.New("-chdir requires a path")
+			}
+			return m.validateLiteralPath(id, cwd, args[index+1], true)
+		}
+	}
+	return nil
+}
+
+func (m *Manager) validateCurlInputs(id, cwd string, args []string) error {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		lower := strings.ToLower(arg)
+		switch lower {
+		case "-t", "--upload-file":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a path", arg)
+			}
+			if err := m.validateLiteralPath(id, cwd, args[index+1], true); err != nil {
+				return err
+			}
+			index++
+		case "-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "-f", "--form":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a value", arg)
+			}
+			if path, ok := curlFileReference(args[index+1]); ok {
+				if err := m.validateLiteralPath(id, cwd, path, true); err != nil {
+					return err
+				}
+			}
+			index++
+		default:
+			if strings.HasPrefix(lower, "--upload-file=") {
+				if err := m.validateLiteralPath(id, cwd, arg[len("--upload-file="):], true); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func curlFileReference(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "@") && len(value) > 1 {
+		return strings.TrimPrefix(value, "@"), true
+	}
+	if index := strings.Index(value, "=@"); index >= 0 && index+2 < len(value) {
+		return value[index+2:], true
+	}
+	return "", false
+}
+
+func (m *Manager) validateFlagPaths(id, cwd string, args, flags []string) error {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		lower := strings.ToLower(arg)
+		for _, flag := range flags {
+			flag = strings.ToLower(flag)
+			if lower == flag {
+				if index+1 >= len(args) {
+					return fmt.Errorf("%s requires a path", arg)
+				}
+				if err := m.validateLiteralPath(id, cwd, args[index+1], true); err != nil {
+					return err
+				}
+				index++
+				break
+			}
+			if strings.HasPrefix(lower, flag+"=") {
+				if err := m.validateLiteralPath(id, cwd, arg[len(flag)+1:], true); err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func commandPositionals(args []string, valueOptions map[string]bool) ([]string, error) {
+	positionals := make([]string, 0, len(args))
+	optionsDone := false
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		lower := strings.ToLower(arg)
+		if !optionsDone && arg == "--" {
+			optionsDone = true
+			continue
+		}
+		if !optionsDone && strings.HasPrefix(arg, "-") {
+			if strings.Contains(arg, "=") {
+				continue
+			}
+			if valueOptions[lower] {
+				if index+1 >= len(args) {
+					return nil, fmt.Errorf("%s requires a value", arg)
+				}
+				index++
+			}
+			continue
+		}
+		positionals = append(positionals, arg)
+	}
+	return positionals, nil
 }
 
 func (m *Manager) validateKnownPathMutation(id, cwd, name string, args []string) error {

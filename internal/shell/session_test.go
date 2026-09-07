@@ -120,17 +120,21 @@ func TestMutationUsesPersistentCWD(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(child, "file.txt")
+	moved := filepath.Join(child, "moved.txt")
 	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := manager.Exec(context.Background(), workspaceID, "cd child"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Exec(context.Background(), workspaceID, "rm file.txt"); err != nil {
+	if _, err := manager.Exec(context.Background(), workspaceID, "mv file.txt moved.txt"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
-		t.Fatalf("file still exists: %v", err)
+		t.Fatalf("source still exists: %v", err)
+	}
+	if _, err := os.Stat(moved); err != nil {
+		t.Fatalf("destination missing: %v", err)
 	}
 }
 
@@ -141,14 +145,18 @@ func TestMutationAllowsCWDChangeWithinWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(child, "file.txt")
+	moved := filepath.Join(child, "moved.txt")
 	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Exec(context.Background(), workspaceID, "cd child && rm file.txt"); err != nil {
+	if _, err := manager.Exec(context.Background(), workspaceID, "cd child && mv file.txt moved.txt"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
-		t.Fatalf("file still exists: %v", err)
+		t.Fatalf("source still exists: %v", err)
+	}
+	if _, err := os.Stat(moved); err != nil {
+		t.Fatalf("destination missing: %v", err)
 	}
 }
 
@@ -162,14 +170,18 @@ func TestMutationAllowsCWDChangeIntoExplicitAllowedDirectory(t *testing.T) {
 	}
 	manager := NewManager(workspaces, filepath.Join(t.TempDir(), "state"))
 	file := filepath.Join(allowed, "file.txt")
+	moved := filepath.Join(allowed, "moved.txt")
 	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Exec(context.Background(), item.ID, "cd "+allowed+" && rm file.txt"); err != nil {
+	if _, err := manager.Exec(context.Background(), item.ID, "cd "+allowed+" && mv file.txt moved.txt"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
-		t.Fatalf("file still exists: %v", err)
+		t.Fatalf("source still exists: %v", err)
+	}
+	if _, err := os.Stat(moved); err != nil {
+		t.Fatalf("destination missing: %v", err)
 	}
 }
 
@@ -185,14 +197,18 @@ func TestMutationRejectsCWDChangeOutsideAllowedRoots(t *testing.T) {
 func TestMutationUsesWorkspaceRootByDefault(t *testing.T) {
 	manager, workspaceID, root := newShellTestManager(t)
 	file := filepath.Join(root, "file.txt")
+	moved := filepath.Join(root, "moved.txt")
 	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Exec(context.Background(), workspaceID, "rm file.txt"); err != nil {
+	if _, err := manager.Exec(context.Background(), workspaceID, "mv file.txt moved.txt"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
-		t.Fatalf("file still exists: %v", err)
+		t.Fatalf("source still exists: %v", err)
+	}
+	if _, err := os.Stat(moved); err != nil {
+		t.Fatalf("destination missing: %v", err)
 	}
 }
 

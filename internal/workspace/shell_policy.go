@@ -51,6 +51,9 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 	if err := m.validateProtectedShellAccess(cwd, command, 0); err != nil {
 		return controlguard.New(controlguard.CodeProtectedState, err.Error(), false, nil)
 	}
+	if reason, denied := unboundedRemoteSessionReason(command); denied {
+		return controlguard.New(controlguard.CodeExternalMutation, "unbounded remote session denied from MCP shell: "+reason, false, nil)
+	}
 	if isControlPlaneMutation(command, 0) {
 		invocation, approvable := DirectControlPlaneInvocation(command)
 		if approvable && invocation != nil {
@@ -66,14 +69,59 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 	if err := m.ValidateMutationCommand(id, baseDirectory, command); err != nil {
 		return err
 	}
-	if reason, destructive := destructiveMutationReason(command); destructive {
-		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == controlguard.CodeDestructiveMutation {
+	if code, category, reason, guarded := shellApprovalRisk(command); guarded {
+		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == code {
 			return nil
 		}
 		invocation := &controlguard.Invocation{Command: strings.TrimSpace(command)}
-		return controlguard.New(controlguard.CodeDestructiveMutation, "destructive shell mutation requires local approval: "+reason, true, invocation)
+		return controlguard.New(code, category+" shell mutation requires local approval: "+reason, true, invocation)
 	}
 	return nil
+}
+
+func shellApprovalRisk(command string) (controlguard.Code, string, string, bool) {
+	if reason, ok := externalMutationReason(command); ok {
+		return controlguard.CodeExternalMutation, "external", reason, true
+	}
+	if reason, ok := hostMutationReason(command); ok {
+		return controlguard.CodeHostMutation, "host", reason, true
+	}
+	if reason, ok := destructiveMutationReason(command); ok {
+		return controlguard.CodeDestructiveMutation, "destructive", reason, true
+	}
+	return "", "", "", false
+}
+
+func unboundedRemoteSessionReason(command string) (string, bool) {
+	return unboundedRemoteSessionReasonDepth(command, 0)
+}
+
+func unboundedRemoteSessionReasonDepth(command string, depth int) (string, bool) {
+	if depth >= maxNestedShellDepth {
+		return "nested remote session depth exceeded", true
+	}
+	segments, err := splitShellSegments(command)
+	if err != nil {
+		return "", false
+	}
+	for _, segment := range segments {
+		tokens, err := shellWords(segment)
+		if err != nil || len(tokens) == 0 {
+			continue
+		}
+		name, _ := commandName(tokens)
+		switch name {
+		case "sftp", "ftp", "telnet":
+			return name + " interactive session cannot be statically bounded", true
+		}
+		name, args := commandName(tokens)
+		if inner, ok := nestedShellCommand(name, args); ok {
+			if reason, denied := unboundedRemoteSessionReasonDepth(inner, depth+1); denied {
+				return reason, true
+			}
+		}
+	}
+	return "", false
 }
 
 func DirectControlPlaneInvocation(command string) (*controlguard.Invocation, bool) {
@@ -216,6 +264,12 @@ func (m *Manager) isMutationCommand(command string, depth int) bool {
 		}
 		name, args := commandName(tokens)
 		if name == "git" && isGitMutation(args) {
+			return true
+		}
+		if _, ok := hostMutationReasonForInvocation(name, args); ok {
+			return true
+		}
+		if _, ok := externalMutationReasonForInvocation(name, args); ok {
 			return true
 		}
 		if mutationCommands[name] {

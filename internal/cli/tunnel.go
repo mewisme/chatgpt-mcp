@@ -264,6 +264,10 @@ func tunnelRunCommand() *cobra.Command {
 		if err := runtime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
 			return err
 		}
+		if err := runtime.SetShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
+			return err
+		}
+		runtime.SetShellEnvironmentAllow(cfg.Shell.EnvironmentAllow)
 		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 		defer runtimeCancel()

@@ -109,7 +109,7 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 		return StartResult{}, err
 	}
 	cmd.Dir = cwd
-	cmd.Env = shellEnvironment(ctx)
+	cmd.Env = shellEnvironment(ctx, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow())
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return StartResult{}, err

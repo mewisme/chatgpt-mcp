@@ -385,6 +385,30 @@ func TestNormalizeShellApprovalPolicy(t *testing.T) {
 	}
 }
 
+func TestNormalizeShellEnvironmentPolicyAndAllow(t *testing.T) {
+	if Default().Shell.EnvironmentPolicy != "auto" {
+		t.Fatalf("default shell environment policy = %q", Default().Shell.EnvironmentPolicy)
+	}
+	for input, expected := range map[string]string{"": "auto", "AUTO": "auto", "inherit": "inherit", " FILTERED ": "filtered", "minimal": "minimal"} {
+		value, err := NormalizeShellEnvironmentPolicy(input)
+		if err != nil || value != expected {
+			t.Fatalf("NormalizeShellEnvironmentPolicy(%q)=%q err=%v", input, value, err)
+		}
+	}
+	if _, err := NormalizeShellEnvironmentPolicy("unsafe"); err == nil {
+		t.Fatal("invalid shell environment policy accepted")
+	}
+	allow, err := NormalizeShellEnvironmentAllow([]string{"DATABASE_URL", " custom_value ", "database_url"})
+	if err != nil || len(allow) != 2 || allow[0] != "custom_value" || allow[1] != "DATABASE_URL" {
+		t.Fatalf("normalized shell environment allow = %#v err=%v", allow, err)
+	}
+	for _, values := range [][]string{{"1BAD"}, {"BAD-NAME"}, {"CHATGPT_MCP_TOOL_CONTEXT"}, {"CHATGPT_MCP_CONTROL_APPROVAL"}, {"CHATGPT_MCP_CONFIG_DIR"}} {
+		if _, err := NormalizeShellEnvironmentAllow(values); err == nil {
+			t.Fatalf("invalid shell environment allow accepted: %#v", values)
+		}
+	}
+}
+
 func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
 		for _, legacyInteractive := range []struct {

@@ -16,10 +16,15 @@ import (
 const maxNestedShellDepth = 4
 
 type ShellApprovalPolicy string
+type ShellEnvironmentPolicy string
 
 const (
-	ShellApprovalBalanced ShellApprovalPolicy = "balanced"
-	ShellApprovalStrict   ShellApprovalPolicy = "strict"
+	ShellApprovalBalanced    ShellApprovalPolicy    = "balanced"
+	ShellApprovalStrict      ShellApprovalPolicy    = "strict"
+	ShellEnvironmentAuto     ShellEnvironmentPolicy = "auto"
+	ShellEnvironmentInherit  ShellEnvironmentPolicy = "inherit"
+	ShellEnvironmentFiltered ShellEnvironmentPolicy = "filtered"
+	ShellEnvironmentMinimal  ShellEnvironmentPolicy = "minimal"
 )
 
 var (
@@ -79,6 +84,55 @@ func (m *Manager) ShellApprovalPolicy() ShellApprovalPolicy {
 		return ShellApprovalBalanced
 	}
 	return m.shellPolicy
+}
+
+func NormalizeShellEnvironmentPolicy(value string) (ShellEnvironmentPolicy, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", string(ShellEnvironmentAuto):
+		return ShellEnvironmentAuto, true
+	case string(ShellEnvironmentInherit):
+		return ShellEnvironmentInherit, true
+	case string(ShellEnvironmentFiltered):
+		return ShellEnvironmentFiltered, true
+	case string(ShellEnvironmentMinimal):
+		return ShellEnvironmentMinimal, true
+	default:
+		return "", false
+	}
+}
+
+func (m *Manager) SetShellEnvironmentPolicy(value ShellEnvironmentPolicy) error {
+	policy, ok := NormalizeShellEnvironmentPolicy(string(value))
+	if !ok {
+		return fmt.Errorf("unsupported shell environment policy: %q", value)
+	}
+	m.mu.Lock()
+	m.shellEnvPolicy = policy
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) ShellEnvironmentPolicy() ShellEnvironmentPolicy {
+	if m == nil {
+		return ShellEnvironmentAuto
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.shellEnvPolicy == "" {
+		return ShellEnvironmentAuto
+	}
+	return m.shellEnvPolicy
+}
+
+func (m *Manager) EffectiveShellEnvironmentPolicy() ShellEnvironmentPolicy {
+	policy := m.ShellEnvironmentPolicy()
+	if policy != ShellEnvironmentAuto {
+		return policy
+	}
+	if m.ShellApprovalPolicy() == ShellApprovalStrict {
+		return ShellEnvironmentMinimal
+	}
+	return ShellEnvironmentInherit
 }
 
 func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirectory, command string) error {

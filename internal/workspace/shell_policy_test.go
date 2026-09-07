@@ -508,6 +508,25 @@ func TestBalancedShellPolicyAllowsUnknownExecution(t *testing.T) {
 	}
 }
 
+func TestShellEnvironmentPolicyAutoTracksApprovalPolicy(t *testing.T) {
+	manager := newTestManager(t)
+	if manager.ShellEnvironmentPolicy() != ShellEnvironmentAuto || manager.EffectiveShellEnvironmentPolicy() != ShellEnvironmentInherit {
+		t.Fatalf("balanced auto environment policy = raw %q effective %q", manager.ShellEnvironmentPolicy(), manager.EffectiveShellEnvironmentPolicy())
+	}
+	if err := manager.SetShellApprovalPolicy(ShellApprovalStrict); err != nil {
+		t.Fatal(err)
+	}
+	if manager.EffectiveShellEnvironmentPolicy() != ShellEnvironmentMinimal {
+		t.Fatalf("strict auto environment policy = %q", manager.EffectiveShellEnvironmentPolicy())
+	}
+	if err := manager.SetShellEnvironmentPolicy(ShellEnvironmentFiltered); err != nil {
+		t.Fatal(err)
+	}
+	if manager.EffectiveShellEnvironmentPolicy() != ShellEnvironmentFiltered {
+		t.Fatalf("explicit environment policy = %q", manager.EffectiveShellEnvironmentPolicy())
+	}
+}
+
 func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 	root := t.TempDir()
 	manager := newTestManager(t)

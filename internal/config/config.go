@@ -30,8 +30,10 @@ type PermissionsConfig struct {
 }
 
 type ShellConfig struct {
-	Path           []string `json:"path"`
-	ApprovalPolicy string   `json:"approval_policy"`
+	Path              []string `json:"path"`
+	ApprovalPolicy    string   `json:"approval_policy"`
+	EnvironmentPolicy string   `json:"environment_policy"`
+	EnvironmentAllow  []string `json:"environment_allow"`
 }
 
 type ServerConfig struct {
@@ -70,7 +72,7 @@ type AuthConfig struct {
 type FeaturesConfig = features.Config
 
 func Default() Config {
-	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}, ApprovalPolicy: "balanced"}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}, ApprovalPolicy: "balanced", EnvironmentPolicy: "auto", EnvironmentAllow: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {
@@ -272,9 +274,19 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	if err != nil {
 		return err
 	}
+	shellEnvironmentPolicy, err := NormalizeShellEnvironmentPolicy(persisted.Shell.EnvironmentPolicy)
+	if err != nil {
+		return err
+	}
+	shellEnvironmentAllow, err := NormalizeShellEnvironmentAllow(persisted.Shell.EnvironmentAllow)
+	if err != nil {
+		return err
+	}
 	persisted.Permissions.AllowDirs = allowDirs
 	persisted.Shell.Path = shellPath
 	persisted.Shell.ApprovalPolicy = shellApprovalPolicy
+	persisted.Shell.EnvironmentPolicy = shellEnvironmentPolicy
+	persisted.Shell.EnvironmentAllow = shellEnvironmentAllow
 	persisted.Server.Expose = NormalizeExposure(persisted.Server.Expose)
 	persisted.Tunnel.APIKey = ""
 	persisted.Tunnel.AdminKey = ""

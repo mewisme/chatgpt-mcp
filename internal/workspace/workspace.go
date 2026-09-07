@@ -55,6 +55,8 @@ type Manager struct {
 	aliases         map[string]string
 	globalAllowDirs []string
 	shellPolicy     ShellApprovalPolicy
+	shellEnvPolicy  ShellEnvironmentPolicy
+	shellEnvAllow   []string
 }
 
 func DefaultStorePath() string {
@@ -68,7 +70,7 @@ func NewManager(path string) *Manager {
 	if storeRoot != "" && configRoot != "" && storeRoot == configRoot {
 		protectedRoot = configRoot
 	}
-	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}, shellPolicy: ShellApprovalBalanced}
+	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}, shellPolicy: ShellApprovalBalanced, shellEnvPolicy: ShellEnvironmentAuto}
 }
 
 func NewManagerWithGlobalAllowDirs(path string, allowDirs []string) *Manager {
@@ -81,6 +83,40 @@ func (m *Manager) SetGlobalAllowDirs(allowDirs []string) {
 	m.mu.Lock()
 	m.globalAllowDirs = normalizeRoots(allowDirs)
 	m.mu.Unlock()
+}
+
+func (m *Manager) SetShellEnvironmentAllow(names []string) {
+	m.mu.Lock()
+	m.shellEnvAllow = normalizeEnvironmentNames(names)
+	m.mu.Unlock()
+}
+
+func (m *Manager) ShellEnvironmentAllow() []string {
+	if m == nil {
+		return []string{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]string(nil), m.shellEnvAllow...)
+}
+
+func normalizeEnvironmentNames(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToUpper(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, value)
+	}
+	sort.Slice(result, func(i, j int) bool { return strings.ToUpper(result[i]) < strings.ToUpper(result[j]) })
+	return result
 }
 
 func (m *Manager) Register(path string) (Workspace, error) {

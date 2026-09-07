@@ -40,6 +40,10 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	if err := toolRuntime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
 		panic(err)
 	}
+	if err := toolRuntime.SetShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
+		panic(err)
+	}
+	toolRuntime.SetShellEnvironmentAllow(cfg.Shell.EnvironmentAllow)
 	var mcpRuntime *mcp.HTTPRuntime
 	if cfg.Server.Enabled {
 		mcpRuntime = mcp.NewHTTPRuntimeWithTools(toolRuntime)

@@ -36,6 +36,12 @@ func Validate(cfg Config) error {
 	if _, err := NormalizeShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
 		return err
 	}
+	if _, err := NormalizeShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
+		return err
+	}
+	if _, err := NormalizeShellEnvironmentAllow(cfg.Shell.EnvironmentAllow); err != nil {
+		return err
+	}
 	if _, ok := ponytail.NormalizeRuntimeMode(cfg.Features.Ponytail.Mode); !ok {
 		return fmt.Errorf("features.ponytail.mode must be lite, full, or ultra: %q", cfg.Features.Ponytail.Mode)
 	}
@@ -87,6 +93,52 @@ func NormalizeShellApprovalPolicy(value string) (string, error) {
 	default:
 		return "", fmt.Errorf("shell approval policy must be balanced or strict: %q", value)
 	}
+}
+
+func NormalizeShellEnvironmentPolicy(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return "auto", nil
+	case "inherit":
+		return "inherit", nil
+	case "filtered":
+		return "filtered", nil
+	case "minimal":
+		return "minimal", nil
+	default:
+		return "", fmt.Errorf("shell environment policy must be auto, inherit, filtered, or minimal: %q", value)
+	}
+}
+
+func NormalizeShellEnvironmentAllow(values []string) ([]string, error) {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		for index, r := range value {
+			if (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && r != '_' && !(index > 0 && r >= '0' && r <= '9') {
+				return nil, fmt.Errorf("shell environment variable name is invalid: %q", value)
+			}
+			if index == 0 && r >= '0' && r <= '9' {
+				return nil, fmt.Errorf("shell environment variable name is invalid: %q", value)
+			}
+		}
+		upper := strings.ToUpper(value)
+		switch upper {
+		case "CHATGPT_MCP_TOOL_CONTEXT", "CHATGPT_MCP_CONTROL_APPROVAL", "CHATGPT_MCP_CONFIG_DIR":
+			return nil, fmt.Errorf("shell environment allow list cannot override protected variable %s", value)
+		}
+		if seen[upper] {
+			continue
+		}
+		seen[upper] = true
+		result = append(result, value)
+	}
+	sort.Slice(result, func(i, j int) bool { return strings.ToUpper(result[i]) < strings.ToUpper(result[j]) })
+	return result, nil
 }
 
 func ValidateMCPTransports(cfg Config) error {

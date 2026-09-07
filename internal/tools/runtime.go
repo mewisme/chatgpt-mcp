@@ -119,6 +119,23 @@ func (r *Runtime) SetShellApprovalPolicy(value string) error {
 	return r.Workspaces.SetShellApprovalPolicy(policy)
 }
 
+func (r *Runtime) SetShellEnvironmentPolicy(value string) error {
+	if r == nil || r.Workspaces == nil {
+		return errors.New("tool runtime is unavailable")
+	}
+	policy, ok := workspace.NormalizeShellEnvironmentPolicy(value)
+	if !ok {
+		return fmt.Errorf("unsupported shell environment policy: %q", value)
+	}
+	return r.Workspaces.SetShellEnvironmentPolicy(policy)
+}
+
+func (r *Runtime) SetShellEnvironmentAllow(names []string) {
+	if r != nil && r.Workspaces != nil {
+		r.Workspaces.SetShellEnvironmentAllow(names)
+	}
+}
+
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
 

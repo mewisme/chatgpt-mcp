@@ -20,6 +20,7 @@ func (a *App) ReloadConfig(next config.Config) error {
 	featuresChanged := previous.Features != next.Features
 	permissionsChanged := !slices.Equal(previous.Permissions.AllowDirs, next.Permissions.AllowDirs)
 	shellApprovalPolicyChanged := previous.Shell.ApprovalPolicy != next.Shell.ApprovalPolicy
+	shellEnvironmentChanged := previous.Shell.EnvironmentPolicy != next.Shell.EnvironmentPolicy || !slices.Equal(previous.Shell.EnvironmentAllow, next.Shell.EnvironmentAllow)
 	tunnelChanged := previous.Tunnel != next.Tunnel
 	tunnelRuntimeChanged := tunnelChanged && !tunnel.RuntimeConfigEqual(previous.Tunnel, next.Tunnel)
 	if featuresChanged {
@@ -32,8 +33,14 @@ func (a *App) ReloadConfig(next config.Config) error {
 	}
 	if shellApprovalPolicyChanged {
 		if err := a.Tools.SetShellApprovalPolicy(next.Shell.ApprovalPolicy); err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, false, false, false))
+			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, false, false, false, false))
 		}
+	}
+	if shellEnvironmentChanged {
+		if err := a.Tools.SetShellEnvironmentPolicy(next.Shell.EnvironmentPolicy); err != nil {
+			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, false, false, false))
+		}
+		a.Tools.SetShellEnvironmentAllow(next.Shell.EnvironmentAllow)
 	}
 	if httpChanged {
 		a.syncMCPHTTP(next.Server.Enabled)
@@ -50,7 +57,7 @@ func (a *App) ReloadConfig(next config.Config) error {
 			err = a.Tunnel.SyncManagementConfig(next.Tunnel)
 		}
 		if err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, false, false))
+			return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, shellEnvironmentChanged, false, false))
 		}
 		if tunnelRuntimeChanged {
 			if metadata, loadErr := config.LoadTunnelMetadata(next.Tunnel.ID); loadErr == nil {
@@ -59,12 +66,12 @@ func (a *App) ReloadConfig(next config.Config) error {
 		}
 	}
 	if _, err := a.Config.Update(func(config.Config) (config.Config, error) { return next, nil }); err != nil {
-		return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, tunnelChanged, tunnelRuntimeChanged))
+		return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, shellEnvironmentChanged, tunnelChanged, tunnelRuntimeChanged))
 	}
 	return nil
 }
 
-func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
+func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, shellEnvironmentChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
 	var rollbackErr error
 	if tunnelChanged && a.Tunnel != nil {
 		if tunnelRuntimeChanged {
@@ -85,6 +92,10 @@ func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, feature
 	}
 	if shellApprovalPolicyChanged {
 		rollbackErr = errors.Join(rollbackErr, a.Tools.SetShellApprovalPolicy(previous.Shell.ApprovalPolicy))
+	}
+	if shellEnvironmentChanged {
+		rollbackErr = errors.Join(rollbackErr, a.Tools.SetShellEnvironmentPolicy(previous.Shell.EnvironmentPolicy))
+		a.Tools.SetShellEnvironmentAllow(previous.Shell.EnvironmentAllow)
 	}
 	if httpChanged {
 		a.syncMCPHTTP(previous.Server.Enabled)

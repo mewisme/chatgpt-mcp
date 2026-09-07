@@ -38,6 +38,8 @@ func TestReloadConfigUpdatesShellApprovalPolicy(t *testing.T) {
 	}
 	next := cfg
 	next.Shell.ApprovalPolicy = "strict"
+	next.Shell.EnvironmentPolicy = "filtered"
+	next.Shell.EnvironmentAllow = []string{"DATABASE_URL"}
 	if err := app.ReloadConfig(next); err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +48,12 @@ func TestReloadConfigUpdatesShellApprovalPolicy(t *testing.T) {
 	}
 	if got := app.Tools.Workspaces.ShellApprovalPolicy(); got != "strict" {
 		t.Fatalf("runtime shell approval policy = %q", got)
+	}
+	if got := app.Tools.Workspaces.ShellEnvironmentPolicy(); got != "filtered" {
+		t.Fatalf("runtime shell environment policy = %q", got)
+	}
+	if got := app.Tools.Workspaces.ShellEnvironmentAllow(); len(got) != 1 || got[0] != "DATABASE_URL" {
+		t.Fatalf("runtime shell environment allow = %#v", got)
 	}
 }
 

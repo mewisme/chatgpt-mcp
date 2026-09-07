@@ -14,7 +14,7 @@ import (
 )
 
 func TestShellEnvironmentMarksMCPToolContext(t *testing.T) {
-	values := shellEnvironmentMap(context.Background())
+	values := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentInherit, nil)
 	if values[controlplane.ToolContextEnv] != "1" {
 		t.Fatalf("tool context = %q", values[controlplane.ToolContextEnv])
 	}
@@ -25,15 +25,60 @@ func TestShellEnvironmentMarksMCPToolContext(t *testing.T) {
 
 func TestShellEnvironmentForwardsOnlyContextApproval(t *testing.T) {
 	t.Setenv(controlplane.ControlApprovalEnv, "cap_inherited")
-	if value := shellEnvironmentMap(context.Background())[controlplane.ControlApprovalEnv]; value != "" {
+	if value := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentInherit, nil)[controlplane.ControlApprovalEnv]; value != "" {
 		t.Fatalf("unapproved shell inherited capability %q", value)
 	}
 	ctx := controlguard.WithApproval(context.Background(), controlguard.Approval{
 		RequestID: "req_test", Capability: "cap_approved", Invocation: controlguard.Invocation{Program: "cgm", Args: []string{"update"}, Command: "cgm update"},
 	})
-	values := shellEnvironmentMap(ctx)
+	values := shellEnvironmentMap(ctx, workspace.ShellEnvironmentInherit, nil)
 	if values[controlplane.ControlApprovalEnv] != "cap_approved" || values[controlplane.ToolContextEnv] != "1" {
 		t.Fatalf("approved shell env = %#v", values)
+	}
+}
+
+func TestShellEnvironmentPoliciesFilterSecretsAndInjection(t *testing.T) {
+	t.Setenv("PATH", "/safe/bin")
+	t.Setenv("CUSTOM_VISIBLE", "visible")
+	t.Setenv("OPENAI_API_KEY", "secret-key")
+	t.Setenv("GITHUB_TOKEN", "secret-token")
+	t.Setenv("NODE_OPTIONS", "--require /tmp/inject.js")
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent.sock")
+
+	inherit := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentInherit, nil)
+	if inherit["OPENAI_API_KEY"] != "secret-key" || inherit["NODE_OPTIONS"] == "" || inherit["CUSTOM_VISIBLE"] != "visible" {
+		t.Fatalf("inherit env = %#v", inherit)
+	}
+	filtered := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentFiltered, nil)
+	for _, name := range []string{"OPENAI_API_KEY", "GITHUB_TOKEN", "NODE_OPTIONS", "SSH_AUTH_SOCK"} {
+		if filtered[name] != "" {
+			t.Fatalf("filtered environment exposed %s", name)
+		}
+	}
+	if filtered["PATH"] != "/safe/bin" || filtered["CUSTOM_VISIBLE"] != "visible" {
+		t.Fatalf("filtered safe environment = %#v", filtered)
+	}
+	minimal := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentMinimal, nil)
+	if minimal["PATH"] != "/safe/bin" || minimal["CUSTOM_VISIBLE"] != "" || minimal["OPENAI_API_KEY"] != "" || minimal["NODE_OPTIONS"] != "" {
+		t.Fatalf("minimal environment = %#v", minimal)
+	}
+}
+
+func TestShellEnvironmentExplicitAllowRestoresSelectedVariable(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:secret@example.test/db")
+	t.Setenv("NODE_OPTIONS", "--require /tmp/inject.js")
+	values := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentMinimal, []string{"DATABASE_URL"})
+	if values["DATABASE_URL"] == "" || values["NODE_OPTIONS"] != "" {
+		t.Fatalf("explicit shell environment allow = %#v", values)
+	}
+}
+
+func TestShellEnvironmentOutputIsDeterministic(t *testing.T) {
+	values := shellEnvironment(context.Background(), workspace.ShellEnvironmentMinimal, nil)
+	for index := 1; index < len(values); index++ {
+		if strings.ToUpper(values[index-1]) > strings.ToUpper(values[index]) {
+			t.Fatalf("environment is not sorted: %#v", values)
+		}
 	}
 }
 
@@ -61,9 +106,9 @@ func TestApprovedControlPlaneCommandUsesCurrentExecutable(t *testing.T) {
 	}
 }
 
-func shellEnvironmentMap(ctx context.Context) map[string]string {
+func shellEnvironmentMap(ctx context.Context, policy workspace.ShellEnvironmentPolicy, allow []string) map[string]string {
 	values := map[string]string{}
-	for _, value := range shellEnvironment(ctx) {
+	for _, value := range shellEnvironment(ctx, policy, allow) {
 		if index := strings.IndexByte(value, '='); index >= 0 {
 			values[value[:index]] = value[index+1:]
 		}

@@ -182,6 +182,12 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			if err == nil && strings.TrimSpace(patch.Shell.ApprovalPolicy) != "" {
 				next.Shell.ApprovalPolicy, err = config.NormalizeShellApprovalPolicy(patch.Shell.ApprovalPolicy)
 			}
+			if err == nil && strings.TrimSpace(patch.Shell.EnvironmentPolicy) != "" {
+				next.Shell.EnvironmentPolicy, err = config.NormalizeShellEnvironmentPolicy(patch.Shell.EnvironmentPolicy)
+			}
+			if err == nil && patch.Shell.EnvironmentAllow != nil {
+				next.Shell.EnvironmentAllow, err = config.NormalizeShellEnvironmentAllow(patch.Shell.EnvironmentAllow)
+			}
 		}
 		if err == nil && patch.Features != nil {
 			if active := patch.Features.Ponytail.active(); active != nil {
@@ -283,6 +289,10 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 		if err := api.Tools.SetShellApprovalPolicy(next.Shell.ApprovalPolicy); err != nil {
 			return errors.Join(err, api.persistConfig(previous))
 		}
+		if err := api.Tools.SetShellEnvironmentPolicy(next.Shell.EnvironmentPolicy); err != nil {
+			return errors.Join(err, api.persistConfig(previous))
+		}
+		api.Tools.SetShellEnvironmentAllow(next.Shell.EnvironmentAllow)
 	}
 	return nil
 }

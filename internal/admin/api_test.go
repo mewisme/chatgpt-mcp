@@ -461,7 +461,7 @@ func TestConfigAPIShellApprovalPolicyPatchUpdatesRuntime(t *testing.T) {
 	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
 	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return nil }})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"shell":{"approval_policy":"strict"}}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"shell":{"approval_policy":"strict","environment_policy":"filtered","environment_allow":["DATABASE_URL"]}}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
@@ -471,7 +471,13 @@ func TestConfigAPIShellApprovalPolicyPatchUpdatesRuntime(t *testing.T) {
 	if got := runtime.Workspaces.ShellApprovalPolicy(); got != "strict" {
 		t.Fatalf("runtime shell approval policy = %q", got)
 	}
-	if !strings.Contains(recorder.Body.String(), `"approval_policy":"strict"`) {
+	if got := runtime.Workspaces.ShellEnvironmentPolicy(); got != "filtered" {
+		t.Fatalf("runtime shell environment policy = %q", got)
+	}
+	if got := runtime.Workspaces.ShellEnvironmentAllow(); len(got) != 1 || got[0] != "DATABASE_URL" {
+		t.Fatalf("runtime shell environment allow = %#v", got)
+	}
+	if !strings.Contains(recorder.Body.String(), `"approval_policy":"strict"`) || !strings.Contains(recorder.Body.String(), `"environment_policy":"filtered"`) {
 		t.Fatalf("shell approval policy missing from response: %s", recorder.Body.String())
 	}
 }

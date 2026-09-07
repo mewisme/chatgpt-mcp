@@ -17,7 +17,6 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
-	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 	statepkg "go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -178,7 +177,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 	}
 
 	run := m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "run_command", Command: effective, CWD: cwd, Source: executionSource(ctx)})
-	result, err := runOnce(ctx, effective, cwd, m.timeout, run)
+	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow())
 	if saveErr := m.save(current.state); saveErr != nil && err == nil {
 		return ExecResult{}, saveErr
 	}
@@ -339,7 +338,7 @@ func statusFromState(state SessionState) Status {
 	return Status{Active: true, CWD: state.CWD, StartedAt: state.StartedAt, RecentCommands: recent}
 }
 
-func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, execution *ExecutionRun) (ExecResult, error) {
+func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, execution *ExecutionRun, environmentPolicy workspace.ShellEnvironmentPolicy, environmentAllow []string) (ExecResult, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd, err := commandForPlatform(runCtx, command)
@@ -348,7 +347,7 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, ex
 		return ExecResult{}, err
 	}
 	cmd.Dir = cwd
-	cmd.Env = shellEnvironment(ctx)
+	cmd.Env = shellEnvironment(ctx, environmentPolicy, environmentAllow)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&stdout, execution.Writer("stdout"))
 	cmd.Stderr = io.MultiWriter(&stderr, execution.Writer("stderr"))
@@ -491,32 +490,6 @@ func transpileCompoundOperators(command string) string {
 		}
 	}
 	return result
-}
-
-func shellEnvironment(ctx context.Context) []string {
-	values := map[string]string{}
-	for _, entry := range os.Environ() {
-		if index := strings.IndexByte(entry, '='); index >= 0 {
-			values[entry[:index]] = entry[index+1:]
-		}
-	}
-	values["CI"] = "true"
-	values["PAGER"] = "cat"
-	values["GIT_PAGER"] = "cat"
-	values["NO_COLOR"] = "1"
-	values["npm_config_yes"] = "true"
-	values[controlplane.ToolContextEnv] = "1"
-	values[configformat.EnvConfigDir] = configformat.RootPath()
-	if granted, ok := controlguard.ApprovalFromContext(ctx); ok {
-		values[controlplane.ControlApprovalEnv] = granted.Capability
-	} else {
-		delete(values, controlplane.ControlApprovalEnv)
-	}
-	out := make([]string, 0, len(values))
-	for key, value := range values {
-		out = append(out, key+"="+value)
-	}
-	return out
 }
 
 func stripQuotes(value string) string {

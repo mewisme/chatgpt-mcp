@@ -160,20 +160,15 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 		return ExecResult{}, err
 	}
 	current.state.CWD = baseCWD
-	if err := m.workspaces.ValidateShellCommandContext(ctx, workspaceID, baseCWD, command); err != nil {
-		return ExecResult{}, err
-	}
-
 	cwd, effective, err := m.applyCWDDirectives(workspaceID, baseCWD, command)
 	if err != nil {
 		return ExecResult{}, err
 	}
-	if m.workspaces.IsMutationCommand(command) && filepath.Clean(cwd) != filepath.Clean(baseCWD) {
-		return ExecResult{}, errors.New("mutation command denied: cwd change must be performed in a separate run_command call")
-	}
-
 	if strings.TrimSpace(effective) == "" {
 		effective = pwdCommand()
+	}
+	if err := m.workspaces.ValidateShellCommandContext(ctx, workspaceID, cwd, effective); err != nil {
+		return ExecResult{}, err
 	}
 	current.state.CWD = cwd
 	current.state.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)

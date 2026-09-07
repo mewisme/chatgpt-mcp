@@ -134,14 +134,50 @@ func TestMutationUsesPersistentCWD(t *testing.T) {
 	}
 }
 
-func TestMutationRejectsCWDChange(t *testing.T) {
+func TestMutationAllowsCWDChangeWithinWorkspace(t *testing.T) {
 	manager, workspaceID, root := newShellTestManager(t)
 	child := filepath.Join(root, "child")
 	if err := os.Mkdir(child, 0755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := manager.Exec(context.Background(), workspaceID, "cd child && rm file.txt")
-	if err == nil || !strings.Contains(err.Error(), "cwd change") {
+	file := filepath.Join(child, "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Exec(context.Background(), workspaceID, "cd child && rm file.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
+	}
+}
+
+func TestMutationAllowsCWDChangeIntoExplicitAllowedDirectory(t *testing.T) {
+	root := t.TempDir()
+	allowed := t.TempDir()
+	workspaces := workspace.NewManagerWithGlobalAllowDirs(filepath.Join(t.TempDir(), "workspaces.json"), []string{allowed})
+	item, err := workspaces.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(workspaces, filepath.Join(t.TempDir(), "state"))
+	file := filepath.Join(allowed, "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Exec(context.Background(), item.ID, "cd "+allowed+" && rm file.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
+	}
+}
+
+func TestMutationRejectsCWDChangeOutsideAllowedRoots(t *testing.T) {
+	manager, workspaceID, _ := newShellTestManager(t)
+	outside := t.TempDir()
+	_, err := manager.Exec(context.Background(), workspaceID, "cd "+outside+" && touch file.txt")
+	if err == nil || !strings.Contains(err.Error(), "escapes workspace") {
 		t.Fatalf("error = %v", err)
 	}
 }

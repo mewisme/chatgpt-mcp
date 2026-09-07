@@ -204,7 +204,7 @@ func TestDeleteAndMoveStayInsideWorkspace(t *testing.T) {
 	}
 }
 
-func TestRunCommandMutationGuardStillApplies(t *testing.T) {
+func TestRunCommandMutationGuardUsesResolvedCWD(t *testing.T) {
 	if os.Getenv("SHELL") == "" {
 		t.Setenv("SHELL", "/bin/sh")
 	}
@@ -213,11 +213,18 @@ func TestRunCommandMutationGuardStillApplies(t *testing.T) {
 	if err := os.Mkdir(child, 0755); err != nil {
 		t.Fatal(err)
 	}
+	file := filepath.Join(child, "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	args := baseArgs(workspaceID, root)
 	args["command"] = "cd child && rm file.txt"
 	result := callTool(t, runtime, "run_command", args)
-	if !result.IsError || !strings.Contains(result.Content[0].Text, "cwd change") {
-		t.Fatalf("cwd-changing mutation was not denied: %#v", result)
+	if result.IsError {
+		t.Fatalf("cwd-changing mutation failed: %#v", result)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
 	}
 }
 

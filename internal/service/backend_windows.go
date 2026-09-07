@@ -3,7 +3,7 @@
 package service
 
 import (
-	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +23,16 @@ func (windowsManager) DefinitionMatches(spec Spec) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	launcher, err := os.ReadFile(windowsLauncherPath(spec))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if string(launcher) != string(windowsLauncherBytes(spec)) {
+		return false, nil
+	}
 	output, ok := commandSucceeded("schtasks.exe", "/Query", "/TN", windowsTaskName(spec), "/XML")
 	if !ok {
 		return false, nil
@@ -33,6 +43,9 @@ func (windowsManager) DefinitionMatches(spec Spec) (bool, error) {
 func (windowsManager) Install(spec Spec) error {
 	if err := os.MkdirAll(spec.ConfigRoot, 0700); err != nil {
 		return err
+	}
+	if err := os.WriteFile(windowsLauncherPath(spec), windowsLauncherBytes(spec), 0600); err != nil {
+		return fmt.Errorf("write Windows managed runtime launcher: %w", err)
 	}
 	file, err := os.CreateTemp(spec.ConfigRoot, ".service-task-*.xml")
 	if err != nil {
@@ -68,7 +81,13 @@ func (windowsManager) Stop(spec Spec) error {
 
 func (windowsManager) Uninstall(spec Spec) error {
 	_, err := runCommand("schtasks.exe", "/Delete", "/TN", windowsTaskName(spec), "/F")
-	return err
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(windowsLauncherPath(spec)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove Windows managed runtime launcher: %w", err)
+	}
+	return nil
 }
 
 func (windowsManager) Status(spec Spec) (Status, error) {
@@ -129,42 +148,40 @@ func windowsTaskCommand() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve Windows system directory: %w", err)
 	}
-	return filepath.Join(systemDir, "WindowsPowerShell", "v1.0", "powershell.exe"), nil
+	return filepath.Join(systemDir, "wscript.exe"), nil
 }
 
 func windowsTaskArguments(spec Spec) string {
-	script := windowsHiddenProcessScript(spec)
-	return windowsCommandLine([]string{"-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", windowsPowerShellEncodedCommand(script)})
+	return windowsCommandLine([]string{"//B", "//NoLogo", windowsLauncherPath(spec)})
 }
 
-func windowsHiddenProcessScript(spec Spec) string {
-	arguments := windowsCommandLine(Args(spec))
+func windowsLauncherPath(spec Spec) string {
+	return filepath.Join(spec.ConfigRoot, ".service-launcher-"+spec.ID+".vbs")
+}
+
+func windowsLauncherScript(spec Spec) string {
+	command := windowsCommandLine(append([]string{spec.Binary}, Args(spec)...))
 	return strings.Join([]string{
-		"$psi = New-Object System.Diagnostics.ProcessStartInfo",
-		"$psi.FileName = " + windowsPowerShellString(spec.Binary),
-		"$psi.Arguments = " + windowsPowerShellString(arguments),
-		"$psi.WorkingDirectory = " + windowsPowerShellString(spec.Account.HomeDir),
-		"$psi.UseShellExecute = $false",
-		"$psi.CreateNoWindow = $true",
-		"$psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden",
-		"$process = [System.Diagnostics.Process]::Start($psi)",
-		"$process.WaitForExit()",
-		"exit $process.ExitCode",
-	}, "; ")
+		`Set shell = CreateObject("WScript.Shell")`,
+		"shell.CurrentDirectory = " + windowsVBScriptString(spec.Account.HomeDir),
+		"exitCode = shell.Run(" + windowsVBScriptString(command) + ", 0, True)",
+		"WScript.Quit exitCode",
+	}, "\r\n") + "\r\n"
 }
 
-func windowsPowerShellString(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
-}
-
-func windowsPowerShellEncodedCommand(script string) string {
-	encoded := utf16.Encode([]rune(script))
-	bytes := make([]byte, len(encoded)*2)
+func windowsLauncherBytes(spec Spec) []byte {
+	encoded := utf16.Encode([]rune(windowsLauncherScript(spec)))
+	bytes := make([]byte, 2+len(encoded)*2)
+	bytes[0], bytes[1] = 0xff, 0xfe
 	for i, value := range encoded {
-		bytes[i*2] = byte(value)
-		bytes[i*2+1] = byte(value >> 8)
+		bytes[2+i*2] = byte(value)
+		bytes[2+i*2+1] = byte(value >> 8)
 	}
-	return base64.StdEncoding.EncodeToString(bytes)
+	return bytes
+}
+
+func windowsVBScriptString(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
 }
 
 func windowsTaskName(spec Spec) string { return spec.ID }

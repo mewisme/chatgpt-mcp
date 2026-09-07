@@ -92,10 +92,14 @@ func TestShellMutationUsesPersistentCWD(t *testing.T) {
 	}
 }
 
-func TestShellMutationRejectsCWDDirective(t *testing.T) {
+func TestShellMutationAllowsCWDDirective(t *testing.T) {
 	runtime, workspaceID, root := newShellToolTestRuntime(t)
 	child := filepath.Join(root, "child")
 	if err := os.Mkdir(child, 0755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(child, "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	result, err := runtime.Call(context.Background(), "run_command", map[string]any{
@@ -104,8 +108,35 @@ func TestShellMutationRejectsCWDDirective(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsError || !strings.Contains(result.Content[0].Text, "cwd change") {
-		t.Fatalf("mutation was not denied: %#v", result)
+	if result.IsError {
+		t.Fatalf("mutation failed: %#v", result)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
+	}
+}
+
+func TestShellMutationAllowsCWDDirectiveIntoAllowedDirectory(t *testing.T) {
+	runtime, workspaceID, _ := newShellToolTestRuntime(t)
+	allowed := t.TempDir()
+	if _, err := runtime.Workspaces.AddAllowDir(workspaceID, allowed); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(allowed, "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.Call(context.Background(), "run_command", map[string]any{
+		"workspace_id": workspaceID, "command": "cd " + allowed + " && rm file.txt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("allowed-dir mutation failed: %#v", result)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
 	}
 }
 

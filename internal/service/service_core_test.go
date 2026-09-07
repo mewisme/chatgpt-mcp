@@ -50,3 +50,56 @@ func TestRunCommand(t *testing.T) {
 		t.Fatal("missing command succeeded")
 	}
 }
+
+func TestPrepareManagedBinaryStagesTransientGoBuildBinaryByContent(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "go-build123", "b001", "exe", "chatgpt-mcp")
+	if err := os.MkdirAll(filepath.Dir(source), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("first-build"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	first, err := PrepareManagedBinary(root, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == filepath.Clean(source) || !strings.Contains(filepath.ToSlash(first), "/runtime/bin/go-run/") {
+		t.Fatalf("staged path = %q", first)
+	}
+	data, err := os.ReadFile(first)
+	if err != nil || string(data) != "first-build" {
+		t.Fatalf("staged binary data=%q err=%v", string(data), err)
+	}
+	if info, err := os.Stat(first); err != nil || info.Mode().Perm()&0111 == 0 {
+		t.Fatalf("staged binary is not executable: info=%v err=%v", info, err)
+	}
+	reused, err := PrepareManagedBinary(root, source)
+	if err != nil || reused != first {
+		t.Fatalf("reused path=%q err=%v want=%q", reused, err, first)
+	}
+	if err := os.WriteFile(source, []byte("second-build"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	second, err := PrepareManagedBinary(root, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == first {
+		t.Fatalf("changed binary reused staged path %q", second)
+	}
+}
+
+func TestPrepareManagedBinaryKeepsNormalBinaryPath(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "chatgpt-mcp")
+	if err := os.WriteFile(source, []byte("installed-build"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareManagedBinary(t.TempDir(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared != filepath.Clean(source) {
+		t.Fatalf("prepared path=%q want=%q", prepared, source)
+	}
+}

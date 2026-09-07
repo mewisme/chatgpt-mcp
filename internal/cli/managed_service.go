@@ -61,7 +61,7 @@ func runUp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	spec.EnvironmentHash = environmentHash
-	logCommandDebug(cmd, "SERVICE", "service.spec.resolved", "Managed service specification resolved", logger.WithDebug("scope", spec.Scope), logger.WithDebug("service_id", spec.ID), logger.WithDebug("config", spec.ConfigRoot), logger.WithDebug("backend", manager.Backend()))
+	logCommandDebug(cmd, "SERVICE", "service.spec.resolved", "Managed service specification resolved", logger.WithDebug("scope", spec.Scope), logger.WithDebug("service_id", spec.ID), logger.WithDebug("config", spec.ConfigRoot), logger.WithDebug("binary", spec.Binary), logger.WithDebug("backend", manager.Backend()))
 	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
 		logCommandStep(cmd, "SERVICE", "service.elevating", "Elevating managed service operation")
 		return elevateManagedCommand(cmd, "up", environmentHash)
@@ -245,7 +245,14 @@ func managedServiceForCommand(cmd *cobra.Command, scope managed.Scope) (managed.
 	if err := resolveManagedConfigRoot(cmd, scope, account); err != nil {
 		return managed.Spec{}, nil, err
 	}
-	spec, err := managed.NewSpec(config.RootPath(), os.Args[0], scope, account)
+	binary := os.Args[0]
+	if scope != managed.ScopeSystem || managed.DetectScope() == managed.ScopeSystem {
+		binary, err = managed.PrepareManagedBinary(config.RootPath(), binary)
+		if err != nil {
+			return managed.Spec{}, nil, err
+		}
+	}
+	spec, err := managed.NewSpec(config.RootPath(), binary, scope, account)
 	if err != nil {
 		return managed.Spec{}, nil, err
 	}

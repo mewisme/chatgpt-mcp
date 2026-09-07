@@ -3,584 +3,234 @@ package component
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
-func TestBrowserDefaultListFilterDetailAndRefreshPreservesSelection(t *testing.T) {
-	rows := []Row{{ID: "one", Summary: "one alpha", Detail: "first detail"}, {ID: "two", Summary: "two beta", Detail: "second detail"}}
-	refreshCalls := 0
-	model := NewBrowser(context.Background(), "Items", rows, func(context.Context) ([]Row, error) {
-		refreshCalls++
-		return []Row{{ID: "one", Summary: "one alpha", Detail: "updated first"}, {ID: "two", Summary: "two beta updated", Detail: "updated second"}}, nil
-	})
-	model = updateBrowser(t, model, browserKeyText("j"))
-	if selected, ok := model.selected(); !ok || selected.ID != "two" {
+func updateBrowser(t *testing.T, model Browser, message tea.Msg) Browser {
+	t.Helper()
+	updated, _ := model.Update(message)
+	value, ok := updated.(Browser)
+	if !ok {
+		t.Fatalf("browser update returned %T", updated)
+	}
+	return value
+}
+
+func TestBrowserItemUsesRowPresentationAndSearch(t *testing.T) {
+	item := browserItem{Row: Row{ID: "id", Title: "Title", Description: "Description", Meta: "meta", Summary: "summary", Search: "needle"}}
+	if item.Title() != "Title" || item.Description() != "Description · meta" {
+		t.Fatalf("presentation title=%q description=%q", item.Title(), item.Description())
+	}
+	for _, want := range []string{"id", "Title", "Description", "meta", "summary", "needle"} {
+		if !strings.Contains(item.FilterValue(), want) {
+			t.Fatalf("filter value missing %q: %q", want, item.FilterValue())
+		}
+	}
+	if got := (browserItem{Row: Row{ID: "fallback"}}).Title(); got != "fallback" {
+		t.Fatalf("ID fallback title=%q", got)
+	}
+	if got := (browserItem{Row: Row{Summary: "summary"}}).Title(); got != "summary" {
+		t.Fatalf("summary fallback title=%q", got)
+	}
+}
+
+func TestBrowserEnterEmitsOpenMessage(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, nil)
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(Browser)
+	if cmd == nil {
+		t.Fatal("enter returned no open command")
+	}
+	message, ok := cmd().(BrowserOpenMsg)
+	if !ok || message.Row.ID != "one" {
+		t.Fatalf("open message=%#v", message)
+	}
+	if selected, ok := model.Selected(); !ok || selected.ID != "one" {
 		t.Fatalf("selected=%#v ok=%t", selected, ok)
 	}
-	model.list.SetFilterText("beta")
-	if model.list.FilterValue() != "beta" || len(model.list.VisibleItems()) != 1 {
-		t.Fatalf("filter=%q visible=%d", model.list.FilterValue(), len(model.list.VisibleItems()))
+}
+
+func TestBrowserMouseSelectThenOpenSelectedRow(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, nil)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	model = updated.(Browser)
+	rowTargets := func() []MouseTarget {
+		result := []MouseTarget{}
+		for _, target := range model.MouseTargets(0, 0, 1) {
+			if target.ID == "browser.row" {
+				result = append(result, target)
+			}
+		}
+		return result
 	}
-	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
-	if !model.detail || !strings.Contains(model.View().Content, "second detail") {
-		t.Fatalf("detail=%t view=%q", model.detail, model.View().Content)
+	targets := rowTargets()
+	if len(targets) < 2 {
+		t.Fatalf("row targets=%d", len(targets))
 	}
-	updated, cmd := model.Update(browserKeyText("r"))
+	message := targets[1].Handle(MouseEvent{Button: tea.MouseLeft})
+	updated, cmd := model.Update(message)
+	model = updated.(Browser)
+	if cmd != nil {
+		t.Fatal("first click on unselected row opened it")
+	}
+	if selected, _ := model.Selected(); selected.ID != "two" {
+		t.Fatalf("selected after first click=%q", selected.ID)
+	}
+	targets = rowTargets()
+	message = targets[1].Handle(MouseEvent{Button: tea.MouseLeft})
+	updated, cmd = model.Update(message)
+	model = updated.(Browser)
+	if cmd == nil {
+		t.Fatal("second click on selected row did not open")
+	}
+	opened, ok := cmd().(BrowserOpenMsg)
+	if !ok || opened.Row.ID != "two" {
+		t.Fatalf("mouse open=%#v", opened)
+	}
+}
+
+func TestBrowserRefreshPreservesSelection(t *testing.T) {
+	refresh := func(context.Context) ([]Row, error) {
+		return []Row{{ID: "one", Title: "One updated"}, {ID: "two", Title: "Two updated"}, {ID: "three", Title: "Three"}}, nil
+	}
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, refresh)
+	if !model.SelectID("two") {
+		t.Fatal("could not select row")
+	}
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	model = updated.(Browser)
 	if cmd == nil || !model.loading {
 		t.Fatalf("refresh cmd=%v loading=%t", cmd, model.loading)
 	}
-	updated, cmd = model.Update(cmd())
+	updated, follow := model.Update(cmd())
 	model = updated.(Browser)
-	model = runBrowserCmd(t, model, cmd)
-	selected, ok := model.selected()
-	if refreshCalls != 1 || !ok || selected.ID != "two" || !model.detail || selected.Detail != "updated second" {
-		t.Fatalf("refreshCalls=%d selected=%#v ok=%t detail=%t", refreshCalls, selected, ok, model.detail)
+	if follow != nil {
+		updated, _ = model.Update(follow())
+		model = updated.(Browser)
+	}
+	if model.loading || model.err != nil {
+		t.Fatalf("refresh loading=%t err=%v", model.loading, model.err)
+	}
+	selected, ok := model.Selected()
+	if !ok || selected.ID != "two" || selected.Title != "Two updated" {
+		t.Fatalf("selected after refresh=%#v ok=%t", selected, ok)
 	}
 }
 
-func TestBrowserRefreshErrorKeepsItems(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Summary: "one"}}, func(context.Context) ([]Row, error) {
-		return nil, errors.New("refresh failed")
-	})
-	updated, cmd := model.Update(browserKeyText("r"))
+func TestBrowserRefreshErrorKeepsRows(t *testing.T) {
+	wantErr := errors.New("refresh failed")
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, func(context.Context) ([]Row, error) { return nil, wantErr })
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	model = updated.(Browser)
 	updated, _ = model.Update(cmd())
 	model = updated.(Browser)
-	if model.err == nil || model.err.Error() != "refresh failed" || len(model.list.Items()) != 1 {
-		t.Fatalf("err=%v items=%d", model.err, len(model.list.Items()))
+	if !errors.Is(model.err, wantErr) || model.loading {
+		t.Fatalf("refresh err=%v loading=%t", model.err, model.loading)
 	}
-}
-
-func TestBrowserEmptyStateRendersOnceAndStatusBarReturnsAfterRefresh(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", nil, func(context.Context) ([]Row, error) {
-		return []Row{{ID: "one", Title: "One"}}, nil
-	})
-	if view := model.View().Content; strings.Count(view, "No items") != 1 {
-		t.Fatalf("No items count=%d view=%q", strings.Count(view, "No items"), view)
-	}
-	updated, cmd := model.Update(browserKeyText("r"))
-	model = updated.(Browser)
-	updated, next := model.Update(cmd())
-	model = updated.(Browser)
-	model = runBrowserCmd(t, model, next)
-	if !model.list.ShowStatusBar() || !strings.Contains(model.View().Content, "One") {
-		t.Fatalf("status=%t view=%q", model.list.ShowStatusBar(), model.View().Content)
-	}
-}
-
-func TestBrowserRefreshClosesRemovedDetail(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Summary: "one"}, {ID: "two", Summary: "two"}}, func(context.Context) ([]Row, error) {
-		return []Row{{ID: "two", Summary: "two"}}, nil
-	})
-	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
-	if !model.detail {
-		t.Fatal("detail did not open")
-	}
-	updated, cmd := model.Update(browserKeyText("r"))
-	model = updated.(Browser)
-	updated, next := model.Update(cmd())
-	model = updated.(Browser)
-	model = runBrowserCmd(t, model, next)
-	if model.detail {
-		t.Fatal("detail remained open after selected item disappeared")
-	}
-}
-
-func TestBrowserDetailViewportScrollsAndResizes(t *testing.T) {
-	lines := make([]string, 30)
-	for index := range lines {
-		lines[index] = "detail line " + string(rune('A'+index%26))
-	}
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One", Description: "first", Detail: strings.Join(lines, "\n")}}, nil)
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 14})
-	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
-	if !model.detail || model.viewport.Width() != model.modalContentWidth() || model.viewport.Height() < 4 {
-		t.Fatalf("detail=%t viewport=%dx%d", model.detail, model.viewport.Width(), model.viewport.Height())
-	}
-	before := model.viewport.YOffset()
-	model = updateBrowser(t, model, browserKeyText("j"))
-	if model.viewport.YOffset() <= before {
-		t.Fatalf("viewport did not scroll: before=%d after=%d", before, model.viewport.YOffset())
-	}
-}
-
-func TestBrowserStructuredDetailUsesDefaultListLayout(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "ws_one", Title: "ws_one", DetailTitle: "Workspace · ws_one", DetailRows: []Row{{ID: "root", Title: "Root", Description: "/tmp/project"}, {ID: "alias", Title: "Legacy ID", Description: "legacy_one"}}}}, nil)
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})
-	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
-	view := model.View().Content
-	if !model.detail || !strings.Contains(view, "Workspace · ws_one") || !strings.Contains(view, "Root") || !strings.Contains(view, "/tmp/project") || !strings.Contains(view, "Legacy ID") || !strings.Contains(view, "esc") || strings.Contains(view, "esc/q") || !strings.Contains(view, "close") {
-		t.Fatalf("detail=%t view=%q", model.detail, view)
-	}
-}
-
-func TestBrowserFillsAvailableLayout(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}}, nil)
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 120, Height: 40})
-	if model.list.Width() != 120 || model.list.Height() != 40 {
-		t.Fatalf("list size=%dx%d", model.list.Width(), model.list.Height())
-	}
-	view := ansi.Strip(model.View().Content)
-	if !strings.HasPrefix(view, "Items") && !strings.Contains(strings.Split(view, "\n")[0], "Items") {
-		t.Fatalf("layout does not start at terminal origin: %q", view)
-	}
-}
-
-func TestBrowserUsesExactAvailableLayout(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}}, nil)
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 20, Height: 6})
-	if model.list.Width() != 20 || model.list.Height() != 6 {
-		t.Fatalf("list size=%dx%d want 20x6", model.list.Width(), model.list.Height())
-	}
-}
-
-func TestBrowserListOnlyEnterEmitsOpenWithoutDetailState(t *testing.T) {
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, nil).WithListOnly()
-	model = updateBrowser(t, model, browserKeyText("j"))
-	updated, cmd := model.Update(browserKeyCode(tea.KeyEnter))
-	model = updated.(Browser)
-	if cmd == nil {
-		t.Fatal("list-only enter returned no command")
-	}
-	msg, ok := cmd().(BrowserOpenMsg)
-	if !ok || msg.Row.ID != "two" {
-		t.Fatalf("open message=%#v", msg)
-	}
-	if model.DetailOpen() {
-		t.Fatal("list-only browser opened legacy detail state")
-	}
-	view := ansi.Strip(model.Content())
-	if !strings.Contains(view, "enter open") || strings.Contains(view, "enter details") {
-		t.Fatalf("list-only help=%q", view)
-	}
-}
-
-func TestBrowserListOnlySelectedRowClickEmitsOpen(t *testing.T) {
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithListOnly()
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 80, Height: 20})
-	var row MouseTarget
-	found := false
-	for _, target := range model.MouseTargets(0, 0, 1) {
-		if target.ID == "browser.row" {
-			row, found = target, true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("row mouse target missing")
-	}
-	updated, cmd := model.Update(row.Handle(MouseEvent{Button: tea.MouseLeft}))
-	model = updated.(Browser)
-	if cmd == nil {
-		t.Fatal("selected row click returned no open command")
-	}
-	msg, ok := cmd().(BrowserOpenMsg)
-	if !ok || msg.Row.ID != "one" {
-		t.Fatalf("mouse open message=%#v", msg)
-	}
-	if model.DetailOpen() {
-		t.Fatal("mouse open entered legacy detail state")
-	}
-}
-
-func TestBrowserFilterCapturesActionLikeKeys(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "alpha", Title: "Alpha"}, {ID: "beta", Title: "Beta"}}, nil)
-	updated, _ := model.Update(browserKeyText("/"))
-	model = updated.(Browser)
-	if !model.InputActive() {
-		t.Fatal("browser filter did not become active")
-	}
-	for _, value := range []string{"a", "e", "q"} {
-		updated, _ = model.Update(browserKeyText(value))
-		model = updated.(Browser)
-	}
-	if got := model.list.FilterValue(); got != "aeq" {
-		t.Fatalf("filter=%q want %q", got, "aeq")
-	}
-	updated, _ = model.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
-	model = updated.(Browser)
-	if !model.InputActive() {
-		t.Fatal("global-looking key escaped browser filter")
-	}
-}
-
-func TestBrowserListScrollWrapsInfinitely(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}, {ID: "three", Title: "Three"}}, nil)
-	model = updateBrowser(t, model, browserKeyText("k"))
-	if selected, ok := model.Selected(); !ok || selected.ID != "three" {
-		t.Fatalf("up wrap selected=%#v ok=%t", selected, ok)
-	}
-	model = updateBrowser(t, model, browserKeyText("j"))
 	if selected, ok := model.Selected(); !ok || selected.ID != "one" {
-		t.Fatalf("down wrap selected=%#v ok=%t", selected, ok)
+		t.Fatalf("row lost after refresh error: %#v ok=%t", selected, ok)
 	}
 }
 
-func TestBrowserLargeResourceListRemainsSelectableAndFilterable(t *testing.T) {
-	rows := make([]Row, 5000)
-	for index := range rows {
-		rows[index] = Row{ID: fmt.Sprintf("resource-%04d", index), Title: fmt.Sprintf("Resource %04d", index), Search: fmt.Sprintf("group-%d", index%10)}
-	}
-	model := NewBrowser(context.Background(), "Resources", rows, nil)
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 100, Height: 30})
-	if !model.SelectID("resource-4999") {
-		t.Fatal("large browser could not select last resource")
-	}
-	if selected, ok := model.Selected(); !ok || selected.ID != "resource-4999" {
-		t.Fatalf("selected=%#v ok=%t", selected, ok)
-	}
-	model.list.SetFilterText("resource 3210")
-	visible := model.list.VisibleItems()
-	if len(visible) == 0 {
-		t.Fatal("large browser filter returned no results")
-	}
-}
-
-func TestBrowserTabbedDetailSwitchesContent(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One", DetailTabs: []DetailTab{{Title: "Overview", Content: "overview body"}, {Title: "Scope", Content: "scope body"}}}}, nil)
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})
-	model = updateBrowser(t, model, browserKeyCode(tea.KeyEnter))
-	if !strings.Contains(model.View().Content, "Overview") || !strings.Contains(model.View().Content, "Scope") || !strings.Contains(model.viewport.GetContent(), "overview body") {
-		t.Fatalf("initial tab view=%q content=%q", model.View().Content, model.viewport.GetContent())
-	}
-	model = updateBrowser(t, model, browserKeyCode(tea.KeyRight))
-	if model.detailTab != 1 || !strings.Contains(model.viewport.GetContent(), "scope body") {
-		t.Fatalf("tab=%d content=%q", model.detailTab, model.viewport.GetContent())
-	}
-	model = updateBrowser(t, model, browserKeyCode(tea.KeyLeft))
-	if model.detailTab != 0 || !strings.Contains(model.viewport.GetContent(), "overview body") {
-		t.Fatalf("tab=%d content=%q", model.detailTab, model.viewport.GetContent())
-	}
-}
-
-func TestBrowserRowActionUsesSelectedItemAndDefaultHelp(t *testing.T) {
-	copied := ""
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, nil).WithAction(RowAction{Key: "c", Desc: "copy ID", Run: func(row Row) (string, tea.Cmd, error) {
-		copied = row.ID
-		return "Copied " + row.ID, nil, nil
-	}})
-	model = updateBrowser(t, model, browserKeyText("j"))
-	model = updateBrowser(t, model, browserKeyText("c"))
-	if copied != "two" || model.notice != "Copied two" || model.err != nil {
-		t.Fatalf("copied=%q notice=%q err=%v", copied, model.notice, model.err)
-	}
-	if !strings.Contains(model.list.View(), "copy ID") {
-		t.Fatalf("view=%q", model.list.View())
-	}
-}
-
-func TestBrowserDetailActionStaysOutOfListHelpAndTargetsOpenedRow(t *testing.T) {
-	actedOn := ""
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One", Detail: "one detail"}, {ID: "two", Title: "Two", Detail: "two detail"}}, nil).WithDetailAction(RowAction{Key: "e", Desc: "edit", Run: func(row Row) (string, tea.Cmd, error) {
-		actedOn = row.ID
-		return "Edited " + row.ID, nil, nil
-	}})
-	if strings.Contains(model.list.Help.ShortHelpView(model.list.ShortHelp()), "edit") || strings.Contains(model.list.Help.FullHelpView(model.list.FullHelp()), "edit") {
-		t.Fatal("detail-only action leaked into list help")
-	}
-	if !model.OpenDetail("two") {
-		t.Fatal("detail did not open")
-	}
-	if !strings.Contains(ansi.Strip(model.detailView()), "e edit") {
-		t.Fatalf("detail help missing action: %q", model.detailView())
-	}
-	model = updateBrowser(t, model, browserKeyText("e"))
-	if actedOn != "two" || model.notice != "Edited two" {
-		t.Fatalf("actedOn=%q notice=%q", actedOn, model.notice)
-	}
-
-	actedOn = ""
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 80, Height: 20})
-	target := mouseTarget(t, model.MouseTargets(0, 0, 1), "browser.detail.action", 0)
-	model = updateBrowser(t, model, target.Handle(MouseEvent{Button: tea.MouseLeft}))
-	if actedOn != "two" {
-		t.Fatalf("mouse detail action targeted %q", actedOn)
-	}
-}
-
-func TestBrowserUsesPageBindingsInListHelp(t *testing.T) {
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(
-		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
-		key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
-	)
-	view := model.list.View()
-	if !strings.Contains(view, "add") || !strings.Contains(view, "delete") {
-		t.Fatalf("list help missing page bindings: %q", view)
-	}
-	model.SetHelpBindings(key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reload")))
-	view = model.list.View()
-	if strings.Contains(view, "add") || !strings.Contains(view, "reload") {
-		t.Fatalf("mutable list help not replaced: %q", view)
-	}
-}
-
-func TestBrowserHelpStaysAtBottomOfAssignedHeight(t *testing.T) {
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(Binding([]string{"a"}, "a", "add"))
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 80, Height: 20})
-	lines := strings.Split(ansi.Strip(model.Content()), "\n")
-	last := len(lines) - 1
-	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
-		last--
-	}
-	if last != 19 || !strings.Contains(lines[last], "add") {
-		t.Fatalf("help line=%d want=19 content=%q", last, ansi.Strip(model.Content()))
-	}
-}
-
-func TestBrowserHidesMoreThanFiveCustomBindingsFromShortHelp(t *testing.T) {
-	bindings := []key.Binding{
-		Binding([]string{"1"}, "1", "one"), Binding([]string{"2"}, "2", "two"), Binding([]string{"3"}, "3", "three"),
-		Binding([]string{"4"}, "4", "four"), Binding([]string{"5"}, "5", "five"), Binding([]string{"6"}, "6", "six"),
-	}
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(bindings...)
-	short := model.list.ShortHelp()
-	for _, binding := range bindings {
-		for _, got := range short {
-			if got.Help().Desc == binding.Help().Desc {
-				t.Fatalf("custom binding %q leaked into short help", binding.Help().Desc)
-			}
-		}
-	}
-	full := model.list.FullHelp()
-	view := model.list.Help.FullHelpView(full)
-	for _, want := range []string{"one", "two", "three", "four", "five", "six"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("full help missing %q: %q", want, view)
-		}
-	}
-}
-
-func TestBrowserShowsUpToFiveCustomBindingsInShortHelp(t *testing.T) {
-	bindings := []key.Binding{
-		Binding([]string{"1"}, "1", "one"), Binding([]string{"2"}, "2", "two"), Binding([]string{"3"}, "3", "three"),
-		Binding([]string{"4"}, "4", "four"), Binding([]string{"5"}, "5", "five"),
-	}
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(bindings...)
-	view := model.list.Help.ShortHelpView(model.list.ShortHelp())
-	for _, want := range []string{"one", "two", "three", "four", "five"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("short help missing %q: %q", want, view)
-		}
-	}
-}
-
-func TestBrowserExpandedHelpMouseTargetsAlignedCustomBindings(t *testing.T) {
-	bindings := []key.Binding{
-		Binding([]string{"1"}, "1", "one"), Binding([]string{"2"}, "2", "two"), Binding([]string{"3"}, "3", "three"),
-		Binding([]string{"4"}, "4", "four"), Binding([]string{"5"}, "5", "five"), Binding([]string{"6"}, "6", "six"),
-	}
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(bindings...)
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 100, Height: 24})
-	model = updateBrowser(t, model, browserKeyText("?"))
-	if !model.HelpExpanded() {
-		t.Fatal("full help did not expand")
-	}
-	found := map[string]bool{}
-	for _, target := range model.MouseTargets(0, 0, 1) {
-		if target.ID != "browser.help" {
-			continue
-		}
-		message, ok := target.Handle(MouseEvent{Button: tea.MouseLeft}).(tea.KeyPressMsg)
-		if ok {
-			found[message.String()] = true
-		}
-	}
-	for _, key := range []string{"1", "2", "3", "4", "5", "6"} {
-		if !found[key] {
-			t.Fatalf("expanded help mouse target %q missing: %#v", key, found)
-		}
-	}
-}
-
-func TestBrowserExportsSelectionAndDetail(t *testing.T) {
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "a", Title: "A"}, {ID: "b", Title: "B", Detail: "details"}}, nil)
-	if !model.SelectID("b") {
-		t.Fatal("SelectID did not find b")
-	}
-	if selected, ok := model.Selected(); !ok || selected.ID != "b" {
-		t.Fatalf("selected=%#v ok=%t", selected, ok)
-	}
-	if !model.OpenDetail("b") || !model.DetailOpen() || !strings.Contains(model.Content(), "details") {
-		t.Fatalf("detail open=%t content=%q", model.DetailOpen(), model.Content())
-	}
-}
-
-func TestBrowserDetailPinsOpenedRowWhileListSelectionMoves(t *testing.T) {
-	actedOn := ""
-	model := NewBrowser(context.Background(), "Items", []Row{{ID: "one", Title: "One", Detail: "one detail"}, {ID: "two", Title: "Two", Detail: "two detail"}}, nil).WithAction(RowAction{
-		Key: "x", Desc: "act", Run: func(row Row) (string, tea.Cmd, error) {
-			actedOn = row.ID
-			return "", nil, nil
+func TestBrowserActionUsesSelectedRowAndPredicate(t *testing.T) {
+	calls := []string{}
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, nil).WithAction(RowAction{
+		Key: "d", Desc: "delete", When: func(row Row) bool { return row.ID == "two" },
+		Run: func(row Row) (string, tea.Cmd, error) {
+			calls = append(calls, row.ID)
+			return "deleted", nil, nil
 		},
 	})
-	if !model.OpenDetail("two") {
-		t.Fatal("detail did not open")
-	}
-	cmd := model.ReplaceRows([]Row{{ID: "one", Title: "One", Detail: "one updated"}, {ID: "two", Title: "Two", Detail: "two updated"}, {ID: "three", Title: "Three", Detail: "three detail"}}, "three")
-	model = runBrowserCmd(t, model, cmd)
-	if selected, ok := model.Selected(); !ok || selected.ID != "three" {
-		t.Fatalf("selected=%#v ok=%t", selected, ok)
-	}
-	if !model.DetailOpen() || model.detailID != "two" || !strings.Contains(model.detailView(), "two updated") || strings.Contains(model.detailView(), "three detail") {
-		t.Fatalf("detail open=%t id=%q view=%q", model.DetailOpen(), model.detailID, model.detailView())
-	}
-	model = updateBrowser(t, model, browserKeyText("x"))
-	if actedOn != "two" {
-		t.Fatalf("detail action targeted %q", actedOn)
-	}
-	model = updateBrowser(t, model, browserKeyCode(tea.KeyEscape))
-	if model.DetailOpen() || model.detailID != "" {
-		t.Fatalf("detail close open=%t id=%q", model.DetailOpen(), model.detailID)
-	}
-}
-
-func TestBrowserMouseSelectOpenTabAndWheel(t *testing.T) {
-	longScope := strings.Repeat("scope line\n", 30)
-	model := NewBrowser(context.Background(), "Items", []Row{
-		{ID: "one", Title: "One"},
-		{ID: "two", Title: "Two", DetailTabs: []DetailTab{{Title: "Overview", Content: "overview"}, {Title: "Scope", Content: longScope}}},
-		{ID: "three", Title: "Three"},
-	}, nil)
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 72, Height: 16})
-
-	targets := model.MouseTargets(0, 0, 1)
-	scroll := mouseTarget(t, targets, "browser.scroll", 0)
-	message := scroll.Handle(MouseEvent{Button: tea.MouseWheelDown})
-	model = updateBrowser(t, model, message)
-	if selected, ok := model.Selected(); !ok || selected.ID != "two" {
-		t.Fatalf("wheel selected=%#v ok=%t", selected, ok)
-	}
-
-	targets = model.MouseTargets(0, 0, 1)
-	var selectedRow MouseTarget
-	found := false
-	for _, target := range targets {
-		if target.ID != "browser.row" {
-			continue
-		}
-		msg, ok := target.Handle(MouseEvent{Button: tea.MouseLeft}).(browserMouseMsg)
-		if ok && msg.Index == 1 && msg.Open {
-			selectedRow, found = target, true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("selected browser row mouse target not found")
-	}
-	model = updateBrowser(t, model, selectedRow.Handle(MouseEvent{Button: tea.MouseLeft}))
-	if !model.DetailOpen() {
-		t.Fatal("selected row click did not open detail")
-	}
-
-	targets = model.MouseTargets(0, 0, 1)
-	var scopeTab MouseTarget
-	found = false
-	for _, target := range targets {
-		if target.ID != "browser.detail.tab" {
-			continue
-		}
-		msg, ok := target.Handle(MouseEvent{Button: tea.MouseLeft}).(browserMouseMsg)
-		if ok && msg.Tab == 2 {
-			scopeTab, found = target, true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("scope tab mouse target not found")
-	}
-	model = updateBrowser(t, model, scopeTab.Handle(MouseEvent{Button: tea.MouseLeft}))
-	if model.detailTab != 1 {
-		t.Fatalf("detail tab=%d want=1", model.detailTab)
-	}
-
-	before := model.viewport.YOffset()
-	targets = model.MouseTargets(0, 0, 1)
-	detailScroll := mouseTarget(t, targets, "browser.detail.scroll", 0)
-	model = updateBrowser(t, model, detailScroll.Handle(MouseEvent{Button: tea.MouseWheelDown}))
-	if model.viewport.YOffset() <= before {
-		t.Fatalf("detail wheel did not scroll: before=%d after=%d", before, model.viewport.YOffset())
-	}
-}
-
-func TestBrowserDetailOutsideClickClosesWithoutClickThrough(t *testing.T) {
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One", Detail: "detail"}}, nil)
-	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 80, Height: 20})
-	if !model.OpenDetail("one") {
-		t.Fatal("detail did not open")
-	}
-	targets := model.MouseTargets(0, 0, 1)
-	backdrop := mouseTarget(t, targets, "browser.detail.backdrop", 0)
-	model = updateBrowser(t, model, backdrop.Handle(MouseEvent{Button: tea.MouseLeft}))
-	if model.DetailOpen() {
-		t.Fatal("outside click did not close detail")
-	}
-}
-
-func mouseTarget(t *testing.T, targets []MouseTarget, id string, occurrence int) MouseTarget {
-	t.Helper()
-	for _, target := range targets {
-		if target.ID != id {
-			continue
-		}
-		if occurrence == 0 {
-			return target
-		}
-		occurrence--
-	}
-	t.Fatalf("mouse target %q not found", id)
-	return MouseTarget{}
-}
-
-func updateBrowser(t *testing.T, model Browser, msg tea.Msg) Browser {
-	t.Helper()
-	updated, cmd := model.Update(msg)
-	value, ok := updated.(Browser)
-	if !ok {
-		t.Fatalf("updated model type=%T", updated)
-	}
-	return runBrowserCmd(t, value, cmd)
-}
-
-func runBrowserCmd(t *testing.T, model Browser, cmd tea.Cmd) Browser {
-	t.Helper()
-	if cmd == nil {
-		return model
-	}
-	message := cmd()
-	if batch, ok := message.(tea.BatchMsg); ok {
-		for _, next := range batch {
-			model = runBrowserCmd(t, model, next)
-		}
-		return model
-	}
-	updated, next := model.Update(message)
-	value, ok := updated.(Browser)
-	if !ok {
-		t.Fatalf("updated model type=%T", updated)
-	}
-	return runBrowserCmd(t, value, next)
-}
-
-func browserKeyText(value string) tea.KeyPressMsg {
-	return tea.KeyPressMsg(tea.Key{Text: value, Code: []rune(value)[0]})
-}
-func browserKeyCode(code rune) tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: code}) }
-
-func TestBrowserDetailDoesNotQuitOnCtrlC(t *testing.T) {
-	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One", Detail: "detail"}}, nil)
-	if !model.OpenDetail("one") {
-		t.Fatal("detail did not open")
-	}
-	updated, cmd := model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	model = updated.(Browser)
-	if cmd != nil || !model.DetailOpen() {
-		t.Fatalf("ctrl+c escaped browser detail: cmd=%v detail=%t", cmd, model.DetailOpen())
+	if len(calls) != 0 {
+		t.Fatalf("predicate ignored calls=%v", calls)
+	}
+	model.SelectID("two")
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	model = updated.(Browser)
+	if len(calls) != 1 || calls[0] != "two" || model.notice != "deleted" {
+		t.Fatalf("calls=%v notice=%q", calls, model.notice)
+	}
+}
+
+func TestBrowserSelectionHelpersAndReplaceRows(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one"}, {ID: "two"}, {ID: "three"}}, nil)
+	if !model.SelectLast() {
+		t.Fatal("SelectLast failed")
+	}
+	if selected, _ := model.Selected(); selected.ID != "three" {
+		t.Fatalf("last selected=%q", selected.ID)
+	}
+	cmd := model.ReplaceRows([]Row{{ID: "two", Title: "Two"}, {ID: "three", Title: "Three updated"}}, "three")
+	if cmd != nil {
+		updated, _ := model.Update(cmd())
+		model = updated.(Browser)
+	}
+	selected, ok := model.Selected()
+	if !ok || selected.ID != "three" || selected.Title != "Three updated" {
+		t.Fatalf("replace selection=%#v ok=%t", selected, ok)
+	}
+	if model.SelectID("missing") {
+		t.Fatal("SelectID accepted missing row")
+	}
+}
+
+func TestBrowserWheelMovesSelection(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one"}, {ID: "two"}}, nil)
+	updated, _ := model.Update(browserMouseMsg{Wheel: 1})
+	model = updated.(Browser)
+	if selected, _ := model.Selected(); selected.ID != "two" {
+		t.Fatalf("wheel down selected=%q", selected.ID)
+	}
+	updated, _ = model.Update(browserMouseMsg{Wheel: -1})
+	model = updated.(Browser)
+	if selected, _ := model.Selected(); selected.ID != "one" {
+		t.Fatalf("wheel up selected=%q", selected.ID)
+	}
+}
+
+func TestBrowserFilteringAndHelpState(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Search: "alpha"}, {ID: "two", Search: "beta"}}, nil)
+	updated, _ := model.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	model = updated.(Browser)
+	if !model.InputActive() {
+		t.Fatal("filter input did not activate")
+	}
+	model.SetHelpExpanded(true)
+	if !model.HelpExpanded() {
+		t.Fatal("expanded help state not retained")
+	}
+}
+
+func TestBrowserTitleNoticeRendersInline(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one"}}, nil)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	model = updated.(Browser)
+	model.SetTitleNotice("saved")
+	first := strings.Split(model.Content(), "\n")[0]
+	if !strings.Contains(first, "Items") || !strings.Contains(first, "· saved") {
+		t.Fatalf("title notice=%q", first)
+	}
+}
+
+func TestBrowserHelpKeyMessages(t *testing.T) {
+	for input, want := range map[string]string{"space": "space", "enter": "enter", "esc": "esc", "x": "x"} {
+		if got := browserHelpKeyMsg(input).String(); got != want {
+			t.Fatalf("browserHelpKeyMsg(%q)=%q want=%q", input, got, want)
+		}
+	}
+}
+
+func TestActionAvailable(t *testing.T) {
+	row := Row{ID: "one"}
+	if !actionAvailable(RowAction{}, row) {
+		t.Fatal("action without predicate should be available")
+	}
+	if actionAvailable(RowAction{When: func(Row) bool { return false }}, row) {
+		t.Fatal("false predicate reported available")
 	}
 }

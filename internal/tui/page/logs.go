@@ -120,7 +120,7 @@ func NewLogsRoute(ctx context.Context, resourceID, section string) (*LogsPage, e
 	}
 	pageCtx, cancel := context.WithCancel(ctx)
 	page := &LogsPage{ctx: pageCtx, cancel: cancel, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose, exec: newLogsExecutionFeed()}
-	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false).WithListOnly()
+	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false)
 	page.syncBrowserHelp()
 	return page, nil
 }

@@ -465,7 +465,7 @@ func (page *WorkspacePage) reload() error {
 		return err
 	}
 	refresh := func(context.Context) ([]component.Row, error) { return page.listRows() }
-	page.browser = component.NewBrowser(page.ctx, page.listTitle(), rows, refresh).WithTitleVisible(false).WithListOnly()
+	page.browser = component.NewBrowser(page.ctx, page.listTitle(), rows, refresh).WithTitleVisible(false)
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.containers {
 		page.browser.SetHelpBindings(component.Binding([]string{"a"}, "a", "create"), component.Binding([]string{"w"}, "w", "workspaces"))

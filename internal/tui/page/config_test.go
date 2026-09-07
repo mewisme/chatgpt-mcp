@@ -38,7 +38,7 @@ func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
 	rows := page.configRows()
 	var all strings.Builder
 	for _, row := range rows {
-		all.WriteString(row.ID + " " + row.Title + " " + row.Description + " " + row.Meta + " " + row.Detail + "\n")
+		all.WriteString(row.ID + " " + row.Title + " " + row.Description + " " + row.Meta + "\n")
 	}
 	model := all.String()
 	for _, secret := range []string{"MCP_HASH_SECRET", "ADMIN_HASH_SECRET", "TUNNEL_RUNTIME_SECRET", "TUNNEL_ADMIN_SECRET"} {

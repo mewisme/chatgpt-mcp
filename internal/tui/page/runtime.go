@@ -82,6 +82,12 @@ type systemOperationMsg struct {
 
 type systemCopyMsg struct{ err error }
 
+type runtimeItem struct {
+	row         component.Row
+	detailTitle string
+	detail      string
+}
+
 type RuntimePage struct {
 	ctx             context.Context
 	resourceID      string
@@ -120,7 +126,7 @@ func NewRuntimeRoute(ctx context.Context, resourceID string) (*RuntimePage, erro
 		ctx = context.Background()
 	}
 	page := &RuntimePage{ctx: ctx, resourceID: strings.TrimSpace(resourceID)}
-	page.browser = component.NewBrowser(ctx, "Runtime", nil, nil).WithTitleVisible(false).WithHelpBindings(component.Binding([]string{"r"}, "r", "refresh")).WithListOnly()
+	page.browser = component.NewBrowser(ctx, "Runtime", nil, nil).WithTitleVisible(false).WithHelpBindings(component.Binding([]string{"r"}, "r", "refresh"))
 	return page, nil
 }
 
@@ -657,10 +663,14 @@ func (page *RuntimePage) selectedID() string {
 }
 
 func (page *RuntimePage) rebuildBrowser(selected string) tea.Cmd {
-	rows := page.runtimeRows()
+	items := page.runtimeItems()
 	if page.resourceID != "" {
-		page.err = page.syncDetail(rows)
+		page.err = page.syncDetail(items)
 		return nil
+	}
+	rows := make([]component.Row, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, item.row)
 	}
 	cmd := page.browser.ReplaceRows(rows, selected)
 	return cmd
@@ -677,20 +687,20 @@ func (page *RuntimePage) resizeBrowser() tea.Cmd {
 	return cmd
 }
 
-func (page *RuntimePage) runtimeRows() []component.Row {
-	rows := []component.Row{page.runtimeRow(), page.mcpHTTPRow(), page.serviceRow(page.runtime.UserService)}
+func (page *RuntimePage) runtimeItems() []runtimeItem {
+	items := []runtimeItem{page.runtimeItem(), page.mcpHTTPItem(), page.serviceItem(page.runtime.UserService)}
 	if page.runtime.SystemService.Supported {
-		rows = append(rows, page.serviceRow(page.runtime.SystemService))
+		items = append(items, page.serviceItem(page.runtime.SystemService))
 	}
-	return append(rows, page.authRow("mcp"), page.authRow("admin"), page.installRow(), page.aliasRow(), page.updateRow(), page.aboutRow())
+	return append(items, page.authItem("mcp"), page.authItem("admin"), page.installItem(), page.aliasItem(), page.updateItem(), page.aboutItem())
 }
 
-func (page *RuntimePage) syncDetail(rows []component.Row) error {
-	var selected component.Row
+func (page *RuntimePage) syncDetail(items []runtimeItem) error {
+	var selected runtimeItem
 	found := false
-	for _, row := range rows {
-		if row.ID == page.resourceID {
-			selected, found = row, true
+	for _, item := range items {
+		if item.row.ID == page.resourceID {
+			selected, found = item, true
 			break
 		}
 	}
@@ -702,16 +712,16 @@ func (page *RuntimePage) syncDetail(rows []component.Row) error {
 		}
 		return fmt.Errorf("runtime/system item not found: %s", page.resourceID)
 	}
-	title := strings.TrimSpace(selected.DetailTitle)
+	title := strings.TrimSpace(selected.detailTitle)
 	if title == "" {
-		title = selected.Title
+		title = selected.row.Title
 	}
-	content := strings.TrimSpace(selected.Detail)
+	content := strings.TrimSpace(selected.detail)
 	if content == "" {
-		content = selected.Description
+		content = selected.row.Description
 	}
-	page.detail = component.NewDetailPage(title, selected.Description, content)
-	page.detail.SetBindings(page.runtimeDetailBindings(selected)...)
+	page.detail = component.NewDetailPage(title, selected.row.Description, content)
+	page.detail.SetBindings(page.runtimeDetailBindings(selected.row)...)
 	if page.width > 0 && page.height > 0 {
 		page.detail.Resize(page.width, page.height)
 	}
@@ -784,6 +794,10 @@ func (page *RuntimePage) runtimeDetailBindings(row component.Row) []component.De
 }
 
 func (page *RuntimePage) runtimeRow() component.Row {
+	return page.runtimeItem().row
+}
+
+func (page *RuntimePage) runtimeItem() runtimeItem {
 	state := "stopped"
 	fields := [][2]string{{"State", state}}
 	description := "stopped · no active process"
@@ -804,10 +818,14 @@ func (page *RuntimePage) runtimeRow() component.Row {
 		description = fmt.Sprintf("%s · pid %d · %s", state, status.PID, mode)
 		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP HTTP", mcpHTTP}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}}
 	}
-	return component.Row{ID: "runtime", Title: "MCP runtime process", Description: description, Search: "runtime process status service server", DetailTitle: "MCP runtime process", Detail: detailFields(fields...)}
+	return runtimeItem{row: component.Row{ID: "runtime", Title: "MCP runtime process", Description: description, Search: "runtime process status service server"}, detailTitle: "MCP runtime process", detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) mcpHTTPRow() component.Row {
+	return page.mcpHTTPItem().row
+}
+
+func (page *RuntimePage) mcpHTTPItem() runtimeItem {
 	configured := "disabled"
 	if page.runtime.MCPHTTPEnabled {
 		configured = "enabled"
@@ -835,10 +853,14 @@ func (page *RuntimePage) mcpHTTPRow() component.Row {
 		fallback = "on"
 	}
 	fields := [][2]string{{"Configured", configured}, {"Runtime", runtimeState}, {"Port", fmt.Sprint(page.runtime.MCPHTTPPort)}, {"Endpoint", endpointValue}, {"Tunnel", fallback}, {"Invariant", "MCP HTTP or OpenAI Secure MCP Tunnel must remain enabled."}}
-	return component.Row{ID: "transport.mcp-http", Title: "MCP HTTP server", Description: description, Search: "mcp http server transport listener port enable disable", DetailTitle: "MCP HTTP server", Detail: detailFields(fields...)}
+	return runtimeItem{row: component.Row{ID: "transport.mcp-http", Title: "MCP HTTP server", Description: description, Search: "mcp http server transport listener port enable disable"}, detailTitle: "MCP HTTP server", detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) serviceRow(service application.ServiceOverview) component.Row {
+	return page.serviceItem(service).row
+}
+
+func (page *RuntimePage) serviceItem(service application.ServiceOverview) runtimeItem {
 	state := "not installed"
 	if service.Installed {
 		state = "installed"
@@ -861,10 +883,14 @@ func (page *RuntimePage) serviceRow(service application.ServiceOverview) compone
 		description += fmt.Sprintf(" · pid %d", service.PID)
 	}
 	fields := [][2]string{{"Scope", string(service.Scope)}, {"State", state}, {"Backend", service.Backend}, {"Service", service.ID}, {"PID", valueInt(service.PID)}, {"Config", service.ConfigRoot}, {"Persistence", service.Warning}, {"Error", service.Err}}
-	return component.Row{ID: "service." + string(service.Scope), Title: title, Description: description, Search: "managed service " + string(service.Scope) + " " + service.Backend, DetailTitle: title, Detail: detailFields(fields...)}
+	return runtimeItem{row: component.Row{ID: "service." + string(service.Scope), Title: title, Description: description, Search: "managed service " + string(service.Scope) + " " + service.Backend}, detailTitle: title, detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) authRow(kind string) component.Row {
+	return page.authItem(kind).row
+}
+
+func (page *RuntimePage) authItem(kind string) runtimeItem {
 	enabled, configured := page.auth.MCPEnabled, page.auth.MCPConfigured
 	if kind == "admin" {
 		enabled, configured = page.auth.AdminEnabled, page.auth.AdminConfigured
@@ -886,19 +912,27 @@ func (page *RuntimePage) authRow(kind string) component.Row {
 	} else {
 		description += " · auth only"
 	}
-	return component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind, DetailTitle: title, Detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Scope", scope}, [2]string{"Security", "Token hashes are persisted; plaintext is shown once after rotation."})}
+	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind}, detailTitle: title, detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Scope", scope}, [2]string{"Security", "Token hashes are persisted; plaintext is shown once after rotation."})}
 }
 
 func (page *RuntimePage) installRow() component.Row {
+	return page.installItem().row
+}
+
+func (page *RuntimePage) installItem() runtimeItem {
 	method := string(page.install.Detection.Method)
 	state := method
 	if page.install.Managed {
 		state = "managed direct · " + page.install.ManagedVersion
 	}
-	return component.Row{ID: "installation", Title: "Managed installation", Description: state, Search: "install managed layout cleanup migration", DetailTitle: "Managed installation", Detail: detailFields([2]string{"Method", method}, [2]string{"Executable", page.install.Detection.Executable}, [2]string{"Root", page.install.Detection.Root}, [2]string{"Managed", fmt.Sprint(page.install.Managed)}, [2]string{"Current", page.install.ManagedVersion}, [2]string{"Update policy", string(page.install.Policy.Action)}, [2]string{"Guidance", page.install.Policy.Message})}
+	return runtimeItem{row: component.Row{ID: "installation", Title: "Managed installation", Description: state, Search: "install managed layout cleanup migration"}, detailTitle: "Managed installation", detail: detailFields([2]string{"Method", method}, [2]string{"Executable", page.install.Detection.Executable}, [2]string{"Root", page.install.Detection.Root}, [2]string{"Managed", fmt.Sprint(page.install.Managed)}, [2]string{"Current", page.install.ManagedVersion}, [2]string{"Update policy", string(page.install.Policy.Action)}, [2]string{"Guidance", page.install.Policy.Message})}
 }
 
 func (page *RuntimePage) aliasRow() component.Row {
+	return page.aliasItem().row
+}
+
+func (page *RuntimePage) aliasItem() runtimeItem {
 	state, path, target := "unavailable", "", ""
 	if page.install.AliasAvailable {
 		state, path, target = string(page.install.Alias.State), page.install.Alias.Path, page.install.Alias.Target
@@ -907,10 +941,14 @@ func (page *RuntimePage) aliasRow() component.Row {
 	if path != "" {
 		description += " · " + path
 	}
-	return component.Row{ID: "alias", Title: "CLI alias (cgm)", Description: description, Search: "alias cgm command", DetailTitle: "CLI alias (cgm)", Detail: detailFields([2]string{"State", state}, [2]string{"Path", path}, [2]string{"Target", target})}
+	return runtimeItem{row: component.Row{ID: "alias", Title: "CLI alias (cgm)", Description: description, Search: "alias cgm command"}, detailTitle: "CLI alias (cgm)", detail: detailFields([2]string{"State", state}, [2]string{"Path", path}, [2]string{"Target", target})}
 }
 
 func (page *RuntimePage) updateRow() component.Row {
+	return page.updateItem().row
+}
+
+func (page *RuntimePage) updateItem() runtimeItem {
 	status, latest, checked := string(page.install.Policy.Action), "", ""
 	if page.install.CachedUpdate != nil {
 		status, latest, checked = string(page.install.CachedUpdate.Status), page.install.CachedUpdate.Latest, page.install.CachedUpdate.CheckedAt.Local().Format(time.RFC3339)
@@ -919,10 +957,14 @@ func (page *RuntimePage) updateRow() component.Row {
 	if latest != "" {
 		description += " · latest " + latest
 	}
-	return component.Row{ID: "update", Title: "Software upgrade", Description: description, Search: "upgrade update release version latest", DetailTitle: "Software upgrade", Detail: detailFields([2]string{"Current", page.about.Version}, [2]string{"Status", status}, [2]string{"Latest", latest}, [2]string{"Checked", checked}, [2]string{"Policy", page.install.Policy.Message}, [2]string{"External command", page.install.Policy.Command})}
+	return runtimeItem{row: component.Row{ID: "update", Title: "Software upgrade", Description: description, Search: "upgrade update release version latest"}, detailTitle: "Software upgrade", detail: detailFields([2]string{"Current", page.about.Version}, [2]string{"Status", status}, [2]string{"Latest", latest}, [2]string{"Checked", checked}, [2]string{"Policy", page.install.Policy.Message}, [2]string{"External command", page.install.Policy.Command})}
 }
 
 func (page *RuntimePage) aboutRow() component.Row {
+	return page.aboutItem().row
+}
+
+func (page *RuntimePage) aboutItem() runtimeItem {
 	serverUptime := "stopped"
 	if page.about.RuntimeRunning {
 		serverUptime = page.about.ServerUptime.String()
@@ -931,7 +973,7 @@ func (page *RuntimePage) aboutRow() component.Row {
 	if page.about.MachineUptimeOK {
 		machine = page.about.MachineUptime.String()
 	}
-	return component.Row{ID: "about", Title: "Build & environment", Description: page.about.Version + " · " + runtime.GOOS + "/" + runtime.GOARCH, Search: "about version commit build uptime paths environment", DetailTitle: "Build & environment", Detail: detailFields([2]string{"Version", page.about.Version}, [2]string{"Commit", page.about.Commit}, [2]string{"Build time", page.about.BuildTime}, [2]string{"Server uptime", serverUptime}, [2]string{"Machine uptime", machine}, [2]string{"Executable", page.about.Executable}, [2]string{"Config", page.about.ConfigPath}, [2]string{"Config root", page.about.ConfigRoot}, [2]string{"Logs", page.about.LogsPath}, [2]string{"Install method", string(page.about.InstallMethod)}, [2]string{"Install root", page.about.InstallRoot})}
+	return runtimeItem{row: component.Row{ID: "about", Title: "Build & environment", Description: page.about.Version + " · " + runtime.GOOS + "/" + runtime.GOARCH, Search: "about version commit build uptime paths environment"}, detailTitle: "Build & environment", detail: detailFields([2]string{"Version", page.about.Version}, [2]string{"Commit", page.about.Commit}, [2]string{"Build time", page.about.BuildTime}, [2]string{"Server uptime", serverUptime}, [2]string{"Machine uptime", machine}, [2]string{"Executable", page.about.Executable}, [2]string{"Config", page.about.ConfigPath}, [2]string{"Config root", page.about.ConfigRoot}, [2]string{"Logs", page.about.LogsPath}, [2]string{"Install method", string(page.about.InstallMethod)}, [2]string{"Install root", page.about.InstallRoot})}
 }
 
 func (page *RuntimePage) statusView(width int) string {

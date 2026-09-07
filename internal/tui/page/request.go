@@ -469,7 +469,7 @@ func (page *RequestsPage) rebuildBrowser(selectedID string) {
 		selectedID = page.selectedID()
 	}
 	rows := page.requestRows()
-	browser := component.NewBrowser(page.ctx, "Approval requests · "+page.modeLabel(), rows, nil).WithListOnly()
+	browser := component.NewBrowser(page.ctx, "Approval requests · "+page.modeLabel(), rows, nil)
 	browser = browser.WithHelpBindings(component.Binding([]string{"1"}, "1", "pending"), component.Binding([]string{"2"}, "2", "history"), component.Binding([]string{"3"}, "3", "all"), component.Binding([]string{"r"}, "r", "refresh"))
 	page.browser = browser
 	page.browser.SetHelpExpanded(helpExpanded)

@@ -673,7 +673,7 @@ func (page *MCPPage) reload() error {
 	if err != nil {
 		return err
 	}
-	page.browser = component.NewBrowser(page.ctx, "Upstream MCP servers", rows, nil).WithHelpBindings(component.Binding([]string{"a"}, "a", "add")).WithListOnly()
+	page.browser = component.NewBrowser(page.ctx, "Upstream MCP servers", rows, nil).WithHelpBindings(component.Binding([]string{"a"}, "a", "add"))
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})

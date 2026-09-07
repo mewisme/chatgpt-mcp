@@ -52,9 +52,10 @@ func TestRuntimeRowsUseDescriptiveTitlesAndDescriptions(t *testing.T) {
 		t.Fatalf("runtime row=%#v", runtimeRow)
 	}
 	page.runtime.Status.Starting = true
-	runtimeRow = page.runtimeRow()
-	if !strings.Contains(runtimeRow.Description, "starting · pid 4242 · managed / user") || !strings.Contains(runtimeRow.Detail, "starting") {
-		t.Fatalf("starting runtime row=%#v", runtimeRow)
+	runtimeItem := page.runtimeItem()
+	runtimeRow = runtimeItem.row
+	if !strings.Contains(runtimeRow.Description, "starting · pid 4242 · managed / user") || !strings.Contains(runtimeItem.detail, "starting") {
+		t.Fatalf("starting runtime item=%#v", runtimeItem)
 	}
 	if !strings.Contains(page.statusView(80), "STARTING") {
 		t.Fatalf("starting runtime summary=%q", page.statusView(80))
@@ -67,8 +68,9 @@ func TestRuntimeRowsUseDescriptiveTitlesAndDescriptions(t *testing.T) {
 	if mcpHTTP.Title != "MCP HTTP server" || !strings.Contains(mcpHTTP.Description, "port closed") {
 		t.Fatalf("MCP HTTP row=%#v", mcpHTTP)
 	}
-	mcpAuth, adminAuth := page.authRow("mcp"), page.authRow("admin")
-	if mcpAuth.Title != "MCP HTTP authentication" || adminAuth.Title != "Admin UI authentication" || !strings.Contains(mcpAuth.Description, "auth only") || !strings.Contains(mcpAuth.Detail, "listener is controlled by MCP HTTP server") {
+	mcpAuthItem, adminAuthItem := page.authItem("mcp"), page.authItem("admin")
+	mcpAuth, adminAuth := mcpAuthItem.row, adminAuthItem.row
+	if mcpAuth.Title != "MCP HTTP authentication" || adminAuth.Title != "Admin UI authentication" || !strings.Contains(mcpAuth.Description, "auth only") || !strings.Contains(mcpAuthItem.detail, "listener is controlled by MCP HTTP server") {
 		t.Fatalf("authentication rows MCP=%#v admin=%#v", mcpAuth, adminAuth)
 	}
 }
@@ -76,14 +78,16 @@ func TestRuntimeRowsUseDescriptiveTitlesAndDescriptions(t *testing.T) {
 func TestRuntimeMCPHTTPRowDistinguishesConfigFromLiveListener(t *testing.T) {
 	page, _ := NewRuntime(t.Context())
 	page.runtime = application.RuntimeOverview{Running: true, MCPHTTPEnabled: false, MCPHTTPPort: 37421, TunnelEnabled: true, Status: runtimecontrol.RuntimeStatus{ServerEnabled: true, ServerPort: 37421}}
-	row := page.mcpHTTPRow()
-	if !strings.Contains(row.Description, "disabled · listening · reload required") || !strings.Contains(row.Detail, "http://127.0.0.1:37421/mcp") || !strings.Contains(row.Detail, "Tunnel") {
-		t.Fatalf("MCP HTTP mismatch row=%#v", row)
+	item := page.mcpHTTPItem()
+	row := item.row
+	if !strings.Contains(row.Description, "disabled · listening · reload required") || !strings.Contains(item.detail, "http://127.0.0.1:37421/mcp") || !strings.Contains(item.detail, "Tunnel") {
+		t.Fatalf("MCP HTTP mismatch item=%#v", item)
 	}
 	page.runtime.Status.ServerEnabled = false
-	row = page.mcpHTTPRow()
-	if !strings.Contains(row.Description, "disabled · port closed") || strings.Contains(row.Detail, "http://127.0.0.1:37421/mcp") {
-		t.Fatalf("MCP HTTP disabled row=%#v", row)
+	item = page.mcpHTTPItem()
+	row = item.row
+	if !strings.Contains(row.Description, "disabled · port closed") || strings.Contains(item.detail, "http://127.0.0.1:37421/mcp") {
+		t.Fatalf("MCP HTTP disabled item=%#v", item)
 	}
 }
 

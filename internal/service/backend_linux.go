@@ -81,14 +81,13 @@ func LinuxUnit(spec Spec) string {
 		"Description=ChatGPT MCP managed runtime",
 		"After=network-online.target",
 		"Wants=network-online.target",
-		"StartLimitIntervalSec=60",
-		"StartLimitBurst=5",
+		"StartLimitIntervalSec=0",
 		"",
 		"[Service]",
 		"Type=simple",
 		"ExecStart=" + systemdCommand(args),
 		"NoNewPrivileges=true",
-		"Restart=on-failure",
+		"Restart=always",
 		"RestartSec=3s",
 	}
 	if spec.Scope == ScopeSystem {

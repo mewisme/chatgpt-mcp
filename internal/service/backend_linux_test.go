@@ -10,10 +10,13 @@ import (
 func TestLinuxUserUnitUsesExplicitConfigAndUserTarget(t *testing.T) {
 	spec := Spec{ID: "chatgpt-mcp-user-test", Scope: ScopeUser, ConfigRoot: "/home/mew/.config/chatgpt-mcp", Binary: "/home/mew/.local/bin/cgm", EnvironmentHash: "environment-test", Account: Account{Username: "mew", UID: "1000", GID: "1000", HomeDir: "/home/mew"}}
 	unit := LinuxUnit(spec)
-	for _, expected := range []string{`ExecStart="/home/mew/.local/bin/cgm" "--config-dir" "/home/mew/.config/chatgpt-mcp" "_service" "run"`, "NoNewPrivileges=true", "WantedBy=default.target", "Restart=on-failure"} {
+	for _, expected := range []string{`ExecStart="/home/mew/.local/bin/cgm" "--config-dir" "/home/mew/.config/chatgpt-mcp" "_service" "run"`, "NoNewPrivileges=true", "WantedBy=default.target", "Restart=always", "StartLimitIntervalSec=0"} {
 		if !strings.Contains(unit, expected) {
 			t.Fatalf("unit missing %q:\n%s", expected, unit)
 		}
+	}
+	if strings.Contains(unit, "Restart=on-failure") || strings.Contains(unit, "StartLimitBurst=") {
+		t.Fatalf("unit keeps bounded failure-only restart policy:\n%s", unit)
 	}
 	if !strings.Contains(unit, `"--service-environment-hash" "environment-test"`) {
 		t.Fatalf("unit missing environment hash:\n%s", unit)

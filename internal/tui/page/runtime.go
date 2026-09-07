@@ -618,11 +618,6 @@ func (page *RuntimePage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-func (page *RuntimePage) openRuntimeAction(action string, scope managed.Scope) tea.Cmd {
-	cmd, _ := page.openCommand(runtimeCommand(action, scope))
-	return cmd
-}
-
 func runtimeCommand(action string, scope managed.Scope) SystemCommand {
 	system := scope == managed.ScopeSystem
 	switch action {
@@ -886,10 +881,6 @@ func (page *RuntimePage) serviceItem(service application.ServiceOverview) runtim
 	return runtimeItem{row: component.Row{ID: "service." + string(service.Scope), Title: title, Description: description, Search: "managed service " + string(service.Scope) + " " + service.Backend}, detailTitle: title, detail: detailFields(fields...)}
 }
 
-func (page *RuntimePage) authRow(kind string) component.Row {
-	return page.authItem(kind).row
-}
-
 func (page *RuntimePage) authItem(kind string) runtimeItem {
 	enabled, configured := page.auth.MCPEnabled, page.auth.MCPConfigured
 	if kind == "admin" {
@@ -915,10 +906,6 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind}, detailTitle: title, detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Scope", scope}, [2]string{"Security", "Token hashes are persisted; plaintext is shown once after rotation."})}
 }
 
-func (page *RuntimePage) installRow() component.Row {
-	return page.installItem().row
-}
-
 func (page *RuntimePage) installItem() runtimeItem {
 	method := string(page.install.Detection.Method)
 	state := method
@@ -926,10 +913,6 @@ func (page *RuntimePage) installItem() runtimeItem {
 		state = "managed direct · " + page.install.ManagedVersion
 	}
 	return runtimeItem{row: component.Row{ID: "installation", Title: "Managed installation", Description: state, Search: "install managed layout cleanup migration"}, detailTitle: "Managed installation", detail: detailFields([2]string{"Method", method}, [2]string{"Executable", page.install.Detection.Executable}, [2]string{"Root", page.install.Detection.Root}, [2]string{"Managed", fmt.Sprint(page.install.Managed)}, [2]string{"Current", page.install.ManagedVersion}, [2]string{"Update policy", string(page.install.Policy.Action)}, [2]string{"Guidance", page.install.Policy.Message})}
-}
-
-func (page *RuntimePage) aliasRow() component.Row {
-	return page.aliasItem().row
 }
 
 func (page *RuntimePage) aliasItem() runtimeItem {
@@ -944,10 +927,6 @@ func (page *RuntimePage) aliasItem() runtimeItem {
 	return runtimeItem{row: component.Row{ID: "alias", Title: "CLI alias (cgm)", Description: description, Search: "alias cgm command"}, detailTitle: "CLI alias (cgm)", detail: detailFields([2]string{"State", state}, [2]string{"Path", path}, [2]string{"Target", target})}
 }
 
-func (page *RuntimePage) updateRow() component.Row {
-	return page.updateItem().row
-}
-
 func (page *RuntimePage) updateItem() runtimeItem {
 	status, latest, checked := string(page.install.Policy.Action), "", ""
 	if page.install.CachedUpdate != nil {
@@ -958,10 +937,6 @@ func (page *RuntimePage) updateItem() runtimeItem {
 		description += " · latest " + latest
 	}
 	return runtimeItem{row: component.Row{ID: "update", Title: "Software upgrade", Description: description, Search: "upgrade update release version latest"}, detailTitle: "Software upgrade", detail: detailFields([2]string{"Current", page.about.Version}, [2]string{"Status", status}, [2]string{"Latest", latest}, [2]string{"Checked", checked}, [2]string{"Policy", page.install.Policy.Message}, [2]string{"External command", page.install.Policy.Command})}
-}
-
-func (page *RuntimePage) aboutRow() component.Row {
-	return page.aboutItem().row
 }
 
 func (page *RuntimePage) aboutItem() runtimeItem {

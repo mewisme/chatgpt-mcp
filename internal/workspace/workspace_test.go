@@ -68,11 +68,19 @@ func TestReloadAppliesExternalRegistryChangesAndPreservesRuntimeSettings(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsString(roots, globalAllow) {
+	canonicalGlobalAllow, err := canonicalExistingDirectory(globalAllow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(roots, canonicalGlobalAllow) {
 		t.Fatalf("global allow dirs lost after reload: %#v", roots)
 	}
-	if got := runtimeManager.ShellPath(); !reflect.DeepEqual(got, shellPath) {
-		t.Fatalf("shell path after reload=%#v want=%#v", got, shellPath)
+	canonicalShellPath, err := canonicalExistingDirectory(shellPath[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeManager.ShellPath(); !reflect.DeepEqual(got, []string{canonicalShellPath}) {
+		t.Fatalf("shell path after reload=%#v want=%#v", got, []string{canonicalShellPath})
 	}
 
 	if err := external.Unregister(item.ID); err != nil {

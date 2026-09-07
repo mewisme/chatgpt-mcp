@@ -151,8 +151,7 @@ func TestRuntimeResourceUsesFullChildDetailPage(t *testing.T) {
 	if strings.Contains(view, "╭") {
 		t.Fatalf("runtime detail retained modal chrome: %q", view)
 	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
-	page = updated.(*RuntimePage)
+	_, cmd := page.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	if cmd == nil {
 		t.Fatal("restart detail action returned no command")
 	}

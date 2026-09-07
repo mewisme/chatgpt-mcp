@@ -437,10 +437,6 @@ func commandForPlatformPolicy(ctx context.Context, command string, strict bool, 
 	return exec.CommandContext(ctx, shell, "-c", command), nil
 }
 
-func windowsShell() (string, bool, error) {
-	return windowsShellPolicy(false, nil)
-}
-
 func windowsShellPolicy(strict bool, shellPath []string) (string, bool, error) {
 	if strict {
 		for _, name := range []string{"pwsh.exe", "powershell.exe"} {

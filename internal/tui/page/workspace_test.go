@@ -204,8 +204,7 @@ func TestWorkspaceAndContainersRemainTabbedParentPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
-	page = updated.(*WorkspacePage)
+	_, cmd := page.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	if cmd == nil {
 		t.Fatal("containers tab navigation returned no command")
 	}
@@ -221,8 +220,7 @@ func TestWorkspaceAndContainersRemainTabbedParentPages(t *testing.T) {
 	if !strings.Contains(plain, "Workspaces") || !strings.Contains(plain, "Containers") || !strings.Contains(plain, "←/→ tabs") {
 		t.Fatalf("containers tab page=%q", plain)
 	}
-	updated, cmd = containers.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
-	containers = updated.(*WorkspacePage)
+	_, cmd = containers.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
 	if cmd == nil {
 		t.Fatal("workspaces tab navigation returned no command")
 	}
@@ -252,8 +250,7 @@ func TestWorkspaceBrowserOpenNavigatesToResourceChild(t *testing.T) {
 	if err := page.reload(); err != nil {
 		t.Fatal(err)
 	}
-	updated, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: item.ID}})
-	page = updated.(*WorkspacePage)
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: item.ID}})
 	if cmd == nil {
 		t.Fatal("resource open returned no navigation command")
 	}
@@ -294,14 +291,13 @@ func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 		t.Fatal("resource detail incorrectly reports overlay active")
 	}
 	plain := ansi.Strip(detail.View(100, 24))
-	if !strings.Contains(plain, "Workspace · "+item.ID) || !strings.Contains(plain, project) || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
+	if !strings.Contains(plain, "Workspace · "+item.ID) || !strings.Contains(plain, item.Path) || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
 		t.Fatalf("workspace detail=%q", plain)
 	}
 	if strings.Contains(plain, "Overview   Access") || strings.Contains(plain, "╭") {
 		t.Fatalf("workspace detail retained tab/modal chrome: %q", plain)
 	}
-	updated, cmd := detail.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
-	detail = updated.(*WorkspacePage)
+	_, cmd := detail.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if cmd == nil {
 		t.Fatal("access child navigation returned no command")
 	}
@@ -421,7 +417,7 @@ func TestWorkspaceAndContainerCopySelectedID(t *testing.T) {
 			}
 			updated, cmd := page.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 			page = updated.(*WorkspacePage)
-			page = runWorkspacePageCmd(t, page, cmd)
+			_ = runWorkspacePageCmd(t, page, cmd)
 			if copied != test.id {
 				t.Fatalf("copied=%q want=%q", copied, test.id)
 			}

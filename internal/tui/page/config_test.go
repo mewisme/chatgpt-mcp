@@ -84,8 +84,7 @@ func TestConfigResourceUsesFullChildDetailPage(t *testing.T) {
 	if strings.Contains(view, "╭") {
 		t.Fatalf("config detail retained modal chrome: %q", view)
 	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
-	page = updated.(*ConfigPage)
+	_, cmd := page.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	if cmd == nil {
 		t.Fatal("config edit detail action returned no command")
 	}
@@ -114,8 +113,7 @@ func TestConfigBrowserOpenNavigatesToFieldChild(t *testing.T) {
 	page, _ := NewConfig(t.Context())
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
-	updated, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "server.port"}})
-	page = updated.(*ConfigPage)
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "server.port"}})
 	if cmd == nil {
 		t.Fatal("config browser open returned no navigation command")
 	}

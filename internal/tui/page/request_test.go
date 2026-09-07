@@ -89,8 +89,7 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 	if strings.Contains(view, "Overview   Arguments") || strings.Contains(view, "╭") {
 		t.Fatalf("deep view retained tab/modal chrome: %q", view)
 	}
-	updated, cmd := deep.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
-	deep = updated.(*RequestsPage)
+	_, cmd := deep.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	if cmd == nil {
 		t.Fatal("arguments child navigation returned no command")
 	}

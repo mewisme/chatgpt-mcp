@@ -477,15 +477,6 @@ func indexFold(values []string, target string) int {
 	return -1
 }
 
-func firstNonFlag(args []string) string {
-	for _, arg := range args {
-		if !strings.HasPrefix(arg, "-") {
-			return strings.ToLower(arg)
-		}
-	}
-	return ""
-}
-
 func containsAnyFold(values []string, targets ...string) bool {
 	for _, value := range values {
 		for _, target := range targets {

@@ -101,8 +101,7 @@ func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 	if strings.Contains(view, "Overview   Scope") || strings.Contains(view, "╭") {
 		t.Fatalf("managed detail retained tab/modal chrome: %q", view)
 	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
-	page = updated.(*TunnelPage)
+	_, cmd := page.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	if cmd == nil {
 		t.Fatal("scope child navigation returned no command")
 	}

@@ -114,8 +114,7 @@ func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
 	if !ok || remove.Command != MCPServerRemove || remove.ResourceID != "docs" {
 		t.Fatalf("remove action=%#v", remove)
 	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	page = updated.(*MCPPage)
+	_, cmd := page.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	if cmd == nil {
 		t.Fatal("health child navigation returned no command")
 	}

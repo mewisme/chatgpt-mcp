@@ -134,8 +134,7 @@ func TestLogsEventChildDetailStaysPinnedWhileLiveEventsAppend(t *testing.T) {
 	if !strings.Contains(detail, "Log event · two") || strings.Contains(detail, "Log event · three") {
 		t.Fatalf("detail jumped after live append: %q", detail)
 	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
-	page = updated.(*LogsPage)
+	_, cmd := page.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	if cmd == nil {
 		t.Fatal("fields child navigation returned no command")
 	}

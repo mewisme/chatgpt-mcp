@@ -159,6 +159,9 @@ func TestLogsActionAvailabilityFollowsRouteContext(t *testing.T) {
 	if has(action.Context{Route: string(RouteHome)}, "logs.clear") {
 		t.Fatal("logs actions leaked outside logs route")
 	}
+	if !has(action.Context{Route: string(RouteHome)}, "app.go.logs-exec") {
+		t.Fatal("command execution navigation action missing")
+	}
 }
 
 func TestSystemActionAvailabilityFollowsRouteAndPlatform(t *testing.T) {

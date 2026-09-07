@@ -3,7 +3,6 @@ package component
 import (
 	"strings"
 
-	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
@@ -61,10 +60,7 @@ func Binding(keys []string, helpKey, description string) key.Binding {
 }
 
 func DefaultHelp(width int, bindings ...key.Binding) string {
-	model := help.New()
-	model.Styles = help.DefaultStyles(currentTheme.isDark)
-	model.SetWidth(width)
-	return model.ShortHelpView(bindings)
+	return NewHelpFooter(bindings...).View(width)
 }
 
 func BottomHelp(content, footer string, width, height int) string {

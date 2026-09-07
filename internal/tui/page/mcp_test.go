@@ -89,9 +89,17 @@ func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
 		t.Fatalf("resource detail state overlay=%t resource=%q", page.OverlayActive(), page.resourceID)
 	}
 	view := ansi.Strip(page.View(110, 28))
-	for _, want := range []string{"MCP server · docs", "https://example.test/mcp", "h health", "v tools", "u oauth", "e configure", "space toggle", "r health", "t tools", "o login"} {
+	for _, want := range []string{"MCP server · docs", "https://example.test/mcp", "h health", "v tools", "u oauth", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("MCP detail missing %q: %q", want, view)
+		}
+	}
+	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	page = updated.(*MCPPage)
+	view = ansi.Strip(page.View(110, 28))
+	for _, want := range []string{"configure", "toggle", "health", "tools", "login", "less"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expanded MCP detail missing %q: %q", want, view)
 		}
 	}
 	if strings.Contains(view, "Overview   Health") || strings.Contains(view, "╭") {

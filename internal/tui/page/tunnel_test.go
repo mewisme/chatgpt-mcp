@@ -85,9 +85,17 @@ func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 		t.Fatal("managed tunnel detail incorrectly reports overlay active")
 	}
 	view := ansi.Strip(page.View(100, 26))
-	for _, want := range []string{"Managed tunnel · tunnel_one", "primary", "s scope", "r refresh", "e update", "c configure", "d delete"} {
+	for _, want := range []string{"Managed tunnel · tunnel_one", "primary", "s scope", "r refresh", "e update", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("managed detail missing %q: %q", want, view)
+		}
+	}
+	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	page = updated.(*TunnelPage)
+	view = ansi.Strip(page.View(100, 26))
+	for _, want := range []string{"configure", "delete", "less"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expanded managed detail missing %q: %q", want, view)
 		}
 	}
 	if strings.Contains(view, "Overview   Scope") || strings.Contains(view, "╭") {
@@ -125,7 +133,7 @@ func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
 	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
 		last--
 	}
-	if last != 31 || !strings.Contains(lines[last], "managed tunnels") {
+	if last != 31 || !strings.Contains(lines[last], "managed tunnels") || strings.Contains(lines[last], "? more") {
 		t.Fatalf("tunnel help line=%d want=31 view=%q", last, strings.Join(lines, "\n"))
 	}
 }
@@ -189,11 +197,21 @@ func TestTunnelRuntimeLayoutUsesHierarchyAndGroupWrapping(t *testing.T) {
 	}
 	page.dashboard.Status.Metadata = &tunnel.Metadata{ID: page.dashboard.Config.ID, Name: "MCP_Tunnel_WSL", FetchedAt: time.Now()}
 	wide := ansi.Strip(page.runtimeView(120))
-	for _, want := range []string{"Status", "Tunnel", "Admin", "Metadata", "● ON", "Configured", "Runtime key", "MCP_Tunnel_WSL", "e configure", "space toggle", "d remove admin", "m managed tunnels"} {
+	for _, want := range []string{"Status", "Tunnel", "Admin", "Metadata", "● ON", "Configured", "Runtime key", "MCP_Tunnel_WSL", "e configure", "space toggle", "? more"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide tunnel layout missing %q: %q", want, wide)
 		}
 	}
+	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	page = updated.(*TunnelPage)
+	expanded := ansi.Strip(page.runtimeView(120))
+	for _, want := range []string{"remove admin", "managed tunnels", "less"} {
+		if !strings.Contains(expanded, want) {
+			t.Fatalf("expanded tunnel help missing %q: %q", want, expanded)
+		}
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	page = updated.(*TunnelPage)
 	if strings.Contains(wide, "Enabled        true") || strings.Contains(wide, " · ") {
 		t.Fatalf("wide tunnel layout retained raw boolean or dot-joined hints: %q", wide)
 	}

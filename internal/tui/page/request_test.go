@@ -75,10 +75,16 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 		t.Fatalf("deep resource=%q overlay=%t mode=%d", deep.resourceID, deep.OverlayActive(), deep.mode)
 	}
 	view := ansi.Strip(deep.View(100, 28))
-	for _, expected := range []string{"Approval request · " + pending.ID, pending.WorkspaceID, pending.TargetTool, "v arguments", "g guard", "a approve", "d deny"} {
+	for _, expected := range []string{"Approval request · " + pending.ID, pending.WorkspaceID, pending.TargetTool, "v arguments", "g guard", "a approve", "? more"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("deep view missing %q: %q", expected, view)
 		}
+	}
+	updated, _ = deep.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	deep = updated.(*RequestsPage)
+	expanded := ansi.Strip(deep.View(100, 28))
+	if !strings.Contains(expanded, "deny") || !strings.Contains(expanded, "less") {
+		t.Fatalf("expanded request footer=%q", expanded)
 	}
 	if strings.Contains(view, "Overview   Arguments") || strings.Contains(view, "╭") {
 		t.Fatalf("deep view retained tab/modal chrome: %q", view)

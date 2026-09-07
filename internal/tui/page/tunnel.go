@@ -81,6 +81,7 @@ type TunnelPage struct {
 	items              []tunnel.Metadata
 	browser            component.Browser
 	detail             component.DetailPage
+	runtimeHelp        component.HelpFooter
 	overlay            tunnelOverlayKind
 	form               component.Form
 	confirm            component.ConfirmButtons
@@ -115,7 +116,9 @@ func NewTunnelDashboard(ctx context.Context) (*TunnelPage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &TunnelPage{ctx: ctx, kind: tunnelPageRuntime, dashboard: dashboard, adminStatus: adminStatus}, nil
+	page := &TunnelPage{ctx: ctx, kind: tunnelPageRuntime, dashboard: dashboard, adminStatus: adminStatus}
+	page.runtimeHelp = component.NewHelpFooter(page.runtimeHelpBindings()...)
+	return page, nil
 }
 
 func NewManagedTunnels(ctx context.Context, resourceID string) (*TunnelPage, error) {
@@ -269,6 +272,12 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
+		}
+		if page.kind == tunnelPageRuntime {
+			page.runtimeHelp.SetBindings(page.runtimeHelpBindings()...)
+			if page.runtimeHelp.Update(msg) {
+				return page, nil
+			}
 		}
 		if cmd, handled := page.handleKey(msg); handled {
 			return page, cmd
@@ -840,7 +849,8 @@ func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) stri
 		[2]string{"Scope", tunnelScopeLabel(page.adminStatus.Scope)},
 	)
 	metadataSection := tunnelMetadataSection(status.Metadata, status.MetadataError)
-	actions := component.DefaultHelp(width, page.runtimeHelpBindings()...)
+	page.runtimeHelp.SetBindings(page.runtimeHelpBindings()...)
+	actions := page.runtimeHelp.View(width)
 	lines := []string{
 		component.PageTitleNotice("OpenAI Secure MCP Tunnel", page.notice, width),
 		tunnelSectionPair(statusSection, tunnelSectionView, width),

@@ -19,6 +19,7 @@ type DetailPageBinding struct {
 
 type DetailPage struct {
 	viewport viewport.Model
+	help     HelpFooter
 	title    string
 	meta     string
 	content  string
@@ -33,8 +34,9 @@ func NewDetailPage(title, meta, content string) DetailPage {
 	view := viewport.New(viewport.WithWidth(defaultLayoutWidth), viewport.WithHeight(defaultLayoutHeight))
 	view.SoftWrap = true
 	view.FillHeight = false
-	page := DetailPage{viewport: view, title: strings.TrimSpace(title), meta: strings.TrimSpace(meta), content: strings.TrimSpace(content)}
+	page := DetailPage{viewport: view, help: NewHelpFooter(), title: strings.TrimSpace(title), meta: strings.TrimSpace(meta), content: strings.TrimSpace(content)}
 	page.viewport.SetContent(page.content)
+	page.syncHelp()
 	return page
 }
 
@@ -87,6 +89,7 @@ func (page *DetailPage) SetBindings(bindings ...DetailPageBinding) {
 		}
 		page.bindings = append(page.bindings, binding)
 	}
+	page.syncHelp()
 }
 
 func (page *DetailPage) Resize(width, height int) {
@@ -98,6 +101,10 @@ func (page *DetailPage) Resize(width, height int) {
 }
 
 func (page DetailPage) Update(message tea.Msg) (DetailPage, tea.Cmd) {
+	if page.help.Update(message) {
+		page.resizeViewport()
+		return page, nil
+	}
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		page.Resize(msg.Width, msg.Height)
@@ -205,11 +212,20 @@ func (page DetailPage) feedbackView() string {
 }
 
 func (page DetailPage) footerView(width int) string {
+	return page.help.View(width)
+}
+
+func (page *DetailPage) syncHelp() {
+	if page == nil {
+		return
+	}
+	expanded := page.help.Expanded()
 	bindings := []key.Binding{Binding([]string{"j", "k", "up", "down", "pgup", "pgdown"}, "j/k", "scroll")}
 	for _, binding := range page.bindings {
 		bindings = append(bindings, Binding([]string{binding.Key}, binding.HelpKey, binding.Desc))
 	}
-	return DefaultHelp(width, bindings...)
+	page.help.SetBindings(bindings...)
+	page.help.SetExpanded(expanded)
 }
 
 func (page *DetailPage) resizeViewport() {

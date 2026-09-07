@@ -55,6 +55,30 @@ func TestDetailPageBindingEmitsBeforeDomainHandling(t *testing.T) {
 	}
 }
 
+func TestDetailPageCollapsesLargeActionFooter(t *testing.T) {
+	page := NewDetailPage("Detail", "", "body")
+	page.SetBindings(
+		DetailPageBinding{Key: "a", Desc: "one", Message: tea.KeyPressMsg{Code: 'a'}},
+		DetailPageBinding{Key: "b", Desc: "two", Message: tea.KeyPressMsg{Code: 'b'}},
+		DetailPageBinding{Key: "c", Desc: "three", Message: tea.KeyPressMsg{Code: 'c'}},
+		DetailPageBinding{Key: "d", Desc: "four", Message: tea.KeyPressMsg{Code: 'd'}},
+		DetailPageBinding{Key: "e", Desc: "five", Message: tea.KeyPressMsg{Code: 'e'}},
+	)
+	page.Resize(80, 20)
+	collapsed := ansi.Strip(page.View())
+	if !strings.Contains(collapsed, "? more") || strings.Contains(collapsed, "five") {
+		t.Fatalf("collapsed detail footer=%q", collapsed)
+	}
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: '?'})
+	if cmd != nil || !updated.help.Expanded() {
+		t.Fatalf("detail help expansion cmd=%v expanded=%t", cmd, updated.help.Expanded())
+	}
+	expanded := ansi.Strip(updated.View())
+	if !strings.Contains(expanded, "five") || !strings.Contains(expanded, "less") {
+		t.Fatalf("expanded detail footer=%q", expanded)
+	}
+}
+
 func TestDetailPageMouseBindingAndNoBackdrop(t *testing.T) {
 	page := NewDetailPage("Detail", "meta", "body")
 	page.SetBindings(DetailPageBinding{Key: "e", Desc: "edit", Message: tea.KeyPressMsg{Code: 'e'}})

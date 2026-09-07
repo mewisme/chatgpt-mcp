@@ -90,18 +90,42 @@ func TestRuntimeMCPHTTPToggleUsesTransportAction(t *testing.T) {
 	page, _ := NewRuntime(t.Context())
 	page.runtime = application.RuntimeOverview{MCPHTTPEnabled: true, MCPHTTPPort: 37421, TunnelEnabled: true}
 	page.rebuildBrowser("transport.mcp-http")
-	cmd, handled := page.handleKey(tea.KeyPressMsg{Code: tea.KeySpace})
-	if !handled || cmd == nil || page.pending != MCPHTTPDisable || page.overlay != systemOverlayOperation {
-		t.Fatalf("disable toggle handled=%t cmd=%v pending=%q overlay=%d", handled, cmd, page.pending, page.overlay)
+	if !page.browser.OpenDetail("transport.mcp-http") {
+		t.Fatal("MCP HTTP detail did not open")
 	}
-	page.cancelOperation()
+	detailCommand := func(key tea.KeyPressMsg) SystemCommandMsg {
+		t.Helper()
+		_, cmd := page.Update(key)
+		if cmd == nil {
+			t.Fatal("detail action returned no command")
+		}
+		message := cmd()
+		if batch, ok := message.(tea.BatchMsg); ok {
+			if len(batch) == 0 || batch[0] == nil {
+				t.Fatalf("detail action batch=%#v", batch)
+			}
+			message = batch[0]()
+		}
+		value, ok := message.(SystemCommandMsg)
+		if !ok {
+			t.Fatalf("detail action message=%T", message)
+		}
+		return value
+	}
+	message := detailCommand(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, cmd := page.Update(message)
+	if cmd == nil || page.pending != MCPHTTPDisable || page.overlay != systemOverlayOperation {
+		t.Fatalf("disable toggle cmd=%v pending=%q overlay=%d", cmd, page.pending, page.overlay)
+	}
+	page.closeOverlay()
 	page.runtime.MCPHTTPEnabled = false
-	page.overlay = systemOverlayNone
-	cmd, handled = page.handleKey(tea.KeyPressMsg{Code: 'e', Text: "e"})
-	if !handled || cmd == nil || page.pending != MCPHTTPEnable || page.overlay != systemOverlayOperation {
-		t.Fatalf("enable toggle handled=%t cmd=%v pending=%q overlay=%d", handled, cmd, page.pending, page.overlay)
+	page.syncBrowserHelp()
+	message = detailCommand(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, cmd = page.Update(message)
+	if cmd == nil || page.pending != MCPHTTPEnable || page.overlay != systemOverlayOperation {
+		t.Fatalf("enable toggle cmd=%v pending=%q overlay=%d", cmd, page.pending, page.overlay)
 	}
-	page.cancelOperation()
+	page.closeOverlay()
 }
 
 func TestRuntimeMCPHTTPStoppedTogglePersistsAndRespectsTransportInvariant(t *testing.T) {

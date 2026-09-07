@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
@@ -284,16 +285,30 @@ func formConfirmTarget(t *testing.T, targets []MouseTarget, choice int) MouseTar
 
 func runFormCmd(t *testing.T, form Form, cmd tea.Cmd) Form {
 	t.Helper()
-	if cmd == nil {
-		return form
-	}
-	message := cmd()
-	if batch, ok := message.(tea.BatchMsg); ok {
-		for _, next := range batch {
-			form = runFormCmd(t, form, next)
+	queue := []tea.Cmd{cmd}
+	for steps := 0; steps < 64 && len(queue) > 0; steps++ {
+		next := queue[0]
+		queue = queue[1:]
+		if next == nil {
+			continue
 		}
-		return form
+		messages := make(chan tea.Msg, 1)
+		go func(command tea.Cmd) { messages <- command() }(next)
+		var message tea.Msg
+		select {
+		case message = <-messages:
+		case <-time.After(20 * time.Millisecond):
+			continue
+		}
+		if batch, ok := message.(tea.BatchMsg); ok {
+			queue = append(queue, batch...)
+			continue
+		}
+		updated, followup := form.Update(message)
+		form = updated
+		if followup != nil {
+			queue = append(queue, followup)
+		}
 	}
-	updated, next := form.Update(message)
-	return runFormCmd(t, updated, next)
+	return form
 }

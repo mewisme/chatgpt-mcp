@@ -204,6 +204,12 @@ func managedUp(ctx context.Context, spec managed.Spec, manager managed.Manager) 
 		return RuntimeActionResult{}, err
 	}
 	if running && backend.Installed && matches {
+		if current.Starting {
+			current, err = waitManagedReady(ctx, spec, "", managedReadyTimeout)
+			if err != nil {
+				return RuntimeActionResult{}, err
+			}
+		}
 		return runtimeActionResult("up", spec, manager, current, false), nil
 	}
 	if running {
@@ -399,6 +405,8 @@ func waitManagedReady(ctx context.Context, spec managed.Spec, previousRunID stri
 			}
 			if previousRunID != "" && status.RunID == previousRunID {
 				lastErr = errors.New("previous managed runtime is still shutting down")
+			} else if status.Starting {
+				lastErr = errors.New("managed runtime is still starting")
 			} else {
 				return status, nil
 			}

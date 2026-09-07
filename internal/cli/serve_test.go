@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 )
 
 func TestWaitRuntimeHTTPReadyRequiresMCPAndAdminListeners(t *testing.T) {
@@ -67,6 +72,59 @@ func TestTunnelOnlyRuntimeRequiresNoHTTPListeners(t *testing.T) {
 	if err := waitRuntimeHTTPReady(context.Background(), cfg, 10*time.Millisecond); err != nil {
 		t.Fatalf("tunnel-only HTTP readiness = %v", err)
 	}
+}
+
+func TestTunnelOnlyServePublishesRuntimeControl(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Server.Enabled = false
+	cfg.Admin.Enabled = false
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Tunnel.Enabled = true
+	cfg.Tunnel.ID = "tunnel_00000000000000000000000000000000"
+	cfg.Tunnel.APIKey = "runtime-test"
+	cfg.Tunnel.ControlPlaneBaseURL = "http://127.0.0.1:1"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetContext(ctx)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	done := make(chan error, 1)
+	go func() { done <- runServer(cmd, nil) }()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err := requestRuntimeStatus(context.Background())
+		if err == nil {
+			if status.ServerEnabled || !status.TunnelEnabled {
+				t.Fatalf("tunnel-only status=%#v", status)
+			}
+			if err := requestRuntimeShutdown(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err := <-done:
+				if err != nil && !errors.Is(err, context.Canceled) {
+					t.Fatal(err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("tunnel-only serve did not stop")
+			}
+			return
+		}
+		if !runtimecontrol.IsUnavailable(err) {
+			t.Fatal(err)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("tunnel-only runtime control was not published")
 }
 
 func testServerPort(t *testing.T, address net.Addr) int {

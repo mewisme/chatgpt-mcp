@@ -32,6 +32,7 @@ type ReloadResult struct {
 type RuntimeStatus struct {
 	PID              int                 `json:"pid"`
 	RunID            string              `json:"run_id,omitempty"`
+	Starting         bool                `json:"starting,omitempty"`
 	Managed          bool                `json:"managed"`
 	ServiceID        string              `json:"service_id,omitempty"`
 	ServiceScope     string              `json:"service_scope,omitempty"`

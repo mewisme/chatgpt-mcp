@@ -174,18 +174,19 @@ func TestManagedRestartKeepsServiceInstalledAndStartsNewRuntime(t *testing.T) {
 	}
 }
 
-func TestWaitManagedRuntimeReadyWaitsForTunnelReady(t *testing.T) {
+func TestWaitManagedRuntimeReadyWaitsForRuntimeStartup(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")
 	if err := configformat.SetRootPath(root); err != nil {
 		t.Fatal(err)
 	}
 	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root}
-	var tunnelReady atomic.Bool
+	var starting atomic.Bool
+	starting.Store(true)
 	control, err := startRuntimeControl(runtimeControlOptions{RunID: "run_ready", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) {
 		return runtimeReloadResult{PID: os.Getpid()}, nil
 	}, Status: func() runtimeStatusResult {
-		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_ready", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: root, TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelReady: tunnelReady.Load()}
+		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_ready", Starting: starting.Load(), Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: root, TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true}
 	}, Shutdown: func() {}, ClearLogs: func() error { return nil }})
 	if err != nil {
 		t.Fatal(err)
@@ -193,15 +194,40 @@ func TestWaitManagedRuntimeReadyWaitsForTunnelReady(t *testing.T) {
 	defer control.Close()
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		tunnelReady.Store(true)
+		starting.Store(false)
 	}()
 	started := time.Now()
 	status, err := waitManagedRuntimeReady(t.Context(), spec, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.TunnelReady || time.Since(started) < 100*time.Millisecond {
-		t.Fatalf("returned before tunnel ready: status=%#v elapsed=%s", status, time.Since(started))
+	if status.Starting || time.Since(started) < 100*time.Millisecond {
+		t.Fatalf("returned before runtime startup completed: status=%#v elapsed=%s", status, time.Since(started))
+	}
+}
+
+func TestWaitManagedRuntimeReadyDoesNotRequireTunnelConnection(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root}
+	control, err := startRuntimeControl(runtimeControlOptions{RunID: "run_connecting", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) {
+		return runtimeReloadResult{PID: os.Getpid()}, nil
+	}, Status: func() runtimeStatusResult {
+		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_connecting", Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: root, ServerEnabled: false, TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true, TunnelReady: false}
+	}, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	status, err := waitManagedRuntimeReady(t.Context(), spec, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.TunnelRunning || status.TunnelReady {
+		t.Fatalf("connecting tunnel status=%#v", status)
 	}
 }
 

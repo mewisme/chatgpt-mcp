@@ -52,12 +52,6 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err != nil {
 		return err
 	}
-	bindings, err := openHTTPBindings(cfg, plan)
-	if err != nil {
-		return err
-	}
-	defer bindings.CloseUnstarted()
-
 	startedAt := time.Now().UTC()
 	serviceInfo := runtimeServiceInfo(cmd)
 	interrupt := newForegroundInterrupt(cmd, false)
@@ -83,10 +77,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	}()
 	log.AddSink(recorder)
 	runtime := app.NewWithLogger(cfg, log)
-	if err := runtime.Start(runtimeCtx); err != nil {
-		return err
-	}
 	var control *runtimeControl
+	var bindings *httpBindings
 	defer func() {
 		runtime.Logger.Verbose("SERVER", "server.runtime.cleanup", "Cleaning up runtime services")
 		if err := runtime.Stop(); err != nil {
@@ -102,18 +94,22 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		}
 	}()
 
-	errCh := make(chan error, max(1, len(bindings.mcpListeners)+len(bindings.adminListeners)))
-	bindings.Start(runtime, errCh)
-	if err := waitRuntimeHTTPReady(runtimeCtx, cfg, 3*time.Second); err != nil {
-		return errors.Join(err, bindings.Shutdown())
-	}
-	logReadyEndpoints(runtime.Logger, cfg, plan)
 	currentCfg, currentPlan := cfg, plan
 	var reloadMu sync.Mutex
+	runtimeReady := false
 	shutdownRequest := make(chan struct{}, 1)
+	bindings, err = openHTTPBindings(cfg, plan)
+	if err != nil {
+		return err
+	}
+	defer bindings.CloseUnstarted()
+	errCh := make(chan error, max(1, len(bindings.mcpListeners)+len(bindings.adminListeners)))
 	reload := func(_ context.Context) (runtimeReloadResult, error) {
 		reloadMu.Lock()
 		defer reloadMu.Unlock()
+		if !runtimeReady {
+			return runtimeReloadResult{}, errors.New("runtime is still starting")
+		}
 		next, err := config.Load()
 		if err != nil {
 			return runtimeReloadResult{}, err
@@ -172,17 +168,29 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		reloadMu.Lock()
 		defer reloadMu.Unlock()
 		tunnelStatus := runtime.Tunnel.Status()
-		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerEnabled: currentCfg.Server.Enabled, ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID), TunnelLastError: tunnelStatus.LastError}
+		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Starting: !runtimeReady, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerEnabled: currentCfg.Server.Enabled, ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID), TunnelLastError: tunnelStatus.LastError}
 	}
 	control, err = startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Shutdown: func() {
+		runtimeCancel()
 		select {
 		case shutdownRequest <- struct{}{}:
 		default:
 		}
 	}, ClearLogs: journal.Clear})
 	if err != nil {
+		return err
+	}
+	if err := runtime.Start(runtimeCtx); err != nil {
+		return err
+	}
+	bindings.Start(runtime, errCh)
+	if err := waitRuntimeHTTPReady(runtimeCtx, cfg, 3*time.Second); err != nil {
 		return errors.Join(err, bindings.Shutdown())
 	}
+	reloadMu.Lock()
+	runtimeReady = true
+	reloadMu.Unlock()
+	logReadyEndpoints(runtime.Logger, cfg, plan)
 
 	shutdown := func() error {
 		reloadMu.Lock()

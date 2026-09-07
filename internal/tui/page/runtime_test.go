@@ -50,6 +50,14 @@ func TestRuntimeRowsUseDescriptiveTitlesAndDescriptions(t *testing.T) {
 	if runtimeRow.Title != "MCP runtime process" || !strings.Contains(runtimeRow.Description, "running · pid 4242 · managed / user") {
 		t.Fatalf("runtime row=%#v", runtimeRow)
 	}
+	page.runtime.Status.Starting = true
+	runtimeRow = page.runtimeRow()
+	if !strings.Contains(runtimeRow.Description, "starting · pid 4242 · managed / user") || !strings.Contains(runtimeRow.Detail, "starting") {
+		t.Fatalf("starting runtime row=%#v", runtimeRow)
+	}
+	if !strings.Contains(page.statusView(80), "STARTING") {
+		t.Fatalf("starting runtime summary=%q", page.statusView(80))
+	}
 	serviceRow := page.serviceRow(page.runtime.UserService)
 	if serviceRow.Title != "User managed service" || !strings.Contains(serviceRow.Description, "systemd --user") || !strings.Contains(serviceRow.Description, "pid 4242") {
 		t.Fatalf("service row=%#v", serviceRow)

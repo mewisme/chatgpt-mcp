@@ -744,11 +744,14 @@ func (page *RuntimePage) runtimeRow() component.Row {
 			mode = "managed / " + status.ServiceScope
 		}
 		state = "running"
+		if status.Starting {
+			state = "starting"
+		}
 		mcpHTTP := "disabled"
 		if status.ServerEnabled {
 			mcpHTTP = endpoint(status.ServerPort, "/mcp")
 		}
-		description = fmt.Sprintf("running · pid %d · %s", status.PID, mode)
+		description = fmt.Sprintf("%s · pid %d · %s", state, status.PID, mode)
 		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP HTTP", mcpHTTP}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}}
 	}
 	return component.Row{ID: "runtime", Title: "MCP runtime process", Description: description, Search: "runtime process status service server", DetailTitle: "MCP runtime process", Detail: detailFields(fields...)}
@@ -883,7 +886,9 @@ func (page *RuntimePage) aboutRow() component.Row {
 
 func (page *RuntimePage) statusView(width int) string {
 	state := component.ToneText("● RUNNING", component.ToneSuccess)
-	if !page.runtime.Running {
+	if page.runtime.Running && page.runtime.Status.Starting {
+		state = component.ToneText("· STARTING", component.ToneWarning)
+	} else if !page.runtime.Running {
 		state = component.Muted("○ STOPPED")
 	}
 	mode := "no active runtime"

@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -43,6 +45,31 @@ func TestRuntimeStatusUsesAuthenticatedControlEndpoint(t *testing.T) {
 	}
 	if !running || status.RunID != "run_test" || !status.Managed || status.ServiceScope != "user" {
 		t.Fatalf("status=%#v running=%t", status, running)
+	}
+}
+
+func TestWaitManagedReadyWaitsForRuntimeStartup(t *testing.T) {
+	root := setupLogsRoot(t)
+	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root}
+	var starting atomic.Bool
+	starting.Store(true)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(runtimecontrol.RuntimeStatus{PID: os.Getpid(), RunID: "run_starting", Starting: starting.Load(), Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: root, ServerEnabled: false, TunnelEnabled: true, TunnelRunning: true})
+	}))
+	defer server.Close()
+	parsed, _ := url.Parse(server.URL)
+	writeRuntimeState(t, root, runtimecontrol.State{PID: os.Getpid(), Address: parsed.Host, Token: "token", ConfigRoot: root})
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		starting.Store(false)
+	}()
+	started := time.Now()
+	status, err := waitManagedReady(context.Background(), spec, "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Starting || status.TunnelReady || time.Since(started) < 100*time.Millisecond {
+		t.Fatalf("runtime returned before startup completed: status=%#v elapsed=%s", status, time.Since(started))
 	}
 }
 

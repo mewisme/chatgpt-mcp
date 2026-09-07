@@ -287,6 +287,12 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		return err
 	}
 	if running && backendStatus.Installed && matches {
+		if runtimeStatus.Starting {
+			runtimeStatus, err = waitManagedRuntimeReady(cmd.Context(), spec, serviceReadyTimeout)
+			if err != nil {
+				return err
+			}
+		}
 		logManagedAlreadyRunning(cmd, spec, manager, runtimeStatus, cfg.Tunnel)
 		return nil
 	}
@@ -432,11 +438,8 @@ func waitManagedRuntimeReadyAfter(parent context.Context, spec managed.Spec, pre
 			}
 			if previousRunID != "" && status.RunID == previousRunID {
 				lastErr = errors.New("previous managed runtime is still shutting down")
-			} else if status.TunnelEnabled && !status.TunnelReady {
-				lastErr = errors.New("OpenAI Secure MCP Tunnel is not ready")
-				if status.TunnelLastError != "" {
-					lastErr = fmt.Errorf("OpenAI Secure MCP Tunnel is not ready: %s", status.TunnelLastError)
-				}
+			} else if status.Starting {
+				lastErr = errors.New("managed runtime is still starting")
 			} else {
 				return status, nil
 			}

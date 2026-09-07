@@ -58,6 +58,39 @@ func TestStatusReportsManagedRuntime(t *testing.T) {
 	}
 }
 
+func TestStatusReportsStartingRuntime(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	control, err := startRuntimeControl(runtimeControlOptions{RunID: "run_starting", Managed: true, ServiceID: "chatgpt-mcp-user-test", ServiceScope: "user", StartedAt: time.Now().UTC(), Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult {
+		return runtimeStatusResult{PID: os.Getpid(), RunID: "run_starting", Starting: true, Managed: true, ServiceID: "chatgpt-mcp-user-test", ServiceScope: "user", ConfigRoot: root, ServerEnabled: false, TunnelEnabled: true, TunnelConfigured: true, TunnelRunning: true}
+	}, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetContext(context.Background())
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"--config-dir", root, "status"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "ChatGPT MCP is starting") || strings.Contains(text, "ChatGPT MCP is running") {
+		t.Fatalf("starting status=%q", text)
+	}
+}
+
 func TestStatusVerboseReportsOperationalDetails(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := t.TempDir()

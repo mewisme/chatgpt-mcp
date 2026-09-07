@@ -128,7 +128,11 @@ func renderStatusText(out io.Writer, snapshot statusSnapshot, verbose bool) {
 
 func renderStatusBaseText(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	if snapshot.Running {
-		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), "ChatGPT MCP is running")
+		if snapshot.Runtime.Starting {
+			fmt.Fprintln(out, cliStyled(color.FgHiYellow, color.Bold).Sprint("·"), "ChatGPT MCP is starting")
+		} else {
+			fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), "ChatGPT MCP is running")
+		}
 		renderRunningStatus(out, snapshot, verbose)
 		return
 	}
@@ -326,7 +330,11 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 	logEndpointDetails(log, cfg)
 	log.Detail("auth", fmt.Sprintf("mcp=%t admin=%t", cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled))
 	if snapshot.Running {
-		log.Detail("runtime", "running")
+		runtimeState := "running"
+		if runtimeStatus.Starting {
+			runtimeState = "starting"
+		}
+		log.Detail("runtime", runtimeState)
 		log.Detail("managed", runtimeStatus.Managed)
 		if runtimeStatus.RunID != "" {
 			log.Detail("session", shortSessionID(runtimeStatus.RunID))

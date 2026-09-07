@@ -95,7 +95,7 @@ func bubblewrapArgs(cmd *exec.Cmd, cwd string, roots, shellPath []string, isolat
 	if cmd == nil || strings.TrimSpace(cmd.Path) == "" {
 		return nil, errors.New("shell sandbox requires an executable path")
 	}
-	args := []string{"--die-with-parent", "--new-session", "--unshare-pid", "--unshare-ipc", "--unshare-uts"}
+	args := []string{"--die-with-parent", "--new-session", "--unshare-user-try", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try", "--cap-drop", "ALL"}
 	if isolateNetwork {
 		args = append(args, "--unshare-net")
 	}

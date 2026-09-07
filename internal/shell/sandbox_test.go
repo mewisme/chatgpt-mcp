@@ -39,7 +39,7 @@ func TestBubblewrapArgsBindWorkspaceAndPrivateTmp(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(args, "\x00")
-	for _, expected := range []string{"--unshare-pid", "--tmpfs\x00/tmp", "--bind\x00" + root + "\x00" + root, "--chdir\x00" + root, "--\x00/bin/sh\x00-c\x00pwd"} {
+	for _, expected := range []string{"--unshare-user-try", "--unshare-pid", "--unshare-cgroup-try", "--cap-drop\x00ALL", "--tmpfs\x00/tmp", "--bind\x00" + root + "\x00" + root, "--chdir\x00" + root, "--\x00/bin/sh\x00-c\x00pwd"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("bubblewrap args missing %q: %#v", expected, args)
 		}

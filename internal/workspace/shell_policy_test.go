@@ -420,9 +420,16 @@ func TestStrictShellPolicyRequiresApprovalForNonReadOnlyExecution(t *testing.T) 
 			}
 		})
 	}
-	for _, command := range []string{"ls -la", "git status", "systemctl status nginx", "docker ps", "kubectl get pods", "helm list"} {
+	for _, command := range []string{"ls -la", "git status", "cat README.md", "head -n 5 README.md", "echo ok"} {
 		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
 			t.Fatalf("strict read-only command rejected: %s: %v", command, err)
+		}
+	}
+	for _, command := range []string{"printenv", "ps aux", "systemctl status nginx", "docker ps", "kubectl get pods", "helm list"} {
+		err := manager.ValidateShellCommand(item.ID, root, command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeShellExecution || !guard.Approvable {
+			t.Fatalf("strict host/external read did not require approval: %s: %#v / %v", command, guard, err)
 		}
 	}
 	err = manager.ValidateShellCommand(item.ID, root, "rm file.txt")
@@ -434,6 +441,33 @@ func TestStrictShellPolicyRequiresApprovalForNonReadOnlyExecution(t *testing.T) 
 	guard, ok = controlguard.As(err)
 	if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation {
 		t.Fatalf("terraform fmt was not classified as local destructive mutation: %#v / %v", guard, err)
+	}
+}
+
+func TestStrictShellPolicyDoesNotAutoApproveOutsideOrDynamicReads(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetShellApprovalPolicy(ShellApprovalStrict); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		"cat " + filepath.Join(outside, "secret.txt"),
+		"ls " + outside,
+		"git -C " + outside + " status",
+		"echo $(cat " + filepath.Join(outside, "secret.txt") + ")",
+		"cat < " + filepath.Join(outside, "secret.txt"),
+		"cat $HOME/.ssh/config",
+	} {
+		err := manager.ValidateShellCommand(item.ID, root, command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeShellExecution || !guard.Approvable {
+			t.Fatalf("strict outside/dynamic read auto-ran: %s: %#v / %v", command, guard, err)
+		}
 	}
 }
 

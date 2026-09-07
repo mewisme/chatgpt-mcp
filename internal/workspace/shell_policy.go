@@ -117,17 +117,20 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 		invocation := &controlguard.Invocation{Command: strings.TrimSpace(command)}
 		return controlguard.New(code, category+" shell mutation requires local approval: "+reason, true, invocation)
 	}
-	if m.ShellApprovalPolicy() == ShellApprovalStrict && !staticallyReadOnlyShellCommand(command) {
+	if m.ShellApprovalPolicy() == ShellApprovalStrict && !m.staticallyReadOnlyShellCommand(id, cwd, command) {
 		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == controlguard.CodeShellExecution {
 			return nil
 		}
-		return controlguard.New(controlguard.CodeShellExecution, "strict shell policy requires local approval for non-read-only execution", true, &controlguard.Invocation{Command: strings.TrimSpace(command)})
+		return controlguard.New(controlguard.CodeShellExecution, "strict shell policy requires local approval for execution that is not a workspace-confined static read", true, &controlguard.Invocation{Command: strings.TrimSpace(command)})
 	}
 	return nil
 }
 
-func staticallyReadOnlyShellCommand(command string) bool {
+func (m *Manager) staticallyReadOnlyShellCommand(id, cwd, command string) bool {
 	if targets, err := outputRedirectionTargets(command); err != nil || len(targets) > 0 {
+		return false
+	}
+	if strings.Contains(command, "$(") || strings.Contains(command, "`") || strings.Contains(command, "<(") || strings.Contains(command, ">(") || strings.Contains(command, "<") {
 		return false
 	}
 	segments, err := splitShellSegments(command)
@@ -143,42 +146,72 @@ func staticallyReadOnlyShellCommand(command string) bool {
 		if _, nested := nestedShellCommand(name, args); nested {
 			return false
 		}
-		if !staticallyReadOnlyInvocation(name, args) {
+		if !m.staticallyReadOnlyInvocation(id, cwd, name, args) {
 			return false
 		}
 	}
 	return true
 }
 
-func staticallyReadOnlyInvocation(name string, args []string) bool {
+func (m *Manager) staticallyReadOnlyInvocation(id, cwd, name string, args []string) bool {
 	switch name {
-	case "pwd", "ls", "dir", "tree", "stat", "file", "cat", "head", "tail", "less", "more", "grep", "rg", "wc", "sort", "uniq", "cut", "tr", "printf", "echo", "realpath", "readlink", "basename", "dirname", "du", "df", "ps", "printenv", "uname", "whoami", "id", "date", "which", "where", "whereis", "jq":
+	case "pwd", "printf", "echo", "basename", "dirname", "uname", "whoami", "id", "date", "which", "where", "whereis":
 		return true
+	case "ls", "dir", "cat", "stat", "head", "tail", "wc", "realpath", "readlink":
+		paths, ok := staticReadPaths(name, args)
+		return ok && m.staticReadPathsAllowed(id, cwd, paths)
 	case "git":
 		command, _, ok := gitCommand(args)
 		if !ok {
 			return false
 		}
 		switch command {
-		case "status", "diff", "log", "show", "blame", "rev-parse", "ls-files", "ls-tree", "describe", "name-rev", "shortlog":
-			return true
+		case "status", "rev-parse", "ls-files", "ls-tree", "describe", "name-rev":
+			return m.validateGitPaths(id, cwd, args) == nil
 		}
-	case "systemctl":
-		command := firstCommandArg(args, "--host", "-H", "--machine", "-M", "--root", "--image", "--type", "-t", "--state")
-		switch command {
-		case "status", "show", "list-units", "list-unit-files", "list-dependencies", "is-active", "is-enabled", "is-failed", "cat", "help", "--version", "get-default":
-			return true
-		}
-		return false
-	case "docker", "podman":
-		command := firstCommandArg(args, "--context", "-h", "--host", "--config", "--log-level")
-		return command == "ps" || command == "inspect" || command == "logs" || command == "version" || command == "info" || command == "stats" || command == "top"
-	case "kubectl":
-		return !kubectlMutation(args)
-	case "helm":
-		return !helmMutation(args)
 	}
 	return false
+}
+
+func staticReadPaths(name string, args []string) ([]string, bool) {
+	valueOptions := map[string]bool{}
+	switch name {
+	case "head", "tail":
+		valueOptions = map[string]bool{"-n": true, "--lines": true, "-c": true, "--bytes": true, "--sleep-interval": true, "--pid": true, "-s": true}
+	case "stat":
+		valueOptions = map[string]bool{"-c": true, "--format": true, "--printf": true}
+	case "realpath":
+		for index, arg := range args {
+			lower := strings.ToLower(arg)
+			if lower == "--relative-to" || lower == "--relative-base" || strings.HasPrefix(lower, "--relative-to=") || strings.HasPrefix(lower, "--relative-base=") {
+				if !strings.Contains(arg, "=") && index+1 >= len(args) {
+					return nil, false
+				}
+				return nil, false
+			}
+		}
+	}
+	paths, err := commandPositionals(args, valueOptions)
+	if err != nil {
+		return nil, false
+	}
+	return paths, true
+}
+
+func (m *Manager) staticReadPathsAllowed(id, cwd string, paths []string) bool {
+	for _, value := range paths {
+		value = strings.TrimSpace(value)
+		if value == "" || value == "-" || isNullDevice(value) {
+			continue
+		}
+		if unsafeShellPath(value) {
+			return false
+		}
+		if _, err := m.ResolvePath(id, cwd, value, false); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func shellApprovalRisk(command string) (controlguard.Code, string, string, bool) {

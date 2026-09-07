@@ -83,6 +83,41 @@ func NewManagerWithGlobalAllowDirs(path string, allowDirs []string) *Manager {
 	return manager
 }
 
+func (m *Manager) Reload() error {
+	if m == nil {
+		return errors.New("workspace manager is unavailable")
+	}
+	fresh := NewManager(m.path)
+	if err := fresh.ensureLoaded(); err != nil {
+		return err
+	}
+	fresh.mu.RLock()
+	items := make(map[string]Workspace, len(fresh.items))
+	for id, item := range fresh.items {
+		item.AllowDirs = append([]string(nil), item.AllowDirs...)
+		item.LegacyIDs = append([]string(nil), item.LegacyIDs...)
+		items[id] = item
+	}
+	containers := make(map[string]WorkspaceContainer, len(fresh.containers))
+	for id, container := range fresh.containers {
+		container.WorkspaceIDs = append([]string(nil), container.WorkspaceIDs...)
+		containers[id] = container
+	}
+	aliases := make(map[string]string, len(fresh.aliases))
+	for alias, canonical := range fresh.aliases {
+		aliases[alias] = canonical
+	}
+	fresh.mu.RUnlock()
+
+	m.mu.Lock()
+	m.items = items
+	m.containers = containers
+	m.aliases = aliases
+	m.loaded = true
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *Manager) SetGlobalAllowDirs(allowDirs []string) {
 	m.mu.Lock()
 	m.globalAllowDirs = normalizeRoots(allowDirs)

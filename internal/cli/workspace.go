@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -28,6 +31,19 @@ func workspaceManagerForCommand(cmd *cobra.Command) *workspace.Manager {
 	logCommandStep(cmd, "WORKSPACE", "workspace.store.opening", "Opening workspace registry")
 	logCommandDebug(cmd, "WORKSPACE", "workspace.store.path", "Workspace registry path resolved", logger.WithDebug("path", path))
 	return workspace.NewManager(path)
+}
+
+func syncWorkspaceRuntime(cmd *cobra.Command) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+	defer cancel()
+	result, running, err := application.ReloadWorkspaces(ctx)
+	if err != nil {
+		return fmt.Errorf("workspace registry saved but running runtime reload failed: %w", err)
+	}
+	if running {
+		logCommandStep(cmd, "WORKSPACE", "workspace.runtime.synced", "Workspace registry synchronized with running runtime", logger.WithVerbose("count", result.Count))
+	}
+	return nil
 }
 
 func workspaceContainerCommand() *cobra.Command {
@@ -71,6 +87,9 @@ func workspaceContainerCreateCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if err := syncWorkspaceRuntime(cmd); err != nil {
+			return err
+		}
 		log := commandLogger(cmd)
 		log.Success("WORKSPACE", "workspace container created")
 		log.Detail("id", value.ID)
@@ -111,6 +130,9 @@ func workspaceContainerRenameCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if err := syncWorkspaceRuntime(cmd); err != nil {
+			return err
+		}
 		log := commandLogger(cmd)
 		log.Success("WORKSPACE", "workspace container renamed")
 		log.Detail("id", value.ID)
@@ -127,6 +149,9 @@ func workspaceContainerDeleteCommand() *cobra.Command {
 			return err
 		}
 		if err := manager.DeleteContainer(args[0]); err != nil {
+			return err
+		}
+		if err := syncWorkspaceRuntime(cmd); err != nil {
 			return err
 		}
 		log := commandLogger(cmd)
@@ -153,6 +178,9 @@ func workspaceContainerMembershipCommand(add bool) *cobra.Command {
 			value, err = manager.RemoveWorkspacesFromContainer(args[0], args[1:])
 		}
 		if err != nil {
+			return err
+		}
+		if err := syncWorkspaceRuntime(cmd); err != nil {
 			return err
 		}
 		log := commandLogger(cmd)
@@ -193,6 +221,9 @@ func workspaceAccessCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := syncWorkspaceRuntime(cmd); err != nil {
+				return err
+			}
 			log := commandLogger(cmd)
 			log.Success("WORKSPACE", "allowed directory added")
 			log.Detail("id", item.ID)
@@ -203,6 +234,9 @@ func workspaceAccessCommand() *cobra.Command {
 			manager := workspaceManagerForCommand(cmd)
 			item, err := manager.RemoveAllowDir(args[0], args[1])
 			if err != nil {
+				return err
+			}
+			if err := syncWorkspaceRuntime(cmd); err != nil {
 				return err
 			}
 			log := commandLogger(cmd)
@@ -235,6 +269,9 @@ func workspaceRegisterCommand() *cobra.Command {
 			manager := workspaceManagerForCommand(cmd)
 			item, err := manager.Register(path)
 			if err != nil {
+				return err
+			}
+			if err := syncWorkspaceRuntime(cmd); err != nil {
 				return err
 			}
 			log := commandLogger(cmd)
@@ -321,6 +358,9 @@ func workspaceUnregisterCommand() *cobra.Command {
 				return err
 			}
 			if err := manager.Unregister(args[0]); err != nil {
+				return err
+			}
+			if err := syncWorkspaceRuntime(cmd); err != nil {
 				return err
 			}
 			log := commandLogger(cmd)

@@ -29,21 +29,23 @@ type runtimeControlState = runtimecontrol.State
 
 type runtimeReloadResult = runtimecontrol.ReloadResult
 type runtimeStatusResult = runtimecontrol.RuntimeStatus
+type workspaceReloadResult = runtimecontrol.WorkspaceReloadResult
 
 type runtimeControlOptions struct {
-	RunID        string
-	Managed      bool
-	ServiceID    string
-	ServiceScope string
-	StartedAt    time.Time
-	Events       *runtimeevent.Stream
-	Reload       func(context.Context) (runtimeReloadResult, error)
-	Status       func() runtimeStatusResult
-	Shutdown     func()
-	ClearLogs    func() error
-	Approvals    *approval.Manager
-	Executions   *shellruntime.ExecutionHub
-	Log          *logger.Logger
+	RunID            string
+	Managed          bool
+	ServiceID        string
+	ServiceScope     string
+	StartedAt        time.Time
+	Events           *runtimeevent.Stream
+	Reload           func(context.Context) (runtimeReloadResult, error)
+	ReloadWorkspaces func() (workspaceReloadResult, error)
+	Status           func() runtimeStatusResult
+	Shutdown         func()
+	ClearLogs        func() error
+	Approvals        *approval.Manager
+	Executions       *shellruntime.ExecutionHub
+	Log              *logger.Logger
 }
 
 type runtimeControl struct {
@@ -85,6 +87,14 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/reload", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		result, err := options.Reload(r.Context())
+		writeControlJSON(w, result, err)
+	}))
+	mux.HandleFunc("/workspaces/reload", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, _ *http.Request) {
+		if options.ReloadWorkspaces == nil {
+			writeControlJSON(w, nil, errors.New("workspace reload handler is unavailable"))
+			return
+		}
+		result, err := options.ReloadWorkspaces()
 		writeControlJSON(w, result, err)
 	}))
 	mux.HandleFunc("/status", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, _ *http.Request) {

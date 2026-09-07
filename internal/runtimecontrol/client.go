@@ -29,6 +29,11 @@ type ReloadResult struct {
 	Exposure         config.ExposureMode `json:"exposure"`
 }
 
+type WorkspaceReloadResult struct {
+	PID   int `json:"pid"`
+	Count int `json:"count"`
+}
+
 type RuntimeStatus struct {
 	PID              int                 `json:"pid"`
 	RunID            string              `json:"run_id,omitempty"`

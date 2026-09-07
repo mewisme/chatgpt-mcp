@@ -39,6 +39,53 @@ func TestRegisterIsStableAndPersistent(t *testing.T) {
 	}
 }
 
+func TestReloadAppliesExternalRegistryChangesAndPreservesRuntimeSettings(t *testing.T) {
+	store := filepath.Join(t.TempDir(), "workspaces.json")
+	workspaceRoot := t.TempDir()
+	globalAllow := t.TempDir()
+	shellPath := []string{t.TempDir()}
+	runtimeManager := NewManagerWithGlobalAllowDirs(store, []string{globalAllow})
+	runtimeManager.SetShellPath(shellPath)
+	if items, err := runtimeManager.List(); err != nil || len(items) != 0 {
+		t.Fatalf("initial items=%#v err=%v", items, err)
+	}
+
+	external := NewManager(store)
+	item, err := external.Register(workspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeManager.Get(item.ID); err == nil {
+		t.Fatal("externally registered workspace became visible before reload")
+	}
+	if err := runtimeManager.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeManager.Get(item.ID); err != nil {
+		t.Fatalf("reloaded workspace unavailable: %v", err)
+	}
+	roots, err := runtimeManager.EffectiveRoots(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(roots, globalAllow) {
+		t.Fatalf("global allow dirs lost after reload: %#v", roots)
+	}
+	if got := runtimeManager.ShellPath(); !reflect.DeepEqual(got, shellPath) {
+		t.Fatalf("shell path after reload=%#v want=%#v", got, shellPath)
+	}
+
+	if err := external.Unregister(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtimeManager.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeManager.Get(item.ID); err == nil {
+		t.Fatal("externally unregistered workspace remained visible after reload")
+	}
+}
+
 func TestResolveDirectoryRejectsEscape(t *testing.T) {
 	root := t.TempDir()
 	manager := newTestManager(t)

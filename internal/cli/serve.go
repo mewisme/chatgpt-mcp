@@ -179,7 +179,17 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Starting: !runtimeReady, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerEnabled: currentCfg.Server.Enabled, ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID), TunnelLastError: tunnelStatus.LastError}
 	}
 	runtime.Logger.Verbose("CONTROL", "runtime.control.starting", "Starting runtime control endpoint")
-	control, err = startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Log: runtime.Logger, Shutdown: func() {
+	control, err = startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, ReloadWorkspaces: func() (workspaceReloadResult, error) {
+		if err := runtime.Tools.ReloadWorkspaces(); err != nil {
+			return workspaceReloadResult{}, err
+		}
+		items, err := runtime.Tools.Workspaces.List()
+		if err != nil {
+			return workspaceReloadResult{}, err
+		}
+		runtime.Logger.Ready("WORKSPACE", "workspace.registry.reloaded", "Workspace registry reloaded", logger.With("count", len(items)))
+		return workspaceReloadResult{PID: os.Getpid(), Count: len(items)}, nil
+	}, Status: status, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Log: runtime.Logger, Shutdown: func() {
 		runtimeCancel()
 		select {
 		case shutdownRequest <- struct{}{}:

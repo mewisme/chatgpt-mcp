@@ -108,6 +108,13 @@ func (r *Runtime) SetGlobalAllowDirs(allowDirs []string) {
 	}
 }
 
+func (r *Runtime) ReloadWorkspaces() error {
+	if r == nil || r.Workspaces == nil {
+		return errors.New("tool runtime is unavailable")
+	}
+	return r.Workspaces.Reload()
+}
+
 func (r *Runtime) SetShellApprovalPolicy(value string) error {
 	if r == nil || r.Workspaces == nil {
 		return errors.New("tool runtime is unavailable")

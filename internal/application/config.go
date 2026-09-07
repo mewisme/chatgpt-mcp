@@ -210,6 +210,21 @@ func ReloadConfig(ctx context.Context) (ConfigReloadResult, error) {
 	return result, nil
 }
 
+func ReloadWorkspaces(ctx context.Context) (runtimecontrol.WorkspaceReloadResult, bool, error) {
+	var result runtimecontrol.WorkspaceReloadResult
+	state, err := runtimecontrol.Request(ctx, http.MethodPost, "/workspaces/reload", nil, &result)
+	if err != nil {
+		if runtimecontrol.IsUnavailable(err) {
+			return runtimecontrol.WorkspaceReloadResult{}, false, nil
+		}
+		return runtimecontrol.WorkspaceReloadResult{}, true, err
+	}
+	if result.PID != state.PID {
+		return runtimecontrol.WorkspaceReloadResult{}, true, fmt.Errorf("runtime control PID mismatch: expected %d, got %d", state.PID, result.PID)
+	}
+	return result, true, nil
+}
+
 func RuntimeRunning(ctx context.Context) (bool, error) {
 	var status struct {
 		PID int `json:"pid"`

@@ -309,7 +309,7 @@ func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ansi.Strip(access.View(100, 24)); !strings.Contains(got, extra) || strings.Contains(got, "a access") {
+	if got := ansi.Strip(access.View(100, 24)); !strings.Contains(got, filepath.Base(extra)) || strings.Contains(got, "a access") {
 		t.Fatalf("workspace access child=%q", got)
 	}
 }

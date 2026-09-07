@@ -60,7 +60,17 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 	if !m.IsMutationCommand(command) {
 		return nil
 	}
-	return m.ValidateMutationCommand(id, baseDirectory, command)
+	if err := m.ValidateMutationCommand(id, baseDirectory, command); err != nil {
+		return err
+	}
+	if reason, destructive := destructiveMutationReason(command); destructive {
+		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == controlguard.CodeDestructiveMutation {
+			return nil
+		}
+		invocation := &controlguard.Invocation{Command: strings.TrimSpace(command)}
+		return controlguard.New(controlguard.CodeDestructiveMutation, "destructive shell mutation requires local approval: "+reason, true, invocation)
+	}
+	return nil
 }
 
 func DirectControlPlaneInvocation(command string) (*controlguard.Invocation, bool) {
@@ -202,6 +212,12 @@ func (m *Manager) isMutationCommand(command string, depth int) bool {
 			continue
 		}
 		name, args := commandName(tokens)
+		if name == "git" && isGitMutation(args) {
+			return true
+		}
+		if mutationCommands[name] {
+			return true
+		}
 		if writeCommands[name] {
 			return true
 		}
@@ -337,7 +353,7 @@ func (m *Manager) validatePowerShellWriteOperands(id, cwd, name string, args []s
 
 func isPowerShellWriteCommand(name string) bool {
 	switch name {
-	case "new-item", "set-content", "add-content", "out-file", "copy-item":
+	case "new-item", "set-content", "add-content", "out-file", "copy-item", "clear-content":
 		return true
 	default:
 		return false

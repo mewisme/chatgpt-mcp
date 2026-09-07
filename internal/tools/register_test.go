@@ -214,17 +214,21 @@ func TestRunCommandMutationGuardUsesResolvedCWD(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(child, "file.txt")
+	moved := filepath.Join(child, "moved.txt")
 	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	args := baseArgs(workspaceID, root)
-	args["command"] = "cd child && rm file.txt"
+	args["command"] = "cd child && mv file.txt moved.txt"
 	result := callTool(t, runtime, "run_command", args)
 	if result.IsError {
 		t.Fatalf("cwd-changing mutation failed: %#v", result)
 	}
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
-		t.Fatalf("file still exists: %v", err)
+		t.Fatalf("source still exists: %v", err)
+	}
+	if _, err := os.Stat(moved); err != nil {
+		t.Fatalf("destination missing: %v", err)
 	}
 }
 

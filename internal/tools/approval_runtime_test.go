@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -289,6 +290,65 @@ func TestShellControlGuardProducesChallengeOnlyForDirectLiteralCLI(t *testing.T)
 	backgroundChallenge, ok := background.StructuredContent.(approvalRequiredResponse)
 	if !ok || backgroundChallenge.TargetTool != "start_process" {
 		t.Fatalf("background challenge = %#v", background.StructuredContent)
+	}
+}
+
+func TestDestructiveShellApprovalIsExactOneShotAndWorkspaceBound(t *testing.T) {
+	runtime, workspaceID := newApprovalShellRuntime(t)
+	item, err := runtime.Workspaces.Get(workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(item.Path, "delete-me.txt")
+	if err := os.WriteFile(target, []byte("keep until approved"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := approvalContext("session-destructive")
+	args := map[string]any{"workspace_id": workspaceID, "command": "rm delete-me.txt"}
+	guarded, err := runtime.Call(ctx, "run_command", args)
+	if err != nil || !guarded.IsError {
+		t.Fatalf("destructive guard = %#v err=%v", guarded, err)
+	}
+	challenge, ok := guarded.StructuredContent.(approvalRequiredResponse)
+	if !ok || challenge.GuardCode != string(controlguard.CodeDestructiveMutation) || challenge.TargetTool != "run_command" || challenge.Title != "Allow rm delete-me.txt" {
+		t.Fatalf("destructive challenge = %#v", guarded.StructuredContent)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("guarded command mutated file before approval: %v", err)
+	}
+	request, _, err := runtime.Approvals.CreateRequest(challenge.ChallengeID, "session-destructive", workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Approvals.Approve(request.ID, "test", "reviewed deletion"); err != nil {
+		t.Fatal(err)
+	}
+	mismatch, err := runtime.Call(ctx, "run_command", map[string]any{"workspace_id": workspaceID, "command": "rm another.txt"})
+	if err != nil || !mismatch.IsError {
+		t.Fatalf("destructive mismatch = %#v err=%v", mismatch, err)
+	}
+	mismatchBody, ok := mismatch.StructuredContent.(approvalMismatchResponse)
+	if !ok || mismatchBody.RequestID != request.ID {
+		t.Fatalf("destructive mismatch body = %#v", mismatch.StructuredContent)
+	}
+	approved, err := runtime.Call(ctx, "run_command", args)
+	if err != nil || approved.IsError {
+		t.Fatalf("approved destructive retry = %#v err=%v", approved, err)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("approved deletion did not remove target: %v", err)
+	}
+	consumed, ok := runtime.Approvals.Get(request.ID)
+	if !ok || consumed.Status != approval.StatusConsumed || consumed.ConsumedAt.IsZero() {
+		t.Fatalf("destructive approval not consumed: %#v ok=%t", consumed, ok)
+	}
+	replayed, err := runtime.Call(ctx, "run_command", args)
+	if err != nil || !replayed.IsError {
+		t.Fatalf("destructive replay = %#v err=%v", replayed, err)
+	}
+	replayChallenge, ok := replayed.StructuredContent.(approvalRequiredResponse)
+	if !ok || replayChallenge.ChallengeID == "" || replayChallenge.ChallengeID == challenge.ChallengeID {
+		t.Fatalf("destructive replay did not require new approval: %#v", replayed.StructuredContent)
 	}
 }
 

@@ -18,7 +18,12 @@ var cwdCommands = map[string]bool{
 
 var mutationCommands = map[string]bool{
 	"rm": true, "rmdir": true, "unlink": true, "mv": true, "move": true, "ren": true, "rename": true,
-	"del": true, "erase": true, "remove-item": true, "move-item": true, "rename-item": true,
+	"del": true, "erase": true, "remove-item": true, "move-item": true, "rename-item": true, "shred": true, "clear-content": true,
+}
+
+var destructiveMutationCommands = map[string]string{
+	"rm": "filesystem deletion", "rmdir": "directory deletion", "unlink": "filesystem deletion", "del": "filesystem deletion", "erase": "filesystem deletion",
+	"remove-item": "filesystem deletion", "shred": "irreversible file overwrite", "truncate": "file truncation", "clear-content": "file content deletion",
 }
 
 var longMutationOptions = map[string]bool{
@@ -30,6 +35,91 @@ var longMutationOptions = map[string]bool{
 
 func (m *Manager) IsMutationCommand(command string) bool {
 	return m.isMutationCommand(command, 0)
+}
+
+func destructiveMutationReason(command string) (string, bool) {
+	segments, err := splitShellSegments(command)
+	if err != nil {
+		return "", false
+	}
+	for _, segment := range segments {
+		tokens, err := shellWords(segment)
+		if err != nil || len(tokens) == 0 {
+			continue
+		}
+		name, args := commandName(tokens)
+		if reason := destructiveMutationCommands[name]; reason != "" {
+			return reason, true
+		}
+		if name == "find" && containsToken(args, "-delete") {
+			return "recursive filesystem deletion", true
+		}
+		if name == "git" {
+			if reason, ok := destructiveGitReason(args); ok {
+				return reason, true
+			}
+		}
+	}
+	return "", false
+}
+
+func isGitMutation(args []string) bool {
+	_, ok := destructiveGitReason(args)
+	return ok
+}
+
+func destructiveGitReason(args []string) (string, bool) {
+	if len(args) == 0 {
+		return "", false
+	}
+	command := strings.ToLower(args[0])
+	rest := args[1:]
+	switch command {
+	case "rm":
+		return "Git tracked-file deletion", true
+	case "clean":
+		return "Git untracked-file deletion", true
+	case "restore":
+		return "Git working-tree overwrite", true
+	case "reset":
+		if containsAnyFold(rest, "--hard", "--merge", "--keep") {
+			return "Git working-tree reset", true
+		}
+	case "checkout":
+		if containsAnyFold(rest, "--", "-f", "--force") {
+			return "Git working-tree overwrite", true
+		}
+	case "switch":
+		if containsAnyFold(rest, "-f", "--force", "--discard-changes") {
+			return "Git working-tree overwrite", true
+		}
+	case "stash":
+		if len(rest) > 0 && (strings.EqualFold(rest[0], "drop") || strings.EqualFold(rest[0], "clear")) {
+			return "Git stash deletion", true
+		}
+	case "branch":
+		if containsAnyFold(rest, "-D", "--delete", "--force") {
+			return "Git branch deletion", true
+		}
+	case "tag":
+		if containsAnyFold(rest, "-d", "--delete") {
+			return "Git tag deletion", true
+		}
+	case "push":
+		return "remote Git mutation", true
+	}
+	return "", false
+}
+
+func containsAnyFold(values []string, targets ...string) bool {
+	for _, value := range values {
+		for _, target := range targets {
+			if strings.EqualFold(value, target) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) error {
@@ -121,6 +211,10 @@ func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) err
 				}
 				continue
 			}
+			if isGitMutation(args) {
+				recognizedMutation = true
+				continue
+			}
 		}
 		if name == "find" && containsToken(args, "-delete") {
 			recognizedMutation = true
@@ -147,6 +241,12 @@ func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) err
 			minimum := 1
 			if name == "mv" || name == "move" || name == "ren" || name == "rename" || name == "move-item" || name == "rename-item" {
 				minimum = 2
+			}
+			if name == "clear-content" {
+				if err := m.validatePowerShellWriteOperands(id, cwd, name, args); err != nil {
+					return fmt.Errorf("mutation command denied: %s: %w", name, err)
+				}
+				continue
 			}
 			if err := m.validateLiteralOperands(id, cwd, args, minimum); err != nil {
 				return fmt.Errorf("mutation command denied: %s: %w", name, err)

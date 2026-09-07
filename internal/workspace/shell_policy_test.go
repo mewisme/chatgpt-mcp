@@ -185,13 +185,70 @@ func TestShellPolicyAllowsExplicitAllowedDirectoryWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	allowedFile := filepath.Join(allowed, "artifact.txt")
-	for _, command := range []string{"echo ok > " + allowedFile, "touch " + allowedFile, "rm " + allowedFile} {
+	for _, command := range []string{"echo ok > " + allowedFile, "touch " + allowedFile} {
 		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
 			t.Fatalf("allowed-dir command rejected: %s: %v", command, err)
 		}
 	}
+	err = manager.ValidateShellCommand(item.ID, root, "rm "+allowedFile)
+	guard, ok := controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation || !guard.Approvable {
+		t.Fatalf("allowed-dir deletion did not require approval: %#v / %v", guard, err)
+	}
 	if err := manager.ValidateShellCommand(item.ID, root, "touch "+filepath.Join(outside, "escape.txt")); err == nil {
 		t.Fatal("write outside effective roots was allowed")
+	}
+}
+
+func TestShellPolicyRequiresApprovalForDestructiveMutations(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		"rm file.txt",
+		"rm -rf folder",
+		"truncate -s 0 file.txt",
+		"shred file.txt",
+		"find . -name '*.tmp' -delete",
+		"git clean -fd",
+		"git reset --hard HEAD",
+		"git restore file.txt",
+		"git checkout -- file.txt",
+		"git stash clear",
+		"git branch -D old-branch",
+		"git tag -d old-tag",
+		"git push origin main",
+	} {
+		t.Run(command, func(t *testing.T) {
+			err := manager.ValidateShellCommand(item.ID, root, command)
+			guard, ok := controlguard.As(err)
+			if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation || !guard.Approvable || guard.Invocation == nil || guard.Invocation.Command != command {
+				t.Fatalf("destructive mutation did not require approval: %#v / %v", guard, err)
+			}
+		})
+	}
+}
+
+func TestShellPolicyApprovedDestructiveMutationStillEnforcesWorkspaceScope(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := controlguard.WithGrant(context.Background(), controlguard.Grant{RequestID: "req_test", Code: controlguard.CodeDestructiveMutation})
+	if err := manager.ValidateShellCommandContext(ctx, item.ID, root, "rm file.txt"); err != nil {
+		t.Fatalf("approved local deletion rejected: %v", err)
+	}
+	if err := manager.ValidateShellCommandContext(ctx, item.ID, root, "rm "+outside); err == nil {
+		t.Fatal("approval bypassed workspace containment")
+	}
+	if err := manager.ValidateShellCommandContext(ctx, item.ID, root, "mv old.txt new.txt"); err != nil {
+		t.Fatalf("non-destructive move unexpectedly rejected: %v", err)
 	}
 }
 

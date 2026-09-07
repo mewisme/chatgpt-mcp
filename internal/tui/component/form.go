@@ -435,6 +435,47 @@ func PasswordInput(title string, value *string) *huh.Input {
 	return Input(title, value).EchoMode(huh.EchoModePassword)
 }
 
+type HintedInputField struct {
+	*huh.Input
+	title   string
+	hint    string
+	focused bool
+}
+
+func PasswordInputWithHint(title, hint string, value *string) *HintedInputField {
+	return &HintedInputField{Input: huh.NewInput().Value(value).EchoMode(huh.EchoModePassword), title: strings.TrimSpace(title), hint: strings.TrimSpace(hint)}
+}
+
+func (field *HintedInputField) Focus() tea.Cmd {
+	field.focused = true
+	return field.Input.Focus()
+}
+
+func (field *HintedInputField) Blur() tea.Cmd {
+	field.focused = false
+	return field.Input.Blur()
+}
+
+func (field *HintedInputField) Update(message tea.Msg) (huh.Model, tea.Cmd) {
+	updated, cmd := field.Input.Update(message)
+	if value, ok := updated.(*huh.Input); ok {
+		field.Input = value
+	}
+	return field, cmd
+}
+
+func (field *HintedInputField) View() string {
+	styles := huh.ThemeCharm(currentTheme.isDark).Blurred
+	if field.focused {
+		styles = huh.ThemeCharm(currentTheme.isDark).Focused
+	}
+	title := styles.Title.Render(field.title)
+	if field.hint != "" {
+		title += " " + currentTheme.muted.Render("· "+field.hint)
+	}
+	return title + "\n" + field.Input.View()
+}
+
 func Text(title string, value *string) *huh.Text {
 	return huh.NewText().Title(strings.TrimSpace(title)).Value(value).Lines(4)
 }

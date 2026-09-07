@@ -57,7 +57,7 @@ func newTunnelRuntimeForm(dashboard application.TunnelDashboard) (component.Form
 	form := component.NewForm(component.Group(
 		enabled,
 		component.Input("Tunnel ID", &data.ID),
-		component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Description("Blank keeps the current key."),
+		component.PasswordInputWithHint("Runtime API key", "Blank keeps the current key", &data.RuntimeAPIKey),
 		component.Input("Control plane base URL", &data.ControlPlane),
 		component.Input("Organization ID", &data.OrganizationID),
 	))
@@ -104,7 +104,7 @@ func newManagedTunnelForm(metadata tunnel.Metadata, create bool) (component.Form
 		),
 		component.Group(
 			component.Confirm("Configure cgm to use this tunnel", &data.Configure),
-			component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Description("Blank reuses the current runtime key."),
+			component.PasswordInputWithHint("Runtime API key", "Blank reuses the current runtime key", &data.RuntimeAPIKey),
 			component.Confirm("Enable tunnel after configure", &data.Enable),
 		),
 	)
@@ -114,7 +114,7 @@ func newManagedTunnelForm(metadata tunnel.Metadata, create bool) (component.Form
 func newManagedConfigureForm() (component.Form, *managedConfigureFormData) {
 	data := &managedConfigureFormData{}
 	form := component.NewForm(component.Group(
-		component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Description("Blank reuses the current runtime key."),
+		component.PasswordInputWithHint("Runtime API key", "Blank reuses the current runtime key", &data.RuntimeAPIKey),
 		component.Confirm("Enable tunnel", &data.Enable),
 	))
 	return form, data

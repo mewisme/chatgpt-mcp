@@ -19,7 +19,10 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
-const tunnelResponseReserveMax = 5 * time.Second
+const (
+	tunnelToolBudget         = 100 * time.Second
+	tunnelResponseReserveMax = 5 * time.Second
+)
 
 var errTunnelResponseBudgetExceeded = errors.New("tunnel response budget exhausted")
 
@@ -301,22 +304,24 @@ func toolCallContext(parent context.Context, source string, now time.Time) (cont
 	if source != "tunnel" {
 		return parent, func() {}
 	}
-	deadline, ok := parent.Deadline()
-	if !ok {
-		return parent, func() {}
+	budgetDeadline := now.Add(tunnelToolBudget)
+	if deadline, ok := parent.Deadline(); ok {
+		remaining := deadline.Sub(now)
+		if remaining <= 0 {
+			return context.WithDeadlineCause(parent, deadline, errTunnelResponseBudgetExceeded)
+		}
+		reserve := remaining / 4
+		if reserve > tunnelResponseReserveMax {
+			reserve = tunnelResponseReserveMax
+		}
+		if reserve > 0 {
+			reservedDeadline := deadline.Add(-reserve)
+			if reservedDeadline.Before(budgetDeadline) {
+				budgetDeadline = reservedDeadline
+			}
+		}
 	}
-	remaining := deadline.Sub(now)
-	if remaining <= 0 {
-		return context.WithDeadlineCause(parent, deadline, errTunnelResponseBudgetExceeded)
-	}
-	reserve := remaining / 4
-	if reserve > tunnelResponseReserveMax {
-		reserve = tunnelResponseReserveMax
-	}
-	if reserve <= 0 {
-		return parent, func() {}
-	}
-	return context.WithDeadlineCause(parent, deadline.Add(-reserve), errTunnelResponseBudgetExceeded)
+	return context.WithDeadlineCause(parent, budgetDeadline, errTunnelResponseBudgetExceeded)
 }
 
 func tunnelResponseBudgetError(name string) error {

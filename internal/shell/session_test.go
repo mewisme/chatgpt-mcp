@@ -2,11 +2,13 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
@@ -172,6 +174,23 @@ func newShellTestManager(t *testing.T) (*Manager, string, string) {
 		t.Fatal(err)
 	}
 	return NewManager(workspaces, filepath.Join(t.TempDir(), "state")), item.ID, item.Path
+}
+
+func TestShellExecReturnsParentCancellationBeforeInternalTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sleep command test")
+	}
+	manager, workspaceID, _ := newShellTestManager(t)
+	manager.timeout = 2 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	_, err := manager.Exec(ctx, workspaceID, "sleep 1")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error=%v want parent deadline exceeded", err)
+	}
+	if strings.Contains(err.Error(), "timed out after 2s") {
+		t.Fatalf("parent cancellation was misreported as internal timeout: %v", err)
+	}
 }
 
 func TestShellPersistsCWD(t *testing.T) {

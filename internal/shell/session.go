@@ -364,13 +364,13 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, ex
 	cmd.Stdout = io.MultiWriter(&stdout, execution.Writer("stdout"))
 	cmd.Stderr = io.MultiWriter(&stderr, execution.Writer("stderr"))
 	err = cmd.Run()
-	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-		execution.Finish(ExecutionStatusTimedOut, nil, true)
-		return ExecResult{}, fmt.Errorf("command timed out after %s", timeout)
-	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		execution.Finish(ExecutionStatusCancelled, nil, false)
 		return ExecResult{}, ctxErr
+	}
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		execution.Finish(ExecutionStatusTimedOut, nil, true)
+		return ExecResult{}, fmt.Errorf("command timed out after %s", timeout)
 	}
 	exitCode := 0
 	if err != nil {

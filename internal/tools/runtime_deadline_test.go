@@ -31,6 +31,30 @@ func TestToolCallContextCapsTunnelResponseReserve(t *testing.T) {
 	}
 }
 
+func TestToolCallContextCapsTunnelWithoutParentDeadline(t *testing.T) {
+	now := time.Date(2100, time.January, 1, 0, 0, 0, 0, time.UTC)
+	ctx, cancelCall := toolCallContext(context.Background(), "tunnel", now)
+	defer cancelCall()
+	deadline, ok := ctx.Deadline()
+	want := now.Add(tunnelToolBudget)
+	if !ok || !deadline.Equal(want) {
+		t.Fatalf("deadline=%v ok=%t want=%v", deadline, ok, want)
+	}
+}
+
+func TestToolCallContextUsesLocalBudgetWhenParentDeadlineIsLonger(t *testing.T) {
+	now := time.Date(2100, time.January, 1, 0, 0, 0, 0, time.UTC)
+	parent, cancel := context.WithDeadline(context.Background(), now.Add(10*time.Minute))
+	defer cancel()
+	ctx, cancelCall := toolCallContext(parent, "tunnel", now)
+	defer cancelCall()
+	deadline, ok := ctx.Deadline()
+	want := now.Add(tunnelToolBudget)
+	if !ok || !deadline.Equal(want) {
+		t.Fatalf("deadline=%v ok=%t want=%v", deadline, ok, want)
+	}
+}
+
 func TestToolCallContextLeavesNonTunnelDeadlineUntouched(t *testing.T) {
 	now := time.Date(2100, time.January, 1, 0, 0, 0, 0, time.UTC)
 	want := now.Add(20 * time.Second)

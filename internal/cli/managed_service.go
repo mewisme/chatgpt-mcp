@@ -43,6 +43,7 @@ func restartCommand() *cobra.Command {
 }
 
 func runUp(cmd *cobra.Command, _ []string) error {
+	logCommandStep(cmd, "SERVICE", "service.scope.resolving", "Resolving managed service scope")
 	scope, err := managedScopeForCommand(cmd)
 	if err != nil {
 		return err
@@ -53,19 +54,23 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	}
 	environmentHash, _ := cmd.Flags().GetString("service-environment-hash")
 	if environmentHash == "" {
+		logCommandStep(cmd, "SERVICE", "service.environment.capturing", "Capturing managed service environment")
 		environmentHash, err = saveManagedEnvironment(spec)
 		if err != nil {
 			return err
 		}
 	}
 	spec.EnvironmentHash = environmentHash
+	logCommandDebug(cmd, "SERVICE", "service.spec.resolved", "Managed service specification resolved", logger.WithDebug("scope", spec.Scope), logger.WithDebug("service_id", spec.ID), logger.WithDebug("config", spec.ConfigRoot), logger.WithDebug("backend", manager.Backend()))
 	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
+		logCommandStep(cmd, "SERVICE", "service.elevating", "Elevating managed service operation")
 		return elevateManagedCommand(cmd, "up", environmentHash)
 	}
 	return runManagedUp(cmd, spec, manager)
 }
 
 func runDown(cmd *cobra.Command, _ []string) error {
+	logCommandStep(cmd, "SERVICE", "service.scope.resolving", "Resolving managed service scope")
 	scope, err := managedScopeForCommand(cmd)
 	if err != nil {
 		return err
@@ -81,6 +86,7 @@ func runDown(cmd *cobra.Command, _ []string) error {
 }
 
 func runRestart(cmd *cobra.Command, _ []string) error {
+	logCommandStep(cmd, "SERVICE", "service.scope.resolving", "Resolving managed service scope")
 	scope, err := managedScopeForCommand(cmd)
 	if err != nil {
 		return err
@@ -91,6 +97,7 @@ func runRestart(cmd *cobra.Command, _ []string) error {
 	}
 	environmentHash, _ := cmd.Flags().GetString("service-environment-hash")
 	if environmentHash == "" {
+		logCommandStep(cmd, "SERVICE", "service.environment.capturing", "Capturing managed service environment")
 		environmentHash, err = saveManagedEnvironment(spec)
 		if err != nil {
 			return err
@@ -104,6 +111,7 @@ func runRestart(cmd *cobra.Command, _ []string) error {
 }
 
 func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Manager) error {
+	logCommandStep(cmd, "SERVICE", "service.config.verifying", "Verifying runtime configuration")
 	source, err := config.Source()
 	if err != nil {
 		return err
@@ -118,6 +126,7 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 	if err != nil {
 		return err
 	}
+	logCommandStep(cmd, "SERVICE", "service.runtime.inspecting", "Inspecting current runtime")
 	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
 	runtimeStatus, running, runtimeErr := managedRuntimeStatus(ctx)
 	cancel()
@@ -132,6 +141,7 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 			return managedScopeConflict(runtimeStatus, spec, "restart")
 		}
 	}
+	logCommandStep(cmd, "SERVICE", "service.backend.inspecting", "Inspecting managed service backend", logger.WithVerbose("backend", manager.Backend()))
 	backendStatus, err := manager.Status(spec)
 	if err != nil {
 		return err
@@ -148,6 +158,7 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 	log.Action("SERVICE", "service.restarting", "Restarting managed service")
 	previousRunID := runtimeStatus.RunID
 	if running {
+		logCommandStep(cmd, "SERVICE", "service.runtime.stopping", "Stopping current managed runtime")
 		if err := requestManagedShutdown(cmd.Context()); err != nil {
 			return err
 		}
@@ -159,13 +170,16 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 		return err
 	}
 	if !matches {
+		logCommandStep(cmd, "SERVICE", "service.definition.updating", "Updating managed service definition")
 		if err := manager.Install(spec); err != nil {
 			return err
 		}
 	}
+	logCommandStep(cmd, "SERVICE", "service.backend.starting", "Starting managed service backend")
 	if err := manager.Start(spec); err != nil {
 		return err
 	}
+	logCommandStep(cmd, "SERVICE", "service.runtime.waiting", "Waiting for managed runtime readiness")
 	status, err := waitManagedRuntimeReadyAfter(cmd.Context(), spec, previousRunID, serviceReadyTimeout)
 	if err != nil {
 		return err
@@ -250,6 +264,7 @@ func resolveManagedConfigRoot(cmd *cobra.Command, scope managed.Scope, account m
 }
 
 func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager) error {
+	logCommandStep(cmd, "SERVICE", "service.config.verifying", "Verifying runtime configuration")
 	source, err := config.Source()
 	if err != nil {
 		return err
@@ -264,6 +279,7 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 	if err != nil {
 		return err
 	}
+	logCommandStep(cmd, "SERVICE", "service.runtime.inspecting", "Inspecting current runtime")
 	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
 	runtimeStatus, running, runtimeErr := managedRuntimeStatus(ctx)
 	cancel()
@@ -278,6 +294,7 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 			return managedScopeConflict(runtimeStatus, spec, "up")
 		}
 	}
+	logCommandStep(cmd, "SERVICE", "service.backend.inspecting", "Inspecting managed service backend", logger.WithVerbose("backend", manager.Backend()))
 	backendStatus, err := manager.Status(spec)
 	if err != nil {
 		return err
@@ -308,6 +325,7 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 	defer log.Close()
 	log.Action("SERVICE", managedServiceActionEvent(action), managedServiceActionMessage(action, spec.Scope))
 	if running {
+		logCommandStep(cmd, "SERVICE", "service.runtime.stopping", "Stopping existing managed runtime")
 		if err := requestManagedShutdown(cmd.Context()); err != nil {
 			return err
 		}
@@ -325,13 +343,16 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		}
 	}
 	if !backendStatus.Installed || !matches {
+		logCommandStep(cmd, "SERVICE", "service.definition.installing", "Installing managed service definition")
 		if err := manager.Install(spec); err != nil {
 			return err
 		}
 	}
+	logCommandStep(cmd, "SERVICE", "service.backend.starting", "Starting managed service backend")
 	if err := manager.Start(spec); err != nil {
 		return err
 	}
+	logCommandStep(cmd, "SERVICE", "service.runtime.waiting", "Waiting for managed runtime readiness")
 	status, err := waitManagedRuntimeReady(cmd.Context(), spec, serviceReadyTimeout)
 	if err != nil {
 		return err
@@ -347,6 +368,7 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 }
 
 func runManagedDown(cmd *cobra.Command, spec managed.Spec, manager managed.Manager) error {
+	logCommandStep(cmd, "SERVICE", "service.runtime.inspecting", "Inspecting current runtime")
 	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
 	runtimeStatus, running, runtimeErr := managedRuntimeStatus(ctx)
 	cancel()
@@ -361,6 +383,7 @@ func runManagedDown(cmd *cobra.Command, spec managed.Spec, manager managed.Manag
 			return managedScopeConflict(runtimeStatus, spec, "down")
 		}
 	}
+	logCommandStep(cmd, "SERVICE", "service.backend.inspecting", "Inspecting managed service backend", logger.WithVerbose("backend", manager.Backend()))
 	backendStatus, err := manager.Status(spec)
 	if err != nil {
 		return err

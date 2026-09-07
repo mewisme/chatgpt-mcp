@@ -20,8 +20,6 @@ import (
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
-	"go.mewis.me/chatgpt-mcp/internal/upstream"
-	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 type statusSnapshot struct {
@@ -51,6 +49,7 @@ func statusCommand() *cobra.Command {
 }
 
 func runStatus(cmd *cobra.Command, _ []string) error {
+	logCommandStep(cmd, "STATUS", "status.scope.resolving", "Resolving service scope")
 	scope := managed.DetectScope()
 	account, err := managed.InvokingAccount(scope)
 	if err != nil {
@@ -78,18 +77,20 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		renderStatusUninitialized(cmd.OutOrStdout())
 		return nil
 	}
+	logCommandStep(cmd, "STATUS", "status.config.loading", "Loading runtime configuration")
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	workspaces, err := workspace.NewManager(workspace.DefaultStorePath()).List()
+	workspaces, err := workspaceManagerForCommand(cmd).List()
 	if err != nil {
 		return err
 	}
-	upstreams := upstream.NewManager(upstream.NewStore(upstream.Path()))
-	if err := upstreams.Load(); err != nil {
+	upstreams, err := loadUpstreamManagerForCommand(cmd)
+	if err != nil {
 		return err
 	}
+	logCommandStep(cmd, "STATUS", "status.runtime.inspecting", "Inspecting runtime control endpoint")
 	ctx, cancel := context.WithTimeout(cmd.Context(), time.Second)
 	runtimeStatus, running, runtimeErr := managedRuntimeStatus(ctx)
 	cancel()
@@ -98,6 +99,9 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 	}
 	plan, listenerErr := resolveListenerPlan(cfg.Server.Expose)
 	tunnelStatus := fetchTunnelStatus(cmd.Context(), cfg.Tunnel)
+	if tunnelStatus.MetadataError != "" {
+		logCommandDebug(cmd, "STATUS", "status.tunnel.metadata-unavailable", "Cached tunnel metadata unavailable", logger.WithDebug("error", tunnelStatus.MetadataError))
+	}
 	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: len(upstreams.List()), ListenerPlan: plan, ListenerError: listenerErr, Tunnel: tunnelStatus, Update: cachedUpdateStatus(time.Now())}
 	if !running {
 		snapshot.Services = installedManagedServices(account)

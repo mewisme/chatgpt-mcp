@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
@@ -58,7 +59,7 @@ func mcpServerListCommand() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List configured upstream MCP servers",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -112,7 +113,7 @@ func mcpServerAddCommand() *cobra.Command {
 		Short: "Add an upstream MCP server",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -127,7 +128,10 @@ func mcpServerAddCommand() *cobra.Command {
 			if err := manager.Add(server); err != nil {
 				return err
 			}
-			normalized, _ := manager.Get(args[0])
+			normalized, ok := manager.Get(args[0])
+			if !ok {
+				return fmt.Errorf("upstream server disappeared after save: %s", args[0])
+			}
 			log := commandLogger(cmd)
 			log.Success("MCP", "upstream server added", "id", normalized.ID)
 			log.Detail("transport", normalized.Transport)
@@ -149,7 +153,7 @@ func mcpServerConfigureCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -180,7 +184,7 @@ func mcpServerShowCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -207,7 +211,7 @@ func mcpServerRemoveCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -234,7 +238,7 @@ func mcpServerToggleCommand(enabled bool) *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -261,7 +265,7 @@ func mcpServerStatusCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -384,7 +388,7 @@ func mcpServerToolsCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -397,7 +401,10 @@ func mcpServerToolsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			server, _ := manager.Get(args[0])
+			server, ok := manager.Get(args[0])
+			if !ok {
+				return fmt.Errorf("upstream server disappeared while loading tools: %s", args[0])
+			}
 			proxied := map[string]bool{}
 			for _, name := range manager.ProxiedToolNames(server, values) {
 				proxied[name] = true
@@ -518,6 +525,17 @@ func loadUpstreamManager() (*upstream.Manager, error) {
 	if err := manager.Load(); err != nil {
 		return nil, err
 	}
+	return manager, nil
+}
+
+func loadUpstreamManagerForCommand(cmd *cobra.Command) (*upstream.Manager, error) {
+	logCommandStep(cmd, "MCP", "mcp.store.loading", "Loading upstream MCP configuration")
+	logCommandDebug(cmd, "MCP", "mcp.store.path", "Upstream MCP configuration path resolved", logger.WithDebug("path", upstream.Path()))
+	manager, err := loadUpstreamManager()
+	if err != nil {
+		return nil, fmt.Errorf("load upstream MCP configuration: %w", err)
+	}
+	logCommandDebug(cmd, "MCP", "mcp.store.loaded", "Upstream MCP configuration loaded", logger.WithDebug("count", len(manager.List())))
 	return manager, nil
 }
 

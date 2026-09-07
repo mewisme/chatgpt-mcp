@@ -36,8 +36,8 @@ func commandLogger(cmd *cobra.Command) *logger.Logger {
 
 func startCommandSpinner(cmd *cobra.Command, log *logger.Logger, component, name, message string) {
 	format, err := commandLogFormat(cmd)
-	_, debug := commandLogMode(cmd)
-	if err == nil && format == logger.FormatText && !debug && logger.CanAnimate(commandLogWriter(cmd)) {
+	verbose, debug := commandLogMode(cmd)
+	if err == nil && format == logger.FormatText && !verbose && !debug && logger.CanAnimate(commandLogWriter(cmd)) {
 		log.Action(component, name, message)
 	}
 }
@@ -143,4 +143,12 @@ func currentWorkingDirectory() string {
 		return "<unavailable>"
 	}
 	return value
+}
+
+func logCommandStep(cmd *cobra.Command, component, name, message string, fields ...logger.Field) {
+	commandLogger(cmd).Verbose(component, name, message, fields...)
+}
+
+func logCommandDebug(cmd *cobra.Command, component, name, message string, fields ...logger.Field) {
+	commandLogger(cmd).Diagnostic(logger.Info, component, name, message, fields...)
 }

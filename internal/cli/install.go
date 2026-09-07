@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 	installpkg "go.mewis.me/chatgpt-mcp/internal/install"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
@@ -13,10 +15,11 @@ func installCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "install", Short: "Install this binary into the managed versioned layout", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		log := commandLogger(cmd)
 		defer log.Close()
+		logCommandStep(cmd, "INSTALL", "install.plan", "Preparing installation", logger.WithVerbose("version", version.Version), logger.WithDebug("no_alias", noAlias), logger.WithDebug("force", force), logger.WithDebug("migrate_legacy", !noLegacyCleanup))
 		startCommandSpinner(cmd, log, "INSTALL", "install.installing", "Installing chatgpt-mcp")
 		result, err := installpkg.Install(installpkg.Options{Version: version.Version, NoAlias: noAlias, Force: force, MigrateLegacy: !noLegacyCleanup})
 		if err != nil {
-			return err
+			return fmt.Errorf("install managed binary: %w", err)
 		}
 		if result.AlreadyInstalled {
 			log.Notice("INSTALL", "install.already-installed", "Already installed")
@@ -44,20 +47,22 @@ func installCommand() *cobra.Command {
 
 func installCleanupLegacyCommand() *cobra.Command {
 	return &cobra.Command{Use: "cleanup", Aliases: []string{"migrate"}, Short: "Remove verified legacy standalone installations from PATH", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		logCommandStep(cmd, "INSTALL", "install.layout.resolving", "Resolving managed installation layout")
 		layout, err := installpkg.DefaultLayout()
 		if err != nil {
-			return err
+			return fmt.Errorf("resolve managed installation layout: %w", err)
 		}
+		logCommandDebug(cmd, "INSTALL", "install.layout.resolved", "Managed installation layout resolved", logger.WithDebug("root", layout.Root))
 		source, err := os.Executable()
 		if err != nil {
-			return err
+			return fmt.Errorf("resolve current executable: %w", err)
 		}
 		log := commandLogger(cmd)
 		defer log.Close()
 		startCommandSpinner(cmd, log, "INSTALL", "install.legacy-cleanup", "Cleaning legacy installations")
 		result, err := installpkg.CleanupLegacyInstallations(installpkg.LegacyCleanupOptions{Layout: layout, Source: source, PreserveSource: true})
 		if err != nil {
-			return err
+			return fmt.Errorf("clean legacy installations: %w", err)
 		}
 		logLegacyCleanup(log, result)
 		return nil

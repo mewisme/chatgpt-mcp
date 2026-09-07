@@ -27,7 +27,7 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -99,7 +99,7 @@ func mcpServerAuthStatusCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -140,7 +140,7 @@ func mcpServerAuthLogoutCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := loadUpstreamManager()
+			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
 			}

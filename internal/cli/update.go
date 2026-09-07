@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/install"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
@@ -13,12 +14,14 @@ func updateCommand() *cobra.Command {
 	var targetVersion string
 	var noRestart bool
 	cmd := &cobra.Command{Use: "update", Short: "Check for and install chatgpt-mcp updates", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		logCommandStep(cmd, "UPDATE", "update.installation.detecting", "Detecting current installation")
 		detection, err := install.DetectCurrent(version.Version)
 		if err != nil {
-			return err
+			return fmt.Errorf("detect current installation: %w", err)
 		}
 		policy := updatepkg.PolicyForInstallation(detection)
 		log := commandLogger(cmd)
+		logCommandDebug(cmd, "UPDATE", "update.policy.resolved", "Update policy resolved", logger.WithDebug("method", policy.Method), logger.WithDebug("action", policy.Action))
 		if policy.Action == updatepkg.PolicyDelegate {
 			log.Notice("UPDATE", "update.delegated", policy.Message)
 			log.Detail("method", policy.Method)
@@ -34,24 +37,26 @@ func updateCommand() *cobra.Command {
 		}
 		alias, err := install.StatusAlias(layout)
 		if err != nil {
-			return err
+			return fmt.Errorf("inspect cgm alias state: %w", err)
 		}
 		if alias.State == install.AliasConflict {
 			return fmt.Errorf("cannot preserve cgm alias state: %w: %s", install.ErrAliasConflict, alias.Path)
 		}
 		defer log.Close()
 		startCommandSpinner(cmd, log, "UPDATE", "update.updating", "Checking and applying update")
+		logCommandStep(cmd, "UPDATE", "update.runtime.inspecting", "Inspecting managed runtime state")
 		runtimeState, err := captureUpdateRuntimeState(cmd.Context())
 		if err != nil {
-			return err
+			return fmt.Errorf("inspect managed runtime before update: %w", err)
 		}
 		updater := updatepkg.Updater{
 			Resolver:   updatepkg.Client{UserAgent: "chatgpt-mcp/" + version.Version},
 			Downloader: updatepkg.Downloader{UserAgent: "chatgpt-mcp/" + version.Version},
 		}
+		logCommandStep(cmd, "UPDATE", "update.release.applying", "Resolving, downloading, and activating release", logger.WithVerbose("target", targetVersion))
 		result, err := updater.Apply(cmd.Context(), updatepkg.ApplyOptions{Layout: layout, CurrentVersion: version.Version, TargetVersion: targetVersion, NoAlias: alias.State == install.AliasMissing})
 		if err != nil {
-			return err
+			return fmt.Errorf("apply update: %w", err)
 		}
 		if targetVersion == "" {
 			cacheLatestRelease(cmd, layout, result.Target)
@@ -67,6 +72,7 @@ func updateCommand() *cobra.Command {
 			return nil
 		}
 		log.Close()
+		logCommandStep(cmd, "UPDATE", "update.runtime.coordinating", "Coordinating updated managed runtime", logger.WithVerbose("restart", !noRestart))
 		if err := coordinateUpdatedRuntime(cmd, result.Install, runtimeState, noRestart); err != nil {
 			return fmt.Errorf("update to %s failed after activation: %w", result.Target, err)
 		}
@@ -93,11 +99,12 @@ func updateCheckCommand() *cobra.Command {
 	return &cobra.Command{Use: "check", Short: "Check the latest available release", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		log := commandLogger(cmd)
 		defer log.Close()
+		logCommandStep(cmd, "UPDATE", "update.release.checking", "Resolving latest release", logger.WithVerbose("current", version.Version))
 		startCommandSpinner(cmd, log, "UPDATE", "update.checking", "Checking for updates")
 		checker := updatepkg.Checker{Source: updatepkg.Client{UserAgent: "chatgpt-mcp/" + version.Version}}
 		result, err := checker.Check(cmd.Context(), version.Version)
 		if err != nil {
-			return err
+			return fmt.Errorf("check latest release: %w", err)
 		}
 		cacheLatestReleaseForCurrentInstall(cmd, result.Latest)
 		switch result.Status {

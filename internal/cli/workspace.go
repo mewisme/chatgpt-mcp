@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -19,6 +21,13 @@ func workspaceCommand() *cobra.Command {
 		workspaceContainerCommand(),
 	)
 	return cmd
+}
+
+func workspaceManagerForCommand(cmd *cobra.Command) *workspace.Manager {
+	path := workspace.DefaultStorePath()
+	logCommandStep(cmd, "WORKSPACE", "workspace.store.opening", "Opening workspace registry")
+	logCommandDebug(cmd, "WORKSPACE", "workspace.store.path", "Workspace registry path resolved", logger.WithDebug("path", path))
+	return workspace.NewManager(path)
 }
 
 func workspaceContainerCommand() *cobra.Command {
@@ -38,7 +47,7 @@ func workspaceContainerCommand() *cobra.Command {
 func workspaceContainerListCommand() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List workspace containers", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		values, err := workspace.NewManager(workspace.DefaultStorePath()).ListContainers()
+		values, err := workspaceManagerForCommand(cmd).ListContainers()
 		if err != nil {
 			return err
 		}
@@ -58,7 +67,7 @@ func workspaceContainerListCommand() *cobra.Command {
 
 func workspaceContainerCreateCommand() *cobra.Command {
 	return &cobra.Command{Use: "create <name>", Short: "Create a workspace container", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := workspace.NewManager(workspace.DefaultStorePath()).CreateContainer(args[0])
+		value, err := workspaceManagerForCommand(cmd).CreateContainer(args[0])
 		if err != nil {
 			return err
 		}
@@ -73,7 +82,7 @@ func workspaceContainerCreateCommand() *cobra.Command {
 func workspaceContainerShowCommand() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{Use: "show <wsc_id>", Short: "Show one workspace container", Args: cobra.ExactArgs(1), ValidArgsFunction: completeWorkspaceContainerID, RunE: func(cmd *cobra.Command, args []string) error {
-		manager := workspace.NewManager(workspace.DefaultStorePath())
+		manager := workspaceManagerForCommand(cmd)
 		value, err := manager.GetContainer(args[0])
 		if err != nil {
 			return err
@@ -98,7 +107,7 @@ func workspaceContainerShowCommand() *cobra.Command {
 
 func workspaceContainerRenameCommand() *cobra.Command {
 	return &cobra.Command{Use: "rename <wsc_id> <name>", Short: "Rename a workspace container", Args: cobra.ExactArgs(2), ValidArgsFunction: completeWorkspaceContainerThenName, RunE: func(cmd *cobra.Command, args []string) error {
-		value, err := workspace.NewManager(workspace.DefaultStorePath()).RenameContainer(args[0], args[1])
+		value, err := workspaceManagerForCommand(cmd).RenameContainer(args[0], args[1])
 		if err != nil {
 			return err
 		}
@@ -112,7 +121,7 @@ func workspaceContainerRenameCommand() *cobra.Command {
 
 func workspaceContainerDeleteCommand() *cobra.Command {
 	return &cobra.Command{Use: "delete <wsc_id>", Aliases: []string{"rm"}, Short: "Delete a workspace container without unregistering workspaces", Args: cobra.ExactArgs(1), ValidArgsFunction: completeWorkspaceContainerID, RunE: func(cmd *cobra.Command, args []string) error {
-		manager := workspace.NewManager(workspace.DefaultStorePath())
+		manager := workspaceManagerForCommand(cmd)
 		value, err := manager.GetContainer(args[0])
 		if err != nil {
 			return err
@@ -135,7 +144,7 @@ func workspaceContainerMembershipCommand(add bool) *cobra.Command {
 		use, short, action = "remove <wsc_id> <workspace_id...>", "Remove workspaces from a workspace container", "removed"
 	}
 	return &cobra.Command{Use: use, Short: short, Args: cobra.MinimumNArgs(2), ValidArgsFunction: completeWorkspaceContainerThenWorkspaces, RunE: func(cmd *cobra.Command, args []string) error {
-		manager := workspace.NewManager(workspace.DefaultStorePath())
+		manager := workspaceManagerForCommand(cmd)
 		var value workspace.WorkspaceContainer
 		var err error
 		if add {
@@ -158,7 +167,7 @@ func workspaceAccessCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "access", Short: "Manage workspace-specific filesystem access"}
 	var listJSON bool
 	list := &cobra.Command{Use: "list <workspace_id>", Aliases: []string{"ls"}, Short: "List workspace-specific additional directories", Args: cobra.ExactArgs(1), ValidArgsFunction: completeWorkspaceID, RunE: func(cmd *cobra.Command, args []string) error {
-		manager := workspace.NewManager(workspace.DefaultStorePath())
+		manager := workspaceManagerForCommand(cmd)
 		item, err := manager.Get(args[0])
 		if err != nil {
 			return err
@@ -179,7 +188,7 @@ func workspaceAccessCommand() *cobra.Command {
 	list.Flags().BoolVar(&listJSON, "json", false, "print JSON")
 	cmd.AddCommand(
 		&cobra.Command{Use: "add <workspace_id> <path>", Short: "Grant a workspace access to an additional directory", Args: cobra.ExactArgs(2), ValidArgsFunction: completeWorkspaceThenDirectory, RunE: func(cmd *cobra.Command, args []string) error {
-			manager := workspace.NewManager(workspace.DefaultStorePath())
+			manager := workspaceManagerForCommand(cmd)
 			item, err := manager.AddAllowDir(args[0], args[1])
 			if err != nil {
 				return err
@@ -191,7 +200,7 @@ func workspaceAccessCommand() *cobra.Command {
 			return nil
 		}},
 		&cobra.Command{Use: "remove <workspace_id> <path>", Short: "Revoke an additional directory from a workspace", Args: cobra.ExactArgs(2), ValidArgsFunction: completeWorkspaceThenDirectory, RunE: func(cmd *cobra.Command, args []string) error {
-			manager := workspace.NewManager(workspace.DefaultStorePath())
+			manager := workspaceManagerForCommand(cmd)
 			item, err := manager.RemoveAllowDir(args[0], args[1])
 			if err != nil {
 				return err
@@ -220,10 +229,10 @@ func workspaceRegisterCommand() *cobra.Command {
 				var err error
 				path, err = os.Getwd()
 				if err != nil {
-					return err
+					return fmt.Errorf("resolve current directory: %w", err)
 				}
 			}
-			manager := workspace.NewManager(workspace.DefaultStorePath())
+			manager := workspaceManagerForCommand(cmd)
 			item, err := manager.Register(path)
 			if err != nil {
 				return err
@@ -244,7 +253,7 @@ func workspaceListCommand() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List registered workspace roots",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager := workspace.NewManager(workspace.DefaultStorePath())
+			manager := workspaceManagerForCommand(cmd)
 			items, err := manager.List()
 			if err != nil {
 				return err
@@ -272,7 +281,7 @@ func workspaceShowCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeWorkspaceID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager := workspace.NewManager(workspace.DefaultStorePath())
+			manager := workspaceManagerForCommand(cmd)
 			item, err := manager.Get(args[0])
 			if err != nil {
 				return err
@@ -306,7 +315,7 @@ func workspaceUnregisterCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeWorkspaceID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager := workspace.NewManager(workspace.DefaultStorePath())
+			manager := workspaceManagerForCommand(cmd)
 			item, err := manager.Get(args[0])
 			if err != nil {
 				return err

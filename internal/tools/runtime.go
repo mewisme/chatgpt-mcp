@@ -19,6 +19,10 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
+const tunnelResponseReserveMax = 5 * time.Second
+
+var errTunnelResponseBudgetExceeded = errors.New("tunnel response budget exhausted")
+
 type Runtime struct {
 	Registry        *Registry
 	Workspaces      *workspace.Manager
@@ -178,6 +182,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	callID := r.nextCallID()
 	started := time.Now()
 	source := CallSource(ctx)
+	callCtx, cancelCall := toolCallContext(ctx, source, started)
+	defer cancelCall()
+	ctx = callCtx
 	receivedBy := ReceivedByInstanceID(ctx)
 	if receivedBy == "" {
 		receivedBy = r.runtimeInstanceID()
@@ -235,6 +242,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	} else if err == nil {
 		result, err = r.Registry.Call(ctx, name, args)
 	}
+	if err != nil && errors.Is(context.Cause(ctx), errTunnelResponseBudgetExceeded) && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		err = tunnelResponseBudgetError(name)
+	}
 	if err != nil {
 		if guard, ok := controlguard.As(err); ok {
 			if guardedResult, handled, guardErr := r.approvalResultForGuard(guard, sessionID, sessionHash, workspaceID, source, name, args, claimedApproval); guardErr != nil {
@@ -266,7 +276,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	}
 
 	status, message := "error", err.Error()
-	if ctx != nil && ctx.Err() != nil {
+	if errors.Is(context.Cause(ctx), errTunnelResponseBudgetExceeded) {
+		message = err.Error()
+	} else if ctx != nil && ctx.Err() != nil {
 		status, message = "cancelled", ctx.Err().Error()
 	}
 	finishRaw["status"] = status
@@ -280,6 +292,38 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["result"] = observedResult(name, result)
 	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
+}
+
+func toolCallContext(parent context.Context, source string, now time.Time) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if source != "tunnel" {
+		return parent, func() {}
+	}
+	deadline, ok := parent.Deadline()
+	if !ok {
+		return parent, func() {}
+	}
+	remaining := deadline.Sub(now)
+	if remaining <= 0 {
+		return context.WithDeadlineCause(parent, deadline, errTunnelResponseBudgetExceeded)
+	}
+	reserve := remaining / 4
+	if reserve > tunnelResponseReserveMax {
+		reserve = tunnelResponseReserveMax
+	}
+	if reserve <= 0 {
+		return parent, func() {}
+	}
+	return context.WithDeadlineCause(parent, deadline.Add(-reserve), errTunnelResponseBudgetExceeded)
+}
+
+func tunnelResponseBudgetError(name string) error {
+	if name == "run_command" {
+		return errors.New("run_command exceeded the synchronous tunnel response budget; use start_process for long-running commands, then poll with process_status and process_output")
+	}
+	return fmt.Errorf("%s exceeded the synchronous tunnel response budget; split the operation into shorter tool calls", name)
 }
 
 func (r *Runtime) nextCallID() string {

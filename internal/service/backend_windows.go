@@ -3,10 +3,12 @@
 package service
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf16"
 
 	"golang.org/x/sys/windows"
 )
@@ -25,7 +27,7 @@ func (windowsManager) DefinitionMatches(spec Spec) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	return strings.Contains(output, "<Command>"+xmlText(command)+"</Command>") && strings.Contains(output, "<Arguments>"+xmlText(windowsTaskArguments(spec))+"</Arguments>"), nil
+	return strings.Contains(output, "<Command>"+xmlText(command)+"</Command>") && strings.Contains(output, "<Arguments>"+xmlText(windowsTaskArguments(spec))+"</Arguments>") && strings.Contains(output, "<Hidden>true</Hidden>"), nil
 }
 
 func (windowsManager) Install(spec Spec) error {
@@ -108,6 +110,7 @@ func WindowsTaskXML(spec Spec) (string, error) {
       <Interval>PT1M</Interval>
       <Count>5</Count>
     </RestartOnFailure>
+    <Hidden>true</Hidden>
     <Enabled>true</Enabled>
   </Settings>
   <Actions Context="Author">
@@ -130,15 +133,38 @@ func windowsTaskCommand() (string, error) {
 }
 
 func windowsTaskArguments(spec Spec) string {
-	parts := make([]string, 0, len(Args(spec))+1)
-	parts = append(parts, spec.Binary)
-	parts = append(parts, Args(spec)...)
-	quoted := make([]string, len(parts))
-	for i, value := range parts {
-		quoted[i] = "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	script := windowsHiddenProcessScript(spec)
+	return windowsCommandLine([]string{"-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", windowsPowerShellEncodedCommand(script)})
+}
+
+func windowsHiddenProcessScript(spec Spec) string {
+	arguments := windowsCommandLine(Args(spec))
+	return strings.Join([]string{
+		"$psi = New-Object System.Diagnostics.ProcessStartInfo",
+		"$psi.FileName = " + windowsPowerShellString(spec.Binary),
+		"$psi.Arguments = " + windowsPowerShellString(arguments),
+		"$psi.WorkingDirectory = " + windowsPowerShellString(spec.Account.HomeDir),
+		"$psi.UseShellExecute = $false",
+		"$psi.CreateNoWindow = $true",
+		"$psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden",
+		"$process = [System.Diagnostics.Process]::Start($psi)",
+		"$process.WaitForExit()",
+		"exit $process.ExitCode",
+	}, "; ")
+}
+
+func windowsPowerShellString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func windowsPowerShellEncodedCommand(script string) string {
+	encoded := utf16.Encode([]rune(script))
+	bytes := make([]byte, len(encoded)*2)
+	for i, value := range encoded {
+		bytes[i*2] = byte(value)
+		bytes[i*2+1] = byte(value >> 8)
 	}
-	script := "& " + strings.Join(quoted, " ")
-	return windowsCommandLine([]string{"-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script})
+	return base64.StdEncoding.EncodeToString(bytes)
 }
 
 func windowsTaskName(spec Spec) string { return spec.ID }

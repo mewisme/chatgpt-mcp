@@ -8,6 +8,7 @@ import (
 
 func runCommand(name string, args ...string) (string, error) {
 	command := exec.Command(name, args...)
+	configureCommand(command)
 	output, err := command.CombinedOutput()
 	text := strings.TrimSpace(string(output))
 	if err != nil {

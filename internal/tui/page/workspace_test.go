@@ -1,6 +1,7 @@
 package page
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,6 +231,67 @@ func TestWorkspaceTabsSwitchByKeyboardAndMouse(t *testing.T) {
 	page = updated.(*WorkspacePage)
 	if page.tab != workspaceTabContainers {
 		t.Fatalf("mouse tab=%d want containers", page.tab)
+	}
+}
+
+func TestContainerMembersPickerUsesCompactFilterableLayout(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := t.TempDir()
+	ids := make([]string, 0, 24)
+	for index := 0; index < 24; index++ {
+		path := filepath.Join(parent, fmt.Sprintf("project-%02d", index))
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+		item, err := page.manager.Register(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, item.ID)
+	}
+	container, err := page.manager.CreateContainer("Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := page.manager.AddWorkspacesToContainer(container.ID, ids[:2]); err != nil {
+		t.Fatal(err)
+	}
+	page, err = NewContainers(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.View(120, 30)
+	cmd, err := page.openCommand(WorkspaceContainerMembers, container.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = runWorkspacePageCmd(t, page, cmd)
+	plain := ansi.Strip(page.form.View())
+	if !strings.Contains(plain, "2 selected / 24 available") {
+		t.Fatalf("member count missing: %q", plain)
+	}
+	first, err := page.manager.Get(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plain, filepath.Base(first.Path)+" · "+first.ID) {
+		t.Fatalf("compact member label missing: %q", plain)
+	}
+	if strings.Contains(plain, parent+string(filepath.Separator)) {
+		t.Fatalf("absolute workspace paths leaked into member options: %q", plain)
+	}
+	if got := page.formOverlayWidth(120); got != 94 {
+		t.Fatalf("member modal width=%d want=94", got)
+	}
+	if got := workspaceMemberPickerHeight(100, 30); got != 16 {
+		t.Fatalf("large member picker height=%d want=16", got)
 	}
 }
 

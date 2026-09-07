@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -207,7 +208,7 @@ func (page *WorkspacePage) View(width, height int) string {
 	content := tabs + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	switch page.overlay {
 	case workspaceOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 72)), width, height)
+		content = component.CenterOverlay(content, component.Modal(page.form.View(), page.formOverlayWidth(width)), width, height)
 	case workspaceOverlayConfirm:
 		body := component.Title(page.confirmTitle()) + "\n\n" + component.Muted(page.confirmDescription()) + "\n\n" + page.confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
 		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 64)), width, height)
@@ -221,7 +222,7 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 	}
 	switch page.overlay {
 	case workspaceOverlayForm:
-		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
+		return formOverlayMouseTargets(page.form, page.formOverlayWidth(page.width), page.width, page.height, originX, originY, z+20)
 	case workspaceOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
 	default:
@@ -374,9 +375,11 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 		page.members = append([]string(nil), item.WorkspaceIDs...)
 		options := make([]huh.Option[string], 0, len(items))
 		for _, workspaceItem := range items {
-			options = append(options, huh.NewOption(workspaceItem.ID+" · "+workspaceItem.Path, workspaceItem.ID))
+			options = append(options, huh.NewOption(workspaceMemberLabel(workspaceItem), workspaceItem.ID))
 		}
-		page.form = component.NewForm(component.Group(component.MultiSelect("Container workspaces", &page.members, options...)))
+		field := component.MultiSelect("Container workspaces", &page.members, options...).Filterable(true).Height(workspaceMemberPickerHeight(len(items), page.height))
+		field.DescriptionFunc(func() string { return fmt.Sprintf("%d selected / %d available", len(page.members), len(items)) }, &page.members)
+		page.form = component.NewForm(component.Group(field))
 		page.overlay = workspaceOverlayForm
 		return page.form.Init(), nil
 	case WorkspaceUnregister, WorkspaceContainerDelete:
@@ -603,6 +606,29 @@ func (page *WorkspacePage) closeOverlay() {
 	page.confirm = component.ConfirmButtons{}
 	page.command, page.targetID = "", ""
 	page.value, page.members = "", nil
+}
+
+func (page *WorkspacePage) formOverlayWidth(width int) int {
+	if page.command == WorkspaceContainerMembers {
+		return overlayWidth(width, 94)
+	}
+	return overlayWidth(width, 72)
+}
+
+func workspaceMemberPickerHeight(count, pageHeight int) int {
+	limit := 14
+	if pageHeight > 0 {
+		limit = max(6, min(16, pageHeight-8))
+	}
+	return max(6, min(limit, count+3))
+}
+
+func workspaceMemberLabel(item workspace.Workspace) string {
+	name := strings.TrimSpace(filepath.Base(filepath.Clean(item.Path)))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		return item.ID
+	}
+	return name + " · " + item.ID
 }
 
 func (page *WorkspacePage) confirmTitle() string {

@@ -2,6 +2,7 @@ package component
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -74,6 +75,62 @@ func TestFormMouseMultiSelectTogglesClickedOption(t *testing.T) {
 	_, _ = form.Update(target.Handle(MouseEvent{Y: betaLine, Button: tea.MouseLeft}))
 	if len(values) != 1 || values[0] != "b" {
 		t.Fatalf("multi-select values=%v", values)
+	}
+}
+
+func TestFormMouseMultiSelectAfterViewportScrollTargetsVisibleOption(t *testing.T) {
+	values := []string{}
+	options := make([]huh.Option[string], 0, 20)
+	for index := 0; index < 20; index++ {
+		value := fmt.Sprintf("item-%02d", index)
+		options = append(options, huh.NewOption("Item "+value[5:], value))
+	}
+	field := MultiSelect("Items", &values, options...).Height(7)
+	form := NewForm(Group(field))
+	form = runFormCmd(t, form, form.Init())
+	for range 12 {
+		updated, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		form = runFormCmd(t, updated, cmd)
+	}
+	lines := strings.Split(ansi.Strip(field.View()), "\n")
+	targetLine, _ := findRenderedLine(lines, "Item 10", 0)
+	if targetLine < 0 {
+		t.Fatalf("expected scrolled option to be visible: %q", ansi.Strip(field.View()))
+	}
+	target := formFieldTarget(t, form.MouseTargets(0, 0, 1), 0)
+	updated, cmd := form.Update(target.Handle(MouseEvent{Y: targetLine, Button: tea.MouseLeft}))
+	_ = runFormCmd(t, updated, cmd)
+	if len(values) != 1 || values[0] != "item-10" {
+		t.Fatalf("scrolled multi-select values=%v", values)
+	}
+}
+
+func TestFormFilterableMultiSelectFiltersAndSelects(t *testing.T) {
+	values := []string{}
+	field := MultiSelect("Items", &values,
+		huh.NewOption("Alpha workspace", "alpha"),
+		huh.NewOption("Needle workspace", "needle"),
+		huh.NewOption("Gamma workspace", "gamma"),
+	).Filterable(true).Height(7)
+	form := NewForm(Group(field))
+	form = runFormCmd(t, form, form.Init())
+	for _, message := range []tea.KeyPressMsg{
+		{Code: '/'},
+		{Code: 'n', Text: "n"}, {Code: 'e', Text: "e"}, {Code: 'e', Text: "e"}, {Code: 'd', Text: "d"},
+		{Code: 'l', Text: "l"}, {Code: 'e', Text: "e"},
+		{Code: tea.KeyEnter},
+	} {
+		updated, cmd := form.Update(message)
+		form = runFormCmd(t, updated, cmd)
+	}
+	plain := ansi.Strip(field.View())
+	if !strings.Contains(plain, "Needle workspace") || strings.Contains(plain, "Alpha workspace") || strings.Contains(plain, "Gamma workspace") {
+		t.Fatalf("filtered multi-select view=%q", plain)
+	}
+	updated, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_ = runFormCmd(t, updated, cmd)
+	if len(values) != 1 || values[0] != "needle" {
+		t.Fatalf("filtered multi-select values=%v", values)
 	}
 }
 

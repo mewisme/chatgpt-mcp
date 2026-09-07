@@ -869,7 +869,7 @@ func (page *RuntimePage) updateRow() component.Row {
 	if latest != "" {
 		description += " · latest " + latest
 	}
-	return component.Row{ID: "update", Title: "Software update", Description: description, Search: "update release version latest", DetailTitle: "Software update", Detail: detailFields([2]string{"Current", page.about.Version}, [2]string{"Status", status}, [2]string{"Latest", latest}, [2]string{"Checked", checked}, [2]string{"Policy", page.install.Policy.Message}, [2]string{"External command", page.install.Policy.Command})}
+	return component.Row{ID: "update", Title: "Software upgrade", Description: description, Search: "upgrade update release version latest", DetailTitle: "Software upgrade", Detail: detailFields([2]string{"Current", page.about.Version}, [2]string{"Status", status}, [2]string{"Latest", latest}, [2]string{"Checked", checked}, [2]string{"Policy", page.install.Policy.Message}, [2]string{"External command", page.install.Policy.Command})}
 }
 
 func (page *RuntimePage) aboutRow() component.Row {
@@ -952,7 +952,7 @@ func (page *RuntimePage) syncBrowserHelp() {
 			page.browser.SetHelpBindings(refresh)
 		}
 	case "update":
-		page.browser.SetHelpBindings(refresh, component.Binding([]string{"k"}, "k", "check"), component.Binding([]string{"u"}, "u", "update"))
+		page.browser.SetHelpBindings(refresh, component.Binding([]string{"k"}, "k", "check"), component.Binding([]string{"u"}, "u", "upgrade"))
 	default:
 		page.browser.SetHelpBindings(refresh)
 	}

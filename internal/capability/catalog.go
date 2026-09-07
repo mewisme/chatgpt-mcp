@@ -99,7 +99,7 @@ const (
 var specs = []Spec{
 	{ServerForeground, "serve", []string{RootPath}},
 	{InstallRun, "install", nil}, {InstallCleanup, "install cleanup", nil},
-	{UpdateApply, "update", nil}, {UpdateCheck, "update check", nil},
+	{UpdateApply, "upgrade", nil}, {UpdateCheck, "upgrade check", nil},
 	{ConfigInit, "init", nil}, {ConfigUninit, "uninit", nil},
 	{RuntimeUp, "up", nil}, {RuntimeDown, "down", nil}, {RuntimeRestart, "restart", nil},
 	{LogsRead, "logs", nil}, {LogsFollow, "logs follow", nil}, {LogsPath, "logs path", nil}, {LogsClear, "logs clear", nil},

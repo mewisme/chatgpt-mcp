@@ -88,13 +88,13 @@ Both `chatgpt-mcp` and the shorter `cgm` alias are installed. The examples below
 Direct installs are managed by the binary itself. A downloaded release can adopt the managed layout with `./chatgpt-mcp install`; pass `--no-alias` to skip `cgm`. Managed direct installs can then update transactionally:
 
 ```bash
-cgm update check
-cgm update
-cgm update --version vX.Y.Z
-cgm update --no-restart
+cgm upgrade check
+cgm upgrade
+cgm upgrade --version vX.Y.Z
+cgm upgrade --no-restart
 ```
 
-`cgm update` verifies the release checksum before activation. A running managed service is restarted and health-checked by default; restart failure automatically restores the previous version. Foreground runtimes are left running on the previous binary until restarted manually. Homebrew and Scoop installations remain owned by their package managers.
+`cgm upgrade` verifies the release checksum before activation. A running managed service is restarted and health-checked by default; restart failure automatically restores the previous version. Foreground runtimes are left running on the previous binary until restarted manually. Homebrew and Scoop installations remain owned by their package managers. `cgm update` remains an alias for compatibility.
 
 See [Getting started](docs/getting-started.md) for install ownership, version pinning, updates, uninstall, and platform details.
 
@@ -179,8 +179,8 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 | Goal | Command |
 | --- | --- |
 | Install current binary into managed layout | `chatgpt-mcp install` |
-| Check for an update | `cgm update check` |
-| Update managed direct install | `cgm update` |
+| Check for an upgrade | `cgm upgrade check` |
+| Upgrade managed direct install | `cgm upgrade` |
 | Initialize | `cgm init` |
 | Open the interactive Command Center | `cgm tui` |
 | Start foreground | `cgm serve` |

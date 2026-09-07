@@ -13,7 +13,7 @@ const (
 var readOnlyPaths = map[string]bool{
 	"help": true, "version": true, "status": true, "completion": true,
 	"config path": true, "config get": true, "config list": true, "config verify": true, "config validate": true,
-	"auth status": true, "alias status": true, "update check": true,
+	"auth status": true, "alias status": true, "upgrade check": true,
 	"request list": true, "request view": true,
 	"workspace list": true, "workspace show": true, "workspace access list": true,
 	"mcp server list": true, "mcp server show": true, "mcp server status": true, "mcp server tools": true,
@@ -74,7 +74,7 @@ func PathFromArgs(args []string) string {
 	switch args[0] {
 	case "config":
 		return strings.Join(args[:2], " ")
-	case "alias", "auth", "request", "workspace", "tunnel", "update":
+	case "alias", "auth", "request", "workspace", "tunnel", "upgrade":
 		if args[0] == "workspace" && args[1] == "access" && len(args) >= 3 {
 			return strings.Join(args[:3], " ")
 		}
@@ -102,6 +102,10 @@ func canonicalCommandArgs(args []string) []string {
 	result := append([]string(nil), args...)
 	for index, value := range result {
 		if strings.HasPrefix(value, "-") {
+			continue
+		}
+		if index == 0 && value == "update" {
+			result[index] = "upgrade"
 			continue
 		}
 		switch value {

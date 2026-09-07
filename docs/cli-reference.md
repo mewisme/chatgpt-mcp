@@ -156,17 +156,17 @@ cgm alias remove
 Check or apply updates:
 
 ```bash
-cgm update check
-cgm update
-cgm update --version vX.Y.Z
-cgm update --no-restart
+cgm upgrade check
+cgm upgrade
+cgm upgrade --version vX.Y.Z
+cgm upgrade --no-restart
 ```
 
-`update check` is read-only and always checks the latest release. Built-in mutation is only available for managed direct installs. Homebrew and Scoop installs report the owning package-manager upgrade command; Go/development installs refuse built-in self-update; standalone binaries must run `chatgpt-mcp install` first.
+`upgrade check` is read-only and always checks the latest release. Built-in mutation is only available for managed direct installs. Homebrew and Scoop installs report the owning package-manager upgrade command; Go/development installs refuse built-in self-update; standalone binaries must run `chatgpt-mcp install` first. `update` remains an alias for compatibility.
 
 Direct updates download the expected platform archive and `checksums.txt`, verify SHA-256 before extraction/activation, preserve the current `cgm` alias state, and switch the stable `current` target transactionally. Exact `--version` allows an intentional downgrade.
 
-When the selected config root has a managed runtime, `cgm update` restarts it and waits for full readiness. If the Secure MCP Tunnel is enabled, readiness includes the tunnel reaching its ready state; connecting/reconnecting is not treated as success. Failure restores the previous install target and metadata and restarts the previous runtime. `--no-restart` leaves an existing process on the previous binary; foreground `serve` is also never killed by the updater.
+When the selected config root has a managed runtime, `cgm upgrade` restarts it and waits for full readiness. If the Secure MCP Tunnel is enabled, readiness includes the tunnel reaching its ready state; connecting/reconnecting is not treated as success. Failure restores the previous install target and metadata and restarts the previous runtime. `--no-restart` leaves an existing process on the previous binary; foreground `serve` is also never killed by the updater.
 
 `cgm status` never performs a network update check. It may show availability from the fresh install-global cache at `<install-root>/state/update.json`.
 
@@ -490,7 +490,7 @@ Status is the main read-only overview for:
 - upstream servers
 - cached update availability when a fresh install-global cache exists
 
-`status` does not perform a network update check; use `cgm update check` for an explicit fresh query.
+`status` does not perform a network update check; use `cgm upgrade check` for an explicit fresh query.
 
 ## Isolated instances
 

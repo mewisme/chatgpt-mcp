@@ -68,8 +68,8 @@ func systemActions() []action.Action {
 		systemAction("alias.remove", "Remove cgm alias", "Remove the cgm alias without removing the managed installation", []string{"alias", "cgm", "remove"}, []string{"alias", "remove"}, tuipage.AliasRemove, false),
 		systemAction("install.run", "Install managed binary", "Install this binary into the versioned managed layout", []string{"install", "managed", "binary"}, []string{"install"}, tuipage.InstallRun, false),
 		systemAction("install.cleanup", "Clean legacy installations", "Remove verified legacy standalone installations from PATH", []string{"install", "cleanup", "migrate", "legacy"}, []string{"install", "cleanup"}, tuipage.InstallCleanup, false),
-		systemAction("update.check", "Check for updates", "Check the latest available verified release", []string{"update", "check", "latest", "release"}, []string{"update", "check"}, tuipage.UpdateCheck, false),
-		systemAction("update.apply", "Apply update", "Download, verify, install, and activate an update", []string{"update", "apply", "install", "release"}, []string{"update"}, tuipage.UpdateApply, false),
+		systemAction("update.check", "Check for upgrades", "Check the latest available verified release", []string{"upgrade", "update", "check", "latest", "release"}, []string{"upgrade", "check"}, tuipage.UpdateCheck, false),
+		systemAction("update.apply", "Apply upgrade", "Download, verify, install, and activate an upgrade", []string{"upgrade", "update", "apply", "install", "release"}, []string{"upgrade"}, tuipage.UpdateApply, false),
 	}
 }
 

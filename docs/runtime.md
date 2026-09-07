@@ -152,14 +152,14 @@ On Linux/macOS, user and system scopes also have distinct service identities.
 
 ## Updates and runtime lifecycle
 
-For a managed direct installation, `cgm update` captures the runtime state for the selected config root before switching the stable install target.
+For a managed direct installation, `cgm upgrade` captures the runtime state for the selected config root before switching the stable install target.
 
 Behavior depends on that selected runtime:
 
 - no runtime is running → activate the new version on disk only
 - foreground `serve` → leave the process running on its current in-memory binary and report that a manual restart is needed
 - managed runtime → activate the new version, restart the existing service in place, and wait for composite runtime readiness
-- `cgm update --no-restart` → activate on disk but intentionally leave any running process on the previous binary
+- `cgm upgrade --no-restart` → activate on disk but intentionally leave any running process on the previous binary
 
 The updater does not uninstall/reinstall a healthy service definition just to change versions. Managed services keep using the stable launcher/current path, so restart naturally resolves the newly activated binary.
 

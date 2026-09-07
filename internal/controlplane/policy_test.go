@@ -5,7 +5,7 @@ import "testing"
 func TestReadOnlyCommandPolicy(t *testing.T) {
 	for _, args := range [][]string{
 		{"status"}, {"config", "list"}, {"auth", "status"},
-		{"workspace", "access", "list", "ws_test"}, {"mcp", "server", "show", "server"}, {"tunnel", "status"}, {"alias", "status"}, {"update", "check"},
+		{"workspace", "access", "list", "ws_test"}, {"mcp", "server", "show", "server"}, {"tunnel", "status"}, {"alias", "status"}, {"upgrade", "check"}, {"update", "check"},
 		{"request", "list"}, {"request", "view", "req_test"}, {"req", "ls"}, {"req", "show", "req_test"}, {"req", "info", "req_test"},
 		{"st"}, {"cfg", "ls"}, {"ws", "access", "ls", "ws_test"}, {"mcp", "server", "st", "server"}, {"tunnel", "st"}, {"completion", "bash"},
 		{"--config-dir", "/tmp/config", "config", "get", "server.expose"}, {"--verbose", "status"}, {"--help"},
@@ -19,7 +19,7 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 		{"cfg", "set", "permissions.allow_dirs", "/tmp"}, {"ws", "register", "."},
 		{"auth", "mcp", "create"}, {"workspace", "register", "."}, {"workspace", "access", "add", "ws_test", "/tmp"},
 		{"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"req", "accept", "req_test"}, {"req", "allow", "req_test"}, {"req", "reject", "req_test"},
-		{"mcp", "server", "add", "server"}, {"tunnel", "enable"}, {"alias", "install"}, {"alias", "remove"}, {"update"}, {"serve"}, {},
+		{"mcp", "server", "add", "server"}, {"tunnel", "enable"}, {"alias", "install"}, {"alias", "remove"}, {"upgrade"}, {"update"}, {"serve"}, {},
 	} {
 		if IsReadOnlyArgs(args) {
 			t.Fatalf("mutating command allowed: %#v -> %q", args, PathFromArgs(args))
@@ -29,17 +29,26 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 
 func TestApprovalEligibleCommandPolicy(t *testing.T) {
 	for _, args := range [][]string{
-		{"update"}, {"install"}, {"config", "set", "server.port", "41001"}, {"workspace", "access", "add", "ws_test", "/tmp"},
+		{"upgrade"}, {"update"}, {"install"}, {"config", "set", "server.port", "41001"}, {"workspace", "access", "add", "ws_test", "/tmp"},
 	} {
 		if !ApprovalEligibleArgs(args) {
 			t.Fatalf("approval-eligible command denied: %#v -> %q", args, PathFromArgs(args))
 		}
 	}
 	for _, args := range [][]string{
-		{"status"}, {"update", "check"}, {"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"req", "accept", "req_test"}, {"req", "reject", "req_test"}, {"request", "list"}, {"request", "view", "req_test"}, {"_service", "run"}, {},
+		{"status"}, {"upgrade", "check"}, {"update", "check"}, {"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"req", "accept", "req_test"}, {"req", "reject", "req_test"}, {"request", "list"}, {"request", "view", "req_test"}, {"_service", "run"}, {},
 	} {
 		if ApprovalEligibleArgs(args) {
 			t.Fatalf("hard-denied/read-only command became approval eligible: %#v -> %q", args, PathFromArgs(args))
 		}
+	}
+}
+
+func TestUpdateAliasCanonicalizesToUpgrade(t *testing.T) {
+	if got := PathFromArgs([]string{"update", "check"}); got != "upgrade check" {
+		t.Fatalf("update alias path=%q want upgrade check", got)
+	}
+	if got := PathFromArgs([]string{"update"}); got != "upgrade" {
+		t.Fatalf("update alias path=%q want upgrade", got)
 	}
 }

@@ -10,10 +10,10 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
-func updateCommand() *cobra.Command {
+func upgradeCommand() *cobra.Command {
 	var targetVersion string
 	var noRestart bool
-	cmd := &cobra.Command{Use: "update", Short: "Check for and install chatgpt-mcp updates", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "upgrade", Aliases: []string{"update"}, Short: "Check for and install chatgpt-mcp upgrades", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		logCommandStep(cmd, "UPDATE", "update.installation.detecting", "Detecting current installation")
 		detection, err := install.DetectCurrent(version.Version)
 		if err != nil {
@@ -91,11 +91,11 @@ func updateCommand() *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&targetVersion, "version", "", "install a specific release version (allows explicit downgrade)")
 	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "do not restart a running managed runtime after updating")
-	cmd.AddCommand(updateCheckCommand())
+	cmd.AddCommand(upgradeCheckCommand())
 	return cmd
 }
 
-func updateCheckCommand() *cobra.Command {
+func upgradeCheckCommand() *cobra.Command {
 	return &cobra.Command{Use: "check", Short: "Check the latest available release", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		log := commandLogger(cmd)
 		defer log.Close()
@@ -122,7 +122,7 @@ func updateCheckCommand() *cobra.Command {
 		log.Detail("current", result.Current)
 		log.Detail("latest", result.Latest)
 		if result.Status == updatepkg.StatusAvailable {
-			log.Detail("run", cliUseName()+" update")
+			log.Detail("run", cliUseName()+" upgrade")
 		}
 		return nil
 	}}

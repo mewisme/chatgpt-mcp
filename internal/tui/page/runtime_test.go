@@ -205,7 +205,7 @@ func TestRuntimeTokenRotationRequiresConfirmAndSecretIsTransient(t *testing.T) {
 func TestRuntimeExternalCommandUsesExplicitOverlay(t *testing.T) {
 	page, _ := NewRuntime(context.Background())
 	page.operationID = 4
-	external := &application.ExternalCommand{Command: "cgm update", Reason: "requires elevation"}
+	external := &application.ExternalCommand{Command: "cgm upgrade", Reason: "requires elevation"}
 	page.finishOperation(systemOperationMsg{id: 4, command: UpdateApply, external: external})
 	if page.overlay != systemOverlayExternal || page.external != external {
 		t.Fatalf("external workflow not surfaced: overlay=%v external=%#v", page.overlay, page.external)

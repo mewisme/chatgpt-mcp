@@ -73,19 +73,19 @@ The installers keep a stable launcher path so managed service definitions contin
 Check without changing files:
 
 ```bash
-cgm update check
+cgm upgrade check
 ```
 
 Update a managed direct installation to the latest stable release:
 
 ```bash
-cgm update
+cgm upgrade
 ```
 
 Install an exact release, including an intentional downgrade:
 
 ```bash
-cgm update --version vX.Y.Z
+cgm upgrade --version vX.Y.Z
 ```
 
 If the selected config root has a running managed service, update switches the stable `current` target, restarts that service, and waits for full runtime readiness. When the Secure MCP Tunnel is enabled, that includes waiting for the tunnel to become ready instead of returning while it is still connecting. If the new runtime fails to become healthy, `chatgpt-mcp` restores the previous `current` target and metadata, then restarts the previous version.
@@ -93,7 +93,7 @@ If the selected config root has a running managed service, update switches the s
 Skip the managed-service restart when you intentionally want the running process to remain on the old binary until a later restart:
 
 ```bash
-cgm update --no-restart
+cgm upgrade --no-restart
 ```
 
 A foreground `cgm serve` process is never killed by the updater; the files on disk are updated and that foreground process continues using its old in-memory binary until restarted manually.

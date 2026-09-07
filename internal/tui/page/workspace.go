@@ -146,10 +146,11 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, nil
 	case WorkspaceCommandMsg:
-		if err := page.openCommand(msg.Command, msg.ResourceID); err != nil {
+		cmd, err := page.openCommand(msg.Command, msg.ResourceID)
+		if err != nil {
 			page.err = err
 		}
-		return page, nil
+		return page, cmd
 	case tea.KeyPressMsg:
 		if page.overlay == workspaceOverlayForm {
 			updated, cmd := page.form.Update(msg)
@@ -242,10 +243,11 @@ func (page *WorkspacePage) handleListKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		if page.kind == workspacePageContainers {
 			command = WorkspaceContainerCreate
 		}
-		if err := page.openCommand(command, ""); err != nil {
+		cmd, err := page.openCommand(command, "")
+		if err != nil {
 			page.err = err
 		}
-		return nil, true
+		return cmd, true
 	case "d":
 		if selected.ID == "" {
 			return nil, true
@@ -254,43 +256,48 @@ func (page *WorkspacePage) handleListKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		if page.kind == workspacePageContainers {
 			command = WorkspaceContainerDelete
 		}
-		if err := page.openCommand(command, selected.ID); err != nil {
+		cmd, err := page.openCommand(command, selected.ID)
+		if err != nil {
 			page.err = err
 		}
-		return nil, true
+		return cmd, true
 	case "e":
 		if page.kind == workspacePageContainers && selected.ID != "" {
-			if err := page.openCommand(WorkspaceContainerRename, selected.ID); err != nil {
+			cmd, err := page.openCommand(WorkspaceContainerRename, selected.ID)
+			if err != nil {
 				page.err = err
 			}
-			return nil, true
+			return cmd, true
 		}
 	case "+":
 		if page.kind == workspacePageWorkspaces && selected.ID != "" {
-			if err := page.openCommand(WorkspaceAccessAdd, selected.ID); err != nil {
+			cmd, err := page.openCommand(WorkspaceAccessAdd, selected.ID)
+			if err != nil {
 				page.err = err
 			}
-			return nil, true
+			return cmd, true
 		}
 	case "-":
 		if page.kind == workspacePageWorkspaces && selected.ID != "" {
-			if err := page.openCommand(WorkspaceAccessRemove, selected.ID); err != nil {
+			cmd, err := page.openCommand(WorkspaceAccessRemove, selected.ID)
+			if err != nil {
 				page.err = err
 			}
-			return nil, true
+			return cmd, true
 		}
 	case "m":
 		if page.kind == workspacePageContainers && selected.ID != "" {
-			if err := page.openCommand(WorkspaceContainerMembers, selected.ID); err != nil {
+			cmd, err := page.openCommand(WorkspaceContainerMembers, selected.ID)
+			if err != nil {
 				page.err = err
 			}
-			return nil, true
+			return cmd, true
 		}
 	}
 	return nil, false
 }
 
-func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID string) error {
+func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID string) (tea.Cmd, error) {
 	page.err, page.notice = nil, ""
 	page.command, page.targetID, page.value, page.members = command, strings.TrimSpace(resourceID), "", nil
 	switch command {
@@ -300,19 +307,21 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 		}
 		page.form = component.NewForm(component.Group(component.Input("Workspace path", &page.value).Validate(requiredValue("workspace path"))))
 		page.overlay = workspaceOverlayForm
+		return page.form.Init(), nil
 	case WorkspaceAccessAdd:
 		if _, err := page.manager.Get(page.targetID); err != nil {
-			return err
+			return nil, err
 		}
 		page.form = component.NewForm(component.Group(component.Input("Additional directory", &page.value).Validate(requiredValue("directory"))))
 		page.overlay = workspaceOverlayForm
+		return page.form.Init(), nil
 	case WorkspaceAccessRemove:
 		item, err := page.manager.Get(page.targetID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if len(item.AllowDirs) == 0 {
-			return fmt.Errorf("workspace has no additional directories")
+			return nil, fmt.Errorf("workspace has no additional directories")
 		}
 		page.value = item.AllowDirs[0]
 		options := make([]huh.Option[string], 0, len(item.AllowDirs))
@@ -321,25 +330,28 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 		}
 		page.form = component.NewForm(component.Group(component.Select("Directory to remove", &page.value, options...)))
 		page.overlay = workspaceOverlayForm
+		return page.form.Init(), nil
 	case WorkspaceContainerCreate:
 		page.form = component.NewForm(component.Group(component.Input("Container name", &page.value).Validate(requiredValue("container name"))))
 		page.overlay = workspaceOverlayForm
+		return page.form.Init(), nil
 	case WorkspaceContainerRename:
 		item, err := page.manager.GetContainer(page.targetID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		page.value = item.Name
 		page.form = component.NewForm(component.Group(component.Input("Container name", &page.value).Validate(requiredValue("container name"))))
 		page.overlay = workspaceOverlayForm
+		return page.form.Init(), nil
 	case WorkspaceContainerMembers:
 		item, err := page.manager.GetContainer(page.targetID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		items, err := page.manager.List()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		page.members = append([]string(nil), item.WorkspaceIDs...)
 		options := make([]huh.Option[string], 0, len(items))
@@ -348,20 +360,21 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 		}
 		page.form = component.NewForm(component.Group(component.MultiSelect("Container workspaces", &page.members, options...)))
 		page.overlay = workspaceOverlayForm
+		return page.form.Init(), nil
 	case WorkspaceUnregister, WorkspaceContainerDelete:
 		if command == WorkspaceUnregister {
 			if _, err := page.manager.Get(page.targetID); err != nil {
-				return err
+				return nil, err
 			}
 		} else if _, err := page.manager.GetContainer(page.targetID); err != nil {
-			return err
+			return nil, err
 		}
 		page.confirm = component.NewConfirmButtons("Delete", "Cancel", false)
 		page.overlay = workspaceOverlayConfirm
+		return nil, nil
 	default:
-		return fmt.Errorf("unsupported workspace action: %s", command)
+		return nil, fmt.Errorf("unsupported workspace action: %s", command)
 	}
-	return nil
 }
 
 func (page *WorkspacePage) submitForm() tea.Cmd {
@@ -559,6 +572,8 @@ func (page *WorkspacePage) containerRows() ([]component.Row, error) {
 
 func (page *WorkspacePage) closeOverlay() {
 	page.overlay = workspaceOverlayNone
+	page.form = component.Form{}
+	page.confirm = component.ConfirmButtons{}
 	page.command, page.targetID = "", ""
 	page.value, page.members = "", nil
 }

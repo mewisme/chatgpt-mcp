@@ -29,7 +29,7 @@ func TestWorkspacePageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := page.openCommand(WorkspaceRegister, ""); err != nil {
+	if _, err := page.openCommand(WorkspaceRegister, ""); err != nil {
 		t.Fatal(err)
 	}
 	page.value = project
@@ -39,7 +39,7 @@ func TestWorkspacePageLifecycle(t *testing.T) {
 		t.Fatalf("workspaces=%#v err=%v", items, err)
 	}
 	id := items[0].ID
-	if err := page.openCommand(WorkspaceAccessAdd, id); err != nil {
+	if _, err := page.openCommand(WorkspaceAccessAdd, id); err != nil {
 		t.Fatal(err)
 	}
 	page.value = extra
@@ -48,7 +48,7 @@ func TestWorkspacePageLifecycle(t *testing.T) {
 	if err != nil || len(item.AllowDirs) != 1 {
 		t.Fatalf("workspace=%#v err=%v", item, err)
 	}
-	if err := page.openCommand(WorkspaceAccessRemove, id); err != nil {
+	if _, err := page.openCommand(WorkspaceAccessRemove, id); err != nil {
 		t.Fatal(err)
 	}
 	page.value = extra
@@ -57,7 +57,7 @@ func TestWorkspacePageLifecycle(t *testing.T) {
 	if len(item.AllowDirs) != 0 {
 		t.Fatalf("allow dirs=%v", item.AllowDirs)
 	}
-	if err := page.openCommand(WorkspaceUnregister, id); err != nil {
+	if _, err := page.openCommand(WorkspaceUnregister, id); err != nil {
 		t.Fatal(err)
 	}
 	page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
@@ -65,6 +65,37 @@ func TestWorkspacePageLifecycle(t *testing.T) {
 	items, err = page.manager.List()
 	if err != nil || len(items) != 0 {
 		t.Fatalf("workspaces after unregister=%#v err=%v", items, err)
+	}
+}
+
+func TestWorkspaceFormOpensInitializedFromKeyAndCommandMessage(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		message tea.Msg
+	}{
+		{name: "keyboard", message: tea.KeyPressMsg{Code: 'a', Text: "a"}},
+		{name: "command-message", message: WorkspaceCommandMsg{Command: WorkspaceRegister}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page, err := NewWorkspaces(t.Context(), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			updated, cmd := page.Update(test.message)
+			page = updated.(*WorkspacePage)
+			if page.overlay != workspaceOverlayForm || cmd == nil {
+				t.Fatalf("overlay=%d init=%v", page.overlay, cmd != nil)
+			}
+			page = runWorkspacePageCmd(t, page, cmd)
+			plain := ansi.Strip(page.View(100, 24))
+			if !strings.Contains(plain, "Workspace path") {
+				t.Fatalf("initialized form field missing from first render: %q", plain)
+			}
+		})
 	}
 }
 
@@ -93,7 +124,7 @@ func TestWorkspaceContainerLifecycleAndMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := page.openCommand(WorkspaceContainerCreate, ""); err != nil {
+	if _, err := page.openCommand(WorkspaceContainerCreate, ""); err != nil {
 		t.Fatal(err)
 	}
 	page.value = "Primary"
@@ -103,12 +134,12 @@ func TestWorkspaceContainerLifecycleAndMembership(t *testing.T) {
 		t.Fatalf("containers=%#v err=%v", containers, err)
 	}
 	id := containers[0].ID
-	if err := page.openCommand(WorkspaceContainerRename, id); err != nil {
+	if _, err := page.openCommand(WorkspaceContainerRename, id); err != nil {
 		t.Fatal(err)
 	}
 	page.value = "Renamed"
 	page.submitForm()
-	if err := page.openCommand(WorkspaceContainerMembers, id); err != nil {
+	if _, err := page.openCommand(WorkspaceContainerMembers, id); err != nil {
 		t.Fatal(err)
 	}
 	page.members = append([]string(nil), ids...)
@@ -117,7 +148,7 @@ func TestWorkspaceContainerLifecycleAndMembership(t *testing.T) {
 	if err != nil || len(container.WorkspaceIDs) != 2 || container.Name != "Renamed" {
 		t.Fatalf("container=%#v err=%v", container, err)
 	}
-	if err := page.openCommand(WorkspaceContainerDelete, id); err != nil {
+	if _, err := page.openCommand(WorkspaceContainerDelete, id); err != nil {
 		t.Fatal(err)
 	}
 	page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
@@ -210,4 +241,20 @@ func TestWorkspaceAndContainerCopySelectedID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func runWorkspacePageCmd(t *testing.T, page *WorkspacePage, cmd tea.Cmd) *WorkspacePage {
+	t.Helper()
+	if cmd == nil {
+		return page
+	}
+	message := cmd()
+	if batch, ok := message.(tea.BatchMsg); ok {
+		for _, next := range batch {
+			page = runWorkspacePageCmd(t, page, next)
+		}
+		return page
+	}
+	updated, next := page.Update(message)
+	return runWorkspacePageCmd(t, updated.(*WorkspacePage), next)
 }

@@ -59,6 +59,27 @@ func destructiveMutationReason(command string) (string, bool) {
 				return reason, true
 			}
 		}
+		switch name {
+		case "sed":
+			if hasSedInPlace(args) {
+				return "in-place file overwrite", true
+			}
+		case "perl":
+			if hasPerlInPlace(args) {
+				return "in-place file overwrite", true
+			}
+		case "dd":
+			if _, ok := assignmentValue(args, "of"); ok {
+				return "raw file overwrite", true
+			}
+		case "rsync":
+			if hasAnyOption(args, "--delete", "--delete-before", "--delete-during", "--delete-delay", "--delete-after", "--delete-excluded") {
+				return "rsync destination deletion", true
+			}
+			if destination, ok := rsyncDestination(args); ok && looksRemotePath(destination) {
+				return "remote rsync mutation", true
+			}
+		}
 	}
 	return "", false
 }
@@ -236,6 +257,13 @@ func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) err
 			}
 			continue
 		}
+		if pathMutationCommands[name] && isKnownPathMutation(name, args) {
+			recognizedMutation = true
+			if err := m.validateKnownPathMutation(id, cwd, name, args); err != nil {
+				return fmt.Errorf("mutation command denied: %s: %w", name, err)
+			}
+			continue
+		}
 		if mutationCommands[name] {
 			recognizedMutation = true
 			minimum := 1
@@ -258,6 +286,208 @@ func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) err
 		return errors.New("mutation command denied: destructive/rename operation cannot be proven workspace-safe")
 	}
 	return nil
+}
+
+func (m *Manager) validateKnownPathMutation(id, cwd, name string, args []string) error {
+	switch name {
+	case "chmod", "chown", "chgrp":
+		return m.validateMetadataMutation(id, cwd, args)
+	case "sed":
+		return m.validateSedInPlace(id, cwd, args)
+	case "perl":
+		return m.validatePerlInPlace(id, cwd, args)
+	case "dd":
+		value, ok := assignmentValue(args, "of")
+		if !ok || strings.TrimSpace(value) == "" {
+			return errors.New("dd output path is required")
+		}
+		return m.validateLiteralPath(id, cwd, value, false)
+	case "rsync":
+		return m.validateRsyncDestination(id, cwd, args)
+	case "curl":
+		return m.validateOptionPaths(id, cwd, args, map[string]bool{"-o": true, "--output": true, "--output-dir": true})
+	case "wget":
+		return m.validateOptionPaths(id, cwd, args, map[string]bool{"-o": true, "--output-document": true, "-p": true, "--directory-prefix": true})
+	default:
+		return nil
+	}
+}
+
+func (m *Manager) validateMetadataMutation(id, cwd string, args []string) error {
+	positionals := make([]string, 0, len(args))
+	reference := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(strings.ToLower(arg), "--reference=") {
+			if err := m.validateLiteralPath(id, cwd, arg[len("--reference="):], true); err != nil {
+				return err
+			}
+			reference = true
+			continue
+		}
+		if strings.EqualFold(arg, "--reference") {
+			if i+1 >= len(args) {
+				return errors.New("--reference requires a path")
+			}
+			if err := m.validateLiteralPath(id, cwd, args[i+1], true); err != nil {
+				return err
+			}
+			reference = true
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		positionals = append(positionals, arg)
+	}
+	minimum := 2
+	pathStart := 1
+	if reference {
+		minimum, pathStart = 1, 0
+	}
+	if len(positionals) < minimum {
+		return errors.New("metadata mutation requires mode/owner and target path")
+	}
+	for _, path := range positionals[pathStart:] {
+		if err := m.validateLiteralPath(id, cwd, path, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) validateSedInPlace(id, cwd string, args []string) error {
+	files := scriptMutationFiles(args, true)
+	if len(files) == 0 {
+		return errors.New("sed in-place mutation requires a literal target path")
+	}
+	for _, path := range files {
+		if err := m.validateLiteralPath(id, cwd, path, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) validatePerlInPlace(id, cwd string, args []string) error {
+	files := scriptMutationFiles(args, false)
+	if len(files) == 0 {
+		return errors.New("perl in-place mutation requires a literal target path")
+	}
+	for _, path := range files {
+		if err := m.validateLiteralPath(id, cwd, path, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func scriptMutationFiles(args []string, sed bool) []string {
+	var files []string
+	expressionProvided := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		lower := strings.ToLower(arg)
+		if lower == "-e" || lower == "--expression" {
+			expressionProvided = true
+			i++
+			continue
+		}
+		if strings.HasPrefix(lower, "--expression=") {
+			expressionProvided = true
+			continue
+		}
+		if lower == "-f" || lower == "--file" {
+			expressionProvided = true
+			i++
+			continue
+		}
+		if strings.HasPrefix(lower, "--file=") || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if !expressionProvided {
+			expressionProvided = true
+			continue
+		}
+		files = append(files, arg)
+	}
+	if !sed && len(files) == 0 && expressionProvided {
+		return files
+	}
+	return files
+}
+
+func (m *Manager) validateRsyncDestination(id, cwd string, args []string) error {
+	destination, ok := rsyncDestination(args)
+	if !ok {
+		return errors.New("rsync requires source and destination")
+	}
+	if looksRemotePath(destination) {
+		return nil
+	}
+	return m.validateLiteralPath(id, cwd, destination, false)
+}
+
+func rsyncDestination(args []string) (string, bool) {
+	var positionals []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			if optionConsumesNext(strings.ToLower(arg), "--exclude-from", "--include-from", "--files-from", "--filter", "-e", "--rsh") {
+				i++
+			}
+			continue
+		}
+		positionals = append(positionals, arg)
+	}
+	if len(positionals) < 2 {
+		return "", false
+	}
+	return positionals[len(positionals)-1], true
+}
+
+func (m *Manager) validateOptionPaths(id, cwd string, args []string, options map[string]bool) error {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		lower := strings.ToLower(arg)
+		if options[lower] {
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires a path", arg)
+			}
+			if err := m.validateLiteralPath(id, cwd, args[i+1], false); err != nil {
+				return err
+			}
+			i++
+			continue
+		}
+		for option := range options {
+			if strings.HasPrefix(lower, option+"=") {
+				if err := m.validateLiteralPath(id, cwd, arg[len(option)+1:], false); err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func optionConsumesNext(value string, options ...string) bool {
+	for _, option := range options {
+		if value == option {
+			return true
+		}
+	}
+	return false
+}
+
+func looksRemotePath(value string) bool {
+	if strings.Contains(value, "://") {
+		return true
+	}
+	colon := strings.IndexByte(value, ':')
+	return colon > 0 && !filepath.IsAbs(value)
 }
 
 func (m *Manager) validateLiteralOperands(id, cwd string, args []string, minimum int) error {

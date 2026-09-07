@@ -25,6 +25,9 @@ var (
 		"tee": true, "truncate": true, "ln": true, "link": true, "mkfifo": true,
 		"new-item": true, "set-content": true, "add-content": true, "out-file": true, "copy-item": true,
 	}
+	pathMutationCommands = map[string]bool{
+		"chmod": true, "chown": true, "chgrp": true, "sed": true, "perl": true, "dd": true, "rsync": true, "curl": true, "wget": true,
+	}
 	writeMinimumOperands = map[string]int{
 		"cp": 2, "copy": 2, "xcopy": 2, "robocopy": 2, "install": 2, "ln": 2, "link": 2, "copy-item": 2,
 	}
@@ -218,6 +221,9 @@ func (m *Manager) isMutationCommand(command string, depth int) bool {
 		if mutationCommands[name] {
 			return true
 		}
+		if pathMutationCommands[name] && isKnownPathMutation(name, args) {
+			return true
+		}
 		if writeCommands[name] {
 			return true
 		}
@@ -225,6 +231,66 @@ func (m *Manager) isMutationCommand(command string, depth int) bool {
 			return true
 		}
 		if code, ok := inlineInterpreterCode(name, args); ok && inlineMutationAPI.MatchString(code) {
+			return true
+		}
+	}
+	return false
+}
+
+func isKnownPathMutation(name string, args []string) bool {
+	switch name {
+	case "chmod", "chown", "chgrp", "rsync":
+		return true
+	case "sed":
+		return hasSedInPlace(args)
+	case "perl":
+		return hasPerlInPlace(args)
+	case "dd":
+		_, ok := assignmentValue(args, "of")
+		return ok
+	case "curl":
+		return hasAnyOption(args, "-o", "--output", "--output-dir", "-O", "--remote-name")
+	case "wget":
+		return hasAnyOption(args, "-O", "--output-document", "-P", "--directory-prefix")
+	default:
+		return false
+	}
+}
+
+func hasAnyOption(args []string, options ...string) bool {
+	for _, arg := range args {
+		for _, option := range options {
+			if strings.EqualFold(arg, option) || strings.HasPrefix(strings.ToLower(arg), strings.ToLower(option)+"=") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func assignmentValue(args []string, key string) (string, bool) {
+	prefix := strings.ToLower(key) + "="
+	for _, arg := range args {
+		if strings.HasPrefix(strings.ToLower(arg), prefix) {
+			return arg[len(prefix):], true
+		}
+	}
+	return "", false
+}
+
+func hasSedInPlace(args []string) bool {
+	for _, arg := range args {
+		lower := strings.ToLower(arg)
+		if lower == "-i" || lower == "--in-place" || strings.HasPrefix(lower, "--in-place=") || (strings.HasPrefix(lower, "-i") && len(lower) > 2) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPerlInPlace(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.Contains(strings.TrimPrefix(arg, "-"), "i") {
 			return true
 		}
 	}

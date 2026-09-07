@@ -32,6 +32,14 @@ func TestShellPolicyRejectsCommonWriteEscapes(t *testing.T) {
 		"ln local.txt " + outsideFile,
 		"Set-Content -Path " + outsideFile + " -Value escaped",
 		"Copy-Item -Path local.txt -Destination " + outsideFile,
+		"chmod 600 " + outsideFile,
+		"chown user " + outsideFile,
+		"sed -i s/a/b/ " + outsideFile,
+		"perl -pi -e s/a/b/ " + outsideFile,
+		"dd if=local.txt of=" + outsideFile,
+		"rsync -a local.txt " + outsideFile,
+		"curl -o " + outsideFile + " https://example.com/file",
+		"wget -O " + outsideFile + " https://example.com/file",
 	}
 	for _, command := range cases {
 		t.Run(command, func(t *testing.T) {
@@ -221,6 +229,11 @@ func TestShellPolicyRequiresApprovalForDestructiveMutations(t *testing.T) {
 		"git branch -D old-branch",
 		"git tag -d old-tag",
 		"git push origin main",
+		"sed -i s/a/b/ file.txt",
+		"perl -pi -e s/a/b/ file.txt",
+		"dd if=input.bin of=output.bin",
+		"rsync -a --delete source/ destination/",
+		"rsync -a source/ user@example.com:/srv/app/",
 	} {
 		t.Run(command, func(t *testing.T) {
 			err := manager.ValidateShellCommand(item.ID, root, command)

@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/install"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 )
 
@@ -35,6 +36,7 @@ func coordinateUpdatedRuntime(cmd *cobra.Command, installed install.Result, stat
 }
 
 func coordinateUpdatedRuntimeWith(cmd *cobra.Command, installed install.Result, state updateRuntimeState, noRestart bool, restart updateRuntimeRestartFunc) error {
+	logCommandDebug(cmd, "UPDATE", "update.runtime.state", "Resolved runtime coordination state", logger.WithDebug("running", state.Running), logger.WithDebug("managed", state.Status.Managed), logger.WithDebug("pid", state.Status.PID), logger.WithDebug("service", state.Status.ServiceID))
 	if !state.Running {
 		return nil
 	}
@@ -71,6 +73,7 @@ func coordinateUpdatedRuntimeWith(cmd *cobra.Command, installed install.Result, 
 }
 
 func restartManagedRuntimeAfterUpdate(cmd *cobra.Command, layout install.Layout, status runtimeStatusResult) error {
+	logCommandStep(cmd, "UPDATE", "update.runtime.restart.preparing", "Preparing managed runtime restart after update")
 	if filepath.Clean(status.ConfigRoot) != filepath.Clean(config.RootPath()) {
 		return fmt.Errorf("managed runtime config root mismatch: runtime %s, selected %s", status.ConfigRoot, config.RootPath())
 	}
@@ -90,12 +93,14 @@ func restartManagedRuntimeAfterUpdate(cmd *cobra.Command, layout install.Layout,
 		return fmt.Errorf("managed runtime service mismatch: runtime %s, expected %s", status.ServiceID, spec.ID)
 	}
 	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
+		logCommandStep(cmd, "UPDATE", "update.runtime.restart.elevating", "Elevating managed runtime restart")
 		environmentHash, err := saveManagedEnvironment(spec)
 		if err != nil {
 			return err
 		}
 		return elevateManagedCommandWithBinary(cmd, "restart", environmentHash, layout.CanonicalBinary)
 	}
+	logCommandStep(cmd, "UPDATE", "update.runtime.restart.local", "Restarting managed runtime in place")
 	return restartManagedRuntimeInPlace(cmd.Context(), spec, managed.NewManager())
 }
 

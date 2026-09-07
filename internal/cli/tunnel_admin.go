@@ -68,6 +68,7 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 		Long:  "Verify Tunnels Manage access by listing an organization, workspace, or tenant scope, then store the admin key in the secret file store and verification scope in tunnel.<ext>. If no scope flag is provided, cgm first reuses a stored scope or derives one from the currently configured tunnel metadata.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "TUNNEL", "tunnel.admin.key.preparing", "Preparing tunnel admin key verification")
 			key := strings.TrimSpace(adminKey)
 			if key == "" {
 				key = strings.TrimSpace(os.Getenv("OPENAI_ADMIN_KEY"))
@@ -103,6 +104,7 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 
 func tunnelAdminKeyStatusCommand() *cobra.Command {
 	return &cobra.Command{Use: "status", Aliases: []string{"st"}, Short: "Show stored tunnel admin key state without revealing the key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "TUNNEL", "tunnel.admin.key.loading", "Loading tunnel admin key state")
 		status, err := application.TunnelAdminKeyStatus()
 		if err != nil {
 			return err
@@ -122,6 +124,7 @@ func tunnelAdminKeyStatusCommand() *cobra.Command {
 
 func tunnelAdminKeyVerifyCommand() *cobra.Command {
 	return &cobra.Command{Use: "verify", Short: "Re-verify the stored admin key has Tunnels Manage access", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "TUNNEL", "tunnel.admin.key.verifying", "Preparing stored tunnel admin key verification")
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		log := commandLogger(cmd)
@@ -140,6 +143,7 @@ func tunnelAdminKeyVerifyCommand() *cobra.Command {
 
 func tunnelAdminKeyRemoveCommand() *cobra.Command {
 	return &cobra.Command{Use: "remove", Aliases: []string{"rm"}, Short: "Remove the stored tunnel admin key and verification scope", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "TUNNEL", "tunnel.admin.key.removing", "Removing stored tunnel admin key")
 		if err := application.RemoveTunnelAdminKey(); err != nil {
 			return err
 		}
@@ -152,6 +156,7 @@ func tunnelListCommand() *cobra.Command {
 	var scopeFlags tunnelAdminScopeFlags
 	var asJSON bool
 	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List tunnels manageable by the stored admin key", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "TUNNEL", "tunnel.admin.config.loading", "Loading tunnel administration configuration")
 		cfg, err := config.Load()
 		if err != nil {
 			return err
@@ -184,7 +189,7 @@ func tunnelListCommand() *cobra.Command {
 		return nil
 	}}
 	scopeFlags.add(cmd)
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -193,6 +198,7 @@ func tunnelGetCommand() *cobra.Command {
 	var asJSON bool
 	var runtimeAPIKey string
 	cmd := &cobra.Command{Use: "get <tunnel_id>", Short: "Fetch a managed tunnel by id", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "TUNNEL", "tunnel.admin.get.preparing", "Preparing managed tunnel lookup", logger.WithVerbose("tunnel_id", args[0]))
 		log := commandLogger(cmd)
 		defer log.Close()
 		if !asJSON {
@@ -216,7 +222,7 @@ func tunnelGetCommand() *cobra.Command {
 		return nil
 	}}
 	addManagedConfigureFlags(cmd, &configure, &runtimeAPIKey, &enable)
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -230,6 +236,7 @@ func tunnelCreateCommand() *cobra.Command {
 		Long:  "Create tunnel metadata through the OpenAI Tunnel Management API. The stored admin key must already pass tunnel admin key verify. Use --configure to select the new tunnel for cgm with a separate runtime API key.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "TUNNEL", "tunnel.admin.create.preparing", "Preparing managed tunnel creation")
 			request := tunnel.CreateRequest{Name: strings.TrimSpace(name), Description: strings.TrimSpace(description), OrganizationIDs: normalizeTunnelIDs(organizationIDs), WorkspaceIDs: normalizeTunnelIDs(workspaceIDs), TenantIDs: normalizeTunnelIDs(tenantIDs)}
 			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 			defer cancel()
@@ -263,6 +270,7 @@ func tunnelUpdateCommand() *cobra.Command {
 	var organizationIDs, workspaceIDs, tenantIDs []string
 	var configure, enable bool
 	cmd := &cobra.Command{Use: "update <tunnel_id>", Short: "Update a tunnel with the stored verified admin key", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "TUNNEL", "tunnel.admin.update.preparing", "Preparing managed tunnel update", logger.WithVerbose("tunnel_id", args[0]))
 		request := tunnel.UpdateRequest{}
 		if cmd.Flags().Changed("name") {
 			value := strings.TrimSpace(name)
@@ -310,6 +318,7 @@ func tunnelUpdateCommand() *cobra.Command {
 func tunnelDeleteCommand() *cobra.Command {
 	var confirm, clearConfig bool
 	cmd := &cobra.Command{Use: "delete <tunnel_id>", Short: "Delete a tunnel with the stored verified admin key", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "TUNNEL", "tunnel.admin.delete.preparing", "Preparing managed tunnel deletion", logger.WithVerbose("tunnel_id", args[0]))
 		if !confirm {
 			return errors.New("refusing to delete tunnel without --confirm")
 		}

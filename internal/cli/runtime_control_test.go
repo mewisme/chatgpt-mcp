@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -13,9 +15,27 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 )
+
+func TestServeRuntimeControlLogsUnexpectedFailure(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	log := logger.NewWithOptions(logger.Options{Level: logger.Debug, Mode: logger.ModeDebug, Writer: &output})
+	serveRuntimeControl(newHTTPServer(http.NewServeMux()), listener, log)
+	text := output.String()
+	if !strings.Contains(text, "runtime.control.failed") || !strings.Contains(text, "Runtime control server stopped unexpectedly") {
+		t.Fatalf("unexpected control failure was not logged: %s", text)
+	}
+}
 
 func TestRuntimeControlReloadStatusAndShutdownRoundTrip(t *testing.T) {
 	defer configformat.SetRootPath("")

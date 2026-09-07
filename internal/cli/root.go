@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
@@ -75,11 +76,13 @@ func initCommand() *cobra.Command {
 		Use:   "init",
 		Short: "Initialize configuration and authentication tokens",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "INIT", "init.preparing", "Preparing configuration initialization")
 			options := configOutputOptions{format: formatName, json: jsonFormat, yaml: yamlFormat, toml: tomlFormat}
 			format, selected, err := resolveConfigOutputFormat(options)
 			if err != nil {
 				return err
 			}
+			logCommandDebug(cmd, "INIT", "init.format.resolved", "Configuration format resolved", logger.WithDebug("format", format), logger.WithDebug("selected", selected), logger.WithDebug("force", force))
 			result, err := application.Initialize(application.InitOptions{Force: force, Format: format, FormatSelected: selected})
 			if err != nil {
 				return err
@@ -108,6 +111,7 @@ func uninitCommand() *cobra.Command {
 		Short: "Remove all local chatgpt-mcp configuration and state",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := config.RootPath()
+			logCommandStep(cmd, "UNINIT", "uninit.removing", "Removing local configuration and state", logger.WithVerbose("root", root))
 			if err := application.Uninitialize(root); err != nil {
 				return err
 			}
@@ -143,6 +147,7 @@ func authCreateCommand(kind string) *cobra.Command {
 		Use:   "create",
 		Short: "Create or rotate the " + kind + " token",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "AUTH", "auth.token.rotating", "Creating or rotating authentication token", logger.WithVerbose("type", kind))
 			token, _, err := application.RotateAuthToken(kind)
 			if err != nil {
 				return err
@@ -164,6 +169,7 @@ func authToggleCommand(kind string, enabled bool) *cobra.Command {
 		Use:   action,
 		Short: action + " " + kind + " authentication",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "AUTH", "auth.state.updating", "Updating authentication state", logger.WithVerbose("type", kind), logger.WithVerbose("enabled", enabled))
 			if _, err := application.SetAuthEnabled(kind, enabled); err != nil {
 				return err
 			}
@@ -183,6 +189,7 @@ func authStatusCommand() *cobra.Command {
 		Aliases: []string{"st"},
 		Short:   "Show authentication state without revealing token hashes",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "AUTH", "auth.status.loading", "Loading authentication state")
 			status, err := application.GetAuthStatus()
 			if err != nil {
 				return err

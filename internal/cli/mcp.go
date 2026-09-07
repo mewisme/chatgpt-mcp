@@ -101,7 +101,7 @@ func mcpServerListCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	cmd.Flags().BoolVar(&refresh, "refresh", false, "connect to each enabled server and refresh health")
 	return cmd
 }
@@ -200,7 +200,7 @@ func mcpServerShowCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -285,7 +285,7 @@ func mcpServerStatusCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&refresh, "refresh", true, "force a new upstream connection/tool list")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 

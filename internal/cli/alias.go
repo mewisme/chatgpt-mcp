@@ -16,6 +16,7 @@ func aliasCommand() *cobra.Command {
 
 func aliasInstallCommand() *cobra.Command {
 	return &cobra.Command{Use: "install", Short: "Install the cgm command alias", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		logCommandStep(cmd, "ALIAS", "alias.layout.resolving", "Resolving managed installation layout")
 		layout, err := managedAliasLayout()
 		if err != nil {
 			return err
@@ -34,6 +35,7 @@ func aliasInstallCommand() *cobra.Command {
 
 func aliasRemoveCommand() *cobra.Command {
 	return &cobra.Command{Use: "remove", Short: "Remove the cgm command alias", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		logCommandStep(cmd, "ALIAS", "alias.layout.resolving", "Resolving managed installation layout")
 		layout, err := managedAliasLayout()
 		if err != nil {
 			return err
@@ -59,6 +61,7 @@ func aliasRemoveCommand() *cobra.Command {
 
 func aliasStatusCommand() *cobra.Command {
 	return &cobra.Command{Use: "status", Aliases: []string{"st"}, Short: "Show the cgm command alias status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		logCommandStep(cmd, "ALIAS", "alias.status.inspecting", "Inspecting cgm alias state")
 		layout, err := managedAliasLayout()
 		if err != nil {
 			return err

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 )
 
 const requestControlTimeout = 5 * time.Second
@@ -27,6 +28,7 @@ func requestCreateDummyCommand() *cobra.Command {
 	var workspaceID, title, command string
 	var asJSON bool
 	cmd := &cobra.Command{Use: "dummy", Short: "Create a dummy pending approval request for UI testing", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint")
 		log := commandLogger(cmd)
 		defer log.Close()
 		if !asJSON {
@@ -49,13 +51,14 @@ func requestCreateDummyCommand() *cobra.Command {
 	cmd.Flags().StringVar(&workspaceID, "workspace", "ws_dummy", "workspace ID shown on the dummy request")
 	cmd.Flags().StringVar(&title, "title", "Allow dummy command", "request title shown in approval UIs")
 	cmd.Flags().StringVar(&command, "command", "echo dummy approval", "dummy run_command value shown in exact arguments")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
 func requestListCommand() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List control approval requests from the running runtime", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint")
 		log := commandLogger(cmd)
 		defer log.Close()
 		if !asJSON {
@@ -76,13 +79,14 @@ func requestListCommand() *cobra.Command {
 		}
 		return nil
 	}}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
 func requestViewCommand() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{Use: "view <request_id>", Aliases: []string{"show", "info"}, Short: "Show one control approval request by ID or unique prefix", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint", logger.WithVerbose("request", args[0]))
 		log := commandLogger(cmd)
 		defer log.Close()
 		if !asJSON {
@@ -101,7 +105,7 @@ func requestViewCommand() *cobra.Command {
 		printApprovalRequest(cmd, request)
 		return nil
 	}}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -121,6 +125,7 @@ func requestResolveCommand(approve bool) *cobra.Command {
 	var asJSON bool
 	var reason string
 	cmd := &cobra.Command{Use: action + " <request_id>", Aliases: aliases, Short: label + " one pending control approval request by ID or unique prefix", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint", logger.WithVerbose("action", action), logger.WithVerbose("request", args[0]))
 		log := commandLogger(cmd)
 		defer log.Close()
 		if !asJSON {
@@ -152,7 +157,7 @@ func requestResolveCommand(approve bool) *cobra.Command {
 		return nil
 	}}
 	cmd.Flags().StringVar(&reason, "reason", "", "record an optional approval resolution reason")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 

@@ -122,3 +122,50 @@ func TestExecuteCommandDebugFailureEmitsDiagnostics(t *testing.T) {
 		}
 	}
 }
+
+func TestExecuteCommandDebugDoesNotLogFlagValues(t *testing.T) {
+	var output bytes.Buffer
+	var token string
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	child := &cobra.Command{Use: "secret", RunE: func(*cobra.Command, []string) error { return errors.New("expected failure") }}
+	child.Flags().StringVar(&token, "token", "", "test secret")
+	cmd.AddCommand(child)
+	cmd.SetArgs(testCommandArgs(t, "--debug", "secret", "--token", "supersecret-value"))
+	if err := executeCommand(cmd); err == nil {
+		t.Fatal("expected failure")
+	}
+	text := output.String()
+	if !strings.Contains(text, "--token") {
+		t.Fatalf("debug output did not identify changed flag: %s", text)
+	}
+	if strings.Contains(text, "supersecret-value") {
+		t.Fatalf("debug output leaked flag value: %s", text)
+	}
+}
+
+func TestMachineJSONOutputKeepsDiagnosticsOnStderr(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	var asJSON bool
+	cmd := newRootCommand()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	child := &cobra.Command{Use: "machine", RunE: func(cmd *cobra.Command, _ []string) error {
+		logCommandStep(cmd, "TEST", "test.machine.loading", "Loading machine output")
+		return printJSON(cmd, map[string]any{"ok": true})
+	}}
+	addJSONOutputFlag(child, &asJSON)
+	cmd.AddCommand(child)
+	cmd.SetArgs(testCommandArgs(t, "--verbose", "machine", "--json"))
+	if err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &value); err != nil || value["ok"] != true {
+		t.Fatalf("stdout is not clean JSON: %q err=%v value=%#v", stdout.String(), err, value)
+	}
+	if strings.Contains(stdout.String(), "Executing command") || !strings.Contains(stderr.String(), "Executing command") || !strings.Contains(stderr.String(), "Loading machine output") {
+		t.Fatalf("diagnostic routing stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}

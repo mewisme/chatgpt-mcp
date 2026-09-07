@@ -13,6 +13,8 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 )
 
+const machineOutputAnnotation = "chatgpt-mcp.machine-output"
+
 func addLoggingFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().Bool("verbose", false, "show additional runtime context")
 	cmd.PersistentFlags().Bool("debug", false, "show full diagnostic logging")
@@ -58,7 +60,40 @@ func commandLogWriter(cmd *cobra.Command) io.Writer {
 	if cmd == nil {
 		return io.Discard
 	}
+	if commandMachineOutput(cmd) {
+		return cmd.ErrOrStderr()
+	}
 	return cmd.OutOrStdout()
+}
+
+func addJSONOutputFlag(cmd *cobra.Command, target *bool) {
+	cmd.Flags().BoolVar(target, "json", false, "print JSON")
+	markMachineOutput(cmd, "json")
+}
+
+func markMachineOutput(cmd *cobra.Command, mode string) {
+	if cmd == nil {
+		return
+	}
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[machineOutputAnnotation] = mode
+}
+
+func commandMachineOutput(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	switch cmd.Annotations[machineOutputAnnotation] {
+	case "always":
+		return true
+	case "json":
+		flag := cmd.Flags().Lookup("json")
+		return flag != nil && flag.Value.String() == "true"
+	default:
+		return false
+	}
 }
 
 func logCommandStart(cmd *cobra.Command, args []string) {

@@ -18,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
@@ -42,6 +43,7 @@ type runtimeControlOptions struct {
 	ClearLogs    func() error
 	Approvals    *approval.Manager
 	Executions   *shellruntime.ExecutionHub
+	Log          *logger.Logger
 }
 
 type runtimeControl struct {
@@ -202,8 +204,19 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 	}))
 	server := newHTTPServer(mux)
 	control := &runtimeControl{state: controlState, listener: listener, server: server, path: path}
-	go func() { _ = server.Serve(listener) }()
+	go serveRuntimeControl(server, listener, options.Log)
 	return control, nil
+}
+
+func serveRuntimeControl(server *http.Server, listener net.Listener, log *logger.Logger) {
+	if server == nil || listener == nil {
+		return
+	}
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) && log != nil {
+		log.Failure("CONTROL", "runtime.control.failed", "Runtime control server stopped unexpectedly", err,
+			logger.WithVerbose("address", listener.Addr().String()),
+		)
+	}
 }
 
 func serveRuntimeExecutionFeed(w http.ResponseWriter, r *http.Request, hub *shellruntime.ExecutionHub) {

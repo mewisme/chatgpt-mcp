@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/application"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 )
 
@@ -43,6 +44,7 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
+			logCommandStep(cmd, "OAUTH", "oauth.authorization.preparing", "Preparing upstream OAuth authorization", logger.WithVerbose("server", server.ID))
 			store := mcpoauth.NewStore(mcpoauth.Path())
 			log := commandLogger(cmd)
 			defer log.Close()
@@ -99,6 +101,7 @@ func mcpServerAuthStatusCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "OAUTH", "oauth.status.loading", "Loading upstream OAuth authorization state", logger.WithVerbose("server", args[0]))
 			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err
@@ -129,7 +132,7 @@ func mcpServerAuthStatusCommand() *cobra.Command {
 			return nil
 		},
 	}
-	command.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(command, &asJSON)
 	return command
 }
 
@@ -140,6 +143,7 @@ func mcpServerAuthLogoutCommand() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeUpstreamID,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "OAUTH", "oauth.authorization.removing", "Removing upstream OAuth authorization", logger.WithVerbose("server", args[0]))
 			manager, err := loadUpstreamManagerForCommand(cmd)
 			if err != nil {
 				return err

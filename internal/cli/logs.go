@@ -58,6 +58,7 @@ func logsCommand() *cobra.Command {
 		}
 		log := commandLogger(cmd)
 		defer log.Close()
+		logCommandStep(cmd, "LOGS", "logs.runtime.contacting", "Contacting runtime log endpoint")
 		startCommandSpinner(cmd, log, "LOGS", "logs.clearing", "Clearing runtime logs")
 		if err := clearRuntimeLogs(cmd); err != nil {
 			return err
@@ -107,6 +108,7 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 		options.showTime = false
 	}
 	queryOptions := logsQueryOptions(options)
+	logCommandStep(cmd, "LOGS", "logs.query.validating", "Validating runtime log query")
 	if _, err := application.BuildLogsQuery(queryOptions, time.Now()); err != nil {
 		return err
 	}
@@ -116,6 +118,7 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 	var stream *runtimecontrol.EventStream
 	var followErr error
 	if options.follow {
+		logCommandStep(cmd, "LOGS", "logs.stream.connecting", "Connecting to runtime event stream")
 		interrupt = newForegroundInterrupt(cmd, true)
 		defer interrupt.Close()
 		followCtx = interrupt.Context
@@ -124,6 +127,7 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 			defer stream.Close()
 		}
 	}
+	logCommandStep(cmd, "LOGS", "logs.snapshot.loading", "Loading runtime log snapshot")
 	snapshot, err := application.LoadLogs(queryOptions, visibility, 0, time.Now())
 	if err != nil {
 		return err
@@ -142,6 +146,7 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 	if followErr != nil {
 		return fmt.Errorf("runtime is not running; cannot follow: %w", followErr)
 	}
+	logCommandStep(cmd, "LOGS", "logs.stream.following", "Following runtime event stream")
 	return followRuntimeEventStream(followCtx, stream, snapshot.Query, visibility, lastByRun, replay)
 }
 

@@ -61,7 +61,7 @@ func workspaceContainerListCommand() *cobra.Command {
 		}
 		return nil
 	}}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -101,7 +101,7 @@ func workspaceContainerShowCommand() *cobra.Command {
 		}
 		return nil
 	}}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -269,7 +269,7 @@ func workspaceListCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -304,7 +304,7 @@ func workspaceShowCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 

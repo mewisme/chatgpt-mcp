@@ -40,6 +40,7 @@ func completionCommand() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&noDescriptions, "no-descriptions", false, "disable completion descriptions")
 	cmd.Flags().BoolVar(&goRun, "go-run", false, "also complete direct 'go run .' invocations (bash and zsh)")
+	markMachineOutput(cmd, "always")
 	return cmd
 }
 

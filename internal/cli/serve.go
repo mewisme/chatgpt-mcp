@@ -27,6 +27,7 @@ func serveCommand() *cobra.Command {
 }
 
 func runServer(cmd *cobra.Command, args []string) (runErr error) {
+	logCommandStep(cmd, "SERVER", "server.config.loading", "Loading runtime configuration")
 	source, err := config.Source()
 	if err != nil {
 		return err
@@ -44,14 +45,17 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err := config.Validate(cfg); err != nil {
 		return err
 	}
+	logCommandDebug(cmd, "SERVER", "server.config.loaded", "Runtime configuration loaded", logger.WithDebug("mcp_http", cfg.Server.Enabled), logger.WithDebug("admin", cfg.Admin.Enabled), logger.WithDebug("tunnel", cfg.Tunnel.Enabled), logger.WithDebug("expose", cfg.Server.Expose.Mode))
 
 	runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 	defer runtimeCancel()
 
+	logCommandStep(cmd, "NETWORK", "server.listeners.resolving", "Resolving listener plan")
 	plan, err := resolveListenerPlan(cfg.Server.Expose)
 	if err != nil {
 		return err
 	}
+	logCommandDebug(cmd, "NETWORK", "server.listeners.resolved", "Listener plan resolved", logger.WithDebug("hosts", plan.Hosts), logger.WithDebug("addresses", len(plan.Addresses)))
 	startedAt := time.Now().UTC()
 	serviceInfo := runtimeServiceInfo(cmd)
 	interrupt := newForegroundInterrupt(cmd, false)
@@ -59,6 +63,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	log := commandLogger(cmd)
 	defer log.Close()
 	metadata := runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid(), Managed: serviceInfo.Managed, ServiceID: serviceInfo.ID, ServiceScope: serviceInfo.Scope}
+	logCommandStep(cmd, "SESSION", "runtime.journal.opening", "Opening runtime journal")
 	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: metadata})
 	if err != nil {
 		return err
@@ -90,7 +95,9 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			runtime.Logger.Ready("SERVER", "server.stopped", "Server stopped")
 		}
 		if control != nil {
-			_ = control.Close()
+			if err := control.Close(); err != nil {
+				runtime.Logger.Warning("CONTROL", "runtime.control.close-failed", "Runtime control cleanup failed", err)
+			}
 		}
 	}()
 
@@ -98,6 +105,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	var reloadMu sync.Mutex
 	runtimeReady := false
 	shutdownRequest := make(chan struct{}, 1)
+	runtime.Logger.Verbose("NETWORK", "server.listeners.opening", "Opening HTTP listeners")
 	bindings, err = openHTTPBindings(cfg, plan)
 	if err != nil {
 		return err
@@ -170,7 +178,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		tunnelStatus := runtime.Tunnel.Status()
 		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Starting: !runtimeReady, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ServerEnabled: currentCfg.Server.Enabled, ServerPort: currentCfg.Server.Port, AdminEnabled: currentCfg.Admin.Enabled, AdminPort: currentCfg.Admin.Port, Exposure: currentCfg.Server.Expose.Mode, TunnelEnabled: currentCfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(currentCfg.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(currentCfg.Tunnel.ID), TunnelLastError: tunnelStatus.LastError}
 	}
-	control, err = startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Shutdown: func() {
+	runtime.Logger.Verbose("CONTROL", "runtime.control.starting", "Starting runtime control endpoint")
+	control, err = startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, Status: status, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Log: runtime.Logger, Shutdown: func() {
 		runtimeCancel()
 		select {
 		case shutdownRequest <- struct{}{}:
@@ -180,10 +189,13 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err != nil {
 		return err
 	}
+	runtime.Logger.Diagnostic(logger.Info, "CONTROL", "runtime.control.started", "Runtime control endpoint started", logger.WithDebug("address", control.state.Address), logger.WithDebug("path", control.path))
+	runtime.Logger.Verbose("RUNTIME", "runtime.services.starting", "Starting runtime services")
 	if err := runtime.Start(runtimeCtx); err != nil {
 		return err
 	}
 	bindings.Start(runtime, errCh)
+	runtime.Logger.Verbose("NETWORK", "server.listeners.waiting", "Waiting for HTTP listener readiness")
 	if err := waitRuntimeHTTPReady(runtimeCtx, cfg, 3*time.Second); err != nil {
 		return errors.Join(err, bindings.Shutdown())
 	}

@@ -69,6 +69,7 @@ type Browser struct {
 	viewport           viewport.Model
 	refresh            RefreshFunc
 	actions            []RowAction
+	detailActions      []RowAction
 	helpBindings       []key.Binding
 	detail             bool
 	detailID           string
@@ -118,6 +119,14 @@ func (m Browser) WithAction(action RowAction) Browser {
 	if action.Key != "" && action.Run != nil {
 		m.actions = append(m.actions, action)
 		m.syncHelp()
+	}
+	return m
+}
+
+func (m Browser) WithDetailAction(action RowAction) Browser {
+	action.Key, action.Desc = strings.TrimSpace(action.Key), strings.TrimSpace(action.Desc)
+	if action.Key != "" && action.Run != nil {
+		m.detailActions = append(m.detailActions, action)
 	}
 	return m
 }
@@ -217,6 +226,9 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case m.refresh != nil && key.Matches(msg, browserRefreshBinding):
 			return m.startRefresh()
 		default:
+			if handled, cmd := m.runDetailAction(msg.String()); handled {
+				return m, cmd
+			}
 			if handled, cmd := m.runAction(msg.String()); handled {
 				return m, cmd
 			}
@@ -506,6 +518,9 @@ func (m Browser) detailView() string {
 	for _, action := range m.actions {
 		help = append(help, Binding([]string{action.Key}, action.Key, action.Desc))
 	}
+	for _, action := range m.detailActions {
+		help = append(help, Binding([]string{action.Key}, action.Key, action.Desc))
+	}
 	if m.refresh != nil {
 		help = append(help, browserRefreshBinding)
 	}
@@ -532,10 +547,33 @@ func (m Browser) detailMouseTargets(originX, originY, z int) []MouseTarget {
 		},
 	}}
 	selected, ok := m.detailRow()
-	if !ok || len(selected.DetailTabs) < 2 {
+	if !ok {
 		return targets
 	}
 	lines := strings.Split(ansi.Strip(detail), "\n")
+	for _, action := range append(append([]RowAction(nil), m.actions...), m.detailActions...) {
+		label := strings.TrimSpace(action.Key + " " + action.Desc)
+		if label == "" {
+			continue
+		}
+		line, column := findRenderedLine(lines, label, 0)
+		if line < 0 {
+			continue
+		}
+		keyValue := action.Key
+		targets = append(targets, MouseTarget{
+			ID: "browser.detail.action", Rect: Rect{X: x + column, Y: y + line, Width: lipgloss.Width(label), Height: 1}, Z: z + 1,
+			Handle: func(event MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return browserHelpKeyMsg(keyValue)
+			},
+		})
+	}
+	if len(selected.DetailTabs) < 2 {
+		return targets
+	}
 	for tabIndex, tab := range selected.DetailTabs {
 		label := strings.TrimSpace(tab.Title)
 		if label == "" {
@@ -645,6 +683,32 @@ func (m *Browser) runAction(keyValue string) (bool, tea.Cmd) {
 		if m.detail {
 			selected, ok = m.detailRow()
 		}
+		if !ok {
+			return true, nil
+		}
+		m.notice, m.err = "", nil
+		notice, cmd, err := action.Run(selected)
+		if err != nil {
+			m.err = err
+			statusCmd := m.list.NewStatusMessage(err.Error())
+			return true, tea.Batch(cmd, statusCmd)
+		}
+		m.notice = notice
+		statusCmd := m.list.NewStatusMessage(notice)
+		return true, tea.Batch(cmd, statusCmd)
+	}
+	return false, nil
+}
+
+func (m *Browser) runDetailAction(keyValue string) (bool, tea.Cmd) {
+	if !m.detail {
+		return false, nil
+	}
+	for _, action := range m.detailActions {
+		if action.Key != keyValue {
+			continue
+		}
+		selected, ok := m.detailRow()
 		if !ok {
 			return true, nil
 		}

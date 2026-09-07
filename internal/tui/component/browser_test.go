@@ -227,6 +227,35 @@ func TestBrowserRowActionUsesSelectedItemAndDefaultHelp(t *testing.T) {
 	}
 }
 
+func TestBrowserDetailActionStaysOutOfListHelpAndTargetsOpenedRow(t *testing.T) {
+	actedOn := ""
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One", Detail: "one detail"}, {ID: "two", Title: "Two", Detail: "two detail"}}, nil).WithDetailAction(RowAction{Key: "e", Desc: "edit", Run: func(row Row) (string, tea.Cmd, error) {
+		actedOn = row.ID
+		return "Edited " + row.ID, nil, nil
+	}})
+	if strings.Contains(model.list.Help.ShortHelpView(model.list.ShortHelp()), "edit") || strings.Contains(model.list.Help.FullHelpView(model.list.FullHelp()), "edit") {
+		t.Fatal("detail-only action leaked into list help")
+	}
+	if !model.OpenDetail("two") {
+		t.Fatal("detail did not open")
+	}
+	if !strings.Contains(ansi.Strip(model.detailView()), "e edit") {
+		t.Fatalf("detail help missing action: %q", model.detailView())
+	}
+	model = updateBrowser(t, model, browserKeyText("e"))
+	if actedOn != "two" || model.notice != "Edited two" {
+		t.Fatalf("actedOn=%q notice=%q", actedOn, model.notice)
+	}
+
+	actedOn = ""
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 80, Height: 20})
+	target := mouseTarget(t, model.MouseTargets(0, 0, 1), "browser.detail.action", 0)
+	model = updateBrowser(t, model, target.Handle(MouseEvent{Button: tea.MouseLeft}))
+	if actedOn != "two" {
+		t.Fatalf("mouse detail action targeted %q", actedOn)
+	}
+}
+
 func TestBrowserUsesPageBindingsInListHelp(t *testing.T) {
 	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithHelpBindings(
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),

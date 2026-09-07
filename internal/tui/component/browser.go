@@ -31,6 +31,7 @@ type RowAction struct {
 	Key  string
 	Desc string
 	Run  func(Row) (string, tea.Cmd, error)
+	When func(Row) bool
 }
 
 type browserItem struct{ Row }
@@ -129,6 +130,19 @@ func (m Browser) WithDetailAction(action RowAction) Browser {
 		m.detailActions = append(m.detailActions, action)
 	}
 	return m
+}
+
+func (m *Browser) SetDetailActions(actions ...RowAction) {
+	if m == nil {
+		return
+	}
+	m.detailActions = m.detailActions[:0]
+	for _, action := range actions {
+		action.Key, action.Desc = strings.TrimSpace(action.Key), strings.TrimSpace(action.Desc)
+		if action.Key != "" && action.Run != nil {
+			m.detailActions = append(m.detailActions, action)
+		}
+	}
 }
 
 func (m Browser) WithHelpBindings(bindings ...key.Binding) Browser {
@@ -519,7 +533,9 @@ func (m Browser) detailView() string {
 		help = append(help, Binding([]string{action.Key}, action.Key, action.Desc))
 	}
 	for _, action := range m.detailActions {
-		help = append(help, Binding([]string{action.Key}, action.Key, action.Desc))
+		if actionAvailable(action, selected) {
+			help = append(help, Binding([]string{action.Key}, action.Key, action.Desc))
+		}
 	}
 	if m.refresh != nil {
 		help = append(help, browserRefreshBinding)
@@ -552,6 +568,9 @@ func (m Browser) detailMouseTargets(originX, originY, z int) []MouseTarget {
 	}
 	lines := strings.Split(ansi.Strip(detail), "\n")
 	for _, action := range append(append([]RowAction(nil), m.actions...), m.detailActions...) {
+		if !actionAvailable(action, selected) {
+			continue
+		}
 		label := strings.TrimSpace(action.Key + " " + action.Desc)
 		if label == "" {
 			continue
@@ -712,6 +731,9 @@ func (m *Browser) runDetailAction(keyValue string) (bool, tea.Cmd) {
 		if !ok {
 			return true, nil
 		}
+		if !actionAvailable(action, selected) {
+			continue
+		}
 		m.notice, m.err = "", nil
 		notice, cmd, err := action.Run(selected)
 		if err != nil {
@@ -724,6 +746,10 @@ func (m *Browser) runDetailAction(keyValue string) (bool, tea.Cmd) {
 		return true, tea.Batch(cmd, statusCmd)
 	}
 	return false, nil
+}
+
+func actionAvailable(action RowAction, row Row) bool {
+	return action.When == nil || action.When(row)
 }
 
 func (m *Browser) syncHelp() {

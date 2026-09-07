@@ -226,7 +226,7 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.overlay == mcpOverlayConfirm {
 			return page, page.updateConfirm(msg)
 		}
-		if page.browser.InputActive() {
+		if page.browser.InputActive() || page.browser.DetailOpen() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
@@ -305,72 +305,14 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 func (page *MCPPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	selected, _ := page.browser.Selected()
 	id := selected.ID
-	if page.resourceID != "" {
-		id = page.resourceID
-	}
 	switch msg.String() {
 	case "enter":
-		if page.browser.DetailOpen() || id == "" {
+		if id == "" {
 			return nil, false
 		}
 		return func() tea.Msg { return NavigateMsg{Path: []string{"mcp", id}} }, true
 	case "a":
 		cmd, err := page.openCommand(MCPServerAdd, "")
-		page.err = err
-		return cmd, true
-	case "e":
-		if id == "" {
-			return nil, true
-		}
-		cmd, err := page.openCommand(MCPServerConfigure, id)
-		page.err = err
-		return cmd, true
-	case "d":
-		if id == "" {
-			return nil, true
-		}
-		cmd, err := page.openCommand(MCPServerRemove, id)
-		page.err = err
-		return cmd, true
-	case "space":
-		if id == "" {
-			return nil, true
-		}
-		server, ok := page.manager.Get(id)
-		if !ok {
-			page.err = fmt.Errorf("unknown upstream server: %s", id)
-			return nil, true
-		}
-		command := MCPServerEnable
-		if server.Enabled {
-			command = MCPServerDisable
-		}
-		cmd, err := page.openCommand(command, id)
-		page.err = err
-		return cmd, true
-	case "r":
-		cmd, err := page.openCommand(MCPServerHealth, id)
-		page.err = err
-		return cmd, true
-	case "t":
-		if id == "" {
-			return nil, true
-		}
-		cmd, err := page.openCommand(MCPServerTools, id)
-		page.err = err
-		return cmd, true
-	case "o":
-		if id == "" {
-			return nil, true
-		}
-		cmd, err := page.openCommand(MCPAuthLogin, id)
-		page.err = err
-		return cmd, true
-	case "l":
-		if id == "" {
-			return nil, true
-		}
-		cmd, err := page.openCommand(MCPAuthLogout, id)
 		page.err = err
 		return cmd, true
 	}
@@ -705,9 +647,38 @@ func (page *MCPPage) reload() error {
 	if err != nil {
 		return err
 	}
-	page.browser = component.NewBrowser(page.ctx, "Upstream MCP servers", rows, nil).WithHelpBindings(
-		component.Binding([]string{"a"}, "a", "add"), component.Binding([]string{"e"}, "e", "configure"), component.Binding([]string{"space"}, "space", "toggle"),
-		component.Binding([]string{"r"}, "r", "health"), component.Binding([]string{"t"}, "t", "tools"), component.Binding([]string{"o"}, "o", "login"), component.Binding([]string{"l"}, "l", "logout"), component.Binding([]string{"d"}, "d", "remove"),
+	page.browser = component.NewBrowser(page.ctx, "Upstream MCP servers", rows, nil).WithHelpBindings(component.Binding([]string{"a"}, "a", "add"))
+	detailAction := func(key, desc string, command MCPCommand, when func(upstream.Server) bool) component.RowAction {
+		return component.RowAction{Key: key, Desc: desc, When: func(row component.Row) bool {
+			server, ok := page.manager.Get(row.ID)
+			return ok && (when == nil || when(server))
+		}, Run: func(row component.Row) (string, tea.Cmd, error) {
+			resolved := command
+			if command == MCPServerEnable {
+				server, ok := page.manager.Get(row.ID)
+				if !ok {
+					return "", nil, fmt.Errorf("unknown upstream server: %s", row.ID)
+				}
+				if server.Enabled {
+					resolved = MCPServerDisable
+				}
+			}
+			return "", func() tea.Msg { return MCPCommandMsg{Command: resolved, ResourceID: row.ID} }, nil
+		}}
+	}
+	page.browser.SetDetailActions(
+		detailAction("e", "configure", MCPServerConfigure, nil),
+		detailAction("space", "toggle", MCPServerEnable, nil),
+		detailAction("r", "health", MCPServerHealth, nil),
+		detailAction("t", "tools", MCPServerTools, nil),
+		detailAction("o", "login", MCPAuthLogin, func(server upstream.Server) bool { return server.Transport == "http" && server.Auth.Type != "none" }),
+		component.RowAction{Key: "l", Desc: "logout", When: func(row component.Row) bool {
+			status, err := page.oauthStore.Status(row.ID)
+			return err == nil && status.Configured
+		}, Run: func(row component.Row) (string, tea.Cmd, error) {
+			return "", func() tea.Msg { return MCPCommandMsg{Command: MCPAuthLogout, ResourceID: row.ID} }, nil
+		}},
+		detailAction("d", "remove", MCPServerRemove, nil),
 	)
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {

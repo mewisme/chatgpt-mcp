@@ -251,7 +251,7 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return page, nil
 		}
-		if page.kind == tunnelPageManaged && page.browser.InputActive() {
+		if page.kind == tunnelPageManaged && (page.browser.InputActive() || page.browser.DetailOpen()) {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
@@ -399,46 +399,18 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 
 	selected, _ := page.browser.Selected()
 	id := selected.ID
-	if page.resourceID != "" {
-		id = page.resourceID
-	}
 	switch msg.String() {
 	case "enter":
-		if page.browser.DetailOpen() || id == "" {
+		if id == "" {
 			return nil, false
 		}
 		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", id}} }, true
 	case "r":
-		refreshID := ""
-		if page.browser.DetailOpen() {
-			refreshID = id
-		}
-		cmd, err := page.openCommand(TunnelManagedRefresh, refreshID)
+		cmd, err := page.openCommand(TunnelManagedRefresh, "")
 		page.err = err
 		return cmd, true
 	case "a":
 		cmd, err := page.openCommand(TunnelManagedCreate, "")
-		page.err = err
-		return cmd, true
-	case "e":
-		if id == "" {
-			return nil, true
-		}
-		cmd, err := page.openCommand(TunnelManagedUpdate, id)
-		page.err = err
-		return cmd, true
-	case "c":
-		if id == "" {
-			return nil, true
-		}
-		cmd, err := page.openCommand(TunnelManagedConfigure, id)
-		page.err = err
-		return cmd, true
-	case "d":
-		if id == "" {
-			return nil, true
-		}
-		cmd, err := page.openCommand(TunnelManagedDelete, id)
 		page.err = err
 		return cmd, true
 	}
@@ -746,8 +718,17 @@ func (page *TunnelPage) reloadDashboard() {
 func (page *TunnelPage) reloadManagedBrowser() error {
 	helpExpanded := page.browser.HelpExpanded()
 	rows := page.managedRows()
-	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(
-		component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"a"}, "a", "add"), component.Binding([]string{"e"}, "e", "update"), component.Binding([]string{"c"}, "c", "configure"), component.Binding([]string{"d"}, "d", "delete"),
+	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"a"}, "a", "add"))
+	detailAction := func(key, desc string, command TunnelCommand) component.RowAction {
+		return component.RowAction{Key: key, Desc: desc, Run: func(row component.Row) (string, tea.Cmd, error) {
+			return "", func() tea.Msg { return TunnelCommandMsg{Command: command, ResourceID: row.ID} }, nil
+		}}
+	}
+	page.browser.SetDetailActions(
+		detailAction("r", "refresh", TunnelManagedRefresh),
+		detailAction("e", "update", TunnelManagedUpdate),
+		detailAction("c", "configure", TunnelManagedConfigure),
+		detailAction("d", "delete", TunnelManagedDelete),
 	)
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {

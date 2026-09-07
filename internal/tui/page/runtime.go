@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
@@ -243,7 +242,7 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return page, nil
 		}
-		if page.browser.InputActive() {
+		if page.browser.InputActive() || page.browser.DetailOpen() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			page.syncBrowserHelp()
@@ -569,104 +568,7 @@ func (page *RuntimePage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		page.loading = true
 		return page.loadCmd(), true
 	}
-	switch page.selectedID() {
-	case "runtime":
-		scope := page.runtimeScope()
-		switch msg.String() {
-		case "u":
-			return page.openRuntimeAction("up", scope), true
-		case "d":
-			return page.openRuntimeAction("down", scope), true
-		case "x":
-			return page.openRuntimeAction("restart", scope), true
-		case "l":
-			cmd, _ := page.openCommand(RuntimeReload)
-			return cmd, true
-		case "f":
-			cmd, _ := page.openCommand(RuntimeForeground)
-			return cmd, true
-		}
-	case "transport.mcp-http":
-		if msg.String() == "space" || msg.String() == "e" {
-			command := MCPHTTPEnable
-			if page.runtime.MCPHTTPEnabled {
-				command = MCPHTTPDisable
-			}
-			cmd, _ := page.openCommand(command)
-			return cmd, true
-		}
-	case "service.user":
-		return page.handleServiceKey(msg, managed.ScopeUser)
-	case "service.system":
-		return page.handleServiceKey(msg, managed.ScopeSystem)
-	case "auth.mcp":
-		if msg.String() == "e" {
-			command := AuthMCPEnable
-			if page.auth.MCPEnabled {
-				command = AuthMCPDisable
-			}
-			cmd, _ := page.openCommand(command)
-			return cmd, true
-		}
-		if msg.String() == "t" {
-			cmd, _ := page.openCommand(AuthMCPRotate)
-			return cmd, true
-		}
-	case "auth.admin":
-		if msg.String() == "e" {
-			command := AuthAdminEnable
-			if page.auth.AdminEnabled {
-				command = AuthAdminDisable
-			}
-			cmd, _ := page.openCommand(command)
-			return cmd, true
-		}
-		if msg.String() == "t" {
-			cmd, _ := page.openCommand(AuthAdminRotate)
-			return cmd, true
-		}
-	case "installation":
-		if msg.String() == "i" {
-			cmd, _ := page.openCommand(InstallRun)
-			return cmd, true
-		}
-		if msg.String() == "c" {
-			cmd, _ := page.openCommand(InstallCleanup)
-			return cmd, true
-		}
-	case "alias":
-		if msg.String() == "a" {
-			command := AliasInstall
-			if page.install.Alias.State == install.AliasInstalled {
-				command = AliasRemove
-			}
-			cmd, _ := page.openCommand(command)
-			return cmd, true
-		}
-	case "update":
-		if msg.String() == "k" {
-			cmd, _ := page.openCommand(UpdateCheck)
-			return cmd, true
-		}
-		if msg.String() == "u" {
-			cmd, _ := page.openCommand(UpdateApply)
-			return cmd, true
-		}
-	}
 	return nil, false
-}
-
-func (page *RuntimePage) handleServiceKey(msg tea.KeyPressMsg, scope managed.Scope) (tea.Cmd, bool) {
-	switch msg.String() {
-	case "u":
-		return page.openRuntimeAction("up", scope), true
-	case "d":
-		return page.openRuntimeAction("down", scope), true
-	case "x":
-		return page.openRuntimeAction("restart", scope), true
-	default:
-		return nil, false
-	}
 }
 
 func (page *RuntimePage) openRuntimeAction(action string, scope managed.Scope) tea.Cmd {
@@ -902,60 +804,69 @@ func (page *RuntimePage) statusView(width int) string {
 }
 
 func (page *RuntimePage) syncBrowserHelp() {
-	refresh := component.Binding([]string{"r"}, "r", "refresh")
-	switch page.selectedID() {
-	case "runtime", "service.user", "service.system":
-		bindings := []key.Binding{refresh, component.Binding([]string{"u"}, "u", "up"), component.Binding([]string{"x"}, "x", "restart"), component.Binding([]string{"d"}, "d", "down")}
-		if page.selectedID() == "runtime" {
-			if page.runtime.Running {
-				bindings = append(bindings, component.Binding([]string{"l"}, "l", "reload"))
-			}
-			bindings = append(bindings, component.Binding([]string{"f"}, "f", "foreground"))
+	page.browser.SetHelpBindings(component.Binding([]string{"r"}, "r", "refresh"))
+	run := func(command func(component.Row) SystemCommand) func(component.Row) (string, tea.Cmd, error) {
+		return func(row component.Row) (string, tea.Cmd, error) {
+			resolved := command(row)
+			return "", func() tea.Msg { return SystemCommandMsg{Command: resolved} }, nil
 		}
-		page.browser.SetHelpBindings(bindings...)
-	case "transport.mcp-http":
-		label := "enable"
-		if page.runtime.MCPHTTPEnabled {
-			label = "disable"
-		}
-		page.browser.SetHelpBindings(refresh, component.Binding([]string{"space", "e"}, "space", label))
-	case "auth.mcp":
-		label := "enable"
-		if page.auth.MCPEnabled {
-			label = "disable"
-		}
-		bindings := []key.Binding{refresh, component.Binding([]string{"t"}, "t", "rotate token")}
-		if page.auth.MCPConfigured || page.auth.MCPEnabled {
-			bindings = append(bindings, component.Binding([]string{"e"}, "e", label))
-		}
-		page.browser.SetHelpBindings(bindings...)
-	case "auth.admin":
-		label := "enable"
-		if page.auth.AdminEnabled {
-			label = "disable"
-		}
-		bindings := []key.Binding{refresh, component.Binding([]string{"t"}, "t", "rotate token")}
-		if page.auth.AdminConfigured || page.auth.AdminEnabled {
-			bindings = append(bindings, component.Binding([]string{"e"}, "e", label))
-		}
-		page.browser.SetHelpBindings(bindings...)
-	case "installation":
-		page.browser.SetHelpBindings(refresh, component.Binding([]string{"i"}, "i", "install"), component.Binding([]string{"c"}, "c", "cleanup"))
-	case "alias":
-		label := "install"
-		if page.install.Alias.State == install.AliasInstalled {
-			label = "remove"
-		}
-		if page.install.AliasAvailable {
-			page.browser.SetHelpBindings(refresh, component.Binding([]string{"a"}, "a", label))
-		} else {
-			page.browser.SetHelpBindings(refresh)
-		}
-	case "update":
-		page.browser.SetHelpBindings(refresh, component.Binding([]string{"k"}, "k", "check"), component.Binding([]string{"u"}, "u", "upgrade"))
-	default:
-		page.browser.SetHelpBindings(refresh)
 	}
+	rowIs := func(ids ...string) func(component.Row) bool {
+		return func(row component.Row) bool {
+			for _, id := range ids {
+				if row.ID == id {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	scopeForRow := func(row component.Row) managed.Scope {
+		switch row.ID {
+		case "service.system":
+			return managed.ScopeSystem
+		case "service.user":
+			return managed.ScopeUser
+		default:
+			return page.runtimeScope()
+		}
+	}
+	toggleHTTP := MCPHTTPEnable
+	toggleHTTPLabel := "enable"
+	if page.runtime.MCPHTTPEnabled {
+		toggleHTTP, toggleHTTPLabel = MCPHTTPDisable, "disable"
+	}
+	toggleMCPAuth := AuthMCPEnable
+	toggleMCPAuthLabel := "enable"
+	if page.auth.MCPEnabled {
+		toggleMCPAuth, toggleMCPAuthLabel = AuthMCPDisable, "disable"
+	}
+	toggleAdminAuth := AuthAdminEnable
+	toggleAdminAuthLabel := "enable"
+	if page.auth.AdminEnabled {
+		toggleAdminAuth, toggleAdminAuthLabel = AuthAdminDisable, "disable"
+	}
+	aliasCommand, aliasLabel := AliasInstall, "install"
+	if page.install.Alias.State == install.AliasInstalled {
+		aliasCommand, aliasLabel = AliasRemove, "remove"
+	}
+	page.browser.SetDetailActions(
+		component.RowAction{Key: "u", Desc: "up", When: rowIs("runtime", "service.user", "service.system"), Run: run(func(row component.Row) SystemCommand { return runtimeCommand("up", scopeForRow(row)) })},
+		component.RowAction{Key: "x", Desc: "restart", When: rowIs("runtime", "service.user", "service.system"), Run: run(func(row component.Row) SystemCommand { return runtimeCommand("restart", scopeForRow(row)) })},
+		component.RowAction{Key: "d", Desc: "down", When: rowIs("runtime", "service.user", "service.system"), Run: run(func(row component.Row) SystemCommand { return runtimeCommand("down", scopeForRow(row)) })},
+		component.RowAction{Key: "l", Desc: "reload", When: func(row component.Row) bool { return row.ID == "runtime" && page.runtime.Running }, Run: run(func(component.Row) SystemCommand { return RuntimeReload })},
+		component.RowAction{Key: "f", Desc: "foreground", When: rowIs("runtime"), Run: run(func(component.Row) SystemCommand { return RuntimeForeground })},
+		component.RowAction{Key: "space", Desc: toggleHTTPLabel, When: rowIs("transport.mcp-http"), Run: run(func(component.Row) SystemCommand { return toggleHTTP })},
+		component.RowAction{Key: "e", Desc: toggleMCPAuthLabel, When: func(row component.Row) bool { return row.ID == "auth.mcp" && (page.auth.MCPConfigured || page.auth.MCPEnabled) }, Run: run(func(component.Row) SystemCommand { return toggleMCPAuth })},
+		component.RowAction{Key: "t", Desc: "rotate token", When: rowIs("auth.mcp"), Run: run(func(component.Row) SystemCommand { return AuthMCPRotate })},
+		component.RowAction{Key: "e", Desc: toggleAdminAuthLabel, When: func(row component.Row) bool { return row.ID == "auth.admin" && (page.auth.AdminConfigured || page.auth.AdminEnabled) }, Run: run(func(component.Row) SystemCommand { return toggleAdminAuth })},
+		component.RowAction{Key: "t", Desc: "rotate token", When: rowIs("auth.admin"), Run: run(func(component.Row) SystemCommand { return AuthAdminRotate })},
+		component.RowAction{Key: "i", Desc: "install", When: rowIs("installation"), Run: run(func(component.Row) SystemCommand { return InstallRun })},
+		component.RowAction{Key: "c", Desc: "cleanup", When: rowIs("installation"), Run: run(func(component.Row) SystemCommand { return InstallCleanup })},
+		component.RowAction{Key: "a", Desc: aliasLabel, When: func(row component.Row) bool { return row.ID == "alias" && page.install.AliasAvailable }, Run: run(func(component.Row) SystemCommand { return aliasCommand })},
+		component.RowAction{Key: "k", Desc: "check", When: rowIs("update"), Run: run(func(component.Row) SystemCommand { return UpdateCheck })},
+		component.RowAction{Key: "u", Desc: "upgrade", When: rowIs("update"), Run: run(func(component.Row) SystemCommand { return UpdateApply })},
+	)
 }
 
 func (page *RuntimePage) confirmActionLabel() string {

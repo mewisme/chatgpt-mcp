@@ -81,7 +81,10 @@ type Browser struct {
 	notice             string
 	pendingSelectionID string
 	detailTab          int
+	listOnly           bool
 }
+
+type BrowserOpenMsg struct{ Row Row }
 
 type browserRefreshMsg struct {
 	rows []Row
@@ -98,6 +101,7 @@ type browserMouseMsg struct {
 const browserShortCustomHelpLimit = 5
 
 var browserOpenBinding = Binding([]string{"enter", "v"}, "enter", "details")
+var browserListOpenBinding = Binding([]string{"enter", "v"}, "enter", "open")
 var browserRefreshBinding = Binding([]string{"r"}, "r", "refresh")
 
 func NewBrowser(ctx context.Context, title string, rows []Row, refresh RefreshFunc) Browser {
@@ -163,6 +167,15 @@ func (m Browser) WithTitleVisible(visible bool) Browser {
 	m.titleVisible = visible
 	return m
 }
+
+func (m Browser) WithListOnly() Browser {
+	m.listOnly = true
+	m.closeDetail()
+	m.syncHelp()
+	return m
+}
+
+func (m Browser) ListOnly() bool { return m.listOnly }
 
 func (m *Browser) SetTitleNotice(notice string) {
 	if m == nil {
@@ -257,8 +270,11 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	switch {
-	case key.Matches(msg, browserOpenBinding):
+	case key.Matches(msg, m.openBinding()):
 		if selected, ok := m.selected(); ok {
+			if m.listOnly {
+				return m, browserOpenCmd(selected)
+			}
 			m.detail = true
 			m.detailID = selected.ID
 			m.detailTab = 0
@@ -652,6 +668,9 @@ func (m Browser) handleMouse(msg browserMouseMsg) (tea.Model, tea.Cmd) {
 		m.list.Select(msg.Index)
 		if msg.Open {
 			if selected, ok := m.selected(); ok {
+				if m.listOnly {
+					return m, browserOpenCmd(selected)
+				}
 				m.detail = true
 				m.detailID = selected.ID
 				m.detailTab = 0
@@ -769,13 +788,25 @@ func (m *Browser) syncHelp() {
 	if m.refresh != nil {
 		custom = append(custom, browserRefreshBinding)
 	}
-	short := []key.Binding{browserOpenBinding}
+	open := m.openBinding()
+	short := []key.Binding{open}
 	if len(custom) <= browserShortCustomHelpLimit {
 		short = append(short, custom...)
 	}
-	full := append([]key.Binding{browserOpenBinding}, custom...)
+	full := append([]key.Binding{open}, custom...)
 	m.list.AdditionalShortHelpKeys = func() []key.Binding { return append([]key.Binding(nil), short...) }
 	m.list.AdditionalFullHelpKeys = func() []key.Binding { return append([]key.Binding(nil), full...) }
+}
+
+func (m Browser) openBinding() key.Binding {
+	if m.listOnly {
+		return browserListOpenBinding
+	}
+	return browserOpenBinding
+}
+
+func browserOpenCmd(row Row) tea.Cmd {
+	return func() tea.Msg { return BrowserOpenMsg{Row: row} }
 }
 
 func (m *Browser) restoreSelection(id string) {

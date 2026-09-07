@@ -141,6 +141,55 @@ func TestBrowserUsesExactAvailableLayout(t *testing.T) {
 	}
 }
 
+func TestBrowserListOnlyEnterEmitsOpenWithoutDetailState(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}, nil).WithListOnly()
+	model = updateBrowser(t, model, browserKeyText("j"))
+	updated, cmd := model.Update(browserKeyCode(tea.KeyEnter))
+	model = updated.(Browser)
+	if cmd == nil {
+		t.Fatal("list-only enter returned no command")
+	}
+	msg, ok := cmd().(BrowserOpenMsg)
+	if !ok || msg.Row.ID != "two" {
+		t.Fatalf("open message=%#v", msg)
+	}
+	if model.DetailOpen() {
+		t.Fatal("list-only browser opened legacy detail state")
+	}
+	view := ansi.Strip(model.Content())
+	if !strings.Contains(view, "enter open") || strings.Contains(view, "enter details") {
+		t.Fatalf("list-only help=%q", view)
+	}
+}
+
+func TestBrowserListOnlySelectedRowClickEmitsOpen(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithListOnly()
+	model = updateBrowser(t, model, tea.WindowSizeMsg{Width: 80, Height: 20})
+	var row MouseTarget
+	found := false
+	for _, target := range model.MouseTargets(0, 0, 1) {
+		if target.ID == "browser.row" {
+			row, found = target, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("row mouse target missing")
+	}
+	updated, cmd := model.Update(row.Handle(MouseEvent{Button: tea.MouseLeft}))
+	model = updated.(Browser)
+	if cmd == nil {
+		t.Fatal("selected row click returned no open command")
+	}
+	msg, ok := cmd().(BrowserOpenMsg)
+	if !ok || msg.Row.ID != "one" {
+		t.Fatalf("mouse open message=%#v", msg)
+	}
+	if model.DetailOpen() {
+		t.Fatal("mouse open entered legacy detail state")
+	}
+}
+
 func TestBrowserFilterCapturesActionLikeKeys(t *testing.T) {
 	model := NewBrowser(context.Background(), "Items", []Row{{ID: "alpha", Title: "Alpha"}, {ID: "beta", Title: "Beta"}}, nil)
 	updated, _ := model.Update(browserKeyText("/"))

@@ -33,15 +33,6 @@ type WorkspaceCommandMsg struct {
 	ResourceID string
 }
 
-type workspaceTab uint8
-
-const (
-	workspaceTabWorkspaces workspaceTab = iota
-	workspaceTabContainers
-)
-
-var workspaceTabLabels = []string{"Workspaces", "Containers"}
-
 type workspaceOverlayKind uint8
 
 const (
@@ -53,9 +44,11 @@ const (
 type WorkspacePage struct {
 	ctx        context.Context
 	manager    *workspace.Manager
-	tab        workspaceTab
+	containers bool
 	resourceID string
+	section    string
 	browser    component.Browser
+	detail     component.DetailPage
 	overlay    workspaceOverlayKind
 	form       component.Form
 	confirm    component.ConfirmButtons
@@ -69,26 +62,34 @@ type WorkspacePage struct {
 	height     int
 }
 
+type workspaceCopyIDMsg struct{ ID string }
+type workspaceRefreshDetailMsg struct{}
+
 var copyWorkspaceID = component.CopyText
 
 func NewWorkspaces(ctx context.Context, resourceID string) (*WorkspacePage, error) {
-	return newWorkspacePage(ctx, workspaceTabWorkspaces, resourceID)
+	return NewWorkspacesRoute(ctx, resourceID, "")
 }
 
 func NewContainers(ctx context.Context, resourceID string) (*WorkspacePage, error) {
-	return newWorkspacePage(ctx, workspaceTabContainers, resourceID)
+	return NewContainersRoute(ctx, resourceID, "")
 }
 
-func newWorkspacePage(ctx context.Context, tab workspaceTab, resourceID string) (*WorkspacePage, error) {
+func NewWorkspacesRoute(ctx context.Context, resourceID, section string) (*WorkspacePage, error) {
+	return newWorkspacePage(ctx, false, resourceID, section)
+}
+
+func NewContainersRoute(ctx context.Context, resourceID, section string) (*WorkspacePage, error) {
+	return newWorkspacePage(ctx, true, resourceID, section)
+}
+
+func newWorkspacePage(ctx context.Context, containers bool, resourceID, section string) (*WorkspacePage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	page := &WorkspacePage{ctx: ctx, manager: workspace.NewManager(workspace.DefaultStorePath()), tab: tab, resourceID: strings.TrimSpace(resourceID)}
+	page := &WorkspacePage{ctx: ctx, manager: workspace.NewManager(workspace.DefaultStorePath()), containers: containers, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section)}
 	if err := page.reload(); err != nil {
 		return nil, err
-	}
-	if page.resourceID != "" && !page.browser.OpenDetail(page.resourceID) {
-		return nil, fmt.Errorf("resource not found: %s", page.resourceID)
 	}
 	return page, nil
 }
@@ -96,11 +97,11 @@ func newWorkspacePage(ctx context.Context, tab workspaceTab, resourceID string) 
 func (page *WorkspacePage) Init() tea.Cmd { return nil }
 
 func (page *WorkspacePage) OverlayActive() bool {
-	return page != nil && (page.overlay != workspaceOverlayNone || page.browser.DetailOpen())
+	return page != nil && page.overlay != workspaceOverlayNone
 }
 
 func (page *WorkspacePage) InputActive() bool {
-	return page != nil && (page.overlay == workspaceOverlayForm || page.browser.InputActive())
+	return page != nil && (page.overlay == workspaceOverlayForm || page.resourceID == "" && page.browser.InputActive())
 }
 
 func (page *WorkspacePage) Notice() string {
@@ -123,9 +124,12 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
-		tabs := component.PageTabsNotice(workspaceTabLabels, int(page.tab), page.notice, msg.Width)
-		updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: msg.Width, Height: max(1, msg.Height-lipgloss.Height(tabs))})
-		page.browser = updated.(component.Browser)
+		var cmd tea.Cmd
+		if page.resourceID != "" {
+			page.detail.Resize(msg.Width, msg.Height)
+		} else {
+			cmd = page.resizeBrowser()
+		}
 		if page.overlay == workspaceOverlayForm {
 			form, formCmd := page.form.Update(msg)
 			page.form = form
@@ -156,6 +160,25 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.err = err
 		}
 		return page, cmd
+	case component.BrowserOpenMsg:
+		if page.resourceID == "" && msg.Row.ID != "" {
+			return page, page.navigateResource(msg.Row.ID)
+		}
+		return page, nil
+	case workspaceCopyIDMsg:
+		if err := copyWorkspaceID(msg.ID); err != nil {
+			page.err = err
+		} else {
+			page.err = nil
+			page.notice = "Copied " + msg.ID
+		}
+		return page, nil
+	case workspaceRefreshDetailMsg:
+		page.err = page.syncDetail()
+		if page.err == nil {
+			page.notice = "Refreshed"
+		}
+		return page, nil
 	case tea.KeyPressMsg:
 		if page.overlay == workspaceOverlayForm {
 			updated, cmd := page.form.Update(msg)
@@ -165,15 +188,12 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.overlay == workspaceOverlayConfirm {
 			return page, page.updateConfirm(msg)
 		}
-		if page.browser.InputActive() {
+		if page.resourceID == "" && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
 		}
-		if !page.browser.DetailOpen() {
-			if cmd, handled := page.handleTabKey(msg); handled {
-				return page, cmd
-			}
+		if page.resourceID == "" {
 			if cmd, handled := page.handleListKey(msg); handled {
 				return page, cmd
 			}
@@ -182,6 +202,11 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page.overlay == workspaceOverlayForm {
 		updated, cmd := page.form.Update(message)
 		page.form = updated
+		return page, cmd
+	}
+	if page.resourceID != "" {
+		updated, cmd := page.detail.Update(message)
+		page.detail = updated
 		return page, cmd
 	}
 	updated, cmd := page.browser.Update(message)
@@ -194,17 +219,7 @@ func (page *WorkspacePage) View(width, height int) string {
 		return component.StateView(component.PageError, "Workspace page unavailable", "")
 	}
 	page.width, page.height = width, height
-	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.tab), page.notice, width)
-	feedback := ""
-	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
-	}
-	browserHeight := max(1, height-lipgloss.Height(tabs)-pageFeedbackHeight(feedback))
-	if width > 0 && browserHeight > 0 {
-		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
-		page.browser = updated.(component.Browser)
-	}
-	content := tabs + "\n" + prependPageFeedback(feedback, page.browser.Content())
+	content := page.baseView(width, height)
 	switch page.overlay {
 	case workspaceOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), page.formOverlayWidth(width)), width, height)
@@ -225,78 +240,21 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 	case workspaceOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
 	default:
-		feedback := ""
-		if page.err != nil {
-			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		if page.resourceID != "" {
+			return page.detail.MouseTargets(originX, originY, z)
 		}
-		tabs := component.PageTabsNotice(workspaceTabLabels, int(page.tab), page.notice, page.width)
-		tabTargets := page.workspaceTabMouseTargets(originX, originY, z+2)
-		browserY := originY + lipgloss.Height(tabs) + pageFeedbackHeight(feedback)
-		return append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
+		feedback := page.listFeedback()
+		title := component.PageTitleNotice(page.listTitle(), page.notice, page.width)
+		browserY := originY + lipgloss.Height(title) + pageFeedbackHeight(feedback)
+		return page.browser.MouseTargets(originX, browserY, z)
 	}
-}
-
-func (page *WorkspacePage) handleTabKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	switch msg.String() {
-	case "1":
-		return page.switchWorkspaceTab(workspaceTabWorkspaces), true
-	case "2":
-		return page.switchWorkspaceTab(workspaceTabContainers), true
-	}
-	if delta, ok := component.TabDelta(msg); ok {
-		next := component.MoveTab(int(page.tab), len(workspaceTabLabels), delta)
-		return page.switchWorkspaceTab(workspaceTab(next)), true
-	}
-	return nil, false
-}
-
-func (page *WorkspacePage) switchWorkspaceTab(tab workspaceTab) tea.Cmd {
-	if tab > workspaceTabContainers || page.tab == tab {
-		return nil
-	}
-	page.tab, page.resourceID, page.err = tab, "", nil
-	if err := page.reload(); err != nil {
-		page.err = err
-	}
-	return nil
-}
-
-func (page *WorkspacePage) workspaceTabMouseTargets(originX, originY, z int) []component.MouseTarget {
-	_, spans := component.PageTabsLayout(workspaceTabLabels, int(page.tab), page.notice, page.width)
-	targets := make([]component.MouseTarget, 0, len(spans))
-	for _, span := range spans {
-		tab := span.Index
-		targets = append(targets, component.MouseTarget{
-			ID: "workspace.tab", Rect: component.Rect{X: originX + span.X, Y: originY, Width: span.Width, Height: 1}, Z: z,
-			Handle: func(event component.MouseEvent) tea.Msg {
-				if event.Button != tea.MouseLeft {
-					return nil
-				}
-				if tab == 0 {
-					return tea.KeyPressMsg{Code: '1'}
-				}
-				return tea.KeyPressMsg{Code: '2'}
-			},
-		})
-	}
-	return targets
 }
 
 func (page *WorkspacePage) handleListKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	selected, _ := page.browser.Selected()
 	switch msg.String() {
-	case "enter":
-		if selected.ID == "" {
-			return nil, true
-		}
-		path := []string{"workspace", selected.ID}
-		if page.tab == workspaceTabContainers {
-			path = []string{"containers", selected.ID}
-		}
-		return func() tea.Msg { return NavigateMsg{Path: path} }, true
 	case "a":
 		command := WorkspaceRegister
-		if page.tab == workspaceTabContainers {
+		if page.containers {
 			command = WorkspaceContainerCreate
 		}
 		cmd, err := page.openCommand(command, "")
@@ -304,6 +262,14 @@ func (page *WorkspacePage) handleListKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			page.err = err
 		}
 		return cmd, true
+	case "c":
+		if !page.containers {
+			return func() tea.Msg { return NavigateMsg{Path: []string{"containers"}} }, true
+		}
+	case "w":
+		if page.containers {
+			return func() tea.Msg { return NavigateMsg{Path: []string{"workspaces"}} }, true
+		}
 	}
 	return nil, false
 }
@@ -444,15 +410,12 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		deletedID := page.targetID
 		page.closeOverlay()
 		page.resourceID = ""
-		if err := page.reload(); err != nil {
-			page.err = err
-		}
 		if deletedID != "" {
 			path := []string{"workspaces"}
-			if page.tab == workspaceTabContainers {
+			if page.containers {
 				path = []string{"containers"}
 			}
-			return func() tea.Msg { return NavigateMsg{Path: path} }
+			return func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }
 		}
 		return nil
 	}
@@ -492,54 +455,28 @@ func (page *WorkspacePage) updateMembers() error {
 }
 
 func (page *WorkspacePage) reload() error {
-	helpExpanded := page.browser.HelpExpanded()
-	detailOpen := page.browser.DetailOpen()
-	selected, _ := page.browser.Selected()
-	var rows []component.Row
-	var err error
-	if page.tab == workspaceTabContainers {
-		rows, err = page.containerRows()
-	} else {
-		rows, err = page.workspaceRows()
+	if page.resourceID != "" {
+		return page.syncDetail()
 	}
+	helpExpanded := page.browser.HelpExpanded()
+	selected, _ := page.browser.Selected()
+	rows, err := page.listRows()
 	if err != nil {
 		return err
 	}
-	title := workspaceTabLabels[int(page.tab)]
-	refresh := func(context.Context) ([]component.Row, error) {
-		if page.tab == workspaceTabContainers {
-			return page.containerRows()
-		}
-		return page.workspaceRows()
-	}
-	page.browser = component.NewBrowser(page.ctx, title, rows, refresh).WithTitleVisible(false).WithDetailAction(component.RowAction{Key: "c", Desc: "copy ID", Run: func(row component.Row) (string, tea.Cmd, error) {
-		if err := copyWorkspaceID(row.ID); err != nil {
-			return "", nil, err
-		}
-		return "Copied " + row.ID, nil, nil
-	}})
-	detailAction := func(key, desc string, command WorkspaceCommand) component.RowAction {
-		return component.RowAction{Key: key, Desc: desc, Run: func(row component.Row) (string, tea.Cmd, error) {
-			return "", func() tea.Msg { return WorkspaceCommandMsg{Command: command, ResourceID: row.ID} }, nil
-		}}
-	}
+	refresh := func(context.Context) ([]component.Row, error) { return page.listRows() }
+	page.browser = component.NewBrowser(page.ctx, page.listTitle(), rows, refresh).WithTitleVisible(false).WithListOnly()
 	page.browser.SetHelpExpanded(helpExpanded)
-	if page.tab == workspaceTabContainers {
-		page.browser = page.browser.WithDetailAction(detailAction("e", "rename", WorkspaceContainerRename)).WithDetailAction(detailAction("m", "members", WorkspaceContainerMembers)).WithDetailAction(detailAction("d", "delete", WorkspaceContainerDelete))
-		page.browser.SetHelpBindings(component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"a"}, "a", "create"))
+	if page.containers {
+		page.browser.SetHelpBindings(component.Binding([]string{"a"}, "a", "create"), component.Binding([]string{"w"}, "w", "workspaces"))
 	} else {
-		page.browser = page.browser.WithDetailAction(detailAction("+", "add access", WorkspaceAccessAdd)).WithDetailAction(detailAction("-", "remove access", WorkspaceAccessRemove)).WithDetailAction(detailAction("d", "unregister", WorkspaceUnregister))
-		page.browser.SetHelpBindings(component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"a"}, "a", "register"))
+		page.browser.SetHelpBindings(component.Binding([]string{"a"}, "a", "register"), component.Binding([]string{"c"}, "c", "containers"))
+	}
+	if selected.ID != "" {
+		page.browser.SelectID(selected.ID)
 	}
 	if page.width > 0 && page.height > 0 {
-		tabs := component.PageTabsNotice(workspaceTabLabels, int(page.tab), page.notice, page.width)
-		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: max(1, page.height-lipgloss.Height(tabs))})
-		page.browser = updated.(component.Browser)
-	}
-	if page.resourceID != "" {
-		page.browser.OpenDetail(page.resourceID)
-	} else if detailOpen && selected.ID != "" {
-		page.browser.OpenDetail(selected.ID)
+		page.resizeBrowser()
 	}
 	return nil
 }
@@ -551,23 +488,7 @@ func (page *WorkspacePage) workspaceRows() ([]component.Row, error) {
 	}
 	rows := make([]component.Row, 0, len(items))
 	for _, item := range items {
-		containers, err := page.manager.ContainersForWorkspace(item.ID)
-		if err != nil {
-			return nil, err
-		}
-		containerNames := make([]string, 0, len(containers))
-		for _, container := range containers {
-			containerNames = append(containerNames, container.Name+" ("+container.ID+")")
-		}
-		rows = append(rows, component.Row{
-			ID: item.ID, Title: item.ID, Description: item.Path, Meta: fmt.Sprintf("%d extra roots", len(item.AllowDirs)), Search: strings.Join(append(append([]string{item.Path}, item.AllowDirs...), item.LegacyIDs...), " "),
-			DetailTitle: "Workspace · " + item.ID,
-			DetailTabs: []component.DetailTab{
-				{Title: "Overview", Content: detailFields([2]string{"Root", item.Path}, [2]string{"Legacy IDs", joinedOrNone(item.LegacyIDs)})},
-				{Title: "Access", Content: detailList(item.AllowDirs)},
-				{Title: "Containers", Content: detailList(containerNames)},
-			},
-		})
+		rows = append(rows, component.Row{ID: item.ID, Title: item.ID, Description: item.Path, Meta: fmt.Sprintf("%d extra roots", len(item.AllowDirs)), Search: strings.Join(append(append([]string{item.Path}, item.AllowDirs...), item.LegacyIDs...), " ")})
 	}
 	return rows, nil
 }
@@ -579,17 +500,158 @@ func (page *WorkspacePage) containerRows() ([]component.Row, error) {
 	}
 	rows := make([]component.Row, 0, len(items))
 	for _, item := range items {
-		workspaces, err := page.manager.WorkspacesForContainer(item.ID)
-		if err != nil {
-			return nil, err
-		}
-		members := make([]string, 0, len(workspaces))
-		for _, workspaceItem := range workspaces {
-			members = append(members, workspaceItem.ID+" · "+workspaceItem.Path)
-		}
-		rows = append(rows, component.Row{ID: item.ID, Title: item.Name, Description: item.ID, Meta: fmt.Sprintf("%d workspaces", len(item.WorkspaceIDs)), Search: strings.Join(item.WorkspaceIDs, " "), DetailTitle: "Container · " + item.Name, DetailTabs: []component.DetailTab{{Title: "Overview", Content: detailFields([2]string{"ID", item.ID}, [2]string{"Name", item.Name})}, {Title: "Workspaces", Content: detailList(members)}}})
+		rows = append(rows, component.Row{ID: item.ID, Title: item.Name, Description: item.ID, Meta: fmt.Sprintf("%d workspaces", len(item.WorkspaceIDs)), Search: strings.Join(item.WorkspaceIDs, " ")})
 	}
 	return rows, nil
+}
+
+func (page *WorkspacePage) listRows() ([]component.Row, error) {
+	if page.containers {
+		return page.containerRows()
+	}
+	return page.workspaceRows()
+}
+
+func (page *WorkspacePage) listTitle() string {
+	if page.containers {
+		return "Containers"
+	}
+	return "Workspaces"
+}
+
+func (page *WorkspacePage) listFeedback() string {
+	if page.err == nil {
+		return ""
+	}
+	return component.Banner(page.err.Error(), component.ToneDanger)
+}
+
+func (page *WorkspacePage) baseView(width, height int) string {
+	if page.resourceID != "" {
+		page.detail.SetFeedback(page.notice, page.err)
+		page.detail.Resize(width, height)
+		return page.detail.View()
+	}
+	feedback := page.listFeedback()
+	title := component.PageTitleNotice(page.listTitle(), page.notice, width)
+	page.resizeBrowser()
+	return title + "\n" + prependPageFeedback(feedback, page.browser.Content())
+}
+
+func (page *WorkspacePage) resizeBrowser() tea.Cmd {
+	if page.resourceID != "" || page.width <= 0 || page.height <= 0 {
+		return nil
+	}
+	title := component.PageTitleNotice(page.listTitle(), page.notice, page.width)
+	height := max(1, page.height-lipgloss.Height(title)-pageFeedbackHeight(page.listFeedback()))
+	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
+	page.browser = updated.(component.Browser)
+	return cmd
+}
+
+func (page *WorkspacePage) navigateResource(id string) tea.Cmd {
+	path := []string{"workspaces", id}
+	if page.containers {
+		path = []string{"containers", id}
+	}
+	return func() tea.Msg { return NavigateMsg{Path: path} }
+}
+
+func (page *WorkspacePage) syncDetail() error {
+	if page.resourceID == "" {
+		return nil
+	}
+	if page.containers {
+		return page.syncContainerDetail()
+	}
+	return page.syncWorkspaceDetail()
+}
+
+func (page *WorkspacePage) syncWorkspaceDetail() error {
+	item, err := page.manager.Get(page.resourceID)
+	if err != nil {
+		return err
+	}
+	content := ""
+	switch page.section {
+	case "":
+		content = detailFields([2]string{"Root", item.Path}, [2]string{"Legacy IDs", joinedOrNone(item.LegacyIDs)})
+	case "access":
+		content = detailList(item.AllowDirs)
+	case "containers":
+		containers, err := page.manager.ContainersForWorkspace(item.ID)
+		if err != nil {
+			return err
+		}
+		values := make([]string, 0, len(containers))
+		for _, container := range containers {
+			values = append(values, container.Name+" · "+container.ID)
+		}
+		content = detailList(values)
+	default:
+		return fmt.Errorf("unsupported workspace child section: %s", page.section)
+	}
+	page.detail = component.NewDetailPage("Workspace · "+item.ID, fmt.Sprintf("%d extra roots", len(item.AllowDirs)), content)
+	bindings := []component.DetailPageBinding{}
+	if page.section == "" {
+		bindings = append(bindings,
+			component.DetailPageBinding{Key: "a", Desc: "access", Message: NavigateMsg{Path: []string{"workspaces", item.ID, "access"}}},
+			component.DetailPageBinding{Key: "v", Desc: "containers", Message: NavigateMsg{Path: []string{"workspaces", item.ID, "containers"}}},
+		)
+	}
+	bindings = append(bindings,
+		component.DetailPageBinding{Key: "c", Desc: "copy ID", Message: workspaceCopyIDMsg{ID: item.ID}},
+		component.DetailPageBinding{Key: "+", Desc: "add access", Message: WorkspaceCommandMsg{Command: WorkspaceAccessAdd, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "-", Desc: "remove access", Message: WorkspaceCommandMsg{Command: WorkspaceAccessRemove, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "d", Desc: "unregister", Message: WorkspaceCommandMsg{Command: WorkspaceUnregister, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "r", Desc: "refresh", Message: workspaceRefreshDetailMsg{}},
+	)
+	page.detail.SetBindings(bindings...)
+	if page.width > 0 && page.height > 0 {
+		page.detail.Resize(page.width, page.height)
+	}
+	return nil
+}
+
+func (page *WorkspacePage) syncContainerDetail() error {
+	item, err := page.manager.GetContainer(page.resourceID)
+	if err != nil {
+		return err
+	}
+	content := ""
+	switch page.section {
+	case "":
+		content = detailFields([2]string{"ID", item.ID}, [2]string{"Name", item.Name})
+	case "workspaces":
+		workspaces, err := page.manager.WorkspacesForContainer(item.ID)
+		if err != nil {
+			return err
+		}
+		values := make([]string, 0, len(workspaces))
+		for _, workspaceItem := range workspaces {
+			values = append(values, workspaceItem.ID+" · "+workspaceItem.Path)
+		}
+		content = detailList(values)
+	default:
+		return fmt.Errorf("unsupported container child section: %s", page.section)
+	}
+	page.detail = component.NewDetailPage("Container · "+item.Name, fmt.Sprintf("%d workspaces", len(item.WorkspaceIDs)), content)
+	bindings := []component.DetailPageBinding{}
+	if page.section == "" {
+		bindings = append(bindings, component.DetailPageBinding{Key: "w", Desc: "workspaces", Message: NavigateMsg{Path: []string{"containers", item.ID, "workspaces"}}})
+	}
+	bindings = append(bindings,
+		component.DetailPageBinding{Key: "c", Desc: "copy ID", Message: workspaceCopyIDMsg{ID: item.ID}},
+		component.DetailPageBinding{Key: "e", Desc: "rename", Message: WorkspaceCommandMsg{Command: WorkspaceContainerRename, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "m", Desc: "members", Message: WorkspaceCommandMsg{Command: WorkspaceContainerMembers, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "d", Desc: "delete", Message: WorkspaceCommandMsg{Command: WorkspaceContainerDelete, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "r", Desc: "refresh", Message: workspaceRefreshDetailMsg{}},
+	)
+	page.detail.SetBindings(bindings...)
+	if page.width > 0 && page.height > 0 {
+		page.detail.Resize(page.width, page.height)
+	}
+	return nil
 }
 
 func (page *WorkspacePage) closeOverlay() {

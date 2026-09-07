@@ -23,7 +23,8 @@ type NoticeModel interface {
 }
 
 type NavigateMsg struct {
-	Path []string
+	Path    []string
+	Replace bool
 }
 
 type ToastMsg struct {

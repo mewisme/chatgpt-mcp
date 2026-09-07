@@ -183,8 +183,11 @@ func TestWorkspaceBrowserHelpStaysAboveAppFooterWithFeedback(t *testing.T) {
 	if last != 23 || !strings.Contains(lines[last], "? more") {
 		t.Fatalf("workspace help line=%d want=23 view=%q", last, plain)
 	}
-	if !strings.Contains(lines[0], "Workspaces") || !strings.Contains(lines[0], "Containers") || !strings.Contains(lines[0], "Workspace updated") {
-		t.Fatalf("workspace notice is not beside tabs: %q", lines[0])
+	if !strings.Contains(lines[0], "Workspaces") || strings.Contains(lines[0], "Containers") || !strings.Contains(lines[0], "Workspace updated") {
+		t.Fatalf("workspace title/notice invalid: %q", lines[0])
+	}
+	if !strings.Contains(plain, "enter open") || !strings.Contains(plain, "c containers") || strings.Contains(plain, "tabs") {
+		t.Fatalf("workspace list help invalid: %q", plain)
 	}
 	notice, help := strings.Index(plain, "Workspace updated"), strings.LastIndex(plain, "? more")
 	if notice < 0 || help < 0 || notice >= help {
@@ -192,7 +195,7 @@ func TestWorkspaceBrowserHelpStaysAboveAppFooterWithFeedback(t *testing.T) {
 	}
 }
 
-func TestWorkspaceTabsSwitchByKeyboardAndMouse(t *testing.T) {
+func TestWorkspaceAndContainersNavigateAsChildPages(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
 		t.Fatal(err)
@@ -201,36 +204,117 @@ func TestWorkspaceTabsSwitchByKeyboardAndMouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = page.View(100, 24)
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	page = updated.(*WorkspacePage)
-	if page.tab != workspaceTabContainers {
-		t.Fatalf("right tab=%d want containers", page.tab)
+	if cmd == nil {
+		t.Fatal("containers child navigation returned no command")
 	}
-	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
-	page = updated.(*WorkspacePage)
-	if page.tab != workspaceTabWorkspaces {
-		t.Fatalf("left tab=%d want workspaces", page.tab)
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "containers" {
+		t.Fatalf("containers navigation=%#v", message)
 	}
+	containers, err := NewContainers(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := ansi.Strip(containers.View(100, 24))
+	if !strings.Contains(plain, "Containers") || !strings.Contains(plain, "w workspaces") || strings.Contains(plain, "←/→ tabs") {
+		t.Fatalf("containers child page=%q", plain)
+	}
+	updated, cmd = containers.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	containers = updated.(*WorkspacePage)
+	if cmd == nil {
+		t.Fatal("workspaces child navigation returned no command")
+	}
+	message, ok = cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "workspaces" {
+		t.Fatalf("workspaces navigation=%#v", message)
+	}
+}
 
-	var containerTab component.MouseTarget
-	for _, target := range page.MouseTargets(0, 0, 1) {
-		if target.ID != "workspace.tab" {
-			continue
-		}
-		message, ok := target.Handle(component.MouseEvent{Button: tea.MouseLeft}).(tea.KeyPressMsg)
-		if ok && message.String() == "2" {
-			containerTab = target
-			break
-		}
+func TestWorkspaceBrowserOpenNavigatesToResourceChild(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
 	}
-	if containerTab.Handle == nil {
-		t.Fatal("containers tab mouse target missing")
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
 	}
-	updated, _ = page.Update(containerTab.Handle(component.MouseEvent{Button: tea.MouseLeft}))
+	page, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := page.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := page.reload(); err != nil {
+		t.Fatal(err)
+	}
+	updated, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: item.ID}})
 	page = updated.(*WorkspacePage)
-	if page.tab != workspaceTabContainers {
-		t.Fatalf("mouse tab=%d want containers", page.tab)
+	if cmd == nil {
+		t.Fatal("resource open returned no navigation command")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "workspaces/"+item.ID {
+		t.Fatalf("resource navigation=%#v", message)
+	}
+}
+
+func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project, extra := filepath.Join(t.TempDir(), "project"), filepath.Join(t.TempDir(), "extra")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(extra, 0700); err != nil {
+		t.Fatal(err)
+	}
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := list.manager.AddAllowDir(item.ID, extra); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := NewWorkspacesRoute(t.Context(), item.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.OverlayActive() {
+		t.Fatal("resource detail incorrectly reports overlay active")
+	}
+	plain := ansi.Strip(detail.View(100, 24))
+	if !strings.Contains(plain, "Workspace · "+item.ID) || !strings.Contains(plain, project) || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
+		t.Fatalf("workspace detail=%q", plain)
+	}
+	if strings.Contains(plain, "Overview   Access") || strings.Contains(plain, "╭") {
+		t.Fatalf("workspace detail retained tab/modal chrome: %q", plain)
+	}
+	updated, cmd := detail.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	detail = updated.(*WorkspacePage)
+	if cmd == nil {
+		t.Fatal("access child navigation returned no command")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "workspaces/"+item.ID+"/access" {
+		t.Fatalf("access navigation=%#v", message)
+	}
+	access, err := NewWorkspacesRoute(t.Context(), item.ID, "access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ansi.Strip(access.View(100, 24)); !strings.Contains(got, extra) || strings.Contains(got, "a access") {
+		t.Fatalf("workspace access child=%q", got)
 	}
 }
 
@@ -319,10 +403,6 @@ func TestWorkspaceAndContainerCopySelectedID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	containerPage, err := NewContainers(t.Context(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
 	previous := copyWorkspaceID
 	t.Cleanup(func() { copyWorkspaceID = previous })
 	var copied string
@@ -330,16 +410,18 @@ func TestWorkspaceAndContainerCopySelectedID(t *testing.T) {
 
 	for _, test := range []struct {
 		name string
-		page *WorkspacePage
+		open func() (*WorkspacePage, error)
 		id   string
-	}{{"workspace", workspacePage, workspaceItem.ID}, {"container", containerPage, container.ID}} {
+	}{{"workspace", func() (*WorkspacePage, error) { return NewWorkspacesRoute(t.Context(), workspaceItem.ID, "") }, workspaceItem.ID}, {"container", func() (*WorkspacePage, error) { return NewContainersRoute(t.Context(), container.ID, "") }, container.ID}} {
 		t.Run(test.name, func(t *testing.T) {
 			copied = ""
-			if !test.page.browser.OpenDetail(test.id) {
-				t.Fatalf("could not open detail for %s", test.id)
+			page, err := test.open()
+			if err != nil {
+				t.Fatal(err)
 			}
-			updated, _ := test.page.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
-			test.page = updated.(*WorkspacePage)
+			updated, cmd := page.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+			page = updated.(*WorkspacePage)
+			page = runWorkspacePageCmd(t, page, cmd)
 			if copied != test.id {
 				t.Fatalf("copied=%q want=%q", copied, test.id)
 			}

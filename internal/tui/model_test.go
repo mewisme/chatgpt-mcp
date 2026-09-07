@@ -236,6 +236,23 @@ func TestModelQuitAndBack(t *testing.T) {
 	}
 }
 
+func TestModelReplaceNavigationDropsDeletedResourceRoute(t *testing.T) {
+	model := NewModel(Route{Kind: RouteWorkspaces})
+	model.router.Navigate(Route{Kind: RouteWorkspaces, ResourceID: "ws_deleted"})
+	updated, cmd := model.Update(tuipage.NavigateMsg{Path: []string{"workspaces"}, Replace: true})
+	model = updated.(Model)
+	if current := model.router.Current(); current != (Route{Kind: RouteWorkspaces}) {
+		t.Fatalf("replace current=%#v", current)
+	}
+	if len(model.router.stack) != 2 || model.router.stack[1] != (Route{Kind: RouteWorkspaces}) {
+		t.Fatalf("replace stack=%#v", model.router.stack)
+	}
+	if cmd != nil {
+		updated, _ = model.Update(cmd())
+		model = updated.(Model)
+	}
+}
+
 func TestModelBackIntoRequestsRestartsPageInit(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
 	model.navigate(Route{Kind: RouteRequests})

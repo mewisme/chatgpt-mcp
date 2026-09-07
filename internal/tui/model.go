@@ -242,7 +242,11 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.notice = err.Error()
 			return model, nil
 		}
-		model.navigate(route)
+		if msg.Replace {
+			model.switchPage(route)
+		} else {
+			model.navigate(route)
+		}
 		return model, model.initCurrentPage()
 	case tuipage.WorkspaceCommandMsg:
 		if err := model.ensureWorkspacePage(msg.Command, msg.ResourceID); err != nil {
@@ -812,9 +816,9 @@ func (model *Model) loadPage(route Route) {
 	var err error
 	switch route.Kind {
 	case RouteWorkspaces:
-		value, err = tuipage.NewWorkspaces(model.ctx, route.ResourceID)
+		value, err = tuipage.NewWorkspacesRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteContainers:
-		value, err = tuipage.NewContainers(model.ctx, route.ResourceID)
+		value, err = tuipage.NewContainersRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteMCP:
 		value, err = tuipage.NewMCP(model.ctx, route.ResourceID)
 	case RouteTunnel:

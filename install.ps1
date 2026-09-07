@@ -5,6 +5,7 @@
 # Environment:
 #   CHATGPT_MCP_VERSION      release tag (default: latest)
 #   CHATGPT_MCP_INSTALL_DIR  install location (default: %LOCALAPPDATA%\chatgpt-mcp)
+#   CHATGPT_MCP_ARCH         architecture override: amd64 or arm64
 
 param(
   [switch]$Uninstall,
@@ -16,6 +17,97 @@ $repo = 'mewisme/chatgpt-mcp'
 $defaultInstall = Join-Path $env:LOCALAPPDATA 'chatgpt-mcp'
 $installDir = if ($env:CHATGPT_MCP_INSTALL_DIR) { $env:CHATGPT_MCP_INSTALL_DIR } else { $defaultInstall }
 $current = Join-Path $installDir 'current'
+
+function ConvertTo-ChatGPTMCPArchitecture {
+  param([AllowNull()][object]$Value)
+  if ($null -eq $Value) { return $null }
+  $text = ([string]$Value).Trim()
+  if (-not $text) { return $null }
+  switch -Regex ($text.ToUpperInvariant()) {
+    '^(AMD64|X64|X86_64)$' { return 'amd64' }
+    '^(ARM64|AARCH64)$' { return 'arm64' }
+    'ARM.*64' { return 'arm64' }
+    'INTEL64|AMD64' { return 'amd64' }
+    default { return $null }
+  }
+}
+
+function Get-ChatGPTMCPRuntimeArchitecture {
+  try {
+    $value = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    if ($null -ne $value) { return $value.ToString() }
+  } catch {}
+  return $null
+}
+
+function Get-ChatGPTMCPOSArchitecture {
+  try {
+    return (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop | Select-Object -First 1).OSArchitecture
+  } catch {
+    try { return (Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop | Select-Object -First 1).OSArchitecture } catch {}
+  }
+  return $null
+}
+
+function Get-ChatGPTMCPProcessorMachineArchitecture {
+  try {
+    return (Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop | Select-Object -First 1).Architecture
+  } catch {
+    try { return (Get-WmiObject -Class Win32_Processor -ErrorAction Stop | Select-Object -First 1).Architecture } catch {}
+  }
+  return $null
+}
+
+function Get-ChatGPTMCPRegistryProcessorIdentifier {
+  try {
+    return (Get-ItemProperty -Path 'HKLM:\HARDWARE\DESCRIPTION\System\CentralProcessor\0' -Name Identifier -ErrorAction Stop).Identifier
+  } catch {}
+  return $null
+}
+
+function Resolve-ChatGPTMCPArchitecture {
+  param(
+    [AllowNull()][string]$Override = $env:CHATGPT_MCP_ARCH,
+    [AllowNull()][string]$RuntimeArchitecture = (Get-ChatGPTMCPRuntimeArchitecture),
+    [AllowNull()][string]$ProcessorArchitectureW6432 = $env:PROCESSOR_ARCHITEW6432,
+    [AllowNull()][string]$ProcessorArchitecture = $env:PROCESSOR_ARCHITECTURE,
+    [AllowNull()][object]$ProcessorMachineArchitecture = (Get-ChatGPTMCPProcessorMachineArchitecture),
+    [AllowNull()][string]$ProcessorIdentifier = $env:PROCESSOR_IDENTIFIER,
+    [AllowNull()][string]$RegistryProcessorIdentifier = (Get-ChatGPTMCPRegistryProcessorIdentifier),
+    [AllowNull()][string]$OSArchitecture = (Get-ChatGPTMCPOSArchitecture)
+  )
+
+  if ($Override) {
+    $resolved = ConvertTo-ChatGPTMCPArchitecture $Override
+    if ($resolved) { return $resolved }
+    throw "chatgpt-mcp: unsupported CHATGPT_MCP_ARCH '$Override'; expected amd64 or arm64."
+  }
+
+  foreach ($candidate in @($RuntimeArchitecture, $ProcessorArchitectureW6432, $ProcessorArchitecture, $ProcessorIdentifier, $RegistryProcessorIdentifier, $OSArchitecture)) {
+    $resolved = ConvertTo-ChatGPTMCPArchitecture $candidate
+    if ($resolved) { return $resolved }
+  }
+
+  switch ([string]$ProcessorMachineArchitecture) {
+    '9' { return 'amd64' }
+    '12' { return 'arm64' }
+  }
+
+  # Win32_OperatingSystem commonly reports only "64-bit" on x64 Windows.
+  # Keep this as the final compatibility fallback after all architecture-specific probes.
+  if ($OSArchitecture -match '^\s*64[ -]?bit\s*$') { return 'amd64' }
+
+  $diagnostics = @(
+    "runtime='$RuntimeArchitecture'",
+    "PROCESSOR_ARCHITEW6432='$ProcessorArchitectureW6432'",
+    "PROCESSOR_ARCHITECTURE='$ProcessorArchitecture'",
+    "processorMachine='$ProcessorMachineArchitecture'",
+    "PROCESSOR_IDENTIFIER='$ProcessorIdentifier'",
+    "registryIdentifier='$RegistryProcessorIdentifier'",
+    "OSArchitecture='$OSArchitecture'"
+  ) -join ', '
+  throw "chatgpt-mcp: unsupported architecture; probes: $diagnostics. Set CHATGPT_MCP_ARCH=amd64 or arm64 to override."
+}
 
 if ($Uninstall) {
   if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
@@ -30,11 +122,7 @@ if ($Uninstall) {
   return
 }
 
-$arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
-  'Arm64' { 'arm64' }
-  'X64' { 'amd64' }
-  default { throw "chatgpt-mcp: unsupported architecture '$_'." }
-}
+$arch = Resolve-ChatGPTMCPArchitecture
 
 $version = $env:CHATGPT_MCP_VERSION
 if (-not $version) {

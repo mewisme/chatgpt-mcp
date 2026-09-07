@@ -239,10 +239,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path ./install.ps1), [ref]$tokens, [ref]$errors) | Out-Null
-          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+          ./scripts/test-install-ps1.ps1
+
+      - name: Validate Windows PowerShell installer
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          ./scripts/test-install-ps1.ps1
 
   release:
     name: Publish release

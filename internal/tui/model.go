@@ -832,11 +832,11 @@ func (model *Model) loadPage(route Route) {
 	case RouteLogsExec:
 		value, err = tuipage.NewCommandExecutionLogs(model.ctx)
 	case RouteRuntime:
-		value, err = tuipage.NewRuntime(model.ctx)
+		value, err = tuipage.NewRuntimeRoute(model.ctx, route.ResourceID)
 	case RouteAbout:
 		value, err = tuipage.NewAbout(model.ctx)
 	case RouteConfig:
-		value, err = tuipage.NewConfig(model.ctx)
+		value, err = tuipage.NewConfigRoute(model.ctx, route.ResourceID)
 	}
 	if err != nil {
 		model.notice = err.Error()

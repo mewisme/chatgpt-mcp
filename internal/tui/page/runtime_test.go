@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -87,12 +88,10 @@ func TestRuntimeMCPHTTPRowDistinguishesConfigFromLiveListener(t *testing.T) {
 }
 
 func TestRuntimeMCPHTTPToggleUsesTransportAction(t *testing.T) {
-	page, _ := NewRuntime(t.Context())
+	page, _ := NewRuntimeRoute(t.Context(), "transport.mcp-http")
+	page.loaded = true
 	page.runtime = application.RuntimeOverview{MCPHTTPEnabled: true, MCPHTTPPort: 37421, TunnelEnabled: true}
-	page.rebuildBrowser("transport.mcp-http")
-	if !page.browser.OpenDetail("transport.mcp-http") {
-		t.Fatal("MCP HTTP detail did not open")
-	}
+	page.rebuildBrowser("")
 	detailCommand := func(key tea.KeyPressMsg) SystemCommandMsg {
 		t.Helper()
 		_, cmd := page.Update(key)
@@ -119,13 +118,57 @@ func TestRuntimeMCPHTTPToggleUsesTransportAction(t *testing.T) {
 	}
 	page.closeOverlay()
 	page.runtime.MCPHTTPEnabled = false
-	page.syncBrowserHelp()
+	page.rebuildBrowser("")
 	message = detailCommand(tea.KeyPressMsg{Code: tea.KeySpace})
 	_, cmd = page.Update(message)
 	if cmd == nil || page.pending != MCPHTTPEnable || page.overlay != systemOverlayOperation {
 		t.Fatalf("enable toggle cmd=%v pending=%q overlay=%d", cmd, page.pending, page.overlay)
 	}
 	page.closeOverlay()
+}
+
+func TestRuntimeResourceUsesFullChildDetailPage(t *testing.T) {
+	page, err := NewRuntimeRoute(t.Context(), "service.user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.loaded = true
+	page.runtime = application.RuntimeOverview{UserService: application.ServiceOverview{Scope: managed.ScopeUser, Supported: true, Installed: true, Running: true, Backend: "systemd --user", PID: 4242}}
+	page.rebuildBrowser("")
+	if page.OverlayActive() {
+		t.Fatal("runtime detail incorrectly reports overlay active")
+	}
+	view := ansi.Strip(page.View(110, 28))
+	for _, want := range []string{"User managed service", "systemd --user", "u up", "x restart", "d down", "r refresh"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("runtime detail missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "╭") {
+		t.Fatalf("runtime detail retained modal chrome: %q", view)
+	}
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	page = updated.(*RuntimePage)
+	if cmd == nil {
+		t.Fatal("restart detail action returned no command")
+	}
+	message, ok := cmd().(SystemCommandMsg)
+	if !ok || message.Command != RuntimeRestartUser {
+		t.Fatalf("restart action=%#v", message)
+	}
+}
+
+func TestRuntimeUnknownResourceRendersUnavailableChild(t *testing.T) {
+	page, err := NewRuntimeRoute(t.Context(), "missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.loaded = true
+	page.rebuildBrowser("")
+	view := page.View(90, 20)
+	if page.err == nil || !strings.Contains(view, "Runtime · missing") || !strings.Contains(view, "not found") {
+		t.Fatalf("unknown runtime detail err=%v view=%q", page.err, view)
+	}
 }
 
 func TestRuntimeMCPHTTPStoppedTogglePersistsAndRespectsTransportInvariant(t *testing.T) {

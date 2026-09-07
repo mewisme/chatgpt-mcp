@@ -84,7 +84,9 @@ type systemCopyMsg struct{ err error }
 
 type RuntimePage struct {
 	ctx             context.Context
+	resourceID      string
 	browser         component.Browser
+	detail          component.DetailPage
 	runtime         application.RuntimeOverview
 	auth            application.AuthStatus
 	install         application.InstallationOverview
@@ -110,11 +112,15 @@ type RuntimePage struct {
 }
 
 func NewRuntime(ctx context.Context) (*RuntimePage, error) {
+	return NewRuntimeRoute(ctx, "")
+}
+
+func NewRuntimeRoute(ctx context.Context, resourceID string) (*RuntimePage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	page := &RuntimePage{ctx: ctx}
-	page.browser = component.NewBrowser(ctx, "Runtime", nil, nil).WithTitleVisible(false)
+	page := &RuntimePage{ctx: ctx, resourceID: strings.TrimSpace(resourceID)}
+	page.browser = component.NewBrowser(ctx, "Runtime", nil, nil).WithTitleVisible(false).WithHelpBindings(component.Binding([]string{"r"}, "r", "refresh")).WithListOnly()
 	return page, nil
 }
 
@@ -129,11 +135,11 @@ func (page *RuntimePage) Init() tea.Cmd {
 func (page *RuntimePage) Close() { page.cancelOperation() }
 
 func (page *RuntimePage) OverlayActive() bool {
-	return page != nil && (page.overlay != systemOverlayNone || page.browser.DetailOpen())
+	return page != nil && page.overlay != systemOverlayNone
 }
 
 func (page *RuntimePage) InputActive() bool {
-	return page != nil && (page.overlay == systemOverlayForm || page.browser.InputActive())
+	return page != nil && (page.overlay == systemOverlayForm || page.resourceID == "" && page.browser.InputActive())
 }
 
 func (page *RuntimePage) Notice() string {
@@ -188,11 +194,15 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.loaded, page.err = true, nil
 		page.runtime, page.auth, page.install, page.about = msg.runtime, msg.auth, msg.install, msg.about
 		cmd := page.rebuildBrowser(page.selectedID())
-		page.syncBrowserHelp()
 		return page, cmd
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
-		browserCmd := page.resizeBrowser()
+		var browserCmd tea.Cmd
+		if page.resourceID != "" {
+			page.detail.Resize(msg.Width, msg.Height)
+		} else {
+			browserCmd = page.resizeBrowser()
+		}
 		if page.overlay == systemOverlayForm {
 			form, formCmd := page.form.Update(msg)
 			page.form = form
@@ -223,6 +233,11 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.err = err
 		}
 		return page, cmd
+	case component.BrowserOpenMsg:
+		if page.resourceID == "" && msg.Row.ID != "" {
+			return page, func() tea.Msg { return NavigateMsg{Path: []string{"runtime", msg.Row.ID}} }
+		}
+		return page, nil
 	case tea.KeyPressMsg:
 		if page.overlay == systemOverlayForm {
 			form, cmd := page.form.Update(msg)
@@ -242,13 +257,16 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return page, nil
 		}
-		if page.browser.InputActive() || page.browser.DetailOpen() {
+		if page.resourceID == "" && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
-			page.syncBrowserHelp()
 			return page, cmd
 		}
-		if cmd, handled := page.handleKey(msg); handled {
+		if page.resourceID != "" {
+			updated, cmd := page.detail.Update(msg)
+			page.detail = updated
+			return page, cmd
+		} else if cmd, handled := page.handleKey(msg); handled {
 			return page, cmd
 		}
 	}
@@ -257,9 +275,13 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.form = form
 		return page, cmd
 	}
+	if page.resourceID != "" {
+		updated, cmd := page.detail.Update(message)
+		page.detail = updated
+		return page, cmd
+	}
 	updated, cmd := page.browser.Update(message)
 	page.browser = updated.(component.Browser)
-	page.syncBrowserHelp()
 	return page, cmd
 }
 
@@ -271,16 +293,23 @@ func (page *RuntimePage) View(width, height int) string {
 	if !page.loaded && page.loading {
 		return component.StateView(component.PageLoading, "Loading runtime and system state", "")
 	}
-	title := component.PageTitleNotice("Runtime & System", page.notice, width)
-	status := page.statusView(width)
-	feedback := ""
-	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+	var content string
+	if page.resourceID != "" {
+		page.detail.SetFeedback(page.notice, page.err)
+		page.detail.Resize(width, height)
+		content = page.detail.View()
+	} else {
+		title := component.PageTitleNotice("Runtime & System", page.notice, width)
+		status := page.statusView(width)
+		feedback := ""
+		if page.err != nil {
+			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		}
+		browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-pageFeedbackHeight(feedback))
+		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
+		page.browser = updated.(component.Browser)
+		content = title + "\n" + status + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	}
-	browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-pageFeedbackHeight(feedback))
-	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
-	page.browser = updated.(component.Browser)
-	content := title + "\n" + status + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	switch page.overlay {
 	case systemOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 82)), width, height)
@@ -323,6 +352,9 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
 	case systemOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
+	}
+	if page.resourceID != "" {
+		return page.detail.MouseTargets(originX, originY, z)
 	}
 	feedback := ""
 	if page.err != nil {
@@ -614,6 +646,9 @@ func (page *RuntimePage) runtimeScope() managed.Scope {
 }
 
 func (page *RuntimePage) selectedID() string {
+	if page.resourceID != "" {
+		return ""
+	}
 	row, ok := page.browser.Selected()
 	if !ok {
 		return ""
@@ -622,13 +657,12 @@ func (page *RuntimePage) selectedID() string {
 }
 
 func (page *RuntimePage) rebuildBrowser(selected string) tea.Cmd {
-	rows := []component.Row{page.runtimeRow(), page.mcpHTTPRow(), page.serviceRow(page.runtime.UserService)}
-	if page.runtime.SystemService.Supported {
-		rows = append(rows, page.serviceRow(page.runtime.SystemService))
+	rows := page.runtimeRows()
+	if page.resourceID != "" {
+		page.err = page.syncDetail(rows)
+		return nil
 	}
-	rows = append(rows, page.authRow("mcp"), page.authRow("admin"), page.installRow(), page.aliasRow(), page.updateRow(), page.aboutRow())
 	cmd := page.browser.ReplaceRows(rows, selected)
-	page.syncBrowserHelp()
 	return cmd
 }
 
@@ -640,8 +674,113 @@ func (page *RuntimePage) resizeBrowser() tea.Cmd {
 	height := max(1, page.height-lipgloss.Height(component.PageTitleNotice("Runtime & System", page.notice, page.width))-lipgloss.Height(page.statusView(page.width))-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
-	page.syncBrowserHelp()
 	return cmd
+}
+
+func (page *RuntimePage) runtimeRows() []component.Row {
+	rows := []component.Row{page.runtimeRow(), page.mcpHTTPRow(), page.serviceRow(page.runtime.UserService)}
+	if page.runtime.SystemService.Supported {
+		rows = append(rows, page.serviceRow(page.runtime.SystemService))
+	}
+	return append(rows, page.authRow("mcp"), page.authRow("admin"), page.installRow(), page.aliasRow(), page.updateRow(), page.aboutRow())
+}
+
+func (page *RuntimePage) syncDetail(rows []component.Row) error {
+	var selected component.Row
+	found := false
+	for _, row := range rows {
+		if row.ID == page.resourceID {
+			selected, found = row, true
+			break
+		}
+	}
+	if !found {
+		page.detail = component.NewDetailPage("Runtime · "+page.resourceID, "unavailable", component.Muted("Runtime/system item not found."))
+		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: SystemCommandMsg{Command: SystemRefresh}})
+		if page.width > 0 && page.height > 0 {
+			page.detail.Resize(page.width, page.height)
+		}
+		return fmt.Errorf("runtime/system item not found: %s", page.resourceID)
+	}
+	title := strings.TrimSpace(selected.DetailTitle)
+	if title == "" {
+		title = selected.Title
+	}
+	content := strings.TrimSpace(selected.Detail)
+	if content == "" {
+		content = selected.Description
+	}
+	page.detail = component.NewDetailPage(title, selected.Description, content)
+	page.detail.SetBindings(page.runtimeDetailBindings(selected)...)
+	if page.width > 0 && page.height > 0 {
+		page.detail.Resize(page.width, page.height)
+	}
+	return nil
+}
+
+func (page *RuntimePage) runtimeDetailBindings(row component.Row) []component.DetailPageBinding {
+	bindings := make([]component.DetailPageBinding, 0, 6)
+	add := func(key, desc string, command SystemCommand) {
+		bindings = append(bindings, component.DetailPageBinding{Key: key, HelpKey: key, Desc: desc, Message: SystemCommandMsg{Command: command}})
+	}
+	scope := page.runtimeScope()
+	if row.ID == "service.user" {
+		scope = managed.ScopeUser
+	} else if row.ID == "service.system" {
+		scope = managed.ScopeSystem
+	}
+	switch row.ID {
+	case "runtime", "service.user", "service.system":
+		add("u", "up", runtimeCommand("up", scope))
+		add("x", "restart", runtimeCommand("restart", scope))
+		add("d", "down", runtimeCommand("down", scope))
+		if row.ID == "runtime" {
+			if page.runtime.Running {
+				add("l", "reload", RuntimeReload)
+			}
+			add("f", "foreground", RuntimeForeground)
+		}
+	case "transport.mcp-http":
+		command, label := MCPHTTPEnable, "enable"
+		if page.runtime.MCPHTTPEnabled {
+			command, label = MCPHTTPDisable, "disable"
+		}
+		add("space", label, command)
+	case "auth.mcp":
+		if page.auth.MCPConfigured || page.auth.MCPEnabled {
+			command, label := AuthMCPEnable, "enable"
+			if page.auth.MCPEnabled {
+				command, label = AuthMCPDisable, "disable"
+			}
+			add("e", label, command)
+		}
+		add("t", "rotate token", AuthMCPRotate)
+	case "auth.admin":
+		if page.auth.AdminConfigured || page.auth.AdminEnabled {
+			command, label := AuthAdminEnable, "enable"
+			if page.auth.AdminEnabled {
+				command, label = AuthAdminDisable, "disable"
+			}
+			add("e", label, command)
+		}
+		add("t", "rotate token", AuthAdminRotate)
+	case "installation":
+		add("i", "install", InstallRun)
+		add("c", "cleanup", InstallCleanup)
+	case "alias":
+		if page.install.AliasAvailable {
+			command, label := AliasInstall, "install"
+			if page.install.Alias.State == install.AliasInstalled {
+				command, label = AliasRemove, "remove"
+			}
+			add("a", label, command)
+		}
+	case "update":
+		add("k", "check", UpdateCheck)
+		add("u", "upgrade", UpdateApply)
+	}
+	add("r", "refresh", SystemRefresh)
+	return bindings
 }
 
 func (page *RuntimePage) runtimeRow() component.Row {
@@ -810,76 +949,6 @@ func (page *RuntimePage) statusView(width int) string {
 		}
 	}
 	return component.TwoColumn(component.KeyValue("Runtime process", state), component.KeyValue("Execution mode", mode), width)
-}
-
-func (page *RuntimePage) syncBrowserHelp() {
-	page.browser.SetHelpBindings(component.Binding([]string{"r"}, "r", "refresh"))
-	run := func(command func(component.Row) SystemCommand) func(component.Row) (string, tea.Cmd, error) {
-		return func(row component.Row) (string, tea.Cmd, error) {
-			resolved := command(row)
-			return "", func() tea.Msg { return SystemCommandMsg{Command: resolved} }, nil
-		}
-	}
-	rowIs := func(ids ...string) func(component.Row) bool {
-		return func(row component.Row) bool {
-			for _, id := range ids {
-				if row.ID == id {
-					return true
-				}
-			}
-			return false
-		}
-	}
-	scopeForRow := func(row component.Row) managed.Scope {
-		switch row.ID {
-		case "service.system":
-			return managed.ScopeSystem
-		case "service.user":
-			return managed.ScopeUser
-		default:
-			return page.runtimeScope()
-		}
-	}
-	toggleHTTP := MCPHTTPEnable
-	toggleHTTPLabel := "enable"
-	if page.runtime.MCPHTTPEnabled {
-		toggleHTTP, toggleHTTPLabel = MCPHTTPDisable, "disable"
-	}
-	toggleMCPAuth := AuthMCPEnable
-	toggleMCPAuthLabel := "enable"
-	if page.auth.MCPEnabled {
-		toggleMCPAuth, toggleMCPAuthLabel = AuthMCPDisable, "disable"
-	}
-	toggleAdminAuth := AuthAdminEnable
-	toggleAdminAuthLabel := "enable"
-	if page.auth.AdminEnabled {
-		toggleAdminAuth, toggleAdminAuthLabel = AuthAdminDisable, "disable"
-	}
-	aliasCommand, aliasLabel := AliasInstall, "install"
-	if page.install.Alias.State == install.AliasInstalled {
-		aliasCommand, aliasLabel = AliasRemove, "remove"
-	}
-	page.browser.SetDetailActions(
-		component.RowAction{Key: "u", Desc: "up", When: rowIs("runtime", "service.user", "service.system"), Run: run(func(row component.Row) SystemCommand { return runtimeCommand("up", scopeForRow(row)) })},
-		component.RowAction{Key: "x", Desc: "restart", When: rowIs("runtime", "service.user", "service.system"), Run: run(func(row component.Row) SystemCommand { return runtimeCommand("restart", scopeForRow(row)) })},
-		component.RowAction{Key: "d", Desc: "down", When: rowIs("runtime", "service.user", "service.system"), Run: run(func(row component.Row) SystemCommand { return runtimeCommand("down", scopeForRow(row)) })},
-		component.RowAction{Key: "l", Desc: "reload", When: func(row component.Row) bool { return row.ID == "runtime" && page.runtime.Running }, Run: run(func(component.Row) SystemCommand { return RuntimeReload })},
-		component.RowAction{Key: "f", Desc: "foreground", When: rowIs("runtime"), Run: run(func(component.Row) SystemCommand { return RuntimeForeground })},
-		component.RowAction{Key: "space", Desc: toggleHTTPLabel, When: rowIs("transport.mcp-http"), Run: run(func(component.Row) SystemCommand { return toggleHTTP })},
-		component.RowAction{Key: "e", Desc: toggleMCPAuthLabel, When: func(row component.Row) bool {
-			return row.ID == "auth.mcp" && (page.auth.MCPConfigured || page.auth.MCPEnabled)
-		}, Run: run(func(component.Row) SystemCommand { return toggleMCPAuth })},
-		component.RowAction{Key: "t", Desc: "rotate token", When: rowIs("auth.mcp"), Run: run(func(component.Row) SystemCommand { return AuthMCPRotate })},
-		component.RowAction{Key: "e", Desc: toggleAdminAuthLabel, When: func(row component.Row) bool {
-			return row.ID == "auth.admin" && (page.auth.AdminConfigured || page.auth.AdminEnabled)
-		}, Run: run(func(component.Row) SystemCommand { return toggleAdminAuth })},
-		component.RowAction{Key: "t", Desc: "rotate token", When: rowIs("auth.admin"), Run: run(func(component.Row) SystemCommand { return AuthAdminRotate })},
-		component.RowAction{Key: "i", Desc: "install", When: rowIs("installation"), Run: run(func(component.Row) SystemCommand { return InstallRun })},
-		component.RowAction{Key: "c", Desc: "cleanup", When: rowIs("installation"), Run: run(func(component.Row) SystemCommand { return InstallCleanup })},
-		component.RowAction{Key: "a", Desc: aliasLabel, When: func(row component.Row) bool { return row.ID == "alias" && page.install.AliasAvailable }, Run: run(func(component.Row) SystemCommand { return aliasCommand })},
-		component.RowAction{Key: "k", Desc: "check", When: rowIs("update"), Run: run(func(component.Row) SystemCommand { return UpdateCheck })},
-		component.RowAction{Key: "u", Desc: "upgrade", When: rowIs("update"), Run: run(func(component.Row) SystemCommand { return UpdateApply })},
-	)
 }
 
 func (page *RuntimePage) confirmActionLabel() string {

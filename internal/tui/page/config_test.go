@@ -11,6 +11,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
 func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
@@ -60,6 +61,67 @@ func TestConfigPageTitleStartsAtWorkspaceTitlePosition(t *testing.T) {
 	lines := strings.Split(ansi.Strip(page.View(100, 32)), "\n")
 	if len(lines) < 2 || !strings.Contains(lines[0], "Configuration") || strings.TrimSpace(lines[1]) != "" {
 		t.Fatalf("config title lines=%q", lines[:min(2, len(lines))])
+	}
+}
+
+func TestConfigResourceUsesFullChildDetailPage(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, err := NewConfigRoute(t.Context(), "server.port")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	if page.OverlayActive() {
+		t.Fatal("config detail incorrectly reports overlay active")
+	}
+	view := ansi.Strip(page.View(100, 28))
+	for _, want := range []string{"Config · server.port", "MCP HTTP server port", "e edit", "f refresh"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("config detail missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "╭") {
+		t.Fatalf("config detail retained modal chrome: %q", view)
+	}
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	page = updated.(*ConfigPage)
+	if cmd == nil {
+		t.Fatal("config edit detail action returned no command")
+	}
+	message, ok := cmd().(ConfigCommandMsg)
+	if !ok || message.Command != ConfigEdit || message.ResourceID != "server.port" {
+		t.Fatalf("config edit action=%#v", message)
+	}
+}
+
+func TestConfigReadOnlyResourceHidesEditAction(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, err := NewConfigRoute(t.Context(), "auth.mcp_token_hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	view := ansi.Strip(page.View(100, 28))
+	if !strings.Contains(view, "read-only") || !strings.Contains(view, "f refresh") || strings.Contains(view, "e edit") {
+		t.Fatalf("read-only config detail=%q", view)
+	}
+}
+
+func TestConfigBrowserOpenNavigatesToFieldChild(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfig(t.Context())
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	updated, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "server.port"}})
+	page = updated.(*ConfigPage)
+	if cmd == nil {
+		t.Fatal("config browser open returned no navigation command")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "config/server.port" {
+		t.Fatalf("config navigation=%#v", message)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fatih/color"
 	"go.mewis.me/chatgpt-mcp/internal/activity"
@@ -66,7 +67,7 @@ func TestAttachToolsPublishesActivityAndKeepsDefaultLogQuiet(t *testing.T) {
 	}
 }
 
-func TestAttachToolsVerboseLogsCompletionWithoutStartNoise(t *testing.T) {
+func TestAttachToolsVerboseLogsStartAndCompletion(t *testing.T) {
 	previous := color.NoColor
 	color.NoColor = true
 	defer func() { color.NoColor = previous }()
@@ -81,7 +82,54 @@ func TestAttachToolsVerboseLogsCompletionWithoutStartNoise(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	if strings.Contains(text, "Tool call started") || !strings.Contains(text, "Tool call completed") || !strings.Contains(text, "tool: echo") {
+	if !strings.Contains(text, "Tool call started") || !strings.Contains(text, "Tool call completed") || !strings.Contains(text, "tool: echo") || !strings.Contains(text, "status: running") {
 		t.Fatalf("verbose output = %q", text)
+	}
+	if strings.Index(text, "Tool call started") > strings.Index(text, "Tool call completed") {
+		t.Fatalf("start log must precede completion: %q", text)
+	}
+}
+
+func TestAttachToolsVerboseLogsStartBeforeToolReturns(t *testing.T) {
+	previous := color.NoColor
+	color.NoColor = true
+	defer func() { color.NoColor = previous }()
+	registry := tools.NewRegistry()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	registry.MustRegister("slow", tools.Schema{Name: "slow", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, map[string]any) (tools.Result, error) {
+		close(entered)
+		<-release
+		return tools.TextResult("ok"), nil
+	})
+	runtime := &tools.Runtime{Registry: registry}
+	var output bytes.Buffer
+	log := logger.NewWithOptions(logger.Options{Level: logger.Info, Mode: logger.ModeVerbose, Writer: &output})
+	AttachTools(runtime, nil, log)
+	done := make(chan error, 1)
+	go func() {
+		_, err := runtime.Call(tools.WithCallSource(context.Background(), "tunnel"), "slow", map[string]any{})
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("tool did not start")
+	}
+	text := output.String()
+	if !strings.Contains(text, "Tool call started") || strings.Contains(text, "Tool call completed") {
+		t.Fatalf("start log was not emitted before tool completion: %q", text)
+	}
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tool did not complete")
+	}
+	if !strings.Contains(output.String(), "Tool call completed") {
+		t.Fatalf("completion log missing: %q", output.String())
 	}
 }

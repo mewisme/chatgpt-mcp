@@ -41,11 +41,8 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 		}
 		if observation.Phase == "start" {
 			if log != nil {
-				debugFields := make([]logger.Field, 0, len(fields))
-				for _, field := range fields {
-					debugFields = append(debugFields, logger.WithDebug(field.Key, field.Value))
-				}
-				log.Diagnostic(logger.Debug, "TOOL", "tool.call.started", "Tool call started", debugFields...)
+				startFields := append(fields, logger.With("status", "running"))
+				log.Emit(logger.Event{Level: logger.Info, Name: "tool.call.started", Message: "Tool call started", Fields: startFields, Component: "TOOL", Kind: logger.KindInfo, Visibility: logger.VisibilityVerbose})
 			}
 			return
 		}

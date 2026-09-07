@@ -1105,10 +1105,7 @@ func (model Model) header(width, originX, originY int) (string, []component.Mous
 	targets := make([]component.MouseTarget, 0, len(headerPages))
 	x := 0
 	for index, page := range headerPages {
-		style := model.theme.navInactive
-		if page.Kind == owner {
-			style = model.theme.navActive
-		}
+		style := component.NavItemStyle(page.Kind == owner)
 		cellWidth := width / len(headerPages)
 		if index < width%len(headerPages) {
 			cellWidth++

@@ -270,18 +270,12 @@ func (page *LogsPage) executionView(width, height int) string {
 }
 
 func (page *LogsPage) logsTabMouseTargets(originX, originY, z int) []component.MouseTarget {
-	plain := ansi.Strip(component.PageTabs(logsTabLabels, int(page.tab), page.width))
-	targets := make([]component.MouseTarget, 0, len(logsTabLabels))
-	searchFrom := 0
-	for index, label := range logsTabLabels {
-		column := strings.Index(plain[searchFrom:], label)
-		if column < 0 {
-			continue
-		}
-		column += searchFrom
-		tab := index
+	_, spans := component.PageTabsLayout(logsTabLabels, int(page.tab), page.notice, page.width)
+	targets := make([]component.MouseTarget, 0, len(spans))
+	for _, span := range spans {
+		tab := span.Index
 		targets = append(targets, component.MouseTarget{
-			ID: "logs.tab", Rect: component.Rect{X: originX + column, Y: originY, Width: lipgloss.Width(label), Height: 1}, Z: z,
+			ID: "logs.tab", Rect: component.Rect{X: originX + span.X, Y: originY, Width: span.Width, Height: 1}, Z: z,
 			Handle: func(event component.MouseEvent) tea.Msg {
 				if event.Button != tea.MouseLeft {
 					return nil
@@ -292,7 +286,6 @@ func (page *LogsPage) logsTabMouseTargets(originX, originY, z int) []component.M
 				return tea.KeyPressMsg{Code: '2'}
 			},
 		})
-		searchFrom = column + len(label)
 	}
 	return targets
 }

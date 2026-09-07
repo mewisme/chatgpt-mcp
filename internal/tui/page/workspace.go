@@ -11,7 +11,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -263,18 +262,12 @@ func (page *WorkspacePage) switchWorkspaceTab(tab workspaceTab) tea.Cmd {
 }
 
 func (page *WorkspacePage) workspaceTabMouseTargets(originX, originY, z int) []component.MouseTarget {
-	plain := ansi.Strip(component.PageTabs(workspaceTabLabels, int(page.tab), page.width))
-	targets := make([]component.MouseTarget, 0, len(workspaceTabLabels))
-	searchFrom := 0
-	for index, label := range workspaceTabLabels {
-		column := strings.Index(plain[searchFrom:], label)
-		if column < 0 {
-			continue
-		}
-		column += searchFrom
-		tab := index
+	_, spans := component.PageTabsLayout(workspaceTabLabels, int(page.tab), page.notice, page.width)
+	targets := make([]component.MouseTarget, 0, len(spans))
+	for _, span := range spans {
+		tab := span.Index
 		targets = append(targets, component.MouseTarget{
-			ID: "workspace.tab", Rect: component.Rect{X: originX + column, Y: originY, Width: lipgloss.Width(label), Height: 1}, Z: z,
+			ID: "workspace.tab", Rect: component.Rect{X: originX + span.X, Y: originY, Width: span.Width, Height: 1}, Z: z,
 			Handle: func(event component.MouseEvent) tea.Msg {
 				if event.Button != tea.MouseLeft {
 					return nil
@@ -285,7 +278,6 @@ func (page *WorkspacePage) workspaceTabMouseTargets(originX, originY, z int) []c
 				return tea.KeyPressMsg{Code: '2'}
 			},
 		})
-		searchFrom = column + len(label)
 	}
 	return targets
 }

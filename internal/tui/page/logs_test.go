@@ -717,7 +717,7 @@ func TestLogsCommandExecTabStreamsCombinedOutputInEventOrder(t *testing.T) {
 		t.Fatalf("completed events=%#v next=%v", page.exec.events, next)
 	}
 	plain := ansi.Strip(page.View(120, 28))
-	for _, want := range []string{"Runtime   Command Execution", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]"} {
+	for _, want := range []string{"Runtime", "Command Execution", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("command exec view missing %q: %q", want, plain)
 		}
@@ -789,7 +789,7 @@ func TestLogsCommandExecTabNavigationAndMouseTargets(t *testing.T) {
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
 	page.width, page.height = 100, 24
-	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime   Command Execution") {
+	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime") || !strings.Contains(view, "Command Execution") {
 		t.Fatalf("tabs view=%q", view)
 	}
 	targets := page.MouseTargets(0, 0, 1)

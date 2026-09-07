@@ -30,6 +30,8 @@ type charmTheme struct {
 	success      lipgloss.Style
 	danger       lipgloss.Style
 	panelBorder  lipgloss.Style
+	navActive    lipgloss.Style
+	navInactive  lipgloss.Style
 }
 
 var currentTheme = newCharmTheme(true)
@@ -50,6 +52,8 @@ func newCharmTheme(isDark bool) charmTheme {
 		success:      lipgloss.NewStyle().Foreground(huhStyles.Focused.SelectedOption.GetForeground()),
 		danger:       lipgloss.NewStyle().Foreground(huhStyles.Focused.ErrorMessage.GetForeground()),
 		panelBorder:  huhStyles.Focused.Base,
+		navActive:    listStyles.Title,
+		navInactive:  lipgloss.NewStyle(),
 	}
 }
 
@@ -89,6 +93,12 @@ func pageTitleNoticeContent(value, notice string) string {
 }
 func Muted(value string) string { return currentTheme.muted.Render(value) }
 func Label(value string) string { return currentTheme.muted.Render(value) }
+func NavItemStyle(active bool) lipgloss.Style {
+	if active {
+		return currentTheme.navActive
+	}
+	return currentTheme.navInactive
+}
 
 func ToneText(value string, tone Tone) string {
 	switch tone {

@@ -420,16 +420,16 @@ func TestStrictShellPolicyRequiresApprovalForNonReadOnlyExecution(t *testing.T) 
 			}
 		})
 	}
-	for _, command := range []string{"ls -la", "git status", "cat README.md", "head -n 5 README.md", "echo ok"} {
+	for _, command := range []string{"ls -la", "cat README.md", "head -n 5 README.md", "echo ok"} {
 		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
 			t.Fatalf("strict read-only command rejected: %s: %v", command, err)
 		}
 	}
-	for _, command := range []string{"printenv", "ps aux", "systemctl status nginx", "docker ps", "kubectl get pods", "helm list"} {
+	for _, command := range []string{"git status", "git rev-parse HEAD", "git ls-files", "printenv", "ps aux", "systemctl status nginx", "docker ps", "kubectl get pods", "helm list"} {
 		err := manager.ValidateShellCommand(item.ID, root, command)
 		guard, ok := controlguard.As(err)
 		if err == nil || !ok || guard.Code != controlguard.CodeShellExecution || !guard.Approvable {
-			t.Fatalf("strict host/external read did not require approval: %s: %#v / %v", command, guard, err)
+			t.Fatalf("strict non-static read did not require approval: %s: %#v / %v", command, guard, err)
 		}
 	}
 	err = manager.ValidateShellCommand(item.ID, root, "rm file.txt")
@@ -460,6 +460,9 @@ func TestStrictShellPolicyDoesNotAutoApproveOutsideOrDynamicReads(t *testing.T) 
 		"ls " + outside,
 		"git -C " + outside + " status",
 		"echo $(cat " + filepath.Join(outside, "secret.txt") + ")",
+		"echo $OPENAI_API_KEY",
+		"echo %OPENAI_API_KEY%",
+		"printf '%s' $DATABASE_URL",
 		"cat < " + filepath.Join(outside, "secret.txt"),
 		"cat $HOME/.ssh/config",
 	} {

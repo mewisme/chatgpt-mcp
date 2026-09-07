@@ -184,7 +184,7 @@ func (m *Manager) staticallyReadOnlyShellCommand(id, cwd, command string) bool {
 	if targets, err := outputRedirectionTargets(command); err != nil || len(targets) > 0 {
 		return false
 	}
-	if strings.Contains(command, "$(") || strings.Contains(command, "`") || strings.Contains(command, "<(") || strings.Contains(command, ">(") || strings.Contains(command, "<") {
+	if hasDynamicShellExpansion(command) {
 		return false
 	}
 	segments, err := splitShellSegments(command)
@@ -214,17 +214,15 @@ func (m *Manager) staticallyReadOnlyInvocation(id, cwd, name string, args []stri
 	case "ls", "dir", "cat", "stat", "head", "tail", "wc", "realpath", "readlink":
 		paths, ok := staticReadPaths(name, args)
 		return ok && m.staticReadPathsAllowed(id, cwd, paths)
-	case "git":
-		command, _, ok := gitCommand(args)
-		if !ok {
-			return false
-		}
-		switch command {
-		case "status", "rev-parse", "ls-files", "ls-tree", "describe", "name-rev":
-			return m.validateGitPaths(id, cwd, args) == nil
-		}
 	}
 	return false
+}
+
+func hasDynamicShellExpansion(command string) bool {
+	if strings.ContainsAny(command, "$`") || strings.Contains(command, "<(") || strings.Contains(command, ">(") || strings.Contains(command, "<") {
+		return true
+	}
+	return windowsEnvReference.MatchString(command)
 }
 
 func staticReadPaths(name string, args []string) ([]string, bool) {

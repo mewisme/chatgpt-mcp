@@ -293,6 +293,7 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 			return errors.Join(err, api.persistConfig(previous))
 		}
 		api.Tools.SetShellEnvironmentAllow(next.Shell.EnvironmentAllow)
+		api.Tools.SetShellPath(next.Shell.Path)
 	}
 	return nil
 }

@@ -3,6 +3,8 @@ package shell
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -36,7 +38,7 @@ var shellEnvironmentMinimal = map[string]bool{
 	"CONDA_PREFIX": true, "SSL_CERT_FILE": true, "SSL_CERT_DIR": true, "NODE_EXTRA_CA_CERTS": true, "REQUESTS_CA_BUNDLE": true, "CURL_CA_BUNDLE": true,
 }
 
-func shellEnvironment(ctx context.Context, policy workspace.ShellEnvironmentPolicy, allow []string) []string {
+func shellEnvironment(ctx context.Context, policy workspace.ShellEnvironmentPolicy, allow, shellPath []string, strict bool) []string {
 	parent := parentEnvironment()
 	allowed := environmentNameSet(allow)
 	values := map[string]environmentValue{}
@@ -62,6 +64,15 @@ func shellEnvironment(ctx context.Context, policy workspace.ShellEnvironmentPoli
 			values[key] = entry
 		}
 	}
+	if strict || policy == workspace.ShellEnvironmentMinimal {
+		setShellEnvironment(values, "PATH", strings.Join(trustedExecutablePath(shellPath), string(os.PathListSeparator)))
+	} else if len(shellPath) > 0 {
+		current := []string{}
+		if entry, ok := values["PATH"]; ok {
+			current = filepath.SplitList(entry.value)
+		}
+		setShellEnvironment(values, "PATH", strings.Join(mergeExecutablePath(shellPath, current), string(os.PathListSeparator)))
+	}
 	setShellEnvironment(values, "CI", "true")
 	setShellEnvironment(values, "PAGER", "cat")
 	setShellEnvironment(values, "GIT_PAGER", "cat")
@@ -85,6 +96,70 @@ func shellEnvironment(ctx context.Context, policy workspace.ShellEnvironmentPoli
 		out = append(out, entry.name+"="+entry.value)
 	}
 	return out
+}
+
+func trustedExecutablePath(extra []string) []string {
+	return mergeExecutablePath(extra, trustedSystemExecutablePath())
+}
+
+func trustedSystemExecutablePath() []string {
+	if runtime.GOOS == "windows" {
+		root := strings.TrimSpace(os.Getenv("SystemRoot"))
+		programFiles := strings.TrimSpace(os.Getenv("ProgramFiles"))
+		paths := []string{}
+		if root != "" {
+			paths = append(paths, filepath.Join(root, "System32"), root, filepath.Join(root, "System32", "Wbem"), filepath.Join(root, "System32", "WindowsPowerShell", "v1.0"))
+		}
+		if programFiles != "" {
+			paths = append(paths, filepath.Join(programFiles, "PowerShell", "7"))
+		}
+		return mergeExecutablePath(paths)
+	}
+	return []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
+}
+
+func mergeExecutablePath(groups ...[]string) []string {
+	seen := map[string]bool{}
+	result := []string{}
+	for _, group := range groups {
+		for _, value := range group {
+			value = strings.TrimSpace(value)
+			if value == "" || !filepath.IsAbs(value) {
+				continue
+			}
+			value = filepath.Clean(value)
+			key := value
+			if runtime.GOOS == "windows" {
+				key = strings.ToLower(key)
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func setEnvironmentValue(environment []string, name, value string) []string {
+	prefix := strings.ToUpper(name) + "="
+	result := make([]string, 0, len(environment)+1)
+	replaced := false
+	for _, entry := range environment {
+		if strings.HasPrefix(strings.ToUpper(entry), prefix) {
+			if !replaced {
+				result = append(result, name+"="+value)
+				replaced = true
+			}
+			continue
+		}
+		result = append(result, entry)
+	}
+	if !replaced {
+		result = append(result, name+"="+value)
+	}
+	return result
 }
 
 func parentEnvironment() map[string]environmentValue {

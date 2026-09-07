@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -104,12 +105,16 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	if err != nil {
 		return StartResult{}, err
 	}
-	cmd, err := commandForPlatform(context.WithoutCancel(ctx), command)
+	strict := m.workspaces.ShellApprovalPolicy() == workspace.ShellApprovalStrict
+	cmd, err := commandForPlatformPolicy(context.WithoutCancel(ctx), command, strict, m.workspaces.ShellPath())
 	if err != nil {
 		return StartResult{}, err
 	}
 	cmd.Dir = cwd
-	cmd.Env = shellEnvironment(ctx, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow())
+	cmd.Env = shellEnvironment(ctx, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow(), m.workspaces.ShellPath(), strict)
+	if strict && runtime.GOOS != "windows" {
+		cmd.Env = setEnvironmentValue(cmd.Env, "SHELL", cmd.Path)
+	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return StartResult{}, err

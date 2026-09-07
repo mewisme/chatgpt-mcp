@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -59,7 +60,7 @@ func TestShellEnvironmentPoliciesFilterSecretsAndInjection(t *testing.T) {
 		t.Fatalf("filtered safe environment = %#v", filtered)
 	}
 	minimal := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentMinimal, nil)
-	if minimal["PATH"] != "/safe/bin" || minimal["CUSTOM_VISIBLE"] != "" || minimal["OPENAI_API_KEY"] != "" || minimal["NODE_OPTIONS"] != "" {
+	if minimal["PATH"] != strings.Join(trustedExecutablePath(nil), string(os.PathListSeparator)) || minimal["CUSTOM_VISIBLE"] != "" || minimal["OPENAI_API_KEY"] != "" || minimal["NODE_OPTIONS"] != "" {
 		t.Fatalf("minimal environment = %#v", minimal)
 	}
 }
@@ -74,11 +75,57 @@ func TestShellEnvironmentExplicitAllowRestoresSelectedVariable(t *testing.T) {
 }
 
 func TestShellEnvironmentOutputIsDeterministic(t *testing.T) {
-	values := shellEnvironment(context.Background(), workspace.ShellEnvironmentMinimal, nil)
+	values := shellEnvironment(context.Background(), workspace.ShellEnvironmentMinimal, nil, nil, false)
 	for index := 1; index < len(values); index++ {
 		if strings.ToUpper(values[index-1]) > strings.ToUpper(values[index]) {
 			t.Fatalf("environment is not sorted: %#v", values)
 		}
+	}
+}
+
+func TestStrictShellPathIgnoresUntrustedParentPathShadowing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix executable shadowing test")
+	}
+	fakeBin := t.TempDir()
+	fakeLS := filepath.Join(fakeBin, "ls")
+	if err := os.WriteFile(fakeLS, []byte("#!/bin/sh\necho SHADOWED\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	manager, workspaceID, _ := newShellTestManager(t)
+	if err := manager.workspaces.SetShellApprovalPolicy(workspace.ShellApprovalStrict); err != nil {
+		t.Fatal(err)
+	}
+	result, err := manager.Exec(context.Background(), workspaceID, "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result.Stdout, "SHADOWED") {
+		t.Fatalf("strict shell executed PATH-shadowed binary: %#v", result)
+	}
+}
+
+func TestStrictShellPathAllowsExplicitTrustedShellPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix executable trusted-path test")
+	}
+	trustedBin := t.TempDir()
+	trustedLS := filepath.Join(trustedBin, "ls")
+	if err := os.WriteFile(trustedLS, []byte("#!/bin/sh\necho EXPLICIT_TRUST\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	manager, workspaceID, _ := newShellTestManager(t)
+	if err := manager.workspaces.SetShellApprovalPolicy(workspace.ShellApprovalStrict); err != nil {
+		t.Fatal(err)
+	}
+	manager.workspaces.SetShellPath([]string{trustedBin})
+	result, err := manager.Exec(context.Background(), workspaceID, "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(result.Stdout) != "EXPLICIT_TRUST" {
+		t.Fatalf("explicit trusted shell path was not used: %#v", result)
 	}
 }
 
@@ -108,7 +155,7 @@ func TestApprovedControlPlaneCommandUsesCurrentExecutable(t *testing.T) {
 
 func shellEnvironmentMap(ctx context.Context, policy workspace.ShellEnvironmentPolicy, allow []string) map[string]string {
 	values := map[string]string{}
-	for _, value := range shellEnvironment(ctx, policy, allow) {
+	for _, value := range shellEnvironment(ctx, policy, allow, nil, false) {
 		if index := strings.IndexByte(value, '='); index >= 0 {
 			values[value[:index]] = value[index+1:]
 		}

@@ -177,7 +177,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 	}
 
 	run := m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "run_command", Command: effective, CWD: cwd, Source: executionSource(ctx)})
-	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow())
+	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow(), m.workspaces.ShellPath(), m.workspaces.ShellApprovalPolicy() == workspace.ShellApprovalStrict)
 	if saveErr := m.save(current.state); saveErr != nil && err == nil {
 		return ExecResult{}, saveErr
 	}
@@ -338,16 +338,19 @@ func statusFromState(state SessionState) Status {
 	return Status{Active: true, CWD: state.CWD, StartedAt: state.StartedAt, RecentCommands: recent}
 }
 
-func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, execution *ExecutionRun, environmentPolicy workspace.ShellEnvironmentPolicy, environmentAllow []string) (ExecResult, error) {
+func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, execution *ExecutionRun, environmentPolicy workspace.ShellEnvironmentPolicy, environmentAllow, shellPath []string, strict bool) (ExecResult, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd, err := commandForPlatform(runCtx, command)
+	cmd, err := commandForPlatformPolicy(runCtx, command, strict, shellPath)
 	if err != nil {
 		execution.Finish(ExecutionStatusFailed, nil, false)
 		return ExecResult{}, err
 	}
 	cmd.Dir = cwd
-	cmd.Env = shellEnvironment(ctx, environmentPolicy, environmentAllow)
+	cmd.Env = shellEnvironment(ctx, environmentPolicy, environmentAllow, shellPath, strict)
+	if strict && runtime.GOOS != "windows" {
+		cmd.Env = setEnvironmentValue(cmd.Env, "SHELL", cmd.Path)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&stdout, execution.Writer("stdout"))
 	cmd.Stderr = io.MultiWriter(&stderr, execution.Writer("stderr"))
@@ -381,6 +384,10 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, ex
 }
 
 func commandForPlatform(ctx context.Context, command string) (*exec.Cmd, error) {
+	return commandForPlatformPolicy(ctx, command, false, nil)
+}
+
+func commandForPlatformPolicy(ctx context.Context, command string, strict bool, shellPath []string) (*exec.Cmd, error) {
 	if granted, ok := controlguard.ApprovalFromContext(ctx); ok {
 		if strings.TrimSpace(command) != strings.TrimSpace(granted.Invocation.Command) {
 			return nil, errors.New("approved control-plane command does not match shell invocation")
@@ -392,7 +399,7 @@ func commandForPlatform(ctx context.Context, command string) (*exec.Cmd, error) 
 		return exec.CommandContext(ctx, executable, granted.Invocation.Args...), nil
 	}
 	if runtime.GOOS == "windows" {
-		shell, isPwsh, err := windowsShell()
+		shell, isPwsh, err := windowsShellPolicy(strict, shellPath)
 		if err != nil {
 			return nil, err
 		}
@@ -401,6 +408,13 @@ func commandForPlatform(ctx context.Context, command string) (*exec.Cmd, error) 
 			effective = transpileCompoundOperators(command)
 		}
 		return exec.CommandContext(ctx, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", effective), nil
+	}
+	if strict {
+		shell, err := trustedUnixShell(shellPath)
+		if err != nil {
+			return nil, err
+		}
+		return exec.CommandContext(ctx, shell, "-c", command), nil
 	}
 	shell := strings.TrimSpace(os.Getenv("SHELL"))
 	if shell == "" {
@@ -414,6 +428,18 @@ func commandForPlatform(ctx context.Context, command string) (*exec.Cmd, error) 
 }
 
 func windowsShell() (string, bool, error) {
+	return windowsShellPolicy(false, nil)
+}
+
+func windowsShellPolicy(strict bool, shellPath []string) (string, bool, error) {
+	if strict {
+		for _, name := range []string{"pwsh.exe", "powershell.exe"} {
+			if shell := executableInPath(name, trustedExecutablePath(shellPath)); shell != "" {
+				return shell, strings.EqualFold(name, "pwsh.exe"), nil
+			}
+		}
+		return "", false, errors.New("no trusted PowerShell runtime found; configure shell.path if needed")
+	}
 	configured := strings.TrimSpace(os.Getenv("SHELL"))
 	if configured != "" {
 		base := strings.ToLower(filepath.Base(configured))
@@ -431,6 +457,46 @@ func windowsShell() (string, bool, error) {
 		return shell, false, nil
 	}
 	return "", false, errors.New("no PowerShell runtime found")
+}
+
+func trustedUnixShell(shellPath []string) (string, error) {
+	for _, candidate := range []string{"/bin/sh", "/usr/bin/sh", "/bin/bash", "/usr/bin/bash"} {
+		if executableFile(candidate) {
+			return candidate, nil
+		}
+	}
+	for _, name := range []string{"sh", "bash"} {
+		if shell := executableInPath(name, trustedExecutablePath(shellPath)); shell != "" {
+			return shell, nil
+		}
+	}
+	return "", errors.New("no trusted POSIX shell runtime found; configure shell.path if needed")
+}
+
+func executableInPath(name string, paths []string) string {
+	for _, directory := range paths {
+		candidates := []string{filepath.Join(directory, name)}
+		if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
+			candidates = append(candidates, filepath.Join(directory, name+".exe"), filepath.Join(directory, name+".cmd"), filepath.Join(directory, name+".bat"))
+		}
+		for _, candidate := range candidates {
+			if executableFile(candidate) {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
+func executableFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return info.Mode().Perm()&0111 != 0
 }
 
 func transpileCompoundOperators(command string) string {

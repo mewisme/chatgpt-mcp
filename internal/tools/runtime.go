@@ -136,6 +136,12 @@ func (r *Runtime) SetShellEnvironmentAllow(names []string) {
 	}
 }
 
+func (r *Runtime) SetShellPath(paths []string) {
+	if r != nil && r.Workspaces != nil {
+		r.Workspaces.SetShellPath(paths)
+	}
+}
+
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
 

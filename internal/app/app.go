@@ -44,6 +44,7 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 		panic(err)
 	}
 	toolRuntime.SetShellEnvironmentAllow(cfg.Shell.EnvironmentAllow)
+	toolRuntime.SetShellPath(cfg.Shell.Path)
 	var mcpRuntime *mcp.HTTPRuntime
 	if cfg.Server.Enabled {
 		mcpRuntime = mcp.NewHTTPRuntimeWithTools(toolRuntime)

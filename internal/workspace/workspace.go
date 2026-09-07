@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -57,6 +58,7 @@ type Manager struct {
 	shellPolicy     ShellApprovalPolicy
 	shellEnvPolicy  ShellEnvironmentPolicy
 	shellEnvAllow   []string
+	shellPath       []string
 }
 
 func DefaultStorePath() string {
@@ -89,6 +91,43 @@ func (m *Manager) SetShellEnvironmentAllow(names []string) {
 	m.mu.Lock()
 	m.shellEnvAllow = normalizeEnvironmentNames(names)
 	m.mu.Unlock()
+}
+
+func (m *Manager) SetShellPath(paths []string) {
+	m.mu.Lock()
+	m.shellPath = normalizeShellPaths(paths)
+	m.mu.Unlock()
+}
+
+func (m *Manager) ShellPath() []string {
+	if m == nil {
+		return []string{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]string(nil), m.shellPath...)
+}
+
+func normalizeShellPaths(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || !filepath.IsAbs(value) {
+			continue
+		}
+		value = filepath.Clean(value)
+		key := value
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 func (m *Manager) ShellEnvironmentAllow() []string {

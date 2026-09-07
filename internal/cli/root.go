@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/application"
@@ -196,9 +197,19 @@ func authStatusCommand() *cobra.Command {
 }
 
 func Execute() error {
-	err := root.Execute()
-	if err != nil {
-		commandLogger(root).Failure("CLI", "cli.command.failed", "Command failed", err)
+	return executeCommand(root)
+}
+
+func executeCommand(command *cobra.Command) error {
+	started := time.Now()
+	executed, err := command.ExecuteC()
+	if executed == nil {
+		executed = command
 	}
-	return err
+	if err != nil {
+		logCommandFailure(executed, err, started)
+		return err
+	}
+	logCommandCompleted(executed, started)
+	return nil
 }

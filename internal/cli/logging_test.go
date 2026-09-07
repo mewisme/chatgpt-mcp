@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestRootLogFormatJSON(t *testing.T) {
@@ -79,5 +81,44 @@ func TestStartCommandSpinnerIsSilentWithoutTerminal(t *testing.T) {
 	log.Close()
 	if output.Len() != 0 {
 		t.Fatalf("spinner wrote to non-terminal output: %q", output.String())
+	}
+}
+
+func TestExecuteCommandVerboseEmitsLifecycle(t *testing.T) {
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs(testCommandArgs(t, "--verbose", "version"))
+	if err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	for _, expected := range []string{"Executing command", "Command completed", "command:"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("verbose lifecycle missing %q: %s", expected, text)
+		}
+	}
+	if strings.Contains(text, "error_chain") || strings.Contains(text, "changed_flags") {
+		t.Fatalf("verbose output leaked debug-only fields: %s", text)
+	}
+}
+
+func TestExecuteCommandDebugFailureEmitsDiagnostics(t *testing.T) {
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.AddCommand(&cobra.Command{Use: "explode", RunE: func(*cobra.Command, []string) error { return errors.Join(errors.New("outer"), errors.New("inner")) }})
+	cmd.SetArgs(testCommandArgs(t, "--debug", "explode"))
+	err := executeCommand(cmd)
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	text := output.String()
+	for _, expected := range []string{"cli.command.starting", "cli.command.context", "cli.command.failed", "error_type=", "error_chain=", "changed_flags=", "duration_ms="} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("debug failure missing %q: %s", expected, text)
+		}
 	}
 }

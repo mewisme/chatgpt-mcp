@@ -1,9 +1,15 @@
 package cli
 
 import (
+	"fmt"
 	"io"
+	"os"
+	"sort"
+	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 )
 
@@ -53,4 +59,88 @@ func commandLogWriter(cmd *cobra.Command) io.Writer {
 		return io.Discard
 	}
 	return cmd.OutOrStdout()
+}
+
+func logCommandStart(cmd *cobra.Command, args []string) {
+	log := commandLogger(cmd)
+	log.Verbose("CLI", "cli.command.starting", "Executing command", logger.WithVerbose("command", cmd.CommandPath()))
+	log.Diagnostic(logger.Info, "CLI", "cli.command.context", "Command context",
+		logger.WithDebug("pid", os.Getpid()),
+		logger.WithDebug("cwd", currentWorkingDirectory()),
+		logger.WithDebug("config", config.RootPath()),
+		logger.WithDebug("arg_count", len(args)),
+		logger.WithDebug("changed_flags", commandChangedFlags(cmd)),
+	)
+}
+
+func logCommandCompleted(cmd *cobra.Command, started time.Time) {
+	commandLogger(cmd).Verbose("CLI", "cli.command.completed", "Command completed",
+		logger.WithVerbose("command", cmd.CommandPath()),
+		logger.WithVerbose("duration_ms", time.Since(started).Milliseconds()),
+	)
+}
+
+func logCommandFailure(cmd *cobra.Command, err error, started time.Time) {
+	if cmd == nil {
+		return
+	}
+	commandLogger(cmd).Failure("CLI", "cli.command.failed", "Command failed", err,
+		logger.WithVerbose("command", cmd.CommandPath()),
+		logger.WithVerbose("duration_ms", time.Since(started).Milliseconds()),
+		logger.WithDebug("pid", os.Getpid()),
+		logger.WithDebug("cwd", currentWorkingDirectory()),
+		logger.WithDebug("config", config.RootPath()),
+		logger.WithDebug("changed_flags", commandChangedFlags(cmd)),
+		logger.WithDebug("error_type", fmt.Sprintf("%T", err)),
+		logger.WithDebug("error_chain", commandErrorChain(err)),
+	)
+}
+
+func commandChangedFlags(cmd *cobra.Command) []string {
+	if cmd == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	values := []string{}
+	visit := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		values = append(values, "--"+name)
+	}
+	cmd.Flags().Visit(func(flag *pflag.Flag) { visit(flag.Name) })
+	cmd.InheritedFlags().Visit(func(flag *pflag.Flag) { visit(flag.Name) })
+	cmd.Root().PersistentFlags().Visit(func(flag *pflag.Flag) { visit(flag.Name) })
+	sort.Strings(values)
+	return values
+}
+
+func commandErrorChain(err error) []string {
+	values := []string{}
+	var walk func(error, int)
+	walk = func(current error, depth int) {
+		if current == nil || depth >= 32 {
+			return
+		}
+		values = append(values, fmt.Sprintf("%T: %v", current, current))
+		switch typed := current.(type) {
+		case interface{ Unwrap() []error }:
+			for _, nested := range typed.Unwrap() {
+				walk(nested, depth+1)
+			}
+		case interface{ Unwrap() error }:
+			walk(typed.Unwrap(), depth+1)
+		}
+	}
+	walk(err, 0)
+	return values
+}
+
+func currentWorkingDirectory() string {
+	value, err := os.Getwd()
+	if err != nil {
+		return "<unavailable>"
+	}
+	return value
 }

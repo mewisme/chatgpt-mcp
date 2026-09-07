@@ -559,7 +559,7 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 		c.emitLifecycle(LifecycleDegraded, id, err.Error())
 		return err
 	}
-	serverTransport, tunnelTransport := sdkmcp.NewInMemoryTransports()
+	serverTransport, tunnelTransport := newCancellationSafeInMemoryTransports()
 	tunnelBackend, err := c.factory(c.config, withSessionTransport(tunnelTransport))
 	if err != nil {
 		c.lastError = err.Error()

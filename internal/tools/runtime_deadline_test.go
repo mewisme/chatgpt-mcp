@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -85,5 +86,31 @@ func TestToolCallContextUsesTunnelBudgetCause(t *testing.T) {
 	<-ctx.Done()
 	if cause := context.Cause(ctx); cause != errTunnelResponseBudgetExceeded {
 		t.Fatalf("cause=%v want=%v", cause, errTunnelResponseBudgetExceeded)
+	}
+}
+
+func TestRuntimeTunnelBudgetReturnsToolErrorBeforeParentCancellation(t *testing.T) {
+	registry := NewRegistry()
+	registry.MustRegister("run_command", Schema{Name: "run_command", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(ctx context.Context, _ map[string]any) (Result, error) {
+		<-ctx.Done()
+		return Result{}, ctx.Err()
+	})
+	runtime := &Runtime{Registry: registry}
+	parent, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+	defer cancel()
+	parent = WithCallSource(parent, "tunnel")
+	started := time.Now()
+	result, err := runtime.Call(parent, "run_command", map[string]any{})
+	if err != nil {
+		t.Fatalf("Runtime.Call error = %v", err)
+	}
+	if !result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "start_process") {
+		t.Fatalf("result = %#v", result)
+	}
+	if parent.Err() != nil {
+		t.Fatalf("parent canceled before structured tool error was returned: %v", parent.Err())
+	}
+	if elapsed := time.Since(started); elapsed >= 115*time.Millisecond {
+		t.Fatalf("runtime returned too close to parent deadline: %s", elapsed)
 	}
 }

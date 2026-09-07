@@ -18,8 +18,7 @@ type navigateMsg struct {
 
 func defaultActionRegistry() *action.Registry {
 	actions := []action.Action{
-		navigationAction("app.go.workspaces", "Workspaces", Route{Kind: RouteWorkspaces}, []string{"workspace", "workspaces", "ws"}, capability.WorkspaceList, capability.WorkspaceShow, capability.WorkspaceAccessList),
-		navigationAction("app.go.containers", "Containers", Route{Kind: RouteContainers}, []string{"workspace", "container", "containers"}, capability.WorkspaceContainerList, capability.WorkspaceContainerShow),
+		navigationAction("app.go.workspaces", "Workspaces", Route{Kind: RouteWorkspaces}, []string{"workspace", "workspaces", "ws", "container", "containers"}, capability.WorkspaceList, capability.WorkspaceShow, capability.WorkspaceAccessList, capability.WorkspaceContainerList, capability.WorkspaceContainerShow),
 		navigationAction("app.go.mcp", "MCP Servers", Route{Kind: RouteMCP}, []string{"mcp", "server", "upstream"}, capability.MCPServerList, capability.MCPServerShow, capability.MCPAuthStatus),
 		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure"}, capability.TunnelStatus, capability.TunnelAdminKeyStatus),
 		navigationAction("app.go.tunnels", "Managed Tunnels", Route{Kind: RouteTunnels}, []string{"tunnel", "tunnels", "managed", "openai"}, capability.TunnelList, capability.TunnelGet),

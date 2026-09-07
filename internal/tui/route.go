@@ -102,7 +102,7 @@ func parseRouteKind(value string) (RouteKind, bool) {
 
 func (route Route) Title() string {
 	base := map[RouteKind]string{
-		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
+		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
 		RouteRequests: "Requests", RouteLogs: "Logs", RouteConfig: "Config", RouteRuntime: "Runtime", RouteAbout: "About",
 	}[route.Kind]
 	if route.ResourceID != "" {

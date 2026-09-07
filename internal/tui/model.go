@@ -1297,7 +1297,7 @@ func routeDescription(route Route) string {
 	case RouteWorkspaces:
 		return "Browse registered workspaces and workspace containers."
 	case RouteContainers:
-		return "Browse workspace containers and membership."
+		return "Browse the Containers tab inside Workspaces."
 	case RouteMCP:
 		return "Manage configured upstream MCP servers."
 	case RouteTunnel:

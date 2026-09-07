@@ -182,12 +182,54 @@ func TestWorkspaceBrowserHelpStaysAboveAppFooterWithFeedback(t *testing.T) {
 	if last != 23 || !strings.Contains(lines[last], "? more") {
 		t.Fatalf("workspace help line=%d want=23 view=%q", last, plain)
 	}
-	if !strings.Contains(lines[0], "Workspaces  · Workspace updated") {
-		t.Fatalf("workspace notice is not beside title: %q", lines[0])
+	if !strings.Contains(lines[0], "Workspaces") || !strings.Contains(lines[0], "Containers") || !strings.Contains(lines[0], "Workspace updated") {
+		t.Fatalf("workspace notice is not beside tabs: %q", lines[0])
 	}
 	notice, help := strings.Index(plain, "Workspace updated"), strings.LastIndex(plain, "? more")
 	if notice < 0 || help < 0 || notice >= help {
 		t.Fatalf("feedback/help order invalid: notice=%d help=%d view=%q", notice, help, plain)
+	}
+}
+
+func TestWorkspaceTabsSwitchByKeyboardAndMouse(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.View(100, 24)
+	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	page = updated.(*WorkspacePage)
+	if page.tab != workspaceTabContainers {
+		t.Fatalf("right tab=%d want containers", page.tab)
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	page = updated.(*WorkspacePage)
+	if page.tab != workspaceTabWorkspaces {
+		t.Fatalf("left tab=%d want workspaces", page.tab)
+	}
+
+	var containerTab component.MouseTarget
+	for _, target := range page.MouseTargets(0, 0, 1) {
+		if target.ID != "workspace.tab" {
+			continue
+		}
+		message, ok := target.Handle(component.MouseEvent{Button: tea.MouseLeft}).(tea.KeyPressMsg)
+		if ok && message.String() == "2" {
+			containerTab = target
+			break
+		}
+	}
+	if containerTab.Handle == nil {
+		t.Fatal("containers tab mouse target missing")
+	}
+	updated, _ = page.Update(containerTab.Handle(component.MouseEvent{Button: tea.MouseLeft}))
+	page = updated.(*WorkspacePage)
+	if page.tab != workspaceTabContainers {
+		t.Fatalf("mouse tab=%d want containers", page.tab)
 	}
 }
 
@@ -231,8 +273,8 @@ func TestWorkspaceAndContainerCopySelectedID(t *testing.T) {
 	}{{"workspace", workspacePage, workspaceItem.ID}, {"container", containerPage, container.ID}} {
 		t.Run(test.name, func(t *testing.T) {
 			copied = ""
-			if !test.page.browser.SelectID(test.id) {
-				t.Fatalf("could not select %s", test.id)
+			if !test.page.browser.OpenDetail(test.id) {
+				t.Fatalf("could not open detail for %s", test.id)
 			}
 			updated, _ := test.page.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 			test.page = updated.(*WorkspacePage)

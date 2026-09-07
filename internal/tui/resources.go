@@ -67,7 +67,7 @@ func pageQuickOpenResources() []quickopen.Resource {
 	return []quickopen.Resource{
 		{ID: "home", Title: "Home", Kind: "Page", Path: []string{"home"}},
 		{ID: "workspaces", Title: "Workspaces", Kind: "Page", Path: []string{"workspaces"}},
-		{ID: "containers", Title: "Containers", Kind: "Page", Path: []string{"containers"}},
+		{ID: "containers", Title: "Workspaces · Containers", Kind: "Page", Keywords: []string{"workspace", "container", "containers"}, Path: []string{"containers"}},
 		{ID: "mcp", Title: "MCP Servers", Kind: "Page", Path: []string{"mcp"}},
 		{ID: "tunnel", Title: "Tunnel", Kind: "Page", Path: []string{"tunnel"}},
 		{ID: "tunnels", Title: "Managed Tunnels", Kind: "Page", Path: []string{"tunnels"}},

@@ -44,6 +44,12 @@ func TestBubblewrapArgsBindWorkspaceAndPrivateTmp(t *testing.T) {
 			t.Fatalf("bubblewrap args missing %q: %#v", expected, args)
 		}
 	}
+	if strings.Contains(joined, "--ro-bind\x00/etc\x00/etc") {
+		t.Fatalf("sandbox exposed all of /etc: %#v", args)
+	}
+	if _, err := os.Stat("/etc/passwd"); err == nil && !strings.Contains(joined, "--ro-bind\x00/etc/passwd\x00/etc/passwd") {
+		t.Fatalf("sandbox omitted required identity config: %#v", args)
+	}
 }
 
 func TestSandboxBypassesExplicitHostAndControlPlaneApprovals(t *testing.T) {
@@ -86,6 +92,13 @@ func TestStrictAutoSandboxHidesOutsideWorkspace(t *testing.T) {
 	}
 	if result.ExitCode != 0 || result.Stdout != "VISIBLE" {
 		t.Fatalf("workspace write/read failed inside sandbox: %#v", result)
+	}
+	result, err = manager.Exec(ctx, workspaceID, "test ! -e /etc/shadow && test -r /etc/passwd && test -r /etc/hosts && printf ETC_MINIMAL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExitCode != 0 || result.Stdout != "ETC_MINIMAL" {
+		t.Fatalf("sandbox system config surface is not minimal/usable: %#v", result)
 	}
 }
 
@@ -175,6 +188,33 @@ func TestNetworkOnlySandboxBlocksLoopbackUntilExternalApproval(t *testing.T) {
 	}
 	if string(output) != "OK" {
 		t.Fatalf("approved network output = %q", output)
+	}
+}
+
+func TestFilesystemSandboxKeepsApprovedLocalhostNetworkingUsable(t *testing.T) {
+	if runtime.GOOS != "linux" || executableInPath("bwrap", trustedExecutablePath(nil)) == "" {
+		t.Skip("bubblewrap unavailable")
+	}
+	curl := executableInPath("curl", trustedExecutablePath(nil))
+	if curl == "" {
+		t.Skip("curl unavailable")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("OK")) }))
+	defer server.Close()
+	url := strings.Replace(server.URL, "127.0.0.1", "localhost", 1)
+	cwd := t.TempDir()
+	approved := controlguard.WithGrant(context.Background(), controlguard.Grant{RequestID: "req_external", Code: controlguard.CodeExternalAccess})
+	cmd := exec.Command(curl, "--connect-timeout", "1", "--max-time", "1", "-fsS", url)
+	cmd, err := wrapShellSandbox(approved, cmd, "curl "+url, cwd, []string{cwd}, nil, workspace.ShellSandboxAuto, workspace.ShellNetworkAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(output) != "OK" {
+		t.Fatalf("approved sandboxed localhost output = %q", output)
 	}
 }
 

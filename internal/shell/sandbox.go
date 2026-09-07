@@ -153,8 +153,16 @@ func appendBubblewrapSystemMounts(args []string) []string {
 		}
 		args = append(args, "--ro-bind", path, path)
 	}
-	if info, err := os.Stat("/etc"); err == nil && info.IsDir() {
-		args = append(args, "--ro-bind", "/etc", "/etc")
+	for _, path := range []string{
+		"/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/gai.conf", "/etc/host.conf",
+		"/etc/passwd", "/etc/group", "/etc/localtime", "/etc/ld.so.cache", "/etc/services", "/etc/protocols",
+		"/etc/ssl/openssl.cnf", "/etc/ssl/certs", "/etc/pki/tls/openssl.cnf", "/etc/pki/tls/certs", "/etc/pki/ca-trust/extracted", "/etc/crypto-policies/back-ends",
+	} {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		args = appendBubblewrapParentDirs(args, path)
+		args = append(args, "--ro-bind", path, path)
 	}
 	return args
 }
@@ -230,7 +238,7 @@ func sandboxPathWithin(root, candidate string) bool {
 
 func sandboxCoveredBySystemMount(path string) bool {
 	path = filepath.Clean(path)
-	for _, root := range []string{"/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc"} {
+	for _, root := range []string{"/usr", "/bin", "/sbin", "/lib", "/lib64"} {
 		if sandboxPathWithin(root, path) {
 			return true
 		}

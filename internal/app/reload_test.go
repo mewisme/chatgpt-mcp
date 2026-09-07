@@ -28,6 +28,27 @@ func TestReloadConfigUpdatesLiveRuntime(t *testing.T) {
 	}
 }
 
+func TestReloadConfigUpdatesShellApprovalPolicy(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	app := New(cfg)
+	if got := app.Tools.Workspaces.ShellApprovalPolicy(); got != "balanced" {
+		t.Fatalf("initial shell approval policy = %q", got)
+	}
+	next := cfg
+	next.Shell.ApprovalPolicy = "strict"
+	if err := app.ReloadConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	if got := app.Config.Snapshot().Shell.ApprovalPolicy; got != "strict" {
+		t.Fatalf("stored shell approval policy = %q", got)
+	}
+	if got := app.Tools.Workspaces.ShellApprovalPolicy(); got != "strict" {
+		t.Fatalf("runtime shell approval policy = %q", got)
+	}
+}
+
 func TestReloadConfigSyncsTunnelAdminKeyWithoutRuntimeReconfigure(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false

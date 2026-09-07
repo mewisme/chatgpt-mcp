@@ -108,6 +108,17 @@ func (r *Runtime) SetGlobalAllowDirs(allowDirs []string) {
 	}
 }
 
+func (r *Runtime) SetShellApprovalPolicy(value string) error {
+	if r == nil || r.Workspaces == nil {
+		return errors.New("tool runtime is unavailable")
+	}
+	policy, ok := workspace.NormalizeShellApprovalPolicy(value)
+	if !ok {
+		return fmt.Errorf("unsupported shell approval policy: %q", value)
+	}
+	return r.Workspaces.SetShellApprovalPolicy(policy)
+}
+
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
 

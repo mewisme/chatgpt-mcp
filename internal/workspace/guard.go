@@ -76,6 +76,10 @@ func destructiveMutationReason(command string) (string, bool) {
 			if hasAnyOption(args, "--delete", "--delete-before", "--delete-during", "--delete-delay", "--delete-after", "--delete-excluded") {
 				return "rsync destination deletion", true
 			}
+		case "terraform", "tofu":
+			if firstCommandArg(args) == "fmt" && !hasAnyOption(args, "-check") {
+				return "Terraform file rewrite", true
+			}
 		}
 	}
 	return "", false

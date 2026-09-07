@@ -15,6 +15,13 @@ import (
 
 const maxNestedShellDepth = 4
 
+type ShellApprovalPolicy string
+
+const (
+	ShellApprovalBalanced ShellApprovalPolicy = "balanced"
+	ShellApprovalStrict   ShellApprovalPolicy = "strict"
+)
+
 var (
 	absolutePathLiteral = regexp.MustCompile(`(?i)(?:[a-z]:[\\/]|/)[^\"'()\s,;]+`)
 	inlineMutationAPI   = regexp.MustCompile(`(?i)(?:\bopen\s*\(|\b(?:write_text|write_bytes|writefile|writefilesync|appendfile|appendfilesync|createwritestream|unlink|unlinksync|rename|renamesync|copyfile|copyfilesync|mkdir|mkdirsync|rmdir|rmdirsync|truncate|remove|replace|rmtree|move)\s*\(|\bos\.system\s*\(|\bsubprocess\.|\bchild_process\b|\bexecsync\s*\(|\bspawnsync\s*\()`)
@@ -40,6 +47,40 @@ func (m *Manager) ValidateShellCommand(id, baseDirectory, command string) error 
 	return m.ValidateShellCommandContext(context.Background(), id, baseDirectory, command)
 }
 
+func NormalizeShellApprovalPolicy(value string) (ShellApprovalPolicy, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", string(ShellApprovalBalanced):
+		return ShellApprovalBalanced, true
+	case string(ShellApprovalStrict):
+		return ShellApprovalStrict, true
+	default:
+		return "", false
+	}
+}
+
+func (m *Manager) SetShellApprovalPolicy(value ShellApprovalPolicy) error {
+	policy, ok := NormalizeShellApprovalPolicy(string(value))
+	if !ok {
+		return fmt.Errorf("unsupported shell approval policy: %q", value)
+	}
+	m.mu.Lock()
+	m.shellPolicy = policy
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) ShellApprovalPolicy() ShellApprovalPolicy {
+	if m == nil {
+		return ShellApprovalBalanced
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.shellPolicy == "" {
+		return ShellApprovalBalanced
+	}
+	return m.shellPolicy
+}
+
 func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirectory, command string) error {
 	_, cwd, err := m.ResolveDirectory(id, baseDirectory)
 	if err != nil {
@@ -63,11 +104,11 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 		}
 		return controlguard.New(controlguard.CodeControlPlaneMutation, "control-plane mutation denied from MCP shell: chatgpt-mcp configuration and permissions cannot be changed through shell tools", approvable, invocation)
 	}
-	if !m.IsMutationCommand(command) {
-		return nil
-	}
-	if err := m.ValidateMutationCommand(id, baseDirectory, command); err != nil {
-		return err
+	mutation := m.IsMutationCommand(command)
+	if mutation {
+		if err := m.ValidateMutationCommand(id, baseDirectory, command); err != nil {
+			return err
+		}
 	}
 	if code, category, reason, guarded := shellApprovalRisk(command); guarded {
 		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == code {
@@ -76,7 +117,68 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 		invocation := &controlguard.Invocation{Command: strings.TrimSpace(command)}
 		return controlguard.New(code, category+" shell mutation requires local approval: "+reason, true, invocation)
 	}
+	if m.ShellApprovalPolicy() == ShellApprovalStrict && !staticallyReadOnlyShellCommand(command) {
+		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == controlguard.CodeShellExecution {
+			return nil
+		}
+		return controlguard.New(controlguard.CodeShellExecution, "strict shell policy requires local approval for non-read-only execution", true, &controlguard.Invocation{Command: strings.TrimSpace(command)})
+	}
 	return nil
+}
+
+func staticallyReadOnlyShellCommand(command string) bool {
+	if targets, err := outputRedirectionTargets(command); err != nil || len(targets) > 0 {
+		return false
+	}
+	segments, err := splitShellSegments(command)
+	if err != nil || len(segments) == 0 {
+		return false
+	}
+	for _, segment := range segments {
+		tokens, err := shellWords(segment)
+		if err != nil || len(tokens) == 0 {
+			return false
+		}
+		name, args := commandName(tokens)
+		if _, nested := nestedShellCommand(name, args); nested {
+			return false
+		}
+		if !staticallyReadOnlyInvocation(name, args) {
+			return false
+		}
+	}
+	return true
+}
+
+func staticallyReadOnlyInvocation(name string, args []string) bool {
+	switch name {
+	case "pwd", "ls", "dir", "tree", "stat", "file", "cat", "head", "tail", "less", "more", "grep", "rg", "wc", "sort", "uniq", "cut", "tr", "printf", "echo", "realpath", "readlink", "basename", "dirname", "du", "df", "ps", "printenv", "uname", "whoami", "id", "date", "which", "where", "whereis", "jq":
+		return true
+	case "git":
+		command, _, ok := gitCommand(args)
+		if !ok {
+			return false
+		}
+		switch command {
+		case "status", "diff", "log", "show", "blame", "rev-parse", "ls-files", "ls-tree", "describe", "name-rev", "shortlog":
+			return true
+		}
+	case "systemctl":
+		command := firstCommandArg(args, "--host", "-H", "--machine", "-M", "--root", "--image", "--type", "-t", "--state")
+		switch command {
+		case "status", "show", "list-units", "list-unit-files", "list-dependencies", "is-active", "is-enabled", "is-failed", "cat", "help", "--version", "get-default":
+			return true
+		}
+		return false
+	case "docker", "podman":
+		command := firstCommandArg(args, "--context", "-h", "--host", "--config", "--log-level")
+		return command == "ps" || command == "inspect" || command == "logs" || command == "version" || command == "info" || command == "stats" || command == "top"
+	case "kubectl":
+		return !kubectlMutation(args)
+	case "helm":
+		return !helmMutation(args)
+	}
+	return false
 }
 
 func shellApprovalRisk(command string) (controlguard.Code, string, string, bool) {

@@ -261,6 +261,9 @@ func tunnelRunCommand() *cobra.Command {
 		log := commandLogger(cmd)
 		defer log.Close()
 		runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+		if err := runtime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
+			return err
+		}
 		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 		defer runtimeCancel()

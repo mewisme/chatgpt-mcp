@@ -12,6 +12,7 @@ const (
 	CodeDestructiveMutation  Code = "destructive_mutation"
 	CodeHostMutation         Code = "host_mutation"
 	CodeExternalMutation     Code = "external_mutation"
+	CodeShellExecution       Code = "shell_execution"
 	CodeProtectedState       Code = "protected_state_access"
 	CodeContextTamper        Code = "tool_context_tamper"
 )

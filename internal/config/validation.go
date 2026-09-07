@@ -33,6 +33,9 @@ func Validate(cfg Config) error {
 	if _, err := NormalizeShellPath(cfg.Shell.Path); err != nil {
 		return err
 	}
+	if _, err := NormalizeShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
+		return err
+	}
 	if _, ok := ponytail.NormalizeRuntimeMode(cfg.Features.Ponytail.Mode); !ok {
 		return fmt.Errorf("features.ponytail.mode must be lite, full, or ultra: %q", cfg.Features.Ponytail.Mode)
 	}
@@ -73,6 +76,17 @@ func Validate(cfg Config) error {
 		return err
 	}
 	return nil
+}
+
+func NormalizeShellApprovalPolicy(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "balanced":
+		return "balanced", nil
+	case "strict":
+		return "strict", nil
+	default:
+		return "", fmt.Errorf("shell approval policy must be balanced or strict: %q", value)
+	}
 }
 
 func ValidateMCPTransports(cfg Config) error {

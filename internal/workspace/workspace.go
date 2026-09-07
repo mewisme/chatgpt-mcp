@@ -54,6 +54,7 @@ type Manager struct {
 	containers      map[string]WorkspaceContainer
 	aliases         map[string]string
 	globalAllowDirs []string
+	shellPolicy     ShellApprovalPolicy
 }
 
 func DefaultStorePath() string {
@@ -67,7 +68,7 @@ func NewManager(path string) *Manager {
 	if storeRoot != "" && configRoot != "" && storeRoot == configRoot {
 		protectedRoot = configRoot
 	}
-	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}}
+	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}, shellPolicy: ShellApprovalBalanced}
 }
 
 func NewManagerWithGlobalAllowDirs(path string, allowDirs []string) *Manager {

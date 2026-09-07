@@ -401,6 +401,79 @@ func TestShellPolicyApprovedDestructiveMutationStillEnforcesWorkspaceScope(t *te
 	}
 }
 
+func TestStrictShellPolicyRequiresApprovalForNonReadOnlyExecution(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetShellApprovalPolicy(ShellApprovalStrict); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"go test ./...", "python script.py", "touch generated.txt", "git commit -m test"} {
+		t.Run(command, func(t *testing.T) {
+			err := manager.ValidateShellCommand(item.ID, root, command)
+			guard, ok := controlguard.As(err)
+			if err == nil || !ok || guard.Code != controlguard.CodeShellExecution || !guard.Approvable || guard.Invocation == nil || guard.Invocation.Command != command {
+				t.Fatalf("strict policy did not require shell approval: %#v / %v", guard, err)
+			}
+		})
+	}
+	for _, command := range []string{"ls -la", "git status", "systemctl status nginx", "docker ps", "kubectl get pods", "helm list"} {
+		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
+			t.Fatalf("strict read-only command rejected: %s: %v", command, err)
+		}
+	}
+	err = manager.ValidateShellCommand(item.ID, root, "rm file.txt")
+	guard, ok := controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation {
+		t.Fatalf("specific risk was replaced by generic strict guard: %#v / %v", guard, err)
+	}
+	err = manager.ValidateShellCommand(item.ID, root, "terraform fmt")
+	guard, ok = controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation {
+		t.Fatalf("terraform fmt was not classified as local destructive mutation: %#v / %v", guard, err)
+	}
+}
+
+func TestStrictShellPolicyGrantIsCategoryBound(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetShellApprovalPolicy(ShellApprovalStrict); err != nil {
+		t.Fatal(err)
+	}
+	strictGrant := controlguard.WithGrant(context.Background(), controlguard.Grant{RequestID: "req_strict", Code: controlguard.CodeShellExecution})
+	if err := manager.ValidateShellCommandContext(strictGrant, item.ID, root, "go test ./..."); err != nil {
+		t.Fatalf("strict shell grant rejected: %v", err)
+	}
+	destructiveGrant := controlguard.WithGrant(context.Background(), controlguard.Grant{RequestID: "req_destructive", Code: controlguard.CodeDestructiveMutation})
+	err = manager.ValidateShellCommandContext(destructiveGrant, item.ID, root, "go test ./...")
+	guard, ok := controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeShellExecution {
+		t.Fatalf("wrong category grant bypassed strict guard: %#v / %v", guard, err)
+	}
+}
+
+func TestBalancedShellPolicyAllowsUnknownExecution(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager.ShellApprovalPolicy() != ShellApprovalBalanced {
+		t.Fatalf("default shell policy = %q", manager.ShellApprovalPolicy())
+	}
+	if err := manager.ValidateShellCommand(item.ID, root, "go test ./..."); err != nil {
+		t.Fatalf("balanced policy rejected ordinary execution: %v", err)
+	}
+}
+
 func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 	root := t.TempDir()
 	manager := newTestManager(t)

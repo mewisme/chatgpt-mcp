@@ -37,6 +37,9 @@ func New(cfg config.Config) *App { return NewWithLogger(cfg, nil) }
 func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	stream := activity.NewStream()
 	toolRuntime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+	if err := toolRuntime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
+		panic(err)
+	}
 	var mcpRuntime *mcp.HTTPRuntime
 	if cfg.Server.Enabled {
 		mcpRuntime = mcp.NewHTTPRuntimeWithTools(toolRuntime)

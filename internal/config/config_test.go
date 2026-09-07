@@ -368,6 +368,23 @@ func TestNormalizeShellPath(t *testing.T) {
 	}
 }
 
+func TestNormalizeShellApprovalPolicy(t *testing.T) {
+	if Default().Shell.ApprovalPolicy != "balanced" {
+		t.Fatalf("default shell approval policy = %q", Default().Shell.ApprovalPolicy)
+	}
+	for input, expected := range map[string]string{"": "balanced", "balanced": "balanced", "BALANCED": "balanced", "strict": "strict", " STRICT ": "strict"} {
+		value, err := NormalizeShellApprovalPolicy(input)
+		if err != nil || value != expected {
+			t.Fatalf("NormalizeShellApprovalPolicy(%q)=%q err=%v", input, value, err)
+		}
+	}
+	for _, input := range []string{"allow", "review", "off", "strictest"} {
+		if _, err := NormalizeShellApprovalPolicy(input); err == nil {
+			t.Fatalf("invalid shell approval policy accepted: %q", input)
+		}
+	}
+}
+
 func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
 		for _, legacyInteractive := range []struct {

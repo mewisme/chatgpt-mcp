@@ -453,6 +453,29 @@ func TestConfigAPIShellPathPatch(t *testing.T) {
 	}
 }
 
+func TestConfigAPIShellApprovalPolicyPatchUpdatesRuntime(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	store := config.NewRuntimeStore(cfg)
+	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return nil }})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"shell":{"approval_policy":"strict"}}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Shell.ApprovalPolicy; got != "strict" {
+		t.Fatalf("stored shell approval policy = %q", got)
+	}
+	if got := runtime.Workspaces.ShellApprovalPolicy(); got != "strict" {
+		t.Fatalf("runtime shell approval policy = %q", got)
+	}
+	if !strings.Contains(recorder.Body.String(), `"approval_policy":"strict"`) {
+		t.Fatalf("shell approval policy missing from response: %s", recorder.Body.String())
+	}
+}
+
 func TestConfigAPIPermissionsPersistenceFailureKeepsRuntimeAccess(t *testing.T) {
 	root := t.TempDir()
 	allowed := t.TempDir()

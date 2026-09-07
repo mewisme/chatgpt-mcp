@@ -19,6 +19,7 @@ func (a *App) ReloadConfig(next config.Config) error {
 	httpChanged := previous.Server.Enabled != next.Server.Enabled
 	featuresChanged := previous.Features != next.Features
 	permissionsChanged := !slices.Equal(previous.Permissions.AllowDirs, next.Permissions.AllowDirs)
+	shellApprovalPolicyChanged := previous.Shell.ApprovalPolicy != next.Shell.ApprovalPolicy
 	tunnelChanged := previous.Tunnel != next.Tunnel
 	tunnelRuntimeChanged := tunnelChanged && !tunnel.RuntimeConfigEqual(previous.Tunnel, next.Tunnel)
 	if featuresChanged {
@@ -28,6 +29,11 @@ func (a *App) ReloadConfig(next config.Config) error {
 	}
 	if permissionsChanged {
 		a.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
+	}
+	if shellApprovalPolicyChanged {
+		if err := a.Tools.SetShellApprovalPolicy(next.Shell.ApprovalPolicy); err != nil {
+			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, false, false, false))
+		}
 	}
 	if httpChanged {
 		a.syncMCPHTTP(next.Server.Enabled)
@@ -44,7 +50,7 @@ func (a *App) ReloadConfig(next config.Config) error {
 			err = a.Tunnel.SyncManagementConfig(next.Tunnel)
 		}
 		if err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, false, false))
+			return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, false, false))
 		}
 		if tunnelRuntimeChanged {
 			if metadata, loadErr := config.LoadTunnelMetadata(next.Tunnel.ID); loadErr == nil {
@@ -53,12 +59,12 @@ func (a *App) ReloadConfig(next config.Config) error {
 		}
 	}
 	if _, err := a.Config.Update(func(config.Config) (config.Config, error) { return next, nil }); err != nil {
-		return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, tunnelChanged, tunnelRuntimeChanged))
+		return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, tunnelChanged, tunnelRuntimeChanged))
 	}
 	return nil
 }
 
-func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, featuresChanged, permissionsChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
+func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
 	var rollbackErr error
 	if tunnelChanged && a.Tunnel != nil {
 		if tunnelRuntimeChanged {
@@ -76,6 +82,9 @@ func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, feature
 	}
 	if permissionsChanged {
 		a.Tools.SetGlobalAllowDirs(previous.Permissions.AllowDirs)
+	}
+	if shellApprovalPolicyChanged {
+		rollbackErr = errors.Join(rollbackErr, a.Tools.SetShellApprovalPolicy(previous.Shell.ApprovalPolicy))
 	}
 	if httpChanged {
 		a.syncMCPHTTP(previous.Server.Enabled)

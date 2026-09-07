@@ -179,6 +179,9 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			if err == nil {
 				next.Shell.Path = shellPath
 			}
+			if err == nil && strings.TrimSpace(patch.Shell.ApprovalPolicy) != "" {
+				next.Shell.ApprovalPolicy, err = config.NormalizeShellApprovalPolicy(patch.Shell.ApprovalPolicy)
+			}
 		}
 		if err == nil && patch.Features != nil {
 			if active := patch.Features.Ponytail.active(); active != nil {
@@ -277,6 +280,9 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 	}
 	if api.Tools != nil {
 		api.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
+		if err := api.Tools.SetShellApprovalPolicy(next.Shell.ApprovalPolicy); err != nil {
+			return errors.Join(err, api.persistConfig(previous))
+		}
 	}
 	return nil
 }

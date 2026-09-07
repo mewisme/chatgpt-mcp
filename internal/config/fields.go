@@ -46,6 +46,7 @@ var fieldSpecs = []FieldSpec{
 	{Key: "auth.admin_token_hash", Description: "admin token credential", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the admin auth token workflow."},
 	{Key: "permissions.allow_dirs", Description: "additional filesystem roots", Kind: FieldList, Editable: true},
 	{Key: "shell.path", Description: "additional executable search paths", Kind: FieldList, Editable: true},
+	{Key: "shell.approval_policy", Description: "shell approval policy", Kind: FieldEnum, Options: []string{"balanced", "strict"}, Editable: true},
 	{Key: "features.ponytail.active", Description: "Ponytail mode active by default", Kind: FieldBool, Editable: true},
 	{Key: "features.ponytail.mode", Description: "Ponytail default intensity", Kind: FieldEnum, Options: []string{"lite", "full", "ultra"}, Editable: true},
 	{Key: "features.caveman.active", Description: "Caveman mode active by default", Kind: FieldBool, Editable: true},
@@ -148,6 +149,12 @@ func SetValue(cfg *Config, key, raw string) error {
 		cfg.Permissions.AllowDirs = splitFieldList(raw)
 	case "shell.path":
 		cfg.Shell.Path = splitFieldList(raw)
+	case "shell.approval_policy":
+		value, err := NormalizeShellApprovalPolicy(raw)
+		if err != nil {
+			return err
+		}
+		cfg.Shell.ApprovalPolicy = value
 	case "features.ponytail.active":
 		value, err := parseBoolField(raw, key)
 		if err != nil {
@@ -248,6 +255,8 @@ func RawValue(cfg Config, key string) (string, error) {
 		return strings.Join(cfg.Permissions.AllowDirs, ","), nil
 	case "shell.path":
 		return strings.Join(cfg.Shell.Path, ","), nil
+	case "shell.approval_policy":
+		return cfg.Shell.ApprovalPolicy, nil
 	case "features.ponytail.active":
 		return strconv.FormatBool(cfg.Features.Ponytail.Active), nil
 	case "features.ponytail.mode":

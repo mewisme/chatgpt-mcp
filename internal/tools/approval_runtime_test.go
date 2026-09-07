@@ -352,6 +352,53 @@ func TestDestructiveShellApprovalIsExactOneShotAndWorkspaceBound(t *testing.T) {
 	}
 }
 
+func TestStrictShellApprovalIsExactOneShot(t *testing.T) {
+	runtime, workspaceID := newApprovalShellRuntime(t)
+	if err := runtime.SetShellApprovalPolicy("strict"); err != nil {
+		t.Fatal(err)
+	}
+	item, err := runtime.Workspaces.Get(workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := approvalContext("session-strict")
+	args := map[string]any{"workspace_id": workspaceID, "command": "touch strict-created.txt"}
+	guarded, err := runtime.Call(ctx, "run_command", args)
+	if err != nil || !guarded.IsError {
+		t.Fatalf("strict guard = %#v err=%v", guarded, err)
+	}
+	challenge, ok := guarded.StructuredContent.(approvalRequiredResponse)
+	if !ok || challenge.GuardCode != string(controlguard.CodeShellExecution) || challenge.TargetTool != "run_command" {
+		t.Fatalf("strict challenge = %#v", guarded.StructuredContent)
+	}
+	request, _, err := runtime.Approvals.CreateRequest(challenge.ChallengeID, "session-strict", workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Approvals.Approve(request.ID, "test", "reviewed shell execution"); err != nil {
+		t.Fatal(err)
+	}
+	approved, err := runtime.Call(ctx, "run_command", args)
+	if err != nil || approved.IsError {
+		t.Fatalf("strict approved retry = %#v err=%v", approved, err)
+	}
+	if _, err := os.Stat(filepath.Join(item.Path, "strict-created.txt")); err != nil {
+		t.Fatalf("strict approved command did not execute: %v", err)
+	}
+	consumed, ok := runtime.Approvals.Get(request.ID)
+	if !ok || consumed.Status != approval.StatusConsumed {
+		t.Fatalf("strict approval not consumed: %#v ok=%t", consumed, ok)
+	}
+	replayed, err := runtime.Call(ctx, "run_command", args)
+	if err != nil || !replayed.IsError {
+		t.Fatalf("strict replay = %#v err=%v", replayed, err)
+	}
+	replayChallenge, ok := replayed.StructuredContent.(approvalRequiredResponse)
+	if !ok || replayChallenge.ChallengeID == "" || replayChallenge.ChallengeID == challenge.ChallengeID {
+		t.Fatalf("strict replay did not require new approval: %#v", replayed.StructuredContent)
+	}
+}
+
 func TestApprovedShellRetryCarriesOneShotChildCapability(t *testing.T) {
 	runtime, workspaceID := newApprovalDispatchRuntime(t)
 	ctx := approvalContext("session-a")

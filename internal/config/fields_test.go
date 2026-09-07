@@ -14,14 +14,17 @@ func TestFieldSetValuePreservesTypedBehaviorAndLegacyAliases(t *testing.T) {
 	for key, value := range map[string]string{
 		"server.port": "4000", "server.expose": "true", "admin.enabled": "false",
 		"features.ponytail.enabled": "false", "features.ponytail.mode": "ULTRA", "features.caveman.enabled": "false", "features.caveman.mode": "WENYAN-ULTRA",
-		"permissions.allow_dirs": "/tmp\n/var/tmp", "shell.path": "/opt/tools,/usr/local/custom/bin",
+		"permissions.allow_dirs": "/tmp\n/var/tmp", "shell.path": "/opt/tools,/usr/local/custom/bin", "shell.approval_policy": "STRICT",
 	} {
 		if err := SetValue(&cfg, key, value); err != nil {
 			t.Fatalf("%s: %v", key, err)
 		}
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 || cfg.Shell.ApprovalPolicy != "strict" {
 		t.Fatalf("cfg=%#v", cfg)
+	}
+	if value, err := RawValue(cfg, "shell.approval_policy"); err != nil || value != "strict" {
+		t.Fatalf("shell approval policy value=%q err=%v", value, err)
 	}
 }
 

@@ -501,6 +501,31 @@ type captureOverlayPage struct {
 	keys    []string
 }
 
+type confirmCapturePage struct{ affirmative *bool }
+
+func (*confirmCapturePage) Init() tea.Cmd { return nil }
+func (page *confirmCapturePage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {
+	if choice, ok := message.(component.ConfirmChoiceMsg); ok {
+		value := choice.Affirmative
+		page.affirmative = &value
+	}
+	return page, nil
+}
+func (*confirmCapturePage) View(width, height int) string { return "" }
+func (*confirmCapturePage) OverlayActive() bool           { return true }
+func (*confirmCapturePage) InputActive() bool             { return false }
+
+func TestModelRoutesNonApprovalConfirmChoiceToPage(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	page := &confirmCapturePage{}
+	model.currentPage = page
+	updated, cmd := model.Update(component.ConfirmChoiceMsg{Affirmative: true})
+	model = updated.(Model)
+	if cmd != nil || page.affirmative == nil || !*page.affirmative {
+		t.Fatalf("confirm was not routed to page: cmd=%v affirmative=%v", cmd, page.affirmative)
+	}
+}
+
 func (page *captureOverlayPage) Init() tea.Cmd { return nil }
 
 func (page *captureOverlayPage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {

@@ -34,17 +34,26 @@ type instructionSavedMsg struct {
 type instructionTabMsg struct{ Tab instructionTab }
 
 type InstructionPage struct {
-	ctx      context.Context
-	service  *application.InstructionSettingsService
-	settings application.InstructionSettings
-	tab      instructionTab
-	detail   component.DetailPage
-	editor   *component.TextAreaEditor
-	saving   bool
-	notice   string
-	err      error
-	width    int
-	height   int
+	ctx            context.Context
+	service        *application.InstructionSettingsService
+	settings       application.InstructionSettings
+	tab            instructionTab
+	detail         component.DetailPage
+	editor         *component.TextAreaEditor
+	rules          component.Browser
+	ruleForm       component.Form
+	ruleFormActive bool
+	ruleEditID     string
+	ruleName       string
+	ruleContent    string
+	ruleEnabled    bool
+	ruleDeleteID   string
+	ruleConfirm    component.ConfirmButtons
+	saving         bool
+	notice         string
+	err            error
+	width          int
+	height         int
 }
 
 func NewInstruction(ctx context.Context) (*InstructionPage, error) {
@@ -68,8 +77,10 @@ func newInstructionPage(ctx context.Context, service *application.InstructionSet
 }
 
 func (page *InstructionPage) Init() tea.Cmd       { return nil }
-func (page *InstructionPage) OverlayActive() bool { return false }
-func (page *InstructionPage) InputActive() bool   { return page != nil && page.editor != nil }
+func (page *InstructionPage) OverlayActive() bool { return page != nil && page.ruleDeleteID != "" }
+func (page *InstructionPage) InputActive() bool {
+	return page != nil && (page.editor != nil || page.ruleFormActive || page.tab == instructionTabRules && page.rules.InputActive())
+}
 func (page *InstructionPage) Notice() string {
 	if page == nil {
 		return ""
@@ -90,6 +101,11 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		page.resizeContent()
+		if page.ruleFormActive {
+			form, cmd := page.ruleForm.Update(msg)
+			page.ruleForm = form
+			return page, cmd
+		}
 		return page, nil
 	case tea.BackgroundColorMsg:
 		if page.editor != nil {
@@ -97,9 +113,49 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.editor = &updated
 			return page, cmd
 		}
+		if page.ruleFormActive {
+			form, cmd := page.ruleForm.Update(msg)
+			page.ruleForm = form
+			return page, cmd
+		}
+		if page.tab == instructionTabRules {
+			updated, cmd := page.rules.Update(msg)
+			page.rules = updated.(component.Browser)
+			return page, cmd
+		}
 		updated, cmd := page.detail.Update(msg)
 		page.detail = updated
 		return page, cmd
+	case component.FormSubmittedMsg:
+		if page.ruleFormActive && !page.saving {
+			page.saving = true
+			page.err, page.notice = nil, ""
+			return page, page.saveRuleFormCmd()
+		}
+		return page, nil
+	case component.FormCancelledMsg:
+		if page.ruleFormActive && !page.saving {
+			page.closeRuleForm()
+		}
+		return page, nil
+	case component.FormMouseMsg:
+		if page.ruleFormActive && !page.saving {
+			form, cmd := page.ruleForm.Update(msg)
+			page.ruleForm = form
+			return page, cmd
+		}
+		return page, nil
+	case component.BrowserOpenMsg:
+		if page.tab == instructionTabRules && !page.ruleFormActive && msg.Row.ID != "" {
+			return page, page.openRuleForm(msg.Row.ID)
+		}
+		return page, nil
+	case component.ConfirmChoiceMsg:
+		if page.ruleDeleteID != "" {
+			page.ruleConfirm.Select(msg.Affirmative)
+			return page, page.updateRuleConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+		}
+		return page, nil
 	case component.TextAreaSavedMsg:
 		if page.editor == nil || page.saving {
 			return page, nil
@@ -133,10 +189,25 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.editor = nil
 		page.syncDetail()
 		return page, nil
+	case instructionRulesSavedMsg:
+		page.saving = false
+		if msg.err != nil {
+			page.err = msg.err
+			return page, nil
+		}
+		page.settings, page.err = msg.settings, nil
+		page.notice = msg.notice
+		page.closeRuleForm()
+		page.closeRuleConfirm()
+		page.syncRuleBrowser()
+		return page, nil
 	case instructionTabMsg:
 		page.switchTab(msg.Tab)
 		return page, nil
 	case tea.KeyPressMsg:
+		if page.ruleDeleteID != "" {
+			return page, page.updateRuleConfirm(msg)
+		}
 		if page.editor != nil {
 			if page.saving {
 				return page, nil
@@ -145,8 +216,26 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.editor = &updated
 			return page, cmd
 		}
+		if page.ruleFormActive {
+			if page.saving {
+				return page, nil
+			}
+			form, cmd := page.ruleForm.Update(msg)
+			page.ruleForm = form
+			return page, cmd
+		}
+		if page.tab == instructionTabRules && page.rules.InputActive() {
+			updated, cmd := page.rules.Update(msg)
+			page.rules = updated.(component.Browser)
+			return page, cmd
+		}
 		if cmd, handled := page.handleTabKey(msg); handled {
 			return page, cmd
+		}
+		if page.tab == instructionTabRules {
+			if cmd, handled := page.handleRuleKey(msg); handled {
+				return page, cmd
+			}
 		}
 		switch msg.String() {
 		case "e":
@@ -167,6 +256,16 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.editor = &updated
 		return page, cmd
 	}
+	if page.ruleFormActive {
+		form, cmd := page.ruleForm.Update(message)
+		page.ruleForm = form
+		return page, cmd
+	}
+	if page.tab == instructionTabRules {
+		updated, cmd := page.rules.Update(message)
+		page.rules = updated.(component.Browser)
+		return page, cmd
+	}
 	updated, cmd := page.detail.Update(message)
 	page.detail = updated
 	return page, cmd
@@ -179,6 +278,9 @@ func (page *InstructionPage) View(width, height int) string {
 	page.width, page.height = width, height
 	tabs := component.PageTabsNotice(instructionTabLabels, int(page.tab), page.notice, width)
 	bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
+	if page.tab == instructionTabRules {
+		return page.rulesView(tabs, width, bodyHeight)
+	}
 	if page.editor != nil {
 		feedback := ""
 		if page.err != nil {
@@ -204,6 +306,9 @@ func (page *InstructionPage) MouseTargets(originX, originY, z int) []component.M
 		return nil
 	}
 	tabs, spans := component.PageTabsLayout(instructionTabLabels, int(page.tab), page.notice, page.width)
+	if page.ruleDeleteID != "" {
+		return page.ruleConfirmMouseTargets(originX, originY, z)
+	}
 	targets := make([]component.MouseTarget, 0, len(spans)+1)
 	for _, span := range spans {
 		tab := instructionTab(span.Index)
@@ -217,9 +322,15 @@ func (page *InstructionPage) MouseTargets(originX, originY, z int) []component.M
 			},
 		})
 	}
+	contentY := originY + lipgloss.Height(tabs) + 1
+	if page.tab == instructionTabRules {
+		if page.ruleFormActive {
+			return append(targets, page.ruleForm.MouseTargets(originX, contentY, z)...)
+		}
+		return append(targets, page.rules.MouseTargets(originX, contentY, z)...)
+	}
 	if page.editor == nil {
-		detailY := originY + lipgloss.Height(tabs) + 1
-		targets = append(targets, page.detail.MouseTargets(originX, detailY, z)...)
+		targets = append(targets, page.detail.MouseTargets(originX, contentY, z)...)
 	}
 	return targets
 }
@@ -270,21 +381,7 @@ func (page *InstructionPage) syncDetail() {
 			component.DetailPageBinding{Key: "r", Desc: "refresh", Message: tea.KeyPressMsg{Code: 'r', Text: "r"}},
 		)
 	case instructionTabRules:
-		lines, enabled := make([]string, 0, len(page.settings.Rules)), 0
-		for _, rule := range page.settings.Rules {
-			state := "disabled"
-			if rule.Enabled {
-				state, enabled = "enabled", enabled+1
-			}
-			name := strings.TrimSpace(rule.Name)
-			if name == "" {
-				name = rule.ID
-			}
-			lines = append(lines, fmt.Sprintf("%s · %s · %s", name, state, rule.ID))
-		}
-		content := detailList(lines)
-		page.detail = component.NewDetailPage("Global Rules", fmt.Sprintf("%d total · %d enabled", len(page.settings.Rules), enabled), content)
-		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: tea.KeyPressMsg{Code: 'r', Text: "r"}})
+		page.syncRuleBrowser()
 	case instructionTabSources:
 		lines := make([]string, 0)
 		for _, source := range page.settings.DetectedSources {
@@ -313,6 +410,16 @@ func (page *InstructionPage) resizeContent() {
 	height := max(1, page.height-lipgloss.Height(tabs)-1)
 	if page.editor != nil {
 		page.editor.Resize(page.width, height)
+		return
+	}
+	if page.tab == instructionTabRules {
+		if page.ruleFormActive {
+			form, _ := page.ruleForm.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
+			page.ruleForm = form
+			return
+		}
+		updated, _ := page.rules.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
+		page.rules = updated.(component.Browser)
 		return
 	}
 	page.detail.Resize(page.width, height)

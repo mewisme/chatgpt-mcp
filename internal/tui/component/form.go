@@ -477,7 +477,11 @@ func (field *HintedInputField) View() string {
 }
 
 func Text(title string, value *string) *huh.Text {
-	return huh.NewText().Title(strings.TrimSpace(title)).Value(value).Lines(4)
+	return TextLines(title, value, 4)
+}
+
+func TextLines(title string, value *string, lines int) *huh.Text {
+	return huh.NewText().Title(strings.TrimSpace(title)).Value(value).Lines(max(1, lines))
 }
 
 func FilePicker(title string, value *string) *huh.FilePicker {

@@ -198,7 +198,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.approvalActive() {
 			return model.updateApprovalChoice(msg)
 		}
-		return model, nil
+		return model.updatePage(msg)
 	case palette.SelectedMsg:
 		if resource, ok := model.commandResources[msg.ID]; ok {
 			model.closeOverlay()

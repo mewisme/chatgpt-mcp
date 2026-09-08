@@ -136,6 +136,58 @@ func TestFieldsReturnsDefensiveCopy(t *testing.T) {
 	}
 }
 
+func TestFieldPresentationMetadataCoversRegistry(t *testing.T) {
+	valid := map[FieldSection]bool{FieldSectionRuntime: true, FieldSectionAccess: true, FieldSectionShell: true, FieldSectionFeatures: true, FieldSectionTunnel: true}
+	seen := map[string]bool{}
+	for _, spec := range Fields() {
+		if strings.TrimSpace(spec.Label) == "" {
+			t.Fatalf("field %s has no label", spec.Key)
+		}
+		if !valid[spec.Section] {
+			t.Fatalf("field %s has invalid section %q", spec.Key, spec.Section)
+		}
+		if seen[spec.Key] {
+			t.Fatalf("duplicate field key %s", spec.Key)
+		}
+		seen[spec.Key] = true
+	}
+}
+
+func TestFieldStateUsesDefaultsManagedAndNormalizedLists(t *testing.T) {
+	cfg := Default()
+	port, _ := FieldByKey("server.port")
+	state, err := State(cfg, port)
+	if err != nil || state != FieldStateDefault {
+		t.Fatalf("default port state=%q err=%v", state, err)
+	}
+	cfg.Server.Port++
+	state, err = State(cfg, port)
+	if err != nil || state != FieldStateCustom {
+		t.Fatalf("custom port state=%q err=%v", state, err)
+	}
+	managed, _ := FieldByKey("auth.mcp_token_hash")
+	state, err = State(cfg, managed)
+	if err != nil || state != FieldStateManaged {
+		t.Fatalf("managed state=%q err=%v", state, err)
+	}
+	defaults := Default()
+	list, _ := FieldByKey("permissions.allow_dirs")
+	defaults.Permissions.AllowDirs = []string{"/b", "/a"}
+	cfg = defaults
+	cfg.Permissions.AllowDirs = []string{"/a", "/b"}
+	current, err := comparableFieldValue(cfg, list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := comparableFieldValue(defaults, list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current != baseline {
+		t.Fatalf("normalized list mismatch current=%q baseline=%q", current, baseline)
+	}
+}
+
 func toJSONForTest(t *testing.T, value any) string {
 	t.Helper()
 	data, err := configformat.Marshal(configformat.JSON, value)

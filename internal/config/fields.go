@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -24,6 +25,8 @@ const (
 
 type FieldSpec struct {
 	Key         string
+	Label       string
+	Section     FieldSection
 	Description string
 	Kind        FieldKind
 	Options     []string
@@ -32,40 +35,58 @@ type FieldSpec struct {
 	Guidance    string
 }
 
+type FieldSection string
+
+const (
+	FieldSectionRuntime  FieldSection = "runtime"
+	FieldSectionAccess   FieldSection = "access"
+	FieldSectionShell    FieldSection = "shell"
+	FieldSectionFeatures FieldSection = "features"
+	FieldSectionTunnel   FieldSection = "tunnel"
+)
+
+type FieldState string
+
+const (
+	FieldStateDefault FieldState = "default"
+	FieldStateCustom  FieldState = "custom"
+	FieldStateManaged FieldState = "managed"
+)
+
 var fieldSpecs = []FieldSpec{
-	{Key: "server.enabled", Description: "MCP HTTP transport enabled", Kind: FieldBool, Editable: true},
-	{Key: "server.expose.mode", Description: "network exposure mode", Kind: FieldEnum, Options: []string{"none", "all", "0.0.0.0", "interfaces"}, Editable: true},
-	{Key: "server.expose.interfaces", Description: "network interfaces used by interfaces exposure mode", Kind: FieldList, Editable: true},
-	{Key: "server.port", Description: "MCP HTTP server port", Kind: FieldInt, Editable: true},
-	{Key: "server.allow_insecure_http", Description: "allow authenticated HTTP beyond loopback", Kind: FieldBool, Editable: true},
-	{Key: "admin.enabled", Description: "admin server enabled", Kind: FieldBool, Editable: true},
-	{Key: "admin.port", Description: "admin server port", Kind: FieldInt, Editable: true},
-	{Key: "auth.mcp_enabled", Description: "MCP authentication enabled", Kind: FieldBool, Editable: true},
-	{Key: "auth.admin_enabled", Description: "admin authentication enabled", Kind: FieldBool, Editable: true},
-	{Key: "auth.mcp_token_hash", Description: "MCP token credential", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the MCP auth token workflow."},
-	{Key: "auth.admin_token_hash", Description: "admin token credential", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the admin auth token workflow."},
-	{Key: "permissions.allow_dirs", Description: "additional filesystem roots", Kind: FieldList, Editable: true},
-	{Key: "shell.path", Description: "additional executable search paths", Kind: FieldList, Editable: true},
-	{Key: "shell.approval_policy", Description: "shell approval policy; balanced is the default", Kind: FieldEnum, Options: []string{"allow", "balanced", "strict", "deny"}, Editable: true},
-	{Key: "shell.approval_allow_commands", Description: "argv-aware glob patterns that bypass ordinary approval gates when every invocation matches; supports *, ?, [], and standalone **", Kind: FieldList, Editable: true},
-	{Key: "shell.approval_deny_commands", Description: "argv-aware glob patterns that always require approval; deny rules take precedence over allow rules", Kind: FieldList, Editable: true},
-	{Key: "shell.environment_policy", Description: "shell environment inheritance policy", Kind: FieldEnum, Options: []string{"auto", "inherit", "filtered", "minimal"}, Editable: true},
-	{Key: "shell.environment_allow", Description: "environment variables explicitly exposed to shell commands", Kind: FieldList, Editable: true},
-	{Key: "shell.sandbox_policy", Description: "OS-level shell sandbox policy", Kind: FieldEnum, Options: []string{"auto", "off", "required"}, Editable: true},
-	{Key: "shell.network_policy", Description: "shell network egress policy", Kind: FieldEnum, Options: []string{"auto", "inherit", "deny"}, Editable: true},
-	{Key: "features.ponytail.active", Description: "Ponytail mode active by default", Kind: FieldBool, Editable: true},
-	{Key: "features.ponytail.mode", Description: "Ponytail default intensity", Kind: FieldEnum, Options: []string{"lite", "full", "ultra"}, Editable: true},
-	{Key: "features.caveman.active", Description: "Caveman mode active by default", Kind: FieldBool, Editable: true},
-	{Key: "features.caveman.mode", Description: "Caveman default intensity", Kind: FieldEnum, Options: []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"}, Editable: true},
-	{Key: "tunnel.enabled", Description: "OpenAI Secure MCP Tunnel enabled", Kind: FieldBool, Editable: true},
-	{Key: "tunnel.id", Description: "OpenAI tunnel ID", Kind: FieldString, Editable: true},
-	{Key: "tunnel.api_key", Description: "OpenAI tunnel runtime API key", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage the runtime key from the Tunnel page."},
-	{Key: "tunnel.admin_key", Description: "OpenAI tunnel admin key", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage and verify the admin key from the Tunnel page."},
-	{Key: "tunnel.admin_organization_id", Description: "verified tunnel admin organization scope", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification."},
-	{Key: "tunnel.admin_workspace_id", Description: "verified tunnel admin workspace scope", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification."},
-	{Key: "tunnel.admin_tenant_id", Description: "verified tunnel admin tenant scope", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification."},
-	{Key: "tunnel.control_plane_base_url", Description: "OpenAI tunnel control-plane URL", Kind: FieldString, Editable: true},
-	{Key: "tunnel.organization_id", Description: "OpenAI organization ID", Kind: FieldString, Editable: true},
+	{Key: "server.enabled", Label: "MCP HTTP server", Section: FieldSectionRuntime, Description: "MCP HTTP transport enabled", Kind: FieldBool, Editable: true},
+	{Key: "server.expose.mode", Label: "Exposure", Section: FieldSectionRuntime, Description: "network exposure mode", Kind: FieldEnum, Options: []string{"none", "all", "0.0.0.0", "interfaces"}, Editable: true},
+	{Key: "server.expose.interfaces", Label: "Exposure interfaces", Section: FieldSectionRuntime, Description: "network interfaces used by interfaces exposure mode", Kind: FieldList, Editable: true},
+	{Key: "server.port", Label: "MCP HTTP port", Section: FieldSectionRuntime, Description: "MCP HTTP server port", Kind: FieldInt, Editable: true},
+	{Key: "server.allow_insecure_http", Label: "Allow insecure HTTP", Section: FieldSectionRuntime, Description: "allow authenticated HTTP beyond loopback", Kind: FieldBool, Editable: true},
+	{Key: "admin.enabled", Label: "Admin server", Section: FieldSectionRuntime, Description: "admin server enabled", Kind: FieldBool, Editable: true},
+	{Key: "admin.port", Label: "Admin port", Section: FieldSectionRuntime, Description: "admin server port", Kind: FieldInt, Editable: true},
+	{Key: "auth.mcp_enabled", Label: "MCP authentication", Section: FieldSectionAccess, Description: "MCP authentication enabled", Kind: FieldBool, Editable: true},
+	{Key: "auth.admin_enabled", Label: "Admin authentication", Section: FieldSectionAccess, Description: "admin authentication enabled", Kind: FieldBool, Editable: true},
+	{Key: "auth.mcp_token_hash", Label: "MCP credential", Section: FieldSectionAccess, Description: "MCP token credential", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the MCP auth token workflow."},
+	{Key: "auth.admin_token_hash", Label: "Admin credential", Section: FieldSectionAccess, Description: "admin token credential", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the admin auth token workflow."},
+	{Key: "permissions.allow_dirs", Label: "Allowed directories", Section: FieldSectionAccess, Description: "additional filesystem roots", Kind: FieldList, Editable: true},
+	{Key: "shell.path", Label: "Executable search paths", Section: FieldSectionShell, Description: "additional executable search paths", Kind: FieldList, Editable: true},
+	{Key: "shell.approval_policy", Label: "Approval policy", Section: FieldSectionShell, Description: "shell approval policy; balanced is the default", Kind: FieldEnum, Options: []string{"allow", "balanced", "strict", "deny"}, Editable: true},
+	{Key: "shell.approval_allow_commands", Label: "Allow commands", Section: FieldSectionShell, Description: "argv-aware glob patterns that bypass ordinary approval gates when every invocation matches; supports *, ?, [], and standalone **", Kind: FieldList, Editable: true},
+	{Key: "shell.approval_deny_commands", Label: "Deny commands", Section: FieldSectionShell, Description: "argv-aware glob patterns that always require approval; deny rules take precedence over allow rules", Kind: FieldList, Editable: true},
+	{Key: "shell.environment_policy", Label: "Environment policy", Section: FieldSectionShell, Description: "shell environment inheritance policy", Kind: FieldEnum, Options: []string{"auto", "inherit", "filtered", "minimal"}, Editable: true},
+	{Key: "shell.environment_allow", Label: "Environment allow", Section: FieldSectionShell, Description: "environment variables explicitly exposed to shell commands", Kind: FieldList, Editable: true},
+	{Key: "shell.sandbox_policy", Label: "Sandbox policy", Section: FieldSectionShell, Description: "OS-level shell sandbox policy", Kind: FieldEnum, Options: []string{"auto", "off", "required"}, Editable: true},
+	{Key: "shell.network_policy", Label: "Network policy", Section: FieldSectionShell, Description: "shell network egress policy", Kind: FieldEnum, Options: []string{"auto", "inherit", "deny"}, Editable: true},
+	{Key: "features.ponytail.active", Label: "Ponytail active", Section: FieldSectionFeatures, Description: "Ponytail mode active by default", Kind: FieldBool, Editable: true},
+	{Key: "features.ponytail.mode", Label: "Ponytail mode", Section: FieldSectionFeatures, Description: "Ponytail default intensity", Kind: FieldEnum, Options: []string{"lite", "full", "ultra"}, Editable: true},
+	{Key: "features.caveman.active", Label: "Caveman active", Section: FieldSectionFeatures, Description: "Caveman mode active by default", Kind: FieldBool, Editable: true},
+	{Key: "features.caveman.mode", Label: "Caveman mode", Section: FieldSectionFeatures, Description: "Caveman default intensity", Kind: FieldEnum, Options: []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"}, Editable: true},
+	{Key: "tunnel.enabled", Label: "Tunnel", Section: FieldSectionTunnel, Description: "OpenAI Secure MCP Tunnel enabled", Kind: FieldBool, Editable: true},
+	{Key: "tunnel.id", Label: "Tunnel ID", Section: FieldSectionTunnel, Description: "OpenAI tunnel ID", Kind: FieldString, Editable: true},
+	{Key: "tunnel.api_key", Label: "Runtime API key", Section: FieldSectionTunnel, Description: "OpenAI tunnel runtime API key", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage the runtime key from the Tunnel page."},
+	{Key: "tunnel.admin_key", Label: "Admin key", Section: FieldSectionTunnel, Description: "OpenAI tunnel admin key", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage and verify the admin key from the Tunnel page."},
+	{Key: "tunnel.admin_organization_id", Label: "Admin organization scope", Section: FieldSectionTunnel, Description: "verified tunnel admin organization scope", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification."},
+	{Key: "tunnel.admin_workspace_id", Label: "Admin workspace scope", Section: FieldSectionTunnel, Description: "verified tunnel admin workspace scope", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification."},
+	{Key: "tunnel.admin_tenant_id", Label: "Admin tenant scope", Section: FieldSectionTunnel, Description: "verified tunnel admin tenant scope", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification."},
+	{Key: "tunnel.control_plane_base_url", Label: "Control-plane URL", Section: FieldSectionTunnel, Description: "OpenAI tunnel control-plane URL", Kind: FieldString, Editable: true},
+	{Key: "tunnel.organization_id", Label: "Organization ID", Section: FieldSectionTunnel, Description: "OpenAI organization ID", Kind: FieldString, Editable: true},
 }
 
 func Fields() []FieldSpec {
@@ -360,6 +381,41 @@ func DisplayValue(cfg Config, spec FieldSpec) (string, error) {
 		return "-", nil
 	}
 	return value, nil
+}
+
+func State(cfg Config, spec FieldSpec) (FieldState, error) {
+	if !spec.Editable || spec.Kind == FieldReadOnly {
+		return FieldStateManaged, nil
+	}
+	current, err := comparableFieldValue(cfg, spec)
+	if err != nil {
+		return "", err
+	}
+	defaults := Default()
+	baseline, err := comparableFieldValue(defaults, spec)
+	if err != nil {
+		return "", err
+	}
+	if current == baseline {
+		return FieldStateDefault, nil
+	}
+	return FieldStateCustom, nil
+}
+
+func comparableFieldValue(cfg Config, spec FieldSpec) (string, error) {
+	value, err := RawValue(cfg, spec.Key)
+	if err != nil {
+		return "", err
+	}
+	if spec.Sensitive {
+		return "", nil
+	}
+	if spec.Kind != FieldList {
+		return strings.TrimSpace(value), nil
+	}
+	items := splitFieldList(value)
+	slices.Sort(items)
+	return strings.Join(items, "\x00"), nil
 }
 
 func RedactedTree(cfg Config) (map[string]any, error) {

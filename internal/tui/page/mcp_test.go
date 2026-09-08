@@ -210,6 +210,33 @@ func TestMCPPageServerLifecycleAndSecretRedaction(t *testing.T) {
 	}
 }
 
+func TestMCPDetailRemovalKeepsDetailUntilParentNavigation(t *testing.T) {
+	client := &mcpPageClient{}
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, client)
+	if err := manager.Add(upstream.Server{ID: "docs", Name: "Docs", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Expose: "all"}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := newMCPRoutePage(t.Context(), "docs", "", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := page.openCommand(MCPServerRemove, "docs"); err != nil {
+		t.Fatal(err)
+	}
+	page.confirm = component.NewConfirmButtons("Remove", "Cancel", true)
+	cmd := page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil || page.resourceID != "docs" {
+		t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)
+	}
+	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "MCP server · docs") {
+		t.Fatalf("intermediate MCP detail render=%q", got)
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "mcp" || !message.Replace {
+		t.Fatalf("navigation=%#v", message)
+	}
+}
+
 func TestMCPPageHealthAndToolsRunAsCommands(t *testing.T) {
 	client := &mcpPageClient{tools: []upstream.Tool{{Name: "read", Description: "Read docs"}}}
 	page, manager, _, _ := newMCPPageTestHarness(t, client)

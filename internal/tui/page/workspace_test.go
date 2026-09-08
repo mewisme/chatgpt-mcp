@@ -164,6 +164,82 @@ func TestWorkspaceContainerLifecycleAndMembership(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("workspace unregister", func(t *testing.T) {
+		page, err := NewWorkspacesRoute(t.Context(), item.ID, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := page.openCommand(WorkspaceUnregister, item.ID); err != nil {
+			t.Fatal(err)
+		}
+		page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+		cmd := page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+		if cmd == nil || page.resourceID != item.ID {
+			t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)
+		}
+		if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Workspace · "+item.ID) {
+			t.Fatalf("intermediate detail render=%q", got)
+		}
+		message, ok := cmd().(NavigateMsg)
+		if !ok || strings.Join(message.Path, "/") != "workspaces" || !message.Replace {
+			t.Fatalf("navigation=%#v", message)
+		}
+	})
+
+	item, err = list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	container, err := list.manager.CreateContainer("Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := list.manager.AddWorkspaceToContainer(container.ID, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewContainersRoute(t.Context(), container.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := page.openCommand(WorkspaceContainerDelete, container.ID); err != nil {
+		t.Fatal(err)
+	}
+	page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+	cmd := page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil || page.resourceID != container.ID {
+		t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)
+	}
+	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Container · Primary") {
+		t.Fatalf("intermediate container detail render=%q", got)
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "containers" || !message.Replace {
+		t.Fatalf("navigation=%#v", message)
+	}
+	workspaces, err := page.manager.List()
+	if err != nil || len(workspaces) != 1 || workspaces[0].ID != item.ID {
+		t.Fatalf("workspace records changed by container delete: %#v err=%v", workspaces, err)
+	}
+}
+
 func TestWorkspaceBrowserHelpStaysAboveAppFooterWithFeedback(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {

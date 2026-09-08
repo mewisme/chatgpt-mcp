@@ -478,7 +478,6 @@ func (page *MCPPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		delete(page.status, target)
 		delete(page.tools, target)
-		page.resourceID = ""
 		page.notice = "MCP server removed"
 		page.closeOverlay()
 		return func() tea.Msg { return NavigateMsg{Path: []string{"mcp"}, Replace: true} }

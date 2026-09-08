@@ -468,7 +468,6 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		page.notice = workspaceSuccess(page.command)
 		deletedID := page.targetID
 		page.closeOverlay()
-		page.resourceID = ""
 		if deletedID != "" {
 			path := []string{"workspaces"}
 			if page.containers {

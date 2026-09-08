@@ -3,6 +3,7 @@ package page
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"testing"
@@ -305,28 +306,33 @@ func TestRuntimeForegroundUsesExplicitExternalWorkflow(t *testing.T) {
 	}
 }
 
-func TestRuntimeInstallAndUpdateFormsRequireConfirmation(t *testing.T) {
+func TestRuntimeInstallAndUpdateUseRoutedEditorsAndFailureKeepsDraft(t *testing.T) {
 	page, _ := NewRuntime(t.Context())
-	if _, err := page.openCommand(InstallRun); err != nil {
+	for command, want := range map[SystemCommand]string{InstallRun: "runtime/install", UpdateApply: "runtime/update"} {
+		cmd, err := page.openCommand(command)
+		if err != nil || cmd == nil {
+			t.Fatalf("command=%s cmd=%v err=%v", command, cmd != nil, err)
+		}
+		navigate, ok := cmd().(NavigateMsg)
+		if !ok || strings.Join(navigate.Path, "/") != want {
+			t.Fatalf("command=%s navigation=%#v", command, navigate)
+		}
+	}
+	update, err := NewRuntimeRouteAction(t.Context(), "", "update")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if page.overlay != systemOverlayForm || page.installForm == nil {
-		t.Fatal("install form did not open")
+	updated, initEditor := update.Update(update.Init()())
+	update = updated.(*RuntimePage)
+	if update.editor == nil || update.updateForm == nil || initEditor == nil || update.OverlayActive() {
+		t.Fatalf("editor=%v data=%v init=%v overlay=%t", update.editor != nil, update.updateForm != nil, initEditor != nil, update.OverlayActive())
 	}
-	page.submitForm()
-	if page.err == nil || page.overlay != systemOverlayNone {
-		t.Fatal("unconfirmed install was accepted")
-	}
-	page.err = nil
-	if _, err := page.openCommand(UpdateApply); err != nil {
-		t.Fatal(err)
-	}
-	if page.overlay != systemOverlayForm || page.updateForm == nil {
-		t.Fatal("update form did not open")
-	}
-	page.submitForm()
-	if page.err == nil || page.overlay != systemOverlayNone {
-		t.Fatal("unconfirmed update was accepted")
+	update.updateForm.TargetVersion = "v-draft"
+	update.editor.SetSubmitting(true)
+	update.operationID = 7
+	follow := update.finishOperation(systemOperationMsg{id: 7, command: UpdateApply, err: fmt.Errorf("update failed")})
+	if follow != nil || update.editor == nil || update.updateForm.TargetVersion != "v-draft" || update.editor.Submitting() || !strings.Contains(ansi.Strip(update.View(44, 18)), "update failed") {
+		t.Fatalf("follow=%v draft=%#v submitting=%t view=%q", follow != nil, update.updateForm, update.editor.Submitting(), ansi.Strip(update.View(44, 18)))
 	}
 }
 

@@ -11,24 +11,21 @@ type installFormData struct {
 	NoAlias       bool
 	Force         bool
 	MigrateLegacy bool
-	Confirm       bool
 }
 
 type updateFormData struct {
 	TargetVersion string
 	NoRestart     bool
-	Confirm       bool
 }
 
-func newInstallForm() (component.Form, *installFormData) {
+func newInstallEditor() (component.Editor, *installFormData) {
 	data := &installFormData{MigrateLegacy: true}
-	form := component.NewForm(component.Group(
+	editor := component.NewEditor("install", component.EditorSection{ID: "install", Title: "Managed Install", Description: "Install this binary into the managed layout and optionally configure the cgm alias.", Form: component.NewEditorForm(component.Group(
 		component.BoolSelect("Skip cgm alias", &data.NoAlias, "Yes", "No"),
 		component.BoolSelect("Allow development build", &data.Force, "Yes", "No"),
 		component.BoolSelect("Clean verified legacy installations", &data.MigrateLegacy, "Yes", "No"),
-		component.Confirm("Install this binary into the managed layout", &data.Confirm),
-	).Title("Managed install"))
-	return form, data
+	))})
+	return editor, data
 }
 
 func (data *installFormData) Options() application.InstallCurrentOptions {
@@ -38,14 +35,13 @@ func (data *installFormData) Options() application.InstallCurrentOptions {
 	return application.InstallCurrentOptions{NoAlias: data.NoAlias, Force: data.Force, MigrateLegacy: data.MigrateLegacy}
 }
 
-func newUpdateForm() (component.Form, *updateFormData) {
+func newUpdateEditor() (component.Editor, *updateFormData) {
 	data := &updateFormData{}
-	form := component.NewForm(component.Group(
+	editor := component.NewEditor("update", component.EditorSection{ID: "update", Title: "Update", Description: "Verify and apply a release to the managed installation.", Form: component.NewEditorForm(component.Group(
 		component.Input("Target version (blank = latest; explicit may downgrade)", &data.TargetVersion),
 		component.BoolSelect("Skip managed runtime restart", &data.NoRestart, "Yes", "No"),
-		component.Confirm("Apply the verified update", &data.Confirm),
-	).Title("Update"))
-	return form, data
+	))})
+	return editor, data
 }
 
 func (data *updateFormData) Options() application.UpdateApplyOptions {

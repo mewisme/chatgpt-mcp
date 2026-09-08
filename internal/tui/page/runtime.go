@@ -55,7 +55,6 @@ type systemOverlay uint8
 
 const (
 	systemOverlayNone systemOverlay = iota
-	systemOverlayForm
 	systemOverlayConfirm
 	systemOverlayOperation
 	systemOverlaySecret
@@ -91,6 +90,7 @@ type runtimeItem struct {
 type RuntimePage struct {
 	ctx             context.Context
 	resourceID      string
+	action          string
 	browser         component.Browser
 	detail          component.DetailPage
 	runtime         application.RuntimeOverview
@@ -100,7 +100,7 @@ type RuntimePage struct {
 	loaded          bool
 	loading         bool
 	overlay         systemOverlay
-	form            component.Form
+	editor          *component.Editor
 	installForm     *installFormData
 	updateForm      *updateFormData
 	confirm         component.ConfirmButtons
@@ -122,10 +122,14 @@ func NewRuntime(ctx context.Context) (*RuntimePage, error) {
 }
 
 func NewRuntimeRoute(ctx context.Context, resourceID string) (*RuntimePage, error) {
+	return NewRuntimeRouteAction(ctx, resourceID, "")
+}
+
+func NewRuntimeRouteAction(ctx context.Context, resourceID, action string) (*RuntimePage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	page := &RuntimePage{ctx: ctx, resourceID: strings.TrimSpace(resourceID)}
+	page := &RuntimePage{ctx: ctx, resourceID: strings.TrimSpace(resourceID), action: strings.TrimSpace(action)}
 	page.browser = component.NewBrowser(ctx, "Runtime", nil, nil).WithTitleVisible(false).WithHelpBindings(component.Binding([]string{"r"}, "r", "refresh"))
 	return page, nil
 }
@@ -145,7 +149,14 @@ func (page *RuntimePage) OverlayActive() bool {
 }
 
 func (page *RuntimePage) InputActive() bool {
-	return page != nil && (page.overlay == systemOverlayForm || page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.editor != nil || page.resourceID == "" && page.browser.InputActive())
+}
+
+func (page *RuntimePage) Dirty() bool {
+	return page != nil && page.editor != nil && page.editor.Dirty()
+}
+func (page *RuntimePage) Submitting() bool {
+	return page != nil && page.editor != nil && page.editor.Submitting()
 }
 
 func (page *RuntimePage) Notice() string {
@@ -179,7 +190,13 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page.overlay == systemOverlayOperation {
 		if key, ok := message.(tea.KeyPressMsg); ok && key.String() == "esc" {
 			page.cancelOperation()
-			page.closeOverlay()
+			page.overlay, page.progress = systemOverlayNone, nil
+			if page.editor != nil {
+				page.editor.SetSubmitting(false)
+				page.editor.SetFeedback("Runtime/system operation cancellation requested", nil)
+			} else {
+				page.notice = "Runtime/system operation cancellation requested"
+			}
 			return page, nil
 		}
 		if page.progress != nil {
@@ -199,34 +216,32 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		page.loaded, page.err = true, nil
 		page.runtime, page.auth, page.install, page.about = msg.runtime, msg.auth, msg.install, msg.about
+		if page.action != "" && page.editor == nil {
+			if err := page.initRuntimeEditor(); err != nil {
+				page.err = err
+				return page, nil
+			}
+			return page, page.editor.Init()
+		}
 		cmd := page.rebuildBrowser(page.selectedID())
 		return page, cmd
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
+		if page.editor != nil {
+			page.resizeRuntimeEditor()
+			return page, nil
+		}
 		var browserCmd tea.Cmd
 		if page.resourceID != "" {
 			page.detail.Resize(msg.Width, msg.Height)
 		} else {
 			browserCmd = page.resizeBrowser()
 		}
-		if page.overlay == systemOverlayForm {
-			form, formCmd := page.form.Update(msg)
-			page.form = form
-			return page, tea.Batch(browserCmd, formCmd)
-		}
 		return page, browserCmd
-	case component.FormSubmittedMsg:
-		return page, page.submitForm()
-	case component.FormCancelledMsg:
-		page.closeOverlay()
-		return page, nil
-	case component.FormMouseMsg:
-		if page.overlay == systemOverlayForm {
-			form, cmd := page.form.Update(msg)
-			page.form = form
-			return page, cmd
-		}
-		return page, nil
+	case component.EditorSubmitMsg:
+		return page, page.submitRuntimeEditor()
+	case component.EditorCancelMsg:
+		return page, page.runtimeEditorParentNavigation()
 	case component.ConfirmChoiceMsg:
 		if page.overlay == systemOverlayConfirm {
 			page.confirm.Select(msg.Affirmative)
@@ -245,11 +260,6 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, nil
 	case tea.KeyPressMsg:
-		if page.overlay == systemOverlayForm {
-			form, cmd := page.form.Update(msg)
-			page.form = form
-			return page, cmd
-		}
 		if page.overlay == systemOverlayConfirm {
 			return page, page.updateConfirm(msg)
 		}
@@ -262,6 +272,11 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 				return page, page.copyOverlayValue()
 			}
 			return page, nil
+		}
+		if page.editor != nil {
+			updated, cmd := page.editor.Update(msg)
+			page.editor = &updated
+			return page, cmd
 		}
 		if page.resourceID == "" && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
@@ -276,9 +291,9 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, cmd
 		}
 	}
-	if page.overlay == systemOverlayForm {
-		form, cmd := page.form.Update(message)
-		page.form = form
+	if page.editor != nil {
+		updated, cmd := page.editor.Update(message)
+		page.editor = &updated
 		return page, cmd
 	}
 	if page.resourceID != "" {
@@ -300,7 +315,9 @@ func (page *RuntimePage) View(width, height int) string {
 		return component.StateView(component.PageLoading, "Loading runtime and system state", "")
 	}
 	var content string
-	if page.resourceID != "" {
+	if page.editor != nil {
+		content = page.runtimeEditorView(width, height)
+	} else if page.resourceID != "" {
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
 		content = page.detail.View()
@@ -317,8 +334,6 @@ func (page *RuntimePage) View(width, height int) string {
 		content = title + "\n" + status + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	}
 	switch page.overlay {
-	case systemOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 82)), width, height)
 	case systemOverlayConfirm:
 		modalWidth := overlayWidth(width, 72)
 		body := confirmOverlayBody(page.confirm, page.confirmTitle(), page.confirmDescription(), modalWidth)
@@ -346,8 +361,6 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 		return nil
 	}
 	switch page.overlay {
-	case systemOverlayForm:
-		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 82), page.width, page.height, originX, originY, z+20)
 	case systemOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
 	case systemOverlaySecret:
@@ -361,6 +374,9 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
 	case systemOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
+	}
+	if page.editor != nil {
+		return page.runtimeEditorMouseTargets(originX, originY, z)
 	}
 	if page.resourceID != "" {
 		return page.detail.MouseTargets(originX, originY, z)
@@ -400,13 +416,9 @@ func (page *RuntimePage) openCommand(command SystemCommand) (tea.Cmd, error) {
 		page.loading = true
 		return page.loadCmd(), nil
 	case InstallRun:
-		page.form, page.installForm = newInstallForm()
-		page.pending, page.overlay = command, systemOverlayForm
-		return page.form.Init(), nil
+		return func() tea.Msg { return NavigateMsg{Path: []string{"runtime", "install"}} }, nil
 	case UpdateApply:
-		page.form, page.updateForm = newUpdateForm()
-		page.pending, page.overlay = command, systemOverlayForm
-		return page.form.Init(), nil
+		return func() tea.Msg { return NavigateMsg{Path: []string{"runtime", "update"}} }, nil
 	case RuntimeForeground:
 		page.external = &application.ExternalCommand{Command: "cgm serve", Reason: "The foreground runtime owns the terminal. Exit the TUI before starting it."}
 		page.overlay = systemOverlayExternal
@@ -429,28 +441,6 @@ func (page *RuntimePage) openCommand(command SystemCommand) (tea.Cmd, error) {
 	default:
 		return nil, fmt.Errorf("unsupported system action: %s", command)
 	}
-}
-
-func (page *RuntimePage) submitForm() tea.Cmd {
-	switch page.pending {
-	case InstallRun:
-		if page.installForm == nil || !page.installForm.Confirm {
-			page.closeOverlay()
-			page.err = fmt.Errorf("installation was not confirmed")
-			return nil
-		}
-	case UpdateApply:
-		if page.updateForm == nil || !page.updateForm.Confirm {
-			page.closeOverlay()
-			page.err = fmt.Errorf("update was not confirmed")
-			return nil
-		}
-	default:
-		return nil
-	}
-	command := page.pending
-	page.overlay = systemOverlayNone
-	return page.startOperation(command)
 }
 
 func (page *RuntimePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
@@ -566,7 +556,13 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 	page.progress = nil
 	if msg.err != nil {
 		page.overlay = systemOverlayNone
-		page.err = msg.err
+		if page.editor != nil {
+			page.editor.SetSubmitting(false)
+			page.editor.SetFeedback("", msg.err)
+			page.err = nil
+		} else {
+			page.err = msg.err
+		}
 		return nil
 	}
 	if msg.token != "" {
@@ -582,6 +578,15 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		page.overlay = systemOverlayNone
 		page.notice = operationNotice(msg)
 	}
+	if page.editor != nil {
+		page.editor.SetSubmitting(false)
+		if msg.external != nil {
+			return nil
+		}
+		page.installForm, page.updateForm = nil, nil
+		notice := page.notice
+		return tea.Batch(page.runtimeEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Runtime", Message: notice, Tone: component.ToneSuccess} })
+	}
 	page.installForm, page.updateForm = nil, nil
 	return page.loadCmd()
 }
@@ -596,11 +601,14 @@ func (page *RuntimePage) cancelOperation() {
 func (page *RuntimePage) closeOverlay() {
 	page.cancelOperation()
 	page.overlay = systemOverlayNone
-	page.form = component.Form{}
 	page.confirm = component.ConfirmButtons{}
 	page.progress = nil
-	page.pending = ""
-	page.installForm, page.updateForm = nil, nil
+	if page.editor == nil {
+		page.pending = ""
+		page.installForm, page.updateForm = nil, nil
+	} else {
+		page.editor.SetSubmitting(false)
+	}
 	page.secret, page.secretKind = "", ""
 	page.external = nil
 }

@@ -1011,7 +1011,7 @@ func (model *Model) loadPage(route Route) {
 	case RouteLogsExec:
 		value, err = tuipage.NewCommandExecutionLogs(model.ctx)
 	case RouteRuntime:
-		value, err = tuipage.NewRuntimeRoute(model.ctx, route.ResourceID)
+		value, err = tuipage.NewRuntimeRouteAction(model.ctx, route.ResourceID, route.Action)
 	case RouteAbout:
 		value, err = tuipage.NewAbout(model.ctx)
 	case RouteConfig:
@@ -1080,12 +1080,6 @@ func editorRouteCompatibilityCmd(route Route) tea.Cmd {
 	case RouteTunnels:
 	case RouteConfig:
 	case RouteRuntime:
-		switch route.Action {
-		case "install":
-			message = tuipage.SystemCommandMsg{Command: tuipage.InstallRun}
-		case "update":
-			message = tuipage.SystemCommandMsg{Command: tuipage.UpdateApply}
-		}
 	case RouteLogs:
 		if route.Action == "filter" {
 			message = tuipage.LogsCommandMsg{Command: tuipage.LogsFilter}

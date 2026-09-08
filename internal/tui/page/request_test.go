@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -182,7 +183,30 @@ func TestRequestsPagePreservesExpandedBrowserHelpAcrossRefresh(t *testing.T) {
 	}
 }
 
-func TestRequestsPageResolutionRequiresExplicitConfirmation(t *testing.T) {
+func TestRequestsPageDetailRefreshPreservesScrollOffset(t *testing.T) {
+	now := time.Now().UTC()
+	request := approval.Request{ID: "req_scroll_refresh", Status: approval.StatusPending, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Allow update", CreatedAt: now, ExpiresAt: now.Add(time.Minute), Reason: strings.Repeat("long detail content ", 80)}
+	page, _ := NewRequestsRouteMode(t.Context(), "all", request.ID, "")
+	page.requests = []approval.Request{request}
+	page.width, page.height = 40, 12
+	page.syncDetail()
+	for range 6 {
+		updated, _ := page.detail.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+		page.detail = updated
+	}
+	before := page.detail.YOffset()
+	if before == 0 {
+		t.Fatal("detail did not scroll before refresh")
+	}
+	request.ExpiresAt = request.ExpiresAt.Add(time.Second)
+	page.requests = []approval.Request{request}
+	page.syncDetail()
+	if after := page.detail.YOffset(); after != before {
+		t.Fatalf("detail refresh reset scroll: before=%d after=%d", before, after)
+	}
+}
+
+func TestRequestsPageResolutionUsesRoutedEditorWithoutConfirmField(t *testing.T) {
 	now := time.Now().UTC()
 	request := approval.Request{ID: "req_pending", Status: approval.StatusPending, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Allow update", Arguments: []byte(`{"command":"cgm update"}`), CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
 	resolveCalls := 0
@@ -190,6 +214,8 @@ func TestRequestsPageResolutionRequiresExplicitConfirmation(t *testing.T) {
 		switch r.URL.Path {
 		case "/requests":
 			_ = json.NewEncoder(w).Encode([]approval.Request{request})
+		case "/requests/view":
+			_ = json.NewEncoder(w).Encode(request)
 		case "/requests/approve":
 			resolveCalls++
 			var input map[string]string
@@ -213,28 +239,35 @@ func TestRequestsPageResolutionRequiresExplicitConfirmation(t *testing.T) {
 	page = updated.(*RequestsPage)
 
 	cmd := page.handleCommand(RequestApprove, request.ID)
-	if cmd == nil || page.resolveForm == nil || page.resolveForm.Confirm || page.overlay != requestOverlayForm {
-		t.Fatalf("form=%#v overlay=%d cmd=%v", page.resolveForm, page.overlay, cmd)
+	if cmd == nil || page.resolveForm != nil || page.editor != nil || page.overlay != requestOverlayNone {
+		t.Fatalf("route cmd=%v form=%#v editor=%v overlay=%d", cmd != nil, page.resolveForm, page.editor != nil, page.overlay)
 	}
-	if resolve := page.submitResolveForm(); resolve != nil || resolveCalls != 0 || !strings.Contains(page.notice, "unchanged") {
-		t.Fatalf("resolve=%v calls=%d notice=%q", resolve, resolveCalls, page.notice)
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "requests/pending/"+request.ID+"/approve" {
+		t.Fatalf("navigation=%#v", navigate)
 	}
-
-	_ = page.handleCommand(RequestApprove, request.ID)
-	page.resolveForm.Confirm = true
-	page.resolveForm.Reason = "reviewed"
-	resolve := page.submitResolveForm()
-	if resolve == nil || page.overlay != requestOverlayOperation {
-		t.Fatalf("resolve=%v overlay=%d", resolve, page.overlay)
+	resolvePage, _ := NewRequestsRouteAction(t.Context(), "pending", request.ID, "", "approve")
+	updated, initEditor := resolvePage.Update(resolvePage.refreshCmd()())
+	resolvePage = updated.(*RequestsPage)
+	if initEditor == nil || resolvePage.editor == nil || resolvePage.resolveForm == nil || resolvePage.OverlayActive() {
+		t.Fatalf("editor=%v form=%#v init=%v overlay=%t", resolvePage.editor != nil, resolvePage.resolveForm, initEditor != nil, resolvePage.OverlayActive())
 	}
-	updated, _ = page.Update(resolve())
-	page = updated.(*RequestsPage)
-	resolved, ok := page.findRequest(request.ID)
-	if !ok || resolved.Status != approval.StatusApproved || resolveCalls != 1 || !strings.Contains(page.notice, "Approved") {
-		t.Fatalf("resolved=%#v ok=%t calls=%d notice=%q", resolved, ok, resolveCalls, page.notice)
+	resolvePage.resolveForm.Reason = "reviewed"
+	resolve := resolvePage.submitResolveForm()
+	if resolve == nil || resolvePage.overlay != requestOverlayOperation || !resolvePage.editor.Submitting() {
+		t.Fatalf("resolve=%v overlay=%d submitting=%t", resolve != nil, resolvePage.overlay, resolvePage.editor.Submitting())
 	}
-	if cmd := page.handleCommand(RequestDeny, request.ID); cmd != nil || page.err == nil || !strings.Contains(page.err.Error(), "cannot be resolved") {
-		t.Fatalf("resolved request deny cmd=%v err=%v", cmd, page.err)
+	updated, follow := resolvePage.Update(resolve())
+	resolvePage = updated.(*RequestsPage)
+	if follow == nil || resolvePage.editor != nil || resolveCalls != 1 {
+		t.Fatalf("follow=%v editor=%v calls=%d", follow != nil, resolvePage.editor != nil, resolveCalls)
+	}
+	request.Status = approval.StatusApproved
+	if cmd := page.handleCommand(RequestDeny, request.ID); cmd == nil {
+		page.upsertRequest(request)
+		if cmd = page.handleCommand(RequestDeny, request.ID); cmd != nil || page.err == nil || !strings.Contains(page.err.Error(), "cannot be resolved") {
+			t.Fatalf("resolved request deny cmd=%v err=%v", cmd, page.err)
+		}
 	}
 }
 
@@ -261,10 +294,9 @@ func TestRequestsPageCreatesSyntheticTestRequest(t *testing.T) {
 		}
 	})
 	defer server.Close()
-	page, _ := NewRequests(t.Context(), "")
-	cmd := page.handleCommand(RequestCreateTest, "")
-	if cmd == nil || page.createForm == nil || page.overlay != requestOverlayForm {
-		t.Fatalf("create form=%#v overlay=%d cmd=%v", page.createForm, page.overlay, cmd)
+	page, _ := NewRequestsRouteAction(t.Context(), "", "", "", "create-test")
+	if page.editor == nil || page.createForm == nil || page.overlay != requestOverlayNone {
+		t.Fatalf("create form=%#v editor=%v overlay=%d", page.createForm, page.editor != nil, page.overlay)
 	}
 	if page.createForm.WorkspaceID != "ws_dummy" || page.createForm.Title != "Allow test command" || page.createForm.Command != "echo test approval" {
 		t.Fatalf("create defaults=%#v", page.createForm)
@@ -278,19 +310,28 @@ func TestRequestsPageCreatesSyntheticTestRequest(t *testing.T) {
 	updated, _ := page.Update(create())
 	page = updated.(*RequestsPage)
 	request, ok := page.findRequest(created.ID)
-	if !ok || request.ID != created.ID || createCalls != 1 || !strings.Contains(page.notice, "Created test request") {
-		t.Fatalf("created=%#v ok=%t calls=%d notice=%q", request, ok, createCalls, page.notice)
+	if !ok || request.ID != created.ID || createCalls != 1 || page.editor != nil {
+		t.Fatalf("created=%#v ok=%t calls=%d editor=%v", request, ok, createCalls, page.editor != nil)
 	}
 }
 
-func TestRequestsPageTestRequestShortcutOpensForm(t *testing.T) {
+func TestRequestsPageTestRequestShortcutNavigatesToEditor(t *testing.T) {
 	page, _ := NewRequests(t.Context(), "")
 	updated, cmd := page.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	page = updated.(*RequestsPage)
-	if cmd == nil || page.overlay != requestOverlayForm || page.createForm == nil {
-		t.Fatalf("shortcut cmd=%v overlay=%d form=%#v", cmd, page.overlay, page.createForm)
+	if cmd == nil || page.editor != nil || page.createForm != nil {
+		t.Fatalf("shortcut cmd=%v editor=%v form=%#v", cmd != nil, page.editor != nil, page.createForm)
 	}
-	plain := ansi.Strip(page.View(100, 24))
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "requests/create-test" {
+		t.Fatalf("navigation=%#v", navigate)
+	}
+	editorPage, _ := NewRequestsRouteAction(t.Context(), "", "", "", "create-test")
+	if initEditor := editorPage.editor.Init(); initEditor != nil {
+		updated, _ = editorPage.Update(initEditor())
+		editorPage = updated.(*RequestsPage)
+	}
+	plain := ansi.Strip(editorPage.View(100, 24))
 	for _, want := range []string{"Workspace ID", "Title", "Command", "echo test approval"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("create form missing %q: %q", want, plain)
@@ -304,7 +345,12 @@ func TestRequestsPageResolveCancellationIgnoresLateResult(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/requests/approve" {
+		switch r.URL.Path {
+		case "/requests/view":
+			_ = json.NewEncoder(w).Encode(request)
+			return
+		case "/requests/approve":
+		default:
 			t.Fatalf("unexpected path=%s", r.URL.Path)
 		}
 		started <- struct{}{}
@@ -317,8 +363,10 @@ func TestRequestsPageResolveCancellationIgnoresLateResult(t *testing.T) {
 	page, _ := NewRequests(t.Context(), "")
 	page.requests = []approval.Request{request}
 	page.rebuildBrowser(request.ID)
-	_ = page.handleCommand(RequestApprove, request.ID)
-	page.resolveForm.Confirm = true
+	page.action = "approve"
+	if err := page.initResolveEditor(request, true); err != nil {
+		t.Fatal(err)
+	}
 	resolve := page.submitResolveForm()
 	result := make(chan tea.Msg, 1)
 	go func() { result <- resolve() }()
@@ -343,6 +391,83 @@ func TestRequestsPageResolveCancellationIgnoresLateResult(t *testing.T) {
 	close(release)
 	if page.operationCancelled || page.err != nil || !strings.Contains(page.notice, "cancelled") {
 		t.Fatalf("cancelled=%t err=%v notice=%q", page.operationCancelled, page.err, page.notice)
+	}
+}
+
+func TestRequestsPageRejectsStaleResolutionBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		current func(approval.Request) approval.Request
+		want    string
+	}{
+		{name: "resolved", current: func(value approval.Request) approval.Request { value.Status = approval.StatusApproved; return value }, want: "approved"},
+		{name: "expired", current: func(value approval.Request) approval.Request {
+			value.ExpiresAt = time.Now().Add(-time.Second)
+			return value
+		}, want: "expired"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			initial := approval.Request{ID: "req_stale", Status: approval.StatusPending, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Allow update", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+			current := test.current(initial)
+			resolveCalls := 0
+			server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/requests/view":
+					_ = json.NewEncoder(w).Encode(current)
+				case "/requests/approve":
+					resolveCalls++
+					_ = json.NewEncoder(w).Encode(current)
+				default:
+					t.Fatalf("unexpected path=%s", r.URL.Path)
+				}
+			})
+			defer server.Close()
+			page, _ := NewRequests(t.Context(), "")
+			page.action = "approve"
+			if err := page.initResolveEditor(initial, true); err != nil {
+				t.Fatal(err)
+			}
+			page.resolveForm.Reason = "keep this draft"
+			resolve := page.submitResolveForm()
+			if resolve == nil || !page.editor.Submitting() {
+				t.Fatalf("resolve=%v submitting=%t", resolve != nil, page.editor.Submitting())
+			}
+			updated, follow := page.Update(resolve())
+			page = updated.(*RequestsPage)
+			view := ansi.Strip(page.View(42, 18))
+			if follow != nil || resolveCalls != 0 || page.editor == nil || page.resolveForm == nil || page.resolveForm.Reason != "keep this draft" || page.editor.Submitting() || !strings.Contains(view, test.want) {
+				t.Fatalf("follow=%v calls=%d editor=%v draft=%#v submitting=%t view=%q", follow != nil, resolveCalls, page.editor != nil, page.resolveForm, page.editor.Submitting(), view)
+			}
+		})
+	}
+}
+
+func TestRequestsEditorsWrapAtNarrowWidths(t *testing.T) {
+	create, _ := NewRequestsRouteAction(t.Context(), "", "", "", "create-test")
+	if init := create.editor.Init(); init != nil {
+		updated, _ := create.Update(init())
+		create = updated.(*RequestsPage)
+	}
+	request := approval.Request{ID: "req_wrap", Status: approval.StatusPending, TargetTool: "run_command", ExpiresAt: time.Now().Add(time.Minute)}
+	resolve, _ := NewRequests(t.Context(), "")
+	resolve.action = "deny"
+	if err := resolve.initResolveEditor(request, false); err != nil {
+		t.Fatal(err)
+	}
+	if init := resolve.editor.Init(); init != nil {
+		updated, _ := resolve.Update(init())
+		resolve = updated.(*RequestsPage)
+	}
+	for name, page := range map[string]*RequestsPage{"create": create, "resolve": resolve} {
+		t.Run(name, func(t *testing.T) {
+			view := page.View(30, 18)
+			for _, line := range strings.Split(view, "\n") {
+				if got := lipgloss.Width(line); got > 30 {
+					t.Fatalf("line width=%d want <=30: %q", got, ansi.Strip(line))
+				}
+			}
+		})
 	}
 }
 

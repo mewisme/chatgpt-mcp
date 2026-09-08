@@ -48,7 +48,6 @@ type requestOverlay uint8
 
 const (
 	requestOverlayNone requestOverlay = iota
-	requestOverlayForm
 	requestOverlayOperation
 )
 
@@ -80,11 +79,13 @@ type RequestsPage struct {
 	mode               requestMode
 	resourceID         string
 	section            string
+	action             string
 	resourceErr        error
 	detail             component.DetailPage
+	detailReady        bool
 	loading            bool
 	overlay            requestOverlay
-	form               component.Form
+	editor             *component.Editor
 	createForm         *requestCreateFormData
 	resolveForm        *requestResolveFormData
 	resolveApprove     bool
@@ -111,13 +112,20 @@ func NewRequestsRoute(ctx context.Context, resourceID, section string) (*Request
 }
 
 func NewRequestsRouteMode(ctx context.Context, modeValue, resourceID, section string) (*RequestsPage, error) {
+	return NewRequestsRouteAction(ctx, modeValue, resourceID, section, "")
+}
+
+func NewRequestsRouteAction(ctx context.Context, modeValue, resourceID, section, action string) (*RequestsPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	resourceID = strings.TrimSpace(resourceID)
 	mode := parseRequestMode(modeValue, resourceID != "")
-	page := &RequestsPage{ctx: ctx, mode: mode, resourceID: resourceID, section: strings.TrimSpace(section)}
+	page := &RequestsPage{ctx: ctx, mode: mode, resourceID: resourceID, section: strings.TrimSpace(section), action: strings.TrimSpace(action)}
 	page.rebuildBrowser("")
+	if page.action == "create-test" {
+		page.initCreateEditor()
+	}
 	return page, nil
 }
 
@@ -126,7 +134,11 @@ func (page *RequestsPage) Init() tea.Cmd {
 		return nil
 	}
 	page.loading = true
-	return tea.Batch(requestTickCmd(), page.refreshCmd())
+	commands := []tea.Cmd{requestTickCmd(), page.refreshCmd()}
+	if page.editor != nil {
+		commands = append(commands, page.editor.Init())
+	}
+	return tea.Batch(commands...)
 }
 
 func (page *RequestsPage) OverlayActive() bool {
@@ -134,7 +146,13 @@ func (page *RequestsPage) OverlayActive() bool {
 }
 
 func (page *RequestsPage) InputActive() bool {
-	return page != nil && (page.overlay == requestOverlayForm || page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.editor != nil || page.resourceID == "" && page.browser.InputActive())
+}
+func (page *RequestsPage) Dirty() bool {
+	return page != nil && page.editor != nil && page.editor.Dirty()
+}
+func (page *RequestsPage) Submitting() bool {
+	return page != nil && page.editor != nil && page.editor.Submitting()
 }
 
 func (page *RequestsPage) Notice() string {
@@ -175,6 +193,13 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.upsertRequest(msg.resource)
 			page.resourceID = msg.resource.ID
 		}
+		if page.editor == nil && (page.action == "approve" || page.action == "deny") && msg.resourceOK {
+			if err := page.initResolveEditor(msg.resource, page.action == "approve"); err != nil {
+				page.err = err
+				return page, nil
+			}
+			return page, page.editor.Init()
+		}
 		selectedID := page.selectedID()
 		if page.resourceID != "" {
 			selectedID = page.resourceID
@@ -194,15 +219,15 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		if msg.err != nil {
-			page.err = msg.err
+			requestEditorError(page.editor, msg.err)
+			page.err = nil
 			return page, nil
 		}
 		page.err = nil
 		page.upsertRequest(msg.request)
-		page.notice = requestResolveNotice(msg.approve, msg.request)
-		page.resolveID = ""
-		page.rebuildBrowser(msg.request.ID)
-		return page, page.manualRefreshCmd()
+		notice := requestResolveNotice(msg.approve, msg.request)
+		page.editor, page.resolveForm, page.resolveID, page.action = nil, nil, "", ""
+		return page, tea.Batch(requestNavigateCmd(page.mode, msg.request.ID, "", true), func() tea.Msg { return ToastMsg{Title: "Requests", Message: notice, Tone: component.ToneSuccess} })
 	case requestCreateMsg:
 		if page.operationCancel != nil {
 			page.operationCancel()
@@ -216,16 +241,21 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		if msg.err != nil {
-			page.err = msg.err
+			requestEditorError(page.editor, msg.err)
+			page.err = nil
 			return page, nil
 		}
 		page.err = nil
 		page.upsertRequest(msg.request)
-		page.notice = "Created test request " + msg.request.ID
-		page.rebuildBrowser(msg.request.ID)
-		return page, page.manualRefreshCmd()
+		notice := "Created test request " + msg.request.ID
+		page.editor, page.createForm, page.action = nil, nil, ""
+		return page, tea.Batch(requestNavigateCmd(requestModePending, msg.request.ID, "", true), func() tea.Msg { return ToastMsg{Title: "Requests", Message: notice, Tone: component.ToneSuccess} })
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
+		if page.editor != nil {
+			page.resizeRequestEditor()
+			return page, nil
+		}
 		var cmd tea.Cmd
 		if page.resourceID != "" {
 			page.detail.Resize(msg.Width, msg.Height)
@@ -234,27 +264,14 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.browser = updated.(component.Browser)
 			cmd = browserCmd
 		}
-		if page.overlay == requestOverlayForm {
-			form, formCmd := page.form.Update(msg)
-			page.form = form
-			return page, tea.Batch(cmd, formCmd)
-		}
 		return page, cmd
-	case component.FormSubmittedMsg:
+	case component.EditorSubmitMsg:
 		if page.createForm != nil {
 			return page, page.submitCreateTestForm()
 		}
 		return page, page.submitResolveForm()
-	case component.FormCancelledMsg:
-		page.closeOverlay()
-		return page, nil
-	case component.FormMouseMsg:
-		if page.overlay == requestOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
-			return page, cmd
-		}
-		return page, nil
+	case component.EditorCancelMsg:
+		return page, page.closeRequestEditor()
 	case RequestCommandMsg:
 		return page, page.handleCommand(msg.Command, msg.ResourceID)
 	case component.BrowserOpenMsg:
@@ -275,9 +292,9 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return page, nil
 		}
-		if page.overlay == requestOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
+		if page.editor != nil {
+			updated, cmd := page.editor.Update(msg)
+			page.editor = &updated
 			return page, cmd
 		}
 		if page.resourceID == "" && page.browser.InputActive() {
@@ -301,9 +318,9 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, page.manualRefreshCmd()
 		}
 	}
-	if page.overlay == requestOverlayForm {
-		updated, cmd := page.form.Update(message)
-		page.form = updated
+	if page.editor != nil {
+		updated, cmd := page.editor.Update(message)
+		page.editor = &updated
 		return page, cmd
 	}
 	if page.resourceID != "" {
@@ -326,7 +343,9 @@ func (page *RequestsPage) View(width, height int) string {
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 	}
 	var content string
-	if page.resourceID != "" {
+	if page.editor != nil {
+		content = page.requestEditorView(width, height)
+	} else if page.resourceID != "" {
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
 		content = page.detail.View()
@@ -337,9 +356,6 @@ func (page *RequestsPage) View(width, height int) string {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 		page.browser = updated.(component.Browser)
 		content = tabs + "\n" + layout.View(page.browser.Content())
-	}
-	if page.overlay == requestOverlayForm {
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 76)), width, height)
 	}
 	if page.overlay == requestOverlayOperation {
 		body := ""
@@ -357,11 +373,12 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 		return nil
 	}
 	switch page.overlay {
-	case requestOverlayForm:
-		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 76), page.width, page.height, originX, originY, z+20)
 	case requestOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
+		if page.editor != nil {
+			return page.requestEditorMouseTargets(originX, originY, z)
+		}
 		if page.resourceID != "" {
 			return page.detail.MouseTargets(originX, originY, z)
 		}
@@ -397,9 +414,7 @@ func (page *RequestsPage) handleCommand(command RequestCommand, resourceID strin
 	case RequestRefresh:
 		return page.manualRefreshCmd()
 	case RequestCreateTest:
-		page.form, page.createForm = newRequestCreateForm()
-		page.overlay = requestOverlayForm
-		return page.form.Init()
+		return func() tea.Msg { return NavigateMsg{Path: []string{"requests", "create-test"}} }
 	case RequestShowPending:
 		return requestNavigateCmd(requestModePending, "", "", true)
 	case RequestShowHistory:
@@ -416,15 +431,11 @@ func (page *RequestsPage) handleCommand(command RequestCommand, resourceID strin
 			page.err = fmt.Errorf("approval request not found: %s", id)
 			return nil
 		}
-		if request.Status != approval.StatusPending {
-			page.err = fmt.Errorf("request %s is %s and cannot be resolved", request.ID, request.Status)
+		if err := validateResolvableRequest(request, time.Now()); err != nil {
+			page.err = err
 			return nil
 		}
-		page.resolveApprove = command == RequestApprove
-		page.resolveID = request.ID
-		page.form, page.resolveForm = newRequestResolveForm(request, page.resolveApprove)
-		page.overlay = requestOverlayForm
-		return page.form.Init()
+		return requestResolveRoute(page.mode, request.ID, command == RequestApprove)
 	default:
 		page.err = fmt.Errorf("unsupported request action: %s", command)
 		return nil
@@ -433,12 +444,11 @@ func (page *RequestsPage) handleCommand(command RequestCommand, resourceID strin
 
 func (page *RequestsPage) submitCreateTestForm() tea.Cmd {
 	if page.createForm == nil {
-		page.err = fmt.Errorf("test request form is unavailable")
-		page.closeOverlay()
+		requestEditorError(page.editor, fmt.Errorf("test request form is unavailable"))
 		return nil
 	}
 	data := *page.createForm
-	page.createForm = nil
+	page.editor.SetSubmitting(true)
 	ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
 	page.operationCancel = cancel
 	page.operationCancelled = false
@@ -453,17 +463,11 @@ func (page *RequestsPage) submitCreateTestForm() tea.Cmd {
 
 func (page *RequestsPage) submitResolveForm() tea.Cmd {
 	if page.resolveForm == nil || page.resolveID == "" {
-		page.err = fmt.Errorf("approval resolution form is unavailable")
-		page.closeOverlay()
+		requestEditorError(page.editor, fmt.Errorf("approval resolution form is unavailable"))
 		return nil
 	}
-	if !page.resolveForm.Confirm {
-		page.notice = "Approval request unchanged"
-		page.closeOverlay()
-		return nil
-	}
-	id, approve, reason := page.resolveID, page.resolveApprove, strings.TrimSpace(page.resolveForm.Reason)
-	page.resolveForm = nil
+	id, approve, reason := page.resolveID, page.resolveApprove, requestReason(page.resolveForm)
+	page.editor.SetSubmitting(true)
 	ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
 	page.operationCancel = cancel
 	page.operationCancelled = false
@@ -471,6 +475,13 @@ func (page *RequestsPage) submitResolveForm() tea.Cmd {
 	page.progress = &progress
 	page.overlay = requestOverlayOperation
 	return func() tea.Msg {
+		current, err := application.GetApprovalRequest(ctx, id)
+		if err == nil {
+			err = validateResolvableRequest(current, time.Now())
+		}
+		if err != nil {
+			return requestResolveMsg{request: current, approve: approve, err: err}
+		}
 		request, err := application.ResolveApprovalRequest(ctx, id, approve, reason)
 		return requestResolveMsg{request: request, approve: approve, err: err}
 	}
@@ -513,16 +524,12 @@ func (page *RequestsPage) cancelOperation() {
 	page.operationCancelled = true
 	page.overlay = requestOverlayNone
 	page.progress = nil
-	page.notice = "Approval operation cancellation requested"
-}
-
-func (page *RequestsPage) closeOverlay() {
-	page.overlay = requestOverlayNone
-	page.form = component.Form{}
-	page.createForm = nil
-	page.resolveForm = nil
-	page.resolveID = ""
-	page.progress = nil
+	if page.editor != nil {
+		page.editor.SetSubmitting(false)
+		page.editor.SetFeedback("Approval operation cancellation requested", nil)
+	} else {
+		page.notice = "Approval operation cancellation requested"
+	}
 }
 
 func (page *RequestsPage) setMode(mode requestMode) {
@@ -589,6 +596,7 @@ func (page *RequestsPage) syncDetail() {
 			body = component.Muted("The approval request is no longer available.")
 		}
 		page.detail = component.NewDetailPage("Approval request · "+page.resourceID, "", body)
+		page.detailReady = true
 		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: RequestCommandMsg{Command: RequestRefresh, ResourceID: page.resourceID}})
 		if page.width > 0 && page.height > 0 {
 			page.detail.Resize(page.width, page.height)
@@ -610,7 +618,14 @@ func (page *RequestsPage) syncDetail() {
 	if countdown := requestCountdownLabel(request, time.Now()); countdown != "" {
 		meta += " · " + countdown
 	}
-	page.detail = component.NewDetailPage("Approval request · "+request.ID, meta, content)
+	if page.detailReady {
+		page.detail.SetTitle("Approval request · " + request.ID)
+		page.detail.SetMeta(meta)
+		page.detail.SetContentPreserveScroll(content)
+	} else {
+		page.detail = component.NewDetailPage("Approval request · "+request.ID, meta, content)
+		page.detailReady = true
+	}
 	bindings := make([]component.DetailPageBinding, 0, 5)
 	if page.section == "" {
 		bindings = append(bindings,

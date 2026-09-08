@@ -1,9 +1,6 @@
 package page
 
 import (
-	"fmt"
-	"strings"
-
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
@@ -15,31 +12,28 @@ type requestCreateFormData struct {
 }
 
 type requestResolveFormData struct {
-	Reason  string
-	Confirm bool
+	Reason string
 }
 
-func newRequestCreateForm() (component.Form, *requestCreateFormData) {
+func newRequestCreateEditor() (component.Editor, *requestCreateFormData) {
 	data := &requestCreateFormData{WorkspaceID: "ws_dummy", Title: "Allow test command", Command: "echo test approval"}
-	form := component.NewForm(component.Group(
+	form := component.NewEditorForm(component.Group(
 		component.Input("Workspace ID (synthetic request label)", &data.WorkspaceID),
 		component.Input("Title (human-readable approval title)", &data.Title),
 		component.Input("Command (displayed only; not executed)", &data.Command),
 	))
-	return form, data
+	editor := component.NewEditor("create", component.EditorSection{ID: "request", Title: "Test Request", Description: "Create a synthetic approval request for testing the approval workflow. The command is displayed only and is never executed.", Form: form})
+	return editor, data
 }
 
-func newRequestResolveForm(request approval.Request, approve bool) (component.Form, *requestResolveFormData) {
+func newRequestResolveEditor(request approval.Request, approve bool) (component.Editor, *requestResolveFormData) {
 	data := &requestResolveFormData{}
-	action := "Deny"
+	action, title := "deny", "Deny Request"
 	if approve {
-		action = "Approve"
+		action, title = "approve", "Approve Request"
 	}
-	title := strings.TrimSpace(request.Title)
-	if title == "" {
-		title = request.ID
-	}
-	confirm := component.Confirm(fmt.Sprintf("%s this exact request", action), &data.Confirm).Description(fmt.Sprintf("%s · %s · %s", request.ID, request.TargetTool, title))
-	form := component.NewForm(component.Group(component.Input("Reason (optional)", &data.Reason), confirm))
-	return form, data
+	form := component.NewEditorForm(component.Group(component.Input("Reason (optional)", &data.Reason)))
+	description := request.ID + " · " + request.TargetTool
+	editor := component.NewEditor(action, component.EditorSection{ID: "resolution", Title: title, Description: description, Form: form})
+	return editor, data
 }

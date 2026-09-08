@@ -1013,7 +1013,7 @@ func (model *Model) loadPage(route Route) {
 	case RouteTunnels:
 		value, err = tuipage.NewManagedTunnelsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteRequests:
-		value, err = tuipage.NewRequestsRouteMode(model.ctx, route.Mode, route.ResourceID, route.Section)
+		value, err = tuipage.NewRequestsRouteAction(model.ctx, route.Mode, route.ResourceID, route.Section, route.Action)
 	case RouteLogs:
 		value, err = tuipage.NewLogsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteLogsExec:
@@ -1090,14 +1090,6 @@ func editorRouteCompatibilityCmd(route Route) tea.Cmd {
 	case RouteRuntime:
 	case RouteLogs:
 	case RouteRequests:
-		switch route.Action {
-		case "create-test":
-			message = tuipage.RequestCommandMsg{Command: tuipage.RequestCreateTest}
-		case "approve":
-			message = tuipage.RequestCommandMsg{Command: tuipage.RequestApprove, ResourceID: route.ResourceID}
-		case "deny":
-			message = tuipage.RequestCommandMsg{Command: tuipage.RequestDeny, ResourceID: route.ResourceID}
-		}
 	}
 	if message == nil {
 		return nil

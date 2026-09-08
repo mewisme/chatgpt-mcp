@@ -40,6 +40,24 @@ func TestDetailPageScrollsLongContent(t *testing.T) {
 	}
 }
 
+func TestDetailPageContentRefreshCanPreserveScroll(t *testing.T) {
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	page := NewDetailPage("Detail", "", strings.Join(lines, "\n"))
+	page.Resize(40, 10)
+	page.viewport.SetYOffset(12)
+	page.SetContentPreserveScroll(strings.Join(lines, "\n") + "\nupdated")
+	if got := page.viewport.YOffset(); got != 12 {
+		t.Fatalf("viewport offset=%d want=12", got)
+	}
+	page.SetContent("replacement")
+	if got := page.viewport.YOffset(); got != 0 {
+		t.Fatalf("reset content offset=%d want=0", got)
+	}
+}
+
 func TestDetailPageBindingEmitsBeforeDomainHandling(t *testing.T) {
 	message := tea.KeyPressMsg{Code: 'x'}
 	page := NewDetailPage("Detail", "", "body")

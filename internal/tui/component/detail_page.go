@@ -60,6 +60,16 @@ func (page *DetailPage) SetContent(value string) {
 	page.reflowContent(true)
 }
 
+func (page *DetailPage) SetContentPreserveScroll(value string) {
+	if page == nil {
+		return
+	}
+	page.content = strings.TrimSpace(value)
+	page.reflowContent(false)
+}
+
+func (page DetailPage) YOffset() int { return page.viewport.YOffset() }
+
 func (page *DetailPage) SetFeedback(notice string, err error) {
 	if page == nil {
 		return

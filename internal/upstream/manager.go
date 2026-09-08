@@ -352,16 +352,28 @@ func (m *Manager) ProxiedToolNames(server Server, tools []Tool) []string {
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.stopAllToolsSubscriptions()
 	servers := m.List()
-	var first error
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(servers))
 	for _, server := range servers {
-		if err := m.client.Close(ctx, server.ID); err != nil && first == nil {
-			first = err
-		}
+		server := server
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := m.client.Close(ctx, server.ID); err != nil {
+				errCh <- fmt.Errorf("close upstream %s: %w", server.ID, err)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	var shutdownErr error
+	for err := range errCh {
+		shutdownErr = errors.Join(shutdownErr, err)
 	}
 	m.mu.Lock()
 	m.cache = map[string]toolCache{}
 	m.mu.Unlock()
-	return first
+	return shutdownErr
 }
 
 func (m *Manager) buildStatus(server Server, health Health, connected bool, tools []Tool, lastError string) Status {

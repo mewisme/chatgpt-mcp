@@ -365,14 +365,27 @@ func closeListeners(listeners []net.Listener) {
 func shutdownServers(servers []*http.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var first error
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(servers))
 	for _, server := range servers {
-		if err := server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			closeErr := server.Close()
-			if closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) && first == nil {
-				first = errors.Join(err, closeErr)
+		server := server
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				closeErr := server.Close()
+				if closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) {
+					err = errors.Join(err, closeErr)
+				}
+				errCh <- err
 			}
-		}
+		}()
 	}
-	return first
+	wg.Wait()
+	close(errCh)
+	var shutdownErr error
+	for err := range errCh {
+		shutdownErr = errors.Join(shutdownErr, err)
+	}
+	return shutdownErr
 }

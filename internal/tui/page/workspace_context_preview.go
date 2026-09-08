@@ -20,7 +20,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
-type workspaceContextPreviewTab uint8
+type workspaceContextPreviewTab int
 
 const (
 	workspaceContextPreviewRendered workspaceContextPreviewTab = iota

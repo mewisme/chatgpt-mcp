@@ -12,7 +12,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
-type instructionTab uint8
+type instructionTab int
 
 const (
 	instructionTabContext instructionTab = iota

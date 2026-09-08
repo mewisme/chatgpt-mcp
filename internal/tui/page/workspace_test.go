@@ -217,7 +217,11 @@ func TestContainerOverviewListsMembers(t *testing.T) {
 	}
 	last := -1
 	for _, name := range []string{"alpha", "middle", "zeta"} {
-		value := name + " · " + items[name] + " · " + filepath.Join(base, name)
+		path := filepath.Join(base, name)
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			path = resolved
+		}
+		value := name + " · " + items[name] + " · " + path
 		index := strings.Index(plain, value)
 		if index < 0 {
 			t.Fatalf("member %q missing: %q", value, plain)
@@ -698,7 +702,11 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		t.Fatalf("source viewer active=%t input=%t", preview.contextPreview.sourceViewer != nil, preview.InputActive())
 	}
 	sourceView := ansi.Strip(preview.View(110, 30))
-	for _, want := range []string{"Source", sourcePath, "AGENTS", "Source body."} {
+	displaySourcePath := sourcePath
+	if resolved, err := filepath.EvalSymlinks(sourcePath); err == nil {
+		displaySourcePath = resolved
+	}
+	for _, want := range []string{"Source", displaySourcePath, "AGENTS", "Source body."} {
 		if !strings.Contains(sourceView, want) {
 			t.Fatalf("source viewer missing %q: %q", want, sourceView)
 		}

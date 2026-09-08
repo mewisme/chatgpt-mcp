@@ -41,7 +41,7 @@ const (
 	mcpOverlayOperation
 )
 
-type mcpServerEditorMode uint8
+type mcpServerEditorMode int
 
 const (
 	mcpServerEditorForm mcpServerEditorMode = iota

@@ -355,15 +355,31 @@ func pathWithinRoot(root, target string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if resolvedRoot, err := filepath.EvalSymlinks(rootAbs); err == nil {
-		rootAbs = resolvedRoot
-	}
-	if resolvedTarget, err := filepath.EvalSymlinks(targetAbs); err == nil {
-		targetAbs = resolvedTarget
-	}
+	rootAbs = evalSymlinksAllowMissing(rootAbs)
+	targetAbs = evalSymlinksAllowMissing(targetAbs)
 	relative, err := filepath.Rel(rootAbs, targetAbs)
 	if err != nil {
 		return false, err
 	}
 	return relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)), nil
+}
+
+func evalSymlinksAllowMissing(path string) string {
+	original := filepath.Clean(path)
+	current := original
+	parts := []string{}
+	for {
+		if resolved, err := filepath.EvalSymlinks(current); err == nil {
+			for i := len(parts) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, parts[i])
+			}
+			return filepath.Clean(resolved)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return original
+		}
+		parts = append(parts, filepath.Base(current))
+		current = parent
+	}
 }

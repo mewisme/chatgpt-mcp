@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -75,7 +76,7 @@ type State struct {
 func Path() string { return filepath.Join(config.RootPath(), FileName) }
 
 func Load() (State, error) {
-	data, err := os.ReadFile(Path())
+	data, err := readStateFile()
 	if err != nil {
 		if os.IsNotExist(err) {
 			return State{}, errors.New("no running server found for this config directory")
@@ -98,6 +99,21 @@ func Load() (State, error) {
 		return State{}, errors.New("runtime control address is not loopback")
 	}
 	return state, nil
+}
+
+func readStateFile() ([]byte, error) {
+	data, err := os.ReadFile(Path())
+	if runtime.GOOS != "windows" || err == nil || os.IsNotExist(err) {
+		return data, err
+	}
+	for range 5 {
+		time.Sleep(10 * time.Millisecond)
+		data, err = os.ReadFile(Path())
+		if err == nil || os.IsNotExist(err) {
+			return data, err
+		}
+	}
+	return data, err
 }
 
 func Request(ctx context.Context, method, path string, input, output any) (State, error) {

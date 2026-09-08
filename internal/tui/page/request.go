@@ -36,7 +36,7 @@ type RequestCommandMsg struct {
 	ResourceID string
 }
 
-type requestMode uint8
+type requestMode int
 
 const (
 	requestModePending requestMode = iota

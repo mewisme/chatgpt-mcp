@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/huh/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type Tone int
@@ -67,7 +68,9 @@ func PageTitle(value string, width int) string {
 	title := currentTheme.pageTitle.Render(strings.TrimSpace(value))
 	style := currentTheme.pageTitleBar
 	if width > 0 {
-		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
+		inner := max(1, width-style.GetPaddingLeft()-style.GetPaddingRight())
+		title = ansi.Truncate(title, inner, "")
+		style = style.Width(inner)
 	}
 	return style.Render(title)
 }
@@ -75,7 +78,9 @@ func PageTitleNotice(value, notice string, width int) string {
 	title := pageTitleNoticeContent(value, notice)
 	style := currentTheme.pageTitleBar
 	if width > 0 {
-		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
+		inner := max(1, width-style.GetPaddingLeft()-style.GetPaddingRight())
+		title = ansi.Truncate(title, inner, "")
+		style = style.Width(inner)
 	}
 	return style.Render(title)
 }
@@ -83,7 +88,9 @@ func pageTitleNoticeLine(value, notice string, width int) string {
 	title := pageTitleNoticeContent(value, notice)
 	style := currentTheme.pageTitleBar.PaddingTop(0).PaddingBottom(0)
 	if width > 0 {
-		style = style.Width(max(1, width-style.GetPaddingLeft()-style.GetPaddingRight()))
+		inner := max(1, width-style.GetPaddingLeft()-style.GetPaddingRight())
+		title = ansi.Truncate(title, inner, "")
+		style = style.Width(inner)
 	}
 	return style.Render(title)
 }

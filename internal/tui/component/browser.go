@@ -219,7 +219,7 @@ func (m Browser) Content() string {
 			content = strings.Join(lines, "\n")
 		}
 	}
-	return content
+	return fitRenderedContent(content, m.width, m.height)
 }
 
 func (m Browser) BodyContent() string {
@@ -236,7 +236,20 @@ func (m Browser) BodyContent() string {
 			content = strings.Join(lines, "\n")
 		}
 	}
-	return content
+	return fitRenderedContent(content, m.width, m.height)
+}
+
+func fitRenderedContent(content string, width, height int) string {
+	lines := strings.Split(content, "\n")
+	if height > 0 && len(lines) > height {
+		lines = lines[:height]
+	}
+	if width > 0 {
+		for index := range lines {
+			lines[index] = ansi.Truncate(lines[index], width, "")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Browser) HelpView() string {
@@ -364,9 +377,13 @@ func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
 	for index := start; index < end; index++ {
 		rowIndex := index
 		y := originY + startY + (index-start)*3
+		if y >= originY+m.height {
+			break
+		}
 		open := index == m.list.GlobalIndex()
+		rowHeight := min(2, originY+m.height-y)
 		targets = append(targets, MouseTarget{
-			ID: "browser.row", Rect: Rect{X: originX, Y: y, Width: m.width, Height: 2}, Z: z + 1,
+			ID: "browser.row", Rect: Rect{X: originX, Y: y, Width: m.width, Height: rowHeight}, Z: z + 1,
 			Handle: func(event MouseEvent) tea.Msg {
 				if event.Button != tea.MouseLeft {
 					return nil
@@ -375,7 +392,7 @@ func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
 			},
 		})
 	}
-	viewLines := strings.Split(ansi.Strip(m.list.View()), "\n")
+	viewLines := strings.Split(ansi.Strip(m.Content()), "\n")
 	for _, binding := range m.renderedHelpBindings() {
 		help := binding.Help()
 		label := strings.TrimSpace(help.Key + " " + help.Desc)
@@ -384,7 +401,11 @@ func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
 			continue
 		}
 		line, column, width := findBrowserHelpBinding(viewLines, help.Key, help.Desc)
-		if line < 0 {
+		if line < 0 || line >= m.height {
+			continue
+		}
+		width = min(width, max(0, m.width-column))
+		if width <= 0 {
 			continue
 		}
 		keyValue := keys[0]

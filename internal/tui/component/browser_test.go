@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -226,6 +227,31 @@ func TestBrowserExternalHelpDoesNotReserveBodySpace(t *testing.T) {
 	model = updated.(Browser)
 	if !model.HelpExpanded() {
 		t.Fatal("external help did not expand")
+	}
+}
+
+func TestBrowserResponsiveBoundsAlsoClampMouseTargets(t *testing.T) {
+	rows := []Row{
+		{ID: "one", Title: "A very long browser row title that exceeds the narrow viewport", Description: "Long description"},
+		{ID: "two", Title: "Second row", Description: "Long description"},
+		{ID: "three", Title: "Third row", Description: "Long description"},
+	}
+	model := NewBrowser(t.Context(), "A very long browser title that exceeds the viewport", rows, nil)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 24, Height: 10})
+	model = updated.(Browser)
+	view := model.Content()
+	for _, line := range strings.Split(ansi.Strip(view), "\n") {
+		if got := lipgloss.Width(line); got > 24 {
+			t.Fatalf("line width=%d want <=24: %q", got, line)
+		}
+	}
+	if got := lipgloss.Height(view); got > 10 {
+		t.Fatalf("height=%d want <=10", got)
+	}
+	for _, target := range model.MouseTargets(7, 11, 3) {
+		if target.Rect.X < 7 || target.Rect.Y < 11 || target.Rect.X+target.Rect.Width > 31 || target.Rect.Y+target.Rect.Height > 21 {
+			t.Fatalf("target escaped browser bounds: %#v", target.Rect)
+		}
 	}
 }
 

@@ -550,6 +550,18 @@ func TestShellApprovalPolicyModesAndCommandRules(t *testing.T) {
 	if err := manager.ValidateShellCommand(item.ID, root, "git status"); err != nil {
 		t.Fatalf("allow policy rejected normal command: %v", err)
 	}
+	for _, command := range []string{"kill 123", "docker push example/app:latest", "cgm update", "cgm config set server.port 41001"} {
+		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
+			t.Fatalf("allow policy gated ordinary risky command %q: %v", command, err)
+		}
+	}
+	for _, command := range []string{"cgm config set permissions.allow_dirs /tmp", "cgm config set shell.approval_policy allow", "cgm workspace register /tmp", "cgm auth mcp create"} {
+		err := manager.ValidateShellCommand(item.ID, root, command)
+		guard, ok = controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeControlPlaneMutation || !guard.Approvable {
+			t.Fatalf("allow policy auto-approved security-boundary command %q: %#v / %v", command, guard, err)
+		}
+	}
 	err = manager.ValidateShellCommand(item.ID, root, "rm file.txt")
 	guard, ok = controlguard.As(err)
 	if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation {

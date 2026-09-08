@@ -303,6 +303,9 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 	if isControlPlaneMutation(command, 0) {
 		invocation, approvable := DirectControlPlaneInvocation(command)
 		if approvable && invocation != nil {
+			if m.ShellApprovalPolicy() == ShellApprovalAllow && !controlplane.RequiresApprovalInAllow(invocation.Args) {
+				return nil
+			}
 			if granted, ok := controlguard.ApprovalFromContext(ctx); ok && controlguard.SameInvocation(granted.Invocation, *invocation) {
 				return nil
 			}

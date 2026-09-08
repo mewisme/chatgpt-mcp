@@ -44,6 +44,24 @@ func TestApprovalEligibleCommandPolicy(t *testing.T) {
 	}
 }
 
+func TestAllowPolicyOnlyKeepsSecurityBoundaryMutationsApprovalGated(t *testing.T) {
+	for _, args := range [][]string{
+		{"config", "set", "permissions.allow_dirs", "/tmp"}, {"config", "set", "shell.approval_policy", "allow"}, {"config", "set", "server.expose", "all"},
+		{"config", "import", "backup.cgm"}, {"auth", "mcp", "create"}, {"workspace", "register", "/tmp"}, {"workspace", "access", "add", "ws_test", "/tmp"},
+	} {
+		if !RequiresApprovalInAllow(args) {
+			t.Fatalf("security-boundary mutation became allow-mode auto-approved: %#v", args)
+		}
+	}
+	for _, args := range [][]string{
+		{"upgrade"}, {"update"}, {"alias", "install"}, {"tunnel", "enable"}, {"mcp", "server", "add", "server"}, {"config", "set", "server.port", "41001"}, {"config", "export", "backup.cgm"},
+	} {
+		if RequiresApprovalInAllow(args) {
+			t.Fatalf("ordinary control-plane mutation still approval-gated in allow mode: %#v", args)
+		}
+	}
+}
+
 func TestUpdateAliasCanonicalizesToUpgrade(t *testing.T) {
 	if got := PathFromArgs([]string{"update", "check"}); got != "upgrade check" {
 		t.Fatalf("update alias path=%q want upgrade check", got)

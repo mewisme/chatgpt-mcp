@@ -3,6 +3,7 @@ package page
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 )
 
 func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
@@ -285,8 +287,12 @@ func TestConfigStorageOpenRunsMaintenanceAction(t *testing.T) {
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
 	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "convert"}})
-	if cmd == nil || page.overlay != configOverlayForm || page.command != ConfigConvert {
-		t.Fatalf("convert cmd=%v overlay=%d command=%q", cmd != nil, page.overlay, page.command)
+	if cmd == nil || page.overlay != configOverlayNone {
+		t.Fatalf("convert cmd=%v overlay=%d", cmd != nil, page.overlay)
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "config/storage/convert" {
+		t.Fatalf("convert navigation=%#v", navigate)
 	}
 }
 
@@ -365,44 +371,33 @@ func TestConfigPageReadOnlyGuidanceAndStoppedReload(t *testing.T) {
 	}
 }
 
-func TestConfigPageEditUsesDomainValidationAndPersists(t *testing.T) {
+func TestConfigPageEditIsRoutedAndOperationFailureKeepsEditor(t *testing.T) {
 	prepareConfigPageRoot(t)
 	page, _ := NewConfig(t.Context())
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
-	if _, err := page.openCommand(ConfigEdit, "server.port"); err != nil {
+	cmd, err := page.openCommand(ConfigEdit, "server.port")
+	if err != nil || cmd == nil {
 		t.Fatal(err)
 	}
-	page.fieldForm.Raw = "70000"
-	result := page.submitForm()
-	message := result().(configOperationMsg)
-	want := page.overview.Config
-	wantErr := config.SetValueValidated(&want, "server.port", "70000")
-	if message.err == nil || wantErr == nil || message.err.Error() != wantErr.Error() {
-		t.Fatalf("page err=%v want=%v", message.err, wantErr)
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "config/server.port/edit" {
+		t.Fatalf("edit navigation=%#v", navigate)
 	}
-	page.finishOperation(message)
-	if page.err == nil || page.overlay != configOverlayNone {
-		t.Fatalf("err=%v overlay=%d", page.err, page.overlay)
-	}
-	page.err = nil
-	if _, err := page.openCommand(ConfigEdit, "server.port"); err != nil {
-		t.Fatal(err)
-	}
-	page.fieldForm.Raw = "40124"
-	message = page.submitForm()().(configOperationMsg)
-	load := page.finishOperation(message)
-	if message.err != nil || load == nil {
-		t.Fatalf("edit err=%v load=%v", message.err, load != nil)
-	}
-	updated, _ = page.Update(load())
-	page = updated.(*ConfigPage)
-	loaded, err := config.Load()
+	edit, err := NewConfigRouteAction(t.Context(), "server.port", "", "edit")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Server.Port != 40124 || !strings.Contains(page.notice, "next runtime start") {
-		t.Fatalf("port=%d notice=%q", loaded.Server.Port, page.notice)
+	updated, initEditor := edit.Update(edit.Init()())
+	edit = updated.(*ConfigPage)
+	if edit.editor == nil || edit.fieldForm == nil || initEditor == nil || edit.OverlayActive() {
+		t.Fatalf("editor=%v data=%v init=%v overlay=%t", edit.editor != nil, edit.fieldForm != nil, initEditor != nil, edit.OverlayActive())
+	}
+	edit.fieldForm.Raw = "draft-value"
+	edit.editor.SetSubmitting(true)
+	follow := edit.finishOperation(configOperationMsg{command: ConfigEdit, err: fmt.Errorf("save failed")})
+	if follow != nil || edit.editor == nil || edit.fieldForm.Raw != "draft-value" || edit.editor.Submitting() || !strings.Contains(ansi.Strip(edit.View(52, 20)), "save failed") {
+		t.Fatalf("failure follow=%v editor=%v draft=%q submitting=%t view=%q", follow != nil, edit.editor != nil, edit.fieldForm.Raw, edit.editor.Submitting(), ansi.Strip(edit.View(52, 20)))
 	}
 }
 
@@ -450,19 +445,39 @@ func TestConfigPageOldOperationCannotOverwriteNewOperation(t *testing.T) {
 	}
 }
 
-func TestConfigPageFormsExposeSafetyConfirmations(t *testing.T) {
-	convert, convertData := newConfigConvertForm(configformat.JSON)
-	if convert.Init() == nil || convertData.Confirm {
-		t.Fatalf("convert form init=%v confirm=%t", convert.Init() != nil, convertData.Confirm)
+func TestConfigEditorsUseExplicitActionsPickerAndImportConfirmation(t *testing.T) {
+	convert, convertData := newConfigConvertEditor(configformat.JSON)
+	if convert.Init() == nil || convertData.Format != "json" {
+		t.Fatalf("convert editor init=%v data=%#v", convert.Init() != nil, convertData)
 	}
-	_, importData := newConfigBundleForm(false)
-	if importData.Force || importData.Confirm || importData.Path != "chatgpt-mcp-config.cgm" {
-		t.Fatalf("import defaults=%#v", importData)
+	importEditor, importData := newConfigBundleEditor(false)
+	if importData.Force || importData.Path != "chatgpt-mcp-config.cgm" || importEditor.Init() == nil {
+		t.Fatalf("import defaults=%#v init=%v", importData, importEditor.Init() != nil)
 	}
-	_, exportData := newConfigBundleForm(true)
+	_, exportData := newConfigBundleEditor(true)
 	if exportData.Force || exportData.Path != "chatgpt-mcp-config.cgm" {
 		t.Fatalf("export defaults=%#v", exportData)
 	}
+	prepareConfigPageRoot(t)
+	page, err := NewConfigRouteAction(t.Context(), "", "storage", "import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	if page.editor == nil || page.bundleForm == nil {
+		t.Fatalf("import editor=%v data=%v", page.editor != nil, page.bundleForm != nil)
+	}
+	bundle := filepath.Join(t.TempDir(), "settings.cgm")
+	if err := os.WriteFile(bundle, []byte("bundle"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	page.bundleForm.Path = bundle
+	_, cmd := page.Update(component.EditorSubmitMsg{})
+	if cmd != nil || page.overlay != configOverlayConfirm || page.editor == nil {
+		t.Fatalf("import submit cmd=%v overlay=%d editor=%v", cmd != nil, page.overlay, page.editor != nil)
+	}
+	testutil.AssertLinesFit(t, page.View(40, 16), 40)
 }
 
 func prepareConfigPageRoot(t *testing.T) string {

@@ -1015,7 +1015,7 @@ func (model *Model) loadPage(route Route) {
 	case RouteAbout:
 		value, err = tuipage.NewAbout(model.ctx)
 	case RouteConfig:
-		value, err = tuipage.NewConfigRoute(model.ctx, route.ResourceID)
+		value, err = tuipage.NewConfigRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteInstruction:
 		value, err = tuipage.NewInstructionRouteAction(model.ctx, route.Section, route.ResourceID, route.Action)
 	}
@@ -1079,16 +1079,6 @@ func editorRouteCompatibilityCmd(route Route) tea.Cmd {
 	switch route.Kind {
 	case RouteTunnels:
 	case RouteConfig:
-		switch {
-		case route.Action == "edit":
-			message = tuipage.ConfigCommandMsg{Command: tuipage.ConfigEdit, ResourceID: route.ResourceID}
-		case route.Section == "storage" && route.Action == "convert":
-			message = tuipage.ConfigCommandMsg{Command: tuipage.ConfigConvert}
-		case route.Section == "storage" && route.Action == "export":
-			message = tuipage.ConfigCommandMsg{Command: tuipage.ConfigExport}
-		case route.Section == "storage" && route.Action == "import":
-			message = tuipage.ConfigCommandMsg{Command: tuipage.ConfigImport}
-		}
 	case RouteRuntime:
 		switch route.Action {
 		case "install":

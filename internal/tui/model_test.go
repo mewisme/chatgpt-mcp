@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -189,7 +190,6 @@ func TestEditorRouteCompatibilityCmdPreservesLegacyFormEntryPoints(t *testing.T)
 		route Route
 		want  tea.Msg
 	}{
-		{Route{Kind: RouteConfig, Section: "storage", Action: "import"}, tuipage.ConfigCommandMsg{Command: tuipage.ConfigImport}},
 		{Route{Kind: RouteRuntime, Action: "update"}, tuipage.SystemCommandMsg{Command: tuipage.UpdateApply}},
 		{Route{Kind: RouteLogs, Action: "filter"}, tuipage.LogsCommandMsg{Command: tuipage.LogsFilter}},
 		{Route{Kind: RouteRequests, Mode: "pending", ResourceID: "req_1", Action: "approve"}, tuipage.RequestCommandMsg{Command: tuipage.RequestApprove, ResourceID: "req_1"}},
@@ -210,6 +210,37 @@ func TestEditorRouteCompatibilityCmdPreservesLegacyFormEntryPoints(t *testing.T)
 	}
 	if cmd := editorRouteCompatibilityCmd(Route{Kind: RouteMCP, ResourceID: "github"}); cmd != nil {
 		t.Fatal("read-only route unexpectedly produced compatibility command")
+	}
+	if cmd := editorRouteCompatibilityCmd(Route{Kind: RouteConfig, Section: "storage", Action: "import"}); cmd != nil {
+		t.Fatal("config editor route still uses compatibility command")
+	}
+}
+
+func TestConfigEditorRouteLoadsNativePageWithoutCompatibilityShim(t *testing.T) {
+	previous := configformat.RootPath()
+	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Save(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	route := Route{Kind: RouteConfig, ResourceID: "server.port", Action: "edit"}
+	model := NewModel(route)
+	init := model.currentPage.Init()
+	if init == nil {
+		t.Fatal("config editor load command missing")
+	}
+	updated, follow := model.Update(init())
+	model = updated.(Model)
+	if follow == nil || model.router.Current() != route || !model.currentPage.InputActive() {
+		t.Fatalf("route=%#v follow=%v input=%t", model.router.Current(), follow != nil, model.currentPage.InputActive())
+	}
+	if cmd := editorRouteCompatibilityCmd(route); cmd != nil {
+		t.Fatal("native config editor still produced compatibility command")
+	}
+	if plain := ansi.Strip(model.View().Content); !strings.Contains(plain, "Edit Configuration") || !strings.Contains(plain, "ctrl+s save") {
+		t.Fatalf("config editor view=%q", plain)
 	}
 }
 

@@ -39,7 +39,7 @@ type configOverlay uint8
 
 const (
 	configOverlayNone configOverlay = iota
-	configOverlayForm
+	configOverlayConfirm
 	configOverlayOperation
 )
 
@@ -65,13 +65,16 @@ type configOperationMsg struct {
 type ConfigPage struct {
 	ctx             context.Context
 	resourceID      string
+	section         string
+	action          string
 	overview        application.ConfigOverview
 	browser         component.Browser
 	detail          component.DetailPage
 	loaded          bool
 	loading         bool
 	overlay         configOverlay
-	form            component.Form
+	editor          *component.Editor
+	confirm         component.ConfirmButtons
 	command         ConfigCommand
 	targetKey       string
 	fieldForm       *configFieldFormData
@@ -107,10 +110,14 @@ func NewConfig(ctx context.Context) (*ConfigPage, error) {
 }
 
 func NewConfigRoute(ctx context.Context, resourceID string) (*ConfigPage, error) {
+	return NewConfigRouteAction(ctx, resourceID, "", "")
+}
+
+func NewConfigRouteAction(ctx context.Context, resourceID, section, action string) (*ConfigPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	page := &ConfigPage{ctx: ctx, resourceID: strings.TrimSpace(resourceID)}
+	page := &ConfigPage{ctx: ctx, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action)}
 	page.rebuildBrowser("")
 	return page, nil
 }
@@ -128,7 +135,12 @@ func (page *ConfigPage) OverlayActive() bool {
 }
 
 func (page *ConfigPage) InputActive() bool {
-	return page != nil && (page.overlay == configOverlayForm || page.isBrowserRoute() && page.browser.InputActive())
+	return page != nil && (page.editor != nil || page.isBrowserRoute() && page.browser.InputActive())
+}
+
+func (page *ConfigPage) Dirty() bool { return page != nil && page.editor != nil && page.editor.Dirty() }
+func (page *ConfigPage) Submitting() bool {
+	return page != nil && page.editor != nil && page.editor.Submitting()
 }
 
 func (page *ConfigPage) Notice() string {
@@ -157,6 +169,13 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		page.loaded, page.err = true, nil
 		page.overview = msg.overview
+		if page.action != "" && page.editor == nil {
+			if err := page.initConfigEditor(); err != nil {
+				page.err = err
+				return page, nil
+			}
+			return page, page.editor.Init()
+		}
 		if page.isFieldRoute() {
 			page.syncDetail()
 		} else {
@@ -167,28 +186,25 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, page.finishOperation(msg)
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
+		if page.editor != nil {
+			page.resizeConfigEditor()
+			return page, nil
+		}
 		var browserCmd tea.Cmd
 		if page.isFieldRoute() {
 			page.detail.Resize(msg.Width, msg.Height)
 		} else {
 			browserCmd = page.resizeBrowser()
 		}
-		if page.overlay == configOverlayForm {
-			form, formCmd := page.form.Update(msg)
-			page.form = form
-			return page, tea.Batch(browserCmd, formCmd)
-		}
 		return page, browserCmd
-	case component.FormSubmittedMsg:
-		return page, page.submitForm()
-	case component.FormCancelledMsg:
-		page.closeOverlay()
-		return page, nil
-	case component.FormMouseMsg:
-		if page.overlay == configOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
-			return page, cmd
+	case component.EditorSubmitMsg:
+		return page, page.submitConfigEditor()
+	case component.EditorCancelMsg:
+		return page, page.configEditorParentNavigation()
+	case component.ConfirmChoiceMsg:
+		if page.overlay == configOverlayConfirm {
+			page.confirm.Select(msg.Affirmative)
+			return page, page.updateConfigImportConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 		}
 		return page, nil
 	case ConfigCommandMsg:
@@ -233,9 +249,12 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return page, nil
 		}
-		if page.overlay == configOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
+		if page.overlay == configOverlayConfirm {
+			return page, page.updateConfigImportConfirm(msg)
+		}
+		if page.editor != nil {
+			updated, cmd := page.editor.Update(msg)
+			page.editor = &updated
 			return page, cmd
 		}
 		if page.isBrowserRoute() && page.browser.InputActive() {
@@ -251,9 +270,9 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, cmd
 		}
 	}
-	if page.overlay == configOverlayForm {
-		updated, cmd := page.form.Update(message)
-		page.form = updated
+	if page.editor != nil {
+		updated, cmd := page.editor.Update(message)
+		page.editor = &updated
 		return page, cmd
 	}
 	if page.isFieldRoute() {
@@ -275,7 +294,9 @@ func (page *ConfigPage) View(width, height int) string {
 		return component.StateView(component.PageLoading, "Loading configuration", "")
 	}
 	var content string
-	if page.isFieldRoute() {
+	if page.editor != nil {
+		content = page.configEditorView(width, height)
+	} else if page.isFieldRoute() {
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
 		content = page.detail.View()
@@ -301,8 +322,9 @@ func (page *ConfigPage) View(width, height int) string {
 		content = title + "\n" + overview + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	}
 	switch page.overlay {
-	case configOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 80)), width, height)
+	case configOverlayConfirm:
+		modalWidth := overlayWidth(width, 76)
+		content = component.CenterOverlay(content, component.Modal(page.configImportConfirmBody(modalWidth), modalWidth), width, height)
 	case configOverlayOperation:
 		body := ""
 		if page.progress != nil {
@@ -319,11 +341,21 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 		return nil
 	}
 	switch page.overlay {
-	case configOverlayForm:
-		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 80), page.width, page.height, originX, originY, z+20)
+	case configOverlayConfirm:
+		modalWidth := overlayWidth(page.width, 76)
+		body := page.configImportConfirmBody(modalWidth)
+		foreground := component.Modal(body, modalWidth)
+		targets, x, y := component.CenteredOverlayTargets(foreground, page.width, page.height, originX, originY, z+20, tea.KeyPressMsg{Code: tea.KeyEscape})
+		if rect, ok := component.FindRenderedRect(foreground, page.confirm.View()); ok {
+			targets = append(targets, page.confirm.MouseTargets(x+rect.X, y+rect.Y, z+22)...)
+		}
+		return targets
 	case configOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
+		if page.editor != nil {
+			return page.configEditorMouseTargets(originX, originY, z)
+		}
 		if page.isFieldRoute() {
 			return page.detail.MouseTargets(originX, originY, z)
 		}
@@ -414,12 +446,7 @@ func (page *ConfigPage) openCommand(command ConfigCommand, resourceID string) (t
 			}
 			return nil, nil
 		}
-		form, data, err := newConfigFieldForm(page.overview.Config, spec)
-		if err != nil {
-			return nil, err
-		}
-		page.form, page.fieldForm, page.overlay = form, data, configOverlayForm
-		return page.form.Init(), nil
+		return func() tea.Msg { return NavigateMsg{Path: []string{"config", page.targetKey, "edit"}} }, nil
 	case ConfigVerify:
 		return page.startOperation(command, "Verifying configuration", func(context.Context) configOperationMsg {
 			result, err := application.VerifyConfig()
@@ -439,70 +466,13 @@ func (page *ConfigPage) openCommand(command ConfigCommand, resourceID string) (t
 			return configOperationMsg{command: command, err: err}
 		}), nil
 	case ConfigConvert:
-		page.form, page.convertForm = newConfigConvertForm(page.overview.Source.Format)
-		page.overlay = configOverlayForm
-		return page.form.Init(), nil
+		return func() tea.Msg { return NavigateMsg{Path: []string{"config", "storage", "convert"}} }, nil
 	case ConfigExport:
-		page.form, page.bundleForm = newConfigBundleForm(true)
-		page.overlay = configOverlayForm
-		return page.form.Init(), nil
+		return func() tea.Msg { return NavigateMsg{Path: []string{"config", "storage", "export"}} }, nil
 	case ConfigImport:
-		page.form, page.bundleForm = newConfigBundleForm(false)
-		page.overlay = configOverlayForm
-		return page.form.Init(), nil
+		return func() tea.Msg { return NavigateMsg{Path: []string{"config", "storage", "import"}} }, nil
 	default:
 		return nil, fmt.Errorf("unsupported config action: %s", command)
-	}
-}
-
-func (page *ConfigPage) submitForm() tea.Cmd {
-	switch page.command {
-	case ConfigEdit:
-		key, raw := page.targetKey, configFieldFormValue(page.fieldForm)
-		page.fieldForm = nil
-		return page.startOperation(page.command, "Saving configuration", func(context.Context) configOperationMsg {
-			result, err := application.SetConfigField(key, raw)
-			return configOperationMsg{command: ConfigEdit, mutation: result, err: err}
-		})
-	case ConfigConvert:
-		data := page.convertForm
-		page.convertForm = nil
-		if data == nil || !data.Confirm {
-			page.closeOverlay()
-			page.notice = "Format conversion cancelled"
-			return nil
-		}
-		format, err := configformat.Parse(data.Format)
-		if err != nil {
-			page.err = err
-			return nil
-		}
-		return page.startOperation(page.command, "Converting configuration format", func(context.Context) configOperationMsg {
-			count, err := application.ConvertConfig(format)
-			return configOperationMsg{command: ConfigConvert, format: format, converted: count, err: err}
-		})
-	case ConfigExport:
-		data := page.bundleForm
-		page.bundleForm = nil
-		return page.startOperation(page.command, "Exporting configuration bundle", func(context.Context) configOperationMsg {
-			result, err := application.ExportConfig(data.Path, data.Force)
-			return configOperationMsg{command: ConfigExport, path: result.Path, files: result.Files, secrets: result.Secrets, err: err}
-		})
-	case ConfigImport:
-		data := page.bundleForm
-		page.bundleForm = nil
-		if data == nil || !data.Confirm {
-			page.closeOverlay()
-			page.notice = "Import cancelled"
-			return nil
-		}
-		return page.startOperation(page.command, "Importing configuration bundle", func(ctx context.Context) configOperationMsg {
-			result, err := application.ImportConfig(ctx, data.Path, data.Force)
-			return configOperationMsg{command: ConfigImport, files: result.Files, secrets: result.Secrets, err: err}
-		})
-	default:
-		page.err = fmt.Errorf("unsupported config form action: %s", page.command)
-		return nil
 	}
 }
 
@@ -533,7 +503,13 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 	page.operationCancel = nil
 	page.overlay, page.progress = configOverlayNone, nil
 	if msg.err != nil {
-		page.err = msg.err
+		if page.editor != nil {
+			page.editor.SetSubmitting(false)
+			page.editor.SetFeedback("", msg.err)
+			page.err = nil
+		} else {
+			page.err = msg.err
+		}
 		return nil
 	}
 	page.err = nil
@@ -563,6 +539,11 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 	case ConfigImport:
 		page.notice = fmt.Sprintf("Configuration imported · %d files · %d secrets", msg.files, msg.secrets)
 	}
+	if page.editor != nil {
+		page.editor.SetSubmitting(false)
+		notice := page.notice
+		return tea.Batch(page.configEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Configuration", Message: notice, Tone: component.ToneSuccess} })
+	}
 	return func() tea.Msg {
 		overview, err := application.LoadConfigOverview(page.ctx)
 		return configLoadMsg{overview: overview, err: err}
@@ -576,14 +557,10 @@ func (page *ConfigPage) cancelOperation() {
 	page.operationCancel = nil
 	page.operationID++
 	page.overlay, page.progress = configOverlayNone, nil
+	if page.editor != nil {
+		page.editor.SetSubmitting(false)
+	}
 	page.notice = "Configuration operation cancellation requested"
-}
-
-func (page *ConfigPage) closeOverlay() {
-	page.overlay = configOverlayNone
-	page.form = component.Form{}
-	page.fieldForm, page.convertForm, page.bundleForm = nil, nil, nil
-	page.command, page.targetKey = "", ""
 }
 
 func (page *ConfigPage) loadCmd() tea.Cmd {

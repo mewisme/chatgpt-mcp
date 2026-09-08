@@ -20,23 +20,21 @@ type configFieldFormData struct {
 }
 
 type configConvertFormData struct {
-	Format  string
-	Confirm bool
+	Format string
 }
 
 type configBundleFormData struct {
-	Path    string
-	Force   bool
-	Confirm bool
+	Path  string
+	Force bool
 }
 
-func newConfigFieldForm(cfg config.Config, spec config.FieldSpec) (component.Form, *configFieldFormData, error) {
+func newConfigFieldEditor(cfg config.Config, spec config.FieldSpec) (component.Editor, *configFieldFormData, error) {
 	if !spec.Editable {
-		return component.Form{}, nil, fmt.Errorf("%s is read-only", spec.Key)
+		return component.Editor{}, nil, fmt.Errorf("%s is read-only", spec.Key)
 	}
 	raw, err := config.RawValue(cfg, spec.Key)
 	if err != nil {
-		return component.Form{}, nil, err
+		return component.Editor{}, nil, err
 	}
 	data := &configFieldFormData{Raw: raw, Key: spec.Key, Kind: spec.Kind}
 	validate := func(value string) error {
@@ -61,9 +59,10 @@ func newConfigFieldForm(cfg config.Config, spec config.FieldSpec) (component.For
 	case config.FieldInt, config.FieldString:
 		field = component.Input(spec.Key, &data.Raw).Placeholder(spec.Description).Validate(validate)
 	default:
-		return component.Form{}, nil, fmt.Errorf("unsupported config field type: %s", spec.Kind)
+		return component.Editor{}, nil, fmt.Errorf("unsupported config field type: %s", spec.Kind)
 	}
-	return component.NewForm(component.Group(field)), data, nil
+	editor := component.NewEditor("save", component.EditorSection{ID: "field", Title: "Value", Description: spec.Description, Form: component.NewEditorForm(component.Group(field))})
+	return editor, data, nil
 }
 
 func configFieldFormValue(data *configFieldFormData) string {
@@ -83,41 +82,41 @@ func configFieldFormValue(data *configFieldFormData) string {
 	}
 }
 
-func newConfigConvertForm(current configformat.Format) (component.Form, *configConvertFormData) {
+func newConfigConvertEditor(current configformat.Format) (component.Editor, *configConvertFormData) {
 	data := &configConvertFormData{Format: string(current)}
-	form := component.NewForm(component.Group(
+	editor := component.NewEditor("convert", component.EditorSection{ID: "format", Title: "Format", Description: "Convert all structured configuration and state files to the selected format.", Form: component.NewEditorForm(component.Group(
 		component.Select("Target format", &data.Format, huh.NewOption("JSON", "json"), huh.NewOption("YAML", "yaml"), huh.NewOption("TOML", "toml")),
-		component.Confirm("Convert all structured config/state files", &data.Confirm),
-	))
-	return form, data
+	))})
+	return editor, data
 }
 
-func newConfigBundleForm(export bool) (component.Form, *configBundleFormData) {
+func newConfigBundleEditor(export bool) (component.Editor, *configBundleFormData) {
 	data := &configBundleFormData{Path: "chatgpt-mcp-config.cgm"}
-	title := "Bundle file"
-	confirmTitle := "Import this bundle and replace existing configuration/state"
+	var pathField huh.Field
+	primary, description := "import", "Import a configuration bundle and managed secrets."
 	if export {
-		confirmTitle = "Overwrite the destination if it already exists"
+		primary, description = "export", "Export configuration and managed secrets to a bundle file. The destination may not exist yet."
+		pathField = component.Input("Bundle file", &data.Path).Validate(validateConfigBundlePath)
+	} else {
+		pathField = component.NewPathField("Bundle file", &data.Path, component.PathFieldOptions{Kind: component.PathKindFile, Validate: validateConfigBundlePath})
 	}
-	form := component.NewForm(component.Group(
-		component.Input(title, &data.Path).Validate(func(value string) error {
-			if strings.TrimSpace(value) == "" {
-				return fmt.Errorf("bundle file is required")
-			}
-			if filepath.Clean(value) == "." {
-				return fmt.Errorf("bundle file must name a file")
-			}
-			return nil
-		}),
-		component.Confirm(confirmTitle, &data.Force),
-	))
+	forceLabel := "Overwrite destination if it exists"
 	if !export {
-		data.Confirm = false
-		form = component.NewForm(component.Group(
-			component.Input(title, &data.Path).Validate(requiredValue("bundle file")),
-			component.Confirm("Replace existing configuration/state", &data.Force),
-			component.Confirm("I understand the current configuration may be replaced", &data.Confirm),
-		))
+		forceLabel = "Replace existing configuration/state"
 	}
-	return form, data
+	editor := component.NewEditor(primary, component.EditorSection{ID: "bundle", Title: "Bundle", Description: description, Form: component.NewEditorForm(component.Group(
+		pathField,
+		component.BoolSelect(forceLabel, &data.Force, "Yes", "No"),
+	))})
+	return editor, data
+}
+
+func validateConfigBundlePath(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("bundle file is required")
+	}
+	if filepath.Clean(value) == "." {
+		return fmt.Errorf("bundle file must name a file")
+	}
+	return nil
 }

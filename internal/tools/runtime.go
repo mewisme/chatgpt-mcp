@@ -133,6 +133,13 @@ func (r *Runtime) SetShellApprovalPolicy(value string) error {
 	return r.Workspaces.SetShellApprovalPolicy(policy)
 }
 
+func (r *Runtime) SetShellApprovalCommands(allow, deny []string) error {
+	if r == nil || r.Workspaces == nil {
+		return errors.New("tool runtime is unavailable")
+	}
+	return r.Workspaces.SetShellApprovalCommands(allow, deny)
+}
+
 func (r *Runtime) SetShellEnvironmentPolicy(value string) error {
 	if r == nil || r.Workspaces == nil {
 		return errors.New("tool runtime is unavailable")

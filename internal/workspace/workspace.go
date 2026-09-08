@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"go.mewis.me/chatgpt-mcp/internal/commandpattern"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instance"
 	"go.mewis.me/chatgpt-mcp/internal/state"
@@ -56,6 +57,8 @@ type Manager struct {
 	aliases            map[string]string
 	globalAllowDirs    []string
 	shellPolicy        ShellApprovalPolicy
+	shellApprovalAllow []commandpattern.Pattern
+	shellApprovalDeny  []commandpattern.Pattern
 	shellEnvPolicy     ShellEnvironmentPolicy
 	shellEnvAllow      []string
 	shellPath          []string

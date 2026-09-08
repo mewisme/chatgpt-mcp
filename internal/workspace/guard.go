@@ -38,6 +38,13 @@ func (m *Manager) IsMutationCommand(command string) bool {
 }
 
 func destructiveMutationReason(command string) (string, bool) {
+	return destructiveMutationReasonDepth(command, 0)
+}
+
+func destructiveMutationReasonDepth(command string, depth int) (string, bool) {
+	if depth >= maxNestedShellDepth {
+		return "nested shell depth exceeded", true
+	}
 	segments, err := splitShellSegments(command)
 	if err != nil {
 		return "", false
@@ -48,6 +55,11 @@ func destructiveMutationReason(command string) (string, bool) {
 			continue
 		}
 		name, args := commandName(tokens)
+		if inner, ok := nestedShellCommand(name, args); ok {
+			if reason, destructive := destructiveMutationReasonDepth(inner, depth+1); destructive {
+				return reason, true
+			}
+		}
 		if reason := destructiveMutationCommands[name]; reason != "" {
 			return reason, true
 		}
@@ -151,6 +163,13 @@ func ShellCommandUsesExternalNetwork(command string) bool {
 }
 
 func shellInvocationReason(command string, classify func(string, []string) (string, bool)) (string, bool) {
+	return shellInvocationReasonDepth(command, classify, 0)
+}
+
+func shellInvocationReasonDepth(command string, classify func(string, []string) (string, bool), depth int) (string, bool) {
+	if depth >= maxNestedShellDepth {
+		return "", false
+	}
 	segments, err := splitShellSegments(command)
 	if err != nil {
 		return "", false
@@ -163,6 +182,11 @@ func shellInvocationReason(command string, classify func(string, []string) (stri
 		name, args := commandName(tokens)
 		if reason, ok := classify(name, args); ok {
 			return reason, true
+		}
+		if inner, ok := nestedShellCommand(name, args); ok {
+			if reason, matched := shellInvocationReasonDepth(inner, classify, depth+1); matched {
+				return reason, true
+			}
 		}
 	}
 	return "", false
@@ -493,6 +517,13 @@ func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) err
 	if err != nil {
 		return err
 	}
+	return m.validateMutationCommandDepth(id, cwd, command, 0)
+}
+
+func (m *Manager) validateMutationCommandDepth(id, cwd, command string, depth int) error {
+	if depth >= maxNestedShellDepth {
+		return errors.New("mutation command denied: nested shell depth exceeded")
+	}
 	if !m.IsMutationCommand(command) {
 		return nil
 	}
@@ -526,7 +557,11 @@ func (m *Manager) ValidateMutationCommand(id, baseDirectory, command string) err
 		}
 		name, args := commandName(tokens)
 		if inner, ok := nestedShellCommand(name, args); ok && m.isMutationCommand(inner, 1) {
-			return fmt.Errorf("mutation command denied: nested %s mutation cannot be proven workspace-safe", name)
+			if err := m.validateMutationCommandDepth(id, cwd, inner, depth+1); err != nil {
+				return fmt.Errorf("mutation command denied: nested %s mutation: %w", name, err)
+			}
+			recognizedMutation = true
+			continue
 		}
 		if code, ok := inlineInterpreterCode(name, args); ok && inlineMutationAPI.MatchString(code) {
 			return fmt.Errorf("mutation command denied: inline %s mutation cannot be proven workspace-safe", name)

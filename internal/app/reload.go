@@ -19,7 +19,7 @@ func (a *App) ReloadConfig(next config.Config) error {
 	httpChanged := previous.Server.Enabled != next.Server.Enabled
 	featuresChanged := previous.Features != next.Features
 	permissionsChanged := !slices.Equal(previous.Permissions.AllowDirs, next.Permissions.AllowDirs)
-	shellApprovalPolicyChanged := previous.Shell.ApprovalPolicy != next.Shell.ApprovalPolicy
+	shellApprovalPolicyChanged := previous.Shell.ApprovalPolicy != next.Shell.ApprovalPolicy || !slices.Equal(previous.Shell.ApprovalAllowCommands, next.Shell.ApprovalAllowCommands) || !slices.Equal(previous.Shell.ApprovalDenyCommands, next.Shell.ApprovalDenyCommands)
 	shellEnvironmentChanged := previous.Shell.EnvironmentPolicy != next.Shell.EnvironmentPolicy || previous.Shell.SandboxPolicy != next.Shell.SandboxPolicy || previous.Shell.NetworkPolicy != next.Shell.NetworkPolicy || !slices.Equal(previous.Shell.EnvironmentAllow, next.Shell.EnvironmentAllow) || !slices.Equal(previous.Shell.Path, next.Shell.Path)
 	tunnelChanged := previous.Tunnel != next.Tunnel
 	tunnelRuntimeChanged := tunnelChanged && !tunnel.RuntimeConfigEqual(previous.Tunnel, next.Tunnel)
@@ -34,6 +34,9 @@ func (a *App) ReloadConfig(next config.Config) error {
 	if shellApprovalPolicyChanged {
 		if err := a.Tools.SetShellApprovalPolicy(next.Shell.ApprovalPolicy); err != nil {
 			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, false, false, false, false))
+		}
+		if err := a.Tools.SetShellApprovalCommands(next.Shell.ApprovalAllowCommands, next.Shell.ApprovalDenyCommands); err != nil {
+			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, true, false, false, false))
 		}
 	}
 	if shellEnvironmentChanged {
@@ -99,6 +102,7 @@ func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, feature
 	}
 	if shellApprovalPolicyChanged {
 		rollbackErr = errors.Join(rollbackErr, a.Tools.SetShellApprovalPolicy(previous.Shell.ApprovalPolicy))
+		rollbackErr = errors.Join(rollbackErr, a.Tools.SetShellApprovalCommands(previous.Shell.ApprovalAllowCommands, previous.Shell.ApprovalDenyCommands))
 	}
 	if shellEnvironmentChanged {
 		rollbackErr = errors.Join(rollbackErr, a.Tools.SetShellEnvironmentPolicy(previous.Shell.EnvironmentPolicy))

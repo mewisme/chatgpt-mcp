@@ -40,6 +40,9 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	if err := toolRuntime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
 		panic(err)
 	}
+	if err := toolRuntime.SetShellApprovalCommands(cfg.Shell.ApprovalAllowCommands, cfg.Shell.ApprovalDenyCommands); err != nil {
+		panic(err)
+	}
 	if err := toolRuntime.SetShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
 		panic(err)
 	}

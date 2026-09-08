@@ -107,22 +107,22 @@ func TestShellPolicyRejectsDynamicWriteTarget(t *testing.T) {
 	}
 }
 
-func TestShellPolicyRejectsNestedShellMutation(t *testing.T) {
+func TestShellPolicyValidatesNestedShellMutation(t *testing.T) {
 	root := t.TempDir()
 	manager := newTestManager(t)
 	item, err := manager.Register(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{
-		`bash -lc "cp a.txt b.txt"`,
-		`bash -lc "rm file.txt"`,
-		`pwsh -Command "Set-Content -Path file.txt -Value x"`,
-	} {
-		err := manager.ValidateShellCommand(item.ID, root, command)
-		if err == nil || !strings.Contains(err.Error(), "cannot be proven") {
-			t.Fatalf("error = %v, want nested mutation fail-closed denial", err)
+	for _, command := range []string{`bash -lc "cp a.txt b.txt"`, `pwsh -Command "Set-Content -Path file.txt -Value x"`} {
+		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
+			t.Fatalf("workspace-safe nested mutation rejected: %s: %v", command, err)
 		}
+	}
+	err = manager.ValidateShellCommand(item.ID, root, `bash -lc "rm file.txt"`)
+	guard, ok := controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation || !guard.Approvable {
+		t.Fatalf("nested destructive mutation did not require approval: %#v / %v", guard, err)
 	}
 }
 
@@ -515,6 +515,105 @@ func TestBalancedShellPolicyAllowsUnknownExecution(t *testing.T) {
 	}
 	if err := manager.ValidateShellCommand(item.ID, root, "go test ./..."); err != nil {
 		t.Fatalf("balanced policy rejected ordinary execution: %v", err)
+	}
+}
+
+func TestShellApprovalPolicyModesAndCommandRules(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetShellApprovalPolicy(ShellApprovalDeny); err != nil {
+		t.Fatal(err)
+	}
+	err = manager.ValidateShellCommand(item.ID, root, "pwd")
+	guard, ok := controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeShellExecution || !guard.Approvable {
+		t.Fatalf("deny policy did not gate static read: %#v / %v", guard, err)
+	}
+	if err := manager.SetShellApprovalCommands([]string{"go test *", "git status"}, []string{"git push *", "rm *"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ValidateShellCommand(item.ID, root, "go test ./..."); err != nil {
+		t.Fatalf("allow rule did not bypass deny policy: %v", err)
+	}
+	err = manager.ValidateShellCommand(item.ID, root, "git push origin main")
+	guard, ok = controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeExternalMutation {
+		t.Fatalf("deny rule lost specific external risk: %#v / %v", guard, err)
+	}
+	if err := manager.SetShellApprovalPolicy(ShellApprovalAllow); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ValidateShellCommand(item.ID, root, "git status"); err != nil {
+		t.Fatalf("allow policy rejected normal command: %v", err)
+	}
+	err = manager.ValidateShellCommand(item.ID, root, "rm file.txt")
+	guard, ok = controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation {
+		t.Fatalf("deny rule did not win in allow mode: %#v / %v", guard, err)
+	}
+}
+
+func TestShellApprovalRulesMatchCompoundAndNestedInvocations(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetShellApprovalPolicy(ShellApprovalStrict); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetShellApprovalCommands([]string{"echo *", "go test *", "bash *"}, []string{"git push *"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ValidateShellCommand(item.ID, root, "echo ok && go test ./..."); err != nil {
+		t.Fatalf("fully allowed compound command rejected: %v", err)
+	}
+	err = manager.ValidateShellCommand(item.ID, root, "echo ok && python script.py")
+	guard, ok := controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeShellExecution {
+		t.Fatalf("partially allowed compound command bypassed strict policy: %#v / %v", guard, err)
+	}
+	err = manager.ValidateShellCommand(item.ID, root, `bash -lc "git push origin main"`)
+	guard, ok = controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeExternalMutation {
+		t.Fatalf("nested deny rule was bypassed: %#v / %v", guard, err)
+	}
+}
+
+func TestShellApprovalAllowNeverBypassesHardGuards(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "escape.txt")
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetShellApprovalPolicy(ShellApprovalAllow); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetShellApprovalCommands([]string{"**"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ValidateShellCommand(item.ID, root, "touch "+outside); err == nil {
+		t.Fatal("allow policy bypassed workspace containment")
+	}
+	err = manager.ValidateShellCommand(item.ID, root, "unset CHATGPT_MCP_TOOL_CONTEXT")
+	guard, ok := controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeContextTamper || guard.Approvable {
+		t.Fatalf("allow policy bypassed context hard guard: %#v / %v", guard, err)
+	}
+	if err := manager.SetShellNetworkPolicy(ShellNetworkDeny); err != nil {
+		t.Fatal(err)
+	}
+	err = manager.ValidateShellCommand(item.ID, root, "curl https://example.com")
+	guard, ok = controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeExternalAccess || guard.Approvable {
+		t.Fatalf("allow policy bypassed network deny: %#v / %v", guard, err)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/commandpattern"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 )
@@ -21,8 +22,10 @@ type ShellSandboxPolicy string
 type ShellNetworkPolicy string
 
 const (
+	ShellApprovalAllow       ShellApprovalPolicy    = "allow"
 	ShellApprovalBalanced    ShellApprovalPolicy    = "balanced"
 	ShellApprovalStrict      ShellApprovalPolicy    = "strict"
+	ShellApprovalDeny        ShellApprovalPolicy    = "deny"
 	ShellEnvironmentAuto     ShellEnvironmentPolicy = "auto"
 	ShellEnvironmentInherit  ShellEnvironmentPolicy = "inherit"
 	ShellEnvironmentFiltered ShellEnvironmentPolicy = "filtered"
@@ -64,11 +67,48 @@ func NormalizeShellApprovalPolicy(value string) (ShellApprovalPolicy, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", string(ShellApprovalBalanced):
 		return ShellApprovalBalanced, true
+	case string(ShellApprovalAllow):
+		return ShellApprovalAllow, true
 	case string(ShellApprovalStrict):
 		return ShellApprovalStrict, true
+	case string(ShellApprovalDeny):
+		return ShellApprovalDeny, true
 	default:
 		return "", false
 	}
+}
+
+func (m *Manager) SetShellApprovalCommands(allow, deny []string) error {
+	allowPatterns, err := commandpattern.Compile(allow)
+	if err != nil {
+		return err
+	}
+	denyPatterns, err := commandpattern.Compile(deny)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.shellApprovalAllow = allowPatterns
+	m.shellApprovalDeny = denyPatterns
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) ShellApprovalCommands() (allow, deny []string) {
+	if m == nil {
+		return []string{}, []string{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	allow = make([]string, 0, len(m.shellApprovalAllow))
+	deny = make([]string, 0, len(m.shellApprovalDeny))
+	for _, pattern := range m.shellApprovalAllow {
+		allow = append(allow, pattern.Raw())
+	}
+	for _, pattern := range m.shellApprovalDeny {
+		deny = append(deny, pattern.Raw())
+	}
+	return allow, deny
 }
 
 func (m *Manager) SetShellApprovalPolicy(value ShellApprovalPolicy) error {
@@ -137,7 +177,7 @@ func (m *Manager) EffectiveShellEnvironmentPolicy() ShellEnvironmentPolicy {
 	if policy != ShellEnvironmentAuto {
 		return policy
 	}
-	if m.ShellApprovalPolicy() == ShellApprovalStrict {
+	if policy := m.ShellApprovalPolicy(); policy == ShellApprovalStrict || policy == ShellApprovalDeny {
 		return ShellEnvironmentMinimal
 	}
 	return ShellEnvironmentInherit
@@ -184,7 +224,7 @@ func (m *Manager) EffectiveShellSandboxPolicy() ShellSandboxPolicy {
 	if policy != ShellSandboxAuto {
 		return policy
 	}
-	if m.ShellApprovalPolicy() == ShellApprovalStrict {
+	if policy := m.ShellApprovalPolicy(); policy == ShellApprovalStrict || policy == ShellApprovalDeny {
 		return ShellSandboxAuto
 	}
 	return ShellSandboxOff
@@ -231,7 +271,7 @@ func (m *Manager) EffectiveShellNetworkPolicy() ShellNetworkPolicy {
 	if policy != ShellNetworkAuto {
 		return policy
 	}
-	if m.ShellApprovalPolicy() == ShellApprovalStrict {
+	if policy := m.ShellApprovalPolicy(); policy == ShellApprovalStrict || policy == ShellApprovalDeny {
 		return ShellNetworkAuto
 	}
 	return ShellNetworkInherit
@@ -275,6 +315,24 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 			return err
 		}
 	}
+	denied, allowed := m.shellApprovalRuleDecision(command)
+	if denied {
+		code, category, reason := shellApprovalRequirement(command)
+		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == code {
+			return nil
+		}
+		return controlguard.New(code, category+" shell execution requires local approval by explicit deny rule: "+reason, true, &controlguard.Invocation{Command: strings.TrimSpace(command)})
+	}
+	if allowed || m.ShellApprovalPolicy() == ShellApprovalAllow {
+		return nil
+	}
+	if m.ShellApprovalPolicy() == ShellApprovalDeny {
+		code, category, reason := shellApprovalRequirement(command)
+		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == code {
+			return nil
+		}
+		return controlguard.New(code, category+" shell execution requires local approval by deny policy: "+reason, true, &controlguard.Invocation{Command: strings.TrimSpace(command)})
+	}
 	if code, category, reason, guarded := shellApprovalRisk(command); guarded {
 		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == code {
 			return nil
@@ -297,6 +355,74 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 		return controlguard.New(controlguard.CodeShellExecution, "strict shell policy requires local approval for execution that is not a workspace-confined static read", true, &controlguard.Invocation{Command: strings.TrimSpace(command)})
 	}
 	return nil
+}
+
+func shellApprovalRequirement(command string) (controlguard.Code, string, string) {
+	if code, category, reason, guarded := shellApprovalRisk(command); guarded {
+		return code, category, reason
+	}
+	if reason, ok := externalAccessReason(command); ok {
+		return controlguard.CodeExternalAccess, "external", reason
+	}
+	return controlguard.CodeShellExecution, "shell", "command matched the configured approval policy"
+}
+
+func (m *Manager) shellApprovalRuleDecision(command string) (denied, allowed bool) {
+	m.mu.RLock()
+	allowPatterns := append([]commandpattern.Pattern(nil), m.shellApprovalAllow...)
+	denyPatterns := append([]commandpattern.Pattern(nil), m.shellApprovalDeny...)
+	m.mu.RUnlock()
+	if len(allowPatterns) == 0 && len(denyPatterns) == 0 {
+		return false, false
+	}
+	invocations, err := shellCommandInvocations(command, 0)
+	if err != nil || len(invocations) == 0 {
+		return false, false
+	}
+	allAllowed := len(allowPatterns) > 0
+	for _, invocation := range invocations {
+		if commandpattern.MatchAny(denyPatterns, invocation) {
+			return true, false
+		}
+		if !commandpattern.MatchAny(allowPatterns, invocation) {
+			allAllowed = false
+		}
+	}
+	return false, allAllowed
+}
+
+func shellCommandInvocations(command string, depth int) ([][]string, error) {
+	if depth >= maxNestedShellDepth {
+		return nil, errors.New("nested shell depth exceeded")
+	}
+	segments, err := splitShellSegments(command)
+	if err != nil {
+		return nil, err
+	}
+	result := make([][]string, 0, len(segments))
+	for _, segment := range segments {
+		tokens, err := shellWords(segment)
+		if err != nil {
+			return nil, err
+		}
+		if len(tokens) == 0 {
+			continue
+		}
+		name, args := commandName(tokens)
+		if name == "" {
+			continue
+		}
+		invocation := append([]string{name}, args...)
+		result = append(result, invocation)
+		if inner, ok := nestedShellCommand(name, args); ok {
+			nested, err := shellCommandInvocations(inner, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, nested...)
+		}
+	}
+	return result, nil
 }
 
 func (m *Manager) staticallyReadOnlyShellCommand(id, cwd, command string) bool {

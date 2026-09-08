@@ -191,16 +191,20 @@ func TestMutationGuardRejectsOutsidePath(t *testing.T) {
 	}
 }
 
-func TestMutationGuardRejectsNestedShellMutation(t *testing.T) {
+func TestMutationGuardValidatesNestedShellMutation(t *testing.T) {
 	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
 	manager := newTestManager(t)
 	item, err := manager.Register(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = manager.ValidateMutationCommand(item.ID, root, `bash -lc "rm file.txt"`)
-	if err == nil || !strings.Contains(err.Error(), "cannot be proven") {
-		t.Fatalf("error = %v, want fail-closed denial", err)
+	if err := manager.ValidateMutationCommand(item.ID, root, `bash -lc "rm file.txt"`); err != nil {
+		t.Fatalf("workspace-safe nested mutation rejected: %v", err)
+	}
+	err = manager.ValidateMutationCommand(item.ID, root, `bash -lc "rm `+outside+`"`)
+	if err == nil || !strings.Contains(err.Error(), "nested bash mutation") {
+		t.Fatalf("outside nested mutation error = %v", err)
 	}
 }
 

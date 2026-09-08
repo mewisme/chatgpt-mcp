@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/caveman"
+	"go.mewis.me/chatgpt-mcp/internal/commandpattern"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -121,6 +122,9 @@ func NormalizeShellApprovalCommands(values []string) ([]string, error) {
 		}
 		if strings.ContainsAny(value, "\x00\r\n") {
 			return nil, fmt.Errorf("shell approval command pattern must be a single line: %q", value)
+		}
+		if err := commandpattern.Validate(value); err != nil {
+			return nil, err
 		}
 		if _, ok := seen[value]; ok {
 			continue

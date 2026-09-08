@@ -287,6 +287,9 @@ func tunnelRunCommand() *cobra.Command {
 		if err := runtime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
 			return err
 		}
+		if err := runtime.SetShellApprovalCommands(cfg.Shell.ApprovalAllowCommands, cfg.Shell.ApprovalDenyCommands); err != nil {
+			return err
+		}
 		if err := runtime.SetShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
 			return err
 		}

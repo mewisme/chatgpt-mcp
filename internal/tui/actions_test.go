@@ -97,7 +97,7 @@ func TestRequestActionAvailabilityFollowsRouteContext(t *testing.T) {
 		return false
 	}
 	list := action.Context{Route: string(RouteRequests)}
-	for _, id := range []string{"request.refresh", "request.show.pending", "request.show.history", "request.show.all"} {
+	for _, id := range []string{"request.refresh", "request.create.test", "request.show.pending", "request.show.history", "request.show.all"} {
 		if !has(list, id) {
 			t.Fatalf("request list action missing: %s", id)
 		}
@@ -113,10 +113,14 @@ func TestRequestActionAvailabilityFollowsRouteContext(t *testing.T) {
 		t.Fatal("request actions leaked outside requests route")
 	}
 	for _, item := range registry.Actions(list) {
-		if item.ID == "request.create.dummy" || strings.Contains(strings.Join(item.CommandPath, " "), "create dummy") {
-			t.Fatalf("dummy request action leaked into TUI palette: %#v", item)
+		if item.ID == "request.create.test" {
+			if item.Title != "Create test request" || !strings.Contains(strings.Join(item.Keywords, " "), "dummy") {
+				t.Fatalf("test request action=%#v", item)
+			}
+			return
 		}
 	}
+	t.Fatal("create test request action missing")
 }
 
 func TestConfigActionAvailabilityFollowsRouteContext(t *testing.T) {

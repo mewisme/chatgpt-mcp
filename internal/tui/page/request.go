@@ -23,6 +23,7 @@ type RequestCommand string
 
 const (
 	RequestRefresh     RequestCommand = "request.refresh"
+	RequestCreateTest  RequestCommand = "request.create.test"
 	RequestApprove     RequestCommand = "request.approve"
 	RequestDeny        RequestCommand = "request.deny"
 	RequestShowPending RequestCommand = "request.show.pending"
@@ -67,6 +68,11 @@ type requestResolveMsg struct {
 	err     error
 }
 
+type requestCreateMsg struct {
+	request approval.Request
+	err     error
+}
+
 type RequestsPage struct {
 	ctx                context.Context
 	requests           []approval.Request
@@ -79,6 +85,7 @@ type RequestsPage struct {
 	loading            bool
 	overlay            requestOverlay
 	form               component.Form
+	createForm         *requestCreateFormData
 	resolveForm        *requestResolveFormData
 	resolveApprove     bool
 	resolveID          string
@@ -196,6 +203,27 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.resolveID = ""
 		page.rebuildBrowser(msg.request.ID)
 		return page, page.manualRefreshCmd()
+	case requestCreateMsg:
+		if page.operationCancel != nil {
+			page.operationCancel()
+		}
+		page.operationCancel = nil
+		page.overlay = requestOverlayNone
+		page.progress = nil
+		if page.operationCancelled {
+			page.operationCancelled = false
+			page.notice = "Test request creation cancelled"
+			return page, nil
+		}
+		if msg.err != nil {
+			page.err = msg.err
+			return page, nil
+		}
+		page.err = nil
+		page.upsertRequest(msg.request)
+		page.notice = "Created test request " + msg.request.ID
+		page.rebuildBrowser(msg.request.ID)
+		return page, page.manualRefreshCmd()
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		var cmd tea.Cmd
@@ -213,6 +241,9 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, cmd
 	case component.FormSubmittedMsg:
+		if page.createForm != nil {
+			return page, page.submitCreateTestForm()
+		}
 		return page, page.submitResolveForm()
 	case component.FormCancelledMsg:
 		page.closeOverlay()
@@ -264,6 +295,8 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, requestNavigateCmd(mode, "", "", true)
 		}
 		switch msg.String() {
+		case "t":
+			return page, page.handleCommand(RequestCreateTest, "")
 		case "r":
 			return page, page.manualRefreshCmd()
 		}
@@ -360,6 +393,10 @@ func (page *RequestsPage) handleCommand(command RequestCommand, resourceID strin
 	switch command {
 	case RequestRefresh:
 		return page.manualRefreshCmd()
+	case RequestCreateTest:
+		page.form, page.createForm = newRequestCreateForm()
+		page.overlay = requestOverlayForm
+		return page.form.Init()
 	case RequestShowPending:
 		return requestNavigateCmd(requestModePending, "", "", true)
 	case RequestShowHistory:
@@ -388,6 +425,26 @@ func (page *RequestsPage) handleCommand(command RequestCommand, resourceID strin
 	default:
 		page.err = fmt.Errorf("unsupported request action: %s", command)
 		return nil
+	}
+}
+
+func (page *RequestsPage) submitCreateTestForm() tea.Cmd {
+	if page.createForm == nil {
+		page.err = fmt.Errorf("test request form is unavailable")
+		page.closeOverlay()
+		return nil
+	}
+	data := *page.createForm
+	page.createForm = nil
+	ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
+	page.operationCancel = cancel
+	page.operationCancelled = false
+	progress := component.NewProgress("Creating test approval request")
+	page.progress = &progress
+	page.overlay = requestOverlayOperation
+	return func() tea.Msg {
+		request, err := application.CreateDummyApprovalRequest(ctx, data.WorkspaceID, data.Title, data.Command)
+		return requestCreateMsg{request: request, err: err}
 	}
 }
 
@@ -459,6 +516,7 @@ func (page *RequestsPage) cancelOperation() {
 func (page *RequestsPage) closeOverlay() {
 	page.overlay = requestOverlayNone
 	page.form = component.Form{}
+	page.createForm = nil
 	page.resolveForm = nil
 	page.resolveID = ""
 	page.progress = nil
@@ -485,7 +543,7 @@ func (page *RequestsPage) rebuildBrowser(selectedID string) {
 	}
 	rows := page.requestRows()
 	browser := component.NewBrowser(page.ctx, "Approval requests", rows, nil).WithTitleVisible(false)
-	browser = browser.WithHelpBindings(component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"r"}, "r", "refresh"))
+	browser = browser.WithHelpBindings(component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"t"}, "t", "test request"), component.Binding([]string{"r"}, "r", "refresh"))
 	page.browser = browser
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {

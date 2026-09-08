@@ -131,6 +131,7 @@ func configAction(id, title, description string, keywords, commandPath []string,
 func requestActions() []action.Action {
 	return []action.Action{
 		requestAction("request.refresh", "Refresh requests", "Refresh approval requests from the running runtime", []string{"request", "approval", "refresh", "list"}, []string{"request", "list"}, tuipage.RequestRefresh, false),
+		requestAction("request.create.test", "Create test request", "Create a synthetic approval request for testing the Requests TUI and approval flow", []string{"request", "approval", "create", "test", "dummy", "synthetic"}, []string{"request", "create-test"}, tuipage.RequestCreateTest, false),
 		requestAction("request.show.pending", "Show pending requests", "Show only pending approval requests", []string{"request", "pending", "filter"}, []string{"request", "list"}, tuipage.RequestShowPending, false),
 		requestAction("request.show.history", "Show request history", "Show resolved and expired approval requests", []string{"request", "history", "resolved", "filter"}, []string{"request", "list"}, tuipage.RequestShowHistory, false),
 		requestAction("request.show.all", "Show all requests", "Show pending and historical approval requests", []string{"request", "all", "filter"}, []string{"request", "list"}, tuipage.RequestShowAll, false),

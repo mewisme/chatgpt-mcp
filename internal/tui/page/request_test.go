@@ -238,6 +238,66 @@ func TestRequestsPageResolutionRequiresExplicitConfirmation(t *testing.T) {
 	}
 }
 
+func TestRequestsPageCreatesSyntheticTestRequest(t *testing.T) {
+	now := time.Now().UTC()
+	created := approval.Request{ID: "req_test_created", Status: approval.StatusPending, WorkspaceID: "ws_demo", Source: "cli-dummy", TargetTool: "run_command", Title: "Allow test command", Arguments: []byte(`{"workspace_id":"ws_demo","command":"echo hello","dummy":true}`), CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	createCalls := 0
+	server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/requests/create-dummy":
+			createCalls++
+			var input map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Fatal(err)
+			}
+			if input["workspace_id"] != "ws_demo" || input["title"] != "Allow test command" || input["command"] != "echo hello" {
+				t.Fatalf("input=%#v", input)
+			}
+			_ = json.NewEncoder(w).Encode(created)
+		case "/requests":
+			_ = json.NewEncoder(w).Encode([]approval.Request{created})
+		default:
+			t.Fatalf("unexpected path=%s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+	page, _ := NewRequests(t.Context(), "")
+	cmd := page.handleCommand(RequestCreateTest, "")
+	if cmd == nil || page.createForm == nil || page.overlay != requestOverlayForm {
+		t.Fatalf("create form=%#v overlay=%d cmd=%v", page.createForm, page.overlay, cmd)
+	}
+	if page.createForm.WorkspaceID != "ws_dummy" || page.createForm.Title != "Allow test command" || page.createForm.Command != "echo test approval" {
+		t.Fatalf("create defaults=%#v", page.createForm)
+	}
+	page.createForm.WorkspaceID = "ws_demo"
+	page.createForm.Command = "echo hello"
+	create := page.submitCreateTestForm()
+	if create == nil || page.overlay != requestOverlayOperation {
+		t.Fatalf("create=%v overlay=%d", create, page.overlay)
+	}
+	updated, _ := page.Update(create())
+	page = updated.(*RequestsPage)
+	request, ok := page.findRequest(created.ID)
+	if !ok || request.ID != created.ID || createCalls != 1 || !strings.Contains(page.notice, "Created test request") {
+		t.Fatalf("created=%#v ok=%t calls=%d notice=%q", request, ok, createCalls, page.notice)
+	}
+}
+
+func TestRequestsPageTestRequestShortcutOpensForm(t *testing.T) {
+	page, _ := NewRequests(t.Context(), "")
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	page = updated.(*RequestsPage)
+	if cmd == nil || page.overlay != requestOverlayForm || page.createForm == nil {
+		t.Fatalf("shortcut cmd=%v overlay=%d form=%#v", cmd, page.overlay, page.createForm)
+	}
+	plain := ansi.Strip(page.View(100, 24))
+	for _, want := range []string{"Workspace ID", "Title", "Command", "echo test approval"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("create form missing %q: %q", want, plain)
+		}
+	}
+}
+
 func TestRequestsPageResolveCancellationIgnoresLateResult(t *testing.T) {
 	now := time.Now().UTC()
 	request := approval.Request{ID: "req_pending", Status: approval.StatusPending, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Allow update", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}

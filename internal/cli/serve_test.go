@@ -84,10 +84,19 @@ func TestTunnelOnlyServePublishesRuntimeControl(t *testing.T) {
 	cfg.Server.Enabled = false
 	cfg.Admin.Enabled = false
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	controlPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/poll") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"commands":[]}`)
+	}))
+	defer controlPlane.Close()
 	cfg.Tunnel.Enabled = true
 	cfg.Tunnel.ID = "tunnel_00000000000000000000000000000000"
 	cfg.Tunnel.APIKey = "runtime-test"
-	cfg.Tunnel.ControlPlaneBaseURL = "http://127.0.0.1:1"
+	cfg.Tunnel.ControlPlaneBaseURL = controlPlane.URL
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}

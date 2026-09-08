@@ -47,7 +47,7 @@ func newLogsFilterForm(options application.LogsQueryOptions, visibility logger.V
 				}
 				return nil
 			}),
-			component.Switch("All sessions", &data.All),
+			component.BoolSelect("All sessions", &data.All, "Yes", "No"),
 			component.Input("Session", &data.Session),
 			component.Input("Since", &data.Since).Description("Duration such as 30m or RFC3339 timestamp"),
 			component.Input("Until", &data.Until).Description("RFC3339 timestamp"),

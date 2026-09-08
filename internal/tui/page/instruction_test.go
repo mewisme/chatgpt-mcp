@@ -191,6 +191,20 @@ func TestInstructionContextDefaultsToMarkdownPreviewAndEditIsRouted(t *testing.T
 	}
 }
 
+func TestInstructionContextPreviewLeavesTabNavigationKeysToPage(t *testing.T) {
+	page, _ := newTestInstructionPage(t)
+	for _, key := range []tea.KeyPressMsg{{Code: tea.KeyRight}, {Code: 'l', Text: "l"}, {Code: '2', Text: "2"}} {
+		_, cmd := page.Update(key)
+		if cmd == nil {
+			t.Fatalf("tab navigation key %q returned no command", key.String())
+		}
+		navigate, ok := cmd().(NavigateMsg)
+		if !ok || strings.Join(navigate.Path, "/") != "instruction/rules" || !navigate.Replace {
+			t.Fatalf("tab navigation key %q message=%#v", key.String(), navigate)
+		}
+	}
+}
+
 func TestInstructionSourcesFirstRenderUsesUsableTreeWidth(t *testing.T) {
 	page, _ := newTestInstructionPage(t)
 	page.switchTab(instructionTabSources)

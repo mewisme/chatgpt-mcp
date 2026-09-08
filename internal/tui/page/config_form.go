@@ -47,7 +47,7 @@ func newConfigFieldForm(cfg config.Config, spec config.FieldSpec) (component.For
 	switch spec.Kind {
 	case config.FieldBool:
 		data.Bool = strings.EqualFold(raw, "true")
-		field = component.Confirm(spec.Key, &data.Bool).Description(spec.Description)
+		field = component.BoolSelect(spec.Key, &data.Bool, "True", "False").Description(spec.Description)
 	case config.FieldEnum:
 		data.Enum = raw
 		options := make([]huh.Option[string], 0, len(spec.Options))

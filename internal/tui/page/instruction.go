@@ -335,6 +335,9 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.contextEditor = &updated
 			return page, cmd
 		}
+		if cmd, handled := page.handleTabKey(msg); handled {
+			return page, cmd
+		}
 		if page.tab == instructionTabContext {
 			switch msg.String() {
 			case "e":
@@ -350,9 +353,6 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.tab == instructionTabRules && page.rules.InputActive() {
 			updated, cmd := page.rules.Update(msg)
 			page.rules = updated.(component.Browser)
-			return page, cmd
-		}
-		if cmd, handled := page.handleTabKey(msg); handled {
 			return page, cmd
 		}
 		if page.tab == instructionTabRules {

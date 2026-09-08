@@ -132,7 +132,7 @@ func (page *InstructionPage) initRuleEditor(id, action string) error {
 	}
 	form := component.NewEditorForm(component.Group(
 		component.Input("Name", &page.ruleName),
-		component.Switch("Enabled", &page.ruleEnabled),
+		component.BoolSelect("Enabled", &page.ruleEnabled, "Enabled", "Disabled"),
 		component.TextLines("Content", &page.ruleContent, lines),
 	))
 	primary := "save"

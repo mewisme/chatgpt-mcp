@@ -144,7 +144,7 @@ func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
 	}
 }
 
-func TestTunnelRuntimeConfigureEditorSwitchValidationAndCancel(t *testing.T) {
+func TestTunnelRuntimeConfigureEditorSelectValidationAndCancel(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret"})
 	page, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
 	if err != nil {
@@ -152,13 +152,13 @@ func TestTunnelRuntimeConfigureEditorSwitchValidationAndCancel(t *testing.T) {
 	}
 	_ = page.Init()
 	plain := ansi.Strip(page.View(100, 28))
-	if !strings.Contains(plain, "Enabled [ TRUE ]") || strings.Contains(plain, "runtime-secret") {
+	if !strings.Contains(plain, "> Enabled") || !strings.Contains(plain, "Disabled") || strings.Contains(plain, "[ TRUE ]") || strings.Contains(plain, "runtime-secret") {
 		t.Fatalf("configure editor view=%q", plain)
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	page = updated.(*TunnelPage)
-	if page.runtimeForm.Enabled || !page.Dirty() || !strings.Contains(ansi.Strip(page.View(100, 28)), "Enabled [ FALSE ]") {
-		t.Fatalf("space toggle draft=%#v dirty=%t", page.runtimeForm, page.Dirty())
+	if page.runtimeForm.Enabled || !page.Dirty() || !strings.Contains(ansi.Strip(page.View(100, 28)), "> Disabled") {
+		t.Fatalf("select draft=%#v dirty=%t", page.runtimeForm, page.Dirty())
 	}
 	updated, cmd := page.Update(component.EditorSubmitMsg{})
 	page = updated.(*TunnelPage)
@@ -188,6 +188,9 @@ func TestTunnelRuntimeEditorPasswordLabelAlignsWithOtherFields(t *testing.T) {
 	}
 	_ = page.Init()
 	plain := ansi.Strip(page.View(100, 30))
+	if strings.Count(plain, "Blank keeps the current key.") != 1 || !strings.Contains(plain, "> Blank keeps the current key.") {
+		t.Fatalf("runtime key placeholder=%q", plain)
+	}
 	labelColumn := func(label string) int {
 		for _, line := range strings.Split(plain, "\n") {
 			if column := strings.Index(line, label); column >= 0 {

@@ -91,7 +91,7 @@ func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, 
 	generalFields = append(generalFields,
 		component.Input("Display name", &data.Name),
 		component.Select("Transport", &data.Transport, huh.NewOption("HTTP", "http"), huh.NewOption("stdio", "stdio")),
-		component.Switch("Enabled", &data.Enabled),
+		component.BoolSelect("Enabled", &data.Enabled, "Enabled", "Disabled"),
 	)
 	connection := component.NewEditorForm(
 		component.Group(
@@ -146,7 +146,7 @@ func newMCPOAuthEditor() (component.Editor, *mcpOAuthFormData) {
 			component.Input("Client secret environment variable", &data.ClientSecretEnvVar),
 			component.Input("Client metadata URL", &data.ClientMetadataURL),
 			component.Input("Additional scopes", &data.ExtraScope),
-			component.Switch("Open authorization URL in browser", &data.OpenBrowser),
+			component.BoolSelect("Open authorization URL in browser", &data.OpenBrowser, "Yes", "No"),
 		)),
 	})
 	return editor, &data

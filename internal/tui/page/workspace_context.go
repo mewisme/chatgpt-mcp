@@ -69,7 +69,7 @@ func newWorkspaceContextEditor(options projectcontext.Options) (component.Editor
 			workspaceContextIntInput("Max lines per section", &data.MaxLinesPerSection, projectcontext.MinLinesPerSection, projectcontext.MaxLinesPerSection),
 		))},
 		component.EditorSection{ID: "include", Title: "Include", Description: "Choose optional context sources for this build.", Form: component.NewEditorForm(component.Group(
-			component.Switch("Git", &data.IncludeGit), component.Switch("Memory", &data.IncludeMemory), component.Switch("Skills", &data.IncludeSkills),
+			component.BoolSelect("Git", &data.IncludeGit, "Include", "Exclude"), component.BoolSelect("Memory", &data.IncludeMemory, "Include", "Exclude"), component.BoolSelect("Skills", &data.IncludeSkills, "Include", "Exclude"),
 		))},
 	)
 	return editor, data

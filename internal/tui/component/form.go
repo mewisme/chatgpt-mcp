@@ -662,6 +662,10 @@ func Select[T comparable](title string, value *T, options ...huh.Option[T]) *huh
 	return huh.NewSelect[T]().Title(strings.TrimSpace(title)).Options(options...).Value(value)
 }
 
+func BoolSelect(title string, value *bool, trueLabel, falseLabel string) *huh.Select[bool] {
+	return Select(title, value, huh.NewOption(strings.TrimSpace(trueLabel), true), huh.NewOption(strings.TrimSpace(falseLabel), false))
+}
+
 func MultiSelect[T comparable](title string, value *[]T, options ...huh.Option[T]) *huh.MultiSelect[T] {
 	return huh.NewMultiSelect[T]().Title(strings.TrimSpace(title)).Options(options...).Value(value)
 }

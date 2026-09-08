@@ -150,10 +150,10 @@ func (page *GuidePage) View(width, height int) string {
 	if len(page.children) > 0 {
 		tabs = component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", width) + "\n"
 	}
-	title := component.PageTitle("Guide · "+page.topic.Title, width)
-	contentHeight := max(1, height-lipgloss.Height(tabs)-lipgloss.Height(title)-1-lipgloss.Height(help))
-	page.viewer.Resize(width, contentHeight)
-	content := tabs + title + "\n" + page.viewer.View()
+	bodyHeight := max(1, height-lipgloss.Height(tabs))
+	layout := component.NewSectionLayout("Guide · "+page.topic.Title, page.topic.Description, "", width, bodyHeight, lipgloss.Height(help))
+	page.viewer.Resize(width, layout.BodyHeight)
+	content := tabs + layout.View(page.viewer.View())
 	return component.BottomHelp(content, help, width, height)
 }
 
@@ -178,10 +178,14 @@ func (page *GuidePage) MouseTargets(originX, originY, z int) []component.MouseTa
 		return append(targets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
 	}
 	help := component.DefaultHelp(page.width, component.Binding([]string{"j", "k"}, "j/k", "scroll"), component.Binding([]string{"esc"}, "esc", "topics"))
-	title := component.PageTitle("Guide · "+page.topic.Title, page.width)
-	viewerY := originY + lipgloss.Height(title) + 1
-	viewerHeight := max(1, page.height-lipgloss.Height(title)-1-lipgloss.Height(help))
-	page.viewer.Resize(page.width, viewerHeight)
+	tabsHeight := 0
+	if len(page.children) > 0 {
+		tabsHeight = lipgloss.Height(component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", page.width)) + 1
+	}
+	bodyHeight := max(1, page.height-tabsHeight)
+	layout := component.NewSectionLayout("Guide · "+page.topic.Title, page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
+	viewerY := originY + tabsHeight + layout.BodyY
+	page.viewer.Resize(page.width, layout.BodyHeight)
 	return page.viewer.MouseTargets(originX, viewerY, z)
 }
 
@@ -214,8 +218,9 @@ func (page *GuidePage) resize() {
 	if len(page.children) > 0 {
 		tabsHeight = lipgloss.Height(component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", page.width)) + 1
 	}
-	title := component.PageTitle("Guide · "+page.topic.Title, page.width)
-	page.viewer.Resize(page.width, max(1, page.height-tabsHeight-lipgloss.Height(title)-1-lipgloss.Height(help)))
+	bodyHeight := max(1, page.height-tabsHeight)
+	layout := component.NewSectionLayout("Guide · "+page.topic.Title, page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
+	page.viewer.Resize(page.width, layout.BodyHeight)
 }
 
 func (page *GuidePage) showBrowser() bool {

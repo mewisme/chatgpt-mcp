@@ -119,51 +119,6 @@ func TestBuiltinOpenAITunnelLifecycle(t *testing.T) {
 	}
 }
 
-func TestVerifiedBackendReadinessProbeDoesNotWaitForLongPoll(t *testing.T) {
-	fake := newFakeBackend()
-	fake.autoReady = false
-	probeCalled := make(chan struct{}, 1)
-	backend := &verifiedBackend{backend: fake, probe: func(context.Context) error {
-		probeCalled <- struct{}{}
-		return nil
-	}}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := backend.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	started := time.Now()
-	if err := backend.WaitUntilReady(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if time.Since(started) > 100*time.Millisecond {
-		t.Fatalf("readiness probe waited for long poll: %s", time.Since(started))
-	}
-	select {
-	case <-probeCalled:
-	default:
-		t.Fatal("readiness probe was not called")
-	}
-}
-
-func TestVerifiedBackendFallsBackToPollWhenProbeFails(t *testing.T) {
-	fake := newFakeBackend()
-	fake.autoReady = false
-	backend := &verifiedBackend{backend: fake, probe: func(context.Context) error { return errors.New("probe failed") }}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := backend.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	ready := make(chan error, 1)
-	go func() { ready <- backend.WaitUntilReady(ctx) }()
-	time.Sleep(10 * time.Millisecond)
-	close(fake.ready)
-	if err := <-ready; err != nil {
-		t.Fatalf("poll readiness did not recover probe failure: %v", err)
-	}
-}
-
 func TestTunnelLifecycleObserverReportsConnectingReadyAndStopped(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	fake := newFakeBackend()

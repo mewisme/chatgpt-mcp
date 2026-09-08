@@ -368,65 +368,14 @@ func newOpenAIBackendFactory(log *logger.Logger) backendFactory {
 }
 
 func newOpenAIBackend(cfg Config, transport sdkmcp.Transport, logWriter io.Writer) (backend, error) {
-	client, err := tunnelclient.New(tunnelclient.Config{
+	return tunnelclient.New(tunnelclient.Config{
 		TunnelID:            cfg.ID,
 		APIKey:              cfg.APIKey,
 		ControlPlaneBaseURL: cfg.ControlPlaneBaseURL,
 		OrganizationID:      cfg.OrganizationID,
+		PollTimeout:         2 * time.Second,
 		LogWriter:           logWriter,
 	}, transport)
-	if err != nil {
-		return nil, err
-	}
-	return &verifiedBackend{backend: client, probe: func(ctx context.Context) error {
-		_, err := FetchMetadata(ctx, cfg)
-		return err
-	}}, nil
-}
-
-type verifiedBackend struct {
-	backend backend
-	probe   func(context.Context) error
-}
-
-func (b *verifiedBackend) Start(ctx context.Context) error { return b.backend.Start(ctx) }
-func (b *verifiedBackend) Stop(ctx context.Context) error  { return b.backend.Stop(ctx) }
-func (b *verifiedBackend) Done() <-chan os.Signal          { return b.backend.Done() }
-
-func (b *verifiedBackend) WaitUntilReady(ctx context.Context) error {
-	if b == nil || b.backend == nil {
-		return errors.New("OpenAI tunnel backend is unavailable")
-	}
-	if b.probe == nil {
-		return b.backend.WaitUntilReady(ctx)
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	readyCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	pollResult := make(chan error, 1)
-	probeResult := make(chan error, 1)
-	go func() { pollResult <- b.backend.WaitUntilReady(readyCtx) }()
-	go func() { probeResult <- b.probe(readyCtx) }()
-	var pollErr, probeErr error
-	for received := 0; received < 2; received++ {
-		select {
-		case err := <-pollResult:
-			pollErr = err
-			if err == nil {
-				return nil
-			}
-		case err := <-probeResult:
-			probeErr = err
-			if err == nil {
-				return nil
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	return errors.Join(pollErr, probeErr)
 }
 
 func ValidateConfig(cfg Config) error {

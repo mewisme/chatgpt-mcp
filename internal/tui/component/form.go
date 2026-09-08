@@ -15,6 +15,13 @@ import (
 type FormSubmittedMsg struct{}
 type FormCancelledMsg struct{}
 
+type FormMode uint8
+
+const (
+	FormModeLegacy FormMode = iota
+	FormModeEditor
+)
+
 type FormMouseMsg struct {
 	Group  int
 	Field  int
@@ -52,20 +59,34 @@ func (group FormGroup) Description(description string) FormGroup {
 type Form struct {
 	model       *huh.Form
 	groups      []FormGroup
+	mode        FormMode
 	initial     string
 	confirmExit bool
 	exitConfirm ConfirmButtons
+	width       int
+	height      int
 }
 
 func NewForm(groups ...FormGroup) Form {
+	return newForm(FormModeLegacy, groups...)
+}
+
+func NewEditorForm(groups ...FormGroup) Form {
+	return newForm(FormModeEditor, groups...)
+}
+
+func newForm(mode FormMode, groups ...FormGroup) Form {
 	huhGroups := make([]*huh.Group, 0, len(groups))
 	for _, group := range groups {
 		huhGroups = append(huhGroups, group.group)
 	}
 	model := huh.NewForm(huhGroups...).WithTheme(huh.ThemeFunc(func(isDark bool) *huh.Styles { return huh.ThemeCharm(isDark) })).WithShowHelp(true)
+	if mode == FormModeEditor {
+		model.WithKeyMap(editorFormKeyMap())
+	}
 	model.SubmitCmd = func() tea.Msg { return FormSubmittedMsg{} }
 	model.CancelCmd = func() tea.Msg { return FormCancelledMsg{} }
-	form := Form{model: model, groups: append([]FormGroup(nil), groups...)}
+	form := Form{model: model, groups: append([]FormGroup(nil), groups...), mode: mode}
 	form.initial = form.snapshot()
 	return form
 }
@@ -80,6 +101,17 @@ func (form Form) Init() tea.Cmd {
 func (form Form) Update(message tea.Msg) (Form, tea.Cmd) {
 	if form.model == nil {
 		return form, nil
+	}
+	if form.mode == FormModeEditor {
+		if form.OnLastField() && reflect.TypeOf(message) == reflect.TypeOf(huh.NextField()) {
+			return form, nil
+		}
+		if form.OnFirstField() && reflect.TypeOf(message) == reflect.TypeOf(huh.PrevField()) {
+			return form, nil
+		}
+		if msg, ok := message.(tea.KeyPressMsg); ok && (msg.String() == "esc" || msg.String() == "ctrl+s") {
+			return form, nil
+		}
 	}
 	if form.confirmExit {
 		return form.updateExitConfirm(message)
@@ -370,7 +402,94 @@ func (form Form) View() string {
 
 func (form Form) Dirty() bool { return form.initial != form.snapshot() }
 
+func (form Form) Mode() FormMode { return form.mode }
+
 func (form Form) ConfirmingExit() bool { return form.confirmExit }
+
+func (form *Form) Resize(width, height int) {
+	if form == nil || form.model == nil {
+		return
+	}
+	form.width, form.height = max(1, width), max(1, height)
+	form.model.WithWidth(form.width).WithHeight(form.height)
+}
+
+func (form Form) FocusedFieldIndex() int {
+	if form.model == nil {
+		return -1
+	}
+	focused := form.model.GetFocusedField()
+	for index, field := range form.visibleFields() {
+		if field == focused {
+			return index
+		}
+	}
+	return -1
+}
+
+func (form Form) OnFirstField() bool { return form.FocusedFieldIndex() == 0 }
+
+func (form Form) OnLastField() bool {
+	fields := form.visibleFields()
+	return len(fields) > 0 && form.FocusedFieldIndex() == len(fields)-1
+}
+
+func (form Form) FocusField(index int) (Form, tea.Cmd) {
+	fields := form.visibleFields()
+	if form.model == nil || index < 0 || index >= len(fields) {
+		return form, nil
+	}
+	current := form.FocusedFieldIndex()
+	if current < 0 || current == index {
+		return form, nil
+	}
+	message := huh.NextField()
+	if index < current {
+		message = huh.PrevField()
+	}
+	distance := index - current
+	if distance < 0 {
+		distance = -distance
+	}
+	cmds := make([]tea.Cmd, 0, distance)
+	for current != index {
+		updated, cmd := form.model.Update(message)
+		if value, ok := updated.(*huh.Form); ok {
+			form.model = value
+		}
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if index < current {
+			current--
+		} else {
+			current++
+		}
+	}
+	return form, tea.Batch(cmds...)
+}
+
+func (form Form) FocusedKeyBinds() []key.Binding {
+	if form.model == nil || form.model.GetFocusedField() == nil {
+		return nil
+	}
+	return append([]key.Binding(nil), form.model.GetFocusedField().KeyBinds()...)
+}
+
+func (form Form) visibleFields() []huh.Field {
+	fields := make([]huh.Field, 0)
+	for _, group := range form.groups {
+		if group.hide != nil && group.hide() {
+			continue
+		}
+		for _, field := range group.fields {
+			if field != nil && !field.Skip() {
+				fields = append(fields, field)
+			}
+		}
+	}
+	return fields
+}
 
 func (form Form) snapshot() string {
 	values := make([]string, 0)
@@ -425,6 +544,22 @@ func (form Form) State() huh.FormState {
 		return huh.StateAborted
 	}
 	return form.model.State
+}
+
+func editorFormKeyMap() *huh.KeyMap {
+	keys := huh.NewDefaultKeyMap()
+	keys.Input.Submit.SetEnabled(false)
+	keys.Text.Next.SetKeys("tab")
+	keys.Text.Next.SetHelp("tab", "next")
+	keys.Text.NewLine.SetKeys("enter", "alt+enter", "ctrl+j")
+	keys.Text.NewLine.SetHelp("enter", "new line")
+	keys.Text.Submit.SetEnabled(false)
+	keys.Select.Submit.SetEnabled(false)
+	keys.MultiSelect.Submit.SetEnabled(false)
+	keys.FilePicker.Submit.SetEnabled(false)
+	keys.Note.Submit.SetEnabled(false)
+	keys.Confirm.Submit.SetEnabled(false)
+	return keys
 }
 
 func Input(title string, value *string) *huh.Input {

@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"github.com/charmbracelet/x/ansi"
+	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 )
 
 func TestFormHelpersBindValuesAndPasswordMode(t *testing.T) {
@@ -190,6 +191,73 @@ func TestFormValidationKeepsFocusOnInvalidField(t *testing.T) {
 	if !strings.Contains(ansi.Strip(form.View()), "value is required") {
 		t.Fatalf("validation error not visible: %q", ansi.Strip(form.View()))
 	}
+}
+
+func TestEditorFormMultilineEnterAddsNewlineAndTabMovesFocus(t *testing.T) {
+	content, name := "alpha", ""
+	text := TextLines("Content", &content, 4)
+	input := Input("Name", &name)
+	form := NewEditorForm(Group(text, input))
+	form = runFormCmd(t, form, form.Init())
+	updated, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	form = runFormCmd(t, updated, cmd)
+	if content != "alpha\n" || form.FocusedFieldIndex() != 0 {
+		t.Fatalf("content=%q focused=%d", content, form.FocusedFieldIndex())
+	}
+	updated, cmd = form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	form = runFormCmd(t, updated, cmd)
+	if form.FocusedFieldIndex() != 1 {
+		t.Fatalf("tab focused=%d want=1", form.FocusedFieldIndex())
+	}
+}
+
+func TestEditorFormLastFieldNeverCompletesAndCtrlSPassesThrough(t *testing.T) {
+	value := "demo"
+	form := NewEditorForm(Group(Input("Name", &value)))
+	form = runFormCmd(t, form, form.Init())
+	for _, message := range []tea.KeyPressMsg{{Code: tea.KeyEnter}, {Code: tea.KeyTab}, {Code: 's', Mod: tea.ModCtrl}} {
+		updated, cmd := form.Update(message)
+		form = runFormCmd(t, updated, cmd)
+		if form.State() != huh.StateNormal || form.FocusedFieldIndex() != 0 {
+			t.Fatalf("key=%q state=%v focused=%d", message.String(), form.State(), form.FocusedFieldIndex())
+		}
+	}
+	if form.Mode() != FormModeEditor || form.ConfirmingExit() {
+		t.Fatalf("mode=%d confirming=%t", form.Mode(), form.ConfirmingExit())
+	}
+}
+
+func TestEditorFormEscapeDoesNotOwnNavigation(t *testing.T) {
+	value := "demo"
+	form := NewEditorForm(Group(Input("Name", &value)))
+	form = runFormCmd(t, form, form.Init())
+	value = "changed"
+	updated, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if cmd != nil || updated.ConfirmingExit() || updated.State() != huh.StateNormal {
+		t.Fatalf("escape cmd=%v confirming=%t state=%v", cmd, updated.ConfirmingExit(), updated.State())
+	}
+}
+
+func TestEditorFormFocusHelpersAndResize(t *testing.T) {
+	enabled, name, mode, content := true, "", "a", "body"
+	form := NewEditorForm(Group(
+		Input("Name", &name),
+		Switch("Enabled", &enabled),
+		Select("Mode", &mode, huh.NewOption("A", "a"), huh.NewOption("B", "b")),
+		TextLines("Content", &content, 3),
+	))
+	form = runFormCmd(t, form, form.Init())
+	if !form.OnFirstField() || form.OnLastField() || form.FocusedFieldIndex() != 0 {
+		t.Fatalf("initial first=%t last=%t index=%d", form.OnFirstField(), form.OnLastField(), form.FocusedFieldIndex())
+	}
+	var cmd tea.Cmd
+	form, cmd = form.FocusField(3)
+	form = runFormCmd(t, form, cmd)
+	if !form.OnLastField() || form.FocusedFieldIndex() != 3 || len(form.FocusedKeyBinds()) == 0 {
+		t.Fatalf("focused=%d last=%t binds=%d", form.FocusedFieldIndex(), form.OnLastField(), len(form.FocusedKeyBinds()))
+	}
+	form.Resize(28, 10)
+	testutil.AssertLinesFit(t, form.View(), 28)
 }
 
 func TestSwitchUsesCompactBooleanStateAndSpaceWithoutBlockingNavigation(t *testing.T) {

@@ -691,10 +691,10 @@ func (model Model) approvalDialogContent(width int) string {
 		countdown := approvalCountdown(request.ExpiresAt, model.approvalTime())
 		lines = append(lines, component.WrapKeyValue("Expires in", countdown+" · "+expires, width))
 	}
-	lines = append(lines, "", component.Label("Arguments"), component.WrapContent(approvalArguments(request.Arguments), width))
 	if model.approvalErr != nil {
 		lines = append(lines, "", component.BannerWidth(model.approvalErr.Error(), component.ToneDanger, width))
 	}
+	lines = append(lines, "", component.Label("Arguments"), component.RenderCodeBlock(approvalArguments(request.Arguments), "json", width))
 	return strings.Join(lines, "\n")
 }
 

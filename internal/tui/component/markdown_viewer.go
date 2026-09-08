@@ -1,6 +1,7 @@
 package component
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
@@ -28,6 +29,25 @@ var markdownRender = func(source, style string, width int) (string, error) {
 	}
 	defer renderer.Close()
 	return renderer.Render(source)
+}
+
+func RenderCodeBlock(content, language string, width int) string {
+	content = strings.TrimRight(content, "\n")
+	language = strings.TrimSpace(language)
+	fence := "```"
+	for strings.Contains(content, fence) {
+		fence += "`"
+	}
+	source := fmt.Sprintf("%s%s\n%s\n%s", fence, language, content, fence)
+	style := "dark"
+	if !currentTheme.isDark {
+		style = "light"
+	}
+	value, err := markdownRender(source, style, max(1, width))
+	if err != nil {
+		return WrapStructuredContent(content, max(1, width))
+	}
+	return strings.TrimSpace(value)
 }
 
 func NewMarkdownViewer(source string) MarkdownViewer {

@@ -35,3 +35,18 @@ func TestCodeViewerMouseWheelScrollsVertically(t *testing.T) {
 		t.Fatal("mouse wheel did not scroll vertically")
 	}
 }
+
+func TestCodeViewerLanguageRendersFencedMarkdown(t *testing.T) {
+	original := markdownRender
+	defer func() { markdownRender = original }()
+	var source string
+	markdownRender = func(value, _ string, _ int) (string, error) {
+		source = value
+		return value, nil
+	}
+	viewer := NewCodeViewerLanguage(`{"ok":true}`, "json")
+	viewer.Resize(40, 4)
+	if !strings.HasPrefix(source, "```json\n") || !strings.Contains(source, `{"ok":true}`) {
+		t.Fatalf("render source=%q", source)
+	}
+}

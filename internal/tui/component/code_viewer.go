@@ -10,17 +10,20 @@ type codeViewerWheelMsg int
 type CodeViewer struct {
 	viewport viewport.Model
 	content  string
+	language string
 	width    int
 	height   int
 }
 
-func NewCodeViewer(content string) CodeViewer {
+func NewCodeViewer(content string) CodeViewer { return NewCodeViewerLanguage(content, "text") }
+
+func NewCodeViewerLanguage(content, language string) CodeViewer {
 	view := viewport.New(viewport.WithWidth(defaultLayoutWidth), viewport.WithHeight(defaultLayoutHeight))
 	view.SoftWrap = false
 	view.FillHeight = false
 	view.KeyMap.Left.SetEnabled(false)
 	view.KeyMap.Right.SetEnabled(false)
-	viewer := CodeViewer{viewport: view, content: content, width: defaultLayoutWidth, height: defaultLayoutHeight}
+	viewer := CodeViewer{viewport: view, content: content, language: language, width: defaultLayoutWidth, height: defaultLayoutHeight}
 	viewer.reflow(true)
 	return viewer
 }
@@ -29,6 +32,10 @@ func (viewer CodeViewer) Init() tea.Cmd { return nil }
 
 func (viewer CodeViewer) Update(message tea.Msg) (CodeViewer, tea.Cmd) {
 	switch msg := message.(type) {
+	case tea.BackgroundColorMsg:
+		SetDarkBackground(msg.IsDark())
+		viewer.reflow(false)
+		return viewer, nil
 	case tea.WindowSizeMsg:
 		viewer.Resize(msg.Width, msg.Height)
 		return viewer, nil
@@ -73,7 +80,7 @@ func (viewer *CodeViewer) reflow(reset bool) {
 		return
 	}
 	offset := viewer.viewport.YOffset()
-	viewer.viewport.SetContent(WrapStructuredContent(viewer.content, max(1, viewer.width)))
+	viewer.viewport.SetContent(RenderCodeBlock(viewer.content, viewer.language, max(1, viewer.width)))
 	viewer.viewport.SetXOffset(0)
 	if reset {
 		viewer.viewport.GotoTop()

@@ -349,7 +349,7 @@ func (page *RuntimePage) View(width, height int) string {
 		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
 	case systemOverlayExternal:
 		modalWidth := overlayWidth(width, 88)
-		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + page.external.Command + "\n\n" + component.Muted("c copy command · Esc close")
+		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(modalWidth)) + "\n\n" + component.Muted("c copy command · Esc close")
 		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
 	}
 	return content
@@ -369,7 +369,7 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 		if page.external == nil {
 			return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 		}
-		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + page.external.Command + "\n\n" + component.Muted("c copy command · Esc close")
+		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(overlayWidth(page.width, 88))) + "\n\n" + component.Muted("c copy command · Esc close")
 		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
 	case systemOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}

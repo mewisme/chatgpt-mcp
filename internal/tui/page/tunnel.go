@@ -388,7 +388,7 @@ func (page *TunnelPage) View(width, height int) string {
 		modalWidth := overlayWidth(width, 88)
 		body := component.Title("Run outside the TUI")
 		if page.external != nil {
-			body += "\n\n" + component.Muted(page.external.Reason) + "\n\n" + page.external.Command
+			body += "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(modalWidth))
 		}
 		body += "\n\n" + component.Muted("c copy command · Esc close")
 		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
@@ -406,7 +406,7 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 	case tunnelOverlayExternal:
 		body := component.Title("Run outside the TUI")
 		if page.external != nil {
-			body += "\n\n" + component.Muted(page.external.Reason) + "\n\n" + page.external.Command
+			body += "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(overlayWidth(page.width, 88)))
 		}
 		body += "\n\n" + component.Muted("c copy command · Esc close")
 		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)

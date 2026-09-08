@@ -79,3 +79,32 @@ func TestMarkdownViewerMouseWheelUsesSemanticMessage(t *testing.T) {
 		t.Fatalf("wheel message=%#v", message)
 	}
 }
+
+func TestRenderCodeBlockUsesLanguageFenceAndExpandsFenceForContent(t *testing.T) {
+	original := markdownRender
+	defer func() { markdownRender = original }()
+	var source, style string
+	var width int
+	markdownRender = func(value, selectedStyle string, selectedWidth int) (string, error) {
+		source, style, width = value, selectedStyle, selectedWidth
+		return "rendered", nil
+	}
+	SetDarkBackground(true)
+	got := RenderCodeBlock("{\n  \"fence\": \"```\"\n}", "json", 42)
+	if got != "rendered" || style != "dark" || width != 42 {
+		t.Fatalf("render result=%q style=%q width=%d", got, style, width)
+	}
+	if !strings.HasPrefix(source, "````json\n") || !strings.HasSuffix(source, "\n````") {
+		t.Fatalf("unexpected fenced source: %q", source)
+	}
+}
+
+func TestRenderCodeBlockFallsBackToStructuredContent(t *testing.T) {
+	original := markdownRender
+	defer func() { markdownRender = original }()
+	markdownRender = func(string, string, int) (string, error) { return "", errors.New("render failed") }
+	got := RenderCodeBlock("alpha beta gamma", "text", 8)
+	if strings.TrimSpace(got) == "" || !strings.Contains(got, "alpha") {
+		t.Fatalf("fallback output=%q", got)
+	}
+}

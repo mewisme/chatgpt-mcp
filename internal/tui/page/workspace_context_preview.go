@@ -88,7 +88,7 @@ func (page *WorkspacePage) syncWorkspaceContextPreview() {
 	if err != nil {
 		encoded = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
 	}
-	state.json = component.NewCodeViewer(string(encoded))
+	state.json = component.NewCodeViewerLanguage(string(encoded), "json")
 	state.sources = newWorkspaceContextSourceTree(result, state.isDark)
 	page.contextPreview = state
 	if page.width > 0 && page.height > 0 {

@@ -64,7 +64,7 @@ type WorkspacePage struct {
 	value           string
 	members         []string
 	contextSession  *WorkspaceContextSession
-	contextForm     component.Form
+	contextEditor   *component.Editor
 	contextData     *workspaceContextFormData
 	contextBuild    workspaceContextBuildFunc
 	contextBuilding bool
@@ -135,8 +135,8 @@ func (page *WorkspacePage) Init() tea.Cmd {
 	if page != nil && page.editor != nil {
 		return page.editor.Init()
 	}
-	if page != nil && !page.containers && page.resourceID != "" && page.section == "context" && !page.contextBuilding {
-		return page.contextForm.Init()
+	if page != nil && page.contextEditor != nil && !page.contextBuilding {
+		return page.contextEditor.Init()
 	}
 	return nil
 }
@@ -149,15 +149,21 @@ func (page *WorkspacePage) Close() {
 }
 
 func (page *WorkspacePage) OverlayActive() bool {
-	return page != nil && page.overlay != workspaceOverlayNone
+	return page != nil && (page.overlay != workspaceOverlayNone || page.contextBuilding)
 }
 
 func (page *WorkspacePage) InputActive() bool {
-	return page != nil && (page.editor != nil || page.resourceID == "" && page.browser.InputActive() || !page.containers && page.resourceID != "" && (page.section == "context" || page.section == "context-preview" && page.contextPreview != nil && page.contextPreview.sourceViewer != nil))
+	return page != nil && (page.editor != nil || page.resourceID == "" && page.browser.InputActive() || page.contextEditor != nil && !page.contextBuilding || !page.containers && page.resourceID != "" && page.section == "context-preview" && page.contextPreview != nil && page.contextPreview.sourceViewer != nil)
 }
 
 func (page *WorkspacePage) Dirty() bool {
-	return page != nil && page.editor != nil && page.editor.Dirty()
+	if page == nil {
+		return false
+	}
+	if page.editor != nil {
+		return page.editor.Dirty()
+	}
+	return !page.contextBuilding && page.contextEditor != nil && page.contextEditor.Dirty()
 }
 
 func (page *WorkspacePage) Submitting() bool {
@@ -191,8 +197,7 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		var cmd tea.Cmd
 		if page.resourceID != "" && page.section == "context" {
 			if !page.contextBuilding {
-				form, formCmd := page.contextForm.Update(msg)
-				page.contextForm, cmd = form, formCmd
+				page.resizeWorkspaceContextEditor()
 			}
 		} else if page.resourceID != "" && page.section == "context-preview" && page.contextPreview != nil {
 			cmd = page.resizeWorkspaceContextPreview(msg.Width, msg.Height)
@@ -206,26 +211,22 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.editor != nil {
 			return page, page.submitWorkspaceEditor()
 		}
+		if page.contextEditor != nil && !page.contextBuilding && page.overlay == workspaceOverlayNone {
+			return page, page.submitWorkspaceContext()
+		}
 		return page, nil
 	case component.EditorCancelMsg:
 		if page.editor != nil {
 			return page, page.workspaceEditorParentNavigation()
 		}
-		return page, nil
-	case component.FormSubmittedMsg:
-		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone {
-			return page, page.submitWorkspaceContext()
-		}
-		return page, nil
-	case component.FormCancelledMsg:
-		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone {
+		if page.contextEditor != nil && !page.contextBuilding && page.overlay == workspaceOverlayNone {
 			return page, func() tea.Msg { return NavigateMsg{Path: []string{"workspaces", page.resourceID}} }
 		}
 		return page, nil
 	case component.FormMouseMsg:
-		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone && !page.contextBuilding {
-			updated, cmd := page.contextForm.Update(msg)
-			page.contextForm = updated
+		if page.contextEditor != nil && page.overlay == workspaceOverlayNone && !page.contextBuilding {
+			updated, cmd := page.contextEditor.Update(msg)
+			page.contextEditor = &updated
 			return page, cmd
 		}
 		if page.editor != nil {
@@ -280,9 +281,11 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 				}
 				return page, nil
 			}
-			updated, cmd := page.contextForm.Update(msg)
-			page.contextForm = updated
-			return page, cmd
+			if page.contextEditor != nil {
+				updated, cmd := page.contextEditor.Update(msg)
+				page.contextEditor = &updated
+				return page, cmd
+			}
 		}
 		if page.resourceID != "" && page.section == "context-preview" && page.contextPreview != nil && page.overlay == workspaceOverlayNone {
 			if cmd, handled := page.handleWorkspaceContextPreviewKey(msg); handled {
@@ -317,9 +320,11 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.contextProgress = &updated
 			return page, cmd
 		}
-		updated, cmd := page.contextForm.Update(message)
-		page.contextForm = updated
-		return page, cmd
+		if page.contextEditor != nil {
+			updated, cmd := page.contextEditor.Update(message)
+			page.contextEditor = &updated
+			return page, cmd
+		}
 	}
 	if page.resourceID != "" && page.section == "context-preview" && page.contextPreview != nil {
 		return page, page.updateWorkspaceContextPreview(message)
@@ -365,13 +370,11 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 	default:
 		if page.resourceID != "" {
 			if !page.containers && page.section == "context" {
-				if page.contextBuilding {
+				if page.contextBuilding || page.contextEditor == nil {
 					return nil
 				}
 				title := component.PageTitleNotice("Project Context · "+page.resourceID, page.notice, page.width)
-				feedback := page.listFeedback(page.width)
-				y := originY + lipgloss.Height(title) + 1 + pageFeedbackHeight(feedback)
-				return page.contextForm.MouseTargets(originX, y, z)
+				return page.contextEditor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
 			}
 			if !page.containers && page.section == "context-preview" && page.contextPreview != nil {
 				return page.workspaceContextPreviewMouseTargets(originX, originY, z)

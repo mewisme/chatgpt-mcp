@@ -17,6 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func TestModelWorkspaceContextSessionsAreScopedAndStable(t *testing.T) {
@@ -29,6 +30,65 @@ func TestModelWorkspaceContextSessionsAreScopedAndStable(t *testing.T) {
 	}
 	if len(model.workspaceContexts) != 2 {
 		t.Fatalf("session count=%d", len(model.workspaceContexts))
+	}
+}
+
+func TestModelWorkspaceProjectContextUsesDirtyNavigationGuard(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	item, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := Route{Kind: RouteWorkspaces, ResourceID: item.ID, Section: "context"}
+	model := NewModel(route)
+	_ = model.currentPage.Init()
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'd', Text: "draft"})
+	model = updated.(Model)
+	guard, ok := model.currentPage.(tuipage.NavigationGuardModel)
+	if !ok || !guard.Dirty() {
+		t.Fatalf("project context guard=%t dirty=%t", ok, ok && guard.Dirty())
+	}
+	updated, cmd := model.Update(navigateMsg{route: Route{Kind: RouteAbout}, sibling: true})
+	model = updated.(Model)
+	if cmd != nil || model.pendingNavigation == nil || model.router.Current() != route {
+		t.Fatalf("dirty project context escaped: route=%#v pending=%v cmd=%v", model.router.Current(), model.pendingNavigation != nil, cmd != nil)
+	}
+	if !strings.Contains(ansi.Strip(model.View().Content), "Discard changes?") {
+		t.Fatal("project context dirty navigation did not render discard guard")
+	}
+}
+
+func TestModelWorkspaceProjectContextEscapeCancelsBuildInPlace(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	item, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := Route{Kind: RouteWorkspaces, ResourceID: item.ID, Section: "context"}
+	model := NewModel(route)
+	_ = model.currentPage.Init()
+	updated, build := model.Update(component.EditorSubmitMsg{})
+	model = updated.(Model)
+	if build == nil || !model.currentPage.OverlayActive() {
+		t.Fatalf("project context build=%v active=%t", build != nil, model.currentPage.OverlayActive())
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if model.router.Current() != route || model.currentPage.OverlayActive() {
+		t.Fatalf("escape route=%#v active=%t", model.router.Current(), model.currentPage.OverlayActive())
+	}
+	if !strings.Contains(ansi.Strip(model.View().Content), "Project Context build cancelled") {
+		t.Fatal("build cancellation feedback not rendered")
 	}
 }
 

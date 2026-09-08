@@ -50,29 +50,29 @@ func defaultWorkspaceContextOptions() projectcontext.Options {
 	return projectcontext.DefaultOptions()
 }
 
-func newWorkspaceContextForm(options projectcontext.Options) (component.Form, *workspaceContextFormData) {
+func newWorkspaceContextEditor(options projectcontext.Options) (component.Editor, *workspaceContextFormData) {
 	data := &workspaceContextFormData{
 		Path: strings.TrimSpace(options.Path), MemoryQuery: strings.TrimSpace(options.MemoryQuery), MaxMemoryEntries: strconv.Itoa(options.MaxMemoryEntries), MaxMemoryBytes: strconv.Itoa(options.MaxMemoryBytes),
 		MaxInstructionBytes: strconv.Itoa(options.MaxInstructionBytes), MaxSectionBytes: strconv.Itoa(options.MaxSectionBytes), MaxLinesPerSection: strconv.Itoa(options.MaxLinesPerSection),
 		IncludeGit: options.IncludeGit, IncludeMemory: options.IncludeMemory, IncludeSkills: options.IncludeSkills,
 	}
-	form := component.NewForm(
-		component.Group(
+	editor := component.NewEditor("build",
+		component.EditorSection{ID: "scope", Title: "Scope", Description: "Choose the workspace-relative path and optional memory relevance query.", Form: component.NewEditorForm(component.Group(
 			component.Input("Path", &data.Path).Description("Optional directory inside the workspace root"),
 			component.Input("Memory query", &data.MemoryQuery).Description("Optional relevance query for cross-session memory"),
-		).Title("Scope"),
-		component.Group(
+		))},
+		component.EditorSection{ID: "budgets", Title: "Budgets", Description: "Limit memory and instruction context size for this build.", Form: component.NewEditorForm(component.Group(
 			workspaceContextIntInput("Max memory entries", &data.MaxMemoryEntries, projectcontext.MinMemoryEntries, projectcontext.MaxMemoryEntries),
 			workspaceContextIntInput("Max memory bytes", &data.MaxMemoryBytes, projectcontext.MinMemoryBytes, projectcontext.MaxMemoryBytes),
 			workspaceContextIntInput("Max instruction bytes", &data.MaxInstructionBytes, projectcontext.MinInstructionBytes, projectcontext.MaxInstructionBytes),
 			workspaceContextIntInput("Max section bytes", &data.MaxSectionBytes, projectcontext.MinSectionBytes, projectcontext.MaxSectionBytes),
 			workspaceContextIntInput("Max lines per section", &data.MaxLinesPerSection, projectcontext.MinLinesPerSection, projectcontext.MaxLinesPerSection),
-		).Title("Budgets"),
-		component.Group(
+		))},
+		component.EditorSection{ID: "include", Title: "Include", Description: "Choose optional context sources for this build.", Form: component.NewEditorForm(component.Group(
 			component.Switch("Git", &data.IncludeGit), component.Switch("Memory", &data.IncludeMemory), component.Switch("Skills", &data.IncludeSkills),
-		).Title("Include"),
+		))},
 	)
-	return form, data
+	return editor, data
 }
 
 func workspaceContextIntInput(title string, value *string, minValue, maxValue int) huh.Field {
@@ -130,7 +130,8 @@ func (page *WorkspacePage) initWorkspaceContext() {
 	if page.contextSession.Options.MaxInstructionBytes <= 0 {
 		page.contextSession.Options = defaultWorkspaceContextOptions()
 	}
-	page.contextForm, page.contextData = newWorkspaceContextForm(page.contextSession.Options)
+	editor, data := newWorkspaceContextEditor(page.contextSession.Options)
+	page.contextEditor, page.contextData = &editor, data
 	if page.contextBuild == nil {
 		manager := page.manager
 		page.contextBuild = func(ctx context.Context, workspaceID string, options projectcontext.Options) (projectcontext.Result, error) {
@@ -143,9 +144,16 @@ func (page *WorkspacePage) initWorkspaceContext() {
 }
 
 func (page *WorkspacePage) submitWorkspaceContext() tea.Cmd {
+	if page.contextEditor == nil || page.contextBuilding {
+		return nil
+	}
+	if err := page.contextEditor.Validate(); err != nil {
+		page.contextEditor.SetFeedback("", err)
+		return nil
+	}
 	options, err := page.contextData.Options()
 	if err != nil {
-		page.err = err
+		page.contextEditor.SetFeedback("", err)
 		return nil
 	}
 	page.contextBuildID++
@@ -154,6 +162,7 @@ func (page *WorkspacePage) submitWorkspaceContext() tea.Cmd {
 	page.contextCancel = cancel
 	page.contextBuilding = true
 	page.err, page.notice = nil, ""
+	page.contextEditor.SetFeedback("", nil)
 	progress := component.NewProgress("Building project context")
 	page.contextProgress = &progress
 	build, workspaceID := page.contextBuild, page.resourceID
@@ -173,17 +182,25 @@ func (page *WorkspacePage) finishWorkspaceContextBuild(msg workspaceContextBuild
 	page.contextCancel = nil
 	page.contextBuilding = false
 	if msg.Err != nil {
-		page.err = msg.Err
+		page.err = nil
 		page.contextProgress = nil
+		if page.contextEditor != nil {
+			page.contextEditor.SetFeedback("", msg.Err)
+		}
 		return nil
 	}
 	options, err := page.contextData.Options()
 	if err != nil {
-		page.err = err
+		page.err = nil
 		page.contextProgress = nil
+		if page.contextEditor != nil {
+			page.contextEditor.SetFeedback("", err)
+		}
 		return nil
 	}
 	page.contextSession.Options = options
+	editor, data := newWorkspaceContextEditor(options)
+	page.contextEditor, page.contextData = &editor, data
 	result := msg.Result
 	page.contextSession.Result = &result
 	page.contextProgress = nil
@@ -202,18 +219,24 @@ func (page *WorkspacePage) cancelWorkspaceContextBuild() {
 	page.notice = "Project Context build cancelled"
 }
 
+func (page *WorkspacePage) resizeWorkspaceContextEditor() {
+	if page == nil || page.contextEditor == nil || page.width <= 0 || page.height <= 0 {
+		return
+	}
+	title := component.PageTitleNotice("Project Context · "+page.resourceID, page.notice, page.width)
+	page.contextEditor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
+}
+
 func (page *WorkspacePage) workspaceContextView(width, height int) string {
 	title := component.PageTitleNotice("Project Context · "+page.resourceID, page.notice, width)
-	feedback := ""
-	if page.err != nil {
-		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
-	}
-	bodyHeight := max(1, height-lipgloss.Height(title)-1-pageFeedbackHeight(feedback))
+	bodyHeight := max(1, height-lipgloss.Height(title)-1)
 	if page.contextBuilding && page.contextProgress != nil {
 		body := component.CenterLayout(page.contextProgress.View()+"\n\n"+component.Muted("Esc cancel"), width, bodyHeight)
-		return title + "\n" + prependPageFeedback(feedback, body)
+		return title + "\n" + body
 	}
-	form, _ := page.contextForm.Update(tea.WindowSizeMsg{Width: width, Height: bodyHeight})
-	page.contextForm = form
-	return title + "\n" + prependPageFeedback(feedback, page.contextForm.View())
+	if page.contextEditor == nil {
+		return title + "\n" + component.StateView(component.PageError, "Project Context editor unavailable", "")
+	}
+	page.contextEditor.Resize(width, bodyHeight)
+	return title + "\n" + page.contextEditor.View()
 }

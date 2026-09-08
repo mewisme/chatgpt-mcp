@@ -609,17 +609,15 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		t.Fatalf("context input=%t data=%v", page.InputActive(), page.contextData != nil)
 	}
 	plain := ansi.Strip(page.View(110, 30))
-	for _, want := range []string{"Project Context · " + item.ID, "Path", "Memory query"} {
+	for _, want := range []string{"Project Context · " + item.ID, "Scope", "Budgets", "Include", "ctrl+s build"} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("context form missing %q: %q", want, plain)
+			t.Fatalf("context editor missing %q: %q", want, plain)
 		}
 	}
-	page.contextData.MemoryQuery = "focused memory"
-	page.contextData.IncludeGit = false
 	sourcePath := filepath.Join(project, "AGENTS.md")
 	page.contextBuild = func(_ context.Context, workspaceID string, options projectcontext.Options) (projectcontext.Result, error) {
-		if workspaceID != item.ID || options.MemoryQuery != "focused memory" || options.IncludeGit {
-			t.Fatalf("build workspace=%q options=%#v", workspaceID, options)
+		if workspaceID != item.ID || options != session.Options {
+			t.Fatalf("build workspace=%q options=%#v session=%#v", workspaceID, options, session.Options)
 		}
 		return projectcontext.Result{
 			Root: project, WorkspaceID: item.ID,
@@ -636,7 +634,7 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 			Summary: projectcontext.Summary{InstructionBytes: 1234, MemoryBytes: 456, Rules: 2, Skills: 1},
 		}, nil
 	}
-	updated, cmd := page.Update(component.FormSubmittedMsg{})
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
 	page = updated.(*WorkspacePage)
 	if cmd == nil || !page.contextBuilding || session.Result != nil {
 		t.Fatalf("build cmd=%v building=%t result=%v", cmd, page.contextBuilding, session.Result != nil)
@@ -644,8 +642,11 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	buildMsg := workspaceContextBuildMessage(t, cmd)
 	updated, navigation := page.Update(buildMsg)
 	page = updated.(*WorkspacePage)
-	if navigation == nil || page.contextBuilding || session.Result == nil || session.Options.MemoryQuery != "focused memory" || session.Options.IncludeGit {
+	if navigation == nil || page.contextBuilding || session.Result == nil || session.Options != defaultWorkspaceContextOptions() {
 		t.Fatalf("finished build navigation=%v building=%t session=%#v", navigation != nil, page.contextBuilding, session)
+	}
+	if page.Dirty() {
+		t.Fatal("successful project context build retained a dirty draft")
 	}
 	navigate, ok := navigation().(NavigateMsg)
 	if !ok || strings.Join(navigate.Path, "/") != "workspaces/"+item.ID+"/context-preview" {
@@ -738,6 +739,90 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	}
 }
 
+func TestWorkspaceProjectContextEditorRejectsInvalidBudgetWithoutSubmitting(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context", NewWorkspaceContextSession())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = page.Update(component.EditorSectionMsg{Index: 1})
+	for range 2 {
+		updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+		page = updated.(*WorkspacePage)
+	}
+	updated, _ := page.Update(tea.KeyPressMsg{Code: '0', Text: "0"})
+	page = updated.(*WorkspacePage)
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
+	page = updated.(*WorkspacePage)
+	if cmd != nil || page.contextBuilding || page.contextEditor == nil {
+		t.Fatalf("invalid budget submitted: cmd=%v building=%t editor=%v", cmd != nil, page.contextBuilding, page.contextEditor != nil)
+	}
+	if plain := strings.ToLower(ansi.Strip(page.View(100, 30))); !strings.Contains(plain, "max memory entries must be between") {
+		t.Fatalf("validation feedback missing: %q", plain)
+	}
+}
+
+func TestWorkspaceProjectContextEditorRetainsDraftOnBuildFailure(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := NewWorkspaceContextSession()
+	page, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	updated, _ := page.Update(tea.KeyPressMsg{Code: 'd', Text: "draft"})
+	page = updated.(*WorkspacePage)
+	page.contextBuild = func(_ context.Context, _ string, options projectcontext.Options) (projectcontext.Result, error) {
+		if options.Path != "draft" {
+			t.Fatalf("draft path=%q", options.Path)
+		}
+		return projectcontext.Result{}, fmt.Errorf("build failed")
+	}
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
+	page = updated.(*WorkspacePage)
+	if cmd == nil || !page.contextBuilding || page.Dirty() {
+		t.Fatalf("build start cmd=%v building=%t dirty=%t", cmd != nil, page.contextBuilding, page.Dirty())
+	}
+	updated, navigation := page.Update(workspaceContextBuildMessage(t, cmd))
+	page = updated.(*WorkspacePage)
+	if navigation != nil || page.contextBuilding || page.contextEditor == nil || page.contextData.Path != "draft" || !page.Dirty() || session.Result != nil {
+		t.Fatalf("failed build navigation=%v building=%t editor=%v path=%q dirty=%t result=%v", navigation != nil, page.contextBuilding, page.contextEditor != nil, page.contextData.Path, page.Dirty(), session.Result != nil)
+	}
+	if plain := ansi.Strip(page.View(100, 30)); !strings.Contains(plain, "build failed") {
+		t.Fatalf("build failure feedback missing: %q", plain)
+	}
+}
+
 func TestWorkspaceContextSourceContentUsesLoadedDataAndRejectsSymlinks(t *testing.T) {
 	virtualPath := filepath.Join(t.TempDir(), "virtual.md")
 	result := projectcontext.Result{InstructionContext: instructioncontext.InstructionContext{ProjectMemory: instructioncontext.ProjectMemoryBundle{Sections: []instructioncontext.Section{{Path: virtualPath, Content: "loaded source"}}}}}
@@ -789,7 +874,7 @@ func TestWorkspaceProjectContextBuildCanBeCancelled(t *testing.T) {
 		<-ctx.Done()
 		return projectcontext.Result{}, ctx.Err()
 	}
-	updated, cmd := page.Update(component.FormSubmittedMsg{})
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
 	page = updated.(*WorkspacePage)
 	if cmd == nil || !page.contextBuilding {
 		t.Fatalf("build did not start: cmd=%v building=%t", cmd, page.contextBuilding)
@@ -830,7 +915,7 @@ func TestWorkspaceProjectContextCloseCancelsInFlightBuild(t *testing.T) {
 		close(cancelled)
 		return projectcontext.Result{}, ctx.Err()
 	}
-	updated, cmd := page.Update(component.FormSubmittedMsg{})
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
 	page = updated.(*WorkspacePage)
 	if cmd == nil || !page.contextBuilding {
 		t.Fatalf("build did not start: cmd=%v building=%t", cmd != nil, page.contextBuilding)

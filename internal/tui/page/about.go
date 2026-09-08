@@ -74,7 +74,7 @@ func (page *AboutPage) View(width, height int) string {
 		return component.BottomHelp(component.StateView(component.PageLoading, "Loading build and runtime information", ""), help, width, height)
 	}
 	if page.err != nil {
-		return component.BottomHelp(component.PageTitle("About", width)+"\n"+component.Banner(page.err.Error(), component.ToneDanger), help, width, height)
+		return component.BottomHelp(component.PageTitle("About", width)+"\n"+component.BannerWidth(page.err.Error(), component.ToneDanger, width), help, width, height)
 	}
 	serverUptime := "stopped"
 	if page.info.RuntimeRunning {

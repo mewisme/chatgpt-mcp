@@ -282,7 +282,7 @@ func (page *MCPPage) View(width, height int) string {
 		page.browser.SetTitleNotice(page.notice)
 		feedback := ""
 		if page.err != nil {
-			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 		}
 		browserHeight := max(1, height-pageFeedbackHeight(feedback))
 		if width > 0 && browserHeight > 0 {
@@ -295,9 +295,11 @@ func (page *MCPPage) View(width, height int) string {
 	case mcpOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 78)), width, height)
 	case mcpOverlayConfirm:
-		body := component.Title(page.confirmTitle()) + "\n\n" + component.Muted(page.confirmDescription()) + "\n\n" + page.confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 68)), width, height)
+		modalWidth := overlayWidth(width, 68)
+		body := confirmOverlayBody(page.confirm, page.confirmTitle(), page.confirmDescription(), modalWidth)
+		content = component.CenterOverlay(content, component.Modal(body, modalWidth), width, height)
 	case mcpOverlayOperation:
+		modalWidth := overlayWidth(width, 82)
 		body := ""
 		if page.progress != nil {
 			body = page.progress.View()
@@ -306,7 +308,7 @@ func (page *MCPPage) View(width, height int) string {
 			body += "\n\n" + component.Label("Authorization URL") + "\n" + page.operationURL
 		}
 		body += "\n\n" + component.Muted("Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 82)), width, height)
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
 	}
 	return content
 }
@@ -329,7 +331,7 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 		page.browser.SetTitleNotice(page.notice)
 		feedback := ""
 		if page.err != nil {
-			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 		}
 		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
 	}

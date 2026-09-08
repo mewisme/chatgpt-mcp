@@ -140,7 +140,7 @@ func (page DetailPage) View() string {
 		height = defaultLayoutHeight
 	}
 	header := TwoColumn(Title(page.title), Secondary(page.meta), width)
-	feedback := page.feedbackView()
+	feedback := page.feedbackView(width)
 	prefix := header
 	if feedback != "" {
 		prefix += "\n" + feedback
@@ -199,13 +199,13 @@ func (page DetailPage) MouseTargets(originX, originY, z int) []MouseTarget {
 
 type detailPageWheelMsg int
 
-func (page DetailPage) feedbackView() string {
+func (page DetailPage) feedbackView(width int) string {
 	parts := make([]string, 0, 2)
 	if page.err != "" {
-		parts = append(parts, Banner(page.err, ToneDanger))
+		parts = append(parts, BannerWidth(page.err, ToneDanger, width))
 	}
 	if page.notice != "" {
-		parts = append(parts, Banner(page.notice, ToneSuccess))
+		parts = append(parts, BannerWidth(page.notice, ToneSuccess, width))
 	}
 	return strings.Join(parts, "\n")
 }
@@ -233,7 +233,7 @@ func (page *DetailPage) resizeViewport() {
 	}
 	width := max(1, page.width)
 	header := TwoColumn(Title(page.title), Secondary(page.meta), width)
-	feedback := page.feedbackView()
+	feedback := page.feedbackView(width)
 	prefixHeight := lipgloss.Height(header) + 1 + lipgloss.Height(Divider(width))
 	if feedback != "" {
 		prefixHeight += lipgloss.Height(feedback) + 1

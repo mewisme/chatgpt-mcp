@@ -905,3 +905,47 @@ func TestLogsPageBootstrapLoadsJournalBeforeOpeningLiveHTTP(t *testing.T) {
 		t.Fatalf("journal bootstrap loaded=%t events=%#v connect=%v", page.loaded, page.events, connect)
 	}
 }
+
+func TestCommandExecutionViewportReflowsLongReadableContent(t *testing.T) {
+	page, err := NewCommandExecutionLogs(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer page.Close()
+	commandToken, outputToken := strings.Repeat("c", 64), strings.Repeat("o", 80)
+	info := shellruntime.ExecutionInfo{ID: "exec_long", WorkspaceID: "ws_long", Tool: "run_command", Command: "printf " + commandToken, CWD: "/very/long/workspace/" + commandToken}
+	page.exec.events = []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Stream: "stdout", Data: outputToken},
+	}
+	page.exec.paused = true
+	for _, width := range []int{24, 11} {
+		page.resizeExecutionViewport(width, 8)
+		content := page.exec.viewport.GetContent()
+		for _, line := range strings.Split(content, "\n") {
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width=%d line=%d: %q", width, got, ansi.Strip(line))
+			}
+		}
+		flat := strings.ReplaceAll(ansi.Strip(content), "\n", "")
+		if !strings.Contains(flat, commandToken) || !strings.Contains(flat, outputToken) {
+			t.Fatalf("width=%d content was truncated: %q", width, flat)
+		}
+	}
+}
+
+func TestConfirmOverlayBodyWrapsLongDescription(t *testing.T) {
+	confirm := component.NewConfirmButtons("Continue", "Cancel", true)
+	description := "Remove " + strings.Repeat("nested/", 12) + "workspace"
+	width := 44
+	body := confirmOverlayBody(confirm, "Confirm operation", description, width)
+	for _, line := range strings.Split(body, "\n") {
+		if got := lipgloss.Width(line); got > component.ModalContentWidth(width) {
+			t.Fatalf("confirm body line width=%d want <=%d: %q", got, component.ModalContentWidth(width), ansi.Strip(line))
+		}
+	}
+	flat := strings.ReplaceAll(strings.ReplaceAll(ansi.Strip(body), "\n", ""), " ", "")
+	if !strings.Contains(flat, strings.ReplaceAll(description, " ", "")) {
+		t.Fatalf("confirm description changed: %q", ansi.Strip(body))
+	}
+}

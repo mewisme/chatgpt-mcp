@@ -808,7 +808,8 @@ func TestModelToastMouseHoverOutsideAndClose(t *testing.T) {
 	updated, _ = model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
 	model = updated.(Model)
 	dialog := component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
-	foreground := component.Modal(dialog.View(), min(72, model.width-4))
+	modalWidth := min(72, model.width-4)
+	foreground := component.Modal(dialog.ViewWidth(component.ModalContentWidth(modalWidth)), modalWidth)
 	_, x, y := component.CenteredOverlayTargets(foreground, model.width, model.height, 0, 0, 299, toastCloseMsg{})
 	view := model.View()
 	cmd := view.OnMouse(tea.MouseMotionMsg(tea.Mouse{X: x, Y: y}))
@@ -847,7 +848,8 @@ func TestModelToastMouseHoverOutsideAndClose(t *testing.T) {
 	updated, _ = model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
 	model = updated.(Model)
 	dialog = component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
-	foreground = component.Modal(dialog.View(), min(72, model.width-4))
+	modalWidth = min(72, model.width-4)
+	foreground = component.Modal(dialog.ViewWidth(component.ModalContentWidth(modalWidth)), modalWidth)
 	_, x, y = component.CenteredOverlayTargets(foreground, model.width, model.height, 0, 0, 299, toastCloseMsg{})
 	view = model.View()
 	if rect, ok := component.FindRenderedRect(foreground, dialog.CloseButtonView()); ok {
@@ -913,5 +915,25 @@ func TestModelKeepsStatusOnlyNoticeOutOfToastDialog(t *testing.T) {
 	model = updated.(Model)
 	if cmd != nil || model.toast.id != 0 || pageNotice(model.currentPage) == "" {
 		t.Fatalf("status notice promoted to toast: toast=%#v notice=%q cmd=%v", model.toast, pageNotice(model.currentPage), cmd)
+	}
+}
+
+func TestApprovalDialogWrapsLongArgumentsWithoutTruncation(t *testing.T) {
+	token := strings.Repeat("z", 72)
+	request := testPendingApproval("req_" + token)
+	request.Title = "Run " + token
+	request.WorkspaceID = "ws_" + token
+	request.Arguments = json.RawMessage(`{"command":"` + token + `","cwd":"/very/long/` + token + `"}`)
+	model := NewModel(Route{Kind: RouteHome})
+	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{request}})
+	view := model.approvalDialogView(24)
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > 24 {
+			t.Fatalf("approval line width=%d want <=24: %q", got, ansi.Strip(line))
+		}
+	}
+	plain := ansi.Strip(view)
+	if strings.Count(plain, "z") < len(token)*5 {
+		t.Fatalf("approval content was truncated: %q", plain)
 	}
 }

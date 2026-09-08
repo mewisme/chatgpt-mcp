@@ -57,3 +57,26 @@ func TestWrapKeyValueUsesHangingIndent(t *testing.T) {
 		t.Fatalf("missing hanging indent: %q", ansi.Strip(wrapped))
 	}
 }
+
+func TestBannerWidthWrapsWithMarkerIndent(t *testing.T) {
+	message := "failure/" + strings.Repeat("x", 48)
+	view := BannerWidth(message, ToneDanger, 18)
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > 18 {
+			t.Fatalf("banner line width=%d want <=18: %q", got, ansi.Strip(line))
+		}
+	}
+	if flat := strings.ReplaceAll(strings.ReplaceAll(ansi.Strip(view), "\n", ""), "  ", ""); !strings.Contains(flat, message) {
+		t.Fatalf("banner content changed: %q", flat)
+	}
+}
+
+func TestWrapModalBodyUsesInnerWidth(t *testing.T) {
+	token := strings.Repeat("m", 64)
+	view := WrapModalBody(token, 30)
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > ModalContentWidth(30) {
+			t.Fatalf("modal body line width=%d want <=%d", got, ModalContentWidth(30))
+		}
+	}
+}

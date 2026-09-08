@@ -116,7 +116,9 @@ func ToneText(value string, tone Tone) string {
 	}
 }
 
-func Banner(message string, tone Tone) string {
+func Banner(message string, tone Tone) string { return BannerWidth(message, tone, 0) }
+
+func BannerWidth(message string, tone Tone, width int) string {
 	if strings.TrimSpace(message) == "" {
 		return ""
 	}
@@ -128,7 +130,23 @@ func Banner(message string, tone Tone) string {
 	} else if tone == ToneSuccess {
 		marker = "✓"
 	}
-	return ToneText(marker, tone) + " " + message
+	prefix := ToneText(marker, tone) + " "
+	if width <= 0 {
+		return prefix + message
+	}
+	prefixWidth := lipgloss.Width(prefix)
+	if prefixWidth >= width {
+		return WrapContent(ToneText(marker, tone), width) + "\n" + WrapContent(message, width)
+	}
+	lines := strings.Split(WrapContent(message, width-prefixWidth), "\n")
+	for index := range lines {
+		if index == 0 {
+			lines[index] = prefix + lines[index]
+		} else {
+			lines[index] = strings.Repeat(" ", prefixWidth) + lines[index]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func Secondary(value string) string {
@@ -195,9 +213,7 @@ func Divider(width int) string {
 
 func TwoColumn(left, right string, width int) string {
 	if right == "" || width <= 0 {
-		if right == "" || width <= 0 {
-			return left
-		}
+		return left
 	}
 	if lipgloss.Width(left)+2+lipgloss.Width(right) > width {
 		return WrapContent(left, width) + "\n" + WrapContent(right, width)

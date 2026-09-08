@@ -203,15 +203,20 @@ func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (page *LogsPage) resizeExecutionViewport(width, height int) {
+	offset := page.exec.viewport.YOffset()
 	page.exec.viewport.SetWidth(max(1, width))
 	page.exec.viewport.SetHeight(max(1, height))
+	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.exec.events), max(1, width)))
 	if !page.exec.paused {
 		page.exec.viewport.GotoBottom()
+		return
 	}
+	maxOffset := max(0, page.exec.viewport.TotalLineCount()-page.exec.viewport.Height())
+	page.exec.viewport.SetYOffset(min(offset, maxOffset))
 }
 
 func (page *LogsPage) refreshExecutionViewport() {
-	page.exec.viewport.SetContent(formatExecutionFeed(page.exec.events))
+	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.exec.events), max(1, page.exec.viewport.Width())))
 	if !page.exec.paused {
 		page.exec.viewport.GotoBottom()
 	}
@@ -246,9 +251,9 @@ func (page *LogsPage) executionView(width, height int) string {
 	).View(width)
 	message := ""
 	if page.exec.err != nil {
-		message = component.Banner(page.exec.err.Error(), component.ToneDanger)
+		message = component.BannerWidth(page.exec.err.Error(), component.ToneDanger, width)
 	} else if page.exec.notice != "" {
-		message = component.Muted(page.exec.notice)
+		message = component.WrapContent(component.Muted(page.exec.notice), width)
 	}
 	reserved := lipgloss.Height(status) + lipgloss.Height(help) + 2
 	if message != "" {

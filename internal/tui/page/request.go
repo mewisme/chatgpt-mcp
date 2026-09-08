@@ -290,7 +290,7 @@ func (page *RequestsPage) View(width, height int) string {
 	page.width, page.height = width, height
 	feedback := ""
 	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 	}
 	var content string
 	if page.resourceID != "" {
@@ -334,7 +334,7 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 		}
 		feedback := ""
 		if page.err != nil {
-			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 		}
 		tabs, spans := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, page.width)
 		targets := make([]component.MouseTarget, 0, len(spans)+8)

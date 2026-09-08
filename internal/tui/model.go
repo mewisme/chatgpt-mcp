@@ -409,8 +409,9 @@ func (model Model) View() tea.View {
 	}
 	if model.approvalActive() {
 		width, height := model.layoutSize()
-		body := model.approvalDialogView()
-		foreground := component.Modal(body, max(1, min(88, width-4)))
+		modalWidth := max(1, min(88, width-4))
+		body := model.approvalDialogView(component.ModalContentWidth(modalWidth))
+		foreground := component.Modal(body, modalWidth)
 		overlayTargets, x, y := component.CenteredOverlayTargets(foreground, width, height, 0, 0, 199, tea.KeyPressMsg{Code: tea.KeyEscape})
 		content = centerOverlay(content, foreground, width, height)
 		targets = append(targets, overlayTargets...)
@@ -428,7 +429,8 @@ func (model Model) View() tea.View {
 	if model.toast.id != 0 {
 		width, height := model.layoutSize()
 		dialog := component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
-		foreground := component.Modal(dialog.View(), max(1, min(72, width-4)))
+		modalWidth := max(1, min(72, width-4))
+		foreground := component.Modal(dialog.ViewWidth(component.ModalContentWidth(modalWidth)), modalWidth)
 		overlayTargets, x, y := component.CenteredOverlayTargets(foreground, width, height, 0, 0, 299, toastCloseMsg{})
 		id := model.toast.id
 		overlayTargets[0].Handle = func(event component.MouseEvent) tea.Msg {
@@ -625,7 +627,7 @@ func (model Model) approvalButtonsView() string {
 	return ""
 }
 
-func (model Model) approvalDialogView() string {
+func (model Model) approvalDialogView(width int) string {
 	request, ok := model.activeApproval()
 	if !ok {
 		return ""
@@ -635,30 +637,30 @@ func (model Model) approvalDialogView() string {
 		title = request.ID
 	}
 	lines := []string{
-		component.Title("Approval request"), "",
-		component.KeyValue("Title", title), component.KeyValue("Request", request.ID), component.KeyValue("Workspace", request.WorkspaceID), component.KeyValue("Tool", request.TargetTool),
+		component.WrapContent(component.Title("Approval request"), width), "",
+		component.WrapKeyValue("Title", title, width), component.WrapKeyValue("Request", request.ID, width), component.WrapKeyValue("Workspace", request.WorkspaceID, width), component.WrapKeyValue("Tool", request.TargetTool, width),
 	}
 	if request.Source != "" {
-		lines = append(lines, component.KeyValue("Source", request.Source))
+		lines = append(lines, component.WrapKeyValue("Source", request.Source, width))
 	}
 	if request.GuardCode != "" {
-		lines = append(lines, component.KeyValue("Guard", string(request.GuardCode)))
+		lines = append(lines, component.WrapKeyValue("Guard", string(request.GuardCode), width))
 	}
 	if !request.ExpiresAt.IsZero() {
-		lines = append(lines, component.KeyValue("Expires", request.ExpiresAt.Local().Format("15:04:05")))
+		lines = append(lines, component.WrapKeyValue("Expires", request.ExpiresAt.Local().Format("15:04:05"), width))
 	}
-	lines = append(lines, "", component.Label("Arguments"), approvalArguments(request.Arguments), "")
+	lines = append(lines, "", component.Label("Arguments"), component.WrapContent(approvalArguments(request.Arguments), width), "")
 	if model.approvalErr != nil {
-		lines = append(lines, component.Banner(model.approvalErr.Error(), component.ToneDanger), "")
+		lines = append(lines, component.BannerWidth(model.approvalErr.Error(), component.ToneDanger, width), "")
 	}
 	switch model.approvalStage {
 	case approvalStageChoice:
-		lines = append(lines, model.approvalChoice.View(), component.Muted("a approve · d deny · ←/→ choose · Enter submit"))
+		lines = append(lines, model.approvalChoice.View(), component.WrapContent(component.Muted("a approve · d deny · ←/→ choose · Enter submit"), width))
 	case approvalStageResolving:
-		lines = append(lines, component.Muted("Resolving request..."))
+		lines = append(lines, component.WrapContent(component.Muted("Resolving request..."), width))
 	}
 	if len(model.approvals) > 1 {
-		lines = append(lines, "", component.Muted(fmt.Sprintf("%d more pending request(s)", len(model.approvals)-1)))
+		lines = append(lines, "", component.WrapContent(component.Muted(fmt.Sprintf("%d more pending request(s)", len(model.approvals)-1)), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1150,12 +1152,13 @@ func (model Model) page(width, height int) string {
 	if route.Kind == RouteHome {
 		return model.homeView(width, height)
 	}
-	description := routeDescription(route)
+	description := component.WrapContent(model.theme.muted.Render(routeDescription(route)), width)
 	notice := ""
 	if model.notice != "" {
-		notice = "\n\n" + model.theme.muted.Render(model.notice)
+		notice = "\n\n" + component.WrapContent(model.theme.muted.Render(model.notice), width)
 	}
-	return component.PageTitle(route.Title(), width) + "\n" + model.theme.muted.Render(description) + notice + "\n\n" + model.theme.subtle.Render("Command Center shell is ready. Domain actions will be added through the shared action registry.")
+	ready := component.WrapContent(model.theme.subtle.Render("Command Center shell is ready. Domain actions will be added through the shared action registry."), width)
+	return component.PageTitle(route.Title(), width) + "\n" + description + notice + "\n\n" + ready
 }
 
 func (model Model) homeView(width, height int) string {

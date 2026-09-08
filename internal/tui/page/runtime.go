@@ -309,7 +309,7 @@ func (page *RuntimePage) View(width, height int) string {
 		status := page.statusView(width)
 		feedback := ""
 		if page.err != nil {
-			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 		}
 		browserHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(status)-pageFeedbackHeight(feedback))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
@@ -320,8 +320,9 @@ func (page *RuntimePage) View(width, height int) string {
 	case systemOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 82)), width, height)
 	case systemOverlayConfirm:
-		body := component.Title(page.confirmTitle()) + "\n\n" + component.Muted(page.confirmDescription()) + "\n\n" + page.confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 72)), width, height)
+		modalWidth := overlayWidth(width, 72)
+		body := confirmOverlayBody(page.confirm, page.confirmTitle(), page.confirmDescription(), modalWidth)
+		content = component.CenterOverlay(content, component.Modal(body, modalWidth), width, height)
 	case systemOverlayOperation:
 		body := ""
 		if page.progress != nil {
@@ -329,11 +330,13 @@ func (page *RuntimePage) View(width, height int) string {
 		}
 		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 64)), width, height)
 	case systemOverlaySecret:
+		modalWidth := overlayWidth(width, 88)
 		body := component.Title(strings.ToUpper(page.secretKind)+" token") + "\n\n" + page.secret + "\n\n" + component.Muted("Shown once · c copy · Esc close")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 88)), width, height)
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
 	case systemOverlayExternal:
+		modalWidth := overlayWidth(width, 88)
 		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + page.external.Command + "\n\n" + component.Muted("c copy command · Esc close")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 88)), width, height)
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
 	}
 	return content
 }
@@ -364,7 +367,7 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 	}
 	feedback := ""
 	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
 	y := originY + lipgloss.Height(component.PageTitleNotice("Runtime & System", page.notice, page.width)) + lipgloss.Height(page.statusView(page.width)) + pageFeedbackHeight(feedback)
 	return page.browser.MouseTargets(originX, y, z)
@@ -674,7 +677,7 @@ func (page *RuntimePage) rebuildBrowser(selected string) tea.Cmd {
 func (page *RuntimePage) resizeBrowser() tea.Cmd {
 	feedback := ""
 	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
 	height := max(1, page.height-lipgloss.Height(component.PageTitleNotice("Runtime & System", page.notice, page.width))-lipgloss.Height(page.statusView(page.width))-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})

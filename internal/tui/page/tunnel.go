@@ -308,7 +308,7 @@ func (page *TunnelPage) View(width, height int) string {
 	page.width, page.height = width, height
 	feedback := ""
 	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 	}
 	content := page.runtimeViewWithFeedback(width, feedback)
 	if page.kind == tunnelPageManaged {
@@ -328,8 +328,9 @@ func (page *TunnelPage) View(width, height int) string {
 	case tunnelOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 80)), width, height)
 	case tunnelOverlayConfirm:
-		body := component.Title(page.confirmTitle()) + "\n\n" + component.Muted(page.confirmDescription()) + "\n\n" + page.confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 72)), width, height)
+		modalWidth := overlayWidth(width, 72)
+		body := confirmOverlayBody(page.confirm, page.confirmTitle(), page.confirmDescription(), modalWidth)
+		content = component.CenterOverlay(content, component.Modal(body, modalWidth), width, height)
 	case tunnelOverlayOperation:
 		body := ""
 		if page.progress != nil {
@@ -338,12 +339,13 @@ func (page *TunnelPage) View(width, height int) string {
 		body += "\n\n" + component.Muted("Esc cancel")
 		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 72)), width, height)
 	case tunnelOverlayExternal:
+		modalWidth := overlayWidth(width, 88)
 		body := component.Title("Run outside the TUI")
 		if page.external != nil {
 			body += "\n\n" + component.Muted(page.external.Reason) + "\n\n" + page.external.Command
 		}
 		body += "\n\n" + component.Muted("c copy command · Esc close")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 88)), width, height)
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
 	}
 	return content
 }
@@ -369,7 +371,7 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 	}
 	feedback := ""
 	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
 	if page.kind == tunnelPageManaged {
 		if page.resourceID != "" {

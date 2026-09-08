@@ -250,7 +250,7 @@ func (page *ConfigPage) View(width, height int) string {
 		headerHeight := lipgloss.Height(title) + lipgloss.Height(overview)
 		feedback := ""
 		if page.err != nil {
-			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 		}
 		browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
@@ -286,7 +286,7 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 		}
 		feedback := ""
 		if page.err != nil {
-			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 		}
 		offsetY := lipgloss.Height(component.PageTitleNotice("Configuration", page.notice, page.width)) + lipgloss.Height(page.overviewView(page.width)) + pageFeedbackHeight(feedback)
 		return page.browser.MouseTargets(originX, originY+offsetY, z)
@@ -532,7 +532,7 @@ func (page *ConfigPage) resizeBrowser() tea.Cmd {
 	headerHeight := lipgloss.Height(component.PageTitleNotice("Configuration", page.notice, page.width)) + lipgloss.Height(page.overviewView(page.width))
 	feedback := ""
 	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
 	height := max(1, page.height-headerHeight-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
@@ -626,11 +626,11 @@ func (page *ConfigPage) overviewView(width int) string {
 		initialized = "yes"
 	}
 	return strings.Join([]string{
-		component.KeyValue("Storage", fmt.Sprintf("%s · initialized %s", page.overview.Source.Format, initialized)),
-		component.KeyValue("MCP transports", fmt.Sprintf("HTTP %s · Tunnel %s", configOnOff(page.overview.Config.Server.Enabled), configOnOff(page.overview.Config.Tunnel.Enabled))),
-		component.KeyValue("Config", page.overview.Source.Path),
-		component.KeyValue("Root", page.overview.Root),
-		component.KeyValue("Runtime", status),
+		component.WrapKeyValue("Storage", fmt.Sprintf("%s · initialized %s", page.overview.Source.Format, initialized), width),
+		component.WrapKeyValue("MCP transports", fmt.Sprintf("HTTP %s · Tunnel %s", configOnOff(page.overview.Config.Server.Enabled), configOnOff(page.overview.Config.Tunnel.Enabled)), width),
+		component.WrapKeyValue("Config", page.overview.Source.Path, width),
+		component.WrapKeyValue("Root", page.overview.Root, width),
+		component.WrapKeyValue("Runtime", status, width),
 	}, "\n")
 }
 

@@ -16,7 +16,7 @@ func WrapContent(value string, width int) string {
 	lines := strings.Split(value, "\n")
 	for index, line := range lines {
 		if line != "" {
-			lines[index] = ansi.Wrap(line, width, contentWrapBreakpoints)
+			lines[index] = ansi.Hardwrap(ansi.Wrap(line, width, contentWrapBreakpoints), width, true)
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -44,4 +44,14 @@ func WrapKeyValue(label, value string, width int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+func ModalContentWidth(width int) int {
+	if width <= 0 {
+		return width
+	}
+	return max(1, width-6)
+}
+
+func WrapModalBody(value string, width int) string {
+	return WrapContent(value, ModalContentWidth(width))
 }

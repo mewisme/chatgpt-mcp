@@ -236,8 +236,9 @@ func (page *WorkspacePage) View(width, height int) string {
 	case workspaceOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), page.formOverlayWidth(width)), width, height)
 	case workspaceOverlayConfirm:
-		body := component.Title(page.confirmTitle()) + "\n\n" + component.Muted(page.confirmDescription()) + "\n\n" + page.confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 64)), width, height)
+		modalWidth := overlayWidth(width, 64)
+		body := confirmOverlayBody(page.confirm, page.confirmTitle(), page.confirmDescription(), modalWidth)
+		content = component.CenterOverlay(content, component.Modal(body, modalWidth), width, height)
 	}
 	return content
 }
@@ -255,7 +256,7 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 		if page.resourceID != "" {
 			return page.detail.MouseTargets(originX, originY, z)
 		}
-		feedback := page.listFeedback()
+		feedback := page.listFeedback(page.width)
 		tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
 		targets := page.workspaceTabMouseTargets(originX, originY, z+2)
 		browserY := originY + lipgloss.Height(tabs) + pageFeedbackHeight(feedback)
@@ -577,11 +578,11 @@ func (page *WorkspacePage) listTitle() string {
 	return "Workspaces"
 }
 
-func (page *WorkspacePage) listFeedback() string {
+func (page *WorkspacePage) listFeedback(width int) string {
 	if page.err == nil {
 		return ""
 	}
-	return component.Banner(page.err.Error(), component.ToneDanger)
+	return component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 }
 
 func (page *WorkspacePage) baseView(width, height int) string {
@@ -590,7 +591,7 @@ func (page *WorkspacePage) baseView(width, height int) string {
 		page.detail.Resize(width, height)
 		return page.detail.View()
 	}
-	feedback := page.listFeedback()
+	feedback := page.listFeedback(width)
 	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, width)
 	page.resizeBrowser()
 	return tabs + "\n" + prependPageFeedback(feedback, page.browser.Content())
@@ -601,7 +602,7 @@ func (page *WorkspacePage) resizeBrowser() tea.Cmd {
 		return nil
 	}
 	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
-	height := max(1, page.height-lipgloss.Height(tabs)-pageFeedbackHeight(page.listFeedback()))
+	height := max(1, page.height-lipgloss.Height(tabs)-pageFeedbackHeight(page.listFeedback(page.width)))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd

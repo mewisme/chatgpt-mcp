@@ -26,8 +26,13 @@ func formOverlayMouseTargets(form component.Form, modalWidth, pageWidth, pageHei
 	return append(targets, form.MouseTargets(originX+modalX+rect.X, originY+modalY+rect.Y, z+2)...)
 }
 
+func confirmOverlayBody(confirm component.ConfirmButtons, title, description string, modalWidth int) string {
+	width := component.ModalContentWidth(modalWidth)
+	return component.WrapContent(component.Title(title), width) + "\n\n" + component.WrapContent(component.Muted(description), width) + "\n\n" + confirm.View() + "\n" + component.WrapContent(component.Muted("Enter confirm · Esc cancel"), width)
+}
+
 func confirmOverlayMouseTargets(confirm component.ConfirmButtons, title, description string, modalWidth, pageWidth, pageHeight, originX, originY, z int) []component.MouseTarget {
-	body := component.Title(title) + "\n\n" + component.Muted(description) + "\n\n" + confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
+	body := confirmOverlayBody(confirm, title, description, modalWidth)
 	modal := component.Modal(body, modalWidth)
 	targets, modalX, modalY := component.CenteredOverlayTargets(modal, pageWidth, pageHeight, originX, originY, z, tea.KeyPressMsg{Code: tea.KeyEscape})
 	rect, ok := component.FindRenderedRect(modal, confirm.View())
@@ -38,7 +43,7 @@ func confirmOverlayMouseTargets(confirm component.ConfirmButtons, title, descrip
 }
 
 func dismissibleOverlayMouseTargets(body string, modalWidth, pageWidth, pageHeight, originX, originY, z int) []component.MouseTarget {
-	modal := component.Modal(body, modalWidth)
+	modal := component.Modal(component.WrapModalBody(body, modalWidth), modalWidth)
 	targets, _, _ := component.CenteredOverlayTargets(modal, pageWidth, pageHeight, originX, originY, z, tea.KeyPressMsg{Code: tea.KeyEscape})
 	return targets
 }

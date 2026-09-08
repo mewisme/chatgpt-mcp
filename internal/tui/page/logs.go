@@ -354,7 +354,7 @@ func (page *LogsPage) View(width, height int) string {
 		status := page.statusView(width)
 		feedback := ""
 		if page.err != nil {
-			feedback = component.Banner(page.err.Error(), component.ToneDanger)
+			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 		}
 		headerHeight := lipgloss.Height(tabs) + lipgloss.Height(status)
 		browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
@@ -366,11 +366,13 @@ func (page *LogsPage) View(width, height int) string {
 	case logsOverlayForm:
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 86)), width, height)
 	case logsOverlayConfirm:
-		body := component.Title("Clear runtime logs?") + "\n\n" + component.Muted("Current and rotated runtime logs will be removed. This cannot be undone.") + "\n\n" + page.confirm.View() + "\n" + component.Muted("Enter confirm · Esc cancel")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 68)), width, height)
+		modalWidth := overlayWidth(width, 68)
+		body := confirmOverlayBody(page.confirm, "Clear runtime logs?", "Current and rotated runtime logs will be removed. This cannot be undone.", modalWidth)
+		content = component.CenterOverlay(content, component.Modal(body, modalWidth), width, height)
 	case logsOverlayInfo:
+		modalWidth := overlayWidth(width, 78)
 		body := component.Title("Logs info") + "\n\n" + detailFields([2]string{"Path", page.info.Path}, [2]string{"Files", fmt.Sprintf("%d", page.info.Files)}, [2]string{"Size", humanBytes(page.info.Bytes)}) + "\n\n" + component.Muted("Esc close")
-		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 78)), width, height)
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
 	case logsOverlayOperation:
 		body := ""
 		if page.progress != nil {
@@ -408,7 +410,7 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	}
 	feedback := ""
 	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
 	statusHeight := lipgloss.Height(page.statusView(page.width))
 	browserY := originY + tabsHeight + statusHeight + pageFeedbackHeight(feedback)
@@ -742,7 +744,7 @@ func (page *LogsPage) resizeBrowser() tea.Cmd {
 	statusHeight := lipgloss.Height(page.statusView(page.width))
 	feedback := ""
 	if page.err != nil {
-		feedback = component.Banner(page.err.Error(), component.ToneDanger)
+		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
 	height := max(1, page.height-tabsHeight-statusHeight-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})

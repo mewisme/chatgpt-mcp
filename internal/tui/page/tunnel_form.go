@@ -46,7 +46,7 @@ func newTunnelRuntimeEditor(dashboard application.TunnelDashboard) (component.Ed
 	if !dashboard.MCPHTTPEnabled {
 		enabledTitle = "Enabled (required while MCP HTTP is disabled)"
 	}
-	enabled := component.BoolSelect(enabledTitle, &data.Enabled, "Enabled", "Disabled")
+	enabled := component.Switch(enabledTitle, &data.Enabled, "ENABLED", "DISABLED")
 	if !dashboard.MCPHTTPEnabled {
 		enabled.Validate(func(value bool) error {
 			if !value {
@@ -112,9 +112,9 @@ func newManagedTunnelEditor(metadata tunnel.Metadata, create bool) (component.Ed
 			component.Text("Tenant IDs (one per line)", &data.TenantIDs),
 		))},
 		component.EditorSection{ID: "runtime", Title: "Runtime", Description: "Optionally select this tunnel for the local runtime after saving. Blank runtime key reuses the current secret.", Form: component.NewEditorForm(component.Group(
-			component.BoolSelect("Configure cgm to use this tunnel", &data.Configure, "Yes", "No"),
+			component.Switch("Configure cgm to use this tunnel", &data.Configure, "YES", "NO"),
 			component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Placeholder("Blank reuses the current runtime key."),
-			component.BoolSelect("Enable tunnel after configure", &data.Enable, "Enabled", "Disabled"),
+			component.Switch("Enable tunnel after configure", &data.Enable, "ENABLED", "DISABLED"),
 		))},
 	)
 	return editor, data
@@ -126,7 +126,7 @@ func newManagedConfigureEditor() (component.Editor, *managedConfigureFormData) {
 		ID: "runtime", Title: "Runtime", Description: "Select this managed tunnel for the local runtime. Blank runtime key reuses the current secret.",
 		Form: component.NewEditorForm(component.Group(
 			component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Placeholder("Blank reuses the current runtime key."),
-			component.BoolSelect("Enable tunnel", &data.Enable, "Enabled", "Disabled"),
+			component.Switch("Enable tunnel", &data.Enable, "ENABLED", "DISABLED"),
 		)),
 	})
 	return editor, data

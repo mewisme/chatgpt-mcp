@@ -45,7 +45,7 @@ func newConfigFieldEditor(cfg config.Config, spec config.FieldSpec) (component.E
 	switch spec.Kind {
 	case config.FieldBool:
 		data.Bool = strings.EqualFold(raw, "true")
-		field = component.BoolSelect(spec.Key, &data.Bool, "True", "False").Description(spec.Description)
+		field = component.Switch(spec.Key, &data.Bool, "TRUE", "FALSE").Description(spec.Description)
 	case config.FieldEnum:
 		data.Enum = raw
 		options := make([]huh.Option[string], 0, len(spec.Options))
@@ -106,7 +106,7 @@ func newConfigBundleEditor(export bool) (component.Editor, *configBundleFormData
 	}
 	editor := component.NewEditor(primary, component.EditorSection{ID: "bundle", Title: "Bundle", Description: description, Form: component.NewEditorForm(component.Group(
 		pathField,
-		component.BoolSelect(forceLabel, &data.Force, "Yes", "No"),
+		component.Switch(forceLabel, &data.Force, "YES", "NO"),
 	))})
 	return editor, data
 }

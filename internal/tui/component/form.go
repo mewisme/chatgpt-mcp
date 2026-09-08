@@ -210,6 +210,12 @@ func (form Form) updateMouse(msg FormMouseMsg) (Form, tea.Cmd) {
 		}
 		return form, cmd
 	}
+	if switchField, ok := target.(*SwitchField); ok {
+		if switchField.value != nil {
+			*switchField.value = !*switchField.value
+		}
+		return form, nil
+	}
 	if selectField, ok := target.(*huh.Select[string]); ok {
 		return form, form.clickSelect(selectField, msg.Line, false)
 	}
@@ -544,8 +550,69 @@ func Select[T comparable](title string, value *T, options ...huh.Option[T]) *huh
 	return huh.NewSelect[T]().Title(strings.TrimSpace(title)).Options(options...).Value(value)
 }
 
-func BoolSelect(title string, value *bool, trueLabel, falseLabel string) *huh.Select[bool] {
-	return Select(title, value, huh.NewOption(strings.TrimSpace(trueLabel), true), huh.NewOption(strings.TrimSpace(falseLabel), false))
+type SwitchField struct {
+	*huh.Confirm
+	title      string
+	value      *bool
+	trueLabel  string
+	falseLabel string
+	focused    bool
+}
+
+func Switch(title string, value *bool, labels ...string) *SwitchField {
+	trueLabel, falseLabel := "TRUE", "FALSE"
+	if len(labels) > 0 && strings.TrimSpace(labels[0]) != "" {
+		trueLabel = strings.TrimSpace(labels[0])
+	}
+	if len(labels) > 1 && strings.TrimSpace(labels[1]) != "" {
+		falseLabel = strings.TrimSpace(labels[1])
+	}
+	return &SwitchField{Confirm: huh.NewConfirm().Value(value), title: strings.TrimSpace(title), value: value, trueLabel: trueLabel, falseLabel: falseLabel}
+}
+
+func (field *SwitchField) Focus() tea.Cmd {
+	field.focused = true
+	return field.Confirm.Focus()
+}
+
+func (field *SwitchField) Blur() tea.Cmd {
+	field.focused = false
+	return field.Confirm.Blur()
+}
+
+func (field *SwitchField) Update(message tea.Msg) (huh.Model, tea.Cmd) {
+	if msg, ok := message.(tea.KeyPressMsg); ok && msg.String() == "space" {
+		if field.value != nil {
+			*field.value = !*field.value
+		}
+		return field, nil
+	}
+	updated, cmd := field.Confirm.Update(message)
+	if value, ok := updated.(*huh.Confirm); ok {
+		field.Confirm = value
+	}
+	return field, cmd
+}
+
+func (field *SwitchField) View() string {
+	styles := huh.ThemeCharm(currentTheme.isDark).Blurred
+	if field.focused {
+		styles = huh.ThemeCharm(currentTheme.isDark).Focused
+	}
+	state := field.falseLabel
+	if field.value != nil && *field.value {
+		state = field.trueLabel
+	}
+	return styles.Base.Render(styles.Title.Render(field.title) + " " + currentTheme.accent.Render("[ "+state+" ]"))
+}
+
+func (field *SwitchField) KeyBinds() []key.Binding {
+	bindings := field.Confirm.KeyBinds()
+	toggle := key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle"))
+	if len(bindings) < 4 {
+		return []key.Binding{toggle}
+	}
+	return append([]key.Binding{toggle}, bindings[1:4]...)
 }
 
 func MultiSelect[T comparable](title string, value *[]T, options ...huh.Option[T]) *huh.MultiSelect[T] {

@@ -185,7 +185,7 @@ func TestEditorFormFocusHelpersAndResize(t *testing.T) {
 	enabled, name, mode, content := true, "", "a", "body"
 	form := NewEditorForm(Group(
 		Input("Name", &name),
-		BoolSelect("Enabled", &enabled, "Enabled", "Disabled"),
+		Switch("Enabled", &enabled, "ENABLED", "DISABLED"),
 		Select("Mode", &mode, huh.NewOption("A", "a"), huh.NewOption("B", "b")),
 		TextLines("Content", &content, 3),
 	))
@@ -201,6 +201,32 @@ func TestEditorFormFocusHelpersAndResize(t *testing.T) {
 	}
 	form.Resize(28, 10)
 	testutil.AssertLinesFit(t, form.View(), 28)
+}
+
+func TestSwitchTogglesWithoutCompletingEditorAndSupportsMouse(t *testing.T) {
+	enabled, name := true, ""
+	switchField := Switch("Enabled", &enabled, "ENABLED", "DISABLED")
+	form := NewEditorForm(Group(switchField, Input("Name", &name)))
+	form = runFormCmd(t, form, form.Init())
+	if plain := ansi.Strip(form.View()); !strings.Contains(plain, "Enabled [ ENABLED ]") {
+		t.Fatalf("initial switch view=%q", plain)
+	}
+	updated, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	form = runFormCmd(t, updated, cmd)
+	if enabled || form.State() == huh.StateCompleted || !strings.Contains(ansi.Strip(form.View()), "[ DISABLED ]") {
+		t.Fatalf("space toggle enabled=%t state=%v view=%q", enabled, form.State(), ansi.Strip(form.View()))
+	}
+	target := formFieldTarget(t, form.MouseTargets(0, 0, 1), 0)
+	updated, cmd = form.Update(target.Handle(MouseEvent{Button: tea.MouseLeft}))
+	form = runFormCmd(t, updated, cmd)
+	if !enabled || form.State() == huh.StateCompleted {
+		t.Fatalf("mouse toggle enabled=%t state=%v", enabled, form.State())
+	}
+	updated, cmd = form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	form = runFormCmd(t, updated, cmd)
+	if form.FocusedFieldIndex() != 1 || form.State() == huh.StateCompleted {
+		t.Fatalf("enter navigation focused=%d state=%v", form.FocusedFieldIndex(), form.State())
+	}
 }
 
 func TestPageActionBarWrapsByGroupWithoutDroppingDisabledActions(t *testing.T) {

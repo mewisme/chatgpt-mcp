@@ -144,7 +144,7 @@ func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
 	}
 }
 
-func TestTunnelRuntimeConfigureEditorSelectValidationAndCancel(t *testing.T) {
+func TestTunnelRuntimeConfigureEditorSwitchValidationAndCancel(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret"})
 	page, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
 	if err != nil {
@@ -152,13 +152,13 @@ func TestTunnelRuntimeConfigureEditorSelectValidationAndCancel(t *testing.T) {
 	}
 	_ = page.Init()
 	plain := ansi.Strip(page.View(100, 28))
-	if !strings.Contains(plain, "> Enabled") || !strings.Contains(plain, "Disabled") || strings.Contains(plain, "[ TRUE ]") || strings.Contains(plain, "runtime-secret") {
+	if !strings.Contains(plain, "Enabled (at least one MCP transport must remain enabled) [ ENABLED ]") || strings.Contains(plain, "runtime-secret") {
 		t.Fatalf("configure editor view=%q", plain)
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	page = updated.(*TunnelPage)
-	if page.runtimeForm.Enabled || !page.Dirty() || !strings.Contains(ansi.Strip(page.View(100, 28)), "> Disabled") {
-		t.Fatalf("select draft=%#v dirty=%t", page.runtimeForm, page.Dirty())
+	if page.runtimeForm.Enabled || !page.Dirty() || !strings.Contains(ansi.Strip(page.View(100, 28)), "[ DISABLED ]") {
+		t.Fatalf("switch draft=%#v dirty=%t", page.runtimeForm, page.Dirty())
 	}
 	updated, cmd := page.Update(component.EditorSubmitMsg{})
 	page = updated.(*TunnelPage)

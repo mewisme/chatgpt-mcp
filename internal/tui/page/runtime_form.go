@@ -21,9 +21,9 @@ type updateFormData struct {
 func newInstallEditor() (component.Editor, *installFormData) {
 	data := &installFormData{MigrateLegacy: true}
 	editor := component.NewEditor("install", component.EditorSection{ID: "install", Title: "Managed Install", Description: "Install this binary into the managed layout and optionally configure the cgm alias.", Form: component.NewEditorForm(component.Group(
-		component.BoolSelect("Skip cgm alias", &data.NoAlias, "Yes", "No"),
-		component.BoolSelect("Allow development build", &data.Force, "Yes", "No"),
-		component.BoolSelect("Clean verified legacy installations", &data.MigrateLegacy, "Yes", "No"),
+		component.Switch("Skip cgm alias", &data.NoAlias, "YES", "NO"),
+		component.Switch("Allow development build", &data.Force, "YES", "NO"),
+		component.Switch("Clean verified legacy installations", &data.MigrateLegacy, "YES", "NO"),
 	))})
 	return editor, data
 }
@@ -39,7 +39,7 @@ func newUpdateEditor() (component.Editor, *updateFormData) {
 	data := &updateFormData{}
 	editor := component.NewEditor("update", component.EditorSection{ID: "update", Title: "Update", Description: "Verify and apply a release to the managed installation.", Form: component.NewEditorForm(component.Group(
 		component.Input("Target version (blank = latest; explicit may downgrade)", &data.TargetVersion),
-		component.BoolSelect("Skip managed runtime restart", &data.NoRestart, "Yes", "No"),
+		component.Switch("Skip managed runtime restart", &data.NoRestart, "YES", "NO"),
 	))})
 	return editor, data
 }

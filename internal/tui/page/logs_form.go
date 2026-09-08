@@ -46,7 +46,7 @@ func newLogsFilterEditor(options application.LogsQueryOptions, visibility logger
 			}
 			return nil
 		}),
-		component.BoolSelect("All sessions", &data.All, "Yes", "No"),
+		component.Switch("All sessions", &data.All, "YES", "NO"),
 		component.Input("Session", &data.Session),
 		component.Input("Since (30m or RFC3339)", &data.Since),
 		component.Input("Until (RFC3339)", &data.Until),

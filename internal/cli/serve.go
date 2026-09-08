@@ -210,6 +210,12 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err := waitRuntimeHTTPReady(runtimeCtx, cfg, 3*time.Second); err != nil {
 		return errors.Join(err, bindings.Shutdown())
 	}
+	if cfg.Tunnel.Enabled && tunnel.Configured(cfg.Tunnel) {
+		runtime.Logger.Action("TUNNEL", "tunnel.readiness.waiting", "Waiting for OpenAI Secure MCP Tunnel readiness")
+		if err := runtime.Tunnel.WaitUntilReady(runtimeCtx); err != nil {
+			return errors.Join(err, bindings.Shutdown())
+		}
+	}
 	reloadMu.Lock()
 	runtimeReady = true
 	reloadMu.Unlock()

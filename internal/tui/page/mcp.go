@@ -37,7 +37,6 @@ type mcpOverlayKind uint8
 
 const (
 	mcpOverlayNone mcpOverlayKind = iota
-	mcpOverlayForm
 	mcpOverlayConfirm
 	mcpOverlayOperation
 )
@@ -86,7 +85,6 @@ type MCPPage struct {
 	browser            component.Browser
 	detail             component.DetailPage
 	overlay            mcpOverlayKind
-	form               component.Form
 	editor             *component.Editor
 	jsonEditor         *component.TextAreaEditor
 	serverEditorMode   mcpServerEditorMode
@@ -185,12 +183,15 @@ func (page *MCPPage) OverlayActive() bool {
 }
 
 func (page *MCPPage) InputActive() bool {
-	return page != nil && (page.serverEditorActive() || page.overlay == mcpOverlayForm || page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.serverEditorActive() || page.resourceID == "" && page.browser.InputActive())
 }
 
 func (page *MCPPage) Dirty() bool {
 	if page == nil || !page.serverEditorActive() {
 		return false
+	}
+	if page.command == MCPAuthLogin {
+		return page.editor != nil && page.editor.Dirty()
 	}
 	if mcpServerFormSnapshot(page.serverForm) != page.initialServerDraft {
 		return true
@@ -199,7 +200,7 @@ func (page *MCPPage) Dirty() bool {
 }
 
 func (page *MCPPage) Submitting() bool {
-	return page != nil && page.serverEditorMode == mcpServerEditorForm && page.editor != nil && page.editor.Submitting()
+	return page != nil && page.editor != nil && page.editor.Submitting()
 }
 
 func (page *MCPPage) Notice() string {
@@ -256,11 +257,6 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.browser = updated.(component.Browser)
 			cmd = browserCmd
 		}
-		if page.overlay == mcpOverlayForm {
-			form, formCmd := page.form.Update(msg)
-			page.form = form
-			return page, tea.Batch(cmd, formCmd)
-		}
 		return page, cmd
 	}
 
@@ -279,7 +275,13 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 
 	switch msg := message.(type) {
 	case component.EditorSubmitMsg:
-		if page.serverEditorMode == mcpServerEditorForm && page.editor != nil {
+		if page.editor == nil {
+			return page, nil
+		}
+		if page.command == MCPAuthLogin {
+			return page, page.submitOAuthEditor()
+		}
+		if page.serverEditorMode == mcpServerEditorForm {
 			return page, page.submitServerEditor()
 		}
 		return page, nil
@@ -295,19 +297,9 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, nil
 	case mcpServerEditorModeMsg:
 		return page, page.switchServerEditorMode(msg.Mode)
-	case component.FormSubmittedMsg:
-		return page, page.submitForm()
-	case component.FormCancelledMsg:
-		page.closeOverlay()
-		return page, nil
 	case component.FormMouseMsg:
-		if page.serverEditorMode == mcpServerEditorForm && page.editor != nil {
+		if page.editor != nil {
 			return page, page.updateServerEditor(msg)
-		}
-		if page.overlay == mcpOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
-			return page, cmd
 		}
 		return page, nil
 	case component.ConfirmChoiceMsg:
@@ -338,11 +330,6 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 				return page, page.updateServerEditor(msg)
 			}
 		}
-		if page.overlay == mcpOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
-			return page, cmd
-		}
 		if page.overlay == mcpOverlayConfirm {
 			return page, page.updateConfirm(msg)
 		}
@@ -357,11 +344,6 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	}
 	if page.serverEditorActive() {
 		return page, page.updateServerEditor(message)
-	}
-	if page.overlay == mcpOverlayForm {
-		updated, cmd := page.form.Update(message)
-		page.form = updated
-		return page, cmd
 	}
 	if page.resourceID != "" {
 		updated, cmd := page.detail.Update(message)
@@ -399,8 +381,6 @@ func (page *MCPPage) View(width, height int) string {
 		content = prependPageFeedback(feedback, page.browser.Content())
 	}
 	switch page.overlay {
-	case mcpOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 78)), width, height)
 	case mcpOverlayConfirm:
 		modalWidth := overlayWidth(width, 68)
 		body := confirmOverlayBody(page.confirm, page.confirmTitle(), page.confirmDescription(), modalWidth)
@@ -457,8 +437,6 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 		return targets
 	}
 	switch page.overlay {
-	case mcpOverlayForm:
-		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 78), page.width, page.height, originX, originY, z+20)
 	case mcpOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 68), page.width, page.height, originX, originY, z+20)
 	case mcpOverlayOperation:
@@ -658,6 +636,23 @@ func (page *MCPPage) initEditorRoute() error {
 		page.initialServerDraft = mcpServerFormSnapshot(data)
 		page.syncedServerDraft = page.initialServerDraft
 		page.command, page.targetID = MCPServerConfigure, server.ID
+	case "login":
+		if page.resourceID == "" || page.section != "oauth" {
+			return fmt.Errorf("MCP OAuth login editor requires an OAuth server route")
+		}
+		server, ok := page.manager.Get(page.resourceID)
+		if !ok {
+			return fmt.Errorf("unknown upstream server: %s", page.resourceID)
+		}
+		if server.Transport != "http" {
+			return fmt.Errorf("OAuth login requires an HTTP upstream server")
+		}
+		if server.Auth.Type == "none" {
+			return fmt.Errorf("OAuth is disabled for %s", server.ID)
+		}
+		editor, data := newMCPOAuthEditor()
+		page.editor, page.oauthForm = &editor, data
+		page.command, page.targetID = MCPAuthLogin, server.ID
 	default:
 		return fmt.Errorf("unsupported MCP editor action: %s", page.action)
 	}
@@ -666,10 +661,17 @@ func (page *MCPPage) initEditorRoute() error {
 }
 
 func (page *MCPPage) editorTitle() string {
-	if page != nil && page.command == MCPServerConfigure {
-		return "Edit MCP Server · " + page.targetID
+	if page == nil {
+		return "MCP Editor"
 	}
-	return "Create MCP Server"
+	switch page.command {
+	case MCPServerConfigure:
+		return "Edit MCP Server · " + page.targetID
+	case MCPAuthLogin:
+		return "Authorize MCP Server · " + page.targetID
+	default:
+		return "Create MCP Server"
+	}
 }
 
 func (page *MCPPage) resizeEditor() {
@@ -728,10 +730,29 @@ func (page *MCPPage) editorParentNavigation() tea.Cmd {
 		return nil
 	}
 	path := []string{"mcp"}
-	if page.command == MCPServerConfigure && page.targetID != "" {
-		path = []string{"mcp", page.targetID}
+	switch page.command {
+	case MCPServerConfigure:
+		if page.targetID != "" {
+			path = []string{"mcp", page.targetID}
+		}
+	case MCPAuthLogin:
+		if page.targetID != "" {
+			path = []string{"mcp", page.targetID, "oauth"}
+		}
 	}
 	return func() tea.Msg { return NavigateMsg{Path: path} }
+}
+
+func (page *MCPPage) submitOAuthEditor() tea.Cmd {
+	if page == nil || page.editor == nil || page.oauthForm == nil {
+		return nil
+	}
+	if err := page.editor.Validate(); err != nil {
+		page.editor.SetFeedback("", err)
+		return nil
+	}
+	page.editor.SetFeedback("", nil)
+	return page.startOAuthLogin()
 }
 
 func (page *MCPPage) submitServerEditor() tea.Cmd {
@@ -826,9 +847,7 @@ func (page *MCPPage) openCommand(command MCPCommand, resourceID string) (tea.Cmd
 		if server.Auth.Type == "none" {
 			return nil, fmt.Errorf("OAuth is disabled for %s", server.ID)
 		}
-		page.form, page.oauthForm = newMCPOAuthForm()
-		page.overlay = mcpOverlayForm
-		return page.form.Init(), nil
+		return func() tea.Msg { return NavigateMsg{Path: []string{"mcp", server.ID, "oauth", "login"}} }, nil
 	case MCPAuthLogout:
 		if _, ok := page.manager.Get(page.targetID); !ok {
 			return nil, fmt.Errorf("unknown upstream server: %s", page.targetID)
@@ -839,60 +858,6 @@ func (page *MCPPage) openCommand(command MCPCommand, resourceID string) (tea.Cmd
 	default:
 		return nil, fmt.Errorf("unsupported MCP action: %s", command)
 	}
-}
-
-func (page *MCPPage) submitForm() tea.Cmd {
-	switch page.command {
-	case MCPServerAdd, MCPServerConfigure:
-		return page.submitServerForm()
-	case MCPAuthLogin:
-		return page.startOAuthLogin()
-	default:
-		page.err = fmt.Errorf("unsupported MCP form action: %s", page.command)
-		return nil
-	}
-}
-
-func (page *MCPPage) submitServerForm() tea.Cmd {
-	create := page.command == MCPServerAdd
-	existing := upstream.Server{}
-	if !create {
-		var ok bool
-		existing, ok = page.manager.Get(page.targetID)
-		if !ok {
-			page.err = fmt.Errorf("unknown upstream server: %s", page.targetID)
-			return nil
-		}
-	}
-	server, err := serverFromMCPForm(page.serverForm, existing, create)
-	if err != nil {
-		page.err = err
-		return nil
-	}
-	if create {
-		if _, exists := page.manager.Get(server.ID); exists {
-			page.err = fmt.Errorf("upstream server already exists: %s", server.ID)
-			return nil
-		}
-	}
-	if err := page.manager.Add(server); err != nil {
-		page.err = err
-		return nil
-	}
-	page.notice = "MCP server updated"
-	if create {
-		page.notice = "MCP server added"
-	}
-	page.serverForm = nil
-	page.closeOverlay()
-	if err := page.reload(); err != nil {
-		page.err = err
-		return nil
-	}
-	if create {
-		return func() tea.Msg { return NavigateMsg{Path: []string{"mcp", server.ID}} }
-	}
-	return nil
 }
 
 func (page *MCPPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
@@ -1003,17 +968,22 @@ func (page *MCPPage) finishTools(msg mcpToolsMsg) tea.Cmd {
 func (page *MCPPage) startOAuthLogin() tea.Cmd {
 	server, ok := page.manager.Get(page.targetID)
 	if !ok {
-		page.err = fmt.Errorf("unknown upstream server: %s", page.targetID)
+		err := fmt.Errorf("unknown upstream server: %s", page.targetID)
+		if page.editor != nil {
+			page.editor.SetFeedback("", err)
+		}
 		return nil
 	}
 	data := page.oauthForm
 	if data == nil {
-		page.err = fmt.Errorf("OAuth form is unavailable")
+		err := fmt.Errorf("OAuth editor is unavailable")
+		if page.editor != nil {
+			page.editor.SetFeedback("", err)
+		}
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(page.ctx, 5*time.Minute)
 	page.beginOperation(MCPAuthLogin, server.ID, "Waiting for OAuth authorization", cancel)
-	page.oauthForm = nil
 	events := make(chan tea.Msg, 8)
 	page.oauthEventCh = events
 	login := page.oauthLogin
@@ -1045,11 +1015,18 @@ func (page *MCPPage) finishOAuth(msg mcpOAuthDoneMsg) tea.Cmd {
 	}
 	if msg.err != nil {
 		page.finishOperation("", msg.err)
+		if page.editor != nil {
+			page.editor.SetFeedback("", msg.err)
+		}
 		return nil
 	}
-	page.finishOperation("OAuth authorization stored", nil)
-	_ = page.reload()
-	return page.startHealth(msg.id)
+	page.finishOperation("", nil)
+	page.oauthForm = nil
+	message := "OAuth authorization stored"
+	return tea.Batch(
+		func() tea.Msg { return NavigateMsg{Path: []string{"mcp", msg.id, "oauth"}} },
+		func() tea.Msg { return ToastMsg{Title: "MCP", Message: message, Tone: component.ToneSuccess} },
+	)
 }
 
 func (page *MCPPage) beginOperation(command MCPCommand, targetID, title string, cancel context.CancelFunc) {
@@ -1095,9 +1072,6 @@ func (page *MCPPage) finishOperation(notice string, err error) {
 
 func (page *MCPPage) closeOverlay() {
 	page.overlay = mcpOverlayNone
-	page.form = component.Form{}
-	page.serverForm = nil
-	page.oauthForm = nil
 	page.confirm = component.ConfirmButtons{}
 }
 
@@ -1183,7 +1157,7 @@ func (page *MCPPage) syncDetail() error {
 		component.DetailPageBinding{Key: "t", Desc: "tools", Message: MCPCommandMsg{Command: MCPServerTools, ResourceID: server.ID}},
 	)
 	if server.Transport == "http" && server.Auth.Type != "none" {
-		bindings = append(bindings, component.DetailPageBinding{Key: "o", Desc: "login", Message: MCPCommandMsg{Command: MCPAuthLogin, ResourceID: server.ID}})
+		bindings = append(bindings, component.DetailPageBinding{Key: "o", Desc: "login", Message: NavigateMsg{Path: []string{"mcp", server.ID, "oauth", "login"}}})
 	}
 	if status, err := page.oauthStore.Status(server.ID); err == nil && status.Configured {
 		bindings = append(bindings, component.DetailPageBinding{Key: "l", Desc: "logout", Message: MCPCommandMsg{Command: MCPAuthLogout, ResourceID: server.ID}})

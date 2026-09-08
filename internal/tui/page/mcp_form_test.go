@@ -5,11 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
 func TestMCPServerFormCreatesNormalizedHTTPServer(t *testing.T) {
-	_, data := newMCPServerForm(upstream.Server{}, true)
+	data := newMCPServerFormData(upstream.Server{}, true)
 	data.ID = " docs "
 	data.Name = "Docs"
 	data.Transport = "http"
@@ -22,7 +25,7 @@ func TestMCPServerFormCreatesNormalizedHTTPServer(t *testing.T) {
 	data.Tools = "read\nsearch"
 	data.DisabledTools = "delete"
 	data.IdleTimeout = "45"
-	server, err := serverFromMCPForm(data, upstream.Server{}, true)
+	server, err := serverFromMCPForm(&data, upstream.Server{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,8 +46,9 @@ func TestMCPServerFormPreservesExistingSecretsWithoutRenderingThem(t *testing.T)
 		Headers: map[string]string{"Authorization": "Bearer top-secret", "X-Mode": "read"},
 		Env:     map[string]string{"API_TOKEN": "env-secret", "MODE": "prod"},
 	}
-	form, data := newMCPServerForm(existing, false)
-	if view := form.View(); strings.Contains(view, "top-secret") || strings.Contains(view, "env-secret") {
+	editor, data := newMCPServerEditor(existing, false)
+	_ = editor.Init()
+	if view := editor.View(); strings.Contains(view, "top-secret") || strings.Contains(view, "env-secret") {
 		t.Fatalf("existing secret rendered in form: %q", view)
 	}
 	server, err := serverFromMCPForm(data, existing, false)
@@ -58,18 +62,18 @@ func TestMCPServerFormPreservesExistingSecretsWithoutRenderingThem(t *testing.T)
 
 func TestMCPServerFormSeparatesSensitiveAssignments(t *testing.T) {
 	existing := upstream.Server{ID: "demo", Transport: "http", URL: "https://example.test/mcp", Headers: map[string]string{"Authorization": "old"}, Expose: "all"}
-	_, data := newMCPServerForm(existing, false)
+	data := newMCPServerFormData(existing, false)
 	data.Headers = "Authorization=visible"
-	if _, err := serverFromMCPForm(data, existing, false); err == nil || !strings.Contains(err.Error(), "masked JSON") {
+	if _, err := serverFromMCPForm(&data, existing, false); err == nil || !strings.Contains(err.Error(), "masked JSON") {
 		t.Fatalf("sensitive plaintext error=%v", err)
 	}
 	data.Headers = "X-Mode=read"
 	data.SensitiveHeaders = `{"X-Unsafe":"value"}`
-	if _, err := serverFromMCPForm(data, existing, false); err == nil || !strings.Contains(err.Error(), "regular assignments") {
+	if _, err := serverFromMCPForm(&data, existing, false); err == nil || !strings.Contains(err.Error(), "regular assignments") {
 		t.Fatalf("non-sensitive masked error=%v", err)
 	}
 	data.SensitiveHeaders = `{}`
-	server, err := serverFromMCPForm(data, existing, false)
+	server, err := serverFromMCPForm(&data, existing, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +83,7 @@ func TestMCPServerFormSeparatesSensitiveAssignments(t *testing.T) {
 }
 
 func TestMCPServerFormPreservesInactiveTransportDraftValues(t *testing.T) {
-	_, data := newMCPServerForm(upstream.Server{}, true)
+	data := newMCPServerFormData(upstream.Server{}, true)
 	data.ID = "mixed"
 	data.Name = "Mixed"
 	data.Transport = "stdio"
@@ -91,7 +95,7 @@ func TestMCPServerFormPreservesInactiveTransportDraftValues(t *testing.T) {
 	data.Headers = "X-Inactive=kept"
 	data.BearerTokenEnvVar = "MCP_TOKEN"
 	data.AuthType = "none"
-	server, err := serverFromMCPForm(data, upstream.Server{}, true)
+	server, err := serverFromMCPForm(&data, upstream.Server{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,11 +104,27 @@ func TestMCPServerFormPreservesInactiveTransportDraftValues(t *testing.T) {
 	}
 	data.Transport = "http"
 	data.AuthType = "auto"
-	server, err = serverFromMCPForm(data, upstream.Server{}, true)
+	server, err = serverFromMCPForm(&data, upstream.Server{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if server.Transport != "http" || server.URL != "https://inactive.example/mcp" || server.Command != "node" || len(server.Args) != 1 || server.Args[0] != "server.js" || server.Env["MODE"] != "dev" {
 		t.Fatalf("inactive stdio draft was lost: %#v", server)
 	}
+}
+
+func TestMCPServerEditorStdioWorkingDirectoryUsesPathPickerFallback(t *testing.T) {
+	value := "/tmp/project"
+	field := newMCPWorkingDirectoryField(&value)
+	if field.Mode() != component.PathFieldPicker || field.GetValue() != value {
+		t.Fatalf("working directory mode=%d value=%v", field.Mode(), field.GetValue())
+	}
+	field.WithWidth(48)
+	plain := ansi.Strip(field.View())
+	for _, want := range []string{"Working directory", "picker · ctrl+o switch"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("stdio path field missing %q: %q", want, plain)
+		}
+	}
+	testutil.AssertLinesFit(t, field.View(), 48)
 }

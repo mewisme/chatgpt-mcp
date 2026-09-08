@@ -17,6 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
+	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -59,6 +60,39 @@ func TestModelMCPCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 	}
 	if !strings.Contains(ansi.Strip(model.View().Content), "Discard changes?") {
 		t.Fatal("dirty MCP create navigation did not render discard guard")
+	}
+}
+
+func TestModelMCPOAuthEditorDeepLinkUsesDirtyNavigationGuard(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	manager := upstream.NewManager(upstream.NewStore(upstream.Path()))
+	if err := manager.Add(upstream.Server{ID: "secure", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth"}, Expose: "all"}); err != nil {
+		t.Fatal(err)
+	}
+	route := Route{Kind: RouteMCP, ResourceID: "secure", Section: "oauth", Action: "login"}
+	model := NewModel(route)
+	_ = model.currentPage.Init()
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model = updated.(Model)
+	if model.currentPage == nil || model.currentPage.OverlayActive() || !model.currentPage.InputActive() {
+		t.Fatalf("OAuth deep link page=%v overlay=%t input=%t", model.currentPage != nil, model.currentPage != nil && model.currentPage.OverlayActive(), model.currentPage != nil && model.currentPage.InputActive())
+	}
+	if got := ansi.Strip(model.View().Content); !strings.Contains(got, "Authorize MCP Server · secure") {
+		t.Fatalf("OAuth deep link view=%q", got)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'i', Text: "https://issuer.example"})
+	model = updated.(Model)
+	guard, ok := model.currentPage.(tuipage.NavigationGuardModel)
+	if !ok || !guard.Dirty() {
+		t.Fatalf("OAuth guard=%t dirty=%t", ok, ok && guard.Dirty())
+	}
+	updated, cmd := model.Update(navigateMsg{route: Route{Kind: RouteAbout}, sibling: true})
+	model = updated.(Model)
+	if cmd != nil || model.pendingNavigation == nil || model.router.Current() != route {
+		t.Fatalf("dirty OAuth editor escaped: route=%#v pending=%v cmd=%v", model.router.Current(), model.pendingNavigation != nil, cmd != nil)
 	}
 }
 
@@ -142,7 +176,7 @@ func TestEditorRouteCompatibilityCmdPreservesLegacyFormEntryPoints(t *testing.T)
 			t.Fatalf("compatibility %#v=%#v want %#v", test.route, got, test.want)
 		}
 	}
-	for _, route := range []Route{{Kind: RouteWorkspaces, Action: "register"}, {Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}, {Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}, {Kind: RouteMCP, Action: "create"}, {Kind: RouteMCP, ResourceID: "github", Action: "edit"}} {
+	for _, route := range []Route{{Kind: RouteWorkspaces, Action: "register"}, {Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}, {Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}, {Kind: RouteMCP, Action: "create"}, {Kind: RouteMCP, ResourceID: "github", Action: "edit"}, {Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}} {
 		if cmd := editorRouteCompatibilityCmd(route); cmd != nil {
 			t.Fatalf("migrated workspace route unexpectedly produced compatibility command: %#v", route)
 		}

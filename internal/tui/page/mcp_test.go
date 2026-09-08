@@ -335,9 +335,23 @@ func TestMCPPageToolRefreshIsCancellable(t *testing.T) {
 
 func TestMCPPageOAuthEmitsURLStoresCredentialAndLogoutPreservesServer(t *testing.T) {
 	client := &mcpPageClient{tools: []upstream.Tool{{Name: "read"}}}
-	page, manager, oauthStore, _ := newMCPPageTestHarness(t, client)
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, client)
 	if err := manager.Add(upstream.Server{ID: "secure", Name: "Secure", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth", Scope: "read"}, Expose: "all"}); err != nil {
 		t.Fatal(err)
+	}
+	page, err := newMCPRoutePageAction(t.Context(), "secure", "oauth", "login", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	view := ansi.Strip(page.View(100, 28))
+	for _, want := range []string{"Authorize MCP Server · secure", "Open authorization URL in browser", "ctrl+s authorize"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("OAuth editor missing %q: %q", want, view)
+		}
+	}
+	if page.OverlayActive() || page.oauthForm == nil || !page.oauthForm.OpenBrowser {
+		t.Fatalf("OAuth editor overlay=%t data=%#v", page.OverlayActive(), page.oauthForm)
 	}
 	opened := make(chan string, 1)
 	page.openBrowser = func(raw string) error {
@@ -354,13 +368,10 @@ func TestMCPPageOAuthEmitsURLStoresCredentialAndLogoutPreservesServer(t *testing
 		}
 		return credential, nil
 	}
-	if _, err := page.openCommand(MCPAuthLogin, "secure"); err != nil {
-		t.Fatal(err)
-	}
-	page.oauthForm.OpenBrowser = true
-	cmd := page.submitForm()
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
+	page = updated.(*MCPPage)
 	if cmd == nil || page.overlay != mcpOverlayOperation {
-		t.Fatalf("oauth cmd=%v overlay=%d", cmd, page.overlay)
+		t.Fatalf("OAuth submit cmd=%v overlay=%d", cmd != nil, page.overlay)
 	}
 	updated, next := page.Update(cmd())
 	page = updated.(*MCPPage)
@@ -373,26 +384,44 @@ func TestMCPPageOAuthEmitsURLStoresCredentialAndLogoutPreservesServer(t *testing
 	if page.operationURL != "https://auth.example/authorize" || openedURL != "https://auth.example/authorize" || next == nil {
 		t.Fatalf("url=%q opened=%q next=%v", page.operationURL, openedURL, next)
 	}
-	updated, health := page.Update(next())
+	updated, finish := page.Update(next())
 	page = updated.(*MCPPage)
-	if health == nil {
-		t.Fatal("OAuth success did not trigger health refresh")
+	if finish == nil || page.OverlayActive() {
+		t.Fatalf("OAuth finish cmd=%v overlay=%t", finish != nil, page.OverlayActive())
 	}
 	if strings.Contains(page.View(120, 32), "access-secret") || strings.Contains(page.View(120, 32), "refresh-secret") {
 		t.Fatal("OAuth token leaked into TUI")
 	}
-	updated, _ = page.Update(health())
-	page = updated.(*MCPPage)
 	status, err := oauthStore.Status("secure")
 	if err != nil || !status.Configured || !status.HasRefreshToken {
 		t.Fatalf("oauth status=%#v err=%v", status, err)
 	}
+	batch, ok := finish().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("OAuth finish message=%T", finish())
+	}
+	foundNavigation := false
+	for _, next := range batch {
+		if next == nil {
+			continue
+		}
+		if navigate, ok := next().(NavigateMsg); ok && strings.Join(navigate.Path, "/") == "mcp/secure/oauth" {
+			foundNavigation = true
+		}
+	}
+	if !foundNavigation {
+		t.Fatal("OAuth success did not navigate to OAuth detail")
+	}
 
-	if _, err := page.openCommand(MCPAuthLogout, "secure"); err != nil {
+	detail, err := newMCPRoutePage(t.Context(), "secure", "oauth", manager, oauthStore)
+	if err != nil {
 		t.Fatal(err)
 	}
-	page.confirm = component.NewConfirmButtons("Logout", "Cancel", true)
-	page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if _, err := detail.openCommand(MCPAuthLogout, "secure"); err != nil {
+		t.Fatal(err)
+	}
+	detail.confirm = component.NewConfirmButtons("Logout", "Cancel", true)
+	detail.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	status, err = oauthStore.Status("secure")
 	if err != nil || status.Configured {
 		t.Fatalf("oauth remained after logout: %#v err=%v", status, err)
@@ -403,20 +432,22 @@ func TestMCPPageOAuthEmitsURLStoresCredentialAndLogoutPreservesServer(t *testing
 }
 
 func TestMCPPageOAuthBrowserFailureDoesNotAbortLogin(t *testing.T) {
-	client := &mcpPageClient{tools: []upstream.Tool{}}
-	page, manager, _, _ := newMCPPageTestHarness(t, client)
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
 	if err := manager.Add(upstream.Server{ID: "secure", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth"}, Expose: "all"}); err != nil {
 		t.Fatal(err)
 	}
+	page, err := newMCPRoutePageAction(t.Context(), "secure", "oauth", "login", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
 	page.openBrowser = func(string) error { return errors.New("no browser") }
 	page.oauthLogin = func(_ context.Context, config mcpoauth.LoginConfig, options mcpoauth.LoginOptions) (mcpoauth.Credential, error) {
 		_ = options.OnURL("https://auth.example/authorize")
 		return mcpoauth.Credential{ServerID: config.ServerID}, nil
 	}
-	if _, err := page.openCommand(MCPAuthLogin, "secure"); err != nil {
-		t.Fatal(err)
-	}
-	cmd := page.submitForm()
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
+	page = updated.(*MCPPage)
 	updated, next := page.Update(cmd())
 	page = updated.(*MCPPage)
 	if next == nil {
@@ -426,6 +457,44 @@ func TestMCPPageOAuthBrowserFailureDoesNotAbortLogin(t *testing.T) {
 	page = updated.(*MCPPage)
 	if !strings.Contains(page.notice, "no browser") || next == nil {
 		t.Fatalf("browser failure notice=%q next=%v", page.notice, next)
+	}
+	updated, finish := page.Update(next())
+	page = updated.(*MCPPage)
+	if finish == nil || page.OverlayActive() {
+		t.Fatalf("browser failure aborted OAuth finish=%v overlay=%t", finish != nil, page.OverlayActive())
+	}
+}
+
+func TestMCPOAuthFailureKeepsEditorDraft(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	if err := manager.Add(upstream.Server{ID: "secure", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth"}, Expose: "all"}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := newMCPRoutePageAction(t.Context(), "secure", "oauth", "login", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	updated, _ := page.Update(tea.KeyPressMsg{Code: 'i', Text: "https://issuer.example"})
+	page = updated.(*MCPPage)
+	if page.oauthForm.Issuer != "https://issuer.example" || !page.Dirty() {
+		t.Fatalf("OAuth draft=%#v dirty=%t", page.oauthForm, page.Dirty())
+	}
+	page.oauthLogin = func(context.Context, mcpoauth.LoginConfig, mcpoauth.LoginOptions) (mcpoauth.Credential, error) {
+		return mcpoauth.Credential{}, errors.New("authorization failed")
+	}
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
+	page = updated.(*MCPPage)
+	if cmd == nil || page.overlay != mcpOverlayOperation {
+		t.Fatalf("OAuth failure submit cmd=%v overlay=%d", cmd != nil, page.overlay)
+	}
+	updated, _ = page.Update(cmd())
+	page = updated.(*MCPPage)
+	if page.OverlayActive() || page.oauthForm == nil || page.oauthForm.Issuer != "https://issuer.example" || !page.Dirty() {
+		t.Fatalf("OAuth failure lost draft overlay=%t draft=%#v dirty=%t", page.OverlayActive(), page.oauthForm, page.Dirty())
+	}
+	if plain := ansi.Strip(page.View(90, 26)); !strings.Contains(plain, "authorization failed") {
+		t.Fatalf("OAuth failure feedback missing: %q", plain)
 	}
 }
 

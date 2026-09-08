@@ -47,37 +47,7 @@ type mcpOAuthFormData struct {
 }
 
 func newMCPServerForm(server upstream.Server, create bool) (component.Form, *mcpServerFormData) {
-	data := mcpServerFormData{
-		ID: server.ID, Name: server.Name, Transport: server.Transport, Enabled: server.Enabled, URL: server.URL,
-		BearerTokenEnvVar: server.BearerTokenEnvVar, AuthType: server.Auth.Type, AuthScope: server.Auth.Scope,
-		Command: server.Command, Args: strings.Join(server.Args, "\n"), CWD: server.CWD,
-		ToolPrefix: server.ToolPrefix, Expose: server.Expose, Tools: strings.Join(server.Tools, "\n"), DisabledTools: strings.Join(server.DisabledTools, "\n"),
-		existingHeaders: upstream.CloneStringMap(server.Headers), existingEnv: upstream.CloneStringMap(server.Env),
-	}
-	if create {
-		data.Enabled = true
-		if data.Transport == "" {
-			data.Transport = "http"
-		}
-		if data.Expose == "" {
-			data.Expose = "all"
-		}
-	}
-	if data.AuthType == "" {
-		if data.Transport == "http" {
-			data.AuthType = "auto"
-		} else {
-			data.AuthType = "none"
-		}
-	}
-	if server.IdleTimeoutSec > 0 {
-		data.IdleTimeout = strconv.Itoa(server.IdleTimeoutSec)
-	} else {
-		data.IdleTimeout = "600"
-	}
-	data.Headers = assignmentText(nonSensitiveMap(server.Headers))
-	data.Env = assignmentText(nonSensitiveMap(server.Env))
-
+	data := newMCPServerFormData(server, create)
 	general := []component.FormGroup{}
 	fields := []huh.Field{}
 	if create {
@@ -116,6 +86,90 @@ func newMCPServerForm(server upstream.Server, create bool) (component.Form, *mcp
 	)
 	groups := append(general, httpGroup, stdioGroup, policyGroup)
 	return component.NewForm(groups...), &data
+}
+
+func newMCPServerFormData(server upstream.Server, create bool) mcpServerFormData {
+	data := mcpServerFormData{
+		ID: server.ID, Name: server.Name, Transport: server.Transport, Enabled: server.Enabled, URL: server.URL,
+		BearerTokenEnvVar: server.BearerTokenEnvVar, AuthType: server.Auth.Type, AuthScope: server.Auth.Scope,
+		Command: server.Command, Args: strings.Join(server.Args, "\n"), CWD: server.CWD,
+		ToolPrefix: server.ToolPrefix, Expose: server.Expose, Tools: strings.Join(server.Tools, "\n"), DisabledTools: strings.Join(server.DisabledTools, "\n"),
+		existingHeaders: upstream.CloneStringMap(server.Headers), existingEnv: upstream.CloneStringMap(server.Env),
+	}
+	if create {
+		data.Enabled = true
+		if data.Transport == "" {
+			data.Transport = "http"
+		}
+		if data.Expose == "" {
+			data.Expose = "all"
+		}
+	}
+	if data.AuthType == "" {
+		if data.Transport == "http" {
+			data.AuthType = "auto"
+		} else {
+			data.AuthType = "none"
+		}
+	}
+	if server.IdleTimeoutSec > 0 {
+		data.IdleTimeout = strconv.Itoa(server.IdleTimeoutSec)
+	} else {
+		data.IdleTimeout = "600"
+	}
+	data.Headers = assignmentText(nonSensitiveMap(server.Headers))
+	data.Env = assignmentText(nonSensitiveMap(server.Env))
+	return data
+}
+
+func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, *mcpServerFormData) {
+	data := newMCPServerFormData(server, create)
+	generalFields := []huh.Field{}
+	if create {
+		generalFields = append(generalFields, component.Input("Server ID", &data.ID).Validate(requiredValue("server id")))
+	}
+	generalFields = append(generalFields,
+		component.Input("Display name", &data.Name),
+		component.Select("Transport", &data.Transport, huh.NewOption("HTTP", "http"), huh.NewOption("stdio", "stdio")),
+		component.Switch("Enabled", &data.Enabled),
+	)
+	connection := component.NewEditorForm(
+		component.Group(
+			component.Input("HTTP MCP URL", &data.URL),
+			component.Text("Non-sensitive headers (KEY=VALUE, one per line)", &data.Headers),
+			component.PasswordInput("Sensitive headers JSON", &data.SensitiveHeaders).Description(`Optional JSON object. Blank keeps existing sensitive headers.`),
+			component.Input("Bearer token environment variable", &data.BearerTokenEnvVar),
+		).WithHideFunc(func() bool { return data.Transport != "http" }),
+		component.Group(
+			component.Input("Command", &data.Command),
+			component.Text("Arguments (one per line)", &data.Args),
+			component.Input("Working directory", &data.CWD),
+			component.Text("Non-sensitive environment (KEY=VALUE, one per line)", &data.Env),
+			component.PasswordInput("Sensitive environment JSON", &data.SensitiveEnv).Description(`Optional JSON object. Blank keeps existing sensitive environment values.`),
+		).WithHideFunc(func() bool { return data.Transport != "stdio" }),
+	)
+	authentication := component.NewEditorForm(component.Group(
+		component.Select("Auth mode", &data.AuthType, huh.NewOption("Auto", "auto"), huh.NewOption("OAuth", "oauth"), huh.NewOption("None", "none")),
+		component.Input("OAuth scope", &data.AuthScope),
+	))
+	tools := component.NewEditorForm(component.Group(
+		component.Input("Tool prefix", &data.ToolPrefix),
+		component.Select("Expose", &data.Expose, huh.NewOption("All", "all"), huh.NewOption("Allowlist", "allowlist"), huh.NewOption("Metadata only", "meta_only"), huh.NewOption("None", "none")),
+		component.Text("Allowlisted tools (one per line)", &data.Tools),
+		component.Text("Disabled tools (one per line)", &data.DisabledTools),
+		component.Input("Idle timeout (seconds)", &data.IdleTimeout).Validate(validatePositiveInt("idle timeout")),
+	))
+	primary := "save"
+	if create {
+		primary = "create"
+	}
+	editor := component.NewEditor(primary,
+		component.EditorSection{ID: "general", Title: "General", Description: "Identity, transport, and availability.", Form: component.NewEditorForm(component.Group(generalFields...))},
+		component.EditorSection{ID: "connection", Title: "Connection", Description: "HTTP connection or stdio process settings. Inactive transport values are preserved.", Form: connection},
+		component.EditorSection{ID: "authentication", Title: "Authentication", Description: "HTTP authentication settings. stdio servers keep these values inactive.", Form: authentication},
+		component.EditorSection{ID: "tools", Title: "Tools", Description: "Tool naming, exposure policy, allowlists, and idle timeout.", Form: tools},
+	)
+	return editor, &data
 }
 
 func newMCPOAuthForm() (component.Form, *mcpOAuthFormData) {

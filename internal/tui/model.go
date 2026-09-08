@@ -914,7 +914,11 @@ func (model *Model) loadPage(route Route) {
 	case RouteContainers:
 		value, err = tuipage.NewContainersRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteMCP:
-		value, err = tuipage.NewMCPRoute(model.ctx, route.ResourceID, route.Section)
+		if route.Action == "create" || route.Action == "edit" {
+			value, err = tuipage.NewMCPRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
+		} else {
+			value, err = tuipage.NewMCPRoute(model.ctx, route.ResourceID, route.Section)
+		}
 	case RouteTunnel:
 		value, err = tuipage.NewTunnelDashboard(model.ctx)
 	case RouteTunnels:
@@ -993,12 +997,7 @@ func editorRouteCompatibilityCmd(route Route) tea.Cmd {
 	var message tea.Msg
 	switch route.Kind {
 	case RouteMCP:
-		switch {
-		case route.Action == "create":
-			message = tuipage.MCPCommandMsg{Command: tuipage.MCPServerAdd}
-		case route.Action == "edit":
-			message = tuipage.MCPCommandMsg{Command: tuipage.MCPServerConfigure, ResourceID: route.ResourceID}
-		case route.Section == "oauth" && route.Action == "login":
+		if route.Section == "oauth" && route.Action == "login" {
 			message = tuipage.MCPCommandMsg{Command: tuipage.MCPAuthLogin, ResourceID: route.ResourceID}
 		}
 	case RouteTunnel:

@@ -77,3 +77,34 @@ func TestMCPServerFormSeparatesSensitiveAssignments(t *testing.T) {
 		t.Fatalf("empty sensitive JSON did not remove existing secret: %#v", server.Headers)
 	}
 }
+
+func TestMCPServerFormPreservesInactiveTransportDraftValues(t *testing.T) {
+	_, data := newMCPServerForm(upstream.Server{}, true)
+	data.ID = "mixed"
+	data.Name = "Mixed"
+	data.Transport = "stdio"
+	data.Command = "node"
+	data.Args = "server.js"
+	data.CWD = "/tmp/project"
+	data.Env = "MODE=dev"
+	data.URL = "https://inactive.example/mcp"
+	data.Headers = "X-Inactive=kept"
+	data.BearerTokenEnvVar = "MCP_TOKEN"
+	data.AuthType = "none"
+	server, err := serverFromMCPForm(data, upstream.Server{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Transport != "stdio" || server.Command != "node" || server.URL != "https://inactive.example/mcp" || server.Headers["X-Inactive"] != "kept" || server.BearerTokenEnvVar != "MCP_TOKEN" {
+		t.Fatalf("inactive HTTP draft was lost: %#v", server)
+	}
+	data.Transport = "http"
+	data.AuthType = "auto"
+	server, err = serverFromMCPForm(data, upstream.Server{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Transport != "http" || server.URL != "https://inactive.example/mcp" || server.Command != "node" || len(server.Args) != 1 || server.Args[0] != "server.js" || server.Env["MODE"] != "dev" {
+		t.Fatalf("inactive stdio draft was lost: %#v", server)
+	}
+}

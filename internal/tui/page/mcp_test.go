@@ -11,9 +11,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	"github.com/charmbracelet/x/ansi"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
@@ -131,28 +133,57 @@ func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
 	}
 }
 
-func TestMCPPageServerLifecycleAndSecretRedaction(t *testing.T) {
-	page, manager, _, store := newMCPPageTestHarness(t, &mcpPageClient{})
-	if _, err := page.openCommand(MCPServerAdd, ""); err != nil {
+func TestMCPRoutedServerEditorsAndSecretRedaction(t *testing.T) {
+	_, manager, oauthStore, store := newMCPPageTestHarness(t, &mcpPageClient{})
+	create, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
 		t.Fatal(err)
 	}
-	page.serverForm.ID = "docs"
-	page.serverForm.Name = "Docs"
-	page.serverForm.Transport = "http"
-	page.serverForm.URL = "https://example.test/mcp"
-	page.serverForm.Headers = "X-Mode=read"
-	page.serverForm.SensitiveHeaders = `{"Authorization":"Bearer top-secret"}`
-	page.serverForm.AuthType = "none"
-	page.serverForm.Expose = "allowlist"
-	page.serverForm.Tools = "read"
-	page.serverForm.IdleTimeout = "30"
-	navigate := page.submitServerForm()
-	if navigate == nil {
-		t.Fatal("server add returned no navigation command")
+	_ = create.Init()
+	updated, _ := create.Update(tea.WindowSizeMsg{Width: 100, Height: 28})
+	create = updated.(*MCPPage)
+	if create.editor == nil || create.OverlayActive() || !create.InputActive() || create.Dirty() {
+		t.Fatalf("create editor=%v overlay=%t input=%t dirty=%t", create.editor != nil, create.OverlayActive(), create.InputActive(), create.Dirty())
+	}
+	view := ansi.Strip(create.View(100, 28))
+	for _, want := range []string{"Create MCP Server", "General", "Connection", "Authentication", "Tools", "ctrl+s create"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("create editor missing %q: %q", want, view)
+		}
+	}
+	testutil.AssertLinesFit(t, create.View(40, 18), 40)
+	updated, _ = create.Update(tea.KeyPressMsg{Code: 'd', Text: "docs"})
+	create = updated.(*MCPPage)
+	updated, _ = create.Update(huh.NextField())
+	create = updated.(*MCPPage)
+	updated, _ = create.Update(tea.KeyPressMsg{Code: 'D', Text: "Docs"})
+	create = updated.(*MCPPage)
+	updated, _ = create.Update(huh.NextField())
+	create = updated.(*MCPPage)
+	updated, _ = create.Update(huh.NextField())
+	create = updated.(*MCPPage)
+	updated, _ = create.Update(huh.NextField())
+	create = updated.(*MCPPage)
+	updated, _ = create.Update(tea.KeyPressMsg{Code: 'h', Text: "https://example.test/mcp"})
+	create = updated.(*MCPPage)
+	if create.serverForm.ID != "docs" || create.serverForm.Transport != "http" || create.serverForm.URL != "https://example.test/mcp" || !create.Dirty() {
+		t.Fatalf("create draft=%#v dirty=%t", create.serverForm, create.Dirty())
+	}
+	updated, submit := create.Update(component.EditorSubmitMsg{})
+	create = updated.(*MCPPage)
+	if submit == nil || create.Dirty() {
+		t.Fatalf("create submit=%v dirty=%t", submit != nil, create.Dirty())
 	}
 	server, ok := manager.Get("docs")
-	if !ok || server.Headers["Authorization"] != "Bearer top-secret" || server.Expose != "allowlist" {
-		t.Fatalf("server=%#v ok=%t", server, ok)
+	if !ok || server.Transport != "http" || server.URL != "https://example.test/mcp" || server.Name != "Docs" {
+		t.Fatalf("created server=%#v ok=%t", server, ok)
+	}
+
+	server.Headers = map[string]string{"Authorization": "Bearer top-secret", "X-Mode": "read"}
+	server.Expose = "allowlist"
+	server.Tools = []string{"read"}
+	if err := manager.Add(server); err != nil {
+		t.Fatal(err)
 	}
 	data, err := os.ReadFile(store.Path)
 	if err != nil {
@@ -161,50 +192,51 @@ func TestMCPPageServerLifecycleAndSecretRedaction(t *testing.T) {
 	if strings.Contains(string(data), "top-secret") {
 		t.Fatalf("secret leaked to upstream store: %s", data)
 	}
-
-	page.resourceID = "docs"
-	if err := page.reload(); err != nil {
+	edit, err := newMCPRoutePageAction(t.Context(), "docs", "", "edit", manager, oauthStore)
+	if err != nil {
 		t.Fatal(err)
 	}
-	view := page.View(120, 32)
-	if strings.Contains(view, "top-secret") {
-		t.Fatalf("secret leaked to TUI: %q", view)
+	_ = edit.Init()
+	editView := edit.View(120, 32)
+	if strings.Contains(editView, "top-secret") {
+		t.Fatalf("secret leaked to editor: %q", editView)
 	}
-	if !strings.Contains(view, "<redacted>") {
-		t.Fatalf("redaction marker missing from TUI: %q", view)
+	_, save := edit.Update(component.EditorSubmitMsg{})
+	if save == nil {
+		t.Fatal("edit submit returned no navigation command")
 	}
-
-	if _, err := page.openCommand(MCPServerConfigure, "docs"); err != nil {
-		t.Fatal(err)
-	}
-	page.serverForm.Name = "Docs Renamed"
-	page.serverForm.Expose = "all"
-	page.submitServerForm()
 	server, _ = manager.Get("docs")
-	if server.Name != "Docs Renamed" || server.Expose != "all" || server.Headers["Authorization"] != "Bearer top-secret" {
-		t.Fatalf("configured server=%#v", server)
+	if server.Headers["Authorization"] != "Bearer top-secret" || server.Expose != "allowlist" {
+		t.Fatalf("edit did not preserve server state: %#v", server)
 	}
 
-	if _, err := page.openCommand(MCPServerDisable, "docs"); err != nil {
+	detail, err := newMCPRoutePage(t.Context(), "docs", "", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view = detail.View(120, 32)
+	if strings.Contains(view, "top-secret") || !strings.Contains(view, "<redacted>") {
+		t.Fatalf("detail secret redaction=%q", view)
+	}
+	if _, err := detail.openCommand(MCPServerDisable, "docs"); err != nil {
 		t.Fatal(err)
 	}
 	server, _ = manager.Get("docs")
 	if server.Enabled {
 		t.Fatal("server remained enabled")
 	}
-	if _, err := page.openCommand(MCPServerEnable, "docs"); err != nil {
+	if _, err := detail.openCommand(MCPServerEnable, "docs"); err != nil {
 		t.Fatal(err)
 	}
 	server, _ = manager.Get("docs")
 	if !server.Enabled {
 		t.Fatal("server remained disabled")
 	}
-
-	if _, err := page.openCommand(MCPServerRemove, "docs"); err != nil {
+	if _, err := detail.openCommand(MCPServerRemove, "docs"); err != nil {
 		t.Fatal(err)
 	}
-	page.confirm = component.NewConfirmButtons("Remove", "Cancel", true)
-	page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	detail.confirm = component.NewConfirmButtons("Remove", "Cancel", true)
+	detail.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if _, ok := manager.Get("docs"); ok {
 		t.Fatal("server remained after confirmed removal")
 	}
@@ -393,5 +425,105 @@ func TestMCPPageOAuthBrowserFailureDoesNotAbortLogin(t *testing.T) {
 	page = updated.(*MCPPage)
 	if !strings.Contains(page.notice, "no browser") || next == nil {
 		t.Fatalf("browser failure notice=%q next=%v", page.notice, next)
+	}
+}
+
+func TestMCPCreateEditorValidationFailureKeepsDraft(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	updated, _ := page.Update(tea.KeyPressMsg{Code: 'd', Text: "docs"})
+	page = updated.(*MCPPage)
+	for range 3 {
+		updated, _ = page.Update(huh.NextField())
+		page = updated.(*MCPPage)
+	}
+	updated, _ = page.Update(huh.NextField())
+	page = updated.(*MCPPage)
+	updated, _ = page.Update(tea.KeyPressMsg{Code: 'h', Text: "https://example.test/mcp"})
+	page = updated.(*MCPPage)
+	updated, _ = page.Update(huh.NextField())
+	page = updated.(*MCPPage)
+	updated, _ = page.Update(huh.NextField())
+	page = updated.(*MCPPage)
+	updated, _ = page.Update(tea.KeyPressMsg{Code: '{', Text: "{"})
+	page = updated.(*MCPPage)
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
+	page = updated.(*MCPPage)
+	if cmd != nil || page.editor == nil || !page.Dirty() || page.serverForm.ID != "docs" || page.serverForm.SensitiveHeaders != "{" {
+		t.Fatalf("validation failure cmd=%v editor=%v dirty=%t draft=%#v", cmd != nil, page.editor != nil, page.Dirty(), page.serverForm)
+	}
+	plain := ansi.Strip(page.View(80, 24))
+	if !strings.Contains(plain, "decode sensitive header JSON") {
+		t.Fatalf("validation feedback missing: %q", plain)
+	}
+	if _, ok := manager.Get("docs"); ok {
+		t.Fatal("invalid draft created a server")
+	}
+}
+
+func TestMCPCreateEditorExistingIDFailureKeepsDraft(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	if err := manager.Add(upstream.Server{ID: "docs", Name: "Existing", Transport: "http", URL: "https://old.example/mcp", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	updated, _ := page.Update(tea.KeyPressMsg{Code: 'd', Text: "docs"})
+	page = updated.(*MCPPage)
+	for range 4 {
+		updated, _ = page.Update(huh.NextField())
+		page = updated.(*MCPPage)
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: 'h', Text: "https://new.example/mcp"})
+	page = updated.(*MCPPage)
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
+	page = updated.(*MCPPage)
+	if cmd != nil || page.editor == nil || !page.Dirty() || page.serverForm.ID != "docs" || page.serverForm.URL != "https://new.example/mcp" {
+		t.Fatalf("existing-ID failure cmd=%v editor=%v dirty=%t draft=%#v", cmd != nil, page.editor != nil, page.Dirty(), page.serverForm)
+	}
+	if plain := ansi.Strip(page.View(80, 24)); !strings.Contains(plain, "upstream server already exists: docs") {
+		t.Fatalf("existing-ID feedback missing: %q", plain)
+	}
+	stored, _ := manager.Get("docs")
+	if stored.URL != "https://old.example/mcp" || stored.Name != "Existing" {
+		t.Fatalf("existing server mutated: %#v", stored)
+	}
+}
+
+func TestMCPServerEditorCancelReturnsToParent(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	create, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cmd := create.Update(component.EditorCancelMsg{})
+	if cmd == nil {
+		t.Fatal("create cancel returned no navigation")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "mcp" {
+		t.Fatalf("create cancel=%#v", message)
+	}
+	if err := manager.Add(upstream.Server{ID: "docs", Transport: "http", URL: "https://example.test/mcp", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	edit, err := newMCPRoutePageAction(t.Context(), "docs", "", "edit", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cmd = edit.Update(component.EditorCancelMsg{})
+	if cmd == nil {
+		t.Fatal("edit cancel returned no navigation")
+	}
+	message, ok = cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "mcp/docs" {
+		t.Fatalf("edit cancel=%#v", message)
 	}
 }

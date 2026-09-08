@@ -33,6 +33,35 @@ func TestModelWorkspaceContextSessionsAreScopedAndStable(t *testing.T) {
 	}
 }
 
+func TestModelMCPCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	route := Route{Kind: RouteMCP, Action: "create"}
+	model := NewModel(route)
+	_ = model.currentPage.Init()
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model = updated.(Model)
+	if model.currentPage.OverlayActive() || !model.currentPage.InputActive() {
+		t.Fatalf("MCP create overlay=%t input=%t", model.currentPage.OverlayActive(), model.currentPage.InputActive())
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'd', Text: "draft"})
+	model = updated.(Model)
+	guard, ok := model.currentPage.(tuipage.NavigationGuardModel)
+	if !ok || !guard.Dirty() {
+		t.Fatalf("MCP create guard=%t dirty=%t", ok, ok && guard.Dirty())
+	}
+	updated, cmd := model.Update(navigateMsg{route: Route{Kind: RouteAbout}, sibling: true})
+	model = updated.(Model)
+	if cmd != nil || model.pendingNavigation == nil || model.router.Current() != route {
+		t.Fatalf("dirty MCP create escaped: route=%#v pending=%v cmd=%v", model.router.Current(), model.pendingNavigation != nil, cmd != nil)
+	}
+	if !strings.Contains(ansi.Strip(model.View().Content), "Discard changes?") {
+		t.Fatal("dirty MCP create navigation did not render discard guard")
+	}
+}
+
 func TestModelWorkspaceProjectContextUsesDirtyNavigationGuard(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
@@ -97,7 +126,6 @@ func TestEditorRouteCompatibilityCmdPreservesLegacyFormEntryPoints(t *testing.T)
 		route Route
 		want  tea.Msg
 	}{
-		{Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}, tuipage.MCPCommandMsg{Command: tuipage.MCPServerConfigure, ResourceID: "github"}},
 		{Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}, tuipage.TunnelCommandMsg{Command: tuipage.TunnelAdminKeySet}},
 		{Route{Kind: RouteTunnels, ResourceID: "tun_1", Action: "configure"}, tuipage.TunnelCommandMsg{Command: tuipage.TunnelManagedConfigure, ResourceID: "tun_1"}},
 		{Route{Kind: RouteConfig, Section: "storage", Action: "import"}, tuipage.ConfigCommandMsg{Command: tuipage.ConfigImport}},
@@ -114,7 +142,7 @@ func TestEditorRouteCompatibilityCmdPreservesLegacyFormEntryPoints(t *testing.T)
 			t.Fatalf("compatibility %#v=%#v want %#v", test.route, got, test.want)
 		}
 	}
-	for _, route := range []Route{{Kind: RouteWorkspaces, Action: "register"}, {Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}, {Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}} {
+	for _, route := range []Route{{Kind: RouteWorkspaces, Action: "register"}, {Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}, {Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}, {Kind: RouteMCP, Action: "create"}, {Kind: RouteMCP, ResourceID: "github", Action: "edit"}} {
 		if cmd := editorRouteCompatibilityCmd(route); cmd != nil {
 			t.Fatalf("migrated workspace route unexpectedly produced compatibility command: %#v", route)
 		}

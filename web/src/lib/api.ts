@@ -342,6 +342,15 @@ export type TunnelMetadata = {
   request_id?: string
   fetched_at: string
 }
+export type ManagedTunnelUseRequest = {
+  id: string
+  runtime_api_key?: string
+  enable?: boolean
+}
+export type ManagedTunnelUseResult = {
+  metadata: TunnelMetadata
+  status: TunnelStatus
+}
 export type TunnelStatus = {
   provider: "openai" | string
   enabled: boolean
@@ -592,6 +601,12 @@ export const adminApi = {
     api<TunnelAdminKeyStatus>("/api/tunnel/admin/key", { method: "POST" }),
   removeTunnelAdminKey: () =>
     api<TunnelAdminKeyStatus>("/api/tunnel/admin/key", { method: "DELETE" }),
+  managedTunnels: () => api<TunnelMetadata[]>("/api/tunnel/managed"),
+  useManagedTunnel: (request: ManagedTunnelUseRequest) =>
+    api<ManagedTunnelUseResult>("/api/tunnel/managed/use", {
+      method: "POST",
+      body: JSON.stringify(request),
+    }),
   startTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "POST" }),
   stopTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "DELETE" }),
   approvalRequests: (status = "pending", workspaceID = "") => {

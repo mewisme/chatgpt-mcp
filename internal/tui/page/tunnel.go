@@ -500,6 +500,17 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		cmd, err := page.openCommand(TunnelManagedCreate, "")
 		page.err = err
 		return cmd, true
+	case "u":
+		if page.resourceID != "" {
+			return nil, false
+		}
+		row, ok := page.browser.Selected()
+		if !ok || strings.TrimSpace(row.ID) == "" {
+			return nil, true
+		}
+		cmd, err := page.openCommand(TunnelManagedConfigure, row.ID)
+		page.err = err
+		return cmd, true
 	}
 	return nil, false
 }
@@ -721,7 +732,7 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 	case TunnelManagedConfigure:
 		page.upsertMetadata(msg.result.Metadata)
 		_ = page.reloadManagedBrowser()
-		page.notice = "Managed tunnel configured for runtime"
+		page.notice = "Managed tunnel selected for runtime"
 		if page.editor != nil && page.action == "configure" {
 			page.acceptManagedConfigureSuccess()
 			return page.managedEditorSuccess(page.notice, msg.result.Metadata.ID)
@@ -774,7 +785,7 @@ func (page *TunnelPage) reloadManagedBrowser() error {
 	}
 	helpExpanded := page.browser.HelpExpanded()
 	rows := page.managedRows()
-	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"a"}, "a", "add"))
+	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(component.Binding([]string{"u"}, "u", "use"), component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"a"}, "a", "add"))
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
@@ -832,7 +843,7 @@ func (page *TunnelPage) syncManagedDetail() error {
 	bindings = append(bindings,
 		component.DetailPageBinding{Key: "r", Desc: "refresh", Message: TunnelCommandMsg{Command: TunnelManagedRefresh, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "e", Desc: "update", Message: TunnelCommandMsg{Command: TunnelManagedUpdate, ResourceID: item.ID}},
-		component.DetailPageBinding{Key: "c", Desc: "configure", Message: TunnelCommandMsg{Command: TunnelManagedConfigure, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "u", Desc: "use", Message: TunnelCommandMsg{Command: TunnelManagedConfigure, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "d", Desc: "delete", Message: TunnelCommandMsg{Command: TunnelManagedDelete, ResourceID: item.ID}},
 	)
 	page.detail.SetBindings(bindings...)

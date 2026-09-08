@@ -60,6 +60,17 @@ const tunnelStatus: TunnelStatus = {
   },
 }
 
+const managedTunnels = [
+  tunnelStatus.metadata!,
+  {
+    id: "tunnel_two",
+    name: "Secondary tunnel",
+    description: "Secondary ChatGPT bridge",
+    workspace_ids: ["ws_admin"],
+    fetched_at: "2026-09-05T00:02:00Z",
+  },
+]
+
 describe("TunnelPage", () => {
   beforeEach(() => {
     vi.spyOn(adminApi, "tunnelConfig").mockResolvedValue({
@@ -75,6 +86,15 @@ describe("TunnelPage", () => {
       tunnels: 2,
     })
     vi.spyOn(adminApi, "config").mockResolvedValue(publicConfig)
+    vi.spyOn(adminApi, "managedTunnels").mockResolvedValue(managedTunnels)
+    vi.spyOn(adminApi, "useManagedTunnel").mockResolvedValue({
+      metadata: managedTunnels[1],
+      status: {
+        ...tunnelStatus,
+        id: "tunnel_two",
+        metadata: managedTunnels[1],
+      },
+    })
     vi.spyOn(adminApi, "removeTunnelAdminKey").mockResolvedValue({
       configured: false,
       scope: {},
@@ -128,5 +148,24 @@ describe("TunnelPage", () => {
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Stop tunnel" })).toBeDisabled()
     expect(screen.getByRole("switch", { name: "Enable tunnel" })).toBeDisabled()
+  })
+
+  it("loads managed tunnels from admin access and switches the runtime", async () => {
+    const user = userEvent.setup()
+    render(<TunnelPage />)
+
+    await user.click(await screen.findByRole("tab", { name: "Administration" }))
+    expect(await screen.findByText("Secondary tunnel")).toBeInTheDocument()
+    expect(adminApi.managedTunnels).toHaveBeenCalled()
+
+    await user.click(screen.getByRole("button", { name: "Use tunnel" }))
+    await waitFor(() =>
+      expect(adminApi.useManagedTunnel).toHaveBeenCalledWith({
+        id: "tunnel_two",
+      })
+    )
+    expect(
+      await screen.findByText("Using managed tunnel Secondary tunnel.")
+    ).toBeInTheDocument()
   })
 })

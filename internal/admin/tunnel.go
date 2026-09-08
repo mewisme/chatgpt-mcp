@@ -142,6 +142,17 @@ type tunnelAdminKeyStatus struct {
 	Tunnels    int               `json:"tunnels,omitempty"`
 }
 
+type managedTunnelUseRequest struct {
+	ID            string `json:"id"`
+	RuntimeAPIKey string `json:"runtime_api_key,omitempty"`
+	Enable        *bool  `json:"enable,omitempty"`
+}
+
+type managedTunnelUseResult struct {
+	Metadata tunnel.Metadata `json:"metadata"`
+	Status   tunnel.Status   `json:"status"`
+}
+
 func (api API) handleTunnelAdminKey(w http.ResponseWriter, r *http.Request) {
 	if api.Config == nil || api.Tunnel == nil {
 		http.Error(w, "tunnel configuration unavailable", http.StatusServiceUnavailable)
@@ -236,4 +247,104 @@ func (api API) removeTunnelAdminKey() error {
 
 func tunnelAdminStatus(cfg tunnel.Config, count int) tunnelAdminKeyStatus {
 	return tunnelAdminKeyStatus{Configured: tunnel.AdminConfigured(cfg), Scope: tunnel.AdminScopeFromConfig(cfg), Tunnels: count}
+}
+
+func (api API) handleManagedTunnels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if api.Config == nil {
+		http.Error(w, "tunnel configuration unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	cfg := api.Config.Snapshot().Tunnel
+	if !tunnel.AdminConfigured(cfg) {
+		http.Error(w, "verified tunnel admin key is required", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	items, err := tunnel.ListManaged(ctx, cfg, tunnel.AdminScopeFromConfig(cfg))
+	cancel()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	for _, item := range items {
+		if _, err := config.SaveTunnelMetadata(item); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	writeJSON(w, items)
+}
+
+func (api API) handleManagedTunnelUse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if api.Config == nil || api.Tunnel == nil {
+		http.Error(w, "tunnel configuration unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var request managedTunnelUseRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	id := strings.TrimSpace(request.ID)
+	if id == "" {
+		http.Error(w, "managed tunnel id is required", http.StatusBadRequest)
+		return
+	}
+	current := api.Config.Snapshot()
+	if !tunnel.AdminConfigured(current.Tunnel) {
+		http.Error(w, "verified tunnel admin key is required", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	metadata, err := tunnel.GetManaged(ctx, current.Tunnel, id)
+	cancel()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	key := strings.TrimSpace(request.RuntimeAPIKey)
+	if key == "" {
+		key = strings.TrimSpace(current.Tunnel.APIKey)
+	}
+	if key == "" {
+		http.Error(w, "runtime API key is required to use this tunnel", http.StatusBadRequest)
+		return
+	}
+	candidate := current
+	candidate.Tunnel.ID = metadata.ID
+	candidate.Tunnel.APIKey = key
+	if len(metadata.OrganizationIDs) == 1 {
+		candidate.Tunnel.OrganizationID = metadata.OrganizationIDs[0]
+	}
+	if request.Enable != nil {
+		candidate.Tunnel.Enabled = *request.Enable
+	}
+	if err := config.Validate(candidate); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := config.SaveTunnelMetadata(metadata); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, err = api.Config.Update(func(config.Config) (config.Config, error) {
+		if err := api.Tunnel.Reconfigure(candidate.Tunnel, func() error { return api.persistConfig(candidate) }); err != nil {
+			return current, err
+		}
+		return candidate, nil
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = api.Tunnel.SeedMetadata(metadata)
+	writeJSON(w, managedTunnelUseResult{Metadata: metadata, Status: api.tunnelStatus(r.Context())})
 }

@@ -261,6 +261,14 @@ func GetManagedTunnel(ctx context.Context, id string, options ManagedTunnelOptio
 	return ManagedTunnelResult{Metadata: metadata, Configured: configured}, nil
 }
 
+func UseManagedTunnel(ctx context.Context, id, runtimeAPIKey string, enable bool) (ManagedTunnelResult, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ManagedTunnelResult{}, errors.New("managed tunnel id is required")
+	}
+	return GetManagedTunnel(ctx, id, ManagedTunnelOptions{Configure: true, RuntimeAPIKey: runtimeAPIKey, Enable: enable})
+}
+
 func CreateManagedTunnel(ctx context.Context, request tunnel.CreateRequest, options ManagedTunnelOptions) (ManagedTunnelResult, error) {
 	cfg, err := config.Load()
 	if err != nil {

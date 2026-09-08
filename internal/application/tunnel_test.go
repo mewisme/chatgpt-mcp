@@ -116,6 +116,17 @@ func TestTunnelAdminAndManagedLifecycle(t *testing.T) {
 	if err != nil || got.Metadata.Name != "One" {
 		t.Fatalf("get=%#v err=%v", got, err)
 	}
+	used, err := UseManagedTunnel(t.Context(), "tunnel_one", "runtime-secret", false)
+	if err != nil || !used.Configured {
+		t.Fatalf("use=%#v err=%v", used, err)
+	}
+	selected, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.Tunnel.ID != "tunnel_one" || selected.Tunnel.APIKey != "runtime-secret" {
+		t.Fatalf("selected tunnel config=%#v", selected.Tunnel)
+	}
 
 	createdResult, err := CreateManagedTunnel(t.Context(), tunnel.CreateRequest{Name: "Created", Description: "Created tunnel"}, ManagedTunnelOptions{})
 	if err != nil || !created || createdResult.Metadata.ID != "tunnel_created" {

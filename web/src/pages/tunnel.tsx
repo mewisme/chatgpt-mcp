@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { ScrollableTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
-import { adminApi, type TunnelAdminKeyRequest, type TunnelAdminKeyStatus, type TunnelAdminScope, type TunnelConfig, type TunnelStatus } from "@/lib/api"
+import { adminApi, type TunnelAdminKeyRequest, type TunnelAdminKeyStatus, type TunnelAdminScope, type TunnelConfig, type TunnelMetadata, type TunnelStatus } from "@/lib/api"
 
 const emptyConfig: TunnelConfig = { enabled: false }
 type AdminScopeKind = "organization" | "workspace" | "tenant"
@@ -31,6 +31,9 @@ export function TunnelPage() {
   const [adminKey, setAdminKey] = useState("")
   const [adminScope, setAdminScope] = useState<AdminScopeKind>("workspace")
   const [adminScopeID, setAdminScopeID] = useState("")
+  const [managedTunnels, setManagedTunnels] = useState<TunnelMetadata[]>([])
+  const [managedLoading, setManagedLoading] = useState(false)
+  const [managedUseBusyID, setManagedUseBusyID] = useState("")
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [adminBusy, setAdminBusy] = useState(false)
@@ -46,11 +49,26 @@ export function TunnelPage() {
     setAdminScopeID(id)
   }
 
+  async function loadManagedTunnels() {
+    if (!adminConfigured) { setManagedTunnels([]); return }
+    setManagedLoading(true)
+    try { setManagedTunnels(await adminApi.managedTunnels()); setError("") } catch (value) { setError(errorText(value)) } finally { setManagedLoading(false) }
+  }
+
+  async function switchManagedTunnel(id: string) {
+    setManagedUseBusyID(id)
+    try {
+      const result = await adminApi.useManagedTunnel({ id })
+      setStatus(result.status); setConfig(await adminApi.tunnelConfig()); setMessage(`Using managed tunnel ${result.metadata.name || result.metadata.id}.`); setError("")
+    } catch (value) { setError(errorText(value)); setMessage("") } finally { setManagedUseBusyID("") }
+  }
+
   useEffect(() => {
     let active = true
     void Promise.all([adminApi.tunnelConfig(), adminApi.tunnel(), adminApi.tunnelAdminKey(), adminApi.config()]).then(([nextConfig, nextStatus, nextAdmin, runtimeConfig]) => {
       if (!active) return
       setConfig(nextConfig); setStatus(nextStatus); setMCPHTTPEnabled(runtimeConfig.server.enabled); syncAdmin(nextAdmin); setError(""); setLoading(false)
+      if (nextAdmin.configured) { setManagedLoading(true); void adminApi.managedTunnels().then((items) => { if (active) setManagedTunnels(items) }).catch((value) => { if (active) setError(errorText(value)) }).finally(() => { if (active) setManagedLoading(false) }) }
     }).catch((value) => { if (active) { setError(errorText(value)); setLoading(false) } })
     const timer = window.setInterval(() => { void adminApi.tunnel().then((next) => { if (active) setStatus(next) }).catch(() => undefined) }, 3000)
     return () => { active = false; window.clearInterval(timer) }
@@ -82,6 +100,7 @@ export function TunnelPage() {
     try {
       const next = await adminApi.configureTunnelAdminKey(adminRequest(adminKey, adminScope, adminScopeID))
       setAdminKey(""); syncAdmin(next); setStatus(await adminApi.tunnel()); setMessage(adminResultMessage("Admin key verified and saved", next)); setError("")
+      if (next.configured) { setManagedLoading(true); try { setManagedTunnels(await adminApi.managedTunnels()) } finally { setManagedLoading(false) } }
     } catch (value) { setError(errorText(value)); setMessage("") } finally { setAdminBusy(false) }
   }
   async function verifyAdmin() {
@@ -92,7 +111,7 @@ export function TunnelPage() {
     setAdminBusy(true)
     try {
       const next = await adminApi.removeTunnelAdminKey()
-      setAdminKey(""); syncAdmin(next); setStatus(await adminApi.tunnel()); setRemoveAdminOpen(false); setMessage("Admin key removed."); setError("")
+      setAdminKey(""); syncAdmin(next); setManagedTunnels([]); setStatus(await adminApi.tunnel()); setRemoveAdminOpen(false); setMessage("Admin key removed."); setError("")
     } catch (value) { setError(errorText(value)); setMessage("") } finally { setAdminBusy(false) }
   }
 
@@ -109,7 +128,7 @@ export function TunnelPage() {
       <Tabs defaultValue="runtime" className="gap-4">
         <ScrollableTabsList variant="line" className="justify-start border-b"><TabsTrigger value="runtime"><Power />Runtime</TabsTrigger><TabsTrigger value="admin"><ShieldCheck />Administration</TabsTrigger><TabsTrigger value="metadata"><Activity />Metadata</TabsTrigger></ScrollableTabsList>
         <TabsContent value="runtime"><RuntimePanel busy={busy} config={config} mcpHTTPEnabled={mcpHTTPEnabled} setConfig={setConfig} onSave={() => void saveRuntime()} /></TabsContent>
-        <TabsContent value="admin"><AdminPanel busy={adminBusy} configured={adminConfigured} currentScope={adminCurrentScope} tunnels={adminTunnels} keyValue={adminKey} scope={adminScope} scopeID={adminScopeID} setKey={setAdminKey} setScope={(value) => { setAdminScope(value); setAdminScopeID("") }} setScopeID={setAdminScopeID} onSave={() => void saveAdmin()} onVerify={() => void verifyAdmin()} onRemove={() => setRemoveAdminOpen(true)} /></TabsContent>
+        <TabsContent value="admin"><div className="space-y-4"><AdminPanel busy={adminBusy} configured={adminConfigured} currentScope={adminCurrentScope} tunnels={adminTunnels} keyValue={adminKey} scope={adminScope} scopeID={adminScopeID} setKey={setAdminKey} setScope={(value) => { setAdminScope(value); setAdminScopeID("") }} setScopeID={setAdminScopeID} onSave={() => void saveAdmin()} onVerify={() => void verifyAdmin()} onRemove={() => setRemoveAdminOpen(true)} /><ManagedTunnelsPanel configured={adminConfigured} currentID={config.id} runtimeKeyConfigured={Boolean(config.runtime_key_configured)} items={managedTunnels} loading={managedLoading} busyID={managedUseBusyID} onRefresh={() => void loadManagedTunnels()} onUse={(id) => void switchManagedTunnel(id)} /></div></TabsContent>
         <TabsContent value="metadata"><MetadataPanel config={config} status={status} /></TabsContent>
       </Tabs>
     </>}
@@ -131,6 +150,10 @@ function RuntimePanel({ busy, config, mcpHTTPEnabled, setConfig, onSave }: { bus
 
 function AdminPanel({ busy, configured, currentScope, tunnels, keyValue, scope, scopeID, setKey, setScope, setScopeID, onSave, onVerify, onRemove }: { busy: boolean; configured: boolean; currentScope: TunnelAdminScope; tunnels?: number; keyValue: string; scope: AdminScopeKind; scopeID: string; setKey: (value: string) => void; setScope: (value: AdminScopeKind) => void; setScopeID: (value: string) => void; onSave: () => void; onVerify: () => void; onRemove: () => void }) {
   return <Card><CardHeader><div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle>Tunnel administration</CardTitle><CardDescription className="mt-1">Tunnels Manage credential for listing and managing tunnel metadata. This key is never reused by the runtime connection.</CardDescription></div><div className="flex flex-wrap gap-2"><Badge variant={configured ? "secondary" : "outline"}>{configured ? "Management configured" : "Management not configured"}</Badge>{tunnels !== undefined ? <Badge variant="outline">{tunnels} accessible tunnel{tunnels === 1 ? "" : "s"}</Badge> : null}</div></div></CardHeader><CardContent className="space-y-6">{configured ? <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 md:grid-cols-2"><SummaryLine label="Current scope" value={formatAdminScope(currentScope)} /><SummaryLine label="Credential storage" value="Secret file store" /></div> : <Alert><ShieldCheck /><AlertDescription>Add an admin API key with Tunnels Manage permission and verify it against exactly one organization, workspace, or tenant scope.</AlertDescription></Alert>}<FieldGroup><ConfigField label="Admin key" description={configured ? "Leave blank to keep the stored admin key while changing or re-verifying scope." : "The key is stored only after verification succeeds."}><Input autoComplete="off" placeholder={configured ? "Leave blank to keep current key" : "Admin API key"} type="password" value={keyValue} onChange={(event) => setKey(event.target.value)} /></ConfigField><div className="grid gap-5 md:grid-cols-2"><ConfigField label="Scope type" description="Management verification uses exactly one scope."><Select value={scope} onValueChange={(value) => setScope(value as AdminScopeKind)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="organization">Organization</SelectItem><SelectItem value="workspace">Workspace</SelectItem><SelectItem value="tenant">Tenant</SelectItem></SelectContent></Select></ConfigField><ConfigField label={`${scopeLabel(scope)} ID`} description={`OpenAI ${scope} used to verify Tunnels Manage access.`}><Input placeholder={scopePlaceholder(scope)} value={scopeID} onChange={(event) => setScopeID(event.target.value)} /></ConfigField></div></FieldGroup></CardContent><CardFooter className="flex-col items-stretch gap-3 border-t sm:flex-row sm:items-center sm:justify-between"><div className="text-xs text-muted-foreground">The secret file store keeps credentials outside tunnel.&lt;ext&gt;; configuration stores only scope and configured-state metadata.</div><ButtonGroup className="self-end sm:self-auto">{configured ? <><Button disabled={busy} variant="outline" onClick={onVerify}>Verify</Button><Button disabled={busy} variant="outline" onClick={onRemove}>Remove</Button></> : null}<Button disabled={busy || !scopeID.trim()} onClick={onSave}>{busy ? "Verifying..." : "Save & verify"}</Button></ButtonGroup></CardFooter></Card>
+}
+
+function ManagedTunnelsPanel({ configured, currentID, runtimeKeyConfigured, items, loading, busyID, onRefresh, onUse }: { configured: boolean; currentID?: string; runtimeKeyConfigured: boolean; items: TunnelMetadata[]; loading: boolean; busyID: string; onRefresh: () => void; onUse: (id: string) => void }) {
+  return <Card><CardHeader><div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle>Managed tunnels</CardTitle><CardDescription className="mt-1">Browse tunnels available to the stored admin key and switch the local runtime without re-entering the tunnel ID.</CardDescription></div><Button disabled={!configured || loading} size="sm" variant="outline" onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} />Refresh</Button></div></CardHeader><CardContent className="p-0">{!configured ? <div className="p-4 text-sm text-muted-foreground">Configure and verify an admin key to browse managed tunnels.</div> : !runtimeKeyConfigured ? <div className="p-4 text-sm text-muted-foreground">Configure a runtime Read + Use key in the Runtime tab before switching tunnels. The admin key cannot provide runtime credentials.</div> : loading && items.length === 0 ? <div className="p-4"><PageLoading rows={3} /></div> : items.length === 0 ? <div className="p-4 text-sm text-muted-foreground">No managed tunnels loaded yet. Refresh to query the OpenAI control plane.</div> : <div className="divide-y">{items.map((item) => { const selected = currentID === item.id; return <div key={item.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><div className="font-medium">{item.name || "Unnamed tunnel"}</div>{selected ? <Badge variant="secondary">Current</Badge> : null}</div><div className="mt-1 break-all font-mono text-xs text-muted-foreground">{item.id}</div>{item.description ? <div className="mt-1 text-sm text-muted-foreground">{item.description}</div> : null}</div><Button disabled={selected || Boolean(busyID) || !runtimeKeyConfigured} size="sm" variant={selected ? "outline" : "default"} onClick={() => onUse(item.id)}>{busyID === item.id ? <><Spinner className="size-3" />Switching...</> : selected ? "In use" : "Use tunnel"}</Button></div> })}</div>}</CardContent></Card>
 }
 
 function MetadataPanel({ config, status }: { config: TunnelConfig; status: TunnelStatus | null }) {

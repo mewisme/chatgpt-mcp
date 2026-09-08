@@ -189,7 +189,7 @@ func tunnelActions() []action.Action {
 		editorNavigationAction("tunnel.managed.update", "Update managed tunnel", "Tunnel", "Update the current managed tunnel", []string{"tunnel", "managed", "update", "edit"}, []string{"tunnel", "update"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
 			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "edit"}
 		}),
-		editorNavigationAction("tunnel.managed.configure", "Use managed tunnel", "Tunnel", "Configure cgm to use the current managed tunnel", []string{"tunnel", "managed", "configure", "runtime"}, []string{"tunnel", "get", "--configure"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+		editorNavigationAction("tunnel.managed.configure", "Use managed tunnel", "Tunnel", "Configure cgm to use the current managed tunnel", []string{"tunnel", "managed", "use", "select", "switch", "runtime"}, []string{"tunnel", "use"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
 			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "configure"}
 		}),
 		tunnelAction("tunnel.managed.delete", "Delete managed tunnel", "Permanently delete the current managed tunnel", []string{"tunnel", "managed", "delete", "remove"}, []string{"tunnel", "delete"}, tuipage.TunnelManagedDelete, RouteTunnels, true),

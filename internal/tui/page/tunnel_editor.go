@@ -39,7 +39,7 @@ func (page *TunnelPage) editorTitle() string {
 		case "edit":
 			return "Edit Managed Tunnel · " + page.resourceID
 		case "configure":
-			return "Configure Managed Tunnel · " + page.resourceID
+			return "Use Managed Tunnel · " + page.resourceID
 		}
 	}
 	if page != nil && page.command == TunnelAdminKeySet {
@@ -161,7 +161,7 @@ func (page *TunnelPage) initManagedEditorRoute() error {
 		})
 	case "configure":
 		if page.resourceID == "" || page.section != "" {
-			return fmt.Errorf("managed tunnel configure editor requires a tunnel resource")
+			return fmt.Errorf("managed tunnel use editor requires a tunnel resource")
 		}
 		editor, data := newManagedConfigureEditor()
 		page.editor, page.configureForm = &editor, data
@@ -198,7 +198,7 @@ func (page *TunnelPage) submitManagedEditor() tea.Cmd {
 		})
 	case TunnelManagedConfigure:
 		if page.configureForm == nil || page.targetID == "" {
-			page.editor.SetFeedback("", fmt.Errorf("managed tunnel configure draft is unavailable"))
+			page.editor.SetFeedback("", fmt.Errorf("managed tunnel use draft is unavailable"))
 			return nil
 		}
 		data, id := page.configureForm, page.targetID

@@ -78,6 +78,30 @@ func TestManagedTunnelMutationNoticeRendersBesidePageTitle(t *testing.T) {
 	}
 }
 
+func TestManagedTunnelBrowserUsesSelectedTunnelShortcut(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	item := tunnel.Metadata{ID: "tunnel_one", Name: "One", Description: "primary"}
+	if _, err := config.SaveTunnelMetadata(item); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewManagedTunnels(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := ansi.Strip(page.View(100, 24))
+	if !strings.Contains(view, "u use") {
+		t.Fatalf("managed browser missing use shortcut: %q", view)
+	}
+	_, cmd := page.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
+	if cmd == nil {
+		t.Fatal("managed browser use shortcut returned no command")
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "tunnels/tunnel_one/configure" {
+		t.Fatalf("managed browser use navigation=%#v", navigate)
+	}
+}
+
 func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{})
 	item := tunnel.Metadata{ID: "tunnel_one", Name: "One", Description: "primary", OrganizationIDs: []string{"org_one"}, WorkspaceIDs: []string{"ws_one"}, TenantIDs: []string{"tenant_one"}}
@@ -100,7 +124,7 @@ func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	page = updated.(*TunnelPage)
 	view = ansi.Strip(page.View(100, 26))
-	for _, want := range []string{"configure", "delete", "less"} {
+	for _, want := range []string{"use", "delete", "less"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expanded managed detail missing %q: %q", want, view)
 		}

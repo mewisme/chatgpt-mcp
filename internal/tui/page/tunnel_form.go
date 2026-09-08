@@ -122,8 +122,8 @@ func newManagedTunnelEditor(metadata tunnel.Metadata, create bool) (component.Ed
 
 func newManagedConfigureEditor() (component.Editor, *managedConfigureFormData) {
 	data := &managedConfigureFormData{}
-	editor := component.NewEditor("configure", component.EditorSection{
-		ID: "runtime", Title: "Runtime", Description: "Select this managed tunnel for the local runtime. Blank runtime key reuses the current secret.",
+	editor := component.NewEditor("use", component.EditorSection{
+		ID: "runtime", Title: "Runtime", Description: "Use this managed tunnel for the local runtime. Blank runtime key reuses the current secret.",
 		Form: component.NewEditorForm(component.Group(
 			component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Placeholder("Blank reuses the current runtime key."),
 			component.Switch("Enable tunnel", &data.Enable, "ENABLED", "DISABLED"),

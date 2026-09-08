@@ -770,3 +770,66 @@ func TestTunnelAdminKeyRejectsFailedVerification(t *testing.T) {
 		t.Fatalf("status=%d config=%#v body=%s", recorder.Code, store.Snapshot().Tunnel, recorder.Body.String())
 	}
 }
+
+func TestManagedTunnelAPIListsWithStoredAdminKey(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels" || r.URL.Query().Get("workspace_id") != "ws_admin" {
+			t.Fatalf("request = %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+		if r.Header.Get("Authorization") != "Bearer sk-admin" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"tunnels":[{"id":"tunnel_one","name":"One","description":"Primary"},{"id":"tunnel_two","name":"Two","description":"Secondary"}]}`))
+	}))
+	defer server.Close()
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Tunnel = tunnel.Config{AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL}
+	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: config.NewRuntimeStore(cfg)})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/tunnel/managed", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"id":"tunnel_two"`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestManagedTunnelUseReusesRuntimeKeyAndSwitchesConfig(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_two" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer sk-admin" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"id":"tunnel_two","name":"Two","description":"Secondary","organization_ids":["org_two"],"workspace_ids":["ws_admin"]}`))
+	}))
+	defer server.Close()
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_one", APIKey: "runtime-key", AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL, OrganizationID: "org_one"}
+	client := tunnel.NewConfigured(cfg.Tunnel, nil)
+	store := config.NewRuntimeStore(cfg)
+	var saved config.Config
+	handler := New(API{Tunnel: client, Config: store, saveConfig: func(next config.Config) error { saved = next; return nil }})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/tunnel/managed/use", strings.NewReader(`{"id":"tunnel_two"}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for label, got := range map[string]tunnel.Config{"store": store.Snapshot().Tunnel, "saved": saved.Tunnel, "runtime": client.Config()} {
+		if got.ID != "tunnel_two" || got.APIKey != "runtime-key" || got.OrganizationID != "org_two" {
+			t.Fatalf("%s tunnel config = %#v", label, got)
+		}
+	}
+	if strings.Contains(recorder.Body.String(), "runtime-key") || strings.Contains(recorder.Body.String(), "sk-admin") {
+		t.Fatalf("managed use response leaked credential: %s", recorder.Body.String())
+	}
+}

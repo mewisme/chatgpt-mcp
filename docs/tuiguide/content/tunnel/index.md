@@ -16,13 +16,15 @@ The admin key enables OpenAI tunnel-management operations. The editor verifies a
 
 ## Managed tunnels
 
-The Managed Tunnels page lists tunnels available through the OpenAI management API. Create, Update, and Configure are routed editors divided into consistent sections such as `General / Scope / Runtime`.
+The Managed Tunnels page lists tunnels available through the OpenAI management API. Create, Update, and Use are routed editors divided into consistent sections such as `General / Scope / Runtime`. Press `u` on the selected list row or managed-tunnel detail to open the Use flow.
 
 Editing an existing managed tunnel first fetches current remote metadata. The loading state can be cancelled with `Esc`; a late fetch result after cancellation is ignored. Fetch errors render an explicit wrapped error page instead of a blank editor.
 
 ## Configure local runtime from a managed tunnel
 
 **Use managed tunnel** writes the selected managed tunnel into the local runtime configuration. Blank secret/key fields can preserve an existing configured secret when that is supported by the operation.
+
+The CLI equivalent is `cgm tunnel use <tunnel_id>` (`select` and `switch` are aliases). `--runtime-api-key` supplies a separate Read + Use credential when no runtime key is already stored, and `--enable` enables the selected tunnel after applying it. The admin key is only used for management discovery and is never substituted for the runtime credential.
 
 ## Delete behavior
 

@@ -88,6 +88,7 @@ const (
 	TunnelAdminKeyRemove     ID = "tunnel.admin.key.remove"
 	TunnelList               ID = "tunnel.list"
 	TunnelGet                ID = "tunnel.get"
+	TunnelUse                ID = "tunnel.use"
 	TunnelCreate             ID = "tunnel.create"
 	TunnelUpdate             ID = "tunnel.update"
 	TunnelDelete             ID = "tunnel.delete"
@@ -118,7 +119,7 @@ var specs = []Spec{
 	{MCPAuthLogin, "mcp server auth login", nil}, {MCPAuthStatus, "mcp server auth status", nil}, {MCPAuthLogout, "mcp server auth logout", nil},
 	{TunnelStatus, "tunnel status", nil}, {TunnelSync, "tunnel sync", nil}, {TunnelConfigure, "tunnel configure", nil}, {TunnelEnable, "tunnel enable", nil}, {TunnelDisable, "tunnel disable", nil}, {TunnelForeground, "tunnel run", nil},
 	{TunnelAdminKeySet, "tunnel admin key set", nil}, {TunnelAdminKeyStatus, "tunnel admin key status", nil}, {TunnelAdminKeyVerify, "tunnel admin key verify", nil}, {TunnelAdminKeyRemove, "tunnel admin key remove", nil},
-	{TunnelList, "tunnel list", nil}, {TunnelGet, "tunnel get", nil}, {TunnelCreate, "tunnel create", nil}, {TunnelUpdate, "tunnel update", nil}, {TunnelDelete, "tunnel delete", nil},
+	{TunnelList, "tunnel list", nil}, {TunnelGet, "tunnel get", nil}, {TunnelUse, "tunnel use", nil}, {TunnelCreate, "tunnel create", nil}, {TunnelUpdate, "tunnel update", nil}, {TunnelDelete, "tunnel delete", nil},
 	{StatusOverview, "status", nil}, {VersionAbout, "version", nil},
 }
 

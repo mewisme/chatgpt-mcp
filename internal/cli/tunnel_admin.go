@@ -226,6 +226,33 @@ func tunnelGetCommand() *cobra.Command {
 	return cmd
 }
 
+func tunnelUseCommand() *cobra.Command {
+	var runtimeAPIKey string
+	var enable bool
+	cmd := &cobra.Command{Use: "use <tunnel_id>", Aliases: []string{"select", "switch"}, Short: "Select a managed tunnel for the local runtime", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "TUNNEL", "tunnel.use.preparing", "Preparing managed tunnel selection", logger.WithVerbose("tunnel_id", args[0]))
+		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
+		defer cancel()
+		log := commandLogger(cmd)
+		defer log.Close()
+		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.use.loading", "Selecting managed tunnel")
+		result, err := application.UseManagedTunnel(ctx, args[0], runtimeAPIKey, enable)
+		if err != nil {
+			return err
+		}
+		log.Success("TUNNEL", "Managed tunnel selected")
+		logManagedTunnelMetadata(log, result.Metadata)
+		log.Detail("runtime", "configured")
+		if enable {
+			log.Detail("enabled", true)
+		}
+		return nil
+	}}
+	cmd.Flags().StringVar(&runtimeAPIKey, "runtime-api-key", "", "runtime API key for cgm; defaults to the currently configured runtime key")
+	cmd.Flags().BoolVar(&enable, "enable", false, "enable the tunnel after selecting it")
+	return cmd
+}
+
 func tunnelCreateCommand() *cobra.Command {
 	var name, description, runtimeAPIKey string
 	var organizationIDs, workspaceIDs, tenantIDs []string

@@ -42,6 +42,25 @@ func TestWrapContentPreservesExplicitNewlines(t *testing.T) {
 	}
 }
 
+func TestWrapStructuredContentPreservesIndentationAndBoundsWidth(t *testing.T) {
+	value := "{\n  \"path\": \"/" + strings.Repeat("very-long-segment/", 8) + "\"\n}"
+	wrapped := WrapStructuredContent(value, 24)
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) < 4 {
+		t.Fatalf("structured content did not wrap: %q", wrapped)
+	}
+	for _, line := range lines {
+		if got := lipgloss.Width(line); got > 24 {
+			t.Fatalf("line width=%d want <=24: %q", got, ansi.Strip(line))
+		}
+	}
+	for _, line := range lines[1 : len(lines)-1] {
+		if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, "  ") {
+			t.Fatalf("continuation lost indentation: %q", line)
+		}
+	}
+}
+
 func TestWrapKeyValueUsesHangingIndent(t *testing.T) {
 	wrapped := WrapKeyValue("Path", "/very/long/workspace/path/that/keeps/going", 18)
 	lines := strings.Split(wrapped, "\n")

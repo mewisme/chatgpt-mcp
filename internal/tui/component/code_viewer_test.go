@@ -5,20 +5,24 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 )
 
-func TestCodeViewerPreservesRawContentAndScrollsHorizontally(t *testing.T) {
+func TestCodeViewerPreservesRawContentAndWrapsWithoutHorizontalScroll(t *testing.T) {
 	content := "{\n  \"long\": \"" + strings.Repeat("x", 80) + "\"\n}"
 	viewer := NewCodeViewer(content)
 	viewer.Resize(24, 4)
 	if viewer.Content() != content {
 		t.Fatalf("content changed: %q", viewer.Content())
 	}
+	testutil.AssertLinesFit(t, viewer.View(), 24)
 	updated, _ := viewer.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	viewer = updated
-	if viewer.XOffset() == 0 {
-		t.Fatal("right key did not scroll horizontally")
+	if viewer.XOffset() != 0 {
+		t.Fatalf("horizontal offset=%d want 0", viewer.XOffset())
 	}
+	viewer.Resize(12, 4)
+	testutil.AssertLinesFit(t, viewer.View(), 12)
 }
 
 func TestCodeViewerMouseWheelScrollsVertically(t *testing.T) {

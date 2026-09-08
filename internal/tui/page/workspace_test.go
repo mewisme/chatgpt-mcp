@@ -18,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/rules"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 )
 
 func TestWorkspacePageLifecycle(t *testing.T) {
@@ -930,13 +931,16 @@ func TestWorkspaceProjectContextPreviewResponsiveLayouts(t *testing.T) {
 		updated, _ := preview.Update(tab)
 		preview = updated.(*WorkspacePage)
 		for _, size := range [][2]int{{80, 24}, {100, 30}, {120, 40}, {24, 10}} {
-			view := ansi.Strip(preview.View(size[0], size[1]))
-			for _, line := range strings.Split(view, "\n") {
-				if width := lipgloss.Width(line); width > size[0] {
-					t.Fatalf("tab=%q size=%dx%d line width=%d: %q", tab.String(), size[0], size[1], width, line)
-				}
-			}
+			testutil.AssertLinesFit(t, preview.View(size[0], size[1]), size[0])
 		}
+	}
+	updated, _ := preview.Update(tea.KeyPressMsg{Code: '3', Text: "3"})
+	preview = updated.(*WorkspacePage)
+	preview.View(24, 10)
+	updated, _ = preview.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	preview = updated.(*WorkspacePage)
+	if got := preview.contextPreview.json.XOffset(); got != 0 {
+		t.Fatalf("wrapped JSON horizontal offset=%d want 0", got)
 	}
 }
 

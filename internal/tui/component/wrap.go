@@ -22,6 +22,32 @@ func WrapContent(value string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+func WrapStructuredContent(value string, width int) string {
+	if width <= 0 || value == "" {
+		return value
+	}
+	lines := strings.Split(value, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			out = append(out, "")
+			continue
+		}
+		body := strings.TrimLeft(line, " \t")
+		indent := line[:len(line)-len(body)]
+		indentWidth := lipgloss.Width(indent)
+		if body == "" || indentWidth >= width {
+			out = append(out, strings.Split(WrapContent(line, width), "\n")...)
+			continue
+		}
+		wrapped := strings.Split(WrapContent(body, max(1, width-indentWidth)), "\n")
+		for _, part := range wrapped {
+			out = append(out, indent+part)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 func WrapKeyValue(label, value string, width int) string {
 	prefix := Label(label) + "  "
 	if width <= 0 {

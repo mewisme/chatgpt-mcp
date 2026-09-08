@@ -18,8 +18,10 @@ func NewCodeViewer(content string) CodeViewer {
 	view := viewport.New(viewport.WithWidth(defaultLayoutWidth), viewport.WithHeight(defaultLayoutHeight))
 	view.SoftWrap = false
 	view.FillHeight = false
+	view.KeyMap.Left.SetEnabled(false)
+	view.KeyMap.Right.SetEnabled(false)
 	viewer := CodeViewer{viewport: view, content: content, width: defaultLayoutWidth, height: defaultLayoutHeight}
-	viewer.viewport.SetContent(content)
+	viewer.reflow(true)
 	return viewer
 }
 
@@ -50,6 +52,7 @@ func (viewer *CodeViewer) Resize(width, height int) {
 	viewer.width, viewer.height = max(1, width), max(1, height)
 	viewer.viewport.SetWidth(viewer.width)
 	viewer.viewport.SetHeight(viewer.height)
+	viewer.reflow(false)
 }
 
 func (viewer *CodeViewer) SetContent(content string) {
@@ -57,15 +60,28 @@ func (viewer *CodeViewer) SetContent(content string) {
 		return
 	}
 	viewer.content = content
-	viewer.viewport.SetContent(content)
-	viewer.viewport.GotoTop()
-	viewer.viewport.SetXOffset(0)
+	viewer.reflow(true)
 }
 
 func (viewer CodeViewer) Content() string { return viewer.content }
 func (viewer CodeViewer) View() string    { return viewer.viewport.View() }
 func (viewer CodeViewer) XOffset() int    { return viewer.viewport.XOffset() }
 func (viewer CodeViewer) YOffset() int    { return viewer.viewport.YOffset() }
+
+func (viewer *CodeViewer) reflow(reset bool) {
+	if viewer == nil {
+		return
+	}
+	offset := viewer.viewport.YOffset()
+	viewer.viewport.SetContent(WrapStructuredContent(viewer.content, max(1, viewer.width)))
+	viewer.viewport.SetXOffset(0)
+	if reset {
+		viewer.viewport.GotoTop()
+		return
+	}
+	maxOffset := max(0, viewer.viewport.TotalLineCount()-viewer.viewport.Height())
+	viewer.viewport.SetYOffset(min(offset, maxOffset))
+}
 
 func (viewer CodeViewer) MouseTargets(originX, originY, z int) []MouseTarget {
 	return []MouseTarget{{

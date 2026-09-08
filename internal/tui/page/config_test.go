@@ -222,6 +222,53 @@ func TestConfigDomainOpenNavigatesToLegacyCompatibleFieldRoute(t *testing.T) {
 	}
 }
 
+func TestConfigStoragePageCentralizesMaintenanceActions(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfigRoute(t.Context(), "storage")
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	rows := page.configRows()
+	if len(rows) != 6 {
+		t.Fatalf("maintenance actions=%d rows=%#v", len(rows), rows)
+	}
+	wantIDs := []string{"verify", "reload", "migrate", "convert", "export", "import"}
+	for index, want := range wantIDs {
+		if rows[index].ID != want {
+			t.Fatalf("maintenance row %d=%q want=%q", index, rows[index].ID, want)
+		}
+	}
+	view := ansi.Strip(page.View(100, 34))
+	for _, want := range []string{"Configuration / Storage & Maintenance", "Format", "Config", "Root", "Initialized", "Runtime", "enter run"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("storage view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestConfigStorageOpenRunsMaintenanceAction(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfigRoute(t.Context(), "storage")
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "convert"}})
+	if cmd == nil || page.overlay != configOverlayForm || page.command != ConfigConvert {
+		t.Fatalf("convert cmd=%v overlay=%d command=%q", cmd != nil, page.overlay, page.command)
+	}
+}
+
+func TestConfigRootDoesNotExposeMaintenanceShortcuts(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfig(t.Context())
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	for _, key := range []string{"v", "m", "c", "x", "i"} {
+		_, handled := page.handleKey(tea.KeyPressMsg{Code: rune(key[0]), Text: key})
+		if handled {
+			t.Fatalf("root still handles maintenance shortcut %q", key)
+		}
+	}
+}
+
 func TestConfigPageReadOnlyGuidanceAndStoppedReload(t *testing.T) {
 	prepareConfigPageRoot(t)
 	page, _ := NewConfig(t.Context())

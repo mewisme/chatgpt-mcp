@@ -197,6 +197,17 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, cmd
 	case component.BrowserOpenMsg:
+		if msg.Row.ID != "" && page.isStorageRoute() {
+			command, ok := configMaintenanceCommand(msg.Row.ID)
+			if !ok {
+				return page, nil
+			}
+			cmd, err := page.openCommand(command, "")
+			if err != nil {
+				page.err = err
+			}
+			return page, cmd
+		}
 		if msg.Row.ID != "" && page.isBrowserRoute() {
 			if page.resourceID == "" {
 				return page, func() tea.Msg { return NavigateMsg{Path: []string{"config", msg.Row.ID}} }
@@ -269,6 +280,9 @@ func (page *ConfigPage) View(width, height int) string {
 		if page.isDomainRoute() {
 			pageTitle = "Configuration / " + page.domainTitle()
 			overview = component.WrapKeyValue("", page.domainSummary(page.resourceID), width)
+		} else if page.isStorageRoute() {
+			pageTitle = "Configuration / Storage & Maintenance"
+			overview = page.storageOverview(width)
 		}
 		title := component.PageTitleNotice(pageTitle, page.notice, width)
 		headerHeight := lipgloss.Height(title) + lipgloss.Height(overview)
@@ -318,6 +332,21 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 }
 
 func (page *ConfigPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	if page.isStorageRoute() && msg.String() == "enter" {
+		selected, ok := page.browser.Selected()
+		if !ok {
+			return nil, true
+		}
+		command, ok := configMaintenanceCommand(selected.ID)
+		if !ok {
+			return nil, true
+		}
+		cmd, err := page.openCommand(command, "")
+		if err != nil {
+			page.err = err
+		}
+		return cmd, true
+	}
 	if page.isDomainRoute() && msg.String() == "e" {
 		cmd, err := page.openCommand(ConfigEdit, page.selectedKey())
 		if err != nil {
@@ -548,6 +577,9 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 	if page.isDomainRoute() {
 		title = page.domainTitle() + " fields"
 		bindings = []key.Binding{component.Binding([]string{"e"}, "e", "edit"), component.Binding([]string{"/"}, "/", "filter"), component.Binding([]string{"r"}, "r", "refresh")}
+	} else if page.isStorageRoute() {
+		title = "Storage & Maintenance actions"
+		bindings = []key.Binding{component.Binding([]string{"enter"}, "enter", "run"), component.Binding([]string{"r"}, "r", "refresh")}
 	}
 	page.browser = component.NewBrowser(page.ctx, title, rows, nil).WithTitleVisible(false).WithHelpBindings(bindings...)
 	page.browser.SetHelpExpanded(helpExpanded)
@@ -565,6 +597,9 @@ func (page *ConfigPage) resizeBrowser() tea.Cmd {
 	if page.isDomainRoute() {
 		pageTitle = "Configuration / " + page.domainTitle()
 		overview = component.WrapKeyValue("", page.domainSummary(page.resourceID), page.width)
+	} else if page.isStorageRoute() {
+		pageTitle = "Configuration / Storage & Maintenance"
+		overview = page.storageOverview(page.width)
 	}
 	headerHeight := lipgloss.Height(component.PageTitleNotice(pageTitle, page.notice, page.width)) + lipgloss.Height(overview)
 	feedback := ""
@@ -578,6 +613,9 @@ func (page *ConfigPage) resizeBrowser() tea.Cmd {
 }
 
 func (page *ConfigPage) configRows() []component.Row {
+	if page.isStorageRoute() {
+		return page.storageRows()
+	}
 	if page.isDomainRoute() {
 		return page.domainRows()
 	}
@@ -590,6 +628,40 @@ func (page *ConfigPage) configRows() []component.Row {
 		rows = append(rows, component.Row{ID: domain.ID, Title: domain.Title, Description: domain.Description, Meta: summary, Search: domain.Title + " " + domain.Description + " " + summary})
 	}
 	return rows
+}
+
+func (page *ConfigPage) storageRows() []component.Row {
+	runtimeMeta := "runtime stopped"
+	if page.overview.RuntimeRunning {
+		runtimeMeta = "runtime running"
+	}
+	return []component.Row{
+		{ID: "verify", Title: "Verify configuration", Description: "Validate stored configuration and structured files", Meta: string(page.overview.Source.Format)},
+		{ID: "reload", Title: "Reload runtime", Description: "Apply persisted configuration to running runtime", Meta: runtimeMeta},
+		{ID: "migrate", Title: "Migrate legacy credentials", Description: "Move legacy credentials into secret store", Meta: "credential maintenance"},
+		{ID: "convert", Title: "Convert storage format", Description: "Convert persisted configuration format", Meta: string(page.overview.Source.Format)},
+		{ID: "export", Title: "Export configuration bundle", Description: "Export configuration and managed secrets", Meta: "bundle"},
+		{ID: "import", Title: "Import configuration bundle", Description: "Import configuration and managed secrets", Meta: "bundle"},
+	}
+}
+
+func configMaintenanceCommand(id string) (ConfigCommand, bool) {
+	switch id {
+	case "verify":
+		return ConfigVerify, true
+	case "reload":
+		return ConfigReload, true
+	case "migrate":
+		return ConfigMigrate, true
+	case "convert":
+		return ConfigConvert, true
+	case "export":
+		return ConfigExport, true
+	case "import":
+		return ConfigImport, true
+	default:
+		return "", false
+	}
 }
 
 func (page *ConfigPage) domainRows() []component.Row {
@@ -666,7 +738,9 @@ func (page *ConfigPage) selectedKey() string {
 	return selected.ID
 }
 
-func (page *ConfigPage) isBrowserRoute() bool { return page.resourceID == "" || page.isDomainRoute() }
+func (page *ConfigPage) isBrowserRoute() bool {
+	return page.resourceID == "" || page.isDomainRoute() || page.isStorageRoute()
+}
 
 func (page *ConfigPage) isDomainRoute() bool {
 	_, ok := configSectionForRoute(page.resourceID)
@@ -674,6 +748,8 @@ func (page *ConfigPage) isDomainRoute() bool {
 }
 
 func (page *ConfigPage) isFieldRoute() bool { return configFieldRouteCompat(page.resourceID) }
+
+func (page *ConfigPage) isStorageRoute() bool { return page.resourceID == "storage" }
 
 func configFieldRouteCompat(resourceID string) bool {
 	if resourceID == "" {
@@ -728,6 +804,24 @@ func (page *ConfigPage) overviewView(width int) string {
 		initialized = "yes"
 	}
 	return component.WrapKeyValue("", fmt.Sprintf("%s · initialized %s · %s", page.overview.Source.Format, initialized, status), width)
+}
+
+func (page *ConfigPage) storageOverview(width int) string {
+	initialized := "no"
+	if page.overview.Source.Exists {
+		initialized = "yes"
+	}
+	runtime := "stopped"
+	if page.overview.RuntimeRunning {
+		runtime = "running"
+	}
+	return strings.Join([]string{
+		component.WrapKeyValue("Format", string(page.overview.Source.Format), width),
+		component.WrapKeyValue("Config", page.overview.Source.Path, width),
+		component.WrapKeyValue("Root", page.overview.Root, width),
+		component.WrapKeyValue("Initialized", initialized, width),
+		component.WrapKeyValue("Runtime", runtime, width),
+	}, "\n")
 }
 
 func (page *ConfigPage) domainSummary(domain string) string {

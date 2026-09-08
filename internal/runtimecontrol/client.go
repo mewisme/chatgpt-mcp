@@ -56,6 +56,8 @@ type RuntimeStatus struct {
 	TunnelRestarting  bool                `json:"tunnel_restarting"`
 	TunnelID          string              `json:"tunnel_id,omitempty"`
 	TunnelLastError   string              `json:"tunnel_last_error,omitempty"`
+	ToolProfile       string              `json:"tool_profile,omitempty"`
+	ToolCount         int                 `json:"tool_count,omitempty"`
 }
 
 type State struct {

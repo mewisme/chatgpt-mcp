@@ -87,9 +87,6 @@ func (m *Manager) CreateChallenge(input ChallengeInput) (Challenge, bool, error)
 	if err != nil {
 		return Challenge{}, false, err
 	}
-	if input.Title == "" {
-		input.Title = "Allow " + input.TargetTool
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.now().UTC()
@@ -118,10 +115,14 @@ func (m *Manager) CreateChallenge(input ChallengeInput) (Challenge, bool, error)
 }
 
 func (m *Manager) CreateRequest(challengeID, sessionID, workspaceID string) (Request, bool, error) {
+	return m.CreateRequestWithTitle(challengeID, sessionID, workspaceID, "")
+}
+
+func (m *Manager) CreateRequestWithTitle(challengeID, sessionID, workspaceID, title string) (Request, bool, error) {
 	if m == nil {
 		return Request{}, false, errors.New("approval manager is unavailable")
 	}
-	challengeID, sessionID, workspaceID = strings.TrimSpace(challengeID), strings.TrimSpace(sessionID), strings.TrimSpace(workspaceID)
+	challengeID, sessionID, workspaceID, title = strings.TrimSpace(challengeID), strings.TrimSpace(sessionID), strings.TrimSpace(workspaceID), strings.TrimSpace(title)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.now().UTC()
@@ -142,6 +143,12 @@ func (m *Manager) CreateRequest(challengeID, sessionID, workspaceID string) (Req
 	}
 	if challenge.value.sessionID != sessionID || challenge.value.WorkspaceID != workspaceID {
 		return Request{}, false, ErrChallengeMismatch
+	}
+	if title == "" {
+		title = challenge.value.Title
+	}
+	if title == "" {
+		return Request{}, false, errors.New("approval request title is required")
 	}
 	if challenge.value.requestID != "" {
 		if request := m.requests[challenge.value.requestID]; request != nil {
@@ -170,7 +177,7 @@ func (m *Manager) CreateRequest(challengeID, sessionID, workspaceID string) (Req
 	}
 	value := Request{
 		ID: id, Status: StatusPending, WorkspaceID: challenge.value.WorkspaceID, SessionHash: challenge.value.SessionHash, Source: challenge.value.Source, TargetTool: challenge.value.TargetTool,
-		Arguments: cloneRaw(challenge.value.Arguments), Digest: challenge.value.Digest, GuardCode: challenge.value.GuardCode, GuardReason: challenge.value.GuardReason, Title: challenge.value.Title, Command: challenge.value.Command,
+		Arguments: cloneRaw(challenge.value.Arguments), Digest: challenge.value.Digest, GuardCode: challenge.value.GuardCode, GuardReason: challenge.value.GuardReason, Title: title, Command: challenge.value.Command,
 		CreatedAt: now, ExpiresAt: now.Add(m.requestTTL), sessionID: sessionID, challengeID: challenge.value.ID,
 	}
 	m.requests[id] = &requestRecord{value: value, resolved: make(chan struct{})}

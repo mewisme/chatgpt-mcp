@@ -52,13 +52,14 @@ A narrow subset of direct literal CLI mutations can be elevated by a human witho
 
 ```text
 MCP tool call -> typed control guard -> approval_required + challenge_id
-             -> request_control_approval(challenge_id)
+             -> agent summarizes command intent
+             -> request_control_approval(challenge_id, title)
              -> local human approve/deny
              -> exact retry of the original tool call
              -> one-shot child capability -> exact cgm argv
 ```
 
-The initial guard failure does not create a human request by itself. The agent must call `request_control_approval` with the challenge returned by that exact guarded call. Challenges are short-lived (30 seconds), pending human requests expire after 60 seconds, and an approved retry window lasts 30 seconds. The approval is bound to the runtime instance, MCP session, workspace, source, target tool, canonical arguments, and guard code.
+The initial guard failure does not create a human request by itself. The agent must call `request_control_approval` with the challenge returned by that exact guarded call and provide a concise human-readable `title` describing the command intent. The runtime does not infer this title from the command. The title must not be a tool-call name or a copy of raw command arguments, flags, tokens, secrets, or IDs. Challenges are short-lived (30 seconds), pending human requests expire after 60 seconds, and an approved retry window lasts 30 seconds. The approval is bound to the runtime instance, MCP session, workspace, source, target tool, canonical arguments, and guard code; the title is display metadata only.
 
 An approved retry must match the original tool call exactly. A mismatch returns an `approval_mismatch` response containing expected/actual target information and leaves the valid grant unconsumed so the agent can retry the approved payload. A successful retry consumes the grant atomically. For direct `cgm` execution, the runtime then mints a separate opaque child capability valid for 15 seconds and one exact argv; `CHATGPT_MCP_TOOL_CONTEXT=1` remains set. The child CLI verifies and consumes that capability over authenticated loopback runtime-control before allowing the mutation.
 

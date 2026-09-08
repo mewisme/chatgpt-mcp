@@ -690,22 +690,6 @@ func TestShellCommandUsesExternalNetworkClassification(t *testing.T) {
 	}
 }
 
-func TestShellCommandSummary(t *testing.T) {
-	for command, want := range map[string]string{
-		"cgm update --token secret": "Update ChatGPT MCP",
-		"rm -rf build":              "Delete files",
-		"git push origin main":      "Push Git commits",
-		"systemctl restart nginx":   "Modify system service",
-		"docker push app:latest":    "Push container image",
-		"unknown --secret value":    "Run unknown command",
-		"echo one && echo two":      "Run 2 shell commands",
-	} {
-		if got := ShellCommandSummary(command); got != want {
-			t.Fatalf("summary(%q)=%q want=%q", command, got, want)
-		}
-	}
-}
-
 func TestShellPolicyBlocksChatGPTMCPControlPlaneMutations(t *testing.T) {
 	root := t.TempDir()
 	manager := newTestManager(t)

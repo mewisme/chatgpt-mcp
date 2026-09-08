@@ -73,13 +73,9 @@ func (r *Runtime) approvalResultForGuard(guard *controlguard.Error, sessionID, s
 		command, _ = args["command"].(string)
 		command = strings.TrimSpace(command)
 	}
-	title := "Run guarded command"
-	if command != "" {
-		title = workspace.ShellCommandSummary(command)
-	}
 	challenge, _, err := r.Approvals.CreateChallenge(approval.ChallengeInput{
 		SessionID: sessionID, SessionHash: sessionHash, WorkspaceID: workspaceID, Source: source, TargetTool: name, Arguments: args,
-		GuardCode: guard.Code, GuardReason: guard.Error(), Title: title, Command: command,
+		GuardCode: guard.Code, GuardReason: guard.Error(), Command: command,
 	})
 	if err != nil {
 		return Result{}, false, err

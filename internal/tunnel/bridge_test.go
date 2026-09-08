@@ -232,7 +232,7 @@ func TestSDKBridgeApprovalFlowUsesSessionFallback(t *testing.T) {
 	resultCh := make(chan *sdkmcp.CallToolResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tools.ApprovalRequestToolName, Arguments: map[string]any{"workspace_id": item.ID, "challenge_id": challengeID}})
+		result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tools.ApprovalRequestToolName, Arguments: map[string]any{"workspace_id": item.ID, "challenge_id": challengeID, "title": "Update ChatGPT MCP"}})
 		if err != nil {
 			errCh <- err
 			return

@@ -76,15 +76,18 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 		t.Fatalf("deep resource=%q overlay=%t mode=%d", deep.resourceID, deep.OverlayActive(), deep.mode)
 	}
 	view := ansi.Strip(deep.View(100, 28))
-	for _, expected := range []string{"Approval request · " + pending.ID, pending.WorkspaceID, pending.TargetTool, "Command", "cgm update", "v arguments", "g guard", "a approve", "? more"} {
+	for _, expected := range []string{"Approval request · " + pending.ID, pending.WorkspaceID, pending.TargetTool, "c command", "v arguments", "g guard", "? more"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("deep view missing %q: %q", expected, view)
 		}
 	}
+	if strings.Contains(view, "cgm update") {
+		t.Fatalf("overview still renders raw command: %q", view)
+	}
 	updated, _ = deep.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	deep = updated.(*RequestsPage)
 	expanded := ansi.Strip(deep.View(100, 28))
-	if !strings.Contains(expanded, "deny") || !strings.Contains(expanded, "less") {
+	if !strings.Contains(expanded, "approve") || !strings.Contains(expanded, "deny") || !strings.Contains(expanded, "less") {
 		t.Fatalf("expanded request footer=%q", expanded)
 	}
 	if strings.Contains(view, "Overview   Arguments") || strings.Contains(view, "╭") {
@@ -98,6 +101,25 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 	if !ok || strings.Join(navigate.Path, "/") != "requests/all/"+pending.ID+"/arguments" {
 		t.Fatalf("arguments navigation=%#v", navigate)
 	}
+	_, cmd = deep.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	if cmd == nil {
+		t.Fatal("command child navigation returned no command")
+	}
+	navigate, ok = cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "requests/all/"+pending.ID+"/command" {
+		t.Fatalf("command navigation=%#v", navigate)
+	}
+
+	command, err := NewRequestsRoute(t.Context(), pending.ID, "command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ = command.Update(command.refreshCmd()())
+	command = updated.(*RequestsPage)
+	commandView := ansi.Strip(command.View(100, 28))
+	if command.codeViewer == nil || command.codeViewer.Content() != "cgm update" || !strings.Contains(commandView, "Command") || !strings.Contains(commandView, "cgm update") {
+		t.Fatalf("command child=%q viewer=%#v", commandView, command.codeViewer)
+	}
 
 	arguments, err := NewRequestsRoute(t.Context(), pending.ID, "arguments")
 	if err != nil {
@@ -106,7 +128,7 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 	updated, _ = arguments.Update(arguments.refreshCmd()())
 	arguments = updated.(*RequestsPage)
 	argumentsView := ansi.Strip(arguments.View(100, 28))
-	if !strings.Contains(argumentsView, `"command": "cgm update"`) || strings.Contains(argumentsView, "v arguments") {
+	if arguments.codeViewer == nil || !strings.Contains(arguments.codeViewer.Content(), `"command": "cgm update"`) || !strings.Contains(argumentsView, `"command": "cgm update"`) || strings.Contains(argumentsView, "v arguments") {
 		t.Fatalf("arguments child=%q", argumentsView)
 	}
 

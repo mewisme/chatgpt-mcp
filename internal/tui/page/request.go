@@ -83,6 +83,9 @@ type RequestsPage struct {
 	resourceErr        error
 	detail             component.DetailPage
 	detailReady        bool
+	codeViewer         *component.CodeViewer
+	codeViewerSection  string
+	codeHelp           component.HelpFooter
 	loading            bool
 	overlay            requestOverlay
 	editor             *component.Editor
@@ -122,6 +125,7 @@ func NewRequestsRouteAction(ctx context.Context, modeValue, resourceID, section,
 	resourceID = strings.TrimSpace(resourceID)
 	mode := parseRequestMode(modeValue, resourceID != "")
 	page := &RequestsPage{ctx: ctx, mode: mode, resourceID: resourceID, section: strings.TrimSpace(section), action: strings.TrimSpace(action)}
+	page.codeHelp = component.NewHelpFooter(component.Binding([]string{"j", "k", "up", "down", "pgup", "pgdown"}, "j/k", "scroll"), component.Binding([]string{"r"}, "r", "refresh"))
 	page.rebuildBrowser("")
 	if page.action == "create-test" {
 		page.initCreateEditor()
@@ -257,7 +261,9 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		var cmd tea.Cmd
-		if page.resourceID != "" {
+		if page.resourceID != "" && page.requestCodeSection() {
+			page.resizeCodeViewer(msg.Width, msg.Height)
+		} else if page.resourceID != "" {
 			page.detail.Resize(msg.Width, msg.Height)
 		} else {
 			updated, browserCmd := page.browser.Update(msg)
@@ -302,6 +308,21 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.browser = updated.(component.Browser)
 			return page, cmd
 		}
+		if page.resourceID != "" && page.requestCodeSection() {
+			if page.codeHelp.Update(msg) {
+				page.resizeCodeViewer(page.width, page.height)
+				return page, nil
+			}
+			if msg.String() == "r" {
+				return page, page.manualRefreshCmd()
+			}
+			if page.codeViewer != nil {
+				updated, cmd := page.codeViewer.Update(msg)
+				page.codeViewer = &updated
+				return page, cmd
+			}
+			return page, nil
+		}
 		if page.resourceID != "" {
 			updated, cmd := page.detail.Update(msg)
 			page.detail = updated
@@ -322,6 +343,14 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		updated, cmd := page.editor.Update(message)
 		page.editor = &updated
 		return page, cmd
+	}
+	if page.resourceID != "" && page.requestCodeSection() {
+		if page.codeViewer != nil {
+			updated, cmd := page.codeViewer.Update(message)
+			page.codeViewer = &updated
+			return page, cmd
+		}
+		return page, nil
 	}
 	if page.resourceID != "" {
 		updated, cmd := page.detail.Update(message)
@@ -345,6 +374,8 @@ func (page *RequestsPage) View(width, height int) string {
 	var content string
 	if page.editor != nil {
 		content = page.requestEditorView(width, height)
+	} else if page.resourceID != "" && page.requestCodeSection() {
+		content = page.requestCodeView(width, height)
 	} else if page.resourceID != "" {
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
@@ -379,6 +410,9 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 	default:
 		if page.editor != nil {
 			return page.requestEditorMouseTargets(originX, originY, z)
+		}
+		if page.resourceID != "" && page.requestCodeSection() {
+			return page.requestCodeMouseTargets(originX, originY, z)
 		}
 		if page.resourceID != "" {
 			return page.detail.MouseTargets(originX, originY, z)
@@ -607,12 +641,14 @@ func (page *RequestsPage) syncDetail() {
 		}
 		return
 	}
+	if page.requestCodeSection() {
+		page.syncCodeViewer(request)
+		return
+	}
 	content := ""
 	switch page.section {
 	case "":
 		content = requestOverview(request, page.width)
-	case "arguments":
-		content = requestArguments(request)
 	case "guard":
 		content = requestGuard(request)
 	default:
@@ -630,9 +666,10 @@ func (page *RequestsPage) syncDetail() {
 		page.detail = component.NewDetailPage("Approval request · "+request.ID, meta, content)
 		page.detailReady = true
 	}
-	bindings := make([]component.DetailPageBinding, 0, 5)
+	bindings := make([]component.DetailPageBinding, 0, 6)
 	if page.section == "" {
 		bindings = append(bindings,
+			component.DetailPageBinding{Key: "c", Desc: "command", Message: NavigateMsg{Path: requestRoutePath(page.mode, request.ID, "command")}},
 			component.DetailPageBinding{Key: "v", Desc: "arguments", Message: NavigateMsg{Path: requestRoutePath(page.mode, request.ID, "arguments")}},
 			component.DetailPageBinding{Key: "g", Desc: "guard", Message: NavigateMsg{Path: requestRoutePath(page.mode, request.ID, "guard")}},
 		)
@@ -648,6 +685,90 @@ func (page *RequestsPage) syncDetail() {
 	if page.width > 0 && page.height > 0 {
 		page.detail.Resize(page.width, page.height)
 	}
+}
+
+func (page *RequestsPage) requestCodeSection() bool {
+	return page != nil && (page.section == "command" || page.section == "arguments")
+}
+
+func (page *RequestsPage) syncCodeViewer(request approval.Request) {
+	if page == nil || !page.requestCodeSection() {
+		return
+	}
+	language, content := "text", ""
+	switch page.section {
+	case "command":
+		language, content = "bash", strings.TrimSpace(request.Command)
+		if content == "" {
+			content, language = "No command", "text"
+		}
+	case "arguments":
+		language, content = "json", requestArguments(request)
+	}
+	if page.codeViewer == nil || page.codeViewerSection != page.section {
+		viewer := component.NewCodeViewerLanguage(content, language)
+		page.codeViewer = &viewer
+		page.codeViewerSection = page.section
+	} else {
+		page.codeViewer.SetContent(content)
+	}
+	page.resizeCodeViewer(page.width, page.height)
+}
+
+func (page *RequestsPage) requestCodeView(width, height int) string {
+	request, ok := page.findRequest(page.resourceID)
+	if !ok {
+		return component.StateView(component.PageError, "Approval request unavailable", page.resourceID)
+	}
+	page.syncCodeViewer(request)
+	meta := strings.ToUpper(string(request.Status))
+	if countdown := requestCountdownLabel(request, time.Now()); countdown != "" {
+		meta += " · " + countdown
+	}
+	feedback := requestCodeFeedback(page.notice, page.err, width)
+	help := page.codeHelp.View(width)
+	layout := component.NewSectionLayout("Approval request · "+request.ID+" · "+page.requestCodeTitle(), meta, feedback, width, height, lipgloss.Height(help))
+	body := component.Muted("No content")
+	if page.codeViewer != nil {
+		page.codeViewer.Resize(width, layout.BodyHeight)
+		body = page.codeViewer.View()
+	}
+	return component.BottomHelp(layout.View(body), help, width, height)
+}
+
+func (page *RequestsPage) resizeCodeViewer(width, height int) {
+	if page == nil || page.codeViewer == nil {
+		return
+	}
+	help := page.codeHelp.View(width)
+	layout := component.NewSectionLayout("Approval request · "+page.resourceID+" · "+page.requestCodeTitle(), "", requestCodeFeedback(page.notice, page.err, width), width, height, lipgloss.Height(help))
+	page.codeViewer.Resize(width, layout.BodyHeight)
+}
+
+func (page *RequestsPage) requestCodeMouseTargets(originX, originY, z int) []component.MouseTarget {
+	if page == nil || page.codeViewer == nil {
+		return nil
+	}
+	help := page.codeHelp.View(page.width)
+	layout := component.NewSectionLayout("Approval request · "+page.resourceID+" · "+page.requestCodeTitle(), "", requestCodeFeedback(page.notice, page.err, page.width), page.width, page.height, lipgloss.Height(help))
+	return page.codeViewer.MouseTargets(originX, originY+layout.BodyY, z)
+}
+
+func (page *RequestsPage) requestCodeTitle() string {
+	if page != nil && page.section == "arguments" {
+		return "Arguments"
+	}
+	return "Command"
+}
+
+func requestCodeFeedback(notice string, err error, width int) string {
+	if err != nil {
+		return component.BannerWidth(err.Error(), component.ToneDanger, width)
+	}
+	if strings.TrimSpace(notice) != "" {
+		return component.BannerWidth(notice, component.ToneSuccess, width)
+	}
+	return ""
 }
 
 func (page *RequestsPage) modeIncludes(status approval.Status) bool {
@@ -737,16 +858,12 @@ func requestTickCmd() tea.Cmd {
 	return tea.Tick(requestRefreshInterval, func(now time.Time) tea.Msg { return requestTickMsg(now) })
 }
 
-func requestOverview(request approval.Request, width int) string {
-	content := detailFields(
+func requestOverview(request approval.Request, _ int) string {
+	return detailFields(
 		[2]string{"Status", string(request.Status)}, [2]string{"Title", request.Title}, [2]string{"Workspace", request.WorkspaceID}, [2]string{"Tool", request.TargetTool},
 		[2]string{"Source", request.Source}, [2]string{"Session", request.SessionHash}, [2]string{"Created", requestTime(request.CreatedAt)}, [2]string{"Expires", requestTime(request.ExpiresAt)},
 		[2]string{"Resolved", requestTime(request.ResolvedAt)}, [2]string{"Resolved by", request.ResolvedBy}, [2]string{"Reason", request.Reason}, [2]string{"Retry until", requestTime(request.RetryUntil)}, [2]string{"Consumed", requestTime(request.ConsumedAt)},
 	)
-	if command := strings.TrimSpace(request.Command); command != "" {
-		content += "\n\n" + component.Label("Command") + "\n" + component.RenderCodeBlock(command, "bash", max(1, width))
-	}
-	return content
 }
 
 func requestArguments(request approval.Request) string {

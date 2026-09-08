@@ -42,6 +42,15 @@ const (
 	mcpOverlayOperation
 )
 
+type mcpServerEditorMode uint8
+
+const (
+	mcpServerEditorForm mcpServerEditorMode = iota
+	mcpServerEditorJSON
+)
+
+type mcpServerEditorModeMsg struct{ Mode mcpServerEditorMode }
+
 type mcpHealthMsg struct {
 	id       string
 	status   upstream.Status
@@ -79,6 +88,14 @@ type MCPPage struct {
 	overlay            mcpOverlayKind
 	form               component.Form
 	editor             *component.Editor
+	jsonEditor         *component.TextAreaEditor
+	serverEditorMode   mcpServerEditorMode
+	initialServerDraft string
+	initialJSONDraft   string
+	syncedServerDraft  string
+	syncedJSONDraft    string
+	modeNotice         string
+	modeErr            error
 	confirm            component.ConfirmButtons
 	command            MCPCommand
 	targetID           string
@@ -151,7 +168,13 @@ func newMCPRoutePageAction(ctx context.Context, resourceID, section, action stri
 }
 
 func (page *MCPPage) Init() tea.Cmd {
-	if page != nil && page.editor != nil {
+	if page == nil {
+		return nil
+	}
+	if page.serverEditorMode == mcpServerEditorJSON && page.jsonEditor != nil {
+		return page.jsonEditor.Init()
+	}
+	if page.editor != nil {
 		return page.editor.Init()
 	}
 	return nil
@@ -162,12 +185,21 @@ func (page *MCPPage) OverlayActive() bool {
 }
 
 func (page *MCPPage) InputActive() bool {
-	return page != nil && (page.editor != nil || page.overlay == mcpOverlayForm || page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.serverEditorActive() || page.overlay == mcpOverlayForm || page.resourceID == "" && page.browser.InputActive())
 }
 
-func (page *MCPPage) Dirty() bool { return page != nil && page.editor != nil && page.editor.Dirty() }
+func (page *MCPPage) Dirty() bool {
+	if page == nil || !page.serverEditorActive() {
+		return false
+	}
+	if mcpServerFormSnapshot(page.serverForm) != page.initialServerDraft {
+		return true
+	}
+	return page.jsonEditor != nil && page.jsonEditor.Value() != page.initialJSONDraft
+}
+
 func (page *MCPPage) Submitting() bool {
-	return page != nil && page.editor != nil && page.editor.Submitting()
+	return page != nil && page.serverEditorMode == mcpServerEditorForm && page.editor != nil && page.editor.Submitting()
 }
 
 func (page *MCPPage) Notice() string {
@@ -181,6 +213,18 @@ func (page *MCPPage) SetNotice(value string) {
 	if page != nil {
 		page.notice = strings.TrimSpace(value)
 	}
+}
+
+func (page *MCPPage) serverEditorActive() bool {
+	return page != nil && (page.editor != nil || page.jsonEditor != nil)
+}
+
+func (page *MCPPage) formDraftChangedSinceSync() bool {
+	return page != nil && mcpServerFormSnapshot(page.serverForm) != page.syncedServerDraft
+}
+
+func (page *MCPPage) jsonDraftChangedSinceSync() bool {
+	return page != nil && page.jsonEditor != nil && page.jsonEditor.Value() != page.syncedJSONDraft
 }
 
 func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
@@ -203,7 +247,7 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		var cmd tea.Cmd
-		if page.editor != nil {
+		if page.serverEditorActive() {
 			page.resizeEditor()
 		} else if page.resourceID != "" {
 			page.detail.Resize(msg.Width, msg.Height)
@@ -235,25 +279,30 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 
 	switch msg := message.(type) {
 	case component.EditorSubmitMsg:
-		if page.editor != nil {
+		if page.serverEditorMode == mcpServerEditorForm && page.editor != nil {
 			return page, page.submitServerEditor()
 		}
 		return page, nil
-	case component.EditorCancelMsg:
-		if page.editor != nil {
+	case component.TextAreaSavedMsg:
+		if page.serverEditorMode == mcpServerEditorJSON && page.jsonEditor != nil {
+			return page, page.submitJSONEditor()
+		}
+		return page, nil
+	case component.EditorCancelMsg, component.TextAreaCancelledMsg:
+		if page.serverEditorActive() {
 			return page, page.editorParentNavigation()
 		}
 		return page, nil
+	case mcpServerEditorModeMsg:
+		return page, page.switchServerEditorMode(msg.Mode)
 	case component.FormSubmittedMsg:
 		return page, page.submitForm()
 	case component.FormCancelledMsg:
 		page.closeOverlay()
 		return page, nil
 	case component.FormMouseMsg:
-		if page.editor != nil {
-			updated, cmd := page.editor.Update(msg)
-			page.editor = &updated
-			return page, cmd
+		if page.serverEditorMode == mcpServerEditorForm && page.editor != nil {
+			return page, page.updateServerEditor(msg)
 		}
 		if page.overlay == mcpOverlayForm {
 			updated, cmd := page.form.Update(msg)
@@ -279,10 +328,15 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, nil
 	case tea.KeyPressMsg:
-		if page.editor != nil {
-			updated, cmd := page.editor.Update(msg)
-			page.editor = &updated
-			return page, cmd
+		if page.serverEditorActive() {
+			switch msg.Keystroke() {
+			case "alt+1":
+				return page, page.switchServerEditorMode(mcpServerEditorForm)
+			case "alt+2":
+				return page, page.switchServerEditorMode(mcpServerEditorJSON)
+			default:
+				return page, page.updateServerEditor(msg)
+			}
 		}
 		if page.overlay == mcpOverlayForm {
 			updated, cmd := page.form.Update(msg)
@@ -301,10 +355,8 @@ func (page *MCPPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, cmd
 		}
 	}
-	if page.editor != nil {
-		updated, cmd := page.editor.Update(message)
-		page.editor = &updated
-		return page, cmd
+	if page.serverEditorActive() {
+		return page, page.updateServerEditor(message)
 	}
 	if page.overlay == mcpOverlayForm {
 		updated, cmd := page.form.Update(message)
@@ -327,7 +379,7 @@ func (page *MCPPage) View(width, height int) string {
 	}
 	page.width, page.height = width, height
 	var content string
-	if page.editor != nil {
+	if page.serverEditorActive() {
 		content = page.editorView(width, height)
 	} else if page.resourceID != "" {
 		page.detail.SetFeedback(page.notice, page.err)
@@ -372,9 +424,37 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 	if page == nil {
 		return nil
 	}
-	if page.editor != nil {
+	if page.serverEditorActive() {
 		title := component.PageTitleNotice(page.editorTitle(), page.notice, page.width)
-		return page.editor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
+		y := originY + lipgloss.Height(title) + 1
+		if page.jsonEditor == nil {
+			if page.editor == nil {
+				return nil
+			}
+			return page.editor.MouseTargets(originX, y, z)
+		}
+		header, spans := page.serverEditorModeHeader(page.width)
+		targets := make([]component.MouseTarget, 0, len(spans)+8)
+		for _, span := range spans {
+			index := span.Index
+			targets = append(targets, component.MouseTarget{
+				ID: "mcp.editor.mode", Rect: component.Rect{X: originX + span.X, Y: y, Width: span.Width, Height: 1}, Z: z,
+				Handle: func(event component.MouseEvent) tea.Msg {
+					if event.Button != tea.MouseLeft {
+						return nil
+					}
+					return mcpServerEditorModeMsg{Mode: mcpServerEditorMode(index)}
+				},
+			})
+		}
+		y += lipgloss.Height(header) + 1
+		if feedback := page.serverEditorFeedback(page.width); feedback != "" {
+			y += lipgloss.Height(feedback) + 1
+		}
+		if page.serverEditorMode == mcpServerEditorForm && page.editor != nil {
+			targets = append(targets, page.editor.MouseTargets(originX, y, z)...)
+		}
+		return targets
 	}
 	switch page.overlay {
 	case mcpOverlayForm:
@@ -396,6 +476,157 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 	}
 }
 
+func (page *MCPPage) updateServerEditor(message tea.Msg) tea.Cmd {
+	if page == nil || !page.serverEditorActive() {
+		return nil
+	}
+	if background, ok := message.(tea.BackgroundColorMsg); ok {
+		var cmds []tea.Cmd
+		if page.editor != nil {
+			updated, cmd := page.editor.Update(background)
+			page.editor = &updated
+			cmds = append(cmds, cmd)
+		}
+		if page.jsonEditor != nil {
+			updated, cmd := page.jsonEditor.Update(background)
+			page.jsonEditor = &updated
+			cmds = append(cmds, cmd)
+		}
+		return tea.Batch(cmds...)
+	}
+	if page.serverEditorMode == mcpServerEditorJSON && page.jsonEditor != nil {
+		updated, cmd := page.jsonEditor.Update(message)
+		page.jsonEditor = &updated
+		return cmd
+	}
+	if page.editor != nil {
+		updated, cmd := page.editor.Update(message)
+		page.editor = &updated
+		return cmd
+	}
+	return nil
+}
+
+func (page *MCPPage) switchServerEditorMode(mode mcpServerEditorMode) tea.Cmd {
+	if page == nil || page.command != MCPServerAdd || page.jsonEditor == nil || (mode != mcpServerEditorForm && mode != mcpServerEditorJSON) || mode == page.serverEditorMode {
+		return nil
+	}
+	page.modeNotice, page.modeErr = "", nil
+	switch mode {
+	case mcpServerEditorJSON:
+		sourceChanged, targetChanged := page.formDraftChangedSinceSync(), page.jsonDraftChangedSinceSync()
+		if sourceChanged && targetChanged {
+			page.modeNotice = "Form and JSON drafts both changed; keeping the existing JSON draft without overwriting it."
+		} else if sourceChanged {
+			if page.editor != nil {
+				if err := page.editor.Validate(); err != nil {
+					page.editor.SetFeedback("", err)
+					return nil
+				}
+			}
+			server, err := serverFromMCPForm(page.serverForm, upstream.Server{}, true)
+			if err != nil {
+				page.editor.SetFeedback("", err)
+				return nil
+			}
+			encoded, err := upstream.MarshalMCPServersJSON([]upstream.Server{server})
+			if err != nil {
+				page.editor.SetFeedback("", err)
+				return nil
+			}
+			page.jsonEditor.SetValue(string(encoded))
+			page.syncedServerDraft = mcpServerFormSnapshot(page.serverForm)
+			page.syncedJSONDraft = page.jsonEditor.Value()
+		}
+		page.serverEditorMode = mode
+		page.resizeEditor()
+		return page.jsonEditor.Init()
+	case mcpServerEditorForm:
+		sourceChanged, targetChanged := page.jsonDraftChangedSinceSync(), page.formDraftChangedSinceSync()
+		if sourceChanged && targetChanged {
+			page.modeNotice = "JSON and Form drafts both changed; keeping the existing Form draft without overwriting it."
+		} else if sourceChanged {
+			servers, err := upstream.ParseMCPServersJSON([]byte(page.jsonEditor.Value()))
+			if err != nil {
+				page.modeErr = err
+				return nil
+			}
+			if len(servers) != 1 {
+				page.modeNotice = fmt.Sprintf("JSON contains %d servers; Form mode supports exactly one server, so the JSON draft remains authoritative.", len(servers))
+				return nil
+			}
+			editor, data := newMCPServerEditor(servers[0], true)
+			page.editor, page.serverForm = &editor, data
+			page.syncedServerDraft = mcpServerFormSnapshot(data)
+			page.syncedJSONDraft = page.jsonEditor.Value()
+		}
+		page.serverEditorMode = mode
+		page.resizeEditor()
+		if page.editor != nil {
+			return page.editor.Init()
+		}
+	}
+	return nil
+}
+
+func (page *MCPPage) submitJSONEditor() tea.Cmd {
+	if page == nil || page.command != MCPServerAdd || page.jsonEditor == nil {
+		return nil
+	}
+	page.modeNotice, page.modeErr = "", nil
+	servers, err := upstream.ParseMCPServersJSON([]byte(page.jsonEditor.Value()))
+	if err != nil {
+		page.modeErr = err
+		return nil
+	}
+	if err := page.manager.CreateBatch(servers); err != nil {
+		page.modeErr = err
+		return nil
+	}
+	page.acceptServerDrafts()
+	message := "MCP server added"
+	path := []string{"mcp"}
+	if len(servers) == 1 {
+		path = []string{"mcp", servers[0].ID}
+	} else {
+		message = fmt.Sprintf("Added %d MCP servers", len(servers))
+	}
+	navigation := func() tea.Msg { return NavigateMsg{Path: path} }
+	return tea.Batch(navigation, func() tea.Msg { return ToastMsg{Title: "MCP", Message: message, Tone: component.ToneSuccess} })
+}
+
+func (page *MCPPage) acceptServerDrafts() {
+	if page == nil {
+		return
+	}
+	page.initialServerDraft = mcpServerFormSnapshot(page.serverForm)
+	page.syncedServerDraft = page.initialServerDraft
+	if page.jsonEditor != nil {
+		page.initialJSONDraft = page.jsonEditor.Value()
+		page.syncedJSONDraft = page.initialJSONDraft
+	}
+}
+
+func (page *MCPPage) serverEditorModeHeader(width int) (string, []component.TabSpan) {
+	if page == nil || page.jsonEditor == nil {
+		return "", nil
+	}
+	return component.PageTabsLayout([]string{"Form", "JSON"}, int(page.serverEditorMode), "Alt+1 Form · Alt+2 JSON", width)
+}
+
+func (page *MCPPage) serverEditorFeedback(width int) string {
+	if page == nil {
+		return ""
+	}
+	if page.modeErr != nil {
+		return component.BannerWidth(page.modeErr.Error(), component.ToneDanger, width)
+	}
+	if strings.TrimSpace(page.modeNotice) != "" {
+		return component.BannerWidth(page.modeNotice, component.ToneWarning, width)
+	}
+	return ""
+}
+
 func (page *MCPPage) initEditorRoute() error {
 	if page == nil {
 		return nil
@@ -406,7 +637,12 @@ func (page *MCPPage) initEditorRoute() error {
 			return fmt.Errorf("MCP create editor does not accept a resource or section")
 		}
 		editor, data := newMCPServerEditor(upstream.Server{}, true)
-		page.editor, page.serverForm = &editor, data
+		jsonEditor := component.NewTextAreaEditorAction("", "", "create")
+		page.editor, page.jsonEditor, page.serverForm = &editor, &jsonEditor, data
+		page.serverEditorMode = mcpServerEditorForm
+		page.initialServerDraft = mcpServerFormSnapshot(data)
+		page.initialJSONDraft = ""
+		page.syncedServerDraft, page.syncedJSONDraft = page.initialServerDraft, page.initialJSONDraft
 		page.command, page.targetID = MCPServerAdd, ""
 	case "edit":
 		if page.resourceID == "" || page.section != "" {
@@ -418,6 +654,9 @@ func (page *MCPPage) initEditorRoute() error {
 		}
 		editor, data := newMCPServerEditor(server, false)
 		page.editor, page.serverForm = &editor, data
+		page.serverEditorMode = mcpServerEditorForm
+		page.initialServerDraft = mcpServerFormSnapshot(data)
+		page.syncedServerDraft = page.initialServerDraft
 		page.command, page.targetID = MCPServerConfigure, server.ID
 	default:
 		return fmt.Errorf("unsupported MCP editor action: %s", page.action)
@@ -434,20 +673,54 @@ func (page *MCPPage) editorTitle() string {
 }
 
 func (page *MCPPage) resizeEditor() {
-	if page == nil || page.editor == nil || page.width <= 0 || page.height <= 0 {
+	if page == nil || !page.serverEditorActive() || page.width <= 0 || page.height <= 0 {
 		return
 	}
 	title := component.PageTitleNotice(page.editorTitle(), page.notice, page.width)
-	page.editor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
+	bodyHeight := max(1, page.height-lipgloss.Height(title)-1)
+	if page.jsonEditor == nil {
+		if page.editor != nil {
+			page.editor.Resize(page.width, bodyHeight)
+		}
+		return
+	}
+	header, _ := page.serverEditorModeHeader(page.width)
+	overhead := lipgloss.Height(header) + 1
+	if feedback := page.serverEditorFeedback(page.width); feedback != "" {
+		overhead += lipgloss.Height(feedback) + 1
+	}
+	childHeight := max(1, bodyHeight-overhead)
+	if page.serverEditorMode == mcpServerEditorJSON {
+		page.jsonEditor.Resize(page.width, childHeight)
+	} else if page.editor != nil {
+		page.editor.Resize(page.width, childHeight)
+	}
 }
 
 func (page *MCPPage) editorView(width, height int) string {
 	title := component.PageTitleNotice(page.editorTitle(), page.notice, width)
-	if page.editor == nil {
+	if !page.serverEditorActive() {
 		return title + "\n" + component.StateView(component.PageError, "MCP editor unavailable", "")
 	}
-	page.editor.Resize(width, max(1, height-lipgloss.Height(title)-1))
-	return title + "\n" + page.editor.View()
+	page.width, page.height = width, height
+	page.resizeEditor()
+	if page.jsonEditor == nil {
+		if page.editor == nil {
+			return title + "\n" + component.StateView(component.PageError, "MCP editor unavailable", "")
+		}
+		return title + "\n" + page.editor.View()
+	}
+	header, _ := page.serverEditorModeHeader(width)
+	parts := []string{title, header}
+	if feedback := page.serverEditorFeedback(width); feedback != "" {
+		parts = append(parts, feedback)
+	}
+	if page.serverEditorMode == mcpServerEditorJSON {
+		parts = append(parts, page.jsonEditor.View())
+	} else if page.editor != nil {
+		parts = append(parts, page.editor.View())
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (page *MCPPage) editorParentNavigation() tea.Cmd {
@@ -465,6 +738,7 @@ func (page *MCPPage) submitServerEditor() tea.Cmd {
 	if page == nil || page.editor == nil || page.serverForm == nil {
 		return nil
 	}
+	page.modeNotice, page.modeErr = "", nil
 	if err := page.editor.Validate(); err != nil {
 		page.editor.SetFeedback("", err)
 		return nil
@@ -497,6 +771,7 @@ func (page *MCPPage) submitServerEditor() tea.Cmd {
 	page.editor, page.serverForm = &editor, data
 	page.editor.SetFeedback("", nil)
 	page.err = nil
+	page.acceptServerDrafts()
 	message := "MCP server updated"
 	if create {
 		message = "MCP server added"

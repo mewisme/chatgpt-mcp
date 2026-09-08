@@ -21,15 +21,23 @@ type TextAreaEditor struct {
 }
 
 func NewTextAreaEditor(title, value string) TextAreaEditor {
+	return NewTextAreaEditorAction(title, value, "save")
+}
+
+func NewTextAreaEditorAction(title, value, action string) TextAreaEditor {
 	input := textarea.New()
 	input.SetValue(value)
 	input.SetStyles(textarea.DefaultStyles(currentTheme.isDark))
 	input.ShowLineNumbers = false
 	input.CharLimit = 0
 	input.Focus()
+	action = strings.TrimSpace(action)
+	if action == "" {
+		action = "save"
+	}
 	return TextAreaEditor{
 		input: input, title: strings.TrimSpace(title), initial: value,
-		help: NewHelpFooter(Binding([]string{"ctrl+s"}, "ctrl+s", "save"), Binding([]string{"esc"}, "esc", "cancel")),
+		help: NewHelpFooter(Binding([]string{"ctrl+s"}, "ctrl+s", action), Binding([]string{"esc"}, "esc", "cancel")),
 	}
 }
 

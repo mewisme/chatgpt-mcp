@@ -97,7 +97,9 @@ func newMCPServerFormData(server upstream.Server, create bool) mcpServerFormData
 		existingHeaders: upstream.CloneStringMap(server.Headers), existingEnv: upstream.CloneStringMap(server.Env),
 	}
 	if create {
-		data.Enabled = true
+		if strings.TrimSpace(server.ID) == "" {
+			data.Enabled = true
+		}
 		if data.Transport == "" {
 			data.Transport = "http"
 		}
@@ -183,6 +185,14 @@ func newMCPOAuthForm() (component.Form, *mcpOAuthFormData) {
 		component.Confirm("Open authorization URL in browser", &data.OpenBrowser),
 	))
 	return form, &data
+}
+
+func mcpServerFormSnapshot(data *mcpServerFormData) string {
+	if data == nil {
+		return ""
+	}
+	encoded, _ := json.Marshal(data)
+	return string(encoded)
 }
 
 func serverFromMCPForm(data *mcpServerFormData, existing upstream.Server, create bool) (upstream.Server, error) {

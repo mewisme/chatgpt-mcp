@@ -59,3 +59,17 @@ func TestTextAreaEditorSetValueResetsDirtyBaseline(t *testing.T) {
 		t.Fatalf("reset editor dirty=%v value=%q", editor.Dirty(), editor.Value())
 	}
 }
+
+func TestTextAreaEditorCustomPrimaryActionAndWrapping(t *testing.T) {
+	editor := NewTextAreaEditorAction("", strings.Repeat("abcdefghij", 8), "create")
+	editor.Resize(24, 10)
+	plain := ansi.Strip(editor.View())
+	if !strings.Contains(plain, "ctrl+s create") || strings.Contains(plain, "ctrl+s save") {
+		t.Fatalf("custom action help=%q", plain)
+	}
+	for _, line := range strings.Split(plain, "\n") {
+		if len([]rune(line)) > 24 {
+			t.Fatalf("textarea line exceeds width: %q", line)
+		}
+	}
+}

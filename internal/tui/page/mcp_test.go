@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -525,5 +526,203 @@ func TestMCPServerEditorCancelReturnsToParent(t *testing.T) {
 	message, ok = cmd().(NavigateMsg)
 	if !ok || strings.Join(message.Path, "/") != "mcp/docs" {
 		t.Fatalf("edit cancel=%#v", message)
+	}
+}
+
+func fillMCPCreateHTTPDraft(page *MCPPage, id, name, url string) *MCPPage {
+	updated, _ := page.Update(tea.KeyPressMsg{Code: []rune(id)[0], Text: id})
+	page = updated.(*MCPPage)
+	updated, _ = page.Update(huh.NextField())
+	page = updated.(*MCPPage)
+	updated, _ = page.Update(tea.KeyPressMsg{Code: []rune(name)[0], Text: name})
+	page = updated.(*MCPPage)
+	for range 3 {
+		updated, _ = page.Update(huh.NextField())
+		page = updated.(*MCPPage)
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: []rune(url)[0], Text: url})
+	return updated.(*MCPPage)
+}
+
+func TestMCPCreateEditorFormJSONTabsKeyboardMouseAndRoundTrip(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	page = fillMCPCreateHTTPDraft(page, "docs", "Docs", "https://example.test/mcp")
+	expected, err := serverFromMCPForm(page.serverForm, upstream.Server{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(tea.KeyPressMsg{Code: '2', Text: "2", Mod: tea.ModAlt})
+	page = updated.(*MCPPage)
+	if page.serverEditorMode != mcpServerEditorJSON || page.jsonEditor == nil || !page.Dirty() {
+		t.Fatalf("JSON mode=%d editor=%v dirty=%t", page.serverEditorMode, page.jsonEditor != nil, page.Dirty())
+	}
+	parsed, err := upstream.ParseMCPServersJSON([]byte(page.jsonEditor.Value()))
+	if err != nil || len(parsed) != 1 || !reflect.DeepEqual(parsed[0], expected) {
+		t.Fatalf("Form -> JSON parsed=%#v expected=%#v err=%v", parsed, expected, err)
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: '1', Text: "1", Mod: tea.ModAlt})
+	page = updated.(*MCPPage)
+	if page.serverEditorMode != mcpServerEditorForm {
+		t.Fatalf("Form mode=%d", page.serverEditorMode)
+	}
+	roundTrip, err := serverFromMCPForm(page.serverForm, upstream.Server{}, true)
+	if err != nil || !reflect.DeepEqual(roundTrip, expected) {
+		t.Fatalf("JSON -> Form=%#v expected=%#v err=%v", roundTrip, expected, err)
+	}
+	plain := ansi.Strip(page.View(90, 26))
+	for _, want := range []string{"Form", "JSON", "Alt+1 Form", "Alt+2 JSON"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("mode tabs missing %q: %q", want, plain)
+		}
+	}
+	var jsonTarget *component.MouseTarget
+	for _, target := range page.MouseTargets(0, 0, 5) {
+		if target.ID != "mcp.editor.mode" {
+			continue
+		}
+		message, ok := target.Handle(component.MouseEvent{Button: tea.MouseLeft}).(mcpServerEditorModeMsg)
+		if ok && message.Mode == mcpServerEditorJSON {
+			selected := target
+			jsonTarget = &selected
+			break
+		}
+	}
+	if jsonTarget == nil {
+		t.Fatal("JSON mode mouse target not found")
+	}
+	message := jsonTarget.Handle(component.MouseEvent{Button: tea.MouseLeft})
+	updated, _ = page.Update(message)
+	page = updated.(*MCPPage)
+	if page.serverEditorMode != mcpServerEditorJSON {
+		t.Fatal("JSON mouse target did not select JSON mode")
+	}
+}
+
+func TestMCPCreateJSONSingleSyncsToFormWithoutLosingDisabled(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(mcpServerEditorModeMsg{Mode: mcpServerEditorJSON})
+	page = updated.(*MCPPage)
+	draft := `{"mcpServers":{"local":{"command":"node","args":["server.js"],"disabled":true}}}`
+	page.jsonEditor.SetValue(draft)
+	updated, _ = page.Update(mcpServerEditorModeMsg{Mode: mcpServerEditorForm})
+	page = updated.(*MCPPage)
+	if page.serverEditorMode != mcpServerEditorForm || page.serverForm.ID != "local" || page.serverForm.Transport != "stdio" || page.serverForm.Command != "node" || page.serverForm.Enabled {
+		t.Fatalf("JSON -> Form draft=%#v mode=%d", page.serverForm, page.serverEditorMode)
+	}
+	server, err := serverFromMCPForm(page.serverForm, upstream.Server{}, true)
+	if err != nil || server.Enabled || server.Transport != "stdio" || server.Command != "node" {
+		t.Fatalf("JSON -> Form normalized=%#v err=%v", server, err)
+	}
+}
+
+func TestMCPCreateJSONMultipleStaysAuthoritativeAndCreatesAtomically(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(mcpServerEditorModeMsg{Mode: mcpServerEditorJSON})
+	page = updated.(*MCPPage)
+	draft := `{"mcpServers":{"local":{"command":"node"},"docs":{"url":"https://example.test/mcp"}}}`
+	page.jsonEditor.SetValue(draft)
+	updated, _ = page.Update(mcpServerEditorModeMsg{Mode: mcpServerEditorForm})
+	page = updated.(*MCPPage)
+	if page.serverEditorMode != mcpServerEditorJSON || !strings.Contains(page.modeNotice, "supports exactly one server") || page.jsonEditor.Value() != draft {
+		t.Fatalf("multi JSON switch mode=%d notice=%q draft=%q", page.serverEditorMode, page.modeNotice, page.jsonEditor.Value())
+	}
+	updated, cmd := page.Update(component.TextAreaSavedMsg{Value: draft})
+	page = updated.(*MCPPage)
+	if cmd == nil || len(manager.List()) != 2 || page.Dirty() {
+		t.Fatalf("multi create cmd=%v servers=%#v dirty=%t err=%v", cmd != nil, manager.List(), page.Dirty(), page.modeErr)
+	}
+	message := cmd()
+	batch, ok := message.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("multi create command=%T", message)
+	}
+	foundNavigation := false
+	for _, next := range batch {
+		if next == nil {
+			continue
+		}
+		if navigation, ok := next().(NavigateMsg); ok {
+			foundNavigation = strings.Join(navigation.Path, "/") == "mcp"
+		}
+	}
+	if !foundNavigation {
+		t.Fatal("multi create did not navigate to MCP list")
+	}
+}
+
+func TestMCPCreateJSONInvalidAndExistingBatchKeepExactDraft(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(mcpServerEditorModeMsg{Mode: mcpServerEditorJSON})
+	page = updated.(*MCPPage)
+	secret := "TOP_SECRET_VALUE"
+	invalid := `{"mcpServers":{"good":{"command":"node"},"bad":{"transport":"wat","headers":{"Authorization":"` + secret + `"}}}}`
+	page.jsonEditor.SetValue(invalid)
+	updated, cmd := page.Update(component.TextAreaSavedMsg{Value: invalid})
+	page = updated.(*MCPPage)
+	if cmd != nil || len(manager.List()) != 0 || page.modeErr == nil || strings.Contains(page.modeErr.Error(), secret) || page.jsonEditor.Value() != invalid {
+		t.Fatalf("invalid JSON cmd=%v servers=%#v err=%v exact=%t", cmd != nil, manager.List(), page.modeErr, page.jsonEditor.Value() == invalid)
+	}
+	if err := manager.Add(upstream.Server{ID: "existing", Transport: "http", URL: "https://old.example/mcp", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	existing := `{"mcpServers":{"new":{"command":"node"},"existing":{"url":"https://new.example/mcp"}}}`
+	page.jsonEditor.SetValue(existing)
+	updated, cmd = page.Update(component.TextAreaSavedMsg{Value: existing})
+	page = updated.(*MCPPage)
+	if cmd != nil || page.modeErr == nil || !strings.Contains(page.modeErr.Error(), "already exists: existing") || page.jsonEditor.Value() != existing {
+		t.Fatalf("existing batch cmd=%v err=%v exact=%t", cmd != nil, page.modeErr, page.jsonEditor.Value() == existing)
+	}
+	if _, ok := manager.Get("new"); ok {
+		t.Fatal("existing-ID batch partially created new server")
+	}
+	stored, _ := manager.Get("existing")
+	if stored.URL != "https://old.example/mcp" {
+		t.Fatalf("existing server mutated: %#v", stored)
+	}
+}
+
+func TestMCPCreateJSONEnterNewlineWrapsAndDivergedTargetIsPreserved(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(mcpServerEditorModeMsg{Mode: mcpServerEditorJSON})
+	page = updated.(*MCPPage)
+	page.jsonEditor.SetValue("{")
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	page = updated.(*MCPPage)
+	if page.jsonEditor.Value() != "{\n" {
+		t.Fatalf("JSON Enter value=%q", page.jsonEditor.Value())
+	}
+	longDraft := `{"id":"long","url":"https://example.test/` + strings.Repeat("segment/", 30) + `mcp"}`
+	page.jsonEditor.SetValue(longDraft)
+	testutil.AssertLinesFit(t, page.View(36, 18), 36)
+
+	page.serverEditorMode = mcpServerEditorForm
+	page.serverForm.Name = "Form draft"
+	page.jsonEditor.SetValue(`{"id":"json","command":"node"}`)
+	jsonBefore := page.jsonEditor.Value()
+	updated, _ = page.Update(mcpServerEditorModeMsg{Mode: mcpServerEditorJSON})
+	page = updated.(*MCPPage)
+	if page.serverEditorMode != mcpServerEditorJSON || page.jsonEditor.Value() != jsonBefore || !strings.Contains(page.modeNotice, "both changed") {
+		t.Fatalf("diverged switch mode=%d json=%q notice=%q", page.serverEditorMode, page.jsonEditor.Value(), page.modeNotice)
 	}
 }

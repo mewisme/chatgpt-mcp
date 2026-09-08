@@ -483,7 +483,7 @@ func TestRequestArgumentsRenderExactValues(t *testing.T) {
 
 func TestRequestRowsSearchExactCommandSeparatelyFromTitle(t *testing.T) {
 	page, _ := NewRequests(t.Context(), "")
-	page.requests = []approval.Request{{ID: "req_search", Status: approval.StatusPending, Title: "Allow run_command", Command: "cgm update --channel beta"}}
+	page.requests = []approval.Request{{ID: "req_search", Status: approval.StatusPending, Title: "Update ChatGPT MCP", Command: "cgm update --channel beta"}}
 	rows := page.requestRows()
 	if len(rows) != 1 || !strings.Contains(rows[0].Search, "cgm update --channel beta") || strings.Contains(rows[0].Title, "cgm update") {
 		t.Fatalf("row=%#v", rows)

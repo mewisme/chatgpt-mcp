@@ -572,6 +572,100 @@ func DirectControlPlaneInvocation(command string) (*controlguard.Invocation, boo
 	return &controlguard.Invocation{Program: filepath.Base(tokens[0]), Args: args, Command: strings.TrimSpace(command)}, true
 }
 
+func ShellCommandSummary(command string) string {
+	segments, err := splitShellSegments(command)
+	if err != nil || len(segments) == 0 {
+		return "Run shell command"
+	}
+	if len(segments) > 1 {
+		return fmt.Sprintf("Run %d shell commands", len(segments))
+	}
+	tokens, err := shellWords(segments[0])
+	if err != nil || len(tokens) == 0 {
+		return "Run shell command"
+	}
+	name, args := commandName(tokens)
+	switch name {
+	case "cgm", "cmcp", "chatgpt-mcp":
+		switch firstCommandArg(args) {
+		case "update":
+			return "Update ChatGPT MCP"
+		case "install":
+			return "Install ChatGPT MCP"
+		case "uninstall":
+			return "Uninstall ChatGPT MCP"
+		case "config":
+			return "Modify ChatGPT MCP configuration"
+		case "workspace":
+			return "Modify ChatGPT MCP workspace state"
+		}
+	case "rm", "rmdir", "unlink", "del", "erase", "remove-item", "shred":
+		return "Delete files"
+	case "truncate", "clear-content":
+		return "Clear file contents"
+	case "mv", "move", "ren", "rename", "move-item", "rename-item":
+		return "Move or rename files"
+	case "git":
+		if subcommand, rest, ok := gitCommand(args); ok {
+			switch subcommand {
+			case "push":
+				return "Push Git commits"
+			case "rm", "clean":
+				return "Delete Git files"
+			case "reset":
+				if containsAnyFold(rest, "--hard", "--merge", "--keep") {
+					return "Reset Git working tree"
+				}
+			case "restore", "checkout", "switch":
+				return "Modify Git working tree"
+			case "branch":
+				if containsAnyFold(rest, "-D", "--delete") {
+					return "Delete Git branch"
+				}
+			case "tag":
+				if containsAnyFold(rest, "-d", "--delete") {
+					return "Delete Git tag"
+				}
+			}
+		}
+	case "systemctl":
+		return "Modify system service"
+	case "service":
+		return "Modify system service"
+	case "kill", "pkill", "killall", "taskkill", "stop-process":
+		return "Terminate process"
+	case "shutdown", "reboot", "poweroff", "halt", "restart-computer", "stop-computer":
+		return "Change host power state"
+	case "docker", "podman":
+		if firstCommandArg(args, "--context", "-h", "--host", "--config", "--log-level") == "push" {
+			return "Push container image"
+		}
+		return "Modify container runtime"
+	case "kubectl":
+		return "Modify Kubernetes cluster"
+	case "helm":
+		return "Modify Helm release"
+	case "terraform", "tofu":
+		return "Modify infrastructure"
+	case "npm", "pnpm", "yarn", "bun", "cargo", "twine":
+		if registryPublishMutation(name, args) {
+			return "Publish package"
+		}
+	case "apt", "apt-get", "dnf", "yum", "zypper", "apk", "brew", "choco", "winget", "scoop":
+		if packageManagerMutation(args) {
+			return "Modify host packages"
+		}
+	case "curl":
+		if externalHTTPMutation(args) {
+			return "Modify remote HTTP resource"
+		}
+	}
+	if name == "" {
+		return "Run shell command"
+	}
+	return "Run " + filepath.Base(name) + " command"
+}
+
 func (m *Manager) validateProtectedShellAccess(cwd, command string, depth int) error {
 	if m.protectedRoot == "" {
 		return nil

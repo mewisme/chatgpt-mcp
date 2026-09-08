@@ -65,7 +65,6 @@ func (r *Runtime) approvalResultForGuard(guard *controlguard.Error, sessionID, s
 	if guard == nil || !guard.Approvable || claimed.ID != "" || r == nil || r.Approvals == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(workspaceID) == "" {
 		return Result{}, false, nil
 	}
-	title := "Allow " + name
 	command := ""
 	if guard.Invocation != nil {
 		command = strings.TrimSpace(guard.Invocation.Command)
@@ -73,6 +72,10 @@ func (r *Runtime) approvalResultForGuard(guard *controlguard.Error, sessionID, s
 	if command == "" {
 		command, _ = args["command"].(string)
 		command = strings.TrimSpace(command)
+	}
+	title := "Run guarded command"
+	if command != "" {
+		title = workspace.ShellCommandSummary(command)
 	}
 	challenge, _, err := r.Approvals.CreateChallenge(approval.ChallengeInput{
 		SessionID: sessionID, SessionHash: sessionHash, WorkspaceID: workspaceID, Source: source, TargetTool: name, Arguments: args,

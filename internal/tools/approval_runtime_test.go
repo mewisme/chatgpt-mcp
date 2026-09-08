@@ -108,7 +108,7 @@ func TestRuntimeGuardChallengeApprovalAndExactOneShotRetry(t *testing.T) {
 		t.Fatalf("guarded call = %#v err=%v", first, err)
 	}
 	challenge, ok := first.StructuredContent.(approvalRequiredResponse)
-	if !ok || challenge.Code != "approval_required" || challenge.ChallengeID == "" || challenge.WorkspaceID != workspaceID || challenge.TargetTool != "guarded_action" || challenge.Title != "Allow guarded_action" || challenge.Command != "cgm update" || challenge.RequestTool != ApprovalRequestToolName {
+	if !ok || challenge.Code != "approval_required" || challenge.ChallengeID == "" || challenge.WorkspaceID != workspaceID || challenge.TargetTool != "guarded_action" || challenge.Title != "Update ChatGPT MCP" || challenge.Command != "cgm update" || challenge.RequestTool != ApprovalRequestToolName {
 		t.Fatalf("challenge = %#v", first.StructuredContent)
 	}
 	arguments, ok := challenge.Arguments.(map[string]any)
@@ -122,7 +122,7 @@ func TestRuntimeGuardChallengeApprovalAndExactOneShotRetry(t *testing.T) {
 		approvalCall <- approvalToolCallResult{result: result, err: err}
 	}()
 	request := waitForPendingApproval(t, runtime.Approvals)
-	if request.Title != "Allow guarded_action" || request.Command != "cgm update" {
+	if request.Title != "Update ChatGPT MCP" || request.Command != "cgm update" {
 		t.Fatalf("request summary/command = %#v", request)
 	}
 	if _, err := runtime.Approvals.Approve(request.ID, "test", "reviewed"); err != nil {
@@ -281,7 +281,7 @@ func TestShellControlGuardProducesChallengeOnlyForDirectLiteralCLI(t *testing.T)
 		t.Fatalf("direct guard = %#v err=%v", direct, err)
 	}
 	challenge, ok := direct.StructuredContent.(approvalRequiredResponse)
-	if !ok || challenge.TargetTool != "run_command" || challenge.GuardCode != string(controlguard.CodeControlPlaneMutation) || challenge.Title != "Allow run_command" || challenge.Command != "cgm update" {
+	if !ok || challenge.TargetTool != "run_command" || challenge.GuardCode != string(controlguard.CodeControlPlaneMutation) || challenge.Title != "Update ChatGPT MCP" || challenge.Command != "cgm update" {
 		t.Fatalf("direct challenge = %#v", direct.StructuredContent)
 	}
 	for _, command := range []string{`bash -lc "cgm update"`, `exec cgm update`, `cgm update && echo done`, `unset CHATGPT_MCP_TOOL_CONTEXT`} {
@@ -320,7 +320,7 @@ func TestDestructiveShellApprovalIsExactOneShotAndWorkspaceBound(t *testing.T) {
 		t.Fatalf("destructive guard = %#v err=%v", guarded, err)
 	}
 	challenge, ok := guarded.StructuredContent.(approvalRequiredResponse)
-	if !ok || challenge.GuardCode != string(controlguard.CodeDestructiveMutation) || challenge.TargetTool != "run_command" || challenge.Title != "Allow run_command" || challenge.Command != "rm delete-me.txt" {
+	if !ok || challenge.GuardCode != string(controlguard.CodeDestructiveMutation) || challenge.TargetTool != "run_command" || challenge.Title != "Delete files" || challenge.Command != "rm delete-me.txt" {
 		t.Fatalf("destructive challenge = %#v", guarded.StructuredContent)
 	}
 	if _, err := os.Stat(target); err != nil {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -185,6 +186,31 @@ func TestRuntimeControlRequestListViewApproveAndDeny(t *testing.T) {
 	}
 	if _, err := requestRuntimeApprovalView(ctx, "req_"); err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("ambiguous request prefix err=%v", err)
+	}
+}
+
+func TestRuntimeControlListsApprovalAfterWaiterCancellation(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	manager := approval.NewManager("instance-test")
+	request := seedApprovalRequest(t, manager, "session-a", "ws_a", "cgm update")
+	waitCtx, cancelWait := context.WithCancel(context.Background())
+	cancelWait()
+	if value, err := manager.Wait(waitCtx, request.ID); !errors.Is(err, context.Canceled) || value.Status != approval.StatusPending {
+		t.Fatalf("detached wait = %#v err=%v", value, err)
+	}
+	control, err := startRuntimeControl(runtimeControlOptions{Approvals: manager, Events: runtimeevent.NewStream(runtimeevent.Metadata{}), Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult { return runtimeStatusResult{PID: os.Getpid()} }, Shutdown: func() {}, ClearLogs: func() error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	requests, err := requestRuntimeApprovalList(ctx)
+	if err != nil || len(requests) != 1 || requests[0].ID != request.ID || requests[0].Status != approval.StatusPending {
+		t.Fatalf("runtime request list = %#v err=%v", requests, err)
 	}
 }
 

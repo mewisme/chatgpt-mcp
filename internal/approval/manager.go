@@ -274,9 +274,9 @@ func (m *Manager) Wait(ctx context.Context, id string) (Request, error) {
 		}
 		return value, nil
 	case <-ctx.Done():
-		value, err := m.Cancel(id, "mcp", "approval wait cancelled")
-		if err != nil && !errors.Is(err, ErrRequestResolved) {
-			return Request{}, err
+		value, ok := m.Get(id)
+		if !ok {
+			return Request{}, ErrRequestNotFound
 		}
 		return value, ctx.Err()
 	}

@@ -422,6 +422,44 @@ func TestManagerWaitWakesOnApproval(t *testing.T) {
 	<-done
 }
 
+func TestManagerWaitCancellationDetachesPendingRequest(t *testing.T) {
+	manager, _ := testManager()
+	challenge, _, _ := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))
+	request, _, _ := manager.CreateRequest(challenge.ID, "session-a", "ws_x")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	value, err := manager.Wait(ctx, request.ID)
+	if !errors.Is(err, context.Canceled) || value.Status != StatusPending {
+		t.Fatalf("detached wait = %#v err=%v", value, err)
+	}
+	pending := manager.List(Filter{Status: StatusPending})
+	if len(pending) != 1 || pending[0].ID != request.ID {
+		t.Fatalf("pending after detached wait = %#v", pending)
+	}
+	if _, err := manager.Approve(request.ID, "test", "reviewed later"); err != nil {
+		t.Fatal(err)
+	}
+	matched, ok, err := manager.MatchApproved(RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update"}})
+	if err != nil || !ok || matched.ID != request.ID {
+		t.Fatalf("approved detached retry = %#v matched=%t err=%v", matched, ok, err)
+	}
+}
+
+func TestManagerPendingRequestSurvivesLinkedChallengeExpiry(t *testing.T) {
+	manager, now := testManager()
+	challenge, _, _ := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))
+	request, _, _ := manager.CreateRequest(challenge.ID, "session-a", "ws_x")
+	*now = challenge.ExpiresAt
+	manager.PurgeExpired()
+	value, ok := manager.Get(request.ID)
+	if !ok || value.Status != StatusPending {
+		t.Fatalf("request after challenge expiry = %#v ok=%t", value, ok)
+	}
+	if _, err := manager.Approve(request.ID, "test", "reviewed after challenge expiry"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestManagerKeepsPrivateBindingIdentity(t *testing.T) {
 	manager, _ := testManager()
 	challenge, _, _ := manager.CreateChallenge(testChallenge("raw-secret-session", "ws_x", "cgm update"))

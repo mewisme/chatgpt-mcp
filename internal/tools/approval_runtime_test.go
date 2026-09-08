@@ -230,8 +230,15 @@ func TestApprovalRequestToolDenyAndCancellation(t *testing.T) {
 			t.Fatalf("cancelled result = %#v err=%v", resolved.result, resolved.err)
 		}
 		value, ok := runtime.Approvals.Get(request.ID)
-		if !ok || value.Status != approval.StatusCancelled {
-			t.Fatalf("cancelled request = %#v ok=%t", value, ok)
+		if !ok || value.Status != approval.StatusPending {
+			t.Fatalf("detached request = %#v ok=%t", value, ok)
+		}
+		if _, err := runtime.Approvals.Approve(request.ID, "test", "reviewed after waiter detached"); err != nil {
+			t.Fatal(err)
+		}
+		retry, err := runtime.Call(base, "guarded_action", map[string]any{"workspace_id": workspaceID, "command": "cgm update"})
+		if err != nil || retry.IsError {
+			t.Fatalf("approved retry after waiter detached = %#v err=%v", retry, err)
 		}
 	})
 }

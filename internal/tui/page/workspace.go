@@ -336,7 +336,7 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 			return page.detail.MouseTargets(originX, originY, z)
 		}
 		feedback := page.listFeedback(page.width)
-		tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
+		tabs, _ := component.PageTabsLayout(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
 		targets := page.workspaceTabMouseTargets(originX, originY, z+2)
 		browserY := originY + lipgloss.Height(tabs) + pageFeedbackHeight(feedback)
 		return append(targets, page.browser.MouseTargets(originX, browserY, z)...)
@@ -677,7 +677,7 @@ func (page *WorkspacePage) baseView(width, height int) string {
 		return page.detail.View()
 	}
 	feedback := page.listFeedback(width)
-	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, width)
+	tabs, _ := component.PageTabsLayout(workspaceTabLabels, int(page.activeTab()), page.notice, width)
 	page.resizeBrowser()
 	return tabs + "\n" + prependPageFeedback(feedback, page.browser.Content())
 }
@@ -686,7 +686,7 @@ func (page *WorkspacePage) resizeBrowser() tea.Cmd {
 	if page.resourceID != "" || page.width <= 0 || page.height <= 0 {
 		return nil
 	}
-	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
+	tabs, _ := component.PageTabsLayout(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
 	height := max(1, page.height-lipgloss.Height(tabs)-pageFeedbackHeight(page.listFeedback(page.width)))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)

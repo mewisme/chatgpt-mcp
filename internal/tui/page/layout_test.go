@@ -57,6 +57,18 @@ func TestBrowserPageHintsStayOnBottomRow(t *testing.T) {
 	instructionPage, _ := newTestInstructionPage(t)
 	instructionView := instructionPage.View(width, height)
 	assertPageHeaderGap(t, "instruction", instructionView)
+
+	workspacePage, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSinglePageHeaderGap(t, "workspaces", workspacePage.View(width, height))
+
+	requestsPage, err := NewRequests(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSinglePageHeaderGap(t, "requests", requestsPage.View(width, height))
 }
 
 func assertPageBottomHint(t *testing.T, name, view string, height int, marker string) {
@@ -83,5 +95,13 @@ func assertPageHeaderGap(t *testing.T, name, view string) {
 	lines := strings.Split(ansi.Strip(view), "\n")
 	if len(lines) < 3 || strings.TrimSpace(lines[1]) != "" {
 		t.Fatalf("%s missing empty row between header and content: %q", name, ansi.Strip(view))
+	}
+}
+
+func assertSinglePageHeaderGap(t *testing.T, name, view string) {
+	t.Helper()
+	lines := strings.Split(ansi.Strip(view), "\n")
+	if len(lines) < 3 || strings.TrimSpace(lines[1]) != "" || strings.TrimSpace(lines[2]) == "" {
+		t.Fatalf("%s must have exactly one empty row between header and content: %q", name, ansi.Strip(view))
 	}
 }

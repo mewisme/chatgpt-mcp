@@ -331,7 +331,7 @@ func (page *RequestsPage) View(width, height int) string {
 		page.detail.Resize(width, height)
 		content = page.detail.View()
 	} else {
-		tabs := component.PageTabsNotice(requestTabLabels, int(page.mode), page.notice, width)
+		tabs, _ := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, width)
 		browserHeight := max(1, height-pageFeedbackHeight(feedback))
 		browserHeight = max(1, browserHeight-lipgloss.Height(tabs))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
@@ -370,7 +370,7 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 		}
 		_, spans := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, page.width)
-		header := component.PageTabsNotice(requestTabLabels, int(page.mode), page.notice, page.width)
+		header, _ := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, page.width)
 		targets := make([]component.MouseTarget, 0, len(spans)+8)
 		for _, span := range spans {
 			mode := requestMode(span.Index)

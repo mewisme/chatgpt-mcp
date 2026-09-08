@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"sync"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
 	"go.mewis.me/chatgpt-mcp/internal/admin"
@@ -11,7 +12,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
-	"go.mewis.me/chatgpt-mcp/internal/telemetry"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -30,6 +30,7 @@ type App struct {
 	OAuthFlows *mcpoauth.FlowManager
 	runtimeCtx context.Context
 	running    bool
+	bootstrap  sync.Once
 }
 
 func New(cfg config.Config) *App { return NewWithLogger(cfg, nil) }
@@ -67,8 +68,6 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	if appLogger == nil {
 		appLogger = logger.New(logger.Info)
 	}
-	telemetry.AttachTools(toolRuntime, stream, appLogger)
-	telemetry.AttachApprovals(toolRuntime.Approvals, stream, appLogger)
 	tunnelClient := tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger)
 	if metadata, err := config.LoadTunnelMetadata(cfg.Tunnel.ID); err == nil {
 		_ = tunnelClient.SeedMetadata(metadata)
@@ -78,7 +77,9 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 		Tunnel: tunnelClient, Logger: appLogger,
 		OAuth: oauthStore, OAuthFlows: mcpoauth.NewFlowManager(oauthStore),
 	}
-	app.attachTunnelLifecycle()
+	if err := app.Bootstrap(); err != nil {
+		panic(err)
+	}
 	return app
 }
 

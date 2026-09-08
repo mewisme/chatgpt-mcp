@@ -10,27 +10,29 @@ import (
 )
 
 func (a *App) Bootstrap() error {
-	if a.Config == nil {
-		a.Config = config.NewRuntimeStore(config.Default())
-	}
-	if a.Tools == nil {
-		cfg := a.Config.Snapshot()
-		a.Tools = tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) {
-			current := a.Config.Snapshot()
-			return current.Admin.Enabled, current.Admin.Port
-		})
-	}
-	if a.Activity == nil {
-		a.Activity = activity.NewStream()
-	}
-	if a.Logger == nil {
-		a.Logger = logger.New(logger.Info)
-	}
-	telemetry.AttachTools(a.Tools, a.Activity, a.Logger)
-	telemetry.AttachApprovals(a.Tools.Approvals, a.Activity, a.Logger)
-	a.Upstream = a.Tools.Upstream
-	a.syncMCPHTTP(a.Config.Snapshot().Server.Enabled)
-	a.attachTunnelLifecycle()
+	a.bootstrap.Do(func() {
+		if a.Config == nil {
+			a.Config = config.NewRuntimeStore(config.Default())
+		}
+		if a.Tools == nil {
+			cfg := a.Config.Snapshot()
+			a.Tools = tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) {
+				current := a.Config.Snapshot()
+				return current.Admin.Enabled, current.Admin.Port
+			})
+		}
+		if a.Activity == nil {
+			a.Activity = activity.NewStream()
+		}
+		if a.Logger == nil {
+			a.Logger = logger.New(logger.Info)
+		}
+		telemetry.AttachTools(a.Tools, a.Activity, a.Logger)
+		telemetry.AttachApprovals(a.Tools.Approvals, a.Activity, a.Logger)
+		a.Upstream = a.Tools.Upstream
+		a.syncMCPHTTP(a.Config.Snapshot().Server.Enabled)
+		a.attachTunnelLifecycle()
+	})
 	return nil
 }
 

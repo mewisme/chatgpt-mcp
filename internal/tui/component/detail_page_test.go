@@ -132,3 +132,38 @@ func TestDetailPageNarrowLayoutStaysBounded(t *testing.T) {
 		t.Fatalf("detail width=%d want <=18\n%s", got, ansi.Strip(view))
 	}
 }
+
+func TestDetailPageHardWrapsLongContentAndReflowsFromRawSource(t *testing.T) {
+	raw := `{"path":"/` + strings.Repeat("nested/", 10) + `file.json","token":"` + strings.Repeat("x", 48) + `"}`
+	page := NewDetailPage("Detail", "", raw)
+	page.Resize(24, 12)
+	for _, line := range strings.Split(page.viewport.GetContent(), "\n") {
+		if got := lipgloss.Width(line); got > 24 {
+			t.Fatalf("wrapped content width=%d want <=24: %q", got, ansi.Strip(line))
+		}
+	}
+	if got := strings.ReplaceAll(ansi.Strip(page.viewport.GetContent()), "\n", ""); got != raw {
+		t.Fatalf("content changed after wrap: %q", got)
+	}
+	page.Resize(11, 12)
+	for _, line := range strings.Split(page.viewport.GetContent(), "\n") {
+		if got := lipgloss.Width(line); got > 11 {
+			t.Fatalf("reflowed content width=%d want <=11: %q", got, ansi.Strip(line))
+		}
+	}
+	if got := strings.ReplaceAll(ansi.Strip(page.viewport.GetContent()), "\n", ""); got != raw {
+		t.Fatalf("content progressively wrapped: %q", got)
+	}
+}
+
+func TestTwoColumnStacksWhenContentCannotFit(t *testing.T) {
+	view := TwoColumn(Title(strings.Repeat("left", 5)), Secondary(strings.Repeat("right", 5)), 18)
+	if !strings.Contains(view, "\n") {
+		t.Fatalf("two-column content did not stack: %q", ansi.Strip(view))
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > 18 {
+			t.Fatalf("two-column line width=%d want <=18: %q", got, ansi.Strip(line))
+		}
+	}
+}

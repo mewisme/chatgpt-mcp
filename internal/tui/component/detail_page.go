@@ -32,10 +32,10 @@ type DetailPage struct {
 
 func NewDetailPage(title, meta, content string) DetailPage {
 	view := viewport.New(viewport.WithWidth(defaultLayoutWidth), viewport.WithHeight(defaultLayoutHeight))
-	view.SoftWrap = true
+	view.SoftWrap = false
 	view.FillHeight = false
 	page := DetailPage{viewport: view, help: NewHelpFooter(), title: strings.TrimSpace(title), meta: strings.TrimSpace(meta), content: strings.TrimSpace(content)}
-	page.viewport.SetContent(page.content)
+	page.reflowContent(true)
 	page.syncHelp()
 	return page
 }
@@ -57,8 +57,7 @@ func (page *DetailPage) SetContent(value string) {
 		return
 	}
 	page.content = strings.TrimSpace(value)
-	page.viewport.SetContent(page.content)
-	page.viewport.GotoTop()
+	page.reflowContent(true)
 }
 
 func (page *DetailPage) SetFeedback(notice string, err error) {
@@ -242,4 +241,19 @@ func (page *DetailPage) resizeViewport() {
 	footerHeight := lipgloss.Height(page.footerView(width))
 	page.viewport.SetWidth(width)
 	page.viewport.SetHeight(max(1, page.height-prefixHeight-footerHeight-1))
+	page.reflowContent(false)
+}
+
+func (page *DetailPage) reflowContent(reset bool) {
+	if page == nil {
+		return
+	}
+	offset := page.viewport.YOffset()
+	page.viewport.SetContent(WrapContent(page.content, max(1, page.viewport.Width())))
+	if reset {
+		page.viewport.GotoTop()
+		return
+	}
+	maxOffset := max(0, page.viewport.TotalLineCount()-page.viewport.Height())
+	page.viewport.SetYOffset(min(offset, maxOffset))
 }

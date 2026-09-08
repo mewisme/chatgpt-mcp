@@ -195,16 +195,15 @@ func Divider(width int) string {
 
 func TwoColumn(left, right string, width int) string {
 	if right == "" || width <= 0 {
-		if right == "" {
+		if right == "" || width <= 0 {
 			return left
 		}
-		return left + "  " + right
+	}
+	if lipgloss.Width(left)+2+lipgloss.Width(right) > width {
+		return WrapContent(left, width) + "\n" + WrapContent(right, width)
 	}
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 2 {
-		return left + "  " + right
-	}
-	return left + strings.Repeat(" ", gap) + right
+	return left + strings.Repeat(" ", max(2, gap)) + right
 }
 
 func KeyValue(label, value string) string { return Label(label) + "  " + value }

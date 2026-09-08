@@ -92,7 +92,7 @@ func TestConfigResourceUsesFullChildDetailPage(t *testing.T) {
 		t.Fatal("config detail incorrectly reports overlay active")
 	}
 	view := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"Config · server.port", "MCP HTTP server port", "e edit", "f refresh"} {
+	for _, want := range []string{"MCP HTTP port", "server.port", "Value", "Default", "State", "default", "MCP HTTP server port", "e edit", "r refresh"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("config detail missing %q: %q", want, view)
 		}
@@ -119,8 +119,26 @@ func TestConfigReadOnlyResourceHidesEditAction(t *testing.T) {
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
 	view := ansi.Strip(page.View(100, 28))
-	if !strings.Contains(view, "read-only") || !strings.Contains(view, "f refresh") || strings.Contains(view, "e edit") {
+	if !strings.Contains(view, "MCP credential") || !strings.Contains(view, "managed") || !strings.Contains(view, "r refresh") || strings.Contains(view, "e edit") {
 		t.Fatalf("read-only config detail=%q", view)
+	}
+}
+
+func TestConfigFieldDetailNeverRendersSecretOrHash(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfigRoute(t.Context(), "auth.mcp_token_hash")
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	page.overview.Config.Auth.MCPTokenHash = "FIELD_DETAIL_SECRET"
+	page.syncDetail()
+	view := ansi.Strip(page.View(100, 30))
+	if strings.Contains(view, "FIELD_DETAIL_SECRET") {
+		t.Fatalf("field detail leaked secret: %q", view)
+	}
+	for _, want := range []string{"configured", "managed", "Guidance", "auth token workflow"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("field detail missing %q: %q", want, view)
+		}
 	}
 }
 

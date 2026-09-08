@@ -627,24 +627,28 @@ func (page *ConfigPage) syncDetail() {
 		return
 	}
 	value := "loading"
+	defaultValue := "loading"
+	state := config.FieldStateDefault
 	if page.loaded {
 		if display, err := config.DisplayValue(page.overview.Config, spec); err == nil {
 			value = display
 		}
+		if display, err := config.DisplayValue(config.Default(), spec); err == nil {
+			defaultValue = display
+		}
+		if current, err := config.State(page.overview.Config, spec); err == nil {
+			state = current
+		}
 	}
-	mode := string(spec.Kind)
-	if !spec.Editable {
-		mode = "read-only"
-	}
-	detail := detailFields([2]string{"Key", spec.Key}, [2]string{"Value", value}, [2]string{"Type", string(spec.Kind)}, [2]string{"Access", mode}, [2]string{"Description", spec.Description})
+	detail := detailFields([2]string{"Key", spec.Key}, [2]string{"Value", value}, [2]string{"Default", defaultValue}, [2]string{"State", string(state)}, [2]string{"Type", string(spec.Kind)}, [2]string{"Description", spec.Description})
 	if len(spec.Options) > 0 {
 		detail += "\n" + detailFields([2]string{"Options", strings.Join(spec.Options, ", ")})
 	}
 	if spec.Guidance != "" {
-		detail += "\n" + detailFields([2]string{"Manage via", spec.Guidance})
+		detail += "\n" + detailFields([2]string{"Guidance", spec.Guidance})
 	}
-	page.detail = component.NewDetailPage("Config · "+spec.Key, value+" · "+mode, detail)
-	bindings := []component.DetailPageBinding{{Key: "f", Desc: "refresh", Message: ConfigCommandMsg{Command: ConfigRefresh, ResourceID: spec.Key}}}
+	page.detail = component.NewDetailPage(spec.Label, value+" · "+string(state), detail)
+	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: ConfigCommandMsg{Command: ConfigRefresh, ResourceID: spec.Key}}}
 	if spec.Editable {
 		bindings = append([]component.DetailPageBinding{{Key: "e", Desc: "edit", Message: ConfigCommandMsg{Command: ConfigEdit, ResourceID: spec.Key}}}, bindings...)
 	}

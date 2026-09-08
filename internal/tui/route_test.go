@@ -21,6 +21,8 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"logs", "event_abc"}, Route{Kind: RouteLogs, ResourceID: "event_abc"}},
 		{[]string{"logs", "event_abc", "fields"}, Route{Kind: RouteLogs, ResourceID: "event_abc", Section: "fields"}},
 		{[]string{"ws", "ws_abc", "access"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_abc", Section: "access"}},
+		{[]string{"ws", "ws_abc", "context"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_abc", Section: "context"}},
+		{[]string{"ws", "ws_abc", "context-preview"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_abc", Section: "context-preview"}},
 		{[]string{"ws", "ws_abc", "overview"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_abc"}},
 		{[]string{"containers", "wsc_abc", "workspaces"}, Route{Kind: RouteContainers, ResourceID: "wsc_abc", Section: "workspaces"}},
 		{[]string{"mcp", "github", "health"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "health"}},

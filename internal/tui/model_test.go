@@ -17,6 +17,19 @@ import (
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 )
 
+func TestModelWorkspaceContextSessionsAreScopedAndStable(t *testing.T) {
+	model := NewModel(Route{Kind: RouteHome})
+	first := model.workspaceContextSession("ws_one")
+	again := model.workspaceContextSession("ws_one")
+	second := model.workspaceContextSession("ws_two")
+	if first == nil || first != again || second == nil || first == second {
+		t.Fatalf("sessions first=%p again=%p second=%p", first, again, second)
+	}
+	if len(model.workspaceContexts) != 2 {
+		t.Fatalf("session count=%d", len(model.workspaceContexts))
+	}
+}
+
 func TestModelWindowTitleTracksCurrentRoute(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
 	if got := model.View().WindowTitle; got != "ChatGPT MCP · Home" {

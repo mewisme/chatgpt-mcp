@@ -203,7 +203,7 @@ func normalizeRouteSection(kind RouteKind, value string) (string, bool) {
 		return "", true
 	}
 	allowed := map[RouteKind]map[string]bool{
-		RouteWorkspaces: {"access": true, "containers": true},
+		RouteWorkspaces: {"access": true, "containers": true, "context": true, "context-preview": true},
 		RouteContainers: {"workspaces": true},
 		RouteMCP:        {"health": true, "tools": true, "oauth": true},
 		RouteTunnels:    {"scope": true},

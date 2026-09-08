@@ -1,6 +1,7 @@
 package page
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
+	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
@@ -433,11 +436,19 @@ func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 		t.Fatal("resource detail incorrectly reports overlay active")
 	}
 	plain := ansi.Strip(detail.View(100, 24))
-	if !strings.Contains(plain, "Workspace · "+item.ID) || !strings.Contains(plain, filepath.Base(item.Path)) || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
+	if !strings.Contains(plain, "Workspace · "+item.ID) || !strings.Contains(plain, filepath.Base(item.Path)) || !strings.Contains(plain, "p context") || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
 		t.Fatalf("workspace detail=%q", plain)
 	}
 	if strings.Contains(plain, "Overview   Access") || strings.Contains(plain, "╭") {
 		t.Fatalf("workspace detail retained tab/modal chrome: %q", plain)
+	}
+	_, contextCmd := detail.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
+	if contextCmd == nil {
+		t.Fatal("context child navigation returned no command")
+	}
+	contextMessage, ok := contextCmd().(NavigateMsg)
+	if !ok || strings.Join(contextMessage.Path, "/") != "workspaces/"+item.ID+"/context" {
+		t.Fatalf("context navigation=%#v", contextMessage)
 	}
 	_, cmd := detail.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if cmd == nil {
@@ -565,6 +576,144 @@ func TestWorkspaceAndContainerCopySelectedID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := NewWorkspaceContextSession()
+	page, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !page.InputActive() || page.contextData == nil {
+		t.Fatalf("context input=%t data=%v", page.InputActive(), page.contextData != nil)
+	}
+	plain := ansi.Strip(page.View(110, 30))
+	for _, want := range []string{"Project Context · " + item.ID, "Path", "Memory query"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("context form missing %q: %q", want, plain)
+		}
+	}
+	page.contextData.MemoryQuery = "focused memory"
+	page.contextData.IncludeGit = false
+	page.contextBuild = func(_ context.Context, workspaceID string, options projectcontext.Options) (projectcontext.Result, error) {
+		if workspaceID != item.ID || options.MemoryQuery != "focused memory" || options.IncludeGit {
+			t.Fatalf("build workspace=%q options=%#v", workspaceID, options)
+		}
+		return projectcontext.Result{
+			Root: project, WorkspaceID: item.ID,
+			InstructionContext: instructioncontext.InstructionContext{
+				Root: project, WorkspaceID: item.ID, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: 77},
+				Sources: []instructioncontext.SourceSnapshot{{Provider: "claude", Kind: "context", Count: 1, Enabled: true, Loaded: true}},
+			},
+			Summary: projectcontext.Summary{InstructionBytes: 1234, MemoryBytes: 456, Rules: 2, Skills: 3},
+		}, nil
+	}
+	updated, cmd := page.Update(component.FormSubmittedMsg{})
+	page = updated.(*WorkspacePage)
+	if cmd == nil || !page.contextBuilding || session.Result != nil {
+		t.Fatalf("build cmd=%v building=%t result=%v", cmd, page.contextBuilding, session.Result != nil)
+	}
+	buildMsg := workspaceContextBuildMessage(t, cmd)
+	updated, navigation := page.Update(buildMsg)
+	page = updated.(*WorkspacePage)
+	if navigation == nil || page.contextBuilding || session.Result == nil || session.Options.MemoryQuery != "focused memory" || session.Options.IncludeGit {
+		t.Fatalf("finished build navigation=%v building=%t session=%#v", navigation != nil, page.contextBuilding, session)
+	}
+	navigate, ok := navigation().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "workspaces/"+item.ID+"/context-preview" {
+		t.Fatalf("preview navigation=%#v", navigate)
+	}
+	preview, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context-preview", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewView := ansi.Strip(preview.View(110, 30))
+	for _, want := range []string{"Project Context Preview", project, "77 tools", "1 sources"} {
+		if !strings.Contains(previewView, want) {
+			t.Fatalf("preview missing %q: %q", want, previewView)
+		}
+	}
+	fresh, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context-preview", NewWorkspaceContextSession())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ansi.Strip(fresh.View(110, 30)); !strings.Contains(got, "not built") || strings.Contains(got, "77 tools") {
+		t.Fatalf("fresh session unexpectedly reused preview: %q", got)
+	}
+}
+
+func TestWorkspaceProjectContextBuildCanBeCancelled(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := NewWorkspaceContextSession()
+	page, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.contextBuild = func(ctx context.Context, _ string, _ projectcontext.Options) (projectcontext.Result, error) {
+		<-ctx.Done()
+		return projectcontext.Result{}, ctx.Err()
+	}
+	updated, cmd := page.Update(component.FormSubmittedMsg{})
+	page = updated.(*WorkspacePage)
+	if cmd == nil || !page.contextBuilding {
+		t.Fatalf("build did not start: cmd=%v building=%t", cmd, page.contextBuilding)
+	}
+	buildID := page.contextBuildID
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	page = updated.(*WorkspacePage)
+	if page.contextBuilding || page.contextBuildID == buildID || session.Result != nil || page.Notice() != "Project Context build cancelled" {
+		t.Fatalf("cancel state building=%t id=%d result=%v notice=%q", page.contextBuilding, page.contextBuildID, session.Result != nil, page.Notice())
+	}
+}
+
+func workspaceContextBuildMessage(t *testing.T, cmd tea.Cmd) workspaceContextBuildMsg {
+	t.Helper()
+	message := cmd()
+	batch, ok := message.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("build command message=%T", message)
+	}
+	for _, next := range batch {
+		if next == nil {
+			continue
+		}
+		if result, ok := next().(workspaceContextBuildMsg); ok {
+			return result
+		}
+	}
+	t.Fatal("workspace context build message not found")
+	return workspaceContextBuildMsg{}
 }
 
 func runWorkspacePageCmd(t *testing.T, page *WorkspacePage, cmd tea.Cmd) *WorkspacePage {

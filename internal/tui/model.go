@@ -75,30 +75,31 @@ type toastState struct {
 }
 
 type Model struct {
-	ctx              context.Context
-	router           Router
-	actions          *action.Registry
-	palette          *palette.Model
-	homeCommands     *palette.Model
-	overlay          overlayKind
-	commandResources map[string]quickopen.Resource
-	stateRoot        string
-	state            tuistate.State
-	notice           string
-	currentPage      tuipage.Model
-	theme            theme
-	width            int
-	height           int
-	approvals        []approval.Request
-	approvalStage    approvalStage
-	approvalChoice   component.ConfirmButtons
-	approvalApprove  bool
-	approvalErr      error
-	approvalList     func(context.Context) ([]approval.Request, error)
-	approvalResolve  func(context.Context, string, bool, string) (approval.Request, error)
-	approvalNow      func() time.Time
-	toast            toastState
-	toastSeq         uint64
+	ctx               context.Context
+	router            Router
+	actions           *action.Registry
+	palette           *palette.Model
+	homeCommands      *palette.Model
+	overlay           overlayKind
+	commandResources  map[string]quickopen.Resource
+	workspaceContexts map[string]*tuipage.WorkspaceContextSession
+	stateRoot         string
+	state             tuistate.State
+	notice            string
+	currentPage       tuipage.Model
+	theme             theme
+	width             int
+	height            int
+	approvals         []approval.Request
+	approvalStage     approvalStage
+	approvalChoice    component.ConfirmButtons
+	approvalApprove   bool
+	approvalErr       error
+	approvalList      func(context.Context) ([]approval.Request, error)
+	approvalResolve   func(context.Context, string, bool, string) (approval.Request, error)
+	approvalNow       func() time.Time
+	toast             toastState
+	toastSeq          uint64
 }
 
 func NewModel(initial Route) Model {
@@ -119,7 +120,7 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 			state = loaded
 		}
 	}
-	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), stateRoot: root, state: state, theme: newTheme(true), approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalNow: time.Now}
+	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), workspaceContexts: map[string]*tuipage.WorkspaceContextSession{}, stateRoot: root, state: state, theme: newTheme(true), approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalNow: time.Now}
 	model.loadPage(initial)
 	return model
 }
@@ -824,7 +825,7 @@ func (model *Model) loadPage(route Route) {
 	var err error
 	switch route.Kind {
 	case RouteWorkspaces:
-		value, err = tuipage.NewWorkspacesRoute(model.ctx, route.ResourceID, route.Section)
+		value, err = tuipage.NewWorkspacesRouteWithContextSession(model.ctx, route.ResourceID, route.Section, model.workspaceContextSession(route.ResourceID))
 	case RouteContainers:
 		value, err = tuipage.NewContainersRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteMCP:
@@ -858,6 +859,22 @@ func (model *Model) loadPage(route Route) {
 		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})
 		model.currentPage = updated
 	}
+}
+
+func (model *Model) workspaceContextSession(workspaceID string) *tuipage.WorkspaceContextSession {
+	if model == nil || strings.TrimSpace(workspaceID) == "" {
+		return nil
+	}
+	if model.workspaceContexts == nil {
+		model.workspaceContexts = map[string]*tuipage.WorkspaceContextSession{}
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	if session := model.workspaceContexts[workspaceID]; session != nil {
+		return session
+	}
+	session := tuipage.NewWorkspaceContextSession()
+	model.workspaceContexts[workspaceID] = session
+	return session
 }
 
 func (model *Model) ensureLogsPage() error {

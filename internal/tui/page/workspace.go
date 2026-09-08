@@ -51,24 +51,32 @@ const (
 )
 
 type WorkspacePage struct {
-	ctx        context.Context
-	manager    *workspace.Manager
-	containers bool
-	resourceID string
-	section    string
-	browser    component.Browser
-	detail     component.DetailPage
-	overlay    workspaceOverlayKind
-	form       component.Form
-	confirm    component.ConfirmButtons
-	command    WorkspaceCommand
-	targetID   string
-	value      string
-	members    []string
-	notice     string
-	err        error
-	width      int
-	height     int
+	ctx             context.Context
+	manager         *workspace.Manager
+	containers      bool
+	resourceID      string
+	section         string
+	browser         component.Browser
+	detail          component.DetailPage
+	overlay         workspaceOverlayKind
+	form            component.Form
+	confirm         component.ConfirmButtons
+	command         WorkspaceCommand
+	targetID        string
+	value           string
+	members         []string
+	contextSession  *WorkspaceContextSession
+	contextForm     component.Form
+	contextData     *workspaceContextFormData
+	contextBuild    workspaceContextBuildFunc
+	contextBuilding bool
+	contextBuildID  uint64
+	contextCancel   context.CancelFunc
+	contextProgress *component.Progress
+	notice          string
+	err             error
+	width           int
+	height          int
 }
 
 type workspaceCopyIDMsg struct{ ID string }
@@ -85,32 +93,41 @@ func NewContainers(ctx context.Context, resourceID string) (*WorkspacePage, erro
 }
 
 func NewWorkspacesRoute(ctx context.Context, resourceID, section string) (*WorkspacePage, error) {
-	return newWorkspacePage(ctx, false, resourceID, section)
+	return newWorkspacePage(ctx, false, resourceID, section, nil)
+}
+
+func NewWorkspacesRouteWithContextSession(ctx context.Context, resourceID, section string, session *WorkspaceContextSession) (*WorkspacePage, error) {
+	return newWorkspacePage(ctx, false, resourceID, section, session)
 }
 
 func NewContainersRoute(ctx context.Context, resourceID, section string) (*WorkspacePage, error) {
-	return newWorkspacePage(ctx, true, resourceID, section)
+	return newWorkspacePage(ctx, true, resourceID, section, nil)
 }
 
-func newWorkspacePage(ctx context.Context, containers bool, resourceID, section string) (*WorkspacePage, error) {
+func newWorkspacePage(ctx context.Context, containers bool, resourceID, section string, session *WorkspaceContextSession) (*WorkspacePage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	page := &WorkspacePage{ctx: ctx, manager: workspace.NewManager(workspace.DefaultStorePath()), containers: containers, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section)}
+	page := &WorkspacePage{ctx: ctx, manager: workspace.NewManager(workspace.DefaultStorePath()), containers: containers, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), contextSession: session}
 	if err := page.reload(); err != nil {
 		return nil, err
 	}
 	return page, nil
 }
 
-func (page *WorkspacePage) Init() tea.Cmd { return nil }
+func (page *WorkspacePage) Init() tea.Cmd {
+	if page != nil && !page.containers && page.resourceID != "" && page.section == "context" && !page.contextBuilding {
+		return page.contextForm.Init()
+	}
+	return nil
+}
 
 func (page *WorkspacePage) OverlayActive() bool {
 	return page != nil && page.overlay != workspaceOverlayNone
 }
 
 func (page *WorkspacePage) InputActive() bool {
-	return page != nil && (page.overlay == workspaceOverlayForm || page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.overlay == workspaceOverlayForm || page.resourceID == "" && page.browser.InputActive() || !page.containers && page.resourceID != "" && page.section == "context")
 }
 
 func (page *WorkspacePage) Notice() string {
@@ -134,7 +151,12 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		var cmd tea.Cmd
-		if page.resourceID != "" {
+		if page.resourceID != "" && page.section == "context" {
+			if !page.contextBuilding {
+				form, formCmd := page.contextForm.Update(msg)
+				page.contextForm, cmd = form, formCmd
+			}
+		} else if page.resourceID != "" {
 			page.detail.Resize(msg.Width, msg.Height)
 		} else {
 			cmd = page.resizeBrowser()
@@ -146,11 +168,22 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, cmd
 	case component.FormSubmittedMsg:
+		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone {
+			return page, page.submitWorkspaceContext()
+		}
 		return page, page.submitForm()
 	case component.FormCancelledMsg:
+		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone {
+			return page, func() tea.Msg { return NavigateMsg{Path: []string{"workspaces", page.resourceID}} }
+		}
 		page.closeOverlay()
 		return page, nil
 	case component.FormMouseMsg:
+		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone && !page.contextBuilding {
+			updated, cmd := page.contextForm.Update(msg)
+			page.contextForm = updated
+			return page, cmd
+		}
 		if page.overlay == workspaceOverlayForm {
 			updated, cmd := page.form.Update(msg)
 			page.form = updated
@@ -188,7 +221,20 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.notice = "Refreshed"
 		}
 		return page, nil
+	case workspaceContextBuildMsg:
+		return page, page.finishWorkspaceContextBuild(msg)
 	case tea.KeyPressMsg:
+		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone {
+			if page.contextBuilding {
+				if msg.String() == "esc" {
+					page.cancelWorkspaceContextBuild()
+				}
+				return page, nil
+			}
+			updated, cmd := page.contextForm.Update(msg)
+			page.contextForm = updated
+			return page, cmd
+		}
 		if page.overlay == workspaceOverlayForm {
 			updated, cmd := page.form.Update(msg)
 			page.form = updated
@@ -214,6 +260,16 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page.overlay == workspaceOverlayForm {
 		updated, cmd := page.form.Update(message)
 		page.form = updated
+		return page, cmd
+	}
+	if page.resourceID != "" && page.section == "context" {
+		if page.contextBuilding && page.contextProgress != nil {
+			updated, cmd := page.contextProgress.Update(message)
+			page.contextProgress = &updated
+			return page, cmd
+		}
+		updated, cmd := page.contextForm.Update(message)
+		page.contextForm = updated
 		return page, cmd
 	}
 	if page.resourceID != "" {
@@ -254,6 +310,15 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
 	default:
 		if page.resourceID != "" {
+			if !page.containers && page.section == "context" {
+				if page.contextBuilding {
+					return nil
+				}
+				title := component.PageTitleNotice("Project Context · "+page.resourceID, page.notice, page.width)
+				feedback := page.listFeedback(page.width)
+				y := originY + lipgloss.Height(title) + 1 + pageFeedbackHeight(feedback)
+				return page.contextForm.MouseTargets(originX, y, z)
+			}
 			return page.detail.MouseTargets(originX, originY, z)
 		}
 		feedback := page.listFeedback(page.width)
@@ -587,6 +652,9 @@ func (page *WorkspacePage) listFeedback(width int) string {
 
 func (page *WorkspacePage) baseView(width, height int) string {
 	if page.resourceID != "" {
+		if !page.containers && page.section == "context" {
+			return page.workspaceContextView(width, height)
+		}
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
 		return page.detail.View()
@@ -635,6 +703,16 @@ func (page *WorkspacePage) syncWorkspaceDetail() error {
 	switch page.section {
 	case "":
 		content = detailFields([2]string{"Root", item.Path}, [2]string{"Legacy IDs", joinedOrNone(item.LegacyIDs)})
+	case "context":
+		page.initWorkspaceContext()
+		return nil
+	case "context-preview":
+		page.initWorkspaceContext()
+		page.syncWorkspaceContextPreview()
+		if page.width > 0 && page.height > 0 {
+			page.detail.Resize(page.width, page.height)
+		}
+		return nil
 	case "access":
 		content = detailList(item.AllowDirs)
 	case "containers":
@@ -654,6 +732,7 @@ func (page *WorkspacePage) syncWorkspaceDetail() error {
 	bindings := []component.DetailPageBinding{}
 	if page.section == "" {
 		bindings = append(bindings,
+			component.DetailPageBinding{Key: "p", Desc: "context", Message: NavigateMsg{Path: []string{"workspaces", item.ID, "context"}}},
 			component.DetailPageBinding{Key: "a", Desc: "access", Message: NavigateMsg{Path: []string{"workspaces", item.ID, "access"}}},
 			component.DetailPageBinding{Key: "v", Desc: "containers", Message: NavigateMsg{Path: []string{"workspaces", item.ID, "containers"}}},
 		)

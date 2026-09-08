@@ -34,10 +34,89 @@ func TestInstructionPageShowsContextAndReadOnlySummaries(t *testing.T) {
 	updated, _ = page.Update(tea.KeyPressMsg{Code: '3', Text: "3"})
 	page = updated.(*InstructionPage)
 	plain = ansi.Strip(page.View(100, 30))
-	for _, want := range []string{"Instruction Sources", "claude", "context"} {
+	for _, want := range []string{"Instruction Sources", "Claude · enabled", "Context · 1 · detected"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("sources view missing %q: %q", want, plain)
 		}
+	}
+}
+
+func TestInstructionPageManagesSourcePolicy(t *testing.T) {
+	page, service := newTestInstructionPage(t)
+	page.switchTab(instructionTabSources)
+	page.sources.Down()
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	page = updated.(*InstructionPage)
+	if cmd == nil || !page.saving {
+		t.Fatalf("provider toggle cmd=%v saving=%t", cmd, page.saving)
+	}
+	updated, _ = page.Update(cmd())
+	page = updated.(*InstructionPage)
+	settings, err := service.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := settings.SourcePolicy["claude"]
+	if policy.Enabled == nil || *policy.Enabled || page.Notice() != "Claude source disabled" {
+		t.Fatalf("provider policy=%#v notice=%q", policy, page.Notice())
+	}
+	if len(settings.DetectedSources) != 1 || settings.DetectedSources[0].Enabled {
+		t.Fatalf("disabled source=%#v", settings.DetectedSources)
+	}
+
+	page.sources.Down()
+	page.sources.Down()
+	updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	page = updated.(*InstructionPage)
+	if cmd != nil || page.Notice() != "Enable the provider before changing resource policy" {
+		t.Fatalf("disabled child cmd=%v notice=%q", cmd, page.Notice())
+	}
+
+	page.sources.GoToTop()
+	page.sources.Down()
+	updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	page = updated.(*InstructionPage)
+	updated, _ = page.Update(cmd())
+	page = updated.(*InstructionPage)
+	settings, err = service.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy = settings.SourcePolicy["claude"]
+	if policy.Enabled == nil || !*policy.Enabled {
+		t.Fatalf("provider was not re-enabled: %#v", policy)
+	}
+
+	page.sources.Down()
+	page.sources.Down()
+	updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	page = updated.(*InstructionPage)
+	if cmd == nil {
+		t.Fatal("resource toggle returned no command")
+	}
+	updated, _ = page.Update(cmd())
+	page = updated.(*InstructionPage)
+	settings, err = service.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy = settings.SourcePolicy["claude"]
+	if policy.Context == nil || *policy.Context || page.Notice() != "Claude Context disabled" {
+		t.Fatalf("resource policy=%#v notice=%q", policy, page.Notice())
+	}
+}
+
+func TestInstructionSourcesMouseWheelUsesSemanticMessage(t *testing.T) {
+	page, _ := newTestInstructionPage(t)
+	page.switchTab(instructionTabSources)
+	page.View(100, 30)
+	targets := page.sourceMouseTargets(2, 4, 10)
+	if len(targets) != 1 || targets[0].ID != "instruction.sources.scroll" {
+		t.Fatalf("targets=%#v", targets)
+	}
+	message, ok := targets[0].Handle(component.MouseEvent{Button: tea.MouseWheelDown}).(instructionSourceWheelMsg)
+	if !ok || message != 1 {
+		t.Fatalf("wheel message=%#v", message)
 	}
 }
 

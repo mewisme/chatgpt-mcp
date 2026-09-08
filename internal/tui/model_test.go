@@ -216,8 +216,7 @@ func TestHomeCommandPanelKeepsGlobalNavigationAndEscape(t *testing.T) {
 	if model.homeCommands == nil {
 		t.Fatal("returning home did not restore embedded command panel")
 	}
-	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	model = updated.(Model)
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd == nil {
 		t.Fatal("home escape did not quit")
 	}
@@ -485,8 +484,7 @@ func TestModelRoutesKeysToActiveInputBeforeGlobalShortcuts(t *testing.T) {
 
 func TestModelSingleEscapeQuitsFromHome(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
-	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	model = updated.(Model)
+	_, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd == nil {
 		t.Fatal("escape did not quit")
 	}

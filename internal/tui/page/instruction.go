@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/tree"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
@@ -49,6 +50,8 @@ type InstructionPage struct {
 	ruleEnabled    bool
 	ruleDeleteID   string
 	ruleConfirm    component.ConfirmButtons
+	sources        tree.Model
+	sourceDark     bool
 	saving         bool
 	notice         string
 	err            error
@@ -71,7 +74,7 @@ func newInstructionPage(ctx context.Context, service *application.InstructionSet
 	if err != nil {
 		return nil, err
 	}
-	page := &InstructionPage{ctx: ctx, service: service, settings: settings}
+	page := &InstructionPage{ctx: ctx, service: service, settings: settings, sourceDark: true}
 	page.syncDetail()
 	return page, nil
 }
@@ -108,6 +111,7 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, nil
 	case tea.BackgroundColorMsg:
+		page.sourceDark = msg.IsDark()
 		if page.editor != nil {
 			updated, cmd := page.editor.Update(msg)
 			page.editor = &updated
@@ -122,6 +126,10 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			updated, cmd := page.rules.Update(msg)
 			page.rules = updated.(component.Browser)
 			return page, cmd
+		}
+		if page.tab == instructionTabSources {
+			page.applySourceTreeTheme(&page.sources)
+			return page, nil
 		}
 		updated, cmd := page.detail.Update(msg)
 		page.detail = updated
@@ -201,6 +209,21 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.closeRuleConfirm()
 		page.syncRuleBrowser()
 		return page, nil
+	case instructionSourcesSavedMsg:
+		page.saving = false
+		if msg.err != nil {
+			page.err = msg.err
+			return page, nil
+		}
+		page.settings, page.err = msg.settings, nil
+		page.notice = msg.notice
+		page.syncSourceTree()
+		return page, nil
+	case instructionSourceWheelMsg:
+		if page.tab == instructionTabSources {
+			page.updateSourceWheel(msg)
+		}
+		return page, nil
 	case instructionTabMsg:
 		page.switchTab(msg.Tab)
 		return page, nil
@@ -237,6 +260,9 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 				return page, cmd
 			}
 		}
+		if page.tab == instructionTabSources {
+			return page, page.handleSourceKey(msg)
+		}
 		switch msg.String() {
 		case "e":
 			if page.tab == instructionTabContext {
@@ -266,6 +292,11 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.rules = updated.(component.Browser)
 		return page, cmd
 	}
+	if page.tab == instructionTabSources {
+		updated, cmd := page.sources.Update(message)
+		page.sources = updated
+		return page, cmd
+	}
 	updated, cmd := page.detail.Update(message)
 	page.detail = updated
 	return page, cmd
@@ -280,6 +311,9 @@ func (page *InstructionPage) View(width, height int) string {
 	bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
 	if page.tab == instructionTabRules {
 		return page.rulesView(tabs, width, bodyHeight)
+	}
+	if page.tab == instructionTabSources {
+		return page.sourcesView(tabs, width, bodyHeight)
 	}
 	if page.editor != nil {
 		feedback := ""
@@ -328,6 +362,9 @@ func (page *InstructionPage) MouseTargets(originX, originY, z int) []component.M
 			return append(targets, page.ruleForm.MouseTargets(originX, contentY, z)...)
 		}
 		return append(targets, page.rules.MouseTargets(originX, contentY, z)...)
+	}
+	if page.tab == instructionTabSources {
+		return append(targets, page.sourceMouseTargets(originX, contentY, z)...)
 	}
 	if page.editor == nil {
 		targets = append(targets, page.detail.MouseTargets(originX, contentY, z)...)
@@ -383,21 +420,7 @@ func (page *InstructionPage) syncDetail() {
 	case instructionTabRules:
 		page.syncRuleBrowser()
 	case instructionTabSources:
-		lines := make([]string, 0)
-		for _, source := range page.settings.DetectedSources {
-			state := "detected"
-			if !source.Enabled {
-				state = "disabled"
-			} else if source.Loaded {
-				state = "included"
-			}
-			lines = append(lines, fmt.Sprintf("%s · %s · %d · %s", source.Provider, source.Kind, source.Count, state))
-			for _, path := range source.Paths {
-				lines = append(lines, "  "+path)
-			}
-		}
-		page.detail = component.NewDetailPage("Instruction Sources", fmt.Sprintf("%d detected", len(page.settings.DetectedSources)), detailList(lines))
-		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: tea.KeyPressMsg{Code: 'r', Text: "r"}})
+		page.syncSourceTree()
 	}
 	page.resizeContent()
 }
@@ -420,6 +443,10 @@ func (page *InstructionPage) resizeContent() {
 		}
 		updated, _ := page.rules.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 		page.rules = updated.(component.Browser)
+		return
+	}
+	if page.tab == instructionTabSources {
+		page.sources.SetSize(page.width, height)
 		return
 	}
 	page.detail.Resize(page.width, height)

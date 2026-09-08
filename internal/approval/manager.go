@@ -82,6 +82,7 @@ func (m *Manager) CreateChallenge(input ChallengeInput) (Challenge, bool, error)
 	input.TargetTool = strings.TrimSpace(input.TargetTool)
 	input.GuardReason = strings.TrimSpace(input.GuardReason)
 	input.Title = strings.TrimSpace(input.Title)
+	input.Command = strings.TrimSpace(input.Command)
 	digest, arguments, err := CanonicalTargetDigest(m.instanceID, Target{SessionID: input.SessionID, WorkspaceID: input.WorkspaceID, Source: input.Source, TargetTool: input.TargetTool, Arguments: input.Arguments, GuardCode: input.GuardCode})
 	if err != nil {
 		return Challenge{}, false, err
@@ -109,7 +110,7 @@ func (m *Manager) CreateChallenge(input ChallengeInput) (Challenge, bool, error)
 	}
 	value := Challenge{
 		ID: id, SessionHash: input.SessionHash, WorkspaceID: input.WorkspaceID, Source: input.Source, TargetTool: input.TargetTool, Arguments: arguments, Digest: digest,
-		GuardCode: input.GuardCode, GuardReason: input.GuardReason, Title: input.Title, CreatedAt: now, ExpiresAt: now.Add(m.challengeTTL), sessionID: input.SessionID,
+		GuardCode: input.GuardCode, GuardReason: input.GuardReason, Title: input.Title, Command: input.Command, CreatedAt: now, ExpiresAt: now.Add(m.challengeTTL), sessionID: input.SessionID,
 	}
 	m.challenges[id] = &challengeRecord{value: value}
 	m.challengeByTarget[key] = id
@@ -169,7 +170,7 @@ func (m *Manager) CreateRequest(challengeID, sessionID, workspaceID string) (Req
 	}
 	value := Request{
 		ID: id, Status: StatusPending, WorkspaceID: challenge.value.WorkspaceID, SessionHash: challenge.value.SessionHash, Source: challenge.value.Source, TargetTool: challenge.value.TargetTool,
-		Arguments: cloneRaw(challenge.value.Arguments), Digest: challenge.value.Digest, GuardCode: challenge.value.GuardCode, GuardReason: challenge.value.GuardReason, Title: challenge.value.Title,
+		Arguments: cloneRaw(challenge.value.Arguments), Digest: challenge.value.Digest, GuardCode: challenge.value.GuardCode, GuardReason: challenge.value.GuardReason, Title: challenge.value.Title, Command: challenge.value.Command,
 		CreatedAt: now, ExpiresAt: now.Add(m.requestTTL), sessionID: sessionID, challengeID: challenge.value.ID,
 	}
 	m.requests[id] = &requestRecord{value: value, resolved: make(chan struct{})}

@@ -1218,7 +1218,7 @@ func TestModelApprovalResolutionErrorKeepsRequestVisible(t *testing.T) {
 }
 
 func testPendingApproval(id string) approval.Request {
-	return approval.Request{ID: id, Status: approval.StatusPending, WorkspaceID: "ws_demo", Source: "tunnel", TargetTool: "run_command", Title: "Allow command", Arguments: json.RawMessage(`{"command":"echo hello","workspace_id":"ws_demo"}`)}
+	return approval.Request{ID: id, Status: approval.StatusPending, WorkspaceID: "ws_demo", Source: "tunnel", TargetTool: "run_command", Title: "Allow command", Command: "echo hello", Arguments: json.RawMessage(`{"command":"echo hello","workspace_id":"ws_demo"}`)}
 }
 
 func TestModelInitPollsPendingApprovals(t *testing.T) {

@@ -66,12 +66,17 @@ func (r *Runtime) approvalResultForGuard(guard *controlguard.Error, sessionID, s
 		return Result{}, false, nil
 	}
 	title := "Allow " + name
-	if guard.Invocation != nil && strings.TrimSpace(guard.Invocation.Command) != "" {
-		title = "Allow " + strings.TrimSpace(guard.Invocation.Command)
+	command := ""
+	if guard.Invocation != nil {
+		command = strings.TrimSpace(guard.Invocation.Command)
+	}
+	if command == "" {
+		command, _ = args["command"].(string)
+		command = strings.TrimSpace(command)
 	}
 	challenge, _, err := r.Approvals.CreateChallenge(approval.ChallengeInput{
 		SessionID: sessionID, SessionHash: sessionHash, WorkspaceID: workspaceID, Source: source, TargetTool: name, Arguments: args,
-		GuardCode: guard.Code, GuardReason: guard.Error(), Title: title,
+		GuardCode: guard.Code, GuardReason: guard.Error(), Title: title, Command: command,
 	})
 	if err != nil {
 		return Result{}, false, err

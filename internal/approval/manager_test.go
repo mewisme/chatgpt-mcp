@@ -23,7 +23,7 @@ func TestManagerCoalescesChallengeAndRequest(t *testing.T) {
 		t.Fatalf("second challenge = %#v created=%t err=%v", second, created, err)
 	}
 	request, created, err := manager.CreateRequest(first.ID, "session-a", "ws_x")
-	if err != nil || !created || request.Status != StatusPending {
+	if err != nil || !created || request.Status != StatusPending || request.Title != "Allow run_command" || request.Command != "cgm update" {
 		t.Fatalf("request = %#v created=%t err=%v", request, created, err)
 	}
 	reused, created, err := manager.CreateRequest(first.ID, "session-a", "ws_x")
@@ -484,6 +484,6 @@ func testManager() (*Manager, *time.Time) {
 func testChallenge(sessionID, workspaceID, command string) ChallengeInput {
 	return ChallengeInput{
 		SessionID: sessionID, SessionHash: "hash-" + sessionID, WorkspaceID: workspaceID, Source: "tunnel", TargetTool: "run_command",
-		Arguments: map[string]any{"workspace_id": workspaceID, "command": command}, GuardCode: controlguard.CodeControlPlaneMutation, GuardReason: "control-plane mutation denied", Title: "Allow " + command,
+		Arguments: map[string]any{"workspace_id": workspaceID, "command": command}, GuardCode: controlguard.CodeControlPlaneMutation, GuardReason: "control-plane mutation denied", Title: "Allow run_command", Command: command,
 	}
 }

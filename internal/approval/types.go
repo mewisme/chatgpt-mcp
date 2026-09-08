@@ -53,6 +53,7 @@ type ChallengeInput struct {
 	GuardCode   controlguard.Code
 	GuardReason string
 	Title       string
+	Command     string
 }
 
 type Challenge struct {
@@ -66,6 +67,7 @@ type Challenge struct {
 	GuardCode   controlguard.Code `json:"guard_code"`
 	GuardReason string            `json:"guard_reason"`
 	Title       string            `json:"title"`
+	Command     string            `json:"command,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	ExpiresAt   time.Time         `json:"expires_at"`
 	sessionID   string
@@ -84,6 +86,7 @@ type Request struct {
 	GuardCode   controlguard.Code `json:"guard_code"`
 	GuardReason string            `json:"guard_reason"`
 	Title       string            `json:"title"`
+	Command     string            `json:"command,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	ExpiresAt   time.Time         `json:"expires_at"`
 	ResolvedAt  time.Time         `json:"resolved_at,omitempty"`

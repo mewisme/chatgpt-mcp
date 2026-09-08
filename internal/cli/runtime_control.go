@@ -152,7 +152,7 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 		challenge, _, err := options.Approvals.CreateChallenge(approval.ChallengeInput{
 			SessionID: sessionID, SessionHash: "dummy", WorkspaceID: workspaceID, Source: "cli-dummy", TargetTool: "run_command",
 			Arguments: map[string]any{"workspace_id": workspaceID, "command": command, "dummy": true}, GuardCode: controlguard.CodeControlPlaneMutation,
-			GuardReason: "dummy approval request created for UI testing", Title: title,
+			GuardReason: "dummy approval request created for UI testing", Title: title, Command: command,
 		})
 		if err != nil {
 			writeControlJSON(w, nil, err)

@@ -586,7 +586,7 @@ func (page *RequestsPage) requestRows() []component.Row {
 		}
 		rows = append(rows, component.Row{
 			ID: request.ID, Title: title, Description: strings.Join(nonEmptyRequestStrings(shortApprovalRequestID(request.ID), request.WorkspaceID, request.TargetTool), " · "), Meta: meta,
-			Search: strings.Join([]string{request.ID, string(request.Status), request.WorkspaceID, request.TargetTool, request.Source, request.Title}, " "),
+			Search: strings.Join([]string{request.ID, string(request.Status), request.WorkspaceID, request.TargetTool, request.Source, request.Title, request.Command}, " "),
 		})
 	}
 	return rows
@@ -610,7 +610,7 @@ func (page *RequestsPage) syncDetail() {
 	content := ""
 	switch page.section {
 	case "":
-		content = requestOverview(request)
+		content = requestOverview(request, page.width)
 	case "arguments":
 		content = requestArguments(request)
 	case "guard":
@@ -737,12 +737,16 @@ func requestTickCmd() tea.Cmd {
 	return tea.Tick(requestRefreshInterval, func(now time.Time) tea.Msg { return requestTickMsg(now) })
 }
 
-func requestOverview(request approval.Request) string {
-	return detailFields(
+func requestOverview(request approval.Request, width int) string {
+	content := detailFields(
 		[2]string{"Status", string(request.Status)}, [2]string{"Title", request.Title}, [2]string{"Workspace", request.WorkspaceID}, [2]string{"Tool", request.TargetTool},
 		[2]string{"Source", request.Source}, [2]string{"Session", request.SessionHash}, [2]string{"Created", requestTime(request.CreatedAt)}, [2]string{"Expires", requestTime(request.ExpiresAt)},
 		[2]string{"Resolved", requestTime(request.ResolvedAt)}, [2]string{"Resolved by", request.ResolvedBy}, [2]string{"Reason", request.Reason}, [2]string{"Retry until", requestTime(request.RetryUntil)}, [2]string{"Consumed", requestTime(request.ConsumedAt)},
 	)
+	if command := strings.TrimSpace(request.Command); command != "" {
+		content += "\n\n" + component.Label("Command") + "\n" + component.RenderCodeBlock(command, "bash", max(1, width))
+	}
+	return content
 }
 
 func requestArguments(request approval.Request) string {

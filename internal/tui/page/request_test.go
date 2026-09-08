@@ -22,8 +22,8 @@ import (
 
 func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 	now := time.Now().UTC()
-	pending := approval.Request{ID: "req_pending_full", Status: approval.StatusPending, WorkspaceID: "ws_a", Source: "tunnel", TargetTool: "run_command", Title: "Allow update", Arguments: []byte(`{"workspace_id":"ws_a","command":"cgm update"}`), GuardReason: "guarded", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
-	approved := approval.Request{ID: "req_approved_full", Status: approval.StatusApproved, WorkspaceID: "ws_b", Source: "tunnel", TargetTool: "run_command", Title: "Allow install", Arguments: []byte(`{"workspace_id":"ws_b","command":"cgm install"}`), CreatedAt: now.Add(-time.Minute), ExpiresAt: now, ResolvedAt: now, RetryUntil: now.Add(time.Minute)}
+	pending := approval.Request{ID: "req_pending_full", Status: approval.StatusPending, WorkspaceID: "ws_a", Source: "tunnel", TargetTool: "run_command", Title: "Allow update", Command: "cgm update", Arguments: []byte(`{"workspace_id":"ws_a","command":"cgm update"}`), GuardReason: "guarded", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	approved := approval.Request{ID: "req_approved_full", Status: approval.StatusApproved, WorkspaceID: "ws_b", Source: "tunnel", TargetTool: "run_command", Title: "Allow install", Command: "cgm install", Arguments: []byte(`{"workspace_id":"ws_b","command":"cgm install"}`), CreatedAt: now.Add(-time.Minute), ExpiresAt: now, ResolvedAt: now, RetryUntil: now.Add(time.Minute)}
 	server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/requests":
@@ -76,7 +76,7 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 		t.Fatalf("deep resource=%q overlay=%t mode=%d", deep.resourceID, deep.OverlayActive(), deep.mode)
 	}
 	view := ansi.Strip(deep.View(100, 28))
-	for _, expected := range []string{"Approval request · " + pending.ID, pending.WorkspaceID, pending.TargetTool, "v arguments", "g guard", "a approve", "? more"} {
+	for _, expected := range []string{"Approval request · " + pending.ID, pending.WorkspaceID, pending.TargetTool, "Command", "cgm update", "v arguments", "g guard", "a approve", "? more"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("deep view missing %q: %q", expected, view)
 		}
@@ -478,6 +478,15 @@ func TestRequestArgumentsRenderExactValues(t *testing.T) {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("arguments missing %q: %q", expected, view)
 		}
+	}
+}
+
+func TestRequestRowsSearchExactCommandSeparatelyFromTitle(t *testing.T) {
+	page, _ := NewRequests(t.Context(), "")
+	page.requests = []approval.Request{{ID: "req_search", Status: approval.StatusPending, Title: "Allow run_command", Command: "cgm update --channel beta"}}
+	rows := page.requestRows()
+	if len(rows) != 1 || !strings.Contains(rows[0].Search, "cgm update --channel beta") || strings.Contains(rows[0].Title, "cgm update") {
+		t.Fatalf("row=%#v", rows)
 	}
 }
 

@@ -154,7 +154,7 @@ func seedApprovalRequest(t *testing.T, manager *approval.Manager, sessionID, wor
 	t.Helper()
 	challenge, _, err := manager.CreateChallenge(approval.ChallengeInput{
 		SessionID: sessionID, SessionHash: "hash-" + sessionID, WorkspaceID: workspaceID, Source: "tunnel", TargetTool: "run_command",
-		Arguments: map[string]any{"workspace_id": workspaceID, "command": command}, GuardCode: controlguard.CodeControlPlaneMutation, GuardReason: "control-plane mutation denied", Title: "Allow " + command,
+		Arguments: map[string]any{"workspace_id": workspaceID, "command": command}, GuardCode: controlguard.CodeControlPlaneMutation, GuardReason: "control-plane mutation denied", Title: "Allow run_command", Command: command,
 	})
 	if err != nil {
 		t.Fatal(err)

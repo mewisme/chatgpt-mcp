@@ -694,6 +694,9 @@ func (model Model) approvalDialogContent(width int) string {
 	if model.approvalErr != nil {
 		lines = append(lines, "", component.BannerWidth(model.approvalErr.Error(), component.ToneDanger, width))
 	}
+	if command := strings.TrimSpace(request.Command); command != "" {
+		lines = append(lines, "", component.Label("Command"), component.RenderCodeBlock(command, "bash", width))
+	}
 	lines = append(lines, "", component.Label("Arguments"), component.RenderCodeBlock(approvalArguments(request.Arguments), "json", width))
 	return strings.Join(lines, "\n")
 }

@@ -21,6 +21,7 @@ type approvalRequiredResponse struct {
 	GuardCode   string    `json:"guard_code"`
 	Reason      string    `json:"reason"`
 	Title       string    `json:"title"`
+	Command     string    `json:"command,omitempty"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	RequestTool string    `json:"request_tool"`
 }
@@ -90,7 +91,7 @@ func approvalRequiredResult(challenge approval.Challenge) Result {
 	arguments := decodeApprovalArguments(challenge.Arguments)
 	response := approvalRequiredResponse{
 		Code: "approval_required", ChallengeID: challenge.ID, WorkspaceID: challenge.WorkspaceID, TargetTool: challenge.TargetTool, Arguments: arguments,
-		GuardCode: string(challenge.GuardCode), Reason: challenge.GuardReason, Title: challenge.Title, ExpiresAt: challenge.ExpiresAt, RequestTool: ApprovalRequestToolName,
+		GuardCode: string(challenge.GuardCode), Reason: challenge.GuardReason, Title: challenge.Title, Command: challenge.Command, ExpiresAt: challenge.ExpiresAt, RequestTool: ApprovalRequestToolName,
 	}
 	text := fmt.Sprintf("This control-plane action requires local approval. Call %s with workspace_id %q and challenge_id %q. If approved, retry %s with exactly the arguments shown in the structured response.", ApprovalRequestToolName, challenge.WorkspaceID, challenge.ID, challenge.TargetTool)
 	return Result{Content: []Content{{Type: "text", Text: text}}, StructuredContent: response, IsError: true, ResultType: "complete"}

@@ -225,7 +225,7 @@ type Router struct {
 	stack []Route
 }
 
-func NewRouter(initial Route) Router { return Router{stack: []Route{initial}} }
+func NewRouter(initial Route) Router { return Router{stack: routeStack(initial)} }
 
 func (router Router) Current() Route {
 	if len(router.stack) == 0 {
@@ -238,18 +238,14 @@ func (router *Router) Navigate(route Route) {
 	if router == nil || route == router.Current() {
 		return
 	}
-	router.stack = append(router.stack, route)
+	router.stack = routeStack(route)
 }
 
 func (router *Router) Switch(route Route) {
 	if router == nil {
 		return
 	}
-	if len(router.stack) == 0 {
-		router.stack = []Route{route}
-		return
-	}
-	router.stack[len(router.stack)-1] = route
+	router.stack = routeStack(route)
 }
 
 func (router *Router) Back() bool {
@@ -258,6 +254,28 @@ func (router *Router) Back() bool {
 	}
 	router.stack = router.stack[:len(router.stack)-1]
 	return true
+}
+
+func routeStack(route Route) []Route {
+	if route.Kind == RouteHome {
+		return []Route{{Kind: RouteHome}}
+	}
+	main := Route{Kind: route.Kind}
+	if route.Kind == RouteRequests {
+		main.Mode = route.Mode
+	}
+	stack := []Route{main}
+	if route.ResourceID == "" {
+		return stack
+	}
+	resource := main
+	resource.ResourceID = route.ResourceID
+	stack = append(stack, resource)
+	if route.Section == "" {
+		return stack
+	}
+	resource.Section = route.Section
+	return append(stack, resource)
 }
 
 func headerOwner(kind RouteKind) RouteKind {

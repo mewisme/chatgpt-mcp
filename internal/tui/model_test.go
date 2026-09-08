@@ -207,8 +207,11 @@ func TestHomeCommandPanelKeepsGlobalNavigationAndEscape(t *testing.T) {
 	}
 	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = updated.(Model)
-	if cmd != nil || model.overlay != overlayExitConfirm {
-		t.Fatalf("home escape overlay=%d cmd=%v", model.overlay, cmd)
+	if cmd == nil {
+		t.Fatal("home escape did not quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("home escape message=%T", cmd())
 	}
 }
 
@@ -231,8 +234,11 @@ func TestModelQuitAndBack(t *testing.T) {
 	}
 	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = updated.(Model)
-	if cmd != nil || model.overlay != overlayExitConfirm {
-		t.Fatalf("root escape did not open exit confirmation: overlay=%d cmd=%v", model.overlay, cmd)
+	if cmd == nil {
+		t.Fatal("root escape did not quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("root escape message=%T", cmd())
 	}
 }
 
@@ -244,7 +250,7 @@ func TestModelReplaceNavigationDropsDeletedResourceRoute(t *testing.T) {
 	if current := model.router.Current(); current != (Route{Kind: RouteWorkspaces}) {
 		t.Fatalf("replace current=%#v", current)
 	}
-	if len(model.router.stack) != 2 || model.router.stack[1] != (Route{Kind: RouteWorkspaces}) {
+	if len(model.router.stack) != 1 || model.router.stack[0] != (Route{Kind: RouteWorkspaces}) {
 		t.Fatalf("replace stack=%#v", model.router.stack)
 	}
 	if cmd != nil {
@@ -253,17 +259,27 @@ func TestModelReplaceNavigationDropsDeletedResourceRoute(t *testing.T) {
 	}
 }
 
-func TestModelBackIntoRequestsRestartsPageInit(t *testing.T) {
-	model := NewModel(Route{Kind: RouteHome})
-	model.navigate(Route{Kind: RouteRequests})
+func TestModelEscBacksToCurrentMainThenHomeThenQuits(t *testing.T) {
+	model := NewModel(Route{Kind: RouteWorkspaces, ResourceID: "ws_previous"})
 	model.navigate(Route{Kind: RouteLogs})
+	model.router.Navigate(Route{Kind: RouteLogs, ResourceID: "event_current"})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if model.router.Current() != (Route{Kind: RouteLogs}) {
+		t.Fatalf("first escape route=%#v stack=%#v", model.router.Current(), model.router.stack)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if model.router.Current() != (Route{Kind: RouteHome}) {
+		t.Fatalf("second escape route=%#v stack=%#v", model.router.Current(), model.router.stack)
+	}
 	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = updated.(Model)
-	if model.router.Current().Kind != RouteRequests {
-		t.Fatalf("route = %#v", model.router.Current())
-	}
 	if cmd == nil {
-		t.Fatal("returning to requests did not restart page init")
+		t.Fatal("third escape did not quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("third escape message=%T", cmd())
 	}
 }
 
@@ -319,8 +335,13 @@ func TestModelFooterKeepsOnlyGlobalShortcuts(t *testing.T) {
 	}
 	model.router.Navigate(Route{Kind: RouteLogs})
 	footer = ansi.Strip(model.shortcutFooter())
+	if !strings.Contains(footer, "esc home") {
+		t.Fatalf("main page footer=%q", footer)
+	}
+	model.router.Navigate(Route{Kind: RouteLogs, ResourceID: "event_demo"})
+	footer = ansi.Strip(model.shortcutFooter())
 	if !strings.Contains(footer, "esc back") {
-		t.Fatalf("nested footer=%q", footer)
+		t.Fatalf("child footer=%q", footer)
 	}
 }
 
@@ -451,17 +472,15 @@ func TestModelRoutesKeysToActiveInputBeforeGlobalShortcuts(t *testing.T) {
 	}
 }
 
-func TestModelSingleEscapeOpensExitConfirmation(t *testing.T) {
+func TestModelSingleEscapeQuitsFromHome(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
 	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = updated.(Model)
-	if cmd != nil || model.overlay != overlayExitConfirm {
-		t.Fatalf("escape overlay=%d cmd=%v", model.overlay, cmd)
+	if cmd == nil {
+		t.Fatal("escape did not quit")
 	}
-	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	model = updated.(Model)
-	if model.overlay != overlayNone {
-		t.Fatalf("escape did not close exit dialog: overlay=%d", model.overlay)
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("escape message=%T", cmd())
 	}
 }
 
@@ -514,7 +533,6 @@ func TestModelPendingApprovalSupersedesEveryInteractiveState(t *testing.T) {
 	}{
 		{name: "plain"},
 		{name: "palette", setup: func(model *Model) *captureOverlayPage { _ = model.openCommands(); return nil }},
-		{name: "exit", setup: func(model *Model) *captureOverlayPage { model.openExitConfirm(); return nil }},
 		{name: "page-overlay", setup: func(model *Model) *captureOverlayPage {
 			page := &captureOverlayPage{overlay: true}
 			model.currentPage = page

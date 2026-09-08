@@ -26,7 +26,6 @@ type overlayKind uint8
 const (
 	overlayNone overlayKind = iota
 	overlayCommands
-	overlayExitConfirm
 )
 
 const navbarMinHeight = 9
@@ -82,7 +81,6 @@ type Model struct {
 	palette          *palette.Model
 	homeCommands     *palette.Model
 	overlay          overlayKind
-	exitConfirm      component.ConfirmButtons
 	commandResources map[string]quickopen.Resource
 	stateRoot        string
 	state            tuistate.State
@@ -200,10 +198,6 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.approvalActive() {
 			return model.updateApprovalChoice(msg)
 		}
-		if model.overlay == overlayExitConfirm {
-			model.exitConfirm.Select(msg.Affirmative)
-			return model.updateExitConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
-		}
 		return model, nil
 	case palette.SelectedMsg:
 		if resource, ok := model.commandResources[msg.ID]; ok {
@@ -314,9 +308,6 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.palette = &updated
 			return model, cmd
 		}
-		if model.overlay == overlayExitConfirm {
-			return model.updateExitConfirm(msg)
-		}
 		if model.currentPage != nil && (model.currentPage.OverlayActive() || model.currentPage.InputActive()) {
 			return model.updatePage(msg)
 		}
@@ -329,8 +320,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.switchPage(cycleHeaderRoute(model.router.Current(), 1))
 				return model, model.initCurrentPage()
 			case "esc":
-				model.openExitConfirm()
-				return model, nil
+				return model, tea.Quit
 			case "ctrl+k":
 				return model, nil
 			default:
@@ -354,7 +344,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.loadPage(model.router.Current())
 				return model, model.initCurrentPage()
 			}
-			model.openExitConfirm()
+			model.switchPage(Route{Kind: RouteHome})
 			return model, nil
 		case "backspace":
 			if model.router.Back() {
@@ -385,17 +375,6 @@ func (model Model) View() tea.View {
 		x, y := max(0, (width-lipgloss.Width(foreground))/2), max(0, (height-lipgloss.Height(foreground))/2)
 		content = centerOverlay(content, foreground, width, height)
 		targets = append(targets, model.palette.MouseTargets(x, y, 100, paletteWidth)...)
-	}
-	if model.overlay == overlayExitConfirm {
-		width, height := model.layoutSize()
-		body := model.exitConfirmView()
-		foreground := component.Modal(body, max(1, min(58, width-4)))
-		overlayTargets, x, y := component.CenteredOverlayTargets(foreground, width, height, 0, 0, 99, tea.KeyPressMsg{Code: tea.KeyEscape})
-		content = centerOverlay(content, foreground, width, height)
-		targets = append(targets, overlayTargets...)
-		if rect, ok := component.FindRenderedRect(foreground, model.exitConfirm.View()); ok {
-			targets = append(targets, model.exitConfirm.MouseTargets(x+rect.X, y+rect.Y, 101)...)
-		}
 	}
 	if model.approvalActive() {
 		width, height := model.layoutSize()
@@ -796,45 +775,7 @@ func (model *Model) closeOverlay() {
 	}
 	model.palette = nil
 	model.overlay = overlayNone
-	model.exitConfirm = component.ConfirmButtons{}
 	model.commandResources = nil
-}
-
-func (model *Model) openExitConfirm() {
-	if model == nil {
-		return
-	}
-	model.palette = nil
-	model.commandResources = nil
-	model.overlay = overlayExitConfirm
-	model.exitConfirm = component.NewConfirmButtons("Exit", "Cancel", false)
-}
-
-func (model Model) updateExitConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		model.closeOverlay()
-		return model, nil
-	case "enter":
-		if model.exitConfirm.AffirmativeSelected() {
-			return model, tea.Quit
-		}
-		model.closeOverlay()
-		return model, nil
-	default:
-		return model, model.exitConfirm.Update(msg)
-	}
-}
-
-func (model Model) exitConfirmView() string {
-	return strings.Join([]string{
-		component.Title("Exit ChatGPT MCP?"),
-		"",
-		component.Muted("The TUI will close. Running managed services are unchanged."),
-		"",
-		model.exitConfirm.View(),
-		component.Muted("Enter confirm · Esc cancel"),
-	}, "\n")
 }
 
 func (model *Model) recordRecent(id string) tea.Cmd {
@@ -1164,7 +1105,7 @@ func (model Model) shortcutFooter() string {
 	} else if len(model.router.stack) > 1 {
 		bindings = append(bindings, component.Binding([]string{"esc"}, "esc", "back"))
 	} else {
-		bindings = append(bindings, component.Binding([]string{"esc"}, "esc", "quit"))
+		bindings = append(bindings, component.Binding([]string{"esc"}, "esc", "home"))
 	}
 	return component.DefaultHelp(width, bindings...)
 }

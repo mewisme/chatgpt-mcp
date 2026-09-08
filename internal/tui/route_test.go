@@ -104,10 +104,22 @@ func TestRouterBackStack(t *testing.T) {
 	if !router.Back() || router.Current().Kind != RouteMCP || router.Current().ResourceID != "" {
 		t.Fatalf("back = %#v", router.Current())
 	}
-	if !router.Back() || router.Current().Kind != RouteHome {
-		t.Fatalf("back home = %#v", router.Current())
+	if router.Back() {
+		t.Fatal("router backed past current main page")
+	}
+}
+
+func TestRouterCrossPageNavigationDropsPreviousPageHistory(t *testing.T) {
+	router := NewRouter(Route{Kind: RouteWorkspaces, ResourceID: "ws_old"})
+	router.Navigate(Route{Kind: RouteLogs})
+	router.Navigate(Route{Kind: RouteLogs, ResourceID: "event_new"})
+	if len(router.stack) != 2 || router.stack[0] != (Route{Kind: RouteLogs}) || router.stack[1].ResourceID != "event_new" {
+		t.Fatalf("cross-page stack=%#v", router.stack)
+	}
+	if !router.Back() || router.Current() != (Route{Kind: RouteLogs}) {
+		t.Fatalf("back to current main=%#v stack=%#v", router.Current(), router.stack)
 	}
 	if router.Back() {
-		t.Fatal("router backed past root")
+		t.Fatalf("back leaked into previous page history: %#v", router.stack)
 	}
 }

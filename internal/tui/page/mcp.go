@@ -427,7 +427,7 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 				},
 			})
 		}
-		y += lipgloss.Height(header) + 1
+		y += lipgloss.Height(header) + 2
 		if feedback := page.serverEditorFeedback(page.width); feedback != "" {
 			y += lipgloss.Height(feedback) + 1
 		}
@@ -687,7 +687,7 @@ func (page *MCPPage) resizeEditor() {
 		return
 	}
 	header, _ := page.serverEditorModeHeader(page.width)
-	overhead := lipgloss.Height(header) + 1
+	overhead := lipgloss.Height(header) + 2
 	if feedback := page.serverEditorFeedback(page.width); feedback != "" {
 		overhead += lipgloss.Height(feedback) + 1
 	}
@@ -713,7 +713,7 @@ func (page *MCPPage) editorView(width, height int) string {
 		return title + "\n" + page.editor.View()
 	}
 	header, _ := page.serverEditorModeHeader(width)
-	parts := []string{title, header}
+	parts := []string{title, header, ""}
 	if feedback := page.serverEditorFeedback(width); feedback != "" {
 		parts = append(parts, feedback)
 	}

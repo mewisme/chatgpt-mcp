@@ -17,7 +17,7 @@ import (
 func TestInstructionPageShowsContextAndReadOnlySummaries(t *testing.T) {
 	page, _ := newTestInstructionPage(t)
 	plain := ansi.Strip(page.View(100, 30))
-	for _, want := range []string{"Context", "Rules", "Sources", "Global Context", "Shared instructions", "ctrl+s save"} {
+	for _, want := range []string{"Context", "Rules", "Sources", "Global Context", "Shared instructions", "e edit", "r refresh"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("context view missing %q: %q", want, plain)
 		}
@@ -142,7 +142,11 @@ func TestInstructionSourcesMouseWheelUsesSemanticMessage(t *testing.T) {
 }
 
 func TestInstructionPageEditsAndSavesGlobalContext(t *testing.T) {
-	page, service := newTestInstructionPage(t)
+	_, service := newTestInstructionPage(t)
+	page, err := newInstructionPageRouteAction(t.Context(), service, "context", "", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if page.contextEditor == nil || !page.InputActive() || page.Init() == nil {
 		t.Fatalf("editor active=%t input=%t init=%v", page.contextEditor != nil, page.InputActive(), page.Init() != nil)
 	}
@@ -151,10 +155,10 @@ func TestInstructionPageEditsAndSavesGlobalContext(t *testing.T) {
 	if saveCmd == nil || !page.saving {
 		t.Fatalf("save cmd=%v saving=%t", saveCmd, page.saving)
 	}
-	updated, _ = page.Update(saveCmd())
+	updated, navigation := page.Update(saveCmd())
 	page = updated.(*InstructionPage)
-	if page.contextEditor == nil || page.contextEditor.Dirty() || page.saving || page.Notice() != "Global context saved" {
-		t.Fatalf("editor=%v dirty=%t saving=%t notice=%q err=%v", page.contextEditor != nil, page.Dirty(), page.saving, page.Notice(), page.err)
+	if page.contextEditor != nil || page.saving || page.Notice() != "Global context saved" || navigation == nil {
+		t.Fatalf("editor=%v saving=%t notice=%q navigation=%v err=%v", page.contextEditor != nil, page.saving, page.Notice(), navigation != nil, page.err)
 	}
 	settings, err := service.Load()
 	if err != nil {
@@ -165,6 +169,39 @@ func TestInstructionPageEditsAndSavesGlobalContext(t *testing.T) {
 	}
 	if plain := ansi.Strip(page.View(100, 30)); !strings.Contains(plain, "Use pnpm.") {
 		t.Fatalf("updated context not rendered: %q", plain)
+	}
+}
+
+func TestInstructionContextDefaultsToMarkdownPreviewAndEditIsRouted(t *testing.T) {
+	page, _ := newTestInstructionPage(t)
+	if page.contextEditor != nil || page.InputActive() {
+		t.Fatalf("context unexpectedly mounted editor=%v input=%t", page.contextEditor != nil, page.InputActive())
+	}
+	plain := ansi.Strip(page.View(72, 20))
+	if !strings.Contains(plain, "Shared instructions") || !strings.Contains(plain, "Prefer compact code.") || !strings.Contains(plain, "e edit") {
+		t.Fatalf("context preview=%q", plain)
+	}
+	_, cmd := page.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	if cmd == nil {
+		t.Fatal("context edit returned no navigation")
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "instruction/context/edit" {
+		t.Fatalf("context edit navigation=%#v", navigate)
+	}
+}
+
+func TestInstructionSourcesFirstRenderUsesUsableTreeWidth(t *testing.T) {
+	page, _ := newTestInstructionPage(t)
+	page.switchTab(instructionTabSources)
+	view := ansi.Strip(page.View(64, 18))
+	if !strings.Contains(view, "Claude · enabled") || !strings.Contains(view, "Context · 1 · detected") {
+		t.Fatalf("sources first render=%q", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > 64 {
+			t.Fatalf("sources first render overflow width=%d line=%q", lipgloss.Width(line), line)
+		}
 	}
 }
 

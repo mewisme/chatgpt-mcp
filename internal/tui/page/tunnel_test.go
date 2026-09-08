@@ -180,6 +180,28 @@ func TestTunnelRuntimeConfigureEditorSwitchValidationAndCancel(t *testing.T) {
 	}
 }
 
+func TestTunnelRuntimeEditorPasswordLabelAlignsWithOtherFields(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{ID: "tunnel_demo", APIKey: "runtime-secret"})
+	page, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	plain := ansi.Strip(page.View(100, 30))
+	labelColumn := func(label string) int {
+		for _, line := range strings.Split(plain, "\n") {
+			if column := strings.Index(line, label); column >= 0 {
+				return column
+			}
+		}
+		return -1
+	}
+	idColumn, keyColumn := labelColumn("Tunnel ID"), labelColumn("Runtime API key")
+	if idColumn < 0 || keyColumn < 0 || idColumn != keyColumn {
+		t.Fatalf("tunnel label columns id=%d runtime-key=%d view=%q", idColumn, keyColumn, plain)
+	}
+}
+
 func TestTunnelAdminEditorFailureKeepsDraft(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{})
 	page, err := NewTunnelDashboardRoute(t.Context(), "admin-key", "edit")

@@ -320,6 +320,10 @@ func parseInstructionRoute(parts []string) (Route, error) {
 	if len(parts) == 2 {
 		return route, nil
 	}
+	if route.Section == "context" && len(parts) == 3 && parts[2] == "edit" {
+		route.Action = "edit"
+		return route, nil
+	}
 	if route.Section != "rules" {
 		return Route{}, fmt.Errorf("instruction tab %q does not accept editor routes", route.Section)
 	}

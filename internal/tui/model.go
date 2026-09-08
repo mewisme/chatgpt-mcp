@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -101,6 +102,7 @@ type Model struct {
 	approvalChoice    component.ConfirmButtons
 	approvalApprove   bool
 	approvalErr       error
+	approvalViewport  viewport.Model
 	approvalList      func(context.Context) ([]approval.Request, error)
 	approvalResolve   func(context.Context, string, bool, string) (approval.Request, error)
 	approvalNow       func() time.Time
@@ -128,7 +130,10 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 			state = loaded
 		}
 	}
-	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), workspaceContexts: map[string]*tuipage.WorkspaceContextSession{}, stateRoot: root, state: state, theme: newTheme(true), approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalNow: time.Now}
+	approvalView := viewport.New(viewport.WithWidth(72), viewport.WithHeight(12))
+	approvalView.SoftWrap = false
+	approvalView.FillHeight = false
+	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), workspaceContexts: map[string]*tuipage.WorkspaceContextSession{}, stateRoot: root, state: state, theme: newTheme(true), approvalViewport: approvalView, approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalNow: time.Now}
 	model.loadPage(initial)
 	return model
 }
@@ -192,6 +197,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		model.width, model.height = msg.Width, msg.Height
+		if model.approvalActive() {
+			model.syncApprovalViewport(false)
+		}
 		if model.currentPage != nil {
 			metrics := model.frameMetrics(msg.Width, msg.Height)
 			updated, cmd := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})
@@ -312,6 +320,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.palette = &updated
 			return model, cmd
 		}
+		if msg.String() == "backspace" && model.currentPage != nil && model.currentPage.InputActive() {
+			return model.updatePage(msg)
+		}
 		_, guardedPage := model.currentPage.(tuipage.NavigationGuardModel)
 		if model.currentPage != nil && (model.currentPage.OverlayActive() || model.currentPage.InputActive() && !guardedPage) {
 			return model.updatePage(msg)
@@ -397,8 +408,7 @@ func (model Model) View() tea.View {
 	}
 	if model.approvalActive() {
 		width, height := model.layoutSize()
-		modalWidth := max(1, min(88, width-4))
-		body := model.approvalDialogView(component.ModalContentWidth(modalWidth))
+		modalWidth, body, viewportHeight := model.approvalDialogViewport(width, height)
 		foreground := component.Modal(body, modalWidth)
 		overlayTargets, x, y := component.CenteredOverlayTargets(foreground, width, height, 0, 0, 199, tea.KeyPressMsg{Code: tea.KeyEscape})
 		content = centerOverlay(content, foreground, width, height)
@@ -413,6 +423,22 @@ func (model Model) View() tea.View {
 				targets = append(targets, buttonTargets...)
 			}
 		}
+		contentWidth := component.ModalContentWidth(modalWidth)
+		viewportY := y + 2
+		viewportX := x + 3
+		targets = append(targets, component.MouseTarget{
+			ID: "approval.scroll", Rect: component.Rect{X: viewportX, Y: viewportY, Width: contentWidth, Height: viewportHeight}, Z: 202,
+			Handle: func(event component.MouseEvent) tea.Msg {
+				switch event.Button {
+				case tea.MouseWheelUp:
+					return tea.KeyPressMsg{Code: tea.KeyUp}
+				case tea.MouseWheelDown:
+					return tea.KeyPressMsg{Code: tea.KeyDown}
+				default:
+					return nil
+				}
+			},
+		})
 	}
 	if model.toast.id != 0 {
 		width, height := model.layoutSize()
@@ -529,6 +555,7 @@ func (model *Model) openApprovalChoice() {
 	model.approvalChoice = component.NewConfirmButtons("Approve", "Deny", false)
 	model.approvalApprove = false
 	model.approvalErr = nil
+	model.syncApprovalViewport(true)
 }
 
 func (model *Model) resetApprovalDialog() {
@@ -539,6 +566,7 @@ func (model *Model) resetApprovalDialog() {
 	model.approvalChoice = component.ConfirmButtons{}
 	model.approvalApprove = false
 	model.approvalErr = nil
+	model.approvalViewport.GotoTop()
 }
 
 func (model Model) updateApprovalChoice(msg component.ConfirmChoiceMsg) (tea.Model, tea.Cmd) {
@@ -561,6 +589,10 @@ func (model Model) updateApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return model.resolveApprovalSelection(model.approvalChoice.AffirmativeSelected())
 		case "esc":
 			return model, nil
+		case "j", "down", "k", "up", "pgdown", "pgup":
+			updated, cmd := model.approvalViewport.Update(msg)
+			model.approvalViewport = updated
+			return model, cmd
 		default:
 			return model, model.approvalChoice.Update(msg)
 		}
@@ -621,6 +653,15 @@ func (model Model) approvalButtonsView() string {
 }
 
 func (model Model) approvalDialogView(width int) string {
+	content := model.approvalDialogContent(width)
+	footer := model.approvalDialogFooter(width)
+	if footer == "" {
+		return content
+	}
+	return content + "\n\n" + footer
+}
+
+func (model Model) approvalDialogContent(width int) string {
 	request, ok := model.activeApproval()
 	if !ok {
 		return ""
@@ -644,13 +685,18 @@ func (model Model) approvalDialogView(width int) string {
 		countdown := approvalCountdown(request.ExpiresAt, model.approvalTime())
 		lines = append(lines, component.WrapKeyValue("Expires in", countdown+" · "+expires, width))
 	}
-	lines = append(lines, "", component.Label("Arguments"), component.WrapContent(approvalArguments(request.Arguments), width), "")
+	lines = append(lines, "", component.Label("Arguments"), component.WrapContent(approvalArguments(request.Arguments), width))
 	if model.approvalErr != nil {
-		lines = append(lines, component.BannerWidth(model.approvalErr.Error(), component.ToneDanger, width), "")
+		lines = append(lines, "", component.BannerWidth(model.approvalErr.Error(), component.ToneDanger, width))
 	}
+	return strings.Join(lines, "\n")
+}
+
+func (model Model) approvalDialogFooter(width int) string {
+	lines := []string{}
 	switch model.approvalStage {
 	case approvalStageChoice:
-		lines = append(lines, model.approvalChoice.View(), component.WrapContent(component.Muted("a approve · d deny · ←/→ choose · Enter submit"), width))
+		lines = append(lines, model.approvalChoice.View(), component.WrapContent(component.Muted("j/k scroll · a approve · d deny · ←/→ choose · Enter submit"), width))
 	case approvalStageResolving:
 		lines = append(lines, component.WrapContent(component.Muted("Resolving request..."), width))
 	}
@@ -658,6 +704,41 @@ func (model Model) approvalDialogView(width int) string {
 		lines = append(lines, "", component.WrapContent(component.Muted(fmt.Sprintf("%d more pending request(s)", len(model.approvals)-1)), width))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (model *Model) syncApprovalViewport(reset bool) {
+	if model == nil || !model.approvalActive() {
+		return
+	}
+	width, height := model.layoutSize()
+	modalWidth := max(1, min(120, width-4))
+	contentWidth := component.ModalContentWidth(modalWidth)
+	footer := model.approvalDialogFooter(contentWidth)
+	bodyHeight := max(1, height-6)
+	viewportHeight := max(1, bodyHeight-lipgloss.Height(footer)-1)
+	model.approvalViewport.SetWidth(contentWidth)
+	model.approvalViewport.SetHeight(viewportHeight)
+	model.approvalViewport.SetContent(model.approvalDialogContent(contentWidth))
+	if reset {
+		model.approvalViewport.GotoTop()
+	}
+}
+
+func (model Model) approvalDialogViewport(width, height int) (int, string, int) {
+	modalWidth := max(1, min(120, width-4))
+	contentWidth := component.ModalContentWidth(modalWidth)
+	footer := model.approvalDialogFooter(contentWidth)
+	bodyHeight := max(1, height-6)
+	viewportHeight := max(1, bodyHeight-lipgloss.Height(footer)-1)
+	view := model.approvalViewport
+	view.SetWidth(contentWidth)
+	view.SetHeight(viewportHeight)
+	view.SetContent(model.approvalDialogContent(contentWidth))
+	body := view.View()
+	if footer != "" {
+		body += "\n" + footer
+	}
+	return modalWidth, body, viewportHeight
 }
 
 func approvalArguments(raw json.RawMessage) string {

@@ -77,7 +77,14 @@ func (page *InstructionPage) syncSourceTree() {
 		}
 		root.Child(providerNode)
 	}
-	model := tree.New(root, max(1, page.width), max(1, page.height))
+	treeWidth, treeHeight := page.width, page.height
+	if treeWidth <= 0 {
+		treeWidth = 80
+	}
+	if treeHeight <= 0 {
+		treeHeight = 20
+	}
+	model := tree.New(root, treeWidth, treeHeight)
 	model.SetShowHelp(true)
 	model.SetAdditionalShortHelpKeys(func() []key.Binding {
 		return []key.Binding{

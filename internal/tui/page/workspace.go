@@ -382,9 +382,11 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 			return page.detail.MouseTargets(originX, originY, z)
 		}
 		feedback := page.listFeedback(page.width)
-		tabs, _ := component.PageTabsLayout(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
+		tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
 		targets := page.workspaceTabMouseTargets(originX, originY, z+2)
-		browserY := originY + lipgloss.Height(tabs) + pageFeedbackHeight(feedback)
+		bodyHeight := max(1, page.height-lipgloss.Height(tabs)-1)
+		layout := component.NewSectionLayout(page.listTitle(), "", feedback, page.width, bodyHeight, 0)
+		browserY := originY + lipgloss.Height(tabs) + 1 + layout.BodyY
 		return append(targets, page.browser.MouseTargets(originX, browserY, z)...)
 	}
 }
@@ -633,18 +635,22 @@ func (page *WorkspacePage) baseView(width, height int) string {
 		return page.detail.View()
 	}
 	feedback := page.listFeedback(width)
-	tabs, _ := component.PageTabsLayout(workspaceTabLabels, int(page.activeTab()), page.notice, width)
-	page.resizeBrowser()
-	return tabs + "\n" + prependPageFeedback(feedback, page.browser.Content())
+	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, width)
+	bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
+	layout := component.NewSectionLayout(page.listTitle(), "", feedback, width, bodyHeight, 0)
+	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
+	page.browser = updated.(component.Browser)
+	return tabs + "\n" + layout.View(page.browser.Content())
 }
 
 func (page *WorkspacePage) resizeBrowser() tea.Cmd {
 	if page.resourceID != "" || page.width <= 0 || page.height <= 0 {
 		return nil
 	}
-	tabs, _ := component.PageTabsLayout(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
-	height := max(1, page.height-lipgloss.Height(tabs)-pageFeedbackHeight(page.listFeedback(page.width)))
-	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
+	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
+	bodyHeight := max(1, page.height-lipgloss.Height(tabs)-1)
+	layout := component.NewSectionLayout(page.listTitle(), "", page.listFeedback(page.width), page.width, bodyHeight, 0)
+	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
 	page.browser = updated.(component.Browser)
 	return cmd
 }

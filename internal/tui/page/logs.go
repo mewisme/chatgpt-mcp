@@ -348,7 +348,10 @@ func (page *LogsPage) View(width, height int) string {
 	} else if page.tab == logsTabCommandExec {
 		tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, width)
 		bodyHeight := max(1, height-lipgloss.Height(tabs))
-		content = tabs + "\n" + page.executionView(width, bodyHeight)
+		help := page.executionHelpView(width)
+		layout := component.NewSectionLayout("Command Execution", "live output", "", width, bodyHeight, lipgloss.Height(help))
+		section := component.BottomHelp(layout.View(page.executionBodyView(width, layout.BodyHeight)), help, width, bodyHeight)
+		content = tabs + "\n" + section
 	} else {
 		tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, width)
 		status := page.statusView(width)
@@ -356,11 +359,14 @@ func (page *LogsPage) View(width, height int) string {
 		if page.err != nil {
 			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 		}
-		headerHeight := lipgloss.Height(tabs) + lipgloss.Height(status)
-		browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
+		bodyHeight := max(1, height-lipgloss.Height(tabs))
+		help := page.browser.HelpView()
+		layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, width, bodyHeight, lipgloss.Height(help))
+		browserHeight := max(1, layout.BodyHeight-lipgloss.Height(status)-1)
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
-		content = tabs + "\n" + status + "\n" + prependPageFeedback(feedback, page.browser.Content())
+		section := component.BottomHelp(layout.View(status+"\n"+page.browser.BodyContent()), help, width, bodyHeight)
+		content = tabs + "\n" + section
 	}
 	switch page.overlay {
 	case logsOverlayForm:
@@ -405,15 +411,20 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	tabTargets := page.logsTabMouseTargets(originX, originY, z+2)
 	tabsHeight := lipgloss.Height(tabs)
 	if page.tab == logsTabCommandExec {
-		bodyY := originY + tabsHeight
-		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, max(1, page.height-tabsHeight))...)
+		bodyHeight := max(1, page.height-tabsHeight)
+		layout := component.NewSectionLayout("Command Execution", "live output", "", page.width, bodyHeight, 0)
+		bodyY := originY + tabsHeight + 1 + layout.BodyY
+		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, layout.BodyHeight)...)
 	}
 	feedback := ""
 	if page.err != nil {
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
+	bodyHeight := max(1, page.height-tabsHeight)
+	help := page.browser.HelpView()
+	layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
 	statusHeight := lipgloss.Height(page.statusView(page.width))
-	browserY := originY + tabsHeight + statusHeight + pageFeedbackHeight(feedback)
+	browserY := originY + tabsHeight + 1 + layout.BodyY + statusHeight + 1
 	return append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
 }
 
@@ -746,7 +757,10 @@ func (page *LogsPage) resizeBrowser() tea.Cmd {
 	if page.err != nil {
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
-	height := max(1, page.height-tabsHeight-statusHeight-pageFeedbackHeight(feedback))
+	bodyHeight := max(1, page.height-tabsHeight)
+	help := page.browser.HelpView()
+	layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
+	height := max(1, layout.BodyHeight-statusHeight-1)
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd

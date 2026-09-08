@@ -649,6 +649,17 @@ func TestMCPCreateEditorFormJSONTabsKeyboardMouseAndRoundTrip(t *testing.T) {
 			t.Fatalf("mode tabs missing %q: %q", want, plain)
 		}
 	}
+	lines := strings.Split(plain, "\n")
+	modeLine := -1
+	for index, line := range lines {
+		if strings.Contains(line, "Form") && strings.Contains(line, "JSON") {
+			modeLine = index
+			break
+		}
+	}
+	if modeLine < 0 || modeLine+1 >= len(lines) || strings.TrimSpace(lines[modeLine+1]) != "" {
+		t.Fatalf("MCP editor mode tabs missing top padding before section: line=%d view=%q", modeLine, plain)
+	}
 	var jsonTarget *component.MouseTarget
 	for _, target := range page.MouseTargets(0, 0, 5) {
 		if target.ID != "mcp.editor.mode" {

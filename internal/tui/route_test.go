@@ -85,6 +85,7 @@ func TestParseEditorRoutes(t *testing.T) {
 		{[]string{"requests", "pending", "req_1", "approve"}, Route{Kind: RouteRequests, Mode: "pending", ResourceID: "req_1", Action: "approve"}},
 		{[]string{"requests", "all", "req_1", "deny"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_1", Action: "deny"}},
 		{[]string{"logs", "filter"}, Route{Kind: RouteLogs, Action: "filter"}},
+		{[]string{"instruction", "context", "edit"}, Route{Kind: RouteInstruction, Section: "context", Action: "edit"}},
 		{[]string{"instruction", "rules", "create"}, Route{Kind: RouteInstruction, Section: "rules", Action: "create"}},
 		{[]string{"instruction", "rules", "rule_1", "edit"}, Route{Kind: RouteInstruction, ResourceID: "rule_1", Section: "rules", Action: "edit"}},
 	}
@@ -169,6 +170,7 @@ func TestEditorRouteTitlesIncludeActionWithoutChangingLegacyOrder(t *testing.T) 
 		{Kind: RouteMCP, Action: "create"}:                                               "MCP Servers · Create",
 		{Kind: RouteMCP, ResourceID: "github", Action: "edit"}:                           "MCP Servers · github · Edit",
 		{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}:        "MCP Servers · github · Oauth · Login",
+		{Kind: RouteInstruction, Section: "context", Action: "edit"}:                     "Instruction · Context · Edit",
 		{Kind: RouteInstruction, ResourceID: "rule_1", Section: "rules", Action: "edit"}: "Instruction · Rules · rule_1 · Edit",
 	} {
 		if got := route.Title(); got != want {

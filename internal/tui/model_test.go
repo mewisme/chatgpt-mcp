@@ -528,12 +528,12 @@ func TestModelInstructionRuleEditorDeepLinkLoadsRoutedEditor(t *testing.T) {
 	}
 }
 
-func TestModelInstructionContextTabNavigationUsesDirtyGuard(t *testing.T) {
+func TestModelInstructionContextEditorNavigationUsesDirtyGuard(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	model := NewModel(Route{Kind: RouteInstruction, Section: "context"})
+	model := NewModel(Route{Kind: RouteInstruction, Section: "context", Action: "edit"})
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
@@ -563,11 +563,25 @@ func TestModelInstructionContextTabNavigationUsesDirtyGuard(t *testing.T) {
 	}
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
-	if model.pendingNavigation == nil || model.router.Current() != (Route{Kind: RouteInstruction, Section: "context"}) {
+	if model.pendingNavigation == nil || model.router.Current() != (Route{Kind: RouteInstruction, Section: "context", Action: "edit"}) {
 		t.Fatalf("dirty context navigation escaped: route=%#v pending=%v", model.router.Current(), model.pendingNavigation != nil)
 	}
 	if !strings.Contains(ansi.Strip(model.View().Content), "Discard changes?") {
 		t.Fatal("dirty context navigation did not render discard guard")
+	}
+}
+
+func TestModelBackspaceStaysInsideDirtyInputEditor(t *testing.T) {
+	model := NewModel(Route{Kind: RouteMCP})
+	page := &navigationGuardTestPage{dirty: true, input: true}
+	model.currentPage = page
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	model = updated.(Model)
+	if cmd != nil || model.pendingNavigation != nil || model.router.Current().Kind != RouteMCP {
+		t.Fatalf("backspace escaped editor: route=%s pending=%v cmd=%v", model.router.Current().Kind, model.pendingNavigation != nil, cmd != nil)
+	}
+	if strings.Join(page.keys, ",") != "backspace" {
+		t.Fatalf("editor keys=%v", page.keys)
 	}
 }
 
@@ -1143,6 +1157,35 @@ func TestModelApprovalOverlayKeepsExactGeometry(t *testing.T) {
 		if width, height := lipgloss.Width(view), lipgloss.Height(view); width != size[0] || height != size[1] {
 			t.Fatalf("approval layout=%dx%d want=%dx%d", width, height, size[0], size[1])
 		}
+	}
+}
+
+func TestModelApprovalDialogCapsHeightAndScrollsContent(t *testing.T) {
+	request := testPendingApproval("req_scroll")
+	request.Title = strings.Repeat("Long approval title ", 8)
+	request.Arguments = json.RawMessage(`{"command":"` + strings.Repeat("echo very-long-argument ", 40) + `"}`)
+	model := NewModel(Route{Kind: RouteHome})
+	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{request}})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 76, Height: 18})
+	model = updated.(Model)
+	view := model.View().Content
+	plain := ansi.Strip(view)
+	if width, height := lipgloss.Width(view), lipgloss.Height(view); width != 76 || height != 18 {
+		t.Fatalf("approval geometry=%dx%d want=76x18", width, height)
+	}
+	for _, want := range []string{"Approve", "Deny", "j/k scroll"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("approval fixed footer missing %q: %q", want, plain)
+		}
+	}
+	if model.approvalViewport.TotalLineCount() <= model.approvalViewport.Height() {
+		t.Fatalf("approval content did not become scrollable: lines=%d height=%d", model.approvalViewport.TotalLineCount(), model.approvalViewport.Height())
+	}
+	before := model.approvalViewport.YOffset()
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	model = updated.(Model)
+	if model.approvalViewport.YOffset() <= before {
+		t.Fatalf("approval viewport did not scroll: before=%d after=%d", before, model.approvalViewport.YOffset())
 	}
 }
 

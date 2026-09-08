@@ -404,12 +404,9 @@ func (page *WorkspacePage) workspaceContextPreviewBodySize(width, height int) (i
 	title := component.PageTitleNotice("Project Context Preview · "+page.resourceID, page.notice, width)
 	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(page.contextPreview.tab), "", width)
 	feedback := page.listFeedback(width)
-	summaryHeight := 0
-	if page.contextPreview.result != nil {
-		summaryHeight = lipgloss.Height(workspaceContextPreviewSummary(*page.contextPreview.result, width)) + 1
-	}
-	bodyHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(tabs)-summaryHeight-pageFeedbackHeight(feedback))
-	return max(1, width), bodyHeight
+	bodyHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(tabs)-1)
+	layout := page.workspaceContextPreviewSectionLayout(width, bodyHeight, feedback)
+	return max(1, width), layout.BodyHeight
 }
 
 func (page *WorkspacePage) workspaceContextPreviewView(width, height int) string {
@@ -421,10 +418,6 @@ func (page *WorkspacePage) workspaceContextPreviewView(width, height int) string
 	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(state.tab), "", width)
 	feedback := page.listFeedback(width)
 	bodyWidth, bodyHeight := page.workspaceContextPreviewBodySize(width, height)
-	summary := ""
-	if state.result != nil {
-		summary = workspaceContextPreviewSummary(*state.result, width) + "\n"
-	}
 	body := ""
 	if state.result == nil {
 		body = component.Muted("Project Context is not built. Press e to configure and build it.")
@@ -451,7 +444,27 @@ func (page *WorkspacePage) workspaceContextPreviewView(width, height int) string
 			body += "\n" + help
 		}
 	}
-	return title + "\n" + tabs + "\n" + summary + prependPageFeedback(feedback, body)
+	layoutHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(tabs)-1)
+	layout := page.workspaceContextPreviewSectionLayout(width, layoutHeight, feedback)
+	return title + "\n" + tabs + "\n" + layout.View(body)
+}
+
+func (page *WorkspacePage) workspaceContextPreviewSectionLayout(width, height int, feedback string) component.SectionLayout {
+	state := page.contextPreview
+	title := "Rendered Context"
+	if state != nil {
+		switch state.tab {
+		case workspaceContextPreviewSources:
+			title = "Context Sources"
+		case workspaceContextPreviewJSON:
+			title = "Context JSON"
+		}
+	}
+	meta := ""
+	if state != nil && state.result != nil {
+		meta = workspaceContextPreviewSummary(*state.result, width)
+	}
+	return component.NewSectionLayout(title, meta, feedback, width, height, 0)
 }
 
 func workspaceContextPreviewSummary(result projectcontext.Result, width int) string {
@@ -497,10 +510,10 @@ func (page *WorkspacePage) workspaceContextPreviewMouseTargets(originX, originY,
 			},
 		})
 	}
-	contentY := tabsY + lipgloss.Height(tabs) + pageFeedbackHeight(page.listFeedback(page.width))
-	if state.result != nil {
-		contentY += lipgloss.Height(workspaceContextPreviewSummary(*state.result, page.width)) + 1
-	}
+	feedback := page.listFeedback(page.width)
+	layoutHeight := max(1, page.height-lipgloss.Height(title)-lipgloss.Height(tabs)-1)
+	layout := page.workspaceContextPreviewSectionLayout(page.width, layoutHeight, feedback)
+	contentY := tabsY + lipgloss.Height(tabs) + 1 + layout.BodyY
 	if state.sourceViewer != nil {
 		header := page.workspaceContextSourceViewerHeader(max(1, page.width))
 		return append(targets, state.sourceViewer.MouseTargets(originX, contentY+lipgloss.Height(header), z)...)

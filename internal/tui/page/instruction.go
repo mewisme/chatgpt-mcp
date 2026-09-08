@@ -35,26 +35,28 @@ type instructionSavedMsg struct {
 type instructionTabMsg struct{ Tab instructionTab }
 
 type InstructionPage struct {
-	ctx           context.Context
-	service       *application.InstructionSettingsService
-	settings      application.InstructionSettings
-	tab           instructionTab
-	contextEditor *component.TextAreaEditor
-	ruleEditor    *component.Editor
-	rules         component.Browser
-	ruleEditID    string
-	ruleName      string
-	ruleContent   string
-	ruleEnabled   bool
-	ruleDeleteID  string
-	ruleConfirm   component.ConfirmButtons
-	sources       tree.Model
-	sourceDark    bool
-	saving        bool
-	notice        string
-	err           error
-	width         int
-	height        int
+	ctx            context.Context
+	service        *application.InstructionSettingsService
+	settings       application.InstructionSettings
+	tab            instructionTab
+	contextEditor  *component.TextAreaEditor
+	contextPreview component.MarkdownViewer
+	contextHelp    component.HelpFooter
+	ruleEditor     *component.Editor
+	rules          component.Browser
+	ruleEditID     string
+	ruleName       string
+	ruleContent    string
+	ruleEnabled    bool
+	ruleDeleteID   string
+	ruleConfirm    component.ConfirmButtons
+	sources        tree.Model
+	sourceDark     bool
+	saving         bool
+	notice         string
+	err            error
+	width          int
+	height         int
 }
 
 func NewInstruction(ctx context.Context) (*InstructionPage, error) {
@@ -93,15 +95,24 @@ func newInstructionPageRouteAction(ctx context.Context, service *application.Ins
 		return nil, err
 	}
 	page := &InstructionPage{ctx: ctx, service: service, settings: settings, sourceDark: true, tab: tab}
+	page.contextHelp = component.NewHelpFooter(component.Binding([]string{"e"}, "e", "edit"), component.Binding([]string{"r"}, "r", "refresh"))
 	page.syncDetail()
 	if action != "" {
-		if tab != instructionTabRules {
-			return nil, fmt.Errorf("instruction editor action %q requires rules tab", action)
-		}
-		if err := page.initRuleEditor(resourceID, action); err != nil {
-			return nil, err
+		if tab == instructionTabContext {
+			if action != "edit" {
+				return nil, fmt.Errorf("unsupported global context editor action: %s", action)
+			}
+			editor := component.NewTextAreaEditor("", settings.Context)
+			page.contextEditor = &editor
+		} else if tab == instructionTabRules {
+			if err := page.initRuleEditor(resourceID, action); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("instruction editor action %q is unsupported for this tab", action)
 		}
 	}
+	page.resizeContent()
 	return page, nil
 }
 
@@ -127,6 +138,9 @@ func (page *InstructionPage) Init() tea.Cmd {
 	}
 	if page.contextEditor != nil {
 		return page.contextEditor.Init()
+	}
+	if page.tab == instructionTabContext {
+		return page.contextPreview.Init()
 	}
 	return nil
 }
@@ -167,6 +181,7 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, nil
 	case tea.BackgroundColorMsg:
 		page.sourceDark = msg.IsDark()
+		page.contextHelp.Update(msg)
 		if page.ruleEditor != nil {
 			updated, cmd := page.ruleEditor.Update(msg)
 			page.ruleEditor = &updated
@@ -175,6 +190,11 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.contextEditor != nil {
 			updated, cmd := page.contextEditor.Update(msg)
 			page.contextEditor = &updated
+			return page, cmd
+		}
+		if page.tab == instructionTabContext {
+			updated, cmd := page.contextPreview.Update(msg)
+			page.contextPreview = updated
 			return page, cmd
 		}
 		if page.tab == instructionTabRules {
@@ -222,6 +242,11 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.saving = true
 		page.err, page.notice = nil, ""
 		return page, page.saveContextCmd(msg.Value)
+	case component.TextAreaCancelledMsg:
+		if page.contextEditor != nil && !page.saving {
+			return page, func() tea.Msg { return NavigateMsg{Path: []string{"instruction", "context"}, Replace: true} }
+		}
+		return page, nil
 	case instructionRefreshMsg:
 		if msg.err != nil {
 			page.err = msg.err
@@ -239,10 +264,17 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		page.settings, page.err = msg.settings, nil
 		page.notice = "Global context saved"
-		if page.contextEditor != nil {
-			page.contextEditor.SetValue(msg.settings.Context)
-		}
+		wasEditing := page.contextEditor != nil
+		page.contextEditor = nil
 		page.syncDetail()
+		if wasEditing {
+			return page, tea.Batch(
+				func() tea.Msg { return NavigateMsg{Path: []string{"instruction", "context"}, Replace: true} },
+				func() tea.Msg {
+					return ToastMsg{Title: "Instruction", Message: "Global context saved", Tone: component.ToneSuccess}
+				},
+			)
+		}
 		return page, nil
 	case instructionRulesSavedMsg:
 		page.saving = false
@@ -303,6 +335,18 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.contextEditor = &updated
 			return page, cmd
 		}
+		if page.tab == instructionTabContext {
+			switch msg.String() {
+			case "e":
+				return page, func() tea.Msg { return NavigateMsg{Path: []string{"instruction", "context", "edit"}} }
+			case "r":
+				page.err, page.notice = nil, ""
+				return page, page.refreshCmd()
+			}
+			updated, cmd := page.contextPreview.Update(msg)
+			page.contextPreview = updated
+			return page, cmd
+		}
 		if page.tab == instructionTabRules && page.rules.InputActive() {
 			updated, cmd := page.rules.Update(msg)
 			page.rules = updated.(component.Browser)
@@ -333,6 +377,11 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if page.contextEditor != nil {
 		updated, cmd := page.contextEditor.Update(message)
 		page.contextEditor = &updated
+		return page, cmd
+	}
+	if page.tab == instructionTabContext {
+		updated, cmd := page.contextPreview.Update(message)
+		page.contextPreview = updated
 		return page, cmd
 	}
 	if page.tab == instructionTabRules {
@@ -370,7 +419,11 @@ func (page *InstructionPage) View(width, height int) string {
 		page.contextEditor.Resize(width, layout.BodyHeight)
 		return tabs + "\n" + layout.View(page.contextEditor.View())
 	}
-	return tabs
+	feedback := page.instructionFeedback(width)
+	help := page.contextHelp.View(width)
+	layout := component.NewSectionLayout("Global Context", formatInstructionBytes(len([]byte(page.settings.Context))), feedback, width, bodyHeight, lipgloss.Height(help))
+	page.contextPreview.Resize(width, layout.BodyHeight)
+	return tabs + "\n" + component.BottomHelp(layout.View(page.contextPreview.View()), help, width, bodyHeight)
 }
 
 func (page *InstructionPage) MouseTargets(originX, originY, z int) []component.MouseTarget {
@@ -407,6 +460,12 @@ func (page *InstructionPage) MouseTargets(originX, originY, z int) []component.M
 		feedback := page.instructionFeedback(page.width)
 		layout := page.instructionSectionLayout(instructionTabSources, feedback, page.width, max(1, page.height-lipgloss.Height(tabs)-1))
 		return append(targets, page.sourceMouseTargets(originX, contentY+layout.BodyY, z)...)
+	}
+	if page.tab == instructionTabContext && page.contextEditor == nil {
+		feedback := page.instructionFeedback(page.width)
+		help := page.contextHelp.View(page.width)
+		layout := component.NewSectionLayout("Global Context", formatInstructionBytes(len([]byte(page.settings.Context))), feedback, page.width, max(1, page.height-lipgloss.Height(tabs)-1), lipgloss.Height(help))
+		return append(targets, page.contextPreview.MouseTargets(originX, contentY+layout.BodyY, z)...)
 	}
 	return targets
 }
@@ -451,10 +510,7 @@ func (page *InstructionPage) syncDetail() {
 	}
 	switch page.tab {
 	case instructionTabContext:
-		if page.contextEditor == nil {
-			editor := component.NewTextAreaEditor("", page.settings.Context)
-			page.contextEditor = &editor
-		}
+		page.contextPreview = component.NewMarkdownViewer(page.settings.Context)
 	case instructionTabRules:
 		page.contextEditor = nil
 		page.syncRuleBrowser()
@@ -479,6 +535,13 @@ func (page *InstructionPage) resizeContent() {
 	if page.contextEditor != nil {
 		layout := page.instructionSectionLayout(instructionTabContext, page.instructionFeedback(page.width), page.width, height)
 		page.contextEditor.Resize(page.width, layout.BodyHeight)
+		return
+	}
+	if page.tab == instructionTabContext {
+		feedback := page.instructionFeedback(page.width)
+		help := page.contextHelp.View(page.width)
+		layout := component.NewSectionLayout("Global Context", formatInstructionBytes(len([]byte(page.settings.Context))), feedback, page.width, height, lipgloss.Height(help))
+		page.contextPreview.Resize(page.width, layout.BodyHeight)
 		return
 	}
 	if page.tab == instructionTabRules {

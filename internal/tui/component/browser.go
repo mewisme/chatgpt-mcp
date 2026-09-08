@@ -211,6 +211,22 @@ func (m Browser) Content() string {
 	return content
 }
 
+func (m Browser) BodyContent() string {
+	listView := m.list
+	listView.SetShowHelp(false)
+	content := listView.View()
+	if m.titleVisible && m.titleNotice != "" {
+		lines := strings.Split(content, "\n")
+		if len(lines) > 0 {
+			lines[0] = pageTitleNoticeLine(m.title, m.titleNotice, m.width)
+			content = strings.Join(lines, "\n")
+		}
+	}
+	return content
+}
+
+func (m Browser) HelpView() string { return m.list.Help.View(m.list) }
+
 func (m Browser) Selected() (Row, bool) { return m.selected() }
 
 func (m *Browser) ReplaceRows(rows []Row, selectedID string) tea.Cmd {

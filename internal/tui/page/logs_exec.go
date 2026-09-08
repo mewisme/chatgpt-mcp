@@ -241,21 +241,24 @@ func (page *LogsPage) executionStatusView(width int) string {
 	return component.TwoColumn(left, component.KeyValue("Mode", "combined"), width)
 }
 
-func (page *LogsPage) executionView(width, height int) string {
-	status := page.executionStatusView(width)
-	help := component.NewHelpFooter(
+func (page *LogsPage) executionHelpView(width int) string {
+	return component.NewHelpFooter(
 		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"),
 		component.Binding([]string{"j", "k", "up", "down"}, "j/k", "scroll"),
 		component.Binding([]string{"space"}, "space", executionFollowLabel(page.exec.paused)),
 		component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
 	).View(width)
+}
+
+func (page *LogsPage) executionBodyView(width, height int) string {
+	status := page.executionStatusView(width)
 	message := ""
 	if page.exec.err != nil {
 		message = component.BannerWidth(page.exec.err.Error(), component.ToneDanger, width)
 	} else if page.exec.notice != "" {
 		message = component.WrapContent(component.Muted(page.exec.notice), width)
 	}
-	reserved := lipgloss.Height(status) + lipgloss.Height(help) + 2
+	reserved := lipgloss.Height(status) + 1
 	if message != "" {
 		reserved += lipgloss.Height(message) + 1
 	}
@@ -271,7 +274,7 @@ func (page *LogsPage) executionView(width, height int) string {
 	if message != "" {
 		content += "\n" + message
 	}
-	return component.BottomHelp(content, help, width, height)
+	return content
 }
 
 func (page *LogsPage) logsTabMouseTargets(originX, originY, z int) []component.MouseTarget {

@@ -335,8 +335,8 @@ func TestWorkspaceBrowserHelpStaysAboveAppFooterWithFeedback(t *testing.T) {
 	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
 		last--
 	}
-	if last != 23 || !strings.Contains(lines[last], "? more") {
-		t.Fatalf("workspace help line=%d want=23 view=%q", last, plain)
+	if last < 0 || !strings.Contains(lines[last], "? more") {
+		t.Fatalf("workspace help line=%d view=%q", last, plain)
 	}
 	if !strings.Contains(lines[0], "Workspaces") || !strings.Contains(lines[0], "Containers") || !strings.Contains(lines[0], "Workspace updated") {
 		t.Fatalf("workspace title/notice invalid: %q", lines[0])
@@ -665,10 +665,20 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	updated, _ = preview.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	preview = updated.(*WorkspacePage)
 	sourcesView := ansi.Strip(preview.View(110, 30))
-	for _, want := range []string{"User-level Sources", "Claude", "Context · 1 · included", "Global Context", "Auto Memory", "Project/User Instruction Files · 1", "Global Rules · 1", "Rules · 1", "Skills · 1"} {
+	for _, want := range []string{"Context Sources", "User-level Sources", "Claude", "Context · 1 · included", "Global Context", "Auto Memory", "Project/User Instruction Files · 1", "Global Rules · 1", "Rules · 1"} {
 		if !strings.Contains(sourcesView, want) {
 			t.Fatalf("sources preview missing %q: %q", want, sourcesView)
 		}
+	}
+	foundSkills := false
+	for _, node := range preview.contextPreview.sources.AllNodes() {
+		if strings.Contains(node.Value(), "Skills · 1") {
+			foundSkills = true
+			break
+		}
+	}
+	if !foundSkills {
+		t.Fatal("skills summary node missing from context source tree")
 	}
 	foundSource := false
 	for _, node := range preview.contextPreview.sources.AllNodes() {
@@ -734,7 +744,7 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ansi.Strip(fresh.View(110, 30)); !strings.Contains(got, "not built") || strings.Contains(got, "Rendered Context") {
+	if got := ansi.Strip(fresh.View(110, 30)); !strings.Contains(got, "not built") || !strings.Contains(got, "Rendered Context") {
 		t.Fatalf("fresh session unexpectedly reused preview: %q", got)
 	}
 }

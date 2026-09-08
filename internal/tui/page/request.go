@@ -331,12 +331,12 @@ func (page *RequestsPage) View(width, height int) string {
 		page.detail.Resize(width, height)
 		content = page.detail.View()
 	} else {
-		tabs, _ := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, width)
-		browserHeight := max(1, height-pageFeedbackHeight(feedback))
-		browserHeight = max(1, browserHeight-lipgloss.Height(tabs))
-		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
+		tabs := component.PageTabsNotice(requestTabLabels, int(page.mode), page.notice, width)
+		bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
+		layout := component.NewSectionLayout("Approval Requests", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, width, bodyHeight, 0)
+		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 		page.browser = updated.(component.Browser)
-		content = tabs + "\n" + prependPageFeedback(feedback, page.browser.Content())
+		content = tabs + "\n" + layout.View(page.browser.Content())
 	}
 	if page.overlay == requestOverlayForm {
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 76)), width, height)
@@ -370,7 +370,7 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 		}
 		_, spans := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, page.width)
-		header, _ := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, page.width)
+		header := component.PageTabsNotice(requestTabLabels, int(page.mode), page.notice, page.width)
 		targets := make([]component.MouseTarget, 0, len(spans)+8)
 		for _, span := range spans {
 			mode := requestMode(span.Index)
@@ -384,7 +384,9 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 				},
 			})
 		}
-		offsetY := lipgloss.Height(header) + pageFeedbackHeight(feedback)
+		bodyHeight := max(1, page.height-lipgloss.Height(header)-1)
+		layout := component.NewSectionLayout("Approval Requests", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, page.width, bodyHeight, 0)
+		offsetY := lipgloss.Height(header) + 1 + layout.BodyY
 		return append(targets, page.browser.MouseTargets(originX, originY+offsetY, z)...)
 	}
 }

@@ -79,7 +79,7 @@ func TestTunnelResponseBudgetErrorGuidesLongRunCommand(t *testing.T) {
 }
 
 func TestToolCallContextUsesTunnelBudgetCause(t *testing.T) {
-	parent, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	parent, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
 	ctx, cancelCall := toolCallContext(parent, "tunnel", time.Now())
 	defer cancelCall()

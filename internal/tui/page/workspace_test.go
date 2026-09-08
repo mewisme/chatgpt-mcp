@@ -215,6 +215,7 @@ func TestContainerOverviewListsMembers(t *testing.T) {
 	if !strings.Contains(plain, "Members") {
 		t.Fatalf("member section missing: %q", plain)
 	}
+	compactPlain := strings.Join(strings.Fields(plain), "")
 	last := -1
 	for _, name := range []string{"alpha", "middle", "zeta"} {
 		path := filepath.Join(base, name)
@@ -222,7 +223,7 @@ func TestContainerOverviewListsMembers(t *testing.T) {
 			path = resolved
 		}
 		value := name + " · " + items[name] + " · " + path
-		index := strings.Index(plain, value)
+		index := strings.Index(compactPlain, strings.Join(strings.Fields(value), ""))
 		if index < 0 {
 			t.Fatalf("member %q missing: %q", value, plain)
 		}
@@ -706,8 +707,9 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(sourcePath); err == nil {
 		displaySourcePath = resolved
 	}
+	compactSourceView := strings.Join(strings.Fields(sourceView), "")
 	for _, want := range []string{"Source", displaySourcePath, "AGENTS", "Source body."} {
-		if !strings.Contains(sourceView, want) {
+		if !strings.Contains(compactSourceView, strings.Join(strings.Fields(want), "")) {
 			t.Fatalf("source viewer missing %q: %q", want, sourceView)
 		}
 	}

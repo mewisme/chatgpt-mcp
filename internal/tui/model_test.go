@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,36 @@ func TestModelWorkspaceContextSessionsAreScopedAndStable(t *testing.T) {
 	}
 	if len(model.workspaceContexts) != 2 {
 		t.Fatalf("session count=%d", len(model.workspaceContexts))
+	}
+}
+
+func TestEditorRouteCompatibilityCmdPreservesLegacyFormEntryPoints(t *testing.T) {
+	tests := []struct {
+		route Route
+		want  tea.Msg
+	}{
+		{Route{Kind: RouteWorkspaces, Action: "register"}, tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceRegister}},
+		{Route{Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}, tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceAccessAdd, ResourceID: "ws_1"}},
+		{Route{Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}, tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceContainerMembers, ResourceID: "wsc_1"}},
+		{Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}, tuipage.MCPCommandMsg{Command: tuipage.MCPServerConfigure, ResourceID: "github"}},
+		{Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}, tuipage.TunnelCommandMsg{Command: tuipage.TunnelAdminKeySet}},
+		{Route{Kind: RouteTunnels, ResourceID: "tun_1", Action: "configure"}, tuipage.TunnelCommandMsg{Command: tuipage.TunnelManagedConfigure, ResourceID: "tun_1"}},
+		{Route{Kind: RouteConfig, Section: "storage", Action: "import"}, tuipage.ConfigCommandMsg{Command: tuipage.ConfigImport}},
+		{Route{Kind: RouteRuntime, Action: "update"}, tuipage.SystemCommandMsg{Command: tuipage.UpdateApply}},
+		{Route{Kind: RouteLogs, Action: "filter"}, tuipage.LogsCommandMsg{Command: tuipage.LogsFilter}},
+		{Route{Kind: RouteRequests, Mode: "pending", ResourceID: "req_1", Action: "approve"}, tuipage.RequestCommandMsg{Command: tuipage.RequestApprove, ResourceID: "req_1"}},
+	}
+	for _, test := range tests {
+		cmd := editorRouteCompatibilityCmd(test.route)
+		if cmd == nil {
+			t.Fatalf("compatibility cmd missing for %#v", test.route)
+		}
+		if got := cmd(); !reflect.DeepEqual(got, test.want) {
+			t.Fatalf("compatibility %#v=%#v want %#v", test.route, got, test.want)
+		}
+	}
+	if cmd := editorRouteCompatibilityCmd(Route{Kind: RouteMCP, ResourceID: "github"}); cmd != nil {
+		t.Fatal("read-only route unexpectedly produced compatibility command")
 	}
 }
 

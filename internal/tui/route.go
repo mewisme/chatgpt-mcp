@@ -28,6 +28,7 @@ type Route struct {
 	Mode       string
 	ResourceID string
 	Section    string
+	Action     string
 }
 
 type headerPage struct {
@@ -64,34 +65,246 @@ func ParseRoute(args []string) (Route, error) {
 	if !ok {
 		return Route{}, fmt.Errorf("unknown TUI path %q", strings.Join(parts, " "))
 	}
-	if kind == RouteRequests {
+	switch kind {
+	case RouteWorkspaces:
+		return parseWorkspaceRoute(parts)
+	case RouteContainers:
+		return parseContainerRoute(parts)
+	case RouteMCP:
+		return parseMCPRoute(parts)
+	case RouteTunnel:
+		return parseTunnelRoute(parts)
+	case RouteTunnels:
+		return parseManagedTunnelRoute(parts)
+	case RouteRequests:
 		return parseRequestsRoute(parts)
-	}
-	if kind == RouteInstruction {
+	case RouteLogs:
+		return parseLogsRoute(parts)
+	case RouteConfig:
+		return parseConfigRoute(parts)
+	case RouteInstruction:
 		return parseInstructionRoute(parts)
+	case RouteRuntime:
+		return parseRuntimeRoute(parts)
+	default:
+		if len(parts) != 1 {
+			return Route{}, fmt.Errorf("TUI path %q does not accept child segments", parts[0])
+		}
+		return Route{Kind: kind}, nil
+	}
+}
+
+func parseWorkspaceRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteWorkspaces}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) == 2 && parts[1] == "register" {
+		route.Action = "register"
+		return route, nil
+	}
+	if len(parts) > 4 {
+		return Route{}, fmt.Errorf("workspace path is too deep: %s", strings.Join(parts, " "))
+	}
+	route.ResourceID = parts[1]
+	if len(parts) == 2 {
+		return route, nil
+	}
+	section, ok := normalizeRouteSection(RouteWorkspaces, parts[2])
+	if !ok {
+		return Route{}, fmt.Errorf("unsupported workspaces child section %q", parts[2])
+	}
+	route.Section = section
+	if len(parts) == 3 {
+		return route, nil
+	}
+	if route.Section != "access" || parts[3] != "add" && parts[3] != "remove" {
+		return Route{}, fmt.Errorf("unsupported workspace editor action %q", parts[3])
+	}
+	route.Action = parts[3]
+	return route, nil
+}
+
+func parseContainerRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteContainers}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) == 2 && parts[1] == "create" {
+		route.Action = "create"
+		return route, nil
+	}
+	if len(parts) > 4 {
+		return Route{}, fmt.Errorf("container path is too deep: %s", strings.Join(parts, " "))
+	}
+	route.ResourceID = parts[1]
+	if len(parts) == 2 {
+		return route, nil
+	}
+	if len(parts) == 3 && parts[2] == "edit" {
+		route.Action = "edit"
+		return route, nil
+	}
+	section, ok := normalizeRouteSection(RouteContainers, parts[2])
+	if !ok {
+		return Route{}, fmt.Errorf("unsupported containers child section %q", parts[2])
+	}
+	route.Section = section
+	if len(parts) == 3 {
+		return route, nil
+	}
+	if route.Section != "workspaces" || parts[3] != "edit" {
+		return Route{}, fmt.Errorf("unsupported container editor action %q", parts[3])
+	}
+	route.Action = "edit"
+	return route, nil
+}
+
+func parseMCPRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteMCP}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) == 2 && parts[1] == "create" {
+		route.Action = "create"
+		return route, nil
+	}
+	if len(parts) > 4 {
+		return Route{}, fmt.Errorf("mcp path is too deep: %s", strings.Join(parts, " "))
+	}
+	route.ResourceID = parts[1]
+	if len(parts) == 2 {
+		return route, nil
+	}
+	if len(parts) == 3 && parts[2] == "edit" {
+		route.Action = "edit"
+		return route, nil
+	}
+	section, ok := normalizeRouteSection(RouteMCP, parts[2])
+	if !ok {
+		return Route{}, fmt.Errorf("unsupported mcp child section %q", parts[2])
+	}
+	route.Section = section
+	if len(parts) == 3 {
+		return route, nil
+	}
+	if route.Section != "oauth" || parts[3] != "login" {
+		return Route{}, fmt.Errorf("unsupported mcp editor action %q", parts[3])
+	}
+	route.Action = "login"
+	return route, nil
+}
+
+func parseTunnelRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteTunnel}
+	switch {
+	case len(parts) == 1:
+		return route, nil
+	case len(parts) == 2 && parts[1] == "edit":
+		route.Action = "edit"
+		return route, nil
+	case len(parts) == 3 && parts[1] == "admin-key" && parts[2] == "edit":
+		route.Section, route.Action = "admin-key", "edit"
+		return route, nil
+	default:
+		return Route{}, fmt.Errorf("unsupported tunnel path %q", strings.Join(parts, " "))
+	}
+}
+
+func parseManagedTunnelRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteTunnels}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) == 2 && parts[1] == "create" {
+		route.Action = "create"
+		return route, nil
 	}
 	if len(parts) > 3 {
-		return Route{}, fmt.Errorf("TUI path accepts at most one resource id and one child section: %s", strings.Join(parts, " "))
+		return Route{}, fmt.Errorf("managed tunnel path is too deep: %s", strings.Join(parts, " "))
 	}
-	resourceID := ""
-	if len(parts) >= 2 {
-		if !routeAcceptsResource(kind) {
-			return Route{}, fmt.Errorf("TUI path %q does not accept a resource id", parts[0])
-		}
-		resourceID = parts[1]
+	route.ResourceID = parts[1]
+	if len(parts) == 2 {
+		return route, nil
 	}
-	section := ""
-	if len(parts) == 3 {
-		if resourceID == "" {
-			return Route{}, fmt.Errorf("TUI path %q requires a resource id before a child section", parts[0])
-		}
-		var ok bool
-		section, ok = normalizeRouteSection(kind, parts[2])
-		if !ok {
-			return Route{}, fmt.Errorf("unsupported %s child section %q", kind, parts[2])
+	if parts[2] == "edit" || parts[2] == "configure" {
+		route.Action = parts[2]
+		return route, nil
+	}
+	section, ok := normalizeRouteSection(RouteTunnels, parts[2])
+	if !ok {
+		return Route{}, fmt.Errorf("unsupported tunnels child section %q", parts[2])
+	}
+	route.Section = section
+	return route, nil
+}
+
+func parseLogsRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteLogs}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) == 2 && parts[1] == "filter" {
+		route.Action = "filter"
+		return route, nil
+	}
+	if len(parts) > 3 {
+		return Route{}, fmt.Errorf("logs path is too deep: %s", strings.Join(parts, " "))
+	}
+	route.ResourceID = parts[1]
+	if len(parts) == 2 {
+		return route, nil
+	}
+	section, ok := normalizeRouteSection(RouteLogs, parts[2])
+	if !ok {
+		return Route{}, fmt.Errorf("unsupported logs child section %q", parts[2])
+	}
+	route.Section = section
+	return route, nil
+}
+
+func parseConfigRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteConfig}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) > 3 {
+		return Route{}, fmt.Errorf("config path is too deep: %s", strings.Join(parts, " "))
+	}
+	if len(parts) == 3 && parts[1] == "storage" {
+		switch parts[2] {
+		case "convert", "export", "import":
+			route.Section, route.Action = "storage", parts[2]
+			return route, nil
+		default:
+			return Route{}, fmt.Errorf("unsupported config storage action %q", parts[2])
 		}
 	}
-	return Route{Kind: kind, ResourceID: resourceID, Section: section}, nil
+	route.ResourceID = parts[1]
+	if len(parts) == 2 {
+		return route, nil
+	}
+	if parts[2] != "edit" {
+		return Route{}, fmt.Errorf("unsupported config editor action %q", parts[2])
+	}
+	route.Action = "edit"
+	return route, nil
+}
+
+func parseRuntimeRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteRuntime}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) != 2 {
+		return Route{}, fmt.Errorf("runtime path is too deep: %s", strings.Join(parts, " "))
+	}
+	if parts[1] == "install" || parts[1] == "update" {
+		route.Action = parts[1]
+		return route, nil
+	}
+	route.ResourceID = parts[1]
+	return route, nil
 }
 
 func parseInstructionRoute(parts []string) (Route, error) {
@@ -99,15 +312,26 @@ func parseInstructionRoute(parts []string) (Route, error) {
 	if len(parts) == 1 {
 		return route, nil
 	}
-	if len(parts) != 2 {
-		return Route{}, fmt.Errorf("instruction path accepts one optional tab: %s", strings.Join(parts, " "))
-	}
 	section, ok := normalizeRouteSection(RouteInstruction, parts[1])
 	if !ok {
 		return Route{}, fmt.Errorf("unsupported instruction tab %q", parts[1])
 	}
 	route.Section = section
-	return route, nil
+	if len(parts) == 2 {
+		return route, nil
+	}
+	if route.Section != "rules" {
+		return Route{}, fmt.Errorf("instruction tab %q does not accept editor routes", route.Section)
+	}
+	if len(parts) == 3 && parts[2] == "create" {
+		route.Action = "create"
+		return route, nil
+	}
+	if len(parts) == 4 && parts[2] != "" && parts[3] == "edit" {
+		route.ResourceID, route.Action = parts[2], "edit"
+		return route, nil
+	}
+	return Route{}, fmt.Errorf("unsupported instruction editor path %q", strings.Join(parts, " "))
 }
 
 func parseRequestsRoute(parts []string) (Route, error) {
@@ -115,8 +339,12 @@ func parseRequestsRoute(parts []string) (Route, error) {
 	if len(parts) == 1 {
 		return route, nil
 	}
+	if len(parts) == 2 && parts[1] == "create-test" {
+		route.Action = "create-test"
+		return route, nil
+	}
 	if len(parts) > 4 {
-		return Route{}, fmt.Errorf("requests path accepts an optional mode, resource id, and child section: %s", strings.Join(parts, " "))
+		return Route{}, fmt.Errorf("requests path is too deep: %s", strings.Join(parts, " "))
 	}
 	index := 1
 	if mode, ok := normalizeRequestRouteMode(parts[index]); ok {
@@ -132,6 +360,14 @@ func parseRequestsRoute(parts []string) (Route, error) {
 		route.Mode = "all"
 	}
 	if index < len(parts) {
+		if route.Mode != "all" || normalizeExplicitRequestMode(parts[1]) {
+			if parts[index] == "approve" || parts[index] == "deny" {
+				route.Action = parts[index]
+				index++
+			}
+		}
+	}
+	if index < len(parts) {
 		section, ok := normalizeRouteSection(RouteRequests, parts[index])
 		if !ok {
 			return Route{}, fmt.Errorf("unsupported requests child section %q", parts[index])
@@ -143,6 +379,11 @@ func parseRequestsRoute(parts []string) (Route, error) {
 		return Route{}, fmt.Errorf("unsupported requests path %q", strings.Join(parts, " "))
 	}
 	return route, nil
+}
+
+func normalizeExplicitRequestMode(value string) bool {
+	_, ok := normalizeRequestRouteMode(value)
+	return ok
 }
 
 func normalizeRequestRouteMode(value string) (string, bool) {
@@ -196,24 +437,28 @@ func (route Route) Title() string {
 		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
 		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteConfig: "Config", RouteInstruction: "Instruction", RouteRuntime: "Runtime", RouteAbout: "About",
 	}[route.Kind]
-	if route.ResourceID != "" {
-		base += " · " + route.ResourceID
-	} else if route.Kind == RouteRequests && route.Mode != "" {
+	if route.Kind == RouteRequests && route.Mode != "" {
 		base += " · " + routeSectionTitle(route.Mode)
 	}
-	if route.Section != "" {
-		base += " · " + routeSectionTitle(route.Section)
+	if route.Kind == RouteInstruction {
+		if route.Section != "" {
+			base += " · " + routeSectionTitle(route.Section)
+		}
+		if route.ResourceID != "" {
+			base += " · " + route.ResourceID
+		}
+	} else {
+		if route.ResourceID != "" {
+			base += " · " + route.ResourceID
+		}
+		if route.Section != "" {
+			base += " · " + routeSectionTitle(route.Section)
+		}
+	}
+	if route.Action != "" {
+		base += " · " + routeSectionTitle(route.Action)
 	}
 	return base
-}
-
-func routeAcceptsResource(kind RouteKind) bool {
-	switch kind {
-	case RouteWorkspaces, RouteContainers, RouteMCP, RouteTunnels, RouteRequests, RouteLogs, RouteConfig, RouteRuntime:
-		return true
-	default:
-		return false
-	}
 }
 
 func normalizeRouteSection(kind RouteKind, value string) (string, bool) {
@@ -286,24 +531,36 @@ func routeStack(route Route) []Route {
 		return []Route{{Kind: RouteHome}}
 	}
 	if route.Kind == RouteInstruction {
-		return []Route{route}
+		if route.Action == "" {
+			return []Route{route}
+		}
+		return []Route{{Kind: RouteInstruction, Section: route.Section}, route}
 	}
 	main := Route{Kind: route.Kind}
 	if route.Kind == RouteRequests {
 		main.Mode = route.Mode
 	}
 	stack := []Route{main}
-	if route.ResourceID == "" {
-		return stack
+	parent := main
+	if route.ResourceID != "" {
+		parent.ResourceID = route.ResourceID
+		stack = append(stack, parent)
 	}
-	resource := main
-	resource.ResourceID = route.ResourceID
-	stack = append(stack, resource)
-	if route.Section == "" {
-		return stack
+	if route.Section != "" && routeSectionCreatesAncestry(route.Kind, route.Section) {
+		parent.Section = route.Section
+		stack = append(stack, parent)
 	}
-	resource.Section = route.Section
-	return append(stack, resource)
+	if route.Action != "" {
+		return append(stack, route)
+	}
+	if route.Section != "" && (len(stack) == 0 || stack[len(stack)-1] != route) {
+		return append(stack, route)
+	}
+	return stack
+}
+
+func routeSectionCreatesAncestry(kind RouteKind, section string) bool {
+	return !(kind == RouteTunnel && section == "admin-key" || kind == RouteConfig && section == "storage")
 }
 
 func headerOwner(kind RouteKind) RouteKind {

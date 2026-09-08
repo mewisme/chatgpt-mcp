@@ -68,6 +68,44 @@ func TestInstructionAndWorkspaceContextNavigationActions(t *testing.T) {
 	}
 }
 
+func TestEditorActionsNavigateToEditorRoutes(t *testing.T) {
+	registry := defaultActionRegistry()
+	tests := []struct {
+		id   string
+		ctx  action.Context
+		want Route
+	}{
+		{"workspace.register", action.Context{Route: string(RouteHome)}, Route{Kind: RouteWorkspaces, Action: "register"}},
+		{"workspace.access.add", action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_demo", Section: "access", Action: "add"}},
+		{"workspace.container.create", action.Context{Route: string(RouteHome)}, Route{Kind: RouteContainers, Action: "create"}},
+		{"workspace.container.rename", action.Context{Route: string(RouteContainers), ResourceID: "wsc_demo"}, Route{Kind: RouteContainers, ResourceID: "wsc_demo", Action: "edit"}},
+		{"mcp.server.add", action.Context{Route: string(RouteHome)}, Route{Kind: RouteMCP, Action: "create"}},
+		{"mcp.server.configure", action.Context{Route: string(RouteMCP), ResourceID: "github"}, Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
+		{"mcp.server.auth.login", action.Context{Route: string(RouteMCP), ResourceID: "github"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}},
+		{"tunnel.configure", action.Context{Route: string(RouteTunnel)}, Route{Kind: RouteTunnel, Action: "edit"}},
+		{"tunnel.admin.key.set", action.Context{Route: string(RouteTunnel)}, Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
+		{"tunnel.managed.create", action.Context{Route: string(RouteTunnels)}, Route{Kind: RouteTunnels, Action: "create"}},
+		{"tunnel.managed.update", action.Context{Route: string(RouteTunnels), ResourceID: "tun_demo"}, Route{Kind: RouteTunnels, ResourceID: "tun_demo", Action: "edit"}},
+		{"config.convert", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "convert"}},
+		{"config.export", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "export"}},
+		{"config.import", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "import"}},
+		{"logs.filter", action.Context{Route: string(RouteLogs)}, Route{Kind: RouteLogs, Action: "filter"}},
+		{"request.create.test", action.Context{Route: string(RouteRequests)}, Route{Kind: RouteRequests, Action: "create-test"}},
+		{"install.run", action.Context{Route: string(RouteRuntime)}, Route{Kind: RouteRuntime, Action: "install"}},
+		{"update.apply", action.Context{Route: string(RouteRuntime)}, Route{Kind: RouteRuntime, Action: "update"}},
+	}
+	for _, test := range tests {
+		cmd, err := registry.Execute(context.Background(), test.id, test.ctx)
+		if err != nil || cmd == nil {
+			t.Fatalf("execute %s cmd=%v err=%v", test.id, cmd != nil, err)
+		}
+		message, ok := cmd().(navigateMsg)
+		if !ok || message.route != test.want || message.sibling {
+			t.Fatalf("%s navigation=%#v want=%#v", test.id, message, test.want)
+		}
+	}
+}
+
 func TestMCPActionAvailabilityFollowsRouteContext(t *testing.T) {
 	registry := defaultActionRegistry()
 	has := func(ctx action.Context, id string) bool {

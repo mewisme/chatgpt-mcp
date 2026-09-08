@@ -136,7 +136,7 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 func (model Model) Init() tea.Cmd {
 	commands := []tea.Cmd{model.pollApprovalsCmd()}
 	if model.currentPage != nil {
-		commands = append(commands, model.currentPage.Init())
+		commands = append(commands, model.initCurrentPage())
 	}
 	return tea.Batch(commands...)
 }
@@ -986,7 +986,91 @@ func (model Model) initCurrentPage() tea.Cmd {
 	if model.currentPage == nil {
 		return nil
 	}
-	return model.currentPage.Init()
+	return tea.Batch(model.currentPage.Init(), editorRouteCompatibilityCmd(model.router.Current()))
+}
+
+func editorRouteCompatibilityCmd(route Route) tea.Cmd {
+	var message tea.Msg
+	switch route.Kind {
+	case RouteWorkspaces:
+		switch {
+		case route.Action == "register":
+			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceRegister}
+		case route.Section == "access" && route.Action == "add":
+			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceAccessAdd, ResourceID: route.ResourceID}
+		case route.Section == "access" && route.Action == "remove":
+			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceAccessRemove, ResourceID: route.ResourceID}
+		}
+	case RouteContainers:
+		switch {
+		case route.Action == "create":
+			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceContainerCreate}
+		case route.Action == "edit" && route.Section == "":
+			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceContainerRename, ResourceID: route.ResourceID}
+		case route.Action == "edit" && route.Section == "workspaces":
+			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceContainerMembers, ResourceID: route.ResourceID}
+		}
+	case RouteMCP:
+		switch {
+		case route.Action == "create":
+			message = tuipage.MCPCommandMsg{Command: tuipage.MCPServerAdd}
+		case route.Action == "edit":
+			message = tuipage.MCPCommandMsg{Command: tuipage.MCPServerConfigure, ResourceID: route.ResourceID}
+		case route.Section == "oauth" && route.Action == "login":
+			message = tuipage.MCPCommandMsg{Command: tuipage.MCPAuthLogin, ResourceID: route.ResourceID}
+		}
+	case RouteTunnel:
+		switch {
+		case route.Action == "edit" && route.Section == "":
+			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelConfigure}
+		case route.Section == "admin-key" && route.Action == "edit":
+			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelAdminKeySet}
+		}
+	case RouteTunnels:
+		switch route.Action {
+		case "create":
+			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelManagedCreate}
+		case "edit":
+			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelManagedUpdate, ResourceID: route.ResourceID}
+		case "configure":
+			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelManagedConfigure, ResourceID: route.ResourceID}
+		}
+	case RouteConfig:
+		switch {
+		case route.Action == "edit":
+			message = tuipage.ConfigCommandMsg{Command: tuipage.ConfigEdit, ResourceID: route.ResourceID}
+		case route.Section == "storage" && route.Action == "convert":
+			message = tuipage.ConfigCommandMsg{Command: tuipage.ConfigConvert}
+		case route.Section == "storage" && route.Action == "export":
+			message = tuipage.ConfigCommandMsg{Command: tuipage.ConfigExport}
+		case route.Section == "storage" && route.Action == "import":
+			message = tuipage.ConfigCommandMsg{Command: tuipage.ConfigImport}
+		}
+	case RouteRuntime:
+		switch route.Action {
+		case "install":
+			message = tuipage.SystemCommandMsg{Command: tuipage.InstallRun}
+		case "update":
+			message = tuipage.SystemCommandMsg{Command: tuipage.UpdateApply}
+		}
+	case RouteLogs:
+		if route.Action == "filter" {
+			message = tuipage.LogsCommandMsg{Command: tuipage.LogsFilter}
+		}
+	case RouteRequests:
+		switch route.Action {
+		case "create-test":
+			message = tuipage.RequestCommandMsg{Command: tuipage.RequestCreateTest}
+		case "approve":
+			message = tuipage.RequestCommandMsg{Command: tuipage.RequestApprove, ResourceID: route.ResourceID}
+		case "deny":
+			message = tuipage.RequestCommandMsg{Command: tuipage.RequestDeny, ResourceID: route.ResourceID}
+		}
+	}
+	if message == nil {
+		return nil
+	}
+	return func() tea.Msg { return message }
 }
 
 func (model *Model) ensureMCPPage(resourceID string) error {

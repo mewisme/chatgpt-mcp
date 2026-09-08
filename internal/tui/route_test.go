@@ -56,6 +56,127 @@ func TestParseRoute(t *testing.T) {
 	}
 }
 
+func TestParseEditorRoutes(t *testing.T) {
+	tests := []struct {
+		args []string
+		want Route
+	}{
+		{[]string{"workspaces", "register"}, Route{Kind: RouteWorkspaces, Action: "register"}},
+		{[]string{"workspaces", "ws_1", "access", "add"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}},
+		{[]string{"workspaces", "ws_1", "access", "remove"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "remove"}},
+		{[]string{"containers", "create"}, Route{Kind: RouteContainers, Action: "create"}},
+		{[]string{"containers", "wsc_1", "edit"}, Route{Kind: RouteContainers, ResourceID: "wsc_1", Action: "edit"}},
+		{[]string{"containers", "wsc_1", "workspaces", "edit"}, Route{Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}},
+		{[]string{"mcp", "create"}, Route{Kind: RouteMCP, Action: "create"}},
+		{[]string{"mcp", "github", "edit"}, Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
+		{[]string{"mcp", "github", "oauth", "login"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}},
+		{[]string{"tunnel", "edit"}, Route{Kind: RouteTunnel, Action: "edit"}},
+		{[]string{"tunnel", "admin-key", "edit"}, Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
+		{[]string{"tunnels", "create"}, Route{Kind: RouteTunnels, Action: "create"}},
+		{[]string{"tunnels", "tun_1", "edit"}, Route{Kind: RouteTunnels, ResourceID: "tun_1", Action: "edit"}},
+		{[]string{"tunnels", "tun_1", "configure"}, Route{Kind: RouteTunnels, ResourceID: "tun_1", Action: "configure"}},
+		{[]string{"config", "runtime.port", "edit"}, Route{Kind: RouteConfig, ResourceID: "runtime.port", Action: "edit"}},
+		{[]string{"config", "storage", "convert"}, Route{Kind: RouteConfig, Section: "storage", Action: "convert"}},
+		{[]string{"config", "storage", "export"}, Route{Kind: RouteConfig, Section: "storage", Action: "export"}},
+		{[]string{"config", "storage", "import"}, Route{Kind: RouteConfig, Section: "storage", Action: "import"}},
+		{[]string{"runtime", "install"}, Route{Kind: RouteRuntime, Action: "install"}},
+		{[]string{"runtime", "update"}, Route{Kind: RouteRuntime, Action: "update"}},
+		{[]string{"requests", "create-test"}, Route{Kind: RouteRequests, Action: "create-test"}},
+		{[]string{"requests", "pending", "req_1", "approve"}, Route{Kind: RouteRequests, Mode: "pending", ResourceID: "req_1", Action: "approve"}},
+		{[]string{"requests", "all", "req_1", "deny"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_1", Action: "deny"}},
+		{[]string{"logs", "filter"}, Route{Kind: RouteLogs, Action: "filter"}},
+		{[]string{"instruction", "rules", "create"}, Route{Kind: RouteInstruction, Section: "rules", Action: "create"}},
+		{[]string{"instruction", "rules", "rule_1", "edit"}, Route{Kind: RouteInstruction, ResourceID: "rule_1", Section: "rules", Action: "edit"}},
+	}
+	for _, test := range tests {
+		got, err := ParseRoute(test.args)
+		if err != nil || got != test.want {
+			t.Fatalf("ParseRoute(%v) = %#v, %v; want %#v", test.args, got, err, test.want)
+		}
+	}
+}
+
+func TestParseEditorRoutesRejectsMalformedPaths(t *testing.T) {
+	for _, args := range [][]string{
+		{"workspaces", "register", "extra"},
+		{"workspaces", "ws_1", "access", "edit"},
+		{"containers", "wsc_1", "workspaces", "create"},
+		{"mcp", "github", "oauth", "edit"},
+		{"tunnel", "admin-key"},
+		{"tunnels", "tun_1", "create"},
+		{"config", "storage", "edit"},
+		{"runtime", "install", "extra"},
+		{"requests", "req_1", "approve"},
+		{"logs", "filter", "extra"},
+		{"instruction", "context", "create"},
+		{"instruction", "rules", "rule_1", "remove"},
+	} {
+		if got, err := ParseRoute(args); err == nil {
+			t.Fatalf("ParseRoute(%v) unexpectedly succeeded: %#v", args, got)
+		}
+	}
+}
+
+func TestEditorRouteStacksFollowSemanticAncestry(t *testing.T) {
+	tests := []struct {
+		route Route
+		want  []Route
+	}{
+		{
+			Route{Kind: RouteMCP, Action: "create"},
+			[]Route{{Kind: RouteMCP}, {Kind: RouteMCP, Action: "create"}},
+		},
+		{
+			Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"},
+			[]Route{{Kind: RouteMCP}, {Kind: RouteMCP, ResourceID: "github"}, {Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
+		},
+		{
+			Route{Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"},
+			[]Route{{Kind: RouteWorkspaces}, {Kind: RouteWorkspaces, ResourceID: "ws_1"}, {Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access"}, {Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}},
+		},
+		{
+			Route{Kind: RouteInstruction, Section: "rules", Action: "create"},
+			[]Route{{Kind: RouteInstruction, Section: "rules"}, {Kind: RouteInstruction, Section: "rules", Action: "create"}},
+		},
+		{
+			Route{Kind: RouteInstruction, ResourceID: "rule_1", Section: "rules", Action: "edit"},
+			[]Route{{Kind: RouteInstruction, Section: "rules"}, {Kind: RouteInstruction, ResourceID: "rule_1", Section: "rules", Action: "edit"}},
+		},
+		{
+			Route{Kind: RouteConfig, Section: "storage", Action: "export"},
+			[]Route{{Kind: RouteConfig}, {Kind: RouteConfig, Section: "storage", Action: "export"}},
+		},
+		{
+			Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"},
+			[]Route{{Kind: RouteTunnel}, {Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
+		},
+	}
+	for _, test := range tests {
+		got := routeStack(test.route)
+		if len(got) != len(test.want) {
+			t.Fatalf("routeStack(%#v)=%#v want %#v", test.route, got, test.want)
+		}
+		for index := range got {
+			if got[index] != test.want[index] {
+				t.Fatalf("routeStack(%#v)[%d]=%#v want %#v", test.route, index, got[index], test.want[index])
+			}
+		}
+	}
+}
+
+func TestEditorRouteTitlesIncludeActionWithoutChangingLegacyOrder(t *testing.T) {
+	for route, want := range map[Route]string{
+		{Kind: RouteMCP, Action: "create"}:                                               "MCP Servers · Create",
+		{Kind: RouteMCP, ResourceID: "github", Action: "edit"}:                           "MCP Servers · github · Edit",
+		{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}:        "MCP Servers · github · Oauth · Login",
+		{Kind: RouteInstruction, ResourceID: "rule_1", Section: "rules", Action: "edit"}: "Instruction · Rules · rule_1 · Edit",
+	} {
+		if got := route.Title(); got != want {
+			t.Fatalf("%#v title=%q want=%q", route, got, want)
+		}
+	}
+}
+
 func TestInstructionTabsDoNotCreateRouterHistory(t *testing.T) {
 	route := Route{Kind: RouteInstruction, Section: "rules"}
 	router := NewRouter(route)

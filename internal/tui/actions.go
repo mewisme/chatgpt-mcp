@@ -68,10 +68,10 @@ func systemActions() []action.Action {
 		systemAction("auth.admin.rotate", "Rotate admin token", "Rotate the admin token and reveal the replacement once", []string{"auth", "admin", "token", "rotate", "create"}, []string{"auth", "admin", "create"}, tuipage.AuthAdminRotate, false),
 		systemAction("alias.install", "Install cgm alias", "Install the cgm alias for the managed direct installation", []string{"alias", "cgm", "install"}, []string{"alias", "install"}, tuipage.AliasInstall, false),
 		systemAction("alias.remove", "Remove cgm alias", "Remove the cgm alias without removing the managed installation", []string{"alias", "cgm", "remove"}, []string{"alias", "remove"}, tuipage.AliasRemove, false),
-		systemAction("install.run", "Install managed binary", "Install this binary into the versioned managed layout", []string{"install", "managed", "binary"}, []string{"install"}, tuipage.InstallRun, false),
+		editorNavigationAction("install.run", "Install managed binary", "System", "Install this binary into the versioned managed layout", []string{"install", "managed", "binary"}, []string{"install"}, func(ctx action.Context) bool { return ctx.Route == string(RouteRuntime) }, func(action.Context) Route { return Route{Kind: RouteRuntime, Action: "install"} }),
 		systemAction("install.cleanup", "Clean legacy installations", "Remove verified legacy standalone installations from PATH", []string{"install", "cleanup", "migrate", "legacy"}, []string{"install", "cleanup"}, tuipage.InstallCleanup, false),
 		systemAction("update.check", "Check for upgrades", "Check the latest available verified release", []string{"upgrade", "update", "check", "latest", "release"}, []string{"upgrade", "check"}, tuipage.UpdateCheck, false),
-		systemAction("update.apply", "Apply upgrade", "Download, verify, install, and activate an upgrade", []string{"upgrade", "update", "apply", "install", "release"}, []string{"upgrade"}, tuipage.UpdateApply, false),
+		editorNavigationAction("update.apply", "Apply upgrade", "System", "Download, verify, install, and activate an upgrade", []string{"upgrade", "update", "apply", "install", "release"}, []string{"upgrade"}, func(ctx action.Context) bool { return ctx.Route == string(RouteRuntime) }, func(action.Context) Route { return Route{Kind: RouteRuntime, Action: "update"} }),
 	}
 }
 
@@ -90,7 +90,7 @@ func systemAction(id, title, description string, keywords, commandPath []string,
 func logsActions() []action.Action {
 	return []action.Action{
 		logsAction("logs.refresh", "Refresh logs", "Reload journal history and reconnect the live stream", []string{"logs", "refresh", "history", "reconnect"}, []string{"logs"}, tuipage.LogsRefresh),
-		logsAction("logs.filter", "Filter logs", "Configure structured runtime log filters", []string{"logs", "filter", "grep", "session", "level"}, []string{"logs"}, tuipage.LogsFilter),
+		editorNavigationAction("logs.filter", "Filter logs", "Logs", "Configure structured runtime log filters", []string{"logs", "filter", "grep", "session", "level"}, []string{"logs"}, func(ctx action.Context) bool { return ctx.Route == string(RouteLogs) }, func(action.Context) Route { return Route{Kind: RouteLogs, Action: "filter"} }),
 		logsAction("logs.toggle", "Pause or resume logs", "Toggle live tail following without dropping buffered events", []string{"logs", "pause", "resume", "follow"}, []string{"logs", "follow"}, tuipage.LogsToggle),
 		logsAction("logs.info", "Show logs info", "Show the runtime journal path, file count, and size", []string{"logs", "path", "info", "journal"}, []string{"logs", "path"}, tuipage.LogsInfo),
 		logsAction("logs.clear", "Clear logs", "Clear current and rotated runtime logs after confirmation", []string{"logs", "clear", "delete"}, []string{"logs", "clear"}, tuipage.LogsClear),
@@ -114,9 +114,9 @@ func configActions() []action.Action {
 		configAction("config.verify", "Verify config", "Verify structured config/state format consistency and configuration validity", []string{"config", "verify", "validate"}, []string{"config", "verify"}, tuipage.ConfigVerify),
 		configAction("config.reload", "Reload runtime config", "Reload persisted configuration into the running runtime", []string{"config", "reload", "runtime"}, []string{"config", "reload"}, tuipage.ConfigReload),
 		configAction("config.migrate", "Migrate config secrets", "Migrate legacy plaintext credentials into the secret store", []string{"config", "migrate", "secrets"}, []string{"config", "migrate"}, tuipage.ConfigMigrate),
-		configAction("config.convert", "Convert config format", "Convert structured config/state files between JSON, YAML, and TOML", []string{"config", "convert", "transform", "format"}, []string{"config", "convert"}, tuipage.ConfigConvert),
-		configAction("config.export", "Export config bundle", "Export portable configuration, state, and secrets into a sealed bundle", []string{"config", "export", "bundle", "backup"}, []string{"config", "export"}, tuipage.ConfigExport),
-		configAction("config.import", "Import config bundle", "Import a portable configuration bundle and restore its secrets", []string{"config", "import", "bundle", "restore"}, []string{"config", "import"}, tuipage.ConfigImport),
+		editorNavigationAction("config.convert", "Convert config format", "Config", "Convert structured config/state files between JSON, YAML, and TOML", []string{"config", "convert", "transform", "format"}, []string{"config", "convert"}, func(ctx action.Context) bool { return ctx.Route == string(RouteConfig) }, func(action.Context) Route { return Route{Kind: RouteConfig, Section: "storage", Action: "convert"} }),
+		editorNavigationAction("config.export", "Export config bundle", "Config", "Export portable configuration, state, and secrets into a sealed bundle", []string{"config", "export", "bundle", "backup"}, []string{"config", "export"}, func(ctx action.Context) bool { return ctx.Route == string(RouteConfig) }, func(action.Context) Route { return Route{Kind: RouteConfig, Section: "storage", Action: "export"} }),
+		editorNavigationAction("config.import", "Import config bundle", "Config", "Import a portable configuration bundle and restore its secrets", []string{"config", "import", "bundle", "restore"}, []string{"config", "import"}, func(ctx action.Context) bool { return ctx.Route == string(RouteConfig) }, func(action.Context) Route { return Route{Kind: RouteConfig, Section: "storage", Action: "import"} }),
 	}
 }
 
@@ -133,7 +133,7 @@ func configAction(id, title, description string, keywords, commandPath []string,
 func requestActions() []action.Action {
 	return []action.Action{
 		requestAction("request.refresh", "Refresh requests", "Refresh approval requests from the running runtime", []string{"request", "approval", "refresh", "list"}, []string{"request", "list"}, tuipage.RequestRefresh, false),
-		requestAction("request.create.test", "Create test request", "Create a synthetic approval request for testing the Requests TUI and approval flow", []string{"request", "approval", "create", "test", "dummy", "synthetic"}, []string{"request", "create-test"}, tuipage.RequestCreateTest, false),
+		editorNavigationAction("request.create.test", "Create test request", "Requests", "Create a synthetic approval request for testing the Requests TUI and approval flow", []string{"request", "approval", "create", "test", "dummy", "synthetic"}, []string{"request", "create-test"}, func(ctx action.Context) bool { return ctx.Route == string(RouteRequests) }, func(action.Context) Route { return Route{Kind: RouteRequests, Action: "create-test"} }),
 		requestAction("request.show.pending", "Show pending requests", "Show only pending approval requests", []string{"request", "pending", "filter"}, []string{"request", "list"}, tuipage.RequestShowPending, false),
 		requestAction("request.show.history", "Show request history", "Show resolved and expired approval requests", []string{"request", "history", "resolved", "filter"}, []string{"request", "list"}, tuipage.RequestShowHistory, false),
 		requestAction("request.show.all", "Show all requests", "Show pending and historical approval requests", []string{"request", "all", "filter"}, []string{"request", "list"}, tuipage.RequestShowAll, false),
@@ -159,18 +159,22 @@ func requestAction(id, title, description string, keywords, commandPath []string
 
 func tunnelActions() []action.Action {
 	return []action.Action{
-		tunnelAction("tunnel.configure", "Configure runtime tunnel", "Configure the local OpenAI Secure MCP Tunnel", []string{"tunnel", "configure", "runtime"}, []string{"tunnel", "configure"}, tuipage.TunnelConfigure, RouteTunnel, false),
+		editorNavigationAction("tunnel.configure", "Configure runtime tunnel", "Tunnel", "Configure the local OpenAI Secure MCP Tunnel", []string{"tunnel", "configure", "runtime"}, []string{"tunnel", "configure"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnel) }, func(action.Context) Route { return Route{Kind: RouteTunnel, Action: "edit"} }),
 		tunnelAction("tunnel.enable", "Enable runtime tunnel", "Enable the local OpenAI Secure MCP Tunnel", []string{"tunnel", "enable", "runtime"}, []string{"tunnel", "enable"}, tuipage.TunnelEnable, RouteTunnel, false),
 		tunnelAction("tunnel.disable", "Disable runtime tunnel", "Disable the local OpenAI Secure MCP Tunnel", []string{"tunnel", "disable", "runtime"}, []string{"tunnel", "disable"}, tuipage.TunnelDisable, RouteTunnel, false),
 		tunnelAction("tunnel.foreground", "Run foreground tunnel", "Show the foreground tunnel command to run after leaving the TUI", []string{"tunnel", "foreground", "run", "terminal"}, []string{"tunnel", "run"}, tuipage.TunnelForeground, RouteTunnel, false),
 		tunnelAction("tunnel.sync", "Sync tunnel metadata", "Fetch and persist metadata for the configured runtime tunnel", []string{"tunnel", "sync", "metadata"}, []string{"tunnel", "sync"}, tuipage.TunnelSync, RouteTunnel, false),
-		tunnelAction("tunnel.admin.key.set", "Set admin key", "Verify and store an OpenAI tunnel admin key", []string{"tunnel", "admin", "key", "set"}, []string{"tunnel", "admin", "key", "set"}, tuipage.TunnelAdminKeySet, RouteTunnel, false),
+		editorNavigationAction("tunnel.admin.key.set", "Set admin key", "Tunnel", "Verify and store an OpenAI tunnel admin key", []string{"tunnel", "admin", "key", "set"}, []string{"tunnel", "admin", "key", "set"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnel) }, func(action.Context) Route { return Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"} }),
 		tunnelAction("tunnel.admin.key.verify", "Verify admin key", "Re-verify Tunnels Manage access for the stored admin key", []string{"tunnel", "admin", "key", "verify"}, []string{"tunnel", "admin", "key", "verify"}, tuipage.TunnelAdminKeyVerify, RouteTunnel, false),
 		tunnelAction("tunnel.admin.key.remove", "Remove admin key", "Remove the stored tunnel admin key and verification scope", []string{"tunnel", "admin", "key", "remove"}, []string{"tunnel", "admin", "key", "remove"}, tuipage.TunnelAdminKeyRemove, RouteTunnel, false),
 		tunnelAction("tunnel.managed.refresh", "Refresh managed tunnels", "Refresh managed tunnels from the OpenAI control plane", []string{"tunnel", "managed", "refresh", "list"}, []string{"tunnel", "list"}, tuipage.TunnelManagedRefresh, RouteTunnels, false),
-		tunnelAction("tunnel.managed.create", "Create managed tunnel", "Create a tunnel through the OpenAI Tunnel Management API", []string{"tunnel", "managed", "create"}, []string{"tunnel", "create"}, tuipage.TunnelManagedCreate, RouteTunnels, false),
-		tunnelAction("tunnel.managed.update", "Update managed tunnel", "Update the current managed tunnel", []string{"tunnel", "managed", "update", "edit"}, []string{"tunnel", "update"}, tuipage.TunnelManagedUpdate, RouteTunnels, true),
-		tunnelAction("tunnel.managed.configure", "Use managed tunnel", "Configure cgm to use the current managed tunnel", []string{"tunnel", "managed", "configure", "runtime"}, []string{"tunnel", "get", "--configure"}, tuipage.TunnelManagedConfigure, RouteTunnels, true),
+		editorNavigationAction("tunnel.managed.create", "Create managed tunnel", "Tunnel", "Create a tunnel through the OpenAI Tunnel Management API", []string{"tunnel", "managed", "create"}, []string{"tunnel", "create"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnels) }, func(action.Context) Route { return Route{Kind: RouteTunnels, Action: "create"} }),
+		editorNavigationAction("tunnel.managed.update", "Update managed tunnel", "Tunnel", "Update the current managed tunnel", []string{"tunnel", "managed", "update", "edit"}, []string{"tunnel", "update"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "edit"}
+		}),
+		editorNavigationAction("tunnel.managed.configure", "Use managed tunnel", "Tunnel", "Configure cgm to use the current managed tunnel", []string{"tunnel", "managed", "configure", "runtime"}, []string{"tunnel", "get", "--configure"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "configure"}
+		}),
 		tunnelAction("tunnel.managed.delete", "Delete managed tunnel", "Permanently delete the current managed tunnel", []string{"tunnel", "managed", "delete", "remove"}, []string{"tunnel", "delete"}, tuipage.TunnelManagedDelete, RouteTunnels, true),
 	}
 }
@@ -192,14 +196,18 @@ func tunnelAction(id, title, description string, keywords, commandPath []string,
 
 func mcpActions() []action.Action {
 	return []action.Action{
-		mcpAction("mcp.server.add", "Add server", "Add an upstream MCP server", []string{"mcp", "server", "add", "upstream"}, []string{"mcp", "server", "add"}, tuipage.MCPServerAdd, false),
-		mcpAction("mcp.server.configure", "Configure server", "Configure the current upstream MCP server", []string{"mcp", "server", "configure", "set"}, []string{"mcp", "server", "configure"}, tuipage.MCPServerConfigure, true),
+		editorNavigationAction("mcp.server.add", "Add server", "MCP", "Add an upstream MCP server", []string{"mcp", "server", "add", "upstream"}, []string{"mcp", "server", "add"}, nil, func(action.Context) Route { return Route{Kind: RouteMCP, Action: "create"} }),
+		editorNavigationAction("mcp.server.configure", "Configure server", "MCP", "Configure the current upstream MCP server", []string{"mcp", "server", "configure", "set"}, []string{"mcp", "server", "configure"}, func(ctx action.Context) bool { return ctx.Route == string(RouteMCP) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+			return Route{Kind: RouteMCP, ResourceID: ctx.ResourceID, Action: "edit"}
+		}),
 		mcpAction("mcp.server.remove", "Remove server", "Remove the current upstream MCP server", []string{"mcp", "server", "remove", "delete"}, []string{"mcp", "server", "remove"}, tuipage.MCPServerRemove, true),
 		mcpAction("mcp.server.enable", "Enable server", "Enable the current upstream MCP server", []string{"mcp", "server", "enable"}, []string{"mcp", "server", "enable"}, tuipage.MCPServerEnable, true),
 		mcpAction("mcp.server.disable", "Disable server", "Disable the current upstream MCP server", []string{"mcp", "server", "disable"}, []string{"mcp", "server", "disable"}, tuipage.MCPServerDisable, true),
 		mcpAction("mcp.server.status", "Refresh health", "Refresh upstream MCP health and connection status", []string{"mcp", "server", "status", "health", "refresh"}, []string{"mcp", "server", "status"}, tuipage.MCPServerHealth, false),
 		mcpAction("mcp.server.tools", "View tools", "Load tools exposed by the current upstream MCP server", []string{"mcp", "server", "tools", "refresh"}, []string{"mcp", "server", "tools"}, tuipage.MCPServerTools, true),
-		mcpAction("mcp.server.auth.login", "OAuth login", "Authorize the current HTTP MCP server with OAuth", []string{"mcp", "server", "auth", "login", "oauth"}, []string{"mcp", "server", "auth", "login"}, tuipage.MCPAuthLogin, true),
+		editorNavigationAction("mcp.server.auth.login", "OAuth login", "MCP", "Authorize the current HTTP MCP server with OAuth", []string{"mcp", "server", "auth", "login", "oauth"}, []string{"mcp", "server", "auth", "login"}, func(ctx action.Context) bool { return ctx.Route == string(RouteMCP) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+			return Route{Kind: RouteMCP, ResourceID: ctx.ResourceID, Section: "oauth", Action: "login"}
+		}),
 		mcpAction("mcp.server.auth.logout", "OAuth logout", "Remove stored OAuth authorization for the current MCP server", []string{"mcp", "server", "auth", "logout", "oauth"}, []string{"mcp", "server", "auth", "logout"}, tuipage.MCPAuthLogout, true),
 	}
 }
@@ -220,12 +228,18 @@ func workspaceActions() []action.Action {
 	return []action.Action{
 		workspaceContextNavigationAction("workspace.context.configure", "Configure Workspace Project Context", "Configure build and preview parameters for the current workspace", "context"),
 		workspaceContextNavigationAction("workspace.context.preview", "Preview Workspace Project Context", "Open the last successful Project Context build for the current workspace", "context-preview"),
-		workspaceAction("workspace.register", "Register", "Register a workspace root", []string{"workspace", "register"}, []string{"workspace", "register"}, tuipage.WorkspaceRegister, false, false),
+		editorNavigationAction("workspace.register", "Register", "Workspace", "Register a workspace root", []string{"workspace", "register"}, []string{"workspace", "register"}, nil, func(action.Context) Route { return Route{Kind: RouteWorkspaces, Action: "register"} }),
 		workspaceAction("workspace.unregister", "Unregister", "Unregister the current workspace without deleting project files", []string{"workspace", "unregister"}, []string{"workspace", "unregister"}, tuipage.WorkspaceUnregister, true, false),
-		workspaceAction("workspace.access.add", "Add access directory", "Grant the current workspace access to an additional directory", []string{"workspace", "access", "add"}, []string{"workspace", "access", "add"}, tuipage.WorkspaceAccessAdd, true, false),
-		workspaceAction("workspace.access.remove", "Remove access directory", "Revoke an additional directory from the current workspace", []string{"workspace", "access", "remove"}, []string{"workspace", "access", "remove"}, tuipage.WorkspaceAccessRemove, true, false),
-		workspaceAction("workspace.container.create", "Create container", "Create a workspace container", []string{"workspace", "container", "create"}, []string{"workspace", "container", "create"}, tuipage.WorkspaceContainerCreate, false, true),
-		workspaceAction("workspace.container.rename", "Rename container", "Rename the current workspace container", []string{"workspace", "container", "rename"}, []string{"workspace", "container", "rename"}, tuipage.WorkspaceContainerRename, true, true),
+		editorNavigationAction("workspace.access.add", "Add access directory", "Workspace", "Grant the current workspace access to an additional directory", []string{"workspace", "access", "add"}, []string{"workspace", "access", "add"}, func(ctx action.Context) bool { return ctx.Route == string(RouteWorkspaces) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+			return Route{Kind: RouteWorkspaces, ResourceID: ctx.ResourceID, Section: "access", Action: "add"}
+		}),
+		editorNavigationAction("workspace.access.remove", "Remove access directory", "Workspace", "Revoke an additional directory from the current workspace", []string{"workspace", "access", "remove"}, []string{"workspace", "access", "remove"}, func(ctx action.Context) bool { return ctx.Route == string(RouteWorkspaces) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+			return Route{Kind: RouteWorkspaces, ResourceID: ctx.ResourceID, Section: "access", Action: "remove"}
+		}),
+		editorNavigationAction("workspace.container.create", "Create container", "Workspace", "Create a workspace container", []string{"workspace", "container", "create"}, []string{"workspace", "container", "create"}, nil, func(action.Context) Route { return Route{Kind: RouteContainers, Action: "create"} }),
+		editorNavigationAction("workspace.container.rename", "Rename container", "Workspace", "Rename the current workspace container", []string{"workspace", "container", "rename"}, []string{"workspace", "container", "rename"}, func(ctx action.Context) bool { return ctx.Route == string(RouteContainers) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+			return Route{Kind: RouteContainers, ResourceID: ctx.ResourceID, Action: "edit"}
+		}),
 		workspaceAction("workspace.container.delete", "Delete container", "Delete the current container without unregistering workspaces", []string{"workspace", "container", "delete"}, []string{"workspace", "container", "delete"}, tuipage.WorkspaceContainerDelete, true, true),
 		workspaceAction("workspace.container.add", "Add container members", "Edit workspace membership for the current container", []string{"workspace", "container", "add", "members"}, []string{"workspace", "container", "add"}, tuipage.WorkspaceContainerMembers, true, true),
 		workspaceAction("workspace.container.remove", "Remove container members", "Edit workspace membership for the current container", []string{"workspace", "container", "remove", "members"}, []string{"workspace", "container", "remove"}, tuipage.WorkspaceContainerMembers, true, true),
@@ -292,6 +306,15 @@ func navigationAction(id, title string, route Route, keywords []string, capabili
 	}
 }
 
+func editorNavigationAction(id, title, category, description string, keywords, commandPath []string, available func(action.Context) bool, route func(action.Context) Route) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: category, Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal, Available: available,
+		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
+			return func() tea.Msg { return navigateMsg{route: route(ctx)} }
+		},
+	}
+}
+
 func capabilitiesForCommandPath(commandPath []string) []capability.ID {
 	id, ok := capability.ForPath(strings.Join(commandPath, " "))
 	if !ok {
@@ -301,5 +324,5 @@ func capabilitiesForCommandPath(commandPath []string) []capability.ID {
 }
 
 func actionContext(route Route) action.Context {
-	return action.Context{Route: string(route.Kind), ResourceID: route.ResourceID}
+	return action.Context{Route: string(route.Kind), Mode: route.Mode, ResourceID: route.ResourceID, Section: route.Section, Action: route.Action}
 }

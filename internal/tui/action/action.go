@@ -18,7 +18,10 @@ const (
 
 type Context struct {
 	Route      string
+	Mode       string
 	ResourceID string
+	Section    string
+	Action     string
 }
 
 type Action struct {

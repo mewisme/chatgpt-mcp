@@ -166,6 +166,28 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		}
 
 		runtime.Logger.Action("SERVER", "server.reloading", "Reloading server listeners")
+		if listenerPortsDisjoint(previousCfg, next) {
+			candidate, err := openHTTPBindings(next, nextPlan)
+			if err != nil {
+				runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", err)
+				return runtimeReloadResult{}, err
+			}
+			if err := runtime.ReloadConfig(next); err != nil {
+				candidate.CloseUnstarted()
+				runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", err)
+				return runtimeReloadResult{}, err
+			}
+			if err := bindings.Shutdown(); err != nil {
+				runtime.Logger.Warning("NETWORK", "server.reload.shutdown.warning", "Previous listeners did not shut down cleanly", err)
+			}
+			candidate.Start(runtime, errCh)
+			bindings = candidate
+			stateMu.Lock()
+			currentCfg, currentPlan = next, nextPlan
+			stateMu.Unlock()
+			logReadyEndpoints(runtime.Logger, next, nextPlan)
+			return reloadResult(next, true), nil
+		}
 		if err := bindings.Shutdown(); err != nil {
 			runtime.Logger.Warning("NETWORK", "server.reload.shutdown.warning", "Previous listeners did not shut down cleanly", err)
 		}

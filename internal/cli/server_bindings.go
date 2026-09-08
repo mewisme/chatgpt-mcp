@@ -83,6 +83,27 @@ func networkConfigEqual(left, right config.Config) bool {
 
 func listenerPlanEqual(left, right listenerPlan) bool { return slices.Equal(left.Hosts, right.Hosts) }
 
+func listenerPortsDisjoint(left config.Config, right config.Config) bool {
+	leftPorts := map[int]struct{}{}
+	if left.Server.Enabled {
+		leftPorts[left.Server.Port] = struct{}{}
+	}
+	if left.Admin.Enabled {
+		leftPorts[left.Admin.Port] = struct{}{}
+	}
+	if right.Server.Enabled {
+		if _, exists := leftPorts[right.Server.Port]; exists {
+			return false
+		}
+	}
+	if right.Admin.Enabled {
+		if _, exists := leftPorts[right.Admin.Port]; exists {
+			return false
+		}
+	}
+	return true
+}
+
 func restoreHTTPBindings(runtime *app.App, cfg config.Config, plan listenerPlan, errCh chan<- error) (*httpBindings, error) {
 	bindings, err := openHTTPBindings(cfg, plan)
 	if err != nil {

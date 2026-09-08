@@ -46,7 +46,9 @@ var fieldSpecs = []FieldSpec{
 	{Key: "auth.admin_token_hash", Description: "admin token credential", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the admin auth token workflow."},
 	{Key: "permissions.allow_dirs", Description: "additional filesystem roots", Kind: FieldList, Editable: true},
 	{Key: "shell.path", Description: "additional executable search paths", Kind: FieldList, Editable: true},
-	{Key: "shell.approval_policy", Description: "shell approval policy", Kind: FieldEnum, Options: []string{"balanced", "strict"}, Editable: true},
+	{Key: "shell.approval_policy", Description: "shell approval policy", Kind: FieldEnum, Options: []string{"allow", "balanced", "strict", "deny"}, Editable: true},
+	{Key: "shell.approval_allow_commands", Description: "shell command patterns that bypass normal approval gates", Kind: FieldList, Editable: true},
+	{Key: "shell.approval_deny_commands", Description: "shell command patterns that always require approval", Kind: FieldList, Editable: true},
 	{Key: "shell.environment_policy", Description: "shell environment inheritance policy", Kind: FieldEnum, Options: []string{"auto", "inherit", "filtered", "minimal"}, Editable: true},
 	{Key: "shell.environment_allow", Description: "environment variables explicitly exposed to shell commands", Kind: FieldList, Editable: true},
 	{Key: "shell.sandbox_policy", Description: "OS-level shell sandbox policy", Kind: FieldEnum, Options: []string{"auto", "off", "required"}, Editable: true},
@@ -159,6 +161,18 @@ func SetValue(cfg *Config, key, raw string) error {
 			return err
 		}
 		cfg.Shell.ApprovalPolicy = value
+	case "shell.approval_allow_commands":
+		value, err := NormalizeShellApprovalCommands(splitFieldList(raw))
+		if err != nil {
+			return err
+		}
+		cfg.Shell.ApprovalAllowCommands = value
+	case "shell.approval_deny_commands":
+		value, err := NormalizeShellApprovalCommands(splitFieldList(raw))
+		if err != nil {
+			return err
+		}
+		cfg.Shell.ApprovalDenyCommands = value
 	case "shell.environment_policy":
 		value, err := NormalizeShellEnvironmentPolicy(raw)
 		if err != nil {
@@ -285,6 +299,10 @@ func RawValue(cfg Config, key string) (string, error) {
 		return strings.Join(cfg.Shell.Path, ","), nil
 	case "shell.approval_policy":
 		return cfg.Shell.ApprovalPolicy, nil
+	case "shell.approval_allow_commands":
+		return strings.Join(cfg.Shell.ApprovalAllowCommands, ","), nil
+	case "shell.approval_deny_commands":
+		return strings.Join(cfg.Shell.ApprovalDenyCommands, ","), nil
 	case "shell.environment_policy":
 		return cfg.Shell.EnvironmentPolicy, nil
 	case "shell.environment_allow":

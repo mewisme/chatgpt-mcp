@@ -36,6 +36,12 @@ func Validate(cfg Config) error {
 	if _, err := NormalizeShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
 		return err
 	}
+	if _, err := NormalizeShellApprovalCommands(cfg.Shell.ApprovalAllowCommands); err != nil {
+		return err
+	}
+	if _, err := NormalizeShellApprovalCommands(cfg.Shell.ApprovalDenyCommands); err != nil {
+		return err
+	}
 	if _, err := NormalizeShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
 		return err
 	}
@@ -94,11 +100,35 @@ func NormalizeShellApprovalPolicy(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "balanced":
 		return "balanced", nil
+	case "allow":
+		return "allow", nil
 	case "strict":
 		return "strict", nil
+	case "deny":
+		return "deny", nil
 	default:
-		return "", fmt.Errorf("shell approval policy must be balanced or strict: %q", value)
+		return "", fmt.Errorf("shell approval policy must be allow, balanced, strict, or deny: %q", value)
 	}
+}
+
+func NormalizeShellApprovalCommands(values []string) ([]string, error) {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if strings.ContainsAny(value, "\x00\r\n") {
+			return nil, fmt.Errorf("shell approval command pattern must be a single line: %q", value)
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result, nil
 }
 
 func NormalizeShellEnvironmentPolicy(value string) (string, error) {

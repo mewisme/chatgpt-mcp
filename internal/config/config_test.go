@@ -197,6 +197,9 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			cfg.Tunnel.APIKey = "tunnel-secret"
 			cfg.Tunnel.AdminKey = "admin-secret"
 			cfg.Tunnel.AdminOrganizationID = "org-admin"
+			cfg.Shell.ApprovalPolicy = "deny"
+			cfg.Shell.ApprovalAllowCommands = []string{"git status", "go test *"}
+			cfg.Shell.ApprovalDenyCommands = []string{"git push *"}
 			if err := saveAt(configPath, secretPath, cfg); err != nil {
 				t.Fatal(err)
 			}
@@ -204,7 +207,7 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey || loaded.Tunnel.AdminKey != cfg.Tunnel.AdminKey || loaded.Tunnel.AdminOrganizationID != cfg.Tunnel.AdminOrganizationID {
+			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey || loaded.Tunnel.AdminKey != cfg.Tunnel.AdminKey || loaded.Tunnel.AdminOrganizationID != cfg.Tunnel.AdminOrganizationID || loaded.Shell.ApprovalPolicy != "deny" || len(loaded.Shell.ApprovalAllowCommands) != 2 || len(loaded.Shell.ApprovalDenyCommands) != 1 {
 				t.Fatalf("round trip = %#v", loaded)
 			}
 			mainData, err := os.ReadFile(configPath)
@@ -372,16 +375,54 @@ func TestNormalizeShellApprovalPolicy(t *testing.T) {
 	if Default().Shell.ApprovalPolicy != "balanced" {
 		t.Fatalf("default shell approval policy = %q", Default().Shell.ApprovalPolicy)
 	}
-	for input, expected := range map[string]string{"": "balanced", "balanced": "balanced", "BALANCED": "balanced", "strict": "strict", " STRICT ": "strict"} {
+	for input, expected := range map[string]string{"": "balanced", "allow": "allow", " ALLOW ": "allow", "balanced": "balanced", "BALANCED": "balanced", "strict": "strict", " STRICT ": "strict", "deny": "deny", " DENY ": "deny"} {
 		value, err := NormalizeShellApprovalPolicy(input)
 		if err != nil || value != expected {
 			t.Fatalf("NormalizeShellApprovalPolicy(%q)=%q err=%v", input, value, err)
 		}
 	}
-	for _, input := range []string{"allow", "review", "off", "strictest"} {
+	for _, input := range []string{"review", "off", "strictest"} {
 		if _, err := NormalizeShellApprovalPolicy(input); err == nil {
 			t.Fatalf("invalid shell approval policy accepted: %q", input)
 		}
+	}
+}
+
+func TestNormalizeShellApprovalCommands(t *testing.T) {
+	if len(Default().Shell.ApprovalAllowCommands) != 0 || len(Default().Shell.ApprovalDenyCommands) != 0 {
+		t.Fatalf("default shell approval commands = allow %#v deny %#v", Default().Shell.ApprovalAllowCommands, Default().Shell.ApprovalDenyCommands)
+	}
+	value, err := NormalizeShellApprovalCommands([]string{" git status ", "go test *", "git status", ""})
+	if err != nil || len(value) != 2 || value[0] != "git status" || value[1] != "go test *" {
+		t.Fatalf("normalized approval commands = %#v err=%v", value, err)
+	}
+	if _, err := NormalizeShellApprovalCommands([]string{"git status\nrm -rf ."}); err == nil {
+		t.Fatal("multiline approval command pattern accepted")
+	}
+}
+
+func TestLegacyConfigWithoutApprovalOverridesKeepsBalancedDefault(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		t.Run(string(format), func(t *testing.T) {
+			root := t.TempDir()
+			configPath := configformat.PathFor(root, "config", format)
+			secretPath := configformat.PathFor(root, "tunnel", format)
+			legacy := map[string]any{"server": map[string]any{"enabled": true, "port": int64(37421), "expose": map[string]any{"mode": "none", "interfaces": []any{}}}, "admin": map[string]any{"enabled": false, "port": int64(37422)}, "auth": map[string]any{"mcp_enabled": false, "admin_enabled": false}, "shell": map[string]any{}, "tunnel": map[string]any{"enabled": false}}
+			data, err := configformat.EncodeGeneric(format, legacy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(configPath, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := loadAt(configPath, secretPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if loaded.Shell.ApprovalPolicy != "balanced" || len(loaded.Shell.ApprovalAllowCommands) != 0 || len(loaded.Shell.ApprovalDenyCommands) != 0 {
+				t.Fatalf("legacy shell config = %#v", loaded.Shell)
+			}
+		})
 	}
 }
 

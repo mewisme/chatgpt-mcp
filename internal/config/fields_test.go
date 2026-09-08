@@ -14,18 +14,25 @@ func TestFieldSetValuePreservesTypedBehaviorAndLegacyAliases(t *testing.T) {
 	for key, value := range map[string]string{
 		"server.port": "4000", "server.expose": "true", "admin.enabled": "false",
 		"features.ponytail.enabled": "false", "features.ponytail.mode": "ULTRA", "features.caveman.enabled": "false", "features.caveman.mode": "WENYAN-ULTRA",
-		"permissions.allow_dirs": "/tmp\n/var/tmp", "shell.path": "/opt/tools,/usr/local/custom/bin", "shell.approval_policy": "STRICT",
+		"permissions.allow_dirs": "/tmp\n/var/tmp", "shell.path": "/opt/tools,/usr/local/custom/bin", "shell.approval_policy": "DENY",
+		"shell.approval_allow_commands": "git status\ngo test *\ngit status", "shell.approval_deny_commands": "git push *",
 		"shell.environment_policy": "FILTERED", "shell.environment_allow": "DATABASE_URL, CUSTOM_VALUE, database_url", "shell.network_policy": "DENY",
 	} {
 		if err := SetValue(&cfg, key, value); err != nil {
 			t.Fatalf("%s: %v", key, err)
 		}
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 || cfg.Shell.ApprovalPolicy != "strict" || cfg.Shell.EnvironmentPolicy != "filtered" || len(cfg.Shell.EnvironmentAllow) != 2 || cfg.Shell.NetworkPolicy != "deny" {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 || cfg.Shell.ApprovalPolicy != "deny" || len(cfg.Shell.ApprovalAllowCommands) != 2 || len(cfg.Shell.ApprovalDenyCommands) != 1 || cfg.Shell.EnvironmentPolicy != "filtered" || len(cfg.Shell.EnvironmentAllow) != 2 || cfg.Shell.NetworkPolicy != "deny" {
 		t.Fatalf("cfg=%#v", cfg)
 	}
-	if value, err := RawValue(cfg, "shell.approval_policy"); err != nil || value != "strict" {
+	if value, err := RawValue(cfg, "shell.approval_policy"); err != nil || value != "deny" {
 		t.Fatalf("shell approval policy value=%q err=%v", value, err)
+	}
+	if value, err := RawValue(cfg, "shell.approval_allow_commands"); err != nil || value != "git status,go test *" {
+		t.Fatalf("shell approval allow commands=%q err=%v", value, err)
+	}
+	if value, err := RawValue(cfg, "shell.approval_deny_commands"); err != nil || value != "git push *" {
+		t.Fatalf("shell approval deny commands=%q err=%v", value, err)
 	}
 	if value, err := RawValue(cfg, "shell.environment_policy"); err != nil || value != "filtered" {
 		t.Fatalf("shell environment policy value=%q err=%v", value, err)

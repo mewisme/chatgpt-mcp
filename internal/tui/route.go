@@ -21,6 +21,7 @@ const (
 	RouteInstruction RouteKind = "instruction"
 	RouteRuntime     RouteKind = "runtime"
 	RouteAbout       RouteKind = "about"
+	RouteGuide       RouteKind = "guide"
 )
 
 type Route struct {
@@ -86,6 +87,15 @@ func ParseRoute(args []string) (Route, error) {
 		return parseInstructionRoute(parts)
 	case RouteRuntime:
 		return parseRuntimeRoute(parts)
+	case RouteGuide:
+		if len(parts) > 2 {
+			return Route{}, fmt.Errorf("guide path is too deep: %s", strings.Join(parts, " "))
+		}
+		route := Route{Kind: RouteGuide}
+		if len(parts) == 2 {
+			route.ResourceID = parts[1]
+		}
+		return route, nil
 	default:
 		if len(parts) != 1 {
 			return Route{}, fmt.Errorf("TUI path %q does not accept child segments", parts[0])
@@ -431,6 +441,8 @@ func parseRouteKind(value string) (RouteKind, bool) {
 		return RouteRuntime, true
 	case "about", "version":
 		return RouteAbout, true
+	case "guide", "help":
+		return RouteGuide, true
 	default:
 		return "", false
 	}
@@ -439,7 +451,7 @@ func parseRouteKind(value string) (RouteKind, bool) {
 func (route Route) Title() string {
 	base := map[RouteKind]string{
 		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
-		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteConfig: "Config", RouteInstruction: "Instruction", RouteRuntime: "Runtime", RouteAbout: "About",
+		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteConfig: "Config", RouteInstruction: "Instruction", RouteRuntime: "Runtime", RouteAbout: "About", RouteGuide: "Guide",
 	}[route.Kind]
 	if route.Kind == RouteRequests && route.Mode != "" {
 		base += " · " + routeSectionTitle(route.Mode)

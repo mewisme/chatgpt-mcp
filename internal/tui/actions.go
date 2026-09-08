@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"go.mewis.me/chatgpt-mcp/docs/tuiguide"
 	"go.mewis.me/chatgpt-mcp/internal/capability"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
@@ -29,7 +30,9 @@ func defaultActionRegistry() *action.Registry {
 		navigationAction("app.go.instruction", "Instruction", Route{Kind: RouteInstruction}, []string{"instruction", "instructions", "global", "context", "rules", "sources"}),
 		navigationAction("app.go.runtime", "Runtime", Route{Kind: RouteRuntime}, []string{"runtime", "status", "service"}, capability.AuthStatus, capability.AliasStatus),
 		navigationAction("app.go.about", "About", Route{Kind: RouteAbout}, []string{"about", "version", "build", "uptime"}, capability.VersionAbout),
+		navigationAction("app.go.guide", "Guide", Route{Kind: RouteGuide}, []string{"guide", "help", "docs", "documentation"}),
 	}
+	actions = append(actions, guideActions()...)
 	actions = append(actions, instructionNavigationActions()...)
 	actions = append(actions, workspaceActions()...)
 	actions = append(actions, mcpActions()...)
@@ -43,6 +46,22 @@ func defaultActionRegistry() *action.Registry {
 		panic(err)
 	}
 	return registry
+}
+
+func guideActions() []action.Action {
+	topics := tuiguide.Topics()
+	actions := make([]action.Action, 0, len(topics))
+	for _, topic := range topics {
+		topic := topic
+		actions = append(actions, action.Action{
+			ID: "guide." + topic.ID, Title: "Guide: " + topic.Title, Category: "Guide", Description: topic.Description,
+			Keywords: append([]string{"guide", "help", "docs"}, topic.Keywords...), Scope: action.ScopeGlobal,
+			Run: func(context.Context, action.Context) tea.Cmd {
+				return func() tea.Msg { return navigateMsg{route: Route{Kind: RouteGuide, ResourceID: topic.ID}} }
+			},
+		})
+	}
+	return actions
 }
 
 func systemActions() []action.Action {

@@ -68,6 +68,24 @@ func TestInstructionAndWorkspaceContextNavigationActions(t *testing.T) {
 	}
 }
 
+func TestGuideActionsNavigateDirectlyToEmbeddedTopics(t *testing.T) {
+	registry := defaultActionRegistry()
+	for id, want := range map[string]Route{
+		"app.go.guide":   {Kind: RouteGuide},
+		"guide.mcp":      {Kind: RouteGuide, ResourceID: "mcp"},
+		"guide.requests": {Kind: RouteGuide, ResourceID: "requests"},
+	} {
+		cmd, err := registry.Execute(context.Background(), id, action.Context{Route: string(RouteHome)})
+		if err != nil || cmd == nil {
+			t.Fatalf("execute %s cmd=%v err=%v", id, cmd != nil, err)
+		}
+		message, ok := cmd().(navigateMsg)
+		if !ok || message.route != want {
+			t.Fatalf("%s navigation=%#v want=%#v", id, message, want)
+		}
+	}
+}
+
 func TestEditorActionsNavigateToEditorRoutes(t *testing.T) {
 	registry := defaultActionRegistry()
 	tests := []struct {

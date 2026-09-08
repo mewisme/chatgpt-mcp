@@ -11,6 +11,7 @@ This directory contains the detailed documentation for `chatgpt-mcp`. The reposi
 | Run as a foreground process or managed service | [Runtime and services](runtime.md) |
 | Configure ports, auth, exposure, formats, and workspaces | [Configuration](configuration.md) |
 | Use the full-screen interactive Command Center | [TUI Command Center](tui.md) |
+| Read detailed TUI feature guides | [Embedded TUI Guide topics](tuiguide/) |
 | Browse commands and common flag combinations | [CLI reference](cli-reference.md) |
 | Understand MCP protocol behavior and upstream servers | [MCP and upstreams](mcp.md) |
 | Review filesystem, shell, auth, tunnel, and control-plane boundaries | [Security](security.md) |

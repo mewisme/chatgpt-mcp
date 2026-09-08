@@ -1,0 +1,85 @@
+package page
+
+import (
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"go.mewis.me/chatgpt-mcp/docs/tuiguide"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
+)
+
+func TestGuideIndexBrowsesTopicMetadata(t *testing.T) {
+	page, err := NewGuide(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := ansi.Strip(page.View(100, 30))
+	for _, want := range []string{"TUI Guide", "Getting Started", "MCP Servers", "10 topics"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("guide index missing %q: %q", want, plain)
+		}
+	}
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "mcp"}})
+	if cmd == nil {
+		t.Fatal("opening guide topic returned no navigation command")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "guide/mcp" {
+		t.Fatalf("guide navigation=%#v", message)
+	}
+}
+
+func TestGuideTopicLoadsOnlySelectedMarkdownWithGlamourViewer(t *testing.T) {
+	page, err := NewGuide(t.Context(), "mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := tuiguide.Markdown("mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.viewer.Source() != want {
+		t.Fatal("guide viewer source differs from selected embedded topic")
+	}
+	plain := ansi.Strip(page.View(100, 30))
+	if !strings.Contains(plain, "Guide · MCP Servers") || !strings.Contains(plain, "Create: Form or JSON") || strings.Contains(plain, "Shell & Execution") {
+		t.Fatalf("selected guide render=%q", plain)
+	}
+	if page.viewer.RenderError() != nil {
+		t.Fatalf("Glamour render failed: %v", page.viewer.RenderError())
+	}
+}
+
+func TestGuideResponsiveLayoutsAndScrolling(t *testing.T) {
+	for _, topic := range []string{"", "getting-started", "requests", "config"} {
+		page, err := NewGuide(t.Context(), topic)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, size := range [][2]int{{24, 10}, {40, 16}, {80, 24}, {120, 40}} {
+			view := page.View(size[0], size[1])
+			testutil.AssertLinesFit(t, view, size[0])
+			if lines := strings.Count(view, "\n") + 1; lines > size[1] {
+				t.Fatalf("topic=%q size=%v height=%d", topic, size, lines)
+			}
+		}
+		if topic != "" {
+			before := ansi.Strip(page.View(80, 12))
+			updated, _ := page.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+			page = updated.(*GuidePage)
+			after := ansi.Strip(page.View(80, 12))
+			if before == after {
+				t.Fatalf("topic %q did not scroll", topic)
+			}
+		}
+	}
+}
+
+func TestGuideRejectsUnknownTopic(t *testing.T) {
+	if _, err := NewGuide(t.Context(), "missing"); err == nil {
+		t.Fatal("unknown guide topic unexpectedly succeeded")
+	}
+}

@@ -331,7 +331,8 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 		if page.err != nil {
 			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 		}
-		offsetY := lipgloss.Height(component.PageTitleNotice("Configuration", page.notice, page.width)) + lipgloss.Height(page.overviewView(page.width)) + pageFeedbackHeight(feedback)
+		pageTitle, overview := page.browserHeader(page.width)
+		offsetY := lipgloss.Height(component.PageTitleNotice(pageTitle, page.notice, page.width)) + lipgloss.Height(overview) + pageFeedbackHeight(feedback)
 		return page.browser.MouseTargets(originX, originY+offsetY, z)
 	}
 }
@@ -647,15 +648,7 @@ func (page *ConfigPage) sectionLabel(section config.FieldSection) string {
 }
 
 func (page *ConfigPage) resizeBrowser() tea.Cmd {
-	pageTitle := "Configuration"
-	overview := page.overviewView(page.width)
-	if page.isDomainRoute() {
-		pageTitle = "Configuration / " + page.domainTitle()
-		overview = component.WrapKeyValue("", page.domainSummary(page.resourceID), page.width)
-	} else if page.isStorageRoute() {
-		pageTitle = "Configuration / Storage & Maintenance"
-		overview = page.storageOverview(page.width)
-	}
+	pageTitle, overview := page.browserHeader(page.width)
 	headerHeight := lipgloss.Height(component.PageTitleNotice(pageTitle, page.notice, page.width)) + lipgloss.Height(overview)
 	feedback := ""
 	if page.err != nil {
@@ -665,6 +658,18 @@ func (page *ConfigPage) resizeBrowser() tea.Cmd {
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd
+}
+
+func (page *ConfigPage) browserHeader(width int) (string, string) {
+	pageTitle := "Configuration"
+	overview := page.overviewView(width)
+	if page.isDomainRoute() {
+		return "Configuration / " + page.domainTitle(), component.WrapKeyValue("", page.domainSummary(page.resourceID), width)
+	}
+	if page.isStorageRoute() {
+		return "Configuration / Storage & Maintenance", page.storageOverview(width)
+	}
+	return pageTitle, overview
 }
 
 func (page *ConfigPage) configRows() []component.Row {

@@ -41,7 +41,7 @@ func (data *installFormData) Options() application.InstallCurrentOptions {
 func newUpdateForm() (component.Form, *updateFormData) {
 	data := &updateFormData{}
 	form := component.NewForm(component.Group(
-		component.Input("Target version", &data.TargetVersion).Description("Leave empty for latest release; explicit versions may downgrade"),
+		component.Input("Target version (blank = latest; explicit may downgrade)", &data.TargetVersion),
 		component.BoolSelect("Skip managed runtime restart", &data.NoRestart, "Yes", "No"),
 		component.Confirm("Apply the verified update", &data.Confirm),
 	).Title("Update"))

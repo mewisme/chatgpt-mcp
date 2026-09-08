@@ -42,17 +42,18 @@ type managedConfigureFormData struct {
 
 func newTunnelRuntimeEditor(dashboard application.TunnelDashboard) (component.Editor, *tunnelRuntimeFormData) {
 	data := &tunnelRuntimeFormData{Enabled: dashboard.Config.Enabled, ID: dashboard.Config.ID, ControlPlane: dashboard.Config.ControlPlaneBaseURL, OrganizationID: dashboard.Config.OrganizationID}
-	enabled := component.BoolSelect("Enabled", &data.Enabled, "Enabled", "Disabled")
+	enabledTitle := "Enabled (at least one MCP transport must remain enabled)"
 	if !dashboard.MCPHTTPEnabled {
-		enabled.Description("Required while MCP HTTP is disabled.")
+		enabledTitle = "Enabled (required while MCP HTTP is disabled)"
+	}
+	enabled := component.BoolSelect(enabledTitle, &data.Enabled, "Enabled", "Disabled")
+	if !dashboard.MCPHTTPEnabled {
 		enabled.Validate(func(value bool) error {
 			if !value {
 				return fmt.Errorf("tunnel must remain enabled while MCP HTTP is disabled")
 			}
 			return nil
 		})
-	} else {
-		enabled.Description("At least one MCP transport must remain enabled.")
 	}
 	editor := component.NewEditor("save", component.EditorSection{
 		ID: "runtime", Title: "Runtime", Description: "Configure the selected runtime tunnel. Blank runtime API key keeps the current secret.",
@@ -80,11 +81,11 @@ func newTunnelAdminEditor(status application.TunnelAdminStatus) (component.Edito
 	editor := component.NewEditor("verify", component.EditorSection{
 		ID: "admin-key", Title: "Admin Key", Description: "Store and verify an OpenAI admin key with Tunnels Manage access.",
 		Form: component.NewEditorForm(component.Group(
-			component.PasswordInput("Admin API key", &data.AdminKey).Description("OpenAI admin key with Tunnels Manage access."),
+			component.PasswordInput("OpenAI admin API key (Tunnels Manage)", &data.AdminKey),
 			component.Select("Verification scope", &data.ScopeKind,
 				huh.NewOption("Auto (reuse or derive)", "auto"), huh.NewOption("Organization", "organization"), huh.NewOption("Workspace", "workspace"), huh.NewOption("Tenant", "tenant"),
 			),
-			component.Input("Scope ID", &data.ScopeID).Description("Ignored when scope is Auto."),
+			component.Input("Scope ID (ignored for Auto)", &data.ScopeID),
 		)),
 	})
 	return editor, data

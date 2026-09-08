@@ -22,9 +22,9 @@ type requestResolveFormData struct {
 func newRequestCreateForm() (component.Form, *requestCreateFormData) {
 	data := &requestCreateFormData{WorkspaceID: "ws_dummy", Title: "Allow test command", Command: "echo test approval"}
 	form := component.NewForm(component.Group(
-		component.Input("Workspace ID", &data.WorkspaceID).Description("Workspace label used by the synthetic approval request"),
-		component.Input("Title", &data.Title).Description("Human-readable approval title"),
-		component.Input("Command", &data.Command).Description("Command shown in the request arguments; it is not executed"),
+		component.Input("Workspace ID (synthetic request label)", &data.WorkspaceID),
+		component.Input("Title (human-readable approval title)", &data.Title),
+		component.Input("Command (displayed only; not executed)", &data.Command),
 	))
 	return form, data
 }

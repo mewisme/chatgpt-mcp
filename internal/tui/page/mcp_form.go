@@ -97,7 +97,7 @@ func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, 
 		component.Group(
 			component.Input("HTTP MCP URL", &data.URL),
 			component.Text("Non-sensitive headers (KEY=VALUE, one per line)", &data.Headers),
-			component.PasswordInput("Sensitive headers JSON", &data.SensitiveHeaders).Description(`Optional JSON object. Blank keeps existing sensitive headers.`),
+			component.PasswordInput("Sensitive headers JSON (optional; blank keeps existing)", &data.SensitiveHeaders),
 			component.Input("Bearer token environment variable", &data.BearerTokenEnvVar),
 		).WithHideFunc(func() bool { return data.Transport != "http" }),
 		component.Group(
@@ -105,7 +105,7 @@ func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, 
 			component.Text("Arguments (one per line)", &data.Args),
 			newMCPWorkingDirectoryField(&data.CWD),
 			component.Text("Non-sensitive environment (KEY=VALUE, one per line)", &data.Env),
-			component.PasswordInput("Sensitive environment JSON", &data.SensitiveEnv).Description(`Optional JSON object. Blank keeps existing sensitive environment values.`),
+			component.PasswordInput("Sensitive environment JSON (optional; blank keeps existing)", &data.SensitiveEnv),
 		).WithHideFunc(func() bool { return data.Transport != "stdio" }),
 	)
 	authentication := component.NewEditorForm(component.Group(

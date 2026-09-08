@@ -58,8 +58,8 @@ func newWorkspaceContextEditor(options projectcontext.Options) (component.Editor
 	}
 	editor := component.NewEditor("build",
 		component.EditorSection{ID: "scope", Title: "Scope", Description: "Choose the workspace-relative path and optional memory relevance query.", Form: component.NewEditorForm(component.Group(
-			component.Input("Path", &data.Path).Description("Optional directory inside the workspace root"),
-			component.Input("Memory query", &data.MemoryQuery).Description("Optional relevance query for cross-session memory"),
+			component.Input("Path (optional, inside workspace root)", &data.Path),
+			component.Input("Memory query (optional relevance query)", &data.MemoryQuery),
 		))},
 		component.EditorSection{ID: "budgets", Title: "Budgets", Description: "Limit memory and instruction context size for this build.", Form: component.NewEditorForm(component.Group(
 			workspaceContextIntInput("Max memory entries", &data.MaxMemoryEntries, projectcontext.MinMemoryEntries, projectcontext.MaxMemoryEntries),

@@ -99,6 +99,7 @@ type Model struct {
 	approvalErr     error
 	approvalList    func(context.Context) ([]approval.Request, error)
 	approvalResolve func(context.Context, string, bool, string) (approval.Request, error)
+	approvalNow     func() time.Time
 	toast           toastState
 	toastSeq        uint64
 }
@@ -121,7 +122,7 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 			state = loaded
 		}
 	}
-	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), stateRoot: root, state: state, theme: newTheme(true), approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest}
+	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), stateRoot: root, state: state, theme: newTheme(true), approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalNow: time.Now}
 	model.loadPage(initial)
 	return model
 }
@@ -160,6 +161,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.applyApprovalPoll(msg)
 		return model, model.approvalTickCmd()
 	case approvalPollTickMsg:
+		model.expireElapsedApprovals(model.approvalTime())
 		return model, model.pollApprovalsCmd()
 	case approvalResolvedMsg:
 		return model.finishApprovalResolution(msg)
@@ -493,9 +495,10 @@ func (model *Model) applyApprovalPoll(msg approvalPollMsg) {
 	if model == nil || msg.err != nil {
 		return
 	}
+	now := model.approvalTime()
 	pending := make([]approval.Request, 0, len(msg.requests))
 	for _, request := range msg.requests {
-		if request.Status == approval.StatusPending {
+		if request.Status == approval.StatusPending && !approvalRequestExpired(request, now) {
 			pending = append(pending, request)
 		}
 	}
@@ -588,6 +591,10 @@ func (model Model) resolveApprovalSelection(approve bool) (tea.Model, tea.Cmd) {
 		model.resetApprovalDialog()
 		return model, nil
 	}
+	if approvalRequestExpired(request, model.approvalTime()) {
+		model.expireApproval(request.ID)
+		return model, model.pollApprovalsCmd()
+	}
 	id, resolve, ctx := request.ID, model.approvalResolve, model.ctx
 	model.approvalApprove = approve
 	model.approvalStage = approvalStageResolving
@@ -647,7 +654,9 @@ func (model Model) approvalDialogView(width int) string {
 		lines = append(lines, component.WrapKeyValue("Guard", string(request.GuardCode), width))
 	}
 	if !request.ExpiresAt.IsZero() {
-		lines = append(lines, component.WrapKeyValue("Expires", request.ExpiresAt.Local().Format("15:04:05"), width))
+		expires := request.ExpiresAt.Local().Format("15:04:05")
+		countdown := approvalCountdown(request.ExpiresAt, model.approvalTime())
+		lines = append(lines, component.WrapKeyValue("Expires in", countdown+" · "+expires, width))
 	}
 	lines = append(lines, "", component.Label("Arguments"), component.WrapContent(approvalArguments(request.Arguments), width), "")
 	if model.approvalErr != nil {
@@ -699,6 +708,68 @@ func removeApprovalRequest(requests []approval.Request, id string) []approval.Re
 		}
 	}
 	return result
+}
+
+func (model Model) approvalTime() time.Time {
+	if model.approvalNow != nil {
+		return model.approvalNow()
+	}
+	return time.Now()
+}
+
+func (model *Model) expireElapsedApprovals(now time.Time) {
+	if model == nil || len(model.approvals) == 0 {
+		return
+	}
+	remaining := model.approvals[:0]
+	activeID := model.activeApprovalID()
+	activeExpired := false
+	for _, request := range model.approvals {
+		if approvalRequestExpired(request, now) {
+			activeExpired = activeExpired || request.ID == activeID
+			continue
+		}
+		remaining = append(remaining, request)
+	}
+	model.approvals = remaining
+	if len(remaining) == 0 {
+		model.resetApprovalDialog()
+		return
+	}
+	if activeExpired {
+		model.openApprovalChoice()
+	}
+}
+
+func (model *Model) expireApproval(id string) {
+	if model == nil || id == "" {
+		return
+	}
+	wasActive := model.activeApprovalID() == id
+	model.approvals = removeApprovalRequest(model.approvals, id)
+	if len(model.approvals) == 0 {
+		model.resetApprovalDialog()
+		return
+	}
+	if wasActive {
+		model.openApprovalChoice()
+	}
+}
+
+func approvalRequestExpired(request approval.Request, now time.Time) bool {
+	return !request.ExpiresAt.IsZero() && !now.Before(request.ExpiresAt)
+}
+
+func approvalCountdown(expiresAt, now time.Time) string {
+	if expiresAt.IsZero() || !now.Before(expiresAt) {
+		return "00:00:00"
+	}
+	remaining := expiresAt.Sub(now)
+	seconds := int64((remaining + time.Second - 1) / time.Second)
+	hours := seconds / 3600
+	minutes := seconds % 3600 / 60
+	seconds %= 60
+	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
 }
 
 func (model *Model) openPalette() {

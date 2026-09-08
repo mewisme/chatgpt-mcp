@@ -615,6 +615,80 @@ func TestModelApprovalPollFiltersStatusesAndSurvivesErrors(t *testing.T) {
 	}
 }
 
+func TestModelApprovalDialogShowsLiveExpiryCountdown(t *testing.T) {
+	now := time.Date(2026, 9, 8, 11, 0, 0, 0, time.Local)
+	request := testPendingApproval("req_countdown")
+	request.ExpiresAt = now.Add(65 * time.Second)
+	model := NewModel(Route{Kind: RouteHome})
+	model.approvalNow = func() time.Time { return now }
+	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{request}})
+	plain := ansi.Strip(model.approvalDialogView(80))
+	if !strings.Contains(plain, "Expires in") || !strings.Contains(plain, "00:01:05") || !strings.Contains(plain, request.ExpiresAt.Local().Format("15:04:05")) {
+		t.Fatalf("approval countdown view=%q", plain)
+	}
+	now = now.Add(5 * time.Second)
+	plain = ansi.Strip(model.approvalDialogView(80))
+	if !strings.Contains(plain, "00:01:00") {
+		t.Fatalf("approval countdown did not advance: %q", plain)
+	}
+}
+
+func TestModelApprovalTickExpiresRequestAndAdvancesQueue(t *testing.T) {
+	now := time.Date(2026, 9, 8, 11, 0, 0, 0, time.Local)
+	first, second := testPendingApproval("req_expiring"), testPendingApproval("req_next")
+	first.ExpiresAt = now.Add(time.Second)
+	second.ExpiresAt = now.Add(time.Minute)
+	model := NewModel(Route{Kind: RouteHome})
+	model.approvalNow = func() time.Time { return now }
+	model.approvalList = func(context.Context) ([]approval.Request, error) { return []approval.Request{second}, nil }
+	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{first, second}})
+	if model.activeApprovalID() != first.ID {
+		t.Fatalf("active approval=%q", model.activeApprovalID())
+	}
+	now = now.Add(time.Second)
+	updated, poll := model.Update(approvalPollTickMsg{})
+	model = updated.(Model)
+	if model.activeApprovalID() != second.ID || model.approvalStage != approvalStageChoice {
+		t.Fatalf("expired approval did not advance: active=%q stage=%d approvals=%#v", model.activeApprovalID(), model.approvalStage, model.approvals)
+	}
+	if poll == nil {
+		t.Fatal("expiry tick did not continue runtime poll")
+	}
+}
+
+func TestModelApprovalCannotResolveAfterExpiry(t *testing.T) {
+	now := time.Date(2026, 9, 8, 11, 0, 0, 0, time.Local)
+	request := testPendingApproval("req_expired_action")
+	request.ExpiresAt = now.Add(time.Second)
+	model := NewModel(Route{Kind: RouteHome})
+	model.approvalNow = func() time.Time { return now }
+	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{request}})
+	resolved := false
+	model.approvalResolve = func(context.Context, string, bool, string) (approval.Request, error) {
+		resolved = true
+		return approval.Request{}, nil
+	}
+	now = now.Add(time.Second)
+	updated, poll := model.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	model = updated.(Model)
+	if resolved || model.approvalActive() || len(model.approvals) != 0 {
+		t.Fatalf("expired approval resolved=%t active=%t approvals=%#v", resolved, model.approvalActive(), model.approvals)
+	}
+	if poll == nil {
+		t.Fatal("expired action did not refresh approval state")
+	}
+}
+
+func TestApprovalCountdownRoundsPositiveRemainderUp(t *testing.T) {
+	now := time.Unix(0, 0)
+	if got := approvalCountdown(now.Add(1500*time.Millisecond), now); got != "00:00:02" {
+		t.Fatalf("countdown=%q", got)
+	}
+	if got := approvalCountdown(now, now); got != "00:00:00" {
+		t.Fatalf("expired countdown=%q", got)
+	}
+}
+
 func TestModelApprovalOverlayKeepsExactGeometry(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
 	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{testPendingApproval("req_geometry")}})

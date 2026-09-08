@@ -257,11 +257,27 @@ func TestFieldPresentationMetadataCoversRegistry(t *testing.T) {
 		if strings.TrimSpace(spec.Label) == "" {
 			t.Fatalf("field %s has no label", spec.Key)
 		}
+		if strings.TrimSpace(spec.Description) == "" {
+			t.Fatalf("field %s has no description", spec.Key)
+		}
+		if strings.TrimSpace(spec.Details) == "" {
+			t.Fatalf("field %s has no detailed explanation", spec.Key)
+		}
 		if !valid[spec.Section] {
 			t.Fatalf("field %s has invalid section %q", spec.Key, spec.Section)
 		}
 		if seen[spec.Key] {
 			t.Fatalf("duplicate field key %s", spec.Key)
+		}
+		if spec.Kind == FieldEnum {
+			if len(spec.Options) == 0 || len(spec.Values) != len(spec.Options) {
+				t.Fatalf("enum field %s has incomplete value explanations", spec.Key)
+			}
+			for index, value := range spec.Values {
+				if value.Value != spec.Options[index] || strings.TrimSpace(value.Description) == "" {
+					t.Fatalf("enum field %s value %q has incomplete explanation", spec.Key, value.Value)
+				}
+			}
 		}
 		seen[spec.Key] = true
 	}

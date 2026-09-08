@@ -93,7 +93,7 @@ func TestConfigResourceUsesFullChildDetailPage(t *testing.T) {
 		t.Fatal("config detail incorrectly reports overlay active")
 	}
 	view := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"MCP HTTP port", "server.port", "Value", "Default", "State", "default", "MCP HTTP server port", "e edit", "r refresh"} {
+	for _, want := range []string{"MCP HTTP port", "server.port", "Value", "Default", "State", "default", "sets the TCP port for the MCP HTTP server", "e edit", "r refresh"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("config detail missing %q: %q", want, view)
 		}

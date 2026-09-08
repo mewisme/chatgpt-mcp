@@ -355,6 +355,88 @@ func TestManagedTunnelRefreshPersistsCacheAndUpdatePrefetchesRemoteState(t *test
 	}
 }
 
+func TestManagedTunnelEditPrefetchEscapeReturnsToDetail(t *testing.T) {
+	started := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_one" {
+			t.Fatalf("unexpected request=%s %s", r.Method, r.URL.Path)
+		}
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL})
+	page, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefetch := page.Init()
+	if prefetch == nil || !page.managedUpdateFetch || page.overlay != tunnelOverlayOperation {
+		t.Fatalf("prefetch cmd=%v fetch=%t overlay=%d", prefetch != nil, page.managedUpdateFetch, page.overlay)
+	}
+	result := make(chan tea.Msg, 1)
+	go func() { result <- prefetch() }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("managed edit prefetch did not start")
+	}
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	page = updated.(*TunnelPage)
+	if cmd == nil || page.overlay != tunnelOverlayNone || page.managedUpdateFetch {
+		t.Fatalf("escape cmd=%v overlay=%d fetch=%t", cmd != nil, page.overlay, page.managedUpdateFetch)
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "tunnels/tunnel_one" {
+		t.Fatalf("escape navigation=%#v", navigate)
+	}
+	select {
+	case message := <-result:
+		updated, _ = page.Update(message)
+		page = updated.(*TunnelPage)
+	case <-time.After(time.Second):
+		t.Fatal("cancelled edit prefetch did not return")
+	}
+	if page.operationCancelled || page.err != nil {
+		t.Fatalf("late cancelled prefetch state cancelled=%t err=%v", page.operationCancelled, page.err)
+	}
+}
+
+func TestManagedTunnelEditPrefetchFailureShowsExplicitWrappedErrorState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_one" {
+			t.Fatalf("unexpected request=%s %s", r.Method, r.URL.Path)
+		}
+		http.Error(w, "remote tunnel unavailable", http.StatusBadGateway)
+	}))
+	defer server.Close()
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL})
+	page, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefetch := page.Init()
+	if prefetch == nil {
+		t.Fatal("edit prefetch command missing")
+	}
+	updated, _ := page.Update(prefetch())
+	page = updated.(*TunnelPage)
+	if page.err == nil || page.editor != nil || page.overlay != tunnelOverlayNone || page.managedUpdateFetch {
+		t.Fatalf("prefetch failure err=%v editor=%v overlay=%d fetch=%t", page.err, page.editor != nil, page.overlay, page.managedUpdateFetch)
+	}
+	view := page.View(36, 16)
+	plain := ansi.Strip(view)
+	for _, want := range []string{"Edit Managed Tunnel", "tunnel_one", "Unable to load managed tunnel"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("prefetch failure missing %q: %q", want, plain)
+		}
+	}
+	testutil.AssertLinesFit(t, view, 36)
+}
+
 func TestManagedTunnelRefreshCancellationIgnoresLateResult(t *testing.T) {
 	started := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

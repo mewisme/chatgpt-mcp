@@ -216,7 +216,11 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	}
 	if page.overlay == tunnelOverlayOperation {
 		if key, ok := message.(tea.KeyPressMsg); ok && key.String() == "esc" {
+			prefetch := page.kind == tunnelPageManaged && page.action == "edit" && page.editor == nil && page.managedUpdateFetch
 			page.cancelOperation()
+			if prefetch {
+				return page, page.editorParentNavigation()
+			}
 			return page, nil
 		}
 		if page.progress != nil {
@@ -349,7 +353,14 @@ func (page *TunnelPage) View(width, height int) string {
 	if page.editor != nil {
 		content = page.editorView(width, height)
 	} else if page.kind == tunnelPageManaged {
-		if page.resourceID != "" {
+		if page.action == "edit" && page.resourceID != "" {
+			title := component.PageTitleNotice(page.editorTitle(), page.notice, width)
+			state := component.StateView(component.PageLoading, "Loading managed tunnel", page.resourceID)
+			if page.err != nil && page.overlay != tunnelOverlayOperation {
+				state = component.StateView(component.PageError, "Unable to load managed tunnel", page.err.Error())
+			}
+			content = title + "\n" + component.WrapContent(state, width)
+		} else if page.resourceID != "" {
 			page.detail.SetFeedback(page.notice, page.err)
 			page.detail.Resize(width, height)
 			content = page.detail.View()

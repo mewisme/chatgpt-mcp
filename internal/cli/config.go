@@ -32,6 +32,7 @@ func configCommand() *cobra.Command {
 		}},
 		configGetCommand(),
 		configListCommand(),
+		configExplainCommand(),
 		configSetCommand(),
 		configReloadCommand(),
 		configMigrateCommand(),

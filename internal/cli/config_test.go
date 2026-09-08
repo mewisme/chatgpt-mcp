@@ -259,6 +259,48 @@ func TestConfigCommandAliases(t *testing.T) {
 	}
 }
 
+func TestConfigExplainLeafBranchAndJSON(t *testing.T) {
+	leaf := configExplainCommand()
+	var out bytes.Buffer
+	leaf.SetOut(&out)
+	leaf.SetArgs([]string{"shell.approval_policy"})
+	if err := leaf.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{"shell.approval_policy", "Default: balanced", "allow", "explicit deny rule", "shell.approval_allow_commands"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("leaf explain missing %q:\n%s", want, text)
+		}
+	}
+
+	branch := configExplainCommand()
+	out.Reset()
+	branch.SetOut(&out)
+	branch.SetArgs([]string{"shell"})
+	if err := branch.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	text = out.String()
+	if !strings.Contains(text, "shell.approval_policy") || !strings.Contains(text, "shell.network_policy") {
+		t.Fatalf("branch explain output:\n%s", text)
+	}
+
+	jsonCommand := configExplainCommand()
+	out.Reset()
+	jsonCommand.SetOut(&out)
+	jsonCommand.SetArgs([]string{"shell.approval_policy", "--json"})
+	if err := jsonCommand.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	text = out.String()
+	for _, want := range []string{`"key": "shell.approval_policy"`, `"default": "balanced"`, `"value": "allow"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("json explain missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestConfigBundleCommandsUseOptionalDefaultFile(t *testing.T) {
 	if got := configBundleFile(nil); got != defaultConfigBundleFile {
 		t.Fatalf("default bundle file = %q", got)

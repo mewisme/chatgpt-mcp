@@ -28,11 +28,19 @@ type FieldSpec struct {
 	Label       string
 	Section     FieldSection
 	Description string
+	Details     string
 	Kind        FieldKind
 	Options     []string
+	Values      []FieldValueSpec
 	Editable    bool
 	Sensitive   bool
 	Guidance    string
+	Related     []string
+}
+
+type FieldValueSpec struct {
+	Value       string `json:"value"`
+	Description string `json:"description,omitempty"`
 }
 
 type FieldSection string
@@ -67,7 +75,7 @@ var fieldSpecs = []FieldSpec{
 	{Key: "auth.admin_token_hash", Label: "Admin credential", Section: FieldSectionAccess, Description: "admin token credential", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the admin auth token workflow."},
 	{Key: "permissions.allow_dirs", Label: "Allowed directories", Section: FieldSectionAccess, Description: "additional filesystem roots", Kind: FieldList, Editable: true},
 	{Key: "shell.path", Label: "Executable search paths", Section: FieldSectionShell, Description: "additional executable search paths", Kind: FieldList, Editable: true},
-	{Key: "shell.approval_policy", Label: "Approval policy", Section: FieldSectionShell, Description: "shell approval policy; balanced is the default", Kind: FieldEnum, Options: []string{"allow", "balanced", "strict", "deny"}, Editable: true},
+	{Key: "shell.approval_policy", Label: "Approval policy", Section: FieldSectionShell, Description: "controls when shell commands require local approval", Details: "Explicit deny rules take precedence over allow rules. The selected policy then determines whether commands that are not covered by an explicit rule require local approval.", Kind: FieldEnum, Options: []string{"allow", "balanced", "strict", "deny"}, Values: []FieldValueSpec{{Value: "allow", Description: "Run commands without approval unless an explicit deny rule matches."}, {Value: "balanced", Description: "Require approval for guarded or risky operations and external access."}, {Value: "strict", Description: "Require approval for execution that is not recognized as a workspace-confined static read."}, {Value: "deny", Description: "Require approval for commands unless an explicit allow rule matches."}}, Editable: true, Related: []string{"shell.approval_allow_commands", "shell.approval_deny_commands", "shell.network_policy"}},
 	{Key: "shell.approval_allow_commands", Label: "Allow commands", Section: FieldSectionShell, Description: "argv-aware glob patterns that bypass ordinary approval gates when every invocation matches; supports *, ?, [], and standalone **", Kind: FieldList, Editable: true},
 	{Key: "shell.approval_deny_commands", Label: "Deny commands", Section: FieldSectionShell, Description: "argv-aware glob patterns that always require approval; deny rules take precedence over allow rules", Kind: FieldList, Editable: true},
 	{Key: "shell.environment_policy", Label: "Environment policy", Section: FieldSectionShell, Description: "shell environment inheritance policy", Kind: FieldEnum, Options: []string{"auto", "inherit", "filtered", "minimal"}, Editable: true},
@@ -92,8 +100,7 @@ var fieldSpecs = []FieldSpec{
 func Fields() []FieldSpec {
 	result := make([]FieldSpec, len(fieldSpecs))
 	for index, spec := range fieldSpecs {
-		result[index] = spec
-		result[index].Options = append([]string(nil), spec.Options...)
+		result[index] = cloneFieldSpec(spec)
 	}
 	return result
 }
@@ -102,11 +109,17 @@ func FieldByKey(key string) (FieldSpec, bool) {
 	key = canonicalFieldKey(key)
 	for _, spec := range fieldSpecs {
 		if spec.Key == key {
-			spec.Options = append([]string(nil), spec.Options...)
-			return spec, true
+			return cloneFieldSpec(spec), true
 		}
 	}
 	return FieldSpec{}, false
+}
+
+func cloneFieldSpec(spec FieldSpec) FieldSpec {
+	spec.Options = append([]string(nil), spec.Options...)
+	spec.Values = append([]FieldValueSpec(nil), spec.Values...)
+	spec.Related = append([]string(nil), spec.Related...)
+	return spec
 }
 
 func SetValue(cfg *Config, key, raw string) error {

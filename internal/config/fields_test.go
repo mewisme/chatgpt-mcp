@@ -1,6 +1,8 @@
 package config
 
 import (
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -120,7 +122,12 @@ func TestFieldsReturnsDefensiveCopy(t *testing.T) {
 	for index := range fields {
 		if len(fields[index].Options) > 0 {
 			fields[index].Options[0] = "mutated"
-			break
+		}
+		if len(fields[index].Values) > 0 {
+			fields[index].Values[0].Value = "mutated"
+		}
+		if len(fields[index].Related) > 0 {
+			fields[index].Related[0] = "mutated"
 		}
 	}
 	next := Fields()
@@ -133,7 +140,114 @@ func TestFieldsReturnsDefensiveCopy(t *testing.T) {
 				t.Fatal("field option mutation escaped copy")
 			}
 		}
+		for _, value := range spec.Values {
+			if value.Value == "mutated" {
+				t.Fatal("field value metadata mutation escaped copy")
+			}
+		}
+		for _, related := range spec.Related {
+			if related == "mutated" {
+				t.Fatal("field related metadata mutation escaped copy")
+			}
+		}
 	}
+}
+
+func TestExplainResolvesLeafBranchRootAndAlias(t *testing.T) {
+	leaf, err := Explain("shell.approval_policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leaf.Branch || leaf.Kind != FieldEnum || leaf.Default != "balanced" || len(leaf.Values) != 4 || leaf.Values[0].Value != "allow" || len(leaf.Related) == 0 {
+		t.Fatalf("leaf=%#v", leaf)
+	}
+	branch, err := Explain("shell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !branch.Branch || branch.Key != "shell" || !hasExplanationChild(branch, "shell.approval_policy") || !hasExplanationChild(branch, "shell.network_policy") {
+		t.Fatalf("branch=%#v", branch)
+	}
+	root, err := Explain("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !root.Branch || !hasExplanationChild(root, "shell") || !hasExplanationChild(root, "server") {
+		t.Fatalf("root=%#v", root)
+	}
+	alias, err := Explain("features.ponytail.enabled")
+	if err != nil || alias.Key != "features.ponytail.active" {
+		t.Fatalf("alias=%#v err=%v", alias, err)
+	}
+	if _, err := Explain("does.not.exist"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+		t.Fatalf("unsupported err=%v", err)
+	}
+}
+
+func TestExplainSchemaKeysIncludeBranchesAndLeaves(t *testing.T) {
+	keys := SchemaKeys()
+	for _, want := range []string{"server", "server.expose", "server.expose.mode", "shell", "shell.approval_policy"} {
+		if !slices.Contains(keys, want) {
+			t.Fatalf("schema keys missing %q: %#v", want, keys)
+		}
+	}
+}
+
+func TestFieldRegistryCoversConfigSchema(t *testing.T) {
+	leaves := map[string]bool{}
+	collectConfigSchemaLeaves(reflect.TypeOf(Config{}), "", leaves)
+	for key := range leaves {
+		if _, ok := FieldByKey(key); !ok {
+			t.Fatalf("config schema leaf %q has no FieldSpec", key)
+		}
+	}
+	for _, spec := range Fields() {
+		if !leaves[spec.Key] {
+			t.Fatalf("FieldSpec %q has no config schema leaf", spec.Key)
+		}
+		if len(spec.Values) > 0 {
+			if len(spec.Values) != len(spec.Options) {
+				t.Fatalf("field %q value descriptions do not match options", spec.Key)
+			}
+			for index, value := range spec.Values {
+				if value.Value != spec.Options[index] {
+					t.Fatalf("field %q value[%d]=%q option=%q", spec.Key, index, value.Value, spec.Options[index])
+				}
+			}
+		}
+	}
+}
+
+func collectConfigSchemaLeaves(value reflect.Type, prefix string, leaves map[string]bool) {
+	for index := 0; index < value.NumField(); index++ {
+		field := value.Field(index)
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if name == "" || name == "-" {
+			continue
+		}
+		key := name
+		if prefix != "" {
+			key = prefix + "." + name
+		}
+		fieldType := field.Type
+		if fieldType.Kind() == reflect.Pointer {
+			fieldType = fieldType.Elem()
+		}
+		if fieldType.Kind() == reflect.Struct {
+			collectConfigSchemaLeaves(fieldType, key, leaves)
+			continue
+		}
+		leaves[key] = true
+	}
+}
+
+func hasExplanationChild(parent Explanation, key string) bool {
+	for _, child := range parent.Children {
+		if child.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 func TestFieldPresentationMetadataCoversRegistry(t *testing.T) {

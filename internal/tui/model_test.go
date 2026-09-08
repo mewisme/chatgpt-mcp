@@ -306,6 +306,18 @@ func TestModelEscBacksToCurrentMainThenHomeThenQuits(t *testing.T) {
 	}
 }
 
+func TestModelInstructionDeepLinkEscapesDirectlyToHome(t *testing.T) {
+	model := NewModel(Route{Kind: RouteInstruction, Section: "rules"})
+	if model.router.Current() != (Route{Kind: RouteInstruction, Section: "rules"}) || len(model.router.stack) != 1 {
+		t.Fatalf("instruction route=%#v stack=%#v", model.router.Current(), model.router.stack)
+	}
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if cmd != nil || model.router.Current() != (Route{Kind: RouteHome}) {
+		t.Fatalf("escape route=%#v cmd=%v", model.router.Current(), cmd != nil)
+	}
+}
+
 func TestModelOpensAndRunsCommands(t *testing.T) {
 	model := NewModel(Route{Kind: RouteAbout})
 	updated, _ := model.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})

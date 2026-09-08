@@ -14,7 +14,11 @@ func (a *App) Bootstrap() error {
 		a.Config = config.NewRuntimeStore(config.Default())
 	}
 	if a.Tools == nil {
-		a.Tools = tools.NewRuntimeWithFeatures(a.Config.Snapshot().Features)
+		cfg := a.Config.Snapshot()
+		a.Tools = tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) {
+			current := a.Config.Snapshot()
+			return current.Admin.Enabled, current.Admin.Port
+		})
 	}
 	if a.Activity == nil {
 		a.Activity = activity.NewStream()

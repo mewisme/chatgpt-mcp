@@ -51,7 +51,7 @@ func NewRuntimeWithFeatures(featureConfig features.Config) *Runtime {
 	return NewRuntimeWithAccess(featureConfig, nil)
 }
 
-func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []string) *Runtime {
+func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []string, environments ...ProjectContextEnvironment) *Runtime {
 	workspaces := workspace.NewManagerWithGlobalAllowDirs(workspace.DefaultStorePath(), globalAllowDirs)
 	checkpoints := checkpoint.NewStore(checkpoint.DefaultRoot())
 	upstreams := upstream.NewManager(upstream.NewStore(upstream.Path()))
@@ -66,7 +66,11 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
-	RegisterCore(registry, workspaces, checkpoints, shell)
+	var environment ProjectContextEnvironment
+	if len(environments) > 0 {
+		environment = environments[0]
+	}
+	registerCore(registry, workspaces, checkpoints, environment, shell)
 	RegisterApprovalTools(registry, runtime)
 	RegisterUpstreamTools(registry, upstreams)
 	if err := runtime.SyncFeatures(featureConfig); err != nil {

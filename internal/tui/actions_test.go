@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"runtime"
 	"strings"
 	"testing"
@@ -27,8 +28,43 @@ func TestWorkspaceActionAvailabilityFollowsRouteContext(t *testing.T) {
 	if !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.unregister") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.access.add") {
 		t.Fatal("workspace context actions missing")
 	}
+	if has(action.Context{Route: string(RouteWorkspaces)}, "workspace.context.configure") || has(action.Context{Route: string(RouteHome), ResourceID: "ws_demo"}, "workspace.context.preview") {
+		t.Fatal("workspace context navigation actions leaked outside a workspace resource")
+	}
+	workspace := action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}
+	for _, id := range []string{"workspace.context.configure", "workspace.context.preview"} {
+		if !has(workspace, id) {
+			t.Fatalf("workspace context navigation action missing: %s", id)
+		}
+	}
 	if !has(action.Context{Route: string(RouteContainers), ResourceID: "wsc_demo"}, "workspace.container.rename") || !has(action.Context{Route: string(RouteContainers), ResourceID: "wsc_demo"}, "workspace.container.remove") {
 		t.Fatal("container context actions missing")
+	}
+}
+
+func TestInstructionAndWorkspaceContextNavigationActions(t *testing.T) {
+	registry := defaultActionRegistry()
+	for id, section := range map[string]string{
+		"instruction.open.context": "context",
+		"instruction.open.rules":   "rules",
+		"instruction.open.sources": "sources",
+	} {
+		cmd, err := registry.Execute(context.Background(), id, action.Context{Route: string(RouteHome)})
+		if err != nil || cmd == nil {
+			t.Fatalf("execute %s cmd=%v err=%v", id, cmd != nil, err)
+		}
+		message, ok := cmd().(navigateMsg)
+		if !ok || message.route != (Route{Kind: RouteInstruction, Section: section}) || !message.sibling {
+			t.Fatalf("%s navigation=%#v", id, message)
+		}
+	}
+	cmd, err := registry.Execute(context.Background(), "workspace.context.preview", action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"})
+	if err != nil || cmd == nil {
+		t.Fatalf("workspace preview cmd=%v err=%v", cmd != nil, err)
+	}
+	message, ok := cmd().(navigateMsg)
+	if !ok || message.route != (Route{Kind: RouteWorkspaces, ResourceID: "ws_demo", Section: "context-preview"}) || message.sibling {
+		t.Fatalf("workspace preview navigation=%#v", message)
 	}
 }
 

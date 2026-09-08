@@ -4,8 +4,17 @@ import (
 	"context"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 )
+
+func ProjectContextEnvironment() (bool, int) {
+	cfg, err := config.Load()
+	if err != nil {
+		return false, 0
+	}
+	return cfg.Admin.Enabled, cfg.Admin.Port
+}
 
 func ProjectContextToolProfile(ctx context.Context) instructioncontext.ToolProfile {
 	if ctx == nil {

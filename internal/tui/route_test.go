@@ -35,6 +35,9 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"instruction"}, Route{Kind: RouteInstruction}},
 		{[]string{"instructions"}, Route{Kind: RouteInstruction}},
 		{[]string{"instr"}, Route{Kind: RouteInstruction}},
+		{[]string{"instruction", "context"}, Route{Kind: RouteInstruction, Section: "context"}},
+		{[]string{"instruction", "rules"}, Route{Kind: RouteInstruction, Section: "rules"}},
+		{[]string{"instructions", "sources"}, Route{Kind: RouteInstruction, Section: "sources"}},
 		{[]string{"runtime", "service.user"}, Route{Kind: RouteRuntime, ResourceID: "service.user"}},
 		{[]string{"cfg"}, Route{Kind: RouteConfig}},
 		{[]string{"status"}, Route{Kind: RouteRuntime}},
@@ -46,10 +49,21 @@ func TestParseRoute(t *testing.T) {
 			t.Fatalf("ParseRoute(%v) = %#v, %v; want %#v", test.args, got, err, test.want)
 		}
 	}
-	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}} {
+	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
 		if _, err := ParseRoute(args); err == nil {
 			t.Fatalf("ParseRoute(%v) unexpectedly succeeded", args)
 		}
+	}
+}
+
+func TestInstructionTabsDoNotCreateRouterHistory(t *testing.T) {
+	route := Route{Kind: RouteInstruction, Section: "rules"}
+	router := NewRouter(route)
+	if router.Current() != route || len(router.stack) != 1 {
+		t.Fatalf("instruction route stack=%#v", router.stack)
+	}
+	if router.Back() {
+		t.Fatalf("instruction tab became a back-stack level: %#v", router.stack)
 	}
 }
 

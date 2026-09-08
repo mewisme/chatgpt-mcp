@@ -123,6 +123,13 @@ func (page *WorkspacePage) Init() tea.Cmd {
 	return nil
 }
 
+func (page *WorkspacePage) Close() {
+	if page == nil || !page.contextBuilding {
+		return
+	}
+	page.cancelWorkspaceContextBuild()
+}
+
 func (page *WorkspacePage) OverlayActive() bool {
 	return page != nil && page.overlay != workspaceOverlayNone
 }

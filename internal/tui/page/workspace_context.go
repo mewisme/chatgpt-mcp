@@ -16,8 +16,9 @@ import (
 )
 
 type WorkspaceContextSession struct {
-	Options projectcontext.Options
-	Result  *projectcontext.Result
+	Options    projectcontext.Options
+	Result     *projectcontext.Result
+	PreviewTab string
 }
 
 type workspaceContextFormData struct {
@@ -42,20 +43,11 @@ type workspaceContextBuildMsg struct {
 type workspaceContextBuildFunc func(context.Context, string, projectcontext.Options) (projectcontext.Result, error)
 
 func NewWorkspaceContextSession() *WorkspaceContextSession {
-	return &WorkspaceContextSession{Options: defaultWorkspaceContextOptions()}
+	return &WorkspaceContextSession{Options: defaultWorkspaceContextOptions(), PreviewTab: "rendered"}
 }
 
 func defaultWorkspaceContextOptions() projectcontext.Options {
-	return projectcontext.Options{
-		MaxInstructionBytes: instructioncontext.DefaultInstructionMaxBytes,
-		MaxSectionBytes:     instructioncontext.DefaultSectionMaxBytes,
-		MaxLinesPerSection:  instructioncontext.DefaultSectionMaxLines,
-		MaxMemoryEntries:    12,
-		MaxMemoryBytes:      8192,
-		IncludeGit:          true,
-		IncludeMemory:       true,
-		IncludeSkills:       true,
-	}
+	return projectcontext.DefaultOptions()
 }
 
 func newWorkspaceContextForm(options projectcontext.Options) (component.Form, *workspaceContextFormData) {
@@ -70,11 +62,11 @@ func newWorkspaceContextForm(options projectcontext.Options) (component.Form, *w
 			component.Input("Memory query", &data.MemoryQuery).Description("Optional relevance query for cross-session memory"),
 		).Title("Scope"),
 		component.Group(
-			workspaceContextIntInput("Max memory entries", &data.MaxMemoryEntries, 1, 100),
-			workspaceContextIntInput("Max memory bytes", &data.MaxMemoryBytes, 256, 100_000),
-			workspaceContextIntInput("Max instruction bytes", &data.MaxInstructionBytes, 1, 1_000_000),
-			workspaceContextIntInput("Max section bytes", &data.MaxSectionBytes, 1, 500_000),
-			workspaceContextIntInput("Max lines per section", &data.MaxLinesPerSection, 1, 5_000),
+			workspaceContextIntInput("Max memory entries", &data.MaxMemoryEntries, projectcontext.MinMemoryEntries, projectcontext.MaxMemoryEntries),
+			workspaceContextIntInput("Max memory bytes", &data.MaxMemoryBytes, projectcontext.MinMemoryBytes, projectcontext.MaxMemoryBytes),
+			workspaceContextIntInput("Max instruction bytes", &data.MaxInstructionBytes, projectcontext.MinInstructionBytes, projectcontext.MaxInstructionBytes),
+			workspaceContextIntInput("Max section bytes", &data.MaxSectionBytes, projectcontext.MinSectionBytes, projectcontext.MaxSectionBytes),
+			workspaceContextIntInput("Max lines per section", &data.MaxLinesPerSection, projectcontext.MinLinesPerSection, projectcontext.MaxLinesPerSection),
 		).Title("Budgets"),
 		component.Group(
 			component.Switch("Git", &data.IncludeGit), component.Switch("Memory", &data.IncludeMemory), component.Switch("Skills", &data.IncludeSkills),
@@ -104,23 +96,23 @@ func (data *workspaceContextFormData) Options() (projectcontext.Options, error) 
 		}
 		return parsed, nil
 	}
-	maxMemoryEntries, err := parse("max memory entries", data.MaxMemoryEntries, 1, 100)
+	maxMemoryEntries, err := parse("max memory entries", data.MaxMemoryEntries, projectcontext.MinMemoryEntries, projectcontext.MaxMemoryEntries)
 	if err != nil {
 		return projectcontext.Options{}, err
 	}
-	maxMemoryBytes, err := parse("max memory bytes", data.MaxMemoryBytes, 256, 100_000)
+	maxMemoryBytes, err := parse("max memory bytes", data.MaxMemoryBytes, projectcontext.MinMemoryBytes, projectcontext.MaxMemoryBytes)
 	if err != nil {
 		return projectcontext.Options{}, err
 	}
-	maxInstructionBytes, err := parse("max instruction bytes", data.MaxInstructionBytes, 1, 1_000_000)
+	maxInstructionBytes, err := parse("max instruction bytes", data.MaxInstructionBytes, projectcontext.MinInstructionBytes, projectcontext.MaxInstructionBytes)
 	if err != nil {
 		return projectcontext.Options{}, err
 	}
-	maxSectionBytes, err := parse("max section bytes", data.MaxSectionBytes, 1, 500_000)
+	maxSectionBytes, err := parse("max section bytes", data.MaxSectionBytes, projectcontext.MinSectionBytes, projectcontext.MaxSectionBytes)
 	if err != nil {
 		return projectcontext.Options{}, err
 	}
-	maxLinesPerSection, err := parse("max lines per section", data.MaxLinesPerSection, 1, 5_000)
+	maxLinesPerSection, err := parse("max lines per section", data.MaxLinesPerSection, projectcontext.MinLinesPerSection, projectcontext.MaxLinesPerSection)
 	if err != nil {
 		return projectcontext.Options{}, err
 	}
@@ -144,6 +136,7 @@ func (page *WorkspacePage) initWorkspaceContext() {
 		page.contextBuild = func(ctx context.Context, workspaceID string, options projectcontext.Options) (projectcontext.Result, error) {
 			profile := application.ProjectContextToolProfile(ctx)
 			service := projectcontext.New(manager, func() instructioncontext.ToolProfile { return profile })
+			service.Environment = application.ProjectContextEnvironment
 			return service.Build(ctx, workspaceID, options)
 		}
 	}

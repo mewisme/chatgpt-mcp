@@ -12,6 +12,21 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
+const (
+	MinMemoryEntries     = 1
+	MaxMemoryEntries     = 100
+	DefaultMemoryEntries = 12
+	MinMemoryBytes       = 256
+	MaxMemoryBytes       = 100_000
+	DefaultMemoryBytes   = 8192
+	MinInstructionBytes  = 1
+	MaxInstructionBytes  = 1_000_000
+	MinSectionBytes      = 1
+	MaxSectionBytes      = 500_000
+	MinLinesPerSection   = 1
+	MaxLinesPerSection   = 5_000
+)
+
 type MemoryFile struct {
 	Path      string                         `json:"path"`
 	Kind      instructioncontext.SectionKind `json:"kind"`
@@ -57,11 +72,25 @@ type Options struct {
 	AdminPort           int
 }
 
+func DefaultOptions() Options {
+	return Options{
+		MaxInstructionBytes: instructioncontext.DefaultInstructionMaxBytes,
+		MaxSectionBytes:     instructioncontext.DefaultSectionMaxBytes,
+		MaxLinesPerSection:  instructioncontext.DefaultSectionMaxLines,
+		MaxMemoryEntries:    DefaultMemoryEntries,
+		MaxMemoryBytes:      DefaultMemoryBytes,
+		IncludeGit:          true,
+		IncludeMemory:       true,
+		IncludeSkills:       true,
+	}
+}
+
 type Service struct {
 	Workspaces  *workspace.Manager
 	MemoryStore memory.Store
 	PolicyStore *instructionpolicy.Store
 	ToolProfile func() instructioncontext.ToolProfile
+	Environment func() (bool, int)
 }
 
 func New(workspaces *workspace.Manager, toolProfile func() instructioncontext.ToolProfile) *Service {
@@ -105,13 +134,17 @@ func (s *Service) Build(ctx context.Context, workspaceID string, opts Options) (
 	if s.ToolProfile != nil {
 		profile = s.ToolProfile()
 	}
+	adminEnabled, adminPort := opts.AdminEnabled, opts.AdminPort
+	if !adminEnabled && adminPort == 0 && s.Environment != nil {
+		adminEnabled, adminPort = s.Environment()
+	}
 	value, err := instructioncontext.Build(ctx, instructioncontext.BuildOptions{
 		Root: root, WorkspaceID: item.ID, WorkspaceRoot: item.Path, CWD: item.Path, WorkspaceRoots: roots, MemoryStore: s.MemoryStore,
 		Memory: instructioncontext.MemoryLoadOptions{ImportMaxDepth: instructioncontext.DefaultImportMaxDepth, MaxBytesPerSection: opts.MaxSectionBytes, MaxLinesPerSection: opts.MaxLinesPerSection},
 		Policy: policy, ToolProfile: profile, MaxInstructionBytes: opts.MaxInstructionBytes,
 		MemoryQuery: opts.MemoryQuery, MaxMemoryEntries: opts.MaxMemoryEntries, MaxMemoryBytes: opts.MaxMemoryBytes,
 		SkipGit: !opts.IncludeGit, SkipMemory: !opts.IncludeMemory, SkipSkills: !opts.IncludeSkills,
-		AdminEnabled: opts.AdminEnabled, AdminPort: opts.AdminPort,
+		AdminEnabled: adminEnabled, AdminPort: adminPort,
 	})
 	if err != nil {
 		return Result{}, err

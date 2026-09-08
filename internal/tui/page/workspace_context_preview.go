@@ -15,6 +15,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
+	"go.mewis.me/chatgpt-mcp/internal/rules"
+	"go.mewis.me/chatgpt-mcp/internal/skills"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
@@ -37,6 +39,7 @@ const (
 	workspaceContextPreviewProvider
 	workspaceContextPreviewResource
 	workspaceContextPreviewPath
+	workspaceContextPreviewContent
 )
 
 type workspaceContextPreviewNode struct {
@@ -44,6 +47,7 @@ type workspaceContextPreviewNode struct {
 	Provider string
 	Resource string
 	Path     string
+	Content  string
 	Label    string
 }
 
@@ -54,7 +58,7 @@ type workspaceContextPreviewState struct {
 	tab          workspaceContextPreviewTab
 	rendered     component.MarkdownViewer
 	sources      tree.Model
-	json         component.MarkdownViewer
+	json         component.CodeViewer
 	sourceViewer *component.MarkdownViewer
 	sourcePath   string
 	help         component.HelpFooter
@@ -65,7 +69,7 @@ type workspaceContextPreviewTabMsg struct{ Tab workspaceContextPreviewTab }
 type workspaceContextPreviewWheelMsg int
 
 func (page *WorkspacePage) syncWorkspaceContextPreview() {
-	state := &workspaceContextPreviewState{isDark: true}
+	state := &workspaceContextPreviewState{isDark: true, tab: workspaceContextPreviewTabFromSession(page.contextSession)}
 	state.help = component.NewHelpFooter(
 		component.Binding([]string{"1"}, "1", "rendered"),
 		component.Binding([]string{"2"}, "2", "sources"),
@@ -84,18 +88,44 @@ func (page *WorkspacePage) syncWorkspaceContextPreview() {
 	if err != nil {
 		encoded = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
 	}
-	state.json = component.NewMarkdownViewer("```json\n" + string(encoded) + "\n```")
-	state.sources = newWorkspaceContextSourceTree(result.InstructionContext.Sources, state.isDark)
+	state.json = component.NewCodeViewer(string(encoded))
+	state.sources = newWorkspaceContextSourceTree(result, state.isDark)
 	page.contextPreview = state
 	if page.width > 0 && page.height > 0 {
 		page.resizeWorkspaceContextPreview(page.width, page.height)
 	}
 }
 
-func newWorkspaceContextSourceTree(sources []instructioncontext.SourceSnapshot, isDark bool) tree.Model {
+func workspaceContextPreviewTabFromSession(session *WorkspaceContextSession) workspaceContextPreviewTab {
+	if session == nil {
+		return workspaceContextPreviewRendered
+	}
+	switch strings.ToLower(strings.TrimSpace(session.PreviewTab)) {
+	case "sources":
+		return workspaceContextPreviewSources
+	case "json":
+		return workspaceContextPreviewJSON
+	default:
+		return workspaceContextPreviewRendered
+	}
+}
+
+func (page *WorkspacePage) setWorkspaceContextPreviewTab(tab workspaceContextPreviewTab) {
+	if page == nil || page.contextPreview == nil || int(tab) < 0 || int(tab) >= len(workspaceContextPreviewTabLabels) {
+		return
+	}
+	page.contextPreview.tab = tab
+	if page.contextSession != nil {
+		page.contextSession.PreviewTab = strings.ToLower(workspaceContextPreviewTabLabels[tab])
+	}
+}
+
+func newWorkspaceContextSourceTree(result projectcontext.Result, isDark bool) tree.Model {
 	root := tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewRoot, Label: "Sources"}).Open()
+	context := result.InstructionContext
+	userSources := tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewResource, Resource: "user-sources", Label: "User-level Sources"}).Open()
 	groups := map[string][]instructioncontext.SourceSnapshot{}
-	for _, source := range sources {
+	for _, source := range context.Sources {
 		provider := strings.TrimSpace(source.Provider)
 		if provider == "" {
 			provider = "unknown"
@@ -126,8 +156,23 @@ func newWorkspaceContextSourceTree(sources []instructioncontext.SourceSnapshot, 
 			}
 			providerNode.Child(resourceNode)
 		}
-		root.Child(providerNode)
+		userSources.Child(providerNode)
 	}
+	root.Child(userSources)
+	if strings.TrimSpace(context.GlobalContext) != "" {
+		root.Child(tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewContent, Resource: "global-context", Content: context.GlobalContext, Label: fmt.Sprintf("Global Context · %s", formatInstructionBytes(len([]byte(context.GlobalContext))))}))
+	}
+	if context.AutoMemory.Loaded {
+		label := fmt.Sprintf("Auto Memory · %d entries · %s", context.AutoMemory.Entries, formatInstructionBytes(context.AutoMemory.Bytes))
+		if context.AutoMemory.Truncated {
+			label += " · truncated"
+		}
+		root.Child(tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewContent, Resource: "auto-memory", Content: context.AutoMemory.Content, Label: label}))
+	}
+	root.Child(workspaceContextSectionTree("Project/User Instruction Files", append(append([]instructioncontext.Section(nil), context.ProjectMemory.Sections...), context.ProjectMemory.Imports...)))
+	root.Child(workspaceContextRuleTree("Global Rules", context.GlobalRules))
+	root.Child(workspaceContextRuleTree("Rules", context.Rules))
+	root.Child(workspaceContextSkillTree(context.Skills))
 	model := tree.New(root, 80, 20)
 	model.SetShowHelp(true)
 	model.SetAdditionalShortHelpKeys(func() []key.Binding {
@@ -135,6 +180,41 @@ func newWorkspaceContextSourceTree(sources []instructioncontext.SourceSnapshot, 
 	})
 	applyWorkspaceContextTreeTheme(&model, isDark)
 	return model
+}
+
+func workspaceContextSectionTree(label string, sections []instructioncontext.Section) *tree.Node {
+	node := tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewResource, Resource: "instructions", Label: fmt.Sprintf("%s · %d", label, len(sections))}).Open()
+	for _, section := range sections {
+		itemLabel := section.Path
+		if section.Truncated {
+			itemLabel += " · truncated"
+		}
+		node.Child(tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewPath, Resource: string(section.Kind), Path: section.Path, Content: section.Content, Label: itemLabel}))
+	}
+	return node
+}
+
+func workspaceContextRuleTree(label string, values []rules.Rule) *tree.Node {
+	node := tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewResource, Resource: strings.ToLower(strings.ReplaceAll(label, " ", "-")), Label: fmt.Sprintf("%s · %d", label, len(values))}).Open()
+	for _, rule := range values {
+		node.Child(tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewPath, Resource: "rule", Path: rule.Path, Content: rule.Content, Label: rule.Path}))
+	}
+	return node
+}
+
+func workspaceContextSkillTree(values []skills.Skill) *tree.Node {
+	node := tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewResource, Resource: "skills", Label: fmt.Sprintf("Skills · %d", len(values))}).Open()
+	for _, skill := range values {
+		label := strings.TrimSpace(skill.Name)
+		if label == "" {
+			label = skill.Path
+		}
+		if skill.Path != "" && skill.Path != label {
+			label += " · " + skill.Path
+		}
+		node.Child(tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewPath, Resource: "skill", Path: skill.Path, Label: label}))
+	}
+	return node
 }
 
 func sourceResourceLabelString(kind string) string {
@@ -145,6 +225,10 @@ func sourceResourceLabelString(kind string) string {
 		return "Rules"
 	case "skills":
 		return "Skills"
+	case "global-context":
+		return "Global Context"
+	case "auto-memory":
+		return "Auto Memory"
 	default:
 		return strings.TrimSpace(kind)
 	}
@@ -166,13 +250,13 @@ func (page *WorkspacePage) handleWorkspaceContextPreviewKey(msg tea.KeyPressMsg)
 	}
 	switch msg.String() {
 	case "1":
-		state.tab = workspaceContextPreviewRendered
+		page.setWorkspaceContextPreviewTab(workspaceContextPreviewRendered)
 		return nil, true
 	case "2":
-		state.tab = workspaceContextPreviewSources
+		page.setWorkspaceContextPreviewTab(workspaceContextPreviewSources)
 		return nil, true
 	case "3":
-		state.tab = workspaceContextPreviewJSON
+		page.setWorkspaceContextPreviewTab(workspaceContextPreviewJSON)
 		return nil, true
 	case "e", "r":
 		return func() tea.Msg { return NavigateMsg{Path: []string{"workspaces", page.resourceID, "context"}} }, true
@@ -213,11 +297,17 @@ func (page *WorkspacePage) openWorkspaceContextSelectedSource() bool {
 		return false
 	}
 	node, ok := selected.GivenValue().(workspaceContextPreviewNode)
-	if !ok || node.Kind != workspaceContextPreviewPath || strings.TrimSpace(node.Path) == "" {
+	if !ok || node.Kind != workspaceContextPreviewPath && node.Kind != workspaceContextPreviewContent {
 		return false
 	}
-	content, err := workspaceContextSourceContent(*state.result, node.Path)
-	state.sourcePath = node.Path
+	content, err := node.Content, error(nil)
+	if strings.TrimSpace(content) == "" && strings.TrimSpace(node.Path) != "" {
+		content, err = workspaceContextSourceContent(*state.result, node.Path)
+	}
+	state.sourcePath = strings.TrimSpace(node.Path)
+	if state.sourcePath == "" {
+		state.sourcePath = sourceResourceLabelString(node.Resource)
+	}
 	if err != nil {
 		content = "# Source unavailable\n\n" + err.Error()
 	}
@@ -234,7 +324,7 @@ func (page *WorkspacePage) updateWorkspaceContextPreview(message tea.Msg) tea.Cm
 	}
 	if msg, ok := message.(workspaceContextPreviewTabMsg); ok {
 		if int(msg.Tab) >= 0 && int(msg.Tab) < len(workspaceContextPreviewTabLabels) {
-			state.tab = msg.Tab
+			page.setWorkspaceContextPreviewTab(msg.Tab)
 			state.sourceViewer, state.sourcePath = nil, ""
 		}
 		return nil
@@ -257,8 +347,6 @@ func (page *WorkspacePage) updateWorkspaceContextPreview(message tea.Msg) tea.Cm
 		if state.result != nil {
 			updated, _ := state.rendered.Update(background)
 			state.rendered = updated
-			updated, _ = state.json.Update(background)
-			state.json = updated
 		}
 		if state.sourceViewer != nil {
 			updated, _ := state.sourceViewer.Update(background)
@@ -316,7 +404,11 @@ func (page *WorkspacePage) workspaceContextPreviewBodySize(width, height int) (i
 	title := component.PageTitleNotice("Project Context Preview · "+page.resourceID, page.notice, width)
 	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(page.contextPreview.tab), "", width)
 	feedback := page.listFeedback(width)
-	bodyHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(tabs)-pageFeedbackHeight(feedback))
+	summaryHeight := 0
+	if page.contextPreview.result != nil {
+		summaryHeight = lipgloss.Height(workspaceContextPreviewSummary(*page.contextPreview.result, width)) + 1
+	}
+	bodyHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(tabs)-summaryHeight-pageFeedbackHeight(feedback))
 	return max(1, width), bodyHeight
 }
 
@@ -329,6 +421,10 @@ func (page *WorkspacePage) workspaceContextPreviewView(width, height int) string
 	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(state.tab), "", width)
 	feedback := page.listFeedback(width)
 	bodyWidth, bodyHeight := page.workspaceContextPreviewBodySize(width, height)
+	summary := ""
+	if state.result != nil {
+		summary = workspaceContextPreviewSummary(*state.result, width) + "\n"
+	}
 	body := ""
 	if state.result == nil {
 		body = component.Muted("Project Context is not built. Press e to configure and build it.")
@@ -355,7 +451,20 @@ func (page *WorkspacePage) workspaceContextPreviewView(width, height int) string
 			body += "\n" + help
 		}
 	}
-	return title + "\n" + tabs + "\n" + prependPageFeedback(feedback, body)
+	return title + "\n" + tabs + "\n" + summary + prependPageFeedback(feedback, body)
+}
+
+func workspaceContextPreviewSummary(result projectcontext.Result, width int) string {
+	parts := []string{
+		formatInstructionBytes(result.Summary.InstructionBytes) + " instructions",
+		formatInstructionBytes(result.Summary.MemoryBytes) + " memory",
+		fmt.Sprintf("%d rules", result.Summary.Rules),
+		fmt.Sprintf("%d skills", result.Summary.Skills),
+	}
+	if result.InstructionContext.InstructionTruncated {
+		parts = append(parts, "truncated")
+	}
+	return component.WrapContent(strings.Join(parts, " · "), max(1, width))
 }
 
 func (page *WorkspacePage) workspaceContextSourceViewerHeader(width int) string {
@@ -389,6 +498,9 @@ func (page *WorkspacePage) workspaceContextPreviewMouseTargets(originX, originY,
 		})
 	}
 	contentY := tabsY + lipgloss.Height(tabs) + pageFeedbackHeight(page.listFeedback(page.width))
+	if state.result != nil {
+		contentY += lipgloss.Height(workspaceContextPreviewSummary(*state.result, page.width)) + 1
+	}
 	if state.sourceViewer != nil {
 		header := page.workspaceContextSourceViewerHeader(max(1, page.width))
 		return append(targets, state.sourceViewer.MouseTargets(originX, contentY+lipgloss.Height(header), z)...)

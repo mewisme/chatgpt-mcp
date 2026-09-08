@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -14,6 +15,8 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
+	"go.mewis.me/chatgpt-mcp/internal/rules"
+	"go.mewis.me/chatgpt-mcp/internal/skills"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
@@ -620,11 +623,16 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		return projectcontext.Result{
 			Root: project, WorkspaceID: item.ID,
 			InstructionContext: instructioncontext.InstructionContext{
-				Root: project, WorkspaceID: item.ID, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: 77}, InstructionsText: "# Rendered Context\n\nUse compact code.",
+				Root: project, WorkspaceID: item.ID, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: 77}, InstructionsText: "# Rendered Context\n\nUse compact code.", InstructionTruncated: true,
 				ProjectMemory: instructioncontext.ProjectMemoryBundle{Sections: []instructioncontext.Section{{Path: sourcePath, Kind: instructioncontext.SectionProject, Content: "# AGENTS\n\nSource body.", LoadedBytes: 22}}},
+				AutoMemory:    instructioncontext.AutoMemorySnapshot{Loaded: true, Content: "## general\n\n- remember compact code", Bytes: 36, Entries: 1, Truncated: true},
+				GlobalContext: "# Global Context\n\nShared policy.",
+				GlobalRules:   []rules.Rule{{Path: "managed://global-rule", Source: "managed", Content: "# Global Rule\n\nAlways apply."}},
+				Rules:         []rules.Rule{{Path: filepath.Join(project, ".agents", "rules", "project.md"), Source: "agents", Content: "# Project Rule\n\nProject only."}},
+				Skills:        []skills.Skill{{Name: "review", Description: "Review changes", Path: filepath.Join(project, ".agents", "skills", "review", "SKILL.md"), Source: "agents"}},
 				Sources:       []instructioncontext.SourceSnapshot{{Provider: "claude", Kind: "context", Paths: []string{sourcePath}, Count: 1, Enabled: true, Loaded: true}},
 			},
-			Summary: projectcontext.Summary{InstructionBytes: 1234, MemoryBytes: 456, Rules: 2, Skills: 3},
+			Summary: projectcontext.Summary{InstructionBytes: 1234, MemoryBytes: 456, Rules: 2, Skills: 1},
 		}, nil
 	}
 	updated, cmd := page.Update(component.FormSubmittedMsg{})
@@ -647,7 +655,7 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	previewView := ansi.Strip(preview.View(110, 30))
-	for _, want := range []string{"Project Context Preview", "Rendered", "Sources", "JSON", "Rendered Context", "Use compact code."} {
+	for _, want := range []string{"Project Context Preview", "Rendered", "Sources", "JSON", "Rendered Context", "Use compact code.", "2 rules", "1 skills", "truncated"} {
 		if !strings.Contains(previewView, want) {
 			t.Fatalf("preview missing %q: %q", want, previewView)
 		}
@@ -655,7 +663,7 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	updated, _ = preview.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	preview = updated.(*WorkspacePage)
 	sourcesView := ansi.Strip(preview.View(110, 30))
-	for _, want := range []string{"Claude", "Context · 1 · included"} {
+	for _, want := range []string{"User-level Sources", "Claude", "Context · 1 · included", "Global Context", "Auto Memory", "Project/User Instruction Files · 1", "Global Rules · 1", "Rules · 1", "Skills · 1"} {
 		if !strings.Contains(sourcesView, want) {
 			t.Fatalf("sources preview missing %q: %q", want, sourcesView)
 		}
@@ -711,6 +719,9 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	}
 	updated, _ = preview.Update(jsonTabMsg)
 	preview = updated.(*WorkspacePage)
+	if strings.Contains(preview.contextPreview.json.Content(), "```") || !strings.HasPrefix(strings.TrimSpace(preview.contextPreview.json.Content()), "{") {
+		t.Fatalf("json preview is not raw formatted JSON: %q", preview.contextPreview.json.Content())
+	}
 	jsonView := ansi.Strip(preview.View(110, 30))
 	for _, want := range []string{"workspace_id", item.ID, "instruction_context"} {
 		if !strings.Contains(jsonView, want) {
@@ -787,6 +798,145 @@ func TestWorkspaceProjectContextBuildCanBeCancelled(t *testing.T) {
 	page = updated.(*WorkspacePage)
 	if page.contextBuilding || page.contextBuildID == buildID || session.Result != nil || page.Notice() != "Project Context build cancelled" {
 		t.Fatalf("cancel state building=%t id=%d result=%v notice=%q", page.contextBuilding, page.contextBuildID, session.Result != nil, page.Notice())
+	}
+}
+
+func TestWorkspaceProjectContextCloseCancelsInFlightBuild(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := NewWorkspaceContextSession()
+	page, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled := make(chan struct{})
+	page.contextBuild = func(ctx context.Context, _ string, _ projectcontext.Options) (projectcontext.Result, error) {
+		<-ctx.Done()
+		close(cancelled)
+		return projectcontext.Result{}, ctx.Err()
+	}
+	updated, cmd := page.Update(component.FormSubmittedMsg{})
+	page = updated.(*WorkspacePage)
+	if cmd == nil || !page.contextBuilding {
+		t.Fatalf("build did not start: cmd=%v building=%t", cmd != nil, page.contextBuilding)
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("build command message=%T", cmd())
+	}
+	for _, next := range batch {
+		if next != nil {
+			go next()
+		}
+	}
+	buildID := page.contextBuildID
+	page.Close()
+	if page.contextBuilding || page.contextBuildID == buildID || page.contextCancel != nil || session.Result != nil {
+		t.Fatalf("close state building=%t id=%d cancel=%v result=%v", page.contextBuilding, page.contextBuildID, page.contextCancel != nil, session.Result != nil)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("build context was not cancelled by Close")
+	}
+}
+
+func TestWorkspaceProjectContextPreviewTabPersistsInSession(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := projectcontext.Result{Root: project, WorkspaceID: item.ID, InstructionContext: instructioncontext.InstructionContext{Root: project, WorkspaceID: item.ID, InstructionsText: "# Context"}}
+	session := NewWorkspaceContextSession()
+	session.Result = &result
+	preview, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context-preview", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := preview.Update(tea.KeyPressMsg{Code: '3', Text: "3"})
+	preview = updated.(*WorkspacePage)
+	if preview.contextPreview.tab != workspaceContextPreviewJSON || session.PreviewTab != "json" {
+		t.Fatalf("tab=%d session=%q", preview.contextPreview.tab, session.PreviewTab)
+	}
+	rebuilt, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context-preview", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebuilt.contextPreview.tab != workspaceContextPreviewJSON {
+		t.Fatalf("rebuilt tab=%d want=%d", rebuilt.contextPreview.tab, workspaceContextPreviewJSON)
+	}
+}
+
+func TestWorkspaceProjectContextPreviewResponsiveLayouts(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project-with-a-long-name-for-responsive-preview")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := projectcontext.Result{
+		Root: project, WorkspaceID: item.ID,
+		InstructionContext: instructioncontext.InstructionContext{
+			Root: project, WorkspaceID: item.ID,
+			InstructionsText: "# Responsive Project Context\n\n" + strings.Repeat("Long markdown content for width verification. ", 20),
+			GlobalContext:    strings.Repeat("global-context-", 20),
+			Sources:          []instructioncontext.SourceSnapshot{{Provider: "agents", Kind: "context", Paths: []string{filepath.Join(project, "AGENTS.md")}, Count: 1, Enabled: true, Loaded: true}},
+		},
+		Summary: projectcontext.Summary{InstructionBytes: 4096, MemoryBytes: 1024, Rules: 2, Skills: 1},
+	}
+	session := NewWorkspaceContextSession()
+	session.Result = &result
+	preview, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context-preview", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tab := range []tea.KeyPressMsg{{Code: '1', Text: "1"}, {Code: '2', Text: "2"}, {Code: '3', Text: "3"}} {
+		updated, _ := preview.Update(tab)
+		preview = updated.(*WorkspacePage)
+		for _, size := range [][2]int{{80, 24}, {100, 30}, {120, 40}, {24, 10}} {
+			view := ansi.Strip(preview.View(size[0], size[1]))
+			for _, line := range strings.Split(view, "\n") {
+				if width := lipgloss.Width(line); width > size[0] {
+					t.Fatalf("tab=%q size=%dx%d line width=%d: %q", tab.String(), size[0], size[1], width, line)
+				}
+			}
+		}
 	}
 }
 

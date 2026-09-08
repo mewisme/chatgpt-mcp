@@ -114,24 +114,24 @@ func (api API) handleWorkspaceContext(w http.ResponseWriter, r *http.Request, ma
 		return instructioncontext.ToolProfile{Name: "full", Count: count}
 	}
 	service := projectcontext.New(manager, toolProfile)
-	adminEnabled, adminPort := false, 0
 	if api.Config != nil {
-		cfg := api.Config.Snapshot()
-		adminEnabled, adminPort = cfg.Admin.Enabled, cfg.Admin.Port
+		service.Environment = func() (bool, int) {
+			cfg := api.Config.Snapshot()
+			return cfg.Admin.Enabled, cfg.Admin.Port
+		}
 	}
+	defaults := projectcontext.DefaultOptions()
 	result, err := service.Build(r.Context(), item.ID, projectcontext.Options{
 		Path:                strings.TrimSpace(r.URL.Query().Get("path")),
 		MemoryQuery:         strings.TrimSpace(r.URL.Query().Get("memory_query")),
-		MaxMemoryEntries:    queryInt(r, "max_memory_entries", 12, 1, 100),
-		MaxMemoryBytes:      queryInt(r, "max_memory_bytes", 8192, 256, 100_000),
-		MaxInstructionBytes: queryInt(r, "max_instruction_bytes", instructioncontext.DefaultInstructionMaxBytes, 1, 1_000_000),
-		MaxSectionBytes:     queryInt(r, "max_section_bytes", instructioncontext.DefaultSectionMaxBytes, 1, 500_000),
-		MaxLinesPerSection:  queryInt(r, "max_lines_per_section", instructioncontext.DefaultSectionMaxLines, 1, 5_000),
-		IncludeGit:          queryBool(r, "include_git", true),
-		IncludeMemory:       queryBool(r, "include_memory", true),
-		IncludeSkills:       queryBool(r, "include_skills", true),
-		AdminEnabled:        adminEnabled,
-		AdminPort:           adminPort,
+		MaxMemoryEntries:    queryInt(r, "max_memory_entries", defaults.MaxMemoryEntries, projectcontext.MinMemoryEntries, projectcontext.MaxMemoryEntries),
+		MaxMemoryBytes:      queryInt(r, "max_memory_bytes", defaults.MaxMemoryBytes, projectcontext.MinMemoryBytes, projectcontext.MaxMemoryBytes),
+		MaxInstructionBytes: queryInt(r, "max_instruction_bytes", defaults.MaxInstructionBytes, projectcontext.MinInstructionBytes, projectcontext.MaxInstructionBytes),
+		MaxSectionBytes:     queryInt(r, "max_section_bytes", defaults.MaxSectionBytes, projectcontext.MinSectionBytes, projectcontext.MaxSectionBytes),
+		MaxLinesPerSection:  queryInt(r, "max_lines_per_section", defaults.MaxLinesPerSection, projectcontext.MinLinesPerSection, projectcontext.MaxLinesPerSection),
+		IncludeGit:          queryBool(r, "include_git", defaults.IncludeGit),
+		IncludeMemory:       queryBool(r, "include_memory", defaults.IncludeMemory),
+		IncludeSkills:       queryBool(r, "include_skills", defaults.IncludeSkills),
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

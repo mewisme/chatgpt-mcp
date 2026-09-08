@@ -847,7 +847,7 @@ func (model *Model) loadPage(route Route) {
 	case RouteConfig:
 		value, err = tuipage.NewConfigRoute(model.ctx, route.ResourceID)
 	case RouteInstruction:
-		value, err = tuipage.NewInstruction(model.ctx)
+		value, err = tuipage.NewInstructionRoute(model.ctx, route.Section)
 	}
 	if err != nil {
 		model.notice = err.Error()

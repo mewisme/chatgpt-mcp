@@ -283,7 +283,7 @@ func tunnelRunCommand() *cobra.Command {
 		log := commandLogger(cmd)
 		defer log.Close()
 		logCommandStep(cmd, "TUNNEL", "tunnel.tools.initializing", "Initializing MCP tool runtime")
-		runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+		runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) { return cfg.Admin.Enabled, cfg.Admin.Port })
 		if err := runtime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
 			return err
 		}

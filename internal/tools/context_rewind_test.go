@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -123,6 +125,31 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 	}
 }
 
+func TestProjectContextUsesInjectedEnvironment(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	testHome := t.TempDir()
+	t.Setenv("HOME", testHome)
+	t.Setenv("USERPROFILE", testHome)
+	root := t.TempDir()
+	workspaces := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := workspaces.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry()
+	checkpoints := checkpoint.NewStore(filepath.Join(t.TempDir(), "state"))
+	RegisterContextTools(registry, workspaces, checkpoints, func() (bool, int) { return true, 37422 })
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}
+	result, err := runtime.Call(context.Background(), "project_context", map[string]any{"workspace_id": item.ID})
+	if err != nil || result.IsError {
+		t.Fatalf("project_context failed: %#v %v", result, err)
+	}
+	project := result.StructuredContent.(ProjectContextResult)
+	if !project.InstructionContext.Environment.Admin.Enabled || project.InstructionContext.Environment.Admin.URL != "http://127.0.0.1:37422/" {
+		t.Fatalf("admin environment=%#v", project.InstructionContext.Environment.Admin)
+	}
+}
+
 func TestContextToolsApplyManagedGlobalPolicyToUserSources(t *testing.T) {
 	runtime, workspaceID, _, _ := newContextToolRuntime(t)
 	home, err := os.UserHomeDir()
@@ -210,6 +237,30 @@ func TestProjectContextOutputSchemaUsesInstructionBundle(t *testing.T) {
 	for _, legacy := range []string{"\"max_depth\"", "\"max_bytes_per_file\""} {
 		if strings.Contains(input, legacy) {
 			t.Fatalf("legacy project_context input remains %s: %s", legacy, input)
+		}
+	}
+	var inputSchema struct {
+		Properties map[string]map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal(schema.InputSchema, &inputSchema); err != nil {
+		t.Fatal(err)
+	}
+	defaults := projectcontext.DefaultOptions()
+	for key, expected := range map[string][3]int{
+		"max_memory_entries":    {projectcontext.MinMemoryEntries, projectcontext.MaxMemoryEntries, defaults.MaxMemoryEntries},
+		"max_memory_bytes":      {projectcontext.MinMemoryBytes, projectcontext.MaxMemoryBytes, defaults.MaxMemoryBytes},
+		"max_instruction_bytes": {projectcontext.MinInstructionBytes, projectcontext.MaxInstructionBytes, defaults.MaxInstructionBytes},
+		"max_section_bytes":     {projectcontext.MinSectionBytes, projectcontext.MaxSectionBytes, defaults.MaxSectionBytes},
+		"max_lines_per_section": {projectcontext.MinLinesPerSection, projectcontext.MaxLinesPerSection, defaults.MaxLinesPerSection},
+	} {
+		property := inputSchema.Properties[key]
+		if int(property["minimum"].(float64)) != expected[0] || int(property["maximum"].(float64)) != expected[1] || int(property["default"].(float64)) != expected[2] {
+			t.Fatalf("%s schema=%#v expected=%v", key, property, expected)
+		}
+	}
+	for key, expected := range map[string]bool{"include_git": defaults.IncludeGit, "include_memory": defaults.IncludeMemory, "include_skills": defaults.IncludeSkills} {
+		if got, _ := inputSchema.Properties[key]["default"].(bool); got != expected {
+			t.Fatalf("%s default=%t want=%t", key, got, expected)
 		}
 	}
 	output := string(schema.OutputSchema)

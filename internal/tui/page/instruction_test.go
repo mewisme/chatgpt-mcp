@@ -41,6 +41,22 @@ func TestInstructionPageShowsContextAndReadOnlySummaries(t *testing.T) {
 	}
 }
 
+func TestInstructionRouteSelectsRequestedTab(t *testing.T) {
+	_, service := newTestInstructionPage(t)
+	for section, want := range map[string]instructionTab{"": instructionTabContext, "context": instructionTabContext, "rules": instructionTabRules, "sources": instructionTabSources} {
+		page, err := newInstructionPageRoute(t.Context(), service, section)
+		if err != nil {
+			t.Fatalf("section %q: %v", section, err)
+		}
+		if page.tab != want {
+			t.Fatalf("section %q tab=%d want=%d", section, page.tab, want)
+		}
+	}
+	if _, err := newInstructionPageRoute(t.Context(), service, "missing"); err == nil {
+		t.Fatal("invalid instruction route section was accepted")
+	}
+}
+
 func TestInstructionPageManagesSourcePolicy(t *testing.T) {
 	page, service := newTestInstructionPage(t)
 	page.switchTab(instructionTabSources)

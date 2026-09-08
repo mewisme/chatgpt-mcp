@@ -34,6 +34,10 @@ var processStartedAt = time.Now().UTC()
 var machineUptime = readMachineUptime
 
 func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store, shells ...*shellruntime.Manager) {
+	registerCore(registry, workspaces, checkpoints, nil, shells...)
+}
+
+func registerCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store, environment ProjectContextEnvironment, shells ...*shellruntime.Manager) {
 	registry.MustRegister("get_version", coreSchema("get_version", "Get the running chatgpt-mcp server version, build metadata, server uptime, and machine uptime.", `{"type":"object","properties":{},"additionalProperties":false}`, `{"type":"object","properties":{"version":{"type":"string"},"commit":{"type":"string"},"build_time":{"type":"string"},"server_started_at":{"type":"string"},"server_uptime":{"type":"string"},"server_uptime_seconds":{"type":"integer","minimum":0},"machine_uptime":{"type":"string"},"machine_uptime_seconds":{"type":"integer","minimum":0}},"required":["version","commit","build_time","server_started_at","server_uptime","server_uptime_seconds","machine_uptime","machine_uptime_seconds"],"additionalProperties":false}`, RiskRead), func(context.Context, map[string]any) (Result, error) {
 		now := time.Now().UTC()
 		serverUptime := now.Sub(processStartedAt)
@@ -57,7 +61,7 @@ func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints
 	processes := shellruntime.NewProcessManager(workspaces, shell)
 	RegisterShellTools(registry, workspaces, shell, processes)
 	RegisterGitTools(registry, workspaces)
-	RegisterContextTools(registry, workspaces, checkpoints)
+	RegisterContextTools(registry, workspaces, checkpoints, environment)
 	RegisterRewindTools(registry, workspaces, checkpoints)
 	RegisterAdvancedTools(registry, workspaces)
 	registry.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","paths"],"additionalProperties":false}`, `{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["files","count"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))

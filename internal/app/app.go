@@ -36,7 +36,11 @@ func New(cfg config.Config) *App { return NewWithLogger(cfg, nil) }
 
 func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	stream := activity.NewStream()
-	toolRuntime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+	configStore := config.NewRuntimeStore(cfg)
+	toolRuntime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) {
+		current := configStore.Snapshot()
+		return current.Admin.Enabled, current.Admin.Port
+	})
 	if err := toolRuntime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
 		panic(err)
 	}
@@ -65,7 +69,6 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 	}
 	telemetry.AttachTools(toolRuntime, stream, appLogger)
 	telemetry.AttachApprovals(toolRuntime.Approvals, stream, appLogger)
-	configStore := config.NewRuntimeStore(cfg)
 	tunnelClient := tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger)
 	if metadata, err := config.LoadTunnelMetadata(cfg.Tunnel.ID); err == nil {
 		_ = tunnelClient.SeedMetadata(metadata)

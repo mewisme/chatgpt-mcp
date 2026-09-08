@@ -30,6 +30,7 @@ func defaultActionRegistry() *action.Registry {
 		navigationAction("app.go.runtime", "Runtime", Route{Kind: RouteRuntime}, []string{"runtime", "status", "service"}, capability.AuthStatus, capability.AliasStatus),
 		navigationAction("app.go.about", "About", Route{Kind: RouteAbout}, []string{"about", "version", "build", "uptime"}, capability.VersionAbout),
 	}
+	actions = append(actions, instructionNavigationActions()...)
 	actions = append(actions, workspaceActions()...)
 	actions = append(actions, mcpActions()...)
 	actions = append(actions, tunnelActions()...)
@@ -217,6 +218,8 @@ func mcpAction(id, title, description string, keywords, commandPath []string, co
 
 func workspaceActions() []action.Action {
 	return []action.Action{
+		workspaceContextNavigationAction("workspace.context.configure", "Configure Workspace Project Context", "Configure build and preview parameters for the current workspace", "context"),
+		workspaceContextNavigationAction("workspace.context.preview", "Preview Workspace Project Context", "Open the last successful Project Context build for the current workspace", "context-preview"),
 		workspaceAction("workspace.register", "Register", "Register a workspace root", []string{"workspace", "register"}, []string{"workspace", "register"}, tuipage.WorkspaceRegister, false, false),
 		workspaceAction("workspace.unregister", "Unregister", "Unregister the current workspace without deleting project files", []string{"workspace", "unregister"}, []string{"workspace", "unregister"}, tuipage.WorkspaceUnregister, true, false),
 		workspaceAction("workspace.access.add", "Add access directory", "Grant the current workspace access to an additional directory", []string{"workspace", "access", "add"}, []string{"workspace", "access", "add"}, tuipage.WorkspaceAccessAdd, true, false),
@@ -226,6 +229,37 @@ func workspaceActions() []action.Action {
 		workspaceAction("workspace.container.delete", "Delete container", "Delete the current container without unregistering workspaces", []string{"workspace", "container", "delete"}, []string{"workspace", "container", "delete"}, tuipage.WorkspaceContainerDelete, true, true),
 		workspaceAction("workspace.container.add", "Add container members", "Edit workspace membership for the current container", []string{"workspace", "container", "add", "members"}, []string{"workspace", "container", "add"}, tuipage.WorkspaceContainerMembers, true, true),
 		workspaceAction("workspace.container.remove", "Remove container members", "Edit workspace membership for the current container", []string{"workspace", "container", "remove", "members"}, []string{"workspace", "container", "remove"}, tuipage.WorkspaceContainerMembers, true, true),
+	}
+}
+
+func instructionNavigationActions() []action.Action {
+	return []action.Action{
+		instructionNavigationAction("instruction.open.context", "Open Global Context", "Open managed global instruction context", "context", []string{"instruction", "global", "context"}),
+		instructionNavigationAction("instruction.open.rules", "Open Global Rules", "Open managed global instruction rules", "rules", []string{"instruction", "global", "rules"}),
+		instructionNavigationAction("instruction.open.sources", "Open Instruction Sources", "Open detected user-level instruction sources and source policy", "sources", []string{"instruction", "sources", "policy", "agents", "claude"}),
+	}
+}
+
+func instructionNavigationAction(id, title, description, section string, keywords []string) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "Instruction", Description: description, Keywords: keywords, Scope: action.ScopeGlobal,
+		Run: func(context.Context, action.Context) tea.Cmd {
+			return func() tea.Msg {
+				return navigateMsg{route: Route{Kind: RouteInstruction, Section: section}, sibling: true}
+			}
+		},
+	}
+}
+
+func workspaceContextNavigationAction(id, title, description, section string) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "Workspace", Description: description, Keywords: []string{"workspace", "project", "context", section}, Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool { return ctx.Route == string(RouteWorkspaces) && ctx.ResourceID != "" },
+		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
+			return func() tea.Msg {
+				return navigateMsg{route: Route{Kind: RouteWorkspaces, ResourceID: ctx.ResourceID, Section: section}}
+			}
+		},
 	}
 }
 

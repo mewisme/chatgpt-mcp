@@ -67,6 +67,9 @@ func ParseRoute(args []string) (Route, error) {
 	if kind == RouteRequests {
 		return parseRequestsRoute(parts)
 	}
+	if kind == RouteInstruction {
+		return parseInstructionRoute(parts)
+	}
 	if len(parts) > 3 {
 		return Route{}, fmt.Errorf("TUI path accepts at most one resource id and one child section: %s", strings.Join(parts, " "))
 	}
@@ -89,6 +92,22 @@ func ParseRoute(args []string) (Route, error) {
 		}
 	}
 	return Route{Kind: kind, ResourceID: resourceID, Section: section}, nil
+}
+
+func parseInstructionRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteInstruction}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) != 2 {
+		return Route{}, fmt.Errorf("instruction path accepts one optional tab: %s", strings.Join(parts, " "))
+	}
+	section, ok := normalizeRouteSection(RouteInstruction, parts[1])
+	if !ok {
+		return Route{}, fmt.Errorf("unsupported instruction tab %q", parts[1])
+	}
+	route.Section = section
+	return route, nil
 }
 
 func parseRequestsRoute(parts []string) (Route, error) {
@@ -203,12 +222,13 @@ func normalizeRouteSection(kind RouteKind, value string) (string, bool) {
 		return "", true
 	}
 	allowed := map[RouteKind]map[string]bool{
-		RouteWorkspaces: {"access": true, "containers": true, "context": true, "context-preview": true},
-		RouteContainers: {"workspaces": true},
-		RouteMCP:        {"health": true, "tools": true, "oauth": true},
-		RouteTunnels:    {"scope": true},
-		RouteRequests:   {"arguments": true, "guard": true},
-		RouteLogs:       {"fields": true},
+		RouteWorkspaces:  {"access": true, "containers": true, "context": true, "context-preview": true},
+		RouteInstruction: {"context": true, "rules": true, "sources": true},
+		RouteContainers:  {"workspaces": true},
+		RouteMCP:         {"health": true, "tools": true, "oauth": true},
+		RouteTunnels:     {"scope": true},
+		RouteRequests:    {"arguments": true, "guard": true},
+		RouteLogs:        {"fields": true},
 	}
 	return value, allowed[kind][value]
 }
@@ -264,6 +284,9 @@ func (router *Router) Back() bool {
 func routeStack(route Route) []Route {
 	if route.Kind == RouteHome {
 		return []Route{{Kind: RouteHome}}
+	}
+	if route.Kind == RouteInstruction {
+		return []Route{route}
 	}
 	main := Route{Kind: route.Kind}
 	if route.Kind == RouteRequests {

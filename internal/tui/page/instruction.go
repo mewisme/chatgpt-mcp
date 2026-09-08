@@ -60,10 +60,18 @@ type InstructionPage struct {
 }
 
 func NewInstruction(ctx context.Context) (*InstructionPage, error) {
-	return newInstructionPage(ctx, application.NewInstructionSettingsService(nil))
+	return NewInstructionRoute(ctx, "")
 }
 
 func newInstructionPage(ctx context.Context, service *application.InstructionSettingsService) (*InstructionPage, error) {
+	return newInstructionPageRoute(ctx, service, "")
+}
+
+func NewInstructionRoute(ctx context.Context, section string) (*InstructionPage, error) {
+	return newInstructionPageRoute(ctx, application.NewInstructionSettingsService(nil), section)
+}
+
+func newInstructionPageRoute(ctx context.Context, service *application.InstructionSettingsService, section string) (*InstructionPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -74,9 +82,26 @@ func newInstructionPage(ctx context.Context, service *application.InstructionSet
 	if err != nil {
 		return nil, err
 	}
-	page := &InstructionPage{ctx: ctx, service: service, settings: settings, sourceDark: true}
+	tab, err := instructionTabFromSection(section)
+	if err != nil {
+		return nil, err
+	}
+	page := &InstructionPage{ctx: ctx, service: service, settings: settings, sourceDark: true, tab: tab}
 	page.syncDetail()
 	return page, nil
+}
+
+func instructionTabFromSection(section string) (instructionTab, error) {
+	switch strings.ToLower(strings.TrimSpace(section)) {
+	case "", "context":
+		return instructionTabContext, nil
+	case "rules":
+		return instructionTabRules, nil
+	case "sources":
+		return instructionTabSources, nil
+	default:
+		return instructionTabContext, fmt.Errorf("unsupported instruction tab: %s", section)
+	}
 }
 
 func (page *InstructionPage) Init() tea.Cmd       { return nil }

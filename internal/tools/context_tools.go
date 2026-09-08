@@ -92,7 +92,9 @@ type AgentStatusResult struct {
 	ToolCount             int            `json:"tool_count"`
 }
 
-func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store) {
+type ProjectContextEnvironment func() (bool, int)
+
+func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store, environments ...ProjectContextEnvironment) {
 	memoryStore := memory.NewStore(memory.DefaultRoot())
 	memoryIndex := memory.NewHybridIndex(memory.NewLocalEmbedder(), memory.DefaultHybridWeights())
 	memoryLifecycle := memory.NewIndexLifecycle(memoryStore, memoryIndex)
@@ -100,6 +102,9 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 	contextService := projectcontext.New(workspaces, func() instructioncontext.ToolProfile {
 		return instructioncontext.ToolProfile{Name: "full", Count: len(registry.ListSchemas())}
 	})
+	if len(environments) > 0 && environments[0] != nil {
+		contextService.Environment = environments[0]
+	}
 	contextService.MemoryStore = memoryStore
 	contextService.PolicyStore = policyStore
 	register := func(name, title, description, input, output string, risk Risk, handler Handler) {
@@ -154,7 +159,8 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		return JSONResult(value), nil
 	})
 
-	register("project_context", "Project Context", "Build the complete workspace instruction context with environment, Git, selected memory, rules, skills, and ready-to-use instructions.", workspaceOnlySchema(`"path":{"type":"string"},"memory_query":{"type":"string"},"max_memory_entries":{"type":"integer","minimum":1,"maximum":100,"default":12},"max_memory_bytes":{"type":"integer","minimum":256,"maximum":100000,"default":8192},"max_instruction_bytes":{"type":"integer","minimum":1,"maximum":1000000,"default":100000},"max_section_bytes":{"type":"integer","minimum":1,"maximum":500000,"default":25000},"max_lines_per_section":{"type":"integer","minimum":1,"maximum":5000,"default":200},"include_git":{"type":"boolean","default":true},"include_memory":{"type":"boolean","default":true},"include_skills":{"type":"boolean","default":true},`), `{"type":"object","properties":{"root":{"type":"string"},"workspace_id":{"type":"string"},"instruction_context":{"type":"object","additionalProperties":true},"summary":{"type":"object","additionalProperties":true}},"required":["root","workspace_id","instruction_context","summary"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("project_context", "Project Context", "Build the complete workspace instruction context with environment, Git, selected memory, rules, skills, and ready-to-use instructions.", workspaceOnlySchema(projectContextSchemaFields()), `{"type":"object","properties":{"root":{"type":"string"},"workspace_id":{"type":"string"},"instruction_context":{"type":"object","additionalProperties":true},"summary":{"type":"object","additionalProperties":true}},"required":["root","workspace_id","instruction_context","summary"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
+		defaults := projectcontext.DefaultOptions()
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -167,35 +173,35 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
-		maxMemoryEntries, err := optionalInt(args, "max_memory_entries", 12, 1, 100)
+		maxMemoryEntries, err := optionalInt(args, "max_memory_entries", defaults.MaxMemoryEntries, projectcontext.MinMemoryEntries, projectcontext.MaxMemoryEntries)
 		if err != nil {
 			return Result{}, err
 		}
-		maxMemoryBytes, err := optionalInt(args, "max_memory_bytes", 8192, 256, 100_000)
+		maxMemoryBytes, err := optionalInt(args, "max_memory_bytes", defaults.MaxMemoryBytes, projectcontext.MinMemoryBytes, projectcontext.MaxMemoryBytes)
 		if err != nil {
 			return Result{}, err
 		}
-		maxInstructionBytes, err := optionalInt(args, "max_instruction_bytes", instructioncontext.DefaultInstructionMaxBytes, 1, 1_000_000)
+		maxInstructionBytes, err := optionalInt(args, "max_instruction_bytes", defaults.MaxInstructionBytes, projectcontext.MinInstructionBytes, projectcontext.MaxInstructionBytes)
 		if err != nil {
 			return Result{}, err
 		}
-		maxSectionBytes, err := optionalInt(args, "max_section_bytes", instructioncontext.DefaultSectionMaxBytes, 1, 500_000)
+		maxSectionBytes, err := optionalInt(args, "max_section_bytes", defaults.MaxSectionBytes, projectcontext.MinSectionBytes, projectcontext.MaxSectionBytes)
 		if err != nil {
 			return Result{}, err
 		}
-		maxLinesPerSection, err := optionalInt(args, "max_lines_per_section", instructioncontext.DefaultSectionMaxLines, 1, 5_000)
+		maxLinesPerSection, err := optionalInt(args, "max_lines_per_section", defaults.MaxLinesPerSection, projectcontext.MinLinesPerSection, projectcontext.MaxLinesPerSection)
 		if err != nil {
 			return Result{}, err
 		}
-		includeGit, err := optionalBool(args, "include_git", true)
+		includeGit, err := optionalBool(args, "include_git", defaults.IncludeGit)
 		if err != nil {
 			return Result{}, err
 		}
-		includeMemory, err := optionalBool(args, "include_memory", true)
+		includeMemory, err := optionalBool(args, "include_memory", defaults.IncludeMemory)
 		if err != nil {
 			return Result{}, err
 		}
-		includeSkills, err := optionalBool(args, "include_skills", true)
+		includeSkills, err := optionalBool(args, "include_skills", defaults.IncludeSkills)
 		if err != nil {
 			return Result{}, err
 		}
@@ -421,6 +427,18 @@ func workspaceOnlySchema(extra string) string {
 		extra = "," + strings.TrimSuffix(extra, ",")
 	}
 	return `{"type":"object","properties":{"workspace_id":{"type":"string"}` + extra + `},"required":["workspace_id"],"additionalProperties":false}`
+}
+
+func projectContextSchemaFields() string {
+	defaults := projectcontext.DefaultOptions()
+	return fmt.Sprintf(`"path":{"type":"string"},"memory_query":{"type":"string"},"max_memory_entries":{"type":"integer","minimum":%d,"maximum":%d,"default":%d},"max_memory_bytes":{"type":"integer","minimum":%d,"maximum":%d,"default":%d},"max_instruction_bytes":{"type":"integer","minimum":%d,"maximum":%d,"default":%d},"max_section_bytes":{"type":"integer","minimum":%d,"maximum":%d,"default":%d},"max_lines_per_section":{"type":"integer","minimum":%d,"maximum":%d,"default":%d},"include_git":{"type":"boolean","default":%t},"include_memory":{"type":"boolean","default":%t},"include_skills":{"type":"boolean","default":%t},`,
+		projectcontext.MinMemoryEntries, projectcontext.MaxMemoryEntries, defaults.MaxMemoryEntries,
+		projectcontext.MinMemoryBytes, projectcontext.MaxMemoryBytes, defaults.MaxMemoryBytes,
+		projectcontext.MinInstructionBytes, projectcontext.MaxInstructionBytes, defaults.MaxInstructionBytes,
+		projectcontext.MinSectionBytes, projectcontext.MaxSectionBytes, defaults.MaxSectionBytes,
+		projectcontext.MinLinesPerSection, projectcontext.MaxLinesPerSection, defaults.MaxLinesPerSection,
+		defaults.IncludeGit, defaults.IncludeMemory, defaults.IncludeSkills,
+	)
 }
 
 func workspaceFromArgs(workspaces *workspace.Manager, args map[string]any) (workspace.Workspace, error) {

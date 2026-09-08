@@ -163,7 +163,7 @@ func TestDeleteManagedTunnelCanClearSelectedRuntimeConfig(t *testing.T) {
 		t.Fatalf("unexpected request=%s %s", r.Method, r.URL.Path)
 	}))
 	defer server.Close()
-	setupTunnelApplicationRoot(t, tunnel.Config{Enabled: true, ID: "tunnel_selected", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminOrganizationID: "org_admin", ControlPlaneBaseURL: server.URL, OrganizationID: "org_admin"})
+	setupTunnelApplicationRoot(t, tunnel.Config{Enabled: true, ID: "tunnel_selected", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminOrganizationID: "org_admin", AdminReadAccess: true, AdminManageAccess: true, ControlPlaneBaseURL: server.URL, OrganizationID: "org_admin"})
 	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_selected", Name: "Selected"}); err != nil {
 		t.Fatal(err)
 	}

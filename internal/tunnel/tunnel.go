@@ -35,8 +35,15 @@ type Config struct {
 	AdminOrganizationID string `json:"admin_organization_id,omitempty"`
 	AdminWorkspaceID    string `json:"admin_workspace_id,omitempty"`
 	AdminTenantID       string `json:"admin_tenant_id,omitempty"`
+	AdminReadAccess     bool   `json:"-"`
+	AdminManageAccess   bool   `json:"-"`
 	ControlPlaneBaseURL string `json:"control_plane_base_url,omitempty"`
 	OrganizationID      string `json:"organization_id,omitempty"`
+}
+
+type AdminAccess struct {
+	Read   bool `json:"read"`
+	Manage bool `json:"manage"`
 }
 
 type AdminScope struct {
@@ -406,6 +413,8 @@ func RuntimeConfigEqual(left, right Config) bool {
 	left.AdminOrganizationID, right.AdminOrganizationID = "", ""
 	left.AdminWorkspaceID, right.AdminWorkspaceID = "", ""
 	left.AdminTenantID, right.AdminTenantID = "", ""
+	left.AdminReadAccess, right.AdminReadAccess = false, false
+	left.AdminManageAccess, right.AdminManageAccess = false, false
 	return left == right
 }
 
@@ -422,6 +431,8 @@ func (c *Client) SyncManagementConfig(cfg Config) error {
 	c.config.AdminOrganizationID = cfg.AdminOrganizationID
 	c.config.AdminWorkspaceID = cfg.AdminWorkspaceID
 	c.config.AdminTenantID = cfg.AdminTenantID
+	c.config.AdminReadAccess = cfg.AdminReadAccess
+	c.config.AdminManageAccess = cfg.AdminManageAccess
 	return nil
 }
 

@@ -79,7 +79,7 @@ func TestManagedTunnelMutationNoticeRendersBesidePageTitle(t *testing.T) {
 }
 
 func TestManagedTunnelBrowserUsesSelectedTunnelShortcut(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{})
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true})
 	item := tunnel.Metadata{ID: "tunnel_one", Name: "One", Description: "primary"}
 	if _, err := config.SaveTunnelMetadata(item); err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestManagedTunnelBrowserUsesSelectedTunnelShortcut(t *testing.T) {
 }
 
 func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{})
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true})
 	item := tunnel.Metadata{ID: "tunnel_one", Name: "One", Description: "primary", OrganizationIDs: []string{"org_one"}, WorkspaceIDs: []string{"ws_one"}, TenantIDs: []string{"tenant_one"}}
 	if _, err := config.SaveTunnelMetadata(item); err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 		t.Fatal("managed tunnel detail incorrectly reports overlay active")
 	}
 	view := ansi.Strip(page.View(100, 26))
-	for _, want := range []string{"Managed tunnel · tunnel_one", "primary", "s scope", "r refresh", "e update", "? more"} {
+	for _, want := range []string{"Managed tunnel · tunnel_one", "primary", "s scope", "r refresh", "u use", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("managed detail missing %q: %q", want, view)
 		}
@@ -124,7 +124,7 @@ func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	page = updated.(*TunnelPage)
 	view = ansi.Strip(page.View(100, 26))
-	for _, want := range []string{"use", "delete", "less"} {
+	for _, want := range []string{"update", "delete", "less"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expanded managed detail missing %q: %q", want, view)
 		}
@@ -555,7 +555,7 @@ func TestManagedTunnelDeleteSelectedRuntimeOffersClearConfigChoice(t *testing.T)
 }
 
 func TestManagedTunnelCreateEditorSectionsWrapAndFailureKeepsDraft(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{})
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true})
 	page, err := NewManagedTunnelsRouteAction(t.Context(), "", "", "create")
 	if err != nil {
 		t.Fatal(err)
@@ -645,8 +645,37 @@ func setupTunnelPageConfig(t *testing.T, value tunnel.Config) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	if value.AdminKey != "" && !value.AdminReadAccess && !value.AdminManageAccess {
+		value.AdminReadAccess, value.AdminManageAccess = true, true
+	}
 	cfg.Tunnel = value
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManagedTunnelReadOnlyAccessHidesManagementActions(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-read", AdminWorkspaceID: "ws_admin", AdminReadAccess: true})
+	item := tunnel.Metadata{ID: "tunnel_one", Name: "One", Description: "read only"}
+	if _, err := config.SaveTunnelMetadata(item); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewManagedTunnels(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := ansi.Strip(page.View(100, 24))
+	if !strings.Contains(view, "u use") || strings.Contains(view, "refresh all") || strings.Contains(view, "a add") {
+		t.Fatalf("read-only browser actions=%q", view)
+	}
+	detail, err := NewManagedTunnelsRoute(t.Context(), item.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := detail.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	detail = updated.(*TunnelPage)
+	view = ansi.Strip(detail.View(100, 26))
+	if !strings.Contains(view, "r refresh") || !strings.Contains(view, "u use") || strings.Contains(view, "update") || strings.Contains(view, "delete") {
+		t.Fatalf("read-only detail actions=%q", view)
 	}
 }

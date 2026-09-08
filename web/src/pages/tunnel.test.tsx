@@ -83,10 +83,15 @@ describe("TunnelPage", () => {
     vi.spyOn(adminApi, "tunnelAdminKey").mockResolvedValue({
       configured: true,
       scope: { workspace_id: "ws_admin" },
+      access: { read: true, manage: true },
       tunnels: 2,
     })
     vi.spyOn(adminApi, "config").mockResolvedValue(publicConfig)
     vi.spyOn(adminApi, "managedTunnels").mockResolvedValue(managedTunnels)
+    vi.spyOn(adminApi, "managedTunnel").mockImplementation(async (id) => managedTunnels.find((item) => item.id === id) ?? managedTunnels[0])
+    vi.spyOn(adminApi, "createManagedTunnel").mockResolvedValue(managedTunnels[1])
+    vi.spyOn(adminApi, "updateManagedTunnel").mockResolvedValue(managedTunnels[1])
+    vi.spyOn(adminApi, "deleteManagedTunnel").mockResolvedValue(managedTunnels[1])
     vi.spyOn(adminApi, "useManagedTunnel").mockResolvedValue({
       metadata: managedTunnels[1],
       status: {
@@ -98,6 +103,7 @@ describe("TunnelPage", () => {
     vi.spyOn(adminApi, "removeTunnelAdminKey").mockResolvedValue({
       configured: false,
       scope: {},
+      access: { read: false, manage: false },
     })
     vi.spyOn(adminApi, "startTunnel").mockResolvedValue(tunnelStatus)
     vi.spyOn(adminApi, "stopTunnel").mockResolvedValue({
@@ -156,6 +162,9 @@ describe("TunnelPage", () => {
 
     await user.click(await screen.findByRole("tab", { name: "Administration" }))
     expect(await screen.findByText("Secondary tunnel")).toBeInTheDocument()
+    expect(screen.getByText("Full management")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Create tunnel" })).toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0)
     expect(adminApi.managedTunnels).toHaveBeenCalled()
 
     await user.click(screen.getByRole("button", { name: "Use tunnel" }))
@@ -167,5 +176,18 @@ describe("TunnelPage", () => {
     expect(
       await screen.findByText("Using managed tunnel Secondary tunnel.")
     ).toBeInTheDocument()
+  })
+
+  it("limits a read-only admin key to lookup and use actions", async () => {
+    vi.mocked(adminApi.tunnelAdminKey).mockResolvedValue({ configured: true, scope: { workspace_id: "ws_admin" }, access: { read: true, manage: false } })
+    const user = userEvent.setup()
+    render(<TunnelPage />)
+    await user.click(await screen.findByRole("tab", { name: "Administration" }))
+    expect(await screen.findByText("Read only")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Create tunnel" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Lookup" })).toBeDisabled()
+    expect(adminApi.managedTunnels).not.toHaveBeenCalled()
+    expect(adminApi.managedTunnel).toHaveBeenCalledWith("tunnel_one")
   })
 })

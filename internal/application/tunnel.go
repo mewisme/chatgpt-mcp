@@ -27,6 +27,7 @@ type TunnelRuntimeInput struct {
 type TunnelAdminStatus struct {
 	Configured bool
 	Scope      tunnel.AdminScope
+	Access     tunnel.AdminAccess
 }
 
 type TunnelAdminKeyInput struct {
@@ -140,7 +141,7 @@ func TunnelAdminKeyStatus() (TunnelAdminStatus, error) {
 		return TunnelAdminStatus{}, err
 	}
 	scope := tunnel.AdminScopeFromConfig(cfg.Tunnel)
-	return TunnelAdminStatus{Configured: tunnel.AdminConfigured(cfg.Tunnel), Scope: scope}, nil
+	return TunnelAdminStatus{Configured: tunnel.AdminConfigured(cfg.Tunnel), Scope: scope, Access: tunnel.AdminAccessFromConfig(cfg.Tunnel)}, nil
 }
 
 func SetTunnelAdminKey(ctx context.Context, input TunnelAdminKeyInput) (int, tunnel.AdminScope, error) {
@@ -163,10 +164,11 @@ func SetTunnelAdminKey(ctx context.Context, input TunnelAdminKeyInput) (int, tun
 		return 0, tunnel.AdminScope{}, fmt.Errorf("admin key verification scope: %w", err)
 	}
 	tunnel.ApplyAdminScope(&candidate, scope)
-	count, err := tunnel.VerifyAdminKey(ctx, candidate)
+	access, count, err := tunnel.VerifyAdminKey(ctx, candidate)
 	if err != nil {
 		return 0, tunnel.AdminScope{}, fmt.Errorf("admin key verification failed: %w", err)
 	}
+	tunnel.ApplyAdminAccess(&candidate, access)
 	cfg.Tunnel = candidate
 	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 		return 0, tunnel.AdminScope{}, err
@@ -185,8 +187,16 @@ func VerifyTunnelAdminKey(ctx context.Context) (int, tunnel.AdminScope, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	count, err := tunnel.VerifyAdminKey(ctx, cfg.Tunnel)
-	return count, tunnel.AdminScopeFromConfig(cfg.Tunnel), err
+	access, count, err := tunnel.VerifyAdminKey(ctx, cfg.Tunnel)
+	if err != nil {
+		return 0, tunnel.AdminScopeFromConfig(cfg.Tunnel), err
+	}
+	previous := cfg
+	tunnel.ApplyAdminAccess(&cfg.Tunnel, access)
+	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
+		return 0, tunnel.AdminScopeFromConfig(cfg.Tunnel), err
+	}
+	return count, tunnel.AdminScopeFromConfig(cfg.Tunnel), nil
 }
 
 func RemoveTunnelAdminKey(ctx context.Context) error {
@@ -197,6 +207,7 @@ func RemoveTunnelAdminKey(ctx context.Context) error {
 	cfg := previous
 	cfg.Tunnel.AdminKey = ""
 	tunnel.ApplyAdminScope(&cfg.Tunnel, tunnel.AdminScope{})
+	tunnel.ApplyAdminAccess(&cfg.Tunnel, tunnel.AdminAccess{})
 	_, _, err = saveConfigMutation(ctx, previous, cfg)
 	return err
 }
@@ -208,6 +219,9 @@ func ListManagedTunnels(ctx context.Context) ([]tunnel.Metadata, error) {
 	}
 	if !tunnel.AdminConfigured(cfg.Tunnel) {
 		return nil, errors.New("verified tunnel admin key is required")
+	}
+	if !cfg.Tunnel.AdminManageAccess {
+		return nil, errors.New("tunnel admin key does not have verified Manage access")
 	}
 	scope := tunnel.AdminScopeFromConfig(cfg.Tunnel)
 	if ctx == nil {
@@ -236,6 +250,9 @@ func GetManagedTunnel(ctx context.Context, id string, options ManagedTunnelOptio
 	}
 	if !tunnel.AdminConfigured(cfg.Tunnel) {
 		return ManagedTunnelResult{}, errors.New("verified tunnel admin key is required")
+	}
+	if !cfg.Tunnel.AdminReadAccess && !cfg.Tunnel.AdminManageAccess {
+		return ManagedTunnelResult{}, errors.New("tunnel admin key does not have verified Read access")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -276,6 +293,9 @@ func CreateManagedTunnel(ctx context.Context, request tunnel.CreateRequest, opti
 	}
 	if !tunnel.AdminConfigured(cfg.Tunnel) {
 		return ManagedTunnelResult{}, errors.New("verified tunnel admin key is required")
+	}
+	if !cfg.Tunnel.AdminManageAccess {
+		return ManagedTunnelResult{}, errors.New("tunnel admin key does not have verified Manage access")
 	}
 	request.OrganizationIDs = NormalizeTunnelIDs(request.OrganizationIDs)
 	request.WorkspaceIDs = NormalizeTunnelIDs(request.WorkspaceIDs)
@@ -320,6 +340,9 @@ func UpdateManagedTunnel(ctx context.Context, id string, request tunnel.UpdateRe
 	if !tunnel.AdminConfigured(cfg.Tunnel) {
 		return ManagedTunnelResult{}, errors.New("verified tunnel admin key is required")
 	}
+	if !cfg.Tunnel.AdminManageAccess {
+		return ManagedTunnelResult{}, errors.New("tunnel admin key does not have verified Manage access")
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -351,6 +374,9 @@ func DeleteManagedTunnel(ctx context.Context, id string, clearConfig bool) (Mana
 	}
 	if !tunnel.AdminConfigured(cfg.Tunnel) {
 		return ManagedTunnelResult{}, errors.New("verified tunnel admin key is required")
+	}
+	if !cfg.Tunnel.AdminManageAccess {
+		return ManagedTunnelResult{}, errors.New("tunnel admin key does not have verified Manage access")
 	}
 	id = strings.TrimSpace(id)
 	configuredTunnel := id != "" && id == strings.TrimSpace(cfg.Tunnel.ID)

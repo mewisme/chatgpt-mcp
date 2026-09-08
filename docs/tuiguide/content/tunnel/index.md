@@ -12,11 +12,11 @@ Save is asynchronous. A backend failure keeps the exact editor draft and feedbac
 
 ## Admin key
 
-The admin key enables OpenAI tunnel-management operations. The editor verifies and stores the key without rendering the secret afterward. Verify and remove remain lifecycle actions; removal requires confirmation.
+The admin key enables OpenAI tunnel-management operations. Verification records positively demonstrated tunnel capabilities without rendering the secret afterward. `Read` permits fetching a known tunnel and using it with a separate runtime credential; `Manage` permits listing, creating, updating, and deleting managed tunnels. The verified capability metadata is stored with the tunnel secret sidecar rather than as user-editable config. Re-verifying refreshes the capability state after OpenAI-side permission changes. Verify and remove remain lifecycle actions; removal requires confirmation.
 
 ## Managed tunnels
 
-The Managed Tunnels page lists tunnels available through the OpenAI management API. Create, Update, and Use are routed editors divided into consistent sections such as `General / Scope / Runtime`. Press `u` on the selected list row or managed-tunnel detail to open the Use flow.
+The Managed Tunnels surface adapts to the verified admin-key capability. Full management access exposes list/create/update/delete plus Use. Read-only access removes mutation actions and limits remote reads to known tunnel IDs; the Web Admin provides a tunnel-ID lookup while TUI/CLI retain read/use actions for known resources. If no capability has been verified, management actions remain unavailable until the key is re-verified. Press `u` on a readable selected TUI row or managed-tunnel detail to open the Use flow.
 
 Editing an existing managed tunnel first fetches current remote metadata. The loading state can be cancelled with `Esc`; a late fetch result after cancellation is ignored. Fetch errors render an explicit wrapped error page instead of a blank editor.
 

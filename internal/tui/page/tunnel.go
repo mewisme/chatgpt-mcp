@@ -147,7 +147,17 @@ func NewManagedTunnelsRouteAction(ctx context.Context, resourceID, section, acti
 	if err != nil {
 		return nil, err
 	}
-	page := &TunnelPage{ctx: ctx, kind: tunnelPageManaged, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), items: items}
+	adminStatus, err := application.TunnelAdminKeyStatus()
+	if err != nil {
+		return nil, err
+	}
+	page := &TunnelPage{ctx: ctx, kind: tunnelPageManaged, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), items: items, adminStatus: adminStatus}
+	if (page.action == "create" || page.action == "edit") && !page.adminStatus.Access.Manage {
+		return nil, fmt.Errorf("tunnel admin key does not have verified Manage access")
+	}
+	if page.action == "configure" && !page.adminStatus.Access.Read && !page.adminStatus.Access.Manage {
+		return nil, fmt.Errorf("tunnel admin key does not have verified Read access")
+	}
 	if page.action == "" {
 		if err := page.reloadManagedBrowser(); err != nil {
 			return nil, err
@@ -493,14 +503,23 @@ func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 
 	switch msg.String() {
 	case "r":
+		if !page.adminStatus.Access.Manage {
+			return nil, true
+		}
 		cmd, err := page.openCommand(TunnelManagedRefresh, "")
 		page.err = err
 		return cmd, true
 	case "a":
+		if !page.adminStatus.Access.Manage {
+			return nil, true
+		}
 		cmd, err := page.openCommand(TunnelManagedCreate, "")
 		page.err = err
 		return cmd, true
 	case "u":
+		if !page.adminStatus.Access.Read && !page.adminStatus.Access.Manage {
+			return nil, true
+		}
 		if page.resourceID != "" {
 			return nil, false
 		}
@@ -785,7 +804,14 @@ func (page *TunnelPage) reloadManagedBrowser() error {
 	}
 	helpExpanded := page.browser.HelpExpanded()
 	rows := page.managedRows()
-	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(component.Binding([]string{"u"}, "u", "use"), component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"a"}, "a", "add"))
+	bindings := make([]key.Binding, 0, 3)
+	if page.adminStatus.Access.Read || page.adminStatus.Access.Manage {
+		bindings = append(bindings, component.Binding([]string{"u"}, "u", "use"))
+	}
+	if page.adminStatus.Access.Manage {
+		bindings = append(bindings, component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"a"}, "a", "add"))
+	}
+	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(bindings...)
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
@@ -840,12 +866,12 @@ func (page *TunnelPage) syncManagedDetail() error {
 	if page.section == "" {
 		bindings = append(bindings, component.DetailPageBinding{Key: "s", Desc: "scope", Message: NavigateMsg{Path: []string{"tunnels", item.ID, "scope"}}})
 	}
-	bindings = append(bindings,
-		component.DetailPageBinding{Key: "r", Desc: "refresh", Message: TunnelCommandMsg{Command: TunnelManagedRefresh, ResourceID: item.ID}},
-		component.DetailPageBinding{Key: "e", Desc: "update", Message: TunnelCommandMsg{Command: TunnelManagedUpdate, ResourceID: item.ID}},
-		component.DetailPageBinding{Key: "u", Desc: "use", Message: TunnelCommandMsg{Command: TunnelManagedConfigure, ResourceID: item.ID}},
-		component.DetailPageBinding{Key: "d", Desc: "delete", Message: TunnelCommandMsg{Command: TunnelManagedDelete, ResourceID: item.ID}},
-	)
+	if page.adminStatus.Access.Read || page.adminStatus.Access.Manage {
+		bindings = append(bindings, component.DetailPageBinding{Key: "r", Desc: "refresh", Message: TunnelCommandMsg{Command: TunnelManagedRefresh, ResourceID: item.ID}}, component.DetailPageBinding{Key: "u", Desc: "use", Message: TunnelCommandMsg{Command: TunnelManagedConfigure, ResourceID: item.ID}})
+	}
+	if page.adminStatus.Access.Manage {
+		bindings = append(bindings, component.DetailPageBinding{Key: "e", Desc: "update", Message: TunnelCommandMsg{Command: TunnelManagedUpdate, ResourceID: item.ID}}, component.DetailPageBinding{Key: "d", Desc: "delete", Message: TunnelCommandMsg{Command: TunnelManagedDelete, ResourceID: item.ID}})
+	}
 	page.detail.SetBindings(bindings...)
 	if page.width > 0 && page.height > 0 {
 		page.detail.Resize(page.width, page.height)
@@ -873,6 +899,7 @@ func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) stri
 	)
 	adminSection := tunnelSection("Admin",
 		[2]string{"State", tunnelConfiguredIndicator(page.adminStatus.Configured)},
+		[2]string{"Access", tunnelAdminAccessLabel(page.adminStatus.Access)},
 		[2]string{"Scope", tunnelScopeLabel(page.adminStatus.Scope)},
 	)
 	metadataSection := tunnelMetadataSection(status.Metadata, status.MetadataError)
@@ -1015,6 +1042,16 @@ func (page *TunnelPage) removeMetadata(id string) {
 		}
 	}
 	page.items = result
+}
+
+func tunnelAdminAccessLabel(access tunnel.AdminAccess) string {
+	if access.Manage {
+		return "full management"
+	}
+	if access.Read {
+		return "read only"
+	}
+	return "not verified"
 }
 
 func tunnelScopeLabel(scope tunnel.AdminScope) string {

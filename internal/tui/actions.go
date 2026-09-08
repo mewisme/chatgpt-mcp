@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"go.mewis.me/chatgpt-mcp/docs/tuiguide"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/capability"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
@@ -185,11 +186,17 @@ func tunnelActions() []action.Action {
 		tunnelAction("tunnel.admin.key.verify", "Verify admin key", "Re-verify Tunnels Manage access for the stored admin key", []string{"tunnel", "admin", "key", "verify"}, []string{"tunnel", "admin", "key", "verify"}, tuipage.TunnelAdminKeyVerify, RouteTunnel, false),
 		tunnelAction("tunnel.admin.key.remove", "Remove admin key", "Remove the stored tunnel admin key and verification scope", []string{"tunnel", "admin", "key", "remove"}, []string{"tunnel", "admin", "key", "remove"}, tuipage.TunnelAdminKeyRemove, RouteTunnel, false),
 		tunnelAction("tunnel.managed.refresh", "Refresh managed tunnels", "Refresh managed tunnels from the OpenAI control plane", []string{"tunnel", "managed", "refresh", "list"}, []string{"tunnel", "list"}, tuipage.TunnelManagedRefresh, RouteTunnels, false),
-		editorNavigationAction("tunnel.managed.create", "Create managed tunnel", "Tunnel", "Create a tunnel through the OpenAI Tunnel Management API", []string{"tunnel", "managed", "create"}, []string{"tunnel", "create"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnels) }, func(action.Context) Route { return Route{Kind: RouteTunnels, Action: "create"} }),
-		editorNavigationAction("tunnel.managed.update", "Update managed tunnel", "Tunnel", "Update the current managed tunnel", []string{"tunnel", "managed", "update", "edit"}, []string{"tunnel", "update"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+		editorNavigationAction("tunnel.managed.create", "Create managed tunnel", "Tunnel", "Create a tunnel through the OpenAI Tunnel Management API", []string{"tunnel", "managed", "create"}, []string{"tunnel", "create"}, func(ctx action.Context) bool {
+			return ctx.Route == string(RouteTunnels) && tunnelAdminManageAvailable()
+		}, func(action.Context) Route { return Route{Kind: RouteTunnels, Action: "create"} }),
+		editorNavigationAction("tunnel.managed.update", "Update managed tunnel", "Tunnel", "Update the current managed tunnel", []string{"tunnel", "managed", "update", "edit"}, []string{"tunnel", "update"}, func(ctx action.Context) bool {
+			return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" && tunnelAdminManageAvailable()
+		}, func(ctx action.Context) Route {
 			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "edit"}
 		}),
-		editorNavigationAction("tunnel.managed.configure", "Use managed tunnel", "Tunnel", "Configure cgm to use the current managed tunnel", []string{"tunnel", "managed", "use", "select", "switch", "runtime"}, []string{"tunnel", "use"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+		editorNavigationAction("tunnel.managed.configure", "Use managed tunnel", "Tunnel", "Configure cgm to use the current managed tunnel", []string{"tunnel", "managed", "use", "select", "switch", "runtime"}, []string{"tunnel", "use"}, func(ctx action.Context) bool {
+			return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" && tunnelAdminReadAvailable()
+		}, func(ctx action.Context) Route {
 			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "configure"}
 		}),
 		tunnelAction("tunnel.managed.delete", "Delete managed tunnel", "Permanently delete the current managed tunnel", []string{"tunnel", "managed", "delete", "remove"}, []string{"tunnel", "delete"}, tuipage.TunnelManagedDelete, RouteTunnels, true),
@@ -200,15 +207,30 @@ func tunnelAction(id, title, description string, keywords, commandPath []string,
 	return action.Action{
 		ID: id, Title: title, Category: "Tunnel", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
 		Available: func(ctx action.Context) bool {
-			if ctx.Route != string(route) {
+			if ctx.Route != string(route) || needsResource && ctx.ResourceID == "" {
 				return false
 			}
-			return !needsResource || ctx.ResourceID != ""
+			switch command {
+			case tuipage.TunnelManagedRefresh, tuipage.TunnelManagedCreate, tuipage.TunnelManagedUpdate, tuipage.TunnelManagedDelete:
+				return tunnelAdminManageAvailable()
+			case tuipage.TunnelManagedConfigure:
+				return tunnelAdminReadAvailable()
+			}
+			return true
 		},
 		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
 			return func() tea.Msg { return tuipage.TunnelCommandMsg{Command: command, ResourceID: ctx.ResourceID} }
 		},
 	}
+}
+
+func tunnelAdminReadAvailable() bool {
+	status, err := application.TunnelAdminKeyStatus()
+	return err == nil && (status.Access.Read || status.Access.Manage)
+}
+func tunnelAdminManageAvailable() bool {
+	status, err := application.TunnelAdminKeyStatus()
+	return err == nil && status.Access.Manage
 }
 
 func mcpActions() []action.Action {

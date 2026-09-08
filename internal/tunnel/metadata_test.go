@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -109,12 +110,12 @@ func TestVerifyAdminKeyUsesManagedListScope(t *testing.T) {
 	defer server.Close()
 
 	cfg := Config{AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL}
-	count, err := VerifyAdminKey(context.Background(), cfg)
+	access, count, err := VerifyAdminKey(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 || !AdminConfigured(cfg) {
-		t.Fatalf("count=%d configured=%t", count, AdminConfigured(cfg))
+	if count != 2 || !access.Read || !access.Manage || !AdminConfigured(cfg) {
+		t.Fatalf("access=%#v count=%d configured=%t", access, count, AdminConfigured(cfg))
 	}
 }
 
@@ -139,5 +140,27 @@ func TestSeedMetadataPopulatesStatusWithoutFetch(t *testing.T) {
 	status := client.Status()
 	if status.Metadata == nil || status.Metadata.Name != "Persisted tunnel" {
 		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestVerifyAdminKeyDetectsReadOnlyAccessWithoutMutation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer sk-read" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/tunnels":
+			http.Error(w, `{"error":{"message":"missing manage permission"}}`, http.StatusForbidden)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/tunnels/tunnel_000000"):
+			http.Error(w, `{"error":{"message":"not found"}}`, http.StatusNotFound)
+		default:
+			t.Fatalf("unexpected request = %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	cfg := Config{AdminKey: "sk-read", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL}
+	access, count, err := VerifyAdminKey(context.Background(), cfg)
+	if err != nil || !access.Read || access.Manage || count != 0 {
+		t.Fatalf("access=%#v count=%d err=%v", access, count, err)
 	}
 }

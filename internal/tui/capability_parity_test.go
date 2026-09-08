@@ -7,8 +7,11 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/capability"
+	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	"go.mewis.me/chatgpt-mcp/internal/tui/palette"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestEveryPublicCapabilityHasTUIRepresentation(t *testing.T) {
@@ -60,6 +63,16 @@ func TestMappedCapabilitiesArePaletteDiscoverableByCanonicalCLIPath(t *testing.T
 }
 
 func TestCapabilityActionsHaveReachableContexts(t *testing.T) {
+	previous := configformat.RootPath()
+	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Tunnel = tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true}
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
 	contexts := []action.Context{
 		{},
 		{Route: string(RouteWorkspaces)}, {Route: string(RouteWorkspaces), ResourceID: "resource"},

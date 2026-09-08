@@ -3,6 +3,7 @@ package tunnel
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 
 	tcadmin "github.com/openai/tunnel-client/pkg/controlplane/admin"
@@ -50,9 +51,40 @@ func AdminConfigured(cfg Config) bool {
 	return strings.TrimSpace(cfg.AdminKey) != "" && ValidateAdminScope(AdminScopeFromConfig(cfg)) == nil
 }
 
-func VerifyAdminKey(ctx context.Context, cfg Config) (int, error) {
+func AdminAccessFromConfig(cfg Config) AdminAccess {
+	return AdminAccess{Read: cfg.AdminReadAccess, Manage: cfg.AdminManageAccess}
+}
+
+func ApplyAdminAccess(cfg *Config, access AdminAccess) {
+	if cfg == nil {
+		return
+	}
+	cfg.AdminReadAccess = access.Read
+	cfg.AdminManageAccess = access.Manage
+}
+
+func VerifyAdminKey(ctx context.Context, cfg Config) (AdminAccess, int, error) {
 	items, err := ListManaged(ctx, cfg, AdminScopeFromConfig(cfg))
-	return len(items), err
+	if err == nil {
+		return AdminAccess{Read: true, Manage: true}, len(items), nil
+	}
+	var requestErr *tcadmin.RequestError
+	if !errors.As(err, &requestErr) || requestErr.StatusCode != http.StatusForbidden {
+		return AdminAccess{}, 0, err
+	}
+	client, clientErr := adminTunnelClient(cfg, cfg.AdminKey)
+	if clientErr != nil {
+		return AdminAccess{}, 0, clientErr
+	}
+	_, readErr := client.GetTunnel(ctx, "tunnel_00000000000000000000000000000000")
+	if readErr == nil {
+		return AdminAccess{Read: true}, 0, nil
+	}
+	var readRequestErr *tcadmin.RequestError
+	if errors.As(readErr, &readRequestErr) && (readRequestErr.StatusCode == http.StatusNotFound || readRequestErr.StatusCode == http.StatusBadRequest) {
+		return AdminAccess{Read: true}, 0, nil
+	}
+	return AdminAccess{}, 0, err
 }
 
 func ListManaged(ctx context.Context, cfg Config, scope AdminScope) ([]Metadata, error) {

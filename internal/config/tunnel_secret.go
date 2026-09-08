@@ -20,6 +20,8 @@ type tunnelSecret struct {
 	AdminOrganizationID  string `json:"admin_organization_id,omitempty"`
 	AdminWorkspaceID     string `json:"admin_workspace_id,omitempty"`
 	AdminTenantID        string `json:"admin_tenant_id,omitempty"`
+	AdminReadAccess      bool   `json:"admin_read_access,omitempty"`
+	AdminManageAccess    bool   `json:"admin_manage_access,omitempty"`
 }
 
 var (
@@ -69,11 +71,13 @@ func loadTunnelSecretsWithPolicy(path string, cfg *tunnel.Config, legacyRuntime,
 	if err != nil {
 		return false, err
 	}
-	if stored.AdminOrganizationID != "" || stored.AdminWorkspaceID != "" || stored.AdminTenantID != "" {
+	if stored.AdminOrganizationID != "" || stored.AdminWorkspaceID != "" || stored.AdminTenantID != "" || stored.AdminReadAccess || stored.AdminManageAccess {
 		cfg.AdminOrganizationID = stored.AdminOrganizationID
 		cfg.AdminWorkspaceID = stored.AdminWorkspaceID
 		cfg.AdminTenantID = stored.AdminTenantID
 	}
+	cfg.AdminReadAccess = stored.AdminReadAccess
+	cfg.AdminManageAccess = stored.AdminManageAccess
 	if stored.APIKey != "" {
 		legacyRuntime = stored.APIKey
 	}
@@ -124,8 +128,9 @@ func saveTunnelSecretAt(path string, cfg tunnel.Config) error {
 	stored := tunnelSecret{
 		RuntimeKeyConfigured: cfg.APIKey != "", AdminKeyConfigured: cfg.AdminKey != "",
 		AdminOrganizationID: cfg.AdminOrganizationID, AdminWorkspaceID: cfg.AdminWorkspaceID, AdminTenantID: cfg.AdminTenantID,
+		AdminReadAccess: cfg.AdminReadAccess, AdminManageAccess: cfg.AdminManageAccess,
 	}
-	if stored.RuntimeKeyConfigured || stored.AdminKeyConfigured || stored.AdminOrganizationID != "" || stored.AdminWorkspaceID != "" || stored.AdminTenantID != "" {
+	if stored.RuntimeKeyConfigured || stored.AdminKeyConfigured || stored.AdminOrganizationID != "" || stored.AdminWorkspaceID != "" || stored.AdminTenantID != "" || stored.AdminReadAccess || stored.AdminManageAccess {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			return err
 		}

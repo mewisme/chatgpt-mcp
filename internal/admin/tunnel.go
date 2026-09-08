@@ -137,9 +137,26 @@ type tunnelAdminKeyRequest struct {
 }
 
 type tunnelAdminKeyStatus struct {
-	Configured bool              `json:"configured"`
-	Scope      tunnel.AdminScope `json:"scope"`
-	Tunnels    int               `json:"tunnels,omitempty"`
+	Configured bool               `json:"configured"`
+	Scope      tunnel.AdminScope  `json:"scope"`
+	Access     tunnel.AdminAccess `json:"access"`
+	Tunnels    int                `json:"tunnels,omitempty"`
+}
+
+type managedTunnelCreateRequest struct {
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	TenantIDs       []string `json:"tenant_ids,omitempty"`
+	WorkspaceIDs    []string `json:"workspace_ids,omitempty"`
+	OrganizationIDs []string `json:"organization_ids,omitempty"`
+}
+
+type managedTunnelUpdateRequest struct {
+	Name            *string   `json:"name,omitempty"`
+	Description     *string   `json:"description,omitempty"`
+	TenantIDs       *[]string `json:"tenant_ids,omitempty"`
+	WorkspaceIDs    *[]string `json:"workspace_ids,omitempty"`
+	OrganizationIDs *[]string `json:"organization_ids,omitempty"`
 }
 
 type managedTunnelUseRequest struct {
@@ -180,13 +197,28 @@ func (api API) handleTunnelAdminKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		count, err := tunnel.VerifyAdminKey(ctx, cfg)
+		access, count, err := tunnel.VerifyAdminKey(ctx, cfg)
 		cancel()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, tunnelAdminStatus(cfg, count))
+		_, err = api.Config.Update(func(candidate config.Config) (config.Config, error) {
+			previous := candidate
+			tunnel.ApplyAdminAccess(&candidate.Tunnel, access)
+			if err := api.persistConfig(candidate); err != nil {
+				return previous, err
+			}
+			if err := api.Tunnel.SyncManagementConfig(candidate.Tunnel); err != nil {
+				return previous, errors.Join(err, api.persistConfig(previous))
+			}
+			return candidate, nil
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, tunnelAdminStatus(api.Config.Snapshot().Tunnel, count))
 	case http.MethodDelete:
 		if err := api.removeTunnelAdminKey(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -212,12 +244,13 @@ func (api API) saveTunnelAdminKey(parent context.Context, request tunnelAdminKey
 			return previous, errors.New("admin key and exactly one organization, workspace, or tenant scope are required")
 		}
 		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
-		var verifyErr error
-		count, verifyErr = tunnel.VerifyAdminKey(ctx, candidate.Tunnel)
+		access, verifiedCount, verifyErr := tunnel.VerifyAdminKey(ctx, candidate.Tunnel)
+		count = verifiedCount
 		cancel()
 		if verifyErr != nil {
 			return previous, verifyErr
 		}
+		tunnel.ApplyAdminAccess(&candidate.Tunnel, access)
 		if err := api.persistConfig(candidate); err != nil {
 			return previous, err
 		}
@@ -234,6 +267,7 @@ func (api API) removeTunnelAdminKey() error {
 		previous := candidate
 		candidate.Tunnel.AdminKey = ""
 		tunnel.ApplyAdminScope(&candidate.Tunnel, tunnel.AdminScope{})
+		tunnel.ApplyAdminAccess(&candidate.Tunnel, tunnel.AdminAccess{})
 		if err := api.persistConfig(candidate); err != nil {
 			return previous, err
 		}
@@ -246,14 +280,10 @@ func (api API) removeTunnelAdminKey() error {
 }
 
 func tunnelAdminStatus(cfg tunnel.Config, count int) tunnelAdminKeyStatus {
-	return tunnelAdminKeyStatus{Configured: tunnel.AdminConfigured(cfg), Scope: tunnel.AdminScopeFromConfig(cfg), Tunnels: count}
+	return tunnelAdminKeyStatus{Configured: tunnel.AdminConfigured(cfg), Scope: tunnel.AdminScopeFromConfig(cfg), Access: tunnel.AdminAccessFromConfig(cfg), Tunnels: count}
 }
 
 func (api API) handleManagedTunnels(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
 	if api.Config == nil {
 		http.Error(w, "tunnel configuration unavailable", http.StatusServiceUnavailable)
 		return
@@ -263,20 +293,122 @@ func (api API) handleManagedTunnels(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "verified tunnel admin key is required", http.StatusBadRequest)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	items, err := tunnel.ListManaged(ctx, cfg, tunnel.AdminScopeFromConfig(cfg))
-	cancel()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !cfg.AdminManageAccess {
+		http.Error(w, "tunnel admin key does not have verified Manage access", http.StatusForbidden)
 		return
 	}
-	for _, item := range items {
-		if _, err := config.SaveTunnelMetadata(item); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	switch r.Method {
+	case http.MethodGet:
+		items, err := tunnel.ListManaged(ctx, cfg, tunnel.AdminScopeFromConfig(cfg))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		for _, item := range items {
+			if _, err := config.SaveTunnelMetadata(item); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		writeJSON(w, items)
+	case http.MethodPost:
+		var request managedTunnelCreateRequest
+		if err := decodeJSONBody(w, r, &request); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		metadata, err := tunnel.CreateManaged(ctx, cfg, tunnel.CreateRequest{Name: request.Name, Description: request.Description, TenantIDs: request.TenantIDs, WorkspaceIDs: request.WorkspaceIDs, OrganizationIDs: request.OrganizationIDs})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := config.SaveTunnelMetadata(metadata); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		writeJSON(w, metadata)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-	writeJSON(w, items)
+}
+
+func (api API) handleManagedTunnel(w http.ResponseWriter, r *http.Request) {
+	if api.Config == nil {
+		http.Error(w, "tunnel configuration unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	id := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/tunnel/managed/"))
+	if id == "" || id == "use" {
+		http.Error(w, "managed tunnel id is required", http.StatusBadRequest)
+		return
+	}
+	cfg := api.Config.Snapshot().Tunnel
+	if !tunnel.AdminConfigured(cfg) {
+		http.Error(w, "verified tunnel admin key is required", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	switch r.Method {
+	case http.MethodGet:
+		if !cfg.AdminReadAccess && !cfg.AdminManageAccess {
+			http.Error(w, "tunnel admin key does not have verified Read access", http.StatusForbidden)
+			return
+		}
+		metadata, err := tunnel.GetManaged(ctx, cfg, id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := config.SaveTunnelMetadata(metadata); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, metadata)
+	case http.MethodPut:
+		if !cfg.AdminManageAccess {
+			http.Error(w, "tunnel admin key does not have verified Manage access", http.StatusForbidden)
+			return
+		}
+		var request managedTunnelUpdateRequest
+		if err := decodeJSONBody(w, r, &request); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		metadata, err := tunnel.UpdateManaged(ctx, cfg, id, tunnel.UpdateRequest{Name: request.Name, Description: request.Description, TenantIDs: request.TenantIDs, WorkspaceIDs: request.WorkspaceIDs, OrganizationIDs: request.OrganizationIDs})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := config.SaveTunnelMetadata(metadata); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, metadata)
+	case http.MethodDelete:
+		if !cfg.AdminManageAccess {
+			http.Error(w, "tunnel admin key does not have verified Manage access", http.StatusForbidden)
+			return
+		}
+		if strings.TrimSpace(cfg.ID) == id {
+			http.Error(w, "cannot delete the locally selected tunnel; select another tunnel or clear runtime configuration first", http.StatusConflict)
+			return
+		}
+		metadata, err := tunnel.DeleteManaged(ctx, cfg, id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := config.RemoveTunnelMetadata(metadata.ID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, metadata)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 func (api API) handleManagedTunnelUse(w http.ResponseWriter, r *http.Request) {
@@ -301,6 +433,10 @@ func (api API) handleManagedTunnelUse(w http.ResponseWriter, r *http.Request) {
 	current := api.Config.Snapshot()
 	if !tunnel.AdminConfigured(current.Tunnel) {
 		http.Error(w, "verified tunnel admin key is required", http.StatusBadRequest)
+		return
+	}
+	if !current.Tunnel.AdminReadAccess && !current.Tunnel.AdminManageAccess {
+		http.Error(w, "tunnel admin key does not have verified Read access", http.StatusForbidden)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)

@@ -17,6 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -66,6 +67,11 @@ func TestModelMCPCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 func TestModelManagedTunnelCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Tunnel = tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true}
+	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
 	route := Route{Kind: RouteTunnels, Action: "create"}

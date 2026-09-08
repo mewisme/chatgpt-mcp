@@ -92,6 +92,9 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 			}
 			log.Success("TUNNEL", "Admin key verified and saved")
 			log.Detail("scope", formatTunnelAdminScope(verifiedScope))
+			if status, statusErr := application.TunnelAdminKeyStatus(); statusErr == nil {
+				log.Detail("access", formatTunnelAdminAccess(status.Access))
+			}
 			log.Detail("tunnels", count)
 			log.Detail("secret store", "secret file store")
 			return nil
@@ -117,6 +120,7 @@ func tunnelAdminKeyStatusCommand() *cobra.Command {
 		if tunnel.ValidateAdminScope(status.Scope) == nil {
 			log.Detail("scope", formatTunnelAdminScope(status.Scope))
 		}
+		log.Detail("access", formatTunnelAdminAccess(status.Access))
 		log.Detail("secret store", "secret file store")
 		return nil
 	}}
@@ -136,6 +140,9 @@ func tunnelAdminKeyVerifyCommand() *cobra.Command {
 		}
 		log.Success("TUNNEL", "Admin key verified")
 		log.Detail("scope", formatTunnelAdminScope(scope))
+		if status, statusErr := application.TunnelAdminKeyStatus(); statusErr == nil {
+			log.Detail("access", formatTunnelAdminAccess(status.Access))
+		}
 		log.Detail("tunnels", count)
 		return nil
 	}}
@@ -441,6 +448,16 @@ func managedTunnelSummary(metadata tunnel.Metadata) string {
 		return name
 	}
 	return name + " scope=" + strings.Join(scope, ",")
+}
+
+func formatTunnelAdminAccess(access tunnel.AdminAccess) string {
+	if access.Manage {
+		return "full management"
+	}
+	if access.Read {
+		return "read only"
+	}
+	return "not verified"
 }
 
 func formatTunnelAdminScope(scope tunnel.AdminScope) string {

@@ -326,9 +326,11 @@ export type TunnelAdminKeyRequest = {
   workspace_id?: string
   tenant_id?: string
 }
+export type TunnelAdminAccess = { read: boolean; manage: boolean }
 export type TunnelAdminKeyStatus = {
   configured: boolean
   scope: TunnelAdminScope
+  access: TunnelAdminAccess
   tunnels?: number
 }
 export type TunnelMetadata = {
@@ -342,6 +344,8 @@ export type TunnelMetadata = {
   request_id?: string
   fetched_at: string
 }
+export type ManagedTunnelCreateRequest = { name: string; description: string; tenant_ids?: string[]; workspace_ids?: string[]; organization_ids?: string[] }
+export type ManagedTunnelUpdateRequest = { name?: string; description?: string; tenant_ids?: string[]; workspace_ids?: string[]; organization_ids?: string[] }
 export type ManagedTunnelUseRequest = {
   id: string
   runtime_api_key?: string
@@ -602,6 +606,10 @@ export const adminApi = {
   removeTunnelAdminKey: () =>
     api<TunnelAdminKeyStatus>("/api/tunnel/admin/key", { method: "DELETE" }),
   managedTunnels: () => api<TunnelMetadata[]>("/api/tunnel/managed"),
+  managedTunnel: (id: string) => api<TunnelMetadata>(`/api/tunnel/managed/${encodeURIComponent(id)}`),
+  createManagedTunnel: (request: ManagedTunnelCreateRequest) => api<TunnelMetadata>("/api/tunnel/managed", { method: "POST", body: JSON.stringify(request) }),
+  updateManagedTunnel: (id: string, request: ManagedTunnelUpdateRequest) => api<TunnelMetadata>(`/api/tunnel/managed/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(request) }),
+  deleteManagedTunnel: (id: string) => api<TunnelMetadata>(`/api/tunnel/managed/${encodeURIComponent(id)}`, { method: "DELETE" }),
   useManagedTunnel: (request: ManagedTunnelUseRequest) =>
     api<ManagedTunnelUseResult>("/api/tunnel/managed/use", {
       method: "POST",

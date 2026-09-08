@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestWorkspaceActionAvailabilityFollowsRouteContext(t *testing.T) {
@@ -93,6 +96,16 @@ func TestGuideActionsNavigateDirectlyToEmbeddedTopics(t *testing.T) {
 }
 
 func TestEditorActionsNavigateToEditorRoutes(t *testing.T) {
+	previous := configformat.RootPath()
+	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Tunnel = tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true}
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
 	registry := defaultActionRegistry()
 	tests := []struct {
 		id   string
@@ -155,6 +168,16 @@ func TestMCPActionAvailabilityFollowsRouteContext(t *testing.T) {
 }
 
 func TestTunnelActionAvailabilityFollowsRouteContext(t *testing.T) {
+	previous := configformat.RootPath()
+	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Tunnel = tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true}
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
 	registry := defaultActionRegistry()
 	has := func(ctx action.Context, id string) bool {
 		for _, item := range registry.Actions(ctx) {

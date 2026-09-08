@@ -84,6 +84,7 @@ type ConfigPage struct {
 	err             error
 	width           int
 	height          int
+	searching       bool
 }
 
 type configDomain struct {
@@ -197,6 +198,10 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, cmd
 	case component.BrowserOpenMsg:
+		if page.searching && msg.Row.ID != "" {
+			page.searching = false
+			return page, func() tea.Msg { return NavigateMsg{Path: []string{"config", msg.Row.ID}} }
+		}
 		if msg.Row.ID != "" && page.isStorageRoute() {
 			command, ok := configMaintenanceCommand(msg.Row.ID)
 			if !ok {
@@ -332,6 +337,20 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 }
 
 func (page *ConfigPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	if page.resourceID == "" && msg.String() == "s" {
+		page.searching = true
+		page.browser = component.NewBrowser(page.ctx, "Search configuration", page.searchRows(), nil).WithTitleVisible(false).WithHelpBindings(component.Binding([]string{"esc"}, "esc", "cancel"))
+		page.browser.StartFilter()
+		if page.width > 0 && page.height > 0 {
+			_ = page.resizeBrowser()
+		}
+		return nil, true
+	}
+	if page.searching && msg.String() == "esc" {
+		page.searching = false
+		page.rebuildBrowser("")
+		return nil, true
+	}
 	if page.isStorageRoute() && msg.String() == "enter" {
 		selected, ok := page.browser.Selected()
 		if !ok {
@@ -589,6 +608,34 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 	if selected != "" {
 		page.browser.SelectID(selected)
 	}
+}
+
+func (page *ConfigPage) searchRows() []component.Row {
+	rows := make([]component.Row, 0, len(config.Fields()))
+	for _, spec := range config.Fields() {
+		value := "loading"
+		state := config.FieldStateDefault
+		if page.loaded {
+			if display, err := config.DisplayValue(page.overview.Config, spec); err == nil {
+				value = display
+			}
+			if current, err := config.State(page.overview.Config, spec); err == nil {
+				state = current
+			}
+		}
+		rows = append(rows, component.Row{ID: spec.Key, Title: spec.Label, Description: page.sectionLabel(spec.Section) + " · " + spec.Description, Meta: value + " · " + string(state), Search: strings.Join(append([]string{spec.Label, spec.Key, spec.Description, value, string(state), string(spec.Section)}, spec.Options...), " ")})
+	}
+	return rows
+}
+
+func (page *ConfigPage) sectionLabel(section config.FieldSection) string {
+	for _, domain := range configDomains {
+		candidate, ok := configSectionForRoute(domain.ID)
+		if ok && candidate == section {
+			return domain.Title
+		}
+	}
+	return string(section)
 }
 
 func (page *ConfigPage) resizeBrowser() tea.Cmd {

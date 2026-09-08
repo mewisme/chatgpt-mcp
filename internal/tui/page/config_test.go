@@ -2,6 +2,7 @@ package page
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -266,6 +267,51 @@ func TestConfigRootDoesNotExposeMaintenanceShortcuts(t *testing.T) {
 		if handled {
 			t.Fatalf("root still handles maintenance shortcut %q", key)
 		}
+	}
+}
+
+func TestConfigGlobalSearchIndexesAllFieldsWithoutSecrets(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfig(t.Context())
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	page.overview.Config.Tunnel.APIKey = "SEARCH_RUNTIME_SECRET"
+	page.overview.Config.Tunnel.AdminKey = "SEARCH_ADMIN_SECRET"
+	rows := page.searchRows()
+	if len(rows) != len(config.Fields()) {
+		t.Fatalf("search rows=%d fields=%d", len(rows), len(config.Fields()))
+	}
+	joined := fmt.Sprintf("%#v", rows)
+	if strings.Contains(joined, "SEARCH_RUNTIME_SECRET") || strings.Contains(joined, "SEARCH_ADMIN_SECRET") {
+		t.Fatalf("search index leaked secret: %s", joined)
+	}
+	found := false
+	for _, row := range rows {
+		if row.ID == "shell.approval_policy" {
+			found = strings.Contains(row.Search, "Approval policy") && strings.Contains(row.Search, "shell.approval_policy") && strings.Contains(row.Description, "Shell & Execution")
+		}
+	}
+	if !found {
+		t.Fatal("search index missing approval policy metadata")
+	}
+}
+
+func TestConfigSearchOpensAndNavigatesToField(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfig(t.Context())
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	_, handled := page.handleKey(tea.KeyPressMsg{Code: 's'})
+	if !handled || !page.searching || !page.browser.InputActive() {
+		t.Fatalf("search handled=%t searching=%t input=%t", handled, page.searching, page.browser.InputActive())
+	}
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "shell.approval_policy"}})
+	if cmd == nil {
+		t.Fatal("search result returned no navigation")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "config/shell.approval_policy" {
+		t.Fatalf("search navigation=%#v", message)
 	}
 }
 

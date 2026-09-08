@@ -263,6 +263,13 @@ func (m *Browser) SetHelpExpanded(expanded bool) {
 
 func (m Browser) InputActive() bool { return m.list.FilterState() == list.Filtering }
 
+func (m *Browser) StartFilter() {
+	if m == nil {
+		return
+	}
+	m.list.SetFilterState(list.Filtering)
+}
+
 func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
 	if m.width <= 0 || m.height <= 0 {
 		return nil

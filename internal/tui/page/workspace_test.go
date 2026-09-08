@@ -164,6 +164,72 @@ func TestWorkspaceContainerLifecycleAndMembership(t *testing.T) {
 	}
 }
 
+func TestContainerOverviewListsMembers(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewContainers(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	items := map[string]string{}
+	for _, name := range []string{"zeta", "alpha", "middle"} {
+		path := filepath.Join(base, name)
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+		item, err := page.manager.Register(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items[name] = item.ID
+	}
+	container, err := page.manager.CreateContainer("Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := page.manager.AddWorkspacesToContainer(container.ID, []string{items["zeta"], items["middle"], items["alpha"]}); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := NewContainersRoute(t.Context(), container.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail = runWorkspacePageCmd(t, detail, detail.Init())
+	plain := ansi.Strip(detail.View(140, 30))
+	if !strings.Contains(plain, "Members") {
+		t.Fatalf("member section missing: %q", plain)
+	}
+	last := -1
+	for _, name := range []string{"alpha", "middle", "zeta"} {
+		value := name + " · " + items[name] + " · " + filepath.Join(base, name)
+		index := strings.Index(plain, value)
+		if index < 0 {
+			t.Fatalf("member %q missing: %q", value, plain)
+		}
+		if index <= last {
+			t.Fatalf("members not sorted by path: %q", plain)
+		}
+		last = index
+	}
+
+	empty, err := page.manager.CreateContainer("Empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyDetail, err := NewContainersRoute(t.Context(), empty.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyDetail = runWorkspacePageCmd(t, emptyDetail, emptyDetail.Init())
+	emptyView := ansi.Strip(emptyDetail.View(100, 24))
+	if strings.Contains(emptyView, "Members") || !strings.Contains(emptyView, "0 workspaces") {
+		t.Fatalf("empty container overview=%q", emptyView)
+	}
+}
+
 func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {

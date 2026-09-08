@@ -676,15 +676,18 @@ func (page *WorkspacePage) syncContainerDetail() error {
 	if err != nil {
 		return err
 	}
+	workspaces, err := page.manager.WorkspacesForContainer(item.ID)
+	if err != nil {
+		return err
+	}
 	content := ""
 	switch page.section {
 	case "":
 		content = detailFields([2]string{"ID", item.ID}, [2]string{"Name", item.Name})
-	case "workspaces":
-		workspaces, err := page.manager.WorkspacesForContainer(item.ID)
-		if err != nil {
-			return err
+		if len(workspaces) > 0 {
+			content += "\n\n" + component.Label("Members") + "\n" + detailList(containerWorkspaceDetails(workspaces))
 		}
+	case "workspaces":
 		values := make([]string, 0, len(workspaces))
 		for _, workspaceItem := range workspaces {
 			values = append(values, workspaceItem.ID+" · "+workspaceItem.Path)
@@ -797,6 +800,14 @@ func stringSet(values []string) map[string]bool {
 		}
 	}
 	return result
+}
+
+func containerWorkspaceDetails(items []workspace.Workspace) []string {
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		values = append(values, workspaceMemberLabel(item)+" · "+item.Path)
+	}
+	return values
 }
 
 func detailFields(fields ...[2]string) string {

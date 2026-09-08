@@ -57,18 +57,27 @@ func TestBrowserPageHintsStayOnBottomRow(t *testing.T) {
 	instructionPage, _ := newTestInstructionPage(t)
 	instructionView := instructionPage.View(width, height)
 	assertPageHeaderGap(t, "instruction", instructionView)
+	rulesPage, err := NewInstructionRoute(t.Context(), "rules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPageBottomHint(t, "instruction rules", rulesPage.View(width, height), height, "? more")
 
 	workspacePage, err := NewWorkspaces(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertSinglePageHeaderGap(t, "workspaces", workspacePage.View(width, height))
+	workspaceView := workspacePage.View(width, height)
+	assertSinglePageHeaderGap(t, "workspaces", workspaceView)
+	assertPageBottomHint(t, "workspaces", workspaceView, height, "? more")
 
 	requestsPage, err := NewRequests(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertSinglePageHeaderGap(t, "requests", requestsPage.View(width, height))
+	requestsView := requestsPage.View(width, height)
+	assertSinglePageHeaderGap(t, "requests", requestsView)
+	assertPageBottomHint(t, "requests", requestsView, height, "? more")
 }
 
 func assertPageBottomHint(t *testing.T, name, view string, height int, marker string) {

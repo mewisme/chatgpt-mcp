@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func updateBrowser(t *testing.T, model Browser, message tea.Msg) Browser {
@@ -203,6 +204,28 @@ func TestBrowserFilteringAndHelpState(t *testing.T) {
 	model.SetHelpExpanded(true)
 	if !model.HelpExpanded() {
 		t.Fatal("expanded help state not retained")
+	}
+}
+
+func TestBrowserExternalHelpDoesNotReserveBodySpace(t *testing.T) {
+	model := NewBrowser(t.Context(), "Items", []Row{{ID: "one"}, {ID: "two"}}, nil).WithTitleVisible(false).WithExternalHelp(true)
+	model.SetHelpBindings(Binding([]string{"a"}, "a", "add"))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 8})
+	model = updated.(Browser)
+	if strings.Contains(model.BodyContent(), "enter open") || strings.Contains(model.BodyContent(), "a add") {
+		t.Fatalf("external help leaked into body: %q", model.BodyContent())
+	}
+	help := ansi.Strip(model.HelpView())
+	if !strings.Contains(help, "enter open") || !strings.Contains(help, "a add") {
+		t.Fatalf("external help missing bindings: %q", help)
+	}
+	if got := len(strings.Split(model.BodyContent(), "\n")); got != 8 {
+		t.Fatalf("body height=%d want=8", got)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	model = updated.(Browser)
+	if !model.HelpExpanded() {
+		t.Fatal("external help did not expand")
 	}
 }
 

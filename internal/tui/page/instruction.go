@@ -406,7 +406,7 @@ func (page *InstructionPage) View(width, height int) string {
 		return page.ruleEditorView(width, height)
 	}
 	tabs := component.PageTabsNotice(instructionTabLabels, int(page.tab), page.notice, width)
-	bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
+	bodyHeight := max(1, height-lipgloss.Height(tabs))
 	if page.tab == instructionTabRules {
 		return page.rulesView(tabs, width, bodyHeight)
 	}
@@ -453,8 +453,12 @@ func (page *InstructionPage) MouseTargets(originX, originY, z int) []component.M
 	contentY := originY + lipgloss.Height(tabs) + 1
 	if page.tab == instructionTabRules {
 		feedback := page.instructionFeedback(page.width)
-		layout := page.instructionSectionLayout(instructionTabRules, feedback, page.width, max(1, page.height-lipgloss.Height(tabs)-1))
-		return append(targets, page.rules.MouseTargets(originX, contentY+layout.BodyY, z)...)
+		height := max(1, page.height-lipgloss.Height(tabs))
+		help := page.rules.HelpView()
+		layout := component.NewSectionLayout("Global Rules", fmt.Sprintf("%d rules", len(page.settings.Rules)), feedback, page.width, height, lipgloss.Height(help))
+		targets = append(targets, page.rules.MouseTargets(originX, contentY+layout.BodyY, z)...)
+		helpY := contentY + height - lipgloss.Height(help)
+		return append(targets, page.rules.HelpMouseTargets(originX, helpY, z+2)...)
 	}
 	if page.tab == instructionTabSources {
 		feedback := page.instructionFeedback(page.width)
@@ -526,7 +530,7 @@ func (page *InstructionPage) resizeContent() {
 		return
 	}
 	tabs := component.PageTabsNotice(instructionTabLabels, int(page.tab), page.notice, page.width)
-	height := max(1, page.height-lipgloss.Height(tabs)-1)
+	height := max(1, page.height-lipgloss.Height(tabs))
 	if page.ruleEditor != nil {
 		title := component.PageTitle(page.ruleEditorTitle(), page.width)
 		page.ruleEditor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
@@ -545,7 +549,8 @@ func (page *InstructionPage) resizeContent() {
 		return
 	}
 	if page.tab == instructionTabRules {
-		layout := page.instructionSectionLayout(instructionTabRules, page.instructionFeedback(page.width), page.width, height)
+		help := page.rules.HelpView()
+		layout := component.NewSectionLayout("Global Rules", fmt.Sprintf("%d rules", len(page.settings.Rules)), page.instructionFeedback(page.width), page.width, height, lipgloss.Height(help))
 		updated, _ := page.rules.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
 		page.rules = updated.(component.Browser)
 		return

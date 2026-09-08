@@ -351,11 +351,12 @@ func (page *RequestsPage) View(width, height int) string {
 		content = page.detail.View()
 	} else {
 		tabs := component.PageTabsNotice(requestTabLabels, int(page.mode), page.notice, width)
-		bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
-		layout := component.NewSectionLayout("Approval Requests", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, width, bodyHeight, 0)
+		bodyHeight := max(1, height-lipgloss.Height(tabs))
+		help := page.browser.HelpView()
+		layout := component.NewSectionLayout("Approval Requests", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, width, bodyHeight, lipgloss.Height(help))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 		page.browser = updated.(component.Browser)
-		content = tabs + "\n" + layout.View(page.browser.Content())
+		content = tabs + "\n" + component.BottomHelp(layout.View(page.browser.BodyContent()), help, width, bodyHeight)
 	}
 	if page.overlay == requestOverlayOperation {
 		body := ""
@@ -401,10 +402,13 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 				},
 			})
 		}
-		bodyHeight := max(1, page.height-lipgloss.Height(header)-1)
-		layout := component.NewSectionLayout("Approval Requests", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, page.width, bodyHeight, 0)
+		bodyHeight := max(1, page.height-lipgloss.Height(header))
+		help := page.browser.HelpView()
+		layout := component.NewSectionLayout("Approval Requests", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, page.width, bodyHeight, lipgloss.Height(help))
 		offsetY := lipgloss.Height(header) + 1 + layout.BodyY
-		return append(targets, page.browser.MouseTargets(originX, originY+offsetY, z)...)
+		targets = append(targets, page.browser.MouseTargets(originX, originY+offsetY, z)...)
+		helpY := originY + lipgloss.Height(header) + 1 + bodyHeight - lipgloss.Height(help)
+		return append(targets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
 	}
 }
 
@@ -552,7 +556,7 @@ func (page *RequestsPage) rebuildBrowser(selectedID string) {
 		selectedID = page.selectedID()
 	}
 	rows := page.requestRows()
-	browser := component.NewBrowser(page.ctx, "Approval requests", rows, nil).WithTitleVisible(false)
+	browser := component.NewBrowser(page.ctx, "Approval requests", rows, nil).WithTitleVisible(false).WithExternalHelp(true)
 	browser = browser.WithHelpBindings(component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"t"}, "t", "test request"), component.Binding([]string{"r"}, "r", "refresh"))
 	page.browser = browser
 	page.browser.SetHelpExpanded(helpExpanded)

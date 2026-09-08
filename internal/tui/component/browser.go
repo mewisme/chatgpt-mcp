@@ -61,6 +61,7 @@ type Browser struct {
 	title              string
 	titleNotice        string
 	titleVisible       bool
+	externalHelp       bool
 	list               list.Model
 	refresh            RefreshFunc
 	actions            []RowAction
@@ -131,6 +132,12 @@ func (m Browser) WithTitleVisible(visible bool) Browser {
 	return m
 }
 
+func (m Browser) WithExternalHelp(enabled bool) Browser {
+	m.externalHelp = enabled
+	m.list.SetShowHelp(!enabled)
+	return m
+}
+
 func (m *Browser) SetTitleNotice(notice string) {
 	if m != nil {
 		m.titleNotice = strings.TrimSpace(notice)
@@ -175,6 +182,10 @@ func (m Browser) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 		return m, cmd
 	}
+	if m.externalHelp && msg.String() == "?" {
+		m.list.Help.ShowAll = !m.list.Help.ShowAll
+		return m, nil
+	}
 	switch {
 	case key.Matches(msg, browserOpenBinding):
 		if selected, ok := m.selected(); ok {
@@ -212,9 +223,12 @@ func (m Browser) Content() string {
 }
 
 func (m Browser) BodyContent() string {
-	listView := m.list
-	listView.SetShowHelp(false)
-	content := listView.View()
+	content := m.list.View()
+	if !m.externalHelp {
+		listView := m.list
+		listView.SetShowHelp(false)
+		content = listView.View()
+	}
 	if m.titleVisible && m.titleNotice != "" {
 		lines := strings.Split(content, "\n")
 		if len(lines) > 0 {
@@ -225,7 +239,42 @@ func (m Browser) BodyContent() string {
 	return content
 }
 
-func (m Browser) HelpView() string { return m.list.Help.View(m.list) }
+func (m Browser) HelpView() string {
+	width := m.width
+	if width <= 0 {
+		width = defaultLayoutWidth
+	}
+	help := m.list.Help
+	help.SetWidth(width)
+	return WrapContent(help.View(m.list), width)
+}
+
+func (m Browser) HelpMouseTargets(originX, originY, z int) []MouseTarget {
+	lines := strings.Split(ansi.Strip(m.HelpView()), "\n")
+	targets := make([]MouseTarget, 0, len(m.renderedHelpBindings()))
+	for _, binding := range m.renderedHelpBindings() {
+		help := binding.Help()
+		keys := binding.Keys()
+		if strings.TrimSpace(help.Key+help.Desc) == "" || len(keys) == 0 {
+			continue
+		}
+		line, column, width := findBrowserHelpBinding(lines, help.Key, help.Desc)
+		if line < 0 {
+			continue
+		}
+		keyValue := keys[0]
+		targets = append(targets, MouseTarget{
+			ID: "browser.help", Rect: Rect{X: originX + column, Y: originY + line, Width: width, Height: 1}, Z: z,
+			Handle: func(event MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return browserHelpKeyMsg(keyValue)
+			},
+		})
+	}
+	return targets
+}
 
 func (m Browser) Selected() (Row, bool) { return m.selected() }
 

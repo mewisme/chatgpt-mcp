@@ -384,10 +384,13 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 		feedback := page.listFeedback(page.width)
 		tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
 		targets := page.workspaceTabMouseTargets(originX, originY, z+2)
-		bodyHeight := max(1, page.height-lipgloss.Height(tabs)-1)
-		layout := component.NewSectionLayout(page.listTitle(), "", feedback, page.width, bodyHeight, 0)
+		bodyHeight := max(1, page.height-lipgloss.Height(tabs))
+		help := page.browser.HelpView()
+		layout := component.NewSectionLayout(page.listTitle(), "", feedback, page.width, bodyHeight, lipgloss.Height(help))
 		browserY := originY + lipgloss.Height(tabs) + 1 + layout.BodyY
-		return append(targets, page.browser.MouseTargets(originX, browserY, z)...)
+		targets = append(targets, page.browser.MouseTargets(originX, browserY, z)...)
+		helpY := originY + lipgloss.Height(tabs) + 1 + bodyHeight - lipgloss.Height(help)
+		return append(targets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
 	}
 }
 
@@ -561,7 +564,7 @@ func (page *WorkspacePage) reload() error {
 		return err
 	}
 	refresh := func(context.Context) ([]component.Row, error) { return page.listRows() }
-	page.browser = component.NewBrowser(page.ctx, page.listTitle(), rows, refresh).WithTitleVisible(false)
+	page.browser = component.NewBrowser(page.ctx, page.listTitle(), rows, refresh).WithTitleVisible(false).WithExternalHelp(true)
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.containers {
 		page.browser.SetHelpBindings(component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"a"}, "a", "create"))
@@ -636,11 +639,12 @@ func (page *WorkspacePage) baseView(width, height int) string {
 	}
 	feedback := page.listFeedback(width)
 	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, width)
-	bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
-	layout := component.NewSectionLayout(page.listTitle(), "", feedback, width, bodyHeight, 0)
+	bodyHeight := max(1, height-lipgloss.Height(tabs))
+	help := page.browser.HelpView()
+	layout := component.NewSectionLayout(page.listTitle(), "", feedback, width, bodyHeight, lipgloss.Height(help))
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 	page.browser = updated.(component.Browser)
-	return tabs + "\n" + layout.View(page.browser.Content())
+	return tabs + "\n" + component.BottomHelp(layout.View(page.browser.BodyContent()), help, width, bodyHeight)
 }
 
 func (page *WorkspacePage) resizeBrowser() tea.Cmd {
@@ -648,8 +652,9 @@ func (page *WorkspacePage) resizeBrowser() tea.Cmd {
 		return nil
 	}
 	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
-	bodyHeight := max(1, page.height-lipgloss.Height(tabs)-1)
-	layout := component.NewSectionLayout(page.listTitle(), "", page.listFeedback(page.width), page.width, bodyHeight, 0)
+	bodyHeight := max(1, page.height-lipgloss.Height(tabs))
+	help := page.browser.HelpView()
+	layout := component.NewSectionLayout(page.listTitle(), "", page.listFeedback(page.width), page.width, bodyHeight, lipgloss.Height(help))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
 	page.browser = updated.(component.Browser)
 	return cmd

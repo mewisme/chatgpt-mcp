@@ -42,7 +42,7 @@ func (page *InstructionPage) syncRuleBrowser() {
 			Search: strings.Join([]string{rule.ID, rule.Name, rule.Content, state}, " "),
 		})
 	}
-	browser := component.NewBrowser(page.ctx, "Global Rules", rows, nil).WithTitleVisible(false)
+	browser := component.NewBrowser(page.ctx, "Global Rules", rows, nil).WithTitleVisible(false).WithExternalHelp(true)
 	browser.SetHelpBindings(
 		component.Binding([]string{"a"}, "a", "add"),
 		component.Binding([]string{"e"}, "e", "edit"),
@@ -281,10 +281,11 @@ func (page *InstructionPage) rulesView(tabs string, width, bodyHeight int) strin
 	if page.err != nil {
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 	}
-	layout := page.instructionSectionLayout(instructionTabRules, feedback, width, bodyHeight)
+	help := page.rules.HelpView()
+	layout := component.NewSectionLayout("Global Rules", fmt.Sprintf("%d rules", len(page.settings.Rules)), feedback, width, bodyHeight, lipgloss.Height(help))
 	updated, _ := page.rules.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 	page.rules = updated.(component.Browser)
-	content := tabs + "\n" + layout.View(page.rules.Content())
+	content := tabs + "\n" + component.BottomHelp(layout.View(page.rules.BodyContent()), help, width, bodyHeight)
 	if page.ruleDeleteID == "" {
 		return content
 	}

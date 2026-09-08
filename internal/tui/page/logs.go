@@ -125,7 +125,7 @@ func NewLogsRouteAction(ctx context.Context, resourceID, section, action string)
 	}
 	pageCtx, cancel := context.WithCancel(ctx)
 	page := &LogsPage{ctx: pageCtx, cancel: cancel, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose, exec: newLogsExecutionFeed()}
-	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false)
+	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false).WithExternalHelp(true)
 	page.syncBrowserHelp()
 	if page.action == "filter" {
 		page.initFilterEditor()
@@ -415,7 +415,8 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	tabsHeight := lipgloss.Height(tabs)
 	if page.tab == logsTabCommandExec {
 		bodyHeight := max(1, page.height-tabsHeight)
-		layout := component.NewSectionLayout("Command Execution", "live output", "", page.width, bodyHeight, 0)
+		help := page.executionHelpView(page.width)
+		layout := component.NewSectionLayout("Command Execution", "live output", "", page.width, bodyHeight, lipgloss.Height(help))
 		bodyY := originY + tabsHeight + 1 + layout.BodyY
 		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, layout.BodyHeight)...)
 	}
@@ -428,7 +429,9 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
 	statusHeight := lipgloss.Height(page.statusView(page.width))
 	browserY := originY + tabsHeight + 1 + layout.BodyY + statusHeight + 1
-	return append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
+	tabTargets = append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
+	helpY := originY + tabsHeight + 1 + bodyHeight - lipgloss.Height(help)
+	return append(tabTargets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
 }
 
 func (page *LogsPage) handleTabKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {

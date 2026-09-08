@@ -27,6 +27,12 @@ type ToastNoticeModel interface {
 	ShouldToastNotice() bool
 }
 
+type NavigationGuardModel interface {
+	Model
+	Dirty() bool
+	Submitting() bool
+}
+
 type NavigateMsg struct {
 	Path    []string
 	Replace bool

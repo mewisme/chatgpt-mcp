@@ -73,17 +73,17 @@ func (footer HelpFooter) View(width int) string {
 	model := footer.model
 	model.SetWidth(width)
 	if len(bindings) <= footer.shortLimit {
-		return model.ShortHelpView(bindings)
+		return WrapContent(model.ShortHelpView(bindings), width)
 	}
 	toggle := Binding([]string{"?"}, "?", "more")
 	if model.ShowAll {
 		toggle = Binding([]string{"?"}, "?", "less")
-		return model.FullHelpView([][]key.Binding{append(bindings, toggle)})
+		return WrapContent(model.FullHelpView([][]key.Binding{append(bindings, toggle)}), width)
 	}
 	visible := max(0, footer.shortLimit-1)
 	short := append([]key.Binding(nil), bindings[:min(visible, len(bindings))]...)
 	short = append(short, toggle)
-	return model.ShortHelpView(short)
+	return WrapContent(model.ShortHelpView(short), width)
 }
 
 func (footer HelpFooter) enabledBindings() []key.Binding {

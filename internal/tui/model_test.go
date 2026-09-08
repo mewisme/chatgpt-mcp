@@ -526,6 +526,26 @@ type captureOverlayPage struct {
 
 type confirmCapturePage struct{ affirmative *bool }
 
+type navigationGuardTestPage struct {
+	dirty      bool
+	submitting bool
+	input      bool
+	keys       []string
+}
+
+func (*navigationGuardTestPage) Init() tea.Cmd { return nil }
+func (page *navigationGuardTestPage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {
+	if key, ok := message.(tea.KeyPressMsg); ok {
+		page.keys = append(page.keys, key.String())
+	}
+	return page, nil
+}
+func (*navigationGuardTestPage) View(width, height int) string { return "editor" }
+func (*navigationGuardTestPage) OverlayActive() bool           { return false }
+func (page *navigationGuardTestPage) InputActive() bool        { return page.input }
+func (page *navigationGuardTestPage) Dirty() bool              { return page.dirty }
+func (page *navigationGuardTestPage) Submitting() bool         { return page.submitting }
+
 func (*confirmCapturePage) Init() tea.Cmd { return nil }
 func (page *confirmCapturePage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {
 	if choice, ok := message.(component.ConfirmChoiceMsg); ok {
@@ -546,6 +566,99 @@ func TestModelRoutesNonApprovalConfirmChoiceToPage(t *testing.T) {
 	model = updated.(Model)
 	if cmd != nil || page.affirmative == nil || !*page.affirmative {
 		t.Fatalf("confirm was not routed to page: cmd=%v affirmative=%v", cmd, page.affirmative)
+	}
+}
+
+func TestModelGuardsDirtyEditorNavigationAndCanKeepEditing(t *testing.T) {
+	model := NewModel(Route{Kind: RouteMCP})
+	page := &navigationGuardTestPage{dirty: true, input: true}
+	model.currentPage = page
+	updated, cmd := model.Update(navigateMsg{route: Route{Kind: RouteAbout}, sibling: true})
+	model = updated.(Model)
+	if cmd != nil || model.router.Current().Kind != RouteMCP || model.pendingNavigation == nil {
+		t.Fatalf("dirty navigation escaped: route=%s pending=%v cmd=%v", model.router.Current().Kind, model.pendingNavigation != nil, cmd)
+	}
+	if !strings.Contains(ansi.Strip(model.View().Content), "Discard changes?") {
+		t.Fatal("discard confirmation not rendered")
+	}
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if cmd != nil || model.pendingNavigation != nil || model.router.Current().Kind != RouteMCP {
+		t.Fatalf("keep editing failed: route=%s pending=%v cmd=%v", model.router.Current().Kind, model.pendingNavigation != nil, cmd)
+	}
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	model = updated.(Model)
+	if cmd != nil || strings.Join(page.keys, ",") != "x" {
+		t.Fatalf("ordinary editor input escaped guard routing: keys=%v cmd=%v", page.keys, cmd)
+	}
+}
+
+func TestModelDiscardConfirmationPerformsPendingNavigation(t *testing.T) {
+	model := NewModel(Route{Kind: RouteMCP})
+	model.currentPage = &navigationGuardTestPage{dirty: true, input: true}
+	updated, _ := model.Update(navigateMsg{route: Route{Kind: RouteAbout}, sibling: true})
+	model = updated.(Model)
+	updated, cmd := model.Update(component.ConfirmChoiceMsg{Affirmative: true})
+	model = updated.(Model)
+	if model.pendingNavigation != nil || model.router.Current().Kind != RouteAbout {
+		t.Fatalf("discard route=%s pending=%v", model.router.Current().Kind, model.pendingNavigation != nil)
+	}
+	if cmd != nil {
+		updated, _ = model.Update(cmd())
+		model = updated.(Model)
+	}
+}
+
+func TestModelSubmittingEditorBlocksNavigationWithoutDiscardDialog(t *testing.T) {
+	model := NewModel(Route{Kind: RouteMCP})
+	model.currentPage = &navigationGuardTestPage{dirty: true, submitting: true, input: true}
+	updated, cmd := model.Update(navigateMsg{route: Route{Kind: RouteAbout}, sibling: true})
+	model = updated.(Model)
+	if cmd != nil || model.pendingNavigation != nil || model.router.Current().Kind != RouteMCP {
+		t.Fatalf("submitting navigation route=%s pending=%v cmd=%v", model.router.Current().Kind, model.pendingNavigation != nil, cmd)
+	}
+}
+
+func TestModelCleanEditorNavigatesImmediately(t *testing.T) {
+	model := NewModel(Route{Kind: RouteMCP})
+	model.currentPage = &navigationGuardTestPage{input: true}
+	updated, cmd := model.Update(navigateMsg{route: Route{Kind: RouteAbout}, sibling: true})
+	model = updated.(Model)
+	if model.pendingNavigation != nil || model.router.Current().Kind != RouteAbout {
+		t.Fatalf("clean navigation route=%s pending=%v", model.router.Current().Kind, model.pendingNavigation != nil)
+	}
+	if cmd != nil {
+		updated, _ = model.Update(cmd())
+		model = updated.(Model)
+	}
+}
+
+func TestModelHeaderAndAltNavigationRespectDirtyEditorGuard(t *testing.T) {
+	model := NewModel(Route{Kind: RouteMCP})
+	page := &navigationGuardTestPage{dirty: true, input: true}
+	model.currentPage = page
+	_, targets := model.header(96, 2, 1)
+	var headerMessage tea.Msg
+	for _, target := range targets {
+		if target.ID == "app.header.logs" {
+			headerMessage = target.Handle(component.MouseEvent{Button: tea.MouseLeft})
+			break
+		}
+	}
+	if headerMessage == nil {
+		t.Fatal("logs header target not found")
+	}
+	updated, _ := model.Update(headerMessage)
+	model = updated.(Model)
+	if model.pendingNavigation == nil || model.router.Current().Kind != RouteMCP {
+		t.Fatalf("header bypassed guard: route=%s pending=%v", model.router.Current().Kind, model.pendingNavigation != nil)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt})
+	model = updated.(Model)
+	if model.pendingNavigation == nil || model.router.Current().Kind != RouteMCP {
+		t.Fatalf("alt navigation bypassed guard: route=%s pending=%v", model.router.Current().Kind, model.pendingNavigation != nil)
 	}
 }
 

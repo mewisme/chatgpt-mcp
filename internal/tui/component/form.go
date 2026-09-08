@@ -473,7 +473,18 @@ func (form Form) FocusedKeyBinds() []key.Binding {
 	if form.model == nil || form.model.GetFocusedField() == nil {
 		return nil
 	}
-	return append([]key.Binding(nil), form.model.GetFocusedField().KeyBinds()...)
+	bindings := append([]key.Binding(nil), form.model.GetFocusedField().KeyBinds()...)
+	if form.mode != FormModeEditor {
+		return bindings
+	}
+	filtered := bindings[:0]
+	for _, binding := range bindings {
+		if strings.EqualFold(strings.TrimSpace(binding.Help().Desc), "submit") {
+			continue
+		}
+		filtered = append(filtered, binding)
+	}
+	return filtered
 }
 
 func (form Form) visibleFields() []huh.Field {

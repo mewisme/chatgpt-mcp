@@ -74,6 +74,12 @@ type toastState struct {
 	hovered bool
 }
 
+type navigationIntent struct {
+	route   Route
+	sibling bool
+	quit    bool
+}
+
 type Model struct {
 	ctx               context.Context
 	router            Router
@@ -100,6 +106,8 @@ type Model struct {
 	approvalNow       func() time.Time
 	toast             toastState
 	toastSeq          uint64
+	pendingNavigation *navigationIntent
+	navigationConfirm component.ConfirmButtons
 }
 
 func NewModel(initial Route) Model {
@@ -199,6 +207,10 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.approvalActive() {
 			return model.updateApprovalChoice(msg)
 		}
+		if model.navigationGuardActive() {
+			model.navigationConfirm.Select(msg.Affirmative)
+			return model.resolveNavigationChoice(model.navigationConfirm.AffirmativeSelected())
+		}
 		return model.updatePage(msg)
 	case palette.SelectedMsg:
 		if resource, ok := model.commandResources[msg.ID]; ok {
@@ -207,9 +219,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return model, model.showToast("Commands", err.Error(), component.ToneDanger)
 			}
-			model.router.Navigate(route)
-			model.loadPage(route)
-			return model, model.initCurrentPage()
+			return model.requestNavigation(navigationIntent{route: route})
 		}
 		homeSelection := model.router.Current().Kind == RouteHome && model.overlay == overlayNone && model.homeCommands != nil
 		if !homeSelection {
@@ -237,23 +247,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return model, nil
 	case navigateMsg:
-		if msg.sibling {
-			model.switchPage(msg.route)
-		} else {
-			model.navigate(msg.route)
-		}
-		return model, model.initCurrentPage()
+		return model.requestNavigation(navigationIntent{route: msg.route, sibling: msg.sibling})
 	case tuipage.NavigateMsg:
 		route, err := ParseRoute(msg.Path)
 		if err != nil {
 			return model, model.showToast("Navigation", err.Error(), component.ToneDanger)
 		}
-		if msg.Replace {
-			model.switchPage(route)
-		} else {
-			model.navigate(route)
-		}
-		return model, model.initCurrentPage()
+		return model.requestNavigation(navigationIntent{route: route, sibling: msg.Replace})
 	case tuipage.WorkspaceCommandMsg:
 		if err := model.ensureWorkspacePage(msg.Command, msg.ResourceID); err != nil {
 			return model, model.showToast("Workspaces", err.Error(), component.ToneDanger)
@@ -304,22 +304,24 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.approvalActive() {
 			return model.updateApprovalKey(msg)
 		}
+		if model.navigationGuardActive() {
+			return model.updateNavigationGuardKey(msg)
+		}
 		if model.palette != nil {
 			updated, cmd := model.palette.Update(msg)
 			model.palette = &updated
 			return model, cmd
 		}
-		if model.currentPage != nil && (model.currentPage.OverlayActive() || model.currentPage.InputActive()) {
+		_, guardedPage := model.currentPage.(tuipage.NavigationGuardModel)
+		if model.currentPage != nil && (model.currentPage.OverlayActive() || model.currentPage.InputActive() && !guardedPage) {
 			return model.updatePage(msg)
 		}
 		if model.router.Current().Kind == RouteHome && model.homeCommands != nil {
 			switch msg.String() {
 			case "alt+left":
-				model.switchPage(cycleHeaderRoute(model.router.Current(), -1))
-				return model, model.initCurrentPage()
+				return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), -1), sibling: true})
 			case "alt+right":
-				model.switchPage(cycleHeaderRoute(model.router.Current(), 1))
-				return model, model.initCurrentPage()
+				return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), 1), sibling: true})
 			case "esc":
 				return model, tea.Quit
 			case "ctrl+k":
@@ -335,22 +337,20 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "alt+left":
-			model.switchPage(cycleHeaderRoute(model.router.Current(), -1))
-			return model, model.initCurrentPage()
+			return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), -1), sibling: true})
 		case "alt+right":
-			model.switchPage(cycleHeaderRoute(model.router.Current(), 1))
-			return model, model.initCurrentPage()
+			return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), 1), sibling: true})
 		case "esc":
-			if model.router.Back() {
-				model.loadPage(model.router.Current())
-				return model, model.initCurrentPage()
+			if intent, ok := model.backNavigationIntent(); ok {
+				return model.requestNavigation(intent)
 			}
-			model.switchPage(Route{Kind: RouteHome})
-			return model, nil
+			if model.router.Current().Kind == RouteHome {
+				return model, tea.Quit
+			}
+			return model.requestNavigation(navigationIntent{route: Route{Kind: RouteHome}, sibling: true})
 		case "backspace":
-			if model.router.Back() {
-				model.loadPage(model.router.Current())
-				return model, model.initCurrentPage()
+			if intent, ok := model.backNavigationIntent(); ok {
+				return model.requestNavigation(intent)
 			}
 		default:
 			if selected, ok := model.actions.MatchShortcut(msg, actionContext(model.router.Current())); ok {
@@ -376,6 +376,24 @@ func (model Model) View() tea.View {
 		x, y := max(0, (width-lipgloss.Width(foreground))/2), max(0, (height-lipgloss.Height(foreground))/2)
 		content = centerOverlay(content, foreground, width, height)
 		targets = append(targets, model.palette.MouseTargets(x, y, 100, paletteWidth)...)
+	}
+	if model.navigationGuardActive() && !model.approvalActive() {
+		width, height := model.layoutSize()
+		modalWidth := max(1, min(64, width-4))
+		bodyWidth := component.ModalContentWidth(modalWidth)
+		body := strings.Join([]string{
+			component.WrapContent(component.Title("Discard changes?"), bodyWidth), "",
+			component.WrapContent(component.Muted("Unsaved changes in this editor will be lost."), bodyWidth), "",
+			model.navigationConfirm.View(),
+			component.WrapContent(component.Muted("Enter confirm · Esc keep editing"), bodyWidth),
+		}, "\n")
+		foreground := component.Modal(body, modalWidth)
+		overlayTargets, x, y := component.CenteredOverlayTargets(foreground, width, height, 0, 0, 149, tea.KeyPressMsg{Code: tea.KeyEscape})
+		content = centerOverlay(content, foreground, width, height)
+		targets = append(targets, overlayTargets...)
+		if rect, ok := component.FindRenderedRect(foreground, model.navigationConfirm.View()); ok {
+			targets = append(targets, model.navigationConfirm.MouseTargets(x+rect.X, y+rect.Y, 151)...)
+		}
 	}
 	if model.approvalActive() {
 		width, height := model.layoutSize()
@@ -800,6 +818,73 @@ func (model *Model) navigate(route Route) {
 	model.loadPage(route)
 }
 
+func (model Model) navigationGuardActive() bool { return model.pendingNavigation != nil }
+
+func (model Model) requestNavigation(intent navigationIntent) (tea.Model, tea.Cmd) {
+	if !intent.quit && intent.route == model.router.Current() {
+		return model, nil
+	}
+	if page, ok := model.currentPage.(tuipage.NavigationGuardModel); ok {
+		if page.Submitting() {
+			return model, nil
+		}
+		if page.Dirty() {
+			model.pendingNavigation = &intent
+			model.navigationConfirm = component.NewConfirmButtons("Discard", "Keep editing", false)
+			return model, nil
+		}
+	}
+	return model.performNavigation(intent)
+}
+
+func (model Model) performNavigation(intent navigationIntent) (tea.Model, tea.Cmd) {
+	model.pendingNavigation = nil
+	model.navigationConfirm = component.ConfirmButtons{}
+	if intent.quit {
+		return model, tea.Quit
+	}
+	if intent.sibling {
+		model.switchPage(intent.route)
+	} else {
+		model.navigate(intent.route)
+	}
+	return model, model.initCurrentPage()
+}
+
+func (model Model) resolveNavigationChoice(discard bool) (tea.Model, tea.Cmd) {
+	if model.pendingNavigation == nil {
+		return model, nil
+	}
+	if !discard {
+		model.pendingNavigation = nil
+		model.navigationConfirm = component.ConfirmButtons{}
+		return model, nil
+	}
+	intent := *model.pendingNavigation
+	return model.performNavigation(intent)
+}
+
+func (model Model) updateNavigationGuardKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch message.String() {
+	case "esc":
+		model.pendingNavigation = nil
+		model.navigationConfirm = component.ConfirmButtons{}
+		return model, nil
+	case "enter":
+		return model.resolveNavigationChoice(model.navigationConfirm.AffirmativeSelected())
+	default:
+		return model, model.navigationConfirm.Update(message)
+	}
+}
+
+func (model Model) backNavigationIntent() (navigationIntent, bool) {
+	router := model.router
+	if !router.Back() {
+		return navigationIntent{}, false
+	}
+	return navigationIntent{route: router.Current()}, true
+}
+
 func (model *Model) switchPage(route Route) {
 	if model == nil {
 		return
@@ -1051,7 +1136,9 @@ func (model Model) render() (string, []component.MouseTarget) {
 	}
 	if metrics.showFooter {
 		lines = append(lines, frameDivider(width, border))
-		lines = append(lines, frameLine(fitFrameLine(model.shortcutFooter(), metrics.contentWidth), width, border))
+		for _, footerLine := range strings.Split(model.shortcutFooterWidth(metrics.contentWidth), "\n") {
+			lines = append(lines, frameLine(footerLine, width, border))
+		}
 	}
 	if len(lines) < height {
 		lines = append(lines, bottomBorder(width, border))
@@ -1112,6 +1199,10 @@ func bottomBorder(width int, border lipgloss.Style) string {
 func (model Model) shortcutFooter() string {
 	width, _ := model.layoutSize()
 	width, _ = frameContentMetrics(width)
+	return model.shortcutFooterWidth(width)
+}
+
+func (model Model) shortcutFooterWidth(width int) string {
 	if width <= 0 {
 		return ""
 	}
@@ -1237,15 +1328,21 @@ func frameContentMetrics(width int) (contentWidth, originX int) {
 func (model Model) frameMetrics(width, height int) frameMetrics {
 	contentWidth, contentX := frameContentMetrics(width)
 	showNavbar := model.showNavbar(contentWidth, height)
-	showFooter := height >= 6 && contentWidth >= 16
 	fixedHeight := 2
 	bodyY := 1
 	if showNavbar {
 		fixedHeight += 2
 		bodyY = 3
 	}
+	showFooter := height >= 6 && contentWidth >= 16
 	if showFooter {
-		fixedHeight += 2
+		footerHeight := lipgloss.Height(model.shortcutFooterWidth(contentWidth))
+		footerCost := 1 + footerHeight
+		if footerHeight <= 0 || height-fixedHeight-footerCost < 1 {
+			showFooter = false
+		} else {
+			fixedHeight += footerCost
+		}
 	}
 	return frameMetrics{
 		contentWidth: contentWidth,

@@ -54,7 +54,7 @@ func TestFolderConventionBuildsArbitraryGuideHierarchy(t *testing.T) {
 		}
 	}
 	children := Children("config")
-	if len(children) != 2 || children[0].ID != "config/shell" || children[1].ID != "config/storage" {
+	if len(children) != 3 || children[0].ID != "config/fields" || children[1].ID != "config/shell" || children[2].ID != "config/storage" {
 		t.Fatalf("config children=%#v", children)
 	}
 	markdown, err := Markdown("config/storage/bundles")

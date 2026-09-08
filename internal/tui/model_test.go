@@ -297,7 +297,7 @@ func TestModelRendersEmbeddedGuideDeepLink(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 32})
 	model = updated.(Model)
 	plain := ansi.Strip(model.View().Content)
-	if !strings.Contains(plain, "Guide · MCP Servers") || !strings.Contains(plain, "Create: Form or JSON") || strings.Contains(plain, "Shell & Execution") {
+	if !strings.Contains(plain, "Guide · MCP Servers") || !strings.Contains(plain, "Use Topics for detailed documentation") || strings.Contains(plain, "Shell & Execution") {
 		t.Fatalf("guide deep-link=%q", plain)
 	}
 	if len(model.router.stack) != 2 || model.router.stack[0] != (Route{Kind: RouteGuide}) {

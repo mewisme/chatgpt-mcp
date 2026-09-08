@@ -45,7 +45,7 @@ func TestGuideTopicLoadsOnlySelectedMarkdownWithGlamourViewer(t *testing.T) {
 		t.Fatal("guide viewer source differs from selected embedded topic")
 	}
 	plain := ansi.Strip(page.View(100, 30))
-	if !strings.Contains(plain, "Guide · MCP Servers") || !strings.Contains(plain, "Create: Form or JSON") || strings.Contains(plain, "Shell & Execution") {
+	if !strings.Contains(plain, "Guide · MCP Servers") || !strings.Contains(plain, "Use Topics for detailed documentation") || strings.Contains(plain, "Shell & Execution") {
 		t.Fatalf("selected guide render=%q", plain)
 	}
 	if page.viewer.RenderError() != nil {

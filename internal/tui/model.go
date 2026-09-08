@@ -305,8 +305,6 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, model.showToast("Config", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
-	case component.FormSubmittedMsg, component.FormCancelledMsg:
-		return model.updatePage(msg)
 	case tea.MouseClickMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg, tea.MouseMotionMsg:
 		return model, nil
 	case tea.KeyPressMsg:
@@ -1079,22 +1077,7 @@ func (model Model) initCurrentPage() tea.Cmd {
 	if model.currentPage == nil {
 		return nil
 	}
-	return tea.Batch(model.currentPage.Init(), editorRouteCompatibilityCmd(model.router.Current()))
-}
-
-func editorRouteCompatibilityCmd(route Route) tea.Cmd {
-	var message tea.Msg
-	switch route.Kind {
-	case RouteTunnels:
-	case RouteConfig:
-	case RouteRuntime:
-	case RouteLogs:
-	case RouteRequests:
-	}
-	if message == nil {
-		return nil
-	}
-	return func() tea.Msg { return message }
+	return model.currentPage.Init()
 }
 
 func (model *Model) ensureMCPPage(resourceID string) error {

@@ -12,16 +12,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-type FormSubmittedMsg struct{}
-type FormCancelledMsg struct{}
-
-type FormMode uint8
-
-const (
-	FormModeLegacy FormMode = iota
-	FormModeEditor
-)
-
 type FormMouseMsg struct {
 	Group  int
 	Field  int
@@ -57,36 +47,20 @@ func (group FormGroup) Description(description string) FormGroup {
 }
 
 type Form struct {
-	model       *huh.Form
-	groups      []FormGroup
-	mode        FormMode
-	initial     string
-	confirmExit bool
-	exitConfirm ConfirmButtons
-	width       int
-	height      int
-}
-
-func NewForm(groups ...FormGroup) Form {
-	return newForm(FormModeLegacy, groups...)
+	model   *huh.Form
+	groups  []FormGroup
+	initial string
+	width   int
+	height  int
 }
 
 func NewEditorForm(groups ...FormGroup) Form {
-	return newForm(FormModeEditor, groups...)
-}
-
-func newForm(mode FormMode, groups ...FormGroup) Form {
 	huhGroups := make([]*huh.Group, 0, len(groups))
 	for _, group := range groups {
 		huhGroups = append(huhGroups, group.group)
 	}
-	model := huh.NewForm(huhGroups...).WithTheme(huh.ThemeFunc(func(isDark bool) *huh.Styles { return huh.ThemeCharm(isDark) })).WithShowHelp(mode == FormModeLegacy)
-	if mode == FormModeEditor {
-		model.WithKeyMap(editorFormKeyMap())
-	}
-	model.SubmitCmd = func() tea.Msg { return FormSubmittedMsg{} }
-	model.CancelCmd = func() tea.Msg { return FormCancelledMsg{} }
-	form := Form{model: model, groups: append([]FormGroup(nil), groups...), mode: mode}
+	model := huh.NewForm(huhGroups...).WithTheme(huh.ThemeFunc(func(isDark bool) *huh.Styles { return huh.ThemeCharm(isDark) })).WithShowHelp(false).WithKeyMap(editorFormKeyMap())
+	form := Form{model: model, groups: append([]FormGroup(nil), groups...)}
 	form.initial = form.snapshot()
 	return form
 }
@@ -102,27 +76,14 @@ func (form Form) Update(message tea.Msg) (Form, tea.Cmd) {
 	if form.model == nil {
 		return form, nil
 	}
-	if form.mode == FormModeEditor {
-		if form.OnLastField() && reflect.TypeOf(message) == reflect.TypeOf(huh.NextField()) {
-			return form, nil
-		}
-		if form.OnFirstField() && reflect.TypeOf(message) == reflect.TypeOf(huh.PrevField()) {
-			return form, nil
-		}
-		if msg, ok := message.(tea.KeyPressMsg); ok && (msg.String() == "esc" || msg.String() == "ctrl+s") {
-			return form, nil
-		}
+	if form.OnLastField() && reflect.TypeOf(message) == reflect.TypeOf(huh.NextField()) {
+		return form, nil
 	}
-	if form.confirmExit {
-		return form.updateExitConfirm(message)
+	if form.OnFirstField() && reflect.TypeOf(message) == reflect.TypeOf(huh.PrevField()) {
+		return form, nil
 	}
-	if msg, ok := message.(tea.KeyPressMsg); ok && msg.String() == "esc" {
-		if form.Dirty() {
-			form.confirmExit = true
-			form.exitConfirm = NewConfirmButtons("Discard", "Keep editing", false)
-			return form, nil
-		}
-		return form, func() tea.Msg { return FormCancelledMsg{} }
+	if msg, ok := message.(tea.KeyPressMsg); ok && (msg.String() == "esc" || msg.String() == "ctrl+s") {
+		return form, nil
 	}
 	if msg, ok := message.(FormMouseMsg); ok {
 		return form.updateMouse(msg)
@@ -137,26 +98,6 @@ func (form Form) Update(message tea.Msg) (Form, tea.Cmd) {
 func (form Form) MouseTargets(originX, originY, z int) []MouseTarget {
 	if form.model == nil {
 		return nil
-	}
-	if form.confirmExit {
-		targets := form.exitConfirm.MouseTargets(originX, originY+4, z+1)
-		for index := range targets {
-			affirmative := false
-			if msg, ok := targets[index].Handle(MouseEvent{Button: tea.MouseLeft}).(ConfirmChoiceMsg); ok {
-				affirmative = msg.Affirmative
-			}
-			targets[index].Handle = func(event MouseEvent) tea.Msg {
-				if event.Button != tea.MouseLeft {
-					return nil
-				}
-				choice := 2
-				if affirmative {
-					choice = 1
-				}
-				return FormMouseMsg{Group: -1, Field: -1, Choice: choice, Click: true}
-			}
-		}
-		return targets
 	}
 	activeGroup := form.activeGroup()
 	if activeGroup < 0 || activeGroup >= len(form.groups) {
@@ -241,16 +182,6 @@ func (form Form) activeGroup() int {
 }
 
 func (form Form) updateMouse(msg FormMouseMsg) (Form, tea.Cmd) {
-	if form.confirmExit {
-		if msg.Choice == 1 {
-			return form, func() tea.Msg { return FormCancelledMsg{} }
-		}
-		if msg.Choice == 2 {
-			form.confirmExit = false
-			form.exitConfirm = ConfirmButtons{}
-		}
-		return form, nil
-	}
 	if msg.Group < 0 || msg.Group >= len(form.groups) || msg.Field < 0 || msg.Field >= len(form.groups[msg.Group].fields) {
 		return form, nil
 	}
@@ -284,13 +215,6 @@ func (form Form) updateMouse(msg FormMouseMsg) (Form, tea.Cmd) {
 	}
 	if multiField, ok := target.(*huh.MultiSelect[string]); ok {
 		return form, form.clickMultiSelect(multiField, msg.Line)
-	}
-	if _, ok := target.(*SwitchField); ok {
-		updated, cmd := form.model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-		if value, ok := updated.(*huh.Form); ok {
-			form.model = value
-		}
-		return form, cmd
 	}
 	if _, ok := target.(*huh.Confirm); ok {
 		updated, cmd := form.model.Update(tea.KeyPressMsg{Code: tea.KeyRight})
@@ -387,16 +311,6 @@ func (form Form) View() string {
 	if form.model == nil {
 		return ""
 	}
-	if form.confirmExit {
-		return strings.Join([]string{
-			Title("Discard changes?"),
-			"",
-			Muted("Unsaved changes in this dialog will be lost."),
-			"",
-			form.exitConfirm.View(),
-			Muted("Enter confirm · Esc keep editing"),
-		}, "\n")
-	}
 	return form.model.View()
 }
 
@@ -421,10 +335,6 @@ func (form Form) Validate() error {
 	}
 	return nil
 }
-
-func (form Form) Mode() FormMode { return form.mode }
-
-func (form Form) ConfirmingExit() bool { return form.confirmExit }
 
 func (form *Form) Resize(width, height int) {
 	if form == nil || form.model == nil {
@@ -494,9 +404,6 @@ func (form Form) FocusedKeyBinds() []key.Binding {
 		return nil
 	}
 	bindings := append([]key.Binding(nil), form.model.GetFocusedField().KeyBinds()...)
-	if form.mode != FormModeEditor {
-		return bindings
-	}
 	filtered := bindings[:0]
 	for _, binding := range bindings {
 		if strings.EqualFold(strings.TrimSpace(binding.Help().Desc), "submit") {
@@ -543,31 +450,6 @@ func (form Form) snapshot() string {
 		}
 	}
 	return strings.Join(values, "\x00")
-}
-
-func (form Form) updateExitConfirm(message tea.Msg) (Form, tea.Cmd) {
-	if msg, ok := message.(FormMouseMsg); ok {
-		return form.updateMouse(msg)
-	}
-	msg, ok := message.(tea.KeyPressMsg)
-	if !ok {
-		return form, nil
-	}
-	switch msg.String() {
-	case "esc":
-		form.confirmExit = false
-		form.exitConfirm = ConfirmButtons{}
-		return form, nil
-	case "enter":
-		if form.exitConfirm.AffirmativeSelected() {
-			return form, func() tea.Msg { return FormCancelledMsg{} }
-		}
-		form.confirmExit = false
-		form.exitConfirm = ConfirmButtons{}
-		return form, nil
-	default:
-		return form, form.exitConfirm.Update(msg)
-	}
 }
 
 func (form Form) State() huh.FormState {
@@ -668,64 +550,4 @@ func BoolSelect(title string, value *bool, trueLabel, falseLabel string) *huh.Se
 
 func MultiSelect[T comparable](title string, value *[]T, options ...huh.Option[T]) *huh.MultiSelect[T] {
 	return huh.NewMultiSelect[T]().Title(strings.TrimSpace(title)).Options(options...).Value(value)
-}
-
-func Confirm(title string, value *bool) *huh.Confirm {
-	return huh.NewConfirm().Title(strings.TrimSpace(title)).Value(value)
-}
-
-type SwitchField struct {
-	*huh.Confirm
-	title   string
-	value   *bool
-	focused bool
-}
-
-func Switch(title string, value *bool) *SwitchField {
-	return &SwitchField{Confirm: huh.NewConfirm().Value(value), title: strings.TrimSpace(title), value: value}
-}
-
-func (field *SwitchField) Focus() tea.Cmd {
-	field.focused = true
-	return field.Confirm.Focus()
-}
-
-func (field *SwitchField) Blur() tea.Cmd {
-	field.focused = false
-	return field.Confirm.Blur()
-}
-
-func (field *SwitchField) Update(message tea.Msg) (huh.Model, tea.Cmd) {
-	if msg, ok := message.(tea.KeyPressMsg); ok && msg.String() == "space" {
-		if field.value != nil {
-			*field.value = !*field.value
-		}
-		return field, nil
-	}
-	updated, cmd := field.Confirm.Update(message)
-	if value, ok := updated.(*huh.Confirm); ok {
-		field.Confirm = value
-	}
-	return field, cmd
-}
-
-func (field *SwitchField) View() string {
-	styles := huh.ThemeCharm(currentTheme.isDark).Blurred
-	if field.focused {
-		styles = huh.ThemeCharm(currentTheme.isDark).Focused
-	}
-	state := "[ FALSE ]"
-	if field.value != nil && *field.value {
-		state = "[ TRUE ]"
-	}
-	return styles.Base.Render(styles.Title.Render(field.title) + " " + currentTheme.accent.Render(state))
-}
-
-func (field *SwitchField) KeyBinds() []key.Binding {
-	bindings := field.Confirm.KeyBinds()
-	toggle := key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle"))
-	if len(bindings) < 4 {
-		return []key.Binding{toggle}
-	}
-	return append([]key.Binding{toggle}, bindings[1:4]...)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -185,33 +184,6 @@ func TestModelWorkspaceProjectContextEscapeCancelsBuildInPlace(t *testing.T) {
 	}
 }
 
-func TestEditorRouteCompatibilityCmdPreservesLegacyFormEntryPoints(t *testing.T) {
-	tests := []struct {
-		route Route
-		want  tea.Msg
-	}{}
-	for _, test := range tests {
-		cmd := editorRouteCompatibilityCmd(test.route)
-		if cmd == nil {
-			t.Fatalf("compatibility cmd missing for %#v", test.route)
-		}
-		if got := cmd(); !reflect.DeepEqual(got, test.want) {
-			t.Fatalf("compatibility %#v=%#v want %#v", test.route, got, test.want)
-		}
-	}
-	for _, route := range []Route{{Kind: RouteWorkspaces, Action: "register"}, {Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}, {Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}, {Kind: RouteMCP, Action: "create"}, {Kind: RouteMCP, ResourceID: "github", Action: "edit"}, {Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}, {Kind: RouteTunnel, Action: "edit"}, {Kind: RouteTunnel, Section: "admin-key", Action: "edit"}, {Kind: RouteTunnels, Action: "create"}, {Kind: RouteTunnels, ResourceID: "tun_1", Action: "edit"}, {Kind: RouteTunnels, ResourceID: "tun_1", Action: "configure"}, {Kind: RouteRuntime, Action: "install"}, {Kind: RouteRuntime, Action: "update"}, {Kind: RouteLogs, Action: "filter"}, {Kind: RouteRequests, Action: "create-test"}, {Kind: RouteRequests, Mode: "pending", ResourceID: "req_1", Action: "approve"}, {Kind: RouteRequests, Mode: "pending", ResourceID: "req_1", Action: "deny"}} {
-		if cmd := editorRouteCompatibilityCmd(route); cmd != nil {
-			t.Fatalf("migrated workspace route unexpectedly produced compatibility command: %#v", route)
-		}
-	}
-	if cmd := editorRouteCompatibilityCmd(Route{Kind: RouteMCP, ResourceID: "github"}); cmd != nil {
-		t.Fatal("read-only route unexpectedly produced compatibility command")
-	}
-	if cmd := editorRouteCompatibilityCmd(Route{Kind: RouteConfig, Section: "storage", Action: "import"}); cmd != nil {
-		t.Fatal("config editor route still uses compatibility command")
-	}
-}
-
 func TestConfigEditorRouteLoadsNativePageWithoutCompatibilityShim(t *testing.T) {
 	previous := configformat.RootPath()
 	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
@@ -231,9 +203,6 @@ func TestConfigEditorRouteLoadsNativePageWithoutCompatibilityShim(t *testing.T) 
 	model = updated.(Model)
 	if follow == nil || model.router.Current() != route || !model.currentPage.InputActive() {
 		t.Fatalf("route=%#v follow=%v input=%t", model.router.Current(), follow != nil, model.currentPage.InputActive())
-	}
-	if cmd := editorRouteCompatibilityCmd(route); cmd != nil {
-		t.Fatal("native config editor still produced compatibility command")
 	}
 	if plain := ansi.Strip(model.View().Content); !strings.Contains(plain, "Edit Configuration") || !strings.Contains(plain, "ctrl+s save") {
 		t.Fatalf("config editor view=%q", plain)

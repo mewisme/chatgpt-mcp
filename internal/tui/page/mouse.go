@@ -15,17 +15,6 @@ func mouseBlocker(originX, originY, width, height, z int) component.MouseTarget 
 	return component.MouseTarget{ID: "page.overlay", Rect: component.Rect{X: originX, Y: originY, Width: width, Height: height}, Z: z, Handle: func(component.MouseEvent) tea.Msg { return nil }}
 }
 
-func formOverlayMouseTargets(form component.Form, modalWidth, pageWidth, pageHeight, originX, originY, z int) []component.MouseTarget {
-	formView := form.View()
-	modal := component.Modal(formView, modalWidth)
-	targets, modalX, modalY := component.CenteredOverlayTargets(modal, pageWidth, pageHeight, originX, originY, z, tea.KeyPressMsg{Code: tea.KeyEscape})
-	rect, ok := component.FindRenderedRect(modal, formView)
-	if !ok {
-		return targets
-	}
-	return append(targets, form.MouseTargets(originX+modalX+rect.X, originY+modalY+rect.Y, z+2)...)
-}
-
 func confirmOverlayBody(confirm component.ConfirmButtons, title, description string, modalWidth int) string {
 	width := component.ModalContentWidth(modalWidth)
 	return component.WrapContent(component.Title(title), width) + "\n\n" + component.WrapContent(component.Muted(description), width) + "\n\n" + confirm.View() + "\n" + component.WrapContent(component.Muted("Enter confirm · Esc cancel"), width)

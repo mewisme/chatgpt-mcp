@@ -40,11 +40,6 @@ func NewEditor(primaryLabel string, sections ...EditorSection) Editor {
 	if editor.primaryLabel == "" {
 		editor.primaryLabel = "save"
 	}
-	for index := range editor.sections {
-		if editor.sections[index].Form.Mode() != FormModeEditor {
-			editor.sections[index].Form.mode = FormModeEditor
-		}
-	}
 	editor.syncHelp()
 	editor.resizeForms()
 	return editor

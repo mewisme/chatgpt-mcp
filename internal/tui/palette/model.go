@@ -2,10 +2,10 @@ package palette
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
@@ -28,14 +28,44 @@ type Options struct {
 	Recent      []string
 }
 
+type paletteItem struct{ Result }
+
+func (item paletteItem) FilterValue() string { return item.Action.ID }
+
+type paletteDelegate struct{ isDark bool }
+
+func (delegate paletteDelegate) Height() int                         { return 1 }
+func (delegate paletteDelegate) Spacing() int                        { return 0 }
+func (delegate paletteDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
+func (delegate paletteDelegate) Render(w io.Writer, model list.Model, index int, raw list.Item) {
+	item, ok := raw.(paletteItem)
+	if !ok {
+		return
+	}
+	styles := list.NewDefaultItemStyles(delegate.isDark)
+	titleStyle, shortcutStyle := styles.NormalTitle, styles.NormalDesc
+	if index == model.Index() {
+		titleStyle, shortcutStyle = styles.SelectedTitle, styles.SelectedDesc
+	}
+	title := item.Action.Title
+	if item.Action.Category != "" {
+		title = item.Action.Category + ": " + item.Action.Title
+	}
+	shortcut := ""
+	if help := item.Action.Shortcut.Help(); help.Key != "" {
+		shortcut = help.Key
+	}
+	left, right := titleStyle.Render(title), shortcutStyle.Render(shortcut)
+	gap := max(2, model.Width()-lipgloss.Width(left)-lipgloss.Width(right))
+	_, _ = fmt.Fprint(w, left+strings.Repeat(" ", gap)+right)
+}
+
 type Model struct {
-	input    textinput.Model
-	actions  []action.Action
-	results  []Result
-	context  action.Context
-	options  Options
-	selected int
-	isDark   bool
+	list    list.Model
+	actions []action.Action
+	context action.Context
+	options Options
+	isDark  bool
 }
 
 func New(actions []action.Action, ctx action.Context) Model {
@@ -55,13 +85,22 @@ func NewWithOptions(actions []action.Action, ctx action.Context, options Options
 	if strings.TrimSpace(options.Footer) == "" {
 		options.Footer = "↑/↓ navigate  ·  Enter run  ·  Esc close"
 	}
-	input := textinput.New()
-	input.Prompt = "> "
-	input.Placeholder = options.Placeholder
-	input.CharLimit = 160
-	input.SetStyles(textinput.DefaultStyles(true))
-	input.Focus()
-	model := Model{input: input, actions: append([]action.Action(nil), actions...), context: ctx, options: options, isDark: true}
+	items := list.New(nil, paletteDelegate{isDark: true}, 64, maxVisibleResults)
+	items.InfiniteScrolling = true
+	items.DisableQuitKeybindings()
+	items.SetFilteringEnabled(false)
+	items.SetShowTitle(false)
+	items.SetShowFilter(false)
+	items.SetShowStatusBar(false)
+	items.SetShowPagination(false)
+	items.SetShowHelp(false)
+	items.SetStatusBarItemName("command", "commands")
+	items.FilterInput.Prompt = "> "
+	items.FilterInput.Placeholder = options.Placeholder
+	items.FilterInput.CharLimit = 160
+	items.FilterInput.SetStyles(items.Styles.Filter)
+	items.FilterInput.Focus()
+	model := Model{list: items, actions: append([]action.Action(nil), actions...), context: ctx, options: options, isDark: true}
 	model.refresh()
 	return model
 }
@@ -79,24 +118,27 @@ func (model *Model) SetQuery(value string) {
 	if model == nil {
 		return
 	}
-	model.input.SetValue(value)
+	model.list.FilterInput.SetValue(value)
 	model.refresh()
 }
 
-func (model Model) Query() string { return model.input.Value() }
+func (model Model) Query() string { return model.list.FilterInput.Value() }
 
 func (model Model) SelectedID() string {
-	if model.selected < 0 || model.selected >= len(model.results) {
+	item, ok := model.list.SelectedItem().(paletteItem)
+	if !ok {
 		return ""
 	}
-	return model.results[model.selected].Action.ID
+	return item.Action.ID
 }
 
 func (model Model) Update(message tea.Msg) (Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.BackgroundColorMsg:
 		model.isDark = msg.IsDark()
-		model.input.SetStyles(textinput.DefaultStyles(model.isDark))
+		model.list.Styles = list.DefaultStyles(model.isDark)
+		model.list.FilterInput.SetStyles(model.list.Styles.Filter)
+		model.list.SetDelegate(paletteDelegate{isDark: model.isDark})
 		return model, nil
 	case tea.KeyPressMsg:
 		switch msg.String() {
@@ -108,27 +150,24 @@ func (model Model) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return model, nil
 		case "up":
-			if len(model.results) > 0 {
-				model.selected = (model.selected - 1 + len(model.results)) % len(model.results)
-			}
+			model.list.CursorUp()
 			return model, nil
 		case "down":
-			if len(model.results) > 0 {
-				model.selected = (model.selected + 1) % len(model.results)
-			}
+			model.list.CursorDown()
 			return model, nil
 		}
 	case MouseScrollMsg:
-		if len(model.results) > 0 {
-			model.selected = (model.selected + msg.Delta + len(model.results)) % len(model.results)
+		if msg.Delta < 0 {
+			model.list.CursorUp()
+		} else if msg.Delta > 0 {
+			model.list.CursorDown()
 		}
 		return model, nil
 	}
-	previous := model.input.Value()
-	updated, cmd := model.input.Update(message)
-	model.input = updated
-	if model.input.Value() != previous {
-		model.selected = 0
+	previous := model.list.FilterInput.Value()
+	updated, cmd := model.list.FilterInput.Update(message)
+	model.list.FilterInput = updated
+	if model.list.FilterInput.Value() != previous {
 		model.refresh()
 	}
 	return model, cmd
@@ -151,24 +190,23 @@ func (model Model) MouseTargets(originX, originY, z, width int) []component.Mous
 		},
 	}}
 	lines := strings.Split(ansi.Strip(view), "\n")
-	start := 0
-	visible := model.results
-	if len(visible) > maxVisibleResults {
-		start = max(0, min(model.selected-maxVisibleResults/2, len(visible)-maxVisibleResults))
-		visible = visible[start : start+maxVisibleResults]
-	}
+	items := model.list.VisibleItems()
+	start, end := model.list.Paginator.GetSliceBounds(len(items))
 	searchLine := 0
-	for _, result := range visible {
-		item := result.Action
-		title := item.Title
-		if item.Category != "" {
-			title = item.Category + ": " + item.Title
+	for _, raw := range items[start:end] {
+		item, ok := raw.(paletteItem)
+		if !ok {
+			continue
+		}
+		title := item.Action.Title
+		if item.Action.Category != "" {
+			title = item.Action.Category + ": " + item.Action.Title
 		}
 		line, column := findPaletteLine(lines, title, searchLine)
 		if line < 0 {
 			continue
 		}
-		id := item.ID
+		id := item.Action.ID
 		targets = append(targets, component.MouseTarget{
 			ID: "palette.result", Rect: component.Rect{X: originX + max(0, column-2), Y: originY + line, Width: max(1, renderedWidth-max(0, column-2)-2), Height: 1}, Z: z + 1,
 			Handle: func(event component.MouseEvent) tea.Msg {
@@ -198,62 +236,35 @@ func (model Model) View(width int) string {
 	}
 	width = max(42, min(78, width))
 	contentWidth := max(32, width-6)
-	input := model.input
-	input.SetWidth(contentWidth - 2)
+	items := model.list
+	items.SetWidth(contentWidth)
+	items.SetHeight(max(1, min(maxVisibleResults, len(items.Items()))))
+	items.FilterInput.SetWidth(contentWidth - 2)
 	listStyles := list.DefaultStyles(model.isDark)
 	huhStyles := huh.ThemeCharm(model.isDark)
 	titleStyle := huhStyles.Focused.Title
-	mutedStyle := huhStyles.Focused.Description
-	selectedStyle := lipgloss.NewStyle().Foreground(huhStyles.Focused.SelectSelector.GetForeground()).Bold(true)
+	mutedStyle := listStyles.StatusEmpty
 	borderColor := huhStyles.Focused.Base.GetBorderLeftForeground()
 	var builder strings.Builder
 	builder.WriteString(titleStyle.Render(model.options.Title))
 	builder.WriteString("\n")
 	builder.WriteString(mutedStyle.Render(model.options.Hint))
 	builder.WriteString("\n\n")
-	builder.WriteString(input.View())
+	builder.WriteString(items.FilterInput.View())
 	builder.WriteString("\n")
 	builder.WriteString(listStyles.NoItems.Render(strings.Repeat("─", contentWidth)))
 	builder.WriteString("\n")
-	visible := model.results
-	if len(visible) > maxVisibleResults {
-		start := max(0, min(model.selected-maxVisibleResults/2, len(visible)-maxVisibleResults))
-		visible = visible[start : start+maxVisibleResults]
-	}
-	if len(visible) == 0 {
+	if len(items.Items()) == 0 {
 		builder.WriteString("\n")
 		builder.WriteString(listStyles.NoItems.Render("No matching commands"))
 		builder.WriteString("\n")
 	} else {
-		for _, result := range visible {
-			item := result.Action
-			prefix := "  "
-			lineStyle := lipgloss.NewStyle()
-			if item.ID == model.SelectedID() {
-				prefix = selectedStyle.Render(">") + " "
-				lineStyle = selectedStyle
-			}
-			title := item.Title
-			if item.Category != "" {
-				title = item.Category + ": " + item.Title
-			}
-			help := item.Shortcut.Help()
-			right := ""
-			if help.Key != "" {
-				right = mutedStyle.Render(help.Key)
-			}
-			gap := max(2, contentWidth-lipgloss.Width(prefix)-lipgloss.Width(title)-lipgloss.Width(right))
-			builder.WriteString(prefix + lineStyle.Render(title) + strings.Repeat(" ", gap) + right + "\n")
-		}
+		builder.WriteString(items.View())
+		builder.WriteString("\n")
 	}
-	if id := model.SelectedID(); id != "" {
-		for _, result := range model.results {
-			if result.Action.ID == id && result.Action.Description != "" {
-				builder.WriteString("\n")
-				builder.WriteString(mutedStyle.Render(result.Action.Description))
-				break
-			}
-		}
+	if item, ok := items.SelectedItem().(paletteItem); ok && item.Action.Description != "" {
+		builder.WriteString("\n")
+		builder.WriteString(mutedStyle.Render(item.Action.Description))
 	}
 	builder.WriteString("\n\n")
 	builder.WriteString(mutedStyle.Render(model.options.Footer))
@@ -261,18 +272,25 @@ func (model Model) View(width int) string {
 }
 
 func (model *Model) refresh() {
-	model.results = RankWithRecent(model.actions, model.input.Value(), model.context, model.options.Recent)
-	if len(model.results) == 0 {
-		model.selected = 0
-	} else if model.selected >= len(model.results) {
-		model.selected = len(model.results) - 1
+	if model == nil {
+		return
 	}
+	results := RankWithRecent(model.actions, model.list.FilterInput.Value(), model.context, model.options.Recent)
+	items := make([]list.Item, 0, len(results))
+	for _, result := range results {
+		items = append(items, paletteItem{Result: result})
+	}
+	_ = model.list.SetItems(items)
+	model.list.Select(0)
 }
 
 func (model Model) DebugResults() []string {
-	result := make([]string, 0, len(model.results))
-	for _, item := range model.results {
-		result = append(result, fmt.Sprintf("%s:%d", item.Action.ID, item.Score))
+	result := make([]string, 0, len(model.list.Items()))
+	for _, raw := range model.list.Items() {
+		item, ok := raw.(paletteItem)
+		if ok {
+			result = append(result, fmt.Sprintf("%s:%d", item.Action.ID, item.Score))
+		}
 	}
 	return result
 }

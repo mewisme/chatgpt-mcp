@@ -1,9 +1,12 @@
 package palette
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
@@ -72,5 +75,24 @@ func TestPaletteMouseClickAndWheelUseSemanticMessages(t *testing.T) {
 	updated, _ := model.Update(wheel)
 	if updated.SelectedID() == before {
 		t.Fatalf("wheel did not move selection from %q", before)
+	}
+}
+
+func TestPaletteListOwnsPaginationAndSelection(t *testing.T) {
+	actions := make([]action.Action, 12)
+	for index := range actions {
+		actions[index] = action.Action{ID: fmt.Sprintf("action-%02d", index), Title: fmt.Sprintf("Action %02d", index), Category: "App"}
+	}
+	model := New(actions, action.Context{})
+	for range 10 {
+		updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		model = updated
+	}
+	if got := model.SelectedID(); got != "action-10" {
+		t.Fatalf("selected=%q", got)
+	}
+	plain := ansi.Strip(model.View(72))
+	if !strings.Contains(plain, "Action 10") || strings.Contains(plain, "Action 00") {
+		t.Fatalf("paged view=%q", plain)
 	}
 }

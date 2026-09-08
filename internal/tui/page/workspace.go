@@ -73,6 +73,7 @@ type WorkspacePage struct {
 	contextBuildID  uint64
 	contextCancel   context.CancelFunc
 	contextProgress *component.Progress
+	contextPreview  *workspaceContextPreviewState
 	notice          string
 	err             error
 	width           int
@@ -127,7 +128,7 @@ func (page *WorkspacePage) OverlayActive() bool {
 }
 
 func (page *WorkspacePage) InputActive() bool {
-	return page != nil && (page.overlay == workspaceOverlayForm || page.resourceID == "" && page.browser.InputActive() || !page.containers && page.resourceID != "" && page.section == "context")
+	return page != nil && (page.overlay == workspaceOverlayForm || page.resourceID == "" && page.browser.InputActive() || !page.containers && page.resourceID != "" && (page.section == "context" || page.section == "context-preview" && page.contextPreview != nil && page.contextPreview.sourceViewer != nil))
 }
 
 func (page *WorkspacePage) Notice() string {
@@ -156,6 +157,8 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 				form, formCmd := page.contextForm.Update(msg)
 				page.contextForm, cmd = form, formCmd
 			}
+		} else if page.resourceID != "" && page.section == "context-preview" && page.contextPreview != nil {
+			cmd = page.resizeWorkspaceContextPreview(msg.Width, msg.Height)
 		} else if page.resourceID != "" {
 			page.detail.Resize(msg.Width, msg.Height)
 		} else {
@@ -235,6 +238,11 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.contextForm = updated
 			return page, cmd
 		}
+		if page.resourceID != "" && page.section == "context-preview" && page.contextPreview != nil && page.overlay == workspaceOverlayNone {
+			if cmd, handled := page.handleWorkspaceContextPreviewKey(msg); handled {
+				return page, cmd
+			}
+		}
 		if page.overlay == workspaceOverlayForm {
 			updated, cmd := page.form.Update(msg)
 			page.form = updated
@@ -271,6 +279,9 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		updated, cmd := page.contextForm.Update(message)
 		page.contextForm = updated
 		return page, cmd
+	}
+	if page.resourceID != "" && page.section == "context-preview" && page.contextPreview != nil {
+		return page, page.updateWorkspaceContextPreview(message)
 	}
 	if page.resourceID != "" {
 		updated, cmd := page.detail.Update(message)
@@ -318,6 +329,9 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 				feedback := page.listFeedback(page.width)
 				y := originY + lipgloss.Height(title) + 1 + pageFeedbackHeight(feedback)
 				return page.contextForm.MouseTargets(originX, y, z)
+			}
+			if !page.containers && page.section == "context-preview" && page.contextPreview != nil {
+				return page.workspaceContextPreviewMouseTargets(originX, originY, z)
 			}
 			return page.detail.MouseTargets(originX, originY, z)
 		}
@@ -655,6 +669,9 @@ func (page *WorkspacePage) baseView(width, height int) string {
 		if !page.containers && page.section == "context" {
 			return page.workspaceContextView(width, height)
 		}
+		if !page.containers && page.section == "context-preview" && page.contextPreview != nil {
+			return page.workspaceContextPreviewView(width, height)
+		}
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
 		return page.detail.View()
@@ -709,9 +726,6 @@ func (page *WorkspacePage) syncWorkspaceDetail() error {
 	case "context-preview":
 		page.initWorkspaceContext()
 		page.syncWorkspaceContextPreview()
-		if page.width > 0 && page.height > 0 {
-			page.detail.Resize(page.width, page.height)
-		}
 		return nil
 	case "access":
 		content = detailList(item.AllowDirs)

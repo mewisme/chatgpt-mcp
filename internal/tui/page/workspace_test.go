@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
@@ -611,6 +612,7 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	}
 	page.contextData.MemoryQuery = "focused memory"
 	page.contextData.IncludeGit = false
+	sourcePath := filepath.Join(project, "AGENTS.md")
 	page.contextBuild = func(_ context.Context, workspaceID string, options projectcontext.Options) (projectcontext.Result, error) {
 		if workspaceID != item.ID || options.MemoryQuery != "focused memory" || options.IncludeGit {
 			t.Fatalf("build workspace=%q options=%#v", workspaceID, options)
@@ -618,8 +620,9 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		return projectcontext.Result{
 			Root: project, WorkspaceID: item.ID,
 			InstructionContext: instructioncontext.InstructionContext{
-				Root: project, WorkspaceID: item.ID, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: 77},
-				Sources: []instructioncontext.SourceSnapshot{{Provider: "claude", Kind: "context", Count: 1, Enabled: true, Loaded: true}},
+				Root: project, WorkspaceID: item.ID, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: 77}, InstructionsText: "# Rendered Context\n\nUse compact code.",
+				ProjectMemory: instructioncontext.ProjectMemoryBundle{Sections: []instructioncontext.Section{{Path: sourcePath, Kind: instructioncontext.SectionProject, Content: "# AGENTS\n\nSource body.", LoadedBytes: 22}}},
+				Sources:       []instructioncontext.SourceSnapshot{{Provider: "claude", Kind: "context", Paths: []string{sourcePath}, Count: 1, Enabled: true, Loaded: true}},
 			},
 			Summary: projectcontext.Summary{InstructionBytes: 1234, MemoryBytes: 456, Rules: 2, Skills: 3},
 		}, nil
@@ -644,17 +647,107 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	previewView := ansi.Strip(preview.View(110, 30))
-	for _, want := range []string{"Project Context Preview", project, "77 tools", "1 sources"} {
+	for _, want := range []string{"Project Context Preview", "Rendered", "Sources", "JSON", "Rendered Context", "Use compact code."} {
 		if !strings.Contains(previewView, want) {
 			t.Fatalf("preview missing %q: %q", want, previewView)
+		}
+	}
+	updated, _ = preview.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	preview = updated.(*WorkspacePage)
+	sourcesView := ansi.Strip(preview.View(110, 30))
+	for _, want := range []string{"Claude", "Context · 1 · included"} {
+		if !strings.Contains(sourcesView, want) {
+			t.Fatalf("sources preview missing %q: %q", want, sourcesView)
+		}
+	}
+	foundSource := false
+	for _, node := range preview.contextPreview.sources.AllNodes() {
+		value, ok := node.GivenValue().(workspaceContextPreviewNode)
+		if ok && value.Kind == workspaceContextPreviewPath && value.Path == sourcePath {
+			preview.contextPreview.sources.SetYOffset(node.YOffset())
+			foundSource = true
+			break
+		}
+	}
+	if !foundSource {
+		t.Fatalf("source node %q not found", sourcePath)
+	}
+	updated, _ = preview.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	preview = updated.(*WorkspacePage)
+	if preview.contextPreview.sourceViewer == nil || !preview.InputActive() {
+		t.Fatalf("source viewer active=%t input=%t", preview.contextPreview.sourceViewer != nil, preview.InputActive())
+	}
+	sourceView := ansi.Strip(preview.View(110, 30))
+	for _, want := range []string{"Source", sourcePath, "AGENTS", "Source body."} {
+		if !strings.Contains(sourceView, want) {
+			t.Fatalf("source viewer missing %q: %q", want, sourceView)
+		}
+	}
+	narrowSourceView := ansi.Strip(preview.View(36, 18))
+	for _, line := range strings.Split(narrowSourceView, "\n") {
+		if width := lipgloss.Width(line); width > 36 {
+			t.Fatalf("narrow source viewer line width=%d: %q", width, line)
+		}
+	}
+	updated, _ = preview.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	preview = updated.(*WorkspacePage)
+	if preview.contextPreview.sourceViewer != nil {
+		t.Fatal("source viewer did not close")
+	}
+	preview.View(80, 20)
+	var jsonTabMsg tea.Msg
+	for _, target := range preview.MouseTargets(2, 3, 10) {
+		if target.ID != "workspace.context.tab" {
+			continue
+		}
+		message := target.Handle(component.MouseEvent{Button: tea.MouseLeft})
+		if tab, ok := message.(workspaceContextPreviewTabMsg); ok && tab.Tab == workspaceContextPreviewJSON {
+			jsonTabMsg = message
+			break
+		}
+	}
+	if jsonTabMsg == nil {
+		t.Fatal("JSON preview tab mouse target not found")
+	}
+	updated, _ = preview.Update(jsonTabMsg)
+	preview = updated.(*WorkspacePage)
+	jsonView := ansi.Strip(preview.View(110, 30))
+	for _, want := range []string{"workspace_id", item.ID, "instruction_context"} {
+		if !strings.Contains(jsonView, want) {
+			t.Fatalf("json preview missing %q: %q", want, jsonView)
 		}
 	}
 	fresh, err := NewWorkspacesRouteWithContextSession(t.Context(), item.ID, "context-preview", NewWorkspaceContextSession())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ansi.Strip(fresh.View(110, 30)); !strings.Contains(got, "not built") || strings.Contains(got, "77 tools") {
+	if got := ansi.Strip(fresh.View(110, 30)); !strings.Contains(got, "not built") || strings.Contains(got, "Rendered Context") {
 		t.Fatalf("fresh session unexpectedly reused preview: %q", got)
+	}
+}
+
+func TestWorkspaceContextSourceContentUsesLoadedDataAndRejectsSymlinks(t *testing.T) {
+	virtualPath := filepath.Join(t.TempDir(), "virtual.md")
+	result := projectcontext.Result{InstructionContext: instructioncontext.InstructionContext{ProjectMemory: instructioncontext.ProjectMemoryBundle{Sections: []instructioncontext.Section{{Path: virtualPath, Content: "loaded source"}}}}}
+	content, err := workspaceContextSourceContent(result, virtualPath)
+	if err != nil || content != "loaded source" {
+		t.Fatalf("loaded source content=%q err=%v", content, err)
+	}
+	dir := t.TempDir()
+	file := filepath.Join(dir, "source.md")
+	if err := os.WriteFile(file, []byte("disk source"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	content, err = workspaceContextSourceContent(projectcontext.Result{}, file)
+	if err != nil || content != "disk source" {
+		t.Fatalf("disk source content=%q err=%v", content, err)
+	}
+	link := filepath.Join(dir, "source-link.md")
+	if err := os.Symlink(file, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workspaceContextSourceContent(projectcontext.Result{}, link); err == nil {
+		t.Fatal("symlink source was accepted")
 	}
 }
 

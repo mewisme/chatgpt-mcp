@@ -224,26 +224,3 @@ func (page *WorkspacePage) workspaceContextView(width, height int) string {
 	page.contextForm = form
 	return title + "\n" + prependPageFeedback(feedback, page.contextForm.View())
 }
-
-func (page *WorkspacePage) syncWorkspaceContextPreview() {
-	if page.contextSession == nil || page.contextSession.Result == nil {
-		page.detail = component.NewDetailPage("Project Context Preview", "not built", component.Muted("Build Project Context before opening the preview."))
-		page.detail.SetBindings(component.DetailPageBinding{Key: "e", Desc: "configure", Message: NavigateMsg{Path: []string{"workspaces", page.resourceID, "context"}}})
-		return
-	}
-	result := page.contextSession.Result
-	profile := result.InstructionContext.ToolProfile
-	content := detailFields(
-		[2]string{"Root", result.Root},
-		[2]string{"Instruction bytes", strconv.Itoa(result.Summary.InstructionBytes)},
-		[2]string{"Memory bytes", strconv.Itoa(result.Summary.MemoryBytes)},
-		[2]string{"Rules", strconv.Itoa(result.Summary.Rules)},
-		[2]string{"Skills", strconv.Itoa(result.Summary.Skills)},
-		[2]string{"Tool profile", fmt.Sprintf("%s · %d tools", profile.Name, profile.Count)},
-	)
-	page.detail = component.NewDetailPage("Project Context Preview", fmt.Sprintf("%d sources", len(result.InstructionContext.Sources)), content)
-	page.detail.SetBindings(
-		component.DetailPageBinding{Key: "e", Desc: "configure", Message: NavigateMsg{Path: []string{"workspaces", page.resourceID, "context"}}},
-		component.DetailPageBinding{Key: "r", Desc: "rebuild", Message: NavigateMsg{Path: []string{"workspaces", page.resourceID, "context"}}},
-	)
-}

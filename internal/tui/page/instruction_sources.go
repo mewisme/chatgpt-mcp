@@ -45,7 +45,7 @@ func (page *InstructionPage) syncSourceTree() {
 		return
 	}
 	providers := groupedInstructionSources(page.settings.DetectedSources)
-	root := tree.Root(instructionSourceNode{NodeKind: instructionSourceRoot, Label: "Instruction Sources"}).Open()
+	root := tree.Root(instructionSourceNode{NodeKind: instructionSourceRoot, Label: "Providers"}).Open()
 	providerNames := make([]string, 0, len(providers))
 	for provider := range providers {
 		providerNames = append(providerNames, provider)
@@ -166,9 +166,9 @@ func (page *InstructionPage) sourcesView(tabs string, width, bodyHeight int) str
 	if page.err != nil {
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 	}
-	height := max(1, bodyHeight-pageFeedbackHeight(feedback))
-	page.sources.SetSize(width, height)
-	return tabs + "\n" + prependPageFeedback(feedback, page.sources.View())
+	layout := page.instructionSectionLayout(instructionTabSources, feedback, width, bodyHeight)
+	page.sources.SetSize(width, layout.BodyHeight)
+	return tabs + "\n" + layout.View(page.sources.View())
 }
 
 func (page *InstructionPage) sourceMouseTargets(originX, originY, z int) []component.MouseTarget {
@@ -176,7 +176,7 @@ func (page *InstructionPage) sourceMouseTargets(originX, originY, z int) []compo
 		return nil
 	}
 	return []component.MouseTarget{{
-		ID: "instruction.sources.scroll", Rect: component.Rect{X: originX, Y: originY, Width: max(1, page.width), Height: max(1, page.height)}, Z: z,
+		ID: "instruction.sources.scroll", Rect: component.Rect{X: originX, Y: originY, Width: max(1, page.width), Height: max(1, page.sources.Height())}, Z: z,
 		Handle: func(event component.MouseEvent) tea.Msg {
 			switch event.Button {
 			case tea.MouseWheelUp:

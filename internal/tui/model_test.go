@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 )
@@ -348,6 +349,76 @@ func TestModelInstructionDeepLinkEscapesDirectlyToHome(t *testing.T) {
 	model = updated.(Model)
 	if cmd != nil || model.router.Current() != (Route{Kind: RouteHome}) {
 		t.Fatalf("escape route=%#v cmd=%v", model.router.Current(), cmd != nil)
+	}
+}
+
+func TestModelInstructionRuleEditorDeepLinkLoadsRoutedEditor(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	value := instructionpolicy.DefaultConfig()
+	value.Rules = []instructionpolicy.GlobalRule{{ID: "rule_one", Name: "One rule", Enabled: true, Content: "Always verify."}}
+	if err := instructionpolicy.DefaultStore().Save(value); err != nil {
+		t.Fatal(err)
+	}
+	route := Route{Kind: RouteInstruction, Section: "rules", ResourceID: "rule_one", Action: "edit"}
+	model := NewModel(route)
+	if model.notice != "" || model.router.Current() != route || len(model.router.stack) != 2 {
+		t.Fatalf("route=%#v stack=%#v notice=%q", model.router.Current(), model.router.stack, model.notice)
+	}
+	plain := ansi.Strip(model.View().Content)
+	for _, want := range []string{"Edit Global Rule · rule_one", "rule_one", "ctrl+s save"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("rule editor missing %q: %q", want, plain)
+		}
+	}
+	guard, ok := model.currentPage.(tuipage.NavigationGuardModel)
+	if !ok || guard.Dirty() || !model.currentPage.InputActive() {
+		t.Fatalf("editor guard=%t dirty=%t input=%t", ok, ok && guard.Dirty(), model.currentPage.InputActive())
+	}
+}
+
+func TestModelInstructionContextTabNavigationUsesDirtyGuard(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(Route{Kind: RouteInstruction, Section: "context"})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	model = updated.(Model)
+	guard, ok := model.currentPage.(tuipage.NavigationGuardModel)
+	if !ok || !guard.Dirty() {
+		t.Fatalf("context guard=%t dirty=%t", ok, ok && guard.Dirty())
+	}
+	page, ok := model.currentPage.(mousePage)
+	if !ok {
+		t.Fatal("instruction page does not expose mouse targets")
+	}
+	targets := page.MouseTargets(0, 0, 10)
+	var tabs []component.MouseTarget
+	for _, target := range targets {
+		if target.ID == "instruction.tab" {
+			tabs = append(tabs, target)
+		}
+	}
+	if len(tabs) < 2 {
+		t.Fatalf("instruction tab targets=%d", len(tabs))
+	}
+	updated, cmd := model.Update(tabs[1].Handle(component.MouseEvent{Button: tea.MouseLeft}))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("rules tab click produced no navigation command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if model.pendingNavigation == nil || model.router.Current() != (Route{Kind: RouteInstruction, Section: "context"}) {
+		t.Fatalf("dirty context navigation escaped: route=%#v pending=%v", model.router.Current(), model.pendingNavigation != nil)
+	}
+	if !strings.Contains(ansi.Strip(model.View().Content), "Discard changes?") {
+		t.Fatal("dirty context navigation did not render discard guard")
 	}
 }
 

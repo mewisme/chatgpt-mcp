@@ -139,15 +139,10 @@ func (page DetailPage) View() string {
 	if height <= 0 {
 		height = defaultLayoutHeight
 	}
-	header := TwoColumn(Title(page.title), Secondary(page.meta), width)
 	feedback := page.feedbackView(width)
-	prefix := header
-	if feedback != "" {
-		prefix += "\n" + feedback
-	}
-	prefix += "\n" + Divider(width)
 	footer := page.footerView(width)
-	body := prefix + "\n" + page.viewport.View()
+	layout := NewSectionLayout(page.title, page.meta, feedback, width, height, lipgloss.Height(footer))
+	body := layout.View(page.viewport.View())
 	return BottomHelp(body, footer, width, height)
 }
 
@@ -232,15 +227,11 @@ func (page *DetailPage) resizeViewport() {
 		return
 	}
 	width := max(1, page.width)
-	header := TwoColumn(Title(page.title), Secondary(page.meta), width)
 	feedback := page.feedbackView(width)
-	prefixHeight := lipgloss.Height(header) + 1 + lipgloss.Height(Divider(width))
-	if feedback != "" {
-		prefixHeight += lipgloss.Height(feedback) + 1
-	}
 	footerHeight := lipgloss.Height(page.footerView(width))
+	layout := NewSectionLayout(page.title, page.meta, feedback, width, page.height, footerHeight)
 	page.viewport.SetWidth(width)
-	page.viewport.SetHeight(max(1, page.height-prefixHeight-footerHeight-1))
+	page.viewport.SetHeight(layout.BodyHeight)
 	page.reflowContent(false)
 }
 

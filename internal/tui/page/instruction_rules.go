@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -41,7 +42,7 @@ func (page *InstructionPage) syncRuleBrowser() {
 			Search: strings.Join([]string{rule.ID, rule.Name, rule.Content, state}, " "),
 		})
 	}
-	browser := component.NewBrowser(page.ctx, "Global Rules", rows, nil)
+	browser := component.NewBrowser(page.ctx, "Global Rules", rows, nil).WithTitleVisible(false)
 	browser.SetHelpBindings(
 		component.Binding([]string{"a"}, "a", "add"),
 		component.Binding([]string{"e"}, "e", "edit"),
@@ -63,10 +64,10 @@ func (page *InstructionPage) handleRuleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) 
 	}
 	switch msg.String() {
 	case "a":
-		return page.openRuleForm(""), true
+		return page.ruleEditorNavigation(""), true
 	case "e":
 		if id := page.selectedRuleID(); id != "" {
-			return page.openRuleForm(id), true
+			return page.ruleEditorNavigation(id), true
 		}
 		return nil, true
 	case "space":
@@ -101,53 +102,84 @@ func (page *InstructionPage) selectedRuleID() string {
 	return selected.ID
 }
 
-func (page *InstructionPage) openRuleForm(id string) tea.Cmd {
-	if page == nil {
-		return nil
-	}
+func (page *InstructionPage) initRuleEditor(id, action string) error {
 	page.ruleEditID, page.ruleName, page.ruleContent, page.ruleEnabled = strings.TrimSpace(id), "", "", true
-	if page.ruleEditID == "" {
+	if action == "create" {
+		if page.ruleEditID != "" {
+			return fmt.Errorf("create rule route must not include a rule ID")
+		}
 		generated, err := application.NewInstructionRuleID()
 		if err != nil {
-			page.err = err
-			return nil
+			return err
 		}
 		page.ruleEditID = generated
 		page.ruleName = "New rule"
-	} else {
+	} else if action == "edit" {
+		if page.ruleEditID == "" {
+			return fmt.Errorf("edit rule route requires a rule ID")
+		}
 		rule, ok := page.ruleByID(page.ruleEditID)
 		if !ok {
-			page.err = fmt.Errorf("global rule not found: %s", page.ruleEditID)
-			return nil
+			return fmt.Errorf("global rule not found: %s", page.ruleEditID)
 		}
 		page.ruleName, page.ruleContent, page.ruleEnabled = rule.Name, rule.Content, rule.Enabled
+	} else {
+		return fmt.Errorf("unsupported instruction rule editor action: %s", action)
 	}
 	lines := 10
 	if page.height > 0 {
 		lines = max(5, min(16, page.height-12))
 	}
-	page.ruleForm = component.NewForm(component.Group(
+	form := component.NewEditorForm(component.Group(
 		component.Input("Name", &page.ruleName),
 		component.Switch("Enabled", &page.ruleEnabled),
 		component.TextLines("Content", &page.ruleContent, lines),
-	).Title("Global rule").Description(page.ruleEditID))
-	page.ruleFormActive = true
+	))
+	primary := "save"
+	if action == "create" {
+		primary = "create"
+	}
+	editor := component.NewEditor(primary, component.EditorSection{ID: "rule", Title: "Rule", Description: page.ruleEditID, Form: form})
+	page.ruleEditor = &editor
 	page.err, page.notice = nil, ""
 	page.resizeContent()
-	return page.ruleForm.Init()
+	return nil
 }
 
-func (page *InstructionPage) closeRuleForm() {
-	if page == nil {
-		return
+func (page *InstructionPage) ruleEditorNavigation(id string) tea.Cmd {
+	path := []string{"instruction", "rules", "create"}
+	if id = strings.TrimSpace(id); id != "" {
+		path = []string{"instruction", "rules", id, "edit"}
 	}
-	page.ruleForm = component.Form{}
-	page.ruleFormActive = false
-	page.ruleEditID, page.ruleName, page.ruleContent = "", "", ""
-	page.ruleEnabled = false
+	return func() tea.Msg { return NavigateMsg{Path: path} }
 }
 
-func (page *InstructionPage) saveRuleFormCmd() tea.Cmd {
+func (page *InstructionPage) ruleEditorParentNavigation() tea.Cmd {
+	return func() tea.Msg { return NavigateMsg{Path: []string{"instruction", "rules"}, Replace: true} }
+}
+
+func (page *InstructionPage) ruleEditorTitle() string {
+	if page == nil || page.ruleEditor == nil {
+		return "Global Rule"
+	}
+	if _, ok := page.ruleByID(page.ruleEditID); ok {
+		return "Edit Global Rule · " + page.ruleEditID
+	}
+	return "Create Global Rule"
+}
+
+func (page *InstructionPage) ruleEditorView(width, height int) string {
+	title := component.PageTitle(page.ruleEditorTitle(), width)
+	page.ruleEditor.Resize(width, max(1, height-lipgloss.Height(title)-1))
+	return title + "\n" + page.ruleEditor.View()
+}
+
+func (page *InstructionPage) ruleEditorMouseTargets(originX, originY, z int) []component.MouseTarget {
+	title := component.PageTitle(page.ruleEditorTitle(), page.width)
+	return page.ruleEditor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
+}
+
+func (page *InstructionPage) saveRuleEditorCmd() tea.Cmd {
 	if page == nil {
 		return nil
 	}
@@ -249,15 +281,10 @@ func (page *InstructionPage) rulesView(tabs string, width, bodyHeight int) strin
 	if page.err != nil {
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 	}
-	body := ""
-	if page.ruleFormActive {
-		body = page.ruleForm.View()
-	} else {
-		updated, _ := page.rules.Update(tea.WindowSizeMsg{Width: width, Height: max(1, bodyHeight-pageFeedbackHeight(feedback))})
-		page.rules = updated.(component.Browser)
-		body = page.rules.Content()
-	}
-	content := tabs + "\n" + prependPageFeedback(feedback, body)
+	layout := page.instructionSectionLayout(instructionTabRules, feedback, width, bodyHeight)
+	updated, _ := page.rules.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
+	page.rules = updated.(component.Browser)
+	content := tabs + "\n" + layout.View(page.rules.Content())
 	if page.ruleDeleteID == "" {
 		return content
 	}

@@ -239,10 +239,43 @@ func TestConfigStoragePageCentralizesMaintenanceActions(t *testing.T) {
 		}
 	}
 	view := ansi.Strip(page.View(100, 34))
-	for _, want := range []string{"Configuration / Storage & Maintenance", "Format", "Config", "Root", "Initialized", "Runtime", "enter run"} {
+	for _, want := range []string{"Configuration / Storage & Maintenance", "Format", "Config", "Root", "Initialized", "Runtime sync", "Persisted", "Runtime", "enter run"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("storage view missing %q: %q", want, view)
 		}
+	}
+}
+
+func TestConfigRuntimeSyncStatusRendersPendingAndFingerprints(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfigRoute(t.Context(), "storage")
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	page.overview.RuntimeRunning = true
+	page.overview.RuntimeSync = application.ConfigRuntimeSync{State: application.ConfigRuntimePending, PersistedFingerprint: "1234567890abcdef", RuntimeFingerprint: "fedcba0987654321"}
+	view := ansi.Strip(page.View(100, 34))
+	for _, want := range []string{"changes pending", "1234567890ab", "fedcba098765"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("runtime sync view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestConfigSaveMarksRunningRuntimePendingImmediately(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfig(t.Context())
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	page.overview.RuntimeRunning = true
+	page.overview.RuntimeSync.State = application.ConfigRuntimeCurrent
+	mutation := page.overview.Config
+	mutation.Server.Port++
+	page.finishOperation(configOperationMsg{command: ConfigEdit, mutation: application.ConfigMutationResult{Config: mutation}})
+	if page.overview.RuntimeSync.State != application.ConfigRuntimePending {
+		t.Fatalf("sync state=%q", page.overview.RuntimeSync.State)
+	}
+	if page.overview.RuntimeSync.PersistedFingerprint == "" {
+		t.Fatal("persisted fingerprint not updated")
 	}
 }
 

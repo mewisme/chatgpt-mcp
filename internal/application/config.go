@@ -24,6 +24,23 @@ type ConfigOverview struct {
 	Source         configformat.Source
 	Root           string
 	RuntimeRunning bool
+	RuntimeSync    ConfigRuntimeSync
+}
+
+type ConfigRuntimeSyncState string
+
+const (
+	ConfigRuntimeStopped     ConfigRuntimeSyncState = "stopped"
+	ConfigRuntimeCurrent     ConfigRuntimeSyncState = "current"
+	ConfigRuntimePending     ConfigRuntimeSyncState = "changes pending"
+	ConfigRuntimeUnavailable ConfigRuntimeSyncState = "unavailable"
+)
+
+type ConfigRuntimeSync struct {
+	State                ConfigRuntimeSyncState
+	PersistedFingerprint string
+	RuntimeFingerprint   string
+	Error                string
 }
 
 type ConfigMutationResult struct {
@@ -150,11 +167,27 @@ func LoadConfigOverview(ctx context.Context) (ConfigOverview, error) {
 	if err != nil {
 		return ConfigOverview{}, err
 	}
-	running, err := RuntimeRunning(ctx)
+	persistedFingerprint, err := config.RuntimeFingerprint(cfg)
 	if err != nil {
 		return ConfigOverview{}, err
 	}
-	return ConfigOverview{Config: cfg, Source: source, Root: config.RootPath(), RuntimeRunning: running}, nil
+	status, running, statusErr := RuntimeStatus(ctx)
+	sync := ConfigRuntimeSync{State: ConfigRuntimeStopped, PersistedFingerprint: persistedFingerprint}
+	if statusErr != nil {
+		sync.State, sync.Error = ConfigRuntimeUnavailable, statusErr.Error()
+	} else if running {
+		sync.RuntimeFingerprint = strings.TrimSpace(status.ConfigFingerprint)
+		switch {
+		case sync.RuntimeFingerprint == "":
+			sync.State = ConfigRuntimeUnavailable
+			sync.Error = "running runtime does not expose configuration state"
+		case sync.RuntimeFingerprint == sync.PersistedFingerprint:
+			sync.State = ConfigRuntimeCurrent
+		default:
+			sync.State = ConfigRuntimePending
+		}
+	}
+	return ConfigOverview{Config: cfg, Source: source, Root: config.RootPath(), RuntimeRunning: running, RuntimeSync: sync}, nil
 }
 
 func SetConfigField(key, raw string) (ConfigMutationResult, error) {

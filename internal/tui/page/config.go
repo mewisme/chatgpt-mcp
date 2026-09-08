@@ -539,6 +539,14 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 	switch msg.command {
 	case ConfigEdit:
 		page.overview.Config = msg.mutation.Config
+		if fingerprint, err := config.RuntimeFingerprint(msg.mutation.Config); err == nil {
+			page.overview.RuntimeSync.PersistedFingerprint = fingerprint
+			if page.overview.RuntimeRunning {
+				page.overview.RuntimeSync.State = application.ConfigRuntimePending
+			} else {
+				page.overview.RuntimeSync.State = application.ConfigRuntimeStopped
+			}
+		}
 		page.notice = application.ConfigOperationNotice(page.overview.RuntimeRunning)
 	case ConfigVerify:
 		page.notice = fmt.Sprintf("Configuration verified · %s · %d structured files", msg.verify.Format, msg.verify.Files)
@@ -842,10 +850,7 @@ func (page *ConfigPage) overviewView(width int) string {
 		}
 		return component.StateView(component.PageEmpty, "Configuration not loaded", "")
 	}
-	status := "runtime stopped"
-	if page.overview.RuntimeRunning {
-		status = "runtime running"
-	}
+	status := "runtime " + string(page.overview.RuntimeSync.State)
 	initialized := "no"
 	if page.overview.Source.Exists {
 		initialized = "yes"
@@ -858,17 +863,27 @@ func (page *ConfigPage) storageOverview(width int) string {
 	if page.overview.Source.Exists {
 		initialized = "yes"
 	}
-	runtime := "stopped"
-	if page.overview.RuntimeRunning {
-		runtime = "running"
-	}
+	runtime := string(page.overview.RuntimeSync.State)
 	return strings.Join([]string{
 		component.WrapKeyValue("Format", string(page.overview.Source.Format), width),
 		component.WrapKeyValue("Config", page.overview.Source.Path, width),
 		component.WrapKeyValue("Root", page.overview.Root, width),
 		component.WrapKeyValue("Initialized", initialized, width),
-		component.WrapKeyValue("Runtime", runtime, width),
+		component.WrapKeyValue("Runtime sync", runtime, width),
+		component.WrapKeyValue("Persisted", shortFingerprint(page.overview.RuntimeSync.PersistedFingerprint), width),
+		component.WrapKeyValue("Runtime", shortFingerprint(page.overview.RuntimeSync.RuntimeFingerprint), width),
 	}, "\n")
+}
+
+func shortFingerprint(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unavailable"
+	}
+	if len(value) <= 12 {
+		return value
+	}
+	return value[:12]
 }
 
 func (page *ConfigPage) domainSummary(domain string) string {

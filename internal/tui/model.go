@@ -920,9 +920,9 @@ func (model *Model) loadPage(route Route) {
 			value, err = tuipage.NewMCPRoute(model.ctx, route.ResourceID, route.Section)
 		}
 	case RouteTunnel:
-		value, err = tuipage.NewTunnelDashboard(model.ctx)
+		value, err = tuipage.NewTunnelDashboardRoute(model.ctx, route.Section, route.Action)
 	case RouteTunnels:
-		value, err = tuipage.NewManagedTunnelsRoute(model.ctx, route.ResourceID, route.Section)
+		value, err = tuipage.NewManagedTunnelsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteRequests:
 		value, err = tuipage.NewRequestsRouteMode(model.ctx, route.Mode, route.ResourceID, route.Section)
 	case RouteLogs:
@@ -996,22 +996,7 @@ func (model Model) initCurrentPage() tea.Cmd {
 func editorRouteCompatibilityCmd(route Route) tea.Cmd {
 	var message tea.Msg
 	switch route.Kind {
-	case RouteTunnel:
-		switch {
-		case route.Action == "edit" && route.Section == "":
-			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelConfigure}
-		case route.Section == "admin-key" && route.Action == "edit":
-			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelAdminKeySet}
-		}
 	case RouteTunnels:
-		switch route.Action {
-		case "create":
-			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelManagedCreate}
-		case "edit":
-			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelManagedUpdate, ResourceID: route.ResourceID}
-		case "configure":
-			message = tuipage.TunnelCommandMsg{Command: tuipage.TunnelManagedConfigure, ResourceID: route.ResourceID}
-		}
 	case RouteConfig:
 		switch {
 		case route.Action == "edit":

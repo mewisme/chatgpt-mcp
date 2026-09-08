@@ -1,6 +1,7 @@
 package page
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -13,36 +14,42 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-func TestTunnelRuntimeFormsRedactSecretsAndBlankRuntimeKeyPreservesSecret(t *testing.T) {
+func TestTunnelRuntimeEditorsRedactSecretsAndBlankRuntimeKeyPreservesSecret(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{ID: "tunnel_demo", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin"})
-	page, err := NewTunnelDashboard(t.Context())
+	dashboard, err := NewTunnelDashboard(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view := page.View(120, 32); strings.Contains(view, "runtime-secret") || strings.Contains(view, "admin-secret") {
+	if view := dashboard.View(120, 32); strings.Contains(view, "runtime-secret") || strings.Contains(view, "admin-secret") {
 		t.Fatalf("secret leaked in tunnel dashboard: %q", view)
 	}
-	if _, err := page.openCommand(TunnelConfigure, ""); err != nil {
+	runtimeEditor, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if page.runtimeForm == nil || page.runtimeForm.RuntimeAPIKey != "" {
-		t.Fatalf("runtime form prefilled secret: %#v", page.runtimeForm)
+	_ = runtimeEditor.Init()
+	if runtimeEditor.OverlayActive() || runtimeEditor.runtimeForm == nil || runtimeEditor.runtimeForm.RuntimeAPIKey != "" {
+		t.Fatalf("runtime editor overlay=%t draft=%#v", runtimeEditor.OverlayActive(), runtimeEditor.runtimeForm)
 	}
-	if input := runtimeInputFromForm(page.runtimeForm); input.APIKey != nil {
+	if input := runtimeInputFromForm(runtimeEditor.runtimeForm); input.APIKey != nil {
 		t.Fatalf("blank runtime key should preserve existing secret: %#v", input.APIKey)
 	}
-	if view := page.form.View(); strings.Contains(view, "runtime-secret") {
-		t.Fatalf("runtime secret leaked in configure form: %q", view)
+	view := ansi.Strip(runtimeEditor.View(100, 28))
+	if strings.Contains(view, "runtime-secret") || !strings.Contains(view, "Configure Runtime Tunnel") || !strings.Contains(view, "ctrl+s save") {
+		t.Fatalf("runtime editor view=%q", view)
 	}
-	page.closeOverlay()
-	if _, err := page.openCommand(TunnelAdminKeySet, ""); err != nil {
+	adminEditor, err := NewTunnelDashboardRoute(t.Context(), "admin-key", "edit")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if page.adminForm == nil || page.adminForm.AdminKey != "" || strings.Contains(page.form.View(), "admin-secret") {
-		t.Fatalf("admin secret leaked in form: %#v view=%q", page.adminForm, page.form.View())
+	_ = adminEditor.Init()
+	view = ansi.Strip(adminEditor.View(100, 28))
+	if adminEditor.OverlayActive() || adminEditor.adminForm == nil || adminEditor.adminForm.AdminKey != "" || strings.Contains(view, "admin-secret") || !strings.Contains(view, "ctrl+s verify") {
+		t.Fatalf("admin editor overlay=%t draft=%#v view=%q", adminEditor.OverlayActive(), adminEditor.adminForm, view)
 	}
 }
 
@@ -137,54 +144,83 @@ func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
 	}
 }
 
-func TestTunnelConfigureSwitchAndEscapeFlow(t *testing.T) {
+func TestTunnelRuntimeConfigureEditorSwitchValidationAndCancel(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret"})
-	page, err := NewTunnelDashboard(t.Context())
+	page, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd, err := page.openCommand(TunnelConfigure, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	page = runTunnelPageCmd(t, page, cmd)
-	plain := ansi.Strip(page.form.View())
-	if !strings.Contains(plain, "Enabled [ TRUE ]") || strings.Contains(plain, "[ FALSE ]") {
-		t.Fatalf("configure switch view=%q", plain)
+	_ = page.Init()
+	plain := ansi.Strip(page.View(100, 28))
+	if !strings.Contains(plain, "Enabled [ TRUE ]") || strings.Contains(plain, "runtime-secret") {
+		t.Fatalf("configure editor view=%q", plain)
 	}
 	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	page = updated.(*TunnelPage)
-	if page.runtimeForm.Enabled || !strings.Contains(ansi.Strip(page.form.View()), "Enabled [ FALSE ]") {
-		t.Fatalf("space did not toggle enabled: %#v view=%q", page.runtimeForm, ansi.Strip(page.form.View()))
+	if page.runtimeForm.Enabled || !page.Dirty() || !strings.Contains(ansi.Strip(page.View(100, 28)), "Enabled [ FALSE ]") {
+		t.Fatalf("space toggle draft=%#v dirty=%t", page.runtimeForm, page.Dirty())
 	}
-	updated, next := page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	before := page.runtimeForm.ID
-	page = advanceTunnelFormAndType(t, updated.(*TunnelPage), next, 'x')
-	if page.runtimeForm.ID == before {
-		t.Fatalf("switch did not advance to tunnel id input: before=%q after=%q", before, page.runtimeForm.ID)
-	}
-	updated, next = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
 	page = updated.(*TunnelPage)
-	if next != nil || !page.form.ConfirmingExit() || page.overlay != tunnelOverlayForm {
-		t.Fatalf("dirty escape overlay=%d confirm=%t cmd=%v", page.overlay, page.form.ConfirmingExit(), next)
+	if cmd == nil || page.overlay != tunnelOverlayOperation || page.runtimeForm == nil || page.runtimeForm.Enabled {
+		t.Fatalf("runtime submit cmd=%v overlay=%d draft=%#v", cmd != nil, page.overlay, page.runtimeForm)
 	}
-	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	updated, _ = page.Update(tunnelOperationMsg{command: TunnelConfigure, err: fmt.Errorf("save failed")})
 	page = updated.(*TunnelPage)
-	if page.form.ConfirmingExit() || page.overlay != tunnelOverlayForm {
-		t.Fatalf("escape from discard confirmation overlay=%d confirm=%t", page.overlay, page.form.ConfirmingExit())
+	if page.OverlayActive() || page.runtimeForm == nil || page.runtimeForm.Enabled || !page.Dirty() || !strings.Contains(ansi.Strip(page.View(100, 28)), "save failed") {
+		t.Fatalf("runtime failure overlay=%t draft=%#v dirty=%t", page.OverlayActive(), page.runtimeForm, page.Dirty())
 	}
+	_, cancel := page.Update(component.EditorCancelMsg{})
+	if cancel == nil {
+		t.Fatal("editor cancel returned no navigation")
+	}
+	navigate, ok := cancel().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "tunnel" {
+		t.Fatalf("cancel navigation=%#v", navigate)
+	}
+}
 
-	page.closeOverlay()
-	cmd, err = page.openCommand(TunnelConfigure, "")
+func TestTunnelAdminEditorFailureKeepsDraft(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewTunnelDashboardRoute(t.Context(), "admin-key", "edit")
 	if err != nil {
 		t.Fatal(err)
 	}
-	page = runTunnelPageCmd(t, page, cmd)
-	updated, next = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	_ = page.Init()
+	updated, _ := page.Update(tea.KeyPressMsg{Code: 's', Text: "secret-draft"})
 	page = updated.(*TunnelPage)
-	page = runTunnelPageCmd(t, page, next)
-	if page.overlay != tunnelOverlayNone {
-		t.Fatalf("clean escape did not close configure dialog: overlay=%d", page.overlay)
+	if page.adminForm.AdminKey != "secret-draft" || !page.Dirty() {
+		t.Fatalf("admin draft=%#v dirty=%t", page.adminForm, page.Dirty())
+	}
+	updated, cmd := page.Update(component.EditorSubmitMsg{})
+	page = updated.(*TunnelPage)
+	if cmd == nil || page.overlay != tunnelOverlayOperation {
+		t.Fatalf("admin submit cmd=%v overlay=%d", cmd != nil, page.overlay)
+	}
+	updated, _ = page.Update(tunnelOperationMsg{command: TunnelAdminKeySet, err: fmt.Errorf("verification failed")})
+	page = updated.(*TunnelPage)
+	if page.OverlayActive() || page.adminForm == nil || page.adminForm.AdminKey != "secret-draft" || !page.Dirty() {
+		t.Fatalf("admin failure lost draft overlay=%t draft=%#v dirty=%t", page.OverlayActive(), page.adminForm, page.Dirty())
+	}
+	plain := ansi.Strip(page.View(90, 26))
+	if !strings.Contains(plain, "verification failed") || strings.Contains(plain, "secret-draft") {
+		t.Fatalf("admin failure feedback/secret view=%q", plain)
+	}
+}
+
+func TestTunnelRuntimeOperationOverlayBlocksEditorMouse(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo"})
+	page, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.width, page.height = 100, 28
+	page.overlay = tunnelOverlayOperation
+	progress := component.NewProgress("Saving tunnel configuration")
+	page.progress = &progress
+	targets := page.MouseTargets(0, 0, 1)
+	if len(targets) != 1 || targets[0].ID != "page.overlay" {
+		t.Fatalf("operation mouse targets=%#v", targets)
 	}
 }
 
@@ -294,13 +330,28 @@ func TestManagedTunnelRefreshPersistsCacheAndUpdatePrefetchesRemoteState(t *test
 	}
 
 	cmd, err = page.openCommand(TunnelManagedUpdate, "tunnel_one")
-	if err != nil || cmd == nil || !page.managedUpdateFetch {
-		t.Fatalf("update prefetch cmd=%v err=%v fetch=%t", cmd, err, page.managedUpdateFetch)
+	if err != nil || cmd == nil {
+		t.Fatalf("update route cmd=%v err=%v", cmd, err)
 	}
-	updated, next := page.Update(cmd())
-	page = updated.(*TunnelPage)
-	if next == nil || page.overlay != tunnelOverlayForm || page.managedUpdateFetch || page.managedForm == nil || page.managedForm.Name != "Remote One" || page.managedForm.Description != "fresh" {
-		t.Fatalf("overlay=%d fetch=%t form=%#v next=%v", page.overlay, page.managedUpdateFetch, page.managedForm, next)
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "tunnels/tunnel_one/edit" {
+		t.Fatalf("update route=%#v", navigate)
+	}
+	edit, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edit.editor != nil || !edit.managedUpdateFetch || edit.overlay != tunnelOverlayOperation {
+		t.Fatalf("prefetch initial editor=%v fetch=%t overlay=%d", edit.editor != nil, edit.managedUpdateFetch, edit.overlay)
+	}
+	prefetch := edit.Init()
+	if prefetch == nil {
+		t.Fatal("edit prefetch command missing")
+	}
+	updated, next := edit.Update(prefetch())
+	edit = updated.(*TunnelPage)
+	if edit.overlay != tunnelOverlayNone || edit.managedUpdateFetch || edit.editor == nil || edit.managedForm == nil || edit.managedForm.Name != "Remote One" || edit.managedForm.Description != "fresh" || next == nil {
+		t.Fatalf("overlay=%d fetch=%t editor=%v form=%#v next=%v", edit.overlay, edit.managedUpdateFetch, edit.editor != nil, edit.managedForm, next)
 	}
 }
 
@@ -362,9 +413,94 @@ func TestManagedTunnelDeleteSelectedRuntimeOffersClearConfigChoice(t *testing.T)
 	if _, err := page.openCommand(TunnelManagedDelete, "tunnel_selected"); err != nil {
 		t.Fatal(err)
 	}
-	if page.overlay != tunnelOverlayForm || !page.deleteOptions || !page.deleteClear {
+	if page.overlay != tunnelOverlayConfirm || !page.deleteOptions || !page.deleteClear {
 		t.Fatalf("delete options overlay=%d options=%t clear=%t", page.overlay, page.deleteOptions, page.deleteClear)
 	}
+	page.confirm.Select(false)
+	page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if page.overlay != tunnelOverlayConfirm || page.deleteOptions || page.deleteClear {
+		t.Fatalf("delete choice overlay=%d options=%t clear=%t", page.overlay, page.deleteOptions, page.deleteClear)
+	}
+}
+
+func TestManagedTunnelCreateEditorSectionsWrapAndFailureKeepsDraft(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewManagedTunnelsRouteAction(t.Context(), "", "", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	plain := ansi.Strip(page.View(40, 20))
+	for _, want := range []string{"Create Managed Tunnel", "General", "Scope", "Runtime", "ctrl+s create"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("create editor missing %q: %q", want, plain)
+		}
+	}
+	testutil.AssertLinesFit(t, page.View(40, 20), 40)
+	updated, _ := page.Update(tea.KeyPressMsg{Code: 'd', Text: "draft-name"})
+	page = updated.(*TunnelPage)
+	if page.managedForm == nil || page.managedForm.Name != "draft-name" || !page.Dirty() {
+		t.Fatalf("create draft=%#v dirty=%t", page.managedForm, page.Dirty())
+	}
+	updated, _ = page.Update(tunnelOperationMsg{command: TunnelManagedCreate, err: fmt.Errorf("create failed")})
+	page = updated.(*TunnelPage)
+	if page.editor == nil || page.managedForm == nil || page.managedForm.Name != "draft-name" || !page.Dirty() || page.OverlayActive() {
+		t.Fatalf("create failure editor=%v draft=%#v dirty=%t overlay=%t", page.editor != nil, page.managedForm, page.Dirty(), page.OverlayActive())
+	}
+	if view := ansi.Strip(page.View(40, 20)); !strings.Contains(view, "create failed") {
+		t.Fatalf("create failure feedback=%q", view)
+	}
+}
+
+func TestManagedTunnelUpdateAndConfigureFailuresKeepDraft(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_one" {
+			t.Fatalf("unexpected request=%s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"id":"tunnel_one","name":"Remote","description":"fresh","workspace_ids":["ws_admin"]}`))
+	}))
+	defer server.Close()
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL})
+	edit, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefetch := edit.Init()
+	if prefetch == nil {
+		t.Fatal("edit prefetch missing")
+	}
+	updated, initEditor := edit.Update(prefetch())
+	edit = updated.(*TunnelPage)
+	if initEditor == nil || edit.editor == nil || edit.managedForm == nil || edit.managedForm.Name != "Remote" {
+		t.Fatalf("edit prefetch editor=%v draft=%#v init=%v", edit.editor != nil, edit.managedForm, initEditor != nil)
+	}
+	_ = initEditor()
+	updated, _ = edit.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	edit = updated.(*TunnelPage)
+	name := edit.managedForm.Name
+	updated, _ = edit.Update(tunnelOperationMsg{command: TunnelManagedUpdate, targetID: "tunnel_one", err: fmt.Errorf("update failed")})
+	edit = updated.(*TunnelPage)
+	if edit.managedForm == nil || edit.managedForm.Name != name || !edit.Dirty() || !strings.Contains(ansi.Strip(edit.View(52, 22)), "update failed") {
+		t.Fatalf("update failure draft=%#v dirty=%t", edit.managedForm, edit.Dirty())
+	}
+
+	configure, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "configure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = configure.Init()
+	updated, _ = configure.Update(tea.KeyPressMsg{Code: 's', Text: "runtime-secret-draft"})
+	configure = updated.(*TunnelPage)
+	if configure.configureForm == nil || configure.configureForm.RuntimeAPIKey != "runtime-secret-draft" || !configure.Dirty() {
+		t.Fatalf("configure draft=%#v dirty=%t", configure.configureForm, configure.Dirty())
+	}
+	updated, _ = configure.Update(tunnelOperationMsg{command: TunnelManagedConfigure, targetID: "tunnel_one", err: fmt.Errorf("configure failed")})
+	configure = updated.(*TunnelPage)
+	view := ansi.Strip(configure.View(44, 18))
+	if configure.configureForm == nil || configure.configureForm.RuntimeAPIKey != "runtime-secret-draft" || !configure.Dirty() || !strings.Contains(view, "configure failed") || strings.Contains(view, "runtime-secret-draft") {
+		t.Fatalf("configure failure draft=%#v dirty=%t view=%q", configure.configureForm, configure.Dirty(), view)
+	}
+	testutil.AssertLinesFit(t, configure.View(44, 18), 44)
 }
 
 func setupTunnelPageConfig(t *testing.T, value tunnel.Config) {
@@ -382,60 +518,4 @@ func setupTunnelPageConfig(t *testing.T, value tunnel.Config) {
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func runTunnelPageCmd(t *testing.T, page *TunnelPage, cmd tea.Cmd) *TunnelPage {
-	t.Helper()
-	if cmd == nil {
-		return page
-	}
-	message := cmd()
-	if batch, ok := message.(tea.BatchMsg); ok {
-		for _, next := range batch {
-			page = runTunnelPageCmd(t, page, next)
-		}
-		return page
-	}
-	updated, next := page.Update(message)
-	value, ok := updated.(*TunnelPage)
-	if !ok {
-		t.Fatalf("tunnel page update returned %T", updated)
-	}
-	return runTunnelPageCmd(t, value, next)
-}
-
-func advanceTunnelFormAndType(t *testing.T, page *TunnelPage, cmd tea.Cmd, value rune) *TunnelPage {
-	t.Helper()
-	queue := []tea.Cmd{cmd}
-	before := page.runtimeForm.ID
-	for steps := 0; steps < 32 && len(queue) > 0; steps++ {
-		next := queue[0]
-		queue = queue[1:]
-		if next == nil {
-			continue
-		}
-		message := next()
-		if batch, ok := message.(tea.BatchMsg); ok {
-			queue = append(queue, batch...)
-			continue
-		}
-		updated, follow := page.Update(message)
-		updatedPage, ok := updated.(*TunnelPage)
-		if !ok {
-			t.Fatalf("tunnel page update returned %T", updated)
-		}
-		page = updatedPage
-		typed, typedCmd := page.Update(tea.KeyPressMsg{Code: value, Text: string(value)})
-		page = typed.(*TunnelPage)
-		if page.runtimeForm.ID != before {
-			return page
-		}
-		if typedCmd != nil {
-			queue = append(queue, typedCmd)
-		}
-		if follow != nil {
-			queue = append(queue, follow)
-		}
-	}
-	return page
 }

@@ -40,7 +40,7 @@ type managedConfigureFormData struct {
 	Enable        bool
 }
 
-func newTunnelRuntimeForm(dashboard application.TunnelDashboard) (component.Form, *tunnelRuntimeFormData) {
+func newTunnelRuntimeEditor(dashboard application.TunnelDashboard) (component.Editor, *tunnelRuntimeFormData) {
 	data := &tunnelRuntimeFormData{Enabled: dashboard.Config.Enabled, ID: dashboard.Config.ID, ControlPlane: dashboard.Config.ControlPlaneBaseURL, OrganizationID: dashboard.Config.OrganizationID}
 	enabled := component.Switch("Enabled", &data.Enabled)
 	if !dashboard.MCPHTTPEnabled {
@@ -54,17 +54,19 @@ func newTunnelRuntimeForm(dashboard application.TunnelDashboard) (component.Form
 	} else {
 		enabled.Description("At least one MCP transport must remain enabled.")
 	}
-	form := component.NewForm(component.Group(
-		enabled,
-		component.Input("Tunnel ID", &data.ID),
-		component.PasswordInputWithHint("Runtime API key", "Blank keeps the current key", &data.RuntimeAPIKey),
-		component.Input("Control plane base URL", &data.ControlPlane),
-		component.Input("Organization ID", &data.OrganizationID),
-	))
-	return form, data
+	editor := component.NewEditor("save", component.EditorSection{
+		ID: "runtime", Title: "Runtime", Description: "Configure the selected runtime tunnel. Blank runtime API key keeps the current secret.",
+		Form: component.NewEditorForm(component.Group(
+			enabled,
+			component.Input("Tunnel ID", &data.ID),
+			component.PasswordInputWithHint("Runtime API key", "Blank keeps the current key", &data.RuntimeAPIKey),
+			component.Input("Control plane base URL", &data.ControlPlane),
+			component.Input("Organization ID", &data.OrganizationID),
+		)),
+	})
+	return editor, data
 }
-
-func newTunnelAdminForm(status application.TunnelAdminStatus) (component.Form, *tunnelAdminFormData) {
+func newTunnelAdminEditor(status application.TunnelAdminStatus) (component.Editor, *tunnelAdminFormData) {
 	data := &tunnelAdminFormData{ScopeKind: "auto"}
 	scope := status.Scope
 	switch {
@@ -75,17 +77,19 @@ func newTunnelAdminForm(status application.TunnelAdminStatus) (component.Form, *
 	case scope.TenantID != "":
 		data.ScopeKind, data.ScopeID = "tenant", scope.TenantID
 	}
-	form := component.NewForm(component.Group(
-		component.PasswordInput("Admin API key", &data.AdminKey).Description("OpenAI admin key with Tunnels Manage access."),
-		component.Select("Verification scope", &data.ScopeKind,
-			huh.NewOption("Auto (reuse or derive)", "auto"), huh.NewOption("Organization", "organization"), huh.NewOption("Workspace", "workspace"), huh.NewOption("Tenant", "tenant"),
-		),
-		component.Input("Scope ID", &data.ScopeID).Description("Ignored when scope is Auto."),
-	))
-	return form, data
+	editor := component.NewEditor("verify", component.EditorSection{
+		ID: "admin-key", Title: "Admin Key", Description: "Store and verify an OpenAI admin key with Tunnels Manage access.",
+		Form: component.NewEditorForm(component.Group(
+			component.PasswordInput("Admin API key", &data.AdminKey).Description("OpenAI admin key with Tunnels Manage access."),
+			component.Select("Verification scope", &data.ScopeKind,
+				huh.NewOption("Auto (reuse or derive)", "auto"), huh.NewOption("Organization", "organization"), huh.NewOption("Workspace", "workspace"), huh.NewOption("Tenant", "tenant"),
+			),
+			component.Input("Scope ID", &data.ScopeID).Description("Ignored when scope is Auto."),
+		)),
+	})
+	return editor, data
 }
-
-func newManagedTunnelForm(metadata tunnel.Metadata, create bool) (component.Form, *managedTunnelFormData) {
+func newManagedTunnelEditor(metadata tunnel.Metadata, create bool) (component.Editor, *managedTunnelFormData) {
 	data := &managedTunnelFormData{
 		Name: metadata.Name, Description: metadata.Description,
 		OrganizationIDs: strings.Join(metadata.OrganizationIDs, "\n"), WorkspaceIDs: strings.Join(metadata.WorkspaceIDs, "\n"), TenantIDs: strings.Join(metadata.TenantIDs, "\n"),
@@ -95,29 +99,36 @@ func newManagedTunnelForm(metadata tunnel.Metadata, create bool) (component.Form
 	if !create {
 		description = component.Text("Description", &data.Description)
 	}
-	form := component.NewForm(
-		component.Group(name, description),
-		component.Group(
+	primary := "save"
+	if create {
+		primary = "create"
+	}
+	editor := component.NewEditor(primary,
+		component.EditorSection{ID: "general", Title: "General", Description: "Name and description for the managed tunnel.", Form: component.NewEditorForm(component.Group(name, description))},
+		component.EditorSection{ID: "scope", Title: "Scope", Description: "Optional organization, workspace, and tenant IDs. Enter one ID per line.", Form: component.NewEditorForm(component.Group(
 			component.Text("Organization IDs (one per line)", &data.OrganizationIDs),
 			component.Text("Workspace IDs (one per line)", &data.WorkspaceIDs),
 			component.Text("Tenant IDs (one per line)", &data.TenantIDs),
-		),
-		component.Group(
-			component.Confirm("Configure cgm to use this tunnel", &data.Configure),
+		))},
+		component.EditorSection{ID: "runtime", Title: "Runtime", Description: "Optionally select this tunnel for the local runtime after saving. Blank runtime key reuses the current secret.", Form: component.NewEditorForm(component.Group(
+			component.Switch("Configure cgm to use this tunnel", &data.Configure),
 			component.PasswordInputWithHint("Runtime API key", "Blank reuses the current runtime key", &data.RuntimeAPIKey),
-			component.Confirm("Enable tunnel after configure", &data.Enable),
-		),
+			component.Switch("Enable tunnel after configure", &data.Enable),
+		))},
 	)
-	return form, data
+	return editor, data
 }
 
-func newManagedConfigureForm() (component.Form, *managedConfigureFormData) {
+func newManagedConfigureEditor() (component.Editor, *managedConfigureFormData) {
 	data := &managedConfigureFormData{}
-	form := component.NewForm(component.Group(
-		component.PasswordInputWithHint("Runtime API key", "Blank reuses the current runtime key", &data.RuntimeAPIKey),
-		component.Confirm("Enable tunnel", &data.Enable),
-	))
-	return form, data
+	editor := component.NewEditor("configure", component.EditorSection{
+		ID: "runtime", Title: "Runtime", Description: "Select this managed tunnel for the local runtime. Blank runtime key reuses the current secret.",
+		Form: component.NewEditorForm(component.Group(
+			component.PasswordInputWithHint("Runtime API key", "Blank reuses the current runtime key", &data.RuntimeAPIKey),
+			component.Switch("Enable tunnel", &data.Enable),
+		)),
+	})
+	return editor, data
 }
 
 func runtimeInputFromForm(data *tunnelRuntimeFormData) application.TunnelRuntimeInput {

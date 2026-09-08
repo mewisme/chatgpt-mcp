@@ -3,6 +3,7 @@ package upstream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -127,6 +128,48 @@ func (m *Manager) Add(server Server) error {
 		oauthErr = m.clearOAuthCredential(normalized.ID)
 	}
 	return errors.Join(closeErr, oauthErr)
+}
+
+func (m *Manager) CreateBatch(servers []Server) error {
+	normalized := make([]Server, 0, len(servers))
+	seen := map[string]bool{}
+	for _, server := range servers {
+		value, err := NormalizeServer(server)
+		if err != nil {
+			return err
+		}
+		if seen[value.ID] {
+			return fmt.Errorf("duplicate upstream server ID: %s", value.ID)
+		}
+		seen[value.ID] = true
+		normalized = append(normalized, value)
+	}
+	if len(normalized) == 0 {
+		return errors.New("at least one upstream server is required")
+	}
+	m.mu.Lock()
+	for _, server := range normalized {
+		if _, exists := m.servers[server.ID]; exists {
+			m.mu.Unlock()
+			return fmt.Errorf("upstream server already exists: %s", server.ID)
+		}
+	}
+	for _, server := range normalized {
+		m.servers[server.ID] = server
+	}
+	if err := m.persistLocked(); err != nil {
+		for _, server := range normalized {
+			delete(m.servers, server.ID)
+		}
+		m.mu.Unlock()
+		return err
+	}
+	for _, server := range normalized {
+		delete(m.cache, server.ID)
+		delete(m.errors, server.ID)
+	}
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *Manager) Remove(id string) error {

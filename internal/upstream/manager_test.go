@@ -265,3 +265,42 @@ func TestManagerInvalidatesToolsCacheFromSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestManagerCreateBatchIsAtomic(t *testing.T) {
+	manager := NewManager(nil)
+	invalid := []Server{{ID: "good", Transport: "http", URL: "https://good.example/mcp"}, {ID: "bad", Transport: "stdio"}}
+	if err := manager.CreateBatch(invalid); err == nil || len(manager.List()) != 0 {
+		t.Fatalf("invalid batch err=%v servers=%#v", err, manager.List())
+	}
+	if err := manager.Add(Server{ID: "existing", Transport: "http", URL: "https://existing.example/mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.CreateBatch([]Server{{ID: "new", Transport: "stdio", Command: "node"}, {ID: "existing", Transport: "stdio", Command: "node"}}); err == nil {
+		t.Fatal("existing ID batch was accepted")
+	}
+	if _, ok := manager.Get("new"); ok {
+		t.Fatal("batch partially added server before existing ID failure")
+	}
+}
+
+func TestManagerCreateBatchPersistsOnceAndRollsBackFailure(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(filepath.Join(root, "upstream.json"))
+	manager := NewManager(store)
+	servers := []Server{{ID: "a", Transport: "stdio", Command: "node"}, {ID: "b", Transport: "http", URL: "https://b.example/mcp"}}
+	if err := manager.CreateBatch(servers); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil || len(loaded) != 2 {
+		t.Fatalf("loaded=%#v err=%v", loaded, err)
+	}
+	file := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(file, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	failed := NewManager(NewStore(filepath.Join(file, "upstream.json")))
+	if err := failed.CreateBatch(servers); err == nil || len(failed.List()) != 0 {
+		t.Fatalf("failed batch err=%v servers=%#v", err, failed.List())
+	}
+}

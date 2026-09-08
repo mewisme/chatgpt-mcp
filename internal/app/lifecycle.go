@@ -15,6 +15,15 @@ func (a *App) Start(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	a.runtimeCtx = ctx
+	if a.Tools != nil {
+		go func() {
+			refreshCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			if err := a.Tools.RefreshUpstreams(refreshCtx, false); err != nil && refreshCtx.Err() == nil && a.Logger != nil {
+				a.Logger.Warning("UPSTREAM", "upstream.bootstrap.failed", "Initial upstream proxy discovery failed", err)
+			}
+		}()
+	}
 	if a.Tunnel != nil {
 		if err := a.Tunnel.StartContext(ctx); err != nil {
 			a.runtimeCtx = nil

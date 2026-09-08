@@ -16,7 +16,7 @@ import (
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 )
 
-const managedReadyTimeout = 15 * time.Second
+const managedReadyTimeout = managed.DefaultLifecycleTimeout
 
 type ExternalCommand struct {
 	Command string
@@ -204,92 +204,21 @@ func managedUp(ctx context.Context, spec managed.Spec, manager managed.Manager) 
 	if err != nil {
 		return RuntimeActionResult{}, err
 	}
-	current, running, err := runtimeStatusFast(ctx)
+	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: runtimeStatusFast, Shutdown: requestRuntimeShutdown, Timeout: managed.DefaultLifecycleTimeout}
+	result, err := lifecycle.Up(ctx)
 	if err != nil {
 		return RuntimeActionResult{}, err
 	}
-	if err := validateRuntimeOwner(current, running, spec, "up"); err != nil {
-		return RuntimeActionResult{}, err
-	}
-	backend, err := manager.Status(spec)
-	if err != nil {
-		return RuntimeActionResult{}, err
-	}
-	matches, err := manager.DefinitionMatches(spec)
-	if err != nil {
-		return RuntimeActionResult{}, err
-	}
-	if running && backend.Installed && matches {
-		if current.Starting {
-			current, err = waitManagedReady(ctx, spec, "", managedReadyTimeout)
-			if err != nil {
-				return RuntimeActionResult{}, err
-			}
-		}
-		return runtimeActionResult("up", spec, manager, current, false), nil
-	}
-	if running {
-		if err := requestRuntimeShutdown(ctx); err != nil {
-			return RuntimeActionResult{}, err
-		}
-		if err := waitRuntimeStopped(ctx, managedReadyTimeout); err != nil {
-			return RuntimeActionResult{}, err
-		}
-	}
-	if backend.Running {
-		if err := stopManagedBackend(spec, manager); err != nil {
-			return RuntimeActionResult{}, err
-		}
-	}
-	if !backend.Installed || !matches {
-		if err := manager.Install(spec); err != nil {
-			return RuntimeActionResult{}, err
-		}
-	}
-	if err := manager.Start(spec); err != nil {
-		return RuntimeActionResult{}, err
-	}
-	status, err := waitManagedReady(ctx, spec, "", managedReadyTimeout)
-	if err != nil {
-		return RuntimeActionResult{}, err
-	}
-	return runtimeActionResult("up", spec, manager, status, true), nil
+	return runtimeActionResult("up", spec, manager, result.Status, result.Changed), nil
 }
 
 func managedDown(ctx context.Context, spec managed.Spec, manager managed.Manager) (RuntimeActionResult, error) {
-	current, running, err := runtimeStatusFast(ctx)
+	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: runtimeStatusFast, Shutdown: requestRuntimeShutdown, Timeout: managed.DefaultLifecycleTimeout}
+	result, err := lifecycle.Down(ctx)
 	if err != nil {
 		return RuntimeActionResult{}, err
 	}
-	if err := validateRuntimeOwner(current, running, spec, "down"); err != nil {
-		return RuntimeActionResult{}, err
-	}
-	backend, err := manager.Status(spec)
-	if err != nil {
-		return RuntimeActionResult{}, err
-	}
-	if !running && !backend.Installed {
-		return runtimeActionResult("down", spec, manager, runtimecontrol.RuntimeStatus{}, false), nil
-	}
-	if running {
-		if err := requestRuntimeShutdown(ctx); err != nil {
-			return RuntimeActionResult{}, err
-		}
-		if err := waitRuntimeStopped(ctx, managedReadyTimeout); err != nil {
-			return RuntimeActionResult{}, err
-		}
-	}
-	if backend.Running || backend.Installed {
-		if err := stopManagedBackend(spec, manager); err != nil {
-			return RuntimeActionResult{}, err
-		}
-	}
-	if backend.Installed {
-		if err := manager.Uninstall(spec); err != nil {
-			return RuntimeActionResult{}, err
-		}
-	}
-	return runtimeActionResult("down", spec, manager, runtimecontrol.RuntimeStatus{}, true), nil
+	return runtimeActionResult("down", spec, manager, runtimecontrol.RuntimeStatus{}, result.Changed), nil
 }
 
 func managedRestart(ctx context.Context, spec managed.Spec, manager managed.Manager) (RuntimeActionResult, error) {
@@ -298,71 +227,12 @@ func managedRestart(ctx context.Context, spec managed.Spec, manager managed.Mana
 	if err != nil {
 		return RuntimeActionResult{}, err
 	}
-	current, running, err := runtimeStatusFast(ctx)
+	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: runtimeStatusFast, Shutdown: requestRuntimeShutdown, Timeout: managed.DefaultLifecycleTimeout}
+	result, err := lifecycle.Restart(ctx)
 	if err != nil {
 		return RuntimeActionResult{}, err
 	}
-	if err := validateRuntimeOwner(current, running, spec, "restart"); err != nil {
-		return RuntimeActionResult{}, err
-	}
-	backend, err := manager.Status(spec)
-	if err != nil {
-		return RuntimeActionResult{}, err
-	}
-	if !backend.Installed {
-		return managedUp(ctx, spec, manager)
-	}
-	matches, err := manager.DefinitionMatches(spec)
-	if err != nil {
-		return RuntimeActionResult{}, err
-	}
-	previousRunID := current.RunID
-	if running {
-		if err := requestRuntimeShutdown(ctx); err != nil {
-			return RuntimeActionResult{}, err
-		}
-		if err := waitRuntimeStopped(ctx, managedReadyTimeout); err != nil {
-			return RuntimeActionResult{}, err
-		}
-	}
-	if err := stopManagedBackend(spec, manager); err != nil {
-		return RuntimeActionResult{}, err
-	}
-	if !matches {
-		if err := manager.Install(spec); err != nil {
-			return RuntimeActionResult{}, err
-		}
-	}
-	if err := manager.Start(spec); err != nil {
-		return RuntimeActionResult{}, err
-	}
-	status, err := waitManagedReady(ctx, spec, previousRunID, managedReadyTimeout)
-	if err != nil {
-		return RuntimeActionResult{}, err
-	}
-	return runtimeActionResult("restart", spec, manager, status, true), nil
-}
-
-func validateRuntimeOwner(status runtimecontrol.RuntimeStatus, running bool, spec managed.Spec, action string) error {
-	if !running {
-		return nil
-	}
-	if !status.Managed {
-		if action == "down" {
-			return fmt.Errorf("runtime is running in foreground mode (pid %d); leave the TUI and stop the foreground process explicitly", status.PID)
-		}
-		return fmt.Errorf("runtime is already running outside the managed service (pid %d); stop the foreground process first", status.PID)
-	}
-	if status.ServiceID == spec.ID && status.ServiceScope == string(spec.Scope) {
-		return nil
-	}
-	if status.ServiceScope == string(managed.ScopeSystem) && spec.Scope == managed.ScopeUser {
-		return errors.New("runtime is managed by a system service; use the system-scope action")
-	}
-	if status.ServiceScope == string(managed.ScopeUser) && spec.Scope == managed.ScopeSystem {
-		return errors.New("runtime is managed by a user service; use the user-scope action")
-	}
-	return fmt.Errorf("another managed service is already running for this config (service %s, pid %d)", status.ServiceID, status.PID)
+	return runtimeActionResult("restart", spec, manager, result.Status, result.Changed), nil
 }
 
 func runtimeStatusFast(ctx context.Context) (runtimecontrol.RuntimeStatus, bool, error) {
@@ -379,64 +249,15 @@ func requestRuntimeShutdown(ctx context.Context) error {
 }
 
 func stopManagedBackend(spec managed.Spec, manager managed.Manager) error {
-	if err := manager.Stop(spec); err != nil {
-		status, statusErr := manager.Status(spec)
-		if statusErr == nil && status.Installed && !status.Running && status.PID == 0 {
-			return nil
-		}
-		return err
-	}
-	return nil
+	return managed.StopBackend(manager, spec)
 }
 
 func waitRuntimeStopped(ctx context.Context, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		_, running, err := runtimeStatusFast(ctx)
-		if err != nil {
-			return err
-		}
-		if !running {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(150 * time.Millisecond):
-		}
-	}
-	return errors.New("managed runtime did not stop")
+	return managed.WaitRuntimeStopped(ctx, runtimeStatusFast, timeout)
 }
 
 func waitManagedReady(ctx context.Context, spec managed.Spec, previousRunID string, timeout time.Duration) (runtimecontrol.RuntimeStatus, error) {
-	deadline := time.Now().Add(timeout)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		status, running, err := runtimeStatusFast(ctx)
-		if err != nil {
-			lastErr = err
-		} else if running {
-			if err := validateRuntimeOwner(status, true, spec, "up"); err != nil {
-				return runtimecontrol.RuntimeStatus{}, err
-			}
-			if previousRunID != "" && status.RunID == previousRunID {
-				lastErr = errors.New("previous managed runtime is still shutting down")
-			} else if status.Starting {
-				lastErr = errors.New("managed runtime is still starting")
-			} else {
-				return status, nil
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return runtimecontrol.RuntimeStatus{}, ctx.Err()
-		case <-time.After(150 * time.Millisecond):
-		}
-	}
-	if lastErr != nil {
-		return runtimecontrol.RuntimeStatus{}, fmt.Errorf("managed service did not become ready: %w", lastErr)
-	}
-	return runtimecontrol.RuntimeStatus{}, errors.New("managed service did not become ready")
+	return managed.WaitRuntimeReady(ctx, spec, runtimeStatusFast, previousRunID, timeout)
 }
 
 func runtimeActionResult(action string, spec managed.Spec, manager managed.Manager, status runtimecontrol.RuntimeStatus, changed bool) RuntimeActionResult {

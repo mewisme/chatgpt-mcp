@@ -85,6 +85,21 @@ type ConfigPage struct {
 	height          int
 }
 
+type configDomain struct {
+	ID          string
+	Title       string
+	Description string
+}
+
+var configDomains = []configDomain{
+	{ID: "runtime", Title: "Runtime & Network", Description: "MCP HTTP and admin server configuration"},
+	{ID: "access", Title: "Access & Security", Description: "Authentication and filesystem access"},
+	{ID: "shell", Title: "Shell & Execution", Description: "Approval, sandbox, environment, and network policy"},
+	{ID: "features", Title: "Features", Description: "Ponytail and Caveman behavior"},
+	{ID: "tunnel", Title: "Tunnel", Description: "OpenAI Secure MCP Tunnel configuration"},
+	{ID: "storage", Title: "Storage & Maintenance", Description: "Storage, verification, reload, import, export, and migration"},
+}
+
 func NewConfig(ctx context.Context) (*ConfigPage, error) {
 	return NewConfigRoute(ctx, "")
 }
@@ -294,10 +309,7 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 }
 
 func (page *ConfigPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	commands := map[string]ConfigCommand{
-		"f": ConfigRefresh, "v": ConfigVerify, "r": ConfigReload,
-		"m": ConfigMigrate, "c": ConfigConvert, "x": ConfigExport, "i": ConfigImport,
-	}
+	commands := map[string]ConfigCommand{"r": ConfigRefresh}
 	command, ok := commands[msg.String()]
 	if !ok {
 		return nil, false
@@ -515,10 +527,7 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 	}
 	helpExpanded := page.browser.HelpExpanded()
 	rows := page.configRows()
-	page.browser = component.NewBrowser(page.ctx, "Configuration fields", rows, nil).WithTitleVisible(false).WithHelpBindings(
-		component.Binding([]string{"v"}, "v", "verify"), component.Binding([]string{"r"}, "r", "reload"), component.Binding([]string{"m"}, "m", "migrate"),
-		component.Binding([]string{"c"}, "c", "convert"), component.Binding([]string{"x"}, "x", "export"), component.Binding([]string{"i"}, "i", "import"), component.Binding([]string{"f"}, "f", "refresh"),
-	)
+	page.browser = component.NewBrowser(page.ctx, "Configuration domains", rows, nil).WithTitleVisible(false).WithHelpBindings(component.Binding([]string{"s"}, "s", "search"), component.Binding([]string{"r"}, "r", "refresh"))
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		_ = page.resizeBrowser()
@@ -541,26 +550,13 @@ func (page *ConfigPage) resizeBrowser() tea.Cmd {
 }
 
 func (page *ConfigPage) configRows() []component.Row {
-	rows := make([]component.Row, 0, len(config.Fields()))
-	for _, spec := range config.Fields() {
-		value := "loading"
+	rows := make([]component.Row, 0, len(configDomains))
+	for _, domain := range configDomains {
+		summary := "loading"
 		if page.loaded {
-			if display, err := config.DisplayValue(page.overview.Config, spec); err == nil {
-				value = display
-			}
+			summary = page.domainSummary(domain.ID)
 		}
-		mode := string(spec.Kind)
-		if !spec.Editable {
-			mode = "read-only"
-		}
-		detail := detailFields([2]string{"Key", spec.Key}, [2]string{"Value", value}, [2]string{"Type", string(spec.Kind)}, [2]string{"Access", mode}, [2]string{"Description", spec.Description})
-		if len(spec.Options) > 0 {
-			detail += "\n" + detailFields([2]string{"Options", strings.Join(spec.Options, ", ")})
-		}
-		if spec.Guidance != "" {
-			detail += "\n" + detailFields([2]string{"Manage via", spec.Guidance})
-		}
-		rows = append(rows, component.Row{ID: spec.Key, Title: spec.Key, Description: spec.Description, Meta: value + " · " + mode, Search: strings.Join(append([]string{spec.Key, spec.Description, value, mode}, spec.Options...), " ")})
+		rows = append(rows, component.Row{ID: domain.ID, Title: domain.Title, Description: domain.Description, Meta: summary, Search: domain.Title + " " + domain.Description + " " + summary})
 	}
 	return rows
 }
@@ -617,21 +613,42 @@ func (page *ConfigPage) overviewView(width int) string {
 		}
 		return component.StateView(component.PageEmpty, "Configuration not loaded", "")
 	}
-	status := "stopped"
+	status := "runtime stopped"
 	if page.overview.RuntimeRunning {
-		status = "running · reload available"
+		status = "runtime running"
 	}
 	initialized := "no"
 	if page.overview.Source.Exists {
 		initialized = "yes"
 	}
-	return strings.Join([]string{
-		component.WrapKeyValue("Storage", fmt.Sprintf("%s · initialized %s", page.overview.Source.Format, initialized), width),
-		component.WrapKeyValue("MCP transports", fmt.Sprintf("HTTP %s · Tunnel %s", configOnOff(page.overview.Config.Server.Enabled), configOnOff(page.overview.Config.Tunnel.Enabled)), width),
-		component.WrapKeyValue("Config", page.overview.Source.Path, width),
-		component.WrapKeyValue("Root", page.overview.Root, width),
-		component.WrapKeyValue("Runtime", status, width),
-	}, "\n")
+	return component.WrapKeyValue("", fmt.Sprintf("%s · initialized %s · %s", page.overview.Source.Format, initialized, status), width)
+}
+
+func (page *ConfigPage) domainSummary(domain string) string {
+	cfg := page.overview.Config
+	switch domain {
+	case "runtime":
+		return fmt.Sprintf("MCP HTTP %s :%d · Admin %s :%d · exposure %s", configOnOff(cfg.Server.Enabled), cfg.Server.Port, configOnOff(cfg.Admin.Enabled), cfg.Admin.Port, config.NormalizeExposure(cfg.Server.Expose).Mode)
+	case "access":
+		return fmt.Sprintf("MCP auth %s · Admin auth %s · %d extra filesystem roots", configOnOff(cfg.Auth.MCPEnabled), configOnOff(cfg.Auth.AdminEnabled), len(cfg.Permissions.AllowDirs))
+	case "shell":
+		return fmt.Sprintf("%s · sandbox %s · network %s · %d command overrides", cfg.Shell.ApprovalPolicy, cfg.Shell.SandboxPolicy, cfg.Shell.NetworkPolicy, len(cfg.Shell.ApprovalAllowCommands)+len(cfg.Shell.ApprovalDenyCommands))
+	case "features":
+		return fmt.Sprintf("Ponytail %s · Caveman %s", configOnOff(cfg.Features.Ponytail.Active), configOnOff(cfg.Features.Caveman.Active))
+	case "tunnel":
+		return fmt.Sprintf("%s · runtime key %s · admin key %s", configOnOff(cfg.Tunnel.Enabled), configuredState(cfg.Tunnel.APIKey), configuredState(cfg.Tunnel.AdminKey))
+	case "storage":
+		return fmt.Sprintf("%s · verify / reload / convert / import / export", page.overview.Source.Format)
+	default:
+		return ""
+	}
+}
+
+func configuredState(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "not configured"
+	}
+	return "configured"
 }
 
 func configOnOff(enabled bool) string {

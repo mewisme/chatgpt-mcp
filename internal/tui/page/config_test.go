@@ -46,9 +46,25 @@ func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
 			t.Fatalf("config page leaked %s", secret)
 		}
 	}
-	for _, want := range []string{"auth.mcp_token_hash", "tunnel.api_key", "configured", "read-only"} {
+	for _, want := range []string{"Runtime & Network", "Access & Security", "Shell & Execution", "Features", "Tunnel", "Storage & Maintenance", "configured"} {
 		if !strings.Contains(model, want) {
 			t.Fatalf("config rows missing %q: %q", want, model)
+		}
+	}
+}
+
+func TestConfigDashboardContainsExactlySixDomains(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfig(t.Context())
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	rows := page.configRows()
+	if len(rows) != 6 {
+		t.Fatalf("domains=%d rows=%#v", len(rows), rows)
+	}
+	for _, row := range rows {
+		if strings.Contains(row.ID, ".") {
+			t.Fatalf("flat config field leaked into dashboard: %#v", row)
 		}
 	}
 }
@@ -113,12 +129,12 @@ func TestConfigBrowserOpenNavigatesToFieldChild(t *testing.T) {
 	page, _ := NewConfig(t.Context())
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
-	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "server.port"}})
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "runtime"}})
 	if cmd == nil {
 		t.Fatal("config browser open returned no navigation command")
 	}
 	message, ok := cmd().(NavigateMsg)
-	if !ok || strings.Join(message.Path, "/") != "config/server.port" {
+	if !ok || strings.Join(message.Path, "/") != "config/runtime" {
 		t.Fatalf("config navigation=%#v", message)
 	}
 }

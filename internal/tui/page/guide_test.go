@@ -62,7 +62,7 @@ func TestGuideFolderOverviewAndNestedTopics(t *testing.T) {
 	if !strings.Contains(plain, "Overview") || !strings.Contains(plain, "Topics") || !strings.Contains(plain, "Guide · Configuration") {
 		t.Fatalf("config overview=%q", plain)
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: '2', Text: "2", Mod: tea.ModAlt})
+	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	page = updated.(*GuidePage)
 	plain = ansi.Strip(page.View(100, 30))
 	for _, want := range []string{"Configuration Topics", "Shell & Execution", "Storage & Maintenance"} {
@@ -77,6 +77,11 @@ func TestGuideFolderOverviewAndNestedTopics(t *testing.T) {
 	message, ok := cmd().(NavigateMsg)
 	if !ok || strings.Join(message.Path, "/") != "guide/config/storage" {
 		t.Fatalf("nested guide navigation=%#v", message)
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	page = updated.(*GuidePage)
+	if page.tab != 0 || !strings.Contains(ansi.Strip(page.View(100, 30)), "Guide · Configuration") {
+		t.Fatalf("left arrow did not return to overview: tab=%d", page.tab)
 	}
 	nested, err := NewGuide(t.Context(), "config/storage/bundles")
 	if err != nil {

@@ -101,11 +101,11 @@ func (page *GuidePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if len(page.children) > 0 {
 			switch msg.Keystroke() {
-			case "alt+1":
+			case "left", "alt+1":
 				page.tab = 0
 				page.resize()
 				return page, nil
-			case "alt+2":
+			case "right", "alt+2":
 				page.tab = 1
 				page.resize()
 				return page, nil

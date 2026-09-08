@@ -88,12 +88,9 @@ func ParseRoute(args []string) (Route, error) {
 	case RouteRuntime:
 		return parseRuntimeRoute(parts)
 	case RouteGuide:
-		if len(parts) > 2 {
-			return Route{}, fmt.Errorf("guide path is too deep: %s", strings.Join(parts, " "))
-		}
 		route := Route{Kind: RouteGuide}
-		if len(parts) == 2 {
-			route.ResourceID = parts[1]
+		if len(parts) > 1 {
+			route.ResourceID = strings.Join(parts[1:], "/")
 		}
 		return route, nil
 	default:
@@ -551,6 +548,17 @@ func routeStack(route Route) []Route {
 			return []Route{route}
 		}
 		return []Route{{Kind: RouteInstruction, Section: route.Section}, route}
+	}
+	if route.Kind == RouteGuide {
+		stack := []Route{{Kind: RouteGuide}}
+		if route.ResourceID == "" {
+			return stack
+		}
+		parts := strings.Split(strings.Trim(route.ResourceID, "/"), "/")
+		for i := range parts {
+			stack = append(stack, Route{Kind: RouteGuide, ResourceID: strings.Join(parts[:i+1], "/")})
+		}
+		return stack
 	}
 	main := Route{Kind: route.Kind}
 	if route.Kind == RouteRequests {

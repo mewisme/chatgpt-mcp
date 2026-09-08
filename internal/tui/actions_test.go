@@ -71,9 +71,10 @@ func TestInstructionAndWorkspaceContextNavigationActions(t *testing.T) {
 func TestGuideActionsNavigateDirectlyToEmbeddedTopics(t *testing.T) {
 	registry := defaultActionRegistry()
 	for id, want := range map[string]Route{
-		"app.go.guide":   {Kind: RouteGuide},
-		"guide.mcp":      {Kind: RouteGuide, ResourceID: "mcp"},
-		"guide.requests": {Kind: RouteGuide, ResourceID: "requests"},
+		"app.go.guide":                 {Kind: RouteGuide},
+		"guide.mcp":                    {Kind: RouteGuide, ResourceID: "mcp"},
+		"guide.requests":               {Kind: RouteGuide, ResourceID: "requests"},
+		"guide.config.storage.bundles": {Kind: RouteGuide, ResourceID: "config/storage/bundles"},
 	} {
 		cmd, err := registry.Execute(context.Background(), id, action.Context{Route: string(RouteHome)})
 		if err != nil || cmd == nil {
@@ -82,6 +83,11 @@ func TestGuideActionsNavigateDirectlyToEmbeddedTopics(t *testing.T) {
 		message, ok := cmd().(navigateMsg)
 		if !ok || message.route != want {
 			t.Fatalf("%s navigation=%#v want=%#v", id, message, want)
+		}
+	}
+	for _, item := range registry.Actions(action.Context{Route: string(RouteHome)}) {
+		if strings.HasPrefix(item.ID, "guide.") && strings.HasPrefix(item.Title, "Guide:") {
+			t.Fatalf("guide action title repeats category prefix: %#v", item)
 		}
 	}
 }

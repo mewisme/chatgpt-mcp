@@ -53,6 +53,40 @@ func TestGuideTopicLoadsOnlySelectedMarkdownWithGlamourViewer(t *testing.T) {
 	}
 }
 
+func TestGuideFolderOverviewAndNestedTopics(t *testing.T) {
+	page, err := NewGuide(t.Context(), "config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := ansi.Strip(page.View(100, 30))
+	if !strings.Contains(plain, "Overview") || !strings.Contains(plain, "Topics") || !strings.Contains(plain, "Guide · Configuration") {
+		t.Fatalf("config overview=%q", plain)
+	}
+	updated, _ := page.Update(tea.KeyPressMsg{Code: '2', Text: "2", Mod: tea.ModAlt})
+	page = updated.(*GuidePage)
+	plain = ansi.Strip(page.View(100, 30))
+	for _, want := range []string{"Configuration Topics", "Shell & Execution", "Storage & Maintenance"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("config topics missing %q: %q", want, plain)
+		}
+	}
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "config/storage"}})
+	if cmd == nil {
+		t.Fatal("opening nested guide returned no navigation command")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "guide/config/storage" {
+		t.Fatalf("nested guide navigation=%#v", message)
+	}
+	nested, err := NewGuide(t.Context(), "config/storage/bundles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ansi.Strip(nested.View(100, 30)), "Configuration Bundles") {
+		t.Fatal("deep nested guide did not render")
+	}
+}
+
 func TestGuideResponsiveLayoutsAndScrolling(t *testing.T) {
 	for _, topic := range []string{"", "getting-started", "requests", "config"} {
 		page, err := NewGuide(t.Context(), topic)

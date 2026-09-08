@@ -3,6 +3,9 @@ package tuiguide
 import (
 	"embed"
 	"fmt"
+	"io/fs"
+	"path"
+	"sort"
 	"strings"
 )
 
@@ -12,34 +15,39 @@ type Topic struct {
 	Description string
 	Keywords    []string
 	File        string
+	Parent      string
+	Children    []string
 }
 
-var topics = []Topic{
-	{ID: "getting-started", Title: "Getting Started", Description: "Navigation, Commands, help, mouse support, and the TUI interaction model.", Keywords: []string{"home", "navigation", "commands", "ctrl+k", "keyboard", "mouse"}, File: "getting-started.md"},
-	{ID: "editors", Title: "Editors & Forms", Description: "Full-page editors, sections, validation, dirty drafts, switches, path pickers, and save behavior.", Keywords: []string{"form", "editor", "ctrl+s", "validation", "path", "picker", "switch"}, File: "editors.md"},
-	{ID: "workspaces", Title: "Workspaces", Description: "Workspace registration, access directories, containers, Project Context build, and preview.", Keywords: []string{"workspace", "container", "access", "project context", "memory", "skills"}, File: "workspaces.md"},
-	{ID: "mcp", Title: "MCP Servers", Description: "Upstream MCP servers, Form/JSON creation, transports, tools, health, and OAuth.", Keywords: []string{"mcp", "server", "stdio", "http", "json", "oauth", "tools"}, File: "mcp.md"},
-	{ID: "tunnel", Title: "Tunnel", Description: "Runtime tunnel configuration, admin key, and managed OpenAI Secure MCP Tunnels.", Keywords: []string{"tunnel", "managed", "openai", "admin key", "runtime"}, File: "tunnel.md"},
-	{ID: "requests", Title: "Requests & Approvals", Description: "Approval inbox, request details, countdowns, approve/deny flows, and live approval dialogs.", Keywords: []string{"request", "approval", "allow", "deny", "guard", "countdown"}, File: "requests.md"},
-	{ID: "logs", Title: "Logs", Description: "Runtime logs, command execution output, filters, follow/pause, and structured event details.", Keywords: []string{"logs", "runtime", "execution", "filter", "journal", "follow"}, File: "logs.md"},
-	{ID: "config", Title: "Configuration", Description: "Configuration domains, typed fields, shell policy, storage maintenance, import/export, and conversion.", Keywords: []string{"config", "shell", "allow commands", "policy", "import", "export", "storage"}, File: "config.md"},
-	{ID: "instruction", Title: "Instruction", Description: "Global Context Markdown preview, Global Rules, instruction sources, and source policy.", Keywords: []string{"instruction", "context", "rules", "sources", "markdown", "glamour"}, File: "instruction.md"},
-	{ID: "runtime", Title: "Runtime & System", Description: "Managed service state, authentication, installation, updates, aliases, and runtime lifecycle actions.", Keywords: []string{"runtime", "service", "auth", "install", "update", "alias", "status"}, File: "runtime.md"},
-}
-
-//go:embed *.md
+//go:embed content
 var files embed.FS
 
-func Topics() []Topic { return append([]Topic(nil), topics...) }
+var topics = loadTopics()
 
-func Lookup(id string) (Topic, bool) {
-	id = strings.ToLower(strings.TrimSpace(id))
+func Topics() []Topic {
+	result := make([]Topic, 0, len(topics))
 	for _, topic := range topics {
-		if topic.ID == id {
-			return topic, true
+		result = append(result, cloneTopic(topic))
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+func Children(parent string) []Topic {
+	parent = cleanID(parent)
+	result := []Topic{}
+	for _, topic := range topics {
+		if topic.Parent == parent {
+			result = append(result, cloneTopic(topic))
 		}
 	}
-	return Topic{}, false
+	sort.Slice(result, func(i, j int) bool { return result[i].Title < result[j].Title })
+	return result
+}
+
+func Lookup(id string) (Topic, bool) {
+	topic, ok := topics[cleanID(id)]
+	return cloneTopic(topic), ok
 }
 
 func Markdown(id string) (string, error) {
@@ -53,3 +61,118 @@ func Markdown(id string) (string, error) {
 	}
 	return string(data), nil
 }
+
+func loadTopics() map[string]Topic {
+	result := map[string]Topic{}
+	_ = fs.WalkDir(files, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || path.Ext(name) != ".md" || name == "README.md" {
+			return nil
+		}
+		id := topicIDFromFile(name)
+		if id == "" {
+			return nil
+		}
+		data, readErr := files.ReadFile(name)
+		if readErr != nil {
+			return nil
+		}
+		title, description := markdownMetadata(string(data), id)
+		result[id] = Topic{ID: id, Title: title, Description: description, Keywords: topicKeywords(id, title), File: name, Parent: path.Dir(id)}
+		if result[id].Parent == "." {
+			result[id] = withParent(result[id], "")
+		}
+		return nil
+	})
+	for id, topic := range result {
+		parent := topic.Parent
+		if parent == "" {
+			continue
+		}
+		if parentTopic, ok := result[parent]; ok {
+			parentTopic.Children = append(parentTopic.Children, id)
+			result[parent] = parentTopic
+		}
+	}
+	for id, topic := range result {
+		sort.Strings(topic.Children)
+		result[id] = topic
+	}
+	return result
+}
+
+func topicIDFromFile(name string) string {
+	name = strings.TrimPrefix(path.Clean(name), "./")
+	name = strings.TrimPrefix(name, "content/")
+	if path.Base(name) == "index.md" {
+		return cleanID(path.Dir(name))
+	}
+	return cleanID(strings.TrimSuffix(name, ".md"))
+}
+
+func markdownMetadata(source, fallback string) (string, string) {
+	lines := strings.Split(source, "\n")
+	title := ""
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "# ") {
+			title = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "# "))
+			break
+		}
+	}
+	if title == "" {
+		title = titleFromID(path.Base(fallback))
+	}
+	description := ""
+	paragraph := []string{}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if len(paragraph) > 0 {
+				description = strings.Join(paragraph, " ")
+				break
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "```") || strings.HasPrefix(line, "|") || strings.HasPrefix(line, "-") {
+			continue
+		}
+		paragraph = append(paragraph, line)
+	}
+	if description == "" {
+		description = "Embedded TUI documentation for " + title + "."
+	}
+	return title, description
+}
+
+func topicKeywords(id, title string) []string {
+	parts := strings.Fields(strings.NewReplacer("/", " ", "-", " ", "_", " ").Replace(id + " " + title))
+	return append([]string{"guide", "help", "docs"}, parts...)
+}
+
+func titleFromID(id string) string {
+	words := strings.Fields(strings.NewReplacer("-", " ", "_", " ").Replace(id))
+	for i := range words {
+		if words[i] != "" {
+			words[i] = strings.ToUpper(words[i][:1]) + words[i][1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+func cleanID(id string) string {
+	id = strings.Trim(strings.ToLower(strings.TrimSpace(id)), "/")
+	if id == "" {
+		return ""
+	}
+	if id == "." {
+		return ""
+	}
+	return path.Clean(id)
+}
+
+func cloneTopic(topic Topic) Topic {
+	topic.Keywords = append([]string(nil), topic.Keywords...)
+	topic.Children = append([]string(nil), topic.Children...)
+	return topic
+}
+
+func withParent(topic Topic, parent string) Topic { topic.Parent = parent; return topic }

@@ -44,6 +44,7 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"version"}, Route{Kind: RouteAbout}},
 		{[]string{"guide"}, Route{Kind: RouteGuide}},
 		{[]string{"help", "mcp"}, Route{Kind: RouteGuide, ResourceID: "mcp"}},
+		{[]string{"guide", "config", "storage", "bundles"}, Route{Kind: RouteGuide, ResourceID: "config/storage/bundles"}},
 	}
 	for _, test := range tests {
 		got, err := ParseRoute(test.args)
@@ -51,7 +52,7 @@ func TestParseRoute(t *testing.T) {
 			t.Fatalf("ParseRoute(%v) = %#v, %v; want %#v", test.args, got, err, test.want)
 		}
 	}
-	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}, {"guide", "mcp", "extra"}} {
+	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
 		if _, err := ParseRoute(args); err == nil {
 			t.Fatalf("ParseRoute(%v) unexpectedly succeeded", args)
 		}
@@ -156,6 +157,10 @@ func TestEditorRouteStacksFollowSemanticAncestry(t *testing.T) {
 		{
 			Route{Kind: RouteGuide, ResourceID: "mcp"},
 			[]Route{{Kind: RouteGuide}, {Kind: RouteGuide, ResourceID: "mcp"}},
+		},
+		{
+			Route{Kind: RouteGuide, ResourceID: "config/storage/bundles"},
+			[]Route{{Kind: RouteGuide}, {Kind: RouteGuide, ResourceID: "config"}, {Kind: RouteGuide, ResourceID: "config/storage"}, {Kind: RouteGuide, ResourceID: "config/storage/bundles"}},
 		},
 	}
 	for _, test := range tests {

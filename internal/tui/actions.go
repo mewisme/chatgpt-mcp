@@ -54,8 +54,8 @@ func guideActions() []action.Action {
 	for _, topic := range topics {
 		topic := topic
 		actions = append(actions, action.Action{
-			ID: "guide." + topic.ID, Title: "Guide: " + topic.Title, Category: "Guide", Description: topic.Description,
-			Keywords: append([]string{"guide", "help", "docs"}, topic.Keywords...), Scope: action.ScopeGlobal,
+			ID: "guide." + strings.ReplaceAll(topic.ID, "/", "."), Title: topic.Title, Category: "Guide", Description: topic.Description,
+			Keywords: topic.Keywords, Scope: action.ScopeGlobal,
 			Run: func(context.Context, action.Context) tea.Cmd {
 				return func() tea.Msg { return navigateMsg{route: Route{Kind: RouteGuide, ResourceID: topic.ID}} }
 			},

@@ -138,8 +138,8 @@ The portable release smoke additionally checks `cgm tui --help`, the non-TTY ref
 
 ## Embedded feature guides
 
-Detailed TUI documentation lives in [`docs/tuiguide/`](tuiguide/) and the same Markdown files are embedded into the `cgm` binary at build time. This avoids maintaining a second in-binary copy of the docs.
+Detailed TUI documentation lives in [`docs/tuiguide/content/`](tuiguide/content/) and the same Markdown tree is embedded into the `cgm` binary at build time. This avoids maintaining a second in-binary copy of the docs.
 
 Open `Ctrl+K` and search for **Guide** to browse topics, or search a direct action such as **Guide: MCP Servers** or **Guide: Requests & Approvals**. `cgm tui guide <topic>` is also a deep link.
 
-The `/guide` page keeps only topic metadata in its browser. Opening `/guide/<topic>` loads and renders only that topic with Glamour, so the TUI never concatenates the full guide library into one oversized Markdown viewport.
+The guide tree mirrors the filesystem. A leaf is `child.md`; a branch is `child/index.md`, and branches may nest to any depth. `/guide` browses top-level nodes; a branch page has **Overview** for its `index.md` and **Topics** for direct children. Deep links mirror the same hierarchy, for example `cgm tui guide config storage bundles`. Only the selected Markdown document is rendered with Glamour, so the TUI never concatenates the full guide library into one oversized Markdown viewport.

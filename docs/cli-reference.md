@@ -294,7 +294,7 @@ cgm logs clear --force
 
 ## Configuration
 
-Inspect:
+Inspect persisted values:
 
 ```bash
 cgm config get
@@ -302,6 +302,18 @@ cgm config list
 cgm config get admin.enabled
 cgm config list admin
 ```
+
+Explain schema keys and branches:
+
+```bash
+cgm config explain
+cgm config explain shell
+cgm config explain shell.approval_policy
+cgm config explain server.expose.mode
+cgm config explain shell.approval_policy --json
+```
+
+`config explain` is schema-driven and read-only. With no key it walks the full config schema; a branch such as `shell` returns that subtree; a leaf returns its description, details, type, built-in default, editability, valid enum values, guidance, and related keys when available. The reported default is the schema default, not the current persisted value. Legacy aliases are canonicalized before lookup, and sensitive fields expose metadata only, never secret values.
 
 Set:
 

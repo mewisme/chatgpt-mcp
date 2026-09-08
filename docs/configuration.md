@@ -58,6 +58,20 @@ cgm config get admin.enabled
 cgm config list admin
 ```
 
+`config get` and `config list` inspect persisted values. `config explain` inspects the schema and explains what a key means, its default, valid values, and related settings:
+
+```bash
+cgm config explain
+cgm config explain shell
+cgm config explain shell.approval_policy
+cgm config explain server.expose.mode
+cgm config explain shell.approval_policy --json
+```
+
+With no key, `config explain` walks the full schema. A branch such as `shell` explains that subtree. A leaf such as `shell.approval_policy` includes its type, schema default, editability, enum value descriptions when applicable, guidance, and related keys. Defaults come from the built-in config schema, not the currently persisted configuration.
+
+Legacy key aliases are canonicalized before lookup. For example, explaining `features.ponytail.enabled` resolves to `features.ponytail.active`. Sensitive fields expose schema metadata only; secret values are never revealed.
+
 Structured output can be selected independently from the on-disk format:
 
 ```bash

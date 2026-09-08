@@ -190,6 +190,7 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 | Review control approval requests | `cgm request list` |
 | Follow logs | `cgm logs -f` |
 | Full diagnostic logs | `cgm logs --debug -f` |
+| Explain config schema | `cgm config explain [key]` |
 | Migrate legacy credentials | `cgm config migrate` |
 | Verify config/state | `cgm config verify` |
 | Reload persisted config | `cgm config reload` |

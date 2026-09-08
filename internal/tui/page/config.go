@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
@@ -126,7 +127,7 @@ func (page *ConfigPage) OverlayActive() bool {
 }
 
 func (page *ConfigPage) InputActive() bool {
-	return page != nil && (page.overlay == configOverlayForm || page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.overlay == configOverlayForm || page.isBrowserRoute() && page.browser.InputActive())
 }
 
 func (page *ConfigPage) Notice() string {
@@ -155,7 +156,7 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		page.loaded, page.err = true, nil
 		page.overview = msg.overview
-		if page.resourceID != "" {
+		if page.isFieldRoute() {
 			page.syncDetail()
 		} else {
 			page.rebuildBrowser(page.selectedKey())
@@ -166,7 +167,7 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		var browserCmd tea.Cmd
-		if page.resourceID != "" {
+		if page.isFieldRoute() {
 			page.detail.Resize(msg.Width, msg.Height)
 		} else {
 			browserCmd = page.resizeBrowser()
@@ -196,7 +197,10 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, cmd
 	case component.BrowserOpenMsg:
-		if page.resourceID == "" && msg.Row.ID != "" {
+		if msg.Row.ID != "" && page.isBrowserRoute() {
+			if page.resourceID == "" {
+				return page, func() tea.Msg { return NavigateMsg{Path: []string{"config", msg.Row.ID}} }
+			}
 			return page, func() tea.Msg { return NavigateMsg{Path: []string{"config", msg.Row.ID}} }
 		}
 		return page, nil
@@ -218,12 +222,12 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.form = updated
 			return page, cmd
 		}
-		if page.resourceID == "" && page.browser.InputActive() {
+		if page.isBrowserRoute() && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
 		}
-		if page.resourceID != "" {
+		if page.isFieldRoute() {
 			updated, cmd := page.detail.Update(msg)
 			page.detail = updated
 			return page, cmd
@@ -236,7 +240,7 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.form = updated
 		return page, cmd
 	}
-	if page.resourceID != "" {
+	if page.isFieldRoute() {
 		updated, cmd := page.detail.Update(message)
 		page.detail = updated
 		return page, cmd
@@ -255,13 +259,18 @@ func (page *ConfigPage) View(width, height int) string {
 		return component.StateView(component.PageLoading, "Loading configuration", "")
 	}
 	var content string
-	if page.resourceID != "" {
+	if page.isFieldRoute() {
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
 		content = page.detail.View()
 	} else {
-		title := component.PageTitleNotice("Configuration", page.notice, width)
+		pageTitle := "Configuration"
 		overview := page.overviewView(width)
+		if page.isDomainRoute() {
+			pageTitle = "Configuration / " + page.domainTitle()
+			overview = component.WrapKeyValue("", page.domainSummary(page.resourceID), width)
+		}
+		title := component.PageTitleNotice(pageTitle, page.notice, width)
 		headerHeight := lipgloss.Height(title) + lipgloss.Height(overview)
 		feedback := ""
 		if page.err != nil {
@@ -296,7 +305,7 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 	case configOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
-		if page.resourceID != "" {
+		if page.isFieldRoute() {
 			return page.detail.MouseTargets(originX, originY, z)
 		}
 		feedback := ""
@@ -309,6 +318,13 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 }
 
 func (page *ConfigPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	if page.isDomainRoute() && msg.String() == "e" {
+		cmd, err := page.openCommand(ConfigEdit, page.selectedKey())
+		if err != nil {
+			page.err = err
+		}
+		return cmd, true
+	}
 	commands := map[string]ConfigCommand{"r": ConfigRefresh}
 	command, ok := commands[msg.String()]
 	if !ok {
@@ -521,13 +537,19 @@ func (page *ConfigPage) loadCmd() tea.Cmd {
 }
 
 func (page *ConfigPage) rebuildBrowser(selected string) {
-	if page.resourceID != "" {
+	if page.isFieldRoute() {
 		page.syncDetail()
 		return
 	}
 	helpExpanded := page.browser.HelpExpanded()
 	rows := page.configRows()
-	page.browser = component.NewBrowser(page.ctx, "Configuration domains", rows, nil).WithTitleVisible(false).WithHelpBindings(component.Binding([]string{"s"}, "s", "search"), component.Binding([]string{"r"}, "r", "refresh"))
+	title := "Configuration domains"
+	bindings := []key.Binding{component.Binding([]string{"s"}, "s", "search"), component.Binding([]string{"r"}, "r", "refresh")}
+	if page.isDomainRoute() {
+		title = page.domainTitle() + " fields"
+		bindings = []key.Binding{component.Binding([]string{"e"}, "e", "edit"), component.Binding([]string{"/"}, "/", "filter"), component.Binding([]string{"r"}, "r", "refresh")}
+	}
+	page.browser = component.NewBrowser(page.ctx, title, rows, nil).WithTitleVisible(false).WithHelpBindings(bindings...)
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		_ = page.resizeBrowser()
@@ -538,7 +560,13 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 }
 
 func (page *ConfigPage) resizeBrowser() tea.Cmd {
-	headerHeight := lipgloss.Height(component.PageTitleNotice("Configuration", page.notice, page.width)) + lipgloss.Height(page.overviewView(page.width))
+	pageTitle := "Configuration"
+	overview := page.overviewView(page.width)
+	if page.isDomainRoute() {
+		pageTitle = "Configuration / " + page.domainTitle()
+		overview = component.WrapKeyValue("", page.domainSummary(page.resourceID), page.width)
+	}
+	headerHeight := lipgloss.Height(component.PageTitleNotice(pageTitle, page.notice, page.width)) + lipgloss.Height(overview)
 	feedback := ""
 	if page.err != nil {
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
@@ -550,6 +578,9 @@ func (page *ConfigPage) resizeBrowser() tea.Cmd {
 }
 
 func (page *ConfigPage) configRows() []component.Row {
+	if page.isDomainRoute() {
+		return page.domainRows()
+	}
 	rows := make([]component.Row, 0, len(configDomains))
 	for _, domain := range configDomains {
 		summary := "loading"
@@ -557,6 +588,31 @@ func (page *ConfigPage) configRows() []component.Row {
 			summary = page.domainSummary(domain.ID)
 		}
 		rows = append(rows, component.Row{ID: domain.ID, Title: domain.Title, Description: domain.Description, Meta: summary, Search: domain.Title + " " + domain.Description + " " + summary})
+	}
+	return rows
+}
+
+func (page *ConfigPage) domainRows() []component.Row {
+	section, ok := configSectionForRoute(page.resourceID)
+	if !ok {
+		return nil
+	}
+	rows := make([]component.Row, 0)
+	for _, spec := range config.Fields() {
+		if spec.Section != section {
+			continue
+		}
+		value := "loading"
+		state := config.FieldStateDefault
+		if page.loaded {
+			if display, err := config.DisplayValue(page.overview.Config, spec); err == nil {
+				value = display
+			}
+			if current, err := config.State(page.overview.Config, spec); err == nil {
+				state = current
+			}
+		}
+		rows = append(rows, component.Row{ID: spec.Key, Title: spec.Label, Description: spec.Description, Meta: value + " · " + string(state), Search: strings.Join(append([]string{spec.Label, spec.Key, spec.Description, value, string(state), string(spec.Section)}, spec.Options...), " ")})
 	}
 	return rows
 }
@@ -604,6 +660,52 @@ func (page *ConfigPage) selectedKey() string {
 		return ""
 	}
 	return selected.ID
+}
+
+func (page *ConfigPage) isBrowserRoute() bool { return page.resourceID == "" || page.isDomainRoute() }
+
+func (page *ConfigPage) isDomainRoute() bool {
+	_, ok := configSectionForRoute(page.resourceID)
+	return ok
+}
+
+func (page *ConfigPage) isFieldRoute() bool { return configFieldRouteCompat(page.resourceID) }
+
+func configFieldRouteCompat(resourceID string) bool {
+	if resourceID == "" {
+		return false
+	}
+	if _, ok := configSectionForRoute(resourceID); ok || resourceID == "storage" {
+		return false
+	}
+	_, ok := config.FieldByKey(resourceID)
+	return ok
+}
+
+func configSectionForRoute(resourceID string) (config.FieldSection, bool) {
+	switch strings.TrimSpace(resourceID) {
+	case "runtime":
+		return config.FieldSectionRuntime, true
+	case "access":
+		return config.FieldSectionAccess, true
+	case "shell":
+		return config.FieldSectionShell, true
+	case "features":
+		return config.FieldSectionFeatures, true
+	case "tunnel":
+		return config.FieldSectionTunnel, true
+	default:
+		return "", false
+	}
+}
+
+func (page *ConfigPage) domainTitle() string {
+	for _, domain := range configDomains {
+		if domain.ID == page.resourceID {
+			return domain.Title
+		}
+	}
+	return "Configuration"
 }
 
 func (page *ConfigPage) overviewView(width int) string {

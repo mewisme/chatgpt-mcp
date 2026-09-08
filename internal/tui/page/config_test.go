@@ -139,6 +139,71 @@ func TestConfigBrowserOpenNavigatesToFieldChild(t *testing.T) {
 	}
 }
 
+func TestConfigDomainRowsAreSectionScopedAndShowState(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, err := NewConfigRoute(t.Context(), "shell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	page.overview.Config.Shell.ApprovalPolicy = "strict"
+	page.rebuildBrowser("")
+	rows := page.configRows()
+	if len(rows) == 0 {
+		t.Fatal("shell domain has no rows")
+	}
+	foundApproval := false
+	for _, row := range rows {
+		spec, ok := config.FieldByKey(row.ID)
+		if !ok || spec.Section != config.FieldSectionShell {
+			t.Fatalf("non-shell field in shell domain: %#v", row)
+		}
+		if row.ID == "shell.approval_policy" {
+			foundApproval = strings.Contains(row.Meta, "strict") && strings.Contains(row.Meta, "custom")
+		}
+	}
+	if !foundApproval {
+		t.Fatalf("approval row missing custom state: %#v", rows)
+	}
+	view := ansi.Strip(page.View(100, 30))
+	if !strings.Contains(view, "Configuration / Shell & Execution") || !strings.Contains(view, "e edit") || !strings.Contains(view, "/ filter") {
+		t.Fatalf("shell domain view=%q", view)
+	}
+}
+
+func TestConfigAccessDomainNeverRendersCredentialSecrets(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfigRoute(t.Context(), "access")
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	page.overview.Config.Auth.MCPTokenHash = "DOMAIN_MCP_SECRET"
+	page.overview.Config.Auth.AdminTokenHash = "DOMAIN_ADMIN_SECRET"
+	page.rebuildBrowser("")
+	view := ansi.Strip(page.View(100, 30))
+	if strings.Contains(view, "DOMAIN_MCP_SECRET") || strings.Contains(view, "DOMAIN_ADMIN_SECRET") {
+		t.Fatalf("access domain leaked credential: %q", view)
+	}
+	if !strings.Contains(view, "configured") || !strings.Contains(view, "managed") {
+		t.Fatalf("access domain missing managed credential state: %q", view)
+	}
+}
+
+func TestConfigDomainOpenNavigatesToLegacyCompatibleFieldRoute(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, _ := NewConfigRoute(t.Context(), "runtime")
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "server.port"}})
+	if cmd == nil {
+		t.Fatal("domain field open returned no navigation")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "config/server.port" {
+		t.Fatalf("field navigation=%#v", message)
+	}
+}
+
 func TestConfigPageReadOnlyGuidanceAndStoppedReload(t *testing.T) {
 	prepareConfigPageRoot(t)
 	page, _ := NewConfig(t.Context())

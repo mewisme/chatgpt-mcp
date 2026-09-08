@@ -66,6 +66,22 @@ func TestEditorSubmitCancelFeedbackDirtyAndResponsiveLayout(t *testing.T) {
 	}
 }
 
+func TestEditorValidateKeepsInvalidSectionVisible(t *testing.T) {
+	first, second := "ok", ""
+	editor := NewEditor("save",
+		EditorSection{ID: "first", Title: "First", Form: NewEditorForm(Group(Input("First", &first)))},
+		EditorSection{ID: "second", Title: "Second", Form: NewEditorForm(Group(Input("Second", &second).Validate(func(value string) error {
+			if strings.TrimSpace(value) == "" {
+				return errors.New("second is required")
+			}
+			return nil
+		})))},
+	)
+	if err := editor.Validate(); err == nil || editor.ActiveSectionID() != "second" {
+		t.Fatalf("validate err=%v section=%q", err, editor.ActiveSectionID())
+	}
+}
+
 func TestEditorMouseSectionTargetsUseSharedGeometry(t *testing.T) {
 	one, two := "one", "two"
 	editor := NewEditor("save",

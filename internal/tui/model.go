@@ -910,9 +910,9 @@ func (model *Model) loadPage(route Route) {
 	var err error
 	switch route.Kind {
 	case RouteWorkspaces:
-		value, err = tuipage.NewWorkspacesRouteWithContextSession(model.ctx, route.ResourceID, route.Section, model.workspaceContextSession(route.ResourceID))
+		value, err = tuipage.NewWorkspacesRouteWithContextSessionAction(model.ctx, route.ResourceID, route.Section, route.Action, model.workspaceContextSession(route.ResourceID))
 	case RouteContainers:
-		value, err = tuipage.NewContainersRoute(model.ctx, route.ResourceID, route.Section)
+		value, err = tuipage.NewContainersRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteMCP:
 		value, err = tuipage.NewMCPRoute(model.ctx, route.ResourceID, route.Section)
 	case RouteTunnel:
@@ -992,24 +992,6 @@ func (model Model) initCurrentPage() tea.Cmd {
 func editorRouteCompatibilityCmd(route Route) tea.Cmd {
 	var message tea.Msg
 	switch route.Kind {
-	case RouteWorkspaces:
-		switch {
-		case route.Action == "register":
-			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceRegister}
-		case route.Section == "access" && route.Action == "add":
-			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceAccessAdd, ResourceID: route.ResourceID}
-		case route.Section == "access" && route.Action == "remove":
-			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceAccessRemove, ResourceID: route.ResourceID}
-		}
-	case RouteContainers:
-		switch {
-		case route.Action == "create":
-			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceContainerCreate}
-		case route.Action == "edit" && route.Section == "":
-			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceContainerRename, ResourceID: route.ResourceID}
-		case route.Action == "edit" && route.Section == "workspaces":
-			message = tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceContainerMembers, ResourceID: route.ResourceID}
-		}
 	case RouteMCP:
 		switch {
 		case route.Action == "create":

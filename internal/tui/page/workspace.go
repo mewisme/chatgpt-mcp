@@ -3,13 +3,11 @@ package page
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
@@ -46,7 +44,6 @@ type workspaceOverlayKind uint8
 
 const (
 	workspaceOverlayNone workspaceOverlayKind = iota
-	workspaceOverlayForm
 	workspaceOverlayConfirm
 )
 
@@ -56,10 +53,11 @@ type WorkspacePage struct {
 	containers      bool
 	resourceID      string
 	section         string
+	action          string
 	browser         component.Browser
 	detail          component.DetailPage
 	overlay         workspaceOverlayKind
-	form            component.Form
+	editor          *component.Editor
 	confirm         component.ConfirmButtons
 	command         WorkspaceCommand
 	targetID        string
@@ -94,29 +92,49 @@ func NewContainers(ctx context.Context, resourceID string) (*WorkspacePage, erro
 }
 
 func NewWorkspacesRoute(ctx context.Context, resourceID, section string) (*WorkspacePage, error) {
-	return newWorkspacePage(ctx, false, resourceID, section, nil)
+	return newWorkspacePage(ctx, false, resourceID, section, "", nil)
 }
 
 func NewWorkspacesRouteWithContextSession(ctx context.Context, resourceID, section string, session *WorkspaceContextSession) (*WorkspacePage, error) {
-	return newWorkspacePage(ctx, false, resourceID, section, session)
+	return newWorkspacePage(ctx, false, resourceID, section, "", session)
+}
+
+func NewWorkspacesRouteAction(ctx context.Context, resourceID, section, action string) (*WorkspacePage, error) {
+	return newWorkspacePage(ctx, false, resourceID, section, action, nil)
+}
+
+func NewWorkspacesRouteWithContextSessionAction(ctx context.Context, resourceID, section, action string, session *WorkspaceContextSession) (*WorkspacePage, error) {
+	return newWorkspacePage(ctx, false, resourceID, section, action, session)
 }
 
 func NewContainersRoute(ctx context.Context, resourceID, section string) (*WorkspacePage, error) {
-	return newWorkspacePage(ctx, true, resourceID, section, nil)
+	return newWorkspacePage(ctx, true, resourceID, section, "", nil)
 }
 
-func newWorkspacePage(ctx context.Context, containers bool, resourceID, section string, session *WorkspaceContextSession) (*WorkspacePage, error) {
+func NewContainersRouteAction(ctx context.Context, resourceID, section, action string) (*WorkspacePage, error) {
+	return newWorkspacePage(ctx, true, resourceID, section, action, nil)
+}
+
+func newWorkspacePage(ctx context.Context, containers bool, resourceID, section, action string, session *WorkspaceContextSession) (*WorkspacePage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	page := &WorkspacePage{ctx: ctx, manager: workspace.NewManager(workspace.DefaultStorePath()), containers: containers, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), contextSession: session}
+	page := &WorkspacePage{ctx: ctx, manager: workspace.NewManager(workspace.DefaultStorePath()), containers: containers, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), contextSession: session}
 	if err := page.reload(); err != nil {
 		return nil, err
+	}
+	if page.action != "" {
+		if err := page.initWorkspaceEditor(); err != nil {
+			return nil, err
+		}
 	}
 	return page, nil
 }
 
 func (page *WorkspacePage) Init() tea.Cmd {
+	if page != nil && page.editor != nil {
+		return page.editor.Init()
+	}
 	if page != nil && !page.containers && page.resourceID != "" && page.section == "context" && !page.contextBuilding {
 		return page.contextForm.Init()
 	}
@@ -135,7 +153,15 @@ func (page *WorkspacePage) OverlayActive() bool {
 }
 
 func (page *WorkspacePage) InputActive() bool {
-	return page != nil && (page.overlay == workspaceOverlayForm || page.resourceID == "" && page.browser.InputActive() || !page.containers && page.resourceID != "" && (page.section == "context" || page.section == "context-preview" && page.contextPreview != nil && page.contextPreview.sourceViewer != nil))
+	return page != nil && (page.editor != nil || page.resourceID == "" && page.browser.InputActive() || !page.containers && page.resourceID != "" && (page.section == "context" || page.section == "context-preview" && page.contextPreview != nil && page.contextPreview.sourceViewer != nil))
+}
+
+func (page *WorkspacePage) Dirty() bool {
+	return page != nil && page.editor != nil && page.editor.Dirty()
+}
+
+func (page *WorkspacePage) Submitting() bool {
+	return page != nil && page.editor != nil && page.editor.Submitting()
 }
 
 func (page *WorkspacePage) Notice() string {
@@ -158,6 +184,10 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
+		if page.editor != nil {
+			page.resizeWorkspaceEditor()
+			return page, nil
+		}
 		var cmd tea.Cmd
 		if page.resourceID != "" && page.section == "context" {
 			if !page.contextBuilding {
@@ -171,22 +201,26 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		} else {
 			cmd = page.resizeBrowser()
 		}
-		if page.overlay == workspaceOverlayForm {
-			form, formCmd := page.form.Update(msg)
-			page.form = form
-			return page, tea.Batch(cmd, formCmd)
-		}
 		return page, cmd
+	case component.EditorSubmitMsg:
+		if page.editor != nil {
+			return page, page.submitWorkspaceEditor()
+		}
+		return page, nil
+	case component.EditorCancelMsg:
+		if page.editor != nil {
+			return page, page.workspaceEditorParentNavigation()
+		}
+		return page, nil
 	case component.FormSubmittedMsg:
 		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone {
 			return page, page.submitWorkspaceContext()
 		}
-		return page, page.submitForm()
+		return page, nil
 	case component.FormCancelledMsg:
 		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone {
 			return page, func() tea.Msg { return NavigateMsg{Path: []string{"workspaces", page.resourceID}} }
 		}
-		page.closeOverlay()
 		return page, nil
 	case component.FormMouseMsg:
 		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone && !page.contextBuilding {
@@ -194,9 +228,9 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.contextForm = updated
 			return page, cmd
 		}
-		if page.overlay == workspaceOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
+		if page.editor != nil {
+			updated, cmd := page.editor.Update(msg)
+			page.editor = &updated
 			return page, cmd
 		}
 		return page, nil
@@ -234,6 +268,11 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case workspaceContextBuildMsg:
 		return page, page.finishWorkspaceContextBuild(msg)
 	case tea.KeyPressMsg:
+		if page.editor != nil {
+			updated, cmd := page.editor.Update(msg)
+			page.editor = &updated
+			return page, cmd
+		}
 		if page.resourceID != "" && page.section == "context" && page.overlay == workspaceOverlayNone {
 			if page.contextBuilding {
 				if msg.String() == "esc" {
@@ -249,11 +288,6 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			if cmd, handled := page.handleWorkspaceContextPreviewKey(msg); handled {
 				return page, cmd
 			}
-		}
-		if page.overlay == workspaceOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
-			return page, cmd
 		}
 		if page.overlay == workspaceOverlayConfirm {
 			return page, page.updateConfirm(msg)
@@ -272,9 +306,9 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 	}
-	if page.overlay == workspaceOverlayForm {
-		updated, cmd := page.form.Update(message)
-		page.form = updated
+	if page.editor != nil {
+		updated, cmd := page.editor.Update(message)
+		page.editor = &updated
 		return page, cmd
 	}
 	if page.resourceID != "" && page.section == "context" {
@@ -305,10 +339,11 @@ func (page *WorkspacePage) View(width, height int) string {
 		return component.StateView(component.PageError, "Workspace page unavailable", "")
 	}
 	page.width, page.height = width, height
+	if page.editor != nil {
+		return page.workspaceEditorView(width, height)
+	}
 	content := page.baseView(width, height)
 	switch page.overlay {
-	case workspaceOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), page.formOverlayWidth(width)), width, height)
 	case workspaceOverlayConfirm:
 		modalWidth := overlayWidth(width, 64)
 		body := confirmOverlayBody(page.confirm, page.confirmTitle(), page.confirmDescription(), modalWidth)
@@ -321,9 +356,10 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 	if page == nil {
 		return nil
 	}
+	if page.editor != nil {
+		return page.workspaceEditorMouseTargets(originX, originY, z)
+	}
 	switch page.overlay {
-	case workspaceOverlayForm:
-		return formOverlayMouseTargets(page.form, page.formOverlayWidth(page.width), page.width, page.height, originX, originY, z+20)
 	case workspaceOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
 	default:
@@ -424,68 +460,8 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 	page.err, page.notice = nil, ""
 	page.command, page.targetID, page.value, page.members = command, strings.TrimSpace(resourceID), "", nil
 	switch command {
-	case WorkspaceRegister:
-		if cwd, err := os.Getwd(); err == nil {
-			page.value = cwd
-		}
-		page.form = component.NewForm(component.Group(component.Input("Workspace path", &page.value).Validate(requiredValue("workspace path"))))
-		page.overlay = workspaceOverlayForm
-		return page.form.Init(), nil
-	case WorkspaceAccessAdd:
-		if _, err := page.manager.Get(page.targetID); err != nil {
-			return nil, err
-		}
-		page.form = component.NewForm(component.Group(component.Input("Additional directory", &page.value).Validate(requiredValue("directory"))))
-		page.overlay = workspaceOverlayForm
-		return page.form.Init(), nil
-	case WorkspaceAccessRemove:
-		item, err := page.manager.Get(page.targetID)
-		if err != nil {
-			return nil, err
-		}
-		if len(item.AllowDirs) == 0 {
-			return nil, fmt.Errorf("workspace has no additional directories")
-		}
-		page.value = item.AllowDirs[0]
-		options := make([]huh.Option[string], 0, len(item.AllowDirs))
-		for _, value := range item.AllowDirs {
-			options = append(options, huh.NewOption(value, value))
-		}
-		page.form = component.NewForm(component.Group(component.Select("Directory to remove", &page.value, options...)))
-		page.overlay = workspaceOverlayForm
-		return page.form.Init(), nil
-	case WorkspaceContainerCreate:
-		page.form = component.NewForm(component.Group(component.Input("Container name", &page.value).Validate(requiredValue("container name"))))
-		page.overlay = workspaceOverlayForm
-		return page.form.Init(), nil
-	case WorkspaceContainerRename:
-		item, err := page.manager.GetContainer(page.targetID)
-		if err != nil {
-			return nil, err
-		}
-		page.value = item.Name
-		page.form = component.NewForm(component.Group(component.Input("Container name", &page.value).Validate(requiredValue("container name"))))
-		page.overlay = workspaceOverlayForm
-		return page.form.Init(), nil
-	case WorkspaceContainerMembers:
-		item, err := page.manager.GetContainer(page.targetID)
-		if err != nil {
-			return nil, err
-		}
-		items, err := page.manager.List()
-		if err != nil {
-			return nil, err
-		}
-		page.members = append([]string(nil), item.WorkspaceIDs...)
-		options := make([]huh.Option[string], 0, len(items))
-		for _, workspaceItem := range items {
-			options = append(options, huh.NewOption(workspaceMemberLabel(workspaceItem), workspaceItem.ID))
-		}
-		field := component.MultiSelect("Container workspaces", &page.members, options...).Filterable(true).Height(workspaceMemberPickerHeight(len(items), page.height))
-		field.DescriptionFunc(func() string { return fmt.Sprintf("%d selected / %d available", len(page.members), len(items)) }, &page.members)
-		page.form = component.NewForm(component.Group(field))
-		page.overlay = workspaceOverlayForm
-		return page.form.Init(), nil
+	case WorkspaceRegister, WorkspaceAccessAdd, WorkspaceAccessRemove, WorkspaceContainerCreate, WorkspaceContainerRename, WorkspaceContainerMembers:
+		return page.workspaceEditorNavigation(command, page.targetID), nil
 	case WorkspaceUnregister, WorkspaceContainerDelete:
 		if command == WorkspaceUnregister {
 			if _, err := page.manager.Get(page.targetID); err != nil {
@@ -500,36 +476,6 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 	default:
 		return nil, fmt.Errorf("unsupported workspace action: %s", command)
 	}
-}
-
-func (page *WorkspacePage) submitForm() tea.Cmd {
-	var err error
-	switch page.command {
-	case WorkspaceRegister:
-		_, err = page.manager.Register(page.value)
-	case WorkspaceAccessAdd:
-		_, err = page.manager.AddAllowDir(page.targetID, page.value)
-	case WorkspaceAccessRemove:
-		_, err = page.manager.RemoveAllowDir(page.targetID, page.value)
-	case WorkspaceContainerCreate:
-		_, err = page.manager.CreateContainer(page.value)
-	case WorkspaceContainerRename:
-		_, err = page.manager.RenameContainer(page.targetID, page.value)
-	case WorkspaceContainerMembers:
-		err = page.updateMembers()
-	default:
-		err = fmt.Errorf("unsupported form action: %s", page.command)
-	}
-	if err != nil {
-		page.err = err
-		return nil
-	}
-	page.notice = workspaceSuccess(page.command)
-	page.closeOverlay()
-	if err := page.reload(); err != nil {
-		page.err = err
-	}
-	return nil
 }
 
 func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
@@ -818,17 +764,9 @@ func (page *WorkspacePage) syncContainerDetail() error {
 
 func (page *WorkspacePage) closeOverlay() {
 	page.overlay = workspaceOverlayNone
-	page.form = component.Form{}
 	page.confirm = component.ConfirmButtons{}
 	page.command, page.targetID = "", ""
 	page.value, page.members = "", nil
-}
-
-func (page *WorkspacePage) formOverlayWidth(width int) int {
-	if page.command == WorkspaceContainerMembers {
-		return overlayWidth(width, 94)
-	}
-	return overlayWidth(width, 72)
 }
 
 func workspaceMemberPickerHeight(count, pageHeight int) int {

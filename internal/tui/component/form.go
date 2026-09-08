@@ -80,7 +80,7 @@ func newForm(mode FormMode, groups ...FormGroup) Form {
 	for _, group := range groups {
 		huhGroups = append(huhGroups, group.group)
 	}
-	model := huh.NewForm(huhGroups...).WithTheme(huh.ThemeFunc(func(isDark bool) *huh.Styles { return huh.ThemeCharm(isDark) })).WithShowHelp(true)
+	model := huh.NewForm(huhGroups...).WithTheme(huh.ThemeFunc(func(isDark bool) *huh.Styles { return huh.ThemeCharm(isDark) })).WithShowHelp(mode == FormModeLegacy)
 	if mode == FormModeEditor {
 		model.WithKeyMap(editorFormKeyMap())
 	}
@@ -401,6 +401,26 @@ func (form Form) View() string {
 }
 
 func (form Form) Dirty() bool { return form.initial != form.snapshot() }
+
+func (form Form) Validate() error {
+	if form.model == nil {
+		return nil
+	}
+	focused := form.model.GetFocusedField()
+	for _, field := range form.visibleFields() {
+		field.Blur()
+		if err := field.Error(); err != nil {
+			if focused != nil {
+				focused.Focus()
+			}
+			return err
+		}
+	}
+	if focused != nil {
+		focused.Focus()
+	}
+	return nil
+}
 
 func (form Form) Mode() FormMode { return form.mode }
 

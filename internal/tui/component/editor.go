@@ -158,6 +158,21 @@ func (editor Editor) Dirty() bool {
 	return false
 }
 
+func (editor *Editor) Validate() error {
+	if editor == nil {
+		return nil
+	}
+	for index := range editor.sections {
+		if err := editor.sections[index].Form.Validate(); err != nil {
+			editor.active = index
+			editor.syncHelp()
+			editor.resizeForms()
+			return err
+		}
+	}
+	return nil
+}
+
 func (editor Editor) ActiveSection() int { return editor.active }
 
 func (editor Editor) ActiveSectionID() string {

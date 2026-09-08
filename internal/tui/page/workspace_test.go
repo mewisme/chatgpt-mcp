@@ -28,40 +28,36 @@ func TestWorkspacePageLifecycle(t *testing.T) {
 	}
 	project := filepath.Join(t.TempDir(), "project")
 	extra := filepath.Join(t.TempDir(), "extra")
-	if err := os.MkdirAll(project, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(extra, 0700); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{project, extra} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	page, err := NewWorkspaces(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := page.openCommand(WorkspaceRegister, ""); err != nil {
+	page.command, page.value = WorkspaceRegister, project
+	if err := page.applyWorkspaceEditor(); err != nil {
 		t.Fatal(err)
 	}
-	page.value = project
-	page.submitForm()
 	items, err := page.manager.List()
 	if err != nil || len(items) != 1 {
 		t.Fatalf("workspaces=%#v err=%v", items, err)
 	}
 	id := items[0].ID
-	if _, err := page.openCommand(WorkspaceAccessAdd, id); err != nil {
+	page.command, page.targetID, page.value = WorkspaceAccessAdd, id, extra
+	if err := page.applyWorkspaceEditor(); err != nil {
 		t.Fatal(err)
 	}
-	page.value = extra
-	page.submitForm()
 	item, err := page.manager.Get(id)
 	if err != nil || len(item.AllowDirs) != 1 {
 		t.Fatalf("workspace=%#v err=%v", item, err)
 	}
-	if _, err := page.openCommand(WorkspaceAccessRemove, id); err != nil {
+	page.command, page.targetID, page.value = WorkspaceAccessRemove, id, extra
+	if err := page.applyWorkspaceEditor(); err != nil {
 		t.Fatal(err)
 	}
-	page.value = extra
-	page.submitForm()
 	item, _ = page.manager.Get(id)
 	if len(item.AllowDirs) != 0 {
 		t.Fatalf("allow dirs=%v", item.AllowDirs)
@@ -77,7 +73,7 @@ func TestWorkspacePageLifecycle(t *testing.T) {
 	}
 }
 
-func TestWorkspaceFormOpensInitializedFromKeyAndCommandMessage(t *testing.T) {
+func TestWorkspaceEditorRoutesFromKeyAndCommandMessage(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
 		t.Fatal(err)
@@ -94,17 +90,29 @@ func TestWorkspaceFormOpensInitializedFromKeyAndCommandMessage(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			updated, cmd := page.Update(test.message)
-			page = updated.(*WorkspacePage)
-			if page.overlay != workspaceOverlayForm || cmd == nil {
-				t.Fatalf("overlay=%d init=%v", page.overlay, cmd != nil)
+			_, cmd := page.Update(test.message)
+			if cmd == nil {
+				t.Fatal("workspace editor route returned no navigation command")
 			}
-			page = runWorkspacePageCmd(t, page, cmd)
-			plain := ansi.Strip(page.View(100, 24))
-			if !strings.Contains(plain, "Workspace path") {
-				t.Fatalf("initialized form field missing from first render: %q", plain)
+			message, ok := cmd().(NavigateMsg)
+			if !ok || strings.Join(message.Path, "/") != "workspaces/register" {
+				t.Fatalf("workspace editor navigation=%#v", message)
 			}
 		})
+	}
+	page, err := NewWorkspacesRouteAction(t.Context(), "", "", "register")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = runWorkspacePageCmd(t, page, page.Init())
+	if page.editor == nil || page.OverlayActive() || !page.InputActive() {
+		t.Fatalf("editor=%v overlay=%t input=%t", page.editor != nil, page.OverlayActive(), page.InputActive())
+	}
+	plain := ansi.Strip(page.View(100, 24))
+	for _, want := range []string{"Register Workspace", "Workspace path", "ctrl+s register", "ctrl+o"} {
+		if !strings.Contains(strings.ToLower(plain), strings.ToLower(want)) {
+			t.Fatalf("workspace editor missing %q: %q", want, plain)
+		}
 	}
 }
 
@@ -133,26 +141,23 @@ func TestWorkspaceContainerLifecycleAndMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := page.openCommand(WorkspaceContainerCreate, ""); err != nil {
+	page.command, page.value = WorkspaceContainerCreate, "Primary"
+	if err := page.applyWorkspaceEditor(); err != nil {
 		t.Fatal(err)
 	}
-	page.value = "Primary"
-	page.submitForm()
 	containers, err := page.manager.ListContainers()
 	if err != nil || len(containers) != 1 {
 		t.Fatalf("containers=%#v err=%v", containers, err)
 	}
 	id := containers[0].ID
-	if _, err := page.openCommand(WorkspaceContainerRename, id); err != nil {
+	page.command, page.targetID, page.value = WorkspaceContainerRename, id, "Renamed"
+	if err := page.applyWorkspaceEditor(); err != nil {
 		t.Fatal(err)
 	}
-	page.value = "Renamed"
-	page.submitForm()
-	if _, err := page.openCommand(WorkspaceContainerMembers, id); err != nil {
+	page.command, page.targetID, page.members = WorkspaceContainerMembers, id, append([]string(nil), ids...)
+	if err := page.applyWorkspaceEditor(); err != nil {
 		t.Fatal(err)
 	}
-	page.members = append([]string(nil), ids...)
-	page.submitForm()
 	container, err := page.manager.GetContainer(id)
 	if err != nil || len(container.WorkspaceIDs) != 2 || container.Name != "Renamed" {
 		t.Fatalf("container=%#v err=%v", container, err)
@@ -501,17 +506,12 @@ func TestContainerMembersPickerUsesCompactFilterableLayout(t *testing.T) {
 	if _, err := page.manager.AddWorkspacesToContainer(container.ID, ids[:2]); err != nil {
 		t.Fatal(err)
 	}
-	page, err = NewContainers(t.Context(), "")
+	page, err = NewContainersRouteAction(t.Context(), container.ID, "workspaces", "edit")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = page.View(120, 30)
-	cmd, err := page.openCommand(WorkspaceContainerMembers, container.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	page = runWorkspacePageCmd(t, page, cmd)
-	plain := ansi.Strip(page.form.View())
+	page = runWorkspacePageCmd(t, page, page.Init())
+	plain := ansi.Strip(page.View(120, 30))
 	if !strings.Contains(plain, "2 selected / 24 available") {
 		t.Fatalf("member count missing: %q", plain)
 	}
@@ -525,8 +525,8 @@ func TestContainerMembersPickerUsesCompactFilterableLayout(t *testing.T) {
 	if strings.Contains(plain, parent+string(filepath.Separator)) {
 		t.Fatalf("absolute workspace paths leaked into member options: %q", plain)
 	}
-	if got := page.formOverlayWidth(120); got != 94 {
-		t.Fatalf("member modal width=%d want=94", got)
+	if strings.Contains(plain, "╭") || strings.Contains(plain, "╮") {
+		t.Fatalf("member editor unexpectedly rendered modal chrome: %q", plain)
 	}
 	if got := workspaceMemberPickerHeight(100, 30); got != 16 {
 		t.Fatalf("large member picker height=%d want=16", got)

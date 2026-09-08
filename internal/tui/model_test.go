@@ -36,9 +36,6 @@ func TestEditorRouteCompatibilityCmdPreservesLegacyFormEntryPoints(t *testing.T)
 		route Route
 		want  tea.Msg
 	}{
-		{Route{Kind: RouteWorkspaces, Action: "register"}, tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceRegister}},
-		{Route{Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}, tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceAccessAdd, ResourceID: "ws_1"}},
-		{Route{Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}, tuipage.WorkspaceCommandMsg{Command: tuipage.WorkspaceContainerMembers, ResourceID: "wsc_1"}},
 		{Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}, tuipage.MCPCommandMsg{Command: tuipage.MCPServerConfigure, ResourceID: "github"}},
 		{Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}, tuipage.TunnelCommandMsg{Command: tuipage.TunnelAdminKeySet}},
 		{Route{Kind: RouteTunnels, ResourceID: "tun_1", Action: "configure"}, tuipage.TunnelCommandMsg{Command: tuipage.TunnelManagedConfigure, ResourceID: "tun_1"}},
@@ -54,6 +51,11 @@ func TestEditorRouteCompatibilityCmdPreservesLegacyFormEntryPoints(t *testing.T)
 		}
 		if got := cmd(); !reflect.DeepEqual(got, test.want) {
 			t.Fatalf("compatibility %#v=%#v want %#v", test.route, got, test.want)
+		}
+	}
+	for _, route := range []Route{{Kind: RouteWorkspaces, Action: "register"}, {Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}, {Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}} {
+		if cmd := editorRouteCompatibilityCmd(route); cmd != nil {
+			t.Fatalf("migrated workspace route unexpectedly produced compatibility command: %#v", route)
 		}
 	}
 	if cmd := editorRouteCompatibilityCmd(Route{Kind: RouteMCP, ResourceID: "github"}); cmd != nil {

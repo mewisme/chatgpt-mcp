@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -15,6 +16,8 @@ import (
 
 const requestRefreshInterval = time.Second
 const requestOperationTimeout = 5 * time.Second
+
+var requestTabLabels = []string{"Pending", "History", "All"}
 
 type RequestCommand string
 
@@ -93,14 +96,19 @@ func NewRequests(ctx context.Context, resourceID string) (*RequestsPage, error) 
 }
 
 func NewRequestsRoute(ctx context.Context, resourceID, section string) (*RequestsPage, error) {
+	mode := "pending"
+	if strings.TrimSpace(resourceID) != "" {
+		mode = "all"
+	}
+	return NewRequestsRouteMode(ctx, mode, resourceID, section)
+}
+
+func NewRequestsRouteMode(ctx context.Context, modeValue, resourceID, section string) (*RequestsPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	resourceID = strings.TrimSpace(resourceID)
-	mode := requestModePending
-	if resourceID != "" {
-		mode = requestModeAll
-	}
+	mode := parseRequestMode(modeValue, resourceID != "")
 	page := &RequestsPage{ctx: ctx, mode: mode, resourceID: resourceID, section: strings.TrimSpace(section)}
 	page.rebuildBrowser("")
 	return page, nil
@@ -220,7 +228,7 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, page.handleCommand(msg.Command, msg.ResourceID)
 	case component.BrowserOpenMsg:
 		if page.resourceID == "" && msg.Row.ID != "" {
-			return page, func() tea.Msg { return NavigateMsg{Path: []string{"requests", msg.Row.ID}} }
+			return page, requestNavigateCmd(page.mode, msg.Row.ID, "", false)
 		}
 		return page, nil
 	case tea.KeyPressMsg:
@@ -251,16 +259,11 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.detail = updated
 			return page, cmd
 		}
+		if delta, ok := component.TabDelta(msg); ok {
+			mode := requestMode(component.MoveTab(int(page.mode), len(requestTabLabels), delta))
+			return page, requestNavigateCmd(mode, "", "", true)
+		}
 		switch msg.String() {
-		case "1":
-			page.setMode(requestModePending)
-			return page, nil
-		case "2":
-			page.setMode(requestModeHistory)
-			return page, nil
-		case "3":
-			page.setMode(requestModeAll)
-			return page, nil
 		case "r":
 			return page, page.manualRefreshCmd()
 		}
@@ -295,11 +298,12 @@ func (page *RequestsPage) View(width, height int) string {
 		page.detail.Resize(width, height)
 		content = page.detail.View()
 	} else {
-		page.browser.SetTitleNotice(page.notice)
+		tabs := component.PageTabsNotice(requestTabLabels, int(page.mode), page.notice, width)
 		browserHeight := max(1, height-pageFeedbackHeight(feedback))
+		browserHeight = max(1, browserHeight-lipgloss.Height(tabs))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
-		content = prependPageFeedback(feedback, page.browser.Content())
+		content = tabs + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	}
 	if page.overlay == requestOverlayForm {
 		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 76)), width, height)
@@ -328,12 +332,26 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 		if page.resourceID != "" {
 			return page.detail.MouseTargets(originX, originY, z)
 		}
-		page.browser.SetTitleNotice(page.notice)
 		feedback := ""
 		if page.err != nil {
 			feedback = component.Banner(page.err.Error(), component.ToneDanger)
 		}
-		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
+		tabs, spans := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, page.width)
+		targets := make([]component.MouseTarget, 0, len(spans)+8)
+		for _, span := range spans {
+			mode := requestMode(span.Index)
+			targets = append(targets, component.MouseTarget{
+				ID: "requests.tab", Rect: component.Rect{X: originX + span.X, Y: originY, Width: span.Width, Height: 1}, Z: z + 1,
+				Handle: func(event component.MouseEvent) tea.Msg {
+					if event.Button != tea.MouseLeft {
+						return nil
+					}
+					return NavigateMsg{Path: requestRoutePath(mode, "", ""), Replace: true}
+				},
+			})
+		}
+		offsetY := lipgloss.Height(tabs) + pageFeedbackHeight(feedback)
+		return append(targets, page.browser.MouseTargets(originX, originY+offsetY, z)...)
 	}
 }
 
@@ -343,14 +361,11 @@ func (page *RequestsPage) handleCommand(command RequestCommand, resourceID strin
 	case RequestRefresh:
 		return page.manualRefreshCmd()
 	case RequestShowPending:
-		page.setMode(requestModePending)
-		return nil
+		return requestNavigateCmd(requestModePending, "", "", true)
 	case RequestShowHistory:
-		page.setMode(requestModeHistory)
-		return nil
+		return requestNavigateCmd(requestModeHistory, "", "", true)
 	case RequestShowAll:
-		page.setMode(requestModeAll)
-		return nil
+		return requestNavigateCmd(requestModeAll, "", "", true)
 	case RequestApprove, RequestDeny:
 		id := strings.TrimSpace(resourceID)
 		if id == "" {
@@ -469,8 +484,8 @@ func (page *RequestsPage) rebuildBrowser(selectedID string) {
 		selectedID = page.selectedID()
 	}
 	rows := page.requestRows()
-	browser := component.NewBrowser(page.ctx, "Approval requests · "+page.modeLabel(), rows, nil)
-	browser = browser.WithHelpBindings(component.Binding([]string{"1"}, "1", "pending"), component.Binding([]string{"2"}, "2", "history"), component.Binding([]string{"3"}, "3", "all"), component.Binding([]string{"r"}, "r", "refresh"))
+	browser := component.NewBrowser(page.ctx, "Approval requests", rows, nil).WithTitleVisible(false)
+	browser = browser.WithHelpBindings(component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"r"}, "r", "refresh"))
 	page.browser = browser
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
@@ -538,8 +553,8 @@ func (page *RequestsPage) syncDetail() {
 	bindings := make([]component.DetailPageBinding, 0, 5)
 	if page.section == "" {
 		bindings = append(bindings,
-			component.DetailPageBinding{Key: "v", Desc: "arguments", Message: NavigateMsg{Path: []string{"requests", request.ID, "arguments"}}},
-			component.DetailPageBinding{Key: "g", Desc: "guard", Message: NavigateMsg{Path: []string{"requests", request.ID, "guard"}}},
+			component.DetailPageBinding{Key: "v", Desc: "arguments", Message: NavigateMsg{Path: requestRoutePath(page.mode, request.ID, "arguments")}},
+			component.DetailPageBinding{Key: "g", Desc: "guard", Message: NavigateMsg{Path: requestRoutePath(page.mode, request.ID, "guard")}},
 		)
 	}
 	if request.Status == approval.StatusPending {
@@ -566,14 +581,47 @@ func (page *RequestsPage) modeIncludes(status approval.Status) bool {
 	}
 }
 
-func (page *RequestsPage) modeLabel() string {
-	switch page.mode {
-	case requestModeHistory:
-		return "History"
-	case requestModeAll:
-		return "All"
+func parseRequestMode(value string, detail bool) requestMode {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "history":
+		return requestModeHistory
+	case "all":
+		return requestModeAll
+	case "pending":
+		return requestModePending
 	default:
-		return "Pending"
+		if detail {
+			return requestModeAll
+		}
+		return requestModePending
+	}
+}
+
+func requestModePath(mode requestMode) string {
+	switch mode {
+	case requestModeHistory:
+		return "history"
+	case requestModeAll:
+		return "all"
+	default:
+		return "pending"
+	}
+}
+
+func requestRoutePath(mode requestMode, resourceID, section string) []string {
+	path := []string{"requests", requestModePath(mode)}
+	if resourceID != "" {
+		path = append(path, resourceID)
+	}
+	if section != "" {
+		path = append(path, section)
+	}
+	return path
+}
+
+func requestNavigateCmd(mode requestMode, resourceID, section string, replace bool) tea.Cmd {
+	return func() tea.Msg {
+		return NavigateMsg{Path: requestRoutePath(mode, resourceID, section), Replace: replace}
 	}
 }
 

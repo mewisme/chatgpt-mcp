@@ -25,7 +25,10 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"containers", "wsc_abc", "workspaces"}, Route{Kind: RouteContainers, ResourceID: "wsc_abc", Section: "workspaces"}},
 		{[]string{"mcp", "github", "health"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "health"}},
 		{[]string{"tunnels", "tunnel_abc", "scope"}, Route{Kind: RouteTunnels, ResourceID: "tunnel_abc", Section: "scope"}},
-		{[]string{"requests", "req_abc", "guard"}, Route{Kind: RouteRequests, ResourceID: "req_abc", Section: "guard"}},
+		{[]string{"requests", "req_abc", "guard"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_abc", Section: "guard"}},
+		{[]string{"requests", "pending"}, Route{Kind: RouteRequests, Mode: "pending"}},
+		{[]string{"requests", "history", "req_abc"}, Route{Kind: RouteRequests, Mode: "history", ResourceID: "req_abc"}},
+		{[]string{"requests", "all", "req_abc", "arguments"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_abc", Section: "arguments"}},
 		{[]string{"config", "runtime.port"}, Route{Kind: RouteConfig, ResourceID: "runtime.port"}},
 		{[]string{"runtime", "service.user"}, Route{Kind: RouteRuntime, ResourceID: "service.user"}},
 		{[]string{"cfg"}, Route{Kind: RouteConfig}},
@@ -38,7 +41,7 @@ func TestParseRoute(t *testing.T) {
 			t.Fatalf("ParseRoute(%v) = %#v, %v; want %#v", test.args, got, err, test.want)
 		}
 	}
-	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "extra"}, {"mcp", "a", "health", "extra"}} {
+	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}} {
 		if _, err := ParseRoute(args); err == nil {
 			t.Fatalf("ParseRoute(%v) unexpectedly succeeded", args)
 		}
@@ -82,6 +85,12 @@ func TestRouterBackReturnsToTabbedParents(t *testing.T) {
 	logsRouter.Navigate(Route{Kind: RouteLogs, ResourceID: "run:1"})
 	if !logsRouter.Back() || logsRouter.Current() != (Route{Kind: RouteLogs}) {
 		t.Fatalf("logs detail back=%#v stack=%#v", logsRouter.Current(), logsRouter.stack)
+	}
+
+	requestsRouter := NewRouter(Route{Kind: RouteRequests, Mode: "history"})
+	requestsRouter.Navigate(Route{Kind: RouteRequests, Mode: "history", ResourceID: "req_demo"})
+	if !requestsRouter.Back() || requestsRouter.Current() != (Route{Kind: RouteRequests, Mode: "history"}) {
+		t.Fatalf("requests detail back=%#v stack=%#v", requestsRouter.Current(), requestsRouter.stack)
 	}
 }
 

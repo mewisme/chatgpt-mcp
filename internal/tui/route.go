@@ -24,6 +24,7 @@ const (
 
 type Route struct {
 	Kind       RouteKind
+	Mode       string
 	ResourceID string
 	Section    string
 }
@@ -60,6 +61,9 @@ func ParseRoute(args []string) (Route, error) {
 	if !ok {
 		return Route{}, fmt.Errorf("unknown TUI path %q", strings.Join(parts, " "))
 	}
+	if kind == RouteRequests {
+		return parseRequestsRoute(parts)
+	}
 	if len(parts) > 3 {
 		return Route{}, fmt.Errorf("TUI path accepts at most one resource id and one child section: %s", strings.Join(parts, " "))
 	}
@@ -82,6 +86,54 @@ func ParseRoute(args []string) (Route, error) {
 		}
 	}
 	return Route{Kind: kind, ResourceID: resourceID, Section: section}, nil
+}
+
+func parseRequestsRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteRequests}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) > 4 {
+		return Route{}, fmt.Errorf("requests path accepts an optional mode, resource id, and child section: %s", strings.Join(parts, " "))
+	}
+	index := 1
+	if mode, ok := normalizeRequestRouteMode(parts[index]); ok {
+		route.Mode = mode
+		index++
+		if index == len(parts) {
+			return route, nil
+		}
+	}
+	route.ResourceID = parts[index]
+	index++
+	if route.Mode == "" {
+		route.Mode = "all"
+	}
+	if index < len(parts) {
+		section, ok := normalizeRouteSection(RouteRequests, parts[index])
+		if !ok {
+			return Route{}, fmt.Errorf("unsupported requests child section %q", parts[index])
+		}
+		route.Section = section
+		index++
+	}
+	if index != len(parts) {
+		return Route{}, fmt.Errorf("unsupported requests path %q", strings.Join(parts, " "))
+	}
+	return route, nil
+}
+
+func normalizeRequestRouteMode(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "pending":
+		return "pending", true
+	case "history":
+		return "history", true
+	case "all":
+		return "all", true
+	default:
+		return "", false
+	}
 }
 
 func parseRouteKind(value string) (RouteKind, bool) {
@@ -122,6 +174,8 @@ func (route Route) Title() string {
 	}[route.Kind]
 	if route.ResourceID != "" {
 		base += " · " + route.ResourceID
+	} else if route.Kind == RouteRequests && route.Mode != "" {
+		base += " · " + routeSectionTitle(route.Mode)
 	}
 	if route.Section != "" {
 		base += " · " + routeSectionTitle(route.Section)

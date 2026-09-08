@@ -61,7 +61,7 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 	if selected, ok := page.browser.Selected(); !ok || selected.ID != approved.ID {
 		t.Fatalf("history selected=%#v ok=%t", selected, ok)
 	}
-	if content := page.View(100, 28); !strings.Contains(content, "History") || strings.Contains(content, pending.Title) {
+	if content := page.View(100, 28); !strings.Contains(content, "Pending") || !strings.Contains(content, "History") || strings.Contains(content, pending.Title) {
 		t.Fatalf("history view=%q", content)
 	}
 
@@ -94,7 +94,7 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 		t.Fatal("arguments child navigation returned no command")
 	}
 	navigate, ok := cmd().(NavigateMsg)
-	if !ok || strings.Join(navigate.Path, "/") != "requests/"+pending.ID+"/arguments" {
+	if !ok || strings.Join(navigate.Path, "/") != "requests/all/"+pending.ID+"/arguments" {
 		t.Fatalf("arguments navigation=%#v", navigate)
 	}
 
@@ -128,8 +128,40 @@ func TestRequestMutationNoticeRendersBesidePageTitle(t *testing.T) {
 	}
 	page.notice = "Request approved"
 	line := strings.Split(ansi.Strip(page.View(100, 24)), "\n")[0]
-	if !strings.Contains(line, "Approval requests · Pending  · Request approved") {
+	if !strings.Contains(line, "Pending") || !strings.Contains(line, "History") || !strings.Contains(line, "All") || !strings.Contains(line, "Request approved") {
 		t.Fatalf("request title notice=%q", line)
+	}
+}
+
+func TestRequestsPageUsesTabsAndModeAwareNavigation(t *testing.T) {
+	now := time.Now().UTC()
+	request := approval.Request{ID: "req_history", Status: approval.StatusDenied, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Denied update", CreatedAt: now.Add(-time.Minute), ExpiresAt: now, ResolvedAt: now}
+	page, err := NewRequestsRouteMode(t.Context(), "history", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.requests = []approval.Request{request}
+	page.rebuildBrowser(request.ID)
+	plain := ansi.Strip(page.View(100, 24))
+	if !strings.Contains(plain, "Pending") || !strings.Contains(plain, "History") || !strings.Contains(plain, "All") || strings.Contains(plain, "1 pending") || strings.Contains(plain, "2 history") || strings.Contains(plain, "3 all") {
+		t.Fatalf("tab view=%q", plain)
+	}
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	page = updated.(*RequestsPage)
+	if cmd == nil {
+		t.Fatal("right tab navigation returned no command")
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "requests/all" || !navigate.Replace {
+		t.Fatalf("right navigation=%#v", navigate)
+	}
+	_, cmd = page.Update(component.BrowserOpenMsg{Row: component.Row{ID: request.ID}})
+	if cmd == nil {
+		t.Fatal("history detail navigation returned no command")
+	}
+	navigate, ok = cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "requests/history/"+request.ID || navigate.Replace {
+		t.Fatalf("detail navigation=%#v", navigate)
 	}
 }
 

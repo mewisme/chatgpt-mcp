@@ -59,7 +59,7 @@ func newConfigFieldForm(cfg config.Config, spec config.FieldSpec) (component.For
 		data.Raw = strings.ReplaceAll(raw, ",", "\n")
 		field = component.Text(spec.Key+" (one per line)", &data.Raw).Description(spec.Description).Validate(validate)
 	case config.FieldInt, config.FieldString:
-		field = component.Input(spec.Key, &data.Raw).Description(spec.Description).Validate(validate)
+		field = component.Input(spec.Key, &data.Raw).Placeholder(spec.Description).Validate(validate)
 	default:
 		return component.Form{}, nil, fmt.Errorf("unsupported config field type: %s", spec.Kind)
 	}

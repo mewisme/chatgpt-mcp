@@ -8,18 +8,19 @@ import (
 type RouteKind string
 
 const (
-	RouteHome       RouteKind = "home"
-	RouteWorkspaces RouteKind = "workspaces"
-	RouteContainers RouteKind = "containers"
-	RouteMCP        RouteKind = "mcp"
-	RouteTunnel     RouteKind = "tunnel"
-	RouteTunnels    RouteKind = "tunnels"
-	RouteRequests   RouteKind = "requests"
-	RouteLogs       RouteKind = "logs"
-	RouteLogsExec   RouteKind = "logs-exec"
-	RouteConfig     RouteKind = "config"
-	RouteRuntime    RouteKind = "runtime"
-	RouteAbout      RouteKind = "about"
+	RouteHome        RouteKind = "home"
+	RouteWorkspaces  RouteKind = "workspaces"
+	RouteContainers  RouteKind = "containers"
+	RouteMCP         RouteKind = "mcp"
+	RouteTunnel      RouteKind = "tunnel"
+	RouteTunnels     RouteKind = "tunnels"
+	RouteRequests    RouteKind = "requests"
+	RouteLogs        RouteKind = "logs"
+	RouteLogsExec    RouteKind = "logs-exec"
+	RouteConfig      RouteKind = "config"
+	RouteInstruction RouteKind = "instruction"
+	RouteRuntime     RouteKind = "runtime"
+	RouteAbout       RouteKind = "about"
 )
 
 type Route struct {
@@ -30,18 +31,20 @@ type Route struct {
 }
 
 type headerPage struct {
-	Kind  RouteKind
-	Label string
+	Kind         RouteKind
+	Label        string
+	CompactLabel string
 }
 
 var headerPages = []headerPage{
-	{Kind: RouteWorkspaces, Label: "Workspaces"},
+	{Kind: RouteWorkspaces, Label: "Workspaces", CompactLabel: "Work"},
 	{Kind: RouteMCP, Label: "MCP"},
-	{Kind: RouteTunnel, Label: "Tunnel"},
-	{Kind: RouteRequests, Label: "Requests"},
+	{Kind: RouteTunnel, Label: "Tunnel", CompactLabel: "Tun"},
+	{Kind: RouteRequests, Label: "Requests", CompactLabel: "Req"},
 	{Kind: RouteLogs, Label: "Logs"},
-	{Kind: RouteConfig, Label: "Config"},
-	{Kind: RouteRuntime, Label: "Runtime"},
+	{Kind: RouteConfig, Label: "Config", CompactLabel: "Cfg"},
+	{Kind: RouteInstruction, Label: "Instruction", CompactLabel: "Instr"},
+	{Kind: RouteRuntime, Label: "Runtime", CompactLabel: "Run"},
 }
 
 func ParseRoute(args []string) (Route, error) {
@@ -158,6 +161,8 @@ func parseRouteKind(value string) (RouteKind, bool) {
 		return RouteLogsExec, true
 	case "config", "cfg":
 		return RouteConfig, true
+	case "instruction", "instructions", "instr":
+		return RouteInstruction, true
 	case "runtime", "status":
 		return RouteRuntime, true
 	case "about", "version":
@@ -170,7 +175,7 @@ func parseRouteKind(value string) (RouteKind, bool) {
 func (route Route) Title() string {
 	base := map[RouteKind]string{
 		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
-		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteConfig: "Config", RouteRuntime: "Runtime", RouteAbout: "About",
+		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteConfig: "Config", RouteInstruction: "Instruction", RouteRuntime: "Runtime", RouteAbout: "About",
 	}[route.Kind]
 	if route.ResourceID != "" {
 		base += " · " + route.ResourceID

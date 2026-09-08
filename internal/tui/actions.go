@@ -26,6 +26,7 @@ func defaultActionRegistry() *action.Registry {
 		navigationAction("app.go.logs", "Logs", Route{Kind: RouteLogs}, []string{"logs", "events", "journal"}),
 		navigationAction("app.go.logs-exec", "Command Execution", Route{Kind: RouteLogsExec}, []string{"logs", "command", "execution", "exec", "output"}),
 		navigationAction("app.go.config", "Config", Route{Kind: RouteConfig}, []string{"config", "settings", "cfg"}, capability.ConfigPath, capability.ConfigGet),
+		navigationAction("app.go.instruction", "Instruction", Route{Kind: RouteInstruction}, []string{"instruction", "instructions", "global", "context", "rules", "sources"}),
 		navigationAction("app.go.runtime", "Runtime", Route{Kind: RouteRuntime}, []string{"runtime", "status", "service"}, capability.AuthStatus, capability.AliasStatus),
 		navigationAction("app.go.about", "About", Route{Kind: RouteAbout}, []string{"about", "version", "build", "uptime"}, capability.VersionAbout),
 	}

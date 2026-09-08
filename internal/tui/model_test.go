@@ -33,7 +33,7 @@ func TestModelFillsExactTerminalSizeWithoutMinimumLayout(t *testing.T) {
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	for _, route := range []Route{{Kind: RouteHome}, {Kind: RouteWorkspaces}, {Kind: RouteMCP}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteRuntime}, {Kind: RouteAbout}} {
+	for _, route := range []Route{{Kind: RouteHome}, {Kind: RouteWorkspaces}, {Kind: RouteMCP}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteInstruction}, {Kind: RouteRuntime}, {Kind: RouteAbout}} {
 		for _, size := range [][2]int{{120, 40}, {20, 8}, {3, 3}, {1, 1}} {
 			model := NewModel(route)
 			updated, _ := model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
@@ -126,9 +126,9 @@ func TestModelHeaderCellsFillUsableWidth(t *testing.T) {
 
 func TestModelHidesNavbarWhenTerminalIsTooNarrow(t *testing.T) {
 	model := NewModel(Route{Kind: RouteRequests})
-	updated, _ := model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 	model = updated.(Model)
-	if model.frameMetrics(60, 20).showNavbar {
+	if model.frameMetrics(40, 20).showNavbar {
 		t.Fatal("narrow terminal kept navbar visible")
 	}
 	_, targets := model.render()
@@ -137,10 +137,21 @@ func TestModelHidesNavbarWhenTerminalIsTooNarrow(t *testing.T) {
 			t.Fatalf("hidden navbar exposed mouse target %q", target.ID)
 		}
 	}
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	model = updated.(Model)
+	if !model.frameMetrics(60, 20).showNavbar {
+		t.Fatal("compact navbar did not restore at usable width")
+	}
+	header, _ := model.header(56, 2, 1)
+	plain := ansi.Strip(header)
+	if !strings.Contains(plain, "Instr") || strings.Contains(plain, "Instruction") {
+		t.Fatalf("compact header=%q", plain)
+	}
 	updated, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	model = updated.(Model)
-	if !model.frameMetrics(100, 20).showNavbar {
-		t.Fatal("wide terminal did not restore navbar")
+	header, _ = model.header(96, 2, 1)
+	if plain = ansi.Strip(header); !strings.Contains(plain, "Instruction") {
+		t.Fatalf("full header=%q", plain)
 	}
 }
 
@@ -509,7 +520,7 @@ func TestModelPendingApprovalOverlaysEveryRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := testPendingApproval("req_global")
-	for _, route := range []Route{{Kind: RouteHome}, {Kind: RouteWorkspaces}, {Kind: RouteContainers}, {Kind: RouteMCP}, {Kind: RouteTunnel}, {Kind: RouteTunnels}, {Kind: RouteRequests}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteRuntime}, {Kind: RouteAbout}} {
+	for _, route := range []Route{{Kind: RouteHome}, {Kind: RouteWorkspaces}, {Kind: RouteContainers}, {Kind: RouteMCP}, {Kind: RouteTunnel}, {Kind: RouteTunnels}, {Kind: RouteRequests}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteInstruction}, {Kind: RouteRuntime}, {Kind: RouteAbout}} {
 		t.Run(string(route.Kind), func(t *testing.T) {
 			model := NewModel(route)
 			updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -783,7 +794,7 @@ func TestModelToastRendersAsDialogAcrossRoutes(t *testing.T) {
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	for _, route := range []Route{{Kind: RouteWorkspaces}, {Kind: RouteContainers}, {Kind: RouteMCP}, {Kind: RouteTunnel}, {Kind: RouteTunnels}, {Kind: RouteRequests}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteRuntime}} {
+	for _, route := range []Route{{Kind: RouteWorkspaces}, {Kind: RouteContainers}, {Kind: RouteMCP}, {Kind: RouteTunnel}, {Kind: RouteTunnels}, {Kind: RouteRequests}, {Kind: RouteLogs}, {Kind: RouteConfig}, {Kind: RouteInstruction}, {Kind: RouteRuntime}} {
 		t.Run(string(route.Kind), func(t *testing.T) {
 			model := NewModel(route)
 			updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})

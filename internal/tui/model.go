@@ -845,6 +845,8 @@ func (model *Model) loadPage(route Route) {
 		value, err = tuipage.NewAbout(model.ctx)
 	case RouteConfig:
 		value, err = tuipage.NewConfigRoute(model.ctx, route.ResourceID)
+	case RouteInstruction:
+		value, err = tuipage.NewInstruction(model.ctx)
 	}
 	if err != nil {
 		model.notice = err.Error()
@@ -1112,6 +1114,7 @@ func (model Model) shortcutFooter() string {
 
 func (model Model) header(width, originX, originY int) (string, []component.MouseTarget) {
 	owner := headerOwner(model.router.Current().Kind)
+	compact := !headerFullLabelsFit(width)
 	parts := make([]string, 0, len(headerPages))
 	targets := make([]component.MouseTarget, 0, len(headerPages))
 	x := 0
@@ -1121,7 +1124,11 @@ func (model Model) header(width, originX, originY int) (string, []component.Mous
 		if index < width%len(headerPages) {
 			cellWidth++
 		}
-		label := ansi.Truncate(page.Label, max(1, cellWidth), "")
+		label := page.Label
+		if compact && page.CompactLabel != "" {
+			label = page.CompactLabel
+		}
+		label = ansi.Truncate(label, max(1, cellWidth), "")
 		button := style.Padding(0).Width(cellWidth).Align(lipgloss.Center).Render(label)
 		kind := page.Kind
 		targets = append(targets, component.MouseTarget{
@@ -1237,11 +1244,29 @@ func (model Model) showNavbar(contentWidth, height int) bool {
 	if height < navbarMinHeight || contentWidth <= 0 || len(headerPages) == 0 {
 		return false
 	}
+	minCellWidth := contentWidth / len(headerPages)
 	maxLabelWidth := 0
 	for _, page := range headerPages {
-		maxLabelWidth = max(maxLabelWidth, lipgloss.Width(page.Label))
+		label := page.CompactLabel
+		if label == "" {
+			label = page.Label
+		}
+		maxLabelWidth = max(maxLabelWidth, lipgloss.Width(label))
 	}
-	return contentWidth/len(headerPages) >= maxLabelWidth
+	return minCellWidth >= maxLabelWidth
+}
+
+func headerFullLabelsFit(width int) bool {
+	if width <= 0 || len(headerPages) == 0 {
+		return false
+	}
+	minCellWidth := width / len(headerPages)
+	for _, page := range headerPages {
+		if lipgloss.Width(page.Label) > minCellWidth {
+			return false
+		}
+	}
+	return true
 }
 
 func frameLine(content string, width int, border lipgloss.Style) string {
@@ -1327,6 +1352,8 @@ func routeDescription(route Route) string {
 		return "Inspect live command execution output."
 	case RouteConfig:
 		return "Browse and manage validated runtime configuration."
+	case RouteInstruction:
+		return "Manage global context, rules, and detected instruction sources."
 	case RouteRuntime:
 		return "Inspect and control the local managed runtime."
 	case RouteAbout:

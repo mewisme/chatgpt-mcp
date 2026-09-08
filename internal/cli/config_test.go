@@ -262,6 +262,13 @@ func TestConfigCommandAliases(t *testing.T) {
 			t.Fatal("config reload command is still registered")
 		}
 	}
+	root := newRootCommand()
+	root.SetArgs([]string{"config", "reload"})
+	root.SilenceUsage = true
+	root.SilenceErrors = true
+	if err := root.Execute(); err == nil {
+		t.Fatal("config reload positional fallback unexpectedly succeeded")
+	}
 }
 
 func TestConfigExplainLeafBranchAndJSON(t *testing.T) {

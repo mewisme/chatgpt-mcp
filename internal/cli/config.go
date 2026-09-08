@@ -17,7 +17,7 @@ import (
 const defaultConfigBundleFile = "chatgpt-mcp-config.cgm"
 
 func configCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "config", Aliases: []string{"cfg"}, Short: "Read and update validated runtime configuration"}
+	cmd := &cobra.Command{Use: "config", Aliases: []string{"cfg"}, Short: "Read and update validated runtime configuration", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	cmd.AddCommand(
 		&cobra.Command{Use: "path", Short: "Show the active configuration path, format, and root", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 			source, err := config.Source()

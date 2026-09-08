@@ -34,8 +34,9 @@ type NavigationGuardModel interface {
 }
 
 type NavigateMsg struct {
-	Path    []string
-	Replace bool
+	Path         []string
+	Replace      bool
+	PreservePage bool
 }
 
 type ToastMsg struct {

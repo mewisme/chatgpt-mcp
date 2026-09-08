@@ -38,7 +38,6 @@ type logsOverlay uint8
 
 const (
 	logsOverlayNone logsOverlay = iota
-	logsOverlayForm
 	logsOverlayConfirm
 	logsOverlayInfo
 	logsOverlayOperation
@@ -77,6 +76,7 @@ type LogsPage struct {
 	ctx          context.Context
 	resourceID   string
 	section      string
+	action       string
 	tab          logsTab
 	exec         logsExecutionFeed
 	cancel       context.CancelFunc
@@ -99,7 +99,7 @@ type LogsPage struct {
 	generation   uint64
 	clearSeq     uint64
 	overlay      logsOverlay
-	form         component.Form
+	editor       *component.Editor
 	filterForm   *logsFilterFormData
 	confirm      component.ConfirmButtons
 	info         application.LogsInfo
@@ -112,17 +112,24 @@ type LogsPage struct {
 }
 
 func NewLogs(ctx context.Context) (*LogsPage, error) {
-	return NewLogsRoute(ctx, "", "")
+	return NewLogsRouteAction(ctx, "", "", "")
 }
 
 func NewLogsRoute(ctx context.Context, resourceID, section string) (*LogsPage, error) {
+	return NewLogsRouteAction(ctx, resourceID, section, "")
+}
+
+func NewLogsRouteAction(ctx context.Context, resourceID, section, action string) (*LogsPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	pageCtx, cancel := context.WithCancel(ctx)
-	page := &LogsPage{ctx: pageCtx, cancel: cancel, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose, exec: newLogsExecutionFeed()}
+	page := &LogsPage{ctx: pageCtx, cancel: cancel, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose, exec: newLogsExecutionFeed()}
 	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false)
 	page.syncBrowserHelp()
+	if page.action == "filter" {
+		page.initFilterEditor()
+	}
 	return page, nil
 }
 
@@ -160,7 +167,11 @@ func (page *LogsPage) OverlayActive() bool {
 	return page != nil && page.overlay != logsOverlayNone
 }
 func (page *LogsPage) InputActive() bool {
-	return page != nil && (page.overlay == logsOverlayForm || page.tab == logsTabRuntime && page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.editor != nil || page.tab == logsTabRuntime && page.resourceID == "" && page.browser.InputActive())
+}
+func (page *LogsPage) Dirty() bool { return page != nil && page.editor != nil && page.editor.Dirty() }
+func (page *LogsPage) Submitting() bool {
+	return page != nil && page.editor != nil && page.editor.Submitting()
 }
 
 func (page *LogsPage) Notice() string {
@@ -229,18 +240,10 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, browserCmd
 		}
 		return page, tea.Batch(browserCmd, page.startBootstrap())
-	case component.FormSubmittedMsg:
-		return page, page.submitFilter()
-	case component.FormCancelledMsg:
-		page.closeOverlay()
-		return page, nil
-	case component.FormMouseMsg:
-		if page.overlay == logsOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
-			return page, cmd
-		}
-		return page, nil
+	case component.EditorSubmitMsg:
+		return page, page.submitFilterEditor()
+	case component.EditorCancelMsg:
+		return page, page.closeFilterEditor()
 	case component.ConfirmChoiceMsg:
 		if page.overlay == logsOverlayConfirm {
 			page.confirm.Select(msg.Affirmative)
@@ -256,6 +259,10 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, nil
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
+		if page.editor != nil {
+			page.resizeFilterEditor()
+			return page, nil
+		}
 		var browserCmd tea.Cmd
 		switch {
 		case page.resourceID != "":
@@ -266,11 +273,6 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		default:
 			browserCmd = page.resizeBrowser()
 		}
-		if page.overlay == logsOverlayForm {
-			updated, formCmd := page.form.Update(msg)
-			page.form = updated
-			return page, tea.Batch(browserCmd, formCmd)
-		}
 		return page, browserCmd
 	case tea.KeyPressMsg:
 		if page.overlay == logsOverlayOperation {
@@ -279,9 +281,9 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return page, nil
 		}
-		if page.overlay == logsOverlayForm {
-			updated, cmd := page.form.Update(msg)
-			page.form = updated
+		if page.editor != nil {
+			updated, cmd := page.editor.Update(msg)
+			page.editor = &updated
 			return page, cmd
 		}
 		if page.overlay == logsOverlayConfirm {
@@ -313,9 +315,9 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, cmd
 		}
 	}
-	if page.overlay == logsOverlayForm {
-		updated, cmd := page.form.Update(message)
-		page.form = updated
+	if page.editor != nil {
+		updated, cmd := page.editor.Update(message)
+		page.editor = &updated
 		return page, cmd
 	}
 	if page.tab == logsTabCommandExec {
@@ -341,7 +343,9 @@ func (page *LogsPage) View(width, height int) string {
 	}
 	page.width, page.height = width, height
 	var content string
-	if page.resourceID != "" {
+	if page.editor != nil {
+		content = page.filterEditorView(width, height)
+	} else if page.resourceID != "" {
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
 		content = page.detail.View()
@@ -369,8 +373,6 @@ func (page *LogsPage) View(width, height int) string {
 		content = tabs + "\n" + section
 	}
 	switch page.overlay {
-	case logsOverlayForm:
-		content = component.CenterOverlay(content, component.Modal(page.form.View(), overlayWidth(width, 86)), width, height)
 	case logsOverlayConfirm:
 		modalWidth := overlayWidth(width, 68)
 		body := confirmOverlayBody(page.confirm, "Clear runtime logs?", "Current and rotated runtime logs will be removed. This cannot be undone.", modalWidth)
@@ -394,8 +396,6 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 		return nil
 	}
 	switch page.overlay {
-	case logsOverlayForm:
-		return formOverlayMouseTargets(page.form, overlayWidth(page.width, 86), page.width, page.height, originX, originY, z+20)
 	case logsOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, "Clear runtime logs?", "Current and rotated runtime logs will be removed. This cannot be undone.", overlayWidth(page.width, 68), page.width, page.height, originX, originY, z+20)
 	case logsOverlayInfo:
@@ -403,6 +403,9 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 78), page.width, page.height, originX, originY, z+20)
 	case logsOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
+	}
+	if page.editor != nil {
+		return page.filterEditorMouseTargets(originX, originY, z)
 	}
 	if page.resourceID != "" {
 		return page.detail.MouseTargets(originX, originY, z)
@@ -465,9 +468,11 @@ func (page *LogsPage) openCommand(command LogsCommand) tea.Cmd {
 	case LogsRefresh:
 		return page.startBootstrap()
 	case LogsFilter:
-		page.form, page.filterForm = newLogsFilterForm(page.options, page.visibility)
-		page.overlay = logsOverlayForm
-		return page.form.Init()
+		page.action = "filter"
+		page.initFilterEditor()
+		return tea.Batch(page.editor.Init(), func() tea.Msg {
+			return NavigateMsg{Path: []string{"logs", "filter"}, Replace: true, PreservePage: true}
+		})
 	case LogsToggle:
 		return page.togglePause()
 	case LogsInfo:
@@ -488,18 +493,21 @@ func (page *LogsPage) openCommand(command LogsCommand) tea.Cmd {
 	}
 }
 
-func (page *LogsPage) submitFilter() tea.Cmd {
+func (page *LogsPage) submitFilterEditor() tea.Cmd {
+	if page == nil || page.editor == nil || page.filterForm == nil {
+		return nil
+	}
 	options, visibility, err := page.filterForm.Options()
 	if err != nil {
-		page.err = err
+		page.editor.SetFeedback("", err)
 		return nil
 	}
 	page.options, page.visibility = options, visibility
-	page.filterForm = nil
-	page.overlay = logsOverlayNone
+	page.editor, page.filterForm, page.action = nil, nil, ""
+	page.err = nil
 	page.events = nil
 	page.paused = false
-	return page.startBootstrap()
+	return tea.Batch(page.startBootstrap(), func() tea.Msg { return NavigateMsg{Path: []string{"logs"}, Replace: true, PreservePage: true} })
 }
 
 func (page *LogsPage) updateClearConfirm(msg tea.KeyPressMsg) tea.Cmd {
@@ -900,8 +908,6 @@ func (page *LogsPage) stopStreamOnly() {
 }
 func (page *LogsPage) closeOverlay() {
 	page.overlay = logsOverlayNone
-	page.form = component.Form{}
-	page.filterForm = nil
 	page.confirm = component.ConfirmButtons{}
 	page.progress = nil
 }

@@ -282,8 +282,10 @@ func TestLogsPageLiveVisibilityNormalVerboseAndDebug(t *testing.T) {
 }
 
 func TestLogsFilterFormUsesSharedQueryValidation(t *testing.T) {
-	form, data := newLogsFilterForm(application.LogsQueryOptions{Tail: 100}, logger.VisibilityVerbose)
-	_ = form
+	editor, data := newLogsFilterEditor(application.LogsQueryOptions{Tail: 100}, logger.VisibilityVerbose)
+	if editor.ActiveSectionID() != "range" {
+		t.Fatalf("active section=%q", editor.ActiveSectionID())
+	}
 	if data.Visibility != "verbose" {
 		t.Fatalf("form visibility=%q", data.Visibility)
 	}
@@ -534,15 +536,15 @@ func TestLogsPageUpdateCoversBrowserActionsAndOverlays(t *testing.T) {
 		t.Fatalf("size=%dx%d", page.width, page.height)
 	}
 
-	updated, _ = page.Update(LogsCommandMsg{Command: LogsFilter})
+	updated, filterCmd := page.Update(LogsCommandMsg{Command: LogsFilter})
 	page = updated.(*LogsPage)
-	if page.overlay != logsOverlayForm || !page.OverlayActive() || !page.InputActive() {
-		t.Fatalf("filter overlay=%d active=%t input=%t", page.overlay, page.OverlayActive(), page.InputActive())
+	if filterCmd == nil || page.editor == nil || page.OverlayActive() || !page.InputActive() {
+		t.Fatalf("filter editor=%v active=%t input=%t", page.editor != nil, page.OverlayActive(), page.InputActive())
 	}
-	updated, _ = page.Update(component.FormCancelledMsg{})
+	updated, cancelCmd := page.Update(component.EditorCancelMsg{})
 	page = updated.(*LogsPage)
-	if page.overlay != logsOverlayNone || page.OverlayActive() || page.InputActive() {
-		t.Fatalf("cancel overlay=%d active=%t input=%t", page.overlay, page.OverlayActive(), page.InputActive())
+	if cancelCmd == nil || page.editor != nil || page.OverlayActive() || page.InputActive() {
+		t.Fatalf("cancel editor=%v active=%t input=%t", page.editor != nil, page.OverlayActive(), page.InputActive())
 	}
 
 	updated, _ = page.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
@@ -583,25 +585,47 @@ func TestLogsPageUpdateSubmitsAndRejectsFilters(t *testing.T) {
 	setupLogsPageRoot(t)
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
-	page.form, page.filterForm = newLogsFilterForm(page.options, page.visibility)
-	page.overlay = logsOverlayForm
+	page.initFilterEditor()
 	page.filterForm.Tail = "25"
 	page.filterForm.Visibility = "debug"
 	page.filterForm.Level = "warn"
 	page.filterForm.Event = "tool.*"
-	updated, bootstrap := page.Update(component.FormSubmittedMsg{})
+	updated, bootstrap := page.Update(component.EditorSubmitMsg{})
 	page = updated.(*LogsPage)
-	if bootstrap == nil || page.overlay != logsOverlayNone || page.options.Tail != 25 || page.options.Level != "warn" || page.options.Event != "tool.*" || page.visibility != logger.VisibilityDebug {
-		t.Fatalf("options=%#v visibility=%d overlay=%d cmd=%v", page.options, page.visibility, page.overlay, bootstrap)
+	if bootstrap == nil || page.editor != nil || page.options.Tail != 25 || page.options.Level != "warn" || page.options.Event != "tool.*" || page.visibility != logger.VisibilityDebug {
+		t.Fatalf("options=%#v visibility=%d editor=%v cmd=%v", page.options, page.visibility, page.editor != nil, bootstrap)
 	}
 
-	page.form, page.filterForm = newLogsFilterForm(page.options, page.visibility)
-	page.overlay = logsOverlayForm
-	page.filterForm.Tail = "-1"
-	updated, bootstrap = page.Update(component.FormSubmittedMsg{})
+	page.initFilterEditor()
+	page.filterForm.All, page.filterForm.Session = true, "run_stale"
+	updated, bootstrap = page.Update(component.EditorSubmitMsg{})
 	page = updated.(*LogsPage)
-	if bootstrap != nil || page.err == nil || page.overlay != logsOverlayForm {
-		t.Fatalf("invalid filter err=%v overlay=%d cmd=%v", page.err, page.overlay, bootstrap)
+	plain := ansi.Strip(page.View(44, 18))
+	if bootstrap != nil || page.editor == nil || page.filterForm.Session != "run_stale" || page.err != nil || !strings.Contains(plain, "all sessions and session filter") {
+		t.Fatalf("invalid filter editor=%v pageErr=%v cmd=%v view=%q", page.editor != nil, page.err, bootstrap, plain)
+	}
+}
+
+func TestLogsFilterDeepLinkUsesNativeWrappedEditor(t *testing.T) {
+	page, err := NewLogsRouteAction(t.Context(), "", "", "filter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer page.Close()
+	if page.editor == nil || page.OverlayActive() || !page.InputActive() {
+		t.Fatalf("editor=%v overlay=%t input=%t", page.editor != nil, page.OverlayActive(), page.InputActive())
+	}
+	view := page.View(28, 18)
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > 28 {
+			t.Fatalf("line width=%d want <=28: %q", got, ansi.Strip(line))
+		}
+	}
+	plain := ansi.Strip(view)
+	for _, want := range []string{"Log Filters", "Range", "Filters", "ctrl+s apply"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("filter editor missing %q: %q", want, plain)
+		}
 	}
 }
 

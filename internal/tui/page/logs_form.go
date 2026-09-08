@@ -29,7 +29,7 @@ type logsFilterFormData struct {
 	Grep       string
 }
 
-func newLogsFilterForm(options application.LogsQueryOptions, visibility logger.Visibility) (component.Form, *logsFilterFormData) {
+func newLogsFilterEditor(options application.LogsQueryOptions, visibility logger.Visibility) (component.Editor, *logsFilterFormData) {
 	level := options.Level
 	if strings.TrimSpace(level) == "" {
 		level = "all"
@@ -38,35 +38,37 @@ func newLogsFilterForm(options application.LogsQueryOptions, visibility logger.V
 		Tail: strconv.Itoa(options.Tail), All: options.All, Session: options.Session, Since: options.Since, Until: options.Until, Visibility: logsVisibilityValue(visibility), Level: level,
 		Components: options.Components, Workspace: options.Workspace, Tool: options.Tool, Status: options.Status, Source: options.Source, Event: options.Event, Grep: options.Grep,
 	}
-	form := component.NewForm(
-		component.Group(
-			component.Input("Tail", &data.Tail).Validate(func(value string) error {
-				n, err := strconv.Atoi(strings.TrimSpace(value))
-				if err != nil || n < 0 {
-					return fmt.Errorf("tail must be zero or greater")
-				}
-				return nil
-			}),
-			component.BoolSelect("All sessions", &data.All, "Yes", "No"),
-			component.Input("Session", &data.Session),
-			component.Input("Since (30m or RFC3339)", &data.Since),
-			component.Input("Until (RFC3339)", &data.Until),
-		).Title("Range"),
-		component.Group(
-			component.Select("Visibility", &data.Visibility,
-				huh.NewOption("Normal", "normal"), huh.NewOption("Verbose", "verbose"), huh.NewOption("Debug", "debug")),
-			component.Select("Minimum level", &data.Level,
-				huh.NewOption("All", "all"), huh.NewOption("Debug", "debug"), huh.NewOption("Info", "info"), huh.NewOption("Warn", "warn"), huh.NewOption("Error", "error")),
-			component.Input("Components (comma-separated, e.g. SERVER,TOOL)", &data.Components),
-			component.Input("Workspace (ID or registered path)", &data.Workspace),
-			component.Input("Tool", &data.Tool),
-			component.Input("Status", &data.Status),
-			component.Input("Source", &data.Source),
-			component.Input("Event glob", &data.Event),
-			component.Input("Grep", &data.Grep),
-		).Title("Filters"),
+	rangeForm := component.NewEditorForm(component.Group(
+		component.Input("Tail", &data.Tail).Validate(func(value string) error {
+			n, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil || n < 0 {
+				return fmt.Errorf("tail must be zero or greater")
+			}
+			return nil
+		}),
+		component.BoolSelect("All sessions", &data.All, "Yes", "No"),
+		component.Input("Session", &data.Session),
+		component.Input("Since (30m or RFC3339)", &data.Since),
+		component.Input("Until (RFC3339)", &data.Until),
+	))
+	filtersForm := component.NewEditorForm(component.Group(
+		component.Select("Visibility", &data.Visibility,
+			huh.NewOption("Normal", "normal"), huh.NewOption("Verbose", "verbose"), huh.NewOption("Debug", "debug")),
+		component.Select("Minimum level", &data.Level,
+			huh.NewOption("All", "all"), huh.NewOption("Debug", "debug"), huh.NewOption("Info", "info"), huh.NewOption("Warn", "warn"), huh.NewOption("Error", "error")),
+		component.Input("Components (comma-separated, e.g. SERVER,TOOL)", &data.Components),
+		component.Input("Workspace (ID or registered path)", &data.Workspace),
+		component.Input("Tool", &data.Tool),
+		component.Input("Status", &data.Status),
+		component.Input("Source", &data.Source),
+		component.Input("Event glob", &data.Event),
+		component.Input("Grep", &data.Grep),
+	))
+	editor := component.NewEditor("apply",
+		component.EditorSection{ID: "range", Title: "Range", Description: "Choose how much history to load and which runtime session or time range to inspect.", Form: rangeForm},
+		component.EditorSection{ID: "filters", Title: "Filters", Description: "Narrow events by visibility, level, component, workspace, tool, status, source, event name, or text.", Form: filtersForm},
 	)
-	return form, data
+	return editor, data
 }
 
 func (data *logsFilterFormData) Options() (application.LogsQueryOptions, logger.Visibility, error) {

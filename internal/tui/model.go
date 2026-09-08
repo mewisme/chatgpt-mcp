@@ -261,6 +261,14 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			return model, model.showToast("Navigation", err.Error(), component.ToneDanger)
 		}
+		if msg.PreservePage {
+			if msg.Replace {
+				model.router.Switch(route)
+			} else {
+				model.router.Navigate(route)
+			}
+			return model, nil
+		}
 		return model.requestNavigation(navigationIntent{route: route, sibling: msg.Replace})
 	case tuipage.WorkspaceCommandMsg:
 		if err := model.ensureWorkspacePage(msg.Command, msg.ResourceID); err != nil {
@@ -1007,7 +1015,7 @@ func (model *Model) loadPage(route Route) {
 	case RouteRequests:
 		value, err = tuipage.NewRequestsRouteMode(model.ctx, route.Mode, route.ResourceID, route.Section)
 	case RouteLogs:
-		value, err = tuipage.NewLogsRoute(model.ctx, route.ResourceID, route.Section)
+		value, err = tuipage.NewLogsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteLogsExec:
 		value, err = tuipage.NewCommandExecutionLogs(model.ctx)
 	case RouteRuntime:
@@ -1081,9 +1089,6 @@ func editorRouteCompatibilityCmd(route Route) tea.Cmd {
 	case RouteConfig:
 	case RouteRuntime:
 	case RouteLogs:
-		if route.Action == "filter" {
-			message = tuipage.LogsCommandMsg{Command: tuipage.LogsFilter}
-		}
 	case RouteRequests:
 		switch route.Action {
 		case "create-test":

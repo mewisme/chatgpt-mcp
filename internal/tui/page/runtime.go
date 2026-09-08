@@ -29,7 +29,6 @@ const (
 	RuntimeDownSystem    SystemCommand = "runtime.down.system"
 	RuntimeRestartUser   SystemCommand = "runtime.restart.user"
 	RuntimeRestartSystem SystemCommand = "runtime.restart.system"
-	RuntimeReload        SystemCommand = "runtime.reload"
 	RuntimeForeground    SystemCommand = "runtime.foreground"
 	MCPHTTPEnable        SystemCommand = "transport.mcp-http.enable"
 	MCPHTTPDisable       SystemCommand = "transport.mcp-http.disable"
@@ -436,7 +435,7 @@ func (page *RuntimePage) openCommand(command SystemCommand) (tea.Cmd, error) {
 		page.confirm = component.NewConfirmButtons(page.confirmActionLabel(), "Cancel", false)
 		page.overlay = systemOverlayConfirm
 		return nil, nil
-	case RuntimeUpUser, RuntimeUpSystem, RuntimeReload, MCPHTTPEnable, MCPHTTPDisable, AuthMCPEnable, AuthMCPDisable, AuthAdminEnable, AuthAdminDisable, AliasInstall, UpdateCheck:
+	case RuntimeUpUser, RuntimeUpSystem, MCPHTTPEnable, MCPHTTPDisable, AuthMCPEnable, AuthMCPDisable, AuthAdminEnable, AuthAdminDisable, AliasInstall, UpdateCheck:
 		return page.startOperation(command), nil
 	default:
 		return nil, fmt.Errorf("unsupported system action: %s", command)
@@ -498,37 +497,33 @@ func (page *RuntimePage) startOperation(command SystemCommand) tea.Cmd {
 		case RuntimeRestartSystem:
 			result, err := application.ManagedRuntimeAction(ctx, "restart", managed.ScopeSystem)
 			msg.err, msg.external = err, result.External
-		case RuntimeReload:
-			_, msg.err = application.ReloadConfig(ctx)
 		case MCPHTTPEnable, MCPHTTPDisable:
 			enabled := command == MCPHTTPEnable
-			_, msg.err = application.SetConfigField("server.enabled", fmt.Sprint(enabled))
-			if msg.err == nil && page.runtime.Running {
-				_, msg.err = application.ReloadConfig(ctx)
-			}
+			result, err := application.SetConfigField(ctx, "server.enabled", fmt.Sprint(enabled))
+			msg.err = err
 			if msg.err == nil {
 				state := "disabled"
 				if enabled {
 					state = "enabled"
 				}
-				if page.runtime.Running {
+				if result.RuntimeReloaded {
 					msg.notice = "MCP HTTP server " + state + " · runtime reloaded"
 				} else {
 					msg.notice = "MCP HTTP server " + state + " · applies on next runtime start"
 				}
 			}
 		case AuthMCPEnable:
-			_, msg.err = application.SetAuthEnabled("mcp", true)
+			_, msg.err = application.SetAuthEnabled(ctx, "mcp", true)
 		case AuthMCPDisable:
-			_, msg.err = application.SetAuthEnabled("mcp", false)
+			_, msg.err = application.SetAuthEnabled(ctx, "mcp", false)
 		case AuthAdminEnable:
-			_, msg.err = application.SetAuthEnabled("admin", true)
+			_, msg.err = application.SetAuthEnabled(ctx, "admin", true)
 		case AuthAdminDisable:
-			_, msg.err = application.SetAuthEnabled("admin", false)
+			_, msg.err = application.SetAuthEnabled(ctx, "admin", false)
 		case AuthMCPRotate:
-			msg.token, _, msg.err = application.RotateAuthToken("mcp")
+			msg.token, _, msg.err = application.RotateAuthToken(ctx, "mcp")
 		case AuthAdminRotate:
-			msg.token, _, msg.err = application.RotateAuthToken("admin")
+			msg.token, _, msg.err = application.RotateAuthToken(ctx, "admin")
 		case AliasInstall:
 			_, msg.err = application.SetAliasInstalled(true)
 		case AliasRemove:
@@ -752,9 +747,6 @@ func (page *RuntimePage) runtimeDetailBindings(row component.Row) []component.De
 		add("x", "restart", runtimeCommand("restart", scope))
 		add("d", "down", runtimeCommand("down", scope))
 		if row.ID == "runtime" {
-			if page.runtime.Running {
-				add("l", "reload", RuntimeReload)
-			}
 			add("f", "foreground", RuntimeForeground)
 		}
 	case "transport.mcp-http":
@@ -1041,8 +1033,6 @@ func operationNotice(msg systemOperationMsg) string {
 		return fmt.Sprintf("Update check: %s · latest %s", msg.update.Status, msg.update.Latest)
 	}
 	switch msg.command {
-	case RuntimeReload:
-		return "Runtime configuration reloaded"
 	case AliasInstall:
 		return "cgm alias installed"
 	case AliasRemove:
@@ -1072,8 +1062,6 @@ func systemOperationTitle(command SystemCommand) string {
 		return "Installing managed binary"
 	case InstallCleanup:
 		return "Cleaning legacy installations"
-	case RuntimeReload:
-		return "Reloading runtime configuration"
 	case MCPHTTPEnable, MCPHTTPDisable:
 		return "Updating MCP HTTP server"
 	case AuthMCPRotate, AuthAdminRotate:

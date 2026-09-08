@@ -144,7 +144,7 @@ func tunnelAdminKeyVerifyCommand() *cobra.Command {
 func tunnelAdminKeyRemoveCommand() *cobra.Command {
 	return &cobra.Command{Use: "remove", Aliases: []string{"rm"}, Short: "Remove the stored tunnel admin key and verification scope", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		logCommandStep(cmd, "TUNNEL", "tunnel.admin.key.removing", "Removing stored tunnel admin key")
-		if err := application.RemoveTunnelAdminKey(); err != nil {
+		if err := application.RemoveTunnelAdminKey(cmd.Context()); err != nil {
 			return err
 		}
 		commandLogger(cmd).Success("TUNNEL", "Admin key removed")

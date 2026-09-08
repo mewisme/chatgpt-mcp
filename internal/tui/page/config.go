@@ -23,7 +23,6 @@ const (
 	ConfigRefresh ConfigCommand = "config.refresh"
 	ConfigEdit    ConfigCommand = "config.edit"
 	ConfigVerify  ConfigCommand = "config.verify"
-	ConfigReload  ConfigCommand = "config.reload"
 	ConfigMigrate ConfigCommand = "config.migrate"
 	ConfigConvert ConfigCommand = "config.convert"
 	ConfigExport  ConfigCommand = "config.export"
@@ -53,7 +52,6 @@ type configOperationMsg struct {
 	command     ConfigCommand
 	mutation    application.ConfigMutationResult
 	verify      config.VerifyResult
-	reload      application.ConfigReloadResult
 	format      configformat.Format
 	converted   int
 	files       int
@@ -102,7 +100,7 @@ var configDomains = []configDomain{
 	{ID: "shell", Title: "Shell & Execution", Description: "Approval, sandbox, environment, and network policy"},
 	{ID: "features", Title: "Features", Description: "Ponytail and Caveman behavior"},
 	{ID: "tunnel", Title: "Tunnel", Description: "OpenAI Secure MCP Tunnel configuration"},
-	{ID: "storage", Title: "Storage & Maintenance", Description: "Storage, verification, reload, import, export, and migration"},
+	{ID: "storage", Title: "Storage & Maintenance", Description: "Storage, verification, import, export, and migration"},
 }
 
 func NewConfig(ctx context.Context) (*ConfigPage, error) {
@@ -452,14 +450,6 @@ func (page *ConfigPage) openCommand(command ConfigCommand, resourceID string) (t
 			result, err := application.VerifyConfig()
 			return configOperationMsg{command: command, verify: result, err: err}
 		}), nil
-	case ConfigReload:
-		if !page.overview.RuntimeRunning {
-			return nil, fmt.Errorf("runtime is not running; the next start will load persisted configuration")
-		}
-		return page.startOperation(command, "Reloading runtime configuration", func(ctx context.Context) configOperationMsg {
-			result, err := application.ReloadConfig(ctx)
-			return configOperationMsg{command: command, reload: result, err: err}
-		}), nil
 	case ConfigMigrate:
 		return page.startOperation(command, "Migrating stored credentials", func(context.Context) configOperationMsg {
 			err := application.MigrateLegacySecrets()
@@ -518,18 +508,17 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 		page.overview.Config = msg.mutation.Config
 		if fingerprint, err := config.RuntimeFingerprint(msg.mutation.Config); err == nil {
 			page.overview.RuntimeSync.PersistedFingerprint = fingerprint
-			if page.overview.RuntimeRunning {
-				page.overview.RuntimeSync.State = application.ConfigRuntimePending
+			if msg.mutation.RuntimeReloaded {
+				page.overview.RuntimeRunning = true
+				page.overview.RuntimeSync.State = application.ConfigRuntimeCurrent
+				page.overview.RuntimeSync.RuntimeFingerprint = fingerprint
 			} else {
 				page.overview.RuntimeSync.State = application.ConfigRuntimeStopped
 			}
 		}
-		page.notice = application.ConfigOperationNotice(page.overview.RuntimeRunning)
+		page.notice = application.ConfigOperationNotice(msg.mutation.RuntimeReloaded)
 	case ConfigVerify:
 		page.notice = fmt.Sprintf("Configuration verified · %s · %d structured files", msg.verify.Format, msg.verify.Files)
-	case ConfigReload:
-		page.overview.RuntimeRunning = true
-		page.notice = fmt.Sprintf("Runtime configuration reloaded · pid %d · network restarted %t", msg.reload.PID, msg.reload.NetworkRestarted)
 	case ConfigMigrate:
 		page.notice = "Legacy credentials migrated to the secret store"
 	case ConfigConvert:
@@ -669,13 +658,8 @@ func (page *ConfigPage) configRows() []component.Row {
 }
 
 func (page *ConfigPage) storageRows() []component.Row {
-	runtimeMeta := "runtime stopped"
-	if page.overview.RuntimeRunning {
-		runtimeMeta = "runtime running"
-	}
 	return []component.Row{
 		{ID: "verify", Title: "Verify configuration", Description: "Validate stored configuration and structured files", Meta: string(page.overview.Source.Format)},
-		{ID: "reload", Title: "Reload runtime", Description: "Apply persisted configuration to running runtime", Meta: runtimeMeta},
 		{ID: "migrate", Title: "Migrate legacy credentials", Description: "Move legacy credentials into secret store", Meta: "credential maintenance"},
 		{ID: "convert", Title: "Convert storage format", Description: "Convert persisted configuration format", Meta: string(page.overview.Source.Format)},
 		{ID: "export", Title: "Export configuration bundle", Description: "Export configuration and managed secrets", Meta: "bundle"},
@@ -687,8 +671,6 @@ func configMaintenanceCommand(id string) (ConfigCommand, bool) {
 	switch id {
 	case "verify":
 		return ConfigVerify, true
-	case "reload":
-		return ConfigReload, true
 	case "migrate":
 		return ConfigMigrate, true
 	case "convert":
@@ -883,7 +865,7 @@ func (page *ConfigPage) domainSummary(domain string) string {
 	case "tunnel":
 		return fmt.Sprintf("%s · runtime key %s · admin key %s", configOnOff(cfg.Tunnel.Enabled), configuredState(cfg.Tunnel.APIKey), configuredState(cfg.Tunnel.AdminKey))
 	case "storage":
-		return fmt.Sprintf("%s · verify / reload / convert / import / export", page.overview.Source.Format)
+		return fmt.Sprintf("%s · verify / convert / import / export", page.overview.Source.Format)
 	default:
 		return ""
 	}

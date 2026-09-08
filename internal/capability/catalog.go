@@ -34,7 +34,6 @@ const (
 	ConfigPath               ID = "config.path"
 	ConfigExport             ID = "config.export"
 	ConfigImport             ID = "config.import"
-	ConfigReload             ID = "config.reload"
 	ConfigGet                ID = "config.get"
 	ConfigList               ID = "config.list"
 	ConfigSet                ID = "config.set"
@@ -104,7 +103,7 @@ var specs = []Spec{
 	{RuntimeUp, "up", nil}, {RuntimeDown, "down", nil}, {RuntimeRestart, "restart", nil},
 	{LogsRead, "logs", nil}, {LogsFollow, "logs follow", nil}, {LogsPath, "logs path", nil}, {LogsClear, "logs clear", nil},
 	{RequestList, "request list", nil}, {RequestView, "request view", nil}, {RequestApprove, "request approve", nil}, {RequestDeny, "request deny", nil},
-	{ConfigPath, "config path", nil}, {ConfigExport, "config export", nil}, {ConfigImport, "config import", nil}, {ConfigReload, "config reload", nil},
+	{ConfigPath, "config path", nil}, {ConfigExport, "config export", nil}, {ConfigImport, "config import", nil},
 	{ConfigGet, "config get", []string{"config explain"}}, {ConfigList, "config list", nil}, {ConfigSet, "config set", nil}, {ConfigMigrate, "config migrate", nil},
 	{ConfigConvert, "config convert", nil}, {ConfigVerify, "config verify", nil},
 	{AliasInstall, "alias install", nil}, {AliasRemove, "alias remove", nil}, {AliasStatus, "alias status", nil},

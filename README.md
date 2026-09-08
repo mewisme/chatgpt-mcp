@@ -193,7 +193,6 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 | Explain config schema | `cgm config explain [key]` |
 | Migrate legacy credentials | `cgm config migrate` |
 | Verify config/state | `cgm config verify` |
-| Reload persisted config | `cgm config reload` |
 | Export portable config/state + secrets | `cgm config export` |
 | Import portable config/state + secrets | `cgm config import` |
 | Register workspace | `cgm workspace register <path>` |

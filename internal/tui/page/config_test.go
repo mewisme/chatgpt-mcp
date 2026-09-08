@@ -231,10 +231,10 @@ func TestConfigStoragePageCentralizesMaintenanceActions(t *testing.T) {
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
 	rows := page.configRows()
-	if len(rows) != 6 {
+	if len(rows) != 5 {
 		t.Fatalf("maintenance actions=%d rows=%#v", len(rows), rows)
 	}
-	wantIDs := []string{"verify", "reload", "migrate", "convert", "export", "import"}
+	wantIDs := []string{"verify", "migrate", "convert", "export", "import"}
 	for index, want := range wantIDs {
 		if rows[index].ID != want {
 			t.Fatalf("maintenance row %d=%q want=%q", index, rows[index].ID, want)
@@ -263,7 +263,7 @@ func TestConfigRuntimeSyncStatusRendersPendingAndFingerprints(t *testing.T) {
 	}
 }
 
-func TestConfigSaveMarksRunningRuntimePendingImmediately(t *testing.T) {
+func TestConfigSaveMarksAutoReloadedRuntimeCurrentImmediately(t *testing.T) {
 	prepareConfigPageRoot(t)
 	page, _ := NewConfig(t.Context())
 	updated, _ := page.Update(page.Init()())
@@ -272,12 +272,12 @@ func TestConfigSaveMarksRunningRuntimePendingImmediately(t *testing.T) {
 	page.overview.RuntimeSync.State = application.ConfigRuntimeCurrent
 	mutation := page.overview.Config
 	mutation.Server.Port++
-	page.finishOperation(configOperationMsg{command: ConfigEdit, mutation: application.ConfigMutationResult{Config: mutation}})
-	if page.overview.RuntimeSync.State != application.ConfigRuntimePending {
+	page.finishOperation(configOperationMsg{command: ConfigEdit, mutation: application.ConfigMutationResult{Config: mutation, RuntimeReloaded: true}})
+	if page.overview.RuntimeSync.State != application.ConfigRuntimeCurrent {
 		t.Fatalf("sync state=%q", page.overview.RuntimeSync.State)
 	}
-	if page.overview.RuntimeSync.PersistedFingerprint == "" {
-		t.Fatal("persisted fingerprint not updated")
+	if page.overview.RuntimeSync.PersistedFingerprint == "" || page.overview.RuntimeSync.RuntimeFingerprint != page.overview.RuntimeSync.PersistedFingerprint {
+		t.Fatalf("fingerprints persisted=%q runtime=%q", page.overview.RuntimeSync.PersistedFingerprint, page.overview.RuntimeSync.RuntimeFingerprint)
 	}
 }
 
@@ -354,7 +354,7 @@ func TestConfigSearchOpensAndNavigatesToField(t *testing.T) {
 	}
 }
 
-func TestConfigPageReadOnlyGuidanceAndStoppedReload(t *testing.T) {
+func TestConfigPageReadOnlyGuidance(t *testing.T) {
 	prepareConfigPageRoot(t)
 	page, _ := NewConfig(t.Context())
 	updated, _ := page.Update(page.Init()())
@@ -364,10 +364,6 @@ func TestConfigPageReadOnlyGuidanceAndStoppedReload(t *testing.T) {
 	}
 	if page.overlay != configOverlayNone || !strings.Contains(page.notice, "auth token") {
 		t.Fatalf("overlay=%d notice=%q", page.overlay, page.notice)
-	}
-	page.overview.RuntimeRunning = false
-	if _, err := page.openCommand(ConfigReload, ""); err == nil || !strings.Contains(err.Error(), "runtime is not running") {
-		t.Fatalf("reload err=%v", err)
 	}
 }
 

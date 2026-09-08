@@ -326,11 +326,7 @@ cgm config set server.expose none
 
 At least one MCP transport must remain enabled: `server.enabled` for direct MCP HTTP or `tunnel.enabled` for OpenAI Secure MCP Tunnel.
 
-Apply to a running process:
-
-```bash
-cgm config reload
-```
+Successful config mutations automatically apply to a running process. If the runtime is stopped, they take effect on the next start.
 
 Migrate legacy plaintext credentials to the per-config-root secret file store:
 

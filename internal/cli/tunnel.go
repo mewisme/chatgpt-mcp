@@ -255,7 +255,7 @@ func tunnelToggleCommand(enabled bool) *cobra.Command {
 	}
 	return &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		logCommandStep(cmd, "TUNNEL", "tunnel.state.updating", "Updating tunnel enabled state", logger.WithVerbose("enabled", enabled))
-		if _, err := application.SetTunnelEnabled(enabled); err != nil {
+		if _, err := application.SetTunnelEnabled(cmd.Context(), enabled); err != nil {
 			return err
 		}
 		state := "disabled"

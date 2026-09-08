@@ -34,21 +34,21 @@ func TestInitializeAndAuthLifecycle(t *testing.T) {
 	if !status.MCPEnabled || !status.MCPConfigured || !status.AdminEnabled || !status.AdminConfigured {
 		t.Fatalf("status = %#v", status)
 	}
-	status, err = SetAuthEnabled("mcp", false)
+	status, err = SetAuthEnabled(t.Context(), "mcp", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if status.MCPEnabled || !status.MCPConfigured {
 		t.Fatalf("disabled status = %#v", status)
 	}
-	rotated, status, err := RotateAuthToken("mcp")
+	rotated, status, err := RotateAuthToken(t.Context(), "mcp")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rotated == result.MCPToken || !status.MCPEnabled || !status.MCPConfigured {
 		t.Fatalf("rotation did not replace and enable MCP auth")
 	}
-	if _, _, err := RotateAuthToken("missing"); err == nil {
+	if _, _, err := RotateAuthToken(t.Context(), "missing"); err == nil {
 		t.Fatal("invalid auth kind unexpectedly accepted")
 	}
 }
@@ -113,10 +113,10 @@ func TestSetAuthEnabledRequiresConfiguredToken(t *testing.T) {
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SetAuthEnabled("mcp", true); err == nil {
+	if _, err := SetAuthEnabled(t.Context(), "mcp", true); err == nil {
 		t.Fatal("MCP auth enabled without token")
 	}
-	if _, err := SetAuthEnabled("admin", true); err == nil {
+	if _, err := SetAuthEnabled(t.Context(), "admin", true); err == nil {
 		t.Fatal("admin auth enabled without token")
 	}
 }
@@ -139,10 +139,10 @@ func TestConfigMutationUsesDomainValidationAndPreservesSecrets(t *testing.T) {
 	if wantErr == nil {
 		t.Fatal("domain validation unexpectedly accepted invalid port")
 	}
-	if _, err := SetConfigField("server.port", "70000"); err == nil || err.Error() != wantErr.Error() {
+	if _, err := SetConfigField(t.Context(), "server.port", "70000"); err == nil || err.Error() != wantErr.Error() {
 		t.Fatalf("application validation err=%v want=%v", err, wantErr)
 	}
-	result, err := SetConfigField("server.port", "40123")
+	result, err := SetConfigField(t.Context(), "server.port", "40123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestConfigExportImportPreservesSafetyAndState(t *testing.T) {
 	if _, err := ExportConfig(bundle, false); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("export overwrite safety err=%v", err)
 	}
-	if _, err := SetConfigField("server.port", "40234"); err != nil {
+	if _, err := SetConfigField(t.Context(), "server.port", "40234"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ImportConfig(context.Background(), bundle, false); err == nil || !strings.Contains(err.Error(), "already exists") {

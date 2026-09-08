@@ -100,19 +100,15 @@ try {
   run(["config", "set", "features.ponytail.active", "true"])
   run(["config", "set", "features.ponytail.mode", "lite"])
   run(["config", "set", "features.caveman.mode", "full"])
-  run(["config", "reload"])
-  if (child.pid !== servePID || child.exitCode !== null) fail("config reload restarted or stopped the serve process")
+  if (child.pid !== servePID || child.exitCode !== null) fail("automatic config reload restarted or stopped the serve process")
   await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
   await verifyMCP(reloadedServerPort, workspaceID, true, "lite", true, "full")
 
   occupied = await occupyPort()
-  run(["config", "set", "server.port", String(occupied.port)])
-  runExpectFailure(["config", "reload"])
-  if (child.pid !== servePID || child.exitCode !== null) fail("failed config reload stopped the serve process")
+  runExpectFailure(["config", "set", "server.port", String(occupied.port)])
+  if (child.pid !== servePID || child.exitCode !== null) fail("failed automatic config reload stopped the serve process")
   await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
-  run(["config", "set", "server.port", String(reloadedServerPort)])
-  run(["config", "reload"])
   await closeServer(occupied.server)
   occupied = null
 
@@ -159,7 +155,7 @@ try {
   follower.stdout.on("data", (chunk) => { followerStdout += chunk.toString() })
   follower.stderr.on("data", (chunk) => { followerStderr += chunk.toString() })
   await sleep(250)
-  run(["config", "reload"], { quiet: true })
+  run(["config", "set", "features.caveman.mode", "ultra"], { quiet: true })
   await waitForText("runtime log follow", follower, () => `${followerStdout}\n${followerStderr}`, "Configuration reloaded")
   await stopChild(follower)
   follower = null

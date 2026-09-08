@@ -148,7 +148,7 @@ func authCreateCommand(kind string) *cobra.Command {
 		Short: "Create or rotate the " + kind + " token",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "AUTH", "auth.token.rotating", "Creating or rotating authentication token", logger.WithVerbose("type", kind))
-			token, _, err := application.RotateAuthToken(kind)
+			token, _, err := application.RotateAuthToken(cmd.Context(), kind)
 			if err != nil {
 				return err
 			}
@@ -170,7 +170,7 @@ func authToggleCommand(kind string, enabled bool) *cobra.Command {
 		Short: action + " " + kind + " authentication",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "AUTH", "auth.state.updating", "Updating authentication state", logger.WithVerbose("type", kind), logger.WithVerbose("enabled", enabled))
-			if _, err := application.SetAuthEnabled(kind, enabled); err != nil {
+			if _, err := application.SetAuthEnabled(cmd.Context(), kind, enabled); err != nil {
 				return err
 			}
 			state := "disabled"

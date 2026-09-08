@@ -134,7 +134,7 @@ func TestTunnelAdminAndManagedLifecycle(t *testing.T) {
 	if _, err := config.LoadTunnelMetadata("tunnel_created"); !os.IsNotExist(err) {
 		t.Fatalf("deleted metadata remains: %v", err)
 	}
-	if err := RemoveTunnelAdminKey(); err != nil {
+	if err := RemoveTunnelAdminKey(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	status, err = TunnelAdminKeyStatus()
@@ -182,7 +182,7 @@ func TestTunnelOnlyConfigCannotDisableTunnel(t *testing.T) {
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SetTunnelEnabled(false); err == nil || !strings.Contains(err.Error(), "at least one MCP transport") {
+	if _, err := SetTunnelEnabled(t.Context(), false); err == nil || !strings.Contains(err.Error(), "at least one MCP transport") {
 		t.Fatalf("disable sole tunnel err=%v", err)
 	}
 	loaded, err := config.Load()

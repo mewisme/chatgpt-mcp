@@ -34,7 +34,6 @@ func configCommand() *cobra.Command {
 		configListCommand(),
 		configExplainCommand(),
 		configSetCommand(),
-		configReloadCommand(),
 		configMigrateCommand(),
 		configConvertCommand(),
 		configExportCommand(),
@@ -115,40 +114,6 @@ func configBundleFile(args []string) string {
 	return defaultConfigBundleFile
 }
 
-func configReloadCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "reload",
-		Short: "Reload persisted configuration into the running server",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			log := commandLogger(cmd)
-			defer log.Close()
-			startCommandSpinner(cmd, log, "CONFIG", "config.reloading", "Reloading configuration")
-			logCommandStep(cmd, "CONFIG", "config.runtime.contacting", "Contacting running runtime")
-			ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
-			defer cancel()
-			result, err := application.ReloadConfig(ctx)
-			if err != nil {
-				return fmt.Errorf("reload running configuration: %w", err)
-			}
-			log.Success("CONFIG", "configuration reloaded")
-			log.Detail("pid", result.PID)
-			log.Detail("network restarted", result.NetworkRestarted)
-			log.Detail("mcp http", onOff(result.ServerEnabled))
-			if result.ServerEnabled {
-				log.Detail("mcp port", result.ServerPort)
-			}
-			if result.AdminEnabled {
-				log.Detail("admin port", result.AdminPort)
-			} else {
-				log.Detail("admin", "disabled")
-			}
-			log.Detail("expose", result.Exposure)
-			return nil
-		},
-	}
-}
-
 func configGetCommand() *cobra.Command {
 	options := configOutputOptions{}
 	cmd := &cobra.Command{
@@ -209,7 +174,7 @@ func configSetCommand() *cobra.Command {
 				return err
 			}
 			logCommandStep(cmd, "CONFIG", "config.value.updating", "Updating configuration value", logger.WithVerbose("key", key))
-			if _, err := application.SetConfigField(key, raw); err != nil {
+			if _, err := application.SetConfigField(cmd.Context(), key, raw); err != nil {
 				return err
 			}
 			commandLogger(cmd).Success("CONFIG", "value saved", "key", key)

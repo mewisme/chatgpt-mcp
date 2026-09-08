@@ -60,8 +60,8 @@ func (page *ConfigPage) submitConfigEditor() tea.Cmd {
 	case ConfigEdit:
 		key, raw := page.targetKey, configFieldFormValue(page.fieldForm)
 		page.editor.SetSubmitting(true)
-		return page.startOperation(ConfigEdit, "Saving configuration", func(context.Context) configOperationMsg {
-			result, err := application.SetConfigField(key, raw)
+		return page.startOperation(ConfigEdit, "Saving configuration", func(ctx context.Context) configOperationMsg {
+			result, err := application.SetConfigField(ctx, key, raw)
 			return configOperationMsg{command: ConfigEdit, mutation: result, err: err}
 		})
 	case ConfigConvert:

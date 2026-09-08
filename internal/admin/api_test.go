@@ -137,6 +137,36 @@ func TestConfigAPIHidesTokenHashes(t *testing.T) {
 	}
 }
 
+func TestConfigAPIMutationAutomaticallyReloadsRuntime(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-hash"
+	cfg.Auth.AdminTokenHash = "admin-hash"
+	store := config.NewRuntimeStore(cfg)
+	saved, reloaded := false, false
+	handler := New(API{
+		Config: store,
+		saveConfig: func(next config.Config) error {
+			saved = true
+			if next.Server.Port != 41021 {
+				t.Fatalf("saved port=%d", next.Server.Port)
+			}
+			return nil
+		},
+		ReloadConfig: func(next config.Config) error {
+			reloaded = true
+			if next.Server.Port != 41021 {
+				t.Fatalf("reloaded port=%d", next.Server.Port)
+			}
+			return nil
+		},
+	})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"server":{"port":41021}}`)))
+	if recorder.Code != http.StatusOK || !saved || !reloaded {
+		t.Fatalf("status=%d saved=%t reloaded=%t body=%s", recorder.Code, saved, reloaded, recorder.Body.String())
+	}
+}
+
 func TestConfigAPIRejectsDisablingLastMCPTransport(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false

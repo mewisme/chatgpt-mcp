@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,15 +25,16 @@ func GetAuthStatus() (AuthStatus, error) {
 	return authStatus(cfg), nil
 }
 
-func RotateAuthToken(kind string) (string, AuthStatus, error) {
+func RotateAuthToken(ctx context.Context, kind string) (string, AuthStatus, error) {
 	kind, err := normalizeAuthKind(kind)
 	if err != nil {
 		return "", AuthStatus{}, err
 	}
-	cfg, err := config.Load()
+	previous, err := config.Load()
 	if err != nil {
 		return "", AuthStatus{}, err
 	}
+	cfg := previous
 	token := auth.GenerateToken(kind)
 	hash := auth.HashToken(token)
 	if kind == "mcp" {
@@ -46,21 +48,22 @@ func RotateAuthToken(kind string) (string, AuthStatus, error) {
 	if err := config.Validate(cfg); err != nil {
 		return "", AuthStatus{}, err
 	}
-	if err := config.Save(cfg); err != nil {
+	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 		return "", AuthStatus{}, err
 	}
 	return token, authStatus(cfg), nil
 }
 
-func SetAuthEnabled(kind string, enabled bool) (AuthStatus, error) {
+func SetAuthEnabled(ctx context.Context, kind string, enabled bool) (AuthStatus, error) {
 	kind, err := normalizeAuthKind(kind)
 	if err != nil {
 		return AuthStatus{}, err
 	}
-	cfg, err := config.Load()
+	previous, err := config.Load()
 	if err != nil {
 		return AuthStatus{}, err
 	}
+	cfg := previous
 	if kind == "mcp" {
 		if enabled && cfg.Auth.MCPTokenHash == "" {
 			return AuthStatus{}, errors.New("MCP token is not configured; create one first")
@@ -75,7 +78,7 @@ func SetAuthEnabled(kind string, enabled bool) (AuthStatus, error) {
 	if err := config.Validate(cfg); err != nil {
 		return AuthStatus{}, err
 	}
-	if err := config.Save(cfg); err != nil {
+	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 		return AuthStatus{}, err
 	}
 	return authStatus(cfg), nil

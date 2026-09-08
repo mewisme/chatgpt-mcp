@@ -101,15 +101,11 @@ cgm config set admin.enabled true
 
 Changes are validated before persistence. MCP must remain reachable through at least one transport: direct HTTP (`server.enabled`) or OpenAI Secure MCP Tunnel (`tunnel.enabled`). Either can be disabled independently, but not both.
 
-## Reload a running runtime
+## Applying changes to a running runtime
 
-After persisting a change:
+Configuration mutations automatically reload the selected config root's running runtime through its loopback-only runtime control channel. If no runtime is running, the persisted change is used on the next start.
 
-```bash
-cgm config reload
-```
-
-The reload path uses the selected config root's loopback-only runtime control channel.
+For direct local mutations, a failed live reload rolls the persisted change back so disk and runtime state do not drift.
 
 Changes to auth, feature flags, filesystem permissions, and tunnel settings can be applied live.
 
@@ -337,7 +333,6 @@ cgm config set features.ponytail.active true
 cgm config set features.ponytail.mode full
 cgm config set features.caveman.active true
 cgm config set features.caveman.mode full
-cgm config reload
 ```
 
 Ponytail is built into `chatgpt-mcp`; it does not require the external Ponytail plugin, hooks, or Node.js. `features.ponytail.mode` accepts `lite`, `full`, or `ultra`; `review` is a session-only mode selected with `/ponytail-review`. Admin Settings applies persisted mode changes to the live runtime immediately. Legacy `enabled` values are accepted when loading older configuration and are written back as `active`.

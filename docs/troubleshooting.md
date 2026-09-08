@@ -168,13 +168,7 @@ Options:
 
 ## Config changes are not visible in the running server
 
-`config set` persists the change; it does not implicitly replace the running process state in every case.
-
-Apply persisted configuration:
-
-```bash
-cgm config reload
-```
+Config mutations automatically reload a running runtime. If a mutation succeeds but the observed state still looks stale, verify that the command and runtime use the same config root.
 
 Verify:
 
@@ -183,7 +177,7 @@ cgm status
 cgm config get
 ```
 
-## `config reload` fails after changing a port
+## A config mutation fails while changing a port
 
 The new listener may be unavailable.
 
@@ -193,13 +187,12 @@ Check:
 cgm logs --component SERVER --debug -n 200
 ```
 
-Listener reload is transactional. A failed new bind should restore the previous working listener set rather than leaving the process unavailable.
+Listener reload is transactional. A failed new bind restores the previous working listener set, and direct local mutations roll the persisted configuration back.
 
-Choose a free port, persist it, and reload again:
+Choose a free port and retry the mutation:
 
 ```bash
 cgm config set server.port 41021
-cgm config reload
 ```
 
 ## Config format mismatch or manual edit failure
@@ -275,7 +268,7 @@ This is intentional.
 MCP tool execution context allows read-only inspection but denies control-plane self-modification such as:
 
 - `up` / `down`
-- config mutation/reload
+- config mutation
 - workspace registration/access grants
 - auth changes
 - tunnel configuration

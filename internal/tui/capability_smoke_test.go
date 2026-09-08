@@ -30,7 +30,7 @@ func TestCapabilitySmokeWriteThroughActionPageAndApplication(t *testing.T) {
 	if _, err := application.Initialize(application.InitOptions{Format: configformat.JSON, FormatSelected: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := application.SetAuthEnabled("mcp", false); err != nil {
+	if _, err := application.SetAuthEnabled(t.Context(), "mcp", false); err != nil {
 		t.Fatal(err)
 	}
 	model := NewModel(Route{Kind: RouteRuntime})

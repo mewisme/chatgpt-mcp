@@ -44,10 +44,11 @@ type ConfigRuntimeSync struct {
 }
 
 type ConfigMutationResult struct {
-	Config config.Config
+	Config          config.Config
+	RuntimeReloaded bool
 }
 
-type ConfigReloadResult = runtimecontrol.ReloadResult
+type configReloadResult = runtimecontrol.ReloadResult
 
 type InitOptions struct {
 	Force          bool
@@ -190,18 +191,20 @@ func LoadConfigOverview(ctx context.Context) (ConfigOverview, error) {
 	return ConfigOverview{Config: cfg, Source: source, Root: config.RootPath(), RuntimeRunning: running, RuntimeSync: sync}, nil
 }
 
-func SetConfigField(key, raw string) (ConfigMutationResult, error) {
-	cfg, err := config.Load()
+func SetConfigField(ctx context.Context, key, raw string) (ConfigMutationResult, error) {
+	previous, err := config.Load()
 	if err != nil {
 		return ConfigMutationResult{}, err
 	}
-	if err := config.SetValueValidated(&cfg, key, raw); err != nil {
+	next := previous
+	if err := config.SetValueValidated(&next, key, raw); err != nil {
 		return ConfigMutationResult{}, err
 	}
-	if err := config.Save(cfg); err != nil {
+	_, reloaded, err := saveConfigMutation(ctx, previous, next)
+	if err != nil {
 		return ConfigMutationResult{}, err
 	}
-	return ConfigMutationResult{Config: cfg}, nil
+	return ConfigMutationResult{Config: next, RuntimeReloaded: reloaded}, nil
 }
 
 func VerifyConfig() (config.VerifyResult, error) { return config.Verify() }
@@ -231,16 +234,56 @@ func ImportConfig(ctx context.Context, source string, force bool) (configbundle.
 	return configbundle.Import(config.RootPath(), source, configbundle.ImportOptions{Force: force})
 }
 
-func ReloadConfig(ctx context.Context) (ConfigReloadResult, error) {
-	var result ConfigReloadResult
+func reloadConfig(ctx context.Context) (configReloadResult, error) {
+	var result configReloadResult
 	state, err := runtimecontrol.Request(ctx, http.MethodPost, "/reload", nil, &result)
 	if err != nil {
-		return ConfigReloadResult{}, err
+		return configReloadResult{}, err
 	}
 	if result.PID != state.PID {
-		return ConfigReloadResult{}, fmt.Errorf("runtime control PID mismatch: expected %d, got %d", state.PID, result.PID)
+		return configReloadResult{}, fmt.Errorf("runtime control PID mismatch: expected %d, got %d", state.PID, result.PID)
 	}
 	return result, nil
+}
+
+func reloadPersistedConfigIfRunning(ctx context.Context) (configReloadResult, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	result, err := reloadConfig(ctx)
+	if err != nil {
+		if runtimecontrol.IsUnavailable(err) {
+			return configReloadResult{}, false, nil
+		}
+		return configReloadResult{}, false, err
+	}
+	return result, true, nil
+}
+
+func saveConfigMutation(ctx context.Context, previous, next config.Config) (configReloadResult, bool, error) {
+	if err := config.Save(next); err != nil {
+		return configReloadResult{}, false, err
+	}
+	result, reloaded, err := reloadPersistedConfigIfRunning(ctx)
+	if err == nil {
+		return result, reloaded, nil
+	}
+	rollbackErr := config.Save(previous)
+	if rollbackErr != nil {
+		return configReloadResult{}, false, errors.Join(fmt.Errorf("reload running configuration: %w", err), fmt.Errorf("rollback persisted configuration: %w", rollbackErr))
+	}
+	return configReloadResult{}, false, fmt.Errorf("reload running configuration: %w; persisted configuration rolled back", err)
+}
+
+func saveConfigMutationWithoutRollback(ctx context.Context, next config.Config) (configReloadResult, bool, error) {
+	if err := config.Save(next); err != nil {
+		return configReloadResult{}, false, err
+	}
+	result, reloaded, err := reloadPersistedConfigIfRunning(ctx)
+	if err != nil {
+		return configReloadResult{}, false, fmt.Errorf("reload running configuration: %w", err)
+	}
+	return result, reloaded, nil
 }
 
 func ReloadWorkspaces(ctx context.Context) (runtimecontrol.WorkspaceReloadResult, bool, error) {
@@ -275,9 +318,9 @@ func RuntimeRunning(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func ConfigOperationNotice(running bool) string {
-	if running {
-		return "Saved. Runtime reload is available to apply the persisted configuration."
+func ConfigOperationNotice(reloaded bool) string {
+	if reloaded {
+		return "Saved and applied to the running runtime."
 	}
 	return "Saved. The next runtime start will use this configuration."
 }

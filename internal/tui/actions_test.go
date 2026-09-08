@@ -232,7 +232,7 @@ func TestConfigActionAvailabilityFollowsRouteContext(t *testing.T) {
 		return false
 	}
 	ctx := action.Context{Route: string(RouteConfig)}
-	for _, id := range []string{"config.refresh", "config.edit", "config.verify", "config.reload", "config.migrate", "config.convert", "config.export", "config.import"} {
+	for _, id := range []string{"config.refresh", "config.edit", "config.verify", "config.migrate", "config.convert", "config.export", "config.import"} {
 		if !has(ctx, id) {
 			t.Fatalf("config action missing: %s", id)
 		}
@@ -277,7 +277,7 @@ func TestSystemActionAvailabilityFollowsRouteAndPlatform(t *testing.T) {
 		return false
 	}
 	ctx := action.Context{Route: string(RouteRuntime)}
-	for _, id := range []string{"system.refresh", "runtime.up.user", "runtime.down.user", "runtime.restart.user", "runtime.reload", "runtime.foreground", "auth.mcp.rotate", "auth.admin.rotate", "alias.install", "alias.remove", "install.run", "install.cleanup", "update.check", "update.apply"} {
+	for _, id := range []string{"system.refresh", "runtime.up.user", "runtime.down.user", "runtime.restart.user", "runtime.foreground", "auth.mcp.rotate", "auth.admin.rotate", "alias.install", "alias.remove", "install.run", "install.cleanup", "update.check", "update.apply"} {
 		if !has(ctx, id) {
 			t.Fatalf("system action missing: %s", id)
 		}

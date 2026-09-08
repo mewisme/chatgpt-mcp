@@ -67,6 +67,7 @@ func ConfigureTunnelRuntime(ctx context.Context, input TunnelRuntimeInput) (Tunn
 	if err != nil {
 		return TunnelDashboard{}, err
 	}
+	previousConfig := cfg
 	previous := cfg.Tunnel
 	next := previous
 	if input.Enabled != nil {
@@ -97,22 +98,23 @@ func ConfigureTunnelRuntime(ctx context.Context, input TunnelRuntimeInput) (Tunn
 			return TunnelDashboard{}, fmt.Errorf("persist tunnel metadata: %w", err)
 		}
 	}
-	if err := config.Save(cfg); err != nil {
+	if _, _, err := saveConfigMutation(ctx, previousConfig, cfg); err != nil {
 		return TunnelDashboard{}, err
 	}
 	return TunnelStatus()
 }
 
-func SetTunnelEnabled(enabled bool) (TunnelDashboard, error) {
-	cfg, err := config.Load()
+func SetTunnelEnabled(ctx context.Context, enabled bool) (TunnelDashboard, error) {
+	previous, err := config.Load()
 	if err != nil {
 		return TunnelDashboard{}, err
 	}
+	cfg := previous
 	cfg.Tunnel.Enabled = enabled
 	if err := config.Validate(cfg); err != nil {
 		return TunnelDashboard{}, err
 	}
-	if err := config.Save(cfg); err != nil {
+	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 		return TunnelDashboard{}, err
 	}
 	return TunnelStatus()
@@ -142,10 +144,11 @@ func TunnelAdminKeyStatus() (TunnelAdminStatus, error) {
 }
 
 func SetTunnelAdminKey(ctx context.Context, input TunnelAdminKeyInput) (int, tunnel.AdminScope, error) {
-	cfg, err := config.LoadForTunnelAdminKeyReplacement()
+	previous, err := config.LoadForTunnelAdminKeyReplacement()
 	if err != nil {
 		return 0, tunnel.AdminScope{}, err
 	}
+	cfg := previous
 	key := strings.TrimSpace(input.Key)
 	if key == "" {
 		return 0, tunnel.AdminScope{}, errors.New("OpenAI admin key is required")
@@ -165,7 +168,7 @@ func SetTunnelAdminKey(ctx context.Context, input TunnelAdminKeyInput) (int, tun
 		return 0, tunnel.AdminScope{}, fmt.Errorf("admin key verification failed: %w", err)
 	}
 	cfg.Tunnel = candidate
-	if err := config.Save(cfg); err != nil {
+	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 		return 0, tunnel.AdminScope{}, err
 	}
 	return count, scope, nil
@@ -186,14 +189,16 @@ func VerifyTunnelAdminKey(ctx context.Context) (int, tunnel.AdminScope, error) {
 	return count, tunnel.AdminScopeFromConfig(cfg.Tunnel), err
 }
 
-func RemoveTunnelAdminKey() error {
-	cfg, err := config.LoadForTunnelAdminKeyReplacement()
+func RemoveTunnelAdminKey(ctx context.Context) error {
+	previous, err := config.LoadForTunnelAdminKeyReplacement()
 	if err != nil {
 		return err
 	}
+	cfg := previous
 	cfg.Tunnel.AdminKey = ""
 	tunnel.ApplyAdminScope(&cfg.Tunnel, tunnel.AdminScope{})
-	return config.Save(cfg)
+	_, _, err = saveConfigMutation(ctx, previous, cfg)
+	return err
 }
 
 func ListManagedTunnels(ctx context.Context) ([]tunnel.Metadata, error) {
@@ -244,10 +249,11 @@ func GetManagedTunnel(ctx context.Context, id string, options ManagedTunnelOptio
 	}
 	configured := false
 	if options.Configure {
+		previous := cfg
 		if err := configureManagedTunnel(&cfg, metadata, options.RuntimeAPIKey, options.Enable); err != nil {
 			return ManagedTunnelResult{}, err
 		}
-		if err := config.Save(cfg); err != nil {
+		if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 			return ManagedTunnelResult{}, err
 		}
 		configured = true
@@ -286,10 +292,11 @@ func CreateManagedTunnel(ctx context.Context, request tunnel.CreateRequest, opti
 	}
 	configured := false
 	if options.Configure {
+		previous := cfg
 		if err := configureManagedTunnel(&cfg, metadata, options.RuntimeAPIKey, options.Enable); err != nil {
 			return ManagedTunnelResult{}, err
 		}
-		if err := config.Save(cfg); err != nil {
+		if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 			return ManagedTunnelResult{}, err
 		}
 		configured = true
@@ -317,10 +324,11 @@ func UpdateManagedTunnel(ctx context.Context, id string, request tunnel.UpdateRe
 	}
 	configured := false
 	if options.Configure {
+		previous := cfg
 		if err := configureManagedTunnel(&cfg, metadata, options.RuntimeAPIKey, options.Enable); err != nil {
 			return ManagedTunnelResult{}, err
 		}
-		if err := config.Save(cfg); err != nil {
+		if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 			return ManagedTunnelResult{}, err
 		}
 		configured = true
@@ -362,7 +370,7 @@ func DeleteManagedTunnel(ctx context.Context, id string, clearConfig bool) (Mana
 	}
 	cleared := clearConfigured && cfg.Tunnel.ID == metadata.ID
 	if cleared {
-		if err := config.Save(clearedConfig); err != nil {
+		if _, _, err := saveConfigMutationWithoutRollback(ctx, clearedConfig); err != nil {
 			return ManagedTunnelResult{}, err
 		}
 	}

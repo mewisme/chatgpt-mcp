@@ -222,13 +222,7 @@ Persist a change:
 cgm config set server.port 41021
 ```
 
-Then apply it to the running process:
-
-```bash
-cgm config reload
-```
-
-Reload does not restart the process.
+The mutation automatically applies to the running process without restarting it. If the runtime is stopped, the next start uses the persisted configuration.
 
 Live changes include:
 
@@ -241,7 +235,7 @@ Network-affecting changes such as MCP/admin port or exposure cause listener rebi
 
 Listener reload is transactional: if the new listeners cannot be opened, the previous listener set is restored.
 
-A foreground `serve --expose=...` command-line override remains authoritative across config reloads.
+A foreground `serve --expose=...` command-line override remains authoritative across automatic config reloads.
 
 ## Structured runtime logs
 

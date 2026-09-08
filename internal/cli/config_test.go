@@ -257,6 +257,11 @@ func TestConfigCommandAliases(t *testing.T) {
 	if err != nil || verify.Name() != "verify" {
 		t.Fatalf("validate alias = %v %v", verify, err)
 	}
+	for _, subcommand := range cmd.Commands() {
+		if subcommand.Name() == "reload" {
+			t.Fatal("config reload command is still registered")
+		}
+	}
 }
 
 func TestConfigExplainLeafBranchAndJSON(t *testing.T) {

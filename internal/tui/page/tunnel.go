@@ -512,8 +512,8 @@ func (page *TunnelPage) openCommand(command TunnelCommand, resourceID string) (t
 		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", "edit"}} }, nil
 	case TunnelEnable, TunnelDisable:
 		enabled := command == TunnelEnable
-		return page.startOperation(command, "", "Updating tunnel state", func(context.Context) tunnelOperationMsg {
-			dashboard, err := application.SetTunnelEnabled(enabled)
+		return page.startOperation(command, "", "Updating tunnel state", func(ctx context.Context) tunnelOperationMsg {
+			dashboard, err := application.SetTunnelEnabled(ctx, enabled)
 			return tunnelOperationMsg{command: command, dashboard: dashboard, err: err}
 		}), nil
 	case TunnelForeground:
@@ -609,7 +609,7 @@ func (page *TunnelPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch page.command {
 	case TunnelAdminKeyRemove:
-		if err := application.RemoveTunnelAdminKey(); err != nil {
+		if err := application.RemoveTunnelAdminKey(page.ctx); err != nil {
 			page.err = err
 			return nil
 		}

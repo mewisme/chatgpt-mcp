@@ -105,6 +105,20 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	var operationMu sync.Mutex
 	var stateMu sync.RWMutex
 	lifecycle := "bootstrapping"
+	stateChanged := make(chan struct{})
+	setLifecycle := func(next string) {
+		stateMu.Lock()
+		if lifecycle == next {
+			stateMu.Unlock()
+			return
+		}
+		previous := lifecycle
+		lifecycle = next
+		close(stateChanged)
+		stateChanged = make(chan struct{})
+		stateMu.Unlock()
+		_ = recorder.Record(runtimeevent.Event{Time: time.Now().UTC(), Level: "info", Kind: "info", Name: "runtime.lifecycle.changed", Component: "RUNTIME", Message: "Runtime lifecycle changed", Status: next, Fields: []runtimeevent.Field{{Key: "previous", Value: previous}, {Key: "lifecycle", Value: next}}})
+	}
 	shutdownRequest := make(chan struct{}, 1)
 	runtime.Logger.Verbose("NETWORK", "server.listeners.opening", "Opening HTTP listeners")
 	bindings, err = openHTTPBindings(cfg, plan)
@@ -138,16 +152,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			return runtimeReloadResult{}, err
 		}
 		networkRestarted := !networkConfigEqual(previousCfg, next) || !listenerPlanEqual(previousPlan, nextPlan)
-		stateMu.Lock()
-		lifecycle = "reloading"
-		stateMu.Unlock()
-		defer func() {
-			stateMu.Lock()
-			if lifecycle == "reloading" {
-				lifecycle = "ready"
-			}
-			stateMu.Unlock()
-		}()
+		setLifecycle("reloading")
+		defer setLifecycle("ready")
 		if !networkRestarted {
 			if err := runtime.ReloadConfig(next); err != nil {
 				return runtimeReloadResult{}, err
@@ -199,6 +205,21 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		fingerprint, _ := config.RuntimeFingerprint(cfgSnapshot)
 		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Lifecycle: lifecycleSnapshot, Starting: runtimeLifecycleStarting(lifecycleSnapshot), Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ConfigFingerprint: fingerprint, ServerEnabled: cfgSnapshot.Server.Enabled, ServerPort: cfgSnapshot.Server.Port, AdminEnabled: cfgSnapshot.Admin.Enabled, AdminPort: cfgSnapshot.Admin.Port, Exposure: cfgSnapshot.Server.Expose.Mode, TunnelEnabled: cfgSnapshot.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(cfgSnapshot.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(cfgSnapshot.Tunnel.ID), TunnelLastError: tunnelStatus.LastError, ToolProfile: "full", ToolCount: len(runtime.Tools.List())}
 	}
+	statusWait := func(ctx context.Context, previous string) runtimeStatusResult {
+		for {
+			stateMu.RLock()
+			current, changed := lifecycle, stateChanged
+			stateMu.RUnlock()
+			if previous == "" || current != previous {
+				return status()
+			}
+			select {
+			case <-ctx.Done():
+				return status()
+			case <-changed:
+			}
+		}
+	}
 	runtime.Logger.Verbose("CONTROL", "runtime.control.starting", "Starting runtime control endpoint")
 	control, err = startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, ReloadWorkspaces: func() (workspaceReloadResult, error) {
 		if err := runtime.Tools.ReloadWorkspaces(); err != nil {
@@ -210,7 +231,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		}
 		runtime.Logger.Ready("WORKSPACE", "workspace.registry.reloaded", "Workspace registry reloaded", logger.With("count", len(items)))
 		return workspaceReloadResult{PID: os.Getpid(), Count: len(items)}, nil
-	}, Status: status, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Log: runtime.Logger, Shutdown: func() {
+	}, Status: status, StatusWait: statusWait, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Log: runtime.Logger, Shutdown: func() {
 		runtimeCancel()
 		select {
 		case shutdownRequest <- struct{}{}:
@@ -230,29 +251,21 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err := waitRuntimeHTTPReady(runtimeCtx, cfg, 3*time.Second); err != nil {
 		return errors.Join(err, bindings.Shutdown())
 	}
-	stateMu.Lock()
-	lifecycle = "listeners_ready"
-	stateMu.Unlock()
+	setLifecycle("listeners_ready")
 	if cfg.Tunnel.Enabled && tunnel.Configured(cfg.Tunnel) {
-		stateMu.Lock()
-		lifecycle = "tunnel_connecting"
-		stateMu.Unlock()
+		setLifecycle("tunnel_connecting")
 		runtime.Logger.Action("TUNNEL", "tunnel.readiness.waiting", "Waiting for OpenAI Secure MCP Tunnel readiness")
 		if err := runtime.Tunnel.WaitUntilReady(runtimeCtx); err != nil {
 			return errors.Join(err, bindings.Shutdown())
 		}
 	}
-	stateMu.Lock()
-	lifecycle = "ready"
-	stateMu.Unlock()
+	setLifecycle("ready")
 	logReadyEndpoints(runtime.Logger, cfg, plan)
 
 	shutdown := func() error {
 		operationMu.Lock()
 		defer operationMu.Unlock()
-		stateMu.Lock()
-		lifecycle = "stopping"
-		stateMu.Unlock()
+		setLifecycle("stopping")
 		runtime.Logger.Action("SERVER", "server.stopping", "Stopping server")
 		err := bindings.Shutdown()
 		if err != nil {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,6 +20,17 @@ import (
 )
 
 const FileName = ".runtime-control.json"
+
+var requestHTTPClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		Proxy:               nil,
+		DialContext:         (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		MaxIdleConns:        16,
+		MaxIdleConnsPerHost: 8,
+		IdleConnTimeout:     30 * time.Second,
+	},
+}
 
 type ReloadResult struct {
 	PID              int                 `json:"pid"`
@@ -142,8 +154,7 @@ func Request(ctx context.Context, method, path string, input, output any) (State
 	if input != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	client := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: nil}}
-	response, err := client.Do(request)
+	response, err := requestHTTPClient.Do(request)
 	if err != nil {
 		return State{}, fmt.Errorf("running server control endpoint unavailable: %w", err)
 	}
@@ -164,6 +175,13 @@ func Request(ctx context.Context, method, path string, input, output any) (State
 		}
 	}
 	return state, nil
+}
+
+func WaitStatusChange(ctx context.Context, lifecycle string) (RuntimeStatus, error) {
+	var result RuntimeStatus
+	path := "/status/wait?lifecycle=" + url.QueryEscape(strings.TrimSpace(lifecycle))
+	_, err := Request(ctx, http.MethodGet, path, nil, &result)
+	return result, err
 }
 
 func IsUnavailable(err error) bool {

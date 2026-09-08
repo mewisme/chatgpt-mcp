@@ -229,12 +229,23 @@ func WaitRuntimeStopped(ctx context.Context, probe RuntimeProbe, timeout time.Du
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		_, running, err := probe(ctx)
+		status, running, err := probe(ctx)
 		if err != nil {
 			return err
 		}
 		if !running {
 			return nil
+		}
+		if status.Lifecycle != "" {
+			waitCtx, cancel := context.WithTimeout(ctx, min(10*time.Second, time.Until(deadline)))
+			_, waitErr := runtimecontrol.WaitStatusChange(waitCtx, status.Lifecycle)
+			cancel()
+			if waitErr == nil {
+				continue
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 		}
 		if err := waitLifecyclePoll(ctx); err != nil {
 			return err
@@ -268,6 +279,17 @@ func WaitRuntimeReady(ctx context.Context, spec Spec, probe RuntimeProbe, previo
 				lastErr = errors.New("previous managed runtime is still shutting down")
 			} else if status.Starting {
 				lastErr = errors.New("managed runtime is still starting")
+				if status.Lifecycle != "" {
+					waitCtx, cancel := context.WithTimeout(ctx, min(10*time.Second, time.Until(deadline)))
+					_, waitErr := runtimecontrol.WaitStatusChange(waitCtx, status.Lifecycle)
+					cancel()
+					if waitErr == nil {
+						continue
+					}
+					if ctx.Err() != nil {
+						return runtimecontrol.RuntimeStatus{}, ctx.Err()
+					}
+				}
 			} else {
 				return status, nil
 			}

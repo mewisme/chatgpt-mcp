@@ -41,6 +41,7 @@ type runtimeControlOptions struct {
 	Reload           func(context.Context) (runtimeReloadResult, error)
 	ReloadWorkspaces func() (workspaceReloadResult, error)
 	Status           func() runtimeStatusResult
+	StatusWait       func(context.Context, string) runtimeStatusResult
 	Shutdown         func()
 	ClearLogs        func() error
 	Approvals        *approval.Manager
@@ -99,6 +100,13 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 	}))
 	mux.HandleFunc("/status", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, _ *http.Request) {
 		writeControlJSON(w, options.Status(), nil)
+	}))
+	mux.HandleFunc("/status/wait", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		if options.StatusWait == nil {
+			writeControlJSON(w, options.Status(), nil)
+			return
+		}
+		writeControlJSON(w, options.StatusWait(r.Context(), r.URL.Query().Get("lifecycle")), nil)
 	}))
 	mux.HandleFunc("/shutdown", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, _ *http.Request) {
 		writeControlJSON(w, map[string]bool{"ok": true}, nil)

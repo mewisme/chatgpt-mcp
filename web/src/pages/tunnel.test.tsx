@@ -5,11 +5,34 @@ import { TunnelPage } from "@/pages/tunnel"
 import { adminApi, type PublicConfig, type TunnelStatus } from "@/lib/api"
 
 const publicConfig = {
-  server: { enabled: true, port: 37421, expose: { mode: "none", interfaces: [] }, allow_insecure_http: false },
+  server: {
+    enabled: true,
+    port: 37421,
+    expose: { mode: "none", interfaces: [] },
+    allow_insecure_http: false,
+  },
   admin: { enabled: true, port: 37422 },
-  auth: { mcp_enabled: true, admin_enabled: true, mcp_token_configured: true, admin_token_configured: true },
-  permissions: { allow_dirs: [] }, shell: { path: [] },
-  features: { ponytail: { active: true, mode: "full" }, caveman: { active: true, mode: "full" } },
+  auth: {
+    mcp_enabled: true,
+    admin_enabled: true,
+    mcp_token_configured: true,
+    admin_token_configured: true,
+  },
+  permissions: { allow_dirs: [] },
+  shell: {
+    path: [],
+    approval_policy: "balanced",
+    approval_allow_commands: [],
+    approval_deny_commands: [],
+    environment_policy: "auto",
+    environment_allow: [],
+    sandbox_policy: "auto",
+    network_policy: "auto",
+  },
+  features: {
+    ponytail: { active: true, mode: "full" },
+    caveman: { active: true, mode: "full" },
+  },
 } satisfies PublicConfig
 
 const tunnelStatus: TunnelStatus = {
@@ -39,13 +62,29 @@ const tunnelStatus: TunnelStatus = {
 
 describe("TunnelPage", () => {
   beforeEach(() => {
-    vi.spyOn(adminApi, "tunnelConfig").mockResolvedValue({ enabled: true, id: "tunnel_one", runtime_key_configured: true, admin_key_configured: true })
+    vi.spyOn(adminApi, "tunnelConfig").mockResolvedValue({
+      enabled: true,
+      id: "tunnel_one",
+      runtime_key_configured: true,
+      admin_key_configured: true,
+    })
     vi.spyOn(adminApi, "tunnel").mockResolvedValue(tunnelStatus)
-    vi.spyOn(adminApi, "tunnelAdminKey").mockResolvedValue({ configured: true, scope: { workspace_id: "ws_admin" }, tunnels: 2 })
+    vi.spyOn(adminApi, "tunnelAdminKey").mockResolvedValue({
+      configured: true,
+      scope: { workspace_id: "ws_admin" },
+      tunnels: 2,
+    })
     vi.spyOn(adminApi, "config").mockResolvedValue(publicConfig)
-    vi.spyOn(adminApi, "removeTunnelAdminKey").mockResolvedValue({ configured: false, scope: {} })
+    vi.spyOn(adminApi, "removeTunnelAdminKey").mockResolvedValue({
+      configured: false,
+      scope: {},
+    })
     vi.spyOn(adminApi, "startTunnel").mockResolvedValue(tunnelStatus)
-    vi.spyOn(adminApi, "stopTunnel").mockResolvedValue({ ...tunnelStatus, running: false, ready: false })
+    vi.spyOn(adminApi, "stopTunnel").mockResolvedValue({
+      ...tunnelStatus,
+      running: false,
+      ready: false,
+    })
   })
 
   afterEach(() => vi.restoreAllMocks())
@@ -66,7 +105,9 @@ describe("TunnelPage", () => {
     await user.click(screen.getByRole("button", { name: "Remove" }))
     expect(screen.getByText("Remove tunnel admin key?")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Remove admin key" }))
-    await waitFor(() => expect(adminApi.removeTunnelAdminKey).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(adminApi.removeTunnelAdminKey).toHaveBeenCalledOnce()
+    )
     expect(await screen.findByText("Admin key removed.")).toBeInTheDocument()
 
     await user.click(screen.getByRole("tab", { name: "Metadata" }))
@@ -77,9 +118,14 @@ describe("TunnelPage", () => {
   })
 
   it("locks the tunnel when MCP HTTP is disabled", async () => {
-    vi.mocked(adminApi.config).mockResolvedValue({ ...publicConfig, server: { ...publicConfig.server, enabled: false } })
+    vi.mocked(adminApi.config).mockResolvedValue({
+      ...publicConfig,
+      server: { ...publicConfig.server, enabled: false },
+    })
     render(<TunnelPage />)
-    expect(await screen.findByText(/Secure MCP Tunnel is the required MCP transport/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Secure MCP Tunnel is the required MCP transport/)
+    ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Stop tunnel" })).toBeDisabled()
     expect(screen.getByRole("switch", { name: "Enable tunnel" })).toBeDisabled()
   })

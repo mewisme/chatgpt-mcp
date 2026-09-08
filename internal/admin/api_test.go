@@ -461,7 +461,7 @@ func TestConfigAPIShellApprovalPolicyPatchUpdatesRuntime(t *testing.T) {
 	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
 	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return nil }})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"shell":{"approval_policy":"strict","environment_policy":"filtered","environment_allow":["DATABASE_URL"],"sandbox_policy":"required","network_policy":"deny"}}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"shell":{"approval_policy":"strict","approval_allow_commands":["go test *"],"approval_deny_commands":["git push **"],"environment_policy":"filtered","environment_allow":["DATABASE_URL"],"sandbox_policy":"required","network_policy":"deny"}}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
@@ -470,6 +470,10 @@ func TestConfigAPIShellApprovalPolicyPatchUpdatesRuntime(t *testing.T) {
 	}
 	if got := runtime.Workspaces.ShellApprovalPolicy(); got != "strict" {
 		t.Fatalf("runtime shell approval policy = %q", got)
+	}
+	allow, deny := runtime.Workspaces.ShellApprovalCommands()
+	if len(allow) != 1 || allow[0] != "go test *" || len(deny) != 1 || deny[0] != "git push **" {
+		t.Fatalf("runtime shell approval commands = allow %#v deny %#v", allow, deny)
 	}
 	if got := runtime.Workspaces.ShellEnvironmentPolicy(); got != "filtered" {
 		t.Fatalf("runtime shell environment policy = %q", got)
@@ -483,8 +487,27 @@ func TestConfigAPIShellApprovalPolicyPatchUpdatesRuntime(t *testing.T) {
 	if got := runtime.Workspaces.ShellNetworkPolicy(); got != "deny" {
 		t.Fatalf("runtime shell network policy = %q", got)
 	}
-	if !strings.Contains(recorder.Body.String(), `"approval_policy":"strict"`) || !strings.Contains(recorder.Body.String(), `"environment_policy":"filtered"`) || !strings.Contains(recorder.Body.String(), `"sandbox_policy":"required"`) || !strings.Contains(recorder.Body.String(), `"network_policy":"deny"`) {
+	if !strings.Contains(recorder.Body.String(), `"approval_policy":"strict"`) || !strings.Contains(recorder.Body.String(), `"approval_allow_commands":["go test *"]`) || !strings.Contains(recorder.Body.String(), `"approval_deny_commands":["git push **"]`) || !strings.Contains(recorder.Body.String(), `"environment_policy":"filtered"`) || !strings.Contains(recorder.Body.String(), `"sandbox_policy":"required"`) || !strings.Contains(recorder.Body.String(), `"network_policy":"deny"`) {
 		t.Fatalf("shell approval policy missing from response: %s", recorder.Body.String())
+	}
+}
+
+func TestConfigAPIShellApprovalCommandPatchRejectsInvalidGlob(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Shell.Path = []string{t.TempDir()}
+	store := config.NewRuntimeStore(cfg)
+	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+	runtime.SetShellPath(cfg.Shell.Path)
+	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { t.Fatal("invalid glob must not persist"); return nil }})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"shell":{"approval_allow_commands":["git ["]}}`)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := store.Snapshot().Shell; len(got.ApprovalAllowCommands) != 0 || len(got.Path) != 1 {
+		t.Fatalf("invalid shell patch mutated config: %#v", got)
 	}
 }
 

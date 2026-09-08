@@ -174,13 +174,17 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err == nil && patch.Shell != nil {
-			var shellPath []string
-			shellPath, err = config.NormalizeShellPath(patch.Shell.Path)
-			if err == nil {
-				next.Shell.Path = shellPath
+			if patch.Shell.Path != nil {
+				next.Shell.Path, err = config.NormalizeShellPath(patch.Shell.Path)
 			}
 			if err == nil && strings.TrimSpace(patch.Shell.ApprovalPolicy) != "" {
 				next.Shell.ApprovalPolicy, err = config.NormalizeShellApprovalPolicy(patch.Shell.ApprovalPolicy)
+			}
+			if err == nil && patch.Shell.ApprovalAllowCommands != nil {
+				next.Shell.ApprovalAllowCommands, err = config.NormalizeShellApprovalCommands(patch.Shell.ApprovalAllowCommands)
+			}
+			if err == nil && patch.Shell.ApprovalDenyCommands != nil {
+				next.Shell.ApprovalDenyCommands, err = config.NormalizeShellApprovalCommands(patch.Shell.ApprovalDenyCommands)
 			}
 			if err == nil && strings.TrimSpace(patch.Shell.EnvironmentPolicy) != "" {
 				next.Shell.EnvironmentPolicy, err = config.NormalizeShellEnvironmentPolicy(patch.Shell.EnvironmentPolicy)
@@ -293,6 +297,9 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 	if api.Tools != nil {
 		api.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
 		if err := api.Tools.SetShellApprovalPolicy(next.Shell.ApprovalPolicy); err != nil {
+			return errors.Join(err, api.persistConfig(previous))
+		}
+		if err := api.Tools.SetShellApprovalCommands(next.Shell.ApprovalAllowCommands, next.Shell.ApprovalDenyCommands); err != nil {
 			return errors.Join(err, api.persistConfig(previous))
 		}
 		if err := api.Tools.SetShellEnvironmentPolicy(next.Shell.EnvironmentPolicy); err != nil {

@@ -30,13 +30,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { ScrollableTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 import {
-  adminApi,
-  type NetworkInterface,
-  type PublicConfig,
-} from "@/lib/api"
+  ScrollableTabsList,
+  Tabs,
+  TabsContent,
+  TabsTrigger,
+} from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import { adminApi, type NetworkInterface, type PublicConfig } from "@/lib/api"
 
 export function SettingsPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
@@ -81,7 +82,7 @@ export function SettingsPage() {
       setConfig(next)
       setSavedConfig(next)
       setMessage(
-        "Saved. Runtime, transport, listener, feature, auth, filesystem, and shell-path changes were applied live."
+        "Saved. Runtime, transport, listener, feature, auth, filesystem, and shell execution changes were applied live."
       )
       setError("")
     } catch (value) {
@@ -198,7 +199,9 @@ export function SettingsPage() {
                   }
                 />
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant={config.server.enabled ? "secondary" : "outline"}>
+                  <Badge
+                    variant={config.server.enabled ? "secondary" : "outline"}
+                  >
                     MCP HTTP {config.server.enabled ? "enabled" : "disabled"}
                   </Badge>
                   <Badge variant={tunnelEnabled ? "secondary" : "outline"}>
@@ -268,7 +271,8 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Network exposure</CardTitle>
               <CardDescription>
-                Choose which interfaces receive enabled direct MCP HTTP and Admin listeners.
+                Choose which interfaces receive enabled direct MCP HTTP and
+                Admin listeners.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -405,7 +409,8 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Built-in modes</CardTitle>
               <CardDescription>
-                Set the default active state for built-in response modes. Their controller tools remain available.
+                Set the default active state for built-in response modes. Their
+                controller tools remain available.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -544,7 +549,217 @@ export function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent className="mt-6" value="environment">
+        <TabsContent className="mt-6 space-y-6" value="environment">
+          <Card>
+            <CardHeader>
+              <CardTitle>Shell approval</CardTitle>
+              <CardDescription>
+                Control when shell execution requires a local approval request.
+                Balanced is the default and preserves the standard risk-based
+                behavior.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup>
+                <SettingField
+                  label="Approval policy"
+                  description="Allow skips ordinary approval gates, balanced uses risk-based approval, strict also gates non-static reads, and deny requires approval for every otherwise valid command."
+                >
+                  <Select
+                    value={config.shell.approval_policy}
+                    onValueChange={(approval_policy) =>
+                      setConfig({
+                        ...config,
+                        shell: {
+                          ...config.shell,
+                          approval_policy:
+                            approval_policy as PublicConfig["shell"]["approval_policy"],
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full sm:w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="allow">Allow</SelectItem>
+                      <SelectItem value="balanced">Balanced</SelectItem>
+                      <SelectItem value="strict">Strict</SelectItem>
+                      <SelectItem value="deny">Deny</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </SettingField>
+                <div className="grid gap-5 lg:grid-cols-2">
+                  <SettingField
+                    label="Allow commands"
+                    description="One argv-aware glob pattern per line. A matching rule bypasses ordinary approval only when every executable invocation in the command is allowed."
+                  >
+                    <Textarea
+                      className="min-h-36 font-mono"
+                      placeholder={"git status\ngo test *"}
+                      value={config.shell.approval_allow_commands.join("\n")}
+                      onChange={(event) =>
+                        setConfig({
+                          ...config,
+                          shell: {
+                            ...config.shell,
+                            approval_allow_commands: parseLines(
+                              event.target.value
+                            ),
+                          },
+                        })
+                      }
+                    />
+                  </SettingField>
+                  <SettingField
+                    label="Deny commands"
+                    description="One argv-aware glob pattern per line. Matching commands always require approval; deny rules take precedence over allow rules."
+                  >
+                    <Textarea
+                      className="min-h-36 font-mono"
+                      placeholder={"git push **\nrm -rf *"}
+                      value={config.shell.approval_deny_commands.join("\n")}
+                      onChange={(event) =>
+                        setConfig({
+                          ...config,
+                          shell: {
+                            ...config.shell,
+                            approval_deny_commands: parseLines(
+                              event.target.value
+                            ),
+                          },
+                        })
+                      }
+                    />
+                  </SettingField>
+                </div>
+                <FieldDescription>
+                  Patterns match argv tokens, not raw shell text:{" "}
+                  <code className="font-mono">*</code>,{" "}
+                  <code className="font-mono">?</code>, and character classes
+                  match within one argument; standalone{" "}
+                  <code className="font-mono">**</code> matches zero or more
+                  arguments. Hard safety boundaries are never bypassed.
+                </FieldDescription>
+              </FieldGroup>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Shell isolation</CardTitle>
+              <CardDescription>
+                Configure environment inheritance, OS-level sandboxing, and
+                network egress for managed shell commands.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup>
+                <div className="grid gap-5 md:grid-cols-3">
+                  <SettingField
+                    label="Environment policy"
+                    description="Auto follows the approval policy; inherit keeps the runtime environment, filtered exposes an allow list, and minimal keeps only the minimal safe environment."
+                  >
+                    <Select
+                      value={config.shell.environment_policy}
+                      onValueChange={(environment_policy) =>
+                        setConfig({
+                          ...config,
+                          shell: {
+                            ...config.shell,
+                            environment_policy:
+                              environment_policy as PublicConfig["shell"]["environment_policy"],
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto</SelectItem>
+                        <SelectItem value="inherit">Inherit</SelectItem>
+                        <SelectItem value="filtered">Filtered</SelectItem>
+                        <SelectItem value="minimal">Minimal</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingField>
+                  <SettingField
+                    label="Sandbox policy"
+                    description="Auto chooses isolation from the approval policy, off disables the OS sandbox, and required fails when the sandbox cannot be applied."
+                  >
+                    <Select
+                      value={config.shell.sandbox_policy}
+                      onValueChange={(sandbox_policy) =>
+                        setConfig({
+                          ...config,
+                          shell: {
+                            ...config.shell,
+                            sandbox_policy:
+                              sandbox_policy as PublicConfig["shell"]["sandbox_policy"],
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto</SelectItem>
+                        <SelectItem value="off">Off</SelectItem>
+                        <SelectItem value="required">Required</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingField>
+                  <SettingField
+                    label="Network policy"
+                    description="Auto follows approval policy behavior, inherit permits normal network access, and deny blocks network egress before approval rules are evaluated."
+                  >
+                    <Select
+                      value={config.shell.network_policy}
+                      onValueChange={(network_policy) =>
+                        setConfig({
+                          ...config,
+                          shell: {
+                            ...config.shell,
+                            network_policy:
+                              network_policy as PublicConfig["shell"]["network_policy"],
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto</SelectItem>
+                        <SelectItem value="inherit">Inherit</SelectItem>
+                        <SelectItem value="deny">Deny</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingField>
+                </div>
+                <SettingField
+                  label="Environment allow list"
+                  description="One environment variable name per line. Used by the filtered environment policy; protected control variables cannot be added."
+                >
+                  <Textarea
+                    className="min-h-28 font-mono"
+                    placeholder={"DATABASE_URL\nCI"}
+                    value={config.shell.environment_allow.join("\n")}
+                    onChange={(event) =>
+                      setConfig({
+                        ...config,
+                        shell: {
+                          ...config.shell,
+                          environment_allow: parseLines(event.target.value),
+                        },
+                      })
+                    }
+                  />
+                </SettingField>
+              </FieldGroup>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader>
               <CardTitle>Managed execution environment</CardTitle>
@@ -566,7 +781,10 @@ export function SettingsPage() {
                   onChange={(event) =>
                     setConfig({
                       ...config,
-                      shell: { path: parseLines(event.target.value) },
+                      shell: {
+                        ...config.shell,
+                        path: parseLines(event.target.value),
+                      },
                     })
                   }
                 />
@@ -643,7 +861,11 @@ function Toggle({
         <FieldLabel>{label}</FieldLabel>
         <FieldDescription>{description}</FieldDescription>
       </div>
-      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+      />
     </Field>
   )
 }
@@ -706,7 +928,16 @@ function normalizeConfig(value: PublicConfig): PublicConfig {
   return {
     ...value,
     server: { ...value.server, enabled: value.server?.enabled ?? true },
-    shell: value.shell || { path: [] },
+    shell: {
+      path: value.shell?.path ?? [],
+      approval_policy: value.shell?.approval_policy ?? "balanced",
+      approval_allow_commands: value.shell?.approval_allow_commands ?? [],
+      approval_deny_commands: value.shell?.approval_deny_commands ?? [],
+      environment_policy: value.shell?.environment_policy ?? "auto",
+      environment_allow: value.shell?.environment_allow ?? [],
+      sandbox_policy: value.shell?.sandbox_policy ?? "auto",
+      network_policy: value.shell?.network_policy ?? "auto",
+    },
   }
 }
 function parseLines(value: string) {

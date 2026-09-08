@@ -858,3 +858,23 @@ func TestShellPolicyBlocksProtectedReadThroughPathAlias(t *testing.T) {
 		t.Fatalf("aliased protected read was not denied: %v", err)
 	}
 }
+
+func TestSimilarCommandPatternIsConservative(t *testing.T) {
+	for command, want := range map[string]string{
+		"git push origin main": "git push **",
+		"go test ./...":        "go test **",
+	} {
+		pattern, ok := SimilarCommandPattern(command)
+		if !ok || pattern != want {
+			t.Fatalf("SimilarCommandPattern(%q)=(%q,%t), want %q", command, pattern, ok, want)
+		}
+	}
+	for _, command := range []string{"git", "rm -rf build", "cgm update", "git push && rm -rf build"} {
+		if pattern, ok := SimilarCommandPattern(command); ok {
+			t.Fatalf("unsafe/ambiguous command %q produced pattern %q", command, pattern)
+		}
+	}
+	if !MatchSimilarCommand("git push **", "git push origin feature") || MatchSimilarCommand("git push **", "git status") || MatchSimilarCommand("git push **", "git push && rm -rf build") {
+		t.Fatal("similar command matcher is too broad or too narrow")
+	}
+}

@@ -44,3 +44,15 @@ func TestPatternQuotedTokensAndValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandWordsRejectsCompoundShellCommands(t *testing.T) {
+	values, err := CommandWords(`git push origin main`)
+	if err != nil || len(values) != 4 || values[0] != "git" || values[1] != "push" {
+		t.Fatalf("words=%#v err=%v", values, err)
+	}
+	for _, value := range []string{`git push && rm -rf build`, `git push | tee log`, `git push > out`} {
+		if _, err := CommandWords(value); err == nil {
+			t.Fatalf("compound command accepted: %q", value)
+		}
+	}
+}

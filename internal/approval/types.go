@@ -44,58 +44,62 @@ var (
 )
 
 type ChallengeInput struct {
-	SessionID   string
-	SessionHash string
-	WorkspaceID string
-	Source      string
-	TargetTool  string
-	Arguments   map[string]any
-	GuardCode   controlguard.Code
-	GuardReason string
-	Title       string
-	Command     string
+	SessionID             string
+	SessionHash           string
+	WorkspaceID           string
+	Source                string
+	TargetTool            string
+	Arguments             map[string]any
+	GuardCode             controlguard.Code
+	GuardReason           string
+	Title                 string
+	Command               string
+	SimilarCommandPattern string
 }
 
 type Challenge struct {
-	ID          string            `json:"id"`
-	SessionHash string            `json:"session_hash,omitempty"`
-	WorkspaceID string            `json:"workspace_id"`
-	Source      string            `json:"source,omitempty"`
-	TargetTool  string            `json:"target_tool"`
-	Arguments   json.RawMessage   `json:"arguments"`
-	Digest      string            `json:"-"`
-	GuardCode   controlguard.Code `json:"guard_code"`
-	GuardReason string            `json:"guard_reason"`
-	Title       string            `json:"title"`
-	Command     string            `json:"command,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	ExpiresAt   time.Time         `json:"expires_at"`
-	sessionID   string
-	requestID   string
+	ID                    string            `json:"id"`
+	SessionHash           string            `json:"session_hash,omitempty"`
+	WorkspaceID           string            `json:"workspace_id"`
+	Source                string            `json:"source,omitempty"`
+	TargetTool            string            `json:"target_tool"`
+	Arguments             json.RawMessage   `json:"arguments"`
+	Digest                string            `json:"-"`
+	GuardCode             controlguard.Code `json:"guard_code"`
+	GuardReason           string            `json:"guard_reason"`
+	Title                 string            `json:"title"`
+	Command               string            `json:"command,omitempty"`
+	SimilarCommandPattern string            `json:"similar_command_pattern,omitempty"`
+	CreatedAt             time.Time         `json:"created_at"`
+	ExpiresAt             time.Time         `json:"expires_at"`
+	sessionID             string
+	requestID             string
 }
 
 type Request struct {
-	ID          string            `json:"id"`
-	Status      Status            `json:"status"`
-	WorkspaceID string            `json:"workspace_id"`
-	SessionHash string            `json:"session_hash,omitempty"`
-	Source      string            `json:"source,omitempty"`
-	TargetTool  string            `json:"target_tool"`
-	Arguments   json.RawMessage   `json:"arguments"`
-	Digest      string            `json:"-"`
-	GuardCode   controlguard.Code `json:"guard_code"`
-	GuardReason string            `json:"guard_reason"`
-	Title       string            `json:"title"`
-	Command     string            `json:"command,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	ExpiresAt   time.Time         `json:"expires_at"`
-	ResolvedAt  time.Time         `json:"resolved_at,omitempty"`
-	ResolvedBy  string            `json:"resolved_by,omitempty"`
-	Reason      string            `json:"reason,omitempty"`
-	RetryUntil  time.Time         `json:"retry_until,omitempty"`
-	ConsumedAt  time.Time         `json:"consumed_at,omitempty"`
-	sessionID   string
-	challengeID string
+	ID                    string            `json:"id"`
+	Status                Status            `json:"status"`
+	WorkspaceID           string            `json:"workspace_id"`
+	SessionHash           string            `json:"session_hash,omitempty"`
+	Source                string            `json:"source,omitempty"`
+	TargetTool            string            `json:"target_tool"`
+	Arguments             json.RawMessage   `json:"arguments"`
+	Digest                string            `json:"-"`
+	GuardCode             controlguard.Code `json:"guard_code"`
+	GuardReason           string            `json:"guard_reason"`
+	Title                 string            `json:"title"`
+	Command               string            `json:"command,omitempty"`
+	SimilarCommandPattern string            `json:"similar_command_pattern,omitempty"`
+	RuntimeSessionGrant   bool              `json:"runtime_session_grant,omitempty"`
+	CreatedAt             time.Time         `json:"created_at"`
+	ExpiresAt             time.Time         `json:"expires_at"`
+	ResolvedAt            time.Time         `json:"resolved_at,omitempty"`
+	ResolvedBy            string            `json:"resolved_by,omitempty"`
+	Reason                string            `json:"reason,omitempty"`
+	RetryUntil            time.Time         `json:"retry_until,omitempty"`
+	ConsumedAt            time.Time         `json:"consumed_at,omitempty"`
+	sessionID             string
+	challengeID           string
 }
 
 type RetryInput struct {
@@ -104,6 +108,7 @@ type RetryInput struct {
 	Source      string
 	TargetTool  string
 	Arguments   map[string]any
+	Command     string
 }
 
 type CLIInvocation struct {

@@ -23,12 +23,16 @@ func GetApprovalRequest(ctx context.Context, id string) (approval.Request, error
 }
 
 func ResolveApprovalRequest(ctx context.Context, id string, approve bool, reason string) (approval.Request, error) {
+	return ResolveApprovalRequestWithRuntimeGrant(ctx, id, approve, false, reason)
+}
+
+func ResolveApprovalRequestWithRuntimeGrant(ctx context.Context, id string, approve, allowSimilar bool, reason string) (approval.Request, error) {
 	action := "deny"
 	if approve {
 		action = "approve"
 	}
 	var result approval.Request
-	_, err := runtimecontrol.Request(ctx, http.MethodPost, "/requests/"+action, map[string]string{"id": strings.TrimSpace(id), "reason": strings.TrimSpace(reason)}, &result)
+	_, err := runtimecontrol.Request(ctx, http.MethodPost, "/requests/"+action, map[string]any{"id": strings.TrimSpace(id), "reason": strings.TrimSpace(reason), "allow_similar": allowSimilar}, &result)
 	return result, err
 }
 

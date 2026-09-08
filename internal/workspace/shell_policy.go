@@ -572,6 +572,45 @@ func DirectControlPlaneInvocation(command string) (*controlguard.Invocation, boo
 	return &controlguard.Invocation{Program: filepath.Base(tokens[0]), Args: args, Command: strings.TrimSpace(command)}, true
 }
 
+func SimilarCommandPattern(command string) (string, bool) {
+	segments, err := splitShellSegments(command)
+	if err != nil || len(segments) != 1 || strings.TrimSpace(command) != strings.TrimSpace(segments[0]) {
+		return "", false
+	}
+	tokens, err := shellWords(segments[0])
+	if err != nil || len(tokens) < 2 {
+		return "", false
+	}
+	name, args := commandName(tokens)
+	if name == "" || len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return "", false
+	}
+	if isChatGPTMCPBinary(name) {
+		return "", false
+	}
+	prefix := []string{name, args[0]}
+	return strings.Join(prefix, " ") + " **", true
+}
+
+func MatchSimilarCommand(pattern, command string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return false
+	}
+	segments, err := splitShellSegments(command)
+	if err != nil || len(segments) != 1 || strings.TrimSpace(command) != strings.TrimSpace(segments[0]) {
+		return false
+	}
+	tokens, err := shellWords(segments[0])
+	if err != nil || len(tokens) == 0 {
+		return false
+	}
+	name, args := commandName(tokens)
+	argv := append([]string{name}, args...)
+	compiled, err := commandpattern.Parse(pattern)
+	return err == nil && compiled.Match(argv)
+}
+
 func (m *Manager) validateProtectedShellAccess(cwd, command string, depth int) error {
 	if m.protectedRoot == "" {
 		return nil

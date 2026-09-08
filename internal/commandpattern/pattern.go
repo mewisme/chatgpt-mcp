@@ -80,6 +80,35 @@ func MatchAny(patterns []Pattern, argv []string) bool {
 	return false
 }
 
+func CommandWords(value string) ([]string, error) {
+	var quote rune
+	escaped := false
+	for _, r := range value {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' && quote != '\'' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if strings.ContainsRune(";&|<>", r) {
+			return nil, errors.New("compound shell command cannot use a runtime approval pattern")
+		}
+	}
+	return words(value)
+}
+
 func matchTokens(pattern, values []string) bool {
 	if len(pattern) == 0 {
 		return true

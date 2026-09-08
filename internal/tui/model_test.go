@@ -1064,6 +1064,32 @@ func TestModelApprovalResolvesDirectlyAndAdvancesQueue(t *testing.T) {
 	}
 }
 
+func TestModelApprovalAllowsSimilarCommandsForRuntimeSession(t *testing.T) {
+	request := testPendingApproval("req_similar")
+	request.SimilarCommandPattern = "git push **"
+	request.Command = "git push origin main"
+	model := NewModel(Route{Kind: RouteHome})
+	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{request}})
+	if view := model.approvalDialogView(96); !strings.Contains(view, "Runtime session pattern") || !strings.Contains(view, "git push **") || !strings.Contains(view, "s approve similar for runtime session") {
+		t.Fatalf("runtime-session approval option missing:\n%s", view)
+	}
+	called := false
+	model.approvalResolveSimilar = func(_ context.Context, id string, approve, similar bool, reason string) (approval.Request, error) {
+		called = id == request.ID && approve && similar && reason == ""
+		return approval.Request{ID: id}, nil
+	}
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	model = updated.(Model)
+	if cmd == nil || model.approvalStage != approvalStageResolving || !model.approvalApprove || !model.approvalSimilar {
+		t.Fatalf("similar approval did not enter resolving state: stage=%d approve=%t similar=%t", model.approvalStage, model.approvalApprove, model.approvalSimilar)
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if !called || model.toast.message != "Approved for runtime session "+request.ID {
+		t.Fatalf("runtime-session resolution called=%t toast=%q", called, model.toast.message)
+	}
+}
+
 func TestModelApprovalPollFiltersStatusesAndSurvivesErrors(t *testing.T) {
 	pending, resolved := testPendingApproval("req_pending"), testPendingApproval("req_resolved")
 	resolved.Status = approval.StatusApproved

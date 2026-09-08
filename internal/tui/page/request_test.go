@@ -240,15 +240,19 @@ func TestRequestsPageResolutionUsesRoutedEditorWithoutConfirmField(t *testing.T)
 			_ = json.NewEncoder(w).Encode(request)
 		case "/requests/approve":
 			resolveCalls++
-			var input map[string]string
+			var input struct {
+				ID           string `json:"id"`
+				Reason       string `json:"reason"`
+				AllowSimilar bool   `json:"allow_similar"`
+			}
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				t.Fatal(err)
 			}
-			if input["id"] != request.ID || input["reason"] != "reviewed" {
+			if input.ID != request.ID || input.Reason != "reviewed" || input.AllowSimilar {
 				t.Fatalf("input=%#v", input)
 			}
 			resolved := request
-			resolved.Status, resolved.Reason, resolved.ResolvedBy = approval.StatusApproved, input["reason"], "cli"
+			resolved.Status, resolved.Reason, resolved.ResolvedBy = approval.StatusApproved, input.Reason, "cli"
 			resolved.ResolvedAt, resolved.RetryUntil = time.Now().UTC(), time.Now().UTC().Add(time.Minute)
 			_ = json.NewEncoder(w).Encode(resolved)
 		default:

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/commandpattern"
 )
 
 type challengeRecord struct {
@@ -28,6 +30,13 @@ type cliCapabilityRecord struct {
 	expiresAt time.Time
 }
 
+type runtimeGrant struct {
+	requestID   string
+	workspaceID string
+	targetTool  string
+	pattern     commandpattern.Pattern
+}
+
 type Manager struct {
 	mu                    sync.Mutex
 	instanceID            string
@@ -36,6 +45,7 @@ type Manager struct {
 	requests              map[string]*requestRecord
 	activeBySession       map[string]string
 	cliCapabilities       map[string]*cliCapabilityRecord
+	runtimeGrants         []runtimeGrant
 	now                   func() time.Time
 	newID                 func(string) (string, error)
 	challengeTTL          time.Duration
@@ -50,7 +60,7 @@ type Manager struct {
 func NewManager(instanceID string) *Manager {
 	return &Manager{
 		instanceID: strings.TrimSpace(instanceID), challenges: map[string]*challengeRecord{}, challengeByTarget: map[string]string{}, requests: map[string]*requestRecord{}, activeBySession: map[string]string{},
-		cliCapabilities: map[string]*cliCapabilityRecord{}, now: time.Now, newID: randomID, challengeTTL: DefaultChallengeTTL, requestTTL: DefaultRequestTTL, retryTTL: DefaultRetryTTL, pendingLimit: DefaultPendingLimit, workspacePendingLimit: DefaultWorkspacePendingLimit,
+		cliCapabilities: map[string]*cliCapabilityRecord{}, runtimeGrants: []runtimeGrant{}, now: time.Now, newID: randomID, challengeTTL: DefaultChallengeTTL, requestTTL: DefaultRequestTTL, retryTTL: DefaultRetryTTL, pendingLimit: DefaultPendingLimit, workspacePendingLimit: DefaultWorkspacePendingLimit,
 		events: newEventStream(),
 	}
 }
@@ -83,6 +93,7 @@ func (m *Manager) CreateChallenge(input ChallengeInput) (Challenge, bool, error)
 	input.GuardReason = strings.TrimSpace(input.GuardReason)
 	input.Title = strings.TrimSpace(input.Title)
 	input.Command = strings.TrimSpace(input.Command)
+	input.SimilarCommandPattern = strings.TrimSpace(input.SimilarCommandPattern)
 	digest, arguments, err := CanonicalTargetDigest(m.instanceID, Target{SessionID: input.SessionID, WorkspaceID: input.WorkspaceID, Source: input.Source, TargetTool: input.TargetTool, Arguments: input.Arguments, GuardCode: input.GuardCode})
 	if err != nil {
 		return Challenge{}, false, err
@@ -107,7 +118,7 @@ func (m *Manager) CreateChallenge(input ChallengeInput) (Challenge, bool, error)
 	}
 	value := Challenge{
 		ID: id, SessionHash: input.SessionHash, WorkspaceID: input.WorkspaceID, Source: input.Source, TargetTool: input.TargetTool, Arguments: arguments, Digest: digest,
-		GuardCode: input.GuardCode, GuardReason: input.GuardReason, Title: input.Title, Command: input.Command, CreatedAt: now, ExpiresAt: now.Add(m.challengeTTL), sessionID: input.SessionID,
+		GuardCode: input.GuardCode, GuardReason: input.GuardReason, Title: input.Title, Command: input.Command, SimilarCommandPattern: input.SimilarCommandPattern, CreatedAt: now, ExpiresAt: now.Add(m.challengeTTL), sessionID: input.SessionID,
 	}
 	m.challenges[id] = &challengeRecord{value: value}
 	m.challengeByTarget[key] = id
@@ -177,7 +188,7 @@ func (m *Manager) CreateRequestWithTitle(challengeID, sessionID, workspaceID, ti
 	}
 	value := Request{
 		ID: id, Status: StatusPending, WorkspaceID: challenge.value.WorkspaceID, SessionHash: challenge.value.SessionHash, Source: challenge.value.Source, TargetTool: challenge.value.TargetTool,
-		Arguments: cloneRaw(challenge.value.Arguments), Digest: challenge.value.Digest, GuardCode: challenge.value.GuardCode, GuardReason: challenge.value.GuardReason, Title: title, Command: challenge.value.Command,
+		Arguments: cloneRaw(challenge.value.Arguments), Digest: challenge.value.Digest, GuardCode: challenge.value.GuardCode, GuardReason: challenge.value.GuardReason, Title: title, Command: challenge.value.Command, SimilarCommandPattern: challenge.value.SimilarCommandPattern,
 		CreatedAt: now, ExpiresAt: now.Add(m.requestTTL), sessionID: sessionID, challengeID: challenge.value.ID,
 	}
 	m.requests[id] = &requestRecord{value: value, resolved: make(chan struct{})}
@@ -189,6 +200,35 @@ func (m *Manager) CreateRequestWithTitle(challengeID, sessionID, workspaceID, ti
 
 func (m *Manager) Approve(id, resolvedBy, reason string) (Request, error) {
 	return m.resolve(id, StatusApproved, resolvedBy, reason)
+}
+
+func (m *Manager) ApproveRuntimeSession(id, resolvedBy, reason string) (Request, error) {
+	if m == nil {
+		return Request{}, errors.New("approval manager is unavailable")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now().UTC()
+	m.purgeExpiredLocked(now)
+	record := m.requests[strings.TrimSpace(id)]
+	if record == nil {
+		return Request{}, ErrRequestNotFound
+	}
+	if record.value.Status != StatusPending {
+		return Request{}, fmt.Errorf("%w: %s", ErrRequestResolved, record.value.Status)
+	}
+	pattern, err := commandpattern.Parse(record.value.SimilarCommandPattern)
+	if err != nil || strings.TrimSpace(record.value.Command) == "" {
+		return Request{}, errors.New("approval request does not support a similar-command runtime grant")
+	}
+	record.value.Status, record.value.ResolvedAt, record.value.ResolvedBy, record.value.Reason = StatusApproved, now, strings.TrimSpace(resolvedBy), strings.TrimSpace(reason)
+	record.value.RetryUntil = time.Time{}
+	record.value.RuntimeSessionGrant = true
+	m.runtimeGrants = append(m.runtimeGrants, runtimeGrant{requestID: record.value.ID, workspaceID: record.value.WorkspaceID, targetTool: record.value.TargetTool, pattern: pattern})
+	m.clearActiveLocked(record.value)
+	m.closeResolvedLocked(record)
+	m.emitLocked(EventApproved, record.value)
+	return cloneRequest(record.value), nil
 }
 
 func (m *Manager) Deny(id, resolvedBy, reason string) (Request, error) {
@@ -299,6 +339,34 @@ func (m *Manager) MatchApproved(input RetryInput) (Request, bool, error) {
 	defer m.mu.Unlock()
 	m.purgeExpiredLocked(m.now().UTC())
 	return m.matchApprovedLocked(input)
+}
+
+func (m *Manager) MatchRuntimeGrant(input RetryInput) (Request, bool) {
+	if m == nil {
+		return Request{}, false
+	}
+	input.WorkspaceID, input.TargetTool, input.Command = strings.TrimSpace(input.WorkspaceID), strings.TrimSpace(input.TargetTool), strings.TrimSpace(input.Command)
+	if input.WorkspaceID == "" || input.TargetTool == "" || input.Command == "" {
+		return Request{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for index := len(m.runtimeGrants) - 1; index >= 0; index-- {
+		grant := m.runtimeGrants[index]
+		if grant.workspaceID != input.WorkspaceID || grant.targetTool != input.TargetTool {
+			continue
+		}
+		argv, err := commandpattern.CommandWords(input.Command)
+		if err != nil || !grant.pattern.Match(argv) {
+			continue
+		}
+		record := m.requests[grant.requestID]
+		if record == nil {
+			continue
+		}
+		return cloneRequest(record.value), true
+	}
+	return Request{}, false
 }
 
 func (m *Manager) ClaimApproved(input RetryInput) (Request, bool, error) {
@@ -508,6 +576,9 @@ func (m *Manager) purgeExpiredLocked(now time.Time) int {
 			m.emitLocked(EventExpired, record.value)
 			changed++
 		case StatusApproved:
+			if record.value.RuntimeSessionGrant {
+				continue
+			}
 			if record.value.RetryUntil.IsZero() || now.Before(record.value.RetryUntil) {
 				continue
 			}

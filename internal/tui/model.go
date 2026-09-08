@@ -82,34 +82,36 @@ type navigationIntent struct {
 }
 
 type Model struct {
-	ctx               context.Context
-	router            Router
-	actions           *action.Registry
-	palette           *palette.Model
-	homeCommands      *palette.Model
-	overlay           overlayKind
-	commandResources  map[string]quickopen.Resource
-	workspaceContexts map[string]*tuipage.WorkspaceContextSession
-	stateRoot         string
-	state             tuistate.State
-	notice            string
-	currentPage       tuipage.Model
-	theme             theme
-	width             int
-	height            int
-	approvals         []approval.Request
-	approvalStage     approvalStage
-	approvalChoice    component.ConfirmButtons
-	approvalApprove   bool
-	approvalErr       error
-	approvalViewport  viewport.Model
-	approvalList      func(context.Context) ([]approval.Request, error)
-	approvalResolve   func(context.Context, string, bool, string) (approval.Request, error)
-	approvalNow       func() time.Time
-	toast             toastState
-	toastSeq          uint64
-	pendingNavigation *navigationIntent
-	navigationConfirm component.ConfirmButtons
+	ctx                    context.Context
+	router                 Router
+	actions                *action.Registry
+	palette                *palette.Model
+	homeCommands           *palette.Model
+	overlay                overlayKind
+	commandResources       map[string]quickopen.Resource
+	workspaceContexts      map[string]*tuipage.WorkspaceContextSession
+	stateRoot              string
+	state                  tuistate.State
+	notice                 string
+	currentPage            tuipage.Model
+	theme                  theme
+	width                  int
+	height                 int
+	approvals              []approval.Request
+	approvalStage          approvalStage
+	approvalChoice         component.ConfirmButtons
+	approvalApprove        bool
+	approvalSimilar        bool
+	approvalErr            error
+	approvalViewport       viewport.Model
+	approvalList           func(context.Context) ([]approval.Request, error)
+	approvalResolve        func(context.Context, string, bool, string) (approval.Request, error)
+	approvalResolveSimilar func(context.Context, string, bool, bool, string) (approval.Request, error)
+	approvalNow            func() time.Time
+	toast                  toastState
+	toastSeq               uint64
+	pendingNavigation      *navigationIntent
+	navigationConfirm      component.ConfirmButtons
 }
 
 func NewModel(initial Route) Model {
@@ -133,7 +135,7 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 	approvalView := viewport.New(viewport.WithWidth(72), viewport.WithHeight(12))
 	approvalView.SoftWrap = false
 	approvalView.FillHeight = false
-	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), workspaceContexts: map[string]*tuipage.WorkspaceContextSession{}, stateRoot: root, state: state, theme: newTheme(true), approvalViewport: approvalView, approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalNow: time.Now}
+	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), workspaceContexts: map[string]*tuipage.WorkspaceContextSession{}, stateRoot: root, state: state, theme: newTheme(true), approvalViewport: approvalView, approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalResolveSimilar: application.ResolveApprovalRequestWithRuntimeGrant, approvalNow: time.Now}
 	model.loadPage(initial)
 	return model
 }
@@ -560,6 +562,7 @@ func (model *Model) openApprovalChoice() {
 	model.approvalStage = approvalStageChoice
 	model.approvalChoice = component.NewConfirmButtons("Approve", "Deny", false)
 	model.approvalApprove = false
+	model.approvalSimilar = false
 	model.approvalErr = nil
 	model.syncApprovalViewport(true)
 }
@@ -571,6 +574,7 @@ func (model *Model) resetApprovalDialog() {
 	model.approvalStage = approvalStageNone
 	model.approvalChoice = component.ConfirmButtons{}
 	model.approvalApprove = false
+	model.approvalSimilar = false
 	model.approvalErr = nil
 	model.approvalViewport.GotoTop()
 }
@@ -578,7 +582,7 @@ func (model *Model) resetApprovalDialog() {
 func (model Model) updateApprovalChoice(msg component.ConfirmChoiceMsg) (tea.Model, tea.Cmd) {
 	if model.approvalStage == approvalStageChoice {
 		model.approvalChoice.Select(msg.Affirmative)
-		return model.resolveApprovalSelection(model.approvalChoice.AffirmativeSelected())
+		return model.resolveApprovalSelection(model.approvalChoice.AffirmativeSelected(), false)
 	}
 	return model, nil
 }
@@ -588,11 +592,17 @@ func (model Model) updateApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case approvalStageChoice:
 		switch msg.String() {
 		case "a":
-			return model.resolveApprovalSelection(true)
+			return model.resolveApprovalSelection(true, false)
+		case "s":
+			request, ok := model.activeApproval()
+			if ok && strings.TrimSpace(request.SimilarCommandPattern) != "" {
+				return model.resolveApprovalSelection(true, true)
+			}
+			return model, nil
 		case "d":
-			return model.resolveApprovalSelection(false)
+			return model.resolveApprovalSelection(false, false)
 		case "enter":
-			return model.resolveApprovalSelection(model.approvalChoice.AffirmativeSelected())
+			return model.resolveApprovalSelection(model.approvalChoice.AffirmativeSelected(), false)
 		case "esc":
 			return model, nil
 		case "j", "down", "k", "up", "pgdown", "pgup":
@@ -609,7 +619,7 @@ func (model Model) updateApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (model Model) resolveApprovalSelection(approve bool) (tea.Model, tea.Cmd) {
+func (model Model) resolveApprovalSelection(approve, similar bool) (tea.Model, tea.Cmd) {
 	request, ok := model.activeApproval()
 	if !ok || model.approvalResolve == nil {
 		model.resetApprovalDialog()
@@ -619,12 +629,18 @@ func (model Model) resolveApprovalSelection(approve bool) (tea.Model, tea.Cmd) {
 		model.expireApproval(request.ID)
 		return model, model.pollApprovalsCmd()
 	}
-	id, resolve, ctx := request.ID, model.approvalResolve, model.ctx
+	id, resolve, resolveSimilar, ctx := request.ID, model.approvalResolve, model.approvalResolveSimilar, model.ctx
 	model.approvalApprove = approve
+	model.approvalSimilar = similar
 	model.approvalStage = approvalStageResolving
 	model.approvalErr = nil
 	return model, func() tea.Msg {
-		_, err := resolve(ctx, id, approve, "")
+		var err error
+		if similar && resolveSimilar != nil {
+			_, err = resolveSimilar(ctx, id, approve, true, "")
+		} else {
+			_, err = resolve(ctx, id, approve, "")
+		}
 		return approvalResolvedMsg{id: id, approve: approve, err: err}
 	}
 }
@@ -642,6 +658,9 @@ func (model Model) finishApprovalResolution(msg approvalResolvedMsg) (tea.Model,
 	action := "Denied"
 	if msg.approve {
 		action = "Approved"
+		if model.approvalSimilar {
+			action = "Approved for runtime session"
+		}
 	}
 	if len(model.approvals) == 0 {
 		model.resetApprovalDialog()
@@ -697,6 +716,9 @@ func (model Model) approvalDialogContent(width int) string {
 	if command := strings.TrimSpace(request.Command); command != "" {
 		lines = append(lines, "", component.Label("Command"), component.RenderCodeBlock(command, "bash", width))
 	}
+	if pattern := strings.TrimSpace(request.SimilarCommandPattern); pattern != "" {
+		lines = append(lines, "", component.WrapKeyValue("Runtime session pattern", pattern, width))
+	}
 	lines = append(lines, "", component.Label("Arguments"), component.RenderCodeBlock(approvalArguments(request.Arguments), "json", width))
 	return strings.Join(lines, "\n")
 }
@@ -705,7 +727,11 @@ func (model Model) approvalDialogFooter(width int) string {
 	lines := []string{}
 	switch model.approvalStage {
 	case approvalStageChoice:
-		lines = append(lines, model.approvalChoice.View(), component.WrapContent(component.Muted("j/k scroll · a approve · d deny · ←/→ choose · Enter submit"), width))
+		hint := "j/k scroll · a approve · d deny · ←/→ choose · Enter submit"
+		if request, ok := model.activeApproval(); ok && strings.TrimSpace(request.SimilarCommandPattern) != "" {
+			hint = "j/k scroll · a approve once · s approve similar for runtime session · d deny · ←/→ choose · Enter submit"
+		}
+		lines = append(lines, model.approvalChoice.View(), component.WrapContent(component.Muted(hint), width))
 	case approvalStageResolving:
 		lines = append(lines, component.WrapContent(component.Muted("Resolving request..."), width))
 	}

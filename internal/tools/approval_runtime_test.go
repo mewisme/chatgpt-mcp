@@ -190,6 +190,38 @@ func TestRuntimeApprovalMismatchDoesNotConsumeGrant(t *testing.T) {
 	}
 }
 
+func TestRuntimeSessionGrantAllowsSimilarCommandAcrossMCPSessions(t *testing.T) {
+	runtime, workspaceID := newApprovalRuntime(t)
+	firstCtx := approvalContext("session-a")
+	first, err := runtime.Call(firstCtx, "guarded_action", map[string]any{"workspace_id": workspaceID, "command": "git push origin main"})
+	if err != nil || !first.IsError {
+		t.Fatalf("first guarded call = %#v err=%v", first, err)
+	}
+	challenge := first.StructuredContent.(approvalRequiredResponse)
+	request, _, err := runtime.Approvals.CreateRequestWithTitle(challenge.ChallengeID, "session-a", workspaceID, "Push Git commits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.SimilarCommandPattern != "git push **" {
+		t.Fatalf("similar pattern=%q", request.SimilarCommandPattern)
+	}
+	if _, err := runtime.Approvals.ApproveRuntimeSession(request.ID, "test", ""); err != nil {
+		t.Fatal(err)
+	}
+	second, err := runtime.Call(approvalContext("session-b"), "guarded_action", map[string]any{"workspace_id": workspaceID, "command": "git push origin feature"})
+	if err != nil || second.IsError {
+		t.Fatalf("runtime-session grant call = %#v err=%v", second, err)
+	}
+	payload, ok := second.StructuredContent.(map[string]any)
+	if !ok || payload["approved_request"] != request.ID || payload["command"] != "git push origin feature" {
+		t.Fatalf("runtime-session grant payload = %#v", second.StructuredContent)
+	}
+	blocked, err := runtime.Call(approvalContext("session-c"), "guarded_action", map[string]any{"workspace_id": workspaceID, "command": "git status"})
+	if err != nil || !blocked.IsError {
+		t.Fatalf("different command unexpectedly granted = %#v err=%v", blocked, err)
+	}
+}
+
 func TestApprovalRequestToolDenyAndCancellation(t *testing.T) {
 	t.Run("deny", func(t *testing.T) {
 		runtime, workspaceID := newApprovalRuntime(t)

@@ -176,8 +176,9 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 				return
 			}
 			var input struct {
-				ID     string `json:"id"`
-				Reason string `json:"reason,omitempty"`
+				ID           string `json:"id"`
+				Reason       string `json:"reason,omitempty"`
+				AllowSimilar bool   `json:"allow_similar,omitempty"`
 			}
 			if err := decodeControlJSON(r, &input); err != nil {
 				writeControlJSON(w, nil, err)
@@ -189,7 +190,11 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 				return
 			}
 			if status == approval.StatusApproved {
-				request, err = options.Approvals.Approve(request.ID, "cli", input.Reason)
+				if input.AllowSimilar {
+					request, err = options.Approvals.ApproveRuntimeSession(request.ID, "cli", input.Reason)
+				} else {
+					request, err = options.Approvals.Approve(request.ID, "cli", input.Reason)
+				}
 			} else {
 				request, err = options.Approvals.Deny(request.ID, "cli", input.Reason)
 			}

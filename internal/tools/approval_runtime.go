@@ -11,11 +11,20 @@ import (
 )
 
 func (r *Runtime) prepareApprovalRetry(ctx context.Context, sessionID, workspaceID, source, name string, args map[string]any) (context.Context, approval.Request, *Result, error) {
-	if r == nil || r.Approvals == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(workspaceID) == "" || name == ApprovalRequestToolName {
+	if r == nil || r.Approvals == nil || strings.TrimSpace(workspaceID) == "" || name == ApprovalRequestToolName {
 		return ctx, approval.Request{}, nil, nil
 	}
+	command, _ := args["command"].(string)
 	retry := approval.RetryInput{
-		SessionID: sessionID, WorkspaceID: workspaceID, Source: source, TargetTool: name, Arguments: args,
+		SessionID: sessionID, WorkspaceID: workspaceID, Source: source, TargetTool: name, Arguments: args, Command: command,
+	}
+	if granted, matched := r.Approvals.MatchRuntimeGrant(retry); matched {
+		ctx = WithApprovalRequest(ctx, granted.ID)
+		ctx = controlguard.WithGrant(ctx, controlguard.Grant{RequestID: granted.ID, Code: granted.GuardCode})
+		return ctx, approval.Request{}, nil, nil
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return ctx, approval.Request{}, nil, nil
 	}
 	_, matched, err := r.Approvals.MatchApproved(retry)
 	if err != nil {
@@ -38,7 +47,6 @@ func (r *Runtime) prepareApprovalRetry(ctx context.Context, sessionID, workspace
 		ctx = controlguard.WithGrant(ctx, controlguard.Grant{RequestID: claimed.ID, Code: claimed.GuardCode})
 		return ctx, claimed, nil, nil
 	}
-	command, _ := args["command"].(string)
 	invocation, ok := workspace.DirectControlPlaneInvocation(command)
 	if !ok || invocation == nil {
 		claimed, matched, err := r.Approvals.ClaimApproved(retry)
@@ -73,9 +81,13 @@ func (r *Runtime) approvalResultForGuard(guard *controlguard.Error, sessionID, s
 		command, _ = args["command"].(string)
 		command = strings.TrimSpace(command)
 	}
+	similarPattern := ""
+	if command != "" {
+		similarPattern, _ = workspace.SimilarCommandPattern(command)
+	}
 	challenge, _, err := r.Approvals.CreateChallenge(approval.ChallengeInput{
 		SessionID: sessionID, SessionHash: sessionHash, WorkspaceID: workspaceID, Source: source, TargetTool: name, Arguments: args,
-		GuardCode: guard.Code, GuardReason: guard.Error(), Command: command,
+		GuardCode: guard.Code, GuardReason: guard.Error(), Command: command, SimilarCommandPattern: similarPattern,
 	})
 	if err != nil {
 		return Result{}, false, err

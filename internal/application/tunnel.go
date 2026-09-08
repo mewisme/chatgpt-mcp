@@ -68,8 +68,7 @@ func ConfigureTunnelRuntime(ctx context.Context, input TunnelRuntimeInput) (Tunn
 		return TunnelDashboard{}, err
 	}
 	previousConfig := cfg
-	previous := cfg.Tunnel
-	next := previous
+	next := cfg.Tunnel
 	if input.Enabled != nil {
 		next.Enabled = *input.Enabled
 	}
@@ -88,15 +87,6 @@ func ConfigureTunnelRuntime(ctx context.Context, input TunnelRuntimeInput) (Tunn
 	cfg.Tunnel = next
 	if err := config.Validate(cfg); err != nil {
 		return TunnelDashboard{}, err
-	}
-	metadataSync := tunnel.Configured(next) && (previous.ID != next.ID || previous.APIKey != next.APIKey || previous.ControlPlaneBaseURL != next.ControlPlaneBaseURL)
-	if metadataSync {
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		if _, _, err := config.SyncTunnelMetadata(ctx, next); err != nil {
-			return TunnelDashboard{}, fmt.Errorf("persist tunnel metadata: %w", err)
-		}
 	}
 	if _, _, err := saveConfigMutation(ctx, previousConfig, cfg); err != nil {
 		return TunnelDashboard{}, err

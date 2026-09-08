@@ -15,8 +15,10 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-func TestTunnelRuntimeConfigureSyncAndSecretPersistence(t *testing.T) {
+func TestTunnelRuntimeConfigureDoesNotBlockOnMetadataSync(t *testing.T) {
+	metadataRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		metadataRequests++
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_runtime" {
 			t.Fatalf("request=%s %s", r.Method, r.URL.Path)
 		}
@@ -33,10 +35,17 @@ func TestTunnelRuntimeConfigureSyncAndSecretPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !dashboard.Config.Enabled || dashboard.Config.ID != id || dashboard.Config.APIKey != key || dashboard.Config.OrganizationID != organization || dashboard.Status.Metadata == nil || dashboard.Status.Metadata.Name != "Runtime" {
+	if !dashboard.Config.Enabled || dashboard.Config.ID != id || dashboard.Config.APIKey != key || dashboard.Config.OrganizationID != organization || dashboard.Status.Metadata != nil {
 		t.Fatalf("dashboard=%#v", dashboard)
 	}
-	metadata, err := config.LoadTunnelMetadata(id)
+	if metadataRequests != 0 {
+		t.Fatalf("runtime configure fetched metadata synchronously: requests=%d", metadataRequests)
+	}
+	metadata, _, err := SyncConfiguredTunnel(t.Context())
+	if err != nil || metadata.Name != "Runtime" {
+		t.Fatalf("sync metadata=%#v err=%v", metadata, err)
+	}
+	metadata, err = config.LoadTunnelMetadata(id)
 	if err != nil || metadata.Name != "Runtime" {
 		t.Fatalf("metadata=%#v err=%v", metadata, err)
 	}

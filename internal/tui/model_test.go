@@ -165,7 +165,7 @@ func TestHomeEmbedsCenteredCommandPanel(t *testing.T) {
 		t.Fatalf("home commands=%v palette=%v overlay=%d", model.homeCommands != nil, model.palette != nil, model.overlay)
 	}
 	plain := ansi.Strip(model.homeView(100, 28))
-	for _, want := range []string{"Command Panel", "Type a command", "Enter run", "Esc exit", "Alt+←/→ pages"} {
+	for _, want := range []string{"Commands", "Type a command or resource", "Ctrl+K", "Enter run", "Esc exit", "Alt+←/→ pages"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("home panel missing %q: %q", want, plain)
 		}
@@ -267,12 +267,12 @@ func TestModelBackIntoRequestsRestartsPageInit(t *testing.T) {
 	}
 }
 
-func TestModelOpensAndRunsCommandPalette(t *testing.T) {
+func TestModelOpensAndRunsCommands(t *testing.T) {
 	model := NewModel(Route{Kind: RouteAbout})
-	updated, _ := model.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	model = updated.(Model)
 	if model.palette == nil {
-		t.Fatal("Ctrl+P did not open palette")
+		t.Fatal("Ctrl+K did not open commands")
 	}
 	model.palette.SetQuery("logs")
 	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -292,8 +292,8 @@ func TestModelOpensAndRunsCommandPalette(t *testing.T) {
 	}
 }
 
-func TestModelCommandPaletteOnlyUsesCtrlP(t *testing.T) {
-	for _, key := range []tea.KeyPressMsg{{Code: 'p', Mod: tea.ModCtrl | tea.ModShift}, {Text: ":", Code: ':'}} {
+func TestModelCommandsOnlyUsesCtrlK(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{{Code: 'p', Mod: tea.ModCtrl}, {Code: 'o', Mod: tea.ModCtrl}, {Code: 'k', Mod: tea.ModCtrl | tea.ModShift}, {Text: ":", Code: ':'}} {
 		model := NewModel(Route{Kind: RouteHome})
 		updated, _ := model.Update(key)
 		model = updated.(Model)
@@ -306,10 +306,13 @@ func TestModelCommandPaletteOnlyUsesCtrlP(t *testing.T) {
 func TestModelFooterKeepsOnlyGlobalShortcuts(t *testing.T) {
 	model := NewModel(Route{Kind: RouteHome})
 	footer := ansi.Strip(model.shortcutFooter())
-	for _, want := range []string{"ctrl+p commands", "ctrl+o open", "alt+←/→ pages", "esc quit"} {
+	for _, want := range []string{"ctrl+k commands", "alt+←/→ pages", "esc quit"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer missing %q: %q", want, footer)
 		}
+	}
+	if strings.Contains(footer, "ctrl+p") || strings.Contains(footer, "ctrl+o") || strings.Contains(footer, " open") {
+		t.Fatalf("footer retained old command/open shortcuts: %q", footer)
 	}
 	if strings.Contains(footer, "Commands") || strings.Contains(footer, "Quit") || strings.Contains(footer, "esc back") || strings.Contains(footer, "q quit") {
 		t.Fatalf("footer=%q", footer)
@@ -375,22 +378,22 @@ func TestModelHeaderMouseClickUsesTypedNavigation(t *testing.T) {
 	}
 }
 
-func TestModelQuickOpenNavigatesPage(t *testing.T) {
+func TestModelCommandsNavigateResource(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	model := NewModel(Route{Kind: RouteHome})
-	updated, _ := model.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	model := NewModel(Route{Kind: RouteAbout})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	model = updated.(Model)
-	if model.palette == nil || model.overlay != overlayQuickOpen {
-		t.Fatal("Ctrl+O did not open Quick Open")
+	if model.palette == nil || model.overlay != overlayCommands {
+		t.Fatal("Ctrl+K did not open merged commands")
 	}
 	model.palette.SetQuery("config")
 	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(Model)
 	if command == nil {
-		t.Fatal("Quick Open enter returned no command")
+		t.Fatal("Commands enter returned no command")
 	}
 	updated, _ = model.Update(command())
 	model = updated.(Model)
@@ -404,8 +407,7 @@ func TestModelRoutesKeysToActiveDialogBeforeGlobalShortcuts(t *testing.T) {
 	page := &captureOverlayPage{overlay: true}
 	model.currentPage = page
 	for _, message := range []tea.KeyPressMsg{
-		{Code: 'p', Mod: tea.ModCtrl},
-		{Code: 'o', Mod: tea.ModCtrl},
+		{Code: 'k', Mod: tea.ModCtrl},
 		{Code: 'c', Mod: tea.ModCtrl},
 		{Code: 'q', Text: "q"},
 		{Code: tea.KeyRight, Mod: tea.ModAlt},
@@ -420,7 +422,7 @@ func TestModelRoutesKeysToActiveDialogBeforeGlobalShortcuts(t *testing.T) {
 			t.Fatalf("overlay key %q changed global UI palette=%v route=%s", message.String(), model.palette != nil, model.router.Current().Kind)
 		}
 	}
-	want := []string{"ctrl+p", "ctrl+o", "ctrl+c", "q", "alt+right", "e"}
+	want := []string{"ctrl+k", "ctrl+c", "q", "alt+right", "e"}
 	if strings.Join(page.keys, ",") != strings.Join(want, ",") {
 		t.Fatalf("captured keys=%v want=%v", page.keys, want)
 	}
@@ -431,8 +433,7 @@ func TestModelRoutesKeysToActiveInputBeforeGlobalShortcuts(t *testing.T) {
 	page := &captureOverlayPage{input: true}
 	model.currentPage = page
 	for _, message := range []tea.KeyPressMsg{
-		{Code: 'p', Mod: tea.ModCtrl},
-		{Code: 'o', Mod: tea.ModCtrl},
+		{Code: 'k', Mod: tea.ModCtrl},
 		{Code: 'c', Mod: tea.ModCtrl},
 		{Code: 'q', Text: "q"},
 		{Code: tea.KeyRight, Mod: tea.ModAlt},
@@ -444,7 +445,7 @@ func TestModelRoutesKeysToActiveInputBeforeGlobalShortcuts(t *testing.T) {
 			t.Fatalf("input key %q escaped capture: cmd=%v palette=%v route=%s", message.String(), cmd, model.palette != nil, model.router.Current().Kind)
 		}
 	}
-	want := []string{"ctrl+p", "ctrl+o", "ctrl+c", "q", "alt+right", "e"}
+	want := []string{"ctrl+k", "ctrl+c", "q", "alt+right", "e"}
 	if strings.Join(page.keys, ",") != strings.Join(want, ",") {
 		t.Fatalf("captured keys=%v want=%v", page.keys, want)
 	}
@@ -512,7 +513,7 @@ func TestModelPendingApprovalSupersedesEveryInteractiveState(t *testing.T) {
 		setup func(*Model) *captureOverlayPage
 	}{
 		{name: "plain"},
-		{name: "palette", setup: func(model *Model) *captureOverlayPage { model.openPalette(); return nil }},
+		{name: "palette", setup: func(model *Model) *captureOverlayPage { _ = model.openCommands(); return nil }},
 		{name: "exit", setup: func(model *Model) *captureOverlayPage { model.openExitConfirm(); return nil }},
 		{name: "page-overlay", setup: func(model *Model) *captureOverlayPage {
 			page := &captureOverlayPage{overlay: true}

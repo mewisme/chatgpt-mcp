@@ -48,7 +48,7 @@ func TestQuickOpenResourcesIncludeLocalEntities(t *testing.T) {
 	}
 	for id, found := range want {
 		if !found {
-			t.Fatalf("Quick Open resource missing: %s", id)
+			t.Fatalf("Commands resource missing: %s", id)
 		}
 	}
 }

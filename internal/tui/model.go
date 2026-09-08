@@ -26,7 +26,6 @@ type overlayKind uint8
 const (
 	overlayNone overlayKind = iota
 	overlayCommands
-	overlayQuickOpen
 	overlayExitConfirm
 )
 
@@ -77,31 +76,31 @@ type toastState struct {
 }
 
 type Model struct {
-	ctx             context.Context
-	router          Router
-	actions         *action.Registry
-	palette         *palette.Model
-	homeCommands    *palette.Model
-	overlay         overlayKind
-	exitConfirm     component.ConfirmButtons
-	quickResources  map[string]quickopen.Resource
-	stateRoot       string
-	state           tuistate.State
-	notice          string
-	currentPage     tuipage.Model
-	theme           theme
-	width           int
-	height          int
-	approvals       []approval.Request
-	approvalStage   approvalStage
-	approvalChoice  component.ConfirmButtons
-	approvalApprove bool
-	approvalErr     error
-	approvalList    func(context.Context) ([]approval.Request, error)
-	approvalResolve func(context.Context, string, bool, string) (approval.Request, error)
-	approvalNow     func() time.Time
-	toast           toastState
-	toastSeq        uint64
+	ctx              context.Context
+	router           Router
+	actions          *action.Registry
+	palette          *palette.Model
+	homeCommands     *palette.Model
+	overlay          overlayKind
+	exitConfirm      component.ConfirmButtons
+	commandResources map[string]quickopen.Resource
+	stateRoot        string
+	state            tuistate.State
+	notice           string
+	currentPage      tuipage.Model
+	theme            theme
+	width            int
+	height           int
+	approvals        []approval.Request
+	approvalStage    approvalStage
+	approvalChoice   component.ConfirmButtons
+	approvalApprove  bool
+	approvalErr      error
+	approvalList     func(context.Context) ([]approval.Request, error)
+	approvalResolve  func(context.Context, string, bool, string) (approval.Request, error)
+	approvalNow      func() time.Time
+	toast            toastState
+	toastSeq         uint64
 }
 
 func NewModel(initial Route) Model {
@@ -207,15 +206,11 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return model, nil
 	case palette.SelectedMsg:
-		if model.overlay == overlayQuickOpen {
-			resource, ok := model.quickResources[msg.ID]
+		if resource, ok := model.commandResources[msg.ID]; ok {
 			model.closeOverlay()
-			if !ok {
-				return model, model.showToast("Quick Open", "Resource is no longer available", component.ToneWarning)
-			}
 			route, err := ParseRoute(resource.Path)
 			if err != nil {
-				return model, model.showToast("Quick Open", err.Error(), component.ToneDanger)
+				return model, model.showToast("Commands", err.Error(), component.ToneDanger)
 			}
 			model.router.Navigate(route)
 			model.loadPage(route)
@@ -326,9 +321,6 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model.updatePage(msg)
 		}
 		if model.router.Current().Kind == RouteHome && model.homeCommands != nil {
-			if isQuickOpenKey(msg) {
-				return model, model.openQuickOpen()
-			}
 			switch msg.String() {
 			case "alt+left":
 				model.switchPage(cycleHeaderRoute(model.router.Current(), -1))
@@ -339,7 +331,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				model.openExitConfirm()
 				return model, nil
-			case "ctrl+p":
+			case "ctrl+k":
 				return model, nil
 			default:
 				updated, cmd := model.homeCommands.Update(msg)
@@ -347,12 +339,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return model, cmd
 			}
 		}
-		if isPaletteKey(msg) {
-			model.openPalette()
-			return model, nil
-		}
-		if isQuickOpenKey(msg) {
-			return model, model.openQuickOpen()
+		if isCommandsKey(msg) {
+			return model, model.openCommands()
 		}
 		switch msg.String() {
 		case "alt+left":
@@ -772,36 +760,34 @@ func approvalCountdown(expiresAt, now time.Time) string {
 	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
 }
 
-func (model *Model) openPalette() {
-	if model == nil {
-		return
-	}
-	context := actionContext(model.router.Current())
-	value := palette.NewWithOptions(model.actions.Actions(context), context, palette.Options{Recent: model.state.RecentActions})
-	model.palette = &value
-	model.overlay = overlayCommands
-	model.quickResources = nil
-}
-
-func isPaletteKey(message tea.KeyPressMsg) bool {
-	return message.String() == "ctrl+p"
-}
-
-func (model *Model) openQuickOpen() tea.Cmd {
+func (model *Model) openCommands() tea.Cmd {
 	if model == nil {
 		return nil
 	}
+	context := actionContext(model.router.Current())
+	actions, resources, err := model.commandActions(context)
+	if err != nil {
+		return model.showToast("Commands", err.Error(), component.ToneDanger)
+	}
+	value := palette.NewWithOptions(actions, context, palette.Options{Title: "Commands", Hint: "Ctrl+K", Placeholder: "Type a command or resource", Recent: model.state.RecentActions})
+	model.palette = &value
+	model.overlay = overlayCommands
+	model.commandResources = resources
+	return nil
+}
+
+func isCommandsKey(message tea.KeyPressMsg) bool {
+	return message.String() == "ctrl+k"
+}
+
+func (model Model) commandActions(context action.Context) ([]action.Action, map[string]quickopen.Resource, error) {
+	actions := model.actions.Actions(context)
 	resources, err := loadQuickOpenResources()
 	if err != nil {
-		return model.showToast("Quick Open", err.Error(), component.ToneDanger)
+		return actions, nil, err
 	}
-	actions, index := quickopen.Actions(resources)
-	context := actionContext(model.router.Current())
-	value := palette.NewWithOptions(actions, context, palette.Options{Title: "Quick Open", Hint: "Ctrl+O", Placeholder: "Search pages and resources", Footer: "↑/↓ navigate  ·  Enter open  ·  Esc close"})
-	model.palette = &value
-	model.overlay = overlayQuickOpen
-	model.quickResources = index
-	return nil
+	resourceActions, index := quickopen.Actions(resources)
+	return append(actions, resourceActions...), index, nil
 }
 
 func (model *Model) closeOverlay() {
@@ -811,7 +797,7 @@ func (model *Model) closeOverlay() {
 	model.palette = nil
 	model.overlay = overlayNone
 	model.exitConfirm = component.ConfirmButtons{}
-	model.quickResources = nil
+	model.commandResources = nil
 }
 
 func (model *Model) openExitConfirm() {
@@ -819,7 +805,7 @@ func (model *Model) openExitConfirm() {
 		return
 	}
 	model.palette = nil
-	model.quickResources = nil
+	model.commandResources = nil
 	model.overlay = overlayExitConfirm
 	model.exitConfirm = component.NewConfirmButtons("Exit", "Cancel", false)
 }
@@ -1070,8 +1056,6 @@ func (model *Model) ensureWorkspacePage(command tuipage.WorkspaceCommand, resour
 	return nil
 }
 
-func isQuickOpenKey(message tea.KeyPressMsg) bool { return message.String() == "ctrl+o" }
-
 type mousePage interface {
 	MouseTargets(originX, originY, z int) []component.MouseTarget
 }
@@ -1172,8 +1156,7 @@ func (model Model) shortcutFooter() string {
 		return ""
 	}
 	bindings := []key.Binding{
-		component.Binding([]string{"ctrl+p"}, "ctrl+p", "commands"),
-		component.Binding([]string{"ctrl+o"}, "ctrl+o", "open"),
+		component.Binding([]string{"ctrl+k"}, "ctrl+k", "commands"),
 		component.Binding([]string{"alt+left", "alt+right"}, "alt+←/→", "pages"),
 	}
 	if model.router.Current().Kind == RouteHome {
@@ -1251,11 +1234,17 @@ func (model *Model) resetHomeCommands() {
 		return
 	}
 	ctx := actionContext(Route{Kind: RouteHome})
-	value := palette.NewWithOptions(model.actions.Actions(ctx), ctx, palette.Options{
-		Title: "Command Panel", Hint: "Home", Placeholder: "Type a command",
+	actions, resources, err := model.commandActions(ctx)
+	if err != nil {
+		actions = model.actions.Actions(ctx)
+		resources = nil
+	}
+	value := palette.NewWithOptions(actions, ctx, palette.Options{
+		Title: "Commands", Hint: "Ctrl+K", Placeholder: "Type a command or resource",
 		Footer: "↑/↓ navigate  ·  Enter run  ·  Esc exit  ·  Alt+←/→ pages", Recent: model.state.RecentActions,
 	})
 	model.homeCommands = &value
+	model.commandResources = resources
 }
 
 func (model Model) layoutSize() (int, int) {

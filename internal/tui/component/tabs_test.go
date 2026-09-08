@@ -27,3 +27,11 @@ func TestPageTabsLayoutReturnsHitboxes(t *testing.T) {
 		t.Fatalf("view=%q spans=%#v", plain, spans)
 	}
 }
+
+func TestPageTabsNoticeIncludesContentGap(t *testing.T) {
+	view := ansi.Strip(PageTabsNotice([]string{"Context", "Rules", "Sources"}, 0, "", 80))
+	lines := strings.Split(view, "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "Context") || lines[1] != "" {
+		t.Fatalf("view=%q lines=%#v", view, lines)
+	}
+}

@@ -38,7 +38,10 @@ func MoveTab(current, count, delta int) int {
 
 func PageTabsNotice(labels []string, active int, notice string, width int) string {
 	view, _ := PageTabsLayout(labels, active, notice, width)
-	return view
+	if view == "" {
+		return ""
+	}
+	return view + "\n"
 }
 
 func PageTabsLayout(labels []string, active int, notice string, width int) (string, []TabSpan) {

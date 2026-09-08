@@ -369,7 +369,8 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 		if page.err != nil {
 			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 		}
-		tabs, spans := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, page.width)
+		_, spans := component.PageTabsLayout(requestTabLabels, int(page.mode), page.notice, page.width)
+		header := component.PageTabsNotice(requestTabLabels, int(page.mode), page.notice, page.width)
 		targets := make([]component.MouseTarget, 0, len(spans)+8)
 		for _, span := range spans {
 			mode := requestMode(span.Index)
@@ -383,7 +384,7 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 				},
 			})
 		}
-		offsetY := lipgloss.Height(tabs) + pageFeedbackHeight(feedback)
+		offsetY := lipgloss.Height(header) + pageFeedbackHeight(feedback)
 		return append(targets, page.browser.MouseTargets(originX, originY+offsetY, z)...)
 	}
 }

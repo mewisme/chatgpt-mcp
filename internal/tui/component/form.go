@@ -480,6 +480,14 @@ func Text(title string, value *string) *huh.Text {
 	return huh.NewText().Title(strings.TrimSpace(title)).Value(value).Lines(4)
 }
 
+func FilePicker(title string, value *string) *huh.FilePicker {
+	return huh.NewFilePicker().Title(strings.TrimSpace(title)).Value(value)
+}
+
+func DirectoryPicker(title string, value *string) *huh.FilePicker {
+	return FilePicker(title, value).DirAllowed(true).FileAllowed(false)
+}
+
 func Select[T comparable](title string, value *T, options ...huh.Option[T]) *huh.Select[T] {
 	return huh.NewSelect[T]().Title(strings.TrimSpace(title)).Options(options...).Value(value)
 }

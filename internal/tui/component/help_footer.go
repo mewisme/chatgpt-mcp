@@ -11,13 +11,15 @@ import (
 const defaultHelpShortLimit = 5
 
 type HelpFooter struct {
+	model      help.Model
 	bindings   []key.Binding
-	expanded   bool
 	shortLimit int
 }
 
 func NewHelpFooter(bindings ...key.Binding) HelpFooter {
-	footer := HelpFooter{shortLimit: defaultHelpShortLimit}
+	model := help.New()
+	model.Styles = help.DefaultStyles(currentTheme.isDark)
+	footer := HelpFooter{model: model, shortLimit: defaultHelpShortLimit}
 	footer.SetBindings(bindings...)
 	return footer
 }
@@ -31,29 +33,36 @@ func (footer *HelpFooter) SetBindings(bindings ...key.Binding) {
 		footer.shortLimit = defaultHelpShortLimit
 	}
 	if len(footer.enabledBindings()) <= footer.shortLimit {
-		footer.expanded = false
+		footer.model.ShowAll = false
 	}
 }
 
-func (footer HelpFooter) Expanded() bool { return footer.expanded }
+func (footer HelpFooter) Expanded() bool { return footer.model.ShowAll }
 
 func (footer *HelpFooter) SetExpanded(expanded bool) {
 	if footer == nil {
 		return
 	}
-	footer.expanded = expanded && len(footer.enabledBindings()) > footer.shortLimit
+	footer.model.ShowAll = expanded && len(footer.enabledBindings()) > footer.shortLimit
 }
 
 func (footer *HelpFooter) Update(message tea.Msg) bool {
-	if footer == nil || len(footer.enabledBindings()) <= footer.shortLimit {
+	if footer == nil {
 		return false
 	}
-	msg, ok := message.(tea.KeyPressMsg)
-	if !ok || msg.String() != "?" {
+	if msg, ok := message.(tea.BackgroundColorMsg); ok {
+		footer.model.Styles = help.DefaultStyles(msg.IsDark())
 		return false
 	}
-	footer.expanded = !footer.expanded
-	return true
+	if len(footer.enabledBindings()) > footer.shortLimit {
+		if msg, ok := message.(tea.KeyPressMsg); ok && msg.String() == "?" {
+			footer.model.ShowAll = !footer.model.ShowAll
+			return true
+		}
+	}
+	updated, _ := footer.model.Update(message)
+	footer.model = updated
+	return false
 }
 
 func (footer HelpFooter) View(width int) string {
@@ -61,14 +70,13 @@ func (footer HelpFooter) View(width int) string {
 	if len(bindings) == 0 {
 		return ""
 	}
-	model := help.New()
-	model.Styles = help.DefaultStyles(currentTheme.isDark)
+	model := footer.model
 	model.SetWidth(width)
 	if len(bindings) <= footer.shortLimit {
 		return model.ShortHelpView(bindings)
 	}
 	toggle := Binding([]string{"?"}, "?", "more")
-	if footer.expanded {
+	if model.ShowAll {
 		toggle = Binding([]string{"?"}, "?", "less")
 		return model.FullHelpView([][]key.Binding{append(bindings, toggle)})
 	}

@@ -39,7 +39,6 @@ type approvalStage uint8
 const (
 	approvalStageNone approvalStage = iota
 	approvalStageChoice
-	approvalStageConfirm
 	approvalStageResolving
 )
 
@@ -96,7 +95,6 @@ type Model struct {
 	approvals       []approval.Request
 	approvalStage   approvalStage
 	approvalChoice  component.ConfirmButtons
-	approvalConfirm component.ConfirmButtons
 	approvalApprove bool
 	approvalErr     error
 	approvalList    func(context.Context) ([]approval.Request, error)
@@ -422,8 +420,6 @@ func (model Model) View() tea.View {
 				var buttonTargets []component.MouseTarget
 				if model.approvalStage == approvalStageChoice {
 					buttonTargets = model.approvalChoice.MouseTargets(x+rect.X, y+rect.Y, 201)
-				} else if model.approvalStage == approvalStageConfirm {
-					buttonTargets = model.approvalConfirm.MouseTargets(x+rect.X, y+rect.Y, 201)
 				}
 				targets = append(targets, buttonTargets...)
 			}
@@ -540,7 +536,6 @@ func (model *Model) openApprovalChoice() {
 	}
 	model.approvalStage = approvalStageChoice
 	model.approvalChoice = component.NewConfirmButtons("Approve", "Deny", false)
-	model.approvalConfirm = component.ConfirmButtons{}
 	model.approvalApprove = false
 	model.approvalErr = nil
 }
@@ -551,7 +546,6 @@ func (model *Model) resetApprovalDialog() {
 	}
 	model.approvalStage = approvalStageNone
 	model.approvalChoice = component.ConfirmButtons{}
-	model.approvalConfirm = component.ConfirmButtons{}
 	model.approvalApprove = false
 	model.approvalErr = nil
 }
@@ -559,11 +553,7 @@ func (model *Model) resetApprovalDialog() {
 func (model Model) updateApprovalChoice(msg component.ConfirmChoiceMsg) (tea.Model, tea.Cmd) {
 	if model.approvalStage == approvalStageChoice {
 		model.approvalChoice.Select(msg.Affirmative)
-		return model.beginApprovalConfirmation(model.approvalChoice.AffirmativeSelected())
-	}
-	if model.approvalStage == approvalStageConfirm {
-		model.approvalConfirm.Select(msg.Affirmative)
-		return model.confirmApprovalSelection()
+		return model.resolveApprovalSelection(model.approvalChoice.AffirmativeSelected())
 	}
 	return model, nil
 }
@@ -573,25 +563,15 @@ func (model Model) updateApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case approvalStageChoice:
 		switch msg.String() {
 		case "a":
-			return model.beginApprovalConfirmation(true)
+			return model.resolveApprovalSelection(true)
 		case "d":
-			return model.beginApprovalConfirmation(false)
+			return model.resolveApprovalSelection(false)
 		case "enter":
-			return model.beginApprovalConfirmation(model.approvalChoice.AffirmativeSelected())
+			return model.resolveApprovalSelection(model.approvalChoice.AffirmativeSelected())
 		case "esc":
 			return model, nil
 		default:
 			return model, model.approvalChoice.Update(msg)
-		}
-	case approvalStageConfirm:
-		switch msg.String() {
-		case "esc":
-			model.openApprovalChoice()
-			return model, nil
-		case "enter":
-			return model.confirmApprovalSelection()
-		default:
-			return model, model.approvalConfirm.Update(msg)
 		}
 	case approvalStageResolving:
 		return model, nil
@@ -600,30 +580,16 @@ func (model Model) updateApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (model Model) beginApprovalConfirmation(approve bool) (tea.Model, tea.Cmd) {
-	model.approvalApprove = approve
-	label := "Deny"
-	if approve {
-		label = "Approve"
-	}
-	model.approvalConfirm = component.NewConfirmButtons(label, "Cancel", false)
-	model.approvalStage = approvalStageConfirm
-	model.approvalErr = nil
-	return model, nil
-}
-
-func (model Model) confirmApprovalSelection() (tea.Model, tea.Cmd) {
-	if !model.approvalConfirm.AffirmativeSelected() {
-		model.openApprovalChoice()
-		return model, nil
-	}
+func (model Model) resolveApprovalSelection(approve bool) (tea.Model, tea.Cmd) {
 	request, ok := model.activeApproval()
 	if !ok || model.approvalResolve == nil {
 		model.resetApprovalDialog()
 		return model, nil
 	}
-	id, approve, resolve, ctx := request.ID, model.approvalApprove, model.approvalResolve, model.ctx
+	id, resolve, ctx := request.ID, model.approvalResolve, model.ctx
+	model.approvalApprove = approve
 	model.approvalStage = approvalStageResolving
+	model.approvalErr = nil
 	return model, func() tea.Msg {
 		_, err := resolve(ctx, id, approve, "")
 		return approvalResolvedMsg{id: id, approve: approve, err: err}
@@ -653,14 +619,10 @@ func (model Model) finishApprovalResolution(msg approvalResolvedMsg) (tea.Model,
 }
 
 func (model Model) approvalButtonsView() string {
-	switch model.approvalStage {
-	case approvalStageChoice:
+	if model.approvalStage == approvalStageChoice {
 		return model.approvalChoice.View()
-	case approvalStageConfirm:
-		return model.approvalConfirm.View()
-	default:
-		return ""
 	}
+	return ""
 }
 
 func (model Model) approvalDialogView() string {
@@ -691,13 +653,7 @@ func (model Model) approvalDialogView() string {
 	}
 	switch model.approvalStage {
 	case approvalStageChoice:
-		lines = append(lines, model.approvalChoice.View(), component.Muted("a approve · d deny · ←/→ choose · Enter continue"))
-	case approvalStageConfirm:
-		action := "deny"
-		if model.approvalApprove {
-			action = "approve"
-		}
-		lines = append(lines, component.ToneText("Confirm "+action+"?", component.ToneWarning), "", model.approvalConfirm.View(), component.Muted("Enter confirm · Esc back"))
+		lines = append(lines, model.approvalChoice.View(), component.Muted("a approve · d deny · ←/→ choose · Enter submit"))
 	case approvalStageResolving:
 		lines = append(lines, component.Muted("Resolving request..."))
 	}

@@ -553,7 +553,7 @@ func TestModelPendingApprovalSupersedesEveryInteractiveState(t *testing.T) {
 	}
 }
 
-func TestModelApprovalRequiresConfirmationAndAdvancesQueue(t *testing.T) {
+func TestModelApprovalResolvesDirectlyAndAdvancesQueue(t *testing.T) {
 	first, second := testPendingApproval("req_first"), testPendingApproval("req_second")
 	model := NewModel(Route{Kind: RouteHome})
 	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{first, second}})
@@ -569,13 +569,8 @@ func TestModelApprovalRequiresConfirmationAndAdvancesQueue(t *testing.T) {
 	}
 	updated, cmd := model.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	model = updated.(Model)
-	if cmd != nil || model.approvalStage != approvalStageConfirm || !model.approvalApprove || len(resolutions) != 0 {
-		t.Fatalf("approve did not enter confirmation: stage=%d approve=%t cmd=%v resolutions=%v", model.approvalStage, model.approvalApprove, cmd, resolutions)
-	}
-	updated, cmd = model.Update(component.ConfirmChoiceMsg{Affirmative: true})
-	model = updated.(Model)
-	if cmd == nil || model.approvalStage != approvalStageResolving {
-		t.Fatalf("confirmed approval did not resolve: stage=%d cmd=%v", model.approvalStage, cmd)
+	if cmd == nil || model.approvalStage != approvalStageResolving || !model.approvalApprove || len(resolutions) != 0 {
+		t.Fatalf("approve did not resolve directly: stage=%d approve=%t cmd=%v resolutions=%v", model.approvalStage, model.approvalApprove, cmd, resolutions)
 	}
 	updated, follow := model.Update(cmd())
 	model = updated.(Model)
@@ -589,11 +584,9 @@ func TestModelApprovalRequiresConfirmationAndAdvancesQueue(t *testing.T) {
 	model = updated.(Model)
 	updated, cmd = model.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	model = updated.(Model)
-	if cmd != nil || model.approvalStage != approvalStageConfirm || model.approvalApprove {
-		t.Fatalf("deny did not enter confirmation: stage=%d approve=%t", model.approvalStage, model.approvalApprove)
+	if cmd == nil || model.approvalStage != approvalStageResolving || model.approvalApprove {
+		t.Fatalf("deny did not resolve directly: stage=%d approve=%t cmd=%v", model.approvalStage, model.approvalApprove, cmd)
 	}
-	updated, cmd = model.Update(component.ConfirmChoiceMsg{Affirmative: true})
-	model = updated.(Model)
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
 	if model.approvalActive() || len(model.approvals) != 0 {
@@ -642,9 +635,7 @@ func TestModelApprovalResolutionErrorKeepsRequestVisible(t *testing.T) {
 	model.approvalResolve = func(context.Context, string, bool, string) (approval.Request, error) {
 		return approval.Request{}, errors.New("resolution failed")
 	}
-	updated, _ := model.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
-	model = updated.(Model)
-	updated, cmd := model.Update(component.ConfirmChoiceMsg{Affirmative: true})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	model = updated.(Model)
 	updated, follow := model.Update(cmd())
 	model = updated.(Model)
@@ -683,10 +674,13 @@ func TestModelApprovalPollKeepsActiveRequestStableAcrossReorder(t *testing.T) {
 	first, second := testPendingApproval("req_first"), testPendingApproval("req_second")
 	model := NewModel(Route{Kind: RouteHome})
 	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{first, second}})
-	updated, _ := model.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	model = updated.(Model)
+	if cmd == nil || model.approvalStage != approvalStageResolving {
+		t.Fatalf("approval did not begin resolving: stage=%d cmd=%v", model.approvalStage, cmd)
+	}
 	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{second, first}})
-	if model.activeApprovalID() != first.ID || model.approvalStage != approvalStageConfirm || !model.approvalApprove {
+	if model.activeApprovalID() != first.ID || model.approvalStage != approvalStageResolving || !model.approvalApprove {
 		t.Fatalf("active approval changed after reorder: active=%q stage=%d approve=%t", model.activeApprovalID(), model.approvalStage, model.approvalApprove)
 	}
 }

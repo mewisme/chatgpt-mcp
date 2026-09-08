@@ -188,9 +188,6 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 	logManagedDetails(log, spec, manager)
 	log.Ready("SERVER", "server.started", "Server started")
 	logRuntimeDetails(log, status)
-	if status.TunnelEnabled && status.TunnelConfigured && transientTunnelState(statusTunnelState(status, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
-		status = animateRuntimeTunnelState(cmd, status, statusTunnelWatchTimeout)
-	}
 	logRuntimeTunnelResult(log, status)
 	logRuntimeTunnelMetadata(log, cfg.Tunnel, status, config.LoadTunnelMetadata)
 	logManagedHints(log, spec)
@@ -365,9 +362,6 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		return err
 	}
 	logManagedUp(log, spec, manager, status, action)
-	if status.TunnelEnabled && status.TunnelConfigured && transientTunnelState(statusTunnelState(status, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
-		status = animateRuntimeTunnelState(cmd, status, statusTunnelWatchTimeout)
-	}
 	logRuntimeTunnelResult(log, status)
 	logRuntimeTunnelMetadata(log, cfg.Tunnel, status, config.LoadTunnelMetadata)
 	logManagedHints(log, spec)
@@ -518,9 +512,6 @@ func managedScopeConflict(status runtimeStatusResult, spec managed.Spec, action 
 }
 
 func logManagedAlreadyRunning(cmd *cobra.Command, spec managed.Spec, manager managed.Manager, status runtimeStatusResult, cfg tunnel.Config) {
-	if status.TunnelEnabled && status.TunnelConfigured && transientTunnelState(statusTunnelState(status, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
-		status = animateRuntimeTunnelState(cmd, status, statusTunnelWatchTimeout)
-	}
 	log := commandLogger(cmd)
 	log.Ready("SERVICE", "service.already-running", "Managed service already running")
 	logManagedDetails(log, spec, manager)

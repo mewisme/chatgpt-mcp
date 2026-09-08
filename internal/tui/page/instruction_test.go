@@ -301,8 +301,8 @@ func TestInstructionPageManagesGlobalRules(t *testing.T) {
 	}
 	edit.ruleName, edit.ruleContent, edit.ruleEnabled = "Updated rule", "Updated content", true
 	_, cmd = edit.Update(edit.saveRuleEditorCmd()())
-	if cmd == nil {
-		t.Fatal("edit save did not navigate to parent")
+	if cmd == nil || edit.Dirty() {
+		t.Fatalf("edit save navigation=%v dirty=%t", cmd != nil, edit.Dirty())
 	}
 	settings, err = service.Load()
 	if err != nil {

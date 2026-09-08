@@ -541,6 +541,7 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 	}
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
+		page.editor.Accept()
 		notice := page.notice
 		return tea.Batch(page.configEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Configuration", Message: notice, Tone: component.ToneSuccess} })
 	}

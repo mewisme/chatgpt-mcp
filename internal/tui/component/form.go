@@ -322,6 +322,12 @@ func (form Form) View() string {
 
 func (form Form) Dirty() bool { return form.initial != form.snapshot() }
 
+func (form *Form) Accept() {
+	if form != nil {
+		form.initial = form.snapshot()
+	}
+}
+
 func (form Form) Validate() error {
 	if form.model == nil {
 		return nil

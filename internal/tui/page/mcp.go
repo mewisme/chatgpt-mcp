@@ -1021,6 +1021,9 @@ func (page *MCPPage) finishOAuth(msg mcpOAuthDoneMsg) tea.Cmd {
 		return nil
 	}
 	page.finishOperation("", nil)
+	if page.editor != nil {
+		page.editor.Accept()
+	}
 	page.oauthForm = nil
 	message := "OAuth authorization stored"
 	return tea.Batch(

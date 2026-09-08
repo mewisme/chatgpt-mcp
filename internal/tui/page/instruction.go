@@ -289,6 +289,8 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		if page.ruleEditor != nil {
 			page.settings, page.err = msg.settings, nil
+			page.ruleEditor.SetSubmitting(false)
+			page.ruleEditor.Accept()
 			return page, tea.Batch(page.ruleEditorParentNavigation(), func() tea.Msg {
 				return ToastMsg{Title: "Instruction", Message: msg.notice, Tone: component.ToneSuccess}
 			})

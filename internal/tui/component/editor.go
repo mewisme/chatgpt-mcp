@@ -153,6 +153,15 @@ func (editor Editor) Dirty() bool {
 	return false
 }
 
+func (editor *Editor) Accept() {
+	if editor == nil {
+		return
+	}
+	for index := range editor.sections {
+		editor.sections[index].Form.Accept()
+	}
+}
+
 func (editor *Editor) Validate() error {
 	if editor == nil {
 		return nil

@@ -66,6 +66,23 @@ func TestEditorSubmitCancelFeedbackDirtyAndResponsiveLayout(t *testing.T) {
 	}
 }
 
+func TestEditorAcceptCommitsCurrentDraftBaseline(t *testing.T) {
+	value := "initial"
+	editor := NewEditor("save", EditorSection{ID: "main", Title: "Main", Form: NewEditorForm(Group(Input("Name", &value)))})
+	value = "saved"
+	if !editor.Dirty() {
+		t.Fatal("changed editor was not dirty before accept")
+	}
+	editor.Accept()
+	if editor.Dirty() {
+		t.Fatal("accepted editor remained dirty")
+	}
+	value = "changed-again"
+	if !editor.Dirty() {
+		t.Fatal("editor did not become dirty after changing accepted baseline")
+	}
+}
+
 func TestEditorValidateKeepsInvalidSectionVisible(t *testing.T) {
 	first, second := "ok", ""
 	editor := NewEditor("save",

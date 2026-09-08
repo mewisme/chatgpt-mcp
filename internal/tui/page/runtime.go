@@ -583,6 +583,7 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		if msg.external != nil {
 			return nil
 		}
+		page.editor.Accept()
 		page.installForm, page.updateForm = nil, nil
 		notice := page.notice
 		return tea.Batch(page.runtimeEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Runtime", Message: notice, Tone: component.ToneSuccess} })

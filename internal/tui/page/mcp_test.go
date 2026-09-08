@@ -386,8 +386,8 @@ func TestMCPPageOAuthEmitsURLStoresCredentialAndLogoutPreservesServer(t *testing
 	}
 	updated, finish := page.Update(next())
 	page = updated.(*MCPPage)
-	if finish == nil || page.OverlayActive() {
-		t.Fatalf("OAuth finish cmd=%v overlay=%t", finish != nil, page.OverlayActive())
+	if finish == nil || page.OverlayActive() || page.Dirty() {
+		t.Fatalf("OAuth finish cmd=%v overlay=%t dirty=%t", finish != nil, page.OverlayActive(), page.Dirty())
 	}
 	if strings.Contains(page.View(120, 32), "access-secret") || strings.Contains(page.View(120, 32), "refresh-secret") {
 		t.Fatal("OAuth token leaked into TUI")

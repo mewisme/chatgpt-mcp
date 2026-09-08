@@ -124,6 +124,7 @@ func (page *WorkspacePage) submitWorkspaceEditor() tea.Cmd {
 		page.editor.SetFeedback("", err)
 		return nil
 	}
+	page.editor.Accept()
 	message := workspaceSuccess(page.command)
 	return tea.Batch(page.workspaceEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Workspace", Message: message, Tone: component.ToneSuccess} })
 }

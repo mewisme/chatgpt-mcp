@@ -401,6 +401,26 @@ func TestConfigPageEditIsRoutedAndOperationFailureKeepsEditor(t *testing.T) {
 	}
 }
 
+func TestConfigSuccessfulEditorSaveCommitsDraftBeforeNavigation(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, err := NewConfigRouteAction(t.Context(), "shell.approval_allow_commands", "", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	page.fieldForm.Raw = "git status\ngo test ./..."
+	if !page.Dirty() {
+		t.Fatal("config editor was not dirty before save")
+	}
+	mutation := page.overview.Config
+	mutation.Shell.ApprovalAllowCommands = []string{"git status", "go test ./..."}
+	follow := page.finishOperation(configOperationMsg{command: ConfigEdit, mutation: application.ConfigMutationResult{Config: mutation}})
+	if follow == nil || page.Dirty() {
+		t.Fatalf("successful config save follow=%v dirty=%t", follow != nil, page.Dirty())
+	}
+}
+
 func TestConfigPageCancellationIgnoresLateResult(t *testing.T) {
 	prepareConfigPageRoot(t)
 	page, _ := NewConfig(t.Context())

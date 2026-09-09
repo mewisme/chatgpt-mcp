@@ -349,7 +349,8 @@ export type ManagedTunnelUpdateRequest = { name?: string; description?: string; 
 export type ManagedTunnelUseRequest = {
   id: string
   runtime_api_key?: string
-  enable?: boolean
+  auto_generate_runtime_key?: boolean
+  project_id?: string
 }
 export type ManagedTunnelUseResult = {
   metadata: TunnelMetadata

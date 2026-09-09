@@ -160,9 +160,10 @@ type managedTunnelUpdateRequest struct {
 }
 
 type managedTunnelUseRequest struct {
-	ID            string `json:"id"`
-	RuntimeAPIKey string `json:"runtime_api_key,omitempty"`
-	Enable        *bool  `json:"enable,omitempty"`
+	ID                     string `json:"id"`
+	RuntimeAPIKey          string `json:"runtime_api_key,omitempty"`
+	AutoGenerateRuntimeKey bool   `json:"auto_generate_runtime_key,omitempty"`
+	ProjectID              string `json:"project_id,omitempty"`
 }
 
 type managedTunnelUseResult struct {
@@ -450,18 +451,26 @@ func (api API) handleManagedTunnelUse(w http.ResponseWriter, r *http.Request) {
 	if key == "" {
 		key = strings.TrimSpace(current.Tunnel.APIKey)
 	}
+	if key == "" && request.AutoGenerateRuntimeKey {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		generated, generateErr := tunnel.GenerateRuntimeKey(ctx, current.Tunnel, request.ProjectID)
+		cancel()
+		if generateErr != nil {
+			http.Error(w, generateErr.Error(), http.StatusBadRequest)
+			return
+		}
+		key = generated.Value
+	}
 	if key == "" {
-		http.Error(w, "runtime API key is required to use this tunnel", http.StatusBadRequest)
+		http.Error(w, "runtime API key is required to use this tunnel; provide one or enable automatic generation", http.StatusBadRequest)
 		return
 	}
 	candidate := current
 	candidate.Tunnel.ID = metadata.ID
 	candidate.Tunnel.APIKey = key
+	candidate.Tunnel.Enabled = true
 	if len(metadata.OrganizationIDs) == 1 {
 		candidate.Tunnel.OrganizationID = metadata.OrganizationIDs[0]
-	}
-	if request.Enable != nil {
-		candidate.Tunnel.Enabled = *request.Enable
 	}
 	if err := config.Validate(candidate); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

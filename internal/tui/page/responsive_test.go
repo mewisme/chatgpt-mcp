@@ -38,7 +38,7 @@ func TestMigratedEditorsResponsiveMatrix(t *testing.T) {
 			return editor
 		}},
 		{name: "managed-tunnel", make: func() component.Editor { editor, _ := newManagedTunnelEditor(tunnel.Metadata{}, true); return editor }},
-		{name: "managed-configure", make: func() component.Editor { editor, _ := newManagedConfigureEditor(); return editor }},
+		{name: "managed-configure", make: func() component.Editor { editor, _ := newManagedConfigureEditor(false); return editor }},
 		{name: "config-convert", make: func() component.Editor { editor, _ := newConfigConvertEditor(configformat.TOML); return editor }},
 		{name: "config-import", make: func() component.Editor { editor, _ := newConfigBundleEditor(false); return editor }},
 		{name: "config-export", make: func() component.Editor { editor, _ := newConfigBundleEditor(true); return editor }},

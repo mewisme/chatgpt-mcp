@@ -36,8 +36,9 @@ type managedTunnelFormData struct {
 }
 
 type managedConfigureFormData struct {
-	RuntimeAPIKey string
-	Enable        bool
+	RuntimeKeyMode string
+	RuntimeAPIKey  string
+	ProjectID      string
 }
 
 func newTunnelRuntimeEditor(dashboard application.TunnelDashboard) (component.Editor, *tunnelRuntimeFormData) {
@@ -120,14 +121,26 @@ func newManagedTunnelEditor(metadata tunnel.Metadata, create bool) (component.Ed
 	return editor, data
 }
 
-func newManagedConfigureEditor() (component.Editor, *managedConfigureFormData) {
-	data := &managedConfigureFormData{}
+func newManagedConfigureEditor(runtimeKeyConfigured bool) (component.Editor, *managedConfigureFormData) {
+	mode := "auto"
+	options := []huh.Option[string]{huh.NewOption("Auto generate with admin key", "auto"), huh.NewOption("Enter runtime key manually", "manual")}
+	if runtimeKeyConfigured {
+		mode = "reuse"
+		options = append([]huh.Option[string]{huh.NewOption("Reuse current runtime key", "reuse")}, options...)
+	}
+	data := &managedConfigureFormData{RuntimeKeyMode: mode}
 	editor := component.NewEditor("use", component.EditorSection{
-		ID: "runtime", Title: "Runtime", Description: "Use this managed tunnel for the local runtime. Blank runtime key reuses the current secret.",
-		Form: component.NewEditorForm(component.Group(
-			component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Placeholder("Blank reuses the current runtime key."),
-			component.Switch("Enable tunnel", &data.Enable, "ENABLED", "DISABLED"),
-		)),
+		ID: "runtime", Title: "Runtime", Description: "Use this managed tunnel and enable it for the local runtime.",
+		Form: component.NewEditorForm(
+			component.Group(component.Select("Runtime credential", &data.RuntimeKeyMode, options...)),
+			component.Group(component.Input("OpenAI project ID (optional)", &data.ProjectID).Placeholder("Blank uses the only active project or Default project.")).WithHideFunc(func() bool { return data.RuntimeKeyMode != "auto" }),
+			component.Group(component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Placeholder("Read + Use key.").Validate(func(value string) error {
+				if data.RuntimeKeyMode == "manual" && strings.TrimSpace(value) == "" {
+					return fmt.Errorf("runtime API key is required")
+				}
+				return nil
+			})).WithHideFunc(func() bool { return data.RuntimeKeyMode != "manual" }),
+		),
 	})
 	return editor, data
 }

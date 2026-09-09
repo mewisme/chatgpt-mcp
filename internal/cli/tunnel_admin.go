@@ -235,7 +235,8 @@ func tunnelGetCommand() *cobra.Command {
 
 func tunnelUseCommand() *cobra.Command {
 	var runtimeAPIKey string
-	var enable bool
+	var autoRuntimeKey bool
+	var projectID string
 	cmd := &cobra.Command{Use: "use <tunnel_id>", Aliases: []string{"select", "switch"}, Short: "Select a managed tunnel for the local runtime", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		logCommandStep(cmd, "TUNNEL", "tunnel.use.preparing", "Preparing managed tunnel selection", logger.WithVerbose("tunnel_id", args[0]))
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
@@ -243,20 +244,19 @@ func tunnelUseCommand() *cobra.Command {
 		log := commandLogger(cmd)
 		defer log.Close()
 		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.use.loading", "Selecting managed tunnel")
-		result, err := application.UseManagedTunnel(ctx, args[0], runtimeAPIKey, enable)
+		result, err := application.UseManagedTunnel(ctx, args[0], application.ManagedTunnelUseOptions{RuntimeAPIKey: runtimeAPIKey, AutoGenerateRuntimeKey: autoRuntimeKey, ProjectID: projectID})
 		if err != nil {
 			return err
 		}
 		log.Success("TUNNEL", "Managed tunnel selected")
 		logManagedTunnelMetadata(log, result.Metadata)
 		log.Detail("runtime", "configured")
-		if enable {
-			log.Detail("enabled", true)
-		}
+		log.Detail("enabled", true)
 		return nil
 	}}
 	cmd.Flags().StringVar(&runtimeAPIKey, "runtime-api-key", "", "runtime API key for cgm; defaults to the currently configured runtime key")
-	cmd.Flags().BoolVar(&enable, "enable", false, "enable the tunnel after selecting it")
+	cmd.Flags().BoolVar(&autoRuntimeKey, "auto-runtime-key", false, "generate a Read + Use runtime key with the stored OpenAI admin key when no runtime key is configured")
+	cmd.Flags().StringVar(&projectID, "project-id", "", "OpenAI project used for automatic runtime key generation; defaults to the only active project or Default project")
 	return cmd
 }
 

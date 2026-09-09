@@ -178,6 +178,35 @@ describe("TunnelPage", () => {
     ).toBeInTheDocument()
   })
 
+  it("offers automatic or manual runtime credentials when using a tunnel without a runtime key", async () => {
+    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: vi.fn() })
+    vi.mocked(adminApi.tunnelConfig).mockResolvedValue({ enabled: false, admin_key_configured: true })
+    const user = userEvent.setup()
+    render(<TunnelPage />)
+
+    await user.click(await screen.findByRole("tab", { name: "Administration" }))
+    const useButtons = await screen.findAllByRole("button", { name: "Use tunnel" })
+    await user.click(useButtons[1])
+    expect(screen.getByText("Use managed tunnel?")).toBeInTheDocument()
+    expect(screen.getByText("Auto generate runtime key")).toBeInTheDocument()
+    expect(screen.getByPlaceholderText("proj_...")).toBeInTheDocument()
+    expect(screen.queryByText("Enable tunnel")).not.toBeInTheDocument()
+
+    const credentialSelect = screen.getAllByRole("combobox").find((element) => element.textContent?.includes("Auto generate runtime key"))
+    expect(credentialSelect).toBeDefined()
+    if (!credentialSelect) return
+    credentialSelect.focus()
+    await user.keyboard("{Enter}{ArrowDown}{Enter}")
+    expect(await screen.findByText("Enter runtime key manually")).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText("proj_...")).not.toBeInTheDocument()
+    const runtimeKey = screen.getByText("Runtime API key").parentElement?.querySelector("input")
+    expect(runtimeKey).not.toBeNull()
+    if (!runtimeKey) return
+    await user.type(runtimeKey, "sk-runtime-manual")
+    await user.click(screen.getByRole("button", { name: "Use tunnel" }))
+    await waitFor(() => expect(adminApi.useManagedTunnel).toHaveBeenCalledWith({ id: "tunnel_two", runtime_api_key: "sk-runtime-manual" }))
+  })
+
   it("limits a read-only admin key to lookup and use actions", async () => {
     vi.mocked(adminApi.tunnelAdminKey).mockResolvedValue({ configured: true, scope: { workspace_id: "ws_admin" }, access: { read: true, manage: false } })
     const user = userEvent.setup()

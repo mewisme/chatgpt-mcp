@@ -151,7 +151,11 @@ func NewManagedTunnelsRouteAction(ctx context.Context, resourceID, section, acti
 	if err != nil {
 		return nil, err
 	}
-	page := &TunnelPage{ctx: ctx, kind: tunnelPageManaged, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), items: items, adminStatus: adminStatus}
+	dashboard, err := application.TunnelStatus()
+	if err != nil {
+		return nil, err
+	}
+	page := &TunnelPage{ctx: ctx, kind: tunnelPageManaged, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), items: items, adminStatus: adminStatus, dashboard: dashboard}
 	if (page.action == "create" || page.action == "edit") && !page.adminStatus.Access.Manage {
 		return nil, fmt.Errorf("tunnel admin key does not have verified Manage access")
 	}

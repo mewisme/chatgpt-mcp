@@ -163,7 +163,7 @@ func (page *TunnelPage) initManagedEditorRoute() error {
 		if page.resourceID == "" || page.section != "" {
 			return fmt.Errorf("managed tunnel use editor requires a tunnel resource")
 		}
-		editor, data := newManagedConfigureEditor()
+		editor, data := newManagedConfigureEditor(page.dashboard.Config.APIKey != "")
 		page.editor, page.configureForm = &editor, data
 		page.command, page.targetID = TunnelManagedConfigure, page.resourceID
 	default:
@@ -202,8 +202,19 @@ func (page *TunnelPage) submitManagedEditor() tea.Cmd {
 			return nil
 		}
 		data, id := page.configureForm, page.targetID
+		options := application.ManagedTunnelUseOptions{ProjectID: data.ProjectID}
+		switch data.RuntimeKeyMode {
+		case "auto":
+			options.AutoGenerateRuntimeKey = true
+		case "manual":
+			options.RuntimeAPIKey = data.RuntimeAPIKey
+		case "reuse":
+		default:
+			page.editor.SetFeedback("", fmt.Errorf("unsupported runtime credential mode: %s", data.RuntimeKeyMode))
+			return nil
+		}
 		return page.startOperation(page.command, id, "Configuring managed tunnel", func(ctx context.Context) tunnelOperationMsg {
-			result, err := application.GetManagedTunnel(ctx, id, application.ManagedTunnelOptions{Configure: true, RuntimeAPIKey: data.RuntimeAPIKey, Enable: data.Enable})
+			result, err := application.UseManagedTunnel(ctx, id, options)
 			return tunnelOperationMsg{command: TunnelManagedConfigure, targetID: id, result: result, err: err}
 		})
 	default:
@@ -234,7 +245,7 @@ func (page *TunnelPage) acceptManagedConfigureSuccess() {
 	if page == nil {
 		return
 	}
-	editor, data := newManagedConfigureEditor()
+	editor, data := newManagedConfigureEditor(true)
 	page.editor, page.configureForm = &editor, data
 	page.resizeEditor()
 }

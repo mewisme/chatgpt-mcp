@@ -116,7 +116,7 @@ func TestTunnelAdminAndManagedLifecycle(t *testing.T) {
 	if err != nil || got.Metadata.Name != "One" {
 		t.Fatalf("get=%#v err=%v", got, err)
 	}
-	used, err := UseManagedTunnel(t.Context(), "tunnel_one", "runtime-secret", false)
+	used, err := UseManagedTunnel(t.Context(), "tunnel_one", ManagedTunnelUseOptions{RuntimeAPIKey: "runtime-secret"})
 	if err != nil || !used.Configured {
 		t.Fatalf("use=%#v err=%v", used, err)
 	}
@@ -152,6 +152,54 @@ func TestTunnelAdminAndManagedLifecycle(t *testing.T) {
 	if err != nil || status.Configured {
 		t.Fatalf("admin key remained configured: %#v err=%v", status, err)
 	}
+}
+
+func TestUseManagedTunnelAutoGeneratesRuntimeKey(t *testing.T) {
+	const tunnelID = "tunnel_00000000000000000000000000000003"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer admin-secret" {
+			t.Fatalf("authorization=%q", r.Header.Get("Authorization"))
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/tunnels/"+tunnelID:
+			_, _ = w.Write([]byte(`{"id":"` + tunnelID + `","name":"Auto","description":"Auto","organization_ids":["org_admin"]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/organization/projects":
+			_, _ = w.Write([]byte(`{"data":[{"id":"proj_default","name":"Default project","status":"active"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/organization/projects/proj_default/service_accounts":
+			_, _ = w.Write([]byte(`{"data":[{"id":"svc_runtime","name":"chatgpt-mcp tunnel runtime"}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/organization/projects/proj_default/service_accounts/svc_runtime/api_keys":
+			var body struct {
+				Scopes []string `json:"scopes"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if len(body.Scopes) != 2 || body.Scopes[0] != "api.organization.tunnel.read" || body.Scopes[1] != "api.organization.tunnel.use" {
+				t.Fatalf("scopes=%#v", body.Scopes)
+			}
+			_, _ = w.Write([]byte(`{"id":"key_runtime","value":"sk-runtime-generated"}`))
+		default:
+			t.Fatalf("unexpected request=%s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+	}))
+	defer server.Close()
+	setupTunnelApplicationRoot(t, tunnel.Config{AdminKey: "admin-secret", AdminOrganizationID: "org_admin", AdminReadAccess: true, AdminManageAccess: true, ControlPlaneBaseURL: server.URL})
+
+	result, err := UseManagedTunnel(t.Context(), tunnelID, ManagedTunnelUseOptions{AutoGenerateRuntimeKey: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Configured {
+		t.Fatalf("result=%#v", result)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Tunnel.Enabled || loaded.Tunnel.ID != tunnelID || loaded.Tunnel.APIKey != "sk-runtime-generated" || loaded.Tunnel.OrganizationID != "org_admin" {
+		t.Fatalf("tunnel=%#v", loaded.Tunnel)
+	}
+	assertTunnelSecretNotInManagedFiles(t, "sk-runtime-generated")
 }
 
 func TestDeleteManagedTunnelCanClearSelectedRuntimeConfig(t *testing.T) {

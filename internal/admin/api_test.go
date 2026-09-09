@@ -798,34 +798,41 @@ func TestManagedTunnelAPIListsWithStoredAdminKey(t *testing.T) {
 }
 
 func TestManagedTunnelUseReusesRuntimeKeyAndSwitchesConfig(t *testing.T) {
+	const selectedID = "tunnel_00000000000000000000000000000002"
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_two" {
+		if strings.HasSuffix(r.URL.Path, "/poll") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"commands":[]}`))
+			return
+		}
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/"+selectedID {
 			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
 		}
 		if r.Header.Get("Authorization") != "Bearer sk-admin" {
 			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
 		}
-		_, _ = w.Write([]byte(`{"id":"tunnel_two","name":"Two","description":"Secondary","organization_ids":["org_two"],"workspace_ids":["ws_admin"]}`))
+		_, _ = w.Write([]byte(`{"id":"` + selectedID + `","name":"Two","description":"Secondary","organization_ids":["org_two"],"workspace_ids":["ws_admin"]}`))
 	}))
 	defer server.Close()
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
 	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_one", APIKey: "runtime-key", AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true, ControlPlaneBaseURL: server.URL, OrganizationID: "org_one"}
-	client := tunnel.NewConfigured(cfg.Tunnel, nil)
+	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, nil)
+	client := tunnel.NewConfigured(cfg.Tunnel, runtime)
 	store := config.NewRuntimeStore(cfg)
 	var saved config.Config
 	handler := New(API{Tunnel: client, Config: store, saveConfig: func(next config.Config) error { saved = next; return nil }})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/tunnel/managed/use", strings.NewReader(`{"id":"tunnel_two"}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/tunnel/managed/use", strings.NewReader(`{"id":"`+selectedID+`"}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	for label, got := range map[string]tunnel.Config{"store": store.Snapshot().Tunnel, "saved": saved.Tunnel, "runtime": client.Config()} {
-		if got.ID != "tunnel_two" || got.APIKey != "runtime-key" || got.OrganizationID != "org_two" {
+		if !got.Enabled || got.ID != selectedID || got.APIKey != "runtime-key" || got.OrganizationID != "org_two" {
 			t.Fatalf("%s tunnel config = %#v", label, got)
 		}
 	}

@@ -41,6 +41,12 @@ type ManagedTunnelOptions struct {
 	Enable        bool
 }
 
+type ManagedTunnelUseOptions struct {
+	RuntimeAPIKey          string
+	AutoGenerateRuntimeKey bool
+	ProjectID              string
+}
+
 type ManagedTunnelResult struct {
 	Metadata   tunnel.Metadata
 	Configured bool
@@ -278,12 +284,42 @@ func GetManagedTunnel(ctx context.Context, id string, options ManagedTunnelOptio
 	return ManagedTunnelResult{Metadata: metadata, Configured: configured}, nil
 }
 
-func UseManagedTunnel(ctx context.Context, id, runtimeAPIKey string, enable bool) (ManagedTunnelResult, error) {
+func UseManagedTunnel(ctx context.Context, id string, options ManagedTunnelUseOptions) (ManagedTunnelResult, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return ManagedTunnelResult{}, errors.New("managed tunnel id is required")
 	}
-	return GetManagedTunnel(ctx, id, ManagedTunnelOptions{Configure: true, RuntimeAPIKey: runtimeAPIKey, Enable: enable})
+	cfg, err := config.Load()
+	if err != nil {
+		return ManagedTunnelResult{}, err
+	}
+	selected, err := GetManagedTunnel(ctx, id, ManagedTunnelOptions{})
+	if err != nil {
+		return ManagedTunnelResult{}, err
+	}
+	key := strings.TrimSpace(options.RuntimeAPIKey)
+	if key == "" {
+		key = strings.TrimSpace(cfg.Tunnel.APIKey)
+	}
+	if key == "" && options.AutoGenerateRuntimeKey {
+		generated, err := tunnel.GenerateRuntimeKey(ctx, cfg.Tunnel, options.ProjectID)
+		if err != nil {
+			return ManagedTunnelResult{}, err
+		}
+		key = generated.Value
+	}
+	if key == "" {
+		return ManagedTunnelResult{}, errors.New("runtime API key is required to use this tunnel; provide one or enable automatic generation with a sufficiently privileged admin key")
+	}
+	previous := cfg
+	if err := configureManagedTunnel(&cfg, selected.Metadata, key, true); err != nil {
+		return ManagedTunnelResult{}, err
+	}
+	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
+		return ManagedTunnelResult{}, err
+	}
+	selected.Configured = true
+	return selected, nil
 }
 
 func CreateManagedTunnel(ctx context.Context, request tunnel.CreateRequest, options ManagedTunnelOptions) (ManagedTunnelResult, error) {

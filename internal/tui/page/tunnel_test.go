@@ -620,15 +620,15 @@ func TestManagedTunnelUpdateAndConfigureFailuresKeepDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = configure.Init()
-	updated, _ = configure.Update(tea.KeyPressMsg{Code: 's', Text: "runtime-secret-draft"})
-	configure = updated.(*TunnelPage)
-	if configure.configureForm == nil || configure.configureForm.RuntimeAPIKey != "runtime-secret-draft" || !configure.Dirty() {
-		t.Fatalf("configure draft=%#v dirty=%t", configure.configureForm, configure.Dirty())
+	if configure.configureForm == nil || configure.configureForm.RuntimeKeyMode != "auto" {
+		t.Fatalf("configure draft=%#v", configure.configureForm)
 	}
+	configure.configureForm.RuntimeKeyMode = "manual"
+	configure.configureForm.RuntimeAPIKey = "runtime-secret-draft"
 	updated, _ = configure.Update(tunnelOperationMsg{command: TunnelManagedConfigure, targetID: "tunnel_one", err: fmt.Errorf("configure failed")})
 	configure = updated.(*TunnelPage)
 	view := ansi.Strip(configure.View(44, 18))
-	if configure.configureForm == nil || configure.configureForm.RuntimeAPIKey != "runtime-secret-draft" || !configure.Dirty() || !strings.Contains(view, "configure failed") || strings.Contains(view, "runtime-secret-draft") {
+	if configure.configureForm == nil || configure.configureForm.RuntimeKeyMode != "manual" || configure.configureForm.RuntimeAPIKey != "runtime-secret-draft" || !strings.Contains(view, "configure failed") || strings.Contains(view, "runtime-secret-draft") {
 		t.Fatalf("configure failure draft=%#v dirty=%t view=%q", configure.configureForm, configure.Dirty(), view)
 	}
 	testutil.AssertLinesFit(t, configure.View(44, 18), 44)

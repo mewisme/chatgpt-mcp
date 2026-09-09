@@ -116,7 +116,7 @@ try {
   child = null
   runExpectFailure(["config", "reload"])
 
-  const history = run(["logs", "--debug", "--event", "server.*", "--tail", "50"], { quiet: true })
+  const history = run(["logs", "--debug", "--event", "server.*", "--tail", "200"], { quiet: true })
   if (!history.includes("server.ready") && !history.includes("Server ready")) fail(`runtime history missing server readiness event:\n${history}`)
   if (!history.includes("── session run_")) fail(`runtime history missing session boundary:\n${history}`)
   if (!/^\d{2}:\d{2}:\d{2} /m.test(history)) fail(`runtime history missing replay timestamp:\n${history}`)

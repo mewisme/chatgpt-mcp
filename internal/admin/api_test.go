@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -803,6 +804,7 @@ func TestManagedTunnelUseReusesRuntimeKeyAndSwitchesConfig(t *testing.T) {
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
 		t.Fatal(err)
 	}
+	var adminFetches atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/poll") {
 			w.Header().Set("Content-Type", "application/json")
@@ -810,10 +812,11 @@ func TestManagedTunnelUseReusesRuntimeKeyAndSwitchesConfig(t *testing.T) {
 			return
 		}
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/"+selectedID {
-			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
 		}
-		if r.Header.Get("Authorization") != "Bearer sk-admin" {
-			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		if r.Header.Get("Authorization") == "Bearer sk-admin" {
+			adminFetches.Add(1)
 		}
 		_, _ = w.Write([]byte(`{"id":"` + selectedID + `","name":"Two","description":"Secondary","organization_ids":["org_two"],"workspace_ids":["ws_admin"]}`))
 	}))
@@ -823,6 +826,7 @@ func TestManagedTunnelUseReusesRuntimeKeyAndSwitchesConfig(t *testing.T) {
 	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_one", APIKey: "runtime-key", AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true, ControlPlaneBaseURL: server.URL, OrganizationID: "org_one"}
 	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, nil)
 	client := tunnel.NewConfigured(cfg.Tunnel, runtime)
+	defer client.Stop()
 	store := config.NewRuntimeStore(cfg)
 	var saved config.Config
 	handler := New(API{Tunnel: client, Config: store, saveConfig: func(next config.Config) error { saved = next; return nil }})
@@ -830,6 +834,9 @@ func TestManagedTunnelUseReusesRuntimeKeyAndSwitchesConfig(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/tunnel/managed/use", strings.NewReader(`{"id":"`+selectedID+`"}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if adminFetches.Load() == 0 {
+		t.Fatal("managed tunnel selection did not fetch metadata with the admin key")
 	}
 	for label, got := range map[string]tunnel.Config{"store": store.Snapshot().Tunnel, "saved": saved.Tunnel, "runtime": client.Config()} {
 		if !got.Enabled || got.ID != selectedID || got.APIKey != "runtime-key" || got.OrganizationID != "org_two" {

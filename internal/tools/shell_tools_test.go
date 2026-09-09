@@ -219,6 +219,22 @@ func TestBackgroundMutationUsesPersistedCWDAndRejectsOutside(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("background mutation failed: %#v", result)
 	}
+	started := result.StructuredContent.(shellruntime.StartResult)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		statusResult, statusErr := runtime.Call(context.Background(), "process_status", map[string]any{"workspace_id": workspaceID, "id": started.ID})
+		if statusErr != nil {
+			t.Fatal(statusErr)
+		}
+		status := statusResult.StructuredContent.(ProcessStatusResult)
+		if len(status.Processes) == 1 && !status.Processes[0].Running {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := runtime.Call(context.Background(), "clear_processes", map[string]any{"workspace_id": workspaceID}); err != nil {
+		t.Fatal(err)
+	}
 
 	outside := filepath.Join(t.TempDir(), "outside.txt")
 	result, err = runtime.Call(context.Background(), "start_process", map[string]any{

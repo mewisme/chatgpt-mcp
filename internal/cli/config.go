@@ -219,10 +219,6 @@ func configMigrateCommand() *cobra.Command {
 	}}
 }
 
-func migrateLegacySecrets() error {
-	return application.MigrateLegacySecrets()
-}
-
 func configConvertCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:               "convert <json|yaml|toml>",

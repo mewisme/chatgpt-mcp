@@ -293,7 +293,6 @@ func WaitRuntimeStopped(ctx context.Context, probe RuntimeProbe, timeout time.Du
 	attempts := 0
 	firstProbe := true
 	lastLifecycle := ""
-	lastProbeError := ""
 	for time.Now().Before(deadline) {
 		attempts++
 		status, running, err := probe(ctx)
@@ -302,10 +301,7 @@ func WaitRuntimeStopped(ctx context.Context, probe RuntimeProbe, timeout time.Du
 			firstProbe = false
 		}
 		if err != nil {
-			if err.Error() != lastProbeError {
-				tracepkg.Emit(ctx, "SERVICE", "service.runtime.probe-error.changed", "Managed runtime probe error changed", tracepkg.String("mode", "stop"), tracepkg.Int("attempt", attempts), tracepkg.String("probe_error", err.Error()), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
-				lastProbeError = err.Error()
-			}
+			tracepkg.Emit(ctx, "SERVICE", "service.runtime.probe-error.changed", "Managed runtime probe error changed", tracepkg.String("mode", "stop"), tracepkg.Int("attempt", attempts), tracepkg.String("probe_error", err.Error()), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
 			span.FailMessage("Managed runtime stop probe failed", err, tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
 			return err
 		}

@@ -53,25 +53,6 @@ func resolveListenerPlan(exposure config.ExposureConfig) (listenerPlan, error) {
 	return listenerPlan{Hosts: hosts, Addresses: addresses}, nil
 }
 
-func listenOnHosts(hosts []string, port int) ([]net.Listener, error) {
-	listeners := make([]net.Listener, 0, len(hosts))
-	for _, host := range hosts {
-		listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
-		if err != nil {
-			for _, opened := range listeners {
-				_ = opened.Close()
-			}
-			return nil, fmt.Errorf("listen on %s:%d: %w", host, port, err)
-		}
-		listeners = append(listeners, listener)
-	}
-	return listeners, nil
-}
-
-func listenOnHostsWithFallback(hosts []string, port int) ([]net.Listener, int, error) {
-	return listenOnHostsWithFallbackContext(context.Background(), "", hosts, port)
-}
-
 func listenOnHostsWithFallbackContext(ctx context.Context, component string, hosts []string, port int) ([]net.Listener, int, error) {
 	if ctx == nil {
 		ctx = context.Background()

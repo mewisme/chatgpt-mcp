@@ -89,10 +89,6 @@ func aliasStatusCommand() *cobra.Command {
 	}}
 }
 
-func managedAliasLayout() (install.Layout, error) {
-	return managedAliasLayoutContext(context.Background())
-}
-
 func managedAliasLayoutContext(ctx context.Context) (install.Layout, error) {
 	span := tracepkg.Start(ctx, "INSTALL", "install.alias.layout", "Resolving managed alias layout")
 	detection, err := install.DetectCurrent(version.Version)

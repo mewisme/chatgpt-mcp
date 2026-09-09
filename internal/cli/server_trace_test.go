@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -284,10 +283,4 @@ func serverTraceField(event tracepkg.Event, key string) (any, bool) {
 		}
 	}
 	return nil, false
-}
-
-func testServerTracePort(address net.Addr) int {
-	_, portText, _ := net.SplitHostPort(address.String())
-	port, _ := strconv.Atoi(portText)
-	return port
 }

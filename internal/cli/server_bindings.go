@@ -109,10 +109,6 @@ func listenerPortsDisjoint(left config.Config, right config.Config) bool {
 	return true
 }
 
-func restoreHTTPBindings(runtime *app.App, cfg config.Config, plan listenerPlan, errCh chan<- error) (*httpBindings, error) {
-	return restoreHTTPBindingsContext(context.Background(), runtime, cfg, plan, errCh)
-}
-
 func restoreHTTPBindingsContext(ctx context.Context, runtime *app.App, cfg config.Config, plan listenerPlan, errCh chan<- error) (*httpBindings, error) {
 	bindings, err := openHTTPBindingsContext(ctx, cfg, plan)
 	if err != nil {

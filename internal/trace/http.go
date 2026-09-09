@@ -76,7 +76,7 @@ func DoHTTP(client *http.Client, request *http.Request) (*http.Response, error) 
 		}
 		return nil
 	}
-	response, err := requestClient.Do(request)
+	response, err := requestClient.Do(request) // #nosec G704 -- this tracing wrapper intentionally supports caller-configured HTTP endpoints.
 	if err != nil {
 		fields := []Field{String("method", request.Method), URL("url", request.URL.String())}
 		fields = append(fields, timings.fields()...)

@@ -581,7 +581,7 @@ func startStdio(ctx context.Context, server Server) (*stdioTransport, error) {
 	args := sanitizeProcessArgs(server.Args)
 	envNames := sortedMapKeys(server.Env)
 	span := tracepkg.Start(ctx, "MCP", "upstream.stdio.spawn", "Starting upstream stdio process", tracepkg.String("server", server.ID), tracepkg.String("executable", server.Command), tracepkg.Any("args", args), tracepkg.String("cwd", server.CWD), tracepkg.Any("env_names", envNames), tracepkg.Int("env_count", len(envNames)))
-	cmd := exec.Command(server.Command, server.Args...)
+	cmd := exec.Command(server.Command, server.Args...) // #nosec G204 -- stdio executable and arguments are explicit user configuration.
 	if server.CWD != "" {
 		cmd.Dir = server.CWD
 	}

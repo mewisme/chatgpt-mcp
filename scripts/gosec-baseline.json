@@ -91,14 +91,6 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/service/command.go",
-    "details": "Subprocess launched with variable",
-    "code": "func runCommand(name string, args ...string) (string, error) {\n\tcommand := exec.Command(name, args...)\n\tconfigureCommand(command)"
-  },
-  {
-    "rule_id": "G204",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/shell/sandbox.go",
     "details": "Subprocess launched with variable",
     "code": "}\n\twrapped := exec.CommandContext(ctx, bwrap, args...)\n\twrapped.Dir = cwd"
@@ -126,14 +118,6 @@
     "file": "internal/shell/session.go",
     "details": "Subprocess launched with variable",
     "code": "}\n\treturn exec.CommandContext(ctx, shell, \"-c\", command), nil\n}"
-  },
-  {
-    "rule_id": "G204",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/upstream/client.go",
-    "details": "Subprocess launched with a potential tainted input or cmd arguments",
-    "code": "func startStdio(server Server) (*stdioTransport, error) {\n\tcmd := exec.Command(server.Command, server.Args...)\n\tif server.CWD != \"\" {"
   },
   {
     "rule_id": "G301",

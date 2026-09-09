@@ -1,10 +1,10 @@
 package logger
 
 import (
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"os"
 	"strings"
 	"sync"
@@ -67,8 +67,12 @@ func NewWithOptions(options Options) *Logger {
 }
 
 func randomSpinnerCharset() []string {
-	id := spinnerCharacterSets[rand.IntN(len(spinnerCharacterSets))]
-	return spinnerlib.CharSets[id]
+	var random [1]byte
+	if _, err := cryptorand.Read(random[:]); err == nil {
+		id := spinnerCharacterSets[int(random[0])%len(spinnerCharacterSets)]
+		return spinnerlib.CharSets[id]
+	}
+	return spinnerlib.CharSets[14]
 }
 
 func (l *Logger) Emit(event Event) {

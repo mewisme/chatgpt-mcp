@@ -60,7 +60,7 @@ func OpenEvents(ctx context.Context) (*EventStream, State, error) {
 		span.FailMessage("Runtime event stream ready handshake failed", err, tracepkg.Int("pid", state.PID), tracepkg.URL("endpoint", endpoint), tracepkg.Int("status", response.StatusCode))
 		return nil, state, err
 	}
-	span.EndMessage("Runtime event stream connected", tracepkg.Int("pid", state.PID), tracepkg.URL("endpoint", endpoint), tracepkg.Int("status", response.StatusCode), tracepkg.Int64("latest_sequence", int64(latestSequence)))
+	span.EndMessage("Runtime event stream connected", tracepkg.Int("pid", state.PID), tracepkg.URL("endpoint", endpoint), tracepkg.Int("status", response.StatusCode), tracepkg.Uint64("latest_sequence", latestSequence))
 	return &EventStream{response: response, scanner: scanner, latestSequence: latestSequence}, state, nil
 }
 

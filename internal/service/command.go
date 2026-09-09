@@ -19,7 +19,7 @@ func runCommandObserver(observer tracepkg.Observer, name string, args ...string)
 		executable = resolved
 	}
 	span := tracepkg.StartObserver(observer, "SERVICE", "service.process.exec", "Executing managed service command", tracepkg.String("executable", executable), tracepkg.Any("args", sanitizeServiceCommandArgs(args)))
-	command := exec.Command(name, args...)
+	command := exec.Command(name, args...) // #nosec G204 -- service backend commands are selected by internal platform adapters.
 	configureCommand(command)
 	output, err := command.CombinedOutput()
 	text := strings.TrimSpace(string(output))

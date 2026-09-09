@@ -122,6 +122,7 @@ func String(key, value string) Field                   { return Field{Key: key, 
 func Bool(key string, value bool) Field                { return Field{Key: key, Value: value} }
 func Int(key string, value int) Field                  { return Field{Key: key, Value: value} }
 func Int64(key string, value int64) Field              { return Field{Key: key, Value: value} }
+func Uint64(key string, value uint64) Field            { return Field{Key: key, Value: value} }
 func DurationMS(key string, value time.Duration) Field { return Int64(key, value.Milliseconds()) }
 func Any(key string, value any) Field                  { return Field{Key: key, Value: value} }
 func Sensitive(key string, value any) Field            { return Field{Key: key, Value: configuredState(value)} }

@@ -552,13 +552,20 @@ func assertContainerStatusName(t *testing.T, runtime *Runtime, containerID, name
 }
 
 func containsPath(values []string, target string) bool {
-	target = filepath.Clean(target)
+	target = canonicalTestPath(target)
 	for _, value := range values {
-		if filepath.Clean(value) == target {
+		if canonicalTestPath(value) == target {
 			return true
 		}
 	}
 	return false
+}
+
+func canonicalTestPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(path)
 }
 
 func TestWorkspaceContainerUnknownStatusPreservesSentinelError(t *testing.T) {

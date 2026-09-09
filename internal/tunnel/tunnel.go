@@ -464,6 +464,14 @@ func (c *Client) Configure(cfg Config) error {
 }
 
 func (c *Client) Reconfigure(cfg Config, persist func() error) error {
+	return c.reconfigure(cfg, nil, persist)
+}
+
+func (c *Client) ReconfigureSeeded(cfg Config, metadata Metadata, persist func() error) error {
+	return c.reconfigure(cfg, &metadata, persist)
+}
+
+func (c *Client) reconfigure(cfg Config, metadata *Metadata, persist func() error) error {
 	if persist == nil {
 		return errors.New("tunnel persistence callback is required")
 	}
@@ -481,6 +489,11 @@ func (c *Client) Reconfigure(cfg Config, persist func() error) error {
 	}
 	if err := c.Configure(cfg); err != nil {
 		return errors.Join(err, c.rollbackReconfigure(current, wasRunning))
+	}
+	if metadata != nil {
+		if err := c.SeedMetadata(*metadata); err != nil {
+			return errors.Join(err, c.rollbackReconfigure(current, wasRunning))
+		}
 	}
 	if cfg.Enabled {
 		if err := c.Start(); err != nil {

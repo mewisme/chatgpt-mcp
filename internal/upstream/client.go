@@ -673,15 +673,15 @@ func (t *stdioTransport) close(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		_ = t.cmd.Process.Kill()
-		span.FailMessage("Upstream stdio process close timed out", ctx.Err(), tracepkg.Int("exit_code", stdioExitCode(t.cmd)), tracepkg.Bool("forced", true))
+		span.FailMessage("Upstream stdio process close timed out", ctx.Err(), tracepkg.Int("exit_code", -1), tracepkg.Bool("forced", true))
 		return ctx.Err()
 	case <-time.After(500 * time.Millisecond):
 		err := t.cmd.Process.Kill()
 		if err != nil {
-			span.FailMessage("Upstream stdio process kill failed", err, tracepkg.Int("exit_code", stdioExitCode(t.cmd)), tracepkg.Bool("forced", true))
+			span.FailMessage("Upstream stdio process kill failed", err, tracepkg.Int("exit_code", -1), tracepkg.Bool("forced", true))
 			return err
 		}
-		span.EndMessage("Upstream stdio process killed", tracepkg.Int("exit_code", stdioExitCode(t.cmd)), tracepkg.Bool("forced", true))
+		span.EndMessage("Upstream stdio process killed", tracepkg.Int("exit_code", -1), tracepkg.Bool("forced", true))
 		return nil
 	case err := <-done:
 		if err != nil {
@@ -691,13 +691,6 @@ func (t *stdioTransport) close(ctx context.Context) error {
 		span.EndMessage("Upstream stdio process stopped", tracepkg.Int("exit_code", t.cmd.ProcessState.ExitCode()), tracepkg.Bool("forced", false))
 		return nil
 	}
-}
-
-func stdioExitCode(cmd *exec.Cmd) int {
-	if cmd == nil || cmd.ProcessState == nil {
-		return -1
-	}
-	return cmd.ProcessState.ExitCode()
 }
 
 func (t *stdioTransport) withStderr(err error) error {

@@ -24,16 +24,28 @@ func openHTTPBindings(cfg config.Config, plan listenerPlan) (*httpBindings, erro
 }
 
 func openHTTPBindingsContext(ctx context.Context, cfg config.Config, plan listenerPlan) (*httpBindings, error) {
+	return openHTTPBindingsModeContext(ctx, cfg, plan, false)
+}
+
+func openHTTPBindingsExactContext(ctx context.Context, cfg config.Config, plan listenerPlan) (*httpBindings, error) {
+	return openHTTPBindingsModeContext(ctx, cfg, plan, true)
+}
+
+func openHTTPBindingsModeContext(ctx context.Context, cfg config.Config, plan listenerPlan, exact bool) (*httpBindings, error) {
 	bindings := &httpBindings{cfg: cfg, plan: plan}
+	listen := listenOnHostsWithFallbackContext
+	if exact {
+		listen = listenOnHostsExactContext
+	}
 	var err error
 	if cfg.Server.Enabled {
-		bindings.mcpListeners, bindings.cfg.Server.Port, err = listenOnHostsWithFallbackContext(ctx, "mcp", plan.Hosts, cfg.Server.Port)
+		bindings.mcpListeners, bindings.cfg.Server.Port, err = listen(ctx, "mcp", plan.Hosts, cfg.Server.Port)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if cfg.Admin.Enabled {
-		bindings.adminListeners, bindings.cfg.Admin.Port, err = listenOnHostsWithFallbackContext(ctx, "admin", plan.Hosts, cfg.Admin.Port)
+		bindings.adminListeners, bindings.cfg.Admin.Port, err = listen(ctx, "admin", plan.Hosts, cfg.Admin.Port)
 		if err != nil {
 			closeListeners(bindings.mcpListeners)
 			return nil, err
@@ -110,7 +122,7 @@ func listenerPortsDisjoint(left config.Config, right config.Config) bool {
 }
 
 func restoreHTTPBindingsContext(ctx context.Context, runtime *app.App, cfg config.Config, plan listenerPlan, errCh chan<- error) (*httpBindings, error) {
-	bindings, err := openHTTPBindingsContext(ctx, cfg, plan)
+	bindings, err := openHTTPBindingsExactContext(ctx, cfg, plan)
 	if err != nil {
 		return nil, err
 	}

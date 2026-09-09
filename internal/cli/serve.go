@@ -243,7 +243,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 
 		openCandidate := func() (*httpBindings, error) {
 			span := tracepkg.Start(reloadCtx, "NETWORK", "server.reload.candidate-open", "Opening candidate server listeners", tracepkg.Int("mcp_port", next.Server.Port), tracepkg.Int("admin_port", next.Admin.Port), tracepkg.Any("hosts", append([]string(nil), nextPlan.Hosts...)))
-			candidate, err := openHTTPBindingsContext(reloadCtx, next, nextPlan)
+			candidate, err := openHTTPBindingsExactContext(reloadCtx, next, nextPlan)
 			if err != nil {
 				span.FailMessage("Candidate server listener open failed", err)
 				return nil, err

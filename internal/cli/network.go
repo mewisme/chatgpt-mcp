@@ -53,6 +53,26 @@ func resolveListenerPlan(exposure config.ExposureConfig) (listenerPlan, error) {
 	return listenerPlan{Hosts: hosts, Addresses: addresses}, nil
 }
 
+func listenOnHostsExactContext(ctx context.Context, component string, hosts []string, port int) ([]net.Listener, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	listeners := make([]net.Listener, 0, len(hosts))
+	for _, host := range hosts {
+		span := tracepkg.Start(ctx, "NETWORK", "server.listener.bind", "Binding server listener", tracepkg.String("component", component), tracepkg.String("host", host), tracepkg.Int("configured_port", port), tracepkg.Int("attempted_port", port), tracepkg.Int("fallback_attempt", 0))
+		listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			span.FailMessage("Server listener bind failed", err, tracepkg.String("component", component), tracepkg.String("host", host), tracepkg.Int("configured_port", port), tracepkg.Int("attempted_port", port), tracepkg.Int("fallback_attempt", 0), tracepkg.Bool("address_in_use", isAddressInUseError(err)))
+			closeListeners(listeners)
+			return nil, 0, fmt.Errorf("listen on %s:%d: %w", host, port, err)
+		}
+		listeners = append(listeners, listener)
+		span.EndMessage("Server listener bound", tracepkg.String("component", component), tracepkg.String("host", host), tracepkg.Int("configured_port", port), tracepkg.Int("attempted_port", port), tracepkg.Int("fallback_attempt", 0), tracepkg.Int("bound_port", port), tracepkg.String("address", listener.Addr().String()))
+	}
+	tracepkg.Emit(ctx, "NETWORK", "server.listener.port-selected", "Selected server listener port", tracepkg.String("component", component), tracepkg.Int("configured_port", port), tracepkg.Int("selected_port", port), tracepkg.Int("fallback_attempt", 0), tracepkg.Int("listener_count", len(listeners)), tracepkg.Any("hosts", append([]string(nil), hosts...)))
+	return listeners, port, nil
+}
+
 func listenOnHostsWithFallbackContext(ctx context.Context, component string, hosts []string, port int) ([]net.Listener, int, error) {
 	if ctx == nil {
 		ctx = context.Background()

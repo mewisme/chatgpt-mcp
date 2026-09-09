@@ -481,7 +481,7 @@ func (api API) handleManagedTunnelUse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = api.Config.Update(func(config.Config) (config.Config, error) {
-		if err := api.Tunnel.Reconfigure(candidate.Tunnel, func() error { return api.persistConfig(candidate) }); err != nil {
+		if err := api.Tunnel.ReconfigureSeeded(candidate.Tunnel, metadata, func() error { return api.persistConfig(candidate) }); err != nil {
 			return current, err
 		}
 		return candidate, nil

@@ -115,6 +115,10 @@ func TestTunnelOnlyServePublishesRuntimeControl(t *testing.T) {
 			if status.ServerEnabled || !status.TunnelEnabled {
 				t.Fatalf("tunnel-only status=%#v", status)
 			}
+			if status.Starting || status.Lifecycle != "ready" {
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
 			if err := requestRuntimeShutdown(context.Background()); err != nil {
 				t.Fatal(err)
 			}

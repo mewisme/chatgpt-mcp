@@ -30,7 +30,6 @@ func requestCreateDummyCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "dummy", Short: "Create a dummy pending approval request for UI testing", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint")
 		log := commandLogger(cmd)
-		defer log.Close()
 		if !asJSON {
 			startCommandSpinner(cmd, log, "REQUEST", "request.creating", "Creating dummy approval request")
 		}
@@ -60,7 +59,6 @@ func requestListCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List control approval requests from the running runtime", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint")
 		log := commandLogger(cmd)
-		defer log.Close()
 		if !asJSON {
 			startCommandSpinner(cmd, log, "REQUEST", "request.loading", "Loading approval requests")
 		}
@@ -88,7 +86,6 @@ func requestViewCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "view <request_id>", Aliases: []string{"show", "info"}, Short: "Show one control approval request by ID or unique prefix", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint", logger.WithVerbose("request", args[0]))
 		log := commandLogger(cmd)
-		defer log.Close()
 		if !asJSON {
 			startCommandSpinner(cmd, log, "REQUEST", "request.loading", "Loading approval request")
 		}
@@ -101,7 +98,7 @@ func requestViewCommand() *cobra.Command {
 		if asJSON {
 			return printJSON(cmd, request)
 		}
-		log.Close()
+		log.StopAnimation()
 		printApprovalRequest(cmd, request)
 		return nil
 	}}
@@ -127,7 +124,6 @@ func requestResolveCommand(approve bool) *cobra.Command {
 	cmd := &cobra.Command{Use: action + " <request_id>", Aliases: aliases, Short: label + " one pending control approval request by ID or unique prefix", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint", logger.WithVerbose("action", action), logger.WithVerbose("request", args[0]))
 		log := commandLogger(cmd)
-		defer log.Close()
 		if !asJSON {
 			startCommandSpinner(cmd, log, "REQUEST", "request.resolving", progress)
 		}

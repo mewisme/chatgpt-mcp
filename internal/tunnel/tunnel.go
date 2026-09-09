@@ -13,10 +13,10 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	tunnelclient "github.com/openai/tunnel-client"
-	tcconfig "github.com/openai/tunnel-client/pkg/config"
 	tcadmin "github.com/openai/tunnel-client/pkg/controlplane/admin"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const (
@@ -179,21 +179,34 @@ func newConfigured(cfg Config, runtime *tools.Runtime, factory backendFactory) *
 }
 
 func FetchMetadata(ctx context.Context, cfg Config) (Metadata, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	id := strings.TrimSpace(cfg.ID)
+	span := tracepkg.Start(ctx, "TUNNEL", "tunnel.metadata.fetch", "Fetching tunnel metadata", tracepkg.String("tunnel_id", id), tracepkg.String("method", "GET"), tracepkg.URL("url", adminAPIURL(cfg, "/v1/tunnels/"+url.PathEscape(id), nil)), tracepkg.Bool("runtime_key_configured", strings.TrimSpace(cfg.APIKey) != ""))
 	if strings.TrimSpace(cfg.ID) == "" {
-		return Metadata{}, errors.New("OpenAI tunnel id is empty")
+		err := errors.New("OpenAI tunnel id is empty")
+		span.FailMessage("Tunnel metadata fetch validation failed", err)
+		return Metadata{}, err
 	}
 	if strings.TrimSpace(cfg.APIKey) == "" {
-		return Metadata{}, errors.New("OpenAI tunnel API key is empty")
+		err := errors.New("OpenAI tunnel API key is empty")
+		span.FailMessage("Tunnel metadata fetch validation failed", err)
+		return Metadata{}, err
 	}
 	client, err := adminTunnelClient(cfg, cfg.APIKey)
 	if err != nil {
+		span.FailMessage("Tunnel metadata client setup failed", err)
 		return Metadata{}, err
 	}
 	value, err := client.GetTunnel(ctx, cfg.ID)
 	if err != nil {
+		span.FailMessage("Tunnel metadata fetch failed", safeAdminTraceError(err), adminRequestErrorTraceFields(err)...)
 		return Metadata{}, err
 	}
-	return metadataFromTunnel(value), nil
+	metadata := metadataFromTunnel(value)
+	span.EndMessage("Tunnel metadata fetched", tracepkg.String("tunnel_id", metadata.ID), tracepkg.Int("organization_count", len(metadata.OrganizationIDs)), tracepkg.Int("workspace_count", len(metadata.WorkspaceIDs)), tracepkg.Int("tenant_count", len(metadata.TenantIDs)))
+	return metadata, nil
 }
 
 func createWithAdminKey(ctx context.Context, cfg Config, apiKey string, req CreateRequest) (Metadata, error) {
@@ -225,18 +238,6 @@ func createWithAdminKey(ctx context.Context, cfg Config, apiKey string, req Crea
 	return metadataFromTunnel(value), nil
 }
 
-func adminTunnelClient(cfg Config, apiKey string) (*tcadmin.AdminTunnelClient, error) {
-	baseURL := strings.TrimSpace(cfg.ControlPlaneBaseURL)
-	if baseURL == "" {
-		baseURL = tunnelclient.DefaultControlPlaneBaseURL
-	}
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return nil, fmt.Errorf("invalid OpenAI tunnel control plane base URL %q", baseURL)
-	}
-	return tcadmin.NewAdminTunnelClient(&tcconfig.AdminConfig{BaseURL: parsed, AdminKey: apiKey})
-}
-
 func metadataFromTunnel(value *tcadmin.Tunnel) Metadata {
 	if value == nil {
 		return Metadata{}
@@ -255,6 +256,7 @@ func (c *Client) RefreshMetadata(ctx context.Context, force bool) (Metadata, err
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	span := tracepkg.Start(ctx, "TUNNEL", "tunnel.metadata.refresh", "Refreshing tunnel metadata", tracepkg.Bool("force_refresh", force))
 	c.metadataMu.Lock()
 	defer c.metadataMu.Unlock()
 	c.mu.RLock()
@@ -262,17 +264,21 @@ func (c *Client) RefreshMetadata(ctx context.Context, force bool) (Metadata, err
 	if !force && c.metadata != nil && time.Since(c.metadata.FetchedAt) < metadataTTL {
 		value := cloneMetadata(*c.metadata)
 		c.mu.RUnlock()
+		span.EndMessage("Tunnel metadata loaded from cache", tracepkg.String("tunnel_id", value.ID), tracepkg.Bool("cache_hit", true), tracepkg.Int64("cache_age_ms", time.Since(value.FetchedAt).Milliseconds()), tracepkg.Int64("cache_ttl_ms", metadataTTL.Milliseconds()))
 		return value, nil
 	}
 	if !force && c.metadata == nil && c.metadataError != "" && time.Since(c.metadataCheck) < time.Minute {
 		err := errors.New(c.metadataError)
 		c.mu.RUnlock()
+		span.FailMessage("Tunnel metadata negative cache hit", errors.New("cached tunnel metadata fetch failure"), tracepkg.Bool("cache_hit", true), tracepkg.Bool("negative_cache", true), tracepkg.Int64("cache_age_ms", time.Since(c.metadataCheck).Milliseconds()))
 		return Metadata{}, err
 	}
 	fetch := c.metadataFetch
 	c.mu.RUnlock()
 	if !Configured(cfg) {
-		return Metadata{}, errors.New("OpenAI tunnel is not configured")
+		err := errors.New("OpenAI tunnel is not configured")
+		span.FailMessage("Tunnel metadata refresh validation failed", err, tracepkg.Bool("cache_hit", false))
+		return Metadata{}, err
 	}
 	if fetch == nil {
 		fetch = FetchMetadata
@@ -281,11 +287,14 @@ func (c *Client) RefreshMetadata(ctx context.Context, force bool) (Metadata, err
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.config.ID != cfg.ID || c.config.APIKey != cfg.APIKey || c.config.ControlPlaneBaseURL != cfg.ControlPlaneBaseURL {
-		return Metadata{}, errors.New("OpenAI tunnel configuration changed while fetching metadata")
+		err := errors.New("OpenAI tunnel configuration changed while fetching metadata")
+		span.FailMessage("Tunnel metadata refresh discarded", err, tracepkg.Bool("cache_hit", false))
+		return Metadata{}, err
 	}
 	if err != nil {
 		c.metadataCheck = time.Now().UTC()
 		c.metadataError = err.Error()
+		span.FailMessage("Tunnel metadata refresh failed", safeAdminTraceError(err), tracepkg.Bool("cache_hit", false))
 		return Metadata{}, err
 	}
 	value = cloneMetadata(value)
@@ -295,6 +304,7 @@ func (c *Client) RefreshMetadata(ctx context.Context, force bool) (Metadata, err
 	c.metadata = &value
 	c.metadataCheck = value.FetchedAt
 	c.metadataError = ""
+	span.EndMessage("Tunnel metadata refreshed", tracepkg.String("tunnel_id", value.ID), tracepkg.Bool("cache_hit", false), tracepkg.Int64("cache_ttl_ms", metadataTTL.Milliseconds()))
 	return cloneMetadata(value), nil
 }
 

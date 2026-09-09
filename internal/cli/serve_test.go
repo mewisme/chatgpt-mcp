@@ -74,6 +74,26 @@ func TestTunnelOnlyRuntimeRequiresNoHTTPListeners(t *testing.T) {
 	}
 }
 
+func TestOpenHTTPBindingsFallsBackWhenAdminPortIsBusy(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	cfg := config.Default()
+	cfg.Server.Enabled = false
+	cfg.Admin.Enabled = true
+	cfg.Admin.Port = testServerPort(t, occupied.Addr())
+	bindings, err := openHTTPBindings(cfg, listenerPlan{Hosts: []string{"127.0.0.1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bindings.CloseUnstarted()
+	if bindings.cfg.Admin.Port == cfg.Admin.Port {
+		t.Fatalf("admin port did not fall back from occupied port %d", cfg.Admin.Port)
+	}
+}
+
 func TestTunnelOnlyServePublishesRuntimeControl(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := t.TempDir()

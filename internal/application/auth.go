@@ -8,6 +8,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 type AuthStatus struct {
@@ -18,25 +19,46 @@ type AuthStatus struct {
 }
 
 func GetAuthStatus() (AuthStatus, error) {
-	cfg, err := config.Load()
+	return GetAuthStatusContext(context.Background())
+}
+
+func GetAuthStatusContext(ctx context.Context) (AuthStatus, error) {
+	span := tracepkg.Start(ctx, "AUTH", "auth.status", "Loading authentication status")
+	cfg, _, err := loadConfigTraced(ctx, "auth.status.config.load", "Loading configuration for authentication status")
 	if err != nil {
+		span.FailMessage("Authentication status load failed", err)
 		return AuthStatus{}, err
 	}
-	return authStatus(cfg), nil
+	status := authStatus(cfg)
+	span.EndMessage("Authentication status loaded", tracepkg.Bool("mcp_enabled", status.MCPEnabled), tracepkg.Bool("mcp_configured", status.MCPConfigured), tracepkg.Bool("admin_enabled", status.AdminEnabled), tracepkg.Bool("admin_configured", status.AdminConfigured))
+	return status, nil
 }
 
 func RotateAuthToken(ctx context.Context, kind string) (string, AuthStatus, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	span := tracepkg.Start(ctx, "AUTH", "auth.token.rotate", "Rotating authentication token", tracepkg.String("requested_kind", kind))
+	normalizeSpan := tracepkg.Start(ctx, "AUTH", "auth.kind.normalize", "Normalizing authentication kind", tracepkg.String("input", kind))
 	kind, err := normalizeAuthKind(kind)
 	if err != nil {
+		normalizeSpan.FailMessage("Authentication kind normalization failed", err)
+		span.FailMessage("Authentication token rotation failed", err)
 		return "", AuthStatus{}, err
 	}
-	previous, err := config.Load()
+	normalizeSpan.EndMessage("Authentication kind normalized", tracepkg.String("kind", kind))
+	previous, _, err := loadConfigTraced(ctx, "auth.config.load", "Loading configuration for authentication")
 	if err != nil {
+		span.FailMessage("Authentication token rotation failed", err)
 		return "", AuthStatus{}, err
 	}
 	cfg := previous
+	generateSpan := tracepkg.Start(ctx, "AUTH", "auth.token.generate", "Generating authentication token", tracepkg.String("kind", kind))
 	token := auth.GenerateToken(kind)
+	generateSpan.EndMessage("Authentication token generated", tracepkg.String("kind", kind), tracepkg.Bool("generated", true))
+	hashSpan := tracepkg.Start(ctx, "AUTH", "auth.token.hash", "Hashing authentication token", tracepkg.String("kind", kind))
 	hash := auth.HashToken(token)
+	hashSpan.EndMessage("Authentication token hashed", tracepkg.String("kind", kind))
 	if kind == "mcp" {
 		cfg.Auth.MCPTokenHash = hash
 		cfg.Auth.MCPEnabled = true
@@ -45,43 +67,70 @@ func RotateAuthToken(ctx context.Context, kind string) (string, AuthStatus, erro
 		cfg.Auth.AdminEnabled = true
 		cfg.Admin.Enabled = true
 	}
+	validateSpan := tracepkg.Start(ctx, "AUTH", "auth.config.validate", "Validating authentication configuration", tracepkg.String("kind", kind))
 	if err := config.Validate(cfg); err != nil {
+		validateSpan.FailMessage("Authentication configuration validation failed", err)
+		span.FailMessage("Authentication token rotation failed", err)
 		return "", AuthStatus{}, err
 	}
+	validateSpan.EndMessage("Authentication configuration validated", tracepkg.String("kind", kind))
 	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
+		span.FailMessage("Authentication token rotation failed", err)
 		return "", AuthStatus{}, err
 	}
-	return token, authStatus(cfg), nil
+	status := authStatus(cfg)
+	span.EndMessage("Authentication token rotated", tracepkg.String("kind", kind), tracepkg.Bool("enabled", authEnabled(status, kind)), tracepkg.Bool("configured", authConfigured(status, kind)))
+	return token, status, nil
 }
 
 func SetAuthEnabled(ctx context.Context, kind string, enabled bool) (AuthStatus, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	span := tracepkg.Start(ctx, "AUTH", "auth.state.set", "Setting authentication state", tracepkg.String("requested_kind", kind), tracepkg.Bool("enabled", enabled))
+	normalizeSpan := tracepkg.Start(ctx, "AUTH", "auth.kind.normalize", "Normalizing authentication kind", tracepkg.String("input", kind))
 	kind, err := normalizeAuthKind(kind)
 	if err != nil {
+		normalizeSpan.FailMessage("Authentication kind normalization failed", err)
+		span.FailMessage("Authentication state update failed", err)
 		return AuthStatus{}, err
 	}
-	previous, err := config.Load()
+	normalizeSpan.EndMessage("Authentication kind normalized", tracepkg.String("kind", kind))
+	previous, _, err := loadConfigTraced(ctx, "auth.config.load", "Loading configuration for authentication")
 	if err != nil {
+		span.FailMessage("Authentication state update failed", err)
 		return AuthStatus{}, err
 	}
 	cfg := previous
 	if kind == "mcp" {
 		if enabled && cfg.Auth.MCPTokenHash == "" {
-			return AuthStatus{}, errors.New("MCP token is not configured; create one first")
+			err := errors.New("MCP token is not configured; create one first")
+			span.FailMessage("Authentication state update failed", err)
+			return AuthStatus{}, err
 		}
 		cfg.Auth.MCPEnabled = enabled
 	} else {
 		if enabled && cfg.Auth.AdminTokenHash == "" {
-			return AuthStatus{}, errors.New("admin token is not configured; create one first")
+			err := errors.New("admin token is not configured; create one first")
+			span.FailMessage("Authentication state update failed", err)
+			return AuthStatus{}, err
 		}
 		cfg.Auth.AdminEnabled = enabled
 	}
+	validateSpan := tracepkg.Start(ctx, "AUTH", "auth.config.validate", "Validating authentication configuration", tracepkg.String("kind", kind), tracepkg.Bool("enabled", enabled))
 	if err := config.Validate(cfg); err != nil {
+		validateSpan.FailMessage("Authentication configuration validation failed", err)
+		span.FailMessage("Authentication state update failed", err)
 		return AuthStatus{}, err
 	}
+	validateSpan.EndMessage("Authentication configuration validated")
 	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
+		span.FailMessage("Authentication state update failed", err)
 		return AuthStatus{}, err
 	}
-	return authStatus(cfg), nil
+	status := authStatus(cfg)
+	span.EndMessage("Authentication state updated", tracepkg.String("kind", kind), tracepkg.Bool("enabled", authEnabled(status, kind)), tracepkg.Bool("configured", authConfigured(status, kind)))
+	return status, nil
 }
 
 func normalizeAuthKind(kind string) (string, error) {
@@ -97,4 +146,18 @@ func authStatus(cfg config.Config) AuthStatus {
 		MCPEnabled: cfg.Auth.MCPEnabled, MCPConfigured: cfg.Auth.MCPTokenHash != "",
 		AdminEnabled: cfg.Auth.AdminEnabled, AdminConfigured: cfg.Auth.AdminTokenHash != "",
 	}
+}
+
+func authEnabled(status AuthStatus, kind string) bool {
+	if kind == "admin" {
+		return status.AdminEnabled
+	}
+	return status.MCPEnabled
+}
+
+func authConfigured(status AuthStatus, kind string) bool {
+	if kind == "admin" {
+		return status.AdminConfigured
+	}
+	return status.MCPConfigured
 }

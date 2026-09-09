@@ -2,10 +2,13 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 func configExplainCommand() *cobra.Command {
@@ -19,17 +22,39 @@ func configExplainCommand() *cobra.Command {
 			if len(args) > 0 {
 				key = args[0]
 			}
+			lookupSpan := tracepkg.Start(cmd.Context(), "CONFIG", "config.explain.schema", "Looking up config schema explanation", tracepkg.String("key", key), tracepkg.Bool("root", key == ""))
 			explanation, err := config.Explain(key)
 			if err != nil {
+				lookupSpan.FailMessage("Config schema explanation lookup failed", err, tracepkg.String("key", key))
 				return err
 			}
+			lookupSpan.EndMessage("Config schema explanation resolved", tracepkg.String("key", key), tracepkg.Bool("branch", explanation.Branch), tracepkg.Int("child_count", len(explanation.Children)))
 			if jsonOutput {
+				renderSpan := tracepkg.Start(cmd.Context(), "CONFIG", "config.explain.render", "Rendering config explanation", tracepkg.String("mode", "json"), tracepkg.String("key", key), tracepkg.Int("child_count", len(explanation.Children)))
 				encoder := json.NewEncoder(cmd.OutOrStdout())
 				encoder.SetIndent("", "  ")
 				encoder.SetEscapeHTML(false)
-				return encoder.Encode(explanation)
+				if err := encoder.Encode(explanation); err != nil {
+					renderSpan.FailMessage("Config explanation JSON render failed", err, tracepkg.String("mode", "json"), tracepkg.String("key", key), tracepkg.Int("child_count", len(explanation.Children)))
+					return err
+				}
+				renderSpan.EndMessage("Config explanation rendered", tracepkg.String("mode", "json"), tracepkg.String("key", key), tracepkg.Int("child_count", len(explanation.Children)))
+				return nil
 			}
-			printConfigExplanation(cmd, explanation, 0)
+			markdown := configExplanationMarkdown(explanation)
+			writer := cmd.OutOrStdout()
+			width := markdownWidth(writer)
+			terminal := markdownTerminal(writer)
+			style := "environment"
+			if os.Getenv("NO_COLOR") != "" || !terminal {
+				style = "ascii"
+			}
+			renderSpan := tracepkg.Start(cmd.Context(), "CONFIG", "config.explain.render", "Rendering config explanation Markdown", tracepkg.String("mode", "markdown"), tracepkg.String("key", key), tracepkg.Int("child_count", len(explanation.Children)), tracepkg.Int("markdown_bytes", len(markdown)), tracepkg.Int("terminal_width", width), tracepkg.Bool("terminal", terminal), tracepkg.String("style", style))
+			if err := renderMarkdown(writer, markdown); err != nil {
+				renderSpan.FailMessage("Config explanation Markdown render failed", err, tracepkg.String("mode", "markdown"), tracepkg.String("key", key), tracepkg.Int("child_count", len(explanation.Children)), tracepkg.Int("markdown_bytes", len(markdown)), tracepkg.Int("terminal_width", width), tracepkg.Bool("terminal", terminal), tracepkg.String("style", style))
+				return err
+			}
+			renderSpan.EndMessage("Config explanation Markdown rendered", tracepkg.String("mode", "markdown"), tracepkg.String("key", key), tracepkg.Int("child_count", len(explanation.Children)), tracepkg.Int("markdown_bytes", len(markdown)), tracepkg.Int("terminal_width", width), tracepkg.Bool("terminal", terminal), tracepkg.String("style", style))
 			return nil
 		},
 	}
@@ -38,70 +63,65 @@ func configExplainCommand() *cobra.Command {
 	return cmd
 }
 
-func printConfigExplanation(cmd *cobra.Command, explanation config.Explanation, depth int) {
-	indent := strings.Repeat("  ", depth)
-	if depth == 0 {
-		if explanation.Key != "" {
-			cmd.Println(explanation.Key)
-		}
-		if explanation.Label != "" && explanation.Label != explanation.Key {
-			cmd.Println(explanation.Label)
-		}
-		if explanation.Description != "" {
-			cmd.Println()
-			cmd.Println(explanation.Description)
-		}
-		if explanation.Details != "" {
-			cmd.Println(explanation.Details)
-		}
-		if !explanation.Branch {
-			printConfigFieldMetadata(cmd, explanation)
-			return
-		}
-		if len(explanation.Children) > 0 {
-			cmd.Println()
-		}
-	} else {
-		cmd.Printf("%s%s\n", indent, explanation.Key)
-		if explanation.Description != "" {
-			cmd.Printf("%s  %s\n", indent, explanation.Description)
-		}
+func configExplanationMarkdown(explanation config.Explanation) string {
+	var builder strings.Builder
+	writeConfigExplanationMarkdown(&builder, explanation, 1)
+	return strings.TrimSpace(builder.String())
+}
+
+func writeConfigExplanationMarkdown(builder *strings.Builder, explanation config.Explanation, depth int) {
+	title := explanation.Key
+	if title == "" {
+		title = explanation.Label
 	}
-	for index, child := range explanation.Children {
-		printConfigExplanation(cmd, child, depth+1)
-		if depth == 0 && index < len(explanation.Children)-1 {
-			cmd.Println()
-		}
+	if title != "" {
+		builder.WriteString(strings.Repeat("#", min(depth, 6)) + " " + title + "\n\n")
+	}
+	if explanation.Label != "" && explanation.Label != title {
+		builder.WriteString("**" + explanation.Label + "**\n\n")
+	}
+	if explanation.Description != "" {
+		builder.WriteString(explanation.Description + "\n\n")
+	}
+	if explanation.Details != "" {
+		builder.WriteString(explanation.Details + "\n\n")
+	}
+	if !explanation.Branch {
+		writeConfigFieldMetadataMarkdown(builder, explanation)
+		return
+	}
+	for _, child := range explanation.Children {
+		writeConfigExplanationMarkdown(builder, child, depth+1)
 	}
 }
 
-func printConfigFieldMetadata(cmd *cobra.Command, explanation config.Explanation) {
-	cmd.Println()
-	cmd.Printf("Type: %s\n", explanation.Kind)
-	cmd.Printf("Default: %s\n", formatExplainDefault(explanation.Default))
-	cmd.Printf("Editable: %t\n", explanation.Editable)
+func writeConfigFieldMetadataMarkdown(builder *strings.Builder, explanation config.Explanation) {
+	fmt.Fprintf(builder, "- **Type:** `%s`\n", explanation.Kind)
+	fmt.Fprintf(builder, "- **Default:** `%s`\n", formatExplainDefault(explanation.Default))
+	fmt.Fprintf(builder, "- **Editable:** `%t`\n", explanation.Editable)
 	if explanation.Sensitive {
-		cmd.Println("Sensitive: true")
+		builder.WriteString("- **Sensitive:** `true`\n")
 	}
 	if len(explanation.Values) > 0 {
-		cmd.Println("Values:")
+		builder.WriteString("- **Values:**\n")
 		for _, value := range explanation.Values {
 			if value.Description == "" {
-				cmd.Printf("  %s\n", value.Value)
+				fmt.Fprintf(builder, "  - `%s`\n", value.Value)
 			} else {
-				cmd.Printf("  %-10s %s\n", value.Value, value.Description)
+				fmt.Fprintf(builder, "  - `%s` — %s\n", value.Value, value.Description)
 			}
 		}
 	}
 	if explanation.Guidance != "" {
-		cmd.Printf("Guidance: %s\n", explanation.Guidance)
+		builder.WriteString("\n**Guidance:** " + explanation.Guidance + "\n")
 	}
 	if len(explanation.Related) > 0 {
-		cmd.Println("Related:")
+		builder.WriteString("\n**Related:**\n")
 		for _, key := range explanation.Related {
-			cmd.Printf("  %s\n", key)
+			fmt.Fprintf(builder, "- `%s`\n", key)
 		}
 	}
+	builder.WriteString("\n")
 }
 
 func formatExplainDefault(value string) string {

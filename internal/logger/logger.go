@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	spinnerlib "github.com/briandowns/spinner"
 	"github.com/fatih/color"
 	"golang.org/x/term"
 )
@@ -29,7 +31,6 @@ type Logger struct {
 	out      io.Writer
 	now      func() time.Time
 	animate  bool
-	spinRate time.Duration
 	eventMu  sync.Mutex
 	renderMu sync.Mutex
 	spinMu   sync.Mutex
@@ -39,12 +40,13 @@ type Logger struct {
 }
 
 type spinnerState struct {
-	event Event
-	stop  chan struct{}
-	done  chan struct{}
+	event   Event
+	spinner *spinnerlib.Spinner
 }
 
 const defaultSpinnerRate = 80 * time.Millisecond
+
+var spinnerCharacterSets = [...]int{11, 13, 14, 21, 22, 23, 24}
 
 func New(level Level) *Logger { return NewWithOptions(Options{Level: level, Writer: color.Output}) }
 func NewCLI() *Logger         { return NewWithOptions(Options{Level: Info, Writer: color.Output}) }
@@ -61,7 +63,12 @@ func NewWithOptions(options Options) *Logger {
 	if options.Format == "" {
 		options.Format = FormatText
 	}
-	return &Logger{level: options.Level, mode: options.Mode, format: options.Format, timeMode: options.TimeMode, out: options.Writer, now: time.Now, animate: options.Format == FormatText && options.Mode != ModeDebug && terminalWriter(options.Writer), spinRate: defaultSpinnerRate}
+	return &Logger{level: options.Level, mode: options.Mode, format: options.Format, timeMode: options.TimeMode, out: options.Writer, now: time.Now, animate: options.Format == FormatText && options.Mode != ModeDebug && terminalWriter(options.Writer)}
+}
+
+func randomSpinnerCharset() []string {
+	id := spinnerCharacterSets[rand.IntN(len(spinnerCharacterSets))]
+	return spinnerlib.CharSets[id]
 }
 
 func (l *Logger) Emit(event Event) {
@@ -85,6 +92,15 @@ func (l *Logger) Emit(event Event) {
 }
 
 func (l *Logger) Close() {
+	l.eventMu.Lock()
+	defer l.eventMu.Unlock()
+	l.stopSpinner(true)
+}
+
+func (l *Logger) StopAnimation() {
+	if l == nil {
+		return
+	}
 	l.eventMu.Lock()
 	defer l.eventMu.Unlock()
 	l.stopSpinner(true)

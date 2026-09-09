@@ -8,12 +8,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
-type linuxManager struct{}
+type linuxManager struct{ trace tracepkg.Observer }
 
-func NewManager() Manager            { return linuxManager{} }
-func (linuxManager) Backend() string { return "systemd" }
+func NewManager() Manager                                       { return linuxManager{} }
+func NewManagerWithObserver(observer tracepkg.Observer) Manager { return linuxManager{trace: observer} }
+func (linuxManager) Backend() string                            { return "systemd" }
 
 func (linuxManager) DefinitionMatches(spec Spec) (bool, error) {
 	data, err := os.ReadFile(linuxUnitPath(spec))
@@ -26,7 +29,7 @@ func (linuxManager) DefinitionMatches(spec Spec) (bool, error) {
 	return string(data) == LinuxUnit(spec), nil
 }
 
-func (linuxManager) Install(spec Spec) error {
+func (m linuxManager) Install(spec Spec) error {
 	path := linuxUnitPath(spec)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
@@ -34,41 +37,41 @@ func (linuxManager) Install(spec Spec) error {
 	if err := os.WriteFile(path, []byte(LinuxUnit(spec)), 0644); err != nil {
 		return err
 	}
-	if _, err := runCommand("systemctl", linuxSystemctlArgs(spec, "daemon-reload")...); err != nil {
+	if _, err := runCommandObserver(m.trace, "systemctl", linuxSystemctlArgs(spec, "daemon-reload")...); err != nil {
 		return err
 	}
-	_, err := runCommand("systemctl", linuxSystemctlArgs(spec, "enable", linuxUnitName(spec))...)
+	_, err := runCommandObserver(m.trace, "systemctl", linuxSystemctlArgs(spec, "enable", linuxUnitName(spec))...)
 	return err
 }
 
-func (linuxManager) Start(spec Spec) error {
-	_, err := runCommand("systemctl", linuxSystemctlArgs(spec, "start", linuxUnitName(spec))...)
+func (m linuxManager) Start(spec Spec) error {
+	_, err := runCommandObserver(m.trace, "systemctl", linuxSystemctlArgs(spec, "start", linuxUnitName(spec))...)
 	return err
 }
 
-func (linuxManager) Stop(spec Spec) error {
-	_, err := runCommand("systemctl", linuxSystemctlArgs(spec, "stop", linuxUnitName(spec))...)
+func (m linuxManager) Stop(spec Spec) error {
+	_, err := runCommandObserver(m.trace, "systemctl", linuxSystemctlArgs(spec, "stop", linuxUnitName(spec))...)
 	return err
 }
 
-func (linuxManager) Uninstall(spec Spec) error {
-	_, _ = runCommand("systemctl", linuxSystemctlArgs(spec, "disable", linuxUnitName(spec))...)
+func (m linuxManager) Uninstall(spec Spec) error {
+	_, _ = runCommandObserver(m.trace, "systemctl", linuxSystemctlArgs(spec, "disable", linuxUnitName(spec))...)
 	if err := os.Remove(linuxUnitPath(spec)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	_, err := runCommand("systemctl", linuxSystemctlArgs(spec, "daemon-reload")...)
+	_, err := runCommandObserver(m.trace, "systemctl", linuxSystemctlArgs(spec, "daemon-reload")...)
 	return err
 }
 
-func (linuxManager) Status(spec Spec) (Status, error) {
+func (m linuxManager) Status(spec Spec) (Status, error) {
 	status := Status{Backend: "systemd"}
-	load, _ := runCommand("systemctl", linuxSystemctlArgs(spec, "show", linuxUnitName(spec), "--property=LoadState", "--value")...)
+	load, _ := runCommandObserver(m.trace, "systemctl", linuxSystemctlArgs(spec, "show", linuxUnitName(spec), "--property=LoadState", "--value")...)
 	status.Installed = strings.TrimSpace(load) != "" && strings.TrimSpace(load) != "not-found"
 	if !status.Installed {
 		return status, nil
 	}
-	_, status.Running = commandSucceeded("systemctl", linuxSystemctlArgs(spec, "is-active", "--quiet", linuxUnitName(spec))...)
-	if pidText, ok := commandSucceeded("systemctl", linuxSystemctlArgs(spec, "show", linuxUnitName(spec), "--property=MainPID", "--value")...); ok {
+	_, status.Running = commandSucceededObserver(m.trace, "systemctl", linuxSystemctlArgs(spec, "is-active", "--quiet", linuxUnitName(spec))...)
+	if pidText, ok := commandSucceededObserver(m.trace, "systemctl", linuxSystemctlArgs(spec, "show", linuxUnitName(spec), "--property=MainPID", "--value")...); ok {
 		status.PID, _ = strconv.Atoi(strings.TrimSpace(pidText))
 	}
 	return status, nil

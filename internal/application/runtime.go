@@ -67,8 +67,8 @@ func RuntimeStatus(ctx context.Context) (runtimecontrol.RuntimeStatus, bool, err
 		}
 		return runtimecontrol.RuntimeStatus{}, false, err
 	}
-	if result.PID != state.PID {
-		return runtimecontrol.RuntimeStatus{}, false, fmt.Errorf("runtime control PID mismatch: expected %d, got %d", state.PID, result.PID)
+	if err := runtimecontrol.ValidatePID(ctx, state.PID, result.PID, "status"); err != nil {
+		return runtimecontrol.RuntimeStatus{}, false, err
 	}
 	return result, true, nil
 }

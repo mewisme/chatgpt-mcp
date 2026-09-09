@@ -20,7 +20,7 @@ func configCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "config", Aliases: []string{"cfg"}, Short: "Read and update validated runtime configuration", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	cmd.AddCommand(
 		&cobra.Command{Use: "path", Short: "Show the active configuration path, format, and root", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-			source, err := config.Source()
+			source, err := application.ConfigSource(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -53,7 +53,7 @@ func configExportCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file := configBundleFile(args)
 			logCommandStep(cmd, "CONFIG", "config.export.preparing", "Exporting configuration bundle", logger.WithVerbose("file", file))
-			result, err := application.ExportConfig(file, force)
+			result, err := application.ExportConfigContext(cmd.Context(), file, force)
 			if err != nil {
 				return fmt.Errorf("export configuration bundle: %w", err)
 			}
@@ -122,7 +122,7 @@ func configGetCommand() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "CONFIG", "config.loading", "Loading configuration")
-			cfg, err := config.Load()
+			cfg, err := application.LoadConfig(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("load configuration: %w", err)
 			}
@@ -147,7 +147,7 @@ func configListCommand() *cobra.Command {
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "CONFIG", "config.loading", "Loading configuration")
-			cfg, err := config.Load()
+			cfg, err := application.LoadConfig(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("load configuration: %w", err)
 			}
@@ -211,7 +211,7 @@ func getConfigValue(cfg config.Config, key string) (any, error) {
 func configMigrateCommand() *cobra.Command {
 	return &cobra.Command{Use: "migrate", Short: "Migrate legacy plaintext credentials into the secret file store", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		logCommandStep(cmd, "CONFIG", "config.secrets.migrating", "Migrating legacy credentials")
-		if err := migrateLegacySecrets(); err != nil {
+		if err := application.MigrateLegacySecretsContext(cmd.Context()); err != nil {
 			return fmt.Errorf("migrate legacy credentials: %w", err)
 		}
 		commandLogger(cmd).Success("CONFIG", "credentials migrated to secret file store")
@@ -236,7 +236,7 @@ func configConvertCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			converted, err := application.ConvertConfig(format)
+			converted, err := application.ConvertConfigContext(cmd.Context(), format)
 			if err != nil {
 				return fmt.Errorf("convert configuration to %s: %w", format, err)
 			}
@@ -256,7 +256,7 @@ func configVerifyCommand() *cobra.Command {
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "CONFIG", "config.verifying", "Verifying configuration and state")
-			result, err := application.VerifyConfig()
+			result, err := application.VerifyConfigContext(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("verify configuration: %w", err)
 			}

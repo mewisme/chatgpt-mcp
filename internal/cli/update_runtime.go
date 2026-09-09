@@ -12,6 +12,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 type updateRuntimeState struct {
@@ -81,11 +82,11 @@ func restartManagedRuntimeAfterUpdate(cmd *cobra.Command, layout install.Layout,
 	if scope != managed.ScopeUser && scope != managed.ScopeSystem {
 		return fmt.Errorf("managed runtime has invalid service scope %q", status.ServiceScope)
 	}
-	account, err := managed.InvokingAccount(scope)
+	account, err := managed.InvokingAccountContext(cmd.Context(), scope)
 	if err != nil {
 		return err
 	}
-	spec, err := managed.NewSpec(status.ConfigRoot, layout.CanonicalBinary, scope, account)
+	spec, err := managed.NewSpecContext(cmd.Context(), status.ConfigRoot, layout.CanonicalBinary, scope, account)
 	if err != nil {
 		return err
 	}
@@ -94,14 +95,14 @@ func restartManagedRuntimeAfterUpdate(cmd *cobra.Command, layout install.Layout,
 	}
 	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
 		logCommandStep(cmd, "UPDATE", "update.runtime.restart.elevating", "Elevating managed runtime restart")
-		environmentHash, err := saveManagedEnvironment(spec)
+		environmentHash, err := saveManagedEnvironmentContext(cmd.Context(), spec)
 		if err != nil {
 			return err
 		}
 		return elevateManagedCommandWithBinary(cmd, "restart", environmentHash, layout.CanonicalBinary)
 	}
 	logCommandStep(cmd, "UPDATE", "update.runtime.restart.local", "Restarting managed runtime in place")
-	return restartManagedRuntimeInPlace(cmd.Context(), spec, managed.NewManager())
+	return restartManagedRuntimeInPlace(cmd.Context(), spec, managed.NewManagerWithObserver(tracepkg.ObserverFromContext(cmd.Context())))
 }
 
 func restartManagedRuntimeInPlace(parent context.Context, spec managed.Spec, manager managed.Manager) error {

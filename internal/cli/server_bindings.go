@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -19,16 +20,20 @@ type httpBindings struct {
 }
 
 func openHTTPBindings(cfg config.Config, plan listenerPlan) (*httpBindings, error) {
+	return openHTTPBindingsContext(context.Background(), cfg, plan)
+}
+
+func openHTTPBindingsContext(ctx context.Context, cfg config.Config, plan listenerPlan) (*httpBindings, error) {
 	bindings := &httpBindings{cfg: cfg, plan: plan}
 	var err error
 	if cfg.Server.Enabled {
-		bindings.mcpListeners, err = listenOnHosts(plan.Hosts, cfg.Server.Port)
+		bindings.mcpListeners, bindings.cfg.Server.Port, err = listenOnHostsWithFallbackContext(ctx, "mcp", plan.Hosts, cfg.Server.Port)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if cfg.Admin.Enabled {
-		bindings.adminListeners, err = listenOnHosts(plan.Hosts, cfg.Admin.Port)
+		bindings.adminListeners, bindings.cfg.Admin.Port, err = listenOnHostsWithFallbackContext(ctx, "admin", plan.Hosts, cfg.Admin.Port)
 		if err != nil {
 			closeListeners(bindings.mcpListeners)
 			return nil, err
@@ -105,7 +110,11 @@ func listenerPortsDisjoint(left config.Config, right config.Config) bool {
 }
 
 func restoreHTTPBindings(runtime *app.App, cfg config.Config, plan listenerPlan, errCh chan<- error) (*httpBindings, error) {
-	bindings, err := openHTTPBindings(cfg, plan)
+	return restoreHTTPBindingsContext(context.Background(), runtime, cfg, plan, errCh)
+}
+
+func restoreHTTPBindingsContext(ctx context.Context, runtime *app.App, cfg config.Config, plan listenerPlan, errCh chan<- error) (*httpBindings, error) {
+	bindings, err := openHTTPBindingsContext(ctx, cfg, plan)
 	if err != nil {
 		return nil, err
 	}

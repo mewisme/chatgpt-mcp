@@ -10,15 +10,19 @@ import (
 	"strings"
 	"unicode/utf16"
 
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"golang.org/x/sys/windows"
 )
 
-type windowsManager struct{}
+type windowsManager struct{ trace tracepkg.Observer }
 
-func NewManager() Manager              { return windowsManager{} }
+func NewManager() Manager { return windowsManager{} }
+func NewManagerWithObserver(observer tracepkg.Observer) Manager {
+	return windowsManager{trace: observer}
+}
 func (windowsManager) Backend() string { return "task-scheduler" }
 
-func (windowsManager) DefinitionMatches(spec Spec) (bool, error) {
+func (m windowsManager) DefinitionMatches(spec Spec) (bool, error) {
 	command, err := windowsTaskCommand()
 	if err != nil {
 		return false, err
@@ -33,14 +37,14 @@ func (windowsManager) DefinitionMatches(spec Spec) (bool, error) {
 	if string(launcher) != string(windowsLauncherBytes(spec)) {
 		return false, nil
 	}
-	output, ok := commandSucceeded("schtasks.exe", "/Query", "/TN", windowsTaskName(spec), "/XML")
+	output, ok := commandSucceededObserver(m.trace, "schtasks.exe", "/Query", "/TN", windowsTaskName(spec), "/XML")
 	if !ok {
 		return false, nil
 	}
 	return strings.Contains(output, "<Command>"+xmlText(command)+"</Command>") && strings.Contains(output, "<Arguments>"+xmlText(windowsTaskArguments(spec))+"</Arguments>") && strings.Contains(output, "<Hidden>true</Hidden>"), nil
 }
 
-func (windowsManager) Install(spec Spec) error {
+func (m windowsManager) Install(spec Spec) error {
 	if err := os.MkdirAll(spec.ConfigRoot, 0700); err != nil {
 		return err
 	}
@@ -65,22 +69,22 @@ func (windowsManager) Install(spec Spec) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	_, err = runCommand("schtasks.exe", "/Create", "/TN", windowsTaskName(spec), "/XML", path, "/F")
+	_, err = runCommandObserver(m.trace, "schtasks.exe", "/Create", "/TN", windowsTaskName(spec), "/XML", path, "/F")
 	return err
 }
 
-func (windowsManager) Start(spec Spec) error {
-	_, err := runCommand("schtasks.exe", "/Run", "/TN", windowsTaskName(spec))
+func (m windowsManager) Start(spec Spec) error {
+	_, err := runCommandObserver(m.trace, "schtasks.exe", "/Run", "/TN", windowsTaskName(spec))
 	return err
 }
 
-func (windowsManager) Stop(spec Spec) error {
-	_, err := runCommand("schtasks.exe", "/End", "/TN", windowsTaskName(spec))
+func (m windowsManager) Stop(spec Spec) error {
+	_, err := runCommandObserver(m.trace, "schtasks.exe", "/End", "/TN", windowsTaskName(spec))
 	return err
 }
 
-func (windowsManager) Uninstall(spec Spec) error {
-	_, err := runCommand("schtasks.exe", "/Delete", "/TN", windowsTaskName(spec), "/F")
+func (m windowsManager) Uninstall(spec Spec) error {
+	_, err := runCommandObserver(m.trace, "schtasks.exe", "/Delete", "/TN", windowsTaskName(spec), "/F")
 	if err != nil {
 		return err
 	}
@@ -90,8 +94,8 @@ func (windowsManager) Uninstall(spec Spec) error {
 	return nil
 }
 
-func (windowsManager) Status(spec Spec) (Status, error) {
-	_, installed := commandSucceeded("schtasks.exe", "/Query", "/TN", windowsTaskName(spec))
+func (m windowsManager) Status(spec Spec) (Status, error) {
+	_, installed := commandSucceededObserver(m.trace, "schtasks.exe", "/Query", "/TN", windowsTaskName(spec))
 	return Status{Installed: installed, Backend: "task-scheduler"}, nil
 }
 

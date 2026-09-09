@@ -160,7 +160,7 @@ func ApplyUpdate(ctx context.Context, options UpdateApplyOptions) (UpdateApplyRe
 	if running && !options.NoRestart {
 		if runtimeState.Managed {
 			if err := restartUpdatedManagedRuntime(ctx, result.Install.Layout, runtimeState); err != nil {
-				if rollbackErr := install.RollbackResult(result.Install); rollbackErr != nil {
+				if rollbackErr := install.RollbackResultContext(ctx, result.Install); rollbackErr != nil {
 					return UpdateApplyResult{}, fmt.Errorf("managed runtime restart failed: %w; rollback failed: %v", err, rollbackErr)
 				}
 				if rollbackRestartErr := restartUpdatedManagedRuntime(ctx, result.Install.Layout, runtimeState); rollbackRestartErr != nil {
@@ -174,7 +174,7 @@ func ApplyUpdate(ctx context.Context, options UpdateApplyOptions) (UpdateApplyRe
 	} else if running && options.NoRestart {
 		output.Notice = fmt.Sprintf("Runtime restart skipped; pid %d still uses the previous version", runtimeState.PID)
 	}
-	if err := install.FinalizeResult(result.Install); err != nil {
+	if err := install.FinalizeResultContext(ctx, result.Install); err != nil {
 		if output.Notice != "" {
 			output.Notice += "; "
 		}

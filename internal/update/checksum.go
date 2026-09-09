@@ -2,6 +2,7 @@ package update
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -9,28 +10,42 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 var ErrChecksumMismatch = errors.New("release checksum mismatch")
 
 func VerifyChecksum(archivePath, checksumPath, assetName string) error {
+	return VerifyChecksumContext(context.Background(), archivePath, checksumPath, assetName)
+}
+
+func VerifyChecksumContext(ctx context.Context, archivePath, checksumPath, assetName string) error {
+	span := tracepkg.Start(ctx, "UPDATE", "update.checksum.verify", "Verifying release checksum", tracepkg.String("archive", archivePath), tracepkg.String("checksum", checksumPath), tracepkg.String("asset", assetName))
 	expected, err := expectedChecksum(checksumPath, assetName)
 	if err != nil {
+		span.FailMessage("Release checksum verification failed", err)
 		return err
 	}
 	file, err := os.Open(archivePath)
 	if err != nil {
+		span.FailMessage("Release checksum verification failed", err)
 		return err
 	}
 	defer file.Close()
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
+	bytesHashed, err := io.Copy(hash, file)
+	if err != nil {
+		span.FailMessage("Release checksum verification failed", err, tracepkg.Int64("bytes", bytesHashed))
 		return err
 	}
 	actual := hex.EncodeToString(hash.Sum(nil))
 	if !strings.EqualFold(actual, expected) {
-		return fmt.Errorf("%w for %s", ErrChecksumMismatch, assetName)
+		err := fmt.Errorf("%w for %s", ErrChecksumMismatch, assetName)
+		span.FailMessage("Release checksum verification failed", err, tracepkg.Int64("bytes", bytesHashed), tracepkg.Bool("match", false))
+		return err
 	}
+	span.EndMessage("Release checksum verified", tracepkg.Int64("bytes", bytesHashed), tracepkg.Bool("match", true))
 	return nil
 }
 

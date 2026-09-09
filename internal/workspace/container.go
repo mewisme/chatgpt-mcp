@@ -5,16 +5,22 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 var ErrContainerNotFound = errors.New("workspace container not found")
 
 func (m *Manager) CreateContainer(name string) (WorkspaceContainer, error) {
+	span := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.container.create", "Creating workspace container", tracepkg.String("name", strings.TrimSpace(name)))
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return WorkspaceContainer{}, errors.New("workspace container name is required")
+		err := errors.New("workspace container name is required")
+		span.FailMessage("Workspace container creation failed", err)
+		return WorkspaceContainer{}, err
 	}
 	if err := m.ensureLoaded(); err != nil {
+		span.FailMessage("Workspace container creation failed", err)
 		return WorkspaceContainer{}, err
 	}
 	m.mu.Lock()
@@ -22,6 +28,7 @@ func (m *Manager) CreateContainer(name string) (WorkspaceContainer, error) {
 	for attempts := 0; attempts < 8; attempts++ {
 		id, err := workspaceContainerID()
 		if err != nil {
+			span.FailMessage("Workspace container creation failed", err, tracepkg.Int("allocation_attempts", attempts+1))
 			return WorkspaceContainer{}, err
 		}
 		if _, exists := m.containers[id]; exists {
@@ -31,11 +38,15 @@ func (m *Manager) CreateContainer(name string) (WorkspaceContainer, error) {
 		m.containers[id] = container
 		if err := m.saveLocked(); err != nil {
 			delete(m.containers, id)
+			span.FailMessage("Workspace container creation failed", err, tracepkg.String("container_id", id), tracepkg.Int("allocation_attempts", attempts+1))
 			return WorkspaceContainer{}, err
 		}
+		span.EndMessage("Workspace container created", tracepkg.String("container_id", id), tracepkg.String("name", name), tracepkg.Int("workspace_count", 0), tracepkg.Int("allocation_attempts", attempts+1))
 		return container, nil
 	}
-	return WorkspaceContainer{}, errors.New("failed to allocate unique workspace container id")
+	err := errors.New("failed to allocate unique workspace container id")
+	span.FailMessage("Workspace container creation failed", err, tracepkg.Int("allocation_attempts", 8))
+	return WorkspaceContainer{}, err
 }
 
 func (m *Manager) GetContainer(id string) (WorkspaceContainer, error) {
@@ -74,11 +85,15 @@ func (m *Manager) ListContainers() ([]WorkspaceContainer, error) {
 }
 
 func (m *Manager) RenameContainer(id, name string) (WorkspaceContainer, error) {
+	span := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.container.rename", "Renaming workspace container", tracepkg.String("container_id", strings.TrimSpace(id)), tracepkg.String("name", strings.TrimSpace(name)))
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return WorkspaceContainer{}, errors.New("workspace container name is required")
+		err := errors.New("workspace container name is required")
+		span.FailMessage("Workspace container rename failed", err)
+		return WorkspaceContainer{}, err
 	}
 	if err := m.ensureLoaded(); err != nil {
+		span.FailMessage("Workspace container rename failed", err)
 		return WorkspaceContainer{}, err
 	}
 	m.mu.Lock()
@@ -86,20 +101,26 @@ func (m *Manager) RenameContainer(id, name string) (WorkspaceContainer, error) {
 	id = strings.TrimSpace(id)
 	container, ok := m.containers[id]
 	if !ok {
-		return WorkspaceContainer{}, fmt.Errorf("%w: %s", ErrContainerNotFound, id)
+		err := fmt.Errorf("%w: %s", ErrContainerNotFound, id)
+		span.FailMessage("Workspace container rename failed", err)
+		return WorkspaceContainer{}, err
 	}
 	previous := container
 	container.Name = name
 	m.containers[id] = container
 	if err := m.saveLocked(); err != nil {
 		m.containers[id] = previous
+		span.FailMessage("Workspace container rename failed", err, tracepkg.String("previous_name", previous.Name))
 		return WorkspaceContainer{}, err
 	}
+	span.EndMessage("Workspace container renamed", tracepkg.String("container_id", id), tracepkg.String("previous_name", previous.Name), tracepkg.String("name", container.Name), tracepkg.Int("workspace_count", len(container.WorkspaceIDs)))
 	return container, nil
 }
 
 func (m *Manager) DeleteContainer(id string) error {
+	span := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.container.delete", "Deleting workspace container", tracepkg.String("container_id", strings.TrimSpace(id)))
 	if err := m.ensureLoaded(); err != nil {
+		span.FailMessage("Workspace container deletion failed", err)
 		return err
 	}
 	m.mu.Lock()
@@ -107,13 +128,17 @@ func (m *Manager) DeleteContainer(id string) error {
 	id = strings.TrimSpace(id)
 	container, ok := m.containers[id]
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrContainerNotFound, id)
+		err := fmt.Errorf("%w: %s", ErrContainerNotFound, id)
+		span.FailMessage("Workspace container deletion failed", err)
+		return err
 	}
 	delete(m.containers, id)
 	if err := m.saveLocked(); err != nil {
 		m.containers[id] = container
+		span.FailMessage("Workspace container deletion failed", err, tracepkg.String("name", container.Name), tracepkg.Int("workspace_count", len(container.WorkspaceIDs)))
 		return err
 	}
+	span.EndMessage("Workspace container deleted", tracepkg.String("container_id", id), tracepkg.String("name", container.Name), tracepkg.Int("workspace_count", len(container.WorkspaceIDs)))
 	return nil
 }
 
@@ -189,7 +214,13 @@ func (m *Manager) WorkspacesForContainer(containerID string) ([]Workspace, error
 }
 
 func (m *Manager) updateWorkspaceContainerMembership(containerID string, workspaceIDs []string, add bool) (WorkspaceContainer, error) {
+	action := "remove"
+	if add {
+		action = "add"
+	}
+	span := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.container.membership", "Updating workspace container membership", tracepkg.String("container_id", strings.TrimSpace(containerID)), tracepkg.String("action", action), tracepkg.Int("requested_workspaces", len(workspaceIDs)))
 	if err := m.ensureLoaded(); err != nil {
+		span.FailMessage("Workspace container membership update failed", err)
 		return WorkspaceContainer{}, err
 	}
 	m.mu.Lock()
@@ -197,10 +228,13 @@ func (m *Manager) updateWorkspaceContainerMembership(containerID string, workspa
 	containerID = strings.TrimSpace(containerID)
 	container, ok := m.containers[containerID]
 	if !ok {
-		return WorkspaceContainer{}, fmt.Errorf("%w: %s", ErrContainerNotFound, containerID)
+		err := fmt.Errorf("%w: %s", ErrContainerNotFound, containerID)
+		span.FailMessage("Workspace container membership update failed", err)
+		return WorkspaceContainer{}, err
 	}
 	canonical, err := m.validateWorkspaceIDsLocked(workspaceIDs)
 	if err != nil {
+		span.FailMessage("Workspace container membership update failed", err)
 		return WorkspaceContainer{}, err
 	}
 	previous := append([]string(nil), container.WorkspaceIDs...)
@@ -214,25 +248,37 @@ func (m *Manager) updateWorkspaceContainerMembership(containerID string, workspa
 	if err := m.saveLocked(); err != nil {
 		container.WorkspaceIDs = previous
 		m.containers[containerID] = container
+		span.FailMessage("Workspace container membership update failed", err, tracepkg.Int("previous_count", len(previous)), tracepkg.Int("candidate_count", len(container.WorkspaceIDs)))
 		return WorkspaceContainer{}, err
 	}
+	span.EndMessage("Workspace container membership updated", tracepkg.String("container_id", containerID), tracepkg.String("action", action), tracepkg.Int("validated_workspaces", len(canonical)), tracepkg.Int("previous_count", len(previous)), tracepkg.Int("count", len(container.WorkspaceIDs)))
 	return container, nil
 }
 
 func (m *Manager) updateWorkspaceContainersForWorkspace(workspaceID string, containerIDs []string, add bool) ([]WorkspaceContainer, error) {
+	action := "remove"
+	if add {
+		action = "add"
+	}
+	span := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.containers.membership", "Updating workspace membership across containers", tracepkg.String("workspace_id", strings.TrimSpace(workspaceID)), tracepkg.String("action", action), tracepkg.Int("requested_containers", len(containerIDs)))
 	if err := m.ensureLoaded(); err != nil {
+		span.FailMessage("Workspace container membership update failed", err)
 		return nil, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	canonical := m.canonicalIDLocked(strings.TrimSpace(workspaceID))
 	if _, ok := m.items[canonical]; !ok {
-		return nil, fmt.Errorf("%w: %s", ErrNotFound, workspaceID)
+		err := fmt.Errorf("%w: %s", ErrNotFound, workspaceID)
+		span.FailMessage("Workspace container membership update failed", err)
+		return nil, err
 	}
 	ids := normalizeIDs(containerIDs, "")
 	for _, id := range ids {
 		if _, ok := m.containers[id]; !ok {
-			return nil, fmt.Errorf("%w: %s", ErrContainerNotFound, id)
+			err := fmt.Errorf("%w: %s", ErrContainerNotFound, id)
+			span.FailMessage("Workspace container membership update failed", err)
+			return nil, err
 		}
 	}
 	previous := make(map[string]WorkspaceContainer, len(ids))
@@ -251,12 +297,14 @@ func (m *Manager) updateWorkspaceContainersForWorkspace(workspaceID string, cont
 		for id, container := range previous {
 			m.containers[id] = container
 		}
+		span.FailMessage("Workspace container membership update failed", err, tracepkg.Int("validated_containers", len(ids)))
 		return nil, err
 	}
 	result := make([]WorkspaceContainer, 0, len(ids))
 	for _, id := range ids {
 		result = append(result, m.containers[id])
 	}
+	span.EndMessage("Workspace container membership updated", tracepkg.String("workspace_id", canonical), tracepkg.String("action", action), tracepkg.Int("containers", len(ids)))
 	return result, nil
 }
 

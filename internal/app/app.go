@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
 	"go.mewis.me/chatgpt-mcp/internal/admin"
@@ -13,6 +14,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/web"
@@ -29,32 +31,64 @@ type App struct {
 	OAuth      *mcpoauth.Store
 	OAuthFlows *mcpoauth.FlowManager
 	runtimeCtx context.Context
+	trace      tracepkg.Observer
 	running    bool
 	bootstrap  sync.Once
 }
 
-func New(cfg config.Config) *App { return NewWithLogger(cfg, nil) }
+func New(cfg config.Config) *App { return NewWithLoggerContext(context.Background(), cfg, nil) }
 
 func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
+	return NewWithLoggerContext(context.Background(), cfg, appLogger)
+}
+
+func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *logger.Logger) *App {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	observer := tracepkg.ObserverFromContext(ctx)
+	span := tracepkg.Start(ctx, "APP", "app.construct", "Constructing server runtime application", tracepkg.Bool("mcp_http_enabled", cfg.Server.Enabled), tracepkg.Bool("admin_enabled", cfg.Admin.Enabled), tracepkg.Bool("tunnel_enabled", cfg.Tunnel.Enabled))
 	stream := activity.NewStream()
 	configStore := config.NewRuntimeStore(cfg)
+	toolSpan := tracepkg.Start(ctx, "APP", "app.tools.bootstrap", "Bootstrapping tool runtime")
 	toolRuntime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) {
 		current := configStore.Snapshot()
 		return current.Admin.Enabled, current.Admin.Port
 	})
+	toolSpan.EndMessage("Tool runtime bootstrapped", tracepkg.Int("tool_count", len(toolRuntime.List())))
+	if toolRuntime.Upstream != nil {
+		toolRuntime.Upstream.SetTraceObserver(observer)
+	}
+	workspaceSpan := tracepkg.Start(ctx, "APP", "app.workspaces.load", "Loading workspace registry")
+	if workspaces, err := toolRuntime.Workspaces.List(); err != nil {
+		workspaceSpan.FailMessage("Workspace registry load failed", err)
+	} else {
+		workspaceSpan.EndMessage("Workspace registry loaded", tracepkg.Int("workspace_count", len(workspaces)))
+	}
+	upstreamSpan := tracepkg.Start(ctx, "APP", "app.upstream.bootstrap", "Bootstrapping upstream MCP manager")
+	upstreamCount := 0
+	if toolRuntime.Upstream != nil {
+		upstreamCount = len(toolRuntime.Upstream.List())
+	}
+	upstreamSpan.EndMessage("Upstream MCP manager bootstrapped", tracepkg.Int("server_count", upstreamCount))
 	if err := toolRuntime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
+		span.FailMessage("Server runtime application construction failed", err)
 		panic(err)
 	}
 	if err := toolRuntime.SetShellApprovalCommands(cfg.Shell.ApprovalAllowCommands, cfg.Shell.ApprovalDenyCommands); err != nil {
+		span.FailMessage("Server runtime application construction failed", err)
 		panic(err)
 	}
 	if err := toolRuntime.SetShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
+		span.FailMessage("Server runtime application construction failed", err)
 		panic(err)
 	}
 	if err := toolRuntime.SetShellSandboxPolicy(cfg.Shell.SandboxPolicy); err != nil {
+		span.FailMessage("Server runtime application construction failed", err)
 		panic(err)
 	}
 	if err := toolRuntime.SetShellNetworkPolicy(cfg.Shell.NetworkPolicy); err != nil {
+		span.FailMessage("Server runtime application construction failed", err)
 		panic(err)
 	}
 	toolRuntime.SetShellEnvironmentAllow(cfg.Shell.EnvironmentAllow)
@@ -64,22 +98,32 @@ func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
 		mcpRuntime = mcp.NewHTTPRuntimeWithTools(toolRuntime)
 		mcpRuntime.Activity = stream
 	}
-	oauthStore := mcpoauth.NewStore(mcpoauth.Path())
+	oauthStore := mcpoauth.NewStore(mcpoauth.Path()).SetTraceObserver(observer)
 	if appLogger == nil {
 		appLogger = logger.New(logger.Info)
 	}
 	tunnelClient := tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger)
+	seedSpan := tracepkg.Start(ctx, "APP", "app.tunnel.metadata-seed", "Seeding tunnel metadata cache", tracepkg.String("tunnel_id", cfg.Tunnel.ID))
 	if metadata, err := config.LoadTunnelMetadata(cfg.Tunnel.ID); err == nil {
-		_ = tunnelClient.SeedMetadata(metadata)
+		if seedErr := tunnelClient.SeedMetadata(metadata); seedErr != nil {
+			seedSpan.FailMessage("Tunnel metadata seed failed", seedErr)
+		} else {
+			seedSpan.EndMessage("Tunnel metadata cache seeded", tracepkg.Bool("seeded", true), tracepkg.String("tunnel_id", metadata.ID))
+		}
+	} else {
+		seedSpan.EndMessage("Tunnel metadata cache unavailable", tracepkg.Bool("seeded", false), tracepkg.Bool("configured", cfg.Tunnel.ID != ""))
 	}
 	app := &App{
 		Config: configStore, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
 		Tunnel: tunnelClient, Logger: appLogger,
-		OAuth: oauthStore, OAuthFlows: mcpoauth.NewFlowManager(oauthStore),
+		OAuth: oauthStore, OAuthFlows: mcpoauth.NewFlowManager(oauthStore), trace: observer,
 	}
+	bootstrapStarted := time.Now()
 	if err := app.Bootstrap(); err != nil {
+		span.FailMessage("Server runtime application bootstrap failed", err, tracepkg.Int64("bootstrap_ms", time.Since(bootstrapStarted).Milliseconds()))
 		panic(err)
 	}
+	span.EndMessage("Server runtime application constructed", tracepkg.Int("tool_count", len(app.Tools.List())), tracepkg.Int("upstream_count", upstreamCount), tracepkg.Int64("bootstrap_ms", time.Since(bootstrapStarted).Milliseconds()))
 	return app
 }
 

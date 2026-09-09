@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const (
@@ -41,19 +43,36 @@ func (a Artifact) Cleanup() error {
 	return os.RemoveAll(a.Dir)
 }
 
-func (d Downloader) Download(ctx context.Context, release Release) (Artifact, error) {
+func (d Downloader) Download(ctx context.Context, release Release) (result Artifact, resultErr error) {
+	span := tracepkg.Start(ctx, "UPDATE", "update.artifact.prepare", "Preparing release artifact", tracepkg.String("version", release.Version), tracepkg.String("archive", release.ArchiveName))
+	defer func() {
+		if resultErr != nil {
+			span.FailMessage("Release artifact preparation failed", resultErr)
+			return
+		}
+		span.EndMessage("Release artifact prepared", tracepkg.String("directory", result.Dir), tracepkg.String("binary", result.Binary))
+	}()
 	if err := validateReleaseDownload(release); err != nil {
 		return Artifact{}, err
 	}
+	tempSpan := tracepkg.Start(ctx, "UPDATE", "update.workspace.create", "Creating update workspace", tracepkg.String("parent", strings.TrimSpace(d.TempDir)))
 	dir, err := os.MkdirTemp(strings.TrimSpace(d.TempDir), "chatgpt-mcp-update-")
 	if err != nil {
+		tempSpan.FailMessage("Update workspace creation failed", err)
 		return Artifact{}, err
 	}
+	tempSpan.EndMessage("Update workspace created", tracepkg.String("path", dir))
 	artifact := Artifact{Dir: dir, Release: release}
 	ok := false
 	defer func() {
 		if !ok {
-			_ = artifact.Cleanup()
+			cleanupSpan := tracepkg.Start(ctx, "UPDATE", "update.workspace.cleanup", "Cleaning failed update workspace", tracepkg.String("path", artifact.Dir))
+			cleanupErr := artifact.Cleanup()
+			if cleanupErr != nil {
+				cleanupSpan.FailMessage("Failed update workspace cleanup failed", cleanupErr)
+			} else {
+				cleanupSpan.EndMessage("Failed update workspace cleaned")
+			}
 		}
 	}()
 	archivePath := filepath.Join(dir, release.ArchiveName)
@@ -69,35 +88,44 @@ func (d Downloader) Download(ctx context.Context, release Release) (Artifact, er
 	if verifier == nil {
 		verifier = VerifyChecksumSignature
 	}
+	verifySpan := tracepkg.Start(ctx, "UPDATE", "update.signature.verify", "Verifying release signature", tracepkg.String("checksum", checksumPath), tracepkg.String("signature", signaturePath), tracepkg.String("version", release.Version))
 	if err := verifier(ctx, checksumPath, signaturePath, release.Version); err != nil {
+		verifySpan.FailMessage("Release signature verification failed", err)
 		return Artifact{}, fmt.Errorf("verify release checksum signature: %w", err)
 	}
+	verifySpan.EndMessage("Release signature verified")
 	if err := d.downloadFile(ctx, release.ArchiveURL, archivePath, maxArchiveSize); err != nil {
 		return Artifact{}, fmt.Errorf("download release archive: %w", err)
 	}
-	if err := VerifyChecksum(archivePath, checksumPath, release.ArchiveName); err != nil {
+	if err := VerifyChecksumContext(ctx, archivePath, checksumPath, release.ArchiveName); err != nil {
 		return Artifact{}, err
 	}
 	extractDir := filepath.Join(dir, "extract")
-	binary, err := ExtractBinary(archivePath, extractDir, release.ArchiveName)
+	binary, err := ExtractBinaryContext(ctx, archivePath, extractDir, release.ArchiveName)
 	if err != nil {
 		return Artifact{}, err
 	}
 	artifact.Binary = binary
 	ok = true
-	return artifact, nil
+	result = artifact
+	return result, nil
 }
 
 func (d Downloader) downloadFile(ctx context.Context, rawURL, destination string, limit int64) error {
+	span := tracepkg.Start(ctx, "UPDATE", "update.file.download", "Downloading release file", tracepkg.URL("url", rawURL), tracepkg.String("destination", destination), tracepkg.Int64("limit_bytes", limit))
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
+		span.FailMessage("Release file download failed", err)
 		return err
 	}
 	if parsed.Scheme != "https" || parsed.Host == "" {
-		return fmt.Errorf("release download URL must use HTTPS: %s", rawURL)
+		err := fmt.Errorf("release download URL must use HTTPS: %s", rawURL)
+		span.FailMessage("Release file download failed", err)
+		return err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
+		span.FailMessage("Release file download failed", err)
 		return err
 	}
 	userAgent := strings.TrimSpace(d.UserAgent)
@@ -106,19 +134,25 @@ func (d Downloader) downloadFile(ctx context.Context, rawURL, destination string
 	}
 	request.Header.Set("User-Agent", userAgent)
 	client := secureHTTPClient(d.HTTPClient)
-	response, err := client.Do(request)
+	response, err := tracepkg.DoHTTP(client, request)
 	if err != nil {
+		span.FailMessage("Release file download failed", err)
 		return err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned %s", response.Status)
+		err := fmt.Errorf("server returned %s", response.Status)
+		span.FailMessage("Release file download failed", err, tracepkg.Int("status", response.StatusCode))
+		return err
 	}
 	if response.ContentLength > limit {
-		return fmt.Errorf("download exceeds %d byte limit", limit)
+		err := fmt.Errorf("download exceeds %d byte limit", limit)
+		span.FailMessage("Release file download failed", err, tracepkg.Int64("content_length", response.ContentLength))
+		return err
 	}
 	file, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
+		span.FailMessage("Release file download failed", err)
 		return err
 	}
 	keep := false
@@ -130,21 +164,29 @@ func (d Downloader) downloadFile(ctx context.Context, rawURL, destination string
 	}()
 	written, err := io.Copy(file, io.LimitReader(response.Body, limit+1))
 	if err != nil {
+		span.FailMessage("Release file download failed", err, tracepkg.Int64("bytes", written))
 		return err
 	}
 	if written > limit {
-		return fmt.Errorf("download exceeds %d byte limit", limit)
+		err := fmt.Errorf("download exceeds %d byte limit", limit)
+		span.FailMessage("Release file download failed", err, tracepkg.Int64("bytes", written))
+		return err
 	}
 	if written == 0 {
-		return errors.New("download is empty")
+		err := errors.New("download is empty")
+		span.FailMessage("Release file download failed", err)
+		return err
 	}
 	if err := file.Sync(); err != nil {
+		span.FailMessage("Release file download failed", err, tracepkg.Int64("bytes", written))
 		return err
 	}
 	if err := file.Close(); err != nil {
+		span.FailMessage("Release file download failed", err, tracepkg.Int64("bytes", written))
 		return err
 	}
 	keep = true
+	span.EndMessage("Release file downloaded", tracepkg.Int("status", response.StatusCode), tracepkg.Int64("bytes", written), tracepkg.Int64("content_length", response.ContentLength))
 	return nil
 }
 

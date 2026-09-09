@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	spinnerlib "github.com/briandowns/spinner"
 	"github.com/fatih/color"
 )
 
@@ -51,20 +52,26 @@ func TestActionAnimatesUntilTerminalResult(t *testing.T) {
 	defer restoreColor()
 	var output bytes.Buffer
 	log := NewWithOptions(Options{Level: Info, Writer: &output})
-	log.animate = true
-	log.spinRate = time.Millisecond
 	log.Action("TUNNEL", "tunnel.connecting", "connecting tunnel")
-	time.Sleep(12 * time.Millisecond)
 	log.Ready("TUNNEL", "tunnel.connected", "tunnel connected")
 	text := output.String()
-	frames := 0
-	for _, frame := range spinnerFrames {
-		if strings.Contains(text, frame) {
-			frames++
+	if !strings.Contains(text, "⠋ Connecting tunnel") || !strings.Contains(text, "✓ Tunnel connected") {
+		t.Fatalf("non-terminal action output = %q", text)
+	}
+}
+
+func TestRandomSpinnerCharsetUsesAllowedSets(t *testing.T) {
+	allowed := map[string]bool{}
+	for _, id := range spinnerCharacterSets {
+		for _, frame := range spinnerlib.CharSets[id] {
+			allowed[frame] = true
 		}
 	}
-	if frames < 2 || !strings.Contains(text, "✓ Tunnel connected") || !strings.Contains(text, "\r\x1b[2K") {
-		t.Fatalf("animated output = %q", text)
+	for range 100 {
+		charset := randomSpinnerCharset()
+		if len(charset) == 0 || !allowed[charset[0]] {
+			t.Fatalf("unexpected charset: %#v", charset)
+		}
 	}
 }
 

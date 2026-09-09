@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	statepkg "go.mewis.me/chatgpt-mcp/internal/state"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const environmentVersion = 1
@@ -51,22 +53,38 @@ func CaptureEnvironment(account Account, extraPath []string) EnvironmentSnapshot
 }
 
 func SaveEnvironment(configRoot string, snapshot EnvironmentSnapshot) (string, error) {
+	return saveEnvironmentObserver(nil, configRoot, snapshot)
+}
+
+func SaveEnvironmentContext(ctx context.Context, configRoot string, snapshot EnvironmentSnapshot) (string, error) {
+	return saveEnvironmentObserver(tracepkg.ObserverFromContext(ctx), configRoot, snapshot)
+}
+
+func saveEnvironmentObserver(observer tracepkg.Observer, configRoot string, snapshot EnvironmentSnapshot) (string, error) {
+	path := EnvironmentPath(configRoot)
+	span := tracepkg.StartObserver(observer, "SERVICE", "service.environment.persist", "Persisting managed service environment snapshot", tracepkg.String("path", path), tracepkg.Int("variable_count", len(snapshot.Values)), tracepkg.Bool("atomic", true))
 	if snapshot.Version != environmentVersion || snapshot.Values == nil {
-		return "", errors.New("invalid managed environment snapshot")
+		err := errors.New("invalid managed environment snapshot")
+		span.FailMessage("Managed service environment snapshot validation failed", err)
+		return "", err
 	}
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
+		span.FailMessage("Managed service environment snapshot encoding failed", err)
 		return "", err
 	}
 	data = append(data, '\n')
-	path := EnvironmentPath(configRoot)
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		span.FailMessage("Managed service environment directory creation failed", err)
 		return "", err
 	}
 	if err := statepkg.WriteFileAtomic(path, data, 0600); err != nil {
+		span.FailMessage("Managed service environment snapshot persistence failed", err, tracepkg.Int64("bytes", int64(len(data))))
 		return "", err
 	}
-	return environmentHash(data), nil
+	hash := environmentHash(data)
+	span.EndMessage("Managed service environment snapshot persisted", tracepkg.String("path", path), tracepkg.String("environment_hash", hash), tracepkg.Int("variable_count", len(snapshot.Values)), tracepkg.Int64("bytes", int64(len(data))), tracepkg.Bool("atomic", true))
+	return hash, nil
 }
 
 func LoadEnvironment(configRoot, expectedHash string) (EnvironmentSnapshot, error) {

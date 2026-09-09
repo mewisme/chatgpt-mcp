@@ -15,6 +15,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -50,10 +51,23 @@ type LogsInfo struct {
 }
 
 func BuildLogsQuery(options LogsQueryOptions, now time.Time) (runtimeevent.Query, error) {
+	return BuildLogsQueryContext(context.Background(), options, now)
+}
+
+func BuildLogsQueryContext(ctx context.Context, options LogsQueryOptions, now time.Time) (query runtimeevent.Query, err error) {
+	span := tracepkg.Start(ctx, "LOGS", "logs.query.resolve", "Resolving runtime log query", tracepkg.Int("tail", options.Tail), tracepkg.Bool("all_sessions", options.All), tracepkg.Bool("session_configured", strings.TrimSpace(options.Session) != ""), tracepkg.Bool("workspace_configured", strings.TrimSpace(options.Workspace) != ""), tracepkg.Bool("grep_configured", strings.TrimSpace(options.Grep) != ""), tracepkg.Bool("event_filter_configured", strings.TrimSpace(options.Event) != ""))
+	defer func() {
+		if err != nil {
+			span.FailMessage("Runtime log query resolution failed", err)
+			return
+		}
+		span.EndMessage("Runtime log query resolved", tracepkg.String("session", query.RunID), tracepkg.String("workspace_id", query.WorkspaceID), tracepkg.String("minimum_level", query.MinLevel), tracepkg.Int("component_count", len(query.Components)), tracepkg.Bool("since_configured", query.Since != nil), tracepkg.Bool("until_configured", query.Until != nil))
+	}()
 	if options.Tail < 0 {
-		return runtimeevent.Query{}, errors.New("tail must be zero or greater")
+		err = errors.New("tail must be zero or greater")
+		return runtimeevent.Query{}, err
 	}
-	query := runtimeevent.Query{RunID: strings.TrimSpace(options.Session), MinLevel: strings.ToLower(strings.TrimSpace(options.Level)), Components: splitLogCSV(options.Components), Tool: strings.TrimSpace(options.Tool), Status: strings.TrimSpace(options.Status), Source: strings.TrimSpace(options.Source), EventGlob: strings.TrimSpace(options.Event), Grep: strings.TrimSpace(options.Grep)}
+	query = runtimeevent.Query{RunID: strings.TrimSpace(options.Session), MinLevel: strings.ToLower(strings.TrimSpace(options.Level)), Components: splitLogCSV(options.Components), Tool: strings.TrimSpace(options.Tool), Status: strings.TrimSpace(options.Status), Source: strings.TrimSpace(options.Source), EventGlob: strings.TrimSpace(options.Event), Grep: strings.TrimSpace(options.Grep)}
 	if query.MinLevel != "" {
 		switch query.MinLevel {
 		case "debug", "info", "warn", "warning", "error":
@@ -81,8 +95,9 @@ func BuildLogsQuery(options LogsQueryOptions, now time.Time) (runtimeevent.Query
 		query.Until = &value
 	}
 	if strings.TrimSpace(options.Workspace) != "" {
-		workspaceID, err := ResolveLogWorkspace(options.Workspace)
-		if err != nil {
+		workspaceID, resolveErr := ResolveLogWorkspaceContext(ctx, options.Workspace)
+		if resolveErr != nil {
+			err = resolveErr
 			return runtimeevent.Query{}, err
 		}
 		query.WorkspaceID = workspaceID
@@ -91,14 +106,29 @@ func BuildLogsQuery(options LogsQueryOptions, now time.Time) (runtimeevent.Query
 }
 
 func LoadLogs(options LogsQueryOptions, visibility logger.Visibility, bufferCap int, now time.Time) (LogsSnapshot, error) {
-	query, err := BuildLogsQuery(options, now)
+	return LoadLogsContext(context.Background(), options, visibility, bufferCap, now)
+}
+
+func LoadLogsContext(ctx context.Context, options LogsQueryOptions, visibility logger.Visibility, bufferCap int, now time.Time) (snapshot LogsSnapshot, err error) {
+	span := tracepkg.Start(ctx, "LOGS", "logs.snapshot.load", "Loading runtime log snapshot", tracepkg.Int("tail", options.Tail), tracepkg.Int("buffer_cap", bufferCap), tracepkg.String("visibility", fmt.Sprint(visibility)))
+	query, err := BuildLogsQueryContext(ctx, options, now)
 	if err != nil {
+		span.FailMessage("Runtime log snapshot query resolution failed", err)
 		return LogsSnapshot{}, err
 	}
+	info, infoErr := LoadLogsInfoContext(ctx)
+	if infoErr != nil {
+		span.FailMessage("Runtime log journal inspection failed", infoErr)
+		return LogsSnapshot{}, infoErr
+	}
+	readSpan := tracepkg.Start(ctx, "LOGS", "logs.journal.read", "Reading runtime log journal", tracepkg.String("path", info.Path), tracepkg.Int("file_count", info.Files), tracepkg.Int64("bytes", info.Bytes))
 	allEvents, err := runtimeevent.Read(config.RootPath(), runtimeevent.Query{})
 	if err != nil {
+		readSpan.FailMessage("Runtime log journal read failed", err)
+		span.FailMessage("Runtime log snapshot load failed", err)
 		return LogsSnapshot{}, err
 	}
+	readSpan.EndMessage("Runtime log journal read", tracepkg.Int("events_scanned", len(allEvents)))
 	if !options.All && query.RunID == "" {
 		query.RunID = LatestRuntimeSession(allEvents)
 	}
@@ -110,7 +140,9 @@ func LoadLogs(options LogsQueryOptions, visibility logger.Visibility, bufferCap 
 	}
 	events := MatchLogs(allEvents, query, visibility)
 	total := len(events)
+	tailTruncated := false
 	if options.Tail > 0 && len(events) > options.Tail {
+		tailTruncated = true
 		events = append([]runtimeevent.Event(nil), events[len(events)-options.Tail:]...)
 	}
 	truncated := false
@@ -118,7 +150,9 @@ func LoadLogs(options LogsQueryOptions, visibility logger.Visibility, bufferCap 
 		events = append([]runtimeevent.Event(nil), events[len(events)-bufferCap:]...)
 		truncated = true
 	}
-	return LogsSnapshot{Events: events, Query: query, Session: query.RunID, Total: total, Truncated: truncated, LatestSequence: latestSequence}, nil
+	snapshot = LogsSnapshot{Events: events, Query: query, Session: query.RunID, Total: total, Truncated: truncated, LatestSequence: latestSequence}
+	span.EndMessage("Runtime log snapshot loaded", tracepkg.String("journal_path", info.Path), tracepkg.Int("journal_files", info.Files), tracepkg.Int64("journal_bytes", info.Bytes), tracepkg.Int("events_scanned", len(allEvents)), tracepkg.Int("events_matched", total), tracepkg.Int("events_returned", len(events)), tracepkg.String("selected_session", query.RunID), tracepkg.Bool("tail_truncated", tailTruncated), tracepkg.Bool("buffer_truncated", truncated))
+	return snapshot, nil
 }
 
 func MatchLogs(events []runtimeevent.Event, query runtimeevent.Query, visibility logger.Visibility) []runtimeevent.Event {
@@ -163,14 +197,31 @@ func ParseLogTimestamp(raw string) (time.Time, error) {
 }
 
 func ResolveLogWorkspace(value string) (string, error) {
+	return ResolveLogWorkspaceContext(context.Background(), value)
+}
+
+func ResolveLogWorkspaceContext(ctx context.Context, value string) (resolved string, err error) {
 	value = strings.TrimSpace(value)
+	inputKind := "path"
+	if strings.HasPrefix(value, "ws_") {
+		inputKind = "id"
+	}
+	span := tracepkg.Start(ctx, "LOGS", "logs.workspace.resolve", "Resolving runtime log workspace", tracepkg.String("input_kind", inputKind))
+	defer func() {
+		if err != nil {
+			span.FailMessage("Runtime log workspace resolution failed", err, tracepkg.String("input_kind", inputKind))
+		} else {
+			span.EndMessage("Runtime log workspace resolved", tracepkg.String("input_kind", inputKind), tracepkg.String("workspace_id", resolved))
+		}
+	}()
 	manager := workspace.NewManager(workspace.DefaultStorePath())
 	if strings.HasPrefix(value, "ws_") {
 		item, err := manager.Get(value)
 		if err != nil {
 			return "", err
 		}
-		return item.ID, nil
+		resolved = item.ID
+		return resolved, nil
 	}
 	if strings.HasPrefix(value, "~") {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -191,10 +242,12 @@ func ResolveLogWorkspace(value string) (string, error) {
 	}
 	for _, item := range items {
 		if filepath.Clean(item.Path) == absolute {
-			return item.ID, nil
+			resolved = item.ID
+			return resolved, nil
 		}
 	}
-	return "", fmt.Errorf("workspace is not registered: %s", absolute)
+	err = fmt.Errorf("workspace is not registered: %s", absolute)
+	return "", err
 }
 
 func LogFields(event runtimeevent.Event, visibility logger.Visibility) []runtimeevent.Field {
@@ -208,8 +261,14 @@ func LogFields(event runtimeevent.Event, visibility logger.Visibility) []runtime
 }
 
 func LoadLogsInfo() (LogsInfo, error) {
+	return LoadLogsInfoContext(context.Background())
+}
+
+func LoadLogsInfoContext(ctx context.Context) (LogsInfo, error) {
+	span := tracepkg.Start(ctx, "LOGS", "logs.journal.inspect", "Inspecting runtime log journal", tracepkg.String("path", runtimeevent.Path(config.RootPath())))
 	files, err := runtimeevent.FilesOldestFirst(config.RootPath())
 	if err != nil {
+		span.FailMessage("Runtime log journal file discovery failed", err)
 		return LogsInfo{}, err
 	}
 	var bytes int64
@@ -217,27 +276,40 @@ func LoadLogsInfo() (LogsInfo, error) {
 		if info, statErr := os.Stat(file); statErr == nil {
 			bytes += info.Size()
 		} else if !os.IsNotExist(statErr) {
+			span.FailMessage("Runtime log journal file inspection failed", statErr, tracepkg.String("path", file))
 			return LogsInfo{}, statErr
 		}
 	}
-	return LogsInfo{Path: runtimeevent.Path(config.RootPath()), Files: len(files), Bytes: bytes}, nil
+	info := LogsInfo{Path: runtimeevent.Path(config.RootPath()), Files: len(files), Bytes: bytes}
+	span.EndMessage("Runtime log journal inspected", tracepkg.String("path", info.Path), tracepkg.Int("file_count", info.Files), tracepkg.Int64("bytes", info.Bytes))
+	return info, nil
 }
 
 func ClearLogs(ctx context.Context) error {
+	span := tracepkg.Start(ctx, "LOGS", "logs.clear", "Clearing runtime logs")
 	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	_, err := runtimecontrol.Request(requestCtx, http.MethodPost, "/logs/clear", nil, &map[string]bool{})
 	if err == nil {
+		span.EndMessage("Runtime logs cleared", tracepkg.String("mode", "runtime"), tracepkg.Bool("fallback", false))
 		return nil
 	}
 	if !runtimecontrol.IsUnavailable(err) {
+		span.FailMessage("Runtime log clear request failed", err, tracepkg.String("mode", "runtime"), tracepkg.Bool("fallback", false))
 		return err
 	}
+	tracepkg.Emit(ctx, "LOGS", "logs.clear.fallback", "Falling back to local runtime log clear", tracepkg.String("reason", "runtime_unavailable"), tracepkg.String("mode", "local"))
 	journal, journalErr := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{})
 	if journalErr != nil {
+		span.FailMessage("Local runtime log clear setup failed", journalErr, tracepkg.String("mode", "local"), tracepkg.Bool("fallback", true))
 		return journalErr
 	}
-	return journal.Clear()
+	if journalErr = journal.Clear(); journalErr != nil {
+		span.FailMessage("Local runtime log clear failed", journalErr, tracepkg.String("mode", "local"), tracepkg.Bool("fallback", true))
+		return journalErr
+	}
+	span.EndMessage("Runtime logs cleared", tracepkg.String("mode", "local"), tracepkg.Bool("fallback", true))
+	return nil
 }
 
 func splitLogCSV(raw string) []string {

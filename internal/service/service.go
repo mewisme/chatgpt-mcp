@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 type Scope string
@@ -53,18 +56,44 @@ type Manager interface {
 }
 
 func NewSpec(configRoot, binary string, scope Scope, account Account) (Spec, error) {
+	return newSpecObserver(nil, configRoot, binary, scope, account)
+}
+
+func NewSpecContext(ctx context.Context, configRoot, binary string, scope Scope, account Account) (Spec, error) {
+	return newSpecObserver(tracepkg.ObserverFromContext(ctx), configRoot, binary, scope, account)
+}
+
+func newSpecObserver(observer tracepkg.Observer, configRoot, binary string, scope Scope, account Account) (Spec, error) {
+	span := tracepkg.StartObserver(observer, "SERVICE", "service.spec.resolve", "Resolving managed service specification", tracepkg.String("scope", string(scope)), tracepkg.String("config_root", configRoot), tracepkg.String("binary", binary), tracepkg.String("account", account.Username))
 	if strings.TrimSpace(configRoot) == "" {
-		return Spec{}, errors.New("service config root is required")
+		err := errors.New("service config root is required")
+		span.FailMessage("Managed service specification resolution failed", err)
+		return Spec{}, err
 	}
 	absoluteRoot, err := filepath.Abs(configRoot)
 	if err != nil {
+		span.FailMessage("Managed service config root resolution failed", err)
 		return Spec{}, err
 	}
 	binary, err = StableBinaryPath(binary)
 	if err != nil {
+		span.FailMessage("Managed service binary resolution failed", err)
 		return Spec{}, err
 	}
-	return Spec{ID: ID(filepath.Clean(absoluteRoot), scope), Scope: scope, ConfigRoot: filepath.Clean(absoluteRoot), Binary: binary, Account: account}, nil
+	spec := Spec{ID: ID(filepath.Clean(absoluteRoot), scope), Scope: scope, ConfigRoot: filepath.Clean(absoluteRoot), Binary: binary, Account: account}
+	span.EndMessage("Managed service specification resolved", tracepkg.String("service", spec.ID), tracepkg.String("scope", string(spec.Scope)), tracepkg.String("config_root", spec.ConfigRoot), tracepkg.String("binary", spec.Binary), tracepkg.String("account", spec.Account.Username))
+	return spec, nil
+}
+
+func InvokingAccountContext(ctx context.Context, scope Scope) (Account, error) {
+	span := tracepkg.Start(ctx, "SERVICE", "service.account.resolve", "Resolving invoking account", tracepkg.String("scope", string(scope)))
+	account, err := InvokingAccount(scope)
+	if err != nil {
+		span.FailMessage("Invoking account resolution failed", err)
+		return Account{}, err
+	}
+	span.EndMessage("Invoking account resolved", tracepkg.String("scope", string(scope)), tracepkg.String("account", account.Username), tracepkg.String("home", account.HomeDir), tracepkg.String("uid", account.UID), tracepkg.String("gid", account.GID))
+	return account, nil
 }
 
 func ID(configRoot string, scope Scope) string {
@@ -92,30 +121,52 @@ func StableBinaryPath(value string) (string, error) {
 }
 
 func PrepareManagedBinary(configRoot, value string) (string, error) {
+	return prepareManagedBinaryObserver(nil, configRoot, value)
+}
+
+func PrepareManagedBinaryContext(ctx context.Context, configRoot, value string) (string, error) {
+	return prepareManagedBinaryObserver(tracepkg.ObserverFromContext(ctx), configRoot, value)
+}
+
+func prepareManagedBinaryObserver(observer tracepkg.Observer, configRoot, value string) (string, error) {
+	span := tracepkg.StartObserver(observer, "SERVICE", "service.binary.prepare", "Preparing managed service binary", tracepkg.String("requested_binary", value), tracepkg.String("config_root", configRoot))
 	binary, err := StableBinaryPath(value)
 	if err != nil {
+		span.FailMessage("Managed service binary resolution failed", err)
 		return "", err
 	}
 	if !transientGoBuildBinary(binary) {
+		span.EndMessage("Managed service binary resolved", tracepkg.String("source", binary), tracepkg.String("destination", binary), tracepkg.Bool("transient", false), tracepkg.Bool("reused", true))
 		return binary, nil
 	}
 	if strings.TrimSpace(configRoot) == "" {
-		return "", errors.New("service config root is required")
+		err := errors.New("service config root is required")
+		span.FailMessage("Managed service binary preparation failed", err, tracepkg.String("source", binary), tracepkg.Bool("transient", true))
+		return "", err
 	}
 	hash, err := fileSHA256(binary)
 	if err != nil {
+		span.FailMessage("Managed service binary hash failed", err, tracepkg.String("source", binary), tracepkg.Bool("transient", true))
 		return "", err
 	}
 	name := filepath.Base(binary)
 	destination := filepath.Join(configRoot, "runtime", "bin", "go-run", hash[:16], name)
 	if info, statErr := os.Stat(destination); statErr == nil && !info.IsDir() {
+		span.EndMessage("Managed service binary reused", tracepkg.String("source", binary), tracepkg.String("destination", filepath.Clean(destination)), tracepkg.Bool("transient", true), tracepkg.Bool("reused", true), tracepkg.Int64("bytes", info.Size()))
 		return filepath.Clean(destination), nil
 	} else if statErr != nil && !os.IsNotExist(statErr) {
+		span.FailMessage("Managed service binary destination inspection failed", statErr, tracepkg.String("source", binary), tracepkg.String("destination", destination), tracepkg.Bool("transient", true))
 		return "", statErr
 	}
 	if err := copyExecutableAtomic(binary, destination); err != nil {
+		span.FailMessage("Managed service binary copy failed", err, tracepkg.String("source", binary), tracepkg.String("destination", destination), tracepkg.Bool("transient", true), tracepkg.Bool("reused", false))
 		return "", err
 	}
+	fields := []tracepkg.Field{tracepkg.String("source", binary), tracepkg.String("destination", filepath.Clean(destination)), tracepkg.Bool("transient", true), tracepkg.Bool("reused", false), tracepkg.Bool("atomic", true)}
+	if info, statErr := os.Stat(destination); statErr == nil {
+		fields = append(fields, tracepkg.Int64("bytes", info.Size()))
+	}
+	span.EndMessage("Managed service binary prepared", fields...)
 	return filepath.Clean(destination), nil
 }
 

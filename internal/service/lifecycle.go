@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const (
@@ -42,18 +43,18 @@ func (l Lifecycle) Up(ctx context.Context) (LifecycleResult, error) {
 	if err := l.validate(); err != nil {
 		return LifecycleResult{}, err
 	}
-	current, running, err := l.Probe(ctx)
+	current, running, err := l.probeRuntime(ctx, "up")
 	if err != nil {
 		return LifecycleResult{}, err
 	}
 	if err := ValidateRuntimeOwner(current, running, l.Spec, "up"); err != nil {
 		return LifecycleResult{}, err
 	}
-	backend, err := l.Manager.Status(l.Spec)
+	backend, err := l.inspectBackend(ctx)
 	if err != nil {
 		return LifecycleResult{}, err
 	}
-	matches, err := l.Manager.DefinitionMatches(l.Spec)
+	matches, err := l.inspectDefinition(ctx)
 	if err != nil {
 		return LifecycleResult{}, err
 	}
@@ -73,18 +74,18 @@ func (l Lifecycle) Up(ctx context.Context) (LifecycleResult, error) {
 		}
 	}
 	if backend.Running || (running && backend.Installed) {
-		if err := StopBackend(l.Manager, l.Spec); err != nil {
+		if err := l.backendOperation(ctx, "stop", "Stopping managed service backend", func() error { return StopBackend(l.Manager, l.Spec) }); err != nil {
 			return LifecycleResult{}, err
 		}
 	}
 	if !backend.Installed || !matches {
 		l.emit("definition.installing", "Installing managed service definition")
-		if err := l.Manager.Install(l.Spec); err != nil {
+		if err := l.backendOperation(ctx, "install", "Installing managed service definition", func() error { return l.Manager.Install(l.Spec) }); err != nil {
 			return LifecycleResult{}, err
 		}
 	}
 	l.emit("backend.starting", "Starting managed service backend")
-	if err := l.Manager.Start(l.Spec); err != nil {
+	if err := l.backendOperation(ctx, "start", "Starting managed service backend", func() error { return l.Manager.Start(l.Spec) }); err != nil {
 		return LifecycleResult{}, err
 	}
 	l.emit("runtime.waiting", "Waiting for managed runtime readiness")
@@ -99,14 +100,14 @@ func (l Lifecycle) Down(ctx context.Context) (LifecycleResult, error) {
 	if err := l.validate(); err != nil {
 		return LifecycleResult{}, err
 	}
-	current, running, err := l.Probe(ctx)
+	current, running, err := l.probeRuntime(ctx, "down")
 	if err != nil {
 		return LifecycleResult{}, err
 	}
 	if err := ValidateRuntimeOwner(current, running, l.Spec, "down"); err != nil {
 		return LifecycleResult{}, err
 	}
-	backend, err := l.Manager.Status(l.Spec)
+	backend, err := l.inspectBackend(ctx)
 	if err != nil {
 		return LifecycleResult{}, err
 	}
@@ -120,13 +121,13 @@ func (l Lifecycle) Down(ctx context.Context) (LifecycleResult, error) {
 		}
 	}
 	if backend.Running || backend.Installed {
-		if err := StopBackend(l.Manager, l.Spec); err != nil {
+		if err := l.backendOperation(ctx, "stop", "Stopping managed service backend", func() error { return StopBackend(l.Manager, l.Spec) }); err != nil {
 			return LifecycleResult{}, err
 		}
 	}
 	if backend.Installed {
 		l.emit("definition.uninstalling", "Removing managed service definition")
-		if err := l.Manager.Uninstall(l.Spec); err != nil {
+		if err := l.backendOperation(ctx, "uninstall", "Removing managed service definition", func() error { return l.Manager.Uninstall(l.Spec) }); err != nil {
 			return LifecycleResult{}, err
 		}
 	}
@@ -137,21 +138,21 @@ func (l Lifecycle) Restart(ctx context.Context) (LifecycleResult, error) {
 	if err := l.validate(); err != nil {
 		return LifecycleResult{}, err
 	}
-	current, running, err := l.Probe(ctx)
+	current, running, err := l.probeRuntime(ctx, "restart")
 	if err != nil {
 		return LifecycleResult{}, err
 	}
 	if err := ValidateRuntimeOwner(current, running, l.Spec, "restart"); err != nil {
 		return LifecycleResult{}, err
 	}
-	backend, err := l.Manager.Status(l.Spec)
+	backend, err := l.inspectBackend(ctx)
 	if err != nil {
 		return LifecycleResult{}, err
 	}
 	if !backend.Installed {
 		return l.Up(ctx)
 	}
-	matches, err := l.Manager.DefinitionMatches(l.Spec)
+	matches, err := l.inspectDefinition(ctx)
 	if err != nil {
 		return LifecycleResult{}, err
 	}
@@ -162,17 +163,17 @@ func (l Lifecycle) Restart(ctx context.Context) (LifecycleResult, error) {
 			return LifecycleResult{}, err
 		}
 	}
-	if err := StopBackend(l.Manager, l.Spec); err != nil {
+	if err := l.backendOperation(ctx, "stop", "Stopping managed service backend", func() error { return StopBackend(l.Manager, l.Spec) }); err != nil {
 		return LifecycleResult{}, err
 	}
 	if !matches {
 		l.emit("definition.installing", "Updating managed service definition")
-		if err := l.Manager.Install(l.Spec); err != nil {
+		if err := l.backendOperation(ctx, "install", "Updating managed service definition", func() error { return l.Manager.Install(l.Spec) }); err != nil {
 			return LifecycleResult{}, err
 		}
 	}
 	l.emit("backend.starting", "Starting managed service backend")
-	if err := l.Manager.Start(l.Spec); err != nil {
+	if err := l.backendOperation(ctx, "start", "Starting managed service backend", func() error { return l.Manager.Start(l.Spec) }); err != nil {
 		return LifecycleResult{}, err
 	}
 	l.emit("runtime.waiting", "Waiting for managed runtime readiness")
@@ -206,13 +207,72 @@ func (l Lifecycle) emit(phase, message string) {
 	}
 }
 
+func (l Lifecycle) traceFields() []tracepkg.Field {
+	backend := ""
+	if l.Manager != nil {
+		backend = l.Manager.Backend()
+	}
+	return []tracepkg.Field{tracepkg.String("backend", backend), tracepkg.String("service", l.Spec.ID), tracepkg.String("scope", string(l.Spec.Scope))}
+}
+
+func (l Lifecycle) probeRuntime(ctx context.Context, action string) (runtimecontrol.RuntimeStatus, bool, error) {
+	span := tracepkg.Start(ctx, "SERVICE", "service.runtime.inspect", "Inspecting managed runtime", append(l.traceFields(), tracepkg.String("action", action))...)
+	status, running, err := l.Probe(ctx)
+	if err != nil {
+		span.FailMessage("Managed runtime inspection failed", err)
+		return runtimecontrol.RuntimeStatus{}, false, err
+	}
+	span.EndMessage("Managed runtime inspected", tracepkg.Bool("running", running), tracepkg.Bool("managed", status.Managed), tracepkg.Bool("starting", status.Starting), tracepkg.Int("pid", status.PID), tracepkg.String("lifecycle", status.Lifecycle), tracepkg.String("runtime_service", status.ServiceID), tracepkg.String("runtime_scope", status.ServiceScope))
+	return status, running, nil
+}
+
+func (l Lifecycle) inspectBackend(ctx context.Context) (Status, error) {
+	span := tracepkg.Start(ctx, "SERVICE", "service.backend.inspect", "Inspecting managed service backend", l.traceFields()...)
+	status, err := l.Manager.Status(l.Spec)
+	if err != nil {
+		span.FailMessage("Managed service backend inspection failed", err)
+		return Status{}, err
+	}
+	span.EndMessage("Managed service backend inspected", tracepkg.String("backend", status.Backend), tracepkg.String("service", l.Spec.ID), tracepkg.Bool("installed", status.Installed), tracepkg.Bool("running", status.Running), tracepkg.Int("pid", status.PID))
+	return status, nil
+}
+
+func (l Lifecycle) inspectDefinition(ctx context.Context) (bool, error) {
+	span := tracepkg.Start(ctx, "SERVICE", "service.definition.inspect", "Inspecting managed service definition", l.traceFields()...)
+	matches, err := l.Manager.DefinitionMatches(l.Spec)
+	if err != nil {
+		span.FailMessage("Managed service definition inspection failed", err)
+		return false, err
+	}
+	span.EndMessage("Managed service definition inspected", tracepkg.Bool("definition_matches", matches))
+	return matches, nil
+}
+
+func (l Lifecycle) backendOperation(ctx context.Context, operation, message string, run func() error) error {
+	span := tracepkg.Start(ctx, "SERVICE", "service.backend."+operation, message, append(l.traceFields(), tracepkg.String("operation", operation))...)
+	if err := run(); err != nil {
+		span.FailMessage(message+" failed", err)
+		return err
+	}
+	status, statusErr := l.Manager.Status(l.Spec)
+	if statusErr != nil {
+		span.EndMessage(message+" completed", tracepkg.String("final_state", "unavailable"))
+		return nil
+	}
+	span.EndMessage(message+" completed", tracepkg.String("final_state", "available"), tracepkg.Bool("installed", status.Installed), tracepkg.Bool("running", status.Running), tracepkg.Int("pid", status.PID))
+	return nil
+}
+
 func (l Lifecycle) shutdownAndWait(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(ctx, min(5*time.Second, l.timeout()))
+	span := tracepkg.Start(ctx, "SERVICE", "service.runtime.shutdown", "Requesting managed runtime shutdown", l.traceFields()...)
 	err := l.Shutdown(shutdownCtx)
 	cancel()
 	if err != nil {
+		span.FailMessage("Managed runtime shutdown request failed", err)
 		return err
 	}
+	span.EndMessage("Managed runtime shutdown requested")
 	return l.waitStopped(ctx)
 }
 
@@ -227,14 +287,35 @@ func WaitRuntimeStopped(ctx context.Context, probe RuntimeProbe, timeout time.Du
 	if timeout <= 0 {
 		timeout = DefaultLifecycleTimeout
 	}
+	started := time.Now()
+	span := tracepkg.Start(ctx, "SERVICE", "service.runtime.stopped.wait", "Waiting for managed runtime to stop", tracepkg.Int64("timeout_ms", timeout.Milliseconds()))
 	deadline := time.Now().Add(timeout)
+	attempts := 0
+	firstProbe := true
+	lastLifecycle := ""
+	lastProbeError := ""
 	for time.Now().Before(deadline) {
+		attempts++
 		status, running, err := probe(ctx)
+		if firstProbe {
+			tracepkg.Emit(ctx, "SERVICE", "service.runtime.probe", "Probed managed runtime", tracepkg.String("mode", "stop"), tracepkg.Int("attempt", attempts), tracepkg.Bool("running", running), tracepkg.Bool("error_present", err != nil), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+			firstProbe = false
+		}
 		if err != nil {
+			if err.Error() != lastProbeError {
+				tracepkg.Emit(ctx, "SERVICE", "service.runtime.probe-error.changed", "Managed runtime probe error changed", tracepkg.String("mode", "stop"), tracepkg.Int("attempt", attempts), tracepkg.String("probe_error", err.Error()), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+				lastProbeError = err.Error()
+			}
+			span.FailMessage("Managed runtime stop probe failed", err, tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
 			return err
 		}
 		if !running {
+			span.EndMessage("Managed runtime stopped", tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
 			return nil
+		}
+		if status.Lifecycle != lastLifecycle {
+			tracepkg.Emit(ctx, "SERVICE", "service.runtime.lifecycle.changed", "Managed runtime lifecycle changed", tracepkg.String("mode", "stop"), tracepkg.Int("attempt", attempts), tracepkg.String("previous", lastLifecycle), tracepkg.String("current", status.Lifecycle), tracepkg.Int("pid", status.PID), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+			lastLifecycle = status.Lifecycle
 		}
 		if status.Lifecycle != "" {
 			waitCtx, cancel := context.WithTimeout(ctx, min(10*time.Second, time.Until(deadline)))
@@ -244,14 +325,18 @@ func WaitRuntimeStopped(ctx context.Context, probe RuntimeProbe, timeout time.Du
 				continue
 			}
 			if ctx.Err() != nil {
+				span.FailMessage("Managed runtime stop wait canceled", ctx.Err(), tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
 				return ctx.Err()
 			}
 		}
 		if err := waitLifecyclePoll(ctx); err != nil {
+			span.FailMessage("Managed runtime stop wait canceled", err, tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
 			return err
 		}
 	}
-	return errors.New("managed runtime did not stop")
+	err := errors.New("managed runtime did not stop")
+	span.FailMessage("Managed runtime did not stop before timeout", err, tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+	return err
 }
 
 func (l Lifecycle) waitReady(ctx context.Context, previousRunID string) (runtimecontrol.RuntimeStatus, error) {
@@ -265,14 +350,39 @@ func WaitRuntimeReady(ctx context.Context, spec Spec, probe RuntimeProbe, previo
 	if timeout <= 0 {
 		timeout = DefaultLifecycleTimeout
 	}
+	started := time.Now()
+	span := tracepkg.Start(ctx, "SERVICE", "service.runtime.ready.wait", "Waiting for managed runtime readiness", tracepkg.String("service", spec.ID), tracepkg.String("scope", string(spec.Scope)), tracepkg.Int64("timeout_ms", timeout.Milliseconds()), tracepkg.Bool("previous_run_present", previousRunID != ""))
 	deadline := time.Now().Add(timeout)
 	var lastErr error
+	attempts := 0
+	firstProbe := true
+	controlDiscovered := false
+	lastLifecycle := ""
+	lastProbeError := ""
 	for time.Now().Before(deadline) {
+		attempts++
 		status, running, err := probe(ctx)
+		if firstProbe {
+			tracepkg.Emit(ctx, "SERVICE", "service.runtime.probe", "Probed managed runtime", tracepkg.String("mode", "ready"), tracepkg.Int("attempt", attempts), tracepkg.Bool("running", running), tracepkg.Bool("error_present", err != nil), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+			firstProbe = false
+		}
 		if err != nil {
 			lastErr = err
+			if err.Error() != lastProbeError {
+				tracepkg.Emit(ctx, "SERVICE", "service.runtime.probe-error.changed", "Managed runtime probe error changed", tracepkg.String("mode", "ready"), tracepkg.Int("attempt", attempts), tracepkg.String("probe_error", err.Error()), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+				lastProbeError = err.Error()
+			}
 		} else if running {
+			if !controlDiscovered {
+				tracepkg.Emit(ctx, "SERVICE", "service.runtime.control.discovered", "Discovered managed runtime control endpoint", tracepkg.Int("attempt", attempts), tracepkg.Int("pid", status.PID), tracepkg.String("lifecycle", status.Lifecycle), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+				controlDiscovered = true
+			}
+			if status.Lifecycle != lastLifecycle {
+				tracepkg.Emit(ctx, "SERVICE", "service.runtime.lifecycle.changed", "Managed runtime lifecycle changed", tracepkg.String("mode", "ready"), tracepkg.Int("attempt", attempts), tracepkg.String("previous", lastLifecycle), tracepkg.String("current", status.Lifecycle), tracepkg.Int("pid", status.PID), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+				lastLifecycle = status.Lifecycle
+			}
 			if err := ValidateRuntimeOwner(status, true, spec, "up"); err != nil {
+				span.FailMessage("Managed runtime owner validation failed", err, tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
 				return runtimecontrol.RuntimeStatus{}, err
 			}
 			if previousRunID != "" && status.RunID == previousRunID {
@@ -287,21 +397,28 @@ func WaitRuntimeReady(ctx context.Context, spec Spec, probe RuntimeProbe, previo
 						continue
 					}
 					if ctx.Err() != nil {
+						span.FailMessage("Managed runtime readiness wait canceled", ctx.Err(), tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
 						return runtimecontrol.RuntimeStatus{}, ctx.Err()
 					}
 				}
 			} else {
+				span.EndMessage("Managed runtime became ready", tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()), tracepkg.Int("pid", status.PID), tracepkg.String("lifecycle", status.Lifecycle))
 				return status, nil
 			}
 		}
 		if err := waitLifecyclePoll(ctx); err != nil {
+			span.FailMessage("Managed runtime readiness wait canceled", err, tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
 			return runtimecontrol.RuntimeStatus{}, err
 		}
 	}
 	if lastErr != nil {
-		return runtimecontrol.RuntimeStatus{}, fmt.Errorf("managed service did not become ready: %w", lastErr)
+		err := fmt.Errorf("managed service did not become ready: %w", lastErr)
+		span.FailMessage("Managed runtime did not become ready before timeout", err, tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+		return runtimecontrol.RuntimeStatus{}, err
 	}
-	return runtimecontrol.RuntimeStatus{}, errors.New("managed service did not become ready")
+	err := errors.New("managed service did not become ready")
+	span.FailMessage("Managed runtime did not become ready before timeout", err, tracepkg.Int("attempts", attempts), tracepkg.Int64("elapsed_ms", time.Since(started).Milliseconds()))
+	return runtimecontrol.RuntimeStatus{}, err
 }
 
 func waitLifecyclePoll(ctx context.Context) error {

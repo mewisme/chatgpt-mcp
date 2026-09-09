@@ -4,27 +4,47 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const maxExtractedBinarySize int64 = 256 << 20
 
 func ExtractBinary(archivePath, destinationDir, archiveName string) (string, error) {
+	return ExtractBinaryContext(context.Background(), archivePath, destinationDir, archiveName)
+}
+
+func ExtractBinaryContext(ctx context.Context, archivePath, destinationDir, archiveName string) (string, error) {
+	span := tracepkg.Start(ctx, "UPDATE", "update.archive.extract", "Extracting release archive", tracepkg.String("archive", archivePath), tracepkg.String("destination", destinationDir), tracepkg.String("asset", archiveName))
 	binaryName := "chatgpt-mcp"
+	var path string
+	var err error
 	switch {
 	case strings.HasSuffix(archiveName, ".zip"):
 		binaryName += ".exe"
-		return extractZipBinary(archivePath, destinationDir, binaryName)
+		path, err = extractZipBinary(archivePath, destinationDir, binaryName)
 	case strings.HasSuffix(archiveName, ".tar.gz"):
-		return extractTarBinary(archivePath, destinationDir, binaryName)
+		path, err = extractTarBinary(archivePath, destinationDir, binaryName)
 	default:
-		return "", fmt.Errorf("unsupported release archive %q", archiveName)
+		err = fmt.Errorf("unsupported release archive %q", archiveName)
 	}
+	if err != nil {
+		span.FailMessage("Release archive extraction failed", err)
+		return "", err
+	}
+	fields := []tracepkg.Field{tracepkg.String("binary", path)}
+	if info, statErr := os.Stat(path); statErr == nil {
+		fields = append(fields, tracepkg.Int64("bytes", info.Size()))
+	}
+	span.EndMessage("Release archive extracted", fields...)
+	return path, nil
 }
 
 func extractTarBinary(archivePath, destinationDir, binaryName string) (string, error) {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 func TestRootLogFormatJSON(t *testing.T) {
@@ -71,6 +72,21 @@ func TestCommandLoggerJSONFailure(t *testing.T) {
 	}
 }
 
+func TestCommandLoggerIsSharedForCommandLifecycle(t *testing.T) {
+	cmd := newRootCommand()
+	first := commandLogger(cmd)
+	second := commandLogger(cmd)
+	if first != second {
+		t.Fatal("command logger was recreated within the same command lifecycle")
+	}
+	closeCommandLogger(cmd)
+	next := commandLogger(cmd)
+	if next == first {
+		t.Fatal("closed command logger was retained")
+	}
+	closeCommandLogger(cmd)
+}
+
 func TestStartCommandSpinnerIsSilentWithoutTerminal(t *testing.T) {
 	var output bytes.Buffer
 	cmd := newRootCommand()
@@ -94,7 +110,7 @@ func TestExecuteCommandVerboseEmitsLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	for _, expected := range []string{"Executing command", "Command completed", "command:"} {
+	for _, expected := range []string{"Executing command", "Command completed", "command:", "cwd:", "pid:", "duration_ms:"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("verbose lifecycle missing %q: %s", expected, text)
 		}
@@ -145,6 +161,32 @@ func TestExecuteCommandDebugDoesNotLogFlagValues(t *testing.T) {
 	}
 }
 
+func TestExecuteCommandVerboseDoesNotLogFlagValues(t *testing.T) {
+	var output bytes.Buffer
+	var apiKey string
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	child := &cobra.Command{Use: "verbose-secret", RunE: func(cmd *cobra.Command, _ []string) error {
+		span := tracepkg.Start(cmd.Context(), "TEST", "test.verbose.secret", "Running verbose secret-safe operation", tracepkg.Bool("credential_configured", apiKey != ""))
+		span.EndMessage("Verbose secret-safe operation completed", tracepkg.Bool("credential_configured", apiKey != ""))
+		return nil
+	}}
+	child.Flags().StringVar(&apiKey, "api-key", "", "test secret")
+	cmd.AddCommand(child)
+	cmd.SetArgs(testCommandArgs(t, "--verbose", "verbose-secret", "--api-key", "verbose-supersecret-value"))
+	if err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "credential_configured") {
+		t.Fatalf("verbose output missing safe credential fact: %s", text)
+	}
+	if strings.Contains(text, "verbose-supersecret-value") {
+		t.Fatalf("verbose output leaked flag value: %s", text)
+	}
+}
+
 func TestMachineJSONOutputKeepsDiagnosticsOnStderr(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	var asJSON bool
@@ -167,5 +209,84 @@ func TestMachineJSONOutputKeepsDiagnosticsOnStderr(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "Executing command") || !strings.Contains(stderr.String(), "Executing command") || !strings.Contains(stderr.String(), "Loading machine output") {
 		t.Fatalf("diagnostic routing stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCommandTraceObserverUsesSharedVerboseLogger(t *testing.T) {
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.AddCommand(&cobra.Command{Use: "trace-test", RunE: func(cmd *cobra.Command, _ []string) error {
+		span := tracepkg.Start(cmd.Context(), "TEST", "test.operation", "Running traced operation", tracepkg.String("path", "/tmp/test"))
+		span.EndMessage("Traced operation completed", tracepkg.Int("count", 2))
+		return nil
+	}})
+	cmd.SetArgs(testCommandArgs(t, "--verbose", "trace-test"))
+	if err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	for _, expected := range []string{"Running traced operation", "Traced operation completed", "path:", "/tmp/test", "count:", "duration_ms:"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("trace output missing %q: %s", expected, text)
+		}
+	}
+}
+
+func TestMachineOutputTraceStaysOnStderr(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	child := &cobra.Command{Use: "trace-machine", RunE: func(cmd *cobra.Command, _ []string) error {
+		span := tracepkg.Start(cmd.Context(), "TEST", "test.machine.trace", "Tracing machine command")
+		span.End(tracepkg.Int("bytes", 4))
+		_, err := cmd.OutOrStdout().Write([]byte("DATA"))
+		return err
+	}}
+	markMachineOutput(child, "always")
+	cmd.AddCommand(child)
+	cmd.SetArgs(testCommandArgs(t, "--verbose", "trace-machine"))
+	if err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "DATA" {
+		t.Fatalf("stdout was polluted: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Tracing machine command") || !strings.Contains(stderr.String(), "duration_ms") {
+		t.Fatalf("stderr missing trace: %q", stderr.String())
+	}
+}
+
+func TestCommandTraceJSONPreservesStructuredFields(t *testing.T) {
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.AddCommand(&cobra.Command{Use: "trace-json", RunE: func(cmd *cobra.Command, _ []string) error {
+		tracepkg.Emit(cmd.Context(), "TEST", "test.trace.json", "Structured trace", tracepkg.Int("count", 3), tracepkg.Bool("cache_hit", true))
+		return nil
+	}})
+	cmd.SetArgs(testCommandArgs(t, "--verbose", "--log-format=json", "trace-json"))
+	if err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	var found map[string]any
+	for _, line := range lines {
+		var event map[string]any
+		if json.Unmarshal([]byte(line), &event) != nil || event["event"] != "test.trace.json" {
+			continue
+		}
+		found = event
+		break
+	}
+	if found == nil {
+		t.Fatalf("trace JSON event not found: %s", output.String())
+	}
+	fields, ok := found["fields"].(map[string]any)
+	if !ok || fields["count"] != float64(3) || fields["cache_hit"] != true {
+		t.Fatalf("structured fields lost: %#v", found)
 	}
 }

@@ -1,9 +1,12 @@
 package install
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 func TestRollbackResultRestoresCurrentAndMetadata(t *testing.T) {
@@ -53,7 +56,9 @@ func TestFinalizeResultKeepsCurrentAndPrevious(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := FinalizeResult(result); err != nil {
+	events := []tracepkg.Event{}
+	ctx := tracepkg.WithObserver(context.Background(), func(event tracepkg.Event) { events = append(events, event) })
+	if err := FinalizeResultContext(ctx, result); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(layout.Versions, "v1.0.0")); !os.IsNotExist(err) {
@@ -64,4 +69,30 @@ func TestFinalizeResultKeepsCurrentAndPrevious(t *testing.T) {
 			t.Fatalf("kept version %s: %v", version, err)
 		}
 	}
+	if !finalizeTraceFields(events, "install.versions.cleanup.completed", map[string]any{"before_count": 3, "after_count": 2, "removed_count": 1}) {
+		t.Fatalf("missing old-version cleanup trace: %#v", events)
+	}
+}
+
+func finalizeTraceFields(events []tracepkg.Event, name string, expected map[string]any) bool {
+	for _, event := range events {
+		if event.Name != name {
+			continue
+		}
+		values := map[string]any{}
+		for _, field := range event.Fields {
+			values[field.Key] = field.Value
+		}
+		matched := true
+		for key, want := range expected {
+			if values[key] != want {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }

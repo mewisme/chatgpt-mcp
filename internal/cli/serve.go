@@ -17,6 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -27,41 +28,64 @@ func serveCommand() *cobra.Command {
 }
 
 func runServer(cmd *cobra.Command, args []string) (runErr error) {
+	ctx := cmd.Context()
 	logCommandStep(cmd, "SERVER", "server.config.loading", "Loading runtime configuration")
+	configSpan := tracepkg.Start(ctx, "CONFIG", "server.config.load", "Loading server runtime configuration", tracepkg.String("config_root", config.RootPath()))
 	source, err := config.Source()
 	if err != nil {
+		configSpan.FailMessage("Server runtime config source discovery failed", err)
 		return err
 	}
 	if !source.Exists {
-		return errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init")
+		err := errors.New("chatgpt-mcp is not initialized; run chatgpt-mcp init")
+		configSpan.FailMessage("Server runtime config unavailable", err, tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", false))
+		return err
 	}
 	cfg, err := config.LoadRuntime()
 	if err != nil {
+		configSpan.FailMessage("Server runtime config load failed", err, tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)))
 		return err
 	}
 	if err := applyExposeOverride(cmd, &cfg); err != nil {
+		configSpan.FailMessage("Server runtime exposure override failed", err, tracepkg.String("path", source.Path))
 		return err
 	}
 	if err := config.Validate(cfg); err != nil {
+		configSpan.FailMessage("Server runtime config validation failed", err, tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)))
 		return err
 	}
+	configSpan.EndMessage("Server runtime configuration loaded", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", true), tracepkg.Bool("mcp_http_enabled", cfg.Server.Enabled), tracepkg.Bool("admin_enabled", cfg.Admin.Enabled), tracepkg.Bool("tunnel_enabled", cfg.Tunnel.Enabled), tracepkg.String("exposure_mode", string(cfg.Server.Expose.Mode)), tracepkg.Any("interfaces", append([]string(nil), cfg.Server.Expose.Interfaces...)))
 	logCommandDebug(cmd, "SERVER", "server.config.loaded", "Runtime configuration loaded", logger.WithDebug("mcp_http", cfg.Server.Enabled), logger.WithDebug("admin", cfg.Admin.Enabled), logger.WithDebug("tunnel", cfg.Tunnel.Enabled), logger.WithDebug("expose", cfg.Server.Expose.Mode))
 
-	runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
+	runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer runtimeCancel()
 
 	logCommandStep(cmd, "NETWORK", "server.listeners.resolving", "Resolving listener plan")
+	planSpan := tracepkg.Start(runtimeCtx, "NETWORK", "server.listener-plan.resolve", "Resolving server listener plan", tracepkg.String("exposure_mode", string(cfg.Server.Expose.Mode)), tracepkg.Any("interfaces", append([]string(nil), cfg.Server.Expose.Interfaces...)))
 	plan, err := resolveListenerPlan(cfg.Server.Expose)
 	if err != nil {
+		planSpan.FailMessage("Server listener plan resolution failed", err)
 		return err
 	}
+	addresses := make([]string, 0, len(plan.Addresses))
+	for _, address := range plan.Addresses {
+		addresses = append(addresses, address.Host)
+	}
+	listenerComponents := 0
+	if cfg.Server.Enabled {
+		listenerComponents++
+	}
+	if cfg.Admin.Enabled {
+		listenerComponents++
+	}
+	listenerCount := len(plan.Hosts) * listenerComponents
+	planSpan.EndMessage("Server listener plan resolved", tracepkg.Any("hosts", append([]string(nil), plan.Hosts...)), tracepkg.Any("addresses", addresses), tracepkg.Int("address_count", len(plan.Addresses)), tracepkg.Int("listener_count", listenerCount))
 	logCommandDebug(cmd, "NETWORK", "server.listeners.resolved", "Listener plan resolved", logger.WithDebug("hosts", plan.Hosts), logger.WithDebug("addresses", len(plan.Addresses)))
 	startedAt := time.Now().UTC()
 	serviceInfo := runtimeServiceInfo(cmd)
 	interrupt := newForegroundInterrupt(cmd, false)
 	defer interrupt.Close()
 	log := commandLogger(cmd)
-	defer log.Close()
 	metadata := runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid(), Managed: serviceInfo.Managed, ServiceID: serviceInfo.ID, ServiceScope: serviceInfo.Scope}
 	logCommandStep(cmd, "SESSION", "runtime.journal.opening", "Opening runtime journal")
 	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: metadata})
@@ -74,34 +98,26 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	}
 	defer func() {
 		status := "ok"
+		errorText := ""
 		if runErr != nil {
 			status = "error"
+			errorText = runErr.Error()
 		}
 		durationMS := time.Since(startedAt).Milliseconds()
-		_ = recorder.Record(runtimeevent.Event{Time: time.Now().UTC(), Level: "info", Kind: "info", Name: "runtime.session.ended", Component: "SESSION", Message: "Runtime session ended", Status: status, DurationMS: durationMS, Fields: []runtimeevent.Field{{Key: "session", Value: metadata.RunID}, {Key: "status", Value: status}, {Key: "duration_ms", Value: durationMS}}})
+		_ = recorder.Record(runtimeevent.Event{Time: time.Now().UTC(), Level: "info", Kind: "info", Name: "runtime.session.ended", Component: "SESSION", Message: "Runtime session ended", Status: status, Error: errorText, DurationMS: durationMS, Fields: []runtimeevent.Field{{Key: "session", Value: metadata.RunID}, {Key: "status", Value: status}, {Key: "duration_ms", Value: durationMS}}})
 	}()
 	log.AddSink(recorder)
-	runtime := app.NewWithLogger(cfg, log)
-	var control *runtimeControl
-	var bindings *httpBindings
+	sessionSpan := tracepkg.Start(runtimeCtx, "SESSION", "runtime.session", "Running server runtime session", tracepkg.String("session", metadata.RunID), tracepkg.String("mode", runtimeSessionMode(metadata)), tracepkg.Bool("managed", metadata.Managed), tracepkg.String("service", metadata.ServiceID), tracepkg.String("service_scope", metadata.ServiceScope))
 	defer func() {
-		runtime.Logger.Verbose("SERVER", "server.runtime.cleanup", "Cleaning up runtime services")
-		if err := runtime.Stop(); err != nil {
-			runtime.Logger.Failure("SERVER", "server.runtime.cleanup.failed", "Runtime cleanup failed", err)
-			if runErr == nil {
-				runErr = err
-			}
+		fields := []tracepkg.Field{tracepkg.String("session", metadata.RunID), tracepkg.String("mode", runtimeSessionMode(metadata)), tracepkg.Int("pid", metadata.PID)}
+		if runErr != nil {
+			sessionSpan.FailMessage("Server runtime session ended with error", runErr, fields...)
 		} else {
-			runtime.Logger.Ready("SERVER", "server.stopped", "Server stopped")
-		}
-		if control != nil {
-			if err := control.Close(); err != nil {
-				runtime.Logger.Warning("CONTROL", "runtime.control.close-failed", "Runtime control cleanup failed", err)
-			}
+			sessionSpan.EndMessage("Server runtime session ended", fields...)
 		}
 	}()
-
-	currentCfg, currentPlan := cfg, plan
+	var control *runtimeControl
+	var bindings *httpBindings
 	var operationMu sync.Mutex
 	var stateMu sync.RWMutex
 	lifecycle := "bootstrapping"
@@ -120,64 +136,159 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		_ = recorder.Record(runtimeevent.Event{Time: time.Now().UTC(), Level: "info", Kind: "info", Name: "runtime.lifecycle.changed", Component: "RUNTIME", Message: "Runtime lifecycle changed", Status: next, Fields: []runtimeevent.Field{{Key: "previous", Value: previous}, {Key: "lifecycle", Value: next}}})
 	}
 	shutdownRequest := make(chan struct{}, 1)
-	runtime.Logger.Verbose("NETWORK", "server.listeners.opening", "Opening HTTP listeners")
-	bindings, err = openHTTPBindings(cfg, plan)
+	log.Verbose("NETWORK", "server.listeners.opening", "Opening HTTP listeners")
+	bindings, err = openHTTPBindingsContext(runtimeCtx, cfg, plan)
 	if err != nil {
 		return err
 	}
+	if bindings.cfg.Server.Port != cfg.Server.Port {
+		log.Warning("NETWORK", "server.mcp.port-fallback", "Configured MCP HTTP port is unavailable; using next available port", nil, logger.With("configured_port", cfg.Server.Port), logger.With("port", bindings.cfg.Server.Port))
+	}
+	if bindings.cfg.Admin.Port != cfg.Admin.Port {
+		log.Warning("NETWORK", "server.admin.port-fallback", "Configured admin port is unavailable; using next available port", nil, logger.With("configured_port", cfg.Admin.Port), logger.With("port", bindings.cfg.Admin.Port))
+	}
+	cfg = bindings.cfg
+	runtime := app.NewWithLoggerContext(runtimeCtx, cfg, log)
+	defer func() {
+		runtime.Logger.Verbose("SERVER", "server.runtime.cleanup", "Cleaning up runtime services")
+		if err := runtime.Stop(); err != nil {
+			runtime.Logger.Failure("SERVER", "server.runtime.cleanup.failed", "Runtime cleanup failed", err)
+			if runErr == nil {
+				runErr = err
+			}
+		} else {
+			runtime.Logger.Ready("SERVER", "server.stopped", "Server stopped")
+		}
+		if control != nil {
+			if err := control.Close(); err != nil {
+				runtime.Logger.Warning("CONTROL", "runtime.control.close-failed", "Runtime control cleanup failed", err)
+			}
+		}
+	}()
+
+	currentCfg, currentPlan := cfg, plan
 	defer bindings.CloseUnstarted()
 	errCh := make(chan error, max(1, len(bindings.mcpListeners)+len(bindings.adminListeners)))
-	reload := func(_ context.Context) (runtimeReloadResult, error) {
+	reload := func(reloadCtx context.Context) (result runtimeReloadResult, reloadErr error) {
+		if reloadCtx == nil {
+			reloadCtx = context.Background()
+		}
+		if observer := tracepkg.ObserverFromContext(runtimeCtx); observer != nil && tracepkg.ObserverFromContext(reloadCtx) == nil {
+			reloadCtx = tracepkg.WithObserver(reloadCtx, observer)
+		}
 		operationMu.Lock()
 		defer operationMu.Unlock()
 		stateMu.RLock()
 		ready := lifecycle == "ready"
 		previousCfg, previousPlan := currentCfg, currentPlan
 		stateMu.RUnlock()
+		next := previousCfg
+		networkRestarted, restorePerformed := false, false
+		reloadSpan := tracepkg.Start(reloadCtx, "CONFIG", "server.reload", "Reloading server runtime", tracepkg.Int("old_mcp_port", previousCfg.Server.Port), tracepkg.Int("old_admin_port", previousCfg.Admin.Port), tracepkg.String("old_exposure_mode", string(previousCfg.Server.Expose.Mode)))
+		defer func() {
+			fields := []tracepkg.Field{tracepkg.Bool("network_restarted", networkRestarted), tracepkg.Bool("restore_performed", restorePerformed), tracepkg.Int("old_mcp_port", previousCfg.Server.Port), tracepkg.Int("old_admin_port", previousCfg.Admin.Port), tracepkg.Int("new_mcp_port", next.Server.Port), tracepkg.Int("new_admin_port", next.Admin.Port), tracepkg.String("new_exposure_mode", string(next.Server.Expose.Mode))}
+			if reloadErr != nil {
+				reloadSpan.FailMessage("Server runtime reload failed", reloadErr, fields...)
+			} else {
+				reloadSpan.EndMessage("Server runtime reloaded", fields...)
+			}
+		}()
 		if !ready {
-			return runtimeReloadResult{}, errors.New("runtime is still starting")
+			reloadErr = errors.New("runtime is still starting")
+			return result, reloadErr
 		}
-		next, err := config.LoadRuntime()
-		if err != nil {
-			return runtimeReloadResult{}, err
+
+		configReloadSpan := tracepkg.Start(reloadCtx, "CONFIG", "server.reload.config", "Loading and validating reload configuration", tracepkg.String("config_root", config.RootPath()))
+		next, reloadErr = config.LoadRuntime()
+		if reloadErr != nil {
+			configReloadSpan.FailMessage("Reload configuration load failed", reloadErr)
+			return result, reloadErr
 		}
-		if err := applyExposeOverride(cmd, &next); err != nil {
-			return runtimeReloadResult{}, err
+		if reloadErr = applyExposeOverride(cmd, &next); reloadErr != nil {
+			configReloadSpan.FailMessage("Reload exposure override failed", reloadErr)
+			return result, reloadErr
 		}
-		if err := config.Validate(next); err != nil {
-			return runtimeReloadResult{}, err
+		if reloadErr = config.Validate(next); reloadErr != nil {
+			configReloadSpan.FailMessage("Reload configuration validation failed", reloadErr)
+			return result, reloadErr
 		}
+		configReloadSpan.EndMessage("Reload configuration loaded and validated", tracepkg.Int("mcp_port", next.Server.Port), tracepkg.Int("admin_port", next.Admin.Port), tracepkg.String("exposure_mode", string(next.Server.Expose.Mode)), tracepkg.Any("interfaces", append([]string(nil), next.Server.Expose.Interfaces...)))
+
+		planReloadSpan := tracepkg.Start(reloadCtx, "NETWORK", "server.reload.listener-plan", "Resolving reload listener plan", tracepkg.Any("previous_hosts", append([]string(nil), previousPlan.Hosts...)))
 		nextPlan, err := resolveListenerPlan(next.Server.Expose)
 		if err != nil {
-			return runtimeReloadResult{}, err
+			reloadErr = err
+			planReloadSpan.FailMessage("Reload listener plan resolution failed", err)
+			return result, reloadErr
 		}
-		networkRestarted := !networkConfigEqual(previousCfg, next) || !listenerPlanEqual(previousPlan, nextPlan)
+		networkConfigChanged := !networkConfigEqual(previousCfg, next)
+		listenerPlanChanged := !listenerPlanEqual(previousPlan, nextPlan)
+		networkRestarted = networkConfigChanged || listenerPlanChanged
+		portDisjoint := listenerPortsDisjoint(previousCfg, next)
+		planReloadSpan.EndMessage("Reload listener plan resolved", tracepkg.Any("hosts", append([]string(nil), nextPlan.Hosts...)), tracepkg.Bool("listener_plan_changed", listenerPlanChanged), tracepkg.Bool("network_config_changed", networkConfigChanged))
+		tracepkg.Emit(reloadCtx, "NETWORK", "server.reload.decision", "Resolved server reload network decision", tracepkg.Bool("network_restarted", networkRestarted), tracepkg.Bool("network_config_changed", networkConfigChanged), tracepkg.Bool("listener_plan_changed", listenerPlanChanged), tracepkg.Bool("ports_disjoint", portDisjoint), tracepkg.Int("old_mcp_port", previousCfg.Server.Port), tracepkg.Int("new_mcp_port", next.Server.Port), tracepkg.Int("old_admin_port", previousCfg.Admin.Port), tracepkg.Int("new_admin_port", next.Admin.Port))
 		setLifecycle("reloading")
 		defer setLifecycle("ready")
 		if !networkRestarted {
-			if err := runtime.ReloadConfig(next); err != nil {
-				return runtimeReloadResult{}, err
+			if reloadErr = runtime.ReloadConfig(next); reloadErr != nil {
+				return result, reloadErr
 			}
 			stateMu.Lock()
 			currentCfg, currentPlan = next, nextPlan
 			stateMu.Unlock()
 			runtime.Logger.Ready("CONFIG", "config.reloaded", "Configuration reloaded")
-			return reloadResult(next, false), nil
+			result = reloadResult(next, false)
+			return result, nil
+		}
+
+		openCandidate := func() (*httpBindings, error) {
+			span := tracepkg.Start(reloadCtx, "NETWORK", "server.reload.candidate-open", "Opening candidate server listeners", tracepkg.Int("mcp_port", next.Server.Port), tracepkg.Int("admin_port", next.Admin.Port), tracepkg.Any("hosts", append([]string(nil), nextPlan.Hosts...)))
+			candidate, err := openHTTPBindingsContext(reloadCtx, next, nextPlan)
+			if err != nil {
+				span.FailMessage("Candidate server listener open failed", err)
+				return nil, err
+			}
+			span.EndMessage("Candidate server listeners opened", tracepkg.Int("selected_mcp_port", candidate.cfg.Server.Port), tracepkg.Int("selected_admin_port", candidate.cfg.Admin.Port), tracepkg.Int("listener_count", len(candidate.mcpListeners)+len(candidate.adminListeners)))
+			return candidate, nil
+		}
+		shutdownPrevious := func() error {
+			span := tracepkg.Start(reloadCtx, "NETWORK", "server.reload.previous-listeners-shutdown", "Shutting down previous server listeners", tracepkg.Int("listener_count", len(bindings.mcpListeners)+len(bindings.adminListeners)), tracepkg.Int("mcp_port", previousCfg.Server.Port), tracepkg.Int("admin_port", previousCfg.Admin.Port))
+			err := bindings.Shutdown()
+			if err != nil {
+				span.FailMessage("Previous server listener shutdown failed", err)
+			} else {
+				span.EndMessage("Previous server listeners shut down")
+			}
+			return err
+		}
+		restorePrevious := func(reason string) error {
+			restorePerformed = true
+			span := tracepkg.Start(reloadCtx, "NETWORK", "server.reload.restore", "Restoring previous server listeners", tracepkg.String("reason", reason), tracepkg.Int("mcp_port", previousCfg.Server.Port), tracepkg.Int("admin_port", previousCfg.Admin.Port))
+			restored, err := restoreHTTPBindingsContext(reloadCtx, runtime, previousCfg, previousPlan, errCh)
+			if err != nil {
+				span.FailMessage("Previous server listener restore failed", err)
+				return err
+			}
+			bindings = restored
+			span.EndMessage("Previous server listeners restored", tracepkg.Int("listener_count", len(restored.mcpListeners)+len(restored.adminListeners)))
+			return nil
 		}
 
 		runtime.Logger.Action("SERVER", "server.reloading", "Reloading server listeners")
-		if listenerPortsDisjoint(previousCfg, next) {
-			candidate, err := openHTTPBindings(next, nextPlan)
+		if portDisjoint {
+			candidate, err := openCandidate()
 			if err != nil {
+				reloadErr = err
 				runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", err)
-				return runtimeReloadResult{}, err
+				return result, reloadErr
 			}
-			if err := runtime.ReloadConfig(next); err != nil {
+			next = candidate.cfg
+			if reloadErr = runtime.ReloadConfig(next); reloadErr != nil {
 				candidate.CloseUnstarted()
-				runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", err)
-				return runtimeReloadResult{}, err
+				runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", reloadErr)
+				return result, reloadErr
 			}
-			if err := bindings.Shutdown(); err != nil {
+			if err := shutdownPrevious(); err != nil {
 				runtime.Logger.Warning("NETWORK", "server.reload.shutdown.warning", "Previous listeners did not shut down cleanly", err)
 			}
 			candidate.Start(runtime, errCh)
@@ -186,30 +297,27 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			currentCfg, currentPlan = next, nextPlan
 			stateMu.Unlock()
 			logReadyEndpoints(runtime.Logger, next, nextPlan)
-			return reloadResult(next, true), nil
+			result = reloadResult(next, true)
+			return result, nil
 		}
-		if err := bindings.Shutdown(); err != nil {
+
+		if err := shutdownPrevious(); err != nil {
 			runtime.Logger.Warning("NETWORK", "server.reload.shutdown.warning", "Previous listeners did not shut down cleanly", err)
 		}
-		candidate, err := openHTTPBindings(next, nextPlan)
+		candidate, err := openCandidate()
 		if err != nil {
-			restored, restoreErr := restoreHTTPBindings(runtime, previousCfg, previousPlan, errCh)
-			if restoreErr == nil {
-				bindings = restored
-			}
-			combined := errors.Join(err, restoreErr)
-			runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", combined)
-			return runtimeReloadResult{}, combined
+			restoreErr := restorePrevious("candidate_open_failed")
+			reloadErr = errors.Join(err, restoreErr)
+			runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", reloadErr)
+			return result, reloadErr
 		}
-		if err := runtime.ReloadConfig(next); err != nil {
+		next = candidate.cfg
+		if reloadErr = runtime.ReloadConfig(next); reloadErr != nil {
 			candidate.CloseUnstarted()
-			restored, restoreErr := restoreHTTPBindings(runtime, previousCfg, previousPlan, errCh)
-			if restoreErr == nil {
-				bindings = restored
-			}
-			combined := errors.Join(err, restoreErr)
-			runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", combined)
-			return runtimeReloadResult{}, combined
+			restoreErr := restorePrevious("runtime_reload_failed")
+			reloadErr = errors.Join(reloadErr, restoreErr)
+			runtime.Logger.Failure("SERVER", "server.reload.failed", "Server reload failed", reloadErr)
+			return result, reloadErr
 		}
 		candidate.Start(runtime, errCh)
 		bindings = candidate
@@ -217,7 +325,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		currentCfg, currentPlan = next, nextPlan
 		stateMu.Unlock()
 		logReadyEndpoints(runtime.Logger, next, nextPlan)
-		return reloadResult(next, true), nil
+		result = reloadResult(next, true)
+		return result, nil
 	}
 	status := func() runtimeStatusResult {
 		stateMu.RLock()
@@ -243,7 +352,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		}
 	}
 	runtime.Logger.Verbose("CONTROL", "runtime.control.starting", "Starting runtime control endpoint")
-	control, err = startRuntimeControl(runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, ReloadWorkspaces: func() (workspaceReloadResult, error) {
+	control, err = startRuntimeControlContext(runtimeCtx, runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, ReloadWorkspaces: func() (workspaceReloadResult, error) {
 		if err := runtime.Tools.ReloadWorkspaces(); err != nil {
 			return workspaceReloadResult{}, err
 		}
@@ -284,16 +393,22 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	setLifecycle("ready")
 	logReadyEndpoints(runtime.Logger, cfg, plan)
 
-	shutdown := func() error {
+	shutdown := func(reason string) error {
 		operationMu.Lock()
 		defer operationMu.Unlock()
 		setLifecycle("stopping")
+		span := tracepkg.Start(runtimeCtx, "SERVER", "server.shutdown", "Stopping server runtime", tracepkg.String("reason", reason), tracepkg.Int("mcp_port", currentCfg.Server.Port), tracepkg.Int("admin_port", currentCfg.Admin.Port))
 		runtime.Logger.Action("SERVER", "server.stopping", "Stopping server")
+		listenerSpan := tracepkg.Start(runtimeCtx, "NETWORK", "server.listeners.shutdown", "Shutting down server listeners", tracepkg.String("reason", reason), tracepkg.Int("listener_count", len(bindings.mcpListeners)+len(bindings.adminListeners)))
 		err := bindings.Shutdown()
 		if err != nil {
+			listenerSpan.FailMessage("Server listener shutdown failed", err)
+			span.FailMessage("Server runtime shutdown failed", err)
 			runtime.Logger.Failure("SERVER", "server.shutdown.failed", "Server shutdown failed", err)
 			return err
 		}
+		listenerSpan.EndMessage("Server listeners shut down")
+		span.EndMessage("Server runtime shutdown initiated", tracepkg.String("reason", reason))
 		return nil
 	}
 
@@ -301,7 +416,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	case err := <-errCh:
 		if err != nil {
 			runtime.Logger.Failure("SERVER", "server.listener.failed", "HTTP listener failed", err)
-			return errors.Join(err, shutdown())
+			return errors.Join(err, shutdown("listener_error"))
 		}
 		return nil
 	case <-interrupt.Context.Done():
@@ -310,10 +425,10 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			reason = "context canceled"
 		}
 		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("reason", reason))
-		return shutdown()
+		return shutdown(reason)
 	case <-shutdownRequest:
 		runtime.Logger.Verbose("SERVER", "server.shutdown.requested", "Shutdown requested", logger.With("reason", "runtime control"))
-		return shutdown()
+		return shutdown("runtime_control")
 	}
 }
 
@@ -341,6 +456,9 @@ func newHTTPServer(handler http.Handler) *http.Server {
 }
 
 func waitRuntimeHTTPReady(parent context.Context, cfg config.Config, timeout time.Duration) error {
+	if parent == nil {
+		parent = context.Background()
+	}
 	endpoints := []string{}
 	if cfg.Server.Enabled {
 		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Server.Port, "/health"))
@@ -348,13 +466,18 @@ func waitRuntimeHTTPReady(parent context.Context, cfg config.Config, timeout tim
 	if cfg.Admin.Enabled {
 		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Admin.Port, "/"))
 	}
+	span := tracepkg.Start(parent, "NETWORK", "server.http-readiness", "Waiting for HTTP listener readiness", tracepkg.Any("endpoints", append([]string(nil), endpoints...)), tracepkg.DurationMS("timeout_ms", timeout))
 	if len(endpoints) == 0 {
+		span.EndMessage("HTTP listener readiness skipped", tracepkg.Int("attempts", 0), tracepkg.Int("endpoint_count", 0))
 		return nil
 	}
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 500 * time.Millisecond, Transport: &http.Transport{Proxy: nil}}
 	var lastErr error
+	firstFailure := ""
+	attempts := 0
 	for time.Now().Before(deadline) {
+		attempts++
 		ready := true
 		for _, endpoint := range endpoints {
 			ctx, cancel := context.WithTimeout(parent, 500*time.Millisecond)
@@ -372,23 +495,34 @@ func waitRuntimeHTTPReady(parent context.Context, cfg config.Config, timeout tim
 			cancel()
 			if err != nil {
 				lastErr = fmt.Errorf("%s: %w", endpoint, err)
+				if firstFailure == "" {
+					firstFailure = lastErr.Error()
+					tracepkg.Emit(parent, "NETWORK", "server.http-readiness.first-failure", "HTTP readiness first probe failure", tracepkg.Int("attempt", attempts), tracepkg.URL("endpoint", endpoint), tracepkg.String("reason", err.Error()))
+				}
 				ready = false
 				break
 			}
 		}
 		if ready {
+			span.EndMessage("HTTP listeners ready", tracepkg.Int("attempts", attempts), tracepkg.Int("endpoint_count", len(endpoints)), tracepkg.String("first_failure", firstFailure))
 			return nil
 		}
 		select {
 		case <-parent.Done():
-			return parent.Err()
+			err := parent.Err()
+			span.FailMessage("HTTP listener readiness canceled", err, tracepkg.Int("attempts", attempts), tracepkg.Int("endpoint_count", len(endpoints)), tracepkg.String("first_failure", firstFailure))
+			return err
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
 	if lastErr != nil {
-		return fmt.Errorf("server listeners did not become ready: %w", lastErr)
+		err := fmt.Errorf("server listeners did not become ready: %w", lastErr)
+		span.FailMessage("HTTP listeners did not become ready", err, tracepkg.Int("attempts", attempts), tracepkg.Int("endpoint_count", len(endpoints)), tracepkg.String("first_failure", firstFailure))
+		return err
 	}
-	return errors.New("server listeners did not become ready")
+	err := errors.New("server listeners did not become ready")
+	span.FailMessage("HTTP listeners did not become ready", err, tracepkg.Int("attempts", attempts), tracepkg.Int("endpoint_count", len(endpoints)), tracepkg.String("first_failure", firstFailure))
+	return err
 }
 
 func closeListeners(listeners []net.Listener) {

@@ -11,6 +11,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 var processCommandArgs = func() []string { return append([]string(nil), os.Args[1:]...) }
@@ -34,6 +35,7 @@ func prepareCommand(cmd *cobra.Command, args []string) error {
 	if err := validateLoggingFlags(cmd, args); err != nil {
 		return err
 	}
+	cmd.SetContext(tracepkg.WithObserver(cmd.Context(), commandTraceObserver(cmd)))
 	logCommandStart(cmd, args)
 	if controlplane.ToolContextActive() && !controlplane.IsReadOnlyPath(relativeCommandPath(cmd)) {
 		if err := verifyControlApproval(cmd.Context(), cmd.CommandPath(), processCommandArgs()); err != nil {

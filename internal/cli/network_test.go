@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
+	"syscall"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -53,5 +55,15 @@ func TestListenPlanShape(t *testing.T) {
 	plan := listenerPlan{Hosts: []string{"127.0.0.1"}}
 	if !reflect.DeepEqual(plan.Hosts, []string{"127.0.0.1"}) {
 		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestIsAddressInUseErrorRecognizesWindowsWSAError(t *testing.T) {
+	err := fmt.Errorf("listen on 127.0.0.1:37422: %w", syscall.Errno(10048))
+	if !isAddressInUseError(err) {
+		t.Fatalf("Windows WSAEADDRINUSE was not recognized: %v", err)
+	}
+	if isAddressInUseError(syscall.Errno(10061)) {
+		t.Fatal("unrelated Windows socket error was treated as address-in-use")
 	}
 }

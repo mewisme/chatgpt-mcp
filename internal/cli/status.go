@@ -18,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 )
@@ -48,26 +49,49 @@ func statusCommand() *cobra.Command {
 	}
 }
 
-func runStatus(cmd *cobra.Command, _ []string) error {
+func runStatus(cmd *cobra.Command, _ []string) (runErr error) {
+	ctx := cmd.Context()
+	snapshotSpan := tracepkg.Start(ctx, "STATUS", "status.snapshot", "Acquiring status snapshot")
+	snapshotComplete := false
+	defer func() {
+		if snapshotComplete {
+			return
+		}
+		if runErr != nil {
+			snapshotSpan.FailMessage("Status snapshot acquisition failed", runErr)
+		} else {
+			snapshotSpan.EndMessage("Status snapshot acquisition completed")
+		}
+	}()
 	logCommandStep(cmd, "STATUS", "status.scope.resolving", "Resolving service scope")
+	serviceSpan := tracepkg.Start(ctx, "STATUS", "status.service-context", "Resolving status service context")
 	scope := managed.DetectScope()
-	account, err := managed.InvokingAccount(scope)
+	account, err := managed.InvokingAccountContext(ctx, scope)
 	if err != nil {
+		serviceSpan.FailMessage("Status service account resolution failed", err, tracepkg.String("scope", string(scope)))
 		return err
 	}
 	if err := resolveManagedConfigRoot(cmd, scope, account); err != nil {
+		serviceSpan.FailMessage("Status configuration root resolution failed", err, tracepkg.String("scope", string(scope)), tracepkg.String("account", account.Username))
 		return err
 	}
+	serviceSpan.EndMessage("Status service context resolved", tracepkg.String("scope", string(scope)), tracepkg.String("account", account.Username), tracepkg.String("config_root", config.RootPath()))
+	configSpan := tracepkg.Start(ctx, "STATUS", "status.config.load", "Loading status configuration", tracepkg.String("config_root", config.RootPath()))
 	source, err := config.Source()
 	if err != nil {
+		configSpan.FailMessage("Status config source discovery failed", err)
 		return err
 	}
 	format, err := commandLogFormat(cmd)
 	if err != nil {
+		configSpan.FailMessage("Status output format resolution failed", err, tracepkg.String("path", source.Path))
 		return err
 	}
 	verbose, debug := commandLogMode(cmd)
 	if !source.Exists {
+		configSpan.EndMessage("Status configuration is not initialized", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", false))
+		snapshotSpan.EndMessage("Status snapshot acquired", tracepkg.Bool("initialized", false), tracepkg.Bool("running", false))
+		snapshotComplete = true
 		if debug || format == logger.FormatJSON {
 			log := commandLogger(cmd)
 			log.Warning("STATUS", "status.not-initialized", "chatgpt-mcp is not initialized", nil)
@@ -80,32 +104,57 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 	logCommandStep(cmd, "STATUS", "status.config.loading", "Loading runtime configuration")
 	cfg, err := config.Load()
 	if err != nil {
+		configSpan.FailMessage("Status configuration load failed", err, tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)))
 		return err
 	}
+	configSpan.EndMessage("Status configuration loaded", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", true))
+	workspaceSpan := tracepkg.Start(ctx, "STATUS", "status.workspaces.query", "Querying workspace count")
 	workspaces, err := workspaceManagerForCommand(cmd).List()
 	if err != nil {
+		workspaceSpan.FailMessage("Workspace count query failed", err)
 		return err
 	}
+	workspaceSpan.EndMessage("Workspace count queried", tracepkg.Int("count", len(workspaces)))
+	upstreamSpan := tracepkg.Start(ctx, "STATUS", "status.upstreams.query", "Querying upstream MCP count")
 	upstreams, err := loadUpstreamManagerForCommand(cmd)
 	if err != nil {
+		upstreamSpan.FailMessage("Upstream MCP count query failed", err)
 		return err
 	}
+	upstreamCount := len(upstreams.List())
+	upstreamSpan.EndMessage("Upstream MCP count queried", tracepkg.Int("count", upstreamCount))
 	logCommandStep(cmd, "STATUS", "status.runtime.inspecting", "Inspecting runtime control endpoint")
-	ctx, cancel := context.WithTimeout(cmd.Context(), time.Second)
-	runtimeStatus, running, runtimeErr := managedRuntimeStatus(ctx)
+	runtimeSpan := tracepkg.Start(ctx, "STATUS", "status.runtime-control.query", "Querying runtime control status")
+	runtimeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	runtimeStatus, running, runtimeErr := managedRuntimeStatus(runtimeCtx)
 	cancel()
 	if runtimeErr != nil {
+		runtimeSpan.FailMessage("Runtime control status query failed", runtimeErr)
 		return runtimeErr
 	}
+	runtimeSpan.EndMessage("Runtime control status queried", tracepkg.Bool("running", running), tracepkg.Int("pid", runtimeStatus.PID), tracepkg.String("lifecycle", runtimeStatus.Lifecycle))
+	listenerSpan := tracepkg.Start(ctx, "STATUS", "status.listener-plan.resolve", "Resolving status listener plan", tracepkg.String("exposure_mode", string(cfg.Server.Expose.Mode)), tracepkg.Any("interfaces", append([]string(nil), cfg.Server.Expose.Interfaces...)))
 	plan, listenerErr := resolveListenerPlan(cfg.Server.Expose)
-	tunnelStatus := fetchTunnelStatus(cmd.Context(), cfg.Tunnel)
+	if listenerErr != nil {
+		listenerSpan.FailMessage("Status listener plan resolution failed", listenerErr)
+	} else {
+		listenerSpan.EndMessage("Status listener plan resolved", tracepkg.Int("host_count", len(plan.Hosts)), tracepkg.Int("address_count", len(plan.Addresses)))
+	}
+	tunnelStatus := fetchTunnelStatus(ctx, cfg.Tunnel)
 	if tunnelStatus.MetadataError != "" {
 		logCommandDebug(cmd, "STATUS", "status.tunnel.metadata-unavailable", "Cached tunnel metadata unavailable", logger.WithDebug("error", tunnelStatus.MetadataError))
 	}
-	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: len(upstreams.List()), ListenerPlan: plan, ListenerError: listenerErr, Tunnel: tunnelStatus, Update: cachedUpdateStatus(time.Now())}
+	updateSpan := tracepkg.Start(ctx, "STATUS", "status.update-cache.lookup", "Looking up cached update status")
+	cachedUpdate := cachedUpdateStatus(time.Now())
+	updateSpan.EndMessage("Cached update status lookup completed", tracepkg.Bool("cached", cachedUpdate != nil))
+	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: upstreamCount, ListenerPlan: plan, ListenerError: listenerErr, Tunnel: tunnelStatus, Update: cachedUpdate}
 	if !running {
-		snapshot.Services = installedManagedServices(account)
+		serviceInspectSpan := tracepkg.Start(ctx, "STATUS", "status.managed-services.inspect", "Inspecting installed managed services")
+		snapshot.Services = installedManagedServices(ctx, account)
+		serviceInspectSpan.EndMessage("Installed managed services inspected", tracepkg.Int("count", len(snapshot.Services)))
 	}
+	snapshotSpan.EndMessage("Status snapshot acquired", tracepkg.Bool("initialized", true), tracepkg.Bool("running", running), tracepkg.Int("workspaces", snapshot.Workspaces), tracepkg.Int("upstreams", snapshot.Upstreams), tracepkg.Int("managed_services", len(snapshot.Services)), tracepkg.Bool("listener_plan_available", listenerErr == nil), tracepkg.Bool("tunnel_metadata_available", tunnelStatus.MetadataError == ""), tracepkg.Bool("update_cached", cachedUpdate != nil))
+	snapshotComplete = true
 	if debug || format == logger.FormatJSON {
 		renderLegacyStatus(cmd, snapshot)
 		return nil
@@ -467,7 +516,6 @@ func transientTunnelState(state string) bool {
 
 func animateRuntimeTunnelState(cmd *cobra.Command, status runtimeStatusResult, timeout time.Duration) runtimeStatusResult {
 	log := commandLogger(cmd)
-	defer log.Close()
 	state := statusTunnelState(status, true)
 	log.Action("TUNNEL", "tunnel.status."+state, tunnelStateActionMessage(state))
 	deadline := time.Now().Add(timeout)
@@ -573,8 +621,8 @@ type installedManagedService struct {
 	manager managed.Manager
 }
 
-func installedManagedServices(account managed.Account) []installedManagedService {
-	manager := managed.NewManager()
+func installedManagedServices(ctx context.Context, account managed.Account) []installedManagedService {
+	manager := managed.NewManagerWithObserver(tracepkg.ObserverFromContext(ctx))
 	scopes := []managed.Scope{managed.ScopeUser}
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 		scopes = append(scopes, managed.ScopeSystem)

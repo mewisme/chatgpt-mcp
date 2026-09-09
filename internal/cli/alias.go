@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/install"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
@@ -17,11 +19,11 @@ func aliasCommand() *cobra.Command {
 func aliasInstallCommand() *cobra.Command {
 	return &cobra.Command{Use: "install", Short: "Install the cgm command alias", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		logCommandStep(cmd, "ALIAS", "alias.layout.resolving", "Resolving managed installation layout")
-		layout, err := managedAliasLayout()
+		layout, err := managedAliasLayoutContext(cmd.Context())
 		if err != nil {
 			return err
 		}
-		status, err := install.InstallAlias(layout)
+		status, err := install.InstallAliasContext(cmd.Context(), layout)
 		if err != nil {
 			return err
 		}
@@ -36,15 +38,15 @@ func aliasInstallCommand() *cobra.Command {
 func aliasRemoveCommand() *cobra.Command {
 	return &cobra.Command{Use: "remove", Short: "Remove the cgm command alias", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		logCommandStep(cmd, "ALIAS", "alias.layout.resolving", "Resolving managed installation layout")
-		layout, err := managedAliasLayout()
+		layout, err := managedAliasLayoutContext(cmd.Context())
 		if err != nil {
 			return err
 		}
-		before, err := install.StatusAlias(layout)
+		before, err := install.StatusAliasContext(cmd.Context(), layout)
 		if err != nil {
 			return err
 		}
-		status, err := install.RemoveAlias(layout)
+		status, err := install.RemoveAliasContext(cmd.Context(), layout)
 		if err != nil {
 			return err
 		}
@@ -62,11 +64,11 @@ func aliasRemoveCommand() *cobra.Command {
 func aliasStatusCommand() *cobra.Command {
 	return &cobra.Command{Use: "status", Aliases: []string{"st"}, Short: "Show the cgm command alias status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		logCommandStep(cmd, "ALIAS", "alias.status.inspecting", "Inspecting cgm alias state")
-		layout, err := managedAliasLayout()
+		layout, err := managedAliasLayoutContext(cmd.Context())
 		if err != nil {
 			return err
 		}
-		status, err := install.StatusAlias(layout)
+		status, err := install.StatusAliasContext(cmd.Context(), layout)
 		if err != nil {
 			return err
 		}
@@ -88,13 +90,21 @@ func aliasStatusCommand() *cobra.Command {
 }
 
 func managedAliasLayout() (install.Layout, error) {
+	return managedAliasLayoutContext(context.Background())
+}
+
+func managedAliasLayoutContext(ctx context.Context) (install.Layout, error) {
+	span := tracepkg.Start(ctx, "INSTALL", "install.alias.layout", "Resolving managed alias layout")
 	detection, err := install.DetectCurrent(version.Version)
 	if err != nil {
+		span.FailMessage("Managed alias installation detection failed", err)
 		return install.Layout{}, err
 	}
 	layout, err := detection.ManagedLayout()
 	if err != nil {
+		span.FailMessage("Managed alias layout resolution failed", err, tracepkg.String("method", string(detection.Method)))
 		return install.Layout{}, fmt.Errorf("managed installation not found; run chatgpt-mcp install: %w", err)
 	}
+	span.EndMessage("Managed alias layout resolved", tracepkg.String("method", string(detection.Method)), tracepkg.String("root", layout.Root), tracepkg.String("alias", layout.AliasPath), tracepkg.String("target", layout.CurrentBinary))
 	return layout, nil
 }

@@ -280,9 +280,15 @@ func TestConfigExplainLeafBranchAndJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, want := range []string{"shell.approval_policy", "Default: balanced", "allow", "explicit deny rule", "shell.approval_allow_commands"} {
+	for _, want := range []string{"shell.approval_policy", "balanced", "allow", "explicit deny rule", "shell.approval_allow_commands"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("leaf explain missing %q:\n%s", want, text)
+		}
+	}
+	markdown := configExplanationMarkdown(config.Explanation{Key: "example.key", Label: "Example", Description: "Example description", Kind: "string", Default: "value", Editable: true, Guidance: "Use this setting.", Related: []string{"other.key"}})
+	for _, want := range []string{"# example.key", "**Example**", "- **Type:** `string`", "- **Default:** `value`", "**Guidance:** Use this setting.", "- `other.key`"} {
+		if !strings.Contains(markdown, want) {
+			t.Fatalf("markdown explanation missing %q:\n%s", want, markdown)
 		}
 	}
 

@@ -10,6 +10,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	statepkg "go.mewis.me/chatgpt-mcp/internal/state"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const storeVersion = 1
@@ -42,56 +43,80 @@ func (s *Store) SecretEntries() ([]string, error) {
 }
 
 func (s *Store) Get(id string) (Credential, error) {
+	span := tracepkg.StartObserver(s.trace, "OAUTH", "oauth.store.get", "Loading OAuth authorization", tracepkg.String("server", id), tracepkg.String("store_path", s.path))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.readLocked()
 	if err != nil {
+		span.FailMessage("OAuth authorization load failed", errors.New("OAuth store load failed"))
 		return Credential{}, err
 	}
 	value, ok := state.Credentials[id]
 	if !ok {
+		span.EndMessage("OAuth authorization not configured", tracepkg.Bool("configured", false))
 		return Credential{}, ErrCredentialNotFound
 	}
+	span.EndMessage("OAuth authorization loaded", tracepkg.Bool("configured", true), tracepkg.URL("issuer", value.Issuer), tracepkg.String("registration", value.Registration), tracepkg.Any("scopes", append([]string(nil), value.Scopes...)), tracepkg.Int("scope_count", len(value.Scopes)), tracepkg.Bool("has_refresh", value.RefreshToken != ""), tracepkg.Bool("expires", !value.ExpiresAt.IsZero()))
 	return cloneCredential(value), nil
 }
 
 func (s *Store) Put(value Credential) error {
+	span := tracepkg.StartObserver(s.trace, "OAUTH", "oauth.store.put", "Persisting OAuth authorization", tracepkg.String("server", value.ServerID), tracepkg.String("store_path", s.path), tracepkg.URL("issuer", value.Issuer), tracepkg.String("registration", value.Registration), tracepkg.Any("scopes", append([]string(nil), value.Scopes...)), tracepkg.Bool("has_refresh", value.RefreshToken != ""), tracepkg.Bool("expires", !value.ExpiresAt.IsZero()))
 	if value.ServerID == "" {
-		return errors.New("oauth server id is required")
+		err := errors.New("oauth server id is required")
+		span.FailMessage("OAuth authorization persistence validation failed", err)
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous, err := s.readLocked()
 	if err != nil {
+		span.FailMessage("OAuth authorization persistence failed", errors.New("OAuth store load failed"))
 		return err
 	}
 	next := cloneDiskStore(previous)
 	value.UpdatedAt = time.Now().UTC()
 	next.Credentials[value.ServerID] = cloneCredential(value)
-	return s.writeLocked(previous, next)
+	if err := s.writeLocked(previous, next); err != nil {
+		span.FailMessage("OAuth authorization persistence failed", errors.New("OAuth store persistence failed"))
+		return err
+	}
+	span.EndMessage("OAuth authorization persisted", tracepkg.Bool("configured", true), tracepkg.Int("entry_count", len(next.Credentials)))
+	return nil
 }
 
 func (s *Store) Delete(id string) error {
+	span := tracepkg.StartObserver(s.trace, "OAUTH", "oauth.store.delete", "Deleting OAuth authorization", tracepkg.String("server", id), tracepkg.String("store_path", s.path))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous, err := s.readLocked()
 	if err != nil {
+		span.FailMessage("OAuth authorization deletion failed", errors.New("OAuth store load failed"))
 		return err
 	}
 	if _, ok := previous.Credentials[id]; !ok {
+		span.EndMessage("OAuth authorization already absent", tracepkg.Bool("configured", false), tracepkg.Bool("deleted", false), tracepkg.Int("entry_count", len(previous.Credentials)))
 		return nil
 	}
 	next := cloneDiskStore(previous)
 	delete(next.Credentials, id)
-	return s.writeLocked(previous, next)
+	if err := s.writeLocked(previous, next); err != nil {
+		span.FailMessage("OAuth authorization deletion failed", errors.New("OAuth store persistence failed"))
+		return err
+	}
+	span.EndMessage("OAuth authorization deleted", tracepkg.Bool("configured", false), tracepkg.Bool("deleted", true), tracepkg.Int("entry_count", len(next.Credentials)))
+	return nil
 }
 
 func (s *Store) Status(id string) (Status, error) {
+	span := tracepkg.StartObserver(s.trace, "OAUTH", "oauth.store.status", "Reading OAuth authorization status", tracepkg.String("server", id), tracepkg.String("store_path", s.path))
 	credential, err := s.Get(id)
 	if errors.Is(err, ErrCredentialNotFound) {
+		span.EndMessage("OAuth authorization status loaded", tracepkg.Bool("configured", false))
 		return Status{ServerID: id}, nil
 	}
 	if err != nil {
+		span.FailMessage("OAuth authorization status failed", errors.New("OAuth store status failed"))
 		return Status{}, err
 	}
 	status := Status{
@@ -104,6 +129,7 @@ func (s *Store) Status(id string) (Status, error) {
 		status.ExpiresAt = &expiresAt
 		status.Expired = !time.Now().Before(expiresAt)
 	}
+	span.EndMessage("OAuth authorization status loaded", tracepkg.Bool("configured", true), tracepkg.URL("issuer", status.Issuer), tracepkg.URL("resource", status.Resource), tracepkg.String("registration", status.Registration), tracepkg.String("client_id", status.ClientID), tracepkg.Any("scopes", append([]string(nil), status.Scopes...)), tracepkg.Int("scope_count", len(status.Scopes)), tracepkg.Bool("has_refresh", status.HasRefreshToken), tracepkg.Bool("expired", status.Expired))
 	return status, nil
 }
 
@@ -113,52 +139,72 @@ func (s *Store) readLocked() (diskStore, error) {
 		return diskStore{}, err
 	}
 	state := cloneDiskStore(raw)
-	migrate := false
+	migratedCount := 0
 	for id, credential := range state.Credentials {
 		var migrated bool
 		credential.ClientSecret, migrated, err = s.loadSecret(id, "client-secret", raw.Credentials[id].ClientSecret)
 		if err != nil {
 			return diskStore{}, err
 		}
-		migrate = migrate || migrated
+		if migrated {
+			migratedCount++
+		}
 		credential.AccessToken, migrated, err = s.loadSecret(id, "access-token", raw.Credentials[id].AccessToken)
 		if err != nil {
 			return diskStore{}, err
 		}
-		migrate = migrate || migrated
+		if migrated {
+			migratedCount++
+		}
 		credential.RefreshToken, migrated, err = s.loadSecret(id, "refresh-token", raw.Credentials[id].RefreshToken)
 		if err != nil {
 			return diskStore{}, err
 		}
-		migrate = migrate || migrated
+		if migrated {
+			migratedCount++
+		}
 		state.Credentials[id] = credential
 	}
-	if migrate {
+	if migratedCount > 0 {
+		span := tracepkg.StartObserver(s.trace, "OAUTH", "oauth.store.protected-values.migrate", "Migrating OAuth protected values", tracepkg.String("store_path", s.path), tracepkg.Int("protected_value_count", migratedCount))
 		if err := s.writeLocked(raw, state); err != nil {
+			span.FailMessage("OAuth protected-value migration failed", errors.New("OAuth protected-value migration failed"))
 			return diskStore{}, fmt.Errorf("migrate OAuth secrets to secret file store: %w", err)
 		}
+		span.EndMessage("OAuth protected values migrated", tracepkg.Int("protected_value_count", migratedCount))
 	}
 	return state, nil
 }
 
 func (s *Store) readDiskLocked() (diskStore, error) {
+	span := tracepkg.StartObserver(s.trace, "OAUTH", "oauth.store.read", "Reading OAuth store", tracepkg.String("store_path", s.path))
 	state := diskStore{Version: storeVersion, Credentials: map[string]Credential{}}
 	data, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
+		span.EndMessage("OAuth store not yet created", tracepkg.Bool("exists", false), tracepkg.Int64("bytes", 0), tracepkg.Int("store_version", storeVersion), tracepkg.Int("entry_count", 0))
 		return state, nil
 	}
 	if err != nil {
+		span.FailMessage("OAuth store read failed", errors.New("OAuth store read failed"))
 		return diskStore{}, fmt.Errorf("read oauth store: %w", err)
 	}
 	if err := configformat.UnmarshalPath(s.path, data, &state); err != nil {
+		span.FailMessage("OAuth store decode failed", errors.New("OAuth store decode failed"), tracepkg.Int64("bytes", int64(len(data))))
 		return diskStore{}, fmt.Errorf("decode oauth store: %w", err)
 	}
 	if state.Version != storeVersion {
-		return diskStore{}, fmt.Errorf("unsupported oauth store version: %d", state.Version)
+		err := fmt.Errorf("unsupported oauth store version: %d", state.Version)
+		span.FailMessage("OAuth store version unsupported", err, tracepkg.Int("store_version", state.Version), tracepkg.Int("current_version", storeVersion))
+		return diskStore{}, err
 	}
 	if state.Credentials == nil {
 		state.Credentials = map[string]Credential{}
 	}
+	format := ""
+	if detected, detectErr := configformat.Detect(s.path); detectErr == nil {
+		format = string(detected)
+	}
+	span.EndMessage("OAuth store read", tracepkg.Bool("exists", true), tracepkg.String("format", format), tracepkg.Int64("bytes", int64(len(data))), tracepkg.Int("store_version", state.Version), tracepkg.Int("entry_count", len(state.Credentials)))
 	return state, nil
 }
 
@@ -180,6 +226,7 @@ func (s *Store) loadSecret(id, field, stored string) (string, bool, error) {
 }
 
 func (s *Store) writeLocked(previous, next diskStore) error {
+	span := tracepkg.StartObserver(s.trace, "OAUTH", "oauth.store.write", "Writing OAuth store", tracepkg.String("store_path", s.path), tracepkg.Bool("atomic", true), tracepkg.Int("entry_count", len(next.Credentials)))
 	persisted := cloneDiskStore(next)
 	for id, credential := range persisted.Credentials {
 		if credential.ClientSecret != "" {
@@ -195,21 +242,33 @@ func (s *Store) writeLocked(previous, next diskStore) error {
 	}
 	data, err := configformat.MarshalPath(s.path, persisted)
 	if err != nil {
+		span.FailMessage("OAuth store encode failed", errors.New("OAuth store encode failed"))
 		return fmt.Errorf("encode oauth store: %w", err)
 	}
 	snapshot, err := snapshotOAuthFile(s.path)
 	if err != nil {
+		span.FailMessage("OAuth store snapshot failed", errors.New("OAuth store snapshot failed"))
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
+		span.FailMessage("OAuth store directory creation failed", errors.New("OAuth store directory creation failed"))
 		return fmt.Errorf("create oauth store directory: %w", err)
 	}
 	if err := statepkg.WriteFileAtomic(s.path, data, 0600); err != nil {
+		span.FailMessage("OAuth store write failed", errors.New("OAuth store write failed"), tracepkg.Int64("bytes", int64(len(data))))
 		return fmt.Errorf("write oauth store: %w", err)
 	}
-	if err := s.secrets.Apply(oauthSecretChanges(previous, next)); err != nil {
-		return errors.Join(err, restoreOAuthFile(s.path, snapshot))
+	changes := oauthSecretChanges(previous, next)
+	if err := s.secrets.Apply(changes); err != nil {
+		restoreErr := restoreOAuthFile(s.path, snapshot)
+		span.FailMessage("OAuth protected-value persistence failed", errors.New("OAuth protected-value persistence failed"), tracepkg.Int64("bytes", int64(len(data))), tracepkg.Int("protected_value_changes", len(changes)), tracepkg.Bool("store_rollback_succeeded", restoreErr == nil))
+		return errors.Join(err, restoreErr)
 	}
+	format := ""
+	if detected, detectErr := configformat.Detect(s.path); detectErr == nil {
+		format = string(detected)
+	}
+	span.EndMessage("OAuth store written", tracepkg.String("format", format), tracepkg.Int64("bytes", int64(len(data))), tracepkg.Int("store_version", storeVersion), tracepkg.Int("entry_count", len(next.Credentials)), tracepkg.Int("protected_value_changes", len(changes)))
 	return nil
 }
 

@@ -7,10 +7,14 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/telemetry"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 func (a *App) Bootstrap() error {
+	span := tracepkg.StartObserver(a.trace, "APP", "app.bootstrap", "Bootstrapping application runtime")
+	didBootstrap := false
 	a.bootstrap.Do(func() {
+		didBootstrap = true
 		if a.Config == nil {
 			a.Config = config.NewRuntimeStore(config.Default())
 		}
@@ -33,6 +37,7 @@ func (a *App) Bootstrap() error {
 		a.syncMCPHTTP(a.Config.Snapshot().Server.Enabled)
 		a.attachTunnelLifecycle()
 	})
+	span.EndMessage("Application runtime bootstrapped", tracepkg.Bool("performed", didBootstrap), tracepkg.Bool("mcp_http_enabled", a.MCP != nil), tracepkg.Bool("tunnel_configured", a.Tunnel != nil), tracepkg.Int("tool_count", len(a.Tools.List())))
 	return nil
 }
 

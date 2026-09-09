@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const FileName = ".runtime-control.json"
@@ -89,49 +90,67 @@ type State struct {
 
 func Path() string { return filepath.Join(config.RootPath(), FileName) }
 
-func Load() (State, error) {
-	data, err := readStateFile()
+func Load() (State, error) { return LoadContext(context.Background()) }
+
+func LoadContext(ctx context.Context) (State, error) {
+	statePath := Path()
+	readSpan := tracepkg.Start(ctx, "CONTROL", "runtime.control.state.read", "Reading runtime control state", tracepkg.String("state_file", statePath))
+	data, retries, err := readStateFile()
 	if err != nil {
+		readSpan.FailMessage("Runtime control state read failed", err, tracepkg.Int("retries", retries))
 		if os.IsNotExist(err) {
 			return State{}, errors.New("no running server found for this config directory")
 		}
 		return State{}, err
 	}
+	readSpan.EndMessage("Runtime control state read", tracepkg.Int64("bytes", int64(len(data))), tracepkg.Int("retries", retries))
+	if retries > 0 {
+		tracepkg.Emit(ctx, "CONTROL", "runtime.control.state.read-retried", "Runtime control state read retried", tracepkg.String("state_file", statePath), tracepkg.Int("retries", retries))
+	}
+	decodeSpan := tracepkg.Start(ctx, "CONTROL", "runtime.control.state.decode", "Decoding runtime control state", tracepkg.String("state_file", statePath), tracepkg.Int64("bytes", int64(len(data))))
 	var state State
 	if err := json.Unmarshal(data, &state); err != nil {
+		decodeSpan.FailMessage("Runtime control state decode failed", err)
 		return State{}, fmt.Errorf("decode runtime control state: %w", err)
 	}
 	if state.PID <= 0 || strings.TrimSpace(state.Token) == "" {
-		return State{}, errors.New("runtime control state is invalid")
+		err := errors.New("runtime control state is invalid")
+		decodeSpan.FailMessage("Runtime control state validation failed", err)
+		return State{}, err
 	}
 	host, _, err := net.SplitHostPort(state.Address)
 	if err != nil {
+		decodeSpan.FailMessage("Runtime control state validation failed", errors.New("runtime control address is invalid"))
 		return State{}, errors.New("runtime control address is invalid")
 	}
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	if ip == nil || !ip.IsLoopback() {
+		decodeSpan.FailMessage("Runtime control state validation failed", errors.New("runtime control address is not loopback"))
 		return State{}, errors.New("runtime control address is not loopback")
 	}
+	decodeSpan.EndMessage("Runtime control state decoded", tracepkg.Int("pid", state.PID), tracepkg.String("address", state.Address), tracepkg.Bool("managed", state.Managed), tracepkg.String("service", state.ServiceID), tracepkg.String("scope", state.ServiceScope))
 	return state, nil
 }
 
-func readStateFile() ([]byte, error) {
+func readStateFile() ([]byte, int, error) {
 	data, err := os.ReadFile(Path())
 	if runtime.GOOS != "windows" || err == nil || os.IsNotExist(err) {
-		return data, err
+		return data, 0, err
 	}
+	retries := 0
 	for range 5 {
+		retries++
 		time.Sleep(10 * time.Millisecond)
 		data, err = os.ReadFile(Path())
 		if err == nil || os.IsNotExist(err) {
-			return data, err
+			return data, retries, err
 		}
 	}
-	return data, err
+	return data, retries, err
 }
 
 func Request(ctx context.Context, method, path string, input, output any) (State, error) {
-	state, err := Load()
+	state, err := LoadContext(ctx)
 	if err != nil {
 		return State{}, err
 	}
@@ -147,42 +166,87 @@ func Request(ctx context.Context, method, path string, input, output any) (State
 		}
 		body = bytes.NewReader(data)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, "http://"+state.Address+path, body)
+	endpoint := "http://" + state.Address + path
+	span := tracepkg.Start(ctx, "CONTROL", "runtime.control.request", "Runtime control request", tracepkg.String("state_file", Path()), tracepkg.Int("pid", state.PID), tracepkg.String("address", state.Address), tracepkg.String("method", method), tracepkg.URL("endpoint", endpoint))
+	request, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
+		span.FailMessage("Runtime control request construction failed", err)
 		return State{}, err
 	}
 	request.Header.Set("Authorization", "Bearer "+state.Token)
 	if input != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	response, err := requestHTTPClient.Do(request)
+	response, err := tracepkg.DoHTTP(requestHTTPClient, request)
 	if err != nil {
+		span.FailMessage("Runtime control request failed", err)
 		return State{}, fmt.Errorf("running server control endpoint unavailable: %w", err)
 	}
 	defer response.Body.Close()
+	reader := &countingReader{reader: response.Body}
 	if response.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+		data, _ := io.ReadAll(io.LimitReader(reader, 64*1024))
 		var failure struct {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(data, &failure) == nil && failure.Error != "" {
-			return State{}, errors.New(failure.Error)
+			err := errors.New(failure.Error)
+			span.FailMessage("Runtime control request failed", err, tracepkg.Int("status", response.StatusCode), tracepkg.Int64("response_bytes", reader.bytes))
+			return State{}, err
 		}
-		return State{}, fmt.Errorf("runtime control request failed with HTTP %d", response.StatusCode)
+		err := fmt.Errorf("runtime control request failed with HTTP %d", response.StatusCode)
+		span.FailMessage("Runtime control request failed", err, tracepkg.Int("status", response.StatusCode), tracepkg.Int64("response_bytes", reader.bytes))
+		return State{}, err
 	}
 	if output != nil {
-		if err := json.NewDecoder(response.Body).Decode(output); err != nil {
+		if err := json.NewDecoder(reader).Decode(output); err != nil {
+			span.FailMessage("Runtime control response decode failed", err, tracepkg.Int("status", response.StatusCode), tracepkg.Int64("response_bytes", reader.bytes))
 			return State{}, fmt.Errorf("decode runtime control response: %w", err)
 		}
 	}
+	span.EndMessage("Runtime control response", tracepkg.Int("status", response.StatusCode), tracepkg.Int64("response_bytes", reader.bytes))
 	return state, nil
 }
 
+type countingReader struct {
+	reader io.Reader
+	bytes  int64
+}
+
+func (reader *countingReader) Read(buffer []byte) (int, error) {
+	n, err := reader.reader.Read(buffer)
+	reader.bytes += int64(n)
+	return n, err
+}
+
 func WaitStatusChange(ctx context.Context, lifecycle string) (RuntimeStatus, error) {
+	previous := strings.TrimSpace(lifecycle)
+	span := tracepkg.Start(ctx, "CONTROL", "runtime.control.status-wait", "Waiting for runtime lifecycle change", tracepkg.String("previous_lifecycle", previous))
 	var result RuntimeStatus
 	path := "/status/wait?lifecycle=" + url.QueryEscape(strings.TrimSpace(lifecycle))
-	_, err := Request(ctx, http.MethodGet, path, nil, &result)
-	return result, err
+	state, err := Request(ctx, http.MethodGet, path, nil, &result)
+	if err != nil {
+		span.FailMessage("Runtime lifecycle wait failed", err, tracepkg.String("previous_lifecycle", previous))
+		return RuntimeStatus{}, err
+	}
+	if err := ValidatePID(ctx, state.PID, result.PID, "status-wait"); err != nil {
+		span.FailMessage("Runtime lifecycle wait PID validation failed", err, tracepkg.String("previous_lifecycle", previous), tracepkg.String("current_lifecycle", result.Lifecycle))
+		return RuntimeStatus{}, err
+	}
+	span.EndMessage("Runtime lifecycle changed", tracepkg.String("previous_lifecycle", previous), tracepkg.String("current_lifecycle", result.Lifecycle), tracepkg.Bool("changed", previous != strings.TrimSpace(result.Lifecycle)), tracepkg.Int("pid", result.PID), tracepkg.String("run_id", result.RunID))
+	return result, nil
+}
+
+func ValidatePID(ctx context.Context, expected, actual int, operation string) error {
+	operation = strings.TrimSpace(operation)
+	span := tracepkg.Start(ctx, "CONTROL", "runtime.control.pid.validate", "Validating runtime control PID", tracepkg.String("operation", operation), tracepkg.Int("expected_pid", expected), tracepkg.Int("actual_pid", actual))
+	if expected != actual {
+		err := fmt.Errorf("runtime control PID mismatch: expected %d, got %d", expected, actual)
+		span.FailMessage("Runtime control PID validation failed", err, tracepkg.String("operation", operation), tracepkg.Int("expected_pid", expected), tracepkg.Int("actual_pid", actual))
+		return err
+	}
+	span.EndMessage("Runtime control PID validated", tracepkg.String("operation", operation), tracepkg.Int("pid", actual))
+	return nil
 }
 
 func IsUnavailable(err error) bool {

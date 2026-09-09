@@ -1,9 +1,15 @@
 package workspace
 
-import "fmt"
+import (
+	"fmt"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
+)
 
 func (m *Manager) Unregister(id string) error {
+	span := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.unregister", "Unregistering workspace", tracepkg.String("workspace_id", id))
 	if err := m.ensureLoaded(); err != nil {
+		span.FailMessage("Workspace unregistration failed", err)
 		return err
 	}
 	m.mu.Lock()
@@ -11,7 +17,9 @@ func (m *Manager) Unregister(id string) error {
 	canonical := m.canonicalIDLocked(id)
 	item, ok := m.items[canonical]
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrNotFound, id)
+		err := fmt.Errorf("%w: %s", ErrNotFound, id)
+		span.FailMessage("Workspace unregistration failed", err)
+		return err
 	}
 	delete(m.items, canonical)
 	previousContainers := make(map[string]WorkspaceContainer)
@@ -38,7 +46,9 @@ func (m *Manager) Unregister(id string) error {
 		for alias, target := range removedAliases {
 			m.aliases[alias] = target
 		}
+		span.FailMessage("Workspace unregistration failed", err, tracepkg.String("canonical_workspace_id", canonical), tracepkg.Int("containers_updated", len(previousContainers)), tracepkg.Int("aliases_removed", len(removedAliases)))
 		return err
 	}
+	span.EndMessage("Workspace unregistered", tracepkg.String("canonical_workspace_id", canonical), tracepkg.String("root", item.Path), tracepkg.Int("containers_updated", len(previousContainers)), tracepkg.Int("aliases_removed", len(removedAliases)), tracepkg.Bool("project_files_removed", false))
 	return nil
 }

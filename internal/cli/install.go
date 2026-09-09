@@ -14,10 +14,9 @@ func installCommand() *cobra.Command {
 	var noAlias, force, noLegacyCleanup bool
 	cmd := &cobra.Command{Use: "install", Short: "Install this binary into the managed versioned layout", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		log := commandLogger(cmd)
-		defer log.Close()
 		logCommandStep(cmd, "INSTALL", "install.plan", "Preparing installation", logger.WithVerbose("version", version.Version), logger.WithDebug("no_alias", noAlias), logger.WithDebug("force", force), logger.WithDebug("migrate_legacy", !noLegacyCleanup))
 		startCommandSpinner(cmd, log, "INSTALL", "install.installing", "Installing chatgpt-mcp")
-		result, err := installpkg.Install(installpkg.Options{Version: version.Version, NoAlias: noAlias, Force: force, MigrateLegacy: !noLegacyCleanup})
+		result, err := installpkg.Install(installpkg.Options{Context: cmd.Context(), Version: version.Version, NoAlias: noAlias, Force: force, MigrateLegacy: !noLegacyCleanup})
 		if err != nil {
 			return fmt.Errorf("install managed binary: %w", err)
 		}
@@ -58,9 +57,8 @@ func installCleanupLegacyCommand() *cobra.Command {
 			return fmt.Errorf("resolve current executable: %w", err)
 		}
 		log := commandLogger(cmd)
-		defer log.Close()
 		startCommandSpinner(cmd, log, "INSTALL", "install.legacy-cleanup", "Cleaning legacy installations")
-		result, err := installpkg.CleanupLegacyInstallations(installpkg.LegacyCleanupOptions{Layout: layout, Source: source, PreserveSource: true})
+		result, err := installpkg.CleanupLegacyInstallations(installpkg.LegacyCleanupOptions{Context: cmd.Context(), Layout: layout, Source: source, PreserveSource: true})
 		if err != nil {
 			return fmt.Errorf("clean legacy installations: %w", err)
 		}

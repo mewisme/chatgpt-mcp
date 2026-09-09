@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const defaultFlowTTL = 10 * time.Minute
@@ -61,53 +62,64 @@ func NewFlowManager(store *Store) *FlowManager {
 }
 
 func (m *FlowManager) Begin(ctx context.Context, config LoginConfig, redirectBase, extraScope string) (FlowSession, error) {
+	ctx = m.store.traceContext(ctx)
 	config.ServerID = strings.TrimSpace(config.ServerID)
 	config.ServerURL = strings.TrimSpace(config.ServerURL)
+	span := tracepkg.Start(ctx, "OAUTH", "oauth.flow.begin", "Preparing OAuth login flow", tracepkg.String("server", config.ServerID), tracepkg.URL("server_url", config.ServerURL), tracepkg.Bool("issuer_preference", strings.TrimSpace(config.Issuer) != ""), tracepkg.Bool("preregistered_client", strings.TrimSpace(config.ClientID) != ""), tracepkg.Bool("client_metadata_document", strings.TrimSpace(config.ClientMetadataURL) != ""))
+	fail := func(message string, err error, fields ...tracepkg.Field) (FlowSession, error) {
+		span.FailMessage(message, err, fields...)
+		return FlowSession{}, err
+	}
 	if config.ServerID == "" || config.ServerURL == "" {
-		return FlowSession{}, errors.New("OAuth login requires server id and URL")
+		return fail("OAuth login flow validation failed", errors.New("OAuth login requires server id and URL"))
 	}
 	if err := validateRedirectURL(redirectBase); err != nil {
-		return FlowSession{}, err
+		return fail("OAuth redirect URL validation failed", err)
 	}
 	challengeHeaders, err := m.store.ProbeWWWAuthenticate(ctx, config.ServerURL)
 	if err != nil {
-		return FlowSession{}, fmt.Errorf("probe MCP authorization challenge: %w", err)
+		wrapped := fmt.Errorf("probe MCP authorization challenge: %w", err)
+		return fail("OAuth challenge probe failed", wrapped)
 	}
 	discovery, err := m.store.Discover(ctx, config.ServerURL, config.Issuer, challengeHeaders)
 	if err != nil {
+		span.FailMessage("OAuth metadata discovery failed", errors.New("OAuth metadata discovery failed"))
 		return FlowSession{}, err
 	}
 	previous, _ := m.store.Get(config.ServerID)
 	scopes := unionScopes(discovery.RequestedScopes, strings.Fields(config.Scope), strings.Fields(extraScope))
-	if previous.ServerURL == config.ServerURL && previous.Issuer == discovery.Issuer {
+	previousScopesReused := previous.ServerURL == config.ServerURL && previous.Issuer == discovery.Issuer
+	if previousScopesReused {
 		scopes = unionScopes(scopes, previous.Scopes)
 	}
 	if slices.Contains(discovery.AuthServerMeta.ScopesSupported, "offline_access") && !slices.Contains(scopes, "offline_access") {
 		scopes = append(scopes, "offline_access")
 	}
+	tracepkg.Emit(ctx, "OAUTH", "oauth.flow.scopes", "OAuth scopes resolved", tracepkg.Any("scopes", append([]string(nil), scopes...)), tracepkg.Int("scope_count", len(scopes)), tracepkg.Bool("previous_scopes_reused", previousScopesReused))
 	id, err := randomToken(24)
 	if err != nil {
-		return FlowSession{}, err
+		return fail("OAuth login session allocation failed", err)
 	}
 	redirectURL, err := flowRedirectURL(redirectBase, id)
 	if err != nil {
-		return FlowSession{}, err
+		return fail("OAuth callback URL construction failed", err)
 	}
 	registration, err := m.store.resolveRegistration(ctx, config, discovery, redirectURL, scopes)
 	if err != nil {
+		span.FailMessage("OAuth client registration resolution failed", errors.New("OAuth client registration failed"))
 		return FlowSession{}, err
 	}
 	state, err := randomToken(32)
 	if err != nil {
-		return FlowSession{}, err
+		return fail("OAuth state allocation failed", err)
 	}
 	verifier, err := randomToken(48)
 	if err != nil {
-		return FlowSession{}, err
+		return fail("OAuth PKCE verifier allocation failed", err)
 	}
 	authorizationURL, err := buildAuthorizationURL(discovery.AuthServerMeta.AuthorizationEndpoint, registration.ClientID, redirectURL, discovery.Resource, state, pkceChallenge(verifier), scopes)
 	if err != nil {
-		return FlowSession{}, err
+		return fail("OAuth authorization URL construction failed", err)
 	}
 	expiresAt := time.Now().UTC().Add(m.ttl)
 	m.mu.Lock()
@@ -116,38 +128,52 @@ func (m *FlowManager) Begin(ctx context.Context, config LoginConfig, redirectBas
 		Config: config, Discovery: discovery, Registration: registration, Scopes: scopes, State: state, Verifier: verifier, RedirectURL: redirectURL, ExpiresAt: expiresAt,
 	}
 	m.mu.Unlock()
+	span.EndMessage("OAuth login flow prepared", tracepkg.URL("authorization_endpoint", discovery.AuthServerMeta.AuthorizationEndpoint), tracepkg.URL("token_endpoint", discovery.AuthServerMeta.TokenEndpoint), tracepkg.String("registration", registration.Kind), tracepkg.String("token_auth_method", registration.TokenAuthMethod), tracepkg.Any("scopes", append([]string(nil), scopes...)), tracepkg.Int("scope_count", len(scopes)), tracepkg.String("callback_origin", redirectBase), tracepkg.Int64("flow_ttl_ms", m.ttl.Milliseconds()))
 	return FlowSession{ID: id, AuthorizationURL: authorizationURL, ExpiresAt: expiresAt}, nil
 }
 
 func (m *FlowManager) Complete(ctx context.Context, id, state, code, issuer, oauthError, errorDescription string) (Credential, error) {
+	ctx = m.store.traceContext(ctx)
+	span := tracepkg.Start(ctx, "OAUTH", "oauth.flow.complete", "Completing OAuth login flow", tracepkg.Bool("session_present", strings.TrimSpace(id) != ""), tracepkg.Bool("state_present", state != ""), tracepkg.Bool("code_present", code != ""), tracepkg.Bool("issuer_present", issuer != ""), tracepkg.Bool("oauth_error_present", oauthError != ""))
+	tracepkg.Emit(ctx, "OAUTH", "oauth.callback.received", "OAuth callback received", tracepkg.Bool("state_present", state != ""), tracepkg.Bool("code_present", code != ""), tracepkg.Bool("issuer_present", issuer != ""), tracepkg.Bool("oauth_error_present", oauthError != ""))
 	m.mu.Lock()
 	m.cleanupLocked(time.Now())
 	pending, ok := m.sessions[id]
 	if !ok {
 		m.mu.Unlock()
-		return Credential{}, errors.New("OAuth login session not found or expired")
+		err := errors.New("OAuth login session not found or expired")
+		span.FailMessage("OAuth callback session was not found", err)
+		return Credential{}, err
 	}
 	if state != pending.State {
 		m.mu.Unlock()
-		return Credential{}, errors.New("OAuth state mismatch")
+		err := errors.New("OAuth state mismatch")
+		span.FailMessage("OAuth callback state validation failed", err, tracepkg.String("server", pending.Config.ServerID))
+		return Credential{}, err
 	}
 	delete(m.sessions, id)
 	m.mu.Unlock()
 
 	if oauthError != "" {
+		message := oauthError
 		if errorDescription != "" {
-			oauthError += ": " + errorDescription
+			message += ": " + errorDescription
 		}
-		return Credential{}, errors.New(oauthError)
+		span.FailMessage("OAuth authorization server returned an error", errors.New("OAuth authorization failed"), tracepkg.String("server", pending.Config.ServerID))
+		return Credential{}, errors.New(message)
 	}
 	if code == "" {
-		return Credential{}, errors.New("OAuth callback is missing authorization code")
+		err := errors.New("OAuth callback is missing authorization code")
+		span.FailMessage("OAuth callback authorization code missing", err, tracepkg.String("server", pending.Config.ServerID))
+		return Credential{}, err
 	}
 	if err := ValidateIssuerResponse(issuer, pending.Discovery.Issuer, pending.Discovery.AuthServerMeta.AuthorizationResponseIssParameterSupported); err != nil {
+		span.FailMessage("OAuth callback issuer validation failed", err, tracepkg.String("server", pending.Config.ServerID), tracepkg.URL("issuer", pending.Discovery.Issuer))
 		return Credential{}, err
 	}
 	secret, err := registrationSecret(pending.Registration)
 	if err != nil {
+		span.FailMessage("OAuth client secret resolution failed", errors.New("OAuth client secret unavailable"), tracepkg.String("server", pending.Config.ServerID))
 		return Credential{}, err
 	}
 	form := url.Values{
@@ -159,6 +185,7 @@ func (m *FlowManager) Complete(ctx context.Context, id, state, code, issuer, oau
 	}
 	token, err := m.store.requestToken(ctx, pending.Discovery.AuthServerMeta.TokenEndpoint, pending.Registration.TokenAuthMethod, pending.Registration.ClientID, secret, form, pending.Config.ServerURL, pending.Discovery.Issuer)
 	if err != nil {
+		span.FailMessage("OAuth authorization code exchange failed", errors.New("OAuth token exchange failed"), tracepkg.String("server", pending.Config.ServerID), tracepkg.URL("token_endpoint", pending.Discovery.AuthServerMeta.TokenEndpoint))
 		return Credential{}, fmt.Errorf("exchange authorization code: %w", err)
 	}
 	credential := Credential{
@@ -170,14 +197,17 @@ func (m *FlowManager) Complete(ctx context.Context, id, state, code, issuer, oau
 	}
 	credential, err = applyTokenResponse(credential, token)
 	if err != nil {
+		span.FailMessage("OAuth token response validation failed", err, tracepkg.String("server", pending.Config.ServerID))
 		return Credential{}, err
 	}
 	if token.Scope == "" {
 		credential.Scopes = append([]string(nil), pending.Scopes...)
 	}
 	if err := m.store.Put(credential); err != nil {
+		span.FailMessage("OAuth credential persistence failed", errors.New("OAuth authorization persistence failed"), tracepkg.String("server", pending.Config.ServerID))
 		return Credential{}, err
 	}
+	span.EndMessage("OAuth login flow completed", tracepkg.String("server", pending.Config.ServerID), tracepkg.URL("issuer", credential.Issuer), tracepkg.String("registration", credential.Registration), tracepkg.Any("scopes", append([]string(nil), credential.Scopes...)), tracepkg.Int("scope_count", len(credential.Scopes)), tracepkg.Bool("has_refresh", credential.RefreshToken != ""), tracepkg.Bool("expires", !credential.ExpiresAt.IsZero()))
 	return credential, nil
 }
 
@@ -196,12 +226,17 @@ func (m *FlowManager) cleanupLocked(now time.Time) {
 }
 
 func (s *Store) resolveRegistration(ctx context.Context, config LoginConfig, discovery *Discovery, redirectURL string, scopes []string) (registration, error) {
+	ctx = s.traceContext(ctx)
+	span := tracepkg.Start(ctx, "OAUTH", "oauth.registration.resolve", "Resolving OAuth client registration", tracepkg.String("server", config.ServerID), tracepkg.Bool("preregistered_client", strings.TrimSpace(config.ClientID) != ""), tracepkg.Bool("client_metadata_document", strings.TrimSpace(config.ClientMetadataURL) != ""), tracepkg.Bool("dcr_available", discovery.AuthServerMeta.RegistrationEndpoint != ""), tracepkg.Int("scope_count", len(scopes)))
 	metadataURL := strings.TrimSpace(config.ClientMetadataURL)
 	if metadataURL != "" && discovery.AuthServerMeta.ClientIDMetadataDocumentSupported {
 		if err := validateClientMetadataURL(metadataURL); err != nil {
+			span.FailMessage("OAuth Client ID Metadata Document validation failed", err)
 			return registration{}, err
 		}
-		return registration{Kind: "cimd", ClientID: metadataURL, ClientMetadataURL: metadataURL, TokenAuthMethod: "none"}, nil
+		result := registration{Kind: "cimd", ClientID: metadataURL, ClientMetadataURL: metadataURL, TokenAuthMethod: "none"}
+		span.EndMessage("OAuth client registration resolved", tracepkg.String("registration", result.Kind), tracepkg.URL("client_metadata_url", metadataURL), tracepkg.String("token_auth_method", result.TokenAuthMethod))
+		return result, nil
 	}
 	clientID := strings.TrimSpace(config.ClientID)
 	if clientID != "" {
@@ -209,39 +244,55 @@ func (s *Store) resolveRegistration(ctx context.Context, config LoginConfig, dis
 		if env := strings.TrimSpace(config.ClientSecretEnvVar); env != "" {
 			secret = strings.TrimSpace(os.Getenv(env))
 			if secret == "" {
-				return registration{}, fmt.Errorf("missing OAuth client secret environment variable: %s", env)
+				err := fmt.Errorf("missing OAuth client secret environment variable: %s", env)
+				span.FailMessage("OAuth pre-registered client secret unavailable", errors.New("OAuth client secret environment variable is empty"), tracepkg.Bool("client_auth_env_present", true))
+				return registration{}, err
 			}
 		}
-		return registration{
+		result := registration{
 			Kind: "preregistered", ClientID: clientID, ClientSecretEnvVar: strings.TrimSpace(config.ClientSecretEnvVar),
 			TokenAuthMethod: selectTokenAuthMethod(discovery.AuthServerMeta.TokenEndpointAuthMethodsSupported, secret),
-		}, nil
+		}
+		span.EndMessage("OAuth client registration resolved", tracepkg.String("registration", result.Kind), tracepkg.String("client_id", clientID), tracepkg.Bool("client_auth_env_present", result.ClientSecretEnvVar != ""), tracepkg.String("token_auth_method", result.TokenAuthMethod))
+		return result, nil
 	}
 	if discovery.AuthServerMeta.RegistrationEndpoint == "" {
+		var err error
 		if metadataURL != "" {
-			return registration{}, errors.New("authorization server does not support configured Client ID Metadata Document and has no DCR endpoint")
+			err = errors.New("authorization server does not support configured Client ID Metadata Document and has no DCR endpoint")
+		} else {
+			err = errors.New("OAuth client registration is required: configure a client ID or Client ID Metadata Document")
 		}
-		return registration{}, errors.New("OAuth client registration is required: configure a client ID or Client ID Metadata Document")
+		span.FailMessage("OAuth client registration unavailable", err)
+		return registration{}, err
 	}
 	grantTypes := []string{"authorization_code"}
 	if slices.Contains(discovery.AuthServerMeta.GrantTypesSupported, "refresh_token") || slices.Contains(discovery.AuthServerMeta.ScopesSupported, "offline_access") {
 		grantTypes = append(grantTypes, "refresh_token")
 	}
 	if err := validateOutboundURL(ctx, discovery.AuthServerMeta.RegistrationEndpoint, config.ServerURL, discovery.Issuer); err != nil {
-		return registration{}, fmt.Errorf("dynamic client registration endpoint denied: %w", err)
+		wrapped := fmt.Errorf("dynamic client registration endpoint denied: %w", err)
+		span.FailMessage("OAuth dynamic registration endpoint denied", wrapped, tracepkg.URL("registration_endpoint", discovery.AuthServerMeta.RegistrationEndpoint))
+		return registration{}, wrapped
 	}
+	dcrSpan := tracepkg.Start(ctx, "OAUTH", "oauth.registration.dynamic", "Registering OAuth client dynamically", tracepkg.URL("registration_endpoint", discovery.AuthServerMeta.RegistrationEndpoint), tracepkg.Any("grant_types", append([]string(nil), grantTypes...)), tracepkg.Int("scope_count", len(scopes)))
 	response, err := oauthex.RegisterClient(ctx, discovery.AuthServerMeta.RegistrationEndpoint, &oauthex.ClientRegistrationMetadata{
 		RedirectURIs: []string{redirectURL}, TokenEndpointAuthMethod: "none", GrantTypes: grantTypes,
 		ResponseTypes: []string{"code"}, ClientName: "chatgpt-mcp", Scope: strings.Join(scopes, " "), ApplicationType: "native",
 	}, s.clientForTargets(config.ServerURL, discovery.Issuer))
 	if err != nil {
+		dcrSpan.FailMessage("OAuth dynamic client registration failed", errors.New("OAuth dynamic registration request failed"))
+		span.FailMessage("OAuth client registration failed", errors.New("OAuth dynamic registration failed"))
 		return registration{}, fmt.Errorf("dynamic client registration: %w", err)
 	}
 	method := response.TokenEndpointAuthMethod
 	if method == "" {
 		method = normalizeTokenAuthMethod("", response.ClientSecret)
 	}
-	return registration{Kind: "dcr", ClientID: response.ClientID, ClientSecret: response.ClientSecret, TokenAuthMethod: method}, nil
+	result := registration{Kind: "dcr", ClientID: response.ClientID, ClientSecret: response.ClientSecret, TokenAuthMethod: method}
+	dcrSpan.EndMessage("OAuth client registered dynamically", tracepkg.String("client_id", response.ClientID), tracepkg.Bool("client_auth_material_present", response.ClientSecret != ""), tracepkg.String("token_auth_method", method))
+	span.EndMessage("OAuth client registration resolved", tracepkg.String("registration", result.Kind), tracepkg.String("client_id", result.ClientID), tracepkg.Bool("client_auth_material_present", result.ClientSecret != ""), tracepkg.String("token_auth_method", result.TokenAuthMethod))
+	return result, nil
 }
 
 func ValidateIssuerResponse(iss, expected string, advertised bool) error {

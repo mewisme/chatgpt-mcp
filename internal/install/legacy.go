@@ -1,12 +1,15 @@
 package install
 
 import (
+	"context"
 	"debug/buildinfo"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const legacyModulePath = "go.mewis.me/chatgpt-mcp"
@@ -34,6 +37,7 @@ type LegacyCleanupResult struct {
 }
 
 type LegacyCleanupOptions struct {
+	Context        context.Context
 	Layout         Layout
 	Source         string
 	PreserveSource bool
@@ -58,8 +62,14 @@ func FindLegacyInstallations(layout Layout, source string) ([]LegacyInstallation
 }
 
 func CleanupLegacyInstallations(options LegacyCleanupOptions) (LegacyCleanupResult, error) {
+	ctx := options.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	span := tracepkg.Start(ctx, "INSTALL", "install.legacy.cleanup", "Cleaning legacy installations", tracepkg.String("source", options.Source), tracepkg.Bool("preserve_source", options.PreserveSource))
 	items, err := FindLegacyInstallations(options.Layout, options.Source)
 	if err != nil {
+		span.FailMessage("Legacy installation discovery failed", err)
 		return LegacyCleanupResult{}, err
 	}
 	result := LegacyCleanupResult{}
@@ -93,6 +103,7 @@ func CleanupLegacyInstallations(options LegacyCleanupOptions) (LegacyCleanupResu
 			}
 		}
 	}
+	span.EndMessage("Legacy installations cleaned", tracepkg.Int("candidates", len(items)), tracepkg.Int("removed", len(result.Removed)), tracepkg.Int("removed_aliases", len(result.RemovedAliases)), tracepkg.Int("preserved", len(result.Preserved)), tracepkg.Int("failed", len(result.Failed)))
 	return result, nil
 }
 

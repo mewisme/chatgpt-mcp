@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const (
@@ -95,6 +97,7 @@ type NativeClient struct {
 	connections map[string]*rpcConnection
 	httpClient  *http.Client
 	oauth       *mcpoauth.Store
+	trace       tracepkg.Observer
 }
 
 type rpcConnection struct {
@@ -132,11 +135,13 @@ type rpcError struct {
 }
 
 type stdioTransport struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	stderr bytes.Buffer
-	mu     sync.Mutex
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  *bufio.Reader
+	stderr  bytes.Buffer
+	mu      sync.Mutex
+	server  string
+	started time.Time
 }
 
 type httpTransport struct {
@@ -156,15 +161,38 @@ func NewNativeClientWithOAuthStore(store *mcpoauth.Store) *NativeClient {
 	return &NativeClient{connections: map[string]*rpcConnection{}, httpClient: &http.Client{Timeout: 0}, oauth: store}
 }
 
+func (c *NativeClient) SetTraceObserver(observer tracepkg.Observer) {
+	if c != nil {
+		c.trace = observer
+		if c.oauth != nil {
+			c.oauth.SetTraceObserver(observer)
+		}
+	}
+}
+
+func (c *NativeClient) traceContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if tracepkg.ObserverFromContext(ctx) == nil && c != nil && c.trace != nil {
+		return tracepkg.WithObserver(ctx, c.trace)
+	}
+	return ctx
+}
+
 func (c *NativeClient) Connect(ctx context.Context, server Server) error {
+	ctx = c.traceContext(ctx)
+	span := tracepkg.Start(ctx, "MCP", "upstream.native.connect", "Connecting native upstream transport", upstreamServerTraceFields(server)...)
 	server, err := NormalizeServer(server)
 	if err != nil {
+		span.FailMessage("Native upstream connection failed", err)
 		return err
 	}
 	c.mu.Lock()
 	existing := c.connections[server.ID]
 	if existing != nil && reflect.DeepEqual(existing.server, server) {
 		c.mu.Unlock()
+		span.EndMessage("Native upstream connection reused", tracepkg.Bool("connection_reused", true), tracepkg.Int("pid", existing.pid))
 		return nil
 	}
 	if existing != nil {
@@ -172,13 +200,18 @@ func (c *NativeClient) Connect(ctx context.Context, server Server) error {
 	}
 	c.mu.Unlock()
 	if existing != nil {
+		replaceSpan := tracepkg.Start(ctx, "MCP", "upstream.native.replace", "Closing stale upstream connection", tracepkg.String("server", server.ID), tracepkg.Int("pid", existing.pid))
 		if err := existing.close(ctx); err != nil {
+			replaceSpan.FailMessage("Stale upstream connection close failed", err)
+			span.FailMessage("Native upstream connection failed", err)
 			return err
 		}
+		replaceSpan.EndMessage("Stale upstream connection closed")
 	}
 
 	connection, err := c.createConnection(ctx, server)
 	if err != nil {
+		span.FailMessage("Native upstream connection failed", err)
 		return err
 	}
 	c.mu.Lock()
@@ -186,6 +219,7 @@ func (c *NativeClient) Connect(ctx context.Context, server Server) error {
 		if reflect.DeepEqual(current.server, server) {
 			c.mu.Unlock()
 			_ = connection.close(context.Background())
+			span.EndMessage("Native upstream connection raced and reused existing connection", tracepkg.Bool("connection_reused", true), tracepkg.Int("pid", current.pid))
 			return nil
 		}
 		delete(c.connections, server.ID)
@@ -195,18 +229,28 @@ func (c *NativeClient) Connect(ctx context.Context, server Server) error {
 	}
 	c.connections[server.ID] = connection
 	c.mu.Unlock()
+	span.EndMessage("Native upstream connected", tracepkg.Bool("connection_reused", false), tracepkg.String("transport", server.Transport), tracepkg.Int("pid", connection.pid), tracepkg.String("protocol", connection.era))
 	return nil
 }
 
 func (c *NativeClient) Close(ctx context.Context, id string) error {
+	ctx = c.traceContext(ctx)
+	span := tracepkg.Start(ctx, "MCP", "upstream.native.close", "Closing native upstream connection", tracepkg.String("server", id))
 	c.mu.Lock()
 	connection := c.connections[id]
 	delete(c.connections, id)
 	c.mu.Unlock()
 	if connection == nil {
+		span.EndMessage("Native upstream connection already closed", tracepkg.Bool("connected", false))
 		return nil
 	}
-	return connection.close(ctx)
+	err := connection.close(ctx)
+	if err != nil {
+		span.FailMessage("Native upstream connection close failed", err, tracepkg.Int("pid", connection.pid))
+		return err
+	}
+	span.EndMessage("Native upstream connection closed", tracepkg.Bool("connected", true), tracepkg.Int("pid", connection.pid))
+	return nil
 }
 
 func (c *NativeClient) ClearOAuthCredential(id string) error {
@@ -217,14 +261,18 @@ func (c *NativeClient) ClearOAuthCredential(id string) error {
 }
 
 func (c *NativeClient) Tools(ctx context.Context, id string) ([]Tool, error) {
+	ctx = c.traceContext(ctx)
+	span := tracepkg.Start(ctx, "MCP", "upstream.native.tools", "Requesting native upstream tool list", tracepkg.String("server", id))
 	connection, err := c.connection(id)
 	if err != nil {
+		span.FailMessage("Native upstream tool list failed", err)
 		return nil, err
 	}
 	var result struct {
 		Tools []Tool `json:"tools"`
 	}
 	if err := connection.call(ctx, "tools/list", "", map[string]any{}, &result); err != nil {
+		span.FailMessage("Native upstream tool list failed", err, tracepkg.String("protocol", connection.era))
 		return nil, err
 	}
 	modernHTTP := connection.isModernHTTP()
@@ -239,6 +287,7 @@ func (c *NativeClient) Tools(ctx context.Context, id string) ([]Tool, error) {
 		filtered = append(filtered, tool)
 	}
 	connection.rememberTools(filtered)
+	span.EndMessage("Native upstream tool list received", tracepkg.Int("tool_count", len(filtered)), tracepkg.Int("reported_tool_count", len(result.Tools)), tracepkg.String("protocol", connection.era), tracepkg.Bool("modern_http", modernHTTP))
 	return filtered, nil
 }
 
@@ -342,10 +391,12 @@ func (c *rpcConnection) toolDefinition(name string) (Tool, bool) {
 }
 
 func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rpcConnection, error) {
+	span := tracepkg.Start(ctx, "MCP", "upstream.transport.create", "Creating upstream transport", upstreamServerTraceFields(server)...)
 	connection := &rpcConnection{server: server, tools: map[string]Tool{}}
 	if server.Transport == "stdio" {
-		transport, err := startStdio(server)
+		transport, err := startStdio(ctx, server)
 		if err != nil {
+			span.FailMessage("Upstream transport creation failed", err)
 			return nil, err
 		}
 		connection.stdio = transport
@@ -360,7 +411,9 @@ func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rp
 		if env := strings.TrimSpace(server.BearerTokenEnvVar); env != "" {
 			token := strings.TrimSpace(os.Getenv(env))
 			if token == "" {
-				return nil, fmt.Errorf("missing bearer token environment variable for %s: %s", server.ID, env)
+				err := fmt.Errorf("missing bearer token environment variable for %s: %s", server.ID, env)
+				span.FailMessage("Upstream transport creation failed", err, tracepkg.String("bearer_env", env), tracepkg.Bool("bearer_env_present", false))
+				return nil, err
 			}
 			if !hasHeader(headers, "Authorization") {
 				headers["Authorization"] = "Bearer " + token
@@ -368,26 +421,39 @@ func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rp
 		}
 		connection.managedOAuth = server.Auth.Type != "none" && !hasHeader(headers, "Authorization")
 		if connection.managedOAuth {
+			oauthSpan := tracepkg.Start(ctx, "OAUTH", "upstream.oauth.access-token", "Resolving upstream OAuth access token", tracepkg.String("server", server.ID), tracepkg.URL("endpoint", server.URL))
 			token, err := c.oauth.AccessToken(ctx, mcpoauth.RuntimeConfig{ServerID: server.ID, ServerURL: server.URL})
 			switch {
 			case err == nil:
 				headers["Authorization"] = "Bearer " + token
+				oauthSpan.EndMessage("Upstream OAuth access token resolved", tracepkg.Bool("configured", true))
 			case errors.Is(err, mcpoauth.ErrCredentialNotFound) && server.Auth.Type == "auto":
+				oauthSpan.EndMessage("Upstream OAuth credential not configured", tracepkg.Bool("configured", false), tracepkg.String("auth_mode", server.Auth.Type))
 			case errors.Is(err, mcpoauth.ErrCredentialNotFound), errors.Is(err, mcpoauth.ErrLoginRequired):
+				oauthSpan.FailMessage("Upstream OAuth login required", err, tracepkg.Bool("configured", false))
+				span.FailMessage("Upstream transport creation failed", err)
 				return nil, &OAuthLoginRequiredError{ServerID: server.ID, Cause: err}
 			default:
+				oauthSpan.FailMessage("Upstream OAuth access token resolution failed", err)
+				span.FailMessage("Upstream transport creation failed", err)
 				return nil, err
 			}
 		}
 		connection.http = &httpTransport{url: server.URL, headers: headers, client: c.httpClient}
 	}
+	negotiateSpan := tracepkg.Start(ctx, "MCP", "upstream.protocol.negotiate", "Negotiating upstream MCP protocol", tracepkg.String("server", server.ID), tracepkg.String("transport", server.Transport))
 	if err := connection.negotiate(ctx); err != nil {
+		negotiateSpan.FailMessage("Upstream MCP protocol negotiation failed", err)
 		_ = connection.close(context.Background())
 		if server.Transport == "http" && connection.managedOAuth && isOAuthHTTPChallenge(err) {
+			span.FailMessage("Upstream transport creation failed", err)
 			return nil, &OAuthLoginRequiredError{ServerID: server.ID, Cause: err}
 		}
+		span.FailMessage("Upstream transport creation failed", err)
 		return nil, err
 	}
+	negotiateSpan.EndMessage("Upstream MCP protocol negotiated", tracepkg.String("protocol", connection.era), tracepkg.Bool("tools_list_changed", connection.toolsListChanged))
+	span.EndMessage("Upstream transport created", tracepkg.String("protocol", connection.era), tracepkg.Int("pid", connection.pid), tracepkg.Bool("managed_oauth", connection.managedOAuth))
 	return connection, nil
 }
 
@@ -445,6 +511,7 @@ func (c *rpcConnection) callEra(ctx context.Context, era, method, name string, p
 }
 
 func (c *rpcConnection) callEraLocked(ctx context.Context, era, method, name string, params map[string]any, headers map[string]string, target any) error {
+	span := tracepkg.Start(ctx, "MCP", "upstream.rpc.call", "Calling upstream MCP method", tracepkg.String("server", c.server.ID), tracepkg.String("transport", c.server.Transport), tracepkg.String("protocol", era), tracepkg.String("method", method), tracepkg.String("name", name))
 	id := c.nextID.Add(1)
 	value := cloneMap(params)
 	if era == ModernProtocol {
@@ -453,15 +520,24 @@ func (c *rpcConnection) callEraLocked(ctx context.Context, era, method, name str
 	request := rpcRequest{JSONRPC: "2.0", ID: id, Method: method, Params: value}
 	response, err := c.roundTrip(ctx, request, era, name, headers)
 	if err != nil {
+		span.FailMessage("Upstream MCP method failed", err, tracepkg.Int64("request_id", id))
 		return err
 	}
 	if response.Error != nil {
-		return &ProtocolError{Code: response.Error.Code, Message: response.Error.Message, Data: response.Error.Data}
+		err := &ProtocolError{Code: response.Error.Code, Message: response.Error.Message, Data: response.Error.Data}
+		span.FailMessage("Upstream MCP method returned protocol error", err, tracepkg.Int64("request_id", id), tracepkg.Int("protocol_error_code", response.Error.Code))
+		return err
 	}
 	if target == nil || len(response.Result) == 0 {
+		span.EndMessage("Upstream MCP method completed", tracepkg.Int64("request_id", id), tracepkg.Int("result_bytes", len(response.Result)))
 		return nil
 	}
-	return json.Unmarshal(response.Result, target)
+	if err := json.Unmarshal(response.Result, target); err != nil {
+		span.FailMessage("Upstream MCP result decode failed", err, tracepkg.Int64("request_id", id), tracepkg.Int("result_bytes", len(response.Result)))
+		return err
+	}
+	span.EndMessage("Upstream MCP method completed", tracepkg.Int64("request_id", id), tracepkg.Int("result_bytes", len(response.Result)))
+	return nil
 }
 
 func (c *rpcConnection) notify(ctx context.Context, method string, params map[string]any) error {
@@ -501,7 +577,10 @@ func (c *rpcConnection) close(ctx context.Context) error {
 	return nil
 }
 
-func startStdio(server Server) (*stdioTransport, error) {
+func startStdio(ctx context.Context, server Server) (*stdioTransport, error) {
+	args := sanitizeProcessArgs(server.Args)
+	envNames := sortedMapKeys(server.Env)
+	span := tracepkg.Start(ctx, "MCP", "upstream.stdio.spawn", "Starting upstream stdio process", tracepkg.String("server", server.ID), tracepkg.String("executable", server.Command), tracepkg.Any("args", args), tracepkg.String("cwd", server.CWD), tracepkg.Any("env_names", envNames), tracepkg.Int("env_count", len(envNames)))
 	cmd := exec.Command(server.Command, server.Args...)
 	if server.CWD != "" {
 		cmd.Dir = server.CWD
@@ -513,17 +592,21 @@ func startStdio(server Server) (*stdioTransport, error) {
 	cmd.Env = envSlice(env)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		span.FailMessage("Upstream stdio process setup failed", err, tracepkg.Int("exit_code", -1))
 		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		span.FailMessage("Upstream stdio process setup failed", err, tracepkg.Int("exit_code", -1))
 		return nil, err
 	}
-	value := &stdioTransport{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}
+	value := &stdioTransport{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout), server: server.ID, started: time.Now()}
 	cmd.Stderr = &value.stderr
 	if err := cmd.Start(); err != nil {
+		span.FailMessage("Upstream stdio process start failed", err, tracepkg.Int("exit_code", -1))
 		return nil, err
 	}
+	span.EndMessage("Upstream stdio process started", tracepkg.Int("pid", cmd.Process.Pid), tracepkg.String("executable", server.Command), tracepkg.Any("args", args), tracepkg.String("cwd", server.CWD), tracepkg.Int("env_count", len(envNames)))
 	return value, nil
 }
 
@@ -570,8 +653,18 @@ func (t *stdioTransport) roundTrip(ctx context.Context, data []byte, id int64) (
 }
 
 func (t *stdioTransport) close(ctx context.Context) error {
+	pid := 0
+	if t.cmd != nil && t.cmd.Process != nil {
+		pid = t.cmd.Process.Pid
+	}
+	span := tracepkg.Start(ctx, "MCP", "upstream.stdio.close", "Closing upstream stdio process", tracepkg.String("server", t.server), tracepkg.Int("pid", pid), tracepkg.Int64("uptime_ms", time.Since(t.started).Milliseconds()))
 	_ = t.stdin.Close()
 	if t.cmd == nil || t.cmd.Process == nil || t.cmd.ProcessState != nil {
+		exitCode := 0
+		if t.cmd != nil && t.cmd.ProcessState != nil {
+			exitCode = t.cmd.ProcessState.ExitCode()
+		}
+		span.EndMessage("Upstream stdio process already stopped", tracepkg.Int("exit_code", exitCode), tracepkg.Bool("forced", false))
 		return nil
 	}
 	_ = t.cmd.Process.Signal(os.Interrupt)
@@ -580,12 +673,31 @@ func (t *stdioTransport) close(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		_ = t.cmd.Process.Kill()
+		span.FailMessage("Upstream stdio process close timed out", ctx.Err(), tracepkg.Int("exit_code", stdioExitCode(t.cmd)), tracepkg.Bool("forced", true))
 		return ctx.Err()
 	case <-time.After(500 * time.Millisecond):
-		return t.cmd.Process.Kill()
-	case <-done:
+		err := t.cmd.Process.Kill()
+		if err != nil {
+			span.FailMessage("Upstream stdio process kill failed", err, tracepkg.Int("exit_code", stdioExitCode(t.cmd)), tracepkg.Bool("forced", true))
+			return err
+		}
+		span.EndMessage("Upstream stdio process killed", tracepkg.Int("exit_code", stdioExitCode(t.cmd)), tracepkg.Bool("forced", true))
+		return nil
+	case err := <-done:
+		if err != nil {
+			span.FailMessage("Upstream stdio process exited with error", err, tracepkg.Int("exit_code", t.cmd.ProcessState.ExitCode()), tracepkg.Bool("forced", false))
+			return err
+		}
+		span.EndMessage("Upstream stdio process stopped", tracepkg.Int("exit_code", t.cmd.ProcessState.ExitCode()), tracepkg.Bool("forced", false))
 		return nil
 	}
+}
+
+func stdioExitCode(cmd *exec.Cmd) int {
+	if cmd == nil || cmd.ProcessState == nil {
+		return -1
+	}
+	return cmd.ProcessState.ExitCode()
 }
 
 func (t *stdioTransport) withStderr(err error) error {
@@ -602,7 +714,7 @@ func (t *httpTransport) roundTrip(ctx context.Context, data []byte, era, method,
 		return rpcResponse{}, "", err
 	}
 	t.applyHeaders(request, era, method, name, session, headers)
-	response, err := t.client.Do(request)
+	response, err := tracepkg.DoHTTP(t.client, request)
 	if err != nil {
 		return rpcResponse{}, "", err
 	}
@@ -636,7 +748,7 @@ func (t *httpTransport) notify(ctx context.Context, data []byte, era, method, se
 		return err
 	}
 	t.applyHeaders(request, era, method, "", session, nil)
-	response, err := t.client.Do(request)
+	response, err := tracepkg.DoHTTP(t.client, request)
 	if err != nil {
 		return err
 	}
@@ -1014,4 +1126,48 @@ func envSlice(values map[string]string) []string {
 		result = append(result, key+"="+value)
 	}
 	return result
+}
+
+func sortedMapKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sanitizeProcessArgs(args []string) []string {
+	result := append([]string(nil), args...)
+	redactNext := false
+	for index, arg := range result {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		if redactNext {
+			result[index] = "<redacted>"
+			redactNext = false
+			continue
+		}
+		if equal := strings.IndexByte(lower, '='); equal > 0 {
+			name := strings.TrimLeft(lower[:equal], "-")
+			if sensitiveArgumentName(name) {
+				result[index] = arg[:equal+1] + "<redacted>"
+			}
+			continue
+		}
+		name := strings.TrimLeft(lower, "-")
+		if sensitiveArgumentName(name) {
+			redactNext = true
+		}
+	}
+	return result
+}
+
+func sensitiveArgumentName(name string) bool {
+	name = strings.NewReplacer("-", "_", ".", "_").Replace(strings.ToLower(strings.TrimSpace(name)))
+	for _, fragment := range []string{"token", "password", "passwd", "secret", "api_key", "apikey", "authorization", "credential"} {
+		if strings.Contains(name, fragment) {
+			return true
+		}
+	}
+	return false
 }

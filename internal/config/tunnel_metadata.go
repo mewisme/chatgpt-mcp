@@ -13,6 +13,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/state"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -63,35 +64,61 @@ func LoadTunnelMetadata(id string) (tunnel.Metadata, error) {
 }
 
 func SaveTunnelMetadata(metadata tunnel.Metadata) (string, error) {
+	return SaveTunnelMetadataContext(context.Background(), metadata)
+}
+
+func SaveTunnelMetadataContext(ctx context.Context, metadata tunnel.Metadata) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	metadata.ID = strings.TrimSpace(metadata.ID)
 	path, err := TunnelMetadataPath(metadata.ID)
 	if err != nil {
 		return "", err
 	}
+	span := tracepkg.Start(ctx, "TUNNEL", "tunnel.metadata.persist", "Persisting tunnel metadata cache", tracepkg.String("tunnel_id", metadata.ID), tracepkg.String("path", path), tracepkg.Bool("atomic", true))
 	if metadata.FetchedAt.IsZero() {
 		metadata.FetchedAt = time.Now().UTC()
 	}
 	data, err := configformat.MarshalPath(path, metadata)
 	if err != nil {
+		span.FailMessage("Tunnel metadata cache encoding failed", err)
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		span.FailMessage("Tunnel metadata cache directory creation failed", err)
 		return "", err
 	}
 	if err := state.WriteFileAtomic(path, data, 0600); err != nil {
+		span.FailMessage("Tunnel metadata cache persistence failed", err, tracepkg.Int64("bytes", int64(len(data))))
 		return "", err
 	}
+	format := ""
+	if detected, detectErr := configformat.Detect(path); detectErr == nil {
+		format = string(detected)
+	}
+	span.EndMessage("Tunnel metadata cache persisted", tracepkg.String("format", format), tracepkg.Int64("bytes", int64(len(data))))
 	return path, nil
 }
 
 func RemoveTunnelMetadata(id string) error {
+	return RemoveTunnelMetadataContext(context.Background(), id)
+}
+
+func RemoveTunnelMetadataContext(ctx context.Context, id string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	path, err := TunnelMetadataPath(id)
 	if err != nil {
 		return err
 	}
+	span := tracepkg.Start(ctx, "TUNNEL", "tunnel.metadata.remove", "Removing tunnel metadata cache", tracepkg.String("tunnel_id", strings.TrimSpace(id)), tracepkg.String("path", path))
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		span.FailMessage("Tunnel metadata cache removal failed", err)
 		return err
 	}
+	span.EndMessage("Tunnel metadata cache removed")
 	return nil
 }
 
@@ -147,16 +174,25 @@ func ListTunnelMetadata() ([]tunnel.Metadata, error) {
 }
 
 func SyncTunnelMetadata(ctx context.Context, cfg tunnel.Config) (tunnel.Metadata, string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	span := tracepkg.Start(ctx, "TUNNEL", "tunnel.metadata.sync", "Synchronizing configured tunnel metadata", tracepkg.String("tunnel_id", strings.TrimSpace(cfg.ID)), tracepkg.URL("control_plane_base_url", cfg.ControlPlaneBaseURL))
 	if !tunnel.Configured(cfg) {
-		return tunnel.Metadata{}, "", errors.New("tunnel id and runtime API key are required to sync metadata")
+		err := errors.New("tunnel id and runtime API key are required to sync metadata")
+		span.FailMessage("Tunnel metadata synchronization validation failed", err)
+		return tunnel.Metadata{}, "", err
 	}
 	metadata, err := tunnel.FetchMetadata(ctx, cfg)
 	if err != nil {
+		span.FailMessage("Tunnel metadata fetch failed", err)
 		return tunnel.Metadata{}, "", err
 	}
-	path, err := SaveTunnelMetadata(metadata)
+	path, err := SaveTunnelMetadataContext(ctx, metadata)
 	if err != nil {
+		span.FailMessage("Tunnel metadata cache persistence failed", err)
 		return tunnel.Metadata{}, "", err
 	}
+	span.EndMessage("Configured tunnel metadata synchronized", tracepkg.String("tunnel_id", metadata.ID), tracepkg.String("metadata_path", path))
 	return metadata, path, nil
 }

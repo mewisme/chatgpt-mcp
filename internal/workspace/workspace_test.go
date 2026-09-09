@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 func newTestManager(t *testing.T) *Manager {
@@ -37,6 +38,64 @@ func TestRegisterIsStableAndPersistent(t *testing.T) {
 	if !reflect.DeepEqual(got, first) {
 		t.Fatalf("persisted workspace = %#v, want %#v", got, first)
 	}
+}
+
+func TestWorkspaceLifecycleEmitsDeepTrace(t *testing.T) {
+	store := filepath.Join(t.TempDir(), "workspaces.json")
+	root := t.TempDir()
+	allowed := t.TempDir()
+	events := []tracepkg.Event{}
+	manager := NewManager(store).SetTraceObserver(func(event tracepkg.Event) { events = append(events, event) })
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.AddAllowDir(item.ID, allowed); err != nil {
+		t.Fatal(err)
+	}
+	container, err := manager.CreateContainer("trace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.AddWorkspaceToContainer(container.ID, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Unregister(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"workspace.registry.load.completed",
+		"workspace.path.resolve.completed",
+		"workspace.registry.persist.completed",
+		"workspace.register.completed",
+		"workspace.allow-dir.add.completed",
+		"workspace.container.create.completed",
+		"workspace.container.membership.completed",
+		"workspace.unregister.completed",
+	} {
+		if !workspaceTraceContains(events, name) {
+			t.Fatalf("missing trace event %s: %#v", name, events)
+		}
+	}
+	for _, event := range events {
+		if strings.HasSuffix(event.Name, ".started") && !workspaceTraceHasTerminal(events, event.Name) {
+			t.Fatalf("trace span never terminated: %s", event.Name)
+		}
+	}
+}
+
+func workspaceTraceContains(events []tracepkg.Event, name string) bool {
+	for _, event := range events {
+		if event.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func workspaceTraceHasTerminal(events []tracepkg.Event, startName string) bool {
+	base := strings.TrimSuffix(startName, ".started")
+	return workspaceTraceContains(events, base+".completed") || workspaceTraceContains(events, base+".failed")
 }
 
 func TestReloadAppliesExternalRegistryChangesAndPreservesRuntimeSettings(t *testing.T) {

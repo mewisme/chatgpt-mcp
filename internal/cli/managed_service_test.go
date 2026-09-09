@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -409,6 +410,40 @@ func TestRuntimeTunnelSummary(t *testing.T) {
 	for _, test := range cases {
 		if got := runtimeTunnelSummary(test.status); got != test.want {
 			t.Fatalf("summary = %q, want %q", got, test.want)
+		}
+	}
+}
+
+func TestLogManagedStartupFailureShowsRuntimeError(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := runtimeevent.NewJournal(root, runtimeevent.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(runtimeevent.Event{Time: time.Now().UTC(), Level: "error", Kind: "error", Name: "tunnel.start.failed", Message: "Tunnel start failed", Error: "invalid runtime key"}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"--verbose", "up"})
+	resolved, _, err := cmd.Find([]string{"--verbose", "up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.PersistentFlags().Set("verbose", "true"); err != nil {
+		t.Fatal(err)
+	}
+	manager := &fakeServiceManager{installed: true}
+	logManagedStartupFailure(resolved, managed.Spec{ConfigRoot: root}, manager, errors.New("managed service did not become ready"))
+	text := output.String()
+	for _, expected := range []string{"Managed runtime failed readiness", "Managed runtime error", "tunnel.start.failed", "Tunnel start failed: invalid runtime key"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("startup diagnostics missing %q: %s", expected, text)
 		}
 	}
 }

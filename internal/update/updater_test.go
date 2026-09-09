@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/install"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 type fakeResolver struct {
@@ -202,6 +203,33 @@ func TestUpdaterBadChecksumNeverActivates(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(layout.Versions, "v1.1.0")); !os.IsNotExist(statErr) {
 		t.Fatalf("failed update staged target version: %v", statErr)
 	}
+}
+
+func TestUpdaterApplyEmitsDeepTrace(t *testing.T) {
+	layout := updateTestLayout(t)
+	installCurrentVersion(t, layout, "v1.0.0", "old")
+	binary, _ := updateTestBinary(t, "new")
+	calls := 0
+	events := []tracepkg.Event{}
+	ctx := tracepkg.WithObserver(context.Background(), func(event tracepkg.Event) { events = append(events, event) })
+	updater := Updater{Resolver: fakeResolver{latest: Release{Version: "v1.1.0", ArchiveName: "fixture"}}, Downloader: fakeArtifactSource{binary: binary, calls: &calls}}
+	if _, err := updater.Apply(ctx, ApplyOptions{Layout: layout, CurrentVersion: "v1.0.0", NoAlias: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"update.apply.started", "update.current.read.completed", "update.target.resolve.completed", "update.artifact.download.completed", "update.install.completed", "update.apply.completed", "update.artifact.cleanup.completed"} {
+		if !containsTraceEvent(events, name) {
+			t.Fatalf("missing trace event %s: %#v", name, events)
+		}
+	}
+}
+
+func containsTraceEvent(events []tracepkg.Event, name string) bool {
+	for _, event := range events {
+		if event.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func updateReleaseFixture(t *testing.T, version string, binary []byte, validChecksum bool) (*httptest.Server, Release) {

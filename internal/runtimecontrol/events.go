@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 type EventStream struct {
@@ -21,12 +22,19 @@ type EventStream struct {
 }
 
 func OpenEvents(ctx context.Context) (*EventStream, State, error) {
-	state, err := Load()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	span := tracepkg.Start(ctx, "CONTROL", "runtime.events.connect", "Connecting runtime event stream", tracepkg.String("state_file", Path()))
+	state, err := LoadContext(ctx)
 	if err != nil {
+		span.FailMessage("Runtime event stream control lookup failed", err)
 		return nil, State{}, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+state.Address+"/events", nil)
+	endpoint := "http://" + state.Address + "/events"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
+		span.FailMessage("Runtime event stream request construction failed", err, tracepkg.Int("pid", state.PID), tracepkg.URL("endpoint", endpoint))
 		return nil, state, err
 	}
 	request.Header.Set("Authorization", "Bearer "+state.Token)
@@ -34,20 +42,25 @@ func OpenEvents(ctx context.Context) (*EventStream, State, error) {
 	client := &http.Client{Transport: &http.Transport{Proxy: nil, DialContext: dialer.DialContext, ResponseHeaderTimeout: 5 * time.Second}}
 	response, err := client.Do(request)
 	if err != nil {
+		span.FailMessage("Runtime event stream connection failed", err, tracepkg.Int("pid", state.PID), tracepkg.URL("endpoint", endpoint))
 		return nil, state, fmt.Errorf("running server control endpoint unavailable: %w", err)
 	}
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 		_ = response.Body.Close()
-		return nil, state, fmt.Errorf("runtime event stream failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		err := fmt.Errorf("runtime event stream failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		span.FailMessage("Runtime event stream connection failed", err, tracepkg.Int("pid", state.PID), tracepkg.URL("endpoint", endpoint), tracepkg.Int("status", response.StatusCode), tracepkg.Int64("response_bytes", int64(len(body))))
+		return nil, state, err
 	}
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	latestSequence, err := readEventStreamReady(scanner)
 	if err != nil {
 		_ = response.Body.Close()
+		span.FailMessage("Runtime event stream ready handshake failed", err, tracepkg.Int("pid", state.PID), tracepkg.URL("endpoint", endpoint), tracepkg.Int("status", response.StatusCode))
 		return nil, state, err
 	}
+	span.EndMessage("Runtime event stream connected", tracepkg.Int("pid", state.PID), tracepkg.URL("endpoint", endpoint), tracepkg.Int("status", response.StatusCode), tracepkg.Int64("latest_sequence", int64(latestSequence)))
 	return &EventStream{response: response, scanner: scanner, latestSequence: latestSequence}, state, nil
 }
 

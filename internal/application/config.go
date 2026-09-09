@@ -16,6 +16,7 @@ import (
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
@@ -51,6 +52,7 @@ type ConfigMutationResult struct {
 type configReloadResult = runtimecontrol.ReloadResult
 
 type InitOptions struct {
+	Context        context.Context
 	Force          bool
 	Format         configformat.Format
 	FormatSelected bool
@@ -64,11 +66,26 @@ type InitResult struct {
 	AdminToken string
 }
 
-func Initialize(options InitOptions) (InitResult, error) {
+func Initialize(options InitOptions) (result InitResult, resultErr error) {
+	ctx := options.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	span := tracepkg.Start(ctx, "CONFIG", "config.initialize", "Initializing configuration", tracepkg.Bool("force", options.Force), tracepkg.Bool("format_selected", options.FormatSelected), tracepkg.String("requested_format", string(options.Format)))
+	defer func() {
+		if resultErr != nil {
+			span.FailMessage("Configuration initialization failed", resultErr)
+			return
+		}
+		span.EndMessage("Configuration initialized", tracepkg.String("path", result.ConfigPath), tracepkg.String("format", string(result.Format)), tracepkg.Bool("mcp_token_generated", result.MCPToken != ""), tracepkg.Bool("admin_token_generated", result.AdminToken != ""))
+	}()
+	sourceSpan := tracepkg.Start(ctx, "CONFIG", "config.source.resolve", "Resolving configuration source", tracepkg.String("root", config.RootPath()))
 	source, err := config.Source()
 	if err != nil {
+		sourceSpan.FailMessage("Configuration source resolution failed", err)
 		return InitResult{}, err
 	}
+	sourceSpan.EndMessage("Configuration source resolved", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", source.Exists))
 	format := options.Format
 	if !options.FormatSelected {
 		format = configformat.JSON
@@ -83,45 +100,80 @@ func Initialize(options InitOptions) (InitResult, error) {
 		return InitResult{}, fmt.Errorf("cannot change storage format with init --force; convert configuration to %s first", format)
 	}
 	cfg := config.Default()
+	tokenSpan := tracepkg.Start(ctx, "AUTH", "auth.tokens.generate", "Generating initial authentication tokens", tracepkg.String("kinds", "mcp,admin"))
 	mcpToken := auth.GenerateToken("mcp")
 	adminToken := auth.GenerateToken("admin")
+	tokenSpan.EndMessage("Initial authentication tokens generated", tracepkg.Bool("mcp_generated", true), tracepkg.Bool("admin_generated", true))
+	hashSpan := tracepkg.Start(ctx, "AUTH", "auth.tokens.hash", "Hashing initial authentication tokens", tracepkg.Int("count", 2))
 	cfg.Auth.MCPTokenHash = auth.HashToken(mcpToken)
 	cfg.Auth.AdminTokenHash = auth.HashToken(adminToken)
+	hashSpan.EndMessage("Initial authentication tokens hashed", tracepkg.Int("count", 2))
+	validateSpan := tracepkg.Start(ctx, "CONFIG", "config.validate", "Validating initial configuration")
 	if err := config.Validate(cfg); err != nil {
+		validateSpan.FailMessage("Initial configuration validation failed", err)
 		return InitResult{}, err
 	}
+	validateSpan.EndMessage("Initial configuration validated")
 	path := source.Path
+	persistSpan := tracepkg.Start(ctx, "CONFIG", "config.persist", "Persisting initial configuration", tracepkg.String("path", path), tracepkg.String("format", string(format)), tracepkg.Bool("replace", source.Exists), tracepkg.Bool("atomic", true))
 	if source.Exists {
 		if err := config.Save(cfg); err != nil {
+			persistSpan.FailMessage("Initial configuration persistence failed", err)
 			return InitResult{}, err
 		}
 	} else {
 		if err := config.SaveAs(cfg, format); err != nil {
+			persistSpan.FailMessage("Initial configuration persistence failed", err)
 			return InitResult{}, err
 		}
 		path = config.PathForFormat(format)
 	}
-	return InitResult{Config: cfg, ConfigPath: path, Format: format, MCPToken: mcpToken, AdminToken: adminToken}, nil
+	persistFields := []tracepkg.Field{tracepkg.String("path", path), tracepkg.String("format", string(format))}
+	if info, statErr := os.Stat(path); statErr == nil {
+		persistFields = append(persistFields, tracepkg.Int64("bytes", info.Size()))
+	}
+	persistSpan.EndMessage("Initial configuration persisted", persistFields...)
+	result = InitResult{Config: cfg, ConfigPath: path, Format: format, MCPToken: mcpToken, AdminToken: adminToken}
+	return result, nil
 }
 
 func Uninitialize(root string) error {
-	if err := PurgeStoredSecrets(root); err != nil {
+	return UninitializeContext(context.Background(), root)
+}
+
+func UninitializeContext(ctx context.Context, root string) error {
+	span := tracepkg.Start(ctx, "CONFIG", "config.uninitialize", "Removing local configuration and state", tracepkg.String("root", root))
+	if err := PurgeStoredSecretsContext(ctx, root); err != nil {
+		span.FailMessage("Local configuration secret purge failed", err, tracepkg.String("root", root))
 		return err
 	}
-	return RemoveConfigRoot(root)
+	if err := RemoveConfigRootContext(ctx, root); err != nil {
+		span.FailMessage("Local configuration root removal failed", err, tracepkg.String("root", root))
+		return err
+	}
+	span.EndMessage("Local configuration and state removed", tracepkg.String("root", root))
+	return nil
 }
 
 func PurgeStoredSecrets(root string) error {
+	return PurgeStoredSecretsContext(context.Background(), root)
+}
+
+func PurgeStoredSecretsContext(ctx context.Context, root string) error {
+	span := tracepkg.Start(ctx, "CONFIG", "config.secrets.purge", "Purging stored configuration secrets", tracepkg.String("root", root))
 	entries, err := config.TunnelSecretEntries(root)
 	if err != nil {
+		span.FailMessage("Tunnel secret enumeration failed", err)
 		return err
 	}
 	oauthEntries, err := mcpoauth.NewStore(configformat.StructuredPath(root, "oauth")).SecretEntries()
 	if err != nil {
+		span.FailMessage("OAuth secret enumeration failed", err)
 		return err
 	}
 	upstreamEntries, err := upstream.NewStore(configformat.StructuredPath(root, "upstream")).SecretEntries()
 	if err != nil {
+		span.FailMessage("Upstream secret enumeration failed", err)
 		return err
 	}
 	entries = append(entries, secretstore.Name("cluster", "relay-token"))
@@ -131,32 +183,66 @@ func PurgeStoredSecrets(root string) error {
 	for _, entry := range entries {
 		changes = append(changes, secretstore.Change{Name: entry})
 	}
-	return secretstore.New(root).Apply(changes)
+	if err := secretstore.New(root).Apply(changes); err != nil {
+		span.FailMessage("Stored configuration secret purge failed", err, tracepkg.Int("secret_count", len(entries)))
+		return err
+	}
+	span.EndMessage("Stored configuration secrets purged", tracepkg.Int("secret_count", len(entries)))
+	return nil
 }
 
 func RemoveConfigRoot(root string) error {
+	return RemoveConfigRootContext(context.Background(), root)
+}
+
+func RemoveConfigRootContext(ctx context.Context, root string) error {
 	clean := filepath.Clean(root)
+	span := tracepkg.Start(ctx, "CONFIG", "config.root.remove", "Removing configuration root", tracepkg.String("path", clean))
 	if clean == "." || clean == string(filepath.Separator) {
-		return fmt.Errorf("refusing to remove unsafe config root: %s", clean)
+		err := fmt.Errorf("refusing to remove unsafe config root: %s", clean)
+		span.FailMessage("Configuration root removal refused", err, tracepkg.String("path", clean))
+		return err
 	}
 	volume := filepath.VolumeName(clean)
 	if clean == volume+string(filepath.Separator) {
-		return fmt.Errorf("refusing to remove volume root: %s", clean)
+		err := fmt.Errorf("refusing to remove volume root: %s", clean)
+		span.FailMessage("Configuration root removal refused", err, tracepkg.String("path", clean))
+		return err
 	}
 	if clean != filepath.Clean(configformat.DefaultRootPath()) && !configformat.IsManagedRoot(clean) {
-		return fmt.Errorf("refusing to remove unmanaged config root: %s", clean)
+		err := fmt.Errorf("refusing to remove unmanaged config root: %s", clean)
+		span.FailMessage("Configuration root removal refused", err, tracepkg.String("path", clean))
+		return err
 	}
-	return os.RemoveAll(clean)
+	if err := os.RemoveAll(clean); err != nil {
+		span.FailMessage("Configuration root removal failed", err, tracepkg.String("path", clean))
+		return err
+	}
+	span.EndMessage("Configuration root removed", tracepkg.String("path", clean))
+	return nil
 }
 
 func MigrateLegacySecrets() error {
-	if _, err := config.Load(); err != nil {
+	return MigrateLegacySecretsContext(context.Background())
+}
+
+func MigrateLegacySecretsContext(ctx context.Context) error {
+	span := tracepkg.Start(ctx, "CONFIG", "config.secrets.migrate", "Migrating legacy stored secrets")
+	if _, err := LoadConfig(ctx); err != nil {
+		span.FailMessage("Configuration secret migration failed", err, tracepkg.String("stage", "config"))
 		return err
 	}
-	if _, err := upstream.NewStore(upstream.Path()).Load(); err != nil {
+	upstreamStore := upstream.NewStore(upstream.Path())
+	if _, err := upstreamStore.Load(); err != nil {
+		span.FailMessage("Configuration secret migration failed", err, tracepkg.String("stage", "upstream"), tracepkg.String("path", upstream.Path()))
 		return err
 	}
-	return mcpoauth.NewStore(mcpoauth.Path()).Migrate()
+	if err := mcpoauth.NewStore(mcpoauth.Path()).Migrate(); err != nil {
+		span.FailMessage("Configuration secret migration failed", err, tracepkg.String("stage", "oauth"), tracepkg.String("path", mcpoauth.Path()))
+		return err
+	}
+	span.EndMessage("Legacy stored secrets migrated", tracepkg.String("upstream_path", upstream.Path()), tracepkg.String("oauth_path", mcpoauth.Path()))
+	return nil
 }
 
 func LoadConfigOverview(ctx context.Context) (ConfigOverview, error) {
@@ -192,46 +278,105 @@ func LoadConfigOverview(ctx context.Context) (ConfigOverview, error) {
 }
 
 func SetConfigField(ctx context.Context, key, raw string) (ConfigMutationResult, error) {
-	previous, err := config.Load()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	mutationSpan := tracepkg.Start(ctx, "CONFIG", "config.field.mutate", "Mutating configuration field", tracepkg.String("key", key))
+	previous, source, err := loadConfigTraced(ctx, "config.mutation.load", "Loading configuration for mutation")
 	if err != nil {
+		mutationSpan.FailMessage("Configuration field mutation failed", err)
 		return ConfigMutationResult{}, err
 	}
+	spec, specOK := config.FieldByKey(key)
+	previousValue := configTraceValue(previous, key, spec, specOK)
 	next := previous
+	validateSpan := tracepkg.Start(ctx, "CONFIG", "config.field.validate", "Validating configuration mutation", tracepkg.String("key", key), tracepkg.Any("previous", previousValue))
 	if err := config.SetValueValidated(&next, key, raw); err != nil {
+		validateSpan.FailMessage("Configuration mutation validation failed", err, tracepkg.String("key", key))
+		mutationSpan.FailMessage("Configuration field mutation failed", err, tracepkg.String("key", key))
 		return ConfigMutationResult{}, err
 	}
+	nextValue := configTraceValue(next, key, spec, specOK)
+	validateSpan.EndMessage("Configuration mutation validated", tracepkg.String("key", key), tracepkg.Any("previous", previousValue), tracepkg.Any("next", nextValue))
 	_, reloaded, err := saveConfigMutation(ctx, previous, next)
 	if err != nil {
+		mutationSpan.FailMessage("Configuration field mutation failed", err)
 		return ConfigMutationResult{}, err
 	}
+	mutationSpan.EndMessage("Configuration field mutated", tracepkg.String("key", key), tracepkg.Any("previous", previousValue), tracepkg.Any("next", nextValue), tracepkg.String("config", source.Path), tracepkg.Bool("runtime_reloaded", reloaded))
 	return ConfigMutationResult{Config: next, RuntimeReloaded: reloaded}, nil
 }
 
-func VerifyConfig() (config.VerifyResult, error) { return config.Verify() }
+func VerifyConfig() (config.VerifyResult, error) { return VerifyConfigContext(context.Background()) }
+
+func VerifyConfigContext(ctx context.Context) (config.VerifyResult, error) {
+	span := tracepkg.Start(ctx, "CONFIG", "config.verify", "Verifying configuration and state", tracepkg.String("root", config.RootPath()))
+	result, err := config.Verify()
+	if err != nil {
+		span.FailMessage("Configuration verification failed", err, tracepkg.String("root", config.RootPath()))
+		return config.VerifyResult{}, err
+	}
+	span.EndMessage("Configuration and state verified", tracepkg.String("root", config.RootPath()), tracepkg.String("format", string(result.Format)), tracepkg.Int("files", result.Files))
+	return result, nil
+}
 
 func ConvertConfig(format configformat.Format) (int, error) {
-	if err := MigrateLegacySecrets(); err != nil {
+	return ConvertConfigContext(context.Background(), format)
+}
+
+func ConvertConfigContext(ctx context.Context, format configformat.Format) (int, error) {
+	span := tracepkg.Start(ctx, "CONFIG", "config.convert", "Converting structured configuration", tracepkg.String("target_format", string(format)), tracepkg.String("root", config.RootPath()))
+	if err := MigrateLegacySecretsContext(ctx); err != nil {
+		span.FailMessage("Configuration format conversion failed", err, tracepkg.String("target_format", string(format)))
 		return 0, err
 	}
-	return config.ConvertFormat(format)
+	converted, err := config.ConvertFormat(format)
+	if err != nil {
+		span.FailMessage("Configuration format conversion failed", err, tracepkg.String("target_format", string(format)))
+		return 0, err
+	}
+	span.EndMessage("Configuration format converted", tracepkg.String("target_format", string(format)), tracepkg.Int("files", converted), tracepkg.String("config", config.PathForFormat(format)))
+	return converted, nil
 }
 
 func ExportConfig(destination string, force bool) (configbundle.ExportResult, error) {
-	if err := MigrateLegacySecrets(); err != nil {
+	return ExportConfigContext(context.Background(), destination, force)
+}
+
+func ExportConfigContext(ctx context.Context, destination string, force bool) (configbundle.ExportResult, error) {
+	span := tracepkg.Start(ctx, "CONFIG", "config.export", "Exporting portable configuration bundle", tracepkg.String("source_root", config.RootPath()), tracepkg.String("destination", destination), tracepkg.Bool("force", force))
+	if err := MigrateLegacySecretsContext(ctx); err != nil {
+		span.FailMessage("Configuration bundle export failed", err, tracepkg.String("destination", destination))
 		return configbundle.ExportResult{}, err
 	}
-	return configbundle.Export(config.RootPath(), destination, configbundle.ExportOptions{Force: force})
+	result, err := configbundle.Export(config.RootPath(), destination, configbundle.ExportOptions{Force: force})
+	if err != nil {
+		span.FailMessage("Configuration bundle export failed", err, tracepkg.String("destination", destination))
+		return configbundle.ExportResult{}, err
+	}
+	span.EndMessage("Configuration bundle exported", tracepkg.String("destination", result.Path), tracepkg.Int("files", result.Files), tracepkg.Int("secrets", result.Secrets), tracepkg.Int("skipped_files", result.SkippedFiles), tracepkg.String("source_platform", result.Source.OS+"/"+result.Source.Arch))
+	return result, nil
 }
 
 func ImportConfig(ctx context.Context, source string, force bool) (configbundle.ImportResult, error) {
+	span := tracepkg.Start(ctx, "CONFIG", "config.import", "Importing portable configuration bundle", tracepkg.String("source", source), tracepkg.String("destination_root", config.RootPath()), tracepkg.Bool("force", force))
 	running, err := RuntimeRunning(ctx)
 	if err != nil {
+		span.FailMessage("Configuration bundle import runtime check failed", err)
 		return configbundle.ImportResult{}, err
 	}
 	if running {
-		return configbundle.ImportResult{}, errors.New("runtime is running; stop it before importing configuration")
+		err := errors.New("runtime is running; stop it before importing configuration")
+		span.FailMessage("Configuration bundle import refused", err, tracepkg.Bool("runtime_running", true))
+		return configbundle.ImportResult{}, err
 	}
-	return configbundle.Import(config.RootPath(), source, configbundle.ImportOptions{Force: force})
+	result, err := configbundle.Import(config.RootPath(), source, configbundle.ImportOptions{Force: force})
+	if err != nil {
+		span.FailMessage("Configuration bundle import failed", err, tracepkg.String("source", source))
+		return configbundle.ImportResult{}, err
+	}
+	span.EndMessage("Configuration bundle imported", tracepkg.String("source", source), tracepkg.String("destination_root", config.RootPath()), tracepkg.Int("files", result.Files), tracepkg.Int("secrets", result.Secrets), tracepkg.Int("skipped_paths", result.SkippedPaths), tracepkg.Int("skipped_files", result.SkippedFiles), tracepkg.Bool("backup_created", result.BackupPath != ""), tracepkg.String("source_platform", result.Source.OS+"/"+result.Source.Arch), tracepkg.String("target_platform", result.Target.OS+"/"+result.Target.Arch))
+	return result, nil
 }
 
 func reloadConfig(ctx context.Context) (configReloadResult, error) {
@@ -240,8 +385,8 @@ func reloadConfig(ctx context.Context) (configReloadResult, error) {
 	if err != nil {
 		return configReloadResult{}, err
 	}
-	if result.PID != state.PID {
-		return configReloadResult{}, fmt.Errorf("runtime control PID mismatch: expected %d, got %d", state.PID, result.PID)
+	if err := runtimecontrol.ValidatePID(ctx, state.PID, result.PID, "reload"); err != nil {
+		return configReloadResult{}, err
 	}
 	return result, nil
 }
@@ -250,40 +395,149 @@ func reloadPersistedConfigIfRunning(ctx context.Context) (configReloadResult, bo
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	span := tracepkg.Start(ctx, "CONFIG", "config.runtime.reload", "Reloading persisted configuration into runtime")
 	result, err := reloadConfig(ctx)
 	if err != nil {
 		if runtimecontrol.IsUnavailable(err) {
+			span.EndMessage("Runtime reload skipped", tracepkg.Bool("runtime_running", false), tracepkg.Bool("runtime_reloaded", false))
 			return configReloadResult{}, false, nil
 		}
+		span.FailMessage("Runtime configuration reload failed", err)
 		return configReloadResult{}, false, err
 	}
+	span.EndMessage("Runtime configuration reloaded", tracepkg.Bool("runtime_running", true), tracepkg.Bool("runtime_reloaded", true), tracepkg.Int("pid", result.PID), tracepkg.Bool("network_restarted", result.NetworkRestarted), tracepkg.Bool("server_enabled", result.ServerEnabled), tracepkg.Int("server_port", result.ServerPort), tracepkg.Bool("admin_enabled", result.AdminEnabled), tracepkg.Int("admin_port", result.AdminPort), tracepkg.String("exposure", string(result.Exposure)))
 	return result, true, nil
 }
 
 func saveConfigMutation(ctx context.Context, previous, next config.Config) (configReloadResult, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	source, _ := config.Source()
+	persistSpan := tracepkg.Start(ctx, "CONFIG", "config.persist", "Persisting configuration", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("atomic", true))
 	if err := config.Save(next); err != nil {
+		persistSpan.FailMessage("Configuration persistence failed", err)
 		return configReloadResult{}, false, err
 	}
+	persistFields := []tracepkg.Field{tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format))}
+	if info, statErr := os.Stat(source.Path); statErr == nil {
+		persistFields = append(persistFields, tracepkg.Int64("bytes", info.Size()))
+	}
+	if fingerprint, fingerprintErr := config.RuntimeFingerprint(next); fingerprintErr == nil {
+		persistFields = append(persistFields, tracepkg.String("fingerprint", fingerprint))
+	}
+	persistSpan.EndMessage("Configuration persisted", persistFields...)
 	result, reloaded, err := reloadPersistedConfigIfRunning(ctx)
 	if err == nil {
 		return result, reloaded, nil
 	}
+	rollbackSpan := tracepkg.Start(ctx, "CONFIG", "config.persist.rollback", "Rolling back persisted configuration", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("atomic", true))
 	rollbackErr := config.Save(previous)
 	if rollbackErr != nil {
+		rollbackSpan.FailMessage("Persisted configuration rollback failed", rollbackErr)
 		return configReloadResult{}, false, errors.Join(fmt.Errorf("reload running configuration: %w", err), fmt.Errorf("rollback persisted configuration: %w", rollbackErr))
 	}
+	rollbackFields := []tracepkg.Field{tracepkg.String("path", source.Path)}
+	if info, statErr := os.Stat(source.Path); statErr == nil {
+		rollbackFields = append(rollbackFields, tracepkg.Int64("bytes", info.Size()))
+	}
+	rollbackSpan.EndMessage("Persisted configuration rolled back", rollbackFields...)
 	return configReloadResult{}, false, fmt.Errorf("reload running configuration: %w; persisted configuration rolled back", err)
 }
 
 func saveConfigMutationWithoutRollback(ctx context.Context, next config.Config) (configReloadResult, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	source, _ := config.Source()
+	persistSpan := tracepkg.Start(ctx, "CONFIG", "config.persist", "Persisting configuration", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("atomic", true), tracepkg.Bool("rollback", false))
 	if err := config.Save(next); err != nil {
+		persistSpan.FailMessage("Configuration persistence failed", err)
 		return configReloadResult{}, false, err
 	}
+	persistFields := []tracepkg.Field{tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format))}
+	if info, statErr := os.Stat(source.Path); statErr == nil {
+		persistFields = append(persistFields, tracepkg.Int64("bytes", info.Size()))
+	}
+	persistSpan.EndMessage("Configuration persisted", persistFields...)
 	result, reloaded, err := reloadPersistedConfigIfRunning(ctx)
 	if err != nil {
 		return configReloadResult{}, false, fmt.Errorf("reload running configuration: %w", err)
 	}
 	return result, reloaded, nil
+}
+
+func loadConfigTraced(ctx context.Context, name, message string) (config.Config, configformat.Source, error) {
+	return loadConfigWithTracedLoader(ctx, name, message, config.Load)
+}
+
+func LoadConfig(ctx context.Context) (config.Config, error) {
+	cfg, _, err := loadConfigTraced(ctx, "config.load", "Loading configuration")
+	return cfg, err
+}
+
+func ConfigSource(ctx context.Context) (configformat.Source, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	span := tracepkg.Start(ctx, "CONFIG", "config.source.inspect", "Inspecting active configuration source", tracepkg.String("root", config.RootPath()))
+	source, err := config.Source()
+	if err != nil {
+		span.FailMessage("Active configuration source inspection failed", err, tracepkg.String("root", config.RootPath()))
+		return configformat.Source{}, err
+	}
+	fields := []tracepkg.Field{tracepkg.String("root", config.RootPath()), tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", source.Exists)}
+	if info, statErr := os.Stat(source.Path); statErr == nil {
+		fields = append(fields, tracepkg.Int64("bytes", info.Size()))
+	}
+	span.EndMessage("Active configuration source inspected", fields...)
+	return source, nil
+}
+
+func loadConfigWithTracedLoader(ctx context.Context, name, message string, load func() (config.Config, error)) (config.Config, configformat.Source, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if load == nil {
+		load = config.Load
+	}
+	sourceSpan := tracepkg.Start(ctx, "CONFIG", "config.source.resolve", "Resolving configuration source", tracepkg.String("root", config.RootPath()))
+	source, err := config.Source()
+	if err != nil {
+		sourceSpan.FailMessage("Configuration source resolution failed", err)
+		return config.Config{}, configformat.Source{}, err
+	}
+	sourceSpan.EndMessage("Configuration source resolved", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", source.Exists))
+	span := tracepkg.Start(ctx, "CONFIG", name, message, tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", source.Exists))
+	cfg, err := load()
+	if err != nil {
+		span.FailMessage(message+" failed", err)
+		return config.Config{}, source, err
+	}
+	fields := []tracepkg.Field{tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format))}
+	if info, statErr := os.Stat(source.Path); statErr == nil {
+		fields = append(fields, tracepkg.Int64("bytes", info.Size()))
+	}
+	span.EndMessage(message+" completed", fields...)
+	return cfg, source, nil
+}
+
+func configTraceValue(cfg config.Config, key string, spec config.FieldSpec, specOK bool) any {
+	if specOK && spec.Sensitive {
+		value, err := config.RawValue(cfg, key)
+		if err != nil || strings.TrimSpace(value) == "" {
+			return "empty"
+		}
+		return "configured"
+	}
+	value, err := config.RedactedValueAt(cfg, key)
+	if err != nil {
+		return "unavailable"
+	}
+	if strings.Contains(strings.ToLower(key), "url") {
+		return tracepkg.SanitizeURL(fmt.Sprint(value))
+	}
+	return value
 }
 
 func ReloadWorkspaces(ctx context.Context) (runtimecontrol.WorkspaceReloadResult, bool, error) {
@@ -295,8 +549,8 @@ func ReloadWorkspaces(ctx context.Context) (runtimecontrol.WorkspaceReloadResult
 		}
 		return runtimecontrol.WorkspaceReloadResult{}, true, err
 	}
-	if result.PID != state.PID {
-		return runtimecontrol.WorkspaceReloadResult{}, true, fmt.Errorf("runtime control PID mismatch: expected %d, got %d", state.PID, result.PID)
+	if err := runtimecontrol.ValidatePID(ctx, state.PID, result.PID, "workspaces-reload"); err != nil {
+		return runtimecontrol.WorkspaceReloadResult{}, true, err
 	}
 	return result, true, nil
 }
@@ -312,8 +566,8 @@ func RuntimeRunning(ctx context.Context) (bool, error) {
 		}
 		return false, err
 	}
-	if status.PID != state.PID {
-		return false, fmt.Errorf("runtime control PID mismatch: expected %d, got %d", state.PID, status.PID)
+	if err := runtimecontrol.ValidatePID(ctx, state.PID, status.PID, "status"); err != nil {
+		return false, err
 	}
 	return true, nil
 }

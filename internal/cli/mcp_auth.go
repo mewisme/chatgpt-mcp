@@ -10,6 +10,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 func mcpServerAuthCommand() *cobra.Command {
@@ -45,9 +46,8 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 			logCommandStep(cmd, "OAUTH", "oauth.authorization.preparing", "Preparing upstream OAuth authorization", logger.WithVerbose("server", server.ID))
-			store := mcpoauth.NewStore(mcpoauth.Path())
+			store := oauthStoreForCommand(cmd)
 			log := commandLogger(cmd)
-			defer log.Close()
 			startCommandSpinner(cmd, log, "OAUTH", "oauth.starting", "Starting OAuth authorization")
 			credential, err := store.Login(ctx, mcpoauth.LoginConfig{
 				ServerID: server.ID, ServerURL: server.URL, Scope: server.Auth.Scope, Issuer: issuer,
@@ -55,10 +55,14 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 			}, mcpoauth.LoginOptions{ExtraScope: extraScope, OnURL: func(raw string) error {
 				log.Info("OAUTH", "authorization required")
 				log.Detail("url", raw)
-				if !noOpen {
-					if err := application.OpenBrowser(raw); err != nil {
-						log.Warn("OAUTH", "could not open browser; use the URL above", "error", err)
-					}
+				browserSpan := tracepkg.Start(ctx, "OAUTH", "oauth.browser.open", "Opening OAuth authorization in browser", tracepkg.Bool("skipped", noOpen))
+				if noOpen {
+					browserSpan.EndMessage("OAuth browser open skipped", tracepkg.Bool("skipped", true))
+				} else if err := application.OpenBrowser(raw); err != nil {
+					browserSpan.FailMessage("OAuth browser open failed", fmt.Errorf("browser open failed"), tracepkg.Bool("skipped", false))
+					log.Warn("OAUTH", "could not open browser; use the URL above", "error", err)
+				} else {
+					browserSpan.EndMessage("OAuth authorization opened in browser", tracepkg.Bool("skipped", false))
 				}
 				startCommandSpinner(cmd, log, "OAUTH", "oauth.waiting", "Waiting for OAuth authorization")
 				return nil
@@ -74,10 +78,13 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 				log.Detail("expires", credential.ExpiresAt.Format(time.RFC3339))
 			}
 			startCommandSpinner(cmd, log, "MCP", "mcp.health.checking", "Checking upstream MCP health")
+			healthSpan := tracepkg.Start(ctx, "OAUTH", "oauth.post-login.health", "Checking upstream MCP health after OAuth login", tracepkg.String("server", server.ID))
 			status := manager.CheckHealth(ctx, server.ID, true)
 			if status.Health != "connected" {
+				healthSpan.FailMessage("Post-login upstream MCP health check failed", fmt.Errorf("upstream MCP health check did not connect"), tracepkg.String("health", string(status.Health)))
 				log.Warn("MCP", "OAuth completed but upstream health check did not connect", "error", status.LastError)
 			} else {
+				healthSpan.EndMessage("Post-login upstream MCP health check connected", tracepkg.String("health", string(status.Health)), tracepkg.Int("tool_count", status.ToolCount))
 				log.Ready("MCP", "mcp.health.connected", "Upstream MCP server connected")
 			}
 			return nil
@@ -109,7 +116,7 @@ func mcpServerAuthStatusCommand() *cobra.Command {
 			if _, ok := manager.Get(args[0]); !ok {
 				return fmt.Errorf("unknown upstream server: %s", args[0])
 			}
-			status, err := mcpoauth.NewStore(mcpoauth.Path()).Status(args[0])
+			status, err := oauthStoreForCommand(cmd).Status(args[0])
 			if err != nil {
 				return err
 			}
@@ -151,11 +158,21 @@ func mcpServerAuthLogoutCommand() *cobra.Command {
 			if _, ok := manager.Get(args[0]); !ok {
 				return fmt.Errorf("unknown upstream server: %s", args[0])
 			}
-			if err := mcpoauth.NewStore(mcpoauth.Path()).Delete(args[0]); err != nil {
+			if err := oauthStoreForCommand(cmd).Delete(args[0]); err != nil {
 				return err
 			}
+			disconnectSpan := tracepkg.Start(cmd.Context(), "OAUTH", "oauth.logout.disconnect", "Disconnecting upstream after OAuth authorization removal", tracepkg.String("server", args[0]))
+			if err := manager.Disconnect(args[0]); err != nil {
+				disconnectSpan.FailMessage("Upstream disconnect after OAuth logout failed", err)
+				return err
+			}
+			disconnectSpan.EndMessage("Upstream disconnected after OAuth logout", tracepkg.Bool("credential_invalidated", true))
 			commandLogger(cmd).Success("OAUTH", "authorization removed", "id", args[0])
 			return nil
 		},
 	}
+}
+
+func oauthStoreForCommand(cmd *cobra.Command) *mcpoauth.Store {
+	return mcpoauth.NewStore(mcpoauth.Path()).SetTraceObserver(tracepkg.ObserverFromContext(cmd.Context()))
 }

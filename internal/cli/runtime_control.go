@@ -23,6 +23,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/state"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 type runtimeControlState = runtimecontrol.State
@@ -54,6 +55,7 @@ type runtimeControl struct {
 	listener net.Listener
 	server   *http.Server
 	path     string
+	trace    tracepkg.Observer
 }
 
 func runtimeControlPath() string { return runtimecontrol.Path() }
@@ -63,28 +65,48 @@ func reloadResult(cfg config.Config, networkRestarted bool) runtimeReloadResult 
 }
 
 func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error) {
-	if options.Reload == nil || options.Status == nil || options.Shutdown == nil || options.ClearLogs == nil {
-		return nil, errors.New("runtime control handlers are incomplete")
+	return startRuntimeControlContext(context.Background(), options)
+}
+
+func startRuntimeControlContext(ctx context.Context, options runtimeControlOptions) (*runtimeControl, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
+	path := runtimeControlPath()
+	span := tracepkg.Start(ctx, "CONTROL", "runtime.control.start", "Starting runtime control endpoint", tracepkg.String("state_file", path))
+	if options.Reload == nil || options.Status == nil || options.Shutdown == nil || options.ClearLogs == nil {
+		err := errors.New("runtime control handlers are incomplete")
+		span.FailMessage("Runtime control endpoint configuration invalid", err)
 		return nil, err
 	}
+	bindSpan := tracepkg.Start(ctx, "CONTROL", "runtime.control.bind", "Binding runtime control endpoint", tracepkg.String("host", "127.0.0.1"), tracepkg.Int("port", 0))
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		bindSpan.FailMessage("Runtime control bind failed", err)
+		span.FailMessage("Runtime control endpoint start failed", err)
+		return nil, err
+	}
+	bindSpan.EndMessage("Runtime control endpoint bound", tracepkg.String("address", listener.Addr().String()))
 	startedAt := options.StartedAt.UTC()
 	if startedAt.IsZero() {
 		startedAt = time.Now().UTC()
 	}
 	controlState := runtimeControlState{PID: os.Getpid(), Address: listener.Addr().String(), Token: auth.GenerateToken("runtime"), RunID: options.RunID, Managed: options.Managed, ServiceID: options.ServiceID, ServiceScope: options.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath()}
-	path := runtimeControlPath()
 	data, err := json.Marshal(controlState)
 	if err != nil {
 		_ = listener.Close()
+		span.FailMessage("Runtime control state encoding failed", err)
 		return nil, err
 	}
-	if err := state.WriteFileAtomic(path, append(data, '\n'), 0600); err != nil {
+	stateData := append(data, '\n')
+	writeSpan := tracepkg.Start(ctx, "CONTROL", "runtime.control.state.write", "Writing runtime control state", tracepkg.String("state_file", path), tracepkg.Int64("bytes", int64(len(stateData))), tracepkg.Bool("atomic", true))
+	if err := state.WriteFileAtomic(path, stateData, 0600); err != nil {
 		_ = listener.Close()
+		writeSpan.FailMessage("Runtime control state write failed", err)
+		span.FailMessage("Runtime control endpoint start failed", err)
 		return nil, err
 	}
+	writeSpan.EndMessage("Runtime control state written", tracepkg.String("state_file", path), tracepkg.Int64("bytes", int64(len(stateData))), tracepkg.Bool("atomic", true))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/reload", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		result, err := options.Reload(r.Context())
@@ -226,8 +248,9 @@ func startRuntimeControl(options runtimeControlOptions) (*runtimeControl, error)
 		serveRuntimeExecutionFeed(w, r, options.Executions)
 	}))
 	server := newHTTPServer(mux)
-	control := &runtimeControl{state: controlState, listener: listener, server: server, path: path}
+	control := &runtimeControl{state: controlState, listener: listener, server: server, path: path, trace: tracepkg.ObserverFromContext(ctx)}
 	go serveRuntimeControl(server, listener, options.Log)
+	span.EndMessage("Runtime control endpoint started", tracepkg.String("address", controlState.Address), tracepkg.String("state_file", path), tracepkg.Int64("state_bytes", int64(len(stateData))))
 	return control, nil
 }
 
@@ -384,20 +407,45 @@ func (c *runtimeControl) Close() error {
 	if c == nil {
 		return nil
 	}
+	span := tracepkg.StartObserver(c.trace, "CONTROL", "runtime.control.cleanup", "Cleaning up runtime control endpoint", tracepkg.String("address", c.state.Address), tracepkg.String("state_file", c.path))
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	shutdownSpan := tracepkg.StartObserver(c.trace, "CONTROL", "runtime.control.shutdown", "Shutting down runtime control HTTP server", tracepkg.String("address", c.state.Address))
 	err := c.server.Shutdown(ctx)
+	if errors.Is(err, http.ErrServerClosed) {
+		err = nil
+	}
+	if err != nil {
+		shutdownSpan.FailMessage("Runtime control HTTP shutdown failed", err)
+	} else {
+		shutdownSpan.EndMessage("Runtime control HTTP server shut down")
+	}
 	_ = c.listener.Close()
+	removed := false
+	cleanupSpan := tracepkg.StartObserver(c.trace, "CONTROL", "runtime.control.state.cleanup", "Cleaning up runtime control state file", tracepkg.String("state_file", c.path))
 	if data, readErr := os.ReadFile(c.path); readErr == nil {
 		var current runtimeControlState
 		if json.Unmarshal(data, &current) == nil && current.Token == c.state.Token {
-			_ = os.Remove(c.path)
+			if removeErr := os.Remove(c.path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				cleanupSpan.FailMessage("Runtime control state file cleanup failed", removeErr)
+			} else {
+				removed = true
+				cleanupSpan.EndMessage("Runtime control state file cleaned up", tracepkg.Bool("removed", true))
+			}
+		} else {
+			cleanupSpan.EndMessage("Runtime control state file preserved", tracepkg.Bool("removed", false), tracepkg.String("reason", "ownership_changed"))
 		}
+	} else if errors.Is(readErr, os.ErrNotExist) {
+		cleanupSpan.EndMessage("Runtime control state file already absent", tracepkg.Bool("removed", false))
+	} else {
+		cleanupSpan.FailMessage("Runtime control state file inspection failed", readErr)
 	}
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
+	if err != nil {
+		span.FailMessage("Runtime control endpoint cleanup failed", err, tracepkg.Bool("state_file_removed", removed))
+		return err
 	}
-	return err
+	span.EndMessage("Runtime control endpoint cleaned up", tracepkg.Bool("state_file_removed", removed))
+	return nil
 }
 
 func runtimeControlRequest(ctx context.Context, method, path string, output any) (runtimeControlState, error) {
@@ -459,8 +507,8 @@ func requestRuntimeReload(ctx context.Context) (runtimeReloadResult, error) {
 	if err != nil {
 		return runtimeReloadResult{}, err
 	}
-	if result.PID != control.PID {
-		return runtimeReloadResult{}, fmt.Errorf("runtime control PID mismatch: expected %d, got %d", control.PID, result.PID)
+	if err := runtimecontrol.ValidatePID(ctx, control.PID, result.PID, "reload"); err != nil {
+		return runtimeReloadResult{}, err
 	}
 	return result, nil
 }
@@ -471,8 +519,8 @@ func requestRuntimeStatus(ctx context.Context) (runtimeStatusResult, error) {
 	if err != nil {
 		return runtimeStatusResult{}, err
 	}
-	if result.PID != control.PID {
-		return runtimeStatusResult{}, fmt.Errorf("runtime control PID mismatch: expected %d, got %d", control.PID, result.PID)
+	if err := runtimecontrol.ValidatePID(ctx, control.PID, result.PID, "status"); err != nil {
+		return runtimeStatusResult{}, err
 	}
 	return result, nil
 }

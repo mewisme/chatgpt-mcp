@@ -5,15 +5,19 @@ import (
 	"io"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const machineOutputAnnotation = "chatgpt-mcp.machine-output"
+
+var commandLoggers sync.Map
 
 func addLoggingFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().Bool("verbose", false, "show additional runtime context")
@@ -27,13 +31,36 @@ func validateLoggingFlags(cmd *cobra.Command, _ []string) error {
 }
 
 func commandLogger(cmd *cobra.Command) *logger.Logger {
+	if cmd != nil {
+		if value, ok := commandLoggers.Load(cmd); ok {
+			return value.(*logger.Logger)
+		}
+	}
 	verbose, debug := commandLogMode(cmd)
 	format, _ := commandLogFormat(cmd)
 	level := logger.Info
 	if debug {
 		level = logger.Debug
 	}
-	return logger.NewWithOptions(logger.Options{Level: level, Mode: logger.ModeFor(verbose, debug), Format: format, Writer: commandLogWriter(cmd)})
+	created := logger.NewWithOptions(logger.Options{Level: level, Mode: logger.ModeFor(verbose, debug), Format: format, Writer: commandLogWriter(cmd)})
+	if cmd == nil {
+		return created
+	}
+	value, loaded := commandLoggers.LoadOrStore(cmd, created)
+	if loaded {
+		created.Close()
+		return value.(*logger.Logger)
+	}
+	return created
+}
+
+func closeCommandLogger(cmd *cobra.Command) {
+	if cmd == nil {
+		return
+	}
+	if value, ok := commandLoggers.LoadAndDelete(cmd); ok {
+		value.(*logger.Logger).Close()
+	}
 }
 
 func startCommandSpinner(cmd *cobra.Command, log *logger.Logger, component, name, message string) {
@@ -98,7 +125,11 @@ func commandMachineOutput(cmd *cobra.Command) bool {
 
 func logCommandStart(cmd *cobra.Command, args []string) {
 	log := commandLogger(cmd)
-	log.Verbose("CLI", "cli.command.starting", "Executing command", logger.WithVerbose("command", cmd.CommandPath()))
+	log.Verbose("CLI", "cli.command.starting", "Executing command",
+		logger.WithVerbose("command", cmd.CommandPath()),
+		logger.WithVerbose("cwd", currentWorkingDirectory()),
+		logger.WithVerbose("pid", os.Getpid()),
+	)
 	log.Diagnostic(logger.Info, "CLI", "cli.command.context", "Command context",
 		logger.WithDebug("pid", os.Getpid()),
 		logger.WithDebug("cwd", currentWorkingDirectory()),
@@ -186,4 +217,18 @@ func logCommandStep(cmd *cobra.Command, component, name, message string, fields 
 
 func logCommandDebug(cmd *cobra.Command, component, name, message string, fields ...logger.Field) {
 	commandLogger(cmd).Diagnostic(logger.Info, component, name, message, fields...)
+}
+
+func commandTraceObserver(cmd *cobra.Command) tracepkg.Observer {
+	if cmd == nil {
+		return nil
+	}
+	return func(event tracepkg.Event) {
+		fields := make([]logger.Field, 0, len(event.Fields)+1)
+		fields = append(fields, logger.WithDebug("trace_phase", event.Phase))
+		for _, field := range event.Fields {
+			fields = append(fields, logger.WithVerbose(field.Key, field.Value))
+		}
+		commandLogger(cmd).Verbose(event.Component, event.Name, event.Message, fields...)
+	}
 }

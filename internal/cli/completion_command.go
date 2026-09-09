@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 var completionShells = []string{"bash", "zsh", "fish", "powershell"}
@@ -20,22 +21,43 @@ func completionCommand() *cobra.Command {
 		ValidArgsFunction: completeStatic(completionShells...),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			shell := strings.ToLower(strings.TrimSpace(args[0]))
+			descriptions := !noDescriptions
+			span := tracepkg.Start(cmd.Context(), "COMPLETION", "completion.generate", "Generating shell completion output", tracepkg.String("shell", shell), tracepkg.Bool("descriptions_enabled", descriptions), tracepkg.Bool("go_run_requested", goRun))
 			if !hasString(completionShells, shell) {
-				return fmt.Errorf("unsupported shell %q", shell)
-			}
-			if goRun && shell != "bash" && shell != "zsh" {
-				return fmt.Errorf("--go-run is supported for bash and zsh")
-			}
-			script, err := generateCompletion(cmd.Root(), shell, !noDescriptions)
-			if err != nil {
+				err := fmt.Errorf("unsupported shell %q", shell)
+				span.FailMessage("Shell completion generation failed", err)
 				return err
 			}
-			script = registerCompletionAliases(shell, cmd.Root().Name(), script)
-			if goRun {
-				script += goRunCompletion(shell, cmd.Root().Name())
+			if goRun && shell != "bash" && shell != "zsh" {
+				err := fmt.Errorf("--go-run is supported for bash and zsh")
+				span.FailMessage("Shell completion generation failed", err, tracepkg.Bool("go_run_supported", false))
+				return err
 			}
-			_, err = io.WriteString(cmd.OutOrStdout(), script)
-			return err
+			generationSpan := tracepkg.Start(cmd.Context(), "COMPLETION", "completion.script.generate", "Generating base shell completion script", tracepkg.String("shell", shell), tracepkg.Bool("descriptions_enabled", descriptions))
+			script, err := generateCompletion(cmd.Root(), shell, descriptions)
+			if err != nil {
+				generationSpan.FailMessage("Base shell completion generation failed", err)
+				span.FailMessage("Shell completion generation failed", err)
+				return err
+			}
+			generationSpan.EndMessage("Base shell completion script generated", tracepkg.Int("output_bytes", len(script)))
+			beforeAliases := script
+			script = registerCompletionAliases(shell, cmd.Root().Name(), script)
+			tracepkg.Emit(cmd.Context(), "COMPLETION", "completion.alias-transform", "Applied shell completion alias registration transform", tracepkg.String("shell", shell), tracepkg.Bool("transformed", script != beforeAliases), tracepkg.Int("before_bytes", len(beforeAliases)), tracepkg.Int("after_bytes", len(script)))
+			goRunBytes := 0
+			if goRun {
+				extension := goRunCompletion(shell, cmd.Root().Name())
+				goRunBytes = len(extension)
+				script += extension
+			}
+			tracepkg.Emit(cmd.Context(), "COMPLETION", "completion.go-run-extension", "Resolved go-run completion extension decision", tracepkg.String("shell", shell), tracepkg.Bool("requested", goRun), tracepkg.Bool("supported", shell == "bash" || shell == "zsh"), tracepkg.Bool("added", goRunBytes > 0), tracepkg.Int("extension_bytes", goRunBytes))
+			written, err := io.WriteString(cmd.OutOrStdout(), script)
+			if err != nil {
+				span.FailMessage("Shell completion output write failed", err, tracepkg.Int("output_bytes", written))
+				return err
+			}
+			span.EndMessage("Shell completion output generated", tracepkg.String("shell", shell), tracepkg.Bool("descriptions_enabled", descriptions), tracepkg.Bool("go_run_added", goRunBytes > 0), tracepkg.Int("output_bytes", written))
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&noDescriptions, "no-descriptions", false, "disable completion descriptions")

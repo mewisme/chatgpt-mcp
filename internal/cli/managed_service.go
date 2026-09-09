@@ -14,7 +14,9 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -55,7 +57,7 @@ func runUp(cmd *cobra.Command, _ []string) error {
 	environmentHash, _ := cmd.Flags().GetString("service-environment-hash")
 	if environmentHash == "" {
 		logCommandStep(cmd, "SERVICE", "service.environment.capturing", "Capturing managed service environment")
-		environmentHash, err = saveManagedEnvironment(spec)
+		environmentHash, err = saveManagedEnvironmentContext(cmd.Context(), spec)
 		if err != nil {
 			return err
 		}
@@ -98,7 +100,7 @@ func runRestart(cmd *cobra.Command, _ []string) error {
 	environmentHash, _ := cmd.Flags().GetString("service-environment-hash")
 	if environmentHash == "" {
 		logCommandStep(cmd, "SERVICE", "service.environment.capturing", "Capturing managed service environment")
-		environmentHash, err = saveManagedEnvironment(spec)
+		environmentHash, err = saveManagedEnvironmentContext(cmd.Context(), spec)
 		if err != nil {
 			return err
 		}
@@ -127,13 +129,13 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 		return err
 	}
 	log := commandLogger(cmd)
-	defer log.Close()
 	log.Action("SERVICE", "service.restarting", "Restarting managed service")
 	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: managedRuntimeStatus, Shutdown: requestManagedShutdown, Timeout: serviceReadyTimeout, Observe: func(event managed.LifecycleEvent) {
 		logCommandStep(cmd, "SERVICE", "service."+event.Phase, event.Message)
 	}}
 	result, err := lifecycle.Restart(cmd.Context())
 	if err != nil {
+		logManagedStartupFailure(cmd, spec, manager, err)
 		return err
 	}
 	status := result.Status
@@ -148,6 +150,10 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 }
 
 func saveManagedEnvironment(spec managed.Spec) (string, error) {
+	return saveManagedEnvironmentContext(context.Background(), spec)
+}
+
+func saveManagedEnvironmentContext(ctx context.Context, spec managed.Spec) (string, error) {
 	source, err := config.Source()
 	if err != nil {
 		return "", err
@@ -159,25 +165,34 @@ func saveManagedEnvironment(spec managed.Spec) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return managed.SaveEnvironment(spec.ConfigRoot, managed.CaptureEnvironment(spec.Account, cfg.Shell.Path))
+	snapshot := managed.CaptureEnvironment(spec.Account, cfg.Shell.Path)
+	tracepkg.Emit(ctx, "SERVICE", "service.environment.captured", "Captured managed service environment snapshot", tracepkg.String("path", managed.EnvironmentPath(spec.ConfigRoot)), tracepkg.Int("variable_count", len(snapshot.Values)))
+	return managed.SaveEnvironmentContext(ctx, spec.ConfigRoot, snapshot)
 }
 
 func managedScopeForCommand(cmd *cobra.Command) (managed.Scope, error) {
+	detected := managed.DetectScope()
 	system, err := cmd.Flags().GetBool("system")
 	if err != nil {
 		return "", err
 	}
+	span := tracepkg.Start(cmd.Context(), "SERVICE", "service.scope.resolve", "Resolving managed service scope", tracepkg.String("requested_scope", map[bool]string{true: string(managed.ScopeSystem), false: "auto"}[system]), tracepkg.String("detected_scope", string(detected)), tracepkg.String("platform", runtime.GOOS))
 	if system {
 		if runtime.GOOS == "windows" {
-			return "", errors.New("system service scope is not supported on Windows; managed services use a per-user Scheduled Task")
+			err := errors.New("system service scope is not supported on Windows; managed services use a per-user Scheduled Task")
+			span.FailMessage("Managed service scope resolution failed", err)
+			return "", err
 		}
+		span.EndMessage("Managed service scope resolved", tracepkg.String("scope", string(managed.ScopeSystem)), tracepkg.String("resolution", "explicit"))
 		return managed.ScopeSystem, nil
 	}
-	return managed.DetectScope(), nil
+	span.EndMessage("Managed service scope resolved", tracepkg.String("scope", string(detected)), tracepkg.String("resolution", "detected"))
+	return detected, nil
 }
 
 func managedServiceForCommand(cmd *cobra.Command, scope managed.Scope) (managed.Spec, managed.Manager, error) {
-	account, err := managed.InvokingAccount(scope)
+	ctx := cmd.Context()
+	account, err := managed.InvokingAccountContext(ctx, scope)
 	if err != nil {
 		return managed.Spec{}, nil, err
 	}
@@ -186,27 +201,49 @@ func managedServiceForCommand(cmd *cobra.Command, scope managed.Scope) (managed.
 	}
 	binary := os.Args[0]
 	if scope != managed.ScopeSystem || managed.DetectScope() == managed.ScopeSystem {
-		binary, err = managed.PrepareManagedBinary(config.RootPath(), binary)
+		binary, err = managed.PrepareManagedBinaryContext(ctx, config.RootPath(), binary)
 		if err != nil {
 			return managed.Spec{}, nil, err
 		}
+	} else {
+		tracepkg.Emit(ctx, "SERVICE", "service.binary.prepare.skipped", "Managed service binary preparation deferred to elevated process", tracepkg.String("source", binary), tracepkg.String("scope", string(scope)))
 	}
-	spec, err := managed.NewSpec(config.RootPath(), binary, scope, account)
+	spec, err := managed.NewSpecContext(ctx, config.RootPath(), binary, scope, account)
 	if err != nil {
 		return managed.Spec{}, nil, err
 	}
-	return spec, managed.NewManager(), nil
+	manager := managed.NewManagerWithObserver(tracepkg.ObserverFromContext(ctx))
+	tracepkg.Emit(ctx, "SERVICE", "service.manager.resolved", "Resolved managed service backend", tracepkg.String("service", spec.ID), tracepkg.String("scope", string(spec.Scope)), tracepkg.String("backend", manager.Backend()))
+	return spec, manager, nil
 }
 
 func resolveManagedConfigRoot(cmd *cobra.Command, scope managed.Scope, account managed.Account) error {
+	ctx := cmd.Context()
 	flagValue, err := cmd.Root().PersistentFlags().GetString("config-dir")
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(flagValue) != "" || strings.TrimSpace(os.Getenv(configformat.EnvConfigDir)) != "" || scope != managed.ScopeSystem {
+	envValue := strings.TrimSpace(os.Getenv(configformat.EnvConfigDir))
+	span := tracepkg.Start(ctx, "SERVICE", "service.config-root.resolve", "Resolving managed service configuration root", tracepkg.String("scope", string(scope)), tracepkg.Bool("flag_configured", strings.TrimSpace(flagValue) != ""), tracepkg.Bool("environment_configured", envValue != ""))
+	if strings.TrimSpace(flagValue) != "" {
+		span.EndMessage("Managed service configuration root resolved", tracepkg.String("path", config.RootPath()), tracepkg.String("source", "flag"))
 		return nil
 	}
-	return configformat.SetRootPath(managed.DefaultConfigRoot(account))
+	if envValue != "" {
+		span.EndMessage("Managed service configuration root resolved", tracepkg.String("path", config.RootPath()), tracepkg.String("source", "environment"))
+		return nil
+	}
+	if scope != managed.ScopeSystem {
+		span.EndMessage("Managed service configuration root resolved", tracepkg.String("path", config.RootPath()), tracepkg.String("source", "current"))
+		return nil
+	}
+	path := managed.DefaultConfigRoot(account)
+	if err := configformat.SetRootPath(path); err != nil {
+		span.FailMessage("Managed service configuration root resolution failed", err, tracepkg.String("path", path), tracepkg.String("source", "account_default"))
+		return err
+	}
+	span.EndMessage("Managed service configuration root resolved", tracepkg.String("path", config.RootPath()), tracepkg.String("source", "account_default"))
+	return nil
 }
 
 func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager) error {
@@ -243,13 +280,13 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		}
 	}
 	log := commandLogger(cmd)
-	defer log.Close()
 	log.Action("SERVICE", managedServiceActionEvent(action), managedServiceActionMessage(action, spec.Scope))
 	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: managedRuntimeStatus, Shutdown: requestManagedShutdown, Timeout: serviceReadyTimeout, Observe: func(event managed.LifecycleEvent) {
 		logCommandStep(cmd, "SERVICE", "service."+event.Phase, event.Message)
 	}}
 	result, err := lifecycle.Up(cmd.Context())
 	if err != nil {
+		logManagedStartupFailure(cmd, spec, manager, err)
 		return err
 	}
 	status := result.Status
@@ -264,9 +301,47 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 	return nil
 }
 
+func logManagedStartupFailure(cmd *cobra.Command, spec managed.Spec, manager managed.Manager, cause error) {
+	log := commandLogger(cmd)
+	status, statusErr := manager.Status(spec)
+	fields := []logger.Field{logger.WithVerbose("backend", manager.Backend()), logger.WithVerbose("installed", status.Installed), logger.WithVerbose("running", status.Running)}
+	if status.PID != 0 {
+		fields = append(fields, logger.WithVerbose("pid", status.PID))
+	}
+	if statusErr != nil {
+		fields = append(fields, logger.WithVerbose("backend_status_error", statusErr.Error()))
+	}
+	log.Verbose("SERVICE", "service.startup.failed", "Managed runtime failed readiness", fields...)
+	events, err := runtimeevent.Read(spec.ConfigRoot, runtimeevent.Query{Tail: 20})
+	if err != nil {
+		log.Verbose("SERVICE", "service.startup.logs.unavailable", "Managed runtime logs unavailable", logger.WithVerbose("error", err.Error()))
+		return
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		event := events[i]
+		if event.Level != "error" && event.Error == "" {
+			continue
+		}
+		message := event.Message
+		if event.Error != "" {
+			message += ": " + event.Error
+		}
+		log.Verbose("SERVICE", "service.startup.runtime-error", "Managed runtime error", logger.WithVerbose("event", event.Name), logger.WithVerbose("detail", message))
+		return
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		event := events[i]
+		if event.Status != "error" {
+			continue
+		}
+		log.Verbose("SERVICE", "service.startup.runtime-error", "Managed runtime error", logger.WithVerbose("event", event.Name), logger.WithVerbose("detail", event.Message))
+		return
+	}
+	log.Verbose("SERVICE", "service.startup.no-runtime-error", "Managed runtime exited before reporting a runtime error", logger.WithVerbose("cause", cause.Error()), logger.WithVerbose("logs", runtimeevent.Path(spec.ConfigRoot)))
+}
+
 func runManagedDown(cmd *cobra.Command, spec managed.Spec, manager managed.Manager) error {
 	log := commandLogger(cmd)
-	defer log.Close()
 	log.Action("SERVICE", "service.stopping", "Stopping managed service")
 	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: managedRuntimeStatus, Shutdown: requestManagedShutdown, Timeout: serviceReadyTimeout, Observe: func(event managed.LifecycleEvent) {
 		logCommandStep(cmd, "SERVICE", "service."+event.Phase, event.Message)

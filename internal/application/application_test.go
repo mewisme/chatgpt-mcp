@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 func TestInitializeAndAuthLifecycle(t *testing.T) {
@@ -149,6 +151,93 @@ func TestConfigMutationUsesDomainValidationAndPreservesSecrets(t *testing.T) {
 	if result.Config.Server.Port != 40123 || result.Config.Auth.MCPTokenHash != "mcp-hash" || result.Config.Auth.AdminTokenHash != "admin-hash" || result.Config.Tunnel.APIKey != "runtime-secret" {
 		t.Fatalf("config mutation changed unrelated values: %#v", result.Config)
 	}
+}
+
+func TestConfigMutationEmitsDeepTraceWithoutSecrets(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-secret-hash"
+	cfg.Auth.AdminTokenHash = "admin-secret-hash"
+	cfg.Tunnel.APIKey = "runtime-secret-key"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	events := []tracepkg.Event{}
+	ctx := tracepkg.WithObserver(t.Context(), func(event tracepkg.Event) { events = append(events, event) })
+	result, err := SetConfigField(ctx, "server.port", "40123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Config.Server.Port != 40123 {
+		t.Fatalf("port=%d", result.Config.Server.Port)
+	}
+	for _, name := range []string{"config.mutation.load.completed", "config.field.validate.completed", "config.persist.completed", "config.runtime.reload.completed", "config.field.mutate.completed"} {
+		if !applicationTraceContains(events, name) {
+			t.Fatalf("missing trace event %s: %#v", name, events)
+		}
+	}
+	encoded, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	for _, secret := range []string{"mcp-secret-hash", "admin-secret-hash", "runtime-secret-key"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("trace leaked secret %q: %s", secret, text)
+		}
+	}
+}
+
+func TestRotateAuthTokenTraceDoesNotLeakCredential(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "old-secret-hash"
+	cfg.Auth.AdminTokenHash = "old-admin-secret-hash"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	events := []tracepkg.Event{}
+	ctx := tracepkg.WithObserver(t.Context(), func(event tracepkg.Event) { events = append(events, event) })
+	token, _, err := RotateAuthToken(ctx, "mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"auth.kind.normalize.completed", "auth.token.generate.completed", "auth.token.hash.completed", "auth.config.validate.completed", "config.persist.completed", "auth.token.rotate.completed"} {
+		if !applicationTraceContains(events, name) {
+			t.Fatalf("missing trace event %s: %#v", name, events)
+		}
+	}
+	encoded, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	for _, secret := range []string{token, loaded.Auth.MCPTokenHash, "old-secret-hash", "old-admin-secret-hash"} {
+		if secret != "" && strings.Contains(text, secret) {
+			t.Fatalf("trace leaked credential: %s", text)
+		}
+	}
+}
+
+func applicationTraceContains(events []tracepkg.Event, name string) bool {
+	for _, event := range events {
+		if event.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestConfigConvertRoundTripJSONYAMLTOML(t *testing.T) {

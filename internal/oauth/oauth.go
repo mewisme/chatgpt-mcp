@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 var (
@@ -76,6 +78,7 @@ type Store struct {
 	path    string
 	client  *http.Client
 	secrets *secretstore.Store
+	trace   tracepkg.Observer
 }
 
 func Path() string {
@@ -101,4 +104,21 @@ func NewStoreWithClient(path string, client *http.Client) *Store {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &Store{path: path, client: client, secrets: secretstore.New(filepath.Dir(path))}
+}
+
+func (s *Store) SetTraceObserver(observer tracepkg.Observer) *Store {
+	if s != nil {
+		s.trace = observer
+	}
+	return s
+}
+
+func (s *Store) traceContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if tracepkg.ObserverFromContext(ctx) == nil && s != nil && s.trace != nil {
+		return tracepkg.WithObserver(ctx, s.trace)
+	}
+	return ctx
 }

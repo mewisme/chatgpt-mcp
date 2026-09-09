@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
 
@@ -65,7 +66,6 @@ func mcpServerListCommand() *cobra.Command {
 			}
 			if refresh {
 				log := commandLogger(cmd)
-				defer log.Close()
 				if !asJSON {
 					startCommandSpinner(cmd, log, "MCP", "mcp.status.refreshing", "Refreshing upstream MCP status")
 				}
@@ -270,7 +270,6 @@ func mcpServerStatusCommand() *cobra.Command {
 				return err
 			}
 			log := commandLogger(cmd)
-			defer log.Close()
 			if !asJSON {
 				startCommandSpinner(cmd, log, "MCP", "mcp.status.checking", "Checking upstream MCP status")
 			}
@@ -393,7 +392,6 @@ func mcpServerToolsCommand() *cobra.Command {
 				return err
 			}
 			log := commandLogger(cmd)
-			defer log.Close()
 			startCommandSpinner(cmd, log, "MCP", "mcp.tools.loading", "Loading upstream MCP tools")
 			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
 			defer cancel()
@@ -531,8 +529,8 @@ func loadUpstreamManager() (*upstream.Manager, error) {
 func loadUpstreamManagerForCommand(cmd *cobra.Command) (*upstream.Manager, error) {
 	logCommandStep(cmd, "MCP", "mcp.store.loading", "Loading upstream MCP configuration")
 	logCommandDebug(cmd, "MCP", "mcp.store.path", "Upstream MCP configuration path resolved", logger.WithDebug("path", upstream.Path()))
-	manager, err := loadUpstreamManager()
-	if err != nil {
+	manager := upstream.NewManager(upstream.NewStore(upstream.Path())).SetTraceObserver(tracepkg.ObserverFromContext(cmd.Context()))
+	if err := manager.Load(); err != nil {
 		return nil, fmt.Errorf("load upstream MCP configuration: %w", err)
 	}
 	logCommandDebug(cmd, "MCP", "mcp.store.loaded", "Upstream MCP configuration loaded", logger.WithDebug("count", len(manager.List())))

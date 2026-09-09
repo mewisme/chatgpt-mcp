@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 func TestDownloaderDownload(t *testing.T) {
@@ -183,6 +185,54 @@ func TestDownloaderEnforcesBodyLimitWithoutContentLength(t *testing.T) {
 	}
 	if _, err := os.Stat(destination); !os.IsNotExist(err) {
 		t.Fatalf("partial download remains: %v", err)
+	}
+}
+
+func TestDownloaderEmitsFileChecksumAndExtractionTrace(t *testing.T) {
+	assetName, err := CurrentAssetName("v1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := releaseArchive(t, assetName, []byte("release-binary"))
+	archiveHash := sha256.Sum256(archive)
+	checksums := []byte(hex.EncodeToString(archiveHash[:]) + "  " + assetName + "\n")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/" + assetName:
+			_, _ = w.Write(archive)
+		case "/checksums.txt":
+			_, _ = w.Write(checksums)
+		case "/checksums.txt.sigstore.json":
+			_, _ = w.Write([]byte("test-signature"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	events := []tracepkg.Event{}
+	ctx := tracepkg.WithObserver(context.Background(), func(event tracepkg.Event) { events = append(events, event) })
+	artifact, err := (Downloader{HTTPClient: server.Client(), TempDir: t.TempDir(), SignatureVerifier: acceptTestSignature}).Download(ctx, testDownloadRelease("v1.2.3", assetName, server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer artifact.Cleanup()
+	for _, name := range []string{"update.workspace.create.completed", "update.signature.verify.completed", "update.checksum.verify.completed", "update.archive.extract.completed", "update.artifact.prepare.completed"} {
+		if !containsTraceEvent(events, name) {
+			t.Fatalf("missing trace event %s: %#v", name, events)
+		}
+	}
+	downloads := 0
+	responses := 0
+	for _, event := range events {
+		if event.Name == "update.file.download.completed" {
+			downloads++
+		}
+		if event.Name == "http.request.completed" {
+			responses++
+		}
+	}
+	if downloads != 3 || responses != 3 {
+		t.Fatalf("downloads=%d responses=%d events=%#v", downloads, responses, events)
 	}
 }
 

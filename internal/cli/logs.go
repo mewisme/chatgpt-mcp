@@ -57,7 +57,6 @@ func logsCommand() *cobra.Command {
 			return errors.New("refusing to clear runtime logs without --force")
 		}
 		log := commandLogger(cmd)
-		defer log.Close()
 		logCommandStep(cmd, "LOGS", "logs.runtime.contacting", "Contacting runtime log endpoint")
 		startCommandSpinner(cmd, log, "LOGS", "logs.clearing", "Clearing runtime logs")
 		if err := clearRuntimeLogs(cmd); err != nil {
@@ -109,7 +108,7 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 	}
 	queryOptions := logsQueryOptions(options)
 	logCommandStep(cmd, "LOGS", "logs.query.validating", "Validating runtime log query")
-	if _, err := application.BuildLogsQuery(queryOptions, time.Now()); err != nil {
+	if _, err := application.BuildLogsQueryContext(cmd.Context(), queryOptions, time.Now()); err != nil {
 		return err
 	}
 	visibility := logsVisibility(cmd)
@@ -128,7 +127,7 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 		}
 	}
 	logCommandStep(cmd, "LOGS", "logs.snapshot.loading", "Loading runtime log snapshot")
-	snapshot, err := application.LoadLogs(queryOptions, visibility, 0, time.Now())
+	snapshot, err := application.LoadLogsContext(cmd.Context(), queryOptions, visibility, 0, time.Now())
 	if err != nil {
 		return err
 	}

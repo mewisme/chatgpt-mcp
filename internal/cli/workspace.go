@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -30,16 +31,19 @@ func workspaceManagerForCommand(cmd *cobra.Command) *workspace.Manager {
 	path := workspace.DefaultStorePath()
 	logCommandStep(cmd, "WORKSPACE", "workspace.store.opening", "Opening workspace registry")
 	logCommandDebug(cmd, "WORKSPACE", "workspace.store.path", "Workspace registry path resolved", logger.WithDebug("path", path))
-	return workspace.NewManager(path)
+	return workspace.NewManager(path).SetTraceObserver(tracepkg.ObserverFromContext(cmd.Context()))
 }
 
 func syncWorkspaceRuntime(cmd *cobra.Command) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 	defer cancel()
+	span := tracepkg.Start(ctx, "WORKSPACE", "workspace.runtime.reload", "Synchronizing workspace registry with runtime")
 	result, running, err := application.ReloadWorkspaces(ctx)
 	if err != nil {
+		span.FailMessage("Workspace runtime synchronization failed", err, tracepkg.Bool("runtime_running", running))
 		return fmt.Errorf("workspace registry saved but running runtime reload failed: %w", err)
 	}
+	span.EndMessage("Workspace runtime synchronization completed", tracepkg.Bool("runtime_running", running), tracepkg.Bool("runtime_reloaded", running), tracepkg.Int("count", result.Count), tracepkg.Int("pid", result.PID))
 	if running {
 		logCommandStep(cmd, "WORKSPACE", "workspace.runtime.synced", "Workspace registry synchronized with running runtime", logger.WithVerbose("count", result.Count))
 	}

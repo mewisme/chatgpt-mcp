@@ -9,6 +9,7 @@ require (
 	charm.land/huh/v2 v2.0.3
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/atotto/clipboard v0.1.4
+	github.com/briandowns/spinner v1.23.2
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/fatih/color v1.19.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0

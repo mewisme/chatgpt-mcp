@@ -83,7 +83,7 @@ func initCommand() *cobra.Command {
 				return err
 			}
 			logCommandDebug(cmd, "INIT", "init.format.resolved", "Configuration format resolved", logger.WithDebug("format", format), logger.WithDebug("selected", selected), logger.WithDebug("force", force))
-			result, err := application.Initialize(application.InitOptions{Force: force, Format: format, FormatSelected: selected})
+			result, err := application.Initialize(application.InitOptions{Context: cmd.Context(), Force: force, Format: format, FormatSelected: selected})
 			if err != nil {
 				return err
 			}
@@ -112,7 +112,7 @@ func uninitCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := config.RootPath()
 			logCommandStep(cmd, "UNINIT", "uninit.removing", "Removing local configuration and state", logger.WithVerbose("root", root))
-			if err := application.Uninitialize(root); err != nil {
+			if err := application.UninitializeContext(cmd.Context(), root); err != nil {
 				return err
 			}
 			log := commandLogger(cmd)
@@ -190,7 +190,7 @@ func authStatusCommand() *cobra.Command {
 		Short:   "Show authentication state without revealing token hashes",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "AUTH", "auth.status.loading", "Loading authentication state")
-			status, err := application.GetAuthStatus()
+			status, err := application.GetAuthStatusContext(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -215,8 +215,10 @@ func executeCommand(command *cobra.Command) error {
 	}
 	if err != nil {
 		logCommandFailure(executed, err, started)
+		closeCommandLogger(executed)
 		return err
 	}
 	logCommandCompleted(executed, started)
+	closeCommandLogger(executed)
 	return nil
 }

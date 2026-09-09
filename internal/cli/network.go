@@ -1,14 +1,19 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 type listenerPlan struct {
@@ -61,6 +66,62 @@ func listenOnHosts(hosts []string, port int) ([]net.Listener, error) {
 		listeners = append(listeners, listener)
 	}
 	return listeners, nil
+}
+
+func listenOnHostsWithFallback(hosts []string, port int) ([]net.Listener, int, error) {
+	return listenOnHostsWithFallbackContext(context.Background(), "", hosts, port)
+}
+
+func listenOnHostsWithFallbackContext(ctx context.Context, component string, hosts []string, port int) ([]net.Listener, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	configuredPort := port
+	fallbackAttempt := 0
+	for candidate := port; candidate <= 65535; candidate++ {
+		listeners := make([]net.Listener, 0, len(hosts))
+		var bindErr error
+		for _, host := range hosts {
+			span := tracepkg.Start(ctx, "NETWORK", "server.listener.bind", "Binding server listener", tracepkg.String("component", component), tracepkg.String("host", host), tracepkg.Int("configured_port", configuredPort), tracepkg.Int("attempted_port", candidate), tracepkg.Int("fallback_attempt", fallbackAttempt))
+			listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(candidate)))
+			if err != nil {
+				span.FailMessage("Server listener bind failed", err, tracepkg.String("component", component), tracepkg.String("host", host), tracepkg.Int("configured_port", configuredPort), tracepkg.Int("attempted_port", candidate), tracepkg.Int("fallback_attempt", fallbackAttempt), tracepkg.Bool("address_in_use", isAddressInUseError(err)))
+				bindErr = fmt.Errorf("listen on %s:%d: %w", host, candidate, err)
+				break
+			}
+			listeners = append(listeners, listener)
+			span.EndMessage("Server listener bound", tracepkg.String("component", component), tracepkg.String("host", host), tracepkg.Int("configured_port", configuredPort), tracepkg.Int("attempted_port", candidate), tracepkg.Int("fallback_attempt", fallbackAttempt), tracepkg.Int("bound_port", candidate), tracepkg.String("address", listener.Addr().String()))
+		}
+		if bindErr == nil {
+			tracepkg.Emit(ctx, "NETWORK", "server.listener.port-selected", "Selected server listener port", tracepkg.String("component", component), tracepkg.Int("configured_port", configuredPort), tracepkg.Int("selected_port", candidate), tracepkg.Int("fallback_attempt", fallbackAttempt), tracepkg.Int("listener_count", len(listeners)), tracepkg.Any("hosts", append([]string(nil), hosts...)))
+			return listeners, candidate, nil
+		}
+		closeListeners(listeners)
+		err := bindErr
+		if err == nil {
+			return listeners, candidate, nil
+		}
+		if !isAddressInUseError(err) {
+			return nil, 0, err
+		}
+		fallbackAttempt++
+	}
+	return nil, 0, fmt.Errorf("no available TCP port at or above %d", port)
+}
+
+func isAddressInUseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) && errno == syscall.Errno(10048) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "address already in use") || strings.Contains(message, "only one usage of each socket address")
 }
 
 func endpointURL(host string, port int, endpointPath string) string {

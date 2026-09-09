@@ -10,10 +10,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	spinnerlib "github.com/briandowns/spinner"
 	"github.com/fatih/color"
 )
-
-var spinnerFrames = [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type jsonEvent struct {
 	Time         string         `json:"time"`
@@ -94,41 +93,19 @@ func (l *Logger) startSpinner(event Event) {
 	if previous := l.detachSpinner(); previous != nil {
 		l.stopSpinnerState(previous, true)
 	}
-	state := &spinnerState{event: event, stop: make(chan struct{}), done: make(chan struct{})}
+	message := capitalizeIconMessage(event.Message)
+	if l.showTime() {
+		message = styled(color.Faint).Sprint(l.eventTime(event).Format("15:04:05")) + " " + message
+	}
+	value := spinnerlib.New(randomSpinnerCharset(), defaultSpinnerRate, spinnerlib.WithWriter(l.out))
+	_ = value.Color("fgHiCyan", "bold")
+	value.HideCursor = false
+	value.Suffix = " " + message
+	state := &spinnerState{event: event, spinner: value}
 	l.spinMu.Lock()
 	l.spinner = state
 	l.spinMu.Unlock()
-	go l.runSpinner(state)
-}
-
-func (l *Logger) runSpinner(state *spinnerState) {
-	defer close(state.done)
-	rate := l.spinRate
-	if rate <= 0 {
-		rate = defaultSpinnerRate
-	}
-	ticker := time.NewTicker(rate)
-	defer ticker.Stop()
-	frame := 0
-	for {
-		l.renderSpinnerFrame(state.event, spinnerFrames[frame%len(spinnerFrames)])
-		frame++
-		select {
-		case <-state.stop:
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func (l *Logger) renderSpinnerFrame(event Event, frame string) {
-	l.renderMu.Lock()
-	defer l.renderMu.Unlock()
-	fmt.Fprint(l.out, "\r\x1b[2K")
-	if l.showTime() {
-		fmt.Fprint(l.out, styled(color.Faint).Sprint(l.eventTime(event).Format("15:04:05")), " ")
-	}
-	fmt.Fprint(l.out, symbolStyle(KindAction).Sprint(frame), " ", capitalizeIconMessage(event.Message))
+	value.Start()
 }
 
 func (l *Logger) detachSpinner() *spinnerState {
@@ -146,13 +123,16 @@ func (l *Logger) stopSpinner(clear bool) {
 }
 
 func (l *Logger) stopSpinnerState(state *spinnerState, clear bool) {
-	close(state.stop)
-	<-state.done
+	state.spinner.Stop()
 	if !clear {
 		return
 	}
+	width := utf8.RuneCountInString(capitalizeIconMessage(state.event.Message)) + 2
+	if l.showTime() {
+		width += len("15:04:05 ")
+	}
 	l.renderMu.Lock()
-	fmt.Fprint(l.out, "\r\x1b[2K")
+	fmt.Fprint(l.out, "\r", strings.Repeat(" ", width), "\r")
 	l.renderMu.Unlock()
 }
 
@@ -248,7 +228,7 @@ func jsonValue(value any) any {
 func symbol(kind Kind) string {
 	switch kind {
 	case KindAction:
-		return spinnerFrames[0]
+		return spinnerlib.CharSets[14][0]
 	case KindSuccess:
 		return "✓"
 	case KindWarning:

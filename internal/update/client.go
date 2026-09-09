@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const maxReleaseResponseSize = 1 << 20
@@ -50,7 +52,7 @@ func (c Client) Version(ctx context.Context, version string) (Release, error) {
 	return release, nil
 }
 
-func (c Client) getRelease(ctx context.Context, endpoint string) (Release, error) {
+func (c Client) getRelease(ctx context.Context, endpoint string) (result Release, resultErr error) {
 	owner := strings.TrimSpace(c.Owner)
 	if owner == "" {
 		owner = DefaultOwner
@@ -63,7 +65,16 @@ func (c Client) getRelease(ctx context.Context, endpoint string) (Release, error
 	if baseURL == "" {
 		baseURL = "https://api.github.com"
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/%s", baseURL, owner, repo, endpoint), nil)
+	releaseURL := fmt.Sprintf("%s/repos/%s/%s/%s", baseURL, owner, repo, endpoint)
+	span := tracepkg.Start(ctx, "UPDATE", "update.release.resolve", "Resolving release", tracepkg.String("owner", owner), tracepkg.String("repo", repo), tracepkg.URL("url", releaseURL))
+	defer func() {
+		if resultErr != nil {
+			span.FailMessage("Release resolution failed", resultErr)
+			return
+		}
+		span.EndMessage("Release resolved", tracepkg.String("version", result.Version), tracepkg.String("archive", result.ArchiveName), tracepkg.URL("archive_url", result.ArchiveURL), tracepkg.URL("checksum_url", result.ChecksumURL), tracepkg.URL("signature_url", result.SignatureURL))
+	}()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
 	if err != nil {
 		return Release{}, err
 	}
@@ -78,7 +89,7 @@ func (c Client) getRelease(ctx context.Context, endpoint string) (Release, error
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	response, err := client.Do(request)
+	response, err := tracepkg.DoHTTP(client, request)
 	if err != nil {
 		return Release{}, fmt.Errorf("check latest release: %w", err)
 	}
@@ -127,5 +138,6 @@ func (c Client) getRelease(ctx context.Context, endpoint string) (Release, error
 	if release.SignatureURL == "" {
 		return Release{}, fmt.Errorf("latest release %s is missing asset %s", version, release.SignatureName)
 	}
-	return release, nil
+	result = release
+	return result, nil
 }

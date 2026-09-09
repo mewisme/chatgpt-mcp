@@ -32,6 +32,8 @@ type Workspace struct {
 	LegacyIDs []string `json:"legacy_ids,omitempty"`
 }
 
+// WorkspaceContainer is an orchestration scope only. It groups concrete
+// workspaces but never owns a filesystem root, shell cwd, memory, or rules.
 type WorkspaceContainer struct {
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`

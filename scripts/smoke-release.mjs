@@ -86,6 +86,7 @@ try {
   const workspaceID = await registerWorkspace(adminPort, allowedDir)
   await verifyActivitySSE(adminPort)
   await verifyMCP(serverPort, workspaceID, false, "off", true, "wenyan-ultra")
+  await verifyWorkspaceContainerMCP(serverPort, workspaceID)
   verifyApprovalCLI()
   const foregroundStatus = run(["status"], { quiet: true })
   for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "OpenAI Secure MCP Tunnel is disabled"]) {
@@ -285,6 +286,9 @@ async function verifyMCP(port, workspaceID, ponytailActive, ponytailMode, cavema
   const toolNames = new Set(tools.body.result.tools.map((tool) => tool?.name))
   if (!toolNames.has("get_version")) fail(`get_version missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!toolNames.has("request_control_approval")) fail(`request_control_approval missing from tools/list: ${JSON.stringify(tools.body)}`)
+  for (const name of ["workspace_container_list", "workspace_container_status", "workspace_container_context"]) {
+    if (!toolNames.has(name)) fail(`${name} missing from tools/list: ${JSON.stringify(tools.body)}`)
+  }
   if (!toolNames.has("ponytail_turn")) fail(`ponytail_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!toolNames.has("caveman_turn")) fail(`caveman_turn missing from tools/list: ${JSON.stringify(tools.body)}`)
   if (!Number.isFinite(tools.body.result.ttlMs) || typeof tools.body.result.cacheScope !== "string") {
@@ -324,6 +328,59 @@ async function verifyMCP(port, workspaceID, ponytailActive, ponytailMode, cavema
   assertStatus(legacy.response, 404, "initialize")
   if (legacy.body?.error?.code !== -32601) {
     fail(`initialize error code = ${legacy.body?.error?.code}, want -32601`)
+  }
+}
+
+async function verifyWorkspaceContainerMCP(port, workspaceID) {
+  const name = "Release smoke container"
+  run(["workspace", "container", "create", name], { quiet: true })
+  const persisted = JSON.parse(run(["workspace", "container", "list", "--json"], { quiet: true }))
+  const created = persisted.find((container) => container?.name === name)
+  if (typeof created?.id !== "string" || !created.id.startsWith("wsc_")) fail(`container create returned no persisted wsc id: ${JSON.stringify(persisted)}`)
+  const containerID = created.id
+
+  let status = await mcpRequest(port, "tools/call", { name: "workspace_container_status", arguments: { container_id: containerID } }, 40)
+  assertStatus(status.response, 200, "workspace_container_status after create")
+  let value = status.body?.result?.structuredContent
+  if (!value || value.container_id !== containerID || value.name !== name || value.workspace_count !== 0) {
+    fail(`container MCP status is stale after create: ${JSON.stringify(status.body)}`)
+  }
+
+  const listed = await mcpRequest(port, "tools/call", { name: "workspace_container_list", arguments: {} }, 41)
+  assertStatus(listed.response, 200, "workspace_container_list after create")
+  const listValue = listed.body?.result?.structuredContent
+  if (!Array.isArray(listValue?.containers) || !listValue.containers.some((container) => container?.container_id === containerID)) {
+    fail(`container MCP list is stale after create: ${JSON.stringify(listed.body)}`)
+  }
+
+  run(["workspace", "container", "rename", containerID, "Release smoke renamed"], { quiet: true })
+  status = await mcpRequest(port, "tools/call", { name: "workspace_container_status", arguments: { container_id: containerID } }, 42)
+  assertStatus(status.response, 200, "workspace_container_status after rename")
+  value = status.body?.result?.structuredContent
+  if (value?.name !== "Release smoke renamed") fail(`container MCP status is stale after rename: ${JSON.stringify(status.body)}`)
+
+  run(["workspace", "container", "add", containerID, workspaceID], { quiet: true })
+  let context = await mcpRequest(port, "tools/call", { name: "workspace_container_context", arguments: { container_id: containerID } }, 43)
+  assertStatus(context.response, 200, "workspace_container_context after add")
+  let contextValue = context.body?.result?.structuredContent
+  if (contextValue?.workspace_count !== 1 || contextValue?.workspaces?.[0]?.workspace_id !== workspaceID) {
+    fail(`container MCP context is stale after membership add: ${JSON.stringify(context.body)}`)
+  }
+
+  run(["workspace", "container", "remove", containerID, workspaceID], { quiet: true })
+  context = await mcpRequest(port, "tools/call", { name: "workspace_container_context", arguments: { container_id: containerID } }, 44)
+  assertStatus(context.response, 200, "workspace_container_context after remove")
+  contextValue = context.body?.result?.structuredContent
+  if (contextValue?.workspace_count !== 0 || !Array.isArray(contextValue?.workspaces) || contextValue.workspaces.length !== 0) {
+    fail(`container MCP context is stale after membership remove: ${JSON.stringify(context.body)}`)
+  }
+
+  run(["workspace", "container", "delete", containerID], { quiet: true })
+  const afterDelete = await mcpRequest(port, "tools/call", { name: "workspace_container_list", arguments: {} }, 45)
+  assertStatus(afterDelete.response, 200, "workspace_container_list after delete")
+  const afterDeleteValue = afterDelete.body?.result?.structuredContent
+  if (!Array.isArray(afterDeleteValue?.containers) || afterDeleteValue.containers.some((container) => container?.container_id === containerID)) {
+    fail(`container MCP list is stale after delete: ${JSON.stringify(afterDelete.body)}`)
   }
 }
 

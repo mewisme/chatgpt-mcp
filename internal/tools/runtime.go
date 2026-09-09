@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -66,6 +67,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
+	RegisterWorkspaceContainerTools(registry, workspaces)
 	var environment ProjectContextEnvironment
 	if len(environments) > 0 {
 		environment = environments[0]
@@ -228,7 +230,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 			if preflightErr == nil {
 				canonical, err := r.Workspaces.CanonicalID(workspaceID)
 				if err != nil {
-					preflightErr = err
+					preflightErr = workspaceScopePreflightError(r.Workspaces, workspaceID, err)
 				} else {
 					if canonical != workspaceID {
 						args = cloneMap(args)
@@ -313,6 +315,20 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["result"] = observedResult(name, result)
 	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
+}
+
+func workspaceScopePreflightError(manager *workspace.Manager, id string, original error) error {
+	id = strings.TrimSpace(id)
+	if manager == nil || !strings.HasPrefix(id, "wsc_") {
+		return original
+	}
+	if _, err := manager.GetContainer(id); err == nil {
+		return fmt.Errorf("%s is a workspace container, not a workspace. Call workspace_container_context, then use one member ws_* workspace_id for this tool", id)
+	} else if errors.Is(err, workspace.ErrContainerNotFound) {
+		return fmt.Errorf("%w: %s", workspace.ErrContainerNotFound, id)
+	} else {
+		return err
+	}
 }
 
 func toolCallContext(parent context.Context, source string, now time.Time) (context.Context, context.CancelFunc) {

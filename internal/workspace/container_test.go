@@ -98,6 +98,72 @@ func TestWorkspaceContainerBatchMutationIsAtomic(t *testing.T) {
 	}
 }
 
+func TestWorkspaceContainerResolveEmptySingleAndMultiple(t *testing.T) {
+	manager := newTestManager(t)
+	first, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	container, err := manager.CreateContainer("Product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := manager.ResolveContainer(container.ID)
+	if err != nil || empty.Container.ID != container.ID || len(empty.Workspaces) != 0 {
+		t.Fatalf("empty context = %#v err=%v", empty, err)
+	}
+	if _, err := manager.AddWorkspaceToContainer(container.ID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	single, err := manager.ResolveContainer(container.ID)
+	if err != nil || len(single.Workspaces) != 1 || single.Workspaces[0].ID != first.ID {
+		t.Fatalf("single context = %#v err=%v", single, err)
+	}
+	if _, err := manager.AddWorkspaceToContainer(container.ID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	multiple, err := manager.ResolveContainer(container.ID)
+	if err != nil || len(multiple.Workspaces) != 2 {
+		t.Fatalf("multiple context = %#v err=%v", multiple, err)
+	}
+	if multiple.Workspaces[0].Path > multiple.Workspaces[1].Path {
+		t.Fatalf("workspaces are not deterministic: %#v", multiple.Workspaces)
+	}
+}
+
+func TestWorkspaceCanBelongToMultipleContainersWithoutDuplicatedState(t *testing.T) {
+	manager := newTestManager(t)
+	item, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := manager.CreateContainer("One")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.CreateContainer("Two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.AddWorkspaceToContainers(item.ID, []string{first.ID, second.ID}); err != nil {
+		t.Fatal(err)
+	}
+	containers, err := manager.ContainersForWorkspace(item.ID)
+	if err != nil || len(containers) != 2 {
+		t.Fatalf("containers = %#v err=%v", containers, err)
+	}
+	for _, container := range containers {
+		ctx, err := manager.ResolveContainer(container.ID)
+		if err != nil || len(ctx.Workspaces) != 1 || ctx.Workspaces[0].ID != item.ID || ctx.Workspaces[0].Path != item.Path {
+			t.Fatalf("container %s context = %#v err=%v", container.ID, ctx, err)
+		}
+	}
+}
+
 func TestWorkspaceUnregisterCleansContainerMembership(t *testing.T) {
 	manager := newTestManager(t)
 	item, err := manager.Register(t.TempDir())

@@ -3,10 +3,11 @@ package instructioncontext
 const (
 	agentWorkflowIntroduction = "Use chatgpt-mcp as a multi-workspace coding agent with explicit workspace targeting."
 	serverIntroduction        = "Use chatgpt-mcp for local, workspace-aware coding and project operations."
-	serverWorkspaceBootstrap  = "For project work, obtain a workspace_id with workspace_register unless one is already provided; use workspace_status to inspect its registered root, persisted shell cwd, and allowed directories."
+	serverWorkspaceBootstrap  = "For project work, obtain a workspace_id with workspace_register unless one is already provided; use workspace_status to inspect its registered root, persisted shell cwd, and allowed directories. If the user provides a wsc_* workspace container, call workspace_container_context first and choose concrete member ws_* workspace IDs for actual work."
 	serverContextBootstrap    = "Call agent_status when runtime or permission details are needed. Use list_skills when skill summaries need to be discovered independently from project_context."
 
 	guidanceWorkspace = "One MCP session may work across multiple registered workspaces. Every workspace-scoped call must explicitly target workspace_id; keep each workspace's project context, rules, memory, persisted shell cwd, REPL state, checkpoints, and assumptions isolated and never carry workspace-specific state into another workspace."
+	guidanceContainer = "Treat ws_* as an execution/filesystem workspace and wsc_* as a workspace-container orchestration scope. When the user targets wsc_*, call workspace_container_context first, choose one or more member ws_* IDs for concrete work, and call project_context with memory enabled before substantial work in each selected member. Never pass wsc_* as workspace_id to filesystem, Git, shell, checkpoint, memory, rule, or project tools, and never merge member cwd, permissions, rules, memory, checkpoints, or assumptions."
 	guidanceContext   = "At the start of every MCP session, fetch workspace memory by calling project_context with memory enabled before substantial work; repeat project_context before first work in each additional workspace targeted by that session. Treat project_context as the workspace instruction bundle and follow project/user instructions and unconditional rules from it before acting."
 	guidanceRead      = "Inspect relevant files before changing them. Use read_files/read_text_file for source context and load_path_rules for path-scoped rules before modifying matching files."
 	guidanceSkills    = "Review the skill summaries in project_context. When a skill is applicable, call load_skill with its exact name before using that workflow."
@@ -19,23 +20,25 @@ const (
 
 	DefaultAgentWorkflow = agentWorkflowIntroduction + "\n\n" +
 		"1. " + guidanceWorkspace + "\n" +
-		"2. " + guidanceContext + "\n" +
-		"3. " + guidanceRead + "\n" +
-		"4. " + guidanceSkills + "\n" +
-		"5. " + guidanceEdit + "\n" +
-		"6. " + guidanceVerify + "\n" +
-		"7. " + guidanceRewind + "\n" +
-		"8. " + guidanceRemember + "\n" +
-		"9. " + guidanceMissing + "\n" +
-		"10. " + guidanceScope
+		"2. " + guidanceContainer + "\n" +
+		"3. " + guidanceContext + "\n" +
+		"4. " + guidanceRead + "\n" +
+		"5. " + guidanceSkills + "\n" +
+		"6. " + guidanceEdit + "\n" +
+		"7. " + guidanceVerify + "\n" +
+		"8. " + guidanceRewind + "\n" +
+		"9. " + guidanceRemember + "\n" +
+		"10. " + guidanceMissing + "\n" +
+		"11. " + guidanceScope
 
 	defaultServerInstructions = serverIntroduction + " " + serverWorkspaceBootstrap + " " + serverContextBootstrap + " " +
-		guidanceWorkspace + " " + guidanceContext + " " + guidanceRead + " " + guidanceSkills + " " + guidanceEdit + " " +
+		guidanceWorkspace + " " + guidanceContainer + " " + guidanceContext + " " + guidanceRead + " " + guidanceSkills + " " + guidanceEdit + " " +
 		guidanceVerify + " " + guidanceRewind + " " + guidanceRemember + " " + guidanceMissing + " " + guidanceScope
 )
 
 var sharedGuidanceSteps = []string{
 	guidanceWorkspace,
+	guidanceContainer,
 	guidanceContext,
 	guidanceRead,
 	guidanceSkills,

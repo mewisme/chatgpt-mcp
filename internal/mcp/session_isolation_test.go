@@ -35,6 +35,7 @@ func newIsolationHTTPFixture(t *testing.T) isolationHTTPFixture {
 	checkpoints := checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints"))
 	registry := tools.NewRegistry()
 	tools.RegisterCore(registry, manager, checkpoints)
+	tools.RegisterWorkspaceContainerTools(registry, manager)
 	toolRuntime := &tools.Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoints, SessionAccess: tools.NewSessionWorkspaceAccessManager()}
 	return isolationHTTPFixture{runtime: NewHTTPRuntimeWithTools(toolRuntime), first: first, second: second}
 }
@@ -143,5 +144,60 @@ func TestHTTPSessionProjectContextCanTargetMultipleIsolatedWorkspaces(t *testing
 	access, ok := fixture.runtime.Server.Tools.SessionAccess.Lookup("project-session")
 	if !ok || len(access.Workspaces) != 2 {
 		t.Fatalf("project_context session access = %#v ok=%t", access, ok)
+	}
+}
+
+func TestHTTPSessionContainerContextOrchestratesMembersWithoutGrantingOrMerging(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	fixture := newIsolationHTTPFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.first.Path, "AGENTS.md"), []byte("container first sentinel"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.second.Path, "AGENTS.md"), []byte("container second sentinel"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	container, err := fixture.runtime.Server.Tools.Workspaces.CreateContainer("Product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.runtime.Server.Tools.Workspaces.AddWorkspacesToContainer(container.ID, []string{fixture.first.ID, fixture.second.ID}); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := "container-session"
+	containerResult := callWorkspaceToolHTTP(t, fixture.runtime, sessionID, "workspace_container_context", map[string]any{"container_id": container.ID}, 30)
+	if containerResult.IsError || len(containerResult.Content) == 0 {
+		t.Fatalf("container context failed: %#v", containerResult)
+	}
+	text := containerResult.Content[0].Text
+	for _, expected := range []string{container.ID, fixture.first.ID, fixture.second.ID, "orchestration scope"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("container context missing %q: %s", expected, text)
+		}
+	}
+	for _, forbidden := range []string{"container first sentinel", "container second sentinel"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("container context merged member project content %q: %s", forbidden, text)
+		}
+	}
+	if _, ok := fixture.runtime.Server.Tools.SessionAccess.Lookup(sessionID); ok {
+		t.Fatal("container context granted fake workspace session access")
+	}
+
+	first := callWorkspaceToolHTTP(t, fixture.runtime, sessionID, "project_context", map[string]any{"workspace_id": fixture.first.ID, "include_git": false}, 31)
+	if first.IsError || len(first.Content) == 0 || !strings.Contains(first.Content[0].Text, "container first sentinel") || strings.Contains(first.Content[0].Text, "container second sentinel") {
+		t.Fatalf("first member context was not isolated: %#v", first)
+	}
+	access, ok := fixture.runtime.Server.Tools.SessionAccess.Lookup(sessionID)
+	if !ok || len(access.Workspaces) != 1 {
+		t.Fatalf("first member access = %#v ok=%t", access, ok)
+	}
+
+	second := callWorkspaceToolHTTP(t, fixture.runtime, sessionID, "project_context", map[string]any{"workspace_id": fixture.second.ID, "include_git": false}, 32)
+	if second.IsError || len(second.Content) == 0 || !strings.Contains(second.Content[0].Text, "container second sentinel") || strings.Contains(second.Content[0].Text, "container first sentinel") {
+		t.Fatalf("second member context was not isolated: %#v", second)
+	}
+	access, ok = fixture.runtime.Server.Tools.SessionAccess.Lookup(sessionID)
+	if !ok || len(access.Workspaces) != 2 {
+		t.Fatalf("member access = %#v ok=%t", access, ok)
 	}
 }

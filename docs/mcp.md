@@ -91,6 +91,18 @@ The workspace ID is stable by canonical path and does not silently switch to ano
 
 For requests carrying an MCP session ID, each valid explicitly targeted workspace is added to that session's in-memory access set. The same session can therefore work across multiple registered projects without a workspace-switch operation. Every scoped call still requires `workspace_id`, and workspace-specific context, filesystem scope, shell/REPL state, checkpoints, and approvals remain isolated by that target.
 
+Workspace containers use a separate orchestration scope. `ws_*` identifies an execution/filesystem workspace; `wsc_*` identifies only a logical group of registered workspaces. Agents can discover and resolve containers with:
+
+```text
+workspace_container_list()
+workspace_container_status(container_id="wsc_...")
+workspace_container_context(container_id="wsc_...")
+```
+
+`workspace_container_context` returns container metadata, member workspace IDs/roots, and orchestration guidance. It intentionally does not merge or eagerly load member project context, memory, rules, cwd, permissions, or checkpoints. Before substantial work in a selected member, call `project_context` for that concrete `ws_*` with memory enabled. Container-only calls do not add a fake workspace to the MCP session access set; only concrete member workspace calls do.
+
+Passing an existing `wsc_*` to a workspace-scoped tool as `workspace_id` fails with an actionable error instead of selecting a member or fanning the operation out. Container membership by itself grants no filesystem permission.
+
 Effective filesystem scope and session isolation are described in [Security](security.md).
 
 ## Effective project context and global instructions

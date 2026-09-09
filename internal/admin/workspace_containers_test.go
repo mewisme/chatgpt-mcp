@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -64,5 +66,69 @@ func TestWorkspaceContainerAPICRUDAndMembership(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/api/workspace-containers/"+container.ID, nil))
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("delete status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestWorkspaceContainerAPIIsImmediatelyVisibleToAgentTools(t *testing.T) {
+	store := filepath.Join(t.TempDir(), "workspaces.json")
+	writer := workspace.NewManager(store)
+	member, err := writer.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeManager := workspace.NewManager(store)
+	if _, err := runtimeManager.List(); err != nil {
+		t.Fatal(err)
+	}
+	registry := tools.NewRegistry()
+	tools.RegisterWorkspaceContainerTools(registry, runtimeManager)
+	runtime := &tools.Runtime{Registry: registry, Workspaces: runtimeManager, SessionAccess: tools.NewSessionWorkspaceAccessManager()}
+	handler := New(API{Workspaces: writer, Tools: runtime})
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/workspace-containers", strings.NewReader(`{"name":"Product"}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var container workspace.WorkspaceContainer
+	if err := json.Unmarshal(recorder.Body.Bytes(), &container); err != nil {
+		t.Fatal(err)
+	}
+	assertAgentContainerStatus(t, runtime, container.ID, "Product", 0)
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/workspace-containers/"+container.ID+"/workspaces", strings.NewReader(`{"workspace_ids":["`+member.ID+`"]}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("membership status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertAgentContainerStatus(t, runtime, container.ID, "Product", 1)
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, "/api/workspace-containers/"+container.ID, strings.NewReader(`{"name":"Renamed"}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("rename status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertAgentContainerStatus(t, runtime, container.ID, "Renamed", 1)
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/api/workspace-containers/"+container.ID, nil))
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("delete status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	result, err := runtime.Call(context.Background(), "workspace_container_status", map[string]any{"container_id": container.ID})
+	if err != nil || !result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "workspace container not found") {
+		t.Fatalf("agent status after delete = %#v err=%v", result, err)
+	}
+}
+
+func assertAgentContainerStatus(t *testing.T, runtime *tools.Runtime, containerID, name string, workspaceCount int) {
+	t.Helper()
+	result, err := runtime.Call(context.Background(), "workspace_container_status", map[string]any{"container_id": containerID})
+	if err != nil || result.IsError {
+		t.Fatalf("agent status = %#v err=%v", result, err)
+	}
+	value := result.StructuredContent.(tools.WorkspaceContainerStatusResult)
+	if value.Name != name || value.WorkspaceCount != workspaceCount {
+		t.Fatalf("agent status = %#v", value)
 	}
 }

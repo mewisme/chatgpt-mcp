@@ -295,7 +295,7 @@ cgm workspace register ~/projects/my-project
 
 Workspace IDs are stable hashes of canonical workspace paths. Older registry-v2 instance-scoped IDs are migrated to the stable ID and retained as aliases. The runtime never guesses or falls back to another registered workspace when an ID is invalid.
 
-An MCP session may access multiple registered workspaces. Every workspace-scoped tool call must explicitly provide a valid `workspace_id`; the runtime canonicalizes that ID and records the workspace in the session's in-memory access set. Invalid workspace IDs do not create access entries. Workspace-specific filesystem scope and state remain isolated even when the same session moves between projects.
+An MCP session may access multiple registered workspaces. Every workspace-scoped tool call must explicitly provide a valid concrete `ws_*` `workspace_id`; the runtime canonicalizes that ID and records the workspace in the session's in-memory access set. Invalid workspace IDs do not create access entries. `wsc_*` workspace containers are orchestration-only: resolving a container does not grant access to its members, and passing a container ID to a workspace-scoped tool is rejected instead of selecting or fanning out to a member. Workspace-specific filesystem scope and state remain isolated even when the same session moves between projects.
 
 Global extra roots apply to every workspace:
 

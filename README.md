@@ -204,6 +204,8 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 
 `--verbose`, `--debug`, and `--log-format=json` are global flags. Use `cgm <command> --help` for the live command surface.
 
+Workspace containers (`wsc_*`) are Agent orchestration scopes, not filesystem workspaces. An Agent resolves a container with `workspace_container_context`, then uses concrete member `ws_*` IDs for `project_context`, filesystem, Git, shell, memory, rules, and checkpoint tools. Container selection never merges member cwd, permissions, rules, memory, or checkpoints.
+
 ## Runtime endpoints
 
 Defaults when both local HTTP endpoints are enabled:

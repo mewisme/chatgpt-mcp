@@ -2,6 +2,7 @@ package admin
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -43,6 +44,10 @@ func (api API) handleWorkspaceContainers(w http.ResponseWriter, r *http.Request)
 		value, err := manager.CreateContainer(request.Name)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := api.syncWorkspaceContainerRuntime(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, value)
@@ -90,10 +95,18 @@ func (api API) handleWorkspaceContainer(w http.ResponseWriter, r *http.Request) 
 			writeWorkspaceContainerError(w, err)
 			return
 		}
+		if err := api.syncWorkspaceContainerRuntime(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, updated)
 	case http.MethodDelete:
 		if err := manager.DeleteContainer(id); err != nil {
 			writeWorkspaceContainerError(w, err)
+			return
+		}
+		if err := api.syncWorkspaceContainerRuntime(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -128,6 +141,10 @@ func (api API) handleWorkspaceContainerMembers(w http.ResponseWriter, r *http.Re
 			writeWorkspaceContainerError(w, err)
 			return
 		}
+		if err := api.syncWorkspaceContainerRuntime(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, value)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -140,6 +157,10 @@ func (api API) handleWorkspaceContainersMembership(w http.ResponseWriter, r *htt
 		values, err := manager.ContainersForWorkspace(item.ID)
 		if err != nil {
 			writeWorkspaceContainerError(w, err)
+			return
+		}
+		if err := api.syncWorkspaceContainerRuntime(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, values)
@@ -164,6 +185,16 @@ func (api API) handleWorkspaceContainersMembership(w http.ResponseWriter, r *htt
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (api API) syncWorkspaceContainerRuntime() error {
+	if api.Tools == nil || api.Tools.Workspaces == nil {
+		return nil
+	}
+	if err := api.Tools.ReloadWorkspaces(); err != nil {
+		return fmt.Errorf("workspace container saved but runtime workspace reload failed: %w", err)
+	}
+	return nil
 }
 
 func writeWorkspaceContainerError(w http.ResponseWriter, err error) {

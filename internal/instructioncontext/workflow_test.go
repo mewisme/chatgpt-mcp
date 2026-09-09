@@ -8,10 +8,23 @@ import (
 func TestAgentWorkflowCoversNativeToolFlow(t *testing.T) {
 	workflow := AgentWorkflow()
 	for _, expected := range []string{
-		"MCP session", "project_context", "load_path_rules", "load_skill", "read_files", "read_text_file", "apply_patch", "edit_file", "multi_edit", "run_command", "rewind", "remember", "verify",
+		"MCP session", "project_context", "workspace_container_context", "load_path_rules", "load_skill", "read_files", "read_text_file", "apply_patch", "edit_file", "multi_edit", "run_command", "rewind", "remember", "verify",
 	} {
 		if !strings.Contains(workflow, expected) {
 			t.Fatalf("workflow missing %q: %s", expected, workflow)
+		}
+	}
+}
+
+func TestAgentWorkflowDocumentsWorkspaceContainerOrchestration(t *testing.T) {
+	workflow := AgentWorkflow()
+	server := StaticServerInstructions()
+	for _, expected := range []string{"ws_*", "wsc_*", "workspace-container orchestration scope", "workspace_container_context first", "member ws_*", "Never pass wsc_* as workspace_id", "never merge member cwd"} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("workflow missing container guidance %q: %s", expected, workflow)
+		}
+		if !strings.Contains(server, expected) {
+			t.Fatalf("server instructions missing container guidance %q: %s", expected, server)
 		}
 	}
 }
@@ -87,7 +100,7 @@ func TestSharedGuidanceRendersIntoWorkflowAndServerInstructions(t *testing.T) {
 			t.Fatalf("server instructions missing shared guidance %q", step)
 		}
 	}
-	for _, expected := range []string{"workspace_register", "workspace_status", "persisted shell cwd", "agent_status", "project_context", "list_skills"} {
+	for _, expected := range []string{"workspace_register", "workspace_status", "workspace_container_context", "persisted shell cwd", "agent_status", "project_context", "list_skills"} {
 		if !strings.Contains(server, expected) {
 			t.Fatalf("server instructions missing bootstrap %q: %s", expected, server)
 		}

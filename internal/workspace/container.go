@@ -11,6 +11,11 @@ import (
 
 var ErrContainerNotFound = errors.New("workspace container not found")
 
+type ContainerContext struct {
+	Container  WorkspaceContainer
+	Workspaces []Workspace
+}
+
 func (m *Manager) CreateContainer(name string) (WorkspaceContainer, error) {
 	span := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.container.create", "Creating workspace container", tracepkg.String("name", strings.TrimSpace(name)))
 	name = strings.TrimSpace(name)
@@ -61,6 +66,37 @@ func (m *Manager) GetContainer(id string) (WorkspaceContainer, error) {
 	}
 	container.WorkspaceIDs = append([]string(nil), container.WorkspaceIDs...)
 	return container, nil
+}
+
+func (m *Manager) ResolveContainer(id string) (ContainerContext, error) {
+	if err := m.ensureLoaded(); err != nil {
+		return ContainerContext{}, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id = strings.TrimSpace(id)
+	container, ok := m.containers[id]
+	if !ok {
+		return ContainerContext{}, fmt.Errorf("%w: %s", ErrContainerNotFound, id)
+	}
+	container.WorkspaceIDs = append([]string(nil), container.WorkspaceIDs...)
+	values := make([]Workspace, 0, len(container.WorkspaceIDs))
+	for _, workspaceID := range container.WorkspaceIDs {
+		item, exists := m.items[workspaceID]
+		if !exists {
+			continue
+		}
+		item.AllowDirs = append([]string(nil), item.AllowDirs...)
+		item.LegacyIDs = append([]string(nil), item.LegacyIDs...)
+		values = append(values, item)
+	}
+	sort.Slice(values, func(i, j int) bool {
+		if values[i].Path == values[j].Path {
+			return values[i].ID < values[j].ID
+		}
+		return values[i].Path < values[j].Path
+	})
+	return ContainerContext{Container: container, Workspaces: values}, nil
 }
 
 func (m *Manager) ListContainers() ([]WorkspaceContainer, error) {

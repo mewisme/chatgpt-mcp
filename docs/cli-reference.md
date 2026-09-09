@@ -419,6 +419,18 @@ cgm workspace container delete wsc_...
 
 Container IDs use the `wsc_` prefix. Containers group registered workspaces without merging filesystem scope, project context, shell/REPL state, memory, or checkpoints.
 
+Agent-facing MCP tools expose containers separately:
+
+```text
+workspace_container_list()
+workspace_container_status(container_id="wsc_...")
+workspace_container_context(container_id="wsc_...")
+```
+
+`wsc_*` is orchestration-only. Filesystem, Git, shell, memory, rule, checkpoint, and `project_context` calls still require one concrete member `ws_*` as `workspace_id`. Passing an existing container ID as `workspace_id` fails with guidance to resolve the container and choose a member; cgm never fans an operation out or silently selects the first member.
+
+When the runtime is already running, successful CLI container mutations synchronously reload the runtime workspace registry before returning. The next MCP container read therefore sees create, rename, membership, and delete changes without restarting the runtime or reconnecting the MCP session. If that runtime synchronization fails, the CLI reports the failure even though the registry mutation may already have been persisted.
+
 Remove the registry handle without deleting project files:
 
 ```bash

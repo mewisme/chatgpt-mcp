@@ -140,7 +140,8 @@ The portable smoke verifies behavior such as:
 - foreground runtime health
 - managed runtime metadata through the portable hidden service entrypoint
 - persistent runtime log replay/filter/follow/clear
-- MCP discovery and tool listing
+- MCP discovery and tool listing, including workspace-container Agent tools
+- live workspace-container read-after-write consistency across CLI mutations: create -> status/list, rename -> status, membership add/remove -> context, and delete -> list without runtime restart or MCP reconnect
 - modern MCP error behavior
 - clean stop/shutdown
 

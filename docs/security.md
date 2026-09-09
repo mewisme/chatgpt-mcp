@@ -38,7 +38,9 @@ Revoking an allowed root also prevents old checkpoints from restoring files back
 
 ## MCP session workspace isolation
 
-One MCP session may access multiple registered workspaces. Every workspace-scoped call must explicitly carry a valid `workspace_id`; the runtime does not infer a current workspace or silently switch arguments. A valid target is added to the session's ephemeral in-memory workspace access set, while an invalid workspace is rejected before tool execution.
+One MCP session may access multiple registered workspaces. Every workspace-scoped call must explicitly carry a valid `workspace_id`; the runtime does not infer a current workspace or silently switch arguments. A valid concrete `ws_*` target is added to the session's ephemeral in-memory workspace access set, while an invalid workspace is rejected before tool execution.
+
+Workspace containers use `wsc_*` IDs and are orchestration-only. Reading container metadata or resolving its members does not add a container or any member to the session workspace access set, and container membership grants no filesystem permission. Passing an existing `wsc_*` to a workspace-scoped tool is rejected instead of selecting a member or fanning the operation out.
 
 Multi-workspace access does not merge workspace state. Filesystem roots, shell cwd, Git/process working directories, project context, rules, memory, Node REPL state, checkpoints, and approvals remain scoped by the explicitly targeted workspace. Path containment and symlink checks still apply independently on every call. Session access sets are refreshed while active, expire after 30 days of inactivity, and are not persisted to disk.
 

@@ -6,6 +6,7 @@ This directory contains the detailed documentation for `chatgpt-mcp`. The reposi
 
 | Goal | Guide |
 | --- | --- |
+| Check runtime requirements and recommendations | [Getting started → Requirements](getting-started.md#requirements) |
 | Install and start `chatgpt-mcp` | [Getting started](getting-started.md) |
 | Connect ChatGPT to a private/local runtime | [OpenAI + ChatGPT setup](openai-chatgpt.md) |
 | Run as a foreground process or managed service | [Runtime and services](runtime.md) |
@@ -42,11 +43,12 @@ This directory contains the detailed documentation for `chatgpt-mcp`. The reposi
 
 ### I am developing or contributing
 
-1. [MCP and upstreams](mcp.md)
-2. [Configuration](configuration.md)
-3. [Security](security.md)
-4. [TUI Command Center](tui.md)
-5. [Development](development.md)
+1. [Contributing guide](../CONTRIBUTING.md) — setup, PR expectations, Code of Conduct
+2. [MCP and upstreams](mcp.md)
+3. [Configuration](configuration.md)
+4. [Security](security.md) — product boundaries; see also [SECURITY.md](../SECURITY.md) for vulnerability disclosure
+5. [TUI Command Center](tui.md)
+6. [Development](development.md)
 
 ## External references
 

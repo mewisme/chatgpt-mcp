@@ -2,6 +2,43 @@
 
 This guide gets `chatgpt-mcp` installed, initialized, and running locally. If your goal is specifically to connect ChatGPT through OpenAI Secure MCP Tunnel, continue with [OpenAI + ChatGPT setup](openai-chatgpt.md) after initialization.
 
+## Requirements
+
+### Minimal — run the server locally
+
+| Requirement | Notes |
+| --- | --- |
+| Supported OS | Linux, macOS, or Windows |
+| Architecture | `amd64` or `arm64` (installers reject other combinations) |
+| Privileges | Run as a normal user. The MCP process never needs to be root; `sudo` is only used when registering a machine-level service (`cgm up --system` on Linux/macOS). |
+| Config root | Default `~/.config/chatgpt-mcp/` (override with `--config-dir` / `CHATGPT_MCP_CONFIG_DIR`) |
+| Ports | Defaults MCP `127.0.0.1:37421` and Admin `127.0.0.1:37422` when those HTTP listeners are enabled; if a port is busy the runtime picks a free fallback |
+| Network after install | Not required for loopback-only local use |
+
+**Not required to start:** Docker/containers, Git, a shell sandbox helper, or an OpenAI account. Workspace containers (`wsc_*`) are logical groups of registered workspaces, not Docker.
+
+Install-time only: outbound access to the installer CDN / GitHub Releases, plus `sha256sum`/`shasum` on Unix. Cosign/Sigstore verification is preferred; set `INSTALL_ALLOW_CHECKSUM_ONLY=1` only when signatures are unavailable.
+
+Bootstrap steps: install → `cgm init` → `cgm serve` or `cgm up` → `cgm status`.
+
+### Recommended — ChatGPT + production-minded use
+
+Everything in **Minimal**, plus:
+
+| Recommendation | Why |
+| --- | --- |
+| OpenAI Secure MCP Tunnel ID + runtime API key (**Tunnels Read + Use**) | Private ChatGPT path without inbound ports; see [OpenAI + ChatGPT setup](openai-chatgpt.md) |
+| Outbound HTTPS `:443` to OpenAI | Tunnel control plane; no inbound firewall hole for the tunnel |
+| ChatGPT Developer Mode for the connecting user | Required to create/use the ChatGPT app that binds the tunnel |
+| Managed service (`cgm up`) | Keeps the runtime up across sessions; use `cgm up --system` on remote Linux if systemd user lingering is off |
+| Narrow workspace registration | Limits filesystem/shell/Git scope to roots you intentionally grant |
+| Tunnel-first posture | Prefer `tunnel.enabled=true` with `server.expose` left at `none`; for private-only, set `server.enabled=false` (Admin may stay on for local ops) |
+| Shell defaults | Prefer `shell.approval_policy=balanced` (or stricter) and `shell.sandbox_policy=auto` |
+| Optional tools | Install `git` if you use Git MCP tools; on Linux install bubblewrap if you want OS sandboxing (`shell.sandbox_policy=required` needs it) |
+| Verify config | Run `cgm config verify` (or `--strict`) after policy or exposure changes |
+
+Operational defaults and dangerous combinations: [Security](security.md#recommended-operational-defaults).
+
 ## Install
 
 ### Linux / macOS

@@ -11,10 +11,9 @@ Single Go binary · MCP `2026-07-28` · OpenAI Secure MCP Tunnel · Managed serv
 [![MCP](https://img.shields.io/badge/MCP-2026--07--28-111111?style=flat-square)](docs/mcp.md)
 [![OpenAI](https://img.shields.io/badge/OpenAI-Secure%20MCP%20Tunnel-000000?style=flat-square&logo=openai)](docs/openai-chatgpt.md)
 [![Go](https://img.shields.io/github/go-mod/go-version/mewisme/chatgpt-mcp?style=flat-square&logo=go)](go.mod)
-[![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-555?style=flat-square)](#installation)
 [![License](https://img.shields.io/github/license/mewisme/chatgpt-mcp?style=flat-square)](LICENSE)
 
-[Getting started](docs/getting-started.md) · [TUI Command Center](docs/tui.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [CLI reference](docs/cli-reference.md) · [Security](docs/security.md) · [Troubleshooting](docs/troubleshooting.md)
+[Getting started](docs/getting-started.md) · [TUI Command Center](docs/tui.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [CLI reference](docs/cli-reference.md) · [Security](docs/security.md) · [Troubleshooting](docs/troubleshooting.md) · [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
 
 </div>
 
@@ -54,6 +53,33 @@ chatgpt-mcp
 - Human-approved one-shot elevation for guarded control-plane actions, with CLI/Admin review
 - Single-binary releases for Linux, macOS, and Windows on amd64/arm64
 - Transactional direct install/self-update with checksum verification, stable launchers, managed-runtime restart, and automatic rollback
+
+## Requirements
+
+### Minimal (local runtime)
+
+| Need | Detail |
+| --- | --- |
+| OS / CPU | Linux, macOS, or Windows on **amd64** or **arm64** |
+| Privileges | Normal user account (do not run the MCP process as root) |
+| Disk | Config/state under `~/.config/chatgpt-mcp/` plus modest log rotation (~50 MiB default) |
+| Network | Not required after install for loopback-only `cgm serve` / `cgm up` |
+| Ports | Defaults `127.0.0.1:37421` (MCP) and `127.0.0.1:37422` (Admin); busy ports fall back automatically |
+
+No Docker, Git, or OpenAI account is required just to start the server. `cgm init` creates local MCP/Admin tokens.
+
+### Recommended (ChatGPT daily use)
+
+| Need | Detail |
+| --- | --- |
+| OpenAI | Secure MCP Tunnel ID + runtime API key with **Tunnels Read + Use** (not an Admin API key) |
+| Network | Outbound HTTPS `:443` to OpenAI (no inbound port for the tunnel path) |
+| Persistence | `cgm up` managed service; on remote Linux without user lingering, prefer `cgm up --system` |
+| Workspaces | Register only the roots ChatGPT should reach |
+| Posture | Keep `server.expose` at `none`; prefer tunnel-only (`server.enabled=false`, `tunnel.enabled=true`); `shell.approval_policy=balanced`; `shell.sandbox_policy=auto` |
+| Optional | `git` on PATH for Git tools; Linux [bubblewrap](https://github.com/containers/bubblewrap) when you want OS filesystem sandboxing |
+
+Full checklists and install notes: [Getting started](docs/getting-started.md#requirements). Security defaults: [Security](docs/security.md#recommended-operational-defaults).
 
 ## Installation
 
@@ -263,6 +289,12 @@ go build -trimpath ./
 ```
 
 See [Development](docs/development.md) for the release smoke, cross-platform matrix, and the repository rule that tests must never mutate the real default config root.
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, and PR expectations. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+To report a vulnerability, use the [security policy](SECURITY.md) (private GitHub advisories — do not open a public issue).
 
 ## License
 

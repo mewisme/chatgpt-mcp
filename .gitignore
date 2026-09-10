@@ -1,6 +1,6 @@
 apply-*
 /internal/web/dist/
 /web/coverage/
-.agents/skills/
+.agents/
 .local/
 *.cgm

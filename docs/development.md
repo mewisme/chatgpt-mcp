@@ -2,6 +2,8 @@
 
 This guide covers source builds, verification, CI, release smoke tests, and release workflow expectations.
 
+For how to propose changes, open issues/PRs, and community norms, start with [CONTRIBUTING.md](../CONTRIBUTING.md).
+
 ## Requirements
 
 - Go 1.27+

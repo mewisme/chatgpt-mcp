@@ -1,0 +1,70 @@
+name: Bug report
+description: Report unexpected behavior or a regression
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For security vulnerabilities, use [private advisory reporting](https://github.com/mewisme/chatgpt-mcp/security/advisories/new) instead of this form.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the problem.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `cgm version` (or install method / tag if the binary is unavailable).
+      placeholder: e.g. v0.2.9
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: arch
+    attributes:
+      label: Architecture
+      description: Optional. e.g. amd64, arm64
+      placeholder: amd64
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps starting from a clean or isolated config when possible.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include relevant log snippets (`cgm logs --debug`) with secrets redacted.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Config shape (redacted), install method, tunnel vs direct MCP, etc.

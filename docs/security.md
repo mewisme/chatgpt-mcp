@@ -4,6 +4,8 @@
 
 This document describes the built-in security boundaries. It is not a substitute for OS-level sandboxing when running deliberately hostile code under the same operating-system user.
 
+To **report a vulnerability**, use the repository [SECURITY.md](../SECURITY.md) (private GitHub advisories). Do not open a public issue for security bugs.
+
 ## Workspace boundary
 
 Filesystem, shell mutation, Git/process working directories, and checkpoint/rewind validation use one canonical effective root set:

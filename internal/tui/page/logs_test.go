@@ -922,6 +922,37 @@ func TestExecutionScopeEditorAppliesWithoutReconnectingGlobalFeed(t *testing.T) 
 	}
 }
 
+func TestExecutionScopeRefreshTracksMembershipAndStaleContainer(t *testing.T) {
+	setupLogsPageRoot(t)
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	first, _ := manager.Register(t.TempDir())
+	second, _ := manager.Register(t.TempDir())
+	container, _ := manager.CreateContainer("project")
+	_, _ = manager.AddWorkspaceToContainer(container.ID, first.ID)
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.exec.scopeMode, page.exec.containerID = executionScopeContainer, container.ID
+	page.refreshExecutionScope()
+	if len(page.exec.containerMembers) != 1 {
+		t.Fatalf("initial members=%#v", page.exec.containerMembers)
+	}
+	writer := workspace.NewManager(workspace.DefaultStorePath())
+	if _, err := writer.AddWorkspaceToContainer(container.ID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	page.refreshExecutionScope()
+	if len(page.exec.containerMembers) != 2 {
+		t.Fatalf("refreshed members=%#v", page.exec.containerMembers)
+	}
+	if err := writer.DeleteContainer(container.ID); err != nil {
+		t.Fatal(err)
+	}
+	page.refreshExecutionScope()
+	if !page.exec.scopeStale || page.exec.scopeNotice == "" || len(page.visibleExecutionEvents()) != 0 {
+		t.Fatalf("stale scope stale=%t notice=%q visible=%#v", page.exec.scopeStale, page.exec.scopeNotice, page.visibleExecutionEvents())
+	}
+}
+
 func TestExecutionScopeFilteringDoesNotCreateSequenceGaps(t *testing.T) {
 	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()

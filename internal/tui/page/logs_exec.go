@@ -274,6 +274,8 @@ func (page *LogsPage) executionBodyView(width, height int) string {
 		message = component.BannerWidth(page.exec.err.Error(), component.ToneDanger, width)
 	} else if page.exec.notice != "" {
 		message = component.WrapContent(component.Muted(page.exec.notice), width)
+	} else if page.exec.scopeNotice != "" {
+		message = component.WrapContent(component.Muted(page.exec.scopeNotice), width)
 	}
 	reserved := lipgloss.Height(status) + 1
 	if message != "" {

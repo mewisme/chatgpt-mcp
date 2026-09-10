@@ -659,7 +659,7 @@ func (model Model) finishApprovalResolution(msg approvalResolvedMsg) (tea.Model,
 	if msg.approve {
 		action = "Approved"
 		if model.approvalSimilar {
-			action = "Approved for runtime session"
+			action = "Approved similar commands for all MCP sessions (1h)"
 		}
 	}
 	if len(model.approvals) == 0 {
@@ -717,7 +717,9 @@ func (model Model) approvalDialogContent(width int) string {
 		lines = append(lines, "", component.Label("Command"), component.RenderCodeBlock(command, "bash", width))
 	}
 	if pattern := strings.TrimSpace(request.SimilarCommandPattern); pattern != "" {
-		lines = append(lines, "", component.WrapKeyValue("Runtime session pattern", pattern, width))
+		lines = append(lines, "", component.WrapKeyValue("Similar pattern", pattern, width))
+		ttl := approval.DefaultRuntimeGrantTTL.String()
+		lines = append(lines, component.WrapKeyValue("Similar grant", "all MCP sessions for "+ttl+" (revocable)", width))
 	}
 	lines = append(lines, "", component.Label("Arguments"), component.RenderCodeBlock(approvalArguments(request.Arguments), "json", width))
 	return strings.Join(lines, "\n")
@@ -729,7 +731,7 @@ func (model Model) approvalDialogFooter(width int) string {
 	case approvalStageChoice:
 		hint := "j/k scroll · a approve · d deny · ←/→ choose · Enter submit"
 		if request, ok := model.activeApproval(); ok && strings.TrimSpace(request.SimilarCommandPattern) != "" {
-			hint = "j/k scroll · a approve once · s approve similar for runtime session · d deny · ←/→ choose · Enter submit"
+			hint = "j/k scroll · a approve once · s allow similar for all MCP sessions (1h) · d deny · ←/→ choose · Enter submit"
 		}
 		lines = append(lines, model.approvalChoice.View(), component.WrapContent(component.Muted(hint), width))
 	case approvalStageResolving:

@@ -3,6 +3,7 @@ package page
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -26,6 +27,8 @@ const (
 	RequestCreateTest  RequestCommand = "request.create.test"
 	RequestApprove     RequestCommand = "request.approve"
 	RequestDeny        RequestCommand = "request.deny"
+	RequestGrantList   RequestCommand = "request.grant.list"
+	RequestGrantRevoke RequestCommand = "request.grant.revoke"
 	RequestShowPending RequestCommand = "request.show.pending"
 	RequestShowHistory RequestCommand = "request.show.history"
 	RequestShowAll     RequestCommand = "request.show.all"
@@ -474,6 +477,36 @@ func (page *RequestsPage) handleCommand(command RequestCommand, resourceID strin
 			return nil
 		}
 		return requestResolveRoute(page.mode, request.ID, command == RequestApprove)
+	case RequestGrantList:
+		page.loading = true
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
+			defer cancel()
+			grants, err := application.ListRuntimeGrants(ctx, "")
+			if err != nil {
+				return requestListMsg{err: err}
+			}
+			return requestListMsg{requests: grants}
+		}
+	case RequestGrantRevoke:
+		id := strings.TrimSpace(resourceID)
+		if id == "" {
+			id = page.selectedID()
+		}
+		if id == "" {
+			page.err = errors.New("select a runtime grant request to revoke")
+			return nil
+		}
+		page.loading = true
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
+			defer cancel()
+			request, err := application.RevokeRuntimeGrant(ctx, id)
+			if err != nil {
+				return requestResolveMsg{request: request, err: err}
+			}
+			return requestResolveMsg{request: request, approve: false, err: nil}
+		}
 	default:
 		page.err = fmt.Errorf("unsupported request action: %s", command)
 		return nil

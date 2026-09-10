@@ -1076,7 +1076,7 @@ func TestModelApprovalAllowsSimilarCommandsForRuntimeSession(t *testing.T) {
 	request.Command = "git push origin main"
 	model := NewModel(Route{Kind: RouteHome})
 	model.applyApprovalPoll(approvalPollMsg{requests: []approval.Request{request}})
-	if view := model.approvalDialogView(96); !strings.Contains(view, "Runtime session pattern") || !strings.Contains(view, "git push **") || !strings.Contains(view, "s approve similar for runtime session") {
+	if view := model.approvalDialogView(96); !strings.Contains(view, "Similar pattern") || !strings.Contains(view, "git push **") || !strings.Contains(view, "s allow similar for all MCP sessions") {
 		t.Fatalf("runtime-session approval option missing:\n%s", view)
 	}
 	called := false
@@ -1091,7 +1091,7 @@ func TestModelApprovalAllowsSimilarCommandsForRuntimeSession(t *testing.T) {
 	}
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
-	if !called || model.toast.message != "Approved for runtime session "+request.ID {
+	if !called || model.toast.message != "Approved similar commands for all MCP sessions (1h) "+request.ID {
 		t.Fatalf("runtime-session resolution called=%t toast=%q", called, model.toast.message)
 	}
 }

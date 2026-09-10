@@ -941,6 +941,44 @@ func TestExecutionScopeFilteringDoesNotCreateSequenceGaps(t *testing.T) {
 	}
 }
 
+func TestExecutionScopeSurvivesSnapshotReplayAndOverflow(t *testing.T) {
+	root := setupLogsPageRoot(t)
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	selected, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := shellruntime.ExecutionFeedSnapshot{Events: []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, ExecutionID: "selected", WorkspaceID: selected.ID, Type: shellruntime.ExecutionEventOutput, Data: "selected\n"},
+		{Sequence: 2, ExecutionID: "other", WorkspaceID: other.ID, Type: shellruntime.ExecutionEventOutput, Data: "other\n"},
+	}, LatestSequence: 2}
+	ready, _ := json.Marshal(snapshot)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "event: ready\ndata: %s\n\n", ready)
+	}))
+	defer server.Close()
+	writeLogsRuntimeState(t, root, server.URL, "run_scope")
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.exec.scopeMode, page.exec.workspaceID = executionScopeWorkspace, selected.ID
+	open := page.Init()
+	updated, next := page.Update(open())
+	page = updated.(*LogsPage)
+	if !page.exec.connected || page.exec.scopeMode != executionScopeWorkspace || page.exec.workspaceID != selected.ID || page.exec.latestSeq != 2 || len(page.exec.events) != 2 || len(page.visibleExecutionEvents()) != 1 || next == nil {
+		t.Fatalf("snapshot scope=%s workspace=%s seq=%d raw=%d visible=%d connected=%t", page.exec.scopeMode, page.exec.workspaceID, page.exec.latestSeq, len(page.exec.events), len(page.visibleExecutionEvents()), page.exec.connected)
+	}
+	generation := page.exec.generation
+	reconnect := page.finishExecutionFeedEvent(logsExecutionEventMsg{generation: generation, err: runtimecontrol.ErrExecutionFeedOverflow})
+	if reconnect == nil || page.exec.scopeMode != executionScopeWorkspace || page.exec.workspaceID != selected.ID || !page.exec.reconnecting {
+		t.Fatalf("overflow reset scope: mode=%s workspace=%s reconnect=%t cmd=%v", page.exec.scopeMode, page.exec.workspaceID, page.exec.reconnecting, reconnect)
+	}
+}
+
 func TestLogsRuntimeAndCommandExecutionRemainTabbedParentViews(t *testing.T) {
 	setupLogsPageRoot(t)
 	page, _ := NewLogs(t.Context())

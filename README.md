@@ -192,6 +192,7 @@ Then create or enable the developer-mode app in ChatGPT and select the same tunn
 | Full diagnostic logs | `cgm logs --debug -f` |
 | Explain config schema | `cgm config explain [key]` |
 | Migrate legacy credentials | `cgm config migrate` |
+| Encrypt secret files at rest | `cgm config migrate secrets` |
 | Verify config/state | `cgm config verify` |
 | Export portable config/state + secrets | `cgm config export` |
 | Import portable config/state + secrets | `cgm config import` |

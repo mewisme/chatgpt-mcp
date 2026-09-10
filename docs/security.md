@@ -48,6 +48,12 @@ Multi-workspace access does not merge workspace state. Filesystem roots, shell c
 
 Activity/log observability stores only a short SHA-256-derived session fingerprint, whether the targeted workspace access was `new` or `existing`, and the number of workspaces seen by that session; raw MCP session IDs are not exposed.
 
+## MCP token workspace tenancy
+
+A single MCP bearer token authenticates the HTTP endpoint for the whole runtime. Any client that presents that token can target any registered `workspace_id` (subject to the session workspace access rules above). Sharing one MCP token across multiple agents therefore shares access to every registered workspace on that runtime.
+
+Per-workspace or per-agent MCP tokens are deferred. Until then, prefer separate runtime instances (separate config roots) or narrowly registered workspaces when agents must not see each other's roots. Default token→workspace behavior is intentionally unchanged for compatibility.
+
 ## Control-guard approvals and self-grant prevention
 
 Shell/process descendants launched by MCP tools are marked as MCP tool execution context. Read-only inspection remains allowed, while control-plane mutations are guarded.
@@ -78,11 +84,11 @@ Human approval never grants a general shell or CLI bypass. Only typed direct con
 
 The approved child process executes the current server binary directly instead of resolving `cgm` through workspace `PATH`, preventing a workspace-supplied executable from receiving the capability.
 
-Local operators can review requests with `cgm request list/view`, approve or deny them with `cgm request approve/deny`, or use the Admin UI dialog. The agent cannot approve its own request through the built-in shell because those resolution commands are themselves hard-denied in MCP tool context.
+Local operators can review requests with `cgm request list/view`, approve or deny them with `cgm request approve/deny`, or use the Admin UI dialog. When a request carries a similar-command pattern, operators may instead allow matching commands for **all MCP sessions** until a fixed expiry (default 1 hour, max 24 hours). That runtime grant is revocable with `cgm request grant list` / `cgm request grant revoke <id>` and never lasts for the entire process lifetime. The agent cannot approve or revoke its own request through the built-in shell because those resolution commands are themselves hard-denied in MCP tool context.
 
 ## Protected config/state subtree
 
-The selected config root contains control-plane material such as ephemeral runtime-control state, OAuth/upstream state, secret files, and configuration. Long-lived reversible credentials are stored under `<config-root>/state/secrets/` as one file per secret, keyed by a SHA-256-derived filename and written atomically with restrictive file/directory modes where supported.
+The selected config root contains control-plane material such as ephemeral runtime-control state, OAuth/upstream state, secret files, and configuration. Long-lived reversible credentials are stored under `<config-root>/state/secrets/` as one file per secret, keyed by a SHA-256-derived filename and written atomically with restrictive file/directory modes where supported. Secret values are encrypted at rest with AES-256-GCM; blobs are prefixed with `cgmsecret1:` and a master key is kept at `<config-root>/state/secrets/.master.key` (mode `0600`, created on first write). Legacy plaintext secret files remain readable and are rewritten encrypted on the next read or via `cgm config migrate secrets`.
 
 Built-in MCP shell/file paths deny direct access to the protected control-plane subtree, including canonicalized path aliases/symlinks.
 
@@ -94,11 +100,38 @@ A process deliberately running arbitrary native code as the same OS user may hav
 
 If you need a strong boundary against hostile local code, use an OS-level sandbox, container/VM boundary, or a separate operating-system identity with only the required filesystem access.
 
+## Shell OS sandbox (Linux bubblewrap)
+
+Application-level workspace path policy is **not** an OS sandbox. Shell execution may additionally wrap commands in Bubblewrap (`bwrap`) on Linux when available:
+
+| `shell.sandbox_policy` | Behavior |
+| --- | --- |
+| `auto` | With `allow`/`balanced` approval, filesystem sandboxing stays off. With `strict`/`deny`, use `bwrap` when present and fall back if unavailable. |
+| `off` | Do not apply filesystem sandboxing. Status, `cgm config verify`, and the Config TUI warn loudly. |
+| `required` | Require a supported OS sandbox and fail shell execution when isolation cannot be established. |
+
+Limits to keep in mind:
+
+- Bubblewrap is Linux-only in this product. Windows and macOS have no equivalent filesystem sandbox here; `required` fails closed on those hosts.
+- Network isolation is controlled separately by `shell.network_policy` and may still use `bwrap` when filesystem sandboxing is off.
+- Approved host/control-plane mutations can bypass filesystem isolation when the approved operation requires host access.
+- When `bwrap` is missing and policy is `auto`, shell commands continue without OS filesystem isolation.
+
+Prefer `sandbox_policy=auto` (or `required` on Linux hosts with Bubblewrap installed) rather than `off`.
+
 ## MCP and Admin authentication
 
 `chatgpt-mcp` stores MCP/Admin app token hashes, not their plaintext bearer tokens. Long-lived reversible credentials such as tunnel keys, OAuth tokens/client secrets, and sensitive upstream header/environment values are stored in the selected config root's `state/secrets/` directory instead of structured config files. Structured files keep `<secret-file>` markers and non-secret metadata.
 
-The secret store is intentionally file-backed and has no OS keyring dependency. Keep the selected config root private to the operating-system user. Legacy `<os-keyring>` markers are recognized as legacy state so configuration can fail clearly, but values that existed only in a removed OS-keyring backend cannot be recovered and must be configured again.
+The secret store is intentionally file-backed with encrypt-at-rest. Structured config keeps `<secret-file>` markers; on-disk secret blobs are encrypted under a per-config-root master key. There is still no OS keyring dependency—native OS keyring backends remain future work. Keep the selected config root private to the operating-system user. Legacy `<os-keyring>` markers are recognized as legacy state so configuration can fail clearly, but values that existed only in a removed OS-keyring backend cannot be recovered and must be configured again.
+
+Encrypt existing plaintext secret files explicitly:
+
+```bash
+cgm config migrate secrets
+```
+
+New writes encrypt automatically. A Get of a legacy plaintext file also rewrites it encrypted when possible.
 
 Create/rotate:
 
@@ -121,6 +154,16 @@ Authorization: Bearer <token>
 
 MCP and Admin authentication are separate policies.
 
+Disabling authentication on an enabled HTTP endpoint requires an explicit acknowledgement:
+
+```bash
+cgm config set server.allow_unauthenticated_loopback true
+cgm auth mcp disable
+cgm auth admin disable
+```
+
+`server.allow_unauthenticated_loopback=true` is only valid with `server.expose.mode=none`. Unauthenticated listeners accept any local process as a client; status output and the TUI surface a loud warning while this mode is active. Re-enable authentication as soon as practical.
+
 ## Network exposure
 
 Default exposure is loopback-only.
@@ -138,7 +181,7 @@ Any exposure beyond loopback (`all`, an explicit interface list, or `0.0.0.0`) i
 
 `all` and explicit interface exposure include eligible IPv4 and IPv6 global-unicast addresses discovered on those interfaces. The explicit `0.0.0.0` mode remains IPv4 wildcard exposure and only advertises IPv4 endpoints.
 
-Direct listeners currently use HTTP rather than built-in TLS. Non-loopback exposure therefore also requires an explicit `server.allow_insecure_http=true` acknowledgement. Bearer credentials and request contents are not transport-encrypted by `chatgpt-mcp` itself; use this only on a trusted or already encrypted network (for example, an appropriate private overlay), or terminate TLS in a reverse proxy. Prefer Secure MCP Tunnel when public ingress is unnecessary.
+Direct listeners currently use HTTP rather than built-in TLS. Non-loopback exposure therefore also requires an explicit `server.allow_insecure_http=true` acknowledgement. Bearer credentials and request contents are not transport-encrypted by `chatgpt-mcp` itself; use this only on a trusted or already encrypted network (for example, an appropriate private overlay), or terminate TLS in a reverse proxy. Prefer Secure MCP Tunnel when public ingress is unnecessary. Status output, the Runtime/Config TUI, and the Admin UI surface a cleartext-HTTP warning while `server.expose` is not `none`. There is no built-in TLS implementation in this track.
 
 Prefer Secure MCP Tunnel for ChatGPT connectivity when the MCP runtime should remain private instead of opening the MCP listener to the public internet.
 
@@ -165,6 +208,20 @@ Do not use an OpenAI Admin API key as the long-lived runtime key.
 Tunnel runtime/admin keys are stored in the per-config-root secret-file store. `tunnel.<ext>` contains only configured-state markers and admin scope metadata, and normal inspection output redacts sensitive values. Legacy plaintext credentials can be migrated explicitly with `cgm config migrate`; normal credential-loading paths also migrate legacy values before rewriting their files.
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md).
+
+## Upstream HTTP outbound policy
+
+HTTP upstream MCP connections use a shared outbound URL policy (also used by OAuth discovery/token fetches):
+
+- reject URLs with userinfo (`user:pass@`)
+- require HTTPS for non-loopback hosts (`http://` is only allowed for loopback)
+- resolve hostnames and reject loopback, private (RFC1918), link-local, and metadata addresses by default
+- re-validate each redirect `Location`
+- validate dialed IPs after DNS resolution (DNS-rebinding defense)
+
+Per-server escape hatch: set `allow_private_network` (CLI `--allow-private-network`) on that upstream only when you intentionally target loopback or private networks.
+
+Configured upstream headers are hardened: hop-by-hop / request-smuggling related names (`Host`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Upgrade`, `Proxy-*`, `TE`, `Trailer`) and CR/LF in names or values are rejected. Only an allowlist of headers is accepted (`Authorization`, `Accept`, `Content-Type`, `User-Agent`, `X-*`, `Mcp-*`).
 
 ## Tunnel network model
 
@@ -260,7 +317,24 @@ See [Runtime and services](runtime.md).
 - Prefer OpenAI Secure MCP Tunnel instead of public MCP ingress for ChatGPT.
 - Use restricted tunnel runtime keys with Read + Use only.
 - Register only the workspace roots ChatGPT needs.
+- Do not share one MCP token across agents that must not access each other's workspaces; use separate runtimes or narrowly registered roots until per-workspace tokens exist.
 - Add extra directories narrowly and per-workspace where possible.
 - Keep Admin auth enabled whenever the Admin endpoint is reachable beyond loopback.
+- Do not set `server.allow_unauthenticated_loopback` except for short-lived trusted local debugging.
 - Review `cgm logs --debug` when diagnosing access or tunnel behavior, but avoid publishing raw diagnostic logs without checking their contents.
 - Run risky tool workloads in an OS sandbox/separate identity when application-level workspace controls are not a sufficient trust boundary.
+- Prefer `shell.approval_policy=balanced` (or stricter), keep sandbox/network policies from drifting to `allow` + `off` + `inherit` together, and run `cgm config verify` (or `cgm config verify --strict`) after policy changes.
+
+## Dangerous combinations
+
+These settings are individually valid but weaken the local security boundary. `cgm config verify` prints warnings for them; `--strict` fails the command when any warning is present. Status and the TUI also surface active warnings.
+
+| Combination | Risk |
+| --- | --- |
+| `shell.approval_policy=allow` | Ordinary, risky, and most destructive shell commands skip local approval (security-boundary mutations still require approval). |
+| `shell.sandbox_policy=off` | OS filesystem sandboxing (Linux bubblewrap) is not applied to shell execution; application-level policy is not an OS sandbox. |
+| `shell.approval_policy=allow` + `shell.sandbox_policy=off` + `shell.network_policy=inherit` | Removes approval gates, filesystem isolation, and network isolation together. |
+| `server.expose` other than `none` | Bearer tokens travel on cleartext HTTP; chatgpt-mcp has no built-in TLS. |
+| `auth.mcp_enabled=false` or `auth.admin_enabled=false` without `server.allow_unauthenticated_loopback=true` | Rejected by validation. |
+| Unauthenticated HTTP with `server.expose` other than `none` | Rejected by validation; network exposure always requires authentication. |
+| `server.allow_unauthenticated_loopback=true` with auth disabled on an enabled endpoint | Permitted only on loopback; status/TUI warn loudly while active. |

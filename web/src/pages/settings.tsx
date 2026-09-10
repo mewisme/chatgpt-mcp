@@ -349,6 +349,14 @@ export function SettingsPage() {
               ) : null}
               {exposed ? (
                 <div className="space-y-3">
+                  <Alert variant="destructive">
+                    <AlertDescription>
+                      Bearer tokens and request contents travel on cleartext
+                      HTTP. chatgpt-mcp has no built-in TLS — use a trusted or
+                      already encrypted network, terminate TLS in a reverse
+                      proxy, or prefer Secure MCP Tunnel.
+                    </AlertDescription>
+                  </Alert>
                   <Toggle
                     label="Allow authenticated HTTP beyond loopback"
                     description="Acknowledge that direct non-loopback listeners are unencrypted HTTP."

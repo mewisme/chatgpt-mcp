@@ -356,6 +356,9 @@ func renderStatusConfig(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	}
 	statusField(out, "transports", fmt.Sprintf("http %s · tunnel %s", onOff(cfg.Server.Enabled), onOff(cfg.Tunnel.Enabled)))
 	statusField(out, "auth", fmt.Sprintf("mcp %s · admin %s", onOff(cfg.Auth.MCPEnabled), onOff(cfg.Auth.AdminEnabled)))
+	for _, warning := range config.SecurityWarnings(cfg) {
+		fmt.Fprintln(out, "  "+cliStyled(color.FgHiYellow, color.Bold).Sprint("!")+" "+warning)
+	}
 	statusField(out, "workspaces", snapshot.Workspaces)
 	statusField(out, "upstreams", snapshot.Upstreams)
 	if snapshot.Update != nil && (verbose || snapshot.Update.Status == updatepkg.StatusAvailable) {
@@ -382,6 +385,18 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 	log.Detail("transports", fmt.Sprintf("http=%t tunnel=%t", cfg.Server.Enabled, cfg.Tunnel.Enabled))
 	logEndpointDetails(log, cfg)
 	log.Detail("auth", fmt.Sprintf("mcp=%t admin=%t", cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled))
+	for _, warning := range config.SecurityWarnings(cfg) {
+		name := "status.security-warning"
+		switch {
+		case strings.Contains(warning, "unauthenticated loopback"):
+			name = "status.unauthenticated-loopback"
+		case strings.Contains(warning, "cleartext HTTP"):
+			name = "status.cleartext-http"
+		case strings.Contains(warning, "sandbox_policy=off"):
+			name = "status.sandbox-off"
+		}
+		log.Warning("STATUS", name, warning, nil)
+	}
 	if snapshot.Running {
 		runtimeState := "running"
 		if runtimeStatus.Starting {

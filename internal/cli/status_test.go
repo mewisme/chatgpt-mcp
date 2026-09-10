@@ -22,6 +22,7 @@ func TestStatusReportsManagedRuntime(t *testing.T) {
 	}
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +67,7 @@ func TestStatusReportsStartingRuntime(t *testing.T) {
 	}
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -179,6 +181,20 @@ func TestRenderStatusConfigUsesCachedUpdateWithoutNetwork(t *testing.T) {
 	renderStatusConfig(&output, snapshot, true)
 	if !strings.Contains(output.String(), "up to date") || !strings.Contains(output.String(), "checked") {
 		t.Fatalf("verbose cached update output = %q", output.String())
+	}
+}
+
+func TestRenderStatusConfigSurfacesSecurityWarnings(t *testing.T) {
+	cfg := config.Default()
+	cfg.Shell.SandboxPolicy = "off"
+	cfg.Server.Expose.Mode = config.ExposureAll
+	cfg.Server.AllowInsecureHTTP = true
+	snapshot := statusSnapshot{Source: configformat.Source{Path: "/tmp/config.toml", Exists: true}, Config: cfg}
+	var output bytes.Buffer
+	renderStatusConfig(&output, snapshot, false)
+	text := output.String()
+	if !strings.Contains(text, "shell.sandbox_policy=off") || !strings.Contains(text, "cleartext HTTP") {
+		t.Fatalf("expected sandbox and cleartext warnings: %q", text)
 	}
 }
 

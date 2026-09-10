@@ -153,6 +153,7 @@ func TestServerReloadTraceIncludesDecisionPortsAndShutdown(t *testing.T) {
 	cfg.Admin.Port = initialAdmin
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel.Enabled = false
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)

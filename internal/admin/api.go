@@ -60,10 +60,11 @@ type configPatch struct {
 }
 
 type serverPatch struct {
-	Enabled           *bool                  `json:"enabled,omitempty"`
-	Port              *int                   `json:"port,omitempty"`
-	Expose            *config.ExposureConfig `json:"expose,omitempty"`
-	AllowInsecureHTTP *bool                  `json:"allow_insecure_http,omitempty"`
+	Enabled                      *bool                  `json:"enabled,omitempty"`
+	Port                         *int                   `json:"port,omitempty"`
+	Expose                       *config.ExposureConfig `json:"expose,omitempty"`
+	AllowInsecureHTTP            *bool                  `json:"allow_insecure_http,omitempty"`
+	AllowUnauthenticatedLoopback *bool                  `json:"allow_unauthenticated_loopback,omitempty"`
 }
 
 type featurePatch struct {
@@ -159,6 +160,9 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			}
 			if patch.Server.AllowInsecureHTTP != nil {
 				next.Server.AllowInsecureHTTP = *patch.Server.AllowInsecureHTTP
+			}
+			if patch.Server.AllowUnauthenticatedLoopback != nil {
+				next.Server.AllowUnauthenticatedLoopback = *patch.Server.AllowUnauthenticatedLoopback
 			}
 		}
 		if patch.Admin != nil {

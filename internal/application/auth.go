@@ -12,10 +12,12 @@ import (
 )
 
 type AuthStatus struct {
-	MCPEnabled      bool
-	MCPConfigured   bool
-	AdminEnabled    bool
-	AdminConfigured bool
+	MCPEnabled              bool
+	MCPConfigured           bool
+	AdminEnabled            bool
+	AdminConfigured         bool
+	UnauthenticatedLoopback bool
+	CleartextHTTP           bool
 }
 
 func GetAuthStatus() (AuthStatus, error) {
@@ -30,7 +32,7 @@ func GetAuthStatusContext(ctx context.Context) (AuthStatus, error) {
 		return AuthStatus{}, err
 	}
 	status := authStatus(cfg)
-	span.EndMessage("Authentication status loaded", tracepkg.Bool("mcp_enabled", status.MCPEnabled), tracepkg.Bool("mcp_configured", status.MCPConfigured), tracepkg.Bool("admin_enabled", status.AdminEnabled), tracepkg.Bool("admin_configured", status.AdminConfigured))
+	span.EndMessage("Authentication status loaded", tracepkg.Bool("mcp_enabled", status.MCPEnabled), tracepkg.Bool("mcp_configured", status.MCPConfigured), tracepkg.Bool("admin_enabled", status.AdminEnabled), tracepkg.Bool("admin_configured", status.AdminConfigured), tracepkg.Bool("unauthenticated_loopback", status.UnauthenticatedLoopback), tracepkg.Bool("cleartext_http", status.CleartextHTTP))
 	return status, nil
 }
 
@@ -145,6 +147,8 @@ func authStatus(cfg config.Config) AuthStatus {
 	return AuthStatus{
 		MCPEnabled: cfg.Auth.MCPEnabled, MCPConfigured: cfg.Auth.MCPTokenHash != "",
 		AdminEnabled: cfg.Auth.AdminEnabled, AdminConfigured: cfg.Auth.AdminTokenHash != "",
+		UnauthenticatedLoopback: config.UnauthenticatedLoopbackActive(cfg),
+		CleartextHTTP:           config.CleartextHTTPActive(cfg),
 	}
 }
 

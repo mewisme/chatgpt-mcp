@@ -18,7 +18,7 @@ func TestVerifyAtChecksStructuredTree(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("config.json", `{"server":{"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`)
+	write("config.json", `{"server":{"port":37421,"allow_unauthenticated_loopback":true,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`)
 	write("workspaces.json", `[]`)
 	write("workspaces/ws_test/shell.json", `{"workspace_id":"ws_test","cwd":"/tmp"}`)
 	write("tunnels/tunnel_test.json", `{"id":"tunnel_test","name":"Test tunnel"}`)
@@ -34,7 +34,7 @@ func TestVerifyAtChecksStructuredTree(t *testing.T) {
 
 func TestVerifyAtRejectsMixedFormat(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"server":{"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"server":{"port":37421,"allow_unauthenticated_loopback":true,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "workspaces.toml"), []byte(`items = []`), 0600); err != nil {
@@ -47,7 +47,7 @@ func TestVerifyAtRejectsMixedFormat(t *testing.T) {
 
 func TestVerifyAtRejectsInvalidStructuredFile(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"server":{"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"server":{"port":37421,"allow_unauthenticated_loopback":true,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "workspaces.json"), []byte(`{invalid`), 0600); err != nil {
@@ -70,7 +70,7 @@ func TestVerifyRuntimeAtIgnoresInvalidCheckpointState(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("config.yaml", `{"server":{"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`)
+	write("config.yaml", `{"server":{"port":37421,"allow_unauthenticated_loopback":true,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`)
 	write("workspaces.yaml", `[]`)
 	write("workspaces/ws_test/checkpoints/index.yaml", "version: 1\ncheckpoints: []\n")
 	write("workspaces/ws_test/checkpoints/data/cp_test/manifest.yaml", "version: 1\nfiles:\n  - content: first\n      broken: value\n")

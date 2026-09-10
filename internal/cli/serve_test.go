@@ -104,6 +104,7 @@ func TestTunnelOnlyServePublishesRuntimeControl(t *testing.T) {
 	cfg.Server.Enabled = false
 	cfg.Admin.Enabled = false
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	controlPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/poll") {
 			http.NotFound(w, r)

@@ -74,6 +74,16 @@ func Validate(cfg Config) error {
 	default:
 		return fmt.Errorf("server expose mode must be none, all, 0.0.0.0, or interfaces: %q", cfg.Server.Expose.Mode)
 	}
+	mcpUnauthenticated := cfg.Server.Enabled && !cfg.Auth.MCPEnabled
+	adminUnauthenticated := cfg.Admin.Enabled && !cfg.Auth.AdminEnabled
+	if mcpUnauthenticated || adminUnauthenticated {
+		if !cfg.Server.AllowUnauthenticatedLoopback {
+			return errors.New("disabling authentication on an enabled HTTP endpoint requires server.allow_unauthenticated_loopback=true; this acknowledgement is only valid with server.expose.mode=none")
+		}
+		if exposure.Mode != ExposureNone {
+			return errors.New("unauthenticated HTTP endpoints require server.expose.mode=none (loopback only); network exposure cannot be combined with disabled authentication")
+		}
+	}
 	if exposure.Mode != ExposureNone && (cfg.Server.Enabled || cfg.Admin.Enabled) {
 		if !cfg.Server.AllowInsecureHTTP {
 			return errors.New("non-loopback HTTP exposure requires server.allow_insecure_http=true; prefer Secure MCP Tunnel or a TLS reverse proxy")
@@ -95,6 +105,70 @@ func Validate(cfg Config) error {
 		return err
 	}
 	return nil
+}
+
+func UnauthenticatedLoopbackActive(cfg Config) bool {
+	if !cfg.Server.AllowUnauthenticatedLoopback {
+		return false
+	}
+	return (cfg.Server.Enabled && !cfg.Auth.MCPEnabled) || (cfg.Admin.Enabled && !cfg.Auth.AdminEnabled)
+}
+
+func UnauthenticatedLoopbackWarning() string {
+	return "WARNING: unauthenticated loopback is active — MCP and/or Admin HTTP accept requests without credentials on loopback; re-enable authentication as soon as practical"
+}
+
+func CleartextHTTPActive(cfg Config) bool {
+	return NormalizeExposure(cfg.Server.Expose).Mode != ExposureNone
+}
+
+func CleartextHTTPWarning() string {
+	return "WARNING: server.expose is not none — bearer tokens and request contents travel on cleartext HTTP; chatgpt-mcp has no built-in TLS (prefer Secure MCP Tunnel, a TLS reverse proxy, or a trusted/encrypted network)"
+}
+
+func SandboxOffWarning() string {
+	return "WARNING: shell.sandbox_policy=off — OS-level filesystem sandboxing is disabled for shell execution (Linux bubblewrap is not applied); application-level workspace policy is not an OS sandbox"
+}
+
+func ShellPolicyWarnings(cfg Config) []string {
+	approval, err := NormalizeShellApprovalPolicy(cfg.Shell.ApprovalPolicy)
+	if err != nil {
+		approval = strings.ToLower(strings.TrimSpace(cfg.Shell.ApprovalPolicy))
+	}
+	sandbox, err := NormalizeShellSandboxPolicy(cfg.Shell.SandboxPolicy)
+	if err != nil {
+		sandbox = strings.ToLower(strings.TrimSpace(cfg.Shell.SandboxPolicy))
+	}
+	network, err := NormalizeShellNetworkPolicy(cfg.Shell.NetworkPolicy)
+	if err != nil {
+		network = strings.ToLower(strings.TrimSpace(cfg.Shell.NetworkPolicy))
+	}
+	var warnings []string
+	if approval == "allow" {
+		warnings = append(warnings, "shell.approval_policy=allow disables ordinary local approval gates for most commands")
+	}
+	if sandbox == "off" {
+		warnings = append(warnings, SandboxOffWarning())
+	}
+	if approval == "allow" && sandbox == "off" && network == "inherit" {
+		warnings = append(warnings, "dangerous combination: shell.approval_policy=allow with shell.sandbox_policy=off and shell.network_policy=inherit removes approval, filesystem isolation, and network isolation together")
+	}
+	return warnings
+}
+
+func ValidateShellPolicyCombinations(cfg Config) []string {
+	return ShellPolicyWarnings(cfg)
+}
+
+func SecurityWarnings(cfg Config) []string {
+	warnings := append([]string{}, ShellPolicyWarnings(cfg)...)
+	if UnauthenticatedLoopbackActive(cfg) {
+		warnings = append(warnings, UnauthenticatedLoopbackWarning())
+	}
+	if CleartextHTTPActive(cfg) {
+		warnings = append(warnings, CleartextHTTPWarning())
+	}
+	return warnings
 }
 
 func NormalizeShellApprovalPolicy(value string) (string, error) {

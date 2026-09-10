@@ -238,6 +238,7 @@ func TestTunnelOnlyConfigCannotDisableTunnel(t *testing.T) {
 	cfg.Admin.Enabled = false
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -284,6 +285,7 @@ func setupTunnelApplicationRoot(t *testing.T, tunnelConfig tunnel.Config) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel = tunnelConfig
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)

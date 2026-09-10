@@ -20,6 +20,7 @@ func TestSetConfigValueTyped(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	if err := setConfigValue(&cfg, "server.port", "4000"); err != nil {
 		t.Fatal(err)
 	}

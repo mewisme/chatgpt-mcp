@@ -231,10 +231,10 @@ func TestConfigStoragePageCentralizesMaintenanceActions(t *testing.T) {
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
 	rows := page.configRows()
-	if len(rows) != 5 {
+	if len(rows) != 6 {
 		t.Fatalf("maintenance actions=%d rows=%#v", len(rows), rows)
 	}
-	wantIDs := []string{"verify", "migrate", "convert", "export", "import"}
+	wantIDs := []string{"verify", "migrate", "migrate-secrets", "convert", "export", "import"}
 	for index, want := range wantIDs {
 		if rows[index].ID != want {
 			t.Fatalf("maintenance row %d=%q want=%q", index, rows[index].ID, want)

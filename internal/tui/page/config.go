@@ -20,13 +20,14 @@ const configOperationTimeout = 60 * time.Second
 type ConfigCommand string
 
 const (
-	ConfigRefresh ConfigCommand = "config.refresh"
-	ConfigEdit    ConfigCommand = "config.edit"
-	ConfigVerify  ConfigCommand = "config.verify"
-	ConfigMigrate ConfigCommand = "config.migrate"
-	ConfigConvert ConfigCommand = "config.convert"
-	ConfigExport  ConfigCommand = "config.export"
-	ConfigImport  ConfigCommand = "config.import"
+	ConfigRefresh        ConfigCommand = "config.refresh"
+	ConfigEdit           ConfigCommand = "config.edit"
+	ConfigVerify         ConfigCommand = "config.verify"
+	ConfigMigrate        ConfigCommand = "config.migrate"
+	ConfigMigrateSecrets ConfigCommand = "config.migrate.secrets"
+	ConfigConvert        ConfigCommand = "config.convert"
+	ConfigExport         ConfigCommand = "config.export"
+	ConfigImport         ConfigCommand = "config.import"
 )
 
 type ConfigCommandMsg struct {
@@ -56,6 +57,7 @@ type configOperationMsg struct {
 	converted   int
 	files       int
 	secrets     int
+	migrated    int
 	path        string
 	err         error
 }
@@ -314,6 +316,9 @@ func (page *ConfigPage) View(width, height int) string {
 		if page.err != nil {
 			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 		}
+		if warning := page.securityWarningBanner(width); warning != "" {
+			feedback = prependPageFeedback(feedback, warning)
+		}
 		browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
@@ -360,6 +365,9 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 		feedback := ""
 		if page.err != nil {
 			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
+		}
+		if warning := page.securityWarningBanner(page.width); warning != "" {
+			feedback = prependPageFeedback(feedback, warning)
 		}
 		pageTitle, overview := page.browserHeader(page.width)
 		offsetY := lipgloss.Height(component.PageTitleNotice(pageTitle, page.notice, page.width)) + lipgloss.Height(overview) + pageFeedbackHeight(feedback)
@@ -455,6 +463,11 @@ func (page *ConfigPage) openCommand(command ConfigCommand, resourceID string) (t
 			err := application.MigrateLegacySecrets()
 			return configOperationMsg{command: command, err: err}
 		}), nil
+	case ConfigMigrateSecrets:
+		return page.startOperation(command, "Encrypting secret files", func(context.Context) configOperationMsg {
+			migrated, err := application.MigrateSecretEncryption()
+			return configOperationMsg{command: command, migrated: migrated, err: err}
+		}), nil
 	case ConfigConvert:
 		return func() tea.Msg { return NavigateMsg{Path: []string{"config", "storage", "convert"}} }, nil
 	case ConfigExport:
@@ -521,6 +534,8 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 		page.notice = fmt.Sprintf("Configuration verified · %s · %d structured files", msg.verify.Format, msg.verify.Files)
 	case ConfigMigrate:
 		page.notice = "Legacy credentials migrated to the secret store"
+	case ConfigMigrateSecrets:
+		page.notice = fmt.Sprintf("Secret files encrypted at rest · %d migrated", msg.migrated)
 	case ConfigConvert:
 		page.notice = fmt.Sprintf("Configuration converted to %s · %d files", msg.format, msg.converted)
 	case ConfigExport:
@@ -661,6 +676,7 @@ func (page *ConfigPage) storageRows() []component.Row {
 	return []component.Row{
 		{ID: "verify", Title: "Verify configuration", Description: "Validate stored configuration and structured files", Meta: string(page.overview.Source.Format)},
 		{ID: "migrate", Title: "Migrate legacy credentials", Description: "Move legacy credentials into secret store", Meta: "credential maintenance"},
+		{ID: "migrate-secrets", Title: "Encrypt secret files", Description: "Encrypt plaintext secret-store files at rest", Meta: "at-rest encryption"},
 		{ID: "convert", Title: "Convert storage format", Description: "Convert persisted configuration format", Meta: string(page.overview.Source.Format)},
 		{ID: "export", Title: "Export configuration bundle", Description: "Export configuration and managed secrets", Meta: "bundle"},
 		{ID: "import", Title: "Import configuration bundle", Description: "Import configuration and managed secrets", Meta: "bundle"},
@@ -673,6 +689,8 @@ func configMaintenanceCommand(id string) (ConfigCommand, bool) {
 		return ConfigVerify, true
 	case "migrate":
 		return ConfigMigrate, true
+	case "migrate-secrets":
+		return ConfigMigrateSecrets, true
 	case "convert":
 		return ConfigConvert, true
 	case "export":
@@ -851,15 +869,42 @@ func shortFingerprint(value string) string {
 	return value[:12]
 }
 
+func (page *ConfigPage) securityWarningBanner(width int) string {
+	if page == nil || !page.loaded {
+		return ""
+	}
+	warnings := config.SecurityWarnings(page.overview.Config)
+	if len(warnings) == 0 {
+		return ""
+	}
+	banners := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		banners = append(banners, component.BannerWidth(warning, component.ToneWarning, width))
+	}
+	return strings.Join(banners, "\n")
+}
+
 func (page *ConfigPage) domainSummary(domain string) string {
 	cfg := page.overview.Config
 	switch domain {
 	case "runtime":
-		return fmt.Sprintf("MCP HTTP %s :%d · Admin %s :%d · exposure %s", configOnOff(cfg.Server.Enabled), cfg.Server.Port, configOnOff(cfg.Admin.Enabled), cfg.Admin.Port, config.NormalizeExposure(cfg.Server.Expose).Mode)
+		summary := fmt.Sprintf("MCP HTTP %s :%d · Admin %s :%d · exposure %s", configOnOff(cfg.Server.Enabled), cfg.Server.Port, configOnOff(cfg.Admin.Enabled), cfg.Admin.Port, config.NormalizeExposure(cfg.Server.Expose).Mode)
+		if config.CleartextHTTPActive(cfg) {
+			summary += " · CLEARTEXT HTTP"
+		}
+		return summary
 	case "access":
-		return fmt.Sprintf("MCP auth %s · Admin auth %s · %d extra filesystem roots", configOnOff(cfg.Auth.MCPEnabled), configOnOff(cfg.Auth.AdminEnabled), len(cfg.Permissions.AllowDirs))
+		summary := fmt.Sprintf("MCP auth %s · Admin auth %s · %d extra filesystem roots", configOnOff(cfg.Auth.MCPEnabled), configOnOff(cfg.Auth.AdminEnabled), len(cfg.Permissions.AllowDirs))
+		if config.UnauthenticatedLoopbackActive(cfg) {
+			summary += " · UNAUTHENTICATED LOOPBACK"
+		}
+		return summary
 	case "shell":
-		return fmt.Sprintf("%s · sandbox %s · network %s · %d command overrides", cfg.Shell.ApprovalPolicy, cfg.Shell.SandboxPolicy, cfg.Shell.NetworkPolicy, len(cfg.Shell.ApprovalAllowCommands)+len(cfg.Shell.ApprovalDenyCommands))
+		summary := fmt.Sprintf("%s · sandbox %s · network %s · %d command overrides", cfg.Shell.ApprovalPolicy, cfg.Shell.SandboxPolicy, cfg.Shell.NetworkPolicy, len(cfg.Shell.ApprovalAllowCommands)+len(cfg.Shell.ApprovalDenyCommands))
+		if strings.EqualFold(strings.TrimSpace(cfg.Shell.SandboxPolicy), "off") {
+			summary += " · SANDBOX OFF"
+		}
+		return summary
 	case "features":
 		return fmt.Sprintf("Ponytail %s · Caveman %s", configOnOff(cfg.Features.Ponytail.Active), configOnOff(cfg.Features.Caveman.Active))
 	case "tunnel":

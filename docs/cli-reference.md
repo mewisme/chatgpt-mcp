@@ -84,6 +84,7 @@ chatgpt-mcp
 │   ├── import
 │   ├── list
 │   ├── migrate
+│   │   └── secrets
 │   ├── path
 │   ├── reload
 │   ├── set
@@ -334,10 +335,17 @@ Migrate legacy plaintext credentials to the per-config-root secret file store:
 cgm config migrate
 ```
 
+Encrypt plaintext files already in the per-config-root secret store (AES-256-GCM at rest):
+
+```bash
+cgm config migrate secrets
+```
+
 Verify:
 
 ```bash
 cgm config verify
+cgm config verify --strict
 cgm config validate
 ```
 

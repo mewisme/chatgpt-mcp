@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"go.mewis.me/chatgpt-mcp/internal/application"
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
@@ -907,7 +908,15 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 	} else {
 		description += " · auth only"
 	}
-	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind}, detailTitle: title, detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Scope", scope}, [2]string{"Security", "Token hashes are persisted; plaintext is shown once after rotation."})}
+	security := "Token hashes are persisted; plaintext is shown once after rotation."
+	if page.auth.UnauthenticatedLoopback && !enabled {
+		security = config.UnauthenticatedLoopbackWarning()
+		description += " · UNAUTHENTICATED LOOPBACK"
+	} else if page.auth.CleartextHTTP {
+		security = config.CleartextHTTPWarning()
+		description += " · CLEARTEXT HTTP"
+	}
+	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind}, detailTitle: title, detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Scope", scope}, [2]string{"Security", security})}
 }
 
 func (page *RuntimePage) installItem() runtimeItem {
@@ -969,7 +978,18 @@ func (page *RuntimePage) statusView(width int) string {
 			mode = page.runtime.Status.ServiceScope + " · " + page.runtime.Status.ServiceID
 		}
 	}
-	return component.TwoColumn(component.KeyValue("Runtime process", state), component.KeyValue("Execution mode", mode), width)
+	summary := component.TwoColumn(component.KeyValue("Runtime process", state), component.KeyValue("Execution mode", mode), width)
+	var banners []string
+	if page.auth.UnauthenticatedLoopback {
+		banners = append(banners, component.BannerWidth(config.UnauthenticatedLoopbackWarning(), component.ToneWarning, width))
+	}
+	if page.auth.CleartextHTTP {
+		banners = append(banners, component.BannerWidth(config.CleartextHTTPWarning(), component.ToneWarning, width))
+	}
+	if len(banners) == 0 {
+		return summary
+	}
+	return summary + "\n" + strings.Join(banners, "\n")
 }
 
 func (page *RuntimePage) confirmActionLabel() string {

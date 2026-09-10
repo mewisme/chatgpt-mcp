@@ -36,11 +36,14 @@ func TestInitializeAndAuthLifecycle(t *testing.T) {
 	if !status.MCPEnabled || !status.MCPConfigured || !status.AdminEnabled || !status.AdminConfigured {
 		t.Fatalf("status = %#v", status)
 	}
+	if _, err := SetConfigField(t.Context(), "server.allow_unauthenticated_loopback", "true"); err != nil {
+		t.Fatal(err)
+	}
 	status, err = SetAuthEnabled(t.Context(), "mcp", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.MCPEnabled || !status.MCPConfigured {
+	if status.MCPEnabled || !status.MCPConfigured || !status.UnauthenticatedLoopback {
 		t.Fatalf("disabled status = %#v", status)
 	}
 	rotated, status, err := RotateAuthToken(t.Context(), "mcp")
@@ -112,6 +115,7 @@ func TestSetAuthEnabledRequiresConfiguredToken(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}

@@ -26,6 +26,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func TestLogsPageLoadsHistoryAndShowsOfflineReconnectState(t *testing.T) {
@@ -705,15 +706,18 @@ func TestLogsPageStreamEventDisconnectAndGapHelpers(t *testing.T) {
 func TestLogsCommandExecutionRouteStreamsCombinedOutputInEventOrder(t *testing.T) {
 	root := setupLogsPageRoot(t)
 	code := 0
-	info := shellruntime.ExecutionInfo{ID: "exec_test", WorkspaceID: "ws_a", Tool: "run_command", Command: "printf demo", CWD: "/tmp", Source: "mcp", StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: shellruntime.ExecutionStatusRunning}
+	started := time.Now().UTC()
+	info := shellruntime.ExecutionInfo{ID: "exec_test", WorkspaceID: "ws_a", Tool: "run_command", Command: "printf demo", CWD: "/tmp", Source: "mcp", CallID: "call_test", SessionHash: "session-test", ReceivedByInstanceID: "instance-a", ExecutedByInstanceID: "instance-b", StartedAt: started.Format(time.RFC3339Nano), Status: shellruntime.ExecutionStatusRunning}
 	snapshot := shellruntime.ExecutionFeedSnapshot{Events: []shellruntime.ExecutionFeedEvent{
-		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Status: shellruntime.ExecutionStatusRunning},
-		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Stream: "stdout", Data: "out\n"},
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Status: shellruntime.ExecutionStatusRunning, Timestamp: started.Format(time.RFC3339Nano)},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Stream: "stdout", Data: "out\n", Timestamp: started.Add(500 * time.Millisecond).Format(time.RFC3339Nano)},
 	}, LatestSequence: 2}
 	ready, _ := json.Marshal(snapshot)
-	live := shellruntime.ExecutionFeedEvent{Sequence: 3, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Stream: "stderr", Data: "err\n"}
+	live := shellruntime.ExecutionFeedEvent{Sequence: 3, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Stream: "stderr", Data: "err\n", Timestamp: started.Add(time.Second).Format(time.RFC3339Nano)}
 	liveData, _ := json.Marshal(live)
-	completed := shellruntime.ExecutionFeedEvent{Sequence: 4, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code}
+	finished := info
+	finished.FinishedAt, finished.Status, finished.ExitCode = started.Add(2*time.Second).Format(time.RFC3339Nano), shellruntime.ExecutionStatusSuccess, &code
+	completed := shellruntime.ExecutionFeedEvent{Sequence: 4, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &finished, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code, Timestamp: finished.FinishedAt}
 	completedData, _ := json.Marshal(completed)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/executions/stream" || r.Header.Get("Authorization") != "Bearer token" {
@@ -746,7 +750,7 @@ func TestLogsCommandExecutionRouteStreamsCombinedOutputInEventOrder(t *testing.T
 		t.Fatalf("completed events=%#v next=%v", page.exec.events, next)
 	}
 	plain := ansi.Strip(page.View(120, 28))
-	for _, want := range []string{"Runtime", "Command Execution", "Mode  combined", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "out", "err", "[success, exit 0]", "←/→ tabs"} {
+	for _, want := range []string{"Runtime", "Command Execution", "Mode  combined", "[START]", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "source: mcp", "session: session-test", "call: call_test", "route: received: instance-a  executed: instance-b", "out", "err", "[END]", "status: success  exit: 0  duration: 2s", "←/→ tabs"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("command exec view missing %q: %q", want, plain)
 		}
@@ -798,17 +802,142 @@ func TestLogsCommandExecutionEmptyViewPinsHelpToBottom(t *testing.T) {
 
 func TestFormatExecutionFeedCombinesStdoutAndStderrWithoutStreamSections(t *testing.T) {
 	code := 7
-	info := shellruntime.ExecutionInfo{ID: "exec_order", WorkspaceID: "ws_a", Command: "demo", CWD: "/work"}
+	started := time.Now().UTC()
+	info := shellruntime.ExecutionInfo{ID: "exec_order", WorkspaceID: "ws_a", Command: "demo", CWD: "/work", StartedAt: started.Format(time.RFC3339Nano)}
+	finished := info
+	finished.FinishedAt = started.Add(2 * time.Second).Format(time.RFC3339Nano)
 	events := []shellruntime.ExecutionFeedEvent{
-		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, Execution: &info},
-		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, Stream: "stdout", Data: "A"},
-		{Sequence: 3, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, Stream: "stderr", Data: "B"},
-		{Sequence: 4, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, Stream: "stdout", Data: "C\n"},
-		{Sequence: 5, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, Status: shellruntime.ExecutionStatusFailed, ExitCode: &code},
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, Execution: &info, Timestamp: started.Format(time.RFC3339Nano)},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, Execution: &info, Stream: "stdout", Data: "A", Timestamp: started.Add(250 * time.Millisecond).Format(time.RFC3339Nano)},
+		{Sequence: 3, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, Execution: &info, Stream: "stderr", Data: "B", Timestamp: started.Add(500 * time.Millisecond).Format(time.RFC3339Nano)},
+		{Sequence: 4, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, Execution: &info, Stream: "stdout", Data: "C\n", Timestamp: started.Add(time.Second).Format(time.RFC3339Nano)},
+		{Sequence: 5, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, Execution: &finished, Status: shellruntime.ExecutionStatusFailed, ExitCode: &code, Timestamp: finished.FinishedAt},
 	}
 	view := formatExecutionFeed(events)
-	if !strings.Contains(view, "ABC\n[failed, exit 7]") || strings.Contains(view, "stdout") || strings.Contains(view, "stderr") {
+	if !strings.Contains(view, "ABC\n╭") || !strings.Contains(view, "[END]") || !strings.Contains(view, "status: failed  exit: 7  duration: 2s") || strings.Count(view, "╭") != 2 || strings.Count(view, "╯") != 2 || strings.Contains(view, "stdout") || strings.Contains(view, "stderr") {
 		t.Fatalf("combined feed=%q", view)
+	}
+}
+
+func TestFormatExecutionFeedMarksInterleavedContinuations(t *testing.T) {
+	code := 0
+	started := time.Now().UTC()
+	infoA := shellruntime.ExecutionInfo{ID: "exec_a", WorkspaceID: "ws_a", Command: "first", StartedAt: started.Format(time.RFC3339Nano)}
+	infoB := shellruntime.ExecutionInfo{ID: "exec_b", WorkspaceID: "ws_b", Command: "second", StartedAt: started.Add(100 * time.Millisecond).Format(time.RFC3339Nano)}
+	finishedA, finishedB := infoA, infoB
+	finishedA.FinishedAt = started.Add(900 * time.Millisecond).Format(time.RFC3339Nano)
+	finishedB.FinishedAt = started.Add(700 * time.Millisecond).Format(time.RFC3339Nano)
+	events := []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &infoA, Timestamp: infoA.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &infoA, Data: "A1\n", Timestamp: started.Add(200 * time.Millisecond).Format(time.RFC3339Nano)},
+		{Sequence: 3, Type: shellruntime.ExecutionEventStarted, ExecutionID: infoB.ID, WorkspaceID: infoB.WorkspaceID, Execution: &infoB, Timestamp: infoB.StartedAt},
+		{Sequence: 4, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoB.ID, WorkspaceID: infoB.WorkspaceID, Execution: &infoB, Data: "B1\n", Timestamp: started.Add(300 * time.Millisecond).Format(time.RFC3339Nano)},
+		{Sequence: 5, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &infoA, Data: "A2\n", Timestamp: started.Add(500 * time.Millisecond).Format(time.RFC3339Nano)},
+		{Sequence: 6, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoB.ID, WorkspaceID: infoB.WorkspaceID, Execution: &infoB, Data: "B2\n", Timestamp: started.Add(600 * time.Millisecond).Format(time.RFC3339Nano)},
+		{Sequence: 7, Type: shellruntime.ExecutionEventCompleted, ExecutionID: infoB.ID, WorkspaceID: infoB.WorkspaceID, Execution: &finishedB, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code, Timestamp: finishedB.FinishedAt},
+		{Sequence: 8, Type: shellruntime.ExecutionEventCompleted, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &finishedA, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code, Timestamp: finishedA.FinishedAt},
+	}
+	view := formatExecutionFeed(events)
+	if strings.Count(view, "[START]") != 2 || strings.Count(view, "[CONTINUE]") != 3 || strings.Count(view, "[END]") != 2 {
+		t.Fatalf("interleaved markers=%q", view)
+	}
+	for _, want := range []string{"[CONTINUE]", "exec_id=exec_a  +500ms", "exec_id=exec_b  +500ms", "A1", "B1", "A2", "B2"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("interleaved feed missing %q: %q", want, view)
+		}
+	}
+	if !(strings.Index(view, "A1") < strings.Index(view, "B1") && strings.Index(view, "B1") < strings.Index(view, "A2") && strings.Index(view, "A2") < strings.Index(view, "B2")) {
+		t.Fatalf("interleaved output order changed: %q", view)
+	}
+}
+
+func TestFormatExecutionFeedSeparatesConcurrentExecutionsInSameWorkspace(t *testing.T) {
+	started := time.Now().UTC()
+	infoA := shellruntime.ExecutionInfo{ID: "exec_a", WorkspaceID: "ws_same", StartedAt: started.Format(time.RFC3339Nano)}
+	infoB := shellruntime.ExecutionInfo{ID: "exec_b", WorkspaceID: "ws_same", StartedAt: started.Add(time.Millisecond).Format(time.RFC3339Nano)}
+	view := formatExecutionFeed([]shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &infoA, Timestamp: infoA.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &infoA, Data: "A\n", Timestamp: started.Add(2 * time.Millisecond).Format(time.RFC3339Nano)},
+		{Sequence: 3, Type: shellruntime.ExecutionEventStarted, ExecutionID: infoB.ID, WorkspaceID: infoB.WorkspaceID, Execution: &infoB, Timestamp: infoB.StartedAt},
+		{Sequence: 4, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoB.ID, WorkspaceID: infoB.WorkspaceID, Execution: &infoB, Data: "B\n", Timestamp: started.Add(3 * time.Millisecond).Format(time.RFC3339Nano)},
+		{Sequence: 5, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &infoA, Data: "A2\n", Timestamp: started.Add(4 * time.Millisecond).Format(time.RFC3339Nano)},
+	})
+	if strings.Count(view, "[START]") != 2 || strings.Count(view, "[CONTINUE]") != 1 || !strings.Contains(view, "[CONTINUE]") || !strings.Contains(view, "exec_id=exec_a") {
+		t.Fatalf("same-workspace interleave=%q", view)
+	}
+}
+
+func TestExecutionScopeFiltersCombinedWorkspaceAndContainer(t *testing.T) {
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.exec.events = []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, ExecutionID: "exec_a", WorkspaceID: "ws_a", Type: shellruntime.ExecutionEventOutput, Data: "A\n"},
+		{Sequence: 2, ExecutionID: "exec_b", WorkspaceID: "ws_b", Type: shellruntime.ExecutionEventOutput, Data: "B\n"},
+		{Sequence: 3, ExecutionID: "exec_c", WorkspaceID: "ws_c", Type: shellruntime.ExecutionEventOutput, Data: "C\n"},
+	}
+	if got := len(page.visibleExecutionEvents()); got != 3 {
+		t.Fatalf("combined events=%d", got)
+	}
+	page.exec.scopeMode, page.exec.workspaceID = executionScopeWorkspace, "ws_b"
+	if visible := page.visibleExecutionEvents(); len(visible) != 1 || visible[0].WorkspaceID != "ws_b" {
+		t.Fatalf("workspace events=%#v", visible)
+	}
+	page.exec.scopeMode, page.exec.containerMembers = executionScopeContainer, map[string]struct{}{"ws_a": {}, "ws_c": {}}
+	if visible := page.visibleExecutionEvents(); len(visible) != 2 || visible[0].WorkspaceID != "ws_a" || visible[1].WorkspaceID != "ws_c" {
+		t.Fatalf("container events=%#v", visible)
+	}
+}
+
+func TestExecutionScopeEditorAppliesWithoutReconnectingGlobalFeed(t *testing.T) {
+	setupLogsPageRoot(t)
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	first, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	container, err := manager.CreateContainer("project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.AddWorkspacesToContainer(container.ID, []string{first.ID, second.ID}); err != nil {
+		t.Fatal(err)
+	}
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.exec.generation = 9
+	if cmd := page.openExecutionScopeEditor(); cmd == nil || page.exec.scopeEditor == nil || page.exec.scopeForm == nil {
+		t.Fatalf("scope editor missing: cmd=%v editor=%v form=%v", cmd, page.exec.scopeEditor != nil, page.exec.scopeForm != nil)
+	}
+	page.exec.scopeForm.Mode, page.exec.scopeForm.ContainerID = string(executionScopeContainer), container.ID
+	page.submitExecutionScopeEditor()
+	if page.exec.scopeEditor != nil || page.exec.scopeMode != executionScopeContainer || page.exec.containerID != container.ID || page.exec.containerName != "project" || len(page.exec.containerMembers) != 2 || page.exec.generation != 9 {
+		t.Fatalf("scope applied=%#v", page.exec)
+	}
+	if label := page.executionScopeLabel(); !strings.Contains(label, "container · project · 2 workspaces") {
+		t.Fatalf("scope label=%q", label)
+	}
+}
+
+func TestExecutionScopeFilteringDoesNotCreateSequenceGaps(t *testing.T) {
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.exec.generation = 4
+	page.exec.scopeMode, page.exec.workspaceID = executionScopeWorkspace, "ws_selected"
+	page.finishExecutionFeedEvent(logsExecutionEventMsg{generation: 4, event: shellruntime.ExecutionFeedEvent{Sequence: 1, ExecutionID: "visible", WorkspaceID: "ws_selected", Type: shellruntime.ExecutionEventStarted}})
+	page.finishExecutionFeedEvent(logsExecutionEventMsg{generation: 4, event: shellruntime.ExecutionFeedEvent{Sequence: 2, ExecutionID: "hidden", WorkspaceID: "ws_other", Type: shellruntime.ExecutionEventOutput, Data: "hidden\n"}})
+	page.finishExecutionFeedEvent(logsExecutionEventMsg{generation: 4, event: shellruntime.ExecutionFeedEvent{Sequence: 3, ExecutionID: "visible", WorkspaceID: "ws_selected", Type: shellruntime.ExecutionEventOutput, Data: "visible\n"}})
+	visible := page.visibleExecutionEvents()
+	if page.exec.latestSeq != 3 || len(page.exec.events) != 3 || len(visible) != 2 || page.exec.generation != 4 || strings.Contains(page.exec.notice, "gap") || strings.Contains(formatExecutionFeed(visible), "[CONTINUE]") {
+		t.Fatalf("filtered sequence=%d raw=%d visible=%d generation=%d notice=%q", page.exec.latestSeq, len(page.exec.events), len(page.visibleExecutionEvents()), page.exec.generation, page.exec.notice)
+	}
+	page.exec.scopeMode, page.exec.containerMembers = executionScopeContainer, map[string]struct{}{"ws_selected": {}}
+	visible = page.visibleExecutionEvents()
+	if len(visible) != 2 || strings.Contains(formatExecutionFeed(visible), "[CONTINUE]") {
+		t.Fatalf("container-filtered events=%#v view=%q", visible, formatExecutionFeed(visible))
 	}
 }
 

@@ -47,6 +47,39 @@ func TestModelRemembersLastStableRoutePerHeaderOwner(t *testing.T) {
 	}
 }
 
+func TestModelStableRouteMemoryCoversHeaderOwners(t *testing.T) {
+	tests := []struct {
+		name   string
+		stored Route
+		entry  Route
+	}{
+		{name: "workspace detail", stored: Route{Kind: RouteWorkspaces, ResourceID: "ws_a", Section: "access"}, entry: Route{Kind: RouteWorkspaces}},
+		{name: "container detail", stored: Route{Kind: RouteContainers, ResourceID: "wsc_a"}, entry: Route{Kind: RouteWorkspaces}},
+		{name: "mcp detail", stored: Route{Kind: RouteMCP, ResourceID: "server_a"}, entry: Route{Kind: RouteMCP}},
+		{name: "tunnel section", stored: Route{Kind: RouteTunnel, Section: "admin"}, entry: Route{Kind: RouteTunnel}},
+		{name: "managed tunnel detail", stored: Route{Kind: RouteTunnels, ResourceID: "tun_a"}, entry: Route{Kind: RouteTunnel}},
+		{name: "request mode", stored: Route{Kind: RouteRequests, Mode: "pending"}, entry: Route{Kind: RouteRequests}},
+		{name: "logs execution route", stored: Route{Kind: RouteLogsExec}, entry: Route{Kind: RouteLogs}},
+		{name: "config detail", stored: Route{Kind: RouteConfig, ResourceID: "server.port"}, entry: Route{Kind: RouteConfig}},
+		{name: "instruction section", stored: Route{Kind: RouteInstruction, Section: "rules"}, entry: Route{Kind: RouteInstruction}},
+		{name: "runtime section", stored: Route{Kind: RouteRuntime, Section: "status"}, entry: Route{Kind: RouteRuntime}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := Model{lastRoutes: map[RouteKind]Route{}}
+			model.rememberStableRoute(test.stored)
+			if got := model.resolveRememberedRoute(test.entry); got != test.stored {
+				t.Fatalf("restored route=%#v want=%#v", got, test.stored)
+			}
+			explicit := test.entry
+			explicit.ResourceID = "explicit"
+			if got := model.resolveRememberedRoute(explicit); got != explicit {
+				t.Fatalf("explicit route was replaced: got=%#v want=%#v", got, explicit)
+			}
+		})
+	}
+}
+
 func TestModelDoesNotRememberActionRoutesOrPersistLastRoutes(t *testing.T) {
 	action := Route{Kind: RouteMCP, ResourceID: "server", Action: "edit"}
 	model := Model{router: NewRouter(action), lastRoutes: map[RouteKind]Route{}}

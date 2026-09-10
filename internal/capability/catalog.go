@@ -66,6 +66,7 @@ const (
 	WorkspaceRegister        ID = "workspace.register"
 	WorkspaceList            ID = "workspace.list"
 	WorkspaceShow            ID = "workspace.show"
+	WorkspaceRelocate        ID = "workspace.relocate"
 	WorkspaceUnregister      ID = "workspace.unregister"
 	MCPServerList            ID = "mcp.server.list"
 	MCPServerAdd             ID = "mcp.server.add"
@@ -117,7 +118,7 @@ var specs = []Spec{
 	{WorkspaceContainerList, "workspace container list", nil}, {WorkspaceContainerCreate, "workspace container create", nil}, {WorkspaceContainerShow, "workspace container show", nil},
 	{WorkspaceContainerRename, "workspace container rename", nil}, {WorkspaceContainerDelete, "workspace container delete", nil}, {WorkspaceContainerAdd, "workspace container add", nil}, {WorkspaceContainerRemove, "workspace container remove", nil},
 	{WorkspaceAccessList, "workspace access list", nil}, {WorkspaceAccessAdd, "workspace access add", nil}, {WorkspaceAccessRemove, "workspace access remove", nil},
-	{WorkspaceRegister, "workspace register", nil}, {WorkspaceList, "workspace list", nil}, {WorkspaceShow, "workspace show", nil}, {WorkspaceUnregister, "workspace unregister", nil},
+	{WorkspaceRegister, "workspace register", nil}, {WorkspaceList, "workspace list", nil}, {WorkspaceShow, "workspace show", nil}, {WorkspaceRelocate, "workspace relocate", nil}, {WorkspaceUnregister, "workspace unregister", nil},
 	{MCPServerList, "mcp server list", nil}, {MCPServerAdd, "mcp server add", nil}, {MCPServerConfigure, "mcp server configure", nil}, {MCPServerShow, "mcp server show", nil},
 	{MCPServerRemove, "mcp server remove", nil}, {MCPServerEnable, "mcp server enable", nil}, {MCPServerDisable, "mcp server disable", nil}, {MCPServerStatus, "mcp server status", nil}, {MCPServerTools, "mcp server tools", nil},
 	{MCPAuthLogin, "mcp server auth login", nil}, {MCPAuthStatus, "mcp server auth status", nil}, {MCPAuthLogout, "mcp server auth logout", nil},

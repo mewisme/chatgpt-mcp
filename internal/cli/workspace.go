@@ -21,11 +21,43 @@ func workspaceCommand() *cobra.Command {
 		workspaceRegisterCommand(),
 		workspaceListCommand(),
 		workspaceShowCommand(),
+		workspaceRelocateCommand(),
 		workspaceUnregisterCommand(),
 		workspaceAccessCommand(),
 		workspaceContainerCommand(),
 	)
 	return cmd
+}
+
+func workspaceRelocateCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:               "relocate <workspace_id> <path>",
+		Aliases:           []string{"move"},
+		Short:             "Rebind a registered workspace after its project directory moved",
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeWorkspaceThenDirectory,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager := workspaceManagerForCommand(cmd)
+			before, err := manager.Get(args[0])
+			if err != nil {
+				return err
+			}
+			after, err := manager.Relocate(args[0], args[1])
+			if err != nil {
+				return err
+			}
+			if err := syncWorkspaceRuntime(cmd); err != nil {
+				return err
+			}
+			log := commandLogger(cmd)
+			log.Success("WORKSPACE", "workspace relocated")
+			log.Detail("old id", before.ID)
+			log.Detail("id", after.ID)
+			log.Detail("old root", before.Path)
+			log.Detail("root", after.Path)
+			return nil
+		},
+	}
 }
 
 func workspaceManagerForCommand(cmd *cobra.Command) *workspace.Manager {

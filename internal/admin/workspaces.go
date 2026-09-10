@@ -15,6 +15,10 @@ type workspaceRequest struct {
 	Path string `json:"path"`
 }
 
+type workspaceRelocateRequest struct {
+	Path string `json:"path"`
+}
+
 func (api API) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 	manager := api.workspaceManager()
 	if manager == nil {
@@ -79,6 +83,10 @@ func (api API) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		api.handleWorkspaceContext(w, r, manager, value)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "relocate" {
+		api.handleWorkspaceRelocate(w, r, manager, value)
+		return
+	}
 	if len(parts) == 2 && parts[1] == "containers" {
 		api.handleWorkspaceContainersMembership(w, r, manager, value)
 		return
@@ -111,6 +119,32 @@ func (api API) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (api API) handleWorkspaceRelocate(w http.ResponseWriter, r *http.Request, manager *workspace.Manager, item workspace.Workspace) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var request workspaceRelocateRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(request.Path) == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	value, err := manager.Relocate(item.ID, request.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := api.syncWorkspaceRuntime(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, value)
 }
 
 func (api API) handleWorkspaceContext(w http.ResponseWriter, r *http.Request, manager *workspace.Manager, item workspace.Workspace) {

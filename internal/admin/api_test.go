@@ -626,6 +626,33 @@ func TestWorkspaceAPICRUD(t *testing.T) {
 	}
 }
 
+func TestWorkspaceAPIRelocate(t *testing.T) {
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	oldRoot := t.TempDir()
+	newRoot := t.TempDir()
+	item, err := manager.Register(oldRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(API{Workspaces: manager})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/workspaces/"+item.ID+"/relocate", strings.NewReader(`{"path":`+jsonString(newRoot)+`}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("relocate status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var relocated workspace.Workspace
+	if err := json.Unmarshal(recorder.Body.Bytes(), &relocated); err != nil {
+		t.Fatal(err)
+	}
+	if relocated.ID == item.ID || relocated.Path == item.Path {
+		t.Fatalf("relocated=%#v", relocated)
+	}
+	resolved, err := manager.Get(item.ID)
+	if err != nil || resolved.ID != relocated.ID {
+		t.Fatalf("legacy lookup=%#v err=%v", resolved, err)
+	}
+}
+
 func TestUpstreamAPIManagementAndRedaction(t *testing.T) {
 	client := &adminUpstreamClient{tools: []upstream.Tool{{Name: "echo", Description: "Echo", InputSchema: map[string]any{"type": "object"}}}}
 	manager := upstream.NewManagerWithClient(nil, client)

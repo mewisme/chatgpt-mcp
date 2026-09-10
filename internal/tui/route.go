@@ -117,6 +117,10 @@ func parseWorkspaceRoute(parts []string) (Route, error) {
 	if len(parts) == 2 {
 		return route, nil
 	}
+	if len(parts) == 3 && parts[2] == "relocate" {
+		route.Action = "relocate"
+		return route, nil
+	}
 	section, ok := normalizeRouteSection(RouteWorkspaces, parts[2])
 	if !ok {
 		return Route{}, fmt.Errorf("unsupported workspaces child section %q", parts[2])

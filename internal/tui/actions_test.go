@@ -28,7 +28,7 @@ func TestWorkspaceActionAvailabilityFollowsRouteContext(t *testing.T) {
 	if has(action.Context{Route: string(RouteWorkspaces)}, "workspace.unregister") {
 		t.Fatal("workspace unregister available without a resource")
 	}
-	if !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.unregister") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.access.add") {
+	if !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.unregister") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.relocate") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.access.add") {
 		t.Fatal("workspace context actions missing")
 	}
 	if has(action.Context{Route: string(RouteWorkspaces)}, "workspace.context.configure") || has(action.Context{Route: string(RouteHome), ResourceID: "ws_demo"}, "workspace.context.preview") {
@@ -113,6 +113,7 @@ func TestEditorActionsNavigateToEditorRoutes(t *testing.T) {
 		want Route
 	}{
 		{"workspace.register", action.Context{Route: string(RouteHome)}, Route{Kind: RouteWorkspaces, Action: "register"}},
+		{"workspace.relocate", action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_demo", Action: "relocate"}},
 		{"workspace.access.add", action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_demo", Section: "access", Action: "add"}},
 		{"workspace.container.create", action.Context{Route: string(RouteHome)}, Route{Kind: RouteContainers, Action: "create"}},
 		{"workspace.container.rename", action.Context{Route: string(RouteContainers), ResourceID: "wsc_demo"}, Route{Kind: RouteContainers, ResourceID: "wsc_demo", Action: "edit"}},

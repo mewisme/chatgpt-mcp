@@ -20,6 +20,7 @@ type WorkspaceCommand string
 
 const (
 	WorkspaceRegister         WorkspaceCommand = "workspace.register"
+	WorkspaceRelocate         WorkspaceCommand = "workspace.relocate"
 	WorkspaceUnregister       WorkspaceCommand = "workspace.unregister"
 	WorkspaceAccessAdd        WorkspaceCommand = "workspace.access.add"
 	WorkspaceAccessRemove     WorkspaceCommand = "workspace.access.remove"
@@ -472,7 +473,7 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 	page.err, page.notice = nil, ""
 	page.command, page.targetID, page.value, page.members = command, strings.TrimSpace(resourceID), "", nil
 	switch command {
-	case WorkspaceRegister, WorkspaceAccessAdd, WorkspaceAccessRemove, WorkspaceContainerCreate, WorkspaceContainerRename, WorkspaceContainerMembers:
+	case WorkspaceRegister, WorkspaceRelocate, WorkspaceAccessAdd, WorkspaceAccessRemove, WorkspaceContainerCreate, WorkspaceContainerRename, WorkspaceContainerMembers:
 		return page.workspaceEditorNavigation(command, page.targetID), nil
 	case WorkspaceUnregister, WorkspaceContainerDelete:
 		if command == WorkspaceUnregister {
@@ -747,6 +748,7 @@ func (page *WorkspacePage) syncWorkspaceDetail() error {
 	}
 	bindings = append(bindings,
 		component.DetailPageBinding{Key: "c", Desc: "copy ID", Message: workspaceCopyIDMsg{ID: item.ID}},
+		component.DetailPageBinding{Key: "m", Desc: "relocate", Message: WorkspaceCommandMsg{Command: WorkspaceRelocate, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "+", Desc: "add access", Message: WorkspaceCommandMsg{Command: WorkspaceAccessAdd, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "-", Desc: "remove access", Message: WorkspaceCommandMsg{Command: WorkspaceAccessRemove, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "d", Desc: "unregister", Message: WorkspaceCommandMsg{Command: WorkspaceUnregister, ResourceID: item.ID}},
@@ -844,6 +846,8 @@ func workspaceSuccess(command WorkspaceCommand) string {
 	switch command {
 	case WorkspaceRegister:
 		return "Workspace registered"
+	case WorkspaceRelocate:
+		return "Workspace relocated"
 	case WorkspaceUnregister:
 		return "Workspace unregistered"
 	case WorkspaceAccessAdd:

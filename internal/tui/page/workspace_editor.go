@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func (page *WorkspacePage) initWorkspaceEditor() error {
@@ -30,6 +31,15 @@ func (page *WorkspacePage) initWorkspaceEditor() error {
 		field := component.NewPathField("Workspace path", &page.value, component.PathFieldOptions{Kind: component.PathKindDirectory, Validate: requiredValue("workspace path")})
 		section = component.EditorSection{ID: "workspace", Title: "Workspace", Description: "Choose the project root to register. Use Ctrl+O to switch between the filesystem picker and manual path input.", Form: component.NewEditorForm(component.Group(field))}
 		primary = "register"
+	case WorkspaceRelocate:
+		item, err := page.manager.Get(page.targetID)
+		if err != nil {
+			return err
+		}
+		page.value = item.Path
+		field := component.NewPathField("New workspace path", &page.value, component.PathFieldOptions{Kind: component.PathKindDirectory, Validate: requiredValue("workspace path")})
+		section = component.EditorSection{ID: "workspace", Title: "Relocate", Description: "Rebind this workspace after its project directory was renamed or moved. The previous workspace ID remains a legacy alias.", Form: component.NewEditorForm(component.Group(field))}
+		primary = "relocate"
 	case WorkspaceAccessAdd:
 		if _, err := page.manager.Get(page.targetID); err != nil {
 			return err
@@ -103,6 +113,8 @@ func (page *WorkspacePage) workspaceEditorCommand() (WorkspaceCommand, error) {
 	switch {
 	case page.action == "register" && page.resourceID == "":
 		return WorkspaceRegister, nil
+	case page.action == "relocate" && page.resourceID != "" && page.section == "":
+		return WorkspaceRelocate, nil
 	case page.action == "add" && page.resourceID != "" && page.section == "access":
 		return WorkspaceAccessAdd, nil
 	case page.action == "remove" && page.resourceID != "" && page.section == "access":
@@ -138,6 +150,12 @@ func (page *WorkspacePage) applyWorkspaceEditor() error {
 	switch page.command {
 	case WorkspaceRegister:
 		_, err = page.manager.Register(page.value)
+	case WorkspaceRelocate:
+		var relocated workspace.Workspace
+		relocated, err = page.manager.Relocate(page.targetID, page.value)
+		if err == nil {
+			page.targetID = relocated.ID
+		}
 	case WorkspaceAccessAdd:
 		_, err = page.manager.AddAllowDir(page.targetID, page.value)
 	case WorkspaceAccessRemove:
@@ -162,6 +180,8 @@ func (page *WorkspacePage) workspaceEditorNavigation(command WorkspaceCommand, r
 	switch command {
 	case WorkspaceRegister:
 		path = []string{"workspaces", "register"}
+	case WorkspaceRelocate:
+		path = []string{"workspaces", resourceID, "relocate"}
 	case WorkspaceAccessAdd:
 		path = []string{"workspaces", resourceID, "access", "add"}
 	case WorkspaceAccessRemove:
@@ -184,6 +204,8 @@ func (page *WorkspacePage) workspaceEditorParentNavigation() tea.Cmd {
 	}
 	path := []string{"workspaces"}
 	switch page.command {
+	case WorkspaceRelocate:
+		path = []string{"workspaces", page.targetID}
 	case WorkspaceAccessAdd, WorkspaceAccessRemove:
 		path = []string{"workspaces", page.targetID, "access"}
 	case WorkspaceContainerCreate:
@@ -200,6 +222,8 @@ func (page *WorkspacePage) workspaceEditorTitle() string {
 	switch page.command {
 	case WorkspaceRegister:
 		return "Register Workspace"
+	case WorkspaceRelocate:
+		return "Relocate Workspace · " + page.targetID
 	case WorkspaceAccessAdd:
 		return "Add Workspace Access · " + page.targetID
 	case WorkspaceAccessRemove:

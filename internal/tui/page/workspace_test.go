@@ -148,6 +148,22 @@ func TestWorkspaceMutationsSynchronizeRunningRuntime(t *testing.T) {
 		t.Fatalf("workspaces=%#v err=%v", items, err)
 	}
 	workspaceID := items[0].ID
+	relocatedRoot := filepath.Join(t.TempDir(), "relocated")
+	if err := os.MkdirAll(relocatedRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	workspacePage.command, workspacePage.targetID, workspacePage.value = WorkspaceRelocate, workspaceID, relocatedRoot
+	if err := workspacePage.applyWorkspaceEditor(); err != nil {
+		t.Fatal(err)
+	}
+	if workspacePage.targetID == workspaceID {
+		t.Fatal("relocate did not update page target to canonical workspace id")
+	}
+	legacy, err := workspacePage.manager.Get(workspaceID)
+	if err != nil || legacy.ID != workspacePage.targetID {
+		t.Fatalf("legacy workspace lookup=%#v err=%v", legacy, err)
+	}
+	workspaceID = workspacePage.targetID
 	extra := t.TempDir()
 	workspacePage.command, workspacePage.targetID, workspacePage.value = WorkspaceAccessAdd, workspaceID, extra
 	if err := workspacePage.applyWorkspaceEditor(); err != nil {
@@ -183,8 +199,8 @@ func TestWorkspaceMutationsSynchronizeRunningRuntime(t *testing.T) {
 	if err := containerPage.applyWorkspaceEditor(); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 7 {
-		t.Fatalf("reload calls after editor mutations = %d, want 7", calls)
+	if calls != 8 {
+		t.Fatalf("reload calls after editor mutations = %d, want 8", calls)
 	}
 
 	if _, err := containerPage.openCommand(WorkspaceContainerDelete, containerID); err != nil {
@@ -195,8 +211,8 @@ func TestWorkspaceMutationsSynchronizeRunningRuntime(t *testing.T) {
 	if containerPage.err != nil {
 		t.Fatal(containerPage.err)
 	}
-	if calls != 8 {
-		t.Fatalf("reload calls after container delete = %d, want 8", calls)
+	if calls != 9 {
+		t.Fatalf("reload calls after container delete = %d, want 9", calls)
 	}
 
 	workspacePage.command, workspacePage.targetID = WorkspaceUnregister, workspaceID
@@ -205,8 +221,8 @@ func TestWorkspaceMutationsSynchronizeRunningRuntime(t *testing.T) {
 	if workspacePage.err != nil {
 		t.Fatal(workspacePage.err)
 	}
-	if calls != 9 {
-		t.Fatalf("reload calls after workspace unregister = %d, want 9", calls)
+	if calls != 10 {
+		t.Fatalf("reload calls after workspace unregister = %d, want 10", calls)
 	}
 }
 
@@ -575,6 +591,20 @@ func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 	}
 	if strings.Contains(plain, "Overview   Access") || strings.Contains(plain, "╭") {
 		t.Fatalf("workspace detail retained tab/modal chrome: %q", plain)
+	}
+	_, relocateCmd := detail.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	if relocateCmd == nil {
+		t.Fatal("relocate navigation returned no command")
+	}
+	relocateTrigger := relocateCmd()
+	updatedDetail, relocateNavigate := detail.Update(relocateTrigger)
+	detail = updatedDetail.(*WorkspacePage)
+	if relocateNavigate == nil {
+		t.Fatalf("relocate trigger=%#v returned no navigation command", relocateTrigger)
+	}
+	relocateMessage, ok := relocateNavigate().(NavigateMsg)
+	if !ok || strings.Join(relocateMessage.Path, "/") != "workspaces/"+item.ID+"/relocate" {
+		t.Fatalf("relocate navigation=%#v", relocateMessage)
 	}
 	_, contextCmd := detail.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
 	if contextCmd == nil {

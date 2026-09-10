@@ -272,6 +272,9 @@ func workspaceActions() []action.Action {
 		workspaceContextNavigationAction("workspace.context.configure", "Configure Workspace Project Context", "Configure build and preview parameters for the current workspace", "context"),
 		workspaceContextNavigationAction("workspace.context.preview", "Preview Workspace Project Context", "Open the last successful Project Context build for the current workspace", "context-preview"),
 		editorNavigationAction("workspace.register", "Register", "Workspace", "Register a workspace root", []string{"workspace", "register"}, []string{"workspace", "register"}, nil, func(action.Context) Route { return Route{Kind: RouteWorkspaces, Action: "register"} }),
+		editorNavigationAction("workspace.relocate", "Relocate", "Workspace", "Rebind the current workspace after its project directory was renamed or moved", []string{"workspace", "relocate", "move", "rename", "root"}, []string{"workspace", "relocate"}, func(ctx action.Context) bool { return ctx.Route == string(RouteWorkspaces) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
+			return Route{Kind: RouteWorkspaces, ResourceID: ctx.ResourceID, Action: "relocate"}
+		}),
 		workspaceAction("workspace.unregister", "Unregister", "Unregister the current workspace without deleting project files", []string{"workspace", "unregister"}, []string{"workspace", "unregister"}, tuipage.WorkspaceUnregister, true, false),
 		editorNavigationAction("workspace.access.add", "Add access directory", "Workspace", "Grant the current workspace access to an additional directory", []string{"workspace", "access", "add"}, []string{"workspace", "access", "add"}, func(ctx action.Context) bool { return ctx.Route == string(RouteWorkspaces) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
 			return Route{Kind: RouteWorkspaces, ResourceID: ctx.ResourceID, Section: "access", Action: "add"}

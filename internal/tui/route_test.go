@@ -65,6 +65,7 @@ func TestParseEditorRoutes(t *testing.T) {
 		want Route
 	}{
 		{[]string{"workspaces", "register"}, Route{Kind: RouteWorkspaces, Action: "register"}},
+		{[]string{"workspaces", "ws_1", "relocate"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_1", Action: "relocate"}},
 		{[]string{"workspaces", "ws_1", "access", "add"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "add"}},
 		{[]string{"workspaces", "ws_1", "access", "remove"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_1", Section: "access", Action: "remove"}},
 		{[]string{"containers", "create"}, Route{Kind: RouteContainers, Action: "create"}},

@@ -77,9 +77,10 @@ type toastState struct {
 }
 
 type navigationIntent struct {
-	route   Route
-	sibling bool
-	quit    bool
+	route             Route
+	replace           bool
+	restoreRemembered bool
+	quit              bool
 }
 
 type Model struct {
@@ -261,7 +262,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return model, nil
 	case navigateMsg:
-		return model.requestNavigation(navigationIntent{route: msg.route, sibling: msg.sibling})
+		return model.requestNavigation(navigationIntent{route: msg.route, replace: msg.sibling, restoreRemembered: msg.sibling})
 	case tuipage.NavigateMsg:
 		route, err := ParseRoute(msg.Path)
 		if err != nil {
@@ -273,9 +274,10 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				model.router.Navigate(route)
 			}
+			model.rememberStableRoute(route)
 			return model, nil
 		}
-		return model.requestNavigation(navigationIntent{route: route, sibling: msg.Replace})
+		return model.requestNavigation(navigationIntent{route: route, replace: msg.Replace})
 	case tuipage.WorkspaceCommandMsg:
 		if err := model.ensureWorkspacePage(msg.Command, msg.ResourceID); err != nil {
 			return model, model.showToast("Workspaces", err.Error(), component.ToneDanger)
@@ -342,9 +344,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.router.Current().Kind == RouteHome && model.homeCommands != nil {
 			switch msg.String() {
 			case "alt+left":
-				return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), -1), sibling: true})
+				return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), -1), replace: true, restoreRemembered: true})
 			case "alt+right":
-				return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), 1), sibling: true})
+				return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), 1), replace: true, restoreRemembered: true})
 			case "esc":
 				return model, tea.Quit
 			case "ctrl+k":
@@ -360,9 +362,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "alt+left":
-			return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), -1), sibling: true})
+			return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), -1), replace: true, restoreRemembered: true})
 		case "alt+right":
-			return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), 1), sibling: true})
+			return model.requestNavigation(navigationIntent{route: cycleHeaderRoute(model.router.Current(), 1), replace: true, restoreRemembered: true})
 		case "esc":
 			if intent, ok := model.backNavigationIntent(); ok {
 				return model.requestNavigation(intent)
@@ -370,7 +372,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if model.router.Current().Kind == RouteHome {
 				return model, tea.Quit
 			}
-			return model.requestNavigation(navigationIntent{route: Route{Kind: RouteHome}, sibling: true})
+			return model.requestNavigation(navigationIntent{route: Route{Kind: RouteHome}, replace: true})
 		case "backspace":
 			if intent, ok := model.backNavigationIntent(); ok {
 				return model.requestNavigation(intent)
@@ -939,12 +941,15 @@ func (model *Model) navigate(route Route) {
 	model.captureCurrentView()
 	model.router.Navigate(route)
 	model.loadPage(route)
+	if route.Kind == RouteHome || model.currentPage != nil {
+		model.rememberStableRoute(route)
+	}
 }
 
 func (model Model) navigationGuardActive() bool { return model.pendingNavigation != nil }
 
 func (model Model) requestNavigation(intent navigationIntent) (tea.Model, tea.Cmd) {
-	if intent.sibling {
+	if intent.restoreRemembered {
 		intent.route = model.resolveRememberedRoute(intent.route)
 	}
 	if !intent.quit && intent.route == model.router.Current() {
@@ -969,7 +974,7 @@ func (model Model) performNavigation(intent navigationIntent) (tea.Model, tea.Cm
 	if intent.quit {
 		return model, tea.Quit
 	}
-	if intent.sibling {
+	if intent.replace {
 		model.switchPage(intent.route)
 	} else {
 		model.navigate(intent.route)
@@ -1018,6 +1023,9 @@ func (model *Model) switchPage(route Route) {
 	model.captureCurrentView()
 	model.router.Switch(route)
 	model.loadPage(route)
+	if route.Kind == RouteHome || model.currentPage != nil {
+		model.rememberStableRoute(route)
+	}
 }
 
 func (model *Model) captureCurrentView() {

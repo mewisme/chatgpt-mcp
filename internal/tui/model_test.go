@@ -40,10 +40,55 @@ func TestModelRemembersLastStableRoutePerHeaderOwner(t *testing.T) {
 	route := Route{Kind: RouteInstruction, Section: "rules"}
 	model := NewModel(route)
 	model.switchPage(Route{Kind: RouteTunnel})
-	updated, _ := model.requestNavigation(navigationIntent{route: Route{Kind: RouteInstruction}, sibling: true})
+	updated, _ := model.requestNavigation(navigationIntent{route: Route{Kind: RouteInstruction}, replace: true, restoreRemembered: true})
 	model = updated.(Model)
 	if model.router.Current() != route {
 		t.Fatalf("restored route=%#v want=%#v", model.router.Current(), route)
+	}
+}
+
+func TestModelExplicitReplaceDoesNotRestoreRememberedDetail(t *testing.T) {
+	model := NewModel(Route{Kind: RouteWorkspaces, ResourceID: "ws_old"})
+	model.router.Switch(Route{Kind: RouteWorkspaces, ResourceID: "ws_old", Action: "relocate"})
+	updated, _ := model.Update(tuipage.NavigateMsg{Path: []string{"workspaces"}, Replace: true})
+	model = updated.(Model)
+	if got := model.router.Current(); got != (Route{Kind: RouteWorkspaces}) {
+		t.Fatalf("explicit replace restored stale route: %#v", got)
+	}
+	if got := model.lastRoutes[RouteWorkspaces]; got != (Route{Kind: RouteWorkspaces}) {
+		t.Fatalf("stable route memory=%#v want workspace root", got)
+	}
+	updated, _ = model.Update(tuipage.NavigateMsg{Path: []string{"containers"}, Replace: true})
+	model = updated.(Model)
+	if got := model.router.Current(); got != (Route{Kind: RouteContainers}) {
+		t.Fatalf("container replace restored stale workspace detail: %#v", got)
+	}
+}
+
+func TestModelExplicitReplaceDestinationsBypassRememberedRoutes(t *testing.T) {
+	tests := []struct {
+		name       string
+		remembered Route
+		path       []string
+		want       Route
+	}{
+		{name: "workspaces", remembered: Route{Kind: RouteWorkspaces, ResourceID: "ws_old"}, path: []string{"workspaces"}, want: Route{Kind: RouteWorkspaces}},
+		{name: "containers", remembered: Route{Kind: RouteContainers, ResourceID: "wsc_old"}, path: []string{"containers"}, want: Route{Kind: RouteContainers}},
+		{name: "mcp", remembered: Route{Kind: RouteMCP, ResourceID: "server_old"}, path: []string{"mcp"}, want: Route{Kind: RouteMCP}},
+		{name: "tunnels", remembered: Route{Kind: RouteTunnels, ResourceID: "tun_old"}, path: []string{"tunnels"}, want: Route{Kind: RouteTunnels}},
+		{name: "runtime", remembered: Route{Kind: RouteRuntime, ResourceID: "old"}, path: []string{"runtime"}, want: Route{Kind: RouteRuntime}},
+		{name: "config", remembered: Route{Kind: RouteConfig, ResourceID: "server.port"}, path: []string{"config"}, want: Route{Kind: RouteConfig}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := NewModel(Route{Kind: RouteHome})
+			model.lastRoutes[headerOwner(test.remembered.Kind)] = test.remembered
+			updated, _ := model.Update(tuipage.NavigateMsg{Path: test.path, Replace: true})
+			model = updated.(Model)
+			if got := model.router.Current(); got != test.want {
+				t.Fatalf("route=%#v want=%#v", got, test.want)
+			}
+		})
 	}
 }
 
@@ -103,7 +148,7 @@ func TestModelRestoresLogsViewStateAcrossTopLevelNavigation(t *testing.T) {
 		Tab: "command-execution", ExecutionScope: "workspace", ExecutionWorkspaceID: "ws_a", ExecutionPaused: true, ExecutionYOffset: 6,
 	})
 	model.switchPage(Route{Kind: RouteTunnel})
-	updated, _ := model.requestNavigation(navigationIntent{route: Route{Kind: RouteLogs}, sibling: true})
+	updated, _ := model.requestNavigation(navigationIntent{route: Route{Kind: RouteLogs}, replace: true, restoreRemembered: true})
 	model = updated.(Model)
 	restoredPage, ok := model.currentPage.(tuipage.SessionViewStateModel)
 	if !ok {

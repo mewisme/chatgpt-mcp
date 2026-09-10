@@ -1010,6 +1010,27 @@ func TestExecutionScopeSurvivesSnapshotReplayAndOverflow(t *testing.T) {
 	}
 }
 
+func TestExecutionScopeEditorWrapsAtNarrowWidths(t *testing.T) {
+	setupLogsPageRoot(t)
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	if _, err := manager.Register(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	if cmd := page.openExecutionScopeEditor(); cmd == nil {
+		t.Fatal("scope editor command missing")
+	}
+	for _, width := range []int{120, 80, 24} {
+		view := page.executionScopeEditorView(width, 24)
+		for _, line := range strings.Split(view, "\n") {
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width=%d line=%d: %q", width, got, ansi.Strip(line))
+			}
+		}
+	}
+}
+
 func TestLogsRuntimeAndCommandExecutionRemainTabbedParentViews(t *testing.T) {
 	setupLogsPageRoot(t)
 	page, _ := NewLogs(t.Context())

@@ -148,7 +148,10 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		log.Warning("NETWORK", "server.admin.port-fallback", "Configured admin port is unavailable; using next available port", nil, logger.With("configured_port", cfg.Admin.Port), logger.With("port", bindings.cfg.Admin.Port))
 	}
 	cfg = bindings.cfg
-	runtime := app.NewWithLoggerContext(runtimeCtx, cfg, log)
+	runtime, err := app.NewWithLoggerContext(runtimeCtx, cfg, log)
+	if err != nil {
+		return err
+	}
 	defer func() {
 		runtime.Logger.Verbose("SERVER", "server.runtime.cleanup", "Cleaning up runtime services")
 		if err := runtime.Stop(); err != nil {

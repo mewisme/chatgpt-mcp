@@ -8,6 +8,9 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
+// reloadTestAfterCommit runs after Config.Update and before runtime apply. Tests only.
+var reloadTestAfterCommit func()
+
 func (a *App) ReloadConfig(next config.Config) error {
 	if a == nil || a.Config == nil || a.Tools == nil {
 		return errors.New("runtime is unavailable")
@@ -23,6 +26,21 @@ func (a *App) ReloadConfig(next config.Config) error {
 	shellEnvironmentChanged := previous.Shell.EnvironmentPolicy != next.Shell.EnvironmentPolicy || previous.Shell.SandboxPolicy != next.Shell.SandboxPolicy || previous.Shell.NetworkPolicy != next.Shell.NetworkPolicy || !slices.Equal(previous.Shell.EnvironmentAllow, next.Shell.EnvironmentAllow) || !slices.Equal(previous.Shell.Path, next.Shell.Path)
 	tunnelChanged := previous.Tunnel != next.Tunnel
 	tunnelRuntimeChanged := tunnelChanged && !tunnel.RuntimeConfigEqual(previous.Tunnel, next.Tunnel)
+
+	if _, err := a.Config.Update(func(config.Config) (config.Config, error) { return next, nil }); err != nil {
+		return err
+	}
+	if reloadTestAfterCommit != nil {
+		reloadTestAfterCommit()
+	}
+	if err := a.applyRuntimeConfig(next, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, shellEnvironmentChanged, tunnelChanged, tunnelRuntimeChanged); err != nil {
+		_, restoreErr := a.Config.Update(func(config.Config) (config.Config, error) { return previous, nil })
+		return errors.Join(err, restoreErr, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, shellEnvironmentChanged, tunnelChanged, tunnelRuntimeChanged))
+	}
+	return nil
+}
+
+func (a *App) applyRuntimeConfig(next config.Config, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, shellEnvironmentChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
 	if featuresChanged {
 		if err := a.Tools.SyncFeatures(next.Features); err != nil {
 			return err
@@ -33,21 +51,21 @@ func (a *App) ReloadConfig(next config.Config) error {
 	}
 	if shellApprovalPolicyChanged {
 		if err := a.Tools.SetShellApprovalPolicy(next.Shell.ApprovalPolicy); err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, false, false, false, false))
+			return err
 		}
 		if err := a.Tools.SetShellApprovalCommands(next.Shell.ApprovalAllowCommands, next.Shell.ApprovalDenyCommands); err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, true, false, false, false))
+			return err
 		}
 	}
 	if shellEnvironmentChanged {
 		if err := a.Tools.SetShellEnvironmentPolicy(next.Shell.EnvironmentPolicy); err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, false, false, false))
+			return err
 		}
 		if err := a.Tools.SetShellSandboxPolicy(next.Shell.SandboxPolicy); err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, false, false, false))
+			return err
 		}
 		if err := a.Tools.SetShellNetworkPolicy(next.Shell.NetworkPolicy); err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, false, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, false, false, false))
+			return err
 		}
 		a.Tools.SetShellEnvironmentAllow(next.Shell.EnvironmentAllow)
 		a.Tools.SetShellPath(next.Shell.Path)
@@ -67,16 +85,13 @@ func (a *App) ReloadConfig(next config.Config) error {
 			err = a.Tunnel.SyncManagementConfig(next.Tunnel)
 		}
 		if err != nil {
-			return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, shellEnvironmentChanged, false, false))
+			return err
 		}
 		if tunnelRuntimeChanged {
 			if metadata, loadErr := config.LoadTunnelMetadata(next.Tunnel.ID); loadErr == nil {
 				_ = a.Tunnel.SeedMetadata(metadata)
 			}
 		}
-	}
-	if _, err := a.Config.Update(func(config.Config) (config.Config, error) { return next, nil }); err != nil {
-		return errors.Join(err, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellApprovalPolicyChanged, shellEnvironmentChanged, tunnelChanged, tunnelRuntimeChanged))
 	}
 	return nil
 }

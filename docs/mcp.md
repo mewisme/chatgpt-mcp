@@ -119,7 +119,7 @@ The Admin workspace `Context` view calls the same builder as the MCP tool, so it
 
 `run_command` remains a synchronous MCP tool: the caller receives the normal final command result with stdout, stderr, cwd, exit code, and timeout state. While the command is running, the runtime additionally mirrors stdout/stderr into a workspace-scoped in-memory execution stream for the Admin workspace `Activity` view.
 
-Admin execution streams use a bounded output tail and bounded recent-execution history. Reconnecting clients first receive a full execution snapshot and then sequence-numbered output/completion events, so they can recover from a dropped or overflowed SSE connection without changing the MCP result contract. Raw streamed stdout/stderr is intentionally excluded from the normal activity observation payload; the activity journal keeps command/result metadata while live command output stays in the execution buffer.
+Execution streams use a bounded output tail and bounded recent-execution history. Reconnecting clients first receive a full execution snapshot and then globally sequence-numbered start/output/completion events, so they can recover from a dropped or overflowed SSE connection without changing the MCP result contract. Execution metadata carries the runtime-local call ID, safe MCP session fingerprint, source, and received/executed instance IDs when available; it never carries the raw MCP session ID. Raw streamed stdout/stderr is intentionally excluded from the normal activity observation payload; the activity journal keeps command/result metadata while live command output stays in the execution buffer.
 
 ## Control-guard approval flow
 

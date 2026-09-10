@@ -16,7 +16,9 @@ Runtime log visibility can distinguish normal operational events, verbose lifecy
 
 ## Command Execution
 
-Command Execution displays the bounded execution feed produced by the runtime. It replays recent execution events and continues live, preserving stdout/stderr ordering from the event stream rather than rendering independent panels that lose interleaving.
+Command Execution displays the bounded globally ordered execution feed produced by the runtime. It replays recent execution events and continues live, preserving stdout/stderr ordering from the event stream rather than rendering independent panels that lose interleaving. Concurrent output is separated with explicit `START`, `CONTINUE`, and `END` boundaries. Start metadata includes workspace, source, safe session fingerprint, call/routing identity, cwd, and command when available; completion includes status, exit code, and duration.
+
+Press `f` to choose `combined`, one workspace, or one workspace-container scope. Complete the final visible selector with `Enter` to apply it; `combined` therefore applies directly from the Mode selector, while workspace/container modes advance to their additional selector first. Scope changes filter the existing global feed locally and do not reconnect it. Container scope resolves current member workspaces without granting execution permission. Reconnect or reapply the scope after container membership changes. If a selected workspace/container disappears, the view reports it as unavailable instead of silently changing scope.
 
 The page supports follow/pause, reconnect, clear-view, keyboard scrolling, and mouse scrolling. Local help is pinned to the section footer even when the feed is empty.
 

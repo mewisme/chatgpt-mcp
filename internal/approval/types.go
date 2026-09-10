@@ -14,6 +14,8 @@ const (
 	DefaultRequestTTL            = 60 * time.Second
 	DefaultRetryTTL              = 30 * time.Second
 	DefaultCLICapabilityTTL      = 15 * time.Second
+	DefaultRuntimeGrantTTL       = time.Hour
+	MaxRuntimeGrantTTL           = 24 * time.Hour
 	DefaultPendingLimit          = 32
 	DefaultWorkspacePendingLimit = 8
 )
@@ -41,6 +43,7 @@ var (
 	ErrPendingLimit         = errors.New("approval pending request limit reached")
 	ErrCapabilityNotFound   = errors.New("control approval capability not found")
 	ErrCapabilityExpired    = errors.New("control approval capability expired")
+	ErrRuntimeGrantNotFound = errors.New("runtime session grant not found")
 )
 
 type ChallengeInput struct {
@@ -91,6 +94,7 @@ type Request struct {
 	Command               string            `json:"command,omitempty"`
 	SimilarCommandPattern string            `json:"similar_command_pattern,omitempty"`
 	RuntimeSessionGrant   bool              `json:"runtime_session_grant,omitempty"`
+	GrantExpiresAt        time.Time         `json:"grant_expires_at,omitempty"`
 	CreatedAt             time.Time         `json:"created_at"`
 	ExpiresAt             time.Time         `json:"expires_at"`
 	ResolvedAt            time.Time         `json:"resolved_at,omitempty"`

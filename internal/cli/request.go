@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 )
@@ -14,7 +15,67 @@ const requestControlTimeout = 5 * time.Second
 
 func requestCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "request", Aliases: []string{"req"}, Short: "Review and resolve control approval requests"}
-	cmd.AddCommand(requestListCommand(), requestViewCommand(), requestResolveCommand(true), requestResolveCommand(false), requestCreateCommand())
+	cmd.AddCommand(requestListCommand(), requestViewCommand(), requestResolveCommand(true), requestResolveCommand(false), requestGrantCommand(), requestCreateCommand())
+	return cmd
+}
+
+func requestGrantCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "grant", Short: "Inspect and revoke similar-command runtime session grants"}
+	cmd.AddCommand(requestGrantListCommand(), requestGrantRevokeCommand())
+	return cmd
+}
+
+func requestGrantListCommand() *cobra.Command {
+	var asJSON bool
+	var workspaceID string
+	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List active similar-command runtime grants", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint")
+		log := commandLogger(cmd)
+		if !asJSON {
+			startCommandSpinner(cmd, log, "REQUEST", "request.loading", "Loading runtime session grants")
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), requestControlTimeout)
+		defer cancel()
+		grants, err := application.ListRuntimeGrants(ctx, workspaceID)
+		if err != nil {
+			return err
+		}
+		if asJSON {
+			return printJSON(cmd, grants)
+		}
+		log.Success("REQUEST", "runtime session grants loaded", "count", len(grants))
+		for _, grant := range grants {
+			log.Detail(grant.ID, fmt.Sprintf("workspace=%s pattern=%s expires=%s", grant.WorkspaceID, grant.SimilarCommandPattern, grant.GrantExpiresAt.Format(time.RFC3339Nano)))
+		}
+		return nil
+	}}
+	cmd.Flags().StringVar(&workspaceID, "workspace", "", "filter grants by workspace ID")
+	addJSONOutputFlag(cmd, &asJSON)
+	return cmd
+}
+
+func requestGrantRevokeCommand() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{Use: "revoke <request_id>", Short: "Revoke one similar-command runtime grant by request ID or unique prefix", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "REQUEST", "request.runtime.contacting", "Contacting runtime approval endpoint", logger.WithVerbose("request", args[0]))
+		log := commandLogger(cmd)
+		if !asJSON {
+			startCommandSpinner(cmd, log, "REQUEST", "request.resolving", "Revoking runtime session grant")
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), requestControlTimeout)
+		defer cancel()
+		request, err := application.RevokeRuntimeGrant(ctx, args[0])
+		if err != nil {
+			return err
+		}
+		if asJSON {
+			return printJSON(cmd, request)
+		}
+		log.Success("REQUEST", "runtime session grant revoked", "id", request.ID)
+		log.Detail("status", request.Status)
+		return nil
+	}}
+	addJSONOutputFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -184,6 +245,15 @@ func printApprovalRequest(cmd *cobra.Command, request approval.Request) {
 	}
 	if !request.RetryUntil.IsZero() {
 		log.Detail("retry_until", request.RetryUntil.Format(time.RFC3339Nano))
+	}
+	if request.RuntimeSessionGrant {
+		log.Detail("runtime_grant", "all MCP sessions until expiry")
+		if !request.GrantExpiresAt.IsZero() {
+			log.Detail("grant_expires", request.GrantExpiresAt.Format(time.RFC3339Nano))
+		}
+		if request.SimilarCommandPattern != "" {
+			log.Detail("similar_pattern", request.SimilarCommandPattern)
+		}
 	}
 	if !request.ConsumedAt.IsZero() {
 		log.Detail("consumed", request.ConsumedAt.Format(time.RFC3339Nano))

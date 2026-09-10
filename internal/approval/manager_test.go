@@ -32,8 +32,9 @@ func TestManagerCoalescesChallengeAndRequest(t *testing.T) {
 	}
 }
 
-func TestRuntimeSessionGrantIgnoresMCPSessionAndPersistsForManagerLifetime(t *testing.T) {
-	manager := NewManager("instance-runtime-grant")
+func TestRuntimeSessionGrantCrossesMCPSessionUntilTTL(t *testing.T) {
+	manager, now := testManager()
+	manager.runtimeGrantTTL = time.Hour
 	challenge, _, err := manager.CreateChallenge(ChallengeInput{
 		SessionID: "mcp-session-a", WorkspaceID: "ws_a", Source: "tunnel", TargetTool: "run_command",
 		Arguments: map[string]any{"workspace_id": "ws_a", "command": "git push origin main"}, GuardCode: controlguard.CodeExternalMutation,
@@ -50,7 +51,7 @@ func TestRuntimeSessionGrantIgnoresMCPSessionAndPersistsForManagerLifetime(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !approved.RuntimeSessionGrant || approved.Status != StatusApproved || !approved.RetryUntil.IsZero() {
+	if !approved.RuntimeSessionGrant || approved.Status != StatusApproved || !approved.RetryUntil.IsZero() || approved.GrantExpiresAt.IsZero() {
 		t.Fatalf("approved runtime grant = %#v", approved)
 	}
 	matched, ok := manager.MatchRuntimeGrant(RetryInput{SessionID: "different-mcp-session", WorkspaceID: "ws_a", TargetTool: "run_command", Command: "git push origin feature"})
@@ -67,11 +68,43 @@ func TestRuntimeSessionGrantIgnoresMCPSessionAndPersistsForManagerLifetime(t *te
 			t.Fatalf("runtime grant matched unexpected input %#v", input)
 		}
 	}
-	manager.now = func() time.Time { return time.Now().Add(24 * time.Hour) }
+	*now = now.Add(DefaultRuntimeGrantTTL + time.Second)
 	manager.PurgeExpired()
 	value, ok := manager.Get(request.ID)
-	if !ok || value.Status != StatusApproved || !value.RuntimeSessionGrant {
-		t.Fatalf("runtime grant expired within manager lifetime: %#v ok=%t", value, ok)
+	if !ok || value.Status != StatusExpired {
+		t.Fatalf("runtime grant did not expire after TTL: %#v ok=%t", value, ok)
+	}
+	if _, ok := manager.MatchRuntimeGrant(RetryInput{SessionID: "different-mcp-session", WorkspaceID: "ws_a", TargetTool: "run_command", Command: "git push origin feature"}); ok {
+		t.Fatal("expired runtime grant still matched")
+	}
+}
+
+func TestRuntimeSessionGrantRevoke(t *testing.T) {
+	manager, _ := testManager()
+	challenge, _, err := manager.CreateChallenge(ChallengeInput{
+		SessionID: "mcp-session-a", WorkspaceID: "ws_a", Source: "tunnel", TargetTool: "run_command",
+		Arguments: map[string]any{"workspace_id": "ws_a", "command": "git push origin main"}, GuardCode: controlguard.CodeExternalMutation,
+		Title: "Push Git commits", Command: "git push origin main", SimilarCommandPattern: "git push **",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _, err := manager.CreateRequest(challenge.ID, "mcp-session-a", "ws_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveRuntimeSession(request.ID, "test", ""); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := manager.RevokeRuntimeGrant(request.ID)
+	if err != nil || revoked.Status != StatusExpired {
+		t.Fatalf("revoke = %#v err=%v", revoked, err)
+	}
+	if _, ok := manager.MatchRuntimeGrant(RetryInput{WorkspaceID: "ws_a", TargetTool: "run_command", Command: "git push origin feature"}); ok {
+		t.Fatal("revoked runtime grant still matched")
+	}
+	if grants := manager.ListRuntimeGrants(""); len(grants) != 0 {
+		t.Fatalf("list grants after revoke = %#v", grants)
 	}
 }
 

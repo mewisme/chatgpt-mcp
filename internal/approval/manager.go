@@ -35,6 +35,8 @@ type runtimeGrant struct {
 	workspaceID string
 	targetTool  string
 	pattern     commandpattern.Pattern
+	createdAt   time.Time
+	expiresAt   time.Time
 }
 
 type Manager struct {
@@ -51,6 +53,7 @@ type Manager struct {
 	challengeTTL          time.Duration
 	requestTTL            time.Duration
 	retryTTL              time.Duration
+	runtimeGrantTTL       time.Duration
 	pendingLimit          int
 	workspacePendingLimit int
 	events                *EventStream
@@ -60,7 +63,7 @@ type Manager struct {
 func NewManager(instanceID string) *Manager {
 	return &Manager{
 		instanceID: strings.TrimSpace(instanceID), challenges: map[string]*challengeRecord{}, challengeByTarget: map[string]string{}, requests: map[string]*requestRecord{}, activeBySession: map[string]string{},
-		cliCapabilities: map[string]*cliCapabilityRecord{}, runtimeGrants: []runtimeGrant{}, now: time.Now, newID: randomID, challengeTTL: DefaultChallengeTTL, requestTTL: DefaultRequestTTL, retryTTL: DefaultRetryTTL, pendingLimit: DefaultPendingLimit, workspacePendingLimit: DefaultWorkspacePendingLimit,
+		cliCapabilities: map[string]*cliCapabilityRecord{}, runtimeGrants: []runtimeGrant{}, now: time.Now, newID: randomID, challengeTTL: DefaultChallengeTTL, requestTTL: DefaultRequestTTL, retryTTL: DefaultRetryTTL, runtimeGrantTTL: DefaultRuntimeGrantTTL, pendingLimit: DefaultPendingLimit, workspacePendingLimit: DefaultWorkspacePendingLimit,
 		events: newEventStream(),
 	}
 }
@@ -221,14 +224,102 @@ func (m *Manager) ApproveRuntimeSession(id, resolvedBy, reason string) (Request,
 	if err != nil || strings.TrimSpace(record.value.Command) == "" {
 		return Request{}, errors.New("approval request does not support a similar-command runtime grant")
 	}
+	ttl := m.runtimeGrantTTL
+	if ttl <= 0 {
+		ttl = DefaultRuntimeGrantTTL
+	}
+	if ttl > MaxRuntimeGrantTTL {
+		ttl = MaxRuntimeGrantTTL
+	}
+	expiresAt := now.Add(ttl)
 	record.value.Status, record.value.ResolvedAt, record.value.ResolvedBy, record.value.Reason = StatusApproved, now, strings.TrimSpace(resolvedBy), strings.TrimSpace(reason)
 	record.value.RetryUntil = time.Time{}
 	record.value.RuntimeSessionGrant = true
-	m.runtimeGrants = append(m.runtimeGrants, runtimeGrant{requestID: record.value.ID, workspaceID: record.value.WorkspaceID, targetTool: record.value.TargetTool, pattern: pattern})
+	record.value.GrantExpiresAt = expiresAt
+	m.runtimeGrants = append(m.runtimeGrants, runtimeGrant{requestID: record.value.ID, workspaceID: record.value.WorkspaceID, targetTool: record.value.TargetTool, pattern: pattern, createdAt: now, expiresAt: expiresAt})
 	m.clearActiveLocked(record.value)
 	m.closeResolvedLocked(record)
 	m.emitLocked(EventApproved, record.value)
 	return cloneRequest(record.value), nil
+}
+
+func (m *Manager) RevokeRuntimeGrant(id string) (Request, error) {
+	if m == nil {
+		return Request{}, errors.New("approval manager is unavailable")
+	}
+	id = strings.TrimSpace(id)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now().UTC()
+	m.purgeExpiredLocked(now)
+	record := m.requests[id]
+	if record == nil {
+		return Request{}, ErrRequestNotFound
+	}
+	if !record.value.RuntimeSessionGrant || record.value.Status != StatusApproved {
+		return Request{}, ErrRuntimeGrantNotFound
+	}
+	m.removeRuntimeGrantLocked(id)
+	record.value.Status, record.value.ResolvedAt, record.value.Reason = StatusExpired, now, "runtime session grant revoked"
+	record.value.GrantExpiresAt = now
+	m.emitLocked(EventExpired, record.value)
+	return cloneRequest(record.value), nil
+}
+
+func (m *Manager) RevokeRuntimeGrants(workspaceID string) int {
+	if m == nil {
+		return 0
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now().UTC()
+	m.purgeExpiredLocked(now)
+	changed := 0
+	for index := len(m.runtimeGrants) - 1; index >= 0; index-- {
+		grant := m.runtimeGrants[index]
+		if workspaceID != "" && grant.workspaceID != workspaceID {
+			continue
+		}
+		record := m.requests[grant.requestID]
+		m.runtimeGrants = append(m.runtimeGrants[:index], m.runtimeGrants[index+1:]...)
+		if record != nil && record.value.RuntimeSessionGrant && record.value.Status == StatusApproved {
+			record.value.Status, record.value.ResolvedAt, record.value.Reason = StatusExpired, now, "runtime session grant revoked"
+			record.value.GrantExpiresAt = now
+			m.emitLocked(EventExpired, record.value)
+		}
+		changed++
+	}
+	return changed
+}
+
+func (m *Manager) ListRuntimeGrants(workspaceID string) []Request {
+	if m == nil {
+		return nil
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now().UTC()
+	m.purgeExpiredLocked(now)
+	values := make([]Request, 0, len(m.runtimeGrants))
+	for _, grant := range m.runtimeGrants {
+		if workspaceID != "" && grant.workspaceID != workspaceID {
+			continue
+		}
+		record := m.requests[grant.requestID]
+		if record == nil || !record.value.RuntimeSessionGrant || record.value.Status != StatusApproved {
+			continue
+		}
+		values = append(values, cloneRequest(record.value))
+	}
+	sort.Slice(values, func(i, j int) bool {
+		if values[i].GrantExpiresAt.Equal(values[j].GrantExpiresAt) {
+			return values[i].ID < values[j].ID
+		}
+		return values[i].GrantExpiresAt.Before(values[j].GrantExpiresAt)
+	})
+	return values
 }
 
 func (m *Manager) Deny(id, resolvedBy, reason string) (Request, error) {
@@ -351,9 +442,14 @@ func (m *Manager) MatchRuntimeGrant(input RetryInput) (Request, bool) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := m.now().UTC()
+	m.purgeExpiredLocked(now)
 	for index := len(m.runtimeGrants) - 1; index >= 0; index-- {
 		grant := m.runtimeGrants[index]
 		if grant.workspaceID != input.WorkspaceID || grant.targetTool != input.TargetTool {
+			continue
+		}
+		if !now.Before(grant.expiresAt) {
 			continue
 		}
 		argv, err := commandpattern.CommandWords(input.Command)
@@ -361,7 +457,7 @@ func (m *Manager) MatchRuntimeGrant(input RetryInput) (Request, bool) {
 			continue
 		}
 		record := m.requests[grant.requestID]
-		if record == nil {
+		if record == nil || record.value.Status != StatusApproved || !record.value.RuntimeSessionGrant {
 			continue
 		}
 		return cloneRequest(record.value), true
@@ -577,6 +673,13 @@ func (m *Manager) purgeExpiredLocked(now time.Time) int {
 			changed++
 		case StatusApproved:
 			if record.value.RuntimeSessionGrant {
+				if record.value.GrantExpiresAt.IsZero() || now.Before(record.value.GrantExpiresAt) {
+					continue
+				}
+				m.removeRuntimeGrantLocked(record.value.ID)
+				record.value.Status, record.value.ResolvedAt, record.value.Reason = StatusExpired, now, "runtime session grant expired"
+				m.emitLocked(EventExpired, record.value)
+				changed++
 				continue
 			}
 			if record.value.RetryUntil.IsZero() || now.Before(record.value.RetryUntil) {
@@ -588,6 +691,15 @@ func (m *Manager) purgeExpiredLocked(now time.Time) int {
 			changed++
 		}
 	}
+	kept := m.runtimeGrants[:0]
+	for _, grant := range m.runtimeGrants {
+		if now.Before(grant.expiresAt) {
+			kept = append(kept, grant)
+			continue
+		}
+		changed++
+	}
+	m.runtimeGrants = kept
 	for _, record := range m.challenges {
 		if now.Before(record.value.ExpiresAt) {
 			continue
@@ -602,6 +714,17 @@ func (m *Manager) purgeExpiredLocked(now time.Time) int {
 		}
 	}
 	return changed
+}
+
+func (m *Manager) removeRuntimeGrantLocked(requestID string) {
+	kept := m.runtimeGrants[:0]
+	for _, grant := range m.runtimeGrants {
+		if grant.requestID == requestID {
+			continue
+		}
+		kept = append(kept, grant)
+	}
+	m.runtimeGrants = kept
 }
 
 func (m *Manager) emitLocked(name string, request Request) {

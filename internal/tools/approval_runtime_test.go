@@ -399,6 +399,12 @@ func TestStrictShellApprovalIsExactOneShot(t *testing.T) {
 	if err := runtime.SetShellApprovalPolicy("strict"); err != nil {
 		t.Fatal(err)
 	}
+	if err := runtime.SetShellSandboxPolicy("off"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.SetShellNetworkPolicy("inherit"); err != nil {
+		t.Fatal(err)
+	}
 	item, err := runtime.Workspaces.Get(workspaceID)
 	if err != nil {
 		t.Fatal(err)

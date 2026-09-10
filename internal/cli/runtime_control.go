@@ -225,6 +225,38 @@ func startRuntimeControlContext(ctx context.Context, options runtimeControlOptio
 	}
 	mux.HandleFunc("/requests/approve", authenticatedControl(controlState.Token, http.MethodPost, resolveRequest(approval.StatusApproved)))
 	mux.HandleFunc("/requests/deny", authenticatedControl(controlState.Token, http.MethodPost, resolveRequest(approval.StatusDenied)))
+	mux.HandleFunc("/requests/revoke-grant", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+		if options.Approvals == nil {
+			writeControlJSON(w, nil, errors.New("control approval manager is unavailable"))
+			return
+		}
+		var input struct {
+			ID          string `json:"id"`
+			WorkspaceID string `json:"workspace_id,omitempty"`
+		}
+		if err := decodeControlJSON(r, &input); err != nil {
+			writeControlJSON(w, nil, err)
+			return
+		}
+		if workspaceID := strings.TrimSpace(input.WorkspaceID); workspaceID != "" && strings.TrimSpace(input.ID) == "" {
+			writeControlJSON(w, map[string]any{"revoked": options.Approvals.RevokeRuntimeGrants(workspaceID)}, nil)
+			return
+		}
+		request, err := options.Approvals.Resolve(input.ID)
+		if err != nil {
+			writeControlJSON(w, nil, err)
+			return
+		}
+		request, err = options.Approvals.RevokeRuntimeGrant(request.ID)
+		writeControlJSON(w, request, err)
+	}))
+	mux.HandleFunc("/requests/grants", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		if options.Approvals == nil {
+			writeControlJSON(w, nil, errors.New("control approval manager is unavailable"))
+			return
+		}
+		writeControlJSON(w, options.Approvals.ListRuntimeGrants(r.URL.Query().Get("workspace_id")), nil)
+	}))
 	mux.HandleFunc("/requests/consume-cli", authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		if options.Approvals == nil {
 			writeControlJSON(w, nil, errors.New("control approval manager is unavailable"))

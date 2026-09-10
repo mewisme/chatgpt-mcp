@@ -77,3 +77,33 @@ func CreateDummyApprovalRequest(ctx context.Context, workspaceID, title, command
 	span.EndMessage("Dummy control approval request created", tracepkg.String("request_id", result.ID), tracepkg.String("workspace_id", result.WorkspaceID), tracepkg.String("status", string(result.Status)))
 	return result, nil
 }
+
+func RevokeRuntimeGrant(ctx context.Context, id string) (approval.Request, error) {
+	requested := strings.TrimSpace(id)
+	span := tracepkg.Start(ctx, "REQUEST", "request.revoke-grant", "Revoking runtime session grant", tracepkg.String("request", requested))
+	var result approval.Request
+	_, err := runtimecontrol.Request(ctx, http.MethodPost, "/requests/revoke-grant", map[string]any{"id": requested}, &result)
+	if err != nil {
+		span.FailMessage("Runtime session grant revoke failed", err, tracepkg.String("request", requested))
+		return result, err
+	}
+	span.EndMessage("Runtime session grant revoked", tracepkg.String("request", requested), tracepkg.String("request_id", result.ID), tracepkg.String("status", string(result.Status)))
+	return result, nil
+}
+
+func ListRuntimeGrants(ctx context.Context, workspaceID string) ([]approval.Request, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
+	span := tracepkg.Start(ctx, "REQUEST", "request.grants", "Listing runtime session grants", tracepkg.String("workspace_id", workspaceID))
+	path := "/requests/grants"
+	if workspaceID != "" {
+		path += "?workspace_id=" + url.QueryEscape(workspaceID)
+	}
+	var result []approval.Request
+	_, err := runtimecontrol.Request(ctx, http.MethodGet, path, nil, &result)
+	if err != nil {
+		span.FailMessage("Runtime session grant list failed", err)
+		return result, err
+	}
+	span.EndMessage("Runtime session grants listed", tracepkg.Int("count", len(result)))
+	return result, nil
+}

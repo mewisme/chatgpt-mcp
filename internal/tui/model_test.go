@@ -36,6 +36,30 @@ func TestModelWorkspaceContextSessionsAreScopedAndStable(t *testing.T) {
 	}
 }
 
+func TestModelRemembersLastStableRoutePerHeaderOwner(t *testing.T) {
+	route := Route{Kind: RouteInstruction, Section: "rules"}
+	model := NewModel(route)
+	model.switchPage(Route{Kind: RouteTunnel})
+	updated, _ := model.requestNavigation(navigationIntent{route: Route{Kind: RouteInstruction}, sibling: true})
+	model = updated.(Model)
+	if model.router.Current() != route {
+		t.Fatalf("restored route=%#v want=%#v", model.router.Current(), route)
+	}
+}
+
+func TestModelDoesNotRememberActionRoutesOrPersistLastRoutes(t *testing.T) {
+	action := Route{Kind: RouteMCP, ResourceID: "server", Action: "edit"}
+	model := Model{router: NewRouter(action), lastRoutes: map[RouteKind]Route{}}
+	model.rememberStableRoute(action)
+	if len(model.lastRoutes) != 0 {
+		t.Fatalf("action route was remembered: %#v", model.lastRoutes)
+	}
+	fresh := NewModel(Route{Kind: RouteHome})
+	if len(fresh.lastRoutes) != 0 {
+		t.Fatalf("fresh TUI inherited session routes: %#v", fresh.lastRoutes)
+	}
+}
+
 func TestModelMCPCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {

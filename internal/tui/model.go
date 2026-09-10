@@ -92,6 +92,7 @@ type Model struct {
 	commandResources       map[string]quickopen.Resource
 	workspaceContexts      map[string]*tuipage.WorkspaceContextSession
 	pageViewStates         map[RouteKind]any
+	lastRoutes             map[RouteKind]Route
 	stateRoot              string
 	state                  tuistate.State
 	notice                 string
@@ -137,8 +138,9 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 	approvalView := viewport.New(viewport.WithWidth(72), viewport.WithHeight(12))
 	approvalView.SoftWrap = false
 	approvalView.FillHeight = false
-	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), workspaceContexts: map[string]*tuipage.WorkspaceContextSession{}, pageViewStates: map[RouteKind]any{}, stateRoot: root, state: state, theme: newTheme(true), approvalViewport: approvalView, approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalResolveSimilar: application.ResolveApprovalRequestWithRuntimeGrant, approvalNow: time.Now}
+	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), workspaceContexts: map[string]*tuipage.WorkspaceContextSession{}, pageViewStates: map[RouteKind]any{}, lastRoutes: map[RouteKind]Route{}, stateRoot: root, state: state, theme: newTheme(true), approvalViewport: approvalView, approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalResolveSimilar: application.ResolveApprovalRequestWithRuntimeGrant, approvalNow: time.Now}
 	model.loadPage(initial)
+	model.rememberStableRoute(initial)
 	return model
 }
 
@@ -934,7 +936,7 @@ func (model *Model) navigate(route Route) {
 	if model == nil {
 		return
 	}
-	model.captureCurrentPageViewState()
+	model.captureCurrentView()
 	model.router.Navigate(route)
 	model.loadPage(route)
 }
@@ -942,6 +944,9 @@ func (model *Model) navigate(route Route) {
 func (model Model) navigationGuardActive() bool { return model.pendingNavigation != nil }
 
 func (model Model) requestNavigation(intent navigationIntent) (tea.Model, tea.Cmd) {
+	if intent.sibling {
+		intent.route = model.resolveRememberedRoute(intent.route)
+	}
 	if !intent.quit && intent.route == model.router.Current() {
 		return model, nil
 	}
@@ -1010,9 +1015,40 @@ func (model *Model) switchPage(route Route) {
 	if model == nil {
 		return
 	}
-	model.captureCurrentPageViewState()
+	model.captureCurrentView()
 	model.router.Switch(route)
 	model.loadPage(route)
+}
+
+func (model *Model) captureCurrentView() {
+	if model == nil {
+		return
+	}
+	model.rememberStableRoute(model.router.Current())
+	model.captureCurrentPageViewState()
+}
+
+func (model *Model) rememberStableRoute(route Route) {
+	if model == nil || route.Kind == RouteHome || route.Action != "" {
+		return
+	}
+	if guard, ok := model.currentPage.(tuipage.NavigationGuardModel); ok && (guard.Dirty() || guard.Submitting()) {
+		return
+	}
+	if model.lastRoutes == nil {
+		model.lastRoutes = map[RouteKind]Route{}
+	}
+	model.lastRoutes[headerOwner(route.Kind)] = route
+}
+
+func (model Model) resolveRememberedRoute(route Route) Route {
+	if route.Kind == RouteHome || route.ResourceID != "" || route.Section != "" || route.Action != "" || route.Mode != "" || model.lastRoutes == nil {
+		return route
+	}
+	if remembered, ok := model.lastRoutes[headerOwner(route.Kind)]; ok {
+		return remembered
+	}
+	return route
 }
 
 func (model *Model) captureCurrentPageViewState() {

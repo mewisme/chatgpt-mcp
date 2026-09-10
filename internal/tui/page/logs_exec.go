@@ -375,26 +375,23 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent) string {
 		output.WriteString(value)
 		endsNewline = strings.HasSuffix(value, "\n")
 	}
+	separate := func() {
+		if output.Len() == 0 {
+			return
+		}
+		if !endsNewline {
+			write("\n")
+		}
+		write("\n")
+	}
 	for _, event := range events {
-		if event.ExecutionID != currentExecutionID || event.Type == shellruntime.ExecutionEventStarted {
-			if output.Len() > 0 {
-				if !endsNewline {
-					write("\n")
-				}
-				write("\n")
-			}
-			write("===== exec_id=" + ansi.Strip(event.ExecutionID) + " =====\n")
-			if event.Execution != nil {
-				if event.Execution.Command != "" {
-					write("$ " + ansi.Strip(event.Execution.Command) + "\n")
-				}
-				if event.Execution.WorkspaceID != "" {
-					write("workspace: " + ansi.Strip(event.Execution.WorkspaceID) + "\n")
-				}
-				if event.Execution.CWD != "" {
-					write("cwd: " + ansi.Strip(event.Execution.CWD) + "\n")
-				}
-			}
+		if event.Type == shellruntime.ExecutionEventStarted {
+			separate()
+			write(formatExecutionStart(event))
+			currentExecutionID = event.ExecutionID
+		} else if event.ExecutionID != currentExecutionID {
+			separate()
+			write(formatExecutionContinue(event))
 			currentExecutionID = event.ExecutionID
 		}
 		switch event.Type {
@@ -404,18 +401,163 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent) string {
 			if output.Len() > 0 && !endsNewline {
 				write("\n")
 			}
-			exit := ""
-			if event.ExitCode != nil {
-				exit = fmt.Sprintf(", exit %d", *event.ExitCode)
-			}
-			status := strings.TrimSpace(event.Status)
-			if status == "" {
-				status = "completed"
-			}
-			write("[" + ansi.Strip(status) + exit + "]\n")
+			write(formatExecutionEnd(event))
 		}
 	}
 	return output.String()
+}
+
+func formatExecutionStart(event shellruntime.ExecutionFeedEvent) string {
+	lines := []string{"[START] " + executionEventClock(event) + "  exec_id=" + ansi.Strip(event.ExecutionID)}
+	info := event.Execution
+	if info == nil {
+		if event.WorkspaceID != "" {
+			lines = append(lines, "workspace: "+ansi.Strip(event.WorkspaceID))
+		}
+		return executionEventBox(lines)
+	}
+	if info.WorkspaceID != "" {
+		lines = append(lines, "workspace: "+ansi.Strip(info.WorkspaceID))
+	}
+	attribution := compactExecutionMetadata("source: "+info.Source, "session: "+info.SessionHash)
+	if attribution != "" {
+		lines = append(lines, attribution)
+	}
+	if info.CallID != "" {
+		lines = append(lines, "call: "+ansi.Strip(info.CallID))
+	}
+	route := compactExecutionMetadata("received: "+info.ReceivedByInstanceID, "executed: "+info.ExecutedByInstanceID)
+	if route != "" {
+		lines = append(lines, "route: "+route)
+	}
+	if info.CWD != "" {
+		lines = append(lines, "cwd: "+ansi.Strip(info.CWD))
+	}
+	if info.Command != "" {
+		lines = append(lines, "$ "+ansi.Strip(info.Command))
+	}
+	return executionEventBox(lines)
+}
+
+func formatExecutionContinue(event shellruntime.ExecutionFeedEvent) string {
+	line := "[CONTINUE] " + executionEventClock(event) + "  exec_id=" + ansi.Strip(event.ExecutionID)
+	if elapsed := executionEventElapsed(event); elapsed != "" {
+		line += "  +" + elapsed
+	}
+	line += "\n"
+	workspaceID := event.WorkspaceID
+	if event.Execution != nil && event.Execution.WorkspaceID != "" {
+		workspaceID = event.Execution.WorkspaceID
+	}
+	if workspaceID != "" {
+		line += "workspace: " + ansi.Strip(workspaceID) + "\n"
+	}
+	return line
+}
+
+func formatExecutionEnd(event shellruntime.ExecutionFeedEvent) string {
+	status := strings.TrimSpace(event.Status)
+	if status == "" {
+		status = "completed"
+	}
+	result := "status: " + ansi.Strip(status)
+	if event.ExitCode != nil {
+		result += fmt.Sprintf("  exit: %d", *event.ExitCode)
+	}
+	if duration := executionEventDuration(event); duration != "" {
+		result += "  duration: " + duration
+	}
+	return executionEventBox([]string{"[END] " + executionEventClock(event) + "  exec_id=" + ansi.Strip(event.ExecutionID), result})
+}
+
+func executionEventBox(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	width := 0
+	for index := range lines {
+		lines[index] = ansi.Strip(lines[index])
+		width = max(width, lipgloss.Width(lines[index]))
+	}
+	var output strings.Builder
+	output.WriteString("╭" + strings.Repeat("─", width+2) + "╮\n")
+	for _, line := range lines {
+		output.WriteString("│ " + line + strings.Repeat(" ", width-lipgloss.Width(line)) + " │\n")
+	}
+	output.WriteString("╰" + strings.Repeat("─", width+2) + "╯\n")
+	return output.String()
+}
+
+func compactExecutionMetadata(values ...string) string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		parts := strings.SplitN(value, ": ", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+			continue
+		}
+		result = append(result, ansi.Strip(parts[0])+": "+ansi.Strip(strings.TrimSpace(parts[1])))
+	}
+	return strings.Join(result, "  ")
+}
+
+func executionEventClock(event shellruntime.ExecutionFeedEvent) string {
+	value := executionEventTime(event)
+	if value.IsZero() {
+		return "--:--:--.---"
+	}
+	return value.Local().Format("15:04:05.000")
+}
+
+func executionEventElapsed(event shellruntime.ExecutionFeedEvent) string {
+	if event.Execution == nil {
+		return ""
+	}
+	started, err := time.Parse(time.RFC3339Nano, event.Execution.StartedAt)
+	if err != nil {
+		return ""
+	}
+	current := executionEventTime(event)
+	if current.IsZero() || current.Before(started) {
+		return ""
+	}
+	return current.Sub(started).Round(time.Millisecond).String()
+}
+
+func executionEventDuration(event shellruntime.ExecutionFeedEvent) string {
+	if event.Execution == nil {
+		return ""
+	}
+	started, err := time.Parse(time.RFC3339Nano, event.Execution.StartedAt)
+	if err != nil {
+		return ""
+	}
+	finished := executionEventTime(event)
+	if event.Execution.FinishedAt != "" {
+		if parsed, err := time.Parse(time.RFC3339Nano, event.Execution.FinishedAt); err == nil {
+			finished = parsed
+		}
+	}
+	if finished.IsZero() || finished.Before(started) {
+		return ""
+	}
+	return finished.Sub(started).Round(time.Millisecond).String()
+}
+
+func executionEventTime(event shellruntime.ExecutionFeedEvent) time.Time {
+	if event.Timestamp != "" {
+		if value, err := time.Parse(time.RFC3339Nano, event.Timestamp); err == nil {
+			return value
+		}
+	}
+	if event.Execution == nil {
+		return time.Time{}
+	}
+	value := event.Execution.StartedAt
+	if event.Type == shellruntime.ExecutionEventCompleted && event.Execution.FinishedAt != "" {
+		value = event.Execution.FinishedAt
+	}
+	parsed, _ := time.Parse(time.RFC3339Nano, value)
+	return parsed
 }
 
 func executionFollowLabel(paused bool) string {

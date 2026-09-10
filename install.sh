@@ -7,15 +7,19 @@
 # curl -fsSL https://get.mewis.me/chatgpt-mcp.sh | sh -s -- --uninstall
 #
 # Environment:
-#   CHATGPT_MCP_VERSION      release tag (default: latest)
-#   CHATGPT_MCP_INSTALL_DIR  bundle location (default: ~/.chatgpt-mcp)
-#   CHATGPT_MCP_BIN_DIR      command location (default: ~/.local/bin)
+#   CHATGPT_MCP_VERSION           release tag (default: latest)
+#   CHATGPT_MCP_INSTALL_DIR       bundle location (default: ~/.chatgpt-mcp)
+#   CHATGPT_MCP_BIN_DIR           command location (default: ~/.local/bin)
+#   INSTALL_ALLOW_CHECKSUM_ONLY   set to 1 to proceed when Sigstore/cosign
+#                                 verification is unavailable (loud warning)
 set -eu
 
 REPO="mewisme/chatgpt-mcp"
 INSTALL_DIR="${CHATGPT_MCP_INSTALL_DIR:-$HOME/.chatgpt-mcp}"
 BIN_DIR="${CHATGPT_MCP_BIN_DIR:-$HOME/.local/bin}"
 NO_ALIAS=0
+OIDC_ISSUER="https://token.actions.githubusercontent.com"
+SIGNATURE_NAME="checksums.txt.sigstore.json"
 
 for arg in "$@"; do
 	case "$arg" in
@@ -59,20 +63,24 @@ ver="${version#v}"
 asset="chatgpt-mcp_${ver}_${os}_${arch}.tar.gz"
 url="https://github.com/$REPO/releases/download/$version/$asset"
 checksums_url="https://github.com/$REPO/releases/download/$version/checksums.txt"
+signature_url="https://github.com/$REPO/releases/download/$version/$SIGNATURE_NAME"
+cert_identity="https://github.com/$REPO/.github/workflows/release.yml@refs/tags/$version"
 
 echo "Installing chatgpt-mcp $version ($os/$arch)..."
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 archive="$tmp/$asset"
+checksums="$tmp/checksums.txt"
+signature="$tmp/$SIGNATURE_NAME"
 curl -fsSL "$url" -o "$archive" || {
 	echo "chatgpt-mcp: download failed: $url" >&2
 	exit 1
 }
-curl -fsSL "$checksums_url" -o "$tmp/checksums.txt" || {
+curl -fsSL "$checksums_url" -o "$checksums" || {
 	echo "chatgpt-mcp: checksum download failed: $checksums_url" >&2
 	exit 1
 }
-expected="$(awk -v asset="$asset" '$2 == asset { print $1; exit }' "$tmp/checksums.txt")"
+expected="$(awk -v asset="$asset" '$2 == asset { print $1; exit }' "$checksums")"
 [ -n "$expected" ] || {
 	echo "chatgpt-mcp: checksum missing for $asset" >&2
 	exit 1
@@ -90,10 +98,97 @@ fi
 	exit 1
 }
 
+sigstore_ok=0
+signature_available=0
+if curl -fsSL "$signature_url" -o "$signature"; then
+	signature_available=1
+fi
+if [ "$signature_available" -eq 1 ] && command -v cosign >/dev/null 2>&1; then
+	if cosign verify-blob \
+		--bundle="$signature" \
+		--certificate-identity="$cert_identity" \
+		--certificate-oidc-issuer="$OIDC_ISSUER" \
+		"$checksums"; then
+		sigstore_ok=1
+		echo "Sigstore signature verified for checksums.txt."
+	else
+		echo "chatgpt-mcp: Sigstore/cosign verification failed for $SIGNATURE_NAME" >&2
+		exit 1
+	fi
+fi
+if [ "$sigstore_ok" -eq 0 ]; then
+	if [ "${INSTALL_ALLOW_CHECKSUM_ONLY:-}" = "1" ]; then
+		echo "WARNING: Sigstore/cosign verification unavailable; proceeding with checksum-only install because INSTALL_ALLOW_CHECKSUM_ONLY=1." >&2
+		echo "WARNING: Install cosign and ensure $SIGNATURE_NAME is published for full release integrity." >&2
+	else
+		echo "chatgpt-mcp: Sigstore/cosign verification is required but unavailable." >&2
+		if [ "$signature_available" -eq 0 ]; then
+			echo "chatgpt-mcp: could not download $SIGNATURE_NAME from $signature_url" >&2
+		elif ! command -v cosign >/dev/null 2>&1; then
+			echo "chatgpt-mcp: cosign is not installed or not on PATH" >&2
+		fi
+		echo "chatgpt-mcp: install cosign, or set INSTALL_ALLOW_CHECKSUM_ONLY=1 to proceed with checksum-only verification." >&2
+		exit 1
+	fi
+fi
+
+listing="$tmp/listing.txt"
+tar -tzf "$archive" >"$listing"
+while IFS= read -r member || [ -n "$member" ]; do
+	[ -n "$member" ] || continue
+	normalized="$(printf '%s' "$member" | sed 's/\\/\//g')"
+	case "$normalized" in
+		''|'.'|'./')
+			echo "chatgpt-mcp: unsafe archive path '$member'" >&2
+			exit 1
+			;;
+		/*|*:* )
+			echo "chatgpt-mcp: unsafe archive path '$member'" >&2
+			exit 1
+			;;
+	esac
+	oldifs="$IFS"
+	IFS=/
+	# shellcheck disable=SC2086
+	set -- $normalized
+	IFS="$oldifs"
+	for segment in "$@"; do
+		if [ "$segment" = ".." ]; then
+			echo "chatgpt-mcp: unsafe archive path '$member'" >&2
+			exit 1
+		fi
+	done
+done <"$listing"
+
+bin_listing="$(tar -tvzf "$archive" chatgpt-mcp 2>/dev/null | head -n1 || true)"
+[ -n "$bin_listing" ] || {
+	echo "chatgpt-mcp: archive is missing member chatgpt-mcp" >&2
+	exit 1
+}
+case "$bin_listing" in
+	l*|L*)
+		echo "chatgpt-mcp: refusing to extract symlink member chatgpt-mcp" >&2
+		exit 1
+		;;
+	-*) ;;
+	*)
+		echo "chatgpt-mcp: refusing non-regular archive member chatgpt-mcp" >&2
+		exit 1
+		;;
+esac
+
 extract="$tmp/extract"
 mkdir -p "$extract"
-tar -xzf "$archive" -C "$extract"
+tar -xzf "$archive" -C "$extract" chatgpt-mcp
 binary="$extract/chatgpt-mcp"
+[ -e "$binary" ] || {
+	echo "chatgpt-mcp: binary missing from archive." >&2
+	exit 1
+}
+[ ! -L "$binary" ] || {
+	echo "chatgpt-mcp: refusing symlink binary path." >&2
+	exit 1
+}
 [ -f "$binary" ] || {
 	echo "chatgpt-mcp: binary missing from archive." >&2
 	exit 1

@@ -3,9 +3,11 @@
 # irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
 #
 # Environment:
-#   CHATGPT_MCP_VERSION      release tag (default: latest)
-#   CHATGPT_MCP_INSTALL_DIR  install location (default: %LOCALAPPDATA%\chatgpt-mcp)
-#   CHATGPT_MCP_ARCH         architecture override: amd64 or arm64
+#   CHATGPT_MCP_VERSION           release tag (default: latest)
+#   CHATGPT_MCP_INSTALL_DIR       install location (default: %LOCALAPPDATA%\chatgpt-mcp)
+#   CHATGPT_MCP_ARCH              architecture override: amd64 or arm64
+#   INSTALL_ALLOW_CHECKSUM_ONLY   set to 1 to proceed when Sigstore/cosign
+#                                 verification is unavailable (loud warning)
 
 param(
   [switch]$Uninstall,
@@ -17,6 +19,9 @@ $repo = 'mewisme/chatgpt-mcp'
 $defaultInstall = Join-Path $env:LOCALAPPDATA 'chatgpt-mcp'
 $installDir = if ($env:CHATGPT_MCP_INSTALL_DIR) { $env:CHATGPT_MCP_INSTALL_DIR } else { $defaultInstall }
 $current = Join-Path $installDir 'current'
+$oidcIssuer = 'https://token.actions.githubusercontent.com'
+$signatureName = 'checksums.txt.sigstore.json'
+$binaryName = 'chatgpt-mcp.exe'
 
 function ConvertTo-ChatGPTMCPArchitecture {
   param([AllowNull()][object]$Value)
@@ -109,6 +114,75 @@ function Resolve-ChatGPTMCPArchitecture {
   throw "chatgpt-mcp: unsupported architecture; probes: $diagnostics. Set CHATGPT_MCP_ARCH=amd64 or arm64 to override."
 }
 
+function Test-ChatGPTMCPSafeArchivePath {
+  param([Parameter(Mandatory = $true)][string]$Name)
+  $normalized = $Name.Trim().Replace('\', '/')
+  if (-not $normalized -or $normalized -eq '.' -or $normalized.StartsWith('/') -or $normalized.Contains(':')) {
+    return $false
+  }
+  foreach ($segment in $normalized.Split('/')) {
+    if ($segment -eq '..') { return $false }
+  }
+  return $true
+}
+
+function Expand-ChatGPTMCPBinaryFromZip {
+  param(
+    [Parameter(Mandatory = $true)][string]$ZipPath,
+    [Parameter(Mandatory = $true)][string]$DestinationDir,
+    [Parameter(Mandatory = $true)][string]$MemberName
+  )
+
+  Add-Type -AssemblyName System.IO.Compression
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+  try {
+    $matched = $null
+    foreach ($entry in $archive.Entries) {
+      $name = $entry.FullName
+      if (-not (Test-ChatGPTMCPSafeArchivePath $name)) {
+        throw "chatgpt-mcp: unsafe archive path '$name'"
+      }
+      $normalized = $name.Trim().Replace('\', '/')
+      if ($normalized.EndsWith('/')) { continue }
+
+      $attrs = [int]($entry.ExternalAttributes -shr 16)
+      if (($attrs -band 0xA000) -eq 0xA000) {
+        throw "chatgpt-mcp: refusing symlink archive member '$name'"
+      }
+
+      if ($normalized -ne $MemberName) { continue }
+      if ($null -ne $matched) {
+        throw "chatgpt-mcp: release archive contains duplicate $MemberName"
+      }
+      $matched = $entry
+    }
+    if ($null -eq $matched) {
+      throw "chatgpt-mcp: $MemberName missing from archive."
+    }
+    if ($matched.Length -le 0) {
+      throw "chatgpt-mcp: release binary has invalid size $($matched.Length)"
+    }
+
+    New-Item -ItemType Directory -Force -Path $DestinationDir | Out-Null
+    $destination = Join-Path $DestinationDir $MemberName
+    $source = $matched.Open()
+    try {
+      $target = [System.IO.File]::Open($destination, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+      try {
+        $source.CopyTo($target)
+      } finally {
+        $target.Dispose()
+      }
+    } finally {
+      $source.Dispose()
+    }
+    return $destination
+  } finally {
+    $archive.Dispose()
+  }
+}
+
 if ($Uninstall) {
   if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
   if ($installDir -eq $defaultInstall) {
@@ -134,6 +208,8 @@ $ver = $version.TrimStart('v')
 $asset = "chatgpt-mcp_${ver}_windows_${arch}.zip"
 $url = "https://github.com/$repo/releases/download/$version/$asset"
 $checksumsUrl = "https://github.com/$repo/releases/download/$version/checksums.txt"
+$signatureUrl = "https://github.com/$repo/releases/download/$version/$signatureName"
+$certIdentity = "https://github.com/$repo/.github/workflows/release.yml@refs/tags/$version"
 Write-Host "Installing chatgpt-mcp $version (windows/$arch)..."
 
 $tmp = Join-Path $env:TEMP ("chatgpt-mcp-" + [guid]::NewGuid().ToString('N'))
@@ -141,6 +217,7 @@ New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 try {
   $zip = Join-Path $tmp $asset
   $checksums = Join-Path $tmp 'checksums.txt'
+  $signature = Join-Path $tmp $signatureName
   Invoke-WebRequest -Uri $url -OutFile $zip
   Invoke-WebRequest -Uri $checksumsUrl -OutFile $checksums
   $expected = Get-Content $checksums | ForEach-Object {
@@ -150,10 +227,47 @@ try {
   $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
   if ($actual -ne $expected) { throw "chatgpt-mcp: checksum verification failed for $asset" }
 
+  $sigstoreOk = $false
+  $signatureAvailable = $false
+  try {
+    Invoke-WebRequest -Uri $signatureUrl -OutFile $signature
+    $signatureAvailable = $true
+  } catch {
+    $signatureAvailable = $false
+  }
+
+  $cosign = Get-Command cosign -ErrorAction SilentlyContinue
+  if ($signatureAvailable -and $cosign) {
+    & $cosign.Source verify-blob `
+      --bundle=$signature `
+      --certificate-identity=$certIdentity `
+      --certificate-oidc-issuer=$oidcIssuer `
+      $checksums
+    if ($LASTEXITCODE -ne 0) {
+      throw "chatgpt-mcp: Sigstore/cosign verification failed for $signatureName"
+    }
+    $sigstoreOk = $true
+    Write-Host 'Sigstore signature verified for checksums.txt.'
+  }
+
+  if (-not $sigstoreOk) {
+    if ($env:INSTALL_ALLOW_CHECKSUM_ONLY -eq '1') {
+      Write-Warning 'Sigstore/cosign verification unavailable; proceeding with checksum-only install because INSTALL_ALLOW_CHECKSUM_ONLY=1.'
+      Write-Warning "Install cosign and ensure $signatureName is published for full release integrity."
+    } else {
+      $reason = if (-not $signatureAvailable) {
+        "could not download $signatureName from $signatureUrl"
+      } elseif (-not $cosign) {
+        'cosign is not installed or not on PATH'
+      } else {
+        'Sigstore verification did not complete'
+      }
+      throw "chatgpt-mcp: Sigstore/cosign verification is required but unavailable ($reason). Install cosign, or set INSTALL_ALLOW_CHECKSUM_ONLY=1 to proceed with checksum-only verification."
+    }
+  }
+
   $extract = Join-Path $tmp 'extract'
-  Expand-Archive -Path $zip -DestinationPath $extract -Force
-  $exe = Join-Path $extract 'chatgpt-mcp.exe'
-  if (-not (Test-Path $exe)) { throw 'chatgpt-mcp: chatgpt-mcp.exe missing from archive.' }
+  $exe = Expand-ChatGPTMCPBinaryFromZip -ZipPath $zip -DestinationDir $extract -MemberName $binaryName
 
   $installArgs = @('install')
   if ($NoAlias) { $installArgs += '--no-alias' }

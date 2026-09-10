@@ -5,17 +5,12 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 
 	"github.com/spf13/cobra"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 )
-
-func elevateManagedCommand(cmd *cobra.Command, action, environmentHash string) error {
-	return elevateManagedCommandWithBinary(cmd, action, environmentHash, os.Args[0])
-}
 
 func elevateManagedCommandWithBinary(cmd *cobra.Command, action, environmentHash, binaryPath string) error {
 	binary, err := managed.StableBinaryPath(binaryPath)

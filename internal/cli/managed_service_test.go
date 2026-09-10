@@ -387,6 +387,46 @@ func TestManagedSystemFlagSelectsSystemScope(t *testing.T) {
 	}
 }
 
+func TestManagedSystemSpecStagesTransientGoRunBinaryBeforeElevation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("system scope is unsupported on Windows")
+	}
+	if managed.DetectScope() != managed.ScopeUser {
+		t.Skip("requires an unprivileged process to exercise pre-elevation staging")
+	}
+	defer configformat.SetRootPath("")
+	rootPath := t.TempDir()
+	t.Setenv(configformat.EnvConfigDir, rootPath)
+	if err := configformat.SetRootPath(rootPath); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(t.TempDir(), "go-build123", "b001", "exe", "chatgpt-mcp")
+	if err := os.MkdirAll(filepath.Dir(source), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("dev-build"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	root := newRootCommand()
+	cmd, _, err := root.Find([]string{"up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, _, err := managedServiceForCommandWithBinary(cmd, managed.ScopeSystem, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Binary == filepath.Clean(source) || !strings.Contains(filepath.ToSlash(spec.Binary), "/runtime/bin/go-run/") {
+		t.Fatalf("system pre-elevation binary = %q", spec.Binary)
+	}
+	if !strings.HasPrefix(filepath.Clean(spec.Binary), filepath.Clean(rootPath)+string(filepath.Separator)) {
+		t.Fatalf("staged binary %q escaped config root %q", spec.Binary, rootPath)
+	}
+	if _, err := os.Stat(spec.Binary); err != nil {
+		t.Fatalf("staged binary is not accessible to invoking user: %v", err)
+	}
+}
+
 func TestManagedScopeConflictUsesSystemFlagHint(t *testing.T) {
 	spec := managed.Spec{Scope: managed.ScopeUser}
 	err := managedScopeConflict(runtimeStatusResult{Managed: true, ServiceID: "system", ServiceScope: string(managed.ScopeSystem), PID: 123}, spec, "down")

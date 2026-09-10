@@ -39,7 +39,7 @@ cgm
 
 The rest of this guide uses `cgm`.
 
-Direct bootstrap installers only download, verify, and extract a release; the binary owns the managed installation layout. If you downloaded a release archive manually, install it with:
+Direct bootstrap installers download the release archive, verify its SHA-256 against `checksums.txt`, and (when available) verify that checksum file with Sigstore via `cosign` and `checksums.txt.sigstore.json`. They extract only the `chatgpt-mcp` binary (rejecting unsafe archive paths and symlinks). If cosign or the signature artifact is unavailable, set `INSTALL_ALLOW_CHECKSUM_ONLY=1` to proceed with a loud checksum-only warning; otherwise the installer fails. The binary owns the managed installation layout. If you downloaded a release archive manually, install it with:
 
 ```bash
 ./chatgpt-mcp install
@@ -67,6 +67,17 @@ irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
 ```
 
 The installers keep a stable launcher path so managed service definitions continue to work across upgrades.
+
+Checksum-only bootstrap (when cosign or `checksums.txt.sigstore.json` is unavailable):
+
+```bash
+curl -fsSL get.mewis.me/chatgpt-mcp.sh | env INSTALL_ALLOW_CHECKSUM_ONLY=1 sh
+```
+
+```powershell
+$env:INSTALL_ALLOW_CHECKSUM_ONLY = '1'
+irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
+```
 
 ## Update
 

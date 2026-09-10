@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"

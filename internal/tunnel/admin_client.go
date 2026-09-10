@@ -19,6 +19,7 @@ import (
 	"github.com/openai/tunnel-client/pkg/controlplane/apierror"
 	tctransport "github.com/openai/tunnel-client/pkg/transport"
 	"github.com/openai/tunnel-client/pkg/version"
+
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 

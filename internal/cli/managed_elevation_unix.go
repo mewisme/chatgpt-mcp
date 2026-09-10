@@ -8,6 +8,7 @@ import (
 	"os/exec"
 
 	"github.com/spf13/cobra"
+
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 )

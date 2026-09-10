@@ -10,6 +10,7 @@ import (
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )

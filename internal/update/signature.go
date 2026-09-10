@@ -9,6 +9,7 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/tuf"
 	"github.com/sigstore/sigstore-go/pkg/verify"
+
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 

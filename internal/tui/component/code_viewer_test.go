@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
 	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 )
 

@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/tree"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
 	"go.mewis.me/chatgpt-mcp/internal/rules"

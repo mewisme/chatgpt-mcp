@@ -1,0 +1,42 @@
+# Local quality gates mirroring CI (see docs/development.md).
+# Install: pipx install pre-commit && pre-commit install
+# Run all: pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude_types: [markdown]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/tekwizely/pre-commit-golang
+    rev: v1.0.0-rc.4
+    hooks:
+      - id: go-fmt
+      - id: go-imports
+        args:
+          - "-local"
+          - "go.mewis.me/chatgpt-mcp"
+          - "-w"
+      - id: go-vet-mod
+      - id: go-staticcheck-repo-mod
+
+  - repo: local
+    hooks:
+      - id: shellcheck-install
+        name: shellcheck install.sh
+        entry: shellcheck
+        language: system
+        files: ^install\.sh$
+        pass_filenames: true
+      - id: local-check-script
+        name: scripts/check.sh (fast)
+        entry: scripts/check.sh
+        language: system
+        pass_filenames: false
+        stages: [manual]

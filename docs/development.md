@@ -8,6 +8,29 @@ This guide covers source builds, verification, CI, release smoke tests, and rele
 - Node.js 24+
 - pnpm 11+
 
+## Editor and local quality checks
+
+`.editorconfig` sets **indent size 2** for all files. Go uses tabs at width 2 (required by `gofmt`); everything else uses 2-space indentation.
+
+Fast local gate (subset of CI):
+
+```bash
+./scripts/check.sh
+```
+
+Optional [pre-commit](https://pre-commit.com/) hooks (fmt/imports/vet/staticcheck + basic file hygiene):
+
+```bash
+pipx install pre-commit   # or: pip install pre-commit
+go install golang.org/x/tools/cmd/goimports@latest
+go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+# ensure $(go env GOPATH)/bin is on PATH
+pre-commit install
+pre-commit run --all-files
+```
+
+CI remains the source of truth (`govulncheck`, `gosec` baseline, coverage, matrix tests).
+
 ## Install frontend dependencies
 
 ```bash

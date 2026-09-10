@@ -36,7 +36,9 @@ type App struct {
 	bootstrap  sync.Once
 }
 
-func New(cfg config.Config) (*App, error) { return NewWithLoggerContext(context.Background(), cfg, nil) }
+func New(cfg config.Config) (*App, error) {
+	return NewWithLoggerContext(context.Background(), cfg, nil)
+}
 
 func NewWithLogger(cfg config.Config, appLogger *logger.Logger) (*App, error) {
 	return NewWithLoggerContext(context.Background(), cfg, appLogger)

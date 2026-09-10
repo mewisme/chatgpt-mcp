@@ -865,8 +865,20 @@ func TestFormatExecutionFeedSeparatesConcurrentExecutionsInSameWorkspace(t *test
 		{Sequence: 4, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoB.ID, WorkspaceID: infoB.WorkspaceID, Execution: &infoB, Data: "B\n", Timestamp: started.Add(3 * time.Millisecond).Format(time.RFC3339Nano)},
 		{Sequence: 5, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &infoA, Data: "A2\n", Timestamp: started.Add(4 * time.Millisecond).Format(time.RFC3339Nano)},
 	})
-	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 1 || strings.Count(view, "╰─ PAUSE ") != 3 || !strings.Contains(view, "CONTINUE") || !strings.Contains(view, "Execution  exec_a") || strings.Contains(view, "exec_id=") {
+	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 1 || strings.Count(view, "╰─ PAUSE ") != 2 || strings.Count(view, "╰─ RUNNING ") != 1 || !strings.Contains(view, "CONTINUE") || !strings.Contains(view, "Execution  exec_a") || strings.Contains(view, "exec_id=") {
 		t.Fatalf("same-workspace interleave=%q", view)
+	}
+}
+
+func TestFormatExecutionFeedKeepsLiveTailRunningUntilInterrupted(t *testing.T) {
+	started := time.Now().UTC()
+	info := shellruntime.ExecutionInfo{ID: "exec_live", WorkspaceID: "ws_live", StartedAt: started.Format(time.RFC3339Nano)}
+	view := formatExecutionFeed([]shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Data: "still running\n", Timestamp: started.Add(time.Second).Format(time.RFC3339Nano)},
+	})
+	if !strings.Contains(view, "╰─ RUNNING ") || strings.Contains(view, "╰─ PAUSE ") || strings.Contains(view, "╰─ END ") {
+		t.Fatalf("live tail marker=%q", view)
 	}
 }
 

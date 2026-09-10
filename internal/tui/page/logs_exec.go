@@ -388,21 +388,22 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int
 		width = widths[0]
 	}
 	type executionSegment struct {
-		start shellruntime.ExecutionFeedEvent
-		end   shellruntime.ExecutionFeedEvent
-		last  shellruntime.ExecutionFeedEvent
-		body  strings.Builder
-		first bool
-		final bool
+		start       shellruntime.ExecutionFeedEvent
+		end         shellruntime.ExecutionFeedEvent
+		last        shellruntime.ExecutionFeedEvent
+		body        strings.Builder
+		first       bool
+		final       bool
+		interrupted bool
 	}
 	seen := map[string]bool{}
 	segments := []executionSegment{}
 	var current *executionSegment
-	closeCurrent := func(end shellruntime.ExecutionFeedEvent, final bool) {
+	closeCurrent := func(end shellruntime.ExecutionFeedEvent, final, interrupted bool) {
 		if current == nil {
 			return
 		}
-		current.end, current.final = end, final
+		current.end, current.final, current.interrupted = end, final, interrupted
 		segments = append(segments, *current)
 		current = nil
 	}
@@ -413,7 +414,7 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int
 	for _, event := range events {
 		if current == nil || event.ExecutionID != current.start.ExecutionID {
 			if current != nil {
-				closeCurrent(event, false)
+				closeCurrent(current.last, false, true)
 			}
 			openSegment(event)
 		}
@@ -424,25 +425,25 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int
 			current.body.WriteString(ansi.Strip(event.Data))
 		case shellruntime.ExecutionEventCompleted:
 			current.last = event
-			closeCurrent(event, true)
+			closeCurrent(event, true, false)
 			continue
 		}
 		current.last = event
 	}
 	if current != nil {
-		closeCurrent(current.last, false)
+		closeCurrent(current.last, false, false)
 	}
 	var output strings.Builder
 	for index, segment := range segments {
 		if index > 0 {
 			output.WriteString("\n")
 		}
-		output.WriteString(formatExecutionSegment(segment.start, segment.end, segment.body.String(), segment.first, segment.final, width))
+		output.WriteString(formatExecutionSegment(segment.start, segment.end, segment.body.String(), segment.first, segment.final, segment.interrupted, width))
 	}
 	return output.String()
 }
 
-func formatExecutionSegment(start, end shellruntime.ExecutionFeedEvent, body string, first, final bool, width int) string {
+func formatExecutionSegment(start, end shellruntime.ExecutionFeedEvent, body string, first, final, interrupted bool, width int) string {
 	headerKind := "CONTINUE"
 	if first {
 		headerKind = "START"
@@ -458,11 +459,13 @@ func formatExecutionSegment(start, end shellruntime.ExecutionFeedEvent, body str
 	if len(content) == 0 {
 		content = append(content, "No output")
 	}
-	footerKind := "PAUSE"
+	footerKind := "RUNNING"
 	footerFields := []executionFrameField{}
 	if final {
 		footerKind = "END"
 		footerFields = executionEndFields(end)
+	} else if interrupted {
+		footerKind = "PAUSE"
 	}
 	return executionSegmentFrame(headerKind, footerKind, start, end, headerFields, content, footerFields, width)
 }

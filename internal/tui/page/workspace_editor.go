@@ -146,11 +146,14 @@ func (page *WorkspacePage) applyWorkspaceEditor() error {
 	case WorkspaceContainerRename:
 		_, err = page.manager.RenameContainer(page.targetID, page.value)
 	case WorkspaceContainerMembers:
-		err = page.updateMembers()
+		return page.updateMembers()
 	default:
 		err = fmt.Errorf("unsupported workspace editor action: %s", page.command)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return page.syncRuntimeWorkspaces()
 }
 
 func (page *WorkspacePage) workspaceEditorNavigation(command WorkspaceCommand, resourceID string) tea.Cmd {

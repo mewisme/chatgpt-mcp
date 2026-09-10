@@ -141,7 +141,8 @@ The portable smoke verifies behavior such as:
 - managed runtime metadata through the portable hidden service entrypoint
 - persistent runtime log replay/filter/follow/clear
 - MCP discovery and tool listing, including workspace-container Agent tools
-- live workspace-container read-after-write consistency across CLI mutations: create -> status/list, rename -> status, membership add/remove -> context, and delete -> list without runtime restart or MCP reconnect
+- live workspace-registry read-after-write consistency across CLI mutations: workspace register/unregister, access add/remove, container create/rename/delete, and membership add/remove without runtime restart or MCP reconnect
+- integration coverage for Admin, TUI, and MCP workspace-registration mutations verifies each persistent registry change reloads runtime state before success is reported
 - modern MCP error behavior
 - clean stop/shutdown
 

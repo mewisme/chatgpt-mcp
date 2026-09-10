@@ -297,6 +297,8 @@ Workspace IDs are stable hashes of canonical workspace paths. Older registry-v2 
 
 An MCP session may access multiple registered workspaces. Every workspace-scoped tool call must explicitly provide a valid concrete `ws_*` `workspace_id`; the runtime canonicalizes that ID and records the workspace in the session's in-memory access set. Invalid workspace IDs do not create access entries. `wsc_*` workspace containers are orchestration-only: resolving a container does not grant access to its members, and passing a container ID to a workspace-scoped tool is rejected instead of selecting or fanning out to a member. Workspace-specific filesystem scope and state remain isolated even when the same session moves between projects.
 
+Every successful persistent workspace-registry mutation synchronizes the running tool runtime before the mutation surface reports success. This applies to workspace register/unregister, workspace-specific access roots, container create/rename/delete, and both directions of container membership changes across CLI, TUI, Admin API, and MCP workspace registration. A following MCP read therefore sees the new registry state without a runtime restart or MCP reconnect. If synchronization fails, the mutation surface reports the reload failure even though the registry change may already be persisted.
+
 Global extra roots apply to every workspace:
 
 ```bash

@@ -33,3 +33,5 @@ Required replacement display name for the existing container. The container iden
 ## Container membership
 
 Membership editing uses the workspace/container routes to select which registered workspaces belong to a container. Removing membership does not unregister the workspace or delete project files.
+
+All successful workspace-registry editor mutations reload the running runtime registry before the TUI reports success. Agent workspace and container tools therefore see register, access, container, and membership changes immediately without a runtime restart.

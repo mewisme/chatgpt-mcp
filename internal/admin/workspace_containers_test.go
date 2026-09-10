@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -104,6 +105,20 @@ func TestWorkspaceContainerAPIIsImmediatelyVisibleToAgentTools(t *testing.T) {
 	assertAgentContainerStatus(t, runtime, container.ID, "Product", 1)
 
 	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/api/workspaces/"+member.ID+"/containers", strings.NewReader(`{"container_ids":["`+container.ID+`"]}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("workspace membership remove status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertAgentContainerStatus(t, runtime, container.ID, "Product", 0)
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/workspaces/"+member.ID+"/containers", strings.NewReader(`{"container_ids":["`+container.ID+`"]}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("workspace membership add status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertAgentContainerStatus(t, runtime, container.ID, "Product", 1)
+
+	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, "/api/workspace-containers/"+container.ID, strings.NewReader(`{"name":"Renamed"}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("rename status=%d body=%s", recorder.Code, recorder.Body.String())
@@ -118,6 +133,44 @@ func TestWorkspaceContainerAPIIsImmediatelyVisibleToAgentTools(t *testing.T) {
 	result, err := runtime.Call(context.Background(), "workspace_container_status", map[string]any{"container_id": container.ID})
 	if err != nil || !result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "workspace container not found") {
 		t.Fatalf("agent status after delete = %#v err=%v", result, err)
+	}
+}
+
+func TestWorkspaceAPIIsImmediatelyVisibleToAgentTools(t *testing.T) {
+	store := filepath.Join(t.TempDir(), "workspaces.json")
+	writer := workspace.NewManager(store)
+	runtimeManager := workspace.NewManager(store)
+	if _, err := runtimeManager.List(); err != nil {
+		t.Fatal(err)
+	}
+	registry := tools.NewRegistry()
+	tools.RegisterWorkspaceTools(registry, runtimeManager)
+	runtime := &tools.Runtime{Registry: registry, Workspaces: runtimeManager, SessionAccess: tools.NewSessionWorkspaceAccessManager()}
+	handler := New(API{Workspaces: writer, Tools: runtime})
+
+	root := t.TempDir()
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/workspaces", strings.NewReader(`{"path":`+strconv.Quote(root)+`}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("register status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var item workspace.Workspace
+	if err := json.Unmarshal(recorder.Body.Bytes(), &item); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.Call(context.Background(), "workspace_status", map[string]any{"workspace_id": item.ID})
+	if err != nil || result.IsError {
+		t.Fatalf("agent status after register = %#v err=%v", result, err)
+	}
+
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/api/workspaces/"+item.ID, nil))
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("unregister status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	result, err = runtime.Call(context.Background(), "workspace_status", map[string]any{"workspace_id": item.ID})
+	if err != nil || !result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "workspace not found") {
+		t.Fatalf("agent status after unregister = %#v err=%v", result, err)
 	}
 }
 

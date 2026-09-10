@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -82,6 +84,7 @@ type workspaceCopyIDMsg struct{ ID string }
 type workspaceRefreshDetailMsg struct{}
 
 var copyWorkspaceID = component.CopyText
+var reloadWorkspaceRuntime = application.ReloadWorkspaces
 
 func NewWorkspaces(ctx context.Context, resourceID string) (*WorkspacePage, error) {
 	return NewWorkspacesRoute(ctx, resourceID, "")
@@ -502,6 +505,9 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		} else {
 			err = page.manager.DeleteContainer(page.targetID)
 		}
+		if err == nil {
+			err = page.syncRuntimeWorkspaces()
+		}
 		if err != nil {
 			page.err = err
 			return nil
@@ -519,6 +525,20 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	return page.confirm.Update(msg)
+}
+
+func (page *WorkspacePage) syncRuntimeWorkspaces() error {
+	ctx := page.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, _, err := reloadWorkspaceRuntime(ctx)
+	if err != nil {
+		return fmt.Errorf("workspace registry saved but running runtime reload failed: %w", err)
+	}
+	return nil
 }
 
 func (page *WorkspacePage) updateMembers() error {
@@ -544,9 +564,15 @@ func (page *WorkspacePage) updateMembers() error {
 		if _, err := page.manager.AddWorkspacesToContainer(page.targetID, add); err != nil {
 			return err
 		}
+		if err := page.syncRuntimeWorkspaces(); err != nil {
+			return err
+		}
 	}
 	if len(remove) > 0 {
 		if _, err := page.manager.RemoveWorkspacesFromContainer(page.targetID, remove); err != nil {
+			return err
+		}
+		if err := page.syncRuntimeWorkspaces(); err != nil {
 			return err
 		}
 	}

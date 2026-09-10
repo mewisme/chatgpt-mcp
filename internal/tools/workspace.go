@@ -43,6 +43,9 @@ func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager, shel
 		if err != nil {
 			return Result{}, err
 		}
+		if err := manager.Reload(); err != nil {
+			return Result{}, fmt.Errorf("workspace registered but runtime workspace reload failed: %w", err)
+		}
 		identity, err := manager.Instance()
 		if err != nil {
 			return Result{}, err

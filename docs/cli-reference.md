@@ -242,7 +242,7 @@ cgm up --system
 cgm down --system
 ```
 
-When invoked from a normal user shell, `--system` automatically re-executes the stable absolute `cgm` launcher through `sudo`, so it does not depend on `sudo` including `~/.local/bin` in `secure_path`. Running the absolute binary under `sudo` directly remains supported for compatibility.
+When invoked from a normal user shell, `--system` automatically re-executes the stable absolute `cgm` launcher through `sudo`, so it does not depend on `sudo` including `~/.local/bin` in `secure_path`. For `go run . up|down|restart --system`, the transient Go build is first staged by the invoking user and that staged binary is passed to `sudo`; elevated service management therefore never creates a root-owned `runtime/bin/go-run` cache inside the user's config root. Running the absolute binary under `sudo` directly remains supported for compatibility.
 
 See [Runtime and services](runtime.md).
 
@@ -429,7 +429,7 @@ workspace_container_context(container_id="wsc_...")
 
 `wsc_*` is orchestration-only. Filesystem, Git, shell, memory, rule, checkpoint, and `project_context` calls still require one concrete member `ws_*` as `workspace_id`. Passing an existing container ID as `workspace_id` fails with guidance to resolve the container and choose a member; cgm never fans an operation out or silently selects the first member.
 
-When the runtime is already running, successful CLI container mutations synchronously reload the runtime workspace registry before returning. The next MCP container read therefore sees create, rename, membership, and delete changes without restarting the runtime or reconnecting the MCP session. If that runtime synchronization fails, the CLI reports the failure even though the registry mutation may already have been persisted.
+When the runtime is already running, every successful CLI workspace-registry mutation synchronously reloads runtime state before returning. This covers workspace register/unregister, access add/remove, container create/rename/delete, and membership add/remove. The next MCP read therefore sees the change without restarting the runtime or reconnecting the MCP session. If runtime synchronization fails, the CLI reports the failure even though the registry mutation may already have been persisted.
 
 Remove the registry handle without deleting project files:
 

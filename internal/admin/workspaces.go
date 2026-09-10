@@ -44,6 +44,10 @@ func (api API) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if err := api.syncWorkspaceRuntime(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, value)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -92,6 +96,10 @@ func (api API) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, value)
 	case http.MethodDelete:
 		if err := manager.Unregister(id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := api.syncWorkspaceRuntime(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

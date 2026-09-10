@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -67,6 +68,7 @@ func TestWorkspaceContainerMutationIsImmediatelyVisibleToRunningMCPRuntime(t *te
 		t.Fatalf("initial containers=%#v err=%v", values, err)
 	}
 	registry := tools.NewRegistry()
+	tools.RegisterWorkspaceTools(registry, runtimeManager)
 	tools.RegisterWorkspaceContainerTools(registry, runtimeManager)
 	runtime := &tools.Runtime{Registry: registry, Workspaces: runtimeManager, Checkpoints: checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints")), SessionAccess: tools.NewSessionWorkspaceAccessManager()}
 	control, err := startRuntimeControl(runtimeControlOptions{
@@ -129,6 +131,21 @@ func TestWorkspaceContainerMutationIsImmediatelyVisibleToRunningMCPRuntime(t *te
 		t.Fatalf("persisted workspaces=%#v err=%v", workspaces, err)
 	}
 	workspaceID := workspaces[0].ID
+	workspaceStatus, err := runtime.Call(ctx, "workspace_status", map[string]any{"workspace_id": workspaceID})
+	if err != nil || workspaceStatus.IsError {
+		t.Fatalf("workspace status immediately after register = %#v err=%v", workspaceStatus, err)
+	}
+	extra := t.TempDir()
+	executeRequestCommand(t, root, []string{"workspace", "access", "add", workspaceID, extra})
+	workspaceStatus, err = runtime.Call(ctx, "workspace_status", map[string]any{"workspace_id": workspaceID})
+	if err != nil || workspaceStatus.IsError || !slices.Contains(workspaceStatus.StructuredContent.(tools.WorkspaceStatusResult).AllowedDirectories, extra) {
+		t.Fatalf("workspace status immediately after access add = %#v err=%v", workspaceStatus, err)
+	}
+	executeRequestCommand(t, root, []string{"workspace", "access", "remove", workspaceID, extra})
+	workspaceStatus, err = runtime.Call(ctx, "workspace_status", map[string]any{"workspace_id": workspaceID})
+	if err != nil || workspaceStatus.IsError || slices.Contains(workspaceStatus.StructuredContent.(tools.WorkspaceStatusResult).AllowedDirectories, extra) {
+		t.Fatalf("workspace status immediately after access remove = %#v err=%v", workspaceStatus, err)
+	}
 	executeRequestCommand(t, root, []string{"workspace", "container", "add", containerID, workspaceID})
 	containerContext, err := runtime.Call(ctx, "workspace_container_context", map[string]any{"container_id": containerID})
 	if err != nil || containerContext.IsError {
@@ -149,6 +166,11 @@ func TestWorkspaceContainerMutationIsImmediatelyVisibleToRunningMCPRuntime(t *te
 	deleted, err := runtime.Call(ctx, "workspace_container_status", map[string]any{"container_id": containerID})
 	if err != nil || !deleted.IsError || len(deleted.Content) == 0 || !strings.Contains(deleted.Content[0].Text, "workspace container not found") {
 		t.Fatalf("status immediately after delete = %#v err=%v", deleted, err)
+	}
+	executeRequestCommand(t, root, []string{"workspace", "unregister", workspaceID})
+	workspaceStatus, err = runtime.Call(ctx, "workspace_status", map[string]any{"workspace_id": workspaceID})
+	if err != nil || !workspaceStatus.IsError || len(workspaceStatus.Content) == 0 || !strings.Contains(workspaceStatus.Content[0].Text, "workspace not found") {
+		t.Fatalf("workspace status immediately after unregister = %#v err=%v", workspaceStatus, err)
 	}
 }
 

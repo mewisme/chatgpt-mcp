@@ -46,7 +46,7 @@ func (api API) handleWorkspaceContainers(w http.ResponseWriter, r *http.Request)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := api.syncWorkspaceContainerRuntime(); err != nil {
+		if err := api.syncWorkspaceRuntime(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -95,7 +95,7 @@ func (api API) handleWorkspaceContainer(w http.ResponseWriter, r *http.Request) 
 			writeWorkspaceContainerError(w, err)
 			return
 		}
-		if err := api.syncWorkspaceContainerRuntime(); err != nil {
+		if err := api.syncWorkspaceRuntime(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -105,7 +105,7 @@ func (api API) handleWorkspaceContainer(w http.ResponseWriter, r *http.Request) 
 			writeWorkspaceContainerError(w, err)
 			return
 		}
-		if err := api.syncWorkspaceContainerRuntime(); err != nil {
+		if err := api.syncWorkspaceRuntime(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -141,7 +141,7 @@ func (api API) handleWorkspaceContainerMembers(w http.ResponseWriter, r *http.Re
 			writeWorkspaceContainerError(w, err)
 			return
 		}
-		if err := api.syncWorkspaceContainerRuntime(); err != nil {
+		if err := api.syncWorkspaceRuntime(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -157,10 +157,6 @@ func (api API) handleWorkspaceContainersMembership(w http.ResponseWriter, r *htt
 		values, err := manager.ContainersForWorkspace(item.ID)
 		if err != nil {
 			writeWorkspaceContainerError(w, err)
-			return
-		}
-		if err := api.syncWorkspaceContainerRuntime(); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, values)
@@ -181,18 +177,22 @@ func (api API) handleWorkspaceContainersMembership(w http.ResponseWriter, r *htt
 			writeWorkspaceContainerError(w, err)
 			return
 		}
+		if err := api.syncWorkspaceRuntime(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, values)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
 
-func (api API) syncWorkspaceContainerRuntime() error {
+func (api API) syncWorkspaceRuntime() error {
 	if api.Tools == nil || api.Tools.Workspaces == nil {
 		return nil
 	}
 	if err := api.Tools.ReloadWorkspaces(); err != nil {
-		return fmt.Errorf("workspace container saved but runtime workspace reload failed: %w", err)
+		return fmt.Errorf("workspace registry saved but runtime workspace reload failed: %w", err)
 	}
 	return nil
 }

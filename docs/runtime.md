@@ -88,7 +88,7 @@ If user lingering is disabled, `chatgpt-mcp` warns that the user service manager
 cgm up --system
 ```
 
-Uses a system-level systemd unit and starts with the machine. From a normal user shell, the CLI detects user scope and automatically re-executes its stable absolute launcher through `sudo`, avoiding `sudo secure_path` issues when `cgm` lives under `~/.local/bin`.
+Uses a system-level systemd unit and starts with the machine. From a normal user shell, the CLI detects user scope and automatically re-executes its stable absolute launcher through `sudo`, avoiding `sudo secure_path` issues when `cgm` lives under `~/.local/bin`. Development invocations through `go run . ... --system` stage their transient binary before elevation, keeping the runtime binary cache owned by the invoking user rather than root.
 
 The service itself still runs the MCP process as the invoking user from `SUDO_USER`; `chatgpt-mcp` does not run the MCP runtime as root.
 
@@ -211,6 +211,8 @@ The control token is stored under the protected config/state root and is not int
 When a guarded MCP tool action creates a pending human request, the runtime publishes approval lifecycle events and the Admin UI shows a global approval dialog with request details, exact target arguments, and a countdown. `cgm request list` uses the same runtime-control source of truth. Approval requests expire after 60 seconds; approved retries remain valid only for their short retry window and exact original target.
 
 The Admin workspace routes also expose runtime-owned project context and command execution views. `Context` previews the same effective context builder used by the MCP `project_context` tool. `Requests` scopes approval list/event traffic to the selected workspace. `Activity` lists recent `run_command` executions for the selected workspace and can attach to a running execution through snapshot-first SSE to display stdout/stderr as they arrive. Every authoritative runtime tool call also receives a compact runtime-local `call_id` in the form `call_<unix_ms_hex>_<counter_hex>`; the global Activity page uses `/activity/:call_id` as the addressable detail route instead of opening tool-call details in a dialog.
+
+Admin workspace-registry mutations reload the runtime workspace manager before returning success. This includes workspace register/unregister, container CRUD, and membership changes from either the workspace or container route, preserving immediate MCP read-after-write consistency.
 
 Command execution output is kept in bounded process memory rather than persisted to the runtime activity journal. The MCP `run_command` response remains synchronous and unchanged; the Admin stream is an observation path layered alongside it. Completed execution records are retained only in the bounded recent in-memory execution history and disappear when the runtime restarts or old entries are pruned.
 

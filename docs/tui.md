@@ -92,6 +92,7 @@ Create/configure/edit workflows use full-page editors backed by Huh/Bubbles comp
 - Multiline inputs keep `Enter` for newlines.
 - File/directory fields can use picker-first input with `Ctrl+O` manual-entry fallback.
 - Successful saves commit the current editor draft as the clean baseline before returning to the parent page, while failed saves preserve the exact draft.
+- Workspace and workspace-container mutations synchronously reload the running workspace registry before the TUI reports success, so Agent workspace/container reads see the change immediately.
 - Navigating away from an unsaved editor requires explicit discard confirmation.
 - Destructive actions such as unregister, remove, delete, clear, logout, token rotation, and similar lifecycle changes require explicit confirmation.
 - Long-running operations execute asynchronously through Bubble Tea commands so the interface stays responsive and cancellable where cancellation is safe.

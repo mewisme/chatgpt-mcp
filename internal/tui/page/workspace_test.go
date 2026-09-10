@@ -16,6 +16,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
 	"go.mewis.me/chatgpt-mcp/internal/rules"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
@@ -113,6 +114,123 @@ func TestWorkspaceEditorRoutesFromKeyAndCommandMessage(t *testing.T) {
 		if !strings.Contains(strings.ToLower(plain), strings.ToLower(want)) {
 			t.Fatalf("workspace editor missing %q: %q", want, plain)
 		}
+	}
+}
+
+func TestWorkspaceMutationsSynchronizeRunningRuntime(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	originalReload := reloadWorkspaceRuntime
+	calls := 0
+	reloadWorkspaceRuntime = func(context.Context) (runtimecontrol.WorkspaceReloadResult, bool, error) {
+		calls++
+		return runtimecontrol.WorkspaceReloadResult{PID: 4242, Count: calls}, true, nil
+	}
+	t.Cleanup(func() { reloadWorkspaceRuntime = originalReload })
+
+	workspacePath := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspacePath, 0700); err != nil {
+		t.Fatal(err)
+	}
+	workspacePage, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspacePage.command, workspacePage.value = WorkspaceRegister, workspacePath
+	if err := workspacePage.applyWorkspaceEditor(); err != nil {
+		t.Fatal(err)
+	}
+	items, err := workspacePage.manager.List()
+	if err != nil || len(items) != 1 {
+		t.Fatalf("workspaces=%#v err=%v", items, err)
+	}
+	workspaceID := items[0].ID
+	extra := t.TempDir()
+	workspacePage.command, workspacePage.targetID, workspacePage.value = WorkspaceAccessAdd, workspaceID, extra
+	if err := workspacePage.applyWorkspaceEditor(); err != nil {
+		t.Fatal(err)
+	}
+	workspacePage.command, workspacePage.targetID, workspacePage.value = WorkspaceAccessRemove, workspaceID, extra
+	if err := workspacePage.applyWorkspaceEditor(); err != nil {
+		t.Fatal(err)
+	}
+
+	containerPage, err := NewContainers(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	containerPage.command, containerPage.value = WorkspaceContainerCreate, "Primary"
+	if err := containerPage.applyWorkspaceEditor(); err != nil {
+		t.Fatal(err)
+	}
+	containers, err := containerPage.manager.ListContainers()
+	if err != nil || len(containers) != 1 {
+		t.Fatalf("containers=%#v err=%v", containers, err)
+	}
+	containerID := containers[0].ID
+	containerPage.command, containerPage.targetID, containerPage.value = WorkspaceContainerRename, containerID, "Renamed"
+	if err := containerPage.applyWorkspaceEditor(); err != nil {
+		t.Fatal(err)
+	}
+	containerPage.command, containerPage.targetID, containerPage.members = WorkspaceContainerMembers, containerID, []string{workspaceID}
+	if err := containerPage.applyWorkspaceEditor(); err != nil {
+		t.Fatal(err)
+	}
+	containerPage.command, containerPage.targetID, containerPage.members = WorkspaceContainerMembers, containerID, nil
+	if err := containerPage.applyWorkspaceEditor(); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 7 {
+		t.Fatalf("reload calls after editor mutations = %d, want 7", calls)
+	}
+
+	if _, err := containerPage.openCommand(WorkspaceContainerDelete, containerID); err != nil {
+		t.Fatal(err)
+	}
+	containerPage.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+	containerPage.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if containerPage.err != nil {
+		t.Fatal(containerPage.err)
+	}
+	if calls != 8 {
+		t.Fatalf("reload calls after container delete = %d, want 8", calls)
+	}
+
+	workspacePage.command, workspacePage.targetID = WorkspaceUnregister, workspaceID
+	workspacePage.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+	workspacePage.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if workspacePage.err != nil {
+		t.Fatal(workspacePage.err)
+	}
+	if calls != 9 {
+		t.Fatalf("reload calls after workspace unregister = %d, want 9", calls)
+	}
+}
+
+func TestWorkspaceMutationReportsRuntimeReloadFailure(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	originalReload := reloadWorkspaceRuntime
+	reloadWorkspaceRuntime = func(context.Context) (runtimecontrol.WorkspaceReloadResult, bool, error) {
+		return runtimecontrol.WorkspaceReloadResult{}, true, fmt.Errorf("sentinel reload failure")
+	}
+	t.Cleanup(func() { reloadWorkspaceRuntime = originalReload })
+	page, err := NewContainers(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.command, page.value = WorkspaceContainerCreate, "Primary"
+	err = page.applyWorkspaceEditor()
+	if err == nil || !strings.Contains(err.Error(), "workspace registry saved but running runtime reload failed") || !strings.Contains(err.Error(), "sentinel reload failure") {
+		t.Fatalf("error = %v", err)
+	}
+	containers, listErr := page.manager.ListContainers()
+	if listErr != nil || len(containers) != 1 {
+		t.Fatalf("persisted containers=%#v err=%v", containers, listErr)
 	}
 }
 

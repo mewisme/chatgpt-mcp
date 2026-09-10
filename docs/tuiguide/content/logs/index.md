@@ -16,11 +16,13 @@ Runtime log visibility can distinguish normal operational events, verbose lifecy
 
 ## Command Execution
 
-Command Execution displays the bounded globally ordered execution feed produced by the runtime. It replays recent execution events and continues live, preserving stdout/stderr ordering from the event stream rather than rendering independent panels that lose interleaving. Concurrent output is separated with explicit `START`, `CONTINUE`, and `END` boundaries. Start metadata includes workspace, source, safe session fingerprint, call/routing identity, cwd, and command when available; completion includes status, exit code, and duration.
+Command Execution displays the bounded globally ordered execution feed produced by the runtime. It replays recent execution events and continues live, preserving stdout/stderr ordering from the event stream rather than rendering independent panels that lose interleaving. Concurrent output is separated with explicit `START`, `CONTINUE`, and `END` frames. The frame's top border contains the segment kind, local time, and execution ID without an `exec_id=` prefix. Metadata uses one semantic field per line, with indented bullets for fields that contain multiple values. The command is rendered outside the `START` frame before its output. Frames and wrapped metadata fit the current viewport width and reflow after terminal resize.
 
 Press `f` to choose `combined`, one workspace, or one workspace-container scope. Complete the final visible selector with `Enter` to apply it; `combined` therefore applies directly from the Mode selector, while workspace/container modes advance to their additional selector first. Scope changes filter the existing global feed locally and do not reconnect it. Container scope resolves current member workspaces without granting execution permission. Reconnect or reapply the scope after container membership changes. If a selected workspace/container disappears, the view reports it as unavailable instead of silently changing scope.
 
 The page supports follow/pause, reconnect, clear-view, keyboard scrolling, and mouse scrolling. Local help is pinned to the section footer even when the feed is empty.
+
+When you leave Logs for another top-level page and return during the same TUI process, Logs restores its last stable tab, applied Runtime filters/visibility, execution scope, follow/pause state, Runtime selection when still present, and Command Execution scroll offset where the current bounded snapshot allows it. The page opens fresh streams on return; event buffers, SSE objects, editors, progress, and errors are not cached. Exiting the TUI clears this in-memory view state. Mutation/editor forms are not restored as last views.
 
 If the running runtime is too old to expose the execution feed, the page reports that a restart is required rather than retrying indefinitely.
 

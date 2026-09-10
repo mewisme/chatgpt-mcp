@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+
 	commandtui "go.mewis.me/chatgpt-mcp/internal/tui"
 )
 

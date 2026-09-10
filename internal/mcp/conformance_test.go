@@ -8,6 +8,7 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 

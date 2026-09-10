@@ -10,8 +10,9 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"golang.org/x/sys/windows"
+
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 type windowsManager struct{ trace tracepkg.Observer }

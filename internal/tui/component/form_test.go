@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 )
 

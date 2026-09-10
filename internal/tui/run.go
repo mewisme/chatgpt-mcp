@@ -7,8 +7,9 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
-	"go.mewis.me/chatgpt-mcp/internal/config"
 	"golang.org/x/term"
+
+	"go.mewis.me/chatgpt-mcp/internal/config"
 )
 
 func TerminalIO(in io.Reader, out io.Writer) bool {

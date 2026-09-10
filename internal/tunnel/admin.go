@@ -10,6 +10,7 @@ import (
 	tunnelclient "github.com/openai/tunnel-client"
 	tcconfig "github.com/openai/tunnel-client/pkg/config"
 	tcadmin "github.com/openai/tunnel-client/pkg/controlplane/admin"
+
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 

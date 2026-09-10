@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"

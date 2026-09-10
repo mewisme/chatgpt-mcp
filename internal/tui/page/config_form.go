@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/huh/v2"
+
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"

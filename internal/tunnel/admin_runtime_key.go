@@ -13,6 +13,7 @@ import (
 	"time"
 
 	tunnelclient "github.com/openai/tunnel-client"
+
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 

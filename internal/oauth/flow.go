@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
+
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 

@@ -30,34 +30,36 @@ const (
 var logsTabLabels = []string{"Runtime", "Command Execution"}
 
 type logsExecutionFeed struct {
-	viewport          viewport.Model
-	events            []shellruntime.ExecutionFeedEvent
-	scopeMode         executionScopeMode
-	workspaceID       string
-	workspaceView     executionWorkspaceView
-	processID         string
-	containerID       string
-	containerName     string
-	containerMembers  map[string]struct{}
-	scopeStale        bool
-	scopeNotice       string
-	scopeEditor       *component.Editor
-	scopeForm         *executionScopeFormData
-	stream            *runtimecontrol.ExecutionFeedStream
-	streamCtx         context.Context
-	streamCancel      context.CancelFunc
-	generation        uint64
-	latestSeq         uint64
-	loaded            bool
-	loading           bool
-	connected         bool
-	reconnecting      bool
-	unsupported       bool
-	paused            bool
-	notice            string
-	err               error
-	restoreYOffset    int
-	restoreYOffsetSet bool
+	viewport           viewport.Model
+	events             []shellruntime.ExecutionFeedEvent
+	scopeMode          executionScopeMode
+	workspaceID        string
+	workspaceView      executionWorkspaceView
+	processID          string
+	processExecutionID string
+	processRunning     bool
+	containerID        string
+	containerName      string
+	containerMembers   map[string]struct{}
+	scopeStale         bool
+	scopeNotice        string
+	scopeEditor        *component.Editor
+	scopeForm          *executionScopeFormData
+	stream             *runtimecontrol.ExecutionFeedStream
+	streamCtx          context.Context
+	streamCancel       context.CancelFunc
+	generation         uint64
+	latestSeq          uint64
+	loaded             bool
+	loading            bool
+	connected          bool
+	reconnecting       bool
+	unsupported        bool
+	paused             bool
+	notice             string
+	err                error
+	restoreYOffset     int
+	restoreYOffsetSet  bool
 }
 
 type logsExecutionOpenMsg struct {
@@ -186,6 +188,9 @@ func (page *LogsPage) finishExecutionFeedEvent(msg logsExecutionEventMsg) tea.Cm
 	}
 	page.exec.latestSeq = msg.event.Sequence
 	page.exec.events = trimExecutionFeed(append(page.exec.events, msg.event))
+	if page.exec.processExecutionID != "" && msg.event.ExecutionID == page.exec.processExecutionID && msg.event.Type == shellruntime.ExecutionEventCompleted {
+		page.exec.processRunning = false
+	}
 	page.exec.notice, page.exec.err = "", nil
 	page.refreshExecutionViewport()
 	return page.nextExecutionEventCmd(msg.generation)

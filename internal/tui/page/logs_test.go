@@ -952,6 +952,55 @@ func TestExecutionScopeFiltersCombinedWorkspaceAndContainer(t *testing.T) {
 	}
 }
 
+func TestExecutionScopeSeparatesCommandsFromSelectedProcess(t *testing.T) {
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	command := shellruntime.ExecutionInfo{ID: "exec_command", WorkspaceID: "ws_a", Tool: "run_command"}
+	process := shellruntime.ExecutionInfo{ID: "exec_process", WorkspaceID: "ws_a", Tool: "start_process"}
+	otherProcess := shellruntime.ExecutionInfo{ID: "exec_other", WorkspaceID: "ws_a", Tool: "start_process"}
+	page.exec.events = []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, ExecutionID: command.ID, WorkspaceID: "ws_a", Type: shellruntime.ExecutionEventOutput, Execution: &command, Data: "command\n"},
+		{Sequence: 2, ExecutionID: process.ID, WorkspaceID: "ws_a", Type: shellruntime.ExecutionEventOutput, Execution: &process, Data: "process\n"},
+		{Sequence: 3, ExecutionID: otherProcess.ID, WorkspaceID: "ws_a", Type: shellruntime.ExecutionEventOutput, Execution: &otherProcess, Data: "other\n"},
+	}
+	if visible := page.visibleExecutionEvents(); len(visible) != 1 || visible[0].ExecutionID != command.ID {
+		t.Fatalf("combined command view=%#v", visible)
+	}
+	page.exec.scopeMode, page.exec.workspaceID, page.exec.workspaceView = executionScopeWorkspace, "ws_a", executionWorkspaceCommands
+	if visible := page.visibleExecutionEvents(); len(visible) != 1 || visible[0].ExecutionID != command.ID {
+		t.Fatalf("workspace command view=%#v", visible)
+	}
+	page.exec.workspaceView, page.exec.processID, page.exec.processExecutionID = executionWorkspaceProcess, "proc_a", process.ID
+	if visible := page.visibleExecutionEvents(); len(visible) != 1 || visible[0].ExecutionID != process.ID {
+		t.Fatalf("process view=%#v", visible)
+	}
+}
+
+func TestSelectedProcessUsesExistingExecutionRenderer(t *testing.T) {
+	started := time.Now().UTC()
+	code := 0
+	info := shellruntime.ExecutionInfo{ID: "exec_process", WorkspaceID: "ws_a", Tool: "start_process", Command: "serve", CWD: "/work", StartedAt: started.Format(time.RFC3339Nano), Status: shellruntime.ExecutionStatusRunning}
+	finished := info
+	finished.FinishedAt, finished.Status, finished.ExitCode = started.Add(time.Second).Format(time.RFC3339Nano), shellruntime.ExecutionStatusSuccess, &code
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.exec.scopeMode, page.exec.workspaceID, page.exec.workspaceView = executionScopeWorkspace, "ws_a", executionWorkspaceProcess
+	page.exec.processID, page.exec.processExecutionID, page.exec.processRunning = "proc_a", info.ID, true
+	page.exec.events = []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Data: "ready\n", Timestamp: started.Add(500 * time.Millisecond).Format(time.RFC3339Nano)},
+	}
+	view := formatExecutionFeed(page.visibleExecutionEvents(), 80)
+	if !strings.Contains(view, "START") || !strings.Contains(view, "$ serve") || !strings.Contains(view, "ready") || !strings.Contains(view, "RUNNING") {
+		t.Fatalf("running process view=%q", view)
+	}
+	page.exec.events = append(page.exec.events, shellruntime.ExecutionFeedEvent{Sequence: 3, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &finished, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code, Timestamp: finished.FinishedAt})
+	view = formatExecutionFeed(page.visibleExecutionEvents(), 80)
+	if !strings.Contains(view, "END") || !strings.Contains(view, "Status  success") || !strings.Contains(view, "Exit  0") {
+		t.Fatalf("completed process view=%q", view)
+	}
+}
+
 func TestExecutionScopeEditorAppliesWithoutReconnectingGlobalFeed(t *testing.T) {
 	setupLogsPageRoot(t)
 	manager := workspace.NewManager(workspace.DefaultStorePath())

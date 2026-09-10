@@ -159,6 +159,8 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 	workspaceID, containerID := strings.TrimSpace(page.exec.scopeForm.WorkspaceID), strings.TrimSpace(page.exec.scopeForm.ContainerID)
 	workspaceView := normalizeExecutionWorkspaceView(executionWorkspaceView(strings.TrimSpace(page.exec.scopeForm.View)))
 	processID := strings.TrimSpace(page.exec.scopeForm.ProcessID)
+	processExecutionID := ""
+	processRunning := false
 	members := map[string]struct{}{}
 	containerName := ""
 	switch mode {
@@ -182,6 +184,8 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 			for _, process := range page.exec.scopeForm.Processes[workspaceID] {
 				if process.ID == processID {
 					found = true
+					processExecutionID = process.ExecutionID
+					processRunning = process.Running
 					break
 				}
 			}
@@ -207,8 +211,11 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 	}
 	page.exec.scopeMode, page.exec.workspaceID, page.exec.containerID = mode, workspaceID, containerID
 	page.exec.workspaceView, page.exec.processID = workspaceView, processID
+	page.exec.processExecutionID, page.exec.processRunning = processExecutionID, processRunning
 	if mode != executionScopeWorkspace || workspaceView != executionWorkspaceProcess {
 		page.exec.processID = ""
+		page.exec.processExecutionID = ""
+		page.exec.processRunning = false
 	}
 	page.exec.containerName, page.exec.containerMembers, page.exec.scopeStale, page.exec.scopeNotice = containerName, members, false, ""
 	page.exec.scopeEditor, page.exec.scopeForm = nil, nil
@@ -259,10 +266,6 @@ func (page *LogsPage) visibleExecutionEvents() []shellruntime.ExecutionFeedEvent
 	if page.exec.scopeStale {
 		return nil
 	}
-	mode := normalizeExecutionScopeMode(page.exec.scopeMode)
-	if mode == executionScopeCombined {
-		return page.exec.events
-	}
 	result := make([]shellruntime.ExecutionFeedEvent, 0, len(page.exec.events))
 	for _, event := range page.exec.events {
 		if page.executionEventVisible(event) {
@@ -278,13 +281,23 @@ func (page *LogsPage) executionEventVisible(event shellruntime.ExecutionFeedEven
 	}
 	switch normalizeExecutionScopeMode(page.exec.scopeMode) {
 	case executionScopeWorkspace:
-		return event.WorkspaceID == page.exec.workspaceID
+		if event.WorkspaceID != page.exec.workspaceID {
+			return false
+		}
+		if normalizeExecutionWorkspaceView(page.exec.workspaceView) == executionWorkspaceProcess {
+			return page.exec.processExecutionID != "" && event.ExecutionID == page.exec.processExecutionID
+		}
+		return !executionEventIsProcess(event)
 	case executionScopeContainer:
 		_, ok := page.exec.containerMembers[event.WorkspaceID]
-		return ok
+		return ok && !executionEventIsProcess(event)
 	default:
-		return true
+		return !executionEventIsProcess(event)
 	}
+}
+
+func executionEventIsProcess(event shellruntime.ExecutionFeedEvent) bool {
+	return event.Execution != nil && event.Execution.Tool == "start_process"
 }
 
 func (page *LogsPage) executionScopeLabel() string {

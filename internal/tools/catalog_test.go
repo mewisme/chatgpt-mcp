@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -26,5 +27,15 @@ func TestCatalogHashIsOrderIndependentAndSchemaSensitive(t *testing.T) {
 	}
 	if changed == left {
 		t.Fatal("catalog hash did not change with schema")
+	}
+}
+
+func TestRuntimeDoesNotExposeWorkspaceRelocateTool(t *testing.T) {
+	runtime := NewRuntime()
+	for _, schema := range runtime.ListTools() {
+		name := strings.ToLower(strings.TrimSpace(schema.Name))
+		if name == "workspace_relocate" || name == "workspace.relocate" || name == "workspace_move" {
+			t.Fatalf("control-plane workspace relocate leaked into MCP tool catalog as %q", schema.Name)
+		}
 	}
 }

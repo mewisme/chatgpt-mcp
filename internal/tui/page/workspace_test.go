@@ -631,6 +631,36 @@ func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRelocateEditorUsesExplicitMutationSubmit(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	list, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := list.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewWorkspacesRouteAction(t.Context(), item.ID, "", "relocate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = runWorkspacePageCmd(t, page, page.Init())
+	plain := strings.ToLower(ansi.Strip(page.View(100, 24)))
+	for _, want := range []string{"relocate workspace", "new workspace path", strings.ToLower(item.Path), "ctrl+s relocate"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("relocate editor missing %q: %q", want, plain)
+		}
+	}
+	if strings.Contains(plain, "enter relocate") {
+		t.Fatalf("relocate mutation unexpectedly uses enter submit: %q", plain)
+	}
+}
+
 func TestContainerMembersPickerUsesCompactFilterableLayout(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {

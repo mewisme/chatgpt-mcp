@@ -211,7 +211,9 @@ func (page *LogsPage) finishExecutionFeedEvent(msg logsExecutionEventMsg) tea.Cm
 		page.exec.processRunning = false
 	}
 	page.exec.notice, page.exec.err = "", nil
-	page.refreshExecutionViewport()
+	if !page.exec.paused {
+		page.refreshExecutionViewport()
+	}
 	return page.nextExecutionEventCmd(msg.generation)
 }
 
@@ -224,7 +226,7 @@ func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "space":
 		page.exec.paused = !page.exec.paused
 		if !page.exec.paused {
-			page.exec.viewport.GotoBottom()
+			page.refreshExecutionViewport()
 		}
 		return nil
 	case "r":
@@ -246,10 +248,13 @@ func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (page *LogsPage) resizeExecutionViewport(width, height int) {
+	width, height = max(1, width), max(1, height)
 	offset := page.exec.viewport.YOffset()
-	page.exec.viewport.SetWidth(max(1, width))
-	page.exec.viewport.SetHeight(max(1, height))
-	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.visibleExecutionEvents(), max(1, width)), max(1, width)))
+	if page.exec.viewport.Width() != width {
+		page.exec.viewport.SetWidth(width)
+		page.exec.viewport.SetContent(formatExecutionFeed(page.visibleExecutionEvents(), width))
+	}
+	page.exec.viewport.SetHeight(height)
 	if !page.exec.paused {
 		page.exec.viewport.GotoBottom()
 		return
@@ -260,7 +265,7 @@ func (page *LogsPage) resizeExecutionViewport(width, height int) {
 
 func (page *LogsPage) refreshExecutionViewport() {
 	offset := page.exec.viewport.YOffset()
-	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.visibleExecutionEvents(), max(1, page.exec.viewport.Width())), max(1, page.exec.viewport.Width())))
+	page.exec.viewport.SetContent(formatExecutionFeed(page.visibleExecutionEvents(), max(1, page.exec.viewport.Width())))
 	if !page.exec.paused {
 		page.exec.viewport.GotoBottom()
 		return
@@ -326,7 +331,7 @@ func (page *LogsPage) executionBodyView(width, height int) string {
 	bodyHeight := max(1, height-reserved)
 	page.resizeExecutionViewport(width, bodyHeight)
 	body := page.exec.viewport.View()
-	if strings.TrimSpace(formatExecutionFeed(page.visibleExecutionEvents(), width)) == "" {
+	if len(page.visibleExecutionEvents()) == 0 {
 		empty := page.exec.viewport
 		empty.SetContent(component.Muted("Waiting for command output"))
 		body = empty.View()
@@ -586,7 +591,8 @@ func executionSegmentFrame(headerKind, footerKind string, start, end shellruntim
 	}
 	output.WriteString("├" + strings.Repeat("─", width-2) + "┤\n")
 	for _, raw := range content {
-		for _, line := range strings.Split(component.WrapContent(ansi.Strip(raw), innerWidth), "\n") {
+		clean := strings.ReplaceAll(ansi.Strip(raw), "\t", "    ")
+		for _, line := range strings.Split(component.WrapContent(clean, innerWidth), "\n") {
 			output.WriteString("│ " + line + strings.Repeat(" ", max(0, innerWidth-lipgloss.Width(line))) + " │\n")
 		}
 	}

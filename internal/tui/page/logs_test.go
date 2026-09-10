@@ -932,6 +932,42 @@ func TestFormatExecutionFeedShowsNoOutputForEmptySegment(t *testing.T) {
 	}
 }
 
+func TestExecutionFrameTabsDoNotBreakRightBorder(t *testing.T) {
+	started := time.Now().UTC()
+	info := shellruntime.ExecutionInfo{ID: "exec_tabs", WorkspaceID: "ws_tabs", Command: "go test ./...", StartedAt: started.Format(time.RFC3339Nano)}
+	view := formatExecutionFeed([]shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Data: "ok\tgo.mewis.me/chatgpt-mcp/internal/tui\t1.263s\n?\tgo.mewis.me/chatgpt-mcp/internal/tui/testutil\t[no test files]\n", Timestamp: started.Add(time.Second).Format(time.RFC3339Nano)},
+	}, 80)
+	for _, line := range strings.Split(strings.TrimSuffix(view, "\n"), "\n") {
+		if got := lipgloss.Width(line); got != 80 {
+			t.Fatalf("frame line width=%d want 80: %q", got, line)
+		}
+		if strings.Contains(line, "\t") {
+			t.Fatalf("raw tab remained in frame: %q", line)
+		}
+	}
+}
+
+func TestPausedExecutionFeedDefersViewportRefreshUntilResume(t *testing.T) {
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	info := shellruntime.ExecutionInfo{ID: "exec_pause", WorkspaceID: "ws_a", Tool: "run_command", Command: "demo"}
+	page.exec.events = []shellruntime.ExecutionFeedEvent{{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info}}
+	page.exec.latestSeq, page.exec.generation = 1, 7
+	page.refreshExecutionViewport()
+	before := page.exec.viewport.GetContent()
+	page.exec.paused = true
+	page.finishExecutionFeedEvent(logsExecutionEventMsg{generation: 7, event: shellruntime.ExecutionFeedEvent{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Data: "new output\n"}})
+	if got := page.exec.viewport.GetContent(); got != before {
+		t.Fatal("paused feed rebuilt viewport content")
+	}
+	page.handleExecutionKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := page.exec.viewport.GetContent(); !strings.Contains(got, "new output") || page.exec.paused {
+		t.Fatalf("resume did not refresh buffered output: paused=%t content=%q", page.exec.paused, got)
+	}
+}
+
 func TestExecutionScopeFiltersCombinedWorkspaceAndContainer(t *testing.T) {
 	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()

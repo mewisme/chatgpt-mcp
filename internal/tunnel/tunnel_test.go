@@ -62,6 +62,25 @@ func (b *fakeBackend) WaitUntilReady(ctx context.Context) error {
 
 func (b *fakeBackend) Done() <-chan os.Signal { return b.done }
 
+func TestValidateConfigRequiresHTTPSControlPlane(t *testing.T) {
+	base := Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}
+	if err := ValidateConfig(base); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateConfig(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret", ControlPlaneBaseURL: "https://api.openai.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateConfig(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret", ControlPlaneBaseURL: "http://127.0.0.1:8080"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateConfig(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret", ControlPlaneBaseURL: "http://localhost:8080"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateConfig(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret", ControlPlaneBaseURL: "http://api.openai.com"}); err == nil {
+		t.Fatal("expected non-loopback http control plane to fail")
+	}
+}
+
 func TestDisabledTunnelDoesNotConstructBackend(t *testing.T) {
 	called := false
 	client := newConfigured(Config{Enabled: false}, &tools.Runtime{Registry: tools.NewRegistry()}, func(Config, sdkmcp.Transport) (backend, error) {

@@ -121,6 +121,12 @@ func TestStrictShellPathAllowsExplicitTrustedShellPath(t *testing.T) {
 	if err := manager.workspaces.SetShellApprovalPolicy(workspace.ShellApprovalStrict); err != nil {
 		t.Fatal(err)
 	}
+	if err := manager.workspaces.SetShellSandboxPolicy(workspace.ShellSandboxOff); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.workspaces.SetShellNetworkPolicy(workspace.ShellNetworkInherit); err != nil {
+		t.Fatal(err)
+	}
 	manager.workspaces.SetShellPath([]string{trustedBin})
 	result, err := manager.Exec(context.Background(), workspaceID, "ls")
 	if err != nil {

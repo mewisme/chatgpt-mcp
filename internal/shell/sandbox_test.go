@@ -15,6 +15,21 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
+func requireWorkingBubblewrap(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap unavailable")
+	}
+	bwrap := executableInPath("bwrap", trustedExecutablePath(nil))
+	if bwrap == "" {
+		t.Skip("bubblewrap unavailable")
+	}
+	cmd := exec.Command(bwrap, "--unshare-user-try", "--die-with-parent", "--", "/bin/true")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bubblewrap cannot create namespaces in this environment: %v (%s)", err, strings.TrimSpace(string(output)))
+	}
+}
+
 func TestCollapseSandboxRootsRemovesNestedPaths(t *testing.T) {
 	root := t.TempDir()
 	nested := filepath.Join(root, "nested")
@@ -64,9 +79,7 @@ func TestSandboxBypassesExplicitHostAndControlPlaneApprovals(t *testing.T) {
 }
 
 func TestStrictAutoSandboxHidesOutsideWorkspace(t *testing.T) {
-	if runtime.GOOS != "linux" || executableInPath("bwrap", trustedExecutablePath(nil)) == "" {
-		t.Skip("bubblewrap unavailable")
-	}
+	requireWorkingBubblewrap(t)
 	manager, workspaceID, root := newShellTestManager(t)
 	if err := manager.workspaces.SetShellApprovalPolicy(workspace.ShellApprovalStrict); err != nil {
 		t.Fatal(err)
@@ -158,9 +171,7 @@ func TestShellNetworkIsolationGrantSemantics(t *testing.T) {
 }
 
 func TestNetworkOnlySandboxBlocksLoopbackUntilExternalApproval(t *testing.T) {
-	if runtime.GOOS != "linux" || executableInPath("bwrap", trustedExecutablePath(nil)) == "" {
-		t.Skip("bubblewrap unavailable")
-	}
+	requireWorkingBubblewrap(t)
 	curl := executableInPath("curl", trustedExecutablePath(nil))
 	if curl == "" {
 		t.Skip("curl unavailable")
@@ -192,9 +203,7 @@ func TestNetworkOnlySandboxBlocksLoopbackUntilExternalApproval(t *testing.T) {
 }
 
 func TestFilesystemSandboxKeepsApprovedLocalhostNetworkingUsable(t *testing.T) {
-	if runtime.GOOS != "linux" || executableInPath("bwrap", trustedExecutablePath(nil)) == "" {
-		t.Skip("bubblewrap unavailable")
-	}
+	requireWorkingBubblewrap(t)
 	curl := executableInPath("curl", trustedExecutablePath(nil))
 	if curl == "" {
 		t.Skip("curl unavailable")

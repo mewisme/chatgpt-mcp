@@ -51,22 +51,6 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/hooks/hooks.go",
-    "details": "Subprocess launched with a potential tainted input or cmd arguments",
-    "code": "}\n\t\tcmd = exec.CommandContext(runCtx, shell, \"-lc\", hook.Command)\n\t}"
-  },
-  {
-    "rule_id": "G204",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/hooks/hooks.go",
-    "details": "Subprocess launched with a potential tainted input or cmd arguments",
-    "code": "}\n\t\tcmd = exec.CommandContext(runCtx, shell, \"-NoProfile\", \"-NonInteractive\", \"-Command\", hook.Command)\n\t} else {"
-  },
-  {
-    "rule_id": "G204",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/install/legacy_unix.go",
     "details": "Subprocess launched with variable",
     "code": "}\n\t\tcmd := exec.Command(command, check.args...)\n\t\tcmd.Stdout = nil"
@@ -246,30 +230,6 @@
     "file": "internal/configformat/path.go",
     "details": "Potential file inclusion via variable",
     "code": "func IsManagedRoot(root string) bool {\n\tdata, err := os.ReadFile(filepath.Join(root, rootMarker))\n\treturn err == nil && strings.TrimSpace(string(data)) == \"chatgpt-mcp\""
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/context/resolver.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/hooks/hooks.go",
-    "details": "Potential file inclusion via variable",
-    "code": "path := filepath.Join(CodexHome(), \"config.toml\")\n\tdata, err := os.ReadFile(path)\n\tif os.IsNotExist(err) {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/hooks/hooks.go",
-    "details": "Potential file inclusion via variable",
-    "code": "sourcePath := filepath.Join(hooksDir, entry.Name())\n\t\t\tdata, err := os.ReadFile(sourcePath)\n\t\t\tif err != nil {"
   },
   {
     "rule_id": "G304",

@@ -36,13 +36,16 @@ type App struct {
 	bootstrap  sync.Once
 }
 
-func New(cfg config.Config) *App { return NewWithLoggerContext(context.Background(), cfg, nil) }
+func New(cfg config.Config) (*App, error) { return NewWithLoggerContext(context.Background(), cfg, nil) }
 
-func NewWithLogger(cfg config.Config, appLogger *logger.Logger) *App {
+func NewWithLogger(cfg config.Config, appLogger *logger.Logger) (*App, error) {
 	return NewWithLoggerContext(context.Background(), cfg, appLogger)
 }
 
-func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *logger.Logger) *App {
+// NewWithLoggerContext constructs the runtime application. Shell-policy and Bootstrap
+// failures are returned; tools.NewRuntimeWithAccess may still panic on registry/workspace
+// bootstrap hard failures (crypto/rand-backed auth helpers similarly panic).
+func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *logger.Logger) (*App, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -73,23 +76,23 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 	upstreamSpan.EndMessage("Upstream MCP manager bootstrapped", tracepkg.Int("server_count", upstreamCount))
 	if err := toolRuntime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
 		span.FailMessage("Server runtime application construction failed", err)
-		panic(err)
+		return nil, err
 	}
 	if err := toolRuntime.SetShellApprovalCommands(cfg.Shell.ApprovalAllowCommands, cfg.Shell.ApprovalDenyCommands); err != nil {
 		span.FailMessage("Server runtime application construction failed", err)
-		panic(err)
+		return nil, err
 	}
 	if err := toolRuntime.SetShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
 		span.FailMessage("Server runtime application construction failed", err)
-		panic(err)
+		return nil, err
 	}
 	if err := toolRuntime.SetShellSandboxPolicy(cfg.Shell.SandboxPolicy); err != nil {
 		span.FailMessage("Server runtime application construction failed", err)
-		panic(err)
+		return nil, err
 	}
 	if err := toolRuntime.SetShellNetworkPolicy(cfg.Shell.NetworkPolicy); err != nil {
 		span.FailMessage("Server runtime application construction failed", err)
-		panic(err)
+		return nil, err
 	}
 	toolRuntime.SetShellEnvironmentAllow(cfg.Shell.EnvironmentAllow)
 	toolRuntime.SetShellPath(cfg.Shell.Path)
@@ -121,10 +124,10 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 	bootstrapStarted := time.Now()
 	if err := app.Bootstrap(); err != nil {
 		span.FailMessage("Server runtime application bootstrap failed", err, tracepkg.Int64("bootstrap_ms", time.Since(bootstrapStarted).Milliseconds()))
-		panic(err)
+		return nil, err
 	}
 	span.EndMessage("Server runtime application constructed", tracepkg.Int("tool_count", len(app.Tools.List())), tracepkg.Int("upstream_count", upstreamCount), tracepkg.Int64("bootstrap_ms", time.Since(bootstrapStarted).Milliseconds()))
-	return app
+	return app, nil
 }
 
 func (a *App) MCPHandler() http.Handler {

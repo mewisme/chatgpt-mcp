@@ -118,7 +118,7 @@ jobs:
           go test -coverprofile="${RUNNER_TEMP}/coverage.out" ./...
           coverage=$(go tool cover -func="${RUNNER_TEMP}/coverage.out" | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
           echo "Go coverage: ${coverage}%"
-          awk -v coverage="${coverage}" 'BEGIN { if (coverage + 0 < 64.0) { print "Go coverage must be at least 64.0%" > "/dev/stderr"; exit 1 } }'
+          awk -v coverage="${coverage}" 'BEGIN { if (coverage + 0 < 66.0) { print "Go coverage must be at least 66.0%" > "/dev/stderr"; exit 1 } }'
 
       - name: Workflow lint
         run: actionlint .github/workflows/ci.yml .github/workflows/release.yml

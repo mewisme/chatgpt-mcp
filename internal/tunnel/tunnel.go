@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -410,8 +411,19 @@ func ValidateConfig(cfg Config) error {
 		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 			return fmt.Errorf("invalid OpenAI tunnel control plane base URL %q", raw)
 		}
+		if parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
+			return fmt.Errorf("OpenAI tunnel control plane base URL must use HTTPS unless the host is loopback")
+		}
 	}
 	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func Configured(cfg Config) bool {

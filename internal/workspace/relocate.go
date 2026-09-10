@@ -172,6 +172,9 @@ func rewriteRelocatedWorkspaceState(root, oldID, newID, oldRoot, newRoot string)
 		}
 		decoded, err := configformat.DecodeGeneric(format, data)
 		if err != nil {
+			if isCheckpointManifestPath(path) {
+				continue
+			}
 			return rewritten, fmt.Errorf("decode workspace state %s: %w", path, err)
 		}
 		updated, changed := relocateStateValue(decoded, oldID, newID, oldRoot, newRoot)
@@ -188,6 +191,11 @@ func rewriteRelocatedWorkspaceState(root, oldID, newID, oldRoot, newRoot string)
 		rewritten++
 	}
 	return rewritten, nil
+}
+
+func isCheckpointManifestPath(path string) bool {
+	clean := filepath.ToSlash(filepath.Clean(path))
+	return strings.Contains(clean, "/checkpoints/data/") && strings.HasPrefix(filepath.Base(clean), "manifest.")
 }
 
 func relocateStateValue(value any, oldID, newID, oldRoot, newRoot string) (any, bool) {

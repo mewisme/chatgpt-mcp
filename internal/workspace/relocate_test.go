@@ -206,3 +206,56 @@ func TestRelocateRollsBackStateRewriteWhenStateRenameFails(t *testing.T) {
 		t.Fatalf("state was not rolled back: %#v", stateMap)
 	}
 }
+
+func TestRelocateSkipsMalformedCheckpointManifest(t *testing.T) {
+	storeRoot := t.TempDir()
+	manager := NewManager(filepath.Join(storeRoot, "workspaces.json"))
+	oldRoot := t.TempDir()
+	item, err := manager.Register(oldRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDir := filepath.Join(storeRoot, "workspaces", item.ID, "checkpoints", "data", "cp_broken")
+	if err := os.MkdirAll(manifestDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(manifestDir, "manifest"+configformat.ExtensionForRoot(storeRoot))
+	broken := []byte("version: 1\nfiles:\n  - content: first\n      broken: value\n")
+	if err := os.WriteFile(manifestPath, broken, 0600); err != nil {
+		t.Fatal(err)
+	}
+	newRoot := t.TempDir()
+	relocated, err := manager.Relocate(item.ID, newRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	movedManifest := filepath.Join(storeRoot, "workspaces", relocated.ID, "checkpoints", "data", "cp_broken", filepath.Base(manifestPath))
+	got, err := os.ReadFile(movedManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, broken) {
+		t.Fatalf("malformed checkpoint manifest changed during relocate:\n%s", got)
+	}
+}
+
+func TestRelocateStillRejectsMalformedCoreState(t *testing.T) {
+	storeRoot := t.TempDir()
+	manager := NewManager(filepath.Join(storeRoot, "workspaces.json"))
+	oldRoot := t.TempDir()
+	item, err := manager.Register(oldRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(storeRoot, "workspaces", item.ID)
+	if err := os.MkdirAll(stateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(stateDir, "shell"+configformat.ExtensionForRoot(storeRoot))
+	if err := os.WriteFile(statePath, []byte("cwd: first\n  broken: value\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Relocate(item.ID, t.TempDir()); err == nil {
+		t.Fatal("expected malformed core workspace state to reject relocate")
+	}
+}

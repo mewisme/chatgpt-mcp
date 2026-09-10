@@ -1099,6 +1099,59 @@ func TestExecutionScopeSurvivesSnapshotReplayAndOverflow(t *testing.T) {
 	}
 }
 
+func TestLogsSessionViewStateRestoresStablePreferencesOnly(t *testing.T) {
+	page, err := NewCommandExecutionLogs(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer page.Close()
+	page.options = application.LogsQueryOptions{Tail: 55, All: true, Level: "warn", Workspace: "ws_runtime"}
+	page.visibility = logger.VisibilityDebug
+	page.paused = true
+	page.exec.scopeMode, page.exec.workspaceID, page.exec.paused = executionScopeWorkspace, "ws_exec", true
+	page.exec.events = []shellruntime.ExecutionFeedEvent{{Sequence: 1, ExecutionID: "exec_state", WorkspaceID: "ws_exec", Type: shellruntime.ExecutionEventOutput, Data: strings.Repeat("line\n", 40)}}
+	page.resizeExecutionViewport(60, 8)
+	page.exec.viewport.SetYOffset(7)
+	page.exec.scopeEditor = &component.Editor{}
+	page.exec.stream = &runtimecontrol.ExecutionFeedStream{}
+
+	state, ok := page.SessionViewState().(LogsSessionViewState)
+	if !ok {
+		t.Fatalf("state type=%T", page.SessionViewState())
+	}
+	fresh, err := NewLogs(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fresh.Close()
+	fresh.RestoreSessionViewState(state)
+	restored := fresh.SessionViewState().(LogsSessionViewState)
+	if restored.Tab != "command-execution" || restored.Options != state.Options || restored.Visibility != logger.VisibilityDebug || !restored.RuntimePaused || restored.ExecutionScope != string(executionScopeWorkspace) || restored.ExecutionWorkspaceID != "ws_exec" || !restored.ExecutionPaused {
+		t.Fatalf("restored state=%#v want=%#v", restored, state)
+	}
+	if fresh.exec.scopeEditor != nil || fresh.exec.stream != nil || len(fresh.exec.events) != 0 || fresh.loaded || fresh.exec.loaded {
+		t.Fatalf("transient state restored: editor=%v stream=%v events=%d runtime_loaded=%t exec_loaded=%t", fresh.exec.scopeEditor != nil, fresh.exec.stream != nil, len(fresh.exec.events), fresh.loaded, fresh.exec.loaded)
+	}
+	if !fresh.exec.restoreYOffsetSet || fresh.exec.restoreYOffset != 7 {
+		t.Fatalf("deferred offset set=%t offset=%d", fresh.exec.restoreYOffsetSet, fresh.exec.restoreYOffset)
+	}
+}
+
+func TestLogsSessionViewStateRestoresAndClampsExecutionOffset(t *testing.T) {
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.RestoreSessionViewState(LogsSessionViewState{Tab: "command-execution", ExecutionScope: string(executionScopeCombined), ExecutionPaused: true, ExecutionYOffset: 999})
+	page.exec.events = []shellruntime.ExecutionFeedEvent{{Sequence: 1, ExecutionID: "exec_offset", Type: shellruntime.ExecutionEventOutput, Data: strings.Repeat("line\n", 30)}}
+	page.exec.viewport.SetWidth(40)
+	page.exec.viewport.SetHeight(6)
+	page.refreshExecutionViewport()
+	page.restoreExecutionViewportOffset()
+	want := max(0, page.exec.viewport.TotalLineCount()-page.exec.viewport.Height())
+	if page.exec.viewport.YOffset() != want || page.exec.restoreYOffsetSet {
+		t.Fatalf("offset=%d want=%d pending=%t", page.exec.viewport.YOffset(), want, page.exec.restoreYOffsetSet)
+	}
+}
+
 func TestExecutionScopeEditorWrapsAtNarrowWidths(t *testing.T) {
 	setupLogsPageRoot(t)
 	manager := workspace.NewManager(workspace.DefaultStorePath())

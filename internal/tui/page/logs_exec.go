@@ -30,30 +30,32 @@ const (
 var logsTabLabels = []string{"Runtime", "Command Execution"}
 
 type logsExecutionFeed struct {
-	viewport         viewport.Model
-	events           []shellruntime.ExecutionFeedEvent
-	scopeMode        executionScopeMode
-	workspaceID      string
-	containerID      string
-	containerName    string
-	containerMembers map[string]struct{}
-	scopeStale       bool
-	scopeNotice      string
-	scopeEditor      *component.Editor
-	scopeForm        *executionScopeFormData
-	stream           *runtimecontrol.ExecutionFeedStream
-	streamCtx        context.Context
-	streamCancel     context.CancelFunc
-	generation       uint64
-	latestSeq        uint64
-	loaded           bool
-	loading          bool
-	connected        bool
-	reconnecting     bool
-	unsupported      bool
-	paused           bool
-	notice           string
-	err              error
+	viewport          viewport.Model
+	events            []shellruntime.ExecutionFeedEvent
+	scopeMode         executionScopeMode
+	workspaceID       string
+	containerID       string
+	containerName     string
+	containerMembers  map[string]struct{}
+	scopeStale        bool
+	scopeNotice       string
+	scopeEditor       *component.Editor
+	scopeForm         *executionScopeFormData
+	stream            *runtimecontrol.ExecutionFeedStream
+	streamCtx         context.Context
+	streamCancel      context.CancelFunc
+	generation        uint64
+	latestSeq         uint64
+	loaded            bool
+	loading           bool
+	connected         bool
+	reconnecting      bool
+	unsupported       bool
+	paused            bool
+	notice            string
+	err               error
+	restoreYOffset    int
+	restoreYOffsetSet bool
 }
 
 type logsExecutionOpenMsg struct {
@@ -142,6 +144,7 @@ func (page *LogsPage) finishExecutionFeedOpen(msg logsExecutionOpenMsg) tea.Cmd 
 	page.refreshExecutionScope()
 	page.exec.notice, page.exec.err = "", nil
 	page.refreshExecutionViewport()
+	page.restoreExecutionViewportOffset()
 	return page.nextExecutionEventCmd(msg.generation)
 }
 
@@ -238,6 +241,19 @@ func (page *LogsPage) refreshExecutionViewport() {
 	}
 	maxOffset := max(0, page.exec.viewport.TotalLineCount()-page.exec.viewport.Height())
 	page.exec.viewport.SetYOffset(min(offset, maxOffset))
+}
+
+func (page *LogsPage) restoreExecutionViewportOffset() {
+	if page == nil || !page.exec.restoreYOffsetSet {
+		return
+	}
+	page.exec.restoreYOffsetSet = false
+	if !page.exec.paused {
+		page.exec.viewport.GotoBottom()
+		return
+	}
+	maxOffset := max(0, page.exec.viewport.TotalLineCount()-page.exec.viewport.Height())
+	page.exec.viewport.SetYOffset(min(page.exec.restoreYOffset, maxOffset))
 }
 
 func (page *LogsPage) executionStatusView(width int) string {

@@ -74,42 +74,56 @@ type logsClearMsg struct {
 }
 
 type LogsPage struct {
-	ctx          context.Context
-	resourceID   string
-	section      string
-	action       string
-	tab          logsTab
-	exec         logsExecutionFeed
-	cancel       context.CancelFunc
-	browser      component.Browser
-	detail       component.DetailPage
-	events       []runtimeevent.Event
-	options      application.LogsQueryOptions
-	query        runtimeevent.Query
-	visibility   logger.Visibility
-	loaded       bool
-	loading      bool
-	paused       bool
-	connected    bool
-	reconnecting bool
-	stream       *runtimecontrol.EventStream
-	streamCtx    context.Context
-	streamCancel context.CancelFunc
-	streamRunID  string
-	streamSeq    uint64
-	generation   uint64
-	clearSeq     uint64
-	overlay      logsOverlay
-	editor       *component.Editor
-	filterForm   *logsFilterFormData
-	confirm      component.ConfirmButtons
-	info         application.LogsInfo
-	progress     *component.Progress
-	notice       string
-	toastNotice  bool
-	err          error
-	width        int
-	height       int
+	ctx               context.Context
+	resourceID        string
+	section           string
+	action            string
+	tab               logsTab
+	exec              logsExecutionFeed
+	cancel            context.CancelFunc
+	browser           component.Browser
+	detail            component.DetailPage
+	events            []runtimeevent.Event
+	options           application.LogsQueryOptions
+	query             runtimeevent.Query
+	visibility        logger.Visibility
+	loaded            bool
+	loading           bool
+	paused            bool
+	connected         bool
+	reconnecting      bool
+	stream            *runtimecontrol.EventStream
+	streamCtx         context.Context
+	streamCancel      context.CancelFunc
+	streamRunID       string
+	streamSeq         uint64
+	generation        uint64
+	clearSeq          uint64
+	overlay           logsOverlay
+	editor            *component.Editor
+	filterForm        *logsFilterFormData
+	confirm           component.ConfirmButtons
+	info              application.LogsInfo
+	progress          *component.Progress
+	notice            string
+	toastNotice       bool
+	err               error
+	width             int
+	height            int
+	restoreSelectedID string
+}
+
+type LogsSessionViewState struct {
+	Tab                  string
+	Options              application.LogsQueryOptions
+	Visibility           logger.Visibility
+	RuntimePaused        bool
+	RuntimeSelectedID    string
+	ExecutionScope       string
+	ExecutionWorkspaceID string
+	ExecutionContainerID string
+	ExecutionPaused      bool
+	ExecutionYOffset     int
 }
 
 func NewLogs(ctx context.Context) (*LogsPage, error) {
@@ -175,6 +189,53 @@ func (page *LogsPage) Dirty() bool {
 }
 func (page *LogsPage) Submitting() bool {
 	return page != nil && (page.editor != nil && page.editor.Submitting() || page.exec.scopeEditor != nil && page.exec.scopeEditor.Submitting())
+}
+
+func (page *LogsPage) SessionViewState() any {
+	if page == nil {
+		return LogsSessionViewState{}
+	}
+	tab := "runtime"
+	if page.tab == logsTabCommandExec {
+		tab = "command-execution"
+	}
+	executionYOffset := page.exec.viewport.YOffset()
+	if page.exec.restoreYOffsetSet {
+		executionYOffset = page.exec.restoreYOffset
+	}
+	return LogsSessionViewState{
+		Tab: tab, Options: page.options, Visibility: page.visibility, RuntimePaused: page.paused, RuntimeSelectedID: page.selectedID(),
+		ExecutionScope: string(page.exec.scopeMode), ExecutionWorkspaceID: page.exec.workspaceID, ExecutionContainerID: page.exec.containerID,
+		ExecutionPaused: page.exec.paused, ExecutionYOffset: executionYOffset,
+	}
+}
+
+func (page *LogsPage) RestoreSessionViewState(value any) {
+	if page == nil || page.action != "" {
+		return
+	}
+	state, ok := value.(LogsSessionViewState)
+	if !ok {
+		return
+	}
+	if state.Tab == "command-execution" {
+		page.tab = logsTabCommandExec
+	} else {
+		page.tab = logsTabRuntime
+	}
+	page.options, page.visibility, page.paused = state.Options, state.Visibility, state.RuntimePaused
+	page.restoreSelectedID = strings.TrimSpace(state.RuntimeSelectedID)
+	switch executionScopeMode(state.ExecutionScope) {
+	case executionScopeWorkspace, executionScopeContainer:
+		page.exec.scopeMode = executionScopeMode(state.ExecutionScope)
+	default:
+		page.exec.scopeMode = executionScopeCombined
+	}
+	page.exec.workspaceID = strings.TrimSpace(state.ExecutionWorkspaceID)
+	page.exec.containerID = strings.TrimSpace(state.ExecutionContainerID)
+	page.exec.paused = state.ExecutionPaused
+	page.exec.restoreYOffset, page.exec.restoreYOffsetSet = max(0, state.ExecutionYOffset), true
+	page.syncBrowserHelp()
 }
 
 func (page *LogsPage) Notice() string {
@@ -607,6 +668,10 @@ func (page *LogsPage) finishBootstrap(msg logsBootstrapMsg) tea.Cmd {
 			page.streamSeq = msg.snapshot.LatestSequence[msg.state.RunID]
 		}
 		browserCmd = page.mergeEvents(msg.snapshot.Events)
+		if page.restoreSelectedID != "" {
+			browserCmd = tea.Batch(browserCmd, page.rebuildBrowser(page.restoreSelectedID))
+			page.restoreSelectedID = ""
+		}
 		page.err = nil
 	}
 	if msg.infoErr == nil {

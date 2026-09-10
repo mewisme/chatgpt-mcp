@@ -60,6 +60,31 @@ func TestModelDoesNotRememberActionRoutesOrPersistLastRoutes(t *testing.T) {
 	}
 }
 
+func TestModelRestoresLogsViewStateAcrossTopLevelNavigation(t *testing.T) {
+	model := NewModel(Route{Kind: RouteLogs})
+	page, ok := model.currentPage.(tuipage.SessionViewStateModel)
+	if !ok {
+		t.Fatalf("logs page does not expose session state: %T", model.currentPage)
+	}
+	page.RestoreSessionViewState(tuipage.LogsSessionViewState{
+		Tab: "command-execution", ExecutionScope: "workspace", ExecutionWorkspaceID: "ws_a", ExecutionPaused: true, ExecutionYOffset: 6,
+	})
+	model.switchPage(Route{Kind: RouteTunnel})
+	updated, _ := model.requestNavigation(navigationIntent{route: Route{Kind: RouteLogs}, sibling: true})
+	model = updated.(Model)
+	restoredPage, ok := model.currentPage.(tuipage.SessionViewStateModel)
+	if !ok {
+		t.Fatalf("restored logs page does not expose session state: %T", model.currentPage)
+	}
+	state, ok := restoredPage.SessionViewState().(tuipage.LogsSessionViewState)
+	if !ok {
+		t.Fatalf("restored logs state type=%T", restoredPage.SessionViewState())
+	}
+	if state.Tab != "command-execution" || state.ExecutionScope != "workspace" || state.ExecutionWorkspaceID != "ws_a" || !state.ExecutionPaused || state.ExecutionYOffset != 6 {
+		t.Fatalf("restored logs state=%#v", state)
+	}
+}
+
 func TestModelMCPCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {

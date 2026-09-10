@@ -603,14 +603,6 @@
     "rule_id": "G702",
     "severity": "HIGH",
     "confidence": "HIGH",
-    "file": "internal/cli/managed_elevation_unix.go",
-    "details": "Command injection via taint analysis",
-    "code": "}\n\tchild := exec.CommandContext(cmd.Context(), sudo, args...)\n\tchild.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()"
-  },
-  {
-    "rule_id": "G702",
-    "severity": "HIGH",
-    "confidence": "HIGH",
     "file": "internal/shell/session.go",
     "details": "Command injection via taint analysis",
     "code": "}\n\treturn exec.CommandContext(ctx, shell, \"-c\", command), nil\n}"

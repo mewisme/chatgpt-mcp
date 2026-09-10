@@ -509,7 +509,7 @@ func executionEventFrame(kind string, event shellruntime.ExecutionFeedEvent, ela
 	if width < 4 {
 		return strings.Repeat("─", width) + "\n"
 	}
-	label := strings.TrimSpace(kind + " " + executionEventClock(event) + " " + ansi.Strip(event.ExecutionID))
+	label := strings.TrimSpace(kind + " " + executionEventClock(event))
 	if elapsed != "" {
 		label += " +" + elapsed
 	}
@@ -519,6 +519,9 @@ func executionEventFrame(kind string, event shellruntime.ExecutionFeedEvent, ela
 	var output strings.Builder
 	output.WriteString("╭─ " + label + " " + strings.Repeat("─", max(0, width-topUsed-1)) + "╮\n")
 	innerWidth := max(1, width-4)
+	if executionID := ansi.Strip(strings.TrimSpace(event.ExecutionID)); executionID != "" {
+		fields = append([]executionFrameField{{Label: "Execution", Values: []string{executionID}}}, fields...)
+	}
 	for _, field := range fields {
 		if strings.TrimSpace(field.Label) == "" || len(field.Values) == 0 {
 			continue

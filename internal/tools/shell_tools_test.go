@@ -235,6 +235,30 @@ func TestBackgroundProcessLifecycle(t *testing.T) {
 	}
 }
 
+func TestRuntimeOwnsShellToolProcessManager(t *testing.T) {
+	if os.PathSeparator != '\\' && os.Getenv("SHELL") == "" {
+		t.Setenv("SHELL", "/bin/sh")
+	}
+	runtime := NewRuntime()
+	if runtime.Processes == nil {
+		t.Fatal("runtime process manager is nil")
+	}
+	root := t.TempDir()
+	item, err := runtime.Workspaces.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.Call(context.Background(), "start_process", map[string]any{"workspace_id": item.ID, "command": backgroundLifecycleCommand()})
+	if err != nil || result.IsError {
+		t.Fatalf("start_process failed: result=%#v err=%v", result, err)
+	}
+	started := result.StructuredContent.(shellruntime.StartResult)
+	processes, err := runtime.Processes.Status(item.ID, started.ID)
+	if err != nil || len(processes) != 1 || processes[0].ID != started.ID {
+		t.Fatalf("runtime process lookup=%#v err=%v", processes, err)
+	}
+}
+
 func TestBackgroundMutationUsesPersistedCWDAndRejectsOutside(t *testing.T) {
 	runtime, workspaceID, _ := newShellToolTestRuntime(t)
 	result, err := runtime.Call(context.Background(), "start_process", map[string]any{

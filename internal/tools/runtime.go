@@ -36,6 +36,7 @@ type Runtime struct {
 	SessionAccess   *SessionWorkspaceAccessManager
 	Approvals       *approval.Manager
 	Executions      *shellruntime.ExecutionHub
+	Processes       *shellruntime.ProcessManager
 	callSequence    atomic.Uint64
 	sessionMu       sync.Mutex
 	featureMu       sync.Mutex
@@ -63,8 +64,9 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 		panic(err)
 	}
 	executions := shellruntime.NewExecutionHub()
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
 	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
+	processes := shellruntime.NewProcessManager(workspaces, shell)
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Processes: processes, ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterWorkspaceContainerTools(registry, workspaces)
@@ -72,7 +74,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	if len(environments) > 0 {
 		environment = environments[0]
 	}
-	registerCore(registry, workspaces, checkpoints, environment, shell)
+	registerCoreWithManagers(registry, workspaces, checkpoints, environment, shell, processes)
 	RegisterApprovalTools(registry, runtime)
 	RegisterUpstreamTools(registry, upstreams)
 	if err := runtime.SyncFeatures(featureConfig); err != nil {

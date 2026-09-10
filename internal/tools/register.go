@@ -38,6 +38,14 @@ func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints
 }
 
 func registerCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store, environment ProjectContextEnvironment, shells ...*shellruntime.Manager) {
+	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
+	if len(shells) > 0 && shells[0] != nil {
+		shell = shells[0]
+	}
+	registerCoreWithManagers(registry, workspaces, checkpoints, environment, shell, shellruntime.NewProcessManager(workspaces, shell))
+}
+
+func registerCoreWithManagers(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store, environment ProjectContextEnvironment, shell *shellruntime.Manager, processes *shellruntime.ProcessManager) {
 	registry.MustRegister("get_version", coreSchema("get_version", "Get the running chatgpt-mcp server version, build metadata, server uptime, and machine uptime.", `{"type":"object","properties":{},"additionalProperties":false}`, `{"type":"object","properties":{"version":{"type":"string"},"commit":{"type":"string"},"build_time":{"type":"string"},"server_started_at":{"type":"string"},"server_uptime":{"type":"string"},"server_uptime_seconds":{"type":"integer","minimum":0},"machine_uptime":{"type":"string"},"machine_uptime_seconds":{"type":"integer","minimum":0}},"required":["version","commit","build_time","server_started_at","server_uptime","server_uptime_seconds","machine_uptime","machine_uptime_seconds"],"additionalProperties":false}`, RiskRead), func(context.Context, map[string]any) (Result, error) {
 		now := time.Now().UTC()
 		serverUptime := now.Sub(processStartedAt)
@@ -54,11 +62,6 @@ func registerCore(registry *Registry, workspaces *workspace.Manager, checkpoints
 		return JSONResult(VersionResult{Version: version.Version, Commit: version.Commit, BuildTime: version.Date, ServerStartedAt: processStartedAt.Format(time.RFC3339), ServerUptime: serverUptime.Truncate(time.Second).String(), ServerUptimeSeconds: int64(serverUptime / time.Second), MachineUptime: machineUptime.Truncate(time.Second).String(), MachineUptimeSeconds: int64(machineUptime / time.Second)}), nil
 	})
 	RegisterFilesystemTools(registry, workspaces, checkpoints)
-	shell := shellruntime.NewManager(workspaces, shellruntime.DefaultStateRoot())
-	if len(shells) > 0 && shells[0] != nil {
-		shell = shells[0]
-	}
-	processes := shellruntime.NewProcessManager(workspaces, shell)
 	RegisterShellTools(registry, workspaces, shell, processes)
 	RegisterGitTools(registry, workspaces)
 	RegisterContextTools(registry, workspaces, checkpoints, environment)

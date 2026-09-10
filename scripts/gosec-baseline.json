@@ -1,5 +1,21 @@
 [
   {
+    "rule_id": "G101",
+    "severity": "HIGH",
+    "confidence": "LOW",
+    "file": "internal/capability/catalog.go",
+    "details": "Potential hardcoded credentials",
+    "code": "ConfigMigrate            ID = \"config.migrate\"\n\tConfigMigrateSecrets     ID = \"config.migrate.secrets\"\n\tConfigConvert            ID = \"config.convert\""
+  },
+  {
+    "rule_id": "G101",
+    "severity": "HIGH",
+    "confidence": "LOW",
+    "file": "internal/tui/page/config.go",
+    "details": "Potential hardcoded credentials",
+    "code": "ConfigMigrate        ConfigCommand = \"config.migrate\"\n\tConfigMigrateSecrets ConfigCommand = \"config.migrate.secrets\"\n\tConfigConvert        ConfigCommand = \"config.convert\""
+  },
+  {
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
@@ -325,7 +341,23 @@
     "confidence": "HIGH",
     "file": "internal/secretstore/backend_file.go",
     "details": "Potential file inclusion via variable",
+    "code": "}\n\t\tdata, err := os.ReadFile(path)\n\t\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/secretstore/backend_file.go",
+    "details": "Potential file inclusion via variable",
     "code": "}\n\tdata, err := os.ReadFile(path)\n\tif errors.Is(err, os.ErrNotExist) {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/secretstore/crypto.go",
+    "details": "Potential file inclusion via variable",
+    "code": "path := filepath.Join(b.root, masterKeyName)\n\tdata, err := os.ReadFile(path)\n\tif err == nil {"
   },
   {
     "rule_id": "G304",

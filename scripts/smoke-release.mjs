@@ -64,6 +64,7 @@ try {
   run(["config", "set", "server.allow_insecure_http", "false"])
   run(["config", "set", "server.port", String(serverPort)])
   run(["config", "set", "admin.port", String(adminPort)])
+  run(["config", "set", "server.allow_unauthenticated_loopback", "true"])
   run(["config", "set", "auth.mcp_enabled", "false"])
   run(["config", "set", "auth.admin_enabled", "false"])
   run(["config", "set", "features.ponytail.active", "false"])

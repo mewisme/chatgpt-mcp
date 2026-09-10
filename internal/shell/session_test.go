@@ -59,7 +59,7 @@ func TestShellEnvironmentPoliciesFilterSecretsAndInjection(t *testing.T) {
 		}
 	}
 	pathValue := filtered["PATH"]
-	if runtime.GOOS == "windows" {
+	if pathValue == "" && runtime.GOOS == "windows" {
 		pathValue = filtered["Path"]
 	}
 	if pathValue != "/safe/bin" || filtered["CUSTOM_VISIBLE"] != "visible" {

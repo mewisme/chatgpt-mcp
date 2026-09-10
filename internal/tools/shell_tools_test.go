@@ -28,7 +28,35 @@ func newShellToolTestRuntime(t *testing.T) (*Runtime, string, string) {
 	RegisterFilesystemTools(registry, workspaces, checkpoints)
 	processes := shellruntime.NewProcessManager(workspaces, shell)
 	RegisterShellTools(registry, workspaces, shell, processes)
-	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints}, item.ID, item.Path
+	return &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Executions: shell.Executions()}, item.ID, item.Path
+}
+
+func TestRunCommandExecutionCarriesSafeCallAttribution(t *testing.T) {
+	if os.PathSeparator != '\\' && os.Getenv("SHELL") == "" {
+		t.Setenv("SHELL", "/bin/sh")
+	}
+	runtime, workspaceID, _ := newShellToolTestRuntime(t)
+	command := "printf attribution"
+	if os.PathSeparator == '\\' {
+		command = "Write-Output attribution"
+	}
+	const sessionID = "raw-session-secret"
+	ctx := WithCallSource(WithMCPSessionID(context.Background(), sessionID), "tunnel")
+	result, err := runtime.Call(ctx, "run_command", map[string]any{"workspace_id": workspaceID, "command": command})
+	if err != nil || result.IsError {
+		t.Fatalf("run_command failed: result=%#v err=%v", result, err)
+	}
+	executions := runtime.Executions.List(workspaceID, 1)
+	if len(executions) != 1 {
+		t.Fatalf("executions=%#v", executions)
+	}
+	info := executions[0]
+	if info.Source != "tunnel" || info.CallID == "" || info.SessionHash != MCPSessionFingerprint(sessionID) || info.ReceivedByInstanceID == "" || info.ExecutedByInstanceID == "" {
+		t.Fatalf("execution attribution=%#v", info)
+	}
+	if strings.Contains(info.SessionHash, sessionID) || info.SessionHash == sessionID {
+		t.Fatalf("raw session leaked: %#v", info)
+	}
 }
 
 func TestShellToolsPersistCWD(t *testing.T) {

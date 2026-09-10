@@ -14,13 +14,16 @@ import (
 
 func TestExecutionHubSnapshotsAndStreamsOutput(t *testing.T) {
 	hub := NewExecutionHub()
-	run := hub.Begin(ExecutionInput{WorkspaceID: "ws_test", Tool: "run_command", Command: "demo", CWD: "/tmp", Source: "mcp"})
+	run := hub.Begin(ExecutionInput{
+		WorkspaceID: "ws_test", Tool: "run_command", Command: "demo", CWD: "/tmp", Source: "mcp", CallID: "call_test",
+		SessionHash: "session-hash", ReceivedByInstanceID: "instance-received", ExecutedByInstanceID: "instance-executed",
+	})
 	sub, snapshot, err := hub.Subscribe("ws_test", run.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer hub.Unsubscribe(sub)
-	if snapshot.Execution.Status != ExecutionStatusRunning || snapshot.Execution.Source != "mcp" || snapshot.LatestSequence != 0 {
+	if snapshot.Execution.Status != ExecutionStatusRunning || snapshot.Execution.Source != "mcp" || snapshot.Execution.CallID != "call_test" || snapshot.Execution.SessionHash != "session-hash" || snapshot.Execution.ReceivedByInstanceID != "instance-received" || snapshot.Execution.ExecutedByInstanceID != "instance-executed" || snapshot.LatestSequence != 0 {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 	_, _ = run.Writer("stdout").Write([]byte("hello\n"))
@@ -89,7 +92,7 @@ func TestRunCommandStreamsBeforeReturningAndPreservesFinalResult(t *testing.T) {
 	}
 	hub := NewExecutionHub()
 	manager := NewManagerWithExecutions(workspaces, filepath.Join(t.TempDir(), "state"), hub)
-	ctx := WithExecutionSource(context.Background(), "mcp")
+	ctx := WithExecutionMetadata(context.Background(), ExecutionMetadata{Source: "mcp", CallID: "call_stream", SessionHash: "safe-hash", ReceivedByInstanceID: "instance-a", ExecutedByInstanceID: "instance-b"})
 	resultCh := make(chan ExecResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
@@ -110,6 +113,9 @@ func TestRunCommandStreamsBeforeReturningAndPreservesFinalResult(t *testing.T) {
 	}
 	if info.ID == "" {
 		t.Fatal("execution was not registered while command was running")
+	}
+	if info.Source != "mcp" || info.CallID != "call_stream" || info.SessionHash != "safe-hash" || info.ReceivedByInstanceID != "instance-a" || info.ExecutedByInstanceID != "instance-b" {
+		t.Fatalf("execution attribution = %#v", info)
 	}
 	sub, snapshot, err := hub.Subscribe(item.ID, info.ID)
 	if err != nil {

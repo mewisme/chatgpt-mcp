@@ -252,6 +252,10 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	if preflightErr == nil {
 		ctx, claimedApproval, forcedResult, preflightErr = r.prepareApprovalRetry(ctx, sessionID, workspaceID, source, name, args)
 	}
+	executedBy := r.runtimeInstanceID()
+	ctx = shellruntime.WithExecutionMetadata(ctx, shellruntime.ExecutionMetadata{
+		Source: source, CallID: callID, SessionHash: sessionHash, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy,
+	})
 	raw := callRaw(ctx, source, name, args)
 	raw["call_id"] = callID
 	if sessionHash != "" {
@@ -277,7 +281,6 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 			}
 		}
 	}
-	executedBy := r.runtimeInstanceID()
 	finishRaw := cloneMap(raw)
 	finishRaw["routing"] = map[string]any{"received_by_instance_id": receivedBy, "executed_by_instance_id": executedBy}
 	if err == nil {

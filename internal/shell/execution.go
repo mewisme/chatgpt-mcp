@@ -28,17 +28,21 @@ const (
 var ErrExecutionNotFound = errors.New("execution not found")
 
 type ExecutionInfo struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	Tool        string `json:"tool"`
-	Command     string `json:"command"`
-	CWD         string `json:"cwd"`
-	Source      string `json:"source,omitempty"`
-	StartedAt   string `json:"started_at"`
-	FinishedAt  string `json:"finished_at,omitempty"`
-	Status      string `json:"status"`
-	ExitCode    *int   `json:"exit_code,omitempty"`
-	TimedOut    bool   `json:"timed_out,omitempty"`
+	ID                   string `json:"id"`
+	WorkspaceID          string `json:"workspace_id"`
+	Tool                 string `json:"tool"`
+	Command              string `json:"command"`
+	CWD                  string `json:"cwd"`
+	Source               string `json:"source,omitempty"`
+	CallID               string `json:"call_id,omitempty"`
+	SessionHash          string `json:"session_hash,omitempty"`
+	ReceivedByInstanceID string `json:"received_by_instance_id,omitempty"`
+	ExecutedByInstanceID string `json:"executed_by_instance_id,omitempty"`
+	StartedAt            string `json:"started_at"`
+	FinishedAt           string `json:"finished_at,omitempty"`
+	Status               string `json:"status"`
+	ExitCode             *int   `json:"exit_code,omitempty"`
+	TimedOut             bool   `json:"timed_out,omitempty"`
 }
 
 type ExecutionSnapshot struct {
@@ -100,11 +104,15 @@ type ExecutionFeedSubscription struct {
 }
 
 type ExecutionInput struct {
-	WorkspaceID string
-	Tool        string
-	Command     string
-	CWD         string
-	Source      string
+	WorkspaceID          string
+	Tool                 string
+	Command              string
+	CWD                  string
+	Source               string
+	CallID               string
+	SessionHash          string
+	ReceivedByInstanceID string
+	ExecutedByInstanceID string
 }
 
 type ExecutionHub struct {
@@ -140,6 +148,15 @@ type executionWriter struct {
 }
 
 type executionSourceKey struct{}
+type executionMetadataKey struct{}
+
+type ExecutionMetadata struct {
+	Source               string
+	CallID               string
+	SessionHash          string
+	ReceivedByInstanceID string
+	ExecutedByInstanceID string
+}
 
 func NewExecutionHub() *ExecutionHub {
 	return &ExecutionHub{executions: map[string]*executionRecord{}, maxRecent: maxRecentExecutions, feedSubs: map[*ExecutionFeedSubscription]struct{}{}}
@@ -150,6 +167,26 @@ func WithExecutionSource(ctx context.Context, source string) context.Context {
 		ctx = context.Background()
 	}
 	return context.WithValue(ctx, executionSourceKey{}, strings.TrimSpace(source))
+}
+
+func WithExecutionMetadata(ctx context.Context, metadata ExecutionMetadata) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	metadata.Source = strings.TrimSpace(metadata.Source)
+	metadata.CallID = strings.TrimSpace(metadata.CallID)
+	metadata.SessionHash = strings.TrimSpace(metadata.SessionHash)
+	metadata.ReceivedByInstanceID = strings.TrimSpace(metadata.ReceivedByInstanceID)
+	metadata.ExecutedByInstanceID = strings.TrimSpace(metadata.ExecutedByInstanceID)
+	return context.WithValue(ctx, executionMetadataKey{}, metadata)
+}
+
+func executionMetadata(ctx context.Context) ExecutionMetadata {
+	if ctx == nil {
+		return ExecutionMetadata{}
+	}
+	value, _ := ctx.Value(executionMetadataKey{}).(ExecutionMetadata)
+	return value
 }
 
 func executionSource(ctx context.Context) string {
@@ -173,7 +210,9 @@ func (h *ExecutionHub) Begin(input ExecutionInput) *ExecutionRun {
 	id := fmt.Sprintf("exec_%x_%x", time.Now().UnixMilli(), h.nextID)
 	record := &executionRecord{info: ExecutionInfo{
 		ID: id, WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, CWD: input.CWD,
-		Source: strings.TrimSpace(input.Source), StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: ExecutionStatusRunning,
+		Source: strings.TrimSpace(input.Source), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),
+		ReceivedByInstanceID: strings.TrimSpace(input.ReceivedByInstanceID), ExecutedByInstanceID: strings.TrimSpace(input.ExecutedByInstanceID),
+		StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: ExecutionStatusRunning,
 	}, subs: map[*ExecutionSubscription]struct{}{}}
 	h.executions[id] = record
 	h.order = append(h.order, id)

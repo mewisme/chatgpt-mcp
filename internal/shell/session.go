@@ -176,7 +176,15 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 		current.state.RecentCommands = append([]string(nil), current.state.RecentCommands[len(current.state.RecentCommands)-maxHistory:]...)
 	}
 
-	run := m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "run_command", Command: effective, CWD: cwd, Source: executionSource(ctx)})
+	metadata := executionMetadata(ctx)
+	source := metadata.Source
+	if source == "" {
+		source = executionSource(ctx)
+	}
+	run := m.executions.Begin(ExecutionInput{
+		WorkspaceID: workspaceID, Tool: "run_command", Command: effective, CWD: cwd, Source: source,
+		CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID,
+	})
 	roots, err := m.workspaces.EffectiveRoots(workspaceID)
 	if err != nil {
 		return ExecResult{}, err

@@ -58,7 +58,11 @@ func TestShellEnvironmentPoliciesFilterSecretsAndInjection(t *testing.T) {
 			t.Fatalf("filtered environment exposed %s", name)
 		}
 	}
-	if filtered["PATH"] != "/safe/bin" || filtered["CUSTOM_VISIBLE"] != "visible" {
+	pathValue := filtered["PATH"]
+	if runtime.GOOS == "windows" {
+		pathValue = filtered["Path"]
+	}
+	if pathValue != "/safe/bin" || filtered["CUSTOM_VISIBLE"] != "visible" {
 		t.Fatalf("filtered safe environment = %#v", filtered)
 	}
 	minimal := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentMinimal, nil)

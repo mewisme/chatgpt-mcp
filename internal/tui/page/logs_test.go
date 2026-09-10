@@ -1001,15 +1001,15 @@ func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name      string
-		down      int
-		wantMode  executionScopeMode
-		wantID    string
-		needsNext bool
+		name     string
+		down     int
+		wantMode executionScopeMode
+		wantID   string
+		steps    int
 	}{
 		{name: "combined", wantMode: executionScopeCombined},
-		{name: "workspace", down: 1, wantMode: executionScopeWorkspace, wantID: workspaceItem.ID, needsNext: true},
-		{name: "container", down: 2, wantMode: executionScopeContainer, wantID: container.ID, needsNext: true},
+		{name: "workspace", down: 1, wantMode: executionScopeWorkspace, wantID: workspaceItem.ID, steps: 2},
+		{name: "container", down: 2, wantMode: executionScopeContainer, wantID: container.ID, steps: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			page, _ := NewCommandExecutionLogs(t.Context())
@@ -1022,7 +1022,7 @@ func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 			}
 			updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
-			if test.needsNext {
+			for range test.steps {
 				if page.exec.scopeEditor == nil {
 					t.Fatal("mode selection submitted before scope selector")
 				}
@@ -1039,6 +1039,14 @@ func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 				t.Fatalf("container=%q want=%q", page.exec.containerID, test.wantID)
 			}
 		})
+	}
+}
+
+func TestExecutionProcessOptionsPreferRunningAndExposeStatus(t *testing.T) {
+	zero := 0
+	options := executionProcessOptions([]shellruntime.ProcessInfo{{ID: "old", PID: 10, Command: "done", ExitCode: &zero}, {ID: "live", PID: 20, Command: "serve", Running: true}})
+	if len(options) != 2 || options[0].Value != "live" || options[1].Value != "old" || !strings.Contains(options[0].Key, "running") || !strings.Contains(options[1].Key, "exited 0") {
+		t.Fatalf("process options=%#v", options)
 	}
 }
 

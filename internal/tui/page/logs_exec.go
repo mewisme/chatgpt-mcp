@@ -34,6 +34,8 @@ type logsExecutionFeed struct {
 	events            []shellruntime.ExecutionFeedEvent
 	scopeMode         executionScopeMode
 	workspaceID       string
+	workspaceView     executionWorkspaceView
+	processID         string
 	containerID       string
 	containerName     string
 	containerMembers  map[string]struct{}
@@ -78,7 +80,7 @@ func newLogsExecutionFeed() logsExecutionFeed {
 	view := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
 	view.SoftWrap = false
 	view.FillHeight = false
-	return logsExecutionFeed{viewport: view, scopeMode: executionScopeCombined, containerMembers: map[string]struct{}{}}
+	return logsExecutionFeed{viewport: view, scopeMode: executionScopeCombined, workspaceView: executionWorkspaceCommands, containerMembers: map[string]struct{}{}}
 }
 
 func (page *LogsPage) switchLogsTab(tab logsTab) tea.Cmd {

@@ -1,6 +1,7 @@
 package page
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -8,7 +9,8 @@ import (
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 
-	"go.mewis.me/chatgpt-mcp/internal/shell"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
+	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -21,13 +23,23 @@ const (
 	executionScopeContainer executionScopeMode = "container"
 )
 
+type executionWorkspaceView string
+
+const (
+	executionWorkspaceCommands executionWorkspaceView = "commands"
+	executionWorkspaceProcess  executionWorkspaceView = "process"
+)
+
 type executionScopeFormData struct {
 	Mode        string
 	WorkspaceID string
 	ContainerID string
+	View        string
+	ProcessID   string
+	Processes   map[string][]shellruntime.ProcessInfo
 }
 
-func newExecutionScopeEditor(feed logsExecutionFeed) (component.Editor, *executionScopeFormData, error) {
+func newExecutionScopeEditor(ctx context.Context, feed logsExecutionFeed) (component.Editor, *executionScopeFormData, error) {
 	manager := workspace.NewManager(workspace.DefaultStorePath())
 	workspaces, err := manager.List()
 	if err != nil {
@@ -37,10 +49,13 @@ func newExecutionScopeEditor(feed logsExecutionFeed) (component.Editor, *executi
 	if err != nil {
 		return component.Editor{}, nil, err
 	}
-	data := &executionScopeFormData{Mode: string(normalizeExecutionScopeMode(feed.scopeMode)), WorkspaceID: feed.workspaceID, ContainerID: feed.containerID}
+	data := &executionScopeFormData{Mode: string(normalizeExecutionScopeMode(feed.scopeMode)), WorkspaceID: feed.workspaceID, ContainerID: feed.containerID, View: string(normalizeExecutionWorkspaceView(feed.workspaceView)), ProcessID: feed.processID, Processes: map[string][]shellruntime.ProcessInfo{}}
 	workspaceOptions := make([]huh.Option[string], 0, len(workspaces))
 	for _, item := range workspaces {
 		workspaceOptions = append(workspaceOptions, huh.NewOption(item.Path+" · "+item.ID, item.ID))
+		if values, listErr := runtimecontrol.ListProcesses(ctx, item.ID); listErr == nil {
+			data.Processes[item.ID] = values
+		}
 	}
 	if len(workspaceOptions) == 0 {
 		workspaceOptions = append(workspaceOptions, huh.NewOption("No registered workspaces", ""))
@@ -59,10 +74,49 @@ func newExecutionScopeEditor(feed logsExecutionFeed) (component.Editor, *executi
 			huh.NewOption("Container", string(executionScopeContainer)),
 		)),
 		component.Group(component.Select("Workspace", &data.WorkspaceID, workspaceOptions...)).WithHideFunc(func() bool { return data.Mode != string(executionScopeWorkspace) }),
+		component.Group(component.Select("View", &data.View,
+			huh.NewOption("Run commands", string(executionWorkspaceCommands)),
+			huh.NewOption("View process", string(executionWorkspaceProcess)),
+		)).WithHideFunc(func() bool { return data.Mode != string(executionScopeWorkspace) }),
+		component.Group(huh.NewSelect[string]().Title("Process").Value(&data.ProcessID).OptionsFunc(func() []huh.Option[string] {
+			return executionProcessOptions(data.Processes[data.WorkspaceID])
+		}, &data.WorkspaceID)).WithHideFunc(func() bool {
+			return data.Mode != string(executionScopeWorkspace) || data.View != string(executionWorkspaceProcess)
+		}),
 		component.Group(component.Select("Container", &data.ContainerID, containerOptions...)).WithHideFunc(func() bool { return data.Mode != string(executionScopeContainer) }),
 	)
 	editor := component.NewEditor("apply", component.EditorSection{ID: "scope", Title: "Scope", Description: "Filter command execution output without reconnecting the global stream.", Form: form}).WithSubmitMode(component.EditorSubmitOnComplete)
 	return editor, data, nil
+}
+
+func normalizeExecutionWorkspaceView(view executionWorkspaceView) executionWorkspaceView {
+	if view == executionWorkspaceProcess {
+		return view
+	}
+	return executionWorkspaceCommands
+}
+
+func executionProcessOptions(processes []shellruntime.ProcessInfo) []huh.Option[string] {
+	options := make([]huh.Option[string], 0, len(processes))
+	for i := len(processes) - 1; i >= 0; i-- {
+		item := processes[i]
+		status := "running"
+		if !item.Running {
+			status = "exited"
+			if item.ExitCode != nil {
+				status = fmt.Sprintf("exited %d", *item.ExitCode)
+			}
+		}
+		command := strings.TrimSpace(item.Command)
+		if len(command) > 56 {
+			command = command[:53] + "..."
+		}
+		options = append(options, huh.NewOption(fmt.Sprintf("%s · pid %d · %s", status, item.PID, command), item.ID))
+	}
+	if len(options) == 0 {
+		return []huh.Option[string]{huh.NewOption("No managed processes", "")}
+	}
+	return options
 }
 
 func normalizeExecutionScopeMode(mode executionScopeMode) executionScopeMode {
@@ -78,7 +132,7 @@ func (page *LogsPage) openExecutionScopeEditor() tea.Cmd {
 	if page == nil || page.exec.scopeEditor != nil {
 		return nil
 	}
-	editor, data, err := newExecutionScopeEditor(page.exec)
+	editor, data, err := newExecutionScopeEditor(page.ctx, page.exec)
 	if err != nil {
 		page.exec.err = err
 		return nil
@@ -103,6 +157,8 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 	mode := normalizeExecutionScopeMode(executionScopeMode(strings.TrimSpace(page.exec.scopeForm.Mode)))
 	manager := workspace.NewManager(workspace.DefaultStorePath())
 	workspaceID, containerID := strings.TrimSpace(page.exec.scopeForm.WorkspaceID), strings.TrimSpace(page.exec.scopeForm.ContainerID)
+	workspaceView := normalizeExecutionWorkspaceView(executionWorkspaceView(strings.TrimSpace(page.exec.scopeForm.View)))
+	processID := strings.TrimSpace(page.exec.scopeForm.ProcessID)
 	members := map[string]struct{}{}
 	containerName := ""
 	switch mode {
@@ -117,6 +173,23 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 			return nil
 		}
 		workspaceID = item.ID
+		if workspaceView == executionWorkspaceProcess {
+			if processID == "" {
+				page.exec.scopeEditor.SetFeedback("", fmt.Errorf("process is required"))
+				return nil
+			}
+			found := false
+			for _, process := range page.exec.scopeForm.Processes[workspaceID] {
+				if process.ID == processID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				page.exec.scopeEditor.SetFeedback("", fmt.Errorf("selected process is unavailable"))
+				return nil
+			}
+		}
 	case executionScopeContainer:
 		if containerID == "" {
 			page.exec.scopeEditor.SetFeedback("", fmt.Errorf("container is required"))
@@ -133,6 +206,10 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 		}
 	}
 	page.exec.scopeMode, page.exec.workspaceID, page.exec.containerID = mode, workspaceID, containerID
+	page.exec.workspaceView, page.exec.processID = workspaceView, processID
+	if mode != executionScopeWorkspace || workspaceView != executionWorkspaceProcess {
+		page.exec.processID = ""
+	}
 	page.exec.containerName, page.exec.containerMembers, page.exec.scopeStale, page.exec.scopeNotice = containerName, members, false, ""
 	page.exec.scopeEditor, page.exec.scopeForm = nil, nil
 	page.exec.err = nil
@@ -175,7 +252,7 @@ func (page *LogsPage) refreshExecutionScope() {
 	}
 }
 
-func (page *LogsPage) visibleExecutionEvents() []shell.ExecutionFeedEvent {
+func (page *LogsPage) visibleExecutionEvents() []shellruntime.ExecutionFeedEvent {
 	if page == nil || len(page.exec.events) == 0 {
 		return nil
 	}
@@ -186,7 +263,7 @@ func (page *LogsPage) visibleExecutionEvents() []shell.ExecutionFeedEvent {
 	if mode == executionScopeCombined {
 		return page.exec.events
 	}
-	result := make([]shell.ExecutionFeedEvent, 0, len(page.exec.events))
+	result := make([]shellruntime.ExecutionFeedEvent, 0, len(page.exec.events))
 	for _, event := range page.exec.events {
 		if page.executionEventVisible(event) {
 			result = append(result, event)
@@ -195,7 +272,7 @@ func (page *LogsPage) visibleExecutionEvents() []shell.ExecutionFeedEvent {
 	return result
 }
 
-func (page *LogsPage) executionEventVisible(event shell.ExecutionFeedEvent) bool {
+func (page *LogsPage) executionEventVisible(event shellruntime.ExecutionFeedEvent) bool {
 	if page == nil || page.exec.scopeStale {
 		return false
 	}
@@ -216,7 +293,10 @@ func (page *LogsPage) executionScopeLabel() string {
 	}
 	switch normalizeExecutionScopeMode(page.exec.scopeMode) {
 	case executionScopeWorkspace:
-		return "workspace · " + page.exec.workspaceID
+		if normalizeExecutionWorkspaceView(page.exec.workspaceView) == executionWorkspaceProcess {
+			return "workspace · " + page.exec.workspaceID + " · process · " + page.exec.processID
+		}
+		return "workspace · " + page.exec.workspaceID + " · commands"
 	case executionScopeContainer:
 		name := strings.TrimSpace(page.exec.containerName)
 		if name == "" {

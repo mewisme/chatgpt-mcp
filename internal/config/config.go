@@ -41,10 +41,11 @@ type ShellConfig struct {
 }
 
 type ServerConfig struct {
-	Enabled           bool           `json:"enabled"`
-	Port              int            `json:"port"`
-	Expose            ExposureConfig `json:"expose"`
-	AllowInsecureHTTP bool           `json:"allow_insecure_http"`
+	Enabled                      bool           `json:"enabled"`
+	Port                         int            `json:"port"`
+	Expose                       ExposureConfig `json:"expose"`
+	AllowInsecureHTTP            bool           `json:"allow_insecure_http"`
+	AllowUnauthenticatedLoopback bool           `json:"allow_unauthenticated_loopback"`
 }
 
 type ExposureMode string

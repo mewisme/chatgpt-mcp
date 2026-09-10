@@ -231,6 +231,7 @@ func TestSaveManagedEnvironmentUsesSelectedConfig(t *testing.T) {
 	}
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}

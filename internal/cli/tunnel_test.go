@@ -35,6 +35,7 @@ func TestConfigureManagedTunnelRequiresSeparateRuntimeKey(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel.AdminKey = "admin-only"
 	cfg.Tunnel.AdminWorkspaceID = "ws_admin"
 	metadata := tunnel.Metadata{ID: "tunnel_test", OrganizationIDs: []string{"org_test"}}
@@ -73,6 +74,7 @@ func TestFetchTunnelStatusUsesPersistedMetadata(t *testing.T) {
 	}
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
 		t.Fatal(err)
 	}

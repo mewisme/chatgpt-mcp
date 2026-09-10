@@ -30,6 +30,7 @@ func TestValidateRequiresAtLeastOneMCPTransport(t *testing.T) {
 	cfg := Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Server.Enabled = false
 	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "at least one MCP transport") {
 		t.Fatalf("both transports disabled err=%v", err)
@@ -117,10 +118,85 @@ func TestValidateNetworkExposureRequiresExplicitInsecureHTTPOptIn(t *testing.T) 
 	}
 }
 
+func TestValidateUnauthenticatedLoopbackRequiresAcknowledgement(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "allow_unauthenticated_loopback") {
+		t.Fatalf("auth-off without acknowledgement = %v", err)
+	}
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("auth-off with acknowledgement and expose none rejected: %v", err)
+	}
+	cfg.Server.Expose = ExposureConfig{Mode: ExposureAll, Interfaces: []string{}}
+	cfg.Server.AllowInsecureHTTP = true
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "expose.mode=none") {
+		t.Fatalf("auth-off with acknowledgement and expose all = %v", err)
+	}
+}
+
+func TestValidateUnauthenticatedLoopbackAppliesPerEnabledEndpoint(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPTokenHash = "mcp"
+	cfg.Auth.AdminEnabled = false
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "allow_unauthenticated_loopback") {
+		t.Fatalf("admin auth-off without acknowledgement = %v", err)
+	}
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Admin.Enabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = false
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("disabled admin endpoint unnecessarily required acknowledgement: %v", err)
+	}
+}
+
+func TestShellPolicyWarnings(t *testing.T) {
+	cfg := Default()
+	if warnings := ShellPolicyWarnings(cfg); len(warnings) != 0 {
+		t.Fatalf("default warnings = %#v", warnings)
+	}
+	cfg.Shell.ApprovalPolicy = "allow"
+	warnings := ShellPolicyWarnings(cfg)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "approval_policy=allow") {
+		t.Fatalf("allow warnings = %#v", warnings)
+	}
+	cfg.Shell.SandboxPolicy = "off"
+	warnings = ShellPolicyWarnings(cfg)
+	if len(warnings) != 2 || !strings.Contains(warnings[1], "WARNING: shell.sandbox_policy=off") || !strings.Contains(warnings[1], "application-level workspace policy is not an OS sandbox") {
+		t.Fatalf("allow+off warnings = %#v", warnings)
+	}
+	cfg.Shell.NetworkPolicy = "inherit"
+	warnings = ShellPolicyWarnings(cfg)
+	if len(warnings) != 3 || !strings.Contains(warnings[2], "dangerous combination") {
+		t.Fatalf("dangerous combination warnings = %#v", warnings)
+	}
+}
+
+func TestSecurityWarningsIncludeCleartextHTTP(t *testing.T) {
+	cfg := Default()
+	if warnings := SecurityWarnings(cfg); len(warnings) != 0 {
+		t.Fatalf("default security warnings = %#v", warnings)
+	}
+	cfg.Server.Expose.Mode = ExposureAll
+	cfg.Server.AllowInsecureHTTP = true
+	warnings := SecurityWarnings(cfg)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "cleartext HTTP") {
+		t.Fatalf("cleartext warnings = %#v", warnings)
+	}
+	if !CleartextHTTPActive(cfg) {
+		t.Fatal("expected cleartext HTTP active")
+	}
+}
+
 func TestValidateBuiltinOpenAITunnel(t *testing.T) {
 	cfg := Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel.Enabled = true
 	if err := Validate(cfg); err == nil {
 		t.Fatal("expected missing tunnel id/api key validation error")
@@ -136,6 +212,14 @@ func TestValidateBuiltinOpenAITunnel(t *testing.T) {
 	cfg.Tunnel.ControlPlaneBaseURL = "not-a-url"
 	if err := Validate(cfg); err == nil {
 		t.Fatal("expected invalid control plane URL")
+	}
+	cfg.Tunnel.ControlPlaneBaseURL = "http://api.openai.com"
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected non-loopback http control plane URL")
+	}
+	cfg.Tunnel.ControlPlaneBaseURL = "http://127.0.0.1:8080"
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -324,6 +408,7 @@ func TestValidatePonytailDefaultMode(t *testing.T) {
 	cfg := Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	for _, mode := range []string{"lite", "full", "ultra"} {
 		cfg.Features.Ponytail.Mode = mode
 		if err := Validate(cfg); err != nil {
@@ -342,6 +427,7 @@ func TestValidateCavemanDefaultMode(t *testing.T) {
 	cfg := Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	for _, mode := range []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"} {
 		cfg.Features.Caveman.Mode = mode
 		if err := Validate(cfg); err != nil {
@@ -740,6 +826,7 @@ func TestConfigSaveRollsBackMainConfigWhenTunnelSecretWriteFails(t *testing.T) {
 	cfg := Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel.APIKey = "new-secret"
 	called := false
 	if err := saveAtWithSecretSaver(configPath, secretPath, cfg, func(path string, value tunnel.Config) error {
@@ -790,6 +877,7 @@ func TestConfigSaveDoesNotTouchTunnelSecretWhenMainConfigWriteFails(t *testing.T
 	cfg := Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel.APIKey = "new-secret"
 	if err := saveAt(configPath, secretPath, cfg); err == nil {
 		t.Fatal("expected main config write failure")

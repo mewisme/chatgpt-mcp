@@ -183,6 +183,7 @@ func TestRuntimeMCPHTTPStoppedTogglePersistsAndRespectsTransportInvariant(t *tes
 	}
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel.Enabled, cfg.Tunnel.ID, cfg.Tunnel.APIKey = true, "tunnel_test", "tunnel-key"
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)

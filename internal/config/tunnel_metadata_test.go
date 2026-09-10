@@ -23,6 +23,7 @@ func TestTunnelMetadataRoundTripAcrossFormats(t *testing.T) {
 			}
 			cfg := Default()
 			cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+			cfg.Server.AllowUnauthenticatedLoopback = true
 			if err := SaveAs(cfg, format); err != nil {
 				t.Fatal(err)
 			}
@@ -59,6 +60,7 @@ func TestSyncTunnelMetadataCreatesMissingPersistedFile(t *testing.T) {
 	}
 	cfg := Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	if err := SaveAs(cfg, configformat.YAML); err != nil {
 		t.Fatal(err)
 	}

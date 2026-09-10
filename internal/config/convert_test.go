@@ -112,7 +112,7 @@ func TestConvertFormatAtRepairsMixedStructuredFormats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("config.json", `{"server":{"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`)
+	write("config.json", `{"server":{"port":37421,"allow_unauthenticated_loopback":true,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"tunnel":{"enabled":false}}`)
 	write("tunnel.toml", `api_key = 'secret'`)
 	write("workspaces.yaml", "[]\n")
 

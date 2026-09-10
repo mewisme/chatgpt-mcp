@@ -11,9 +11,10 @@ import (
 )
 
 type VerifyResult struct {
-	Format configformat.Format
-	Ext    string
-	Files  int
+	Format   configformat.Format
+	Ext      string
+	Files    int
+	Warnings []string
 }
 
 func Verify() (VerifyResult, error) {
@@ -66,7 +67,7 @@ func verifyAt(root string, runtimeMode bool) (VerifyResult, error) {
 	if err := Validate(cfg); err != nil {
 		return VerifyResult{}, err
 	}
-	return VerifyResult{Format: source.Format, Ext: source.Ext, Files: len(files)}, nil
+	return VerifyResult{Format: source.Format, Ext: source.Ext, Files: len(files), Warnings: SecurityWarnings(cfg)}, nil
 }
 
 func isCheckpointStateFile(root, path string) bool {

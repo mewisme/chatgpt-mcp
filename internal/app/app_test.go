@@ -16,7 +16,10 @@ import (
 
 func TestNewSharesToolRuntime(t *testing.T) {
 	cfg := config.Default()
-	app := New(cfg)
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if app.Tools == nil || app.MCP == nil || app.MCP.Server == nil {
 		t.Fatal("app runtime was not initialized")
 	}
@@ -40,7 +43,10 @@ func TestTunnelOnlyRuntimeDoesNotCreateMCPHTTPRuntime(t *testing.T) {
 	cfg.Tunnel.Enabled = true
 	cfg.Tunnel.ID = "tunnel_test"
 	cfg.Tunnel.APIKey = "runtime-secret"
-	app := New(cfg)
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if app.MCP != nil || app.Tools == nil || app.Tunnel == nil {
 		t.Fatalf("tunnel-only runtime MCP=%#v tools=%#v tunnel=%#v", app.MCP, app.Tools, app.Tunnel)
 	}
@@ -55,7 +61,11 @@ func TestReloadConfigSwitchesMCPHTTPRuntime(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
-	app := New(cfg)
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	next := cfg
 	next.Server.Enabled = false
 	next.Tunnel.Enabled = true
@@ -80,7 +90,10 @@ func TestReloadConfigSwitchesMCPHTTPRuntime(t *testing.T) {
 func TestNewKeepsControllerToolsWhenFeatureInactive(t *testing.T) {
 	cfg := config.Default()
 	cfg.Features.Ponytail.Active = false
-	app := New(cfg)
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
 		t.Fatal("inactive ponytail controller tool missing")
 	}
@@ -96,12 +109,19 @@ func TestHandlersHonorDisabledAuthentication(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
-	app := New(cfg)
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	mcpRecorder := httptest.NewRecorder()
 	app.MCPHandler().ServeHTTP(mcpRecorder, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if mcpRecorder.Code != http.StatusOK {
 		t.Fatalf("MCP auth-disabled health = %d", mcpRecorder.Code)
+	}
+	if body := mcpRecorder.Body.String(); body != `{"ok":true}` || strings.Contains(body, "auth_enabled") {
+		t.Fatalf("MCP health body = %q", body)
 	}
 
 	adminRecorder := httptest.NewRecorder()
@@ -115,7 +135,10 @@ func TestHandlersRequireEnabledAuthentication(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = auth.HashToken("mcp-test")
 	cfg.Auth.AdminTokenHash = auth.HashToken("admin-test")
-	app := New(cfg)
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	mcpRecorder := httptest.NewRecorder()
 	app.MCPHandler().ServeHTTP(mcpRecorder, httptest.NewRequest(http.MethodPost, "/mcp", nil))
@@ -134,13 +157,17 @@ func TestHandlersReadAuthenticationFromRuntimeConfigStore(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = auth.HashToken("mcp-test")
 	cfg.Auth.AdminTokenHash = auth.HashToken("admin-test")
-	app := New(cfg)
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mcpHandler := app.MCPHandler()
 	adminHandler := app.AdminHandler()
 
 	if _, err := app.Config.Update(func(next config.Config) (config.Config, error) {
 		next.Auth.MCPEnabled = false
 		next.Auth.AdminEnabled = false
+		next.Server.AllowUnauthenticatedLoopback = true
 		return next, nil
 	}); err != nil {
 		t.Fatal(err)
@@ -182,7 +209,10 @@ func TestBootstrapRewiresToolRuntime(t *testing.T) {
 func TestAdminHandlerSharesApprovalManager(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.AdminEnabled = false
-	app := New(cfg)
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	challenge, _, err := app.Tools.Approvals.CreateChallenge(approval.ChallengeInput{SessionID: "session-a", SessionHash: "hash-a", WorkspaceID: "ws_test", Source: "tunnel", TargetTool: "run_command", Arguments: map[string]any{"workspace_id": "ws_test", "command": "cgm update"}, GuardCode: controlguard.CodeControlPlaneMutation, GuardReason: "guarded", Title: "Allow cgm update"})
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +233,10 @@ func TestAdminHandlerSharesApprovalManager(t *testing.T) {
 func TestTunnelLifecyclePublishesActivityFromSourceObserver(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tunnel.Enabled = true
-	app := New(cfg)
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := app.Start(context.Background()); err == nil {
 		t.Fatal("expected invalid tunnel configuration to fail")
 	}
@@ -237,7 +270,7 @@ func (*lifecycleUpstreamClient) PID(string) int { return 0 }
 func TestStopShutsDownUpstreamConnections(t *testing.T) {
 	client := &lifecycleUpstreamClient{}
 	manager := upstream.NewManagerWithClient(nil, client)
-	if err := manager.Add(upstream.Server{ID: "one", Name: "One", Enabled: true, Transport: "http", URL: "http://example.test/mcp"}); err != nil {
+	if err := manager.Add(upstream.Server{ID: "one", Name: "One", Enabled: true, Transport: "http", URL: "https://example.test/mcp"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := (&App{Upstream: manager}).Stop(); err != nil {

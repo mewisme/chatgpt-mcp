@@ -85,6 +85,7 @@ func TestRuntimeLoadStillRequiresRuntimeSecretWhenTunnelEnabled(t *testing.T) {
 	secretPath := filepath.Join(root, "tunnel.json")
 	cfg := Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel.Enabled = true
 	cfg.Tunnel.ID = "tunnel_test"
 	configData, err := configformat.MarshalPath(configPath, cfg)
@@ -118,6 +119,7 @@ func writeTunnelRecoveryFixture(t *testing.T, configPath, secretPath string, sto
 	t.Helper()
 	cfg := Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	configData, err := configformat.MarshalPath(configPath, cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -125,12 +125,21 @@ Rebind is transactional. If a requested port/address cannot be opened, the previ
 cgm config migrate
 ```
 
-This moves legacy plaintext tunnel keys, OAuth credentials, and sensitive upstream header/environment values into the per-config-root secret-file store and rewrites structured state with non-secret `<secret-file>` markers. Normal credential-loading paths also migrate automatically. The secret store has no OS-keyring dependency; migration fails rather than retaining a reversible secret in structured config when the secret file cannot be written safely.
+This moves legacy plaintext tunnel keys, OAuth credentials, and sensitive upstream header/environment values into the per-config-root secret-file store and rewrites structured state with non-secret `<secret-file>` markers. Normal credential-loading paths also migrate automatically. The secret store encrypts values at rest (AES-256-GCM) under a per-root master key and has no OS-keyring dependency; migration fails rather than retaining a reversible secret in structured config when the secret file cannot be written safely.
+
+Encrypt existing plaintext secret files:
+
+```bash
+cgm config migrate secrets
+```
+
+New secret writes are encrypted automatically. Reading a legacy plaintext secret file also rewrites it encrypted when possible.
 
 ## Verify config/state
 
 ```bash
 cgm config verify
+cgm config verify --strict
 cgm config validate
 ```
 
@@ -142,6 +151,8 @@ Verification checks:
 - managed structured files use the expected format/extension
 - files decode successfully
 - loaded runtime configuration passes semantic validation
+
+By default, dangerous shell-policy combinations and active unauthenticated loopback emit warnings without failing. `--strict` fails when any warning is present.
 
 ## Convert formats
 
@@ -283,7 +294,30 @@ Authorization: Bearer <token>
 
 MCP and Admin authentication are independent policies except for wildcard exposure, which requires both.
 
+Disabling authentication while an HTTP endpoint remains enabled requires:
+
+```bash
+cgm config set server.allow_unauthenticated_loopback true
+cgm auth mcp disable
+```
+
+The acknowledgement is valid only with `server.expose.mode=none`. Prefer keeping authentication enabled.
+
 The Admin UI skips its login screen when Admin authentication is disabled.
+
+## Dangerous combinations
+
+Shell policy values can be combined in ways that remove multiple controls at once. Prefer balanced/strict defaults.
+
+| Setting | Safer default | Dangerous drift |
+| --- | --- | --- |
+| `shell.approval_policy` | `balanced` | `allow` |
+| `shell.sandbox_policy` | `auto` | `off` |
+| `shell.network_policy` | `auto` | `inherit` with approval `allow` and sandbox `off` |
+
+`cgm config verify` warns about these combinations. Use `cgm config verify --strict` in CI or before enabling network exposure.
+
+See [Security](security.md#dangerous-combinations) for the full matrix, including unauthenticated loopback acknowledgement rules.
 
 ## Workspace filesystem scope
 

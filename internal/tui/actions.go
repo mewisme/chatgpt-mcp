@@ -132,6 +132,7 @@ func configActions() []action.Action {
 		configAction("config.edit", "Edit config field", "Edit the selected typed configuration field", []string{"config", "edit", "set", "field"}, []string{"config", "set"}, tuipage.ConfigEdit),
 		configAction("config.verify", "Verify config", "Verify structured config/state format consistency and configuration validity", []string{"config", "verify", "validate"}, []string{"config", "verify"}, tuipage.ConfigVerify),
 		configAction("config.migrate", "Migrate config secrets", "Migrate legacy plaintext credentials into the secret store", []string{"config", "migrate", "secrets"}, []string{"config", "migrate"}, tuipage.ConfigMigrate),
+		configAction("config.migrate.secrets", "Encrypt secret files", "Encrypt plaintext secret-store files at rest", []string{"config", "migrate", "secrets", "encrypt"}, []string{"config", "migrate", "secrets"}, tuipage.ConfigMigrateSecrets),
 		editorNavigationAction("config.convert", "Convert config format", "Config", "Convert structured config/state files between JSON, YAML, and TOML", []string{"config", "convert", "transform", "format"}, []string{"config", "convert"}, func(ctx action.Context) bool { return ctx.Route == string(RouteConfig) }, func(action.Context) Route { return Route{Kind: RouteConfig, Section: "storage", Action: "convert"} }),
 		editorNavigationAction("config.export", "Export config bundle", "Config", "Export portable configuration, state, and secrets into a sealed bundle", []string{"config", "export", "bundle", "backup"}, []string{"config", "export"}, func(ctx action.Context) bool { return ctx.Route == string(RouteConfig) }, func(action.Context) Route { return Route{Kind: RouteConfig, Section: "storage", Action: "export"} }),
 		editorNavigationAction("config.import", "Import config bundle", "Config", "Import a portable configuration bundle and restore its secrets", []string{"config", "import", "bundle", "restore"}, []string{"config", "import"}, func(ctx action.Context) bool { return ctx.Route == string(RouteConfig) }, func(action.Context) Route { return Route{Kind: RouteConfig, Section: "storage", Action: "import"} }),
@@ -157,6 +158,8 @@ func requestActions() []action.Action {
 		requestAction("request.show.all", "Show all requests", "Show pending and historical approval requests", []string{"request", "all", "filter"}, []string{"request", "list"}, tuipage.RequestShowAll, false),
 		requestAction("request.approve", "Approve request", "Approve the selected pending control request", []string{"request", "approve", "allow", "accept"}, []string{"request", "approve"}, tuipage.RequestApprove, false),
 		requestAction("request.deny", "Deny request", "Deny the selected pending control request", []string{"request", "deny", "reject"}, []string{"request", "deny"}, tuipage.RequestDeny, false),
+		requestAction("request.grant.list", "List runtime grants", "List active similar-command runtime session grants", []string{"request", "grant", "list", "similar"}, []string{"request", "grant", "list"}, tuipage.RequestGrantList, false),
+		requestAction("request.grant.revoke", "Revoke runtime grant", "Revoke the selected similar-command runtime session grant", []string{"request", "grant", "revoke", "similar"}, []string{"request", "grant", "revoke"}, tuipage.RequestGrantRevoke, true),
 	}
 }
 

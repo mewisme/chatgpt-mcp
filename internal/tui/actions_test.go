@@ -255,7 +255,7 @@ func TestConfigActionAvailabilityFollowsRouteContext(t *testing.T) {
 		return false
 	}
 	ctx := action.Context{Route: string(RouteConfig)}
-	for _, id := range []string{"config.refresh", "config.edit", "config.verify", "config.migrate", "config.convert", "config.export", "config.import"} {
+	for _, id := range []string{"config.refresh", "config.edit", "config.verify", "config.migrate", "config.migrate.secrets", "config.convert", "config.export", "config.import"} {
 		if !has(ctx, id) {
 			t.Fatalf("config action missing: %s", id)
 		}

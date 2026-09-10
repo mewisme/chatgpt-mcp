@@ -168,11 +168,13 @@ func (page *LogsPage) OverlayActive() bool {
 	return page != nil && page.overlay != logsOverlayNone
 }
 func (page *LogsPage) InputActive() bool {
-	return page != nil && (page.editor != nil || page.tab == logsTabRuntime && page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.editor != nil || page.exec.scopeEditor != nil || page.tab == logsTabRuntime && page.resourceID == "" && page.browser.InputActive())
 }
-func (page *LogsPage) Dirty() bool { return page != nil && page.editor != nil && page.editor.Dirty() }
+func (page *LogsPage) Dirty() bool {
+	return page != nil && (page.editor != nil && page.editor.Dirty() || page.exec.scopeEditor != nil && page.exec.scopeEditor.Dirty())
+}
 func (page *LogsPage) Submitting() bool {
-	return page != nil && page.editor != nil && page.editor.Submitting()
+	return page != nil && (page.editor != nil && page.editor.Submitting() || page.exec.scopeEditor != nil && page.exec.scopeEditor.Submitting())
 }
 
 func (page *LogsPage) Notice() string {
@@ -242,8 +244,14 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, tea.Batch(browserCmd, page.startBootstrap())
 	case component.EditorSubmitMsg:
+		if page.exec.scopeEditor != nil {
+			return page, page.submitExecutionScopeEditor()
+		}
 		return page, page.submitFilterEditor()
 	case component.EditorCancelMsg:
+		if page.exec.scopeEditor != nil {
+			return page, page.closeExecutionScopeEditor()
+		}
 		return page, page.closeFilterEditor()
 	case component.ConfirmChoiceMsg:
 		if page.overlay == logsOverlayConfirm {
@@ -260,6 +268,10 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, nil
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
+		if page.exec.scopeEditor != nil {
+			page.resizeExecutionScopeEditor()
+			return page, nil
+		}
 		if page.editor != nil {
 			page.resizeFilterEditor()
 			return page, nil
@@ -285,6 +297,11 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.editor != nil {
 			updated, cmd := page.editor.Update(msg)
 			page.editor = &updated
+			return page, cmd
+		}
+		if page.exec.scopeEditor != nil {
+			updated, cmd := page.exec.scopeEditor.Update(msg)
+			page.exec.scopeEditor = &updated
 			return page, cmd
 		}
 		if page.overlay == logsOverlayConfirm {
@@ -321,6 +338,11 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.editor = &updated
 		return page, cmd
 	}
+	if page.exec.scopeEditor != nil {
+		updated, cmd := page.exec.scopeEditor.Update(message)
+		page.exec.scopeEditor = &updated
+		return page, cmd
+	}
 	if page.tab == logsTabCommandExec {
 		return page, nil
 	}
@@ -344,7 +366,9 @@ func (page *LogsPage) View(width, height int) string {
 	}
 	page.width, page.height = width, height
 	var content string
-	if page.editor != nil {
+	if page.exec.scopeEditor != nil {
+		content = page.executionScopeEditorView(width, height)
+	} else if page.editor != nil {
 		content = page.filterEditorView(width, height)
 	} else if page.resourceID != "" {
 		page.detail.SetFeedback(page.notice, page.err)
@@ -404,6 +428,9 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 78), page.width, page.height, originX, originY, z+20)
 	case logsOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
+	}
+	if page.exec.scopeEditor != nil {
+		return page.executionScopeEditorMouseTargets(originX, originY, z)
 	}
 	if page.editor != nil {
 		return page.filterEditorMouseTargets(originX, originY, z)

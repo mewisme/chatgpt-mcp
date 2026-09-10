@@ -100,6 +100,7 @@ func (page *LogsPage) moveLogsTab(delta int) tea.Cmd {
 
 func (page *LogsPage) startExecutionFeed() tea.Cmd {
 	page.stopExecutionFeed()
+	page.refreshExecutionScope()
 	page.exec.generation++
 	generation := page.exec.generation
 	ctx, cancel := context.WithCancel(page.ctx)
@@ -138,6 +139,7 @@ func (page *LogsPage) finishExecutionFeedOpen(msg logsExecutionOpenMsg) tea.Cmd 
 	snapshot := msg.stream.Snapshot()
 	page.exec.latestSeq = snapshot.LatestSequence
 	page.exec.events = trimExecutionFeed(snapshot.Events)
+	page.refreshExecutionScope()
 	page.exec.notice, page.exec.err = "", nil
 	page.refreshExecutionViewport()
 	return page.nextExecutionEventCmd(msg.generation)
@@ -198,6 +200,8 @@ func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "r":
 		return page.startExecutionFeed()
+	case "f":
+		return page.openExecutionScopeEditor()
 	case "c":
 		page.exec.events = nil
 		page.exec.notice = "Command stream view cleared"
@@ -216,7 +220,7 @@ func (page *LogsPage) resizeExecutionViewport(width, height int) {
 	offset := page.exec.viewport.YOffset()
 	page.exec.viewport.SetWidth(max(1, width))
 	page.exec.viewport.SetHeight(max(1, height))
-	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.exec.events), max(1, width)))
+	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.visibleExecutionEvents()), max(1, width)))
 	if !page.exec.paused {
 		page.exec.viewport.GotoBottom()
 		return
@@ -226,10 +230,14 @@ func (page *LogsPage) resizeExecutionViewport(width, height int) {
 }
 
 func (page *LogsPage) refreshExecutionViewport() {
-	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.exec.events), max(1, page.exec.viewport.Width())))
+	offset := page.exec.viewport.YOffset()
+	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.visibleExecutionEvents()), max(1, page.exec.viewport.Width())))
 	if !page.exec.paused {
 		page.exec.viewport.GotoBottom()
+		return
 	}
+	maxOffset := max(0, page.exec.viewport.TotalLineCount()-page.exec.viewport.Height())
+	page.exec.viewport.SetYOffset(min(offset, maxOffset))
 }
 
 func (page *LogsPage) executionStatusView(width int) string {
@@ -247,16 +255,15 @@ func (page *LogsPage) executionStatusView(width int) string {
 	if page.exec.paused {
 		follow = component.ToneText("○ PAUSED", component.ToneWarning)
 	}
-	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.exec.events), logsExecutionFeedCap))
-	return component.TwoColumn(left, component.KeyValue("Mode", "combined"), width)
+	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.visibleExecutionEvents()), logsExecutionFeedCap))
+	return component.TwoColumn(left, component.KeyValue("Mode", page.executionScopeLabel()), width)
 }
 
 func (page *LogsPage) executionHelpView(width int) string {
 	return component.NewHelpFooter(
 		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"),
-		component.Binding([]string{"j", "k", "up", "down"}, "j/k", "scroll"),
 		component.Binding([]string{"space"}, "space", executionFollowLabel(page.exec.paused)),
-		component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
+		component.Binding([]string{"f"}, "f", "scope"), component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
 	).View(width)
 }
 
@@ -275,7 +282,7 @@ func (page *LogsPage) executionBodyView(width, height int) string {
 	bodyHeight := max(1, height-reserved)
 	page.resizeExecutionViewport(width, bodyHeight)
 	body := page.exec.viewport.View()
-	if strings.TrimSpace(formatExecutionFeed(page.exec.events)) == "" {
+	if strings.TrimSpace(formatExecutionFeed(page.visibleExecutionEvents())) == "" {
 		empty := page.exec.viewport
 		empty.SetContent(component.Muted("Waiting for command output"))
 		body = empty.View()

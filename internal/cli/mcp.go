@@ -15,23 +15,24 @@ import (
 )
 
 type upstreamFlags struct {
-	name              string
-	transport         string
-	enabled           bool
-	command           string
-	args              []string
-	env               []string
-	cwd               string
-	url               string
-	headers           []string
-	bearerTokenEnvVar string
-	authType          string
-	authScope         string
-	toolPrefix        string
-	expose            string
-	tools             []string
-	disabledTools     []string
-	idleTimeout       int
+	name                string
+	transport           string
+	enabled             bool
+	command             string
+	args                []string
+	env                 []string
+	cwd                 string
+	url                 string
+	headers             []string
+	bearerTokenEnvVar   string
+	authType            string
+	authScope           string
+	toolPrefix          string
+	expose              string
+	tools               []string
+	disabledTools       []string
+	idleTimeout         int
+	allowPrivateNetwork bool
 }
 
 func mcpCommand() *cobra.Command {
@@ -309,6 +310,9 @@ func logUpstreamServer(log interface {
 	log.Detail("expose", server.Expose)
 	log.Detail("tool prefix", server.ToolPrefix)
 	log.Detail("idle timeout", fmt.Sprintf("%ds", server.IdleTimeoutSec))
+	if server.AllowPrivateNetwork {
+		log.Detail("allow private network", true)
+	}
 	if server.CWD != "" {
 		log.Detail("cwd", server.CWD)
 	}
@@ -441,6 +445,7 @@ func bindUpstreamFlags(cmd *cobra.Command, flags *upstreamFlags, create bool) {
 	cmd.Flags().StringSliceVar(&flags.tools, "tool", nil, "allowlisted upstream tool")
 	cmd.Flags().StringSliceVar(&flags.disabledTools, "disable-tool", nil, "hidden upstream tool")
 	cmd.Flags().IntVar(&flags.idleTimeout, "idle-timeout", 0, "idle timeout in seconds")
+	cmd.Flags().BoolVar(&flags.allowPrivateNetwork, "allow-private-network", false, "allow loopback/private upstream URLs for this server")
 	if create {
 		_ = cmd.MarkFlagRequired("transport")
 	}
@@ -506,6 +511,9 @@ func applyUpstreamFlags(cmd *cobra.Command, server upstream.Server, flags upstre
 	}
 	if cmd.Flags().Changed("idle-timeout") {
 		server.IdleTimeoutSec = flags.idleTimeout
+	}
+	if cmd.Flags().Changed("allow-private-network") {
+		server.AllowPrivateNetwork = flags.allowPrivateNetwork
 	}
 	return upstream.NormalizeServer(server)
 }

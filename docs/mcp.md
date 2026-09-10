@@ -197,6 +197,9 @@ Useful add/configure controls include:
 - `--header KEY=VALUE` for HTTP headers
 - `--env KEY=VALUE` for stdio environments
 - `--idle-timeout <seconds>`
+- `--allow-private-network` to permit loopback/private HTTP upstream URLs for that server only
+
+HTTP upstream URLs are subject to an outbound SSRF policy: userinfo is rejected, non-loopback targets must use HTTPS, and private/link-local/metadata addresses are blocked unless `allow_private_network` is set. Redirects and dialed IPs are re-validated. Configured headers are allowlisted (for example `Authorization`, `Accept`, `Content-Type`, `User-Agent`, `X-*`, `Mcp-*`); hop-by-hop headers such as `Host` and values containing CR/LF are rejected. See [Security](security.md#upstream-http-outbound-policy).
 
 Update selected fields with:
 

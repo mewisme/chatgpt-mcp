@@ -22,6 +22,7 @@ import (
 	"time"
 
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	"go.mewis.me/chatgpt-mcp/internal/outboundpolicy"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
@@ -95,7 +96,6 @@ type Client interface {
 type NativeClient struct {
 	mu          sync.Mutex
 	connections map[string]*rpcConnection
-	httpClient  *http.Client
 	oauth       *mcpoauth.Store
 	trace       tracepkg.Observer
 }
@@ -158,7 +158,7 @@ func NewNativeClientWithOAuthStore(store *mcpoauth.Store) *NativeClient {
 	if store == nil {
 		store = mcpoauth.NewStore(mcpoauth.Path())
 	}
-	return &NativeClient{connections: map[string]*rpcConnection{}, httpClient: &http.Client{Timeout: 0}, oauth: store}
+	return &NativeClient{connections: map[string]*rpcConnection{}, oauth: store}
 }
 
 func (c *NativeClient) SetTraceObserver(observer tracepkg.Observer) {
@@ -439,7 +439,12 @@ func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rp
 				return nil, err
 			}
 		}
-		connection.http = &httpTransport{url: server.URL, headers: headers, client: c.httpClient}
+		clientOpts := outboundpolicy.Options{AllowPrivate: server.AllowPrivateNetwork}
+		if err := outboundpolicy.ValidateURL(ctx, server.URL, clientOpts); err != nil {
+			span.FailMessage("Upstream transport creation failed", err)
+			return nil, err
+		}
+		connection.http = &httpTransport{url: server.URL, headers: headers, client: outboundpolicy.NewHTTPClient(clientOpts)}
 	}
 	negotiateSpan := tracepkg.Start(ctx, "MCP", "upstream.protocol.negotiate", "Negotiating upstream MCP protocol", tracepkg.String("server", server.ID), tracepkg.String("transport", server.Transport))
 	if err := connection.negotiate(ctx); err != nil {

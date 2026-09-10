@@ -48,7 +48,7 @@ func TestUpstreamOAuthAdminFlowDoesNotExposeTokens(t *testing.T) {
 	defer authServer.Close()
 
 	manager := upstream.NewManagerWithClient(nil, &adminUpstreamClient{})
-	if err := manager.Add(upstream.Server{ID: "secure", Name: "Secure", Transport: "http", Enabled: true, URL: authServer.URL + "/mcp", Auth: upstream.AuthConfig{Type: "oauth"}}); err != nil {
+	if err := manager.Add(upstream.Server{ID: "secure", Name: "Secure", Transport: "http", Enabled: true, URL: authServer.URL + "/mcp", Auth: upstream.AuthConfig{Type: "oauth"}, AllowPrivateNetwork: true}); err != nil {
 		t.Fatal(err)
 	}
 	store := mcpoauth.NewStoreWithClient(filepath.Join(t.TempDir(), "oauth.json"), authServer.Client())

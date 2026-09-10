@@ -40,7 +40,7 @@ func TestMCPBridgeAndProxyRegistration(t *testing.T) {
 	}
 	manager := upstream.NewManagerWithClient(nil, client)
 	if err := manager.Add(upstream.Server{
-		ID: "demo", Name: "Demo", Enabled: true, Transport: "http", URL: "http://example.test", Expose: "all",
+		ID: "demo", Name: "Demo", Enabled: true, Transport: "http", URL: "https://example.test", Expose: "all",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestMCPCallNormalizesUpstreamError(t *testing.T) {
 		result: upstream.CallResult{Content: []upstream.Content{{Type: "text", Text: "bad"}}, IsError: true},
 	}
 	manager := upstream.NewManagerWithClient(nil, client)
-	if err := manager.Add(upstream.Server{ID: "demo", Enabled: true, Transport: "http", URL: "http://example.test", Expose: "all"}); err != nil {
+	if err := manager.Add(upstream.Server{ID: "demo", Enabled: true, Transport: "http", URL: "https://example.test", Expose: "all"}); err != nil {
 		t.Fatal(err)
 	}
 	registry := NewRegistry()
@@ -133,7 +133,7 @@ func TestUpstreamToolSubscriptionRefreshesDynamicProxy(t *testing.T) {
 	}
 	manager := upstream.NewManagerWithClient(nil, client)
 	if err := manager.Add(upstream.Server{
-		ID: "demo", Name: "Demo", Enabled: true, Transport: "http", URL: "http://example.test", Expose: "all",
+		ID: "demo", Name: "Demo", Enabled: true, Transport: "http", URL: "https://example.test", Expose: "all",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestUpstreamToolSubscriptionRefreshesDynamicProxy(t *testing.T) {
 func TestRefreshUpstreamProxiesPreservesCatalogOnTransientFailure(t *testing.T) {
 	client := &bridgeClient{tools: []upstream.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}}
 	manager := upstream.NewManagerWithClient(nil, client)
-	if err := manager.Add(upstream.Server{ID: "demo", Enabled: true, Transport: "http", URL: "http://example.test", Expose: "all"}); err != nil {
+	if err := manager.Add(upstream.Server{ID: "demo", Enabled: true, Transport: "http", URL: "https://example.test", Expose: "all"}); err != nil {
 		t.Fatal(err)
 	}
 	registry := NewRegistry()
@@ -206,7 +206,7 @@ func TestRefreshUpstreamProxiesRejectsCrossServerNameCollisionAtomically(t *test
 	client := &bridgeClient{tools: []upstream.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}}
 	manager := upstream.NewManagerWithClient(nil, client)
 	for _, id := range []string{"one", "two"} {
-		if err := manager.Add(upstream.Server{ID: id, Enabled: true, Transport: "http", URL: "http://example.test/" + id, Expose: "all", ToolPrefix: "shared"}); err != nil {
+		if err := manager.Add(upstream.Server{ID: id, Enabled: true, Transport: "http", URL: "https://example.test/" + id, Expose: "all", ToolPrefix: "shared"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -227,7 +227,7 @@ func TestRefreshUpstreamProxiesRejectsCrossServerNameCollisionAtomically(t *test
 func TestRefreshUpstreamProxiesRemovesDisabledServerOnSuccessfulSwap(t *testing.T) {
 	client := &bridgeClient{tools: []upstream.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}}
 	manager := upstream.NewManagerWithClient(nil, client)
-	server := upstream.Server{ID: "demo", Enabled: true, Transport: "http", URL: "http://example.test", Expose: "all"}
+	server := upstream.Server{ID: "demo", Enabled: true, Transport: "http", URL: "https://example.test", Expose: "all"}
 	if err := manager.Add(server); err != nil {
 		t.Fatal(err)
 	}

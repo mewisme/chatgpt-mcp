@@ -3,8 +3,11 @@ package upstream
 import (
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/outboundpolicy"
 )
 
 type AuthConfig struct {
@@ -13,23 +16,24 @@ type AuthConfig struct {
 }
 
 type Server struct {
-	ID                string            `json:"id"`
-	Name              string            `json:"name"`
-	Transport         string            `json:"transport"`
-	Enabled           bool              `json:"enabled"`
-	Command           string            `json:"command,omitempty"`
-	Args              []string          `json:"args,omitempty"`
-	Env               map[string]string `json:"env,omitempty"`
-	CWD               string            `json:"cwd,omitempty"`
-	URL               string            `json:"url,omitempty"`
-	Headers           map[string]string `json:"headers,omitempty"`
-	BearerTokenEnvVar string            `json:"bearer_token_env_var,omitempty"`
-	Auth              AuthConfig        `json:"auth,omitempty"`
-	ToolPrefix        string            `json:"tool_prefix,omitempty"`
-	Expose            string            `json:"expose,omitempty"`
-	Tools             []string          `json:"tools,omitempty"`
-	DisabledTools     []string          `json:"disabled_tools,omitempty"`
-	IdleTimeoutSec    int               `json:"idle_timeout_sec,omitempty"`
+	ID                  string            `json:"id"`
+	Name                string            `json:"name"`
+	Transport           string            `json:"transport"`
+	Enabled             bool              `json:"enabled"`
+	Command             string            `json:"command,omitempty"`
+	Args                []string          `json:"args,omitempty"`
+	Env                 map[string]string `json:"env,omitempty"`
+	CWD                 string            `json:"cwd,omitempty"`
+	URL                 string            `json:"url,omitempty"`
+	Headers             map[string]string `json:"headers,omitempty"`
+	BearerTokenEnvVar   string            `json:"bearer_token_env_var,omitempty"`
+	Auth                AuthConfig        `json:"auth,omitempty"`
+	ToolPrefix          string            `json:"tool_prefix,omitempty"`
+	Expose              string            `json:"expose,omitempty"`
+	Tools               []string          `json:"tools,omitempty"`
+	DisabledTools       []string          `json:"disabled_tools,omitempty"`
+	IdleTimeoutSec      int               `json:"idle_timeout_sec,omitempty"`
+	AllowPrivateNetwork bool              `json:"allow_private_network,omitempty"`
 }
 
 func SensitiveConfigKey(key string) bool {
@@ -100,6 +104,11 @@ func NormalizeServer(value Server) (Server, error) {
 	if value.Transport == "http" && value.URL == "" {
 		return Server{}, errors.New("http upstream requires url")
 	}
+	if value.Transport == "http" {
+		if err := validateUpstreamURLConfig(value.URL, value.AllowPrivateNetwork); err != nil {
+			return Server{}, err
+		}
+	}
 	value.ToolPrefix = invalidPrefix.ReplaceAllString(strings.TrimSpace(value.ToolPrefix), "_")
 	if value.ToolPrefix == "" {
 		value.ToolPrefix = invalidPrefix.ReplaceAllString(value.ID, "_")
@@ -135,6 +144,9 @@ func NormalizeServer(value Server) (Server, error) {
 	if value.Headers == nil {
 		value.Headers = map[string]string{}
 	}
+	if err := validateConfiguredHeaders(value.Headers); err != nil {
+		return Server{}, err
+	}
 	if value.Tools == nil {
 		value.Tools = []string{}
 	}
@@ -142,4 +154,62 @@ func NormalizeServer(value Server) (Server, error) {
 		value.DisabledTools = []string{}
 	}
 	return value, nil
+}
+
+func validateUpstreamURLConfig(raw string, allowPrivate bool) error {
+	parsed, err := outboundpolicy.ParseHTTPURL(raw)
+	if err != nil {
+		return err
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	loopback := strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
+	if parsed.Scheme != "https" && !loopback {
+		return errors.New("upstream URL must use HTTPS unless the host is loopback")
+	}
+	if loopback && !allowPrivate {
+		return errors.New("upstream URL targets loopback; set allow_private_network to permit")
+	}
+	if ip != nil && !allowPrivate && !outboundpolicy.IsPublicIP(ip) {
+		return fmt.Errorf("upstream URL uses disallowed address %s; set allow_private_network to permit private or loopback targets", ip)
+	}
+	return nil
+}
+
+func validateConfiguredHeaders(headers map[string]string) error {
+	for key, value := range headers {
+		if err := validateConfiguredHeader(key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateConfiguredHeader(name, value string) error {
+	if name == "" {
+		return errors.New("upstream header name is required")
+	}
+	if strings.ContainsAny(name, "\r\n") || strings.ContainsAny(value, "\r\n") {
+		return fmt.Errorf("upstream header %q contains CR/LF", name)
+	}
+	lower := strings.ToLower(strings.TrimSpace(name))
+	switch lower {
+	case "host", "transfer-encoding", "connection", "keep-alive", "upgrade", "te", "trailer":
+		return fmt.Errorf("upstream header %q is not allowed", name)
+	}
+	if strings.HasPrefix(lower, "proxy-") {
+		return fmt.Errorf("upstream header %q is not allowed", name)
+	}
+	if !allowedConfiguredHeader(lower) {
+		return fmt.Errorf("upstream header %q is not in the allowlist (Authorization, Accept, Content-Type, User-Agent, X-*, Mcp-*)", name)
+	}
+	return nil
+}
+
+func allowedConfiguredHeader(lower string) bool {
+	switch lower {
+	case "authorization", "accept", "content-type", "user-agent":
+		return true
+	}
+	return strings.HasPrefix(lower, "x-") || strings.HasPrefix(lower, "mcp-")
 }

@@ -53,7 +53,7 @@ func TestModernHTTPCallCancellationClosesUpstreamRequest(t *testing.T) {
 	defer server.Close()
 
 	client := NewNativeClient()
-	if err := client.Connect(context.Background(), Server{ID: "cancel", Enabled: true, Transport: "http", URL: server.URL, Auth: AuthConfig{Type: "none"}}); err != nil {
+	if err := client.Connect(context.Background(), Server{ID: "cancel", Enabled: true, Transport: "http", URL: server.URL, Auth: AuthConfig{Type: "none"}, AllowPrivateNetwork: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.Tools(context.Background(), "cancel"); err != nil {

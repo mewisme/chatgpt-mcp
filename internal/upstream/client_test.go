@@ -50,7 +50,7 @@ func TestHTTPModernToolsAndCall(t *testing.T) {
 	defer server.Close()
 
 	client := NewNativeClient()
-	config := Server{ID: "test", Name: "Test", Enabled: true, Transport: "http", URL: server.URL, Expose: "all"}
+	config := Server{ID: "test", Name: "Test", Enabled: true, Transport: "http", URL: server.URL, Expose: "all", AllowPrivateNetwork: true}
 	if err := client.Connect(context.Background(), config); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestHTTPModernMirrorsParamHeaders(t *testing.T) {
 	defer server.Close()
 
 	client := NewNativeClient()
-	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL}); err != nil {
+	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL, AllowPrivateNetwork: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.Call(context.Background(), "test", "echo", map[string]any{"region": "us-west1"}); err != nil {
@@ -224,7 +224,7 @@ func TestHTTPModernHeaderMismatchRefreshesSchemaAndRetries(t *testing.T) {
 	defer server.Close()
 
 	client := NewNativeClient()
-	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL}); err != nil {
+	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL, AllowPrivateNetwork: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.Tools(context.Background(), "test"); err != nil {
@@ -261,7 +261,7 @@ func TestHTTPModernProtocolError(t *testing.T) {
 	}))
 	defer server.Close()
 	client := NewNativeClient()
-	err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL})
+	err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL, AllowPrivateNetwork: true})
 	if err == nil {
 		t.Fatal("expected connect error")
 	}
@@ -310,7 +310,7 @@ func TestHTTPModernToolsChangedSubscription(t *testing.T) {
 	defer server.Close()
 
 	client := NewNativeClient()
-	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL}); err != nil {
+	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL, AllowPrivateNetwork: true}); err != nil {
 		t.Fatal(err)
 	}
 	err := client.ListenToolsChanged(context.Background(), "test", func() { changed <- struct{}{} })
@@ -356,7 +356,7 @@ func TestHTTPModernSubscriptionCancellationClosesStream(t *testing.T) {
 	defer server.Close()
 
 	client := NewNativeClient()
-	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL}); err != nil {
+	if err := client.Connect(context.Background(), Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL, AllowPrivateNetwork: true}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

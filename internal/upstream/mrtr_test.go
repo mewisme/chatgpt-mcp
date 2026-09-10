@@ -53,7 +53,7 @@ func TestCallWithInputRelaysMRTRParamsAndCapabilities(t *testing.T) {
 	ctx := WithRequestMeta(context.Background(), map[string]any{
 		"io.modelcontextprotocol/clientCapabilities": map[string]any{"elicitation": map[string]any{}},
 	})
-	if err := client.Connect(ctx, Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL}); err != nil {
+	if err := client.Connect(ctx, Server{ID: "test", Enabled: true, Transport: "http", URL: server.URL, AllowPrivateNetwork: true}); err != nil {
 		t.Fatal(err)
 	}
 	result, err := client.CallWithInput(ctx, "test", "confirm", map[string]any{}, "opaque-state", map[string]any{

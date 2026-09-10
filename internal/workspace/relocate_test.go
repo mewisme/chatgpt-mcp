@@ -202,7 +202,7 @@ func TestRelocateRollsBackStateRewriteWhenStateRenameFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	stateMap := decoded.(map[string]any)
-	if stateMap["workspace_id"] != item.ID || stateMap["cwd"] != filepath.Join(oldRoot, "nested") {
+	if stateMap["workspace_id"] != item.ID || stateMap["cwd"] != filepath.Join(item.Path, "nested") {
 		t.Fatalf("state was not rolled back: %#v", stateMap)
 	}
 }

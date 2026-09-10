@@ -89,14 +89,18 @@ func (page *LogsPage) switchLogsTab(tab logsTab) tea.Cmd {
 	if tab > logsTabCommandExec || page.resourceID != "" {
 		return nil
 	}
+	cleanup := tea.Cmd(nil)
+	if page.tab == logsTabCommandExec && tab != logsTabCommandExec {
+		cleanup = page.detachSelectedProcessCmd()
+	}
 	page.tab = tab
 	if tab == logsTabRuntime && !page.loaded && !page.loading {
-		return page.startBootstrap()
+		return tea.Batch(cleanup, page.startBootstrap())
 	}
 	if tab == logsTabCommandExec && !page.exec.loaded && !page.exec.loading {
 		return page.startExecutionFeed()
 	}
-	return nil
+	return cleanup
 }
 
 func (page *LogsPage) moveLogsTab(delta int) tea.Cmd {
@@ -145,11 +149,26 @@ func (page *LogsPage) finishExecutionFeedOpen(msg logsExecutionOpenMsg) tea.Cmd 
 	snapshot := msg.stream.Snapshot()
 	page.exec.latestSeq = snapshot.LatestSequence
 	page.exec.events = trimExecutionFeed(snapshot.Events)
+	page.syncSelectedProcessRunningFromEvents()
 	page.refreshExecutionScope()
 	page.exec.notice, page.exec.err = "", nil
 	page.refreshExecutionViewport()
 	page.restoreExecutionViewportOffset()
 	return page.nextExecutionEventCmd(msg.generation)
+}
+
+func (page *LogsPage) syncSelectedProcessRunningFromEvents() {
+	if page == nil || page.exec.processExecutionID == "" {
+		return
+	}
+	for index := len(page.exec.events) - 1; index >= 0; index-- {
+		event := page.exec.events[index]
+		if event.ExecutionID != page.exec.processExecutionID {
+			continue
+		}
+		page.exec.processRunning = event.Type != shellruntime.ExecutionEventCompleted
+		return
+	}
 }
 
 func (page *LogsPage) nextExecutionEventCmd(generation uint64) tea.Cmd {

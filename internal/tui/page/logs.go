@@ -114,16 +114,20 @@ type LogsPage struct {
 }
 
 type LogsSessionViewState struct {
-	Tab                  string
-	Options              application.LogsQueryOptions
-	Visibility           logger.Visibility
-	RuntimePaused        bool
-	RuntimeSelectedID    string
-	ExecutionScope       string
-	ExecutionWorkspaceID string
-	ExecutionContainerID string
-	ExecutionPaused      bool
-	ExecutionYOffset     int
+	Tab                         string
+	Options                     application.LogsQueryOptions
+	Visibility                  logger.Visibility
+	RuntimePaused               bool
+	RuntimeSelectedID           string
+	ExecutionScope              string
+	ExecutionWorkspaceID        string
+	ExecutionContainerID        string
+	ExecutionWorkspaceView      string
+	ExecutionProcessID          string
+	ExecutionProcessExecutionID string
+	ExecutionProcessRunning     bool
+	ExecutionPaused             bool
+	ExecutionYOffset            int
 }
 
 func NewLogs(ctx context.Context) (*LogsPage, error) {
@@ -173,6 +177,7 @@ func (page *LogsPage) Close() {
 	}
 	page.stopStream()
 	page.stopExecutionFeed()
+	page.cleanupSelectedFinishedProcess()
 	if page.cancel != nil {
 		page.cancel()
 	}
@@ -203,9 +208,15 @@ func (page *LogsPage) SessionViewState() any {
 	if page.exec.restoreYOffsetSet {
 		executionYOffset = page.exec.restoreYOffset
 	}
+	workspaceView := normalizeExecutionWorkspaceView(page.exec.workspaceView)
+	processID, processExecutionID, processRunning := page.exec.processID, page.exec.processExecutionID, page.exec.processRunning
+	if workspaceView == executionWorkspaceProcess && !processRunning {
+		workspaceView, processID, processExecutionID = executionWorkspaceCommands, "", ""
+	}
 	return LogsSessionViewState{
 		Tab: tab, Options: page.options, Visibility: page.visibility, RuntimePaused: page.paused, RuntimeSelectedID: page.selectedID(),
 		ExecutionScope: string(page.exec.scopeMode), ExecutionWorkspaceID: page.exec.workspaceID, ExecutionContainerID: page.exec.containerID,
+		ExecutionWorkspaceView: string(workspaceView), ExecutionProcessID: processID, ExecutionProcessExecutionID: processExecutionID, ExecutionProcessRunning: processRunning,
 		ExecutionPaused: page.exec.paused, ExecutionYOffset: executionYOffset,
 	}
 }
@@ -233,6 +244,13 @@ func (page *LogsPage) RestoreSessionViewState(value any) {
 	}
 	page.exec.workspaceID = strings.TrimSpace(state.ExecutionWorkspaceID)
 	page.exec.containerID = strings.TrimSpace(state.ExecutionContainerID)
+	page.exec.workspaceView = normalizeExecutionWorkspaceView(executionWorkspaceView(state.ExecutionWorkspaceView))
+	page.exec.processID = strings.TrimSpace(state.ExecutionProcessID)
+	page.exec.processExecutionID = strings.TrimSpace(state.ExecutionProcessExecutionID)
+	page.exec.processRunning = state.ExecutionProcessRunning
+	if page.exec.scopeMode != executionScopeWorkspace || page.exec.workspaceView != executionWorkspaceProcess || page.exec.processID == "" || page.exec.processExecutionID == "" {
+		page.exec.workspaceView, page.exec.processID, page.exec.processExecutionID, page.exec.processRunning = executionWorkspaceCommands, "", "", false
+	}
 	page.exec.paused = state.ExecutionPaused
 	page.exec.restoreYOffset, page.exec.restoreYOffsetSet = max(0, state.ExecutionYOffset), true
 	page.syncBrowserHelp()

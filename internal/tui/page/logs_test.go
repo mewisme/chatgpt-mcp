@@ -1,6 +1,7 @@
 package page
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -998,6 +999,105 @@ func TestSelectedProcessUsesExistingExecutionRenderer(t *testing.T) {
 	view = formatExecutionFeed(page.visibleExecutionEvents(), 80)
 	if !strings.Contains(view, "END") || !strings.Contains(view, "Status  success") || !strings.Contains(view, "Exit  0") {
 		t.Fatalf("completed process view=%q", view)
+	}
+}
+
+func TestFinishedProcessCleanupOnlyRunsAfterDetach(t *testing.T) {
+	oldDelete := deleteFinishedProcess
+	defer func() { deleteFinishedProcess = oldDelete }()
+	called := make(chan string, 1)
+	deleteFinishedProcess = func(_ context.Context, workspaceID, processID string) error {
+		called <- workspaceID + "/" + processID
+		return nil
+	}
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.exec.scopeMode, page.exec.workspaceID, page.exec.workspaceView = executionScopeWorkspace, "ws_a", executionWorkspaceProcess
+	page.exec.processID, page.exec.processExecutionID, page.exec.processRunning = "proc_a", "exec_a", false
+	cmd := page.switchLogsTab(logsTabRuntime)
+	if cmd == nil {
+		t.Fatal("finished process detach returned no cleanup command")
+	}
+	message := cmd()
+	if batch, ok := message.(tea.BatchMsg); ok {
+		for _, item := range batch {
+			if item != nil {
+				_ = item()
+			}
+		}
+	}
+	select {
+	case got := <-called:
+		if got != "ws_a/proc_a" {
+			t.Fatalf("cleanup target=%q", got)
+		}
+	default:
+		t.Fatal("finished process was not cleaned up")
+	}
+	if page.exec.workspaceView != executionWorkspaceCommands || page.exec.processID != "" {
+		t.Fatalf("detached process state=%#v", page.exec)
+	}
+}
+
+func TestRunningProcessDetachNeverCleansOrStopsProcess(t *testing.T) {
+	oldDelete := deleteFinishedProcess
+	defer func() { deleteFinishedProcess = oldDelete }()
+	called := false
+	deleteFinishedProcess = func(context.Context, string, string) error { called = true; return nil }
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.exec.scopeMode, page.exec.workspaceID, page.exec.workspaceView = executionScopeWorkspace, "ws_a", executionWorkspaceProcess
+	page.exec.processID, page.exec.processExecutionID, page.exec.processRunning = "proc_a", "exec_a", true
+	if cmd := page.detachSelectedProcessCmd(); cmd != nil {
+		_ = cmd()
+	}
+	if called {
+		t.Fatal("running process detach attempted cleanup")
+	}
+}
+
+func TestLogsSessionStateKeepsRunningProcessButDropsFinishedSelection(t *testing.T) {
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.exec.scopeMode, page.exec.workspaceID, page.exec.workspaceView = executionScopeWorkspace, "ws_a", executionWorkspaceProcess
+	page.exec.processID, page.exec.processExecutionID, page.exec.processRunning = "proc_a", "exec_a", true
+	running := page.SessionViewState().(LogsSessionViewState)
+	if running.ExecutionWorkspaceView != string(executionWorkspaceProcess) || running.ExecutionProcessID != "proc_a" || running.ExecutionProcessExecutionID != "exec_a" || !running.ExecutionProcessRunning {
+		t.Fatalf("running state=%#v", running)
+	}
+	page.exec.processRunning = false
+	finished := page.SessionViewState().(LogsSessionViewState)
+	if finished.ExecutionWorkspaceView != string(executionWorkspaceCommands) || finished.ExecutionProcessID != "" || finished.ExecutionProcessExecutionID != "" {
+		t.Fatalf("finished state=%#v", finished)
+	}
+}
+
+func TestLogsCloseCleansFinishedSelectedProcess(t *testing.T) {
+	oldDelete := deleteFinishedProcess
+	defer func() { deleteFinishedProcess = oldDelete }()
+	called := ""
+	deleteFinishedProcess = func(_ context.Context, workspaceID, processID string) error {
+		called = workspaceID + "/" + processID
+		return nil
+	}
+	page, _ := NewCommandExecutionLogs(t.Context())
+	page.exec.scopeMode, page.exec.workspaceID, page.exec.workspaceView = executionScopeWorkspace, "ws_a", executionWorkspaceProcess
+	page.exec.processID, page.exec.processExecutionID, page.exec.processRunning = "proc_a", "exec_a", false
+	page.Close()
+	if called != "ws_a/proc_a" {
+		t.Fatalf("close cleanup=%q", called)
+	}
+}
+
+func TestLogsSessionStateRestoresRunningProcessSelection(t *testing.T) {
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.RestoreSessionViewState(LogsSessionViewState{
+		Tab: "command-execution", ExecutionScope: string(executionScopeWorkspace), ExecutionWorkspaceID: "ws_a",
+		ExecutionWorkspaceView: string(executionWorkspaceProcess), ExecutionProcessID: "proc_a", ExecutionProcessExecutionID: "exec_a", ExecutionProcessRunning: true,
+	})
+	if page.exec.scopeMode != executionScopeWorkspace || page.exec.workspaceView != executionWorkspaceProcess || page.exec.processID != "proc_a" || page.exec.processExecutionID != "exec_a" || !page.exec.processRunning {
+		t.Fatalf("restored process state=%#v", page.exec)
 	}
 }
 

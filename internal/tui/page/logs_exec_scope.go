@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
@@ -161,6 +162,7 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 	processID := strings.TrimSpace(page.exec.scopeForm.ProcessID)
 	processExecutionID := ""
 	processRunning := false
+	oldWorkspaceID, oldProcessID, oldProcessExecutionID, oldProcessRunning := page.exec.workspaceID, page.exec.processID, page.exec.processExecutionID, page.exec.processRunning
 	members := map[string]struct{}{}
 	containerName := ""
 	switch mode {
@@ -221,7 +223,43 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 	page.exec.scopeEditor, page.exec.scopeForm = nil, nil
 	page.exec.err = nil
 	page.refreshExecutionViewport()
+	if oldProcessID != "" && (oldWorkspaceID != page.exec.workspaceID || oldProcessID != page.exec.processID || page.exec.workspaceView != executionWorkspaceProcess) {
+		return cleanupFinishedProcessCmd(page.ctx, oldWorkspaceID, oldProcessID, oldProcessExecutionID, oldProcessRunning)
+	}
 	return nil
+}
+
+var deleteFinishedProcess = runtimecontrol.DeleteFinishedProcess
+
+func cleanupFinishedProcessCmd(ctx context.Context, workspaceID, processID, executionID string, running bool) tea.Cmd {
+	if strings.TrimSpace(workspaceID) == "" || strings.TrimSpace(processID) == "" || strings.TrimSpace(executionID) == "" || running {
+		return nil
+	}
+	return func() tea.Msg {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		_ = deleteFinishedProcess(cleanupCtx, workspaceID, processID)
+		return nil
+	}
+}
+
+func (page *LogsPage) detachSelectedProcessCmd() tea.Cmd {
+	if page == nil || page.exec.workspaceView != executionWorkspaceProcess {
+		return nil
+	}
+	cmd := cleanupFinishedProcessCmd(page.ctx, page.exec.workspaceID, page.exec.processID, page.exec.processExecutionID, page.exec.processRunning)
+	page.exec.workspaceView, page.exec.processID, page.exec.processExecutionID, page.exec.processRunning = executionWorkspaceCommands, "", "", false
+	page.refreshExecutionViewport()
+	return cmd
+}
+
+func (page *LogsPage) cleanupSelectedFinishedProcess() {
+	if page == nil || page.exec.workspaceView != executionWorkspaceProcess || page.exec.processRunning || page.exec.workspaceID == "" || page.exec.processID == "" || page.exec.processExecutionID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = deleteFinishedProcess(ctx, page.exec.workspaceID, page.exec.processID)
 }
 
 func (page *LogsPage) refreshExecutionScope() {

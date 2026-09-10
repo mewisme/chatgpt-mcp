@@ -817,7 +817,7 @@ func TestFormatExecutionFeedCombinesStdoutAndStderrWithoutStreamSections(t *test
 		{Sequence: 5, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, Execution: &finished, Status: shellruntime.ExecutionStatusFailed, ExitCode: &code, Timestamp: finished.FinishedAt},
 	}
 	view := formatExecutionFeed(events)
-	if !strings.Contains(view, "ABC\n╭") || !strings.Contains(view, "END") || !strings.Contains(view, "Status  failed") || !strings.Contains(view, "Exit  7") || !strings.Contains(view, "Duration  2s") || strings.Count(view, "╭") != 2 || strings.Count(view, "╯") != 2 || strings.Contains(view, "stdout") || strings.Contains(view, "stderr") {
+	if !strings.Contains(view, "ABC\n\n╭") || !strings.Contains(view, "END") || !strings.Contains(view, "Status  failed") || !strings.Contains(view, "Exit  7") || !strings.Contains(view, "Duration  2s") || strings.Count(view, "╭") != 2 || strings.Count(view, "╯") != 2 || strings.Contains(view, "stdout") || strings.Contains(view, "stderr") {
 		t.Fatalf("combined feed=%q", view)
 	}
 }
@@ -841,6 +841,9 @@ func TestFormatExecutionFeedMarksInterleavedContinuations(t *testing.T) {
 		{Sequence: 8, Type: shellruntime.ExecutionEventCompleted, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &finishedA, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code, Timestamp: finishedA.FinishedAt},
 	}
 	view := formatExecutionFeed(events)
+	if !strings.Contains(view, "╯\n\n$ first\nA1") || !strings.Contains(view, "CONTINUE") || !strings.Contains(view, "╯\n\nA2") {
+		t.Fatalf("execution frame padding=%q", view)
+	}
 	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 3 || strings.Count(view, "╭─ END ") != 2 {
 		t.Fatalf("interleaved markers=%q", view)
 	}

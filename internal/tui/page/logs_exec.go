@@ -436,7 +436,7 @@ func formatExecutionStart(event shellruntime.ExecutionFeedEvent, width int) stri
 		if event.WorkspaceID != "" {
 			fields = append(fields, executionFrameField{Label: "Workspace", Values: []string{event.WorkspaceID}})
 		}
-		return executionEventFrame("START", event, "", fields, width)
+		return executionEventFrame("START", event, "", fields, width) + "\n"
 	}
 	if info.WorkspaceID != "" {
 		fields = append(fields, executionFrameField{Label: "Workspace", Values: []string{info.WorkspaceID}})
@@ -463,7 +463,7 @@ func formatExecutionStart(event shellruntime.ExecutionFeedEvent, width int) stri
 	if info.CWD != "" {
 		fields = append(fields, executionFrameField{Label: "CWD", Values: []string{info.CWD}})
 	}
-	frame := executionEventFrame("START", event, "", fields, width)
+	frame := executionEventFrame("START", event, "", fields, width) + "\n"
 	if info.Command != "" {
 		frame += "$ " + component.WrapContent(ansi.Strip(info.Command), max(1, width-2)) + "\n"
 	}
@@ -479,7 +479,7 @@ func formatExecutionContinue(event shellruntime.ExecutionFeedEvent, width int) s
 	if workspaceID != "" {
 		fields = append(fields, executionFrameField{Label: "Workspace", Values: []string{workspaceID}})
 	}
-	return executionEventFrame("CONTINUE", event, executionEventElapsed(event), fields, width)
+	return executionEventFrame("CONTINUE", event, executionEventElapsed(event), fields, width) + "\n"
 }
 
 func formatExecutionEnd(event shellruntime.ExecutionFeedEvent, width int) string {
@@ -494,7 +494,7 @@ func formatExecutionEnd(event shellruntime.ExecutionFeedEvent, width int) string
 	if duration := executionEventDuration(event); duration != "" {
 		fields = append(fields, executionFrameField{Label: "Duration", Values: []string{duration}})
 	}
-	return executionEventFrame("END", event, "", fields, width)
+	return "\n" + executionEventFrame("END", event, "", fields, width)
 }
 
 type executionFrameField struct {

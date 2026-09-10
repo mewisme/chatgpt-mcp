@@ -136,14 +136,18 @@ func TestWorkspaceContainerMutationIsImmediatelyVisibleToRunningMCPRuntime(t *te
 		t.Fatalf("workspace status immediately after register = %#v err=%v", workspaceStatus, err)
 	}
 	extra := t.TempDir()
+	canonicalExtra, err := filepath.EvalSymlinks(extra)
+	if err != nil {
+		t.Fatal(err)
+	}
 	executeRequestCommand(t, root, []string{"workspace", "access", "add", workspaceID, extra})
 	workspaceStatus, err = runtime.Call(ctx, "workspace_status", map[string]any{"workspace_id": workspaceID})
-	if err != nil || workspaceStatus.IsError || !slices.Contains(workspaceStatus.StructuredContent.(tools.WorkspaceStatusResult).AllowedDirectories, extra) {
+	if err != nil || workspaceStatus.IsError || !slices.Contains(workspaceStatus.StructuredContent.(tools.WorkspaceStatusResult).AllowedDirectories, canonicalExtra) {
 		t.Fatalf("workspace status immediately after access add = %#v err=%v", workspaceStatus, err)
 	}
 	executeRequestCommand(t, root, []string{"workspace", "access", "remove", workspaceID, extra})
 	workspaceStatus, err = runtime.Call(ctx, "workspace_status", map[string]any{"workspace_id": workspaceID})
-	if err != nil || workspaceStatus.IsError || slices.Contains(workspaceStatus.StructuredContent.(tools.WorkspaceStatusResult).AllowedDirectories, extra) {
+	if err != nil || workspaceStatus.IsError || slices.Contains(workspaceStatus.StructuredContent.(tools.WorkspaceStatusResult).AllowedDirectories, canonicalExtra) {
 		t.Fatalf("workspace status immediately after access remove = %#v err=%v", workspaceStatus, err)
 	}
 	executeRequestCommand(t, root, []string{"workspace", "container", "add", containerID, workspaceID})

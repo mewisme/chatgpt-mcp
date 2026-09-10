@@ -817,7 +817,7 @@ func TestFormatExecutionFeedCombinesStdoutAndStderrWithoutStreamSections(t *test
 		{Sequence: 5, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, Execution: &finished, Status: shellruntime.ExecutionStatusFailed, ExitCode: &code, Timestamp: finished.FinishedAt},
 	}
 	view := formatExecutionFeed(events)
-	if !strings.Contains(view, "ABC\n\n╭") || !strings.Contains(view, "END") || !strings.Contains(view, "Status  failed") || !strings.Contains(view, "Exit  7") || !strings.Contains(view, "Duration  2s") || strings.Count(view, "╭") != 2 || strings.Count(view, "╯") != 2 || strings.Contains(view, "stdout") || strings.Contains(view, "stderr") {
+	if !strings.Contains(view, "│ ABC") || !strings.Contains(view, "╰─ END ") || !strings.Contains(view, "Status  failed") || !strings.Contains(view, "Exit  7") || !strings.Contains(view, "Duration  2s") || strings.Count(view, "╭") != 1 || strings.Count(view, "╯") != 1 || strings.Count(view, "├") != 2 || strings.Contains(view, "stdout") || strings.Contains(view, "stderr") {
 		t.Fatalf("combined feed=%q", view)
 	}
 }
@@ -841,13 +841,10 @@ func TestFormatExecutionFeedMarksInterleavedContinuations(t *testing.T) {
 		{Sequence: 8, Type: shellruntime.ExecutionEventCompleted, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &finishedA, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code, Timestamp: finishedA.FinishedAt},
 	}
 	view := formatExecutionFeed(events)
-	if !strings.Contains(view, "╯\n\n$ first\nA1") || !strings.Contains(view, "CONTINUE") || !strings.Contains(view, "╯\n\nA2") {
-		t.Fatalf("execution frame padding=%q", view)
-	}
-	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 3 || strings.Count(view, "╰─ END ") != 2 {
+	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 3 || strings.Count(view, "╰─ PAUSE ") != 3 || strings.Count(view, "╰─ END ") != 2 || strings.Count(view, "├") != 10 {
 		t.Fatalf("interleaved markers=%q", view)
 	}
-	for _, want := range []string{"CONTINUE", "Execution  exec_a", "Execution  exec_b", "+500ms", "A1", "B1", "A2", "B2"} {
+	for _, want := range []string{"CONTINUE", "PAUSE", "Execution  exec_a", "Execution  exec_b", "+500ms", "│ A1", "│ B1", "│ A2", "│ B2", "No output"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("interleaved feed missing %q: %q", want, view)
 		}
@@ -868,12 +865,12 @@ func TestFormatExecutionFeedSeparatesConcurrentExecutionsInSameWorkspace(t *test
 		{Sequence: 4, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoB.ID, WorkspaceID: infoB.WorkspaceID, Execution: &infoB, Data: "B\n", Timestamp: started.Add(3 * time.Millisecond).Format(time.RFC3339Nano)},
 		{Sequence: 5, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &infoA, Data: "A2\n", Timestamp: started.Add(4 * time.Millisecond).Format(time.RFC3339Nano)},
 	})
-	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 1 || !strings.Contains(view, "CONTINUE") || !strings.Contains(view, "Execution  exec_a") || strings.Contains(view, "exec_id=") {
+	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 1 || strings.Count(view, "╰─ PAUSE ") != 3 || !strings.Contains(view, "CONTINUE") || !strings.Contains(view, "Execution  exec_a") || strings.Contains(view, "exec_id=") {
 		t.Fatalf("same-workspace interleave=%q", view)
 	}
 }
 
-func TestExecutionFrameFitsRenderWidthAndKeepsCommandOutside(t *testing.T) {
+func TestExecutionFrameFitsRenderWidthAndKeepsCommandInside(t *testing.T) {
 	started := time.Now().UTC()
 	info := shellruntime.ExecutionInfo{ID: "exec_resize", WorkspaceID: "ws_resize", Command: strings.Repeat("command-token-", 12), CWD: strings.Repeat("nested/", 16), StartedAt: started.Format(time.RFC3339Nano), ReceivedByInstanceID: "receive-a", ExecutedByInstanceID: "execute-b"}
 	event := shellruntime.ExecutionFeedEvent{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt}
@@ -898,11 +895,27 @@ func TestExecutionFrameFitsRenderWidthAndKeepsCommandOutside(t *testing.T) {
 		if !strings.Contains(view, "Route") || !strings.Contains(flat, "received:receive-a") || !strings.Contains(flat, "executed:execute-b") || !strings.Contains(view, "$ ") {
 			t.Fatalf("width=%d frame content=%q", width, view)
 		}
-		close := strings.Index(view, "╰")
+		separator := strings.Index(view, "├")
 		command := strings.Index(view, "$ ")
-		if close < 0 || command <= close {
-			t.Fatalf("width=%d command is not outside frame: %q", width, view)
+		close := strings.Index(view, "╰")
+		if separator < 0 || command <= separator || close <= command {
+			t.Fatalf("width=%d command is not inside stream body: %q", width, view)
 		}
+	}
+}
+
+func TestFormatExecutionFeedShowsNoOutputForEmptySegment(t *testing.T) {
+	started := time.Now().UTC()
+	code := 0
+	info := shellruntime.ExecutionInfo{ID: "exec_empty", WorkspaceID: "ws_empty", StartedAt: started.Format(time.RFC3339Nano)}
+	finished := info
+	finished.FinishedAt = started.Add(time.Second).Format(time.RFC3339Nano)
+	view := formatExecutionFeed([]shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &finished, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code, Timestamp: finished.FinishedAt},
+	})
+	if !strings.Contains(view, "│ No output") || !strings.Contains(view, "╰─ END ") || strings.Count(view, "├") != 2 {
+		t.Fatalf("empty segment=%q", view)
 	}
 }
 
@@ -1319,7 +1332,7 @@ func TestCommandExecutionViewportReflowsLongReadableContent(t *testing.T) {
 				t.Fatalf("width=%d line=%d: %q", width, got, ansi.Strip(line))
 			}
 		}
-		flat := strings.ReplaceAll(ansi.Strip(content), "\n", "")
+		flat := strings.NewReplacer("\n", "", " ", "", "│", "", "├", "", "┤", "", "╭", "", "╮", "", "╰", "", "╯", "", "─", "").Replace(ansi.Strip(content))
 		if !strings.Contains(flat, commandToken) || !strings.Contains(flat, outputToken) {
 			t.Fatalf("width=%d content was truncated: %q", width, flat)
 		}

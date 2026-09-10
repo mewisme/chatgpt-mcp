@@ -31,6 +31,8 @@ const (
 	RequestView              ID = "request.view"
 	RequestApprove           ID = "request.approve"
 	RequestDeny              ID = "request.deny"
+	RequestGrantList         ID = "request.grant.list"
+	RequestGrantRevoke       ID = "request.grant.revoke"
 	ConfigPath               ID = "config.path"
 	ConfigExport             ID = "config.export"
 	ConfigImport             ID = "config.import"
@@ -38,6 +40,7 @@ const (
 	ConfigList               ID = "config.list"
 	ConfigSet                ID = "config.set"
 	ConfigMigrate            ID = "config.migrate"
+	ConfigMigrateSecrets     ID = "config.migrate.secrets"
 	ConfigConvert            ID = "config.convert"
 	ConfigVerify             ID = "config.verify"
 	AliasInstall             ID = "alias.install"
@@ -104,9 +107,10 @@ var specs = []Spec{
 	{RuntimeUp, "up", nil}, {RuntimeDown, "down", nil}, {RuntimeRestart, "restart", nil},
 	{LogsRead, "logs", nil}, {LogsFollow, "logs follow", nil}, {LogsPath, "logs path", nil}, {LogsClear, "logs clear", nil},
 	{RequestList, "request list", nil}, {RequestView, "request view", nil}, {RequestApprove, "request approve", nil}, {RequestDeny, "request deny", nil},
+	{RequestGrantList, "request grant list", nil}, {RequestGrantRevoke, "request grant revoke", nil},
 	{ConfigPath, "config path", nil}, {ConfigExport, "config export", nil}, {ConfigImport, "config import", nil},
 	{ConfigGet, "config get", []string{"config explain"}}, {ConfigList, "config list", nil}, {ConfigSet, "config set", nil}, {ConfigMigrate, "config migrate", nil},
-	{ConfigConvert, "config convert", nil}, {ConfigVerify, "config verify", nil},
+	{ConfigMigrateSecrets, "config migrate secrets", nil}, {ConfigConvert, "config convert", nil}, {ConfigVerify, "config verify", nil},
 	{AliasInstall, "alias install", nil}, {AliasRemove, "alias remove", nil}, {AliasStatus, "alias status", nil},
 	{AuthMCPRotate, "auth mcp create", nil}, {AuthMCPEnable, "auth mcp enable", nil}, {AuthMCPDisable, "auth mcp disable", nil},
 	{AuthAdminRotate, "auth admin create", nil}, {AuthAdminEnable, "auth admin enable", nil}, {AuthAdminDisable, "auth admin disable", nil}, {AuthStatus, "auth status", nil},

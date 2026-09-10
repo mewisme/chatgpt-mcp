@@ -225,7 +225,7 @@ func (m *ProcessManager) Status(workspaceID, id string) ([]ProcessInfo, error) {
 	m.pruneLocked(time.Now().UTC())
 	items := make([]*managedProcess, 0, len(m.processes))
 	for _, item := range m.processes {
-		if item.workspace == workspaceID && (id == "" || item.id == id) {
+		if m.processWorkspaceMatches(item.workspace, workspaceID) && (id == "" || item.id == id) {
 			items = append(items, item)
 		}
 	}
@@ -290,7 +290,7 @@ func (m *ProcessManager) Clear(workspaceID string) (int, error) {
 	m.pruneLocked(time.Now().UTC())
 	cleared := 0
 	for id, item := range m.processes {
-		if item.workspace != workspaceID {
+		if !m.processWorkspaceMatches(item.workspace, workspaceID) {
 			continue
 		}
 		item.mu.Lock()
@@ -336,10 +336,21 @@ func (m *ProcessManager) get(workspaceID, id string) (*managedProcess, error) {
 	m.pruneLocked(time.Now().UTC())
 	item := m.processes[id]
 	m.mu.Unlock()
-	if item == nil || item.workspace != workspaceID {
+	if item == nil || !m.processWorkspaceMatches(item.workspace, workspaceID) {
 		return nil, fmt.Errorf("unknown process id: %s", id)
 	}
 	return item, nil
+}
+
+func (m *ProcessManager) processWorkspaceMatches(processWorkspaceID, workspaceID string) bool {
+	if processWorkspaceID == workspaceID {
+		return true
+	}
+	if m == nil || m.workspaces == nil {
+		return false
+	}
+	canonical, err := m.workspaces.CanonicalID(processWorkspaceID)
+	return err == nil && canonical == workspaceID
 }
 
 func (m *ProcessManager) pruneLocked(now time.Time) {

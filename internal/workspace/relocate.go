@@ -12,6 +12,8 @@ import (
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
+var relocateStateRename = os.Rename
+
 func (m *Manager) Relocate(id, path string) (Workspace, error) {
 	span := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.relocate", "Relocating workspace", tracepkg.String("workspace_id", strings.TrimSpace(id)), tracepkg.String("input_path", path))
 	if err := m.ensureLoaded(); err != nil {
@@ -49,6 +51,11 @@ func (m *Manager) Relocate(id, path string) (Workspace, error) {
 		span.FailMessage("Workspace relocation failed", err, tracepkg.String("destination_workspace_id", newID))
 		return Workspace{}, err
 	}
+	if target := m.aliases[newID]; target != "" && target != oldID {
+		err := fmt.Errorf("workspace destination is reserved by legacy workspace id: %s", newID)
+		span.FailMessage("Workspace relocation failed", err, tracepkg.String("destination_workspace_id", newID), tracepkg.String("alias_target", target))
+		return Workspace{}, err
+	}
 
 	previousItems := cloneWorkspaceItems(m.items)
 	previousContainers := cloneWorkspaceContainers(m.containers)
@@ -63,6 +70,12 @@ func (m *Manager) Relocate(id, path string) (Workspace, error) {
 	delete(m.items, oldID)
 	item.ID = newID
 	item.Path = root
+	for index, allowDir := range item.AllowDirs {
+		if relocated, ok := relocateAbsolutePath(allowDir, oldRoot, root); ok {
+			item.AllowDirs[index] = relocated
+		}
+	}
+	item.AllowDirs = normalizeRoots(item.AllowDirs)
 	item.LegacyIDs = normalizeIDs(append(item.LegacyIDs, oldID), newID)
 	m.items[newID] = item
 	for containerID, container := range m.containers {
@@ -124,7 +137,11 @@ func (m *Manager) migrateRelocatedWorkspaceState(oldID, newID, oldRoot, newRoot 
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return false, err
 	}
-	if err := os.Rename(oldState, newState); err != nil {
+	if err := relocateStateRename(oldState, newState); err != nil {
+		_, rollbackErr := rewriteRelocatedWorkspaceState(oldState, newID, oldID, newRoot, oldRoot)
+		if rollbackErr != nil {
+			return false, fmt.Errorf("relocate workspace state %s -> %s: %w; rollback state rewrite: %v", oldID, newID, err, rollbackErr)
+		}
 		return false, fmt.Errorf("relocate workspace state %s -> %s: %w", oldID, newID, err)
 	}
 	return true, nil

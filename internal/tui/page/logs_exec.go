@@ -220,7 +220,7 @@ func (page *LogsPage) resizeExecutionViewport(width, height int) {
 	offset := page.exec.viewport.YOffset()
 	page.exec.viewport.SetWidth(max(1, width))
 	page.exec.viewport.SetHeight(max(1, height))
-	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.visibleExecutionEvents()), max(1, width)))
+	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.visibleExecutionEvents(), max(1, width)), max(1, width)))
 	if !page.exec.paused {
 		page.exec.viewport.GotoBottom()
 		return
@@ -231,7 +231,7 @@ func (page *LogsPage) resizeExecutionViewport(width, height int) {
 
 func (page *LogsPage) refreshExecutionViewport() {
 	offset := page.exec.viewport.YOffset()
-	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.visibleExecutionEvents()), max(1, page.exec.viewport.Width())))
+	page.exec.viewport.SetContent(component.WrapContent(formatExecutionFeed(page.visibleExecutionEvents(), max(1, page.exec.viewport.Width())), max(1, page.exec.viewport.Width())))
 	if !page.exec.paused {
 		page.exec.viewport.GotoBottom()
 		return
@@ -284,7 +284,7 @@ func (page *LogsPage) executionBodyView(width, height int) string {
 	bodyHeight := max(1, height-reserved)
 	page.resizeExecutionViewport(width, bodyHeight)
 	body := page.exec.viewport.View()
-	if strings.TrimSpace(formatExecutionFeed(page.visibleExecutionEvents())) == "" {
+	if strings.TrimSpace(formatExecutionFeed(page.visibleExecutionEvents(), width)) == "" {
 		empty := page.exec.viewport
 		empty.SetContent(component.Muted("Waiting for command output"))
 		body = empty.View()
@@ -366,7 +366,11 @@ func trimExecutionFeed(events []shellruntime.ExecutionFeedEvent) []shellruntime.
 	return append([]shellruntime.ExecutionFeedEvent(nil), events[len(events)-logsExecutionFeedCap:]...)
 }
 
-func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent) string {
+func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int) string {
+	width := 80
+	if len(widths) > 0 && widths[0] > 0 {
+		width = widths[0]
+	}
 	var output strings.Builder
 	currentExecutionID := ""
 	endsNewline := true
@@ -389,11 +393,11 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent) string {
 	for _, event := range events {
 		if event.Type == shellruntime.ExecutionEventStarted {
 			separate()
-			write(formatExecutionStart(event))
+			write(formatExecutionStart(event, width))
 			currentExecutionID = event.ExecutionID
 		} else if event.ExecutionID != currentExecutionID {
 			separate()
-			write(formatExecutionContinue(event))
+			write(formatExecutionContinue(event, width))
 			currentExecutionID = event.ExecutionID
 		}
 		switch event.Type {
@@ -403,103 +407,168 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent) string {
 			if output.Len() > 0 && !endsNewline {
 				write("\n")
 			}
-			write(formatExecutionEnd(event))
+			write(formatExecutionEnd(event, width))
 		}
 	}
 	return output.String()
 }
 
-func formatExecutionStart(event shellruntime.ExecutionFeedEvent) string {
-	lines := []string{"[START] " + executionEventClock(event) + "  exec_id=" + ansi.Strip(event.ExecutionID)}
+func formatExecutionStart(event shellruntime.ExecutionFeedEvent, width int) string {
+	fields := []executionFrameField{}
 	info := event.Execution
 	if info == nil {
 		if event.WorkspaceID != "" {
-			lines = append(lines, "workspace: "+ansi.Strip(event.WorkspaceID))
+			fields = append(fields, executionFrameField{Label: "Workspace", Values: []string{event.WorkspaceID}})
 		}
-		return executionEventBox(lines)
+		return executionEventFrame("START", event, "", fields, width)
 	}
 	if info.WorkspaceID != "" {
-		lines = append(lines, "workspace: "+ansi.Strip(info.WorkspaceID))
+		fields = append(fields, executionFrameField{Label: "Workspace", Values: []string{info.WorkspaceID}})
 	}
-	attribution := compactExecutionMetadata("source: "+info.Source, "session: "+info.SessionHash)
-	if attribution != "" {
-		lines = append(lines, attribution)
+	if info.Source != "" {
+		fields = append(fields, executionFrameField{Label: "Source", Values: []string{info.Source}})
+	}
+	if info.SessionHash != "" {
+		fields = append(fields, executionFrameField{Label: "Session", Values: []string{info.SessionHash}})
 	}
 	if info.CallID != "" {
-		lines = append(lines, "call: "+ansi.Strip(info.CallID))
+		fields = append(fields, executionFrameField{Label: "Call", Values: []string{info.CallID}})
 	}
-	route := compactExecutionMetadata("received: "+info.ReceivedByInstanceID, "executed: "+info.ExecutedByInstanceID)
-	if route != "" {
-		lines = append(lines, "route: "+route)
+	route := []string{}
+	if info.ReceivedByInstanceID != "" {
+		route = append(route, "received: "+info.ReceivedByInstanceID)
+	}
+	if info.ExecutedByInstanceID != "" {
+		route = append(route, "executed: "+info.ExecutedByInstanceID)
+	}
+	if len(route) > 0 {
+		fields = append(fields, executionFrameField{Label: "Route", Values: route})
 	}
 	if info.CWD != "" {
-		lines = append(lines, "cwd: "+ansi.Strip(info.CWD))
+		fields = append(fields, executionFrameField{Label: "CWD", Values: []string{info.CWD}})
 	}
+	frame := executionEventFrame("START", event, "", fields, width)
 	if info.Command != "" {
-		lines = append(lines, "$ "+ansi.Strip(info.Command))
+		frame += "$ " + component.WrapContent(ansi.Strip(info.Command), max(1, width-2)) + "\n"
 	}
-	return executionEventBox(lines)
+	return frame
 }
 
-func formatExecutionContinue(event shellruntime.ExecutionFeedEvent) string {
-	line := "[CONTINUE] " + executionEventClock(event) + "  exec_id=" + ansi.Strip(event.ExecutionID)
-	if elapsed := executionEventElapsed(event); elapsed != "" {
-		line += "  +" + elapsed
-	}
-	line += "\n"
+func formatExecutionContinue(event shellruntime.ExecutionFeedEvent, width int) string {
 	workspaceID := event.WorkspaceID
 	if event.Execution != nil && event.Execution.WorkspaceID != "" {
 		workspaceID = event.Execution.WorkspaceID
 	}
+	fields := []executionFrameField{}
 	if workspaceID != "" {
-		line += "workspace: " + ansi.Strip(workspaceID) + "\n"
+		fields = append(fields, executionFrameField{Label: "Workspace", Values: []string{workspaceID}})
 	}
-	return line
+	return executionEventFrame("CONTINUE", event, executionEventElapsed(event), fields, width)
 }
 
-func formatExecutionEnd(event shellruntime.ExecutionFeedEvent) string {
+func formatExecutionEnd(event shellruntime.ExecutionFeedEvent, width int) string {
 	status := strings.TrimSpace(event.Status)
 	if status == "" {
 		status = "completed"
 	}
-	result := "status: " + ansi.Strip(status)
+	fields := []executionFrameField{{Label: "Status", Values: []string{status}}}
 	if event.ExitCode != nil {
-		result += fmt.Sprintf("  exit: %d", *event.ExitCode)
+		fields = append(fields, executionFrameField{Label: "Exit", Values: []string{fmt.Sprintf("%d", *event.ExitCode)}})
 	}
 	if duration := executionEventDuration(event); duration != "" {
-		result += "  duration: " + duration
+		fields = append(fields, executionFrameField{Label: "Duration", Values: []string{duration}})
 	}
-	return executionEventBox([]string{"[END] " + executionEventClock(event) + "  exec_id=" + ansi.Strip(event.ExecutionID), result})
+	return executionEventFrame("END", event, "", fields, width)
 }
 
-func executionEventBox(lines []string) string {
-	if len(lines) == 0 {
+type executionFrameField struct {
+	Label  string
+	Values []string
+}
+
+func executionEventFrame(kind string, event shellruntime.ExecutionFeedEvent, elapsed string, fields []executionFrameField, width int) string {
+	if width <= 0 {
 		return ""
 	}
-	width := 0
-	for index := range lines {
-		lines[index] = ansi.Strip(lines[index])
-		width = max(width, lipgloss.Width(lines[index]))
+	if width < 4 {
+		return strings.Repeat("─", width) + "\n"
 	}
+	label := strings.TrimSpace(kind + " " + executionEventClock(event) + " " + ansi.Strip(event.ExecutionID))
+	if elapsed != "" {
+		label += " +" + elapsed
+	}
+	labelWidth := max(0, width-6)
+	label = ansi.Truncate(label, labelWidth, "…")
+	topUsed := 4 + lipgloss.Width(label)
 	var output strings.Builder
-	output.WriteString("╭" + strings.Repeat("─", width+2) + "╮\n")
-	for _, line := range lines {
-		output.WriteString("│ " + line + strings.Repeat(" ", width-lipgloss.Width(line)) + " │\n")
+	output.WriteString("╭─ " + label + " " + strings.Repeat("─", max(0, width-topUsed-1)) + "╮\n")
+	innerWidth := max(1, width-4)
+	for _, field := range fields {
+		if strings.TrimSpace(field.Label) == "" || len(field.Values) == 0 {
+			continue
+		}
+		for _, line := range wrappedExecutionFrameLines(field.Label, field.Values, innerWidth) {
+			output.WriteString("│ " + line + strings.Repeat(" ", max(0, innerWidth-lipgloss.Width(line))) + " │\n")
+		}
 	}
-	output.WriteString("╰" + strings.Repeat("─", width+2) + "╯\n")
+	output.WriteString("╰" + strings.Repeat("─", width-2) + "╯\n")
 	return output.String()
 }
 
-func compactExecutionMetadata(values ...string) string {
-	result := make([]string, 0, len(values))
+func wrappedExecutionFrameLines(label string, values []string, width int) []string {
+	label = ansi.Strip(strings.TrimSpace(label))
+	clean := make([]string, 0, len(values))
 	for _, value := range values {
-		parts := strings.SplitN(value, ": ", 2)
-		if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
-			continue
+		value = ansi.Strip(strings.TrimSpace(value))
+		if value != "" {
+			clean = append(clean, value)
 		}
-		result = append(result, ansi.Strip(parts[0])+": "+ansi.Strip(strings.TrimSpace(parts[1])))
 	}
-	return strings.Join(result, "  ")
+	if len(clean) == 0 {
+		return nil
+	}
+	if len(clean) == 1 {
+		prefix := label + "  "
+		if lipgloss.Width(prefix) >= width {
+			bullet := "  • "
+			available := max(1, width-lipgloss.Width(bullet))
+			wrapped := strings.Split(component.WrapContent(clean[0], available), "\n")
+			result := []string{ansi.Truncate(label, width, "")}
+			for index, line := range wrapped {
+				if index == 0 {
+					result = append(result, bullet+line)
+				} else {
+					result = append(result, strings.Repeat(" ", lipgloss.Width(bullet))+line)
+				}
+			}
+			return result
+		}
+		available := max(1, width-lipgloss.Width(prefix))
+		wrapped := strings.Split(component.WrapContent(clean[0], available), "\n")
+		result := make([]string, 0, len(wrapped))
+		for index, line := range wrapped {
+			if index == 0 {
+				result = append(result, prefix+line)
+			} else {
+				result = append(result, strings.Repeat(" ", lipgloss.Width(prefix))+line)
+			}
+		}
+		return result
+	}
+	result := []string{label}
+	for _, value := range clean {
+		prefix := "  • "
+		available := max(1, width-lipgloss.Width(prefix))
+		wrapped := strings.Split(component.WrapContent(value, available), "\n")
+		for index, line := range wrapped {
+			if index == 0 {
+				result = append(result, prefix+line)
+			} else {
+				result = append(result, strings.Repeat(" ", lipgloss.Width(prefix))+line)
+			}
+		}
+	}
+	return result
 }
 
 func executionEventClock(event shellruntime.ExecutionFeedEvent) string {

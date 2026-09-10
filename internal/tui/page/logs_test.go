@@ -753,7 +753,7 @@ func TestLogsCommandExecutionRouteStreamsCombinedOutputInEventOrder(t *testing.T
 		t.Fatalf("completed events=%#v next=%v", page.exec.events, next)
 	}
 	plain := ansi.Strip(page.View(120, 28))
-	for _, want := range []string{"Runtime", "Command Execution", "Mode  combined", "[START]", "exec_id=exec_test", "$ printf demo", "workspace: ws_a", "source: mcp", "session: session-test", "call: call_test", "route: received: instance-a  executed: instance-b", "out", "err", "[END]", "status: success  exit: 0  duration: 2s", "←/→ tabs"} {
+	for _, want := range []string{"Runtime", "Command Execution", "Mode  combined", "START", "exec_test", "$ printf demo", "Workspace  ws_a", "Source  mcp", "Session  session-test", "Call  call_test", "Route", "• received: instance-a", "• executed: instance-b", "out", "err", "END", "Status  success", "Exit  0", "Duration  2s", "←/→ tabs"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("command exec view missing %q: %q", want, plain)
 		}
@@ -817,7 +817,7 @@ func TestFormatExecutionFeedCombinesStdoutAndStderrWithoutStreamSections(t *test
 		{Sequence: 5, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, Execution: &finished, Status: shellruntime.ExecutionStatusFailed, ExitCode: &code, Timestamp: finished.FinishedAt},
 	}
 	view := formatExecutionFeed(events)
-	if !strings.Contains(view, "ABC\n╭") || !strings.Contains(view, "[END]") || !strings.Contains(view, "status: failed  exit: 7  duration: 2s") || strings.Count(view, "╭") != 2 || strings.Count(view, "╯") != 2 || strings.Contains(view, "stdout") || strings.Contains(view, "stderr") {
+	if !strings.Contains(view, "ABC\n╭") || !strings.Contains(view, "END") || !strings.Contains(view, "Status  failed") || !strings.Contains(view, "Exit  7") || !strings.Contains(view, "Duration  2s") || strings.Count(view, "╭") != 2 || strings.Count(view, "╯") != 2 || strings.Contains(view, "stdout") || strings.Contains(view, "stderr") {
 		t.Fatalf("combined feed=%q", view)
 	}
 }
@@ -841,10 +841,10 @@ func TestFormatExecutionFeedMarksInterleavedContinuations(t *testing.T) {
 		{Sequence: 8, Type: shellruntime.ExecutionEventCompleted, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &finishedA, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code, Timestamp: finishedA.FinishedAt},
 	}
 	view := formatExecutionFeed(events)
-	if strings.Count(view, "[START]") != 2 || strings.Count(view, "[CONTINUE]") != 3 || strings.Count(view, "[END]") != 2 {
+	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 3 || strings.Count(view, "╭─ END ") != 2 {
 		t.Fatalf("interleaved markers=%q", view)
 	}
-	for _, want := range []string{"[CONTINUE]", "exec_id=exec_a  +500ms", "exec_id=exec_b  +500ms", "A1", "B1", "A2", "B2"} {
+	for _, want := range []string{"CONTINUE", "exec_a +500ms", "exec_b +500ms", "A1", "B1", "A2", "B2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("interleaved feed missing %q: %q", want, view)
 		}
@@ -865,8 +865,38 @@ func TestFormatExecutionFeedSeparatesConcurrentExecutionsInSameWorkspace(t *test
 		{Sequence: 4, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoB.ID, WorkspaceID: infoB.WorkspaceID, Execution: &infoB, Data: "B\n", Timestamp: started.Add(3 * time.Millisecond).Format(time.RFC3339Nano)},
 		{Sequence: 5, Type: shellruntime.ExecutionEventOutput, ExecutionID: infoA.ID, WorkspaceID: infoA.WorkspaceID, Execution: &infoA, Data: "A2\n", Timestamp: started.Add(4 * time.Millisecond).Format(time.RFC3339Nano)},
 	})
-	if strings.Count(view, "[START]") != 2 || strings.Count(view, "[CONTINUE]") != 1 || !strings.Contains(view, "[CONTINUE]") || !strings.Contains(view, "exec_id=exec_a") {
+	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 1 || !strings.Contains(view, "CONTINUE") || !strings.Contains(view, "exec_a") || strings.Contains(view, "exec_id=") {
 		t.Fatalf("same-workspace interleave=%q", view)
+	}
+}
+
+func TestExecutionFrameFitsRenderWidthAndKeepsCommandOutside(t *testing.T) {
+	started := time.Now().UTC()
+	info := shellruntime.ExecutionInfo{ID: "exec_resize", WorkspaceID: "ws_resize", Command: strings.Repeat("command-token-", 12), CWD: strings.Repeat("nested/", 16), StartedAt: started.Format(time.RFC3339Nano), ReceivedByInstanceID: "receive-a", ExecutedByInstanceID: "execute-b"}
+	event := shellruntime.ExecutionFeedEvent{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt}
+	for _, width := range []int{120, 80, 24, 12} {
+		view := formatExecutionFeed([]shellruntime.ExecutionFeedEvent{event}, width)
+		for _, line := range strings.Split(view, "\n") {
+			if line == "" {
+				continue
+			}
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width=%d line=%d: %q", width, got, line)
+			}
+		}
+		lines := strings.Split(view, "\n")
+		if len(lines) == 0 || lipgloss.Width(lines[0]) != width || strings.Contains(lines[0], "exec_id=") || !strings.Contains(lines[0], "START") {
+			t.Fatalf("width=%d top border=%q", width, lines[0])
+		}
+		flat := strings.Join(strings.Fields(strings.NewReplacer("│", "", "╭", "", "╮", "", "╰", "", "╯", "", "─", "", "•", "").Replace(view)), "")
+		if !strings.Contains(view, "Route") || !strings.Contains(flat, "received:receive-a") || !strings.Contains(flat, "executed:execute-b") || !strings.Contains(view, "$ ") {
+			t.Fatalf("width=%d frame content=%q", width, view)
+		}
+		close := strings.Index(view, "╰")
+		command := strings.Index(view, "$ ")
+		if close < 0 || command <= close {
+			t.Fatalf("width=%d command is not outside frame: %q", width, view)
+		}
 	}
 }
 

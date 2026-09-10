@@ -72,7 +72,7 @@ func newWorkspaceContextEditor(options projectcontext.Options) (component.Editor
 		component.EditorSection{ID: "include", Title: "Include", Description: "Choose optional context sources for this build.", Form: component.NewEditorForm(component.Group(
 			component.Switch("Git", &data.IncludeGit, "INCLUDE", "EXCLUDE"), component.Switch("Memory", &data.IncludeMemory, "INCLUDE", "EXCLUDE"), component.Switch("Skills", &data.IncludeSkills, "INCLUDE", "EXCLUDE"),
 		))},
-	)
+	).WithSubmitMode(component.EditorSubmitOnComplete)
 	return editor, data
 }
 

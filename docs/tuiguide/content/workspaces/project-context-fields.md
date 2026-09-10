@@ -52,4 +52,4 @@ Include or exclude detected project skill metadata/instructions in the Project C
 
 ## Build result
 
-`Ctrl+S`/the editor primary action builds Project Context with these options. Success commits the builder draft and opens the preview session. Failure keeps the draft and displays feedback. The preview has Rendered, Sources, and JSON views and follows the same wrapping-first rule as the rest of the TUI.
+Completing the final visible field with `Enter` runs the editor primary `build` action with these options. Success commits the builder draft and opens the preview session. Failure keeps the draft and displays feedback. The preview has Rendered, Sources, and JSON views and follows the same wrapping-first rule as the rest of the TUI.

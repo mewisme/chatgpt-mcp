@@ -733,10 +733,13 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		t.Fatalf("context input=%t data=%v", page.InputActive(), page.contextData != nil)
 	}
 	plain := ansi.Strip(page.View(110, 30))
-	for _, want := range []string{"Project Context · " + item.ID, "Scope", "Budgets", "Include", "ctrl+s build"} {
+	for _, want := range []string{"Project Context · " + item.ID, "Scope", "Budgets", "Include"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("context editor missing %q: %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "ctrl+s build") {
+		t.Fatalf("non-mutating project context editor still advertises ctrl+s: %q", plain)
 	}
 	sourcePath := filepath.Join(project, "AGENTS.md")
 	page.contextBuild = func(_ context.Context, workspaceID string, options projectcontext.Options) (projectcontext.Result, error) {

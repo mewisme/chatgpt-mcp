@@ -88,7 +88,7 @@ Create/configure/edit workflows use full-page editors backed by Huh/Bubbles comp
 - Current values are prefilled for edit flows.
 - Sensitive values use password-style fields and remain redacted after persistence.
 - Validation errors stay on the relevant field instead of submitting partial state.
-- `Ctrl+S` performs the editor's explicit primary action; reaching the final field never implicitly submits.
+- Mutating editors use `Ctrl+S` for their explicit primary action; non-mutating editors may opt into `Enter` on the final visible field (currently Runtime Logs filters, Command Execution scope, and Project Context build).
 - Multiline inputs keep `Enter` for newlines.
 - File/directory fields can use picker-first input with `Ctrl+O` manual-entry fallback.
 - Successful saves commit the current editor draft as the clean baseline before returning to the parent page, while failed saves preserve the exact draft.

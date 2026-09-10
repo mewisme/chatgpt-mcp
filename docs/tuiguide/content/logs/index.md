@@ -6,7 +6,7 @@ Logs contains `Runtime / Command Execution` tabs. Both use the shared SectionLay
 
 Runtime loads persisted journal history and then follows live events. The browser supports normal list navigation/filtering and can open a structured event detail. Refresh reconnects history/live state without changing the overall page layout.
 
-The Filter editor uses `Range / Filters` sections. It controls time range and structured criteria such as visibility/level, component, session, workspace, tool, request, and related event metadata where available. Time strings accept the formats described by their field labels/placeholders.
+The Filter editor uses `Range / Filters` sections. It controls time range and structured criteria such as visibility/level, component, session, workspace, tool, request, and related event metadata where available. `Enter` advances through the editor and applies the filter when the final visible field completes. Time strings accept the formats described by their field labels/placeholders.
 
 Filter validation happens before replacing the active query. An invalid filter draft stays open with feedback instead of partially changing the visible stream.
 

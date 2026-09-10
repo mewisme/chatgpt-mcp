@@ -68,7 +68,7 @@ func newLogsFilterEditor(options application.LogsQueryOptions, visibility logger
 	editor := component.NewEditor("apply",
 		component.EditorSection{ID: "range", Title: "Range", Description: "Choose how much history to load and which runtime session or time range to inspect.", Form: rangeForm},
 		component.EditorSection{ID: "filters", Title: "Filters", Description: "Narrow events by visibility, level, component, workspace, tool, status, source, event name, or text.", Form: filtersForm},
-	)
+	).WithSubmitMode(component.EditorSubmitOnComplete)
 	return editor, data
 }
 

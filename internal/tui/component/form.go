@@ -376,6 +376,14 @@ func (form Form) OnLastField() bool {
 	return len(fields) > 0 && form.FocusedFieldIndex() == len(fields)-1
 }
 
+func (form Form) CompletionSubmittable() bool {
+	if form.model == nil {
+		return false
+	}
+	_, multiline := form.model.GetFocusedField().(*huh.Text)
+	return !multiline
+}
+
 func (form Form) FocusField(index int) (Form, tea.Cmd) {
 	fields := form.visibleFields()
 	if form.model == nil || index < 0 || index >= len(fields) {

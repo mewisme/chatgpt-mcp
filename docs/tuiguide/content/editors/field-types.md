@@ -10,7 +10,7 @@ Single-line secret/sensitive entry using password echo behavior. Secret-preservi
 
 ## Multiline text
 
-Textarea-style content for lists, rules, JSON, command patterns, environment assignments, and other multiline values. Enter inserts a newline. `Ctrl+S` belongs to the editor/page save action rather than Huh implicit form completion.
+Textarea-style content for lists, rules, JSON, command patterns, environment assignments, and other multiline values. Enter inserts a newline. Multiline Enter never triggers editor completion; mutating editors still use `Ctrl+S` for their explicit save/action.
 
 ## Select
 
@@ -18,7 +18,7 @@ Finite-choice field. Options map display labels to persisted values. Use arrow/n
 
 ## Switch
 
-Persistent boolean field with explicit true/false labels. Space/mouse toggles the value. Enter remains field traversal rather than implicit editor submission.
+Persistent boolean field with explicit true/false labels. Space/mouse toggles the value. Enter remains field traversal; only an editor explicitly configured for non-mutating completion turns final-field traversal into its primary action.
 
 ## Path field
 
@@ -26,4 +26,4 @@ Composite picker/manual-input field. Picker mode is preferred when choosing an e
 
 ## Validation and save
 
-Editors never rely on “last field completes the form.” Validation runs before the page's mutation. `Ctrl+S` is the explicit primary action. Backend/validation failure keeps the draft. Successful mutation must call the editor acceptance/rebase behavior (or rebuild/clear the editor) before navigation so the global dirty guard does not ask to discard already-saved data.
+Mutating editors never rely on “last field completes the form”: validation runs before the page's mutation and `Ctrl+S` is the explicit primary action. Non-mutating editors may opt into final-field Enter completion while reusing the same validation path. Backend/validation failure keeps the draft. Successful mutation must call the editor acceptance/rebase behavior (or rebuild/clear the editor) before navigation so the global dirty guard does not ask to discard already-saved data.

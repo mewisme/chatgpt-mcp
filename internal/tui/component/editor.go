@@ -14,6 +14,13 @@ type EditorSubmitMsg struct{}
 type EditorCancelMsg struct{}
 type EditorSectionMsg struct{ Index int }
 
+type EditorSubmitMode uint8
+
+const (
+	EditorSubmitExplicit EditorSubmitMode = iota
+	EditorSubmitOnComplete
+)
+
 type EditorSection struct {
 	ID          string
 	Title       string
@@ -25,6 +32,7 @@ type Editor struct {
 	sections     []EditorSection
 	active       int
 	primaryLabel string
+	submitMode   EditorSubmitMode
 	notice       string
 	err          string
 	submitting   bool
@@ -42,6 +50,12 @@ func NewEditor(primaryLabel string, sections ...EditorSection) Editor {
 	}
 	editor.syncHelp()
 	editor.resizeForms()
+	return editor
+}
+
+func (editor Editor) WithSubmitMode(mode EditorSubmitMode) Editor {
+	editor.submitMode = mode
+	editor.syncHelp()
 	return editor
 }
 
@@ -99,6 +113,9 @@ func (editor Editor) Update(message tea.Msg) (Editor, tea.Cmd) {
 	if reflect.TypeOf(message) == reflect.TypeOf(huh.NextField()) && form.OnLastField() {
 		if editor.active < len(editor.sections)-1 {
 			return editor.switchSection(editor.active+1, false)
+		}
+		if editor.submitMode == EditorSubmitOnComplete && !editor.submitting && form.CompletionSubmittable() {
+			return editor, func() tea.Msg { return EditorSubmitMsg{} }
 		}
 		return editor, nil
 	}
@@ -308,11 +325,16 @@ func (editor *Editor) syncHelp() {
 		return
 	}
 	bindings := make([]key.Binding, 0, 10)
-	primary := Binding([]string{"ctrl+s"}, "ctrl+s", editor.primaryLabel)
-	if editor.submitting {
-		primary.SetEnabled(false)
+	if editor.submitMode == EditorSubmitExplicit {
+		primary := Binding([]string{"ctrl+s"}, "ctrl+s", editor.primaryLabel)
+		if editor.submitting {
+			primary.SetEnabled(false)
+		}
+		bindings = append(bindings, primary)
+	} else if editor.active == len(editor.sections)-1 && editor.sections[editor.active].Form.OnLastField() && editor.sections[editor.active].Form.CompletionSubmittable() {
+		bindings = append(bindings, Binding([]string{"enter"}, "enter", editor.primaryLabel))
 	}
-	bindings = append(bindings, primary, Binding([]string{"tab"}, "tab", "next"), Binding([]string{"shift+tab"}, "shift+tab", "back"), Binding([]string{"esc"}, "esc", "cancel"))
+	bindings = append(bindings, Binding([]string{"tab"}, "tab", "next"), Binding([]string{"shift+tab"}, "shift+tab", "back"), Binding([]string{"esc"}, "esc", "cancel"))
 	if editor.active >= 0 && editor.active < len(editor.sections) {
 		bindings = append(bindings, editor.sections[editor.active].Form.FocusedKeyBinds()...)
 	}

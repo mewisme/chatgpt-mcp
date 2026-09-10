@@ -624,10 +624,13 @@ func TestLogsFilterDeepLinkUsesNativeWrappedEditor(t *testing.T) {
 		}
 	}
 	plain := ansi.Strip(view)
-	for _, want := range []string{"Log Filters", "Range", "Filters", "ctrl+s apply"} {
+	for _, want := range []string{"Log Filters", "Range", "Filters"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("filter editor missing %q: %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "ctrl+s apply") {
+		t.Fatalf("non-mutating filter editor still advertises ctrl+s: %q", plain)
 	}
 }
 
@@ -922,6 +925,62 @@ func TestExecutionScopeEditorAppliesWithoutReconnectingGlobalFeed(t *testing.T) 
 	}
 }
 
+func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
+	setupLogsPageRoot(t)
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	workspaceItem, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	container, err := manager.CreateContainer("project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.AddWorkspaceToContainer(container.ID, workspaceItem.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		down      int
+		wantMode  executionScopeMode
+		wantID    string
+		needsNext bool
+	}{
+		{name: "combined", wantMode: executionScopeCombined},
+		{name: "workspace", down: 1, wantMode: executionScopeWorkspace, wantID: workspaceItem.ID, needsNext: true},
+		{name: "container", down: 2, wantMode: executionScopeContainer, wantID: container.ID, needsNext: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page, _ := NewCommandExecutionLogs(t.Context())
+			defer page.Close()
+			page.exec.generation = 11
+			page = runLogsPageCmd(t, page, page.openExecutionScopeEditor())
+			for range test.down {
+				updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+				page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
+			}
+			updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+			page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
+			if test.needsNext {
+				if page.exec.scopeEditor == nil {
+					t.Fatal("mode selection submitted before scope selector")
+				}
+				updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+				page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
+			}
+			if page.exec.scopeEditor != nil || page.exec.scopeMode != test.wantMode || page.exec.generation != 11 {
+				t.Fatalf("scope editor=%v mode=%s generation=%d", page.exec.scopeEditor != nil, page.exec.scopeMode, page.exec.generation)
+			}
+			if test.wantMode == executionScopeWorkspace && page.exec.workspaceID != test.wantID {
+				t.Fatalf("workspace=%q want=%q", page.exec.workspaceID, test.wantID)
+			}
+			if test.wantMode == executionScopeContainer && page.exec.containerID != test.wantID {
+				t.Fatalf("container=%q want=%q", page.exec.containerID, test.wantID)
+			}
+		})
+	}
+}
+
 func TestExecutionScopeRefreshTracksMembershipAndStaleContainer(t *testing.T) {
 	setupLogsPageRoot(t)
 	manager := workspace.NewManager(workspace.DefaultStorePath())
@@ -1192,4 +1251,27 @@ func TestConfirmOverlayBodyWrapsLongDescription(t *testing.T) {
 	if !strings.Contains(flat, strings.ReplaceAll(description, " ", "")) {
 		t.Fatalf("confirm description changed: %q", ansi.Strip(body))
 	}
+}
+
+func runLogsPageCmd(t *testing.T, page *LogsPage, cmd tea.Cmd) *LogsPage {
+	t.Helper()
+	queue := []tea.Cmd{cmd}
+	for steps := 0; steps < 64 && len(queue) > 0; steps++ {
+		next := queue[0]
+		queue = queue[1:]
+		if next == nil {
+			continue
+		}
+		message := next()
+		if batch, ok := message.(tea.BatchMsg); ok {
+			queue = append(queue, batch...)
+			continue
+		}
+		updated, followup := page.Update(message)
+		page = updated.(*LogsPage)
+		if followup != nil {
+			queue = append(queue, followup)
+		}
+	}
+	return page
 }

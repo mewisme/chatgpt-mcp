@@ -4,7 +4,9 @@ Data-entry workflows use full-page editors instead of modal forms. Dialogs are r
 
 ## Saving and leaving
 
-`Ctrl+S` invokes the editor's primary action, such as `save`, `create`, `build`, `authorize`, `install`, or `update`. Saving is explicit: reaching the final field or pressing `Enter` on a normal input does not implicitly submit the editor.
+Mutating editors use `Ctrl+S` for their explicit primary action, such as `save`, `create`, `authorize`, `install`, or `update`. Reaching the final field or pressing `Enter` does not persist a mutation.
+
+Non-mutating editors can opt into natural completion. In those editors, `Enter` advances fields/sections and invokes the primary action only when the final visible field completes. Runtime Logs filters, Command Execution scope, and Workspace Project Context build use this mode. Multiline text still owns `Enter` for newlines and never auto-submits from a newline.
 
 When a save succeeds, the current draft is committed as the editor baseline before navigation begins. This is important because navigation is protected by the global dirty-draft guard. A successful save can therefore show its success toast and return to the parent without incorrectly asking to discard the data that was just saved.
 
@@ -28,7 +30,7 @@ Multiline text uses Bubbles textarea semantics. `Enter` inserts a newline instea
 
 ## Boolean values
 
-Persistent booleans use a two-state Switch control. `Space` or a mouse click toggles the value. `Enter` remains available for normal field traversal rather than acting as an accidental submit.
+Persistent booleans use a two-state Switch control. `Space` or a mouse click toggles the value. `Enter` remains normal field traversal; only an editor explicitly configured for non-mutating completion can turn final-field traversal into its primary action.
 
 ## File and directory paths
 

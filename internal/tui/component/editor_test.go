@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 )
@@ -64,6 +65,87 @@ func TestEditorSubmitCancelFeedbackDirtyAndResponsiveLayout(t *testing.T) {
 	_, cmd = editor.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	if cmd != nil {
 		t.Fatal("submitting editor accepted second submit")
+	}
+}
+
+func TestEditorSubmitModeDefaultsExplicitAndCompletesOnEnterWhenEnabled(t *testing.T) {
+	explicitValue := "explicit"
+	explicit := NewEditor("save", EditorSection{ID: "main", Title: "Main", Form: NewEditorForm(Group(Input("Name", &explicitValue)))})
+	explicit = runEditorCmd(t, explicit, explicit.Init())
+	updated, cmd := explicit.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if submit := editorCmdProducesSubmit(t, updated, cmd); submit {
+		t.Fatal("default editor submitted on Enter")
+	}
+
+	completeValue := "complete"
+	complete := NewEditor("apply", EditorSection{ID: "main", Title: "Main", Form: NewEditorForm(Group(Input("Name", &completeValue)))}).WithSubmitMode(EditorSubmitOnComplete)
+	complete = runEditorCmd(t, complete, complete.Init())
+	updated, cmd = complete.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !editorCmdProducesSubmit(t, updated, cmd) {
+		t.Fatal("on-complete editor did not submit final Input on Enter")
+	}
+	if plain := ansi.Strip(complete.View()); strings.Contains(plain, "ctrl+s apply") {
+		t.Fatalf("on-complete editor still advertises ctrl+s: %q", plain)
+	}
+}
+
+func TestEditorSubmitOnCompleteAdvancesSectionsThenSubmits(t *testing.T) {
+	first, second := "first", "second"
+	editor := NewEditor("apply",
+		EditorSection{ID: "first", Title: "First", Form: NewEditorForm(Group(Input("First", &first)))},
+		EditorSection{ID: "second", Title: "Second", Form: NewEditorForm(Group(Input("Second", &second)))},
+	).WithSubmitMode(EditorSubmitOnComplete)
+	editor = runEditorCmd(t, editor, editor.Init())
+	updated, cmd := editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	editor, submitted := runEditorUntilSubmit(t, updated, cmd)
+	if submitted || editor.ActiveSectionID() != "second" {
+		t.Fatalf("first section submitted=%t active=%q", submitted, editor.ActiveSectionID())
+	}
+	updated, cmd = editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	_, submitted = runEditorUntilSubmit(t, updated, cmd)
+	if !submitted {
+		t.Fatal("final section did not submit on Enter")
+	}
+}
+
+func TestEditorSubmitOnCompleteSelectAndSwitchEmitCompletion(t *testing.T) {
+	selected := "a"
+	selectEditor := NewEditor("apply", EditorSection{ID: "select", Title: "Select", Form: NewEditorForm(Group(Select("Mode", &selected, huh.NewOption("A", "a"), huh.NewOption("B", "b"))))}).WithSubmitMode(EditorSubmitOnComplete)
+	selectEditor = runEditorCmd(t, selectEditor, selectEditor.Init())
+	updated, cmd := selectEditor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if _, submitted := runEditorUntilSubmit(t, updated, cmd); !submitted {
+		t.Fatal("final Select did not submit on Enter")
+	}
+
+	enabled := true
+	switchEditor := NewEditor("build", EditorSection{ID: "switch", Title: "Switch", Form: NewEditorForm(Group(Switch("Enabled", &enabled)))}).WithSubmitMode(EditorSubmitOnComplete)
+	switchEditor = runEditorCmd(t, switchEditor, switchEditor.Init())
+	updated, cmd = switchEditor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if _, submitted := runEditorUntilSubmit(t, updated, cmd); !submitted {
+		t.Fatal("final Switch did not submit on Enter")
+	}
+}
+
+func TestEditorSubmitOnCompleteTextKeepsEnterAsNewline(t *testing.T) {
+	value := "line one"
+	editor := NewEditor("build", EditorSection{ID: "text", Title: "Text", Form: NewEditorForm(Group(Text("Content", &value)))}).WithSubmitMode(EditorSubmitOnComplete)
+	editor = runEditorCmd(t, editor, editor.Init())
+	updated, cmd := editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	editor, submitted := runEditorUntilSubmit(t, updated, cmd)
+	if submitted || !strings.Contains(value, "\n") {
+		t.Fatalf("multiline Enter submitted=%t value=%q", submitted, value)
+	}
+	_ = editor
+}
+
+func TestEditorSubmitOnCompleteBlocksDuplicateWhileSubmitting(t *testing.T) {
+	value := "demo"
+	editor := NewEditor("apply", EditorSection{ID: "main", Title: "Main", Form: NewEditorForm(Group(Input("Name", &value)))}).WithSubmitMode(EditorSubmitOnComplete)
+	editor = runEditorCmd(t, editor, editor.Init())
+	editor.SetSubmitting(true)
+	updated, cmd := editor.Update(huh.NextField())
+	if cmd != nil || updated.Submitting() != true {
+		t.Fatalf("submitting completion cmd=%v submitting=%t", cmd, updated.Submitting())
 	}
 }
 
@@ -146,4 +228,36 @@ func runEditorCmd(t *testing.T, editor Editor, cmd tea.Cmd) Editor {
 		}
 	}
 	return editor
+}
+
+func editorCmdProducesSubmit(t *testing.T, editor Editor, cmd tea.Cmd) bool {
+	t.Helper()
+	_, submitted := runEditorUntilSubmit(t, editor, cmd)
+	return submitted
+}
+
+func runEditorUntilSubmit(t *testing.T, editor Editor, cmd tea.Cmd) (Editor, bool) {
+	t.Helper()
+	queue := []tea.Cmd{cmd}
+	for steps := 0; steps < 64 && len(queue) > 0; steps++ {
+		next := queue[0]
+		queue = queue[1:]
+		if next == nil {
+			continue
+		}
+		message := next()
+		if _, ok := message.(EditorSubmitMsg); ok {
+			return editor, true
+		}
+		if batch, ok := message.(tea.BatchMsg); ok {
+			queue = append(queue, batch...)
+			continue
+		}
+		updated, followup := editor.Update(message)
+		editor = updated
+		if followup != nil {
+			queue = append(queue, followup)
+		}
+	}
+	return editor, false
 }

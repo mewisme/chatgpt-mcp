@@ -61,7 +61,7 @@ func newExecutionScopeEditor(feed logsExecutionFeed) (component.Editor, *executi
 		component.Group(component.Select("Workspace", &data.WorkspaceID, workspaceOptions...)).WithHideFunc(func() bool { return data.Mode != string(executionScopeWorkspace) }),
 		component.Group(component.Select("Container", &data.ContainerID, containerOptions...)).WithHideFunc(func() bool { return data.Mode != string(executionScopeContainer) }),
 	)
-	editor := component.NewEditor("apply", component.EditorSection{ID: "scope", Title: "Scope", Description: "Filter command execution output without reconnecting the global stream.", Form: form})
+	editor := component.NewEditor("apply", component.EditorSection{ID: "scope", Title: "Scope", Description: "Filter command execution output without reconnecting the global stream.", Form: form}).WithSubmitMode(component.EditorSubmitOnComplete)
 	return editor, data, nil
 }
 

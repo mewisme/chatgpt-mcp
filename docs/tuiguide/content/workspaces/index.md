@@ -26,7 +26,7 @@ From a workspace detail, open **Project Context** to configure and build the con
 - **Budgets** — limits controlling instruction and memory/context loading.
 - **Include** — persistent switches for sources such as Git, memory, and skills.
 
-`Ctrl+S` starts the build. The build is asynchronous and cancellable. An unsuccessful build keeps the draft and displays feedback instead of replacing the previous preview.
+Complete the final **Include** field with `Enter` to start the build. The build is asynchronous and cancellable. An unsuccessful build keeps the draft and displays feedback instead of replacing the previous preview.
 
 ## Project Context preview
 

@@ -13,6 +13,7 @@ import { DashboardCard } from "@/components/dashboard-card"
 import { DetailRow } from "@/components/detail-row"
 import { PageError } from "@/components/page-state"
 import { PageHeader } from "@/components/page-header"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,6 +37,7 @@ type DashboardData = {
   adminEndpoint: string
   mcpAuth: boolean
   adminAuth: boolean
+  cleartextHTTP: boolean
   updatedAt: Date
 }
 
@@ -106,6 +108,16 @@ export function OverviewPage() {
           : "Loading runtime status..."}
       </div>
       <PageError message={error} />
+      {data?.cleartextHTTP ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            Network exposure is enabled (server.expose is not none). Bearer
+            tokens and request contents travel on cleartext HTTP —
+            chatgpt-mcp has no built-in TLS. Prefer Secure MCP Tunnel, a TLS
+            reverse proxy, or a trusted encrypted network.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <DashboardCard
           title="Workspaces"
@@ -230,6 +242,7 @@ async function loadDashboard(): Promise<DashboardData> {
       : "Disabled",
     mcpAuth: config.auth.mcp_enabled,
     adminAuth: config.auth.admin_enabled,
+    cleartextHTTP: config.server.expose.mode !== "none",
     updatedAt: new Date(),
   }
 }

@@ -12,10 +12,10 @@ import (
 
 func TestManagerListIsDeterministic(t *testing.T) {
 	manager := NewManager(nil)
-	if err := manager.Add(Server{ID: "b", Name: "B", Transport: "http", URL: "http://b.invalid"}); err != nil {
+	if err := manager.Add(Server{ID: "b", Name: "B", Transport: "http", URL: "https://b.invalid"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.Add(Server{ID: "a", Name: "A", Transport: "http", URL: "http://a.invalid"}); err != nil {
+	if err := manager.Add(Server{ID: "a", Name: "A", Transport: "http", URL: "https://a.invalid"}); err != nil {
 		t.Fatal(err)
 	}
 	servers := manager.List()
@@ -31,7 +31,7 @@ func TestManagerRollsBackFailedPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := NewManager(NewStore(filepath.Join(file, "upstream.json")))
-	if err := manager.Add(Server{ID: "a", Name: "A", Transport: "http", URL: "http://a.invalid"}); err == nil {
+	if err := manager.Add(Server{ID: "a", Name: "A", Transport: "http", URL: "https://a.invalid"}); err == nil {
 		t.Fatal("expected persistence error")
 	}
 	if len(manager.List()) != 0 {
@@ -219,7 +219,7 @@ func TestManagerInvalidatesToolsCacheFromSubscription(t *testing.T) {
 	}
 	manager := NewManagerWithClient(nil, client)
 	manager.SetToolsChangedHandler(func(context.Context, string) error { return nil })
-	if err := manager.Add(Server{ID: "demo", Enabled: true, Transport: "http", URL: "http://example.test"}); err != nil {
+	if err := manager.Add(Server{ID: "demo", Enabled: true, Transport: "http", URL: "https://example.test"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := manager.Tools(context.Background(), "demo", false); err != nil {

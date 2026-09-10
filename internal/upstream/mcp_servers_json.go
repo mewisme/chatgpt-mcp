@@ -16,22 +16,23 @@ type mcpServersDocument struct {
 }
 
 type mcpServerJSON struct {
-	Name              string            `json:"name,omitempty"`
-	Transport         string            `json:"transport,omitempty"`
-	Enabled           bool              `json:"enabled"`
-	Command           string            `json:"command,omitempty"`
-	Args              []string          `json:"args,omitempty"`
-	Env               map[string]string `json:"env,omitempty"`
-	CWD               string            `json:"cwd,omitempty"`
-	URL               string            `json:"url,omitempty"`
-	Headers           map[string]string `json:"headers,omitempty"`
-	BearerTokenEnvVar string            `json:"bearer_token_env_var,omitempty"`
-	Auth              AuthConfig        `json:"auth,omitempty"`
-	ToolPrefix        string            `json:"tool_prefix,omitempty"`
-	Expose            string            `json:"expose,omitempty"`
-	Tools             []string          `json:"tools,omitempty"`
-	DisabledTools     []string          `json:"disabled_tools,omitempty"`
-	IdleTimeoutSec    int               `json:"idle_timeout_sec,omitempty"`
+	Name                string            `json:"name,omitempty"`
+	Transport           string            `json:"transport,omitempty"`
+	Enabled             bool              `json:"enabled"`
+	Command             string            `json:"command,omitempty"`
+	Args                []string          `json:"args,omitempty"`
+	Env                 map[string]string `json:"env,omitempty"`
+	CWD                 string            `json:"cwd,omitempty"`
+	URL                 string            `json:"url,omitempty"`
+	Headers             map[string]string `json:"headers,omitempty"`
+	BearerTokenEnvVar   string            `json:"bearer_token_env_var,omitempty"`
+	Auth                AuthConfig        `json:"auth,omitempty"`
+	ToolPrefix          string            `json:"tool_prefix,omitempty"`
+	Expose              string            `json:"expose,omitempty"`
+	Tools               []string          `json:"tools,omitempty"`
+	DisabledTools       []string          `json:"disabled_tools,omitempty"`
+	AllowPrivateNetwork bool              `json:"allow_private_network,omitempty"`
+	IdleTimeoutSec      int               `json:"idle_timeout_sec,omitempty"`
 }
 
 func ParseMCPServersJSON(data []byte) ([]Server, error) {
@@ -115,7 +116,8 @@ func MarshalMCPServersJSON(servers []Server) ([]byte, error) {
 			Command: normalized.Command, Args: normalized.Args, Env: normalized.Env, CWD: normalized.CWD,
 			URL: normalized.URL, Headers: normalized.Headers, BearerTokenEnvVar: normalized.BearerTokenEnvVar,
 			Auth: normalized.Auth, ToolPrefix: normalized.ToolPrefix, Expose: normalized.Expose,
-			Tools: normalized.Tools, DisabledTools: normalized.DisabledTools, IdleTimeoutSec: normalized.IdleTimeoutSec,
+			Tools: normalized.Tools, DisabledTools: normalized.DisabledTools,
+			AllowPrivateNetwork: normalized.AllowPrivateNetwork, IdleTimeoutSec: normalized.IdleTimeoutSec,
 		}
 	}
 	return json.MarshalIndent(mcpServersDocument{Servers: values}, "", "  ")
@@ -204,6 +206,11 @@ func parseMCPServerJSONEntry(value any, fallbackID string) (Server, error) {
 	}
 	if server.IdleTimeoutSec, err = mcpJSONNonNegativeInt(object, "idle_timeout_sec"); err != nil {
 		return Server{}, err
+	}
+	if allowPrivate, set, err := mcpJSONBool(object, "allow_private_network"); err != nil {
+		return Server{}, err
+	} else if set {
+		server.AllowPrivateNetwork = allowPrivate
 	}
 	if server.Auth, err = mcpJSONAuth(object); err != nil {
 		return Server{}, err

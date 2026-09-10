@@ -8,7 +8,7 @@ import (
 func TestProxiedNamesRespectExposePolicy(t *testing.T) {
 	manager := NewManagerWithClient(nil, &fakeClient{})
 	server, err := NormalizeServer(Server{
-		ID: "demo", Name: "Demo", Enabled: true, Transport: "http", URL: "http://example.test",
+		ID: "demo", Name: "Demo", Enabled: true, Transport: "http", URL: "https://example.test",
 		Expose: "allowlist", Tools: []string{"read"}, DisabledTools: []string{"delete"},
 	})
 	if err != nil {

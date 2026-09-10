@@ -65,6 +65,7 @@ func TestTunnelConfigureRollsBackRuntimeAndMemoryWhenPersistenceFails(t *testing
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_old", APIKey: "old-secret", ControlPlaneBaseURL: server.URL}
 	client := tunnel.NewConfigured(cfg.Tunnel, nil)
 	store := config.NewRuntimeStore(cfg)
@@ -96,6 +97,7 @@ func TestTunnelConfigurePreservesSecretFromSerializedConfigStore(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_store", APIKey: "store-secret", AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL}
 	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
 		t.Fatal(err)
@@ -172,6 +174,7 @@ func TestConfigAPIRejectsDisablingLastMCPTransport(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Config: store, saveConfig: func(config.Config) error { t.Fatal("invalid transport config must not persist"); return nil }})
 	recorder := httptest.NewRecorder()
@@ -190,6 +193,7 @@ func TestTunnelAPICannotStopLastMCPTransport(t *testing.T) {
 	cfg.Admin.Enabled = false
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel = tunnel.Config{Enabled: true, ID: "tunnel_only", APIKey: "runtime-secret"}
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: store})
@@ -243,6 +247,7 @@ func TestConfigAPIOmitsLegacyInteractiveField(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Config: store, saveConfig: func(config.Config) error { return nil }})
 	recorder := httptest.NewRecorder()
@@ -261,6 +266,7 @@ func TestConfigAPIFeaturePatchUpdatesRuntimeActiveState(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
 	workspaceItem, err := runtime.Workspaces.Register(t.TempDir())
@@ -297,6 +303,7 @@ func TestConfigAPIPonytailModeUpdatesLiveRuntime(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
 	item, err := runtime.Workspaces.Register(t.TempDir())
@@ -322,6 +329,7 @@ func TestConfigAPIRejectsInvalidPonytailMode(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Config: store})
 	recorder := httptest.NewRecorder()
@@ -340,6 +348,7 @@ func TestConfigAPICavemanModeUpdatesLiveRuntime(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
 	item, err := runtime.Workspaces.Register(t.TempDir())
@@ -365,6 +374,7 @@ func TestConfigAPIRejectsInvalidCavemanMode(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Config: store})
 	recorder := httptest.NewRecorder()
@@ -381,6 +391,7 @@ func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeState(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
 	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return errors.New("persistence failed") }})
@@ -409,6 +420,7 @@ func TestConfigAPILegacyFeatureEnabledPatchMigratesToActive(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithFeatures(cfg.Features)
 	handler := New(API{Config: store, Tools: runtime})
@@ -431,6 +443,7 @@ func TestConfigAPIPermissionsPatchUpdatesRuntimeAccess(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
 	item, err := runtime.Workspaces.Register(root)
@@ -467,6 +480,7 @@ func TestConfigAPIShellPathPatch(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Config: store, saveConfig: func(config.Config) error { return nil }})
 	path := filepath.Join(t.TempDir(), "bin")
@@ -488,6 +502,7 @@ func TestConfigAPIShellApprovalPolicyPatchUpdatesRuntime(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
 	handler := New(API{Config: store, Tools: runtime, saveConfig: func(config.Config) error { return nil }})
@@ -527,6 +542,7 @@ func TestConfigAPIShellApprovalCommandPatchRejectsInvalidGlob(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Shell.Path = []string{t.TempDir()}
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
@@ -548,6 +564,7 @@ func TestConfigAPIPermissionsPersistenceFailureKeepsRuntimeAccess(t *testing.T) 
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
 	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
 	item, err := runtime.Workspaces.Register(root)
@@ -615,7 +632,7 @@ func TestUpstreamAPIManagementAndRedaction(t *testing.T) {
 	handler := New(API{Upstream: manager})
 
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/upstream", strings.NewReader(`{"id":"server-1","name":"Server","transport":"http","url":"http://example.test/mcp","enabled":true,"headers":{"Authorization":"Bearer secret","X-Test":"ok"},"env":{"API_TOKEN":"secret","MODE":"test"}}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/upstream", strings.NewReader(`{"id":"server-1","name":"Server","transport":"http","url":"https://example.test/mcp","enabled":true,"headers":{"Authorization":"Bearer secret","X-Test":"ok"},"env":{"API_TOKEN":"secret","MODE":"test"}}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("add status = %d: %s", recorder.Code, recorder.Body.String())
 	}
@@ -636,7 +653,7 @@ func TestUpstreamAPIManagementAndRedaction(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/upstream/server-1", strings.NewReader(`{"name":"Updated","transport":"http","url":"http://example.test/mcp","enabled":false,"expose":"none"}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/upstream/server-1", strings.NewReader(`{"name":"Updated","transport":"http","url":"https://example.test/mcp","enabled":false,"expose":"none"}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("update = %d: %s", recorder.Code, recorder.Body.String())
 	}
@@ -646,7 +663,7 @@ func TestUpstreamAPIManagementAndRedaction(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/upstream/server-1", strings.NewReader(`{"name":"Updated","transport":"http","url":"http://example.test/mcp","enabled":false,"expose":"none","headers":{"Authorization":"<redacted>"},"env":{"API_TOKEN":"<redacted>"}}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/upstream/server-1", strings.NewReader(`{"name":"Updated","transport":"http","url":"https://example.test/mcp","enabled":false,"expose":"none","headers":{"Authorization":"<redacted>"},"env":{"API_TOKEN":"<redacted>"}}`)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("redacted update = %d: %s", recorder.Code, recorder.Body.String())
 	}
@@ -681,7 +698,7 @@ func TestUpstreamAPIRejectsInvalidConfig(t *testing.T) {
 func TestUpstreamAPIReportsProxyRefreshFailureAndPreservesCatalog(t *testing.T) {
 	client := &adminUpstreamClient{tools: []upstream.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}}
 	manager := upstream.NewManagerWithClient(nil, client)
-	server := upstream.Server{ID: "server-1", Name: "Server", Transport: "http", URL: "http://example.test/mcp", Enabled: true, Expose: "all"}
+	server := upstream.Server{ID: "server-1", Name: "Server", Transport: "http", URL: "https://example.test/mcp", Enabled: true, Expose: "all"}
 	if err := manager.Add(server); err != nil {
 		t.Fatal(err)
 	}
@@ -692,7 +709,7 @@ func TestUpstreamAPIReportsProxyRefreshFailureAndPreservesCatalog(t *testing.T) 
 	client.toolsErr = errors.New("upstream unavailable")
 	handler := New(API{Upstream: manager, Tools: runtime})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/upstream/server-1", strings.NewReader(`{"name":"Updated","transport":"http","url":"http://example.test/mcp","enabled":true,"expose":"all"}`)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/upstream/server-1", strings.NewReader(`{"name":"Updated","transport":"http","url":"https://example.test/mcp","enabled":true,"expose":"all"}`)))
 	if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), "proxy refresh failed") {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
@@ -735,6 +752,7 @@ func TestTunnelAdminKeyVerifyBeforeSave(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel.ControlPlaneBaseURL = server.URL
 	client := tunnel.NewConfigured(cfg.Tunnel, nil)
 	store := config.NewRuntimeStore(cfg)
@@ -762,6 +780,7 @@ func TestTunnelAdminKeyRejectsFailedVerification(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel.ControlPlaneBaseURL = server.URL
 	store := config.NewRuntimeStore(cfg)
 	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: store, saveConfig: func(config.Config) error { t.Fatal("failed admin key must not persist"); return nil }})
@@ -789,6 +808,7 @@ func TestManagedTunnelAPIListsWithStoredAdminKey(t *testing.T) {
 	defer server.Close()
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel = tunnel.Config{AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true, ControlPlaneBaseURL: server.URL}
 	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: config.NewRuntimeStore(cfg)})
 	recorder := httptest.NewRecorder()
@@ -823,6 +843,7 @@ func TestManagedTunnelUseReusesRuntimeKeyAndSwitchesConfig(t *testing.T) {
 	defer server.Close()
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_one", APIKey: "runtime-key", AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true, ControlPlaneBaseURL: server.URL, OrganizationID: "org_one"}
 	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, nil)
 	client := tunnel.NewConfigured(cfg.Tunnel, runtime)
@@ -862,6 +883,7 @@ func TestManagedTunnelAPIReadOnlyAccessLimitsMutations(t *testing.T) {
 	defer server.Close()
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel = tunnel.Config{AdminKey: "sk-read", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, ControlPlaneBaseURL: server.URL}
 	handler := New(API{Tunnel: tunnel.NewConfigured(cfg.Tunnel, nil), Config: config.NewRuntimeStore(cfg)})
 	request := func(method, path, body string) *httptest.ResponseRecorder {

@@ -28,7 +28,7 @@ func TestNativeClientUsesStoredOAuthToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := NewNativeClientWithOAuthStore(store)
-	if err := client.Connect(context.Background(), Server{ID: "secure", Enabled: true, Transport: "http", URL: server.URL, Auth: AuthConfig{Type: "oauth"}}); err != nil {
+	if err := client.Connect(context.Background(), Server{ID: "secure", Enabled: true, Transport: "http", URL: server.URL, Auth: AuthConfig{Type: "oauth"}, AllowPrivateNetwork: true}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -51,7 +51,7 @@ func TestNativeClientAutoAuthTurns401IntoLoginInstruction(t *testing.T) {
 	defer server.Close()
 	store := mcpoauth.NewStore(filepath.Join(t.TempDir(), "oauth.json"))
 	client := NewNativeClientWithOAuthStore(store)
-	err := client.Connect(context.Background(), Server{ID: "secure", Enabled: true, Transport: "http", URL: server.URL, Auth: AuthConfig{Type: "auto"}})
+	err := client.Connect(context.Background(), Server{ID: "secure", Enabled: true, Transport: "http", URL: server.URL, Auth: AuthConfig{Type: "auto"}, AllowPrivateNetwork: true})
 	var loginErr *OAuthLoginRequiredError
 	if !errors.As(err, &loginErr) {
 		t.Fatalf("error=%T %v", err, err)

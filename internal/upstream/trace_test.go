@@ -59,7 +59,7 @@ func TestUpstreamTraceDoesNotExposeConfiguredSecrets(t *testing.T) {
 	secretEnv := "env-super-secret"
 	server := Server{
 		ID: "demo", Enabled: true, Transport: "http",
-		URL:     "https://user:pass@example.test/mcp?token=query-super-secret&view=tools",
+		URL:     "https://example.test/mcp?token=query-super-secret&view=tools",
 		Headers: map[string]string{"Authorization": "Bearer " + secretHeader}, Env: map[string]string{"PASSWORD": secretEnv},
 	}
 	events := []tracepkg.Event{}
@@ -68,7 +68,7 @@ func TestUpstreamTraceDoesNotExposeConfiguredSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := fmt.Sprint(events)
-	for _, secret := range []string{secretHeader, secretEnv, "query-super-secret", "user:pass"} {
+	for _, secret := range []string{secretHeader, secretEnv, "query-super-secret"} {
 		if strings.Contains(text, secret) {
 			t.Fatalf("trace leaked %q: %s", secret, text)
 		}

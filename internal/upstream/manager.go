@@ -699,6 +699,7 @@ func changedServerFields(previous, next Server, existed bool) []string {
 		{"url", previous.URL, next.URL}, {"headers", previous.Headers, next.Headers}, {"bearer_token_env", previous.BearerTokenEnvVar, next.BearerTokenEnvVar},
 		{"auth", previous.Auth, next.Auth}, {"tool_prefix", previous.ToolPrefix, next.ToolPrefix}, {"expose", previous.Expose, next.Expose},
 		{"tools", previous.Tools, next.Tools}, {"disabled_tools", previous.DisabledTools, next.DisabledTools}, {"idle_timeout", previous.IdleTimeoutSec, next.IdleTimeoutSec},
+		{"allow_private_network", previous.AllowPrivateNetwork, next.AllowPrivateNetwork},
 	}
 	for _, check := range checks {
 		if !reflect.DeepEqual(check.left, check.right) {

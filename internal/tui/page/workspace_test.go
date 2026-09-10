@@ -650,8 +650,11 @@ func TestWorkspaceRelocateEditorUsesExplicitMutationSubmit(t *testing.T) {
 		t.Fatal(err)
 	}
 	page = runWorkspacePageCmd(t, page, page.Init())
+	if page.value != item.Path {
+		t.Fatalf("relocate editor value=%q want=%q", page.value, item.Path)
+	}
 	plain := strings.ToLower(ansi.Strip(page.View(100, 24)))
-	for _, want := range []string{"relocate workspace", "new workspace path", strings.ToLower(item.Path), "ctrl+s relocate"} {
+	for _, want := range []string{"relocate workspace", "new workspace path", "ctrl+s relocate"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("relocate editor missing %q: %q", want, plain)
 		}

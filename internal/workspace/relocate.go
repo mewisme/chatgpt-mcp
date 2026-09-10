@@ -166,7 +166,7 @@ func rewriteRelocatedWorkspaceState(root, oldID, newID, oldRoot, newRoot string)
 		if err != nil {
 			continue
 		}
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) // #nosec G304 -- path is emitted by filepath.WalkDir under the workspace-owned state root.
 		if err != nil {
 			return rewritten, err
 		}
@@ -237,7 +237,15 @@ func relocateAbsolutePath(value, oldRoot, newRoot string) (string, bool) {
 		return value, false
 	}
 	clean := filepath.Clean(value)
-	relative, err := filepath.Rel(filepath.Clean(oldRoot), clean)
+	comparisonValue := clean
+	if canonical, err := canonicalForContainment(clean, false); err == nil {
+		comparisonValue = canonical
+	}
+	comparisonOldRoot := filepath.Clean(oldRoot)
+	if canonical, err := canonicalForContainment(comparisonOldRoot, false); err == nil {
+		comparisonOldRoot = canonical
+	}
+	relative, err := filepath.Rel(comparisonOldRoot, comparisonValue)
 	if err != nil || relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return value, false
 	}

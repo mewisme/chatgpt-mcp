@@ -839,7 +839,7 @@ func canonicalForContainment(path string, mustExist bool) (string, error) {
 	current := absolute
 	var suffix []string
 	for {
-		if _, err := os.Lstat(current); err == nil {
+		if _, err := os.Lstat(current); err == nil { // #nosec G703 -- current is an absolute path walked upward only to find the nearest existing ancestor.
 			break
 		}
 		parent := filepath.Dir(current)

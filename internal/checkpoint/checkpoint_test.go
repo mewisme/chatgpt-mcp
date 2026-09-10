@@ -1,6 +1,7 @@
 package checkpoint
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,6 +98,153 @@ func TestCheckpointRestorePreservesFileAndDirectoryModes(t *testing.T) {
 	}
 	if dirInfo.Mode().Perm() != 0710 || fileInfo.Mode().Perm() != 0751 {
 		t.Fatalf("restored modes dir=%#o file=%#o", dirInfo.Mode().Perm(), fileInfo.Mode().Perm())
+	}
+}
+
+func TestCheckpointLargeFileUsesBlobAndRestoresLosslessly(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	store.MaxFileBytes = 1024
+	file := filepath.Join(root, "large.bin")
+	content := bytes.Repeat([]byte{0x00, 0x7f, 0xff, 0x42}, 2048)
+	if err := os.WriteFile(file, content, 0640); err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.Before("ws_test", root, "delete_file", []string{file}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := store.readManifest("ws_test", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest == nil || len(manifest.Files) != 1 || manifest.Files[0].Blob == "" || manifest.Files[0].Skipped {
+		t.Fatalf("large file snapshot = %#v", manifest)
+	}
+	if manifest.Files[0].Content != "" || manifest.Files[0].Size != int64(len(content)) {
+		t.Fatalf("large file stored inline or wrong size: %#v", manifest.Files[0])
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.Restore("ws_test", root, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Restored) != 1 || len(result.Skipped) != 0 {
+		t.Fatalf("restore result = %#v", result)
+	}
+	restored, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(restored, content) {
+		t.Fatal("large file content changed after rewind")
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.PathSeparator != '\\' && info.Mode().Perm() != 0640 {
+		t.Fatalf("restored mode = %#o", info.Mode().Perm())
+	}
+}
+
+func TestCheckpointCorruptBlobFailsBeforeRestoreMutation(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	store.MaxFileBytes = 16
+	file := filepath.Join(root, "large.bin")
+	before := bytes.Repeat([]byte("before"), 64)
+	if err := os.WriteFile(file, before, 0644); err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.Before("ws_test", root, "write_file", []string{file}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := store.readManifest("ws_test", id)
+	if err != nil || manifest == nil || len(manifest.Files) != 1 || manifest.Files[0].Blob == "" {
+		t.Fatalf("manifest = %#v err=%v", manifest, err)
+	}
+	blob, err := store.blobPath("ws_test", id, manifest.Files[0].Blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blob, bytes.Repeat([]byte("x"), len(before)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := []byte("current content must survive failed rewind")
+	if err := os.WriteFile(file, current, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Restore("ws_test", root, id); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("restore error = %v", err)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil || !bytes.Equal(data, current) {
+		t.Fatalf("failed restore mutated target: content=%q err=%v", data, err)
+	}
+}
+
+func TestCheckpointDirectorySymlinkRestores(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	root := t.TempDir()
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	dir := filepath.Join(root, "tree")
+	target := filepath.Join(dir, "target.txt")
+	link := filepath.Join(dir, "link.txt")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("target"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target.txt", link); err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.Before("ws_test", root, "delete_directory", []string{dir}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Restore("ws_test", root, id); err != nil {
+		t.Fatal(err)
+	}
+	linkTarget, err := os.Readlink(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linkTarget != "target.txt" {
+		t.Fatalf("restored symlink target = %q", linkTarget)
+	}
+}
+
+func TestCheckpointRejectsIncompleteDirectorySnapshot(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(filepath.Join(t.TempDir(), "state"))
+	store.MaxDirectoryDepth = 1
+	dir := filepath.Join(root, "tree")
+	deep := filepath.Join(dir, "one", "two")
+	if err := os.MkdirAll(deep, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "file.txt"), []byte("keep"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Before("ws_test", root, "delete_directory", []string{dir}, false); err == nil || !strings.Contains(err.Error(), "checkpoint directory depth exceeds") {
+		t.Fatalf("error = %v", err)
+	}
+	values, err := store.List("ws_test", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("incomplete checkpoint was indexed: %#v", values)
 	}
 }
 

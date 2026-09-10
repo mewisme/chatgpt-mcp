@@ -622,6 +622,9 @@ func handleDeleteDirectory(workspaces *workspace.Manager, checkpoints *checkpoin
 		if !info.IsDir() {
 			return Result{}, errors.New("path is not a directory")
 		}
+		if err := rejectEffectiveRootMutation(workspaces, item.ID, dir, "delete"); err != nil {
+			return Result{}, err
+		}
 		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "delete_directory", []string{dir}, false)
 		if err != nil {
 			return Result{}, err
@@ -697,6 +700,9 @@ func handleMoveFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 		}
 		destination, err := workspaces.ResolvePath(item.ID, cwd, destinationValue, false)
 		if err != nil {
+			return Result{}, err
+		}
+		if err := rejectEffectiveRootMutation(workspaces, item.ID, source, "move"); err != nil {
 			return Result{}, err
 		}
 		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "move_file", []string{source, destination}, false)
@@ -950,6 +956,20 @@ func checkpointBefore(checkpoints *checkpoint.Store, workspaces *workspace.Manag
 		return "", err
 	}
 	return checkpoints.BeforeAllowed(item.ID, item.Path, roots, tool, paths, dryRun)
+}
+
+func rejectEffectiveRootMutation(workspaces *workspace.Manager, workspaceID, path, action string) error {
+	roots, err := workspaces.EffectiveRoots(workspaceID)
+	if err != nil {
+		return err
+	}
+	path = filepath.Clean(path)
+	for _, root := range roots {
+		if filepath.Clean(root) == path {
+			return fmt.Errorf("cannot %s workspace or allowed root: %s", action, path)
+		}
+	}
+	return nil
 }
 
 func editSpecs(value any) ([]EditSpec, error) {

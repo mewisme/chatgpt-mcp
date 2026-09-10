@@ -1,12 +1,17 @@
 package checkpoint
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 type restoreRoot struct {
@@ -65,7 +70,7 @@ func (roots restoreRoots) RemoveAll(path string) error {
 	return root.RemoveAll(relative)
 }
 
-func (roots restoreRoots) Restore(snapshot FileSnapshot) error {
+func (roots restoreRoots) Restore(snapshot FileSnapshot, blobRoot string) error {
 	if snapshot.Skipped {
 		return fmt.Errorf("cannot restore skipped snapshot for %s: %s", snapshot.Path, snapshot.SkipReason)
 	}
@@ -73,13 +78,16 @@ func (roots restoreRoots) Restore(snapshot FileSnapshot) error {
 	if err != nil {
 		return err
 	}
-	if snapshot.IsDirectory {
-		return roots.restoreDirectory(root, relative, snapshot)
+	if snapshot.IsSymlink {
+		return restoreSymlink(root, relative, snapshot)
 	}
-	return restoreFile(root, relative, snapshot)
+	if snapshot.IsDirectory {
+		return roots.restoreDirectory(root, relative, snapshot, blobRoot)
+	}
+	return restoreFile(root, relative, snapshot, blobRoot)
 }
 
-func (roots restoreRoots) restoreDirectory(root *os.Root, relative string, snapshot FileSnapshot) error {
+func (roots restoreRoots) restoreDirectory(root *os.Root, relative string, snapshot FileSnapshot, blobRoot string) error {
 	if info, err := root.Lstat(relative); err == nil {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			if relative == "." {
@@ -96,7 +104,7 @@ func (roots restoreRoots) restoreDirectory(root *os.Root, relative string, snaps
 		return err
 	}
 	for _, child := range snapshot.Children {
-		if err := roots.Restore(child); err != nil {
+		if err := roots.Restore(child, blobRoot); err != nil {
 			return err
 		}
 	}
@@ -112,7 +120,12 @@ func (roots restoreRoots) restoreDirectory(root *os.Root, relative string, snaps
 	return errors.Join(chmodErr, closeErr)
 }
 
-func restoreFile(root *os.Root, relative string, snapshot FileSnapshot) error {
+func restoreFile(root *os.Root, relative string, snapshot FileSnapshot, blobRoot string) error {
+	source, err := snapshotReader(snapshot, blobRoot)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
 	parent := filepath.Dir(relative)
 	if parent != "." {
 		if err := root.MkdirAll(parent, 0755); err != nil {
@@ -128,10 +141,6 @@ func restoreFile(root *os.Root, relative string, snapshot FileSnapshot) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	data, err := snapshotData(snapshot)
-	if err != nil {
-		return err
-	}
 	file, err := root.OpenFile(relative, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
@@ -142,9 +151,103 @@ func restoreFile(root *os.Root, relative string, snapshot FileSnapshot) error {
 			return err
 		}
 	}
-	_, writeErr := file.Write(data)
+	_, writeErr := io.Copy(file, source)
 	closeErr := file.Close()
 	return errors.Join(writeErr, closeErr)
+}
+
+func restoreSymlink(root *os.Root, relative string, snapshot FileSnapshot) error {
+	parent := filepath.Dir(relative)
+	if parent != "." {
+		if err := root.MkdirAll(parent, 0755); err != nil {
+			return err
+		}
+	}
+	if relative == "." {
+		return fmt.Errorf("checkpoint restore root cannot be a symlink: %s", snapshot.Path)
+	}
+	if err := root.RemoveAll(relative); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	target := snapshot.LinkTarget
+	if filepath.IsAbs(target) {
+		linkParent := filepath.Join(root.Name(), parent)
+		relativeTarget, err := filepath.Rel(linkParent, target)
+		if err != nil {
+			return err
+		}
+		target = relativeTarget
+	}
+	return root.Symlink(target, relative)
+}
+
+func snapshotReader(snapshot FileSnapshot, blobRoot string) (io.ReadCloser, error) {
+	if snapshot.Blob != "" {
+		return openVerifiedBlob(blobRoot, snapshot.Blob, snapshot)
+	}
+	data, err := snapshotData(snapshot)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+func checkpointBlobRelative(relative string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(relative))
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid checkpoint blob path: %s", relative)
+	}
+	return clean, nil
+}
+
+func openVerifiedBlob(rootPath, relative string, snapshot FileSnapshot) (*os.File, error) {
+	relative, err := checkpointBlobRelative(relative)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(filepath.Clean(rootPath))
+	if err != nil {
+		return nil, err
+	}
+	file, openErr := root.Open(relative)
+	closeErr := root.Close()
+	if err := errors.Join(openErr, closeErr); err != nil {
+		if file != nil {
+			_ = file.Close()
+		}
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, errors.New("checkpoint blob is not a regular file")
+	}
+	if snapshot.Size != 0 && info.Size() != snapshot.Size {
+		_ = file.Close()
+		return nil, fmt.Errorf("checkpoint blob size mismatch: got %d, want %d", info.Size(), snapshot.Size)
+	}
+	if snapshot.BlobSHA256 == "" {
+		return file, nil
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	digest := hex.EncodeToString(hash.Sum(nil))
+	if digest != snapshot.BlobSHA256 {
+		_ = file.Close()
+		return nil, fmt.Errorf("checkpoint blob checksum mismatch: got %s, want %s", digest, snapshot.BlobSHA256)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
 }
 
 func snapshotData(snapshot FileSnapshot) ([]byte, error) {

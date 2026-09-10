@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -201,6 +202,144 @@ func TestDeleteAndMoveStayInsideWorkspace(t *testing.T) {
 	result = callTool(t, runtime, "delete_file", deleteArgs)
 	if !result.IsError {
 		t.Fatalf("outside delete was not rejected: %#v", result)
+	}
+}
+
+func TestDeleteDirectoryLargeFileCanBeRewound(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	runtime.Checkpoints.MaxFileBytes = 1024
+	dir := filepath.Join(root, "tree")
+	file := filepath.Join(dir, "large.bin")
+	content := bytes.Repeat([]byte("checkpoint-blob"), 1024)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	result := callTool(t, runtime, "delete_directory", map[string]any{"workspace_id": workspaceID, "path": "tree"})
+	if result.IsError {
+		t.Fatalf("delete_directory failed: %#v", result)
+	}
+	value := result.StructuredContent.(map[string]any)
+	checkpointID, ok := value["checkpoint_id"].(*string)
+	if !ok || checkpointID == nil || *checkpointID == "" {
+		t.Fatalf("checkpoint id = %#v", value["checkpoint_id"])
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("directory still exists after delete: %v", err)
+	}
+	restore := callTool(t, runtime, "rewind", map[string]any{"workspace_id": workspaceID, "action": "restore", "checkpoint_id": *checkpointID})
+	if restore.IsError {
+		t.Fatalf("rewind failed: %#v", restore)
+	}
+	restored, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(restored, content) {
+		t.Fatal("rewound directory content differs")
+	}
+}
+
+func TestDeleteFileLargeFileCanBeRewound(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	runtime.Checkpoints.MaxFileBytes = 1024
+	file := filepath.Join(root, "large.bin")
+	content := bytes.Repeat([]byte("large-delete"), 1024)
+	if err := os.WriteFile(file, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	result := callTool(t, runtime, "delete_file", map[string]any{"workspace_id": workspaceID, "path": "large.bin"})
+	if result.IsError {
+		t.Fatalf("delete_file failed: %#v", result)
+	}
+	value := result.StructuredContent.(DeleteResult)
+	if value.CheckpointID == nil || *value.CheckpointID == "" {
+		t.Fatalf("checkpoint id = %#v", value.CheckpointID)
+	}
+	restore := callTool(t, runtime, "rewind", map[string]any{"workspace_id": workspaceID, "action": "restore", "checkpoint_id": *value.CheckpointID})
+	if restore.IsError {
+		t.Fatalf("rewind failed: %#v", restore)
+	}
+	restored, err := os.ReadFile(file)
+	if err != nil || !bytes.Equal(restored, content) {
+		t.Fatalf("rewound file differs: bytes=%d err=%v", len(restored), err)
+	}
+}
+
+func TestDeleteDirectoryAbortsWhenCheckpointCannotBeComplete(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	runtime.Checkpoints.MaxDirectoryDepth = 1
+	dir := filepath.Join(root, "tree")
+	file := filepath.Join(dir, "one", "two", "file.txt")
+	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("must survive"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result := callTool(t, runtime, "delete_directory", map[string]any{"workspace_id": workspaceID, "path": "tree"})
+	if !result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "checkpoint directory depth exceeds") {
+		t.Fatalf("delete_directory result = %#v", result)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil || string(data) != "must survive" {
+		t.Fatalf("mutation ran after incomplete checkpoint: content=%q err=%v", data, err)
+	}
+}
+
+func TestDeleteDirectoryAbortsForExternalSymlink(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	dir := filepath.Join(root, "tree")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	external := filepath.Join(t.TempDir(), "external.txt")
+	if err := os.WriteFile(external, []byte("external"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "external-link")
+	if err := os.Symlink(external, link); err != nil {
+		t.Fatal(err)
+	}
+	result := callTool(t, runtime, "delete_directory", map[string]any{"workspace_id": workspaceID, "path": "tree"})
+	if !result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "symlink target escapes allowed root") {
+		t.Fatalf("delete_directory result = %#v", result)
+	}
+	if target, err := os.Readlink(link); err != nil || target != external {
+		t.Fatalf("directory changed after rejected checkpoint: target=%q err=%v", target, err)
+	}
+}
+
+func TestDeleteAndMoveRejectWorkspaceRoot(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	file := filepath.Join(root, "keep.txt")
+	if err := os.WriteFile(file, []byte("keep"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	deleteResult := callTool(t, runtime, "delete_directory", map[string]any{"workspace_id": workspaceID, "path": root})
+	if !deleteResult.IsError || len(deleteResult.Content) == 0 || !strings.Contains(deleteResult.Content[0].Text, "cannot delete workspace or allowed root") {
+		t.Fatalf("delete workspace root result = %#v", deleteResult)
+	}
+	moveResult := callTool(t, runtime, "move_file", map[string]any{"workspace_id": workspaceID, "source": root, "destination": filepath.Join(root, "moved")})
+	if !moveResult.IsError || len(moveResult.Content) == 0 || !strings.Contains(moveResult.Content[0].Text, "cannot move workspace or allowed root") {
+		t.Fatalf("move workspace root result = %#v", moveResult)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil || string(data) != "keep" {
+		t.Fatalf("workspace root changed: content=%q err=%v", data, err)
+	}
+	allowed := t.TempDir()
+	if _, err := runtime.Workspaces.AddAllowDir(workspaceID, allowed); err != nil {
+		t.Fatal(err)
+	}
+	allowedResult := callTool(t, runtime, "delete_directory", map[string]any{"workspace_id": workspaceID, "path": allowed})
+	if !allowedResult.IsError || len(allowedResult.Content) == 0 || !strings.Contains(allowedResult.Content[0].Text, "cannot delete workspace or allowed root") {
+		t.Fatalf("delete allowed root result = %#v", allowedResult)
 	}
 }
 

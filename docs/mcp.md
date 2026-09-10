@@ -105,6 +105,8 @@ Passing an existing `wsc_*` to a workspace-scoped tool as `workspace_id` fails w
 
 Effective filesystem scope and session isolation are described in [Security](security.md).
 
+Checkpointed filesystem mutations are fail-safe. Existing files up to the inline threshold are stored in the checkpoint manifest; larger files are streamed into private checkpoint blobs with size and SHA-256 verification. Recursive directory snapshots include safe symlinks. If a directory is too deep, contains an unsupported file type, or otherwise cannot be captured completely, the mutation fails before changing the filesystem. `delete_directory` and `move_file` also refuse to remove or relocate a workspace root or configured allowed root because doing so would make that scope unavailable to rewind. Shell-command filesystem changes remain outside checkpoint tracking.
+
 ## Effective project context and global instructions
 
 `project_context` is assembled by one shared builder used by both the MCP tool and the Admin workspace preview. Its effective instruction text can include project-local instruction files, managed global context/rules, enabled user-level instruction sources, matching path rules, optional skill metadata, Git context, and memory according to the tool options and configured byte/line budgets.

@@ -36,6 +36,8 @@ Paths are canonicalized and symlink escapes are rejected.
 
 Revoking an allowed root also prevents old checkpoints from restoring files back into that revoked path.
 
+Automatic checkpoints fail closed before built-in filesystem mutations. Large files are stored as separate private blobs and verified by size and SHA-256 before restore. Recursive snapshots reject incomplete captures instead of recording skipped content and then allowing a destructive operation. Workspace roots and configured allowed roots cannot be deleted or moved by checkpointed filesystem tools because rewind requires those roots to remain available. Legacy checkpoints that already contain skipped snapshots remain readable and report those skips explicitly.
+
 ## MCP session workspace isolation
 
 One MCP session may access multiple registered workspaces. Every workspace-scoped call must explicitly carry a valid `workspace_id`; the runtime does not infer a current workspace or silently switch arguments. A valid concrete `ws_*` target is added to the session's ephemeral in-memory workspace access set, while an invalid workspace is rejected before tool execution.

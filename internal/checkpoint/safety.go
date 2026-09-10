@@ -19,8 +19,11 @@ func (s *Store) ValidateRestorePathsAllowed(workspaceID, workspaceRoot string, a
 	if err != nil {
 		return err
 	}
-	for _, snapshot := range snapshots {
-		if err := validateSnapshotPathAllowed(allowedRoots, snapshot); err != nil {
+	for _, stored := range snapshots {
+		if err := validateSnapshotPathAllowed(allowedRoots, stored.Snapshot); err != nil {
+			return err
+		}
+		if err := s.validateSnapshotStorage(workspaceID, stored.CheckpointID, stored.Snapshot); err != nil {
 			return err
 		}
 	}
@@ -28,11 +31,57 @@ func (s *Store) ValidateRestorePathsAllowed(workspaceID, workspaceRoot string, a
 }
 
 func validateSnapshotPathAllowed(roots []string, snapshot FileSnapshot) error {
-	if _, err := safeCanonicalAny(roots, snapshot.Path); err != nil {
+	if snapshot.IsSymlink {
+		if err := validateSymlinkSnapshot(roots, snapshot.Path, snapshot.LinkTarget); err != nil {
+			return fmt.Errorf("checkpoint restore denied for %s: %w", snapshot.Path, err)
+		}
+	} else if _, err := safeCanonicalAny(roots, snapshot.Path); err != nil {
 		return fmt.Errorf("checkpoint restore denied for %s: %w", snapshot.Path, err)
 	}
 	for _, child := range snapshot.Children {
 		if err := validateSnapshotPathAllowed(roots, child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSymlinkSnapshot(roots []string, path, target string) error {
+	if strings.TrimSpace(target) == "" {
+		return fmt.Errorf("checkpoint symlink target is empty: %s", path)
+	}
+	cleanPath := filepath.Clean(path)
+	targetPath := filepath.Clean(target)
+	if !filepath.IsAbs(targetPath) {
+		targetPath = filepath.Join(filepath.Dir(cleanPath), targetPath)
+	}
+	for _, root := range roots {
+		root = filepath.Clean(root)
+		if !within(root, cleanPath) || !within(root, targetPath) {
+			continue
+		}
+		if _, err := safeCanonical(root, filepath.Dir(cleanPath)); err != nil {
+			continue
+		}
+		if _, err := safeCanonical(root, targetPath); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", cleanPath, target)
+}
+
+func (s *Store) validateSnapshotStorage(workspaceID, checkpointID string, snapshot FileSnapshot) error {
+	if snapshot.Blob != "" {
+		blob, err := openVerifiedBlob(s.checkpointDir(workspaceID, checkpointID), snapshot.Blob, snapshot)
+		if err != nil {
+			return fmt.Errorf("checkpoint blob invalid for %s: %w", snapshot.Path, err)
+		}
+		if err := blob.Close(); err != nil {
+			return err
+		}
+	}
+	for _, child := range snapshot.Children {
+		if err := s.validateSnapshotStorage(workspaceID, checkpointID, child); err != nil {
 			return err
 		}
 	}

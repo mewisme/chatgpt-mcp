@@ -54,6 +54,55 @@ func TestToolLoopGuardExemptsPollingTools(t *testing.T) {
 	}
 }
 
+func TestToolLoopGuardWarnsThenBlocksDuplicateMutations(t *testing.T) {
+	guard := NewToolLoopGuard()
+	args := map[string]any{"workspace_id": "ws_a", "path": "file.txt"}
+	if decision := guard.Check("session-a", "delete_file", args, toolLoopClassMutation); decision.blocked || decision.warn {
+		t.Fatalf("first decision=%#v", decision)
+	}
+	guard.MarkMutationSuccess("session-a", "delete_file", args)
+	if decision := guard.Check("session-a", "delete_file", args, toolLoopClassMutation); decision.blocked || !decision.warn || decision.repeats != 2 {
+		t.Fatalf("second decision=%#v", decision)
+	}
+	guard.MarkMutationSuccess("session-a", "delete_file", args)
+	if decision := guard.Check("session-a", "delete_file", args, toolLoopClassMutation); !decision.blocked || decision.reason != "duplicate_mutation" || decision.repeats != 3 {
+		t.Fatalf("third decision=%#v", decision)
+	}
+}
+
+func TestToolLoopGuardDifferentMutationResetsDuplicateStreak(t *testing.T) {
+	guard := NewToolLoopGuard()
+	firstArgs := map[string]any{"workspace_id": "ws_a", "path": "a.txt"}
+	secondArgs := map[string]any{"workspace_id": "ws_a", "path": "b.txt"}
+	guard.MarkMutationSuccess("session-a", "delete_file", firstArgs)
+	guard.MarkMutationSuccess("session-a", "delete_file", firstArgs)
+	guard.MarkMutationSuccess("session-a", "delete_file", secondArgs)
+	if decision := guard.Check("session-a", "delete_file", firstArgs, toolLoopClassMutation); decision.blocked || decision.warn || decision.repeats != 1 {
+		t.Fatalf("decision=%#v", decision)
+	}
+}
+
+func TestRuntimeDuplicateMutationProtectionCountsOnlySuccessfulDispatches(t *testing.T) {
+	registry := NewRegistry()
+	calls := 0
+	registry.MustRegister("edit_probe", Schema{Name: "edit_probe", InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: ToolAnnotations(RiskEdit)}, func(context.Context, map[string]any) (Result, error) {
+		calls++
+		return TextResult("edited"), nil
+	})
+	runtime := &Runtime{Registry: registry, LoopGuard: NewToolLoopGuard()}
+	ctx := WithMCPSessionID(context.Background(), "session-a")
+	for index := 0; index < 2; index++ {
+		result, err := runtime.Call(ctx, "edit_probe", map[string]any{})
+		if err != nil || result.IsError {
+			t.Fatalf("mutation %d result=%#v err=%v", index, result, err)
+		}
+	}
+	blocked, err := runtime.Call(ctx, "edit_probe", map[string]any{})
+	if err != nil || !blocked.IsError || calls != 2 || len(blocked.Content) == 0 || !strings.Contains(blocked.Content[0].Text, "Duplicate mutation blocked") {
+		t.Fatalf("blocked=%#v err=%v calls=%d", blocked, err, calls)
+	}
+}
+
 func TestRuntimeLoopGuardBlocksContextLoopAndMutationResetsIt(t *testing.T) {
 	registry := NewRegistry()
 	readSchema := Schema{Name: "project_context", InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: ToolAnnotations(RiskRead)}

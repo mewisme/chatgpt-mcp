@@ -282,9 +282,6 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		result = *forcedResult
 	} else if err == nil {
 		result, err = r.Registry.Call(ctx, name, args)
-		if loopClass == toolLoopClassMutation && strings.TrimSpace(sessionID) != "" {
-			r.loopGuard().MarkProgress(sessionID)
-		}
 	}
 	if err != nil && errors.Is(context.Cause(ctx), errTunnelResponseBudgetExceeded) && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		err = tunnelResponseBudgetError(name)
@@ -301,6 +298,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw := cloneMap(raw)
 	finishRaw["routing"] = map[string]any{"received_by_instance_id": receivedBy, "executed_by_instance_id": executedBy}
 	if err == nil {
+		if loopClass == toolLoopClassMutation && !result.IsError && forcedResult == nil && strings.TrimSpace(sessionID) != "" {
+			r.loopGuard().MarkMutationSuccess(sessionID, name, args)
+		}
 		result = addToolLoopWarning(result, name, loopDecision)
 		if result.ResultType == "" {
 			result.ResultType = "complete"

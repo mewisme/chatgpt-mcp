@@ -31,9 +31,11 @@ type ToolLoopGuard struct {
 }
 
 type toolLoopSession struct {
-	history  []toolLoopRecord
-	progress uint64
-	lastSeen time.Time
+	history             []toolLoopRecord
+	progress            uint64
+	lastMutation        string
+	lastMutationRepeats int
+	lastSeen            time.Time
 }
 
 type toolLoopRecord struct {
@@ -54,7 +56,7 @@ func NewToolLoopGuard() *ToolLoopGuard {
 }
 
 func (g *ToolLoopGuard) Check(sessionID, name string, args map[string]any, class toolLoopClass) toolLoopDecision {
-	if g == nil || strings.TrimSpace(sessionID) == "" || class == toolLoopClassExempt || class == toolLoopClassMutation {
+	if g == nil || strings.TrimSpace(sessionID) == "" || class == toolLoopClassExempt {
 		return toolLoopDecision{}
 	}
 	fingerprint := toolCallFingerprint(name, args)
@@ -63,6 +65,18 @@ func (g *ToolLoopGuard) Check(sessionID, name string, args map[string]any, class
 	defer g.mu.Unlock()
 	g.purgeLocked(now)
 	session := g.sessionLocked(sessionID, now)
+	if class == toolLoopClassMutation {
+		repeats := 1
+		if session.lastMutation == fingerprint {
+			repeats = session.lastMutationRepeats + 1
+		}
+		decision := toolLoopDecision{warn: repeats == 2, repeats: repeats}
+		if repeats >= 3 {
+			decision.blocked = true
+			decision.reason = "duplicate_mutation"
+		}
+		return decision
+	}
 	record := toolLoopRecord{tool: name, fingerprint: fingerprint, progress: session.progress}
 	consecutive := consecutiveFingerprintCount(session.history, record) + 1
 	exactLimit := 4
@@ -89,6 +103,26 @@ func (g *ToolLoopGuard) Check(sessionID, name string, args map[string]any, class
 	return decision
 }
 
+func (g *ToolLoopGuard) MarkMutationSuccess(sessionID, name string, args map[string]any) {
+	if g == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	fingerprint := toolCallFingerprint(name, args)
+	now := g.clock()()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.purgeLocked(now)
+	session := g.sessionLocked(sessionID, now)
+	if session.lastMutation == fingerprint {
+		session.lastMutationRepeats++
+	} else {
+		session.lastMutation = fingerprint
+		session.lastMutationRepeats = 1
+	}
+	session.progress++
+	session.history = nil
+}
+
 func (g *ToolLoopGuard) MarkProgress(sessionID string) {
 	if g == nil || strings.TrimSpace(sessionID) == "" {
 		return
@@ -100,6 +134,8 @@ func (g *ToolLoopGuard) MarkProgress(sessionID string) {
 	session := g.sessionLocked(sessionID, now)
 	session.progress++
 	session.history = nil
+	session.lastMutation = ""
+	session.lastMutationRepeats = 0
 }
 
 func (g *ToolLoopGuard) Delete(sessionID string) {
@@ -189,7 +225,7 @@ func toolCallFingerprint(name string, args map[string]any) string {
 
 func toolLoopClassFor(name string, schema Schema) toolLoopClass {
 	switch strings.TrimSpace(name) {
-	case "process_status", "process_output", "workspace_status", "shell_status", "agent_status", "get_version":
+	case "process_status", "process_output", "workspace_status", "shell_status", "agent_status", "get_version", "request_control_approval":
 		return toolLoopClassExempt
 	case "project_context", "load_path_rules", "list_skills", "load_skill":
 		return toolLoopClassContext
@@ -202,6 +238,9 @@ func toolLoopClassFor(name string, schema Schema) toolLoopClass {
 
 func toolLoopBlockedResult(name string, decision toolLoopDecision) Result {
 	message := fmt.Sprintf("Tool loop detected: %s is repeating without an intervening state-changing action. Reuse the previous result or choose a different action.", name)
+	if decision.reason == "duplicate_mutation" {
+		message = fmt.Sprintf("Duplicate mutation blocked: %s has already completed with the same arguments twice without a different mutation in between. Inspect current state before retrying or change the action.", name)
+	}
 	result := ErrorResult(fmt.Errorf("%s", message))
 	result.Meta = map[string]any{"loopGuard": map[string]any{"blocked": true, "reason": decision.reason, "repeats": decision.repeats, "tool": name}}
 	return result

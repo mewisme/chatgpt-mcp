@@ -23,6 +23,8 @@ const (
 	finishedProcessRetention = 24 * time.Hour
 )
 
+var ErrProcessRunning = errors.New("process is still running")
+
 type ProcessInfo struct {
 	ID          string  `json:"id"`
 	ExecutionID string  `json:"execution_id,omitempty"`
@@ -301,6 +303,27 @@ func (m *ProcessManager) Clear(workspaceID string) (int, error) {
 	}
 	m.compactOrderLocked()
 	return cleared, nil
+}
+
+func (m *ProcessManager) ClearFinished(workspaceID, id string) error {
+	item, err := m.get(workspaceID, id)
+	if err != nil {
+		return err
+	}
+	item.mu.Lock()
+	running := item.exitCode == nil
+	item.mu.Unlock()
+	if running {
+		return ErrProcessRunning
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current := m.processes[id]; current != item {
+		return fmt.Errorf("unknown process id: %s", id)
+	}
+	delete(m.processes, id)
+	m.compactOrderLocked()
+	return nil
 }
 
 func (m *ProcessManager) get(workspaceID, id string) (*managedProcess, error) {

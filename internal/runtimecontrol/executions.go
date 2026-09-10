@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -24,6 +25,18 @@ type ExecutionFeedStream struct {
 	response *http.Response
 	scanner  *bufio.Scanner
 	snapshot shellruntime.ExecutionFeedSnapshot
+}
+
+func ListProcesses(ctx context.Context, workspaceID string) ([]shellruntime.ProcessInfo, error) {
+	var result []shellruntime.ProcessInfo
+	_, err := Request(ctx, http.MethodGet, "/api/workspaces/"+url.PathEscape(strings.TrimSpace(workspaceID))+"/processes", nil, &result)
+	return result, err
+}
+
+func DeleteFinishedProcess(ctx context.Context, workspaceID, id string) error {
+	var result map[string]bool
+	_, err := Request(ctx, http.MethodDelete, "/api/workspaces/"+url.PathEscape(strings.TrimSpace(workspaceID))+"/processes/"+url.PathEscape(strings.TrimSpace(id)), nil, &result)
+	return err
 }
 
 func OpenExecutionFeed(ctx context.Context) (*ExecutionFeedStream, State, error) {

@@ -1,0 +1,80 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestToolLoopGuardBlocksExactContextDuplicates(t *testing.T) {
+	guard := NewToolLoopGuard()
+	args := map[string]any{"workspace_id": "ws_a", "path": "internal"}
+	if decision := guard.Check("session-a", "load_path_rules", args, toolLoopClassContext); decision.blocked || decision.warn {
+		t.Fatalf("first decision=%#v", decision)
+	}
+	if decision := guard.Check("session-a", "load_path_rules", args, toolLoopClassContext); decision.blocked || !decision.warn {
+		t.Fatalf("second decision=%#v", decision)
+	}
+	if decision := guard.Check("session-a", "load_path_rules", args, toolLoopClassContext); !decision.blocked || decision.reason != "exact_duplicate" {
+		t.Fatalf("third decision=%#v", decision)
+	}
+}
+
+func TestToolLoopGuardBlocksRepeatedCycles(t *testing.T) {
+	guard := NewToolLoopGuard()
+	for index, name := range []string{"project_context", "load_path_rules", "project_context", "load_path_rules", "project_context"} {
+		if decision := guard.Check("session-a", name, map[string]any{"workspace_id": "ws_a"}, toolLoopClassContext); decision.blocked {
+			t.Fatalf("call %d blocked early: %#v", index, decision)
+		}
+	}
+	decision := guard.Check("session-a", "load_path_rules", map[string]any{"workspace_id": "ws_a"}, toolLoopClassContext)
+	if !decision.blocked || decision.reason != "repeated_cycle_2" {
+		t.Fatalf("cycle decision=%#v", decision)
+	}
+}
+
+func TestToolLoopGuardProgressResetsHistory(t *testing.T) {
+	guard := NewToolLoopGuard()
+	args := map[string]any{"workspace_id": "ws_a"}
+	_ = guard.Check("session-a", "project_context", args, toolLoopClassContext)
+	_ = guard.Check("session-a", "project_context", args, toolLoopClassContext)
+	guard.MarkProgress("session-a")
+	if decision := guard.Check("session-a", "project_context", args, toolLoopClassContext); decision.blocked || decision.warn {
+		t.Fatalf("post-progress decision=%#v", decision)
+	}
+}
+
+func TestToolLoopGuardExemptsPollingTools(t *testing.T) {
+	guard := NewToolLoopGuard()
+	for index := 0; index < 20; index++ {
+		if decision := guard.Check("session-a", "process_output", map[string]any{"id": "proc_a"}, toolLoopClassExempt); decision.blocked || decision.warn {
+			t.Fatalf("poll %d decision=%#v", index, decision)
+		}
+	}
+}
+
+func TestRuntimeLoopGuardBlocksContextLoopAndMutationResetsIt(t *testing.T) {
+	registry := NewRegistry()
+	readSchema := Schema{Name: "project_context", InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: ToolAnnotations(RiskRead)}
+	registry.MustRegister("project_context", readSchema, func(context.Context, map[string]any) (Result, error) { return TextResult("context"), nil })
+	registry.MustRegister("edit_probe", Schema{Name: "edit_probe", InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: ToolAnnotations(RiskEdit)}, func(context.Context, map[string]any) (Result, error) { return TextResult("edited"), nil })
+	runtime := &Runtime{Registry: registry, LoopGuard: NewToolLoopGuard()}
+	ctx := WithMCPSessionID(context.Background(), "session-a")
+	for index := 0; index < 2; index++ {
+		result, err := runtime.Call(ctx, "project_context", map[string]any{})
+		if err != nil || result.IsError {
+			t.Fatalf("read %d result=%#v err=%v", index, result, err)
+		}
+	}
+	blocked, err := runtime.Call(ctx, "project_context", map[string]any{})
+	if err != nil || !blocked.IsError || len(blocked.Content) == 0 || !strings.Contains(blocked.Content[0].Text, "Tool loop detected") {
+		t.Fatalf("blocked=%#v err=%v", blocked, err)
+	}
+	if result, err := runtime.Call(ctx, "edit_probe", map[string]any{}); err != nil || result.IsError {
+		t.Fatalf("mutation result=%#v err=%v", result, err)
+	}
+	if result, err := runtime.Call(ctx, "project_context", map[string]any{}); err != nil || result.IsError {
+		t.Fatalf("post-progress result=%#v err=%v", result, err)
+	}
+}

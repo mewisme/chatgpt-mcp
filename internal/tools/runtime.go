@@ -37,6 +37,7 @@ type Runtime struct {
 	Approvals       *approval.Manager
 	Executions      *shellruntime.ExecutionHub
 	Processes       *shellruntime.ProcessManager
+	LoopGuard       *ToolLoopGuard
 	callSequence    atomic.Uint64
 	sessionMu       sync.Mutex
 	featureMu       sync.Mutex
@@ -66,7 +67,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	executions := shellruntime.NewExecutionHub()
 	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
 	processes := shellruntime.NewProcessManagerWithExecutions(workspaces, shell, executions)
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Processes: processes, ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Processes: processes, LoopGuard: NewToolLoopGuard(), ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterWorkspaceContainerTools(registry, workspaces)
@@ -254,6 +255,17 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	if preflightErr == nil {
 		ctx, claimedApproval, forcedResult, preflightErr = r.prepareApprovalRetry(ctx, sessionID, workspaceID, source, name, args)
 	}
+	loopClass, loopDecision := toolLoopClassMutation, toolLoopDecision{}
+	if preflightErr == nil && forcedResult == nil && strings.TrimSpace(sessionID) != "" && r.Registry != nil {
+		if schema, ok := r.Registry.Schema(name); ok {
+			loopClass = toolLoopClassFor(name, schema)
+			loopDecision = r.loopGuard().Check(sessionID, name, args, loopClass)
+			if loopDecision.blocked {
+				blocked := toolLoopBlockedResult(name, loopDecision)
+				forcedResult = &blocked
+			}
+		}
+	}
 	executedBy := r.runtimeInstanceID()
 	ctx = shellruntime.WithExecutionMetadata(ctx, shellruntime.ExecutionMetadata{
 		Source: source, CallID: callID, SessionHash: sessionHash, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy,
@@ -270,6 +282,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		result = *forcedResult
 	} else if err == nil {
 		result, err = r.Registry.Call(ctx, name, args)
+		if loopClass == toolLoopClassMutation && strings.TrimSpace(sessionID) != "" {
+			r.loopGuard().MarkProgress(sessionID)
+		}
 	}
 	if err != nil && errors.Is(context.Cause(ctx), errTunnelResponseBudgetExceeded) && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		err = tunnelResponseBudgetError(name)
@@ -286,6 +301,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw := cloneMap(raw)
 	finishRaw["routing"] = map[string]any{"received_by_instance_id": receivedBy, "executed_by_instance_id": executedBy}
 	if err == nil {
+		result = addToolLoopWarning(result, name, loopDecision)
 		if result.ResultType == "" {
 			result.ResultType = "complete"
 		}
@@ -320,6 +336,15 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["result"] = observedResult(name, result)
 	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
+}
+
+func (r *Runtime) loopGuard() *ToolLoopGuard {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	if r.LoopGuard == nil {
+		r.LoopGuard = NewToolLoopGuard()
+	}
+	return r.LoopGuard
 }
 
 func workspaceScopePreflightError(manager *workspace.Manager, id string, original error) error {

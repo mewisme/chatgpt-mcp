@@ -65,7 +65,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	}
 	executions := shellruntime.NewExecutionHub()
 	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
-	processes := shellruntime.NewProcessManager(workspaces, shell)
+	processes := shellruntime.NewProcessManagerWithExecutions(workspaces, shell, executions)
 	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Processes: processes, ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)

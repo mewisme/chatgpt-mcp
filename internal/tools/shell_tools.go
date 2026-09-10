@@ -73,7 +73,7 @@ func RegisterShellTools(registry *Registry, workspaces *workspace.Manager, shell
 		return JSONResult(value), nil
 	})
 
-	register("start_process", "Start Background Process", "Start a long-running command in the workspace persisted cwd. Background commands cannot contain cwd-changing directives.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`, `{"type":"object","properties":{"id":{"type":"string"},"pid":{"type":"integer"},"command":{"type":"string"},"cwd":{"type":"string"},"started_at":{"type":"string"}},"required":["id","pid","command","cwd","started_at"],"additionalProperties":false}`, RiskCommand, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("start_process", "Start Background Process", "Start a long-running command in the workspace persisted cwd. Background commands cannot contain cwd-changing directives.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"command":{"type":"string"}},"required":["workspace_id","command"],"additionalProperties":false}`, `{"type":"object","properties":{"id":{"type":"string"},"execution_id":{"type":"string"},"pid":{"type":"integer"},"command":{"type":"string"},"cwd":{"type":"string"},"started_at":{"type":"string"}},"required":["id","pid","command","cwd","started_at"],"additionalProperties":false}`, RiskCommand, func(ctx context.Context, args map[string]any) (Result, error) {
 		workspaceID, err := requiredString(args, "workspace_id")
 		if err != nil {
 			return Result{}, err

@@ -253,10 +253,25 @@ func TestRuntimeOwnsShellToolProcessManager(t *testing.T) {
 		t.Fatalf("start_process failed: result=%#v err=%v", result, err)
 	}
 	started := result.StructuredContent.(shellruntime.StartResult)
+	if started.ExecutionID == "" {
+		t.Fatal("start_process did not expose execution id")
+	}
 	processes, err := runtime.Processes.Status(item.ID, started.ID)
-	if err != nil || len(processes) != 1 || processes[0].ID != started.ID {
+	if err != nil || len(processes) != 1 || processes[0].ID != started.ID || processes[0].ExecutionID != started.ExecutionID {
 		t.Fatalf("runtime process lookup=%#v err=%v", processes, err)
 	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, snapshotErr := runtime.Executions.Get(item.ID, started.ExecutionID)
+		if snapshotErr == nil && snapshot.Execution.Status != shellruntime.ExecutionStatusRunning {
+			if !strings.Contains(snapshot.Stdout, "ready") || snapshot.Execution.Tool != "start_process" {
+				t.Fatalf("process execution snapshot=%#v", snapshot)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("process execution did not complete in execution hub")
 }
 
 func TestBackgroundMutationUsesPersistedCWDAndRejectsOutside(t *testing.T) {

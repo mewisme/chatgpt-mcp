@@ -24,22 +24,24 @@ const (
 )
 
 type ProcessInfo struct {
-	ID        string  `json:"id"`
-	PID       int     `json:"pid"`
-	Command   string  `json:"command"`
-	CWD       string  `json:"cwd"`
-	StartedAt string  `json:"started_at"`
-	Running   bool    `json:"running"`
-	ExitCode  *int    `json:"exit_code"`
-	Signal    *string `json:"signal"`
+	ID          string  `json:"id"`
+	ExecutionID string  `json:"execution_id,omitempty"`
+	PID         int     `json:"pid"`
+	Command     string  `json:"command"`
+	CWD         string  `json:"cwd"`
+	StartedAt   string  `json:"started_at"`
+	Running     bool    `json:"running"`
+	ExitCode    *int    `json:"exit_code"`
+	Signal      *string `json:"signal"`
 }
 
 type StartResult struct {
-	ID        string `json:"id"`
-	PID       int    `json:"pid"`
-	Command   string `json:"command"`
-	CWD       string `json:"cwd"`
-	StartedAt string `json:"started_at"`
+	ID          string `json:"id"`
+	ExecutionID string `json:"execution_id,omitempty"`
+	PID         int    `json:"pid"`
+	Command     string `json:"command"`
+	CWD         string `json:"cwd"`
+	StartedAt   string `json:"started_at"`
 }
 
 type OutputResult struct {
@@ -70,6 +72,7 @@ type managedProcess struct {
 	exitCode   *int
 	signal     *string
 	finishedAt time.Time
+	execution  *ExecutionRun
 }
 
 type ProcessManager struct {
@@ -80,6 +83,7 @@ type ProcessManager struct {
 	order       []string
 	maxFinished int
 	retention   time.Duration
+	executions  *ExecutionHub
 }
 
 type logBuffer struct {
@@ -89,6 +93,12 @@ type logBuffer struct {
 
 func NewProcessManager(workspaces *workspace.Manager, shell *Manager) *ProcessManager {
 	return &ProcessManager{workspaces: workspaces, shell: shell, processes: map[string]*managedProcess{}, maxFinished: maxFinishedProcesses, retention: finishedProcessRetention}
+}
+
+func NewProcessManagerWithExecutions(workspaces *workspace.Manager, shell *Manager, executions *ExecutionHub) *ProcessManager {
+	manager := NewProcessManager(workspaces, shell)
+	manager.executions = executions
+	return manager
 }
 
 func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string) (StartResult, error) {
@@ -144,16 +154,23 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 		workspace: workspaceID, id: id, command: command, cwd: cwd,
 		startedAt: time.Now().UTC().Format(time.RFC3339Nano), cmd: cmd, stdout: &logBuffer{}, stderr: &logBuffer{},
 	}
+	if m.executions != nil {
+		metadata := executionMetadata(ctx)
+		process.execution = m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "start_process", Command: command, CWD: cwd, Source: metadata.Source, CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID})
+	}
 	m.mu.Lock()
 	m.pruneLocked(time.Now().UTC())
 	m.processes[id] = process
 	m.order = append(m.order, id)
 	m.mu.Unlock()
 
-	go copyLog(process.stdout, stdoutPipe)
-	go copyLog(process.stderr, stderrPipe)
+	var outputWG sync.WaitGroup
+	outputWG.Add(2)
+	go copyProcessLog(&outputWG, process.stdout, process.execution, "stdout", stdoutPipe)
+	go copyProcessLog(&outputWG, process.stderr, process.execution, "stderr", stderrPipe)
 	go func() {
 		waitErr := cmd.Wait()
+		outputWG.Wait()
 		process.mu.Lock()
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) {
@@ -172,13 +189,28 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 			}
 		}
 		process.finishedAt = time.Now().UTC()
+		exitCode := cloneInt(process.exitCode)
+		signal := cloneString(process.signal)
 		process.mu.Unlock()
+		if process.execution != nil {
+			status := ExecutionStatusSuccess
+			if signal != nil {
+				status = ExecutionStatusCancelled
+			} else if exitCode == nil || *exitCode != 0 {
+				status = ExecutionStatusFailed
+			}
+			process.execution.Finish(status, exitCode, false)
+		}
 		m.mu.Lock()
 		m.pruneLocked(time.Now().UTC())
 		m.mu.Unlock()
 	}()
 
-	return StartResult{ID: id, PID: cmd.Process.Pid, Command: command, CWD: cwd, StartedAt: process.startedAt}, nil
+	executionID := ""
+	if process.execution != nil {
+		executionID = process.execution.ID()
+	}
+	return StartResult{ID: id, ExecutionID: executionID, PID: cmd.Process.Pid, Command: command, CWD: cwd, StartedAt: process.startedAt}, nil
 }
 
 func (m *ProcessManager) Status(workspaceID, id string) ([]ProcessInfo, error) {
@@ -357,13 +389,25 @@ func (p *managedProcess) info() ProcessInfo {
 		pid = p.cmd.Process.Pid
 	}
 	return ProcessInfo{
-		ID: p.id, PID: pid, Command: p.command, CWD: p.cwd, StartedAt: p.startedAt,
+		ID: p.id, ExecutionID: processExecutionID(p.execution), PID: pid, Command: p.command, CWD: p.cwd, StartedAt: p.startedAt,
 		Running: p.exitCode == nil, ExitCode: cloneInt(p.exitCode), Signal: cloneString(p.signal),
 	}
 }
 
-func copyLog(target *logBuffer, reader io.Reader) {
-	_, _ = io.Copy(target, reader)
+func copyProcessLog(wg *sync.WaitGroup, target *logBuffer, execution *ExecutionRun, stream string, reader io.Reader) {
+	defer wg.Done()
+	writers := []io.Writer{target}
+	if execution != nil {
+		writers = append(writers, execution.Writer(stream))
+	}
+	_, _ = io.Copy(io.MultiWriter(writers...), reader)
+}
+
+func processExecutionID(execution *ExecutionRun) string {
+	if execution == nil {
+		return ""
+	}
+	return execution.ID()
 }
 
 func (b *logBuffer) Write(data []byte) (int, error) {

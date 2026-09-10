@@ -844,7 +844,7 @@ func TestFormatExecutionFeedMarksInterleavedContinuations(t *testing.T) {
 	if !strings.Contains(view, "╯\n\n$ first\nA1") || !strings.Contains(view, "CONTINUE") || !strings.Contains(view, "╯\n\nA2") {
 		t.Fatalf("execution frame padding=%q", view)
 	}
-	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 3 || strings.Count(view, "╭─ END ") != 2 {
+	if strings.Count(view, "╭─ START ") != 2 || strings.Count(view, "╭─ CONTINUE ") != 3 || strings.Count(view, "╰─ END ") != 2 {
 		t.Fatalf("interleaved markers=%q", view)
 	}
 	for _, want := range []string{"CONTINUE", "Execution  exec_a", "Execution  exec_b", "+500ms", "A1", "B1", "A2", "B2"} {

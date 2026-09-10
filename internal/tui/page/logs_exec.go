@@ -423,6 +423,9 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int
 			if output.Len() > 0 && !endsNewline {
 				write("\n")
 			}
+			if output.Len() > 0 && !strings.HasSuffix(output.String(), "\n\n") {
+				write("\n")
+			}
 			write(formatExecutionEnd(event, width))
 		}
 	}
@@ -494,7 +497,7 @@ func formatExecutionEnd(event shellruntime.ExecutionFeedEvent, width int) string
 	if duration := executionEventDuration(event); duration != "" {
 		fields = append(fields, executionFrameField{Label: "Duration", Values: []string{duration}})
 	}
-	return "\n" + executionEventFrame("END", event, "", fields, width)
+	return executionEventFrame("END", event, "", fields, width)
 }
 
 type executionFrameField struct {
@@ -515,9 +518,13 @@ func executionEventFrame(kind string, event shellruntime.ExecutionFeedEvent, ela
 	}
 	labelWidth := max(0, width-6)
 	label = ansi.Truncate(label, labelWidth, "…")
-	topUsed := 4 + lipgloss.Width(label)
 	var output strings.Builder
-	output.WriteString("╭─ " + label + " " + strings.Repeat("─", max(0, width-topUsed-1)) + "╮\n")
+	if kind == "END" {
+		output.WriteString("╭" + strings.Repeat("─", width-2) + "╮\n")
+	} else {
+		topUsed := 4 + lipgloss.Width(label)
+		output.WriteString("╭─ " + label + " " + strings.Repeat("─", max(0, width-topUsed-1)) + "╮\n")
+	}
 	innerWidth := max(1, width-4)
 	if executionID := ansi.Strip(strings.TrimSpace(event.ExecutionID)); executionID != "" {
 		fields = append([]executionFrameField{{Label: "Execution", Values: []string{executionID}}}, fields...)
@@ -530,7 +537,12 @@ func executionEventFrame(kind string, event shellruntime.ExecutionFeedEvent, ela
 			output.WriteString("│ " + line + strings.Repeat(" ", max(0, innerWidth-lipgloss.Width(line))) + " │\n")
 		}
 	}
-	output.WriteString("╰" + strings.Repeat("─", width-2) + "╯\n")
+	if kind == "END" {
+		bottomUsed := 4 + lipgloss.Width(label)
+		output.WriteString("╰─ " + label + " " + strings.Repeat("─", max(0, width-bottomUsed-1)) + "╯\n")
+	} else {
+		output.WriteString("╰" + strings.Repeat("─", width-2) + "╯\n")
+	}
 	return output.String()
 }
 

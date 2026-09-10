@@ -108,6 +108,18 @@ func (s *Store) Set(name, value string) error {
 	return nil
 }
 
+// MigratePlaintext: memory backends are a no-op; already-encrypted blobs are left unchanged.
+func (s *Store) MigratePlaintext() (int, error) {
+	if s == nil || s.backend == nil {
+		return 0, errors.New("secret store unavailable")
+	}
+	migrator, ok := s.backend.(interface{ MigratePlaintext() (int, error) })
+	if !ok {
+		return 0, nil
+	}
+	return migrator.MigratePlaintext()
+}
+
 func (s *Store) Apply(changes []Change) error {
 	if len(changes) == 0 {
 		return nil

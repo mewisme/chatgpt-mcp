@@ -245,6 +245,22 @@ func MigrateLegacySecretsContext(ctx context.Context) error {
 	return nil
 }
 
+func MigrateSecretEncryption() (int, error) {
+	return MigrateSecretEncryptionContext(context.Background())
+}
+
+func MigrateSecretEncryptionContext(ctx context.Context) (int, error) {
+	root := config.RootPath()
+	span := tracepkg.Start(ctx, "CONFIG", "config.secrets.encrypt.migrate", "Encrypting plaintext secret files", tracepkg.String("root", root))
+	migrated, err := secretstore.New(root).MigratePlaintext()
+	if err != nil {
+		span.FailMessage("Secret encryption migration failed", err, tracepkg.String("root", root))
+		return 0, err
+	}
+	span.EndMessage("Plaintext secret files encrypted", tracepkg.String("root", root), tracepkg.Int("migrated", migrated))
+	return migrated, nil
+}
+
 func LoadConfigOverview(ctx context.Context) (ConfigOverview, error) {
 	source, err := config.Source()
 	if err != nil {

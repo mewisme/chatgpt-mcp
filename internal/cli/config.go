@@ -209,12 +209,26 @@ func getConfigValue(cfg config.Config, key string) (any, error) {
 }
 
 func configMigrateCommand() *cobra.Command {
-	return &cobra.Command{Use: "migrate", Short: "Migrate legacy plaintext credentials into the secret file store", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "migrate", Short: "Migrate legacy plaintext credentials into the secret file store", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		logCommandStep(cmd, "CONFIG", "config.secrets.migrating", "Migrating legacy credentials")
 		if err := application.MigrateLegacySecretsContext(cmd.Context()); err != nil {
 			return fmt.Errorf("migrate legacy credentials: %w", err)
 		}
 		commandLogger(cmd).Success("CONFIG", "credentials migrated to secret file store")
+		return nil
+	}}
+	cmd.AddCommand(configMigrateSecretsCommand())
+	return cmd
+}
+
+func configMigrateSecretsCommand() *cobra.Command {
+	return &cobra.Command{Use: "secrets", Short: "Encrypt plaintext secret-store files at rest", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		logCommandStep(cmd, "CONFIG", "config.secrets.encrypt.migrating", "Encrypting plaintext secret files")
+		migrated, err := application.MigrateSecretEncryptionContext(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("migrate secret encryption: %w", err)
+		}
+		commandLogger(cmd).Success("CONFIG", "secret files encrypted at rest", "migrated", migrated)
 		return nil
 	}}
 }
@@ -245,7 +259,8 @@ func configConvertCommand() *cobra.Command {
 }
 
 func configVerifyCommand() *cobra.Command {
-	return &cobra.Command{
+	var strict bool
+	cmd := &cobra.Command{
 		Use:     "verify",
 		Aliases: []string{"validate"},
 		Short:   "Verify structured config/state format consistency and configuration validity",
@@ -256,8 +271,17 @@ func configVerifyCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("verify configuration: %w", err)
 			}
-			commandLogger(cmd).Success("CONFIG", "configuration verified", "format", result.Format, "files", result.Files)
+			log := commandLogger(cmd)
+			for _, warning := range result.Warnings {
+				log.Warning("CONFIG", "config.verify.warning", warning, nil)
+			}
+			if strict && len(result.Warnings) > 0 {
+				return fmt.Errorf("configuration verified with %d warning(s); re-run without --strict to treat warnings as advisory", len(result.Warnings))
+			}
+			log.Success("CONFIG", "configuration verified", "format", result.Format, "files", result.Files, "warnings", len(result.Warnings))
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&strict, "strict", false, "fail when security policy warnings are present")
+	return cmd
 }

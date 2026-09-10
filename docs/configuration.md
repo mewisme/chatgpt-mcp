@@ -329,9 +329,17 @@ cgm workspace register ~/projects/my-project
 
 Workspace IDs are stable hashes of canonical workspace paths. Older registry-v2 instance-scoped IDs are migrated to the stable ID and retained as aliases. The runtime never guesses or falls back to another registered workspace when an ID is invalid.
 
+Because the ID is path-derived, renaming or moving a registered project directory changes its canonical ID. After moving the directory on disk, use the control-plane relocate operation rather than registering the destination as an unrelated workspace:
+
+```bash
+cgm workspace relocate ws_... /new/path/to/project
+```
+
+Relocation preserves the previous `ws_*` as a legacy alias, updates container membership, migrates workspace-scoped persistent state to the new canonical ID, and rewrites absolute state paths that were under the old root. Workspace-specific extra roots nested under the old project root are rebased as well. It does not move the project directory itself.
+
 An MCP session may access multiple registered workspaces. Every workspace-scoped tool call must explicitly provide a valid concrete `ws_*` `workspace_id`; the runtime canonicalizes that ID and records the workspace in the session's in-memory access set. Invalid workspace IDs do not create access entries. `wsc_*` workspace containers are orchestration-only: resolving a container does not grant access to its members, and passing a container ID to a workspace-scoped tool is rejected instead of selecting or fanning out to a member. Workspace-specific filesystem scope and state remain isolated even when the same session moves between projects.
 
-Every successful persistent workspace-registry mutation synchronizes the running tool runtime before the mutation surface reports success. This applies to workspace register/unregister, workspace-specific access roots, container create/rename/delete, and both directions of container membership changes across CLI, TUI, Admin API, and MCP workspace registration. A following MCP read therefore sees the new registry state without a runtime restart or MCP reconnect. If synchronization fails, the mutation surface reports the reload failure even though the registry change may already be persisted.
+Every successful persistent workspace-registry mutation synchronizes the running tool runtime before the mutation surface reports success. This applies to workspace register/relocate/unregister, workspace-specific access roots, container create/rename/delete, and both directions of container membership changes across CLI, TUI, Admin API, and MCP workspace registration. Relocate itself is intentionally available only through trusted control-plane surfaces (CLI, TUI, and Admin API), not as an MCP tool. A following MCP read using either the new canonical ID or a retained legacy alias therefore sees the relocated workspace without a runtime restart or MCP reconnect. If synchronization fails, the mutation surface reports the reload failure even though the registry change may already be persisted.
 
 Global extra roots apply to every workspace:
 

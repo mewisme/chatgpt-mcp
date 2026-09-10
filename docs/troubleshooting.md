@@ -261,6 +261,20 @@ cgm workspace access add ws_... /absolute/path/to/cache
 
 Symlink escapes remain denied even when a textual path appears to be inside an allowed directory.
 
+## Workspace folder was renamed or moved
+
+Do not register the destination as a separate workspace if it is the same project. After the directory has already been renamed or moved on disk, rebind the existing workspace:
+
+```bash
+cgm workspace relocate ws_... /new/path/to/project
+```
+
+The canonical workspace ID changes because IDs are derived from canonical paths, but the previous ID remains a legacy alias. Persistent workspace state and container membership follow the new ID, and state paths under the old root are rebased to the new root. The operation does not rename or move the project directory itself.
+
+In `cgm tui`, open the workspace detail, press `m` for **Relocate**, choose the new directory, and save with `Ctrl+S`.
+
+Relocation is intentionally unavailable to MCP tools and agents. It changes the trusted workspace root, so perform it through the local CLI, TUI, or authenticated Admin API instead.
+
 ## MCP tool cannot run `cgm config set`, `up`, or other mutations
 
 This is intentional.
@@ -270,6 +284,7 @@ MCP tool execution context allows read-only inspection but denies control-plane 
 - `up` / `down`
 - config mutation
 - workspace registration/access grants
+- workspace relocation
 - auth changes
 - tunnel configuration
 - upstream changes

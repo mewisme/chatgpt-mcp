@@ -6,6 +6,12 @@
 
 Required directory path that becomes the registered workspace root. The field is directory-picker aware and validates that a directory value is supplied. Registration stores the workspace identity/access metadata; it does not modify project files.
 
+## Relocate Workspace
+
+### New workspace path
+
+Required directory path for the same project after its directory has already been renamed or moved. Relocate is a control-plane mutation, so the editor uses `Ctrl+S`. It updates the registered root, derives the new canonical workspace ID, keeps the previous ID as a legacy alias, and migrates workspace-scoped state. It never moves or renames project files itself.
+
 ## Add Access Directory
 
 ### Additional directory
@@ -34,4 +40,4 @@ Required replacement display name for the existing container. The container iden
 
 Membership editing uses the workspace/container routes to select which registered workspaces belong to a container. Removing membership does not unregister the workspace or delete project files.
 
-All successful workspace-registry editor mutations reload the running runtime registry before the TUI reports success. Agent workspace and container tools therefore see register, access, container, and membership changes immediately without a runtime restart.
+All successful workspace-registry editor mutations reload the running runtime registry before the TUI reports success. Agent workspace and container tools therefore see register, relocate, access, container, and membership changes immediately without a runtime restart. Relocate is intentionally a user/control-plane operation and is not available as an MCP tool.

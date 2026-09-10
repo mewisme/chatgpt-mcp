@@ -89,6 +89,8 @@ cgm workspace register ~/projects/my-project
 
 The workspace ID is stable by canonical path and does not silently switch to another project. Older instance-scoped IDs from registry v2 are migrated and retained as aliases.
 
+If a project directory is renamed or moved, a trusted operator can relocate the workspace through the CLI, TUI, or Admin API. The resulting canonical ID follows the new path and the previous ID remains a legacy alias, so an existing MCP session holding the old ID can still resolve the same workspace after runtime synchronization. **Workspace relocation is deliberately not exposed as an MCP tool** because changing the trusted workspace root is a control-plane mutation that an agent must not grant to itself.
+
 For requests carrying an MCP session ID, each valid explicitly targeted workspace is added to that session's in-memory access set. The same session can therefore work across multiple registered projects without a workspace-switch operation. Every scoped call still requires `workspace_id`, and workspace-specific context, filesystem scope, shell/REPL state, checkpoints, and approvals remain isolated by that target.
 
 Workspace containers use a separate orchestration scope. `ws_*` identifies an execution/filesystem workspace; `wsc_*` identifies only a logical group of registered workspaces. Agents can discover and resolve containers with:

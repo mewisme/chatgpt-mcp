@@ -6,6 +6,8 @@ Workspaces define project roots that `chatgpt-mcp` can operate on. The Workspace
 
 The main Workspaces tab lists registered roots. Open a row with `Enter` to view its ID, path, access configuration, and child actions. Registering a workspace opens a full-page editor with a directory picker and manual path fallback.
 
+If the project directory has already been renamed or moved, press `m` from the workspace detail (or choose **Relocate** from Commands). Relocate opens a routed full-page directory editor. Saving with `Ctrl+S` rebinds the existing workspace to that directory; it does not move project files. The path-derived canonical workspace ID changes and the previous ID remains a legacy alias. Container membership and workspace-scoped persistent state follow the new ID.
+
 Unregister removes the workspace record without deleting project files and therefore requires confirmation.
 
 ## Additional access directories

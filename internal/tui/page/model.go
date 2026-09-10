@@ -34,6 +34,12 @@ type NavigationGuardModel interface {
 	Submitting() bool
 }
 
+type SessionViewStateModel interface {
+	Model
+	SessionViewState() any
+	RestoreSessionViewState(any)
+}
+
 type NavigateMsg struct {
 	Path         []string
 	Replace      bool

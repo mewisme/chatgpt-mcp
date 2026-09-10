@@ -91,6 +91,7 @@ type Model struct {
 	overlay                overlayKind
 	commandResources       map[string]quickopen.Resource
 	workspaceContexts      map[string]*tuipage.WorkspaceContextSession
+	pageViewStates         map[RouteKind]any
 	stateRoot              string
 	state                  tuistate.State
 	notice                 string
@@ -136,7 +137,7 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 	approvalView := viewport.New(viewport.WithWidth(72), viewport.WithHeight(12))
 	approvalView.SoftWrap = false
 	approvalView.FillHeight = false
-	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), workspaceContexts: map[string]*tuipage.WorkspaceContextSession{}, stateRoot: root, state: state, theme: newTheme(true), approvalViewport: approvalView, approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalResolveSimilar: application.ResolveApprovalRequestWithRuntimeGrant, approvalNow: time.Now}
+	model := Model{ctx: ctx, router: NewRouter(initial), actions: defaultActionRegistry(), workspaceContexts: map[string]*tuipage.WorkspaceContextSession{}, pageViewStates: map[RouteKind]any{}, stateRoot: root, state: state, theme: newTheme(true), approvalViewport: approvalView, approvalList: application.ListApprovalRequests, approvalResolve: application.ResolveApprovalRequest, approvalResolveSimilar: application.ResolveApprovalRequestWithRuntimeGrant, approvalNow: time.Now}
 	model.loadPage(initial)
 	return model
 }
@@ -933,6 +934,7 @@ func (model *Model) navigate(route Route) {
 	if model == nil {
 		return
 	}
+	model.captureCurrentPageViewState()
 	model.router.Navigate(route)
 	model.loadPage(route)
 }
@@ -1008,8 +1010,36 @@ func (model *Model) switchPage(route Route) {
 	if model == nil {
 		return
 	}
+	model.captureCurrentPageViewState()
 	model.router.Switch(route)
 	model.loadPage(route)
+}
+
+func (model *Model) captureCurrentPageViewState() {
+	if model == nil || model.currentPage == nil || model.router.Current().Action != "" {
+		return
+	}
+	page, ok := model.currentPage.(tuipage.SessionViewStateModel)
+	if !ok {
+		return
+	}
+	if model.pageViewStates == nil {
+		model.pageViewStates = map[RouteKind]any{}
+	}
+	model.pageViewStates[headerOwner(model.router.Current().Kind)] = page.SessionViewState()
+}
+
+func (model *Model) restoreCurrentPageViewState(route Route) {
+	if model == nil || model.currentPage == nil || route.Action != "" || model.pageViewStates == nil {
+		return
+	}
+	state, ok := model.pageViewStates[headerOwner(route.Kind)]
+	if !ok {
+		return
+	}
+	if page, ok := model.currentPage.(tuipage.SessionViewStateModel); ok {
+		page.RestoreSessionViewState(state)
+	}
 }
 
 func (model *Model) loadPage(route Route) {
@@ -1064,6 +1094,7 @@ func (model *Model) loadPage(route Route) {
 		return
 	}
 	model.currentPage = value
+	model.restoreCurrentPageViewState(route)
 	if model.currentPage != nil && model.width > 0 && model.height > 0 {
 		metrics := model.frameMetrics(model.width, model.height)
 		updated, _ := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})

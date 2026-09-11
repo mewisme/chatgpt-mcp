@@ -38,6 +38,15 @@ func NewSDKServerWithSession(toolRuntime *tools.Runtime, source, sessionID, boun
 }
 
 func (s *SDKServer) addTool(schema tools.Schema) error {
+	if s.BoundWorkspace != "" {
+		workspaceScoped, err := s.Tools.Registry.WorkspaceScoped(schema.Name)
+		if err != nil {
+			return err
+		}
+		if workspaceScoped {
+			schema = projectBoundWorkspaceSchema(schema)
+		}
+	}
 	tool := &sdkmcp.Tool{Name: schema.Name, Title: schema.Title, Description: schema.Description, InputSchema: schema.InputSchema, OutputSchema: schema.OutputSchema}
 	if len(schema.Annotations) > 0 {
 		data, err := json.Marshal(schema.Annotations)
@@ -79,6 +88,33 @@ func (s *SDKServer) addTool(schema tools.Schema) error {
 		return sdkCallToolResult(result)
 	})
 	return nil
+}
+
+func projectBoundWorkspaceSchema(schema tools.Schema) tools.Schema {
+	var input map[string]any
+	if len(schema.InputSchema) == 0 || json.Unmarshal(schema.InputSchema, &input) != nil {
+		return schema
+	}
+	if properties, ok := input["properties"].(map[string]any); ok {
+		delete(properties, "workspace_id")
+	}
+	if required, ok := input["required"].([]any); ok {
+		filtered := make([]any, 0, len(required))
+		for _, item := range required {
+			if value, ok := item.(string); !ok || value != "workspace_id" {
+				filtered = append(filtered, item)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(input, "required")
+		} else {
+			input["required"] = filtered
+		}
+	}
+	if data, err := json.Marshal(input); err == nil {
+		schema.InputSchema = data
+	}
+	return schema
 }
 
 func sdkCallToolResult(result tools.Result) (*sdkmcp.CallToolResult, error) {

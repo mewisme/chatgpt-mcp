@@ -68,16 +68,17 @@ type AdminConfig struct {
 }
 
 type AuthConfig struct {
-	MCPEnabled     bool   `json:"mcp_enabled"`
-	AdminEnabled   bool   `json:"admin_enabled"`
-	MCPTokenHash   string `json:"mcp_token_hash,omitempty"`
-	AdminTokenHash string `json:"admin_token_hash,omitempty"`
+	MCPEnabled      bool   `json:"mcp_enabled"`
+	MCPLegacyBearer bool   `json:"mcp_legacy_bearer"`
+	AdminEnabled    bool   `json:"admin_enabled"`
+	MCPTokenHash    string `json:"mcp_token_hash,omitempty"`
+	AdminTokenHash  string `json:"admin_token_hash,omitempty"`
 }
 
 type FeaturesConfig = features.Config
 
 func Default() Config {
-	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}, ApprovalPolicy: "balanced", ApprovalAllowCommands: []string{}, ApprovalDenyCommands: []string{}, EnvironmentPolicy: "auto", EnvironmentAllow: []string{}, SandboxPolicy: "auto", NetworkPolicy: "auto"}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, MCPLegacyBearer: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}, ApprovalPolicy: "balanced", ApprovalAllowCommands: []string{}, ApprovalDenyCommands: []string{}, EnvironmentPolicy: "auto", EnvironmentAllow: []string{}, SandboxPolicy: "auto", NetworkPolicy: "auto"}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {

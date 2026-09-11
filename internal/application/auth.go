@@ -14,6 +14,7 @@ import (
 type AuthStatus struct {
 	MCPEnabled              bool
 	MCPConfigured           bool
+	MCPLegacyBearer         bool
 	AdminEnabled            bool
 	AdminConfigured         bool
 	UnauthenticatedLoopback bool
@@ -145,7 +146,7 @@ func normalizeAuthKind(kind string) (string, error) {
 
 func authStatus(cfg config.Config) AuthStatus {
 	return AuthStatus{
-		MCPEnabled: cfg.Auth.MCPEnabled, MCPConfigured: cfg.Auth.MCPTokenHash != "",
+		MCPEnabled: cfg.Auth.MCPEnabled, MCPConfigured: cfg.Auth.MCPTokenHash != "", MCPLegacyBearer: cfg.Auth.MCPLegacyBearer,
 		AdminEnabled: cfg.Auth.AdminEnabled, AdminConfigured: cfg.Auth.AdminTokenHash != "",
 		UnauthenticatedLoopback: config.UnauthenticatedLoopbackActive(cfg),
 		CleartextHTTP:           config.CleartextHTTPActive(cfg),

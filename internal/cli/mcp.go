@@ -14,9 +14,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.mewis.me/chatgpt-mcp/internal/app"
+	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
+	"go.mewis.me/chatgpt-mcp/internal/mcpauth"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -86,10 +88,29 @@ func runMCPHTTP(cmd *cobra.Command, workspace, host string, port int, enableSSE 
 	if err != nil {
 		return err
 	}
+	if cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {
+		return errors.New("MCP authentication is enabled but no credential is configured; run cgm auth mcp create")
+	}
+	if cfg.Auth.MCPEnabled && !mcpHTTPLoopbackHost(host) {
+		return errors.New("built-in MCP OAuth consent is currently loopback-only; use 127.0.0.1, ::1, or localhost")
+	}
 	listener, err := net.Listen("tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 	if err != nil {
 		return err
 	}
+	baseURL := "http://" + listener.Addr().String()
+	authority, err := mcpauth.New(baseURL, baseURL+"/mcp", func() (mcpauth.Config, error) {
+		current, loadErr := config.LoadRuntime()
+		if loadErr != nil {
+			return mcpauth.Config{}, loadErr
+		}
+		return mcpauth.Config{Enabled: current.Auth.MCPEnabled, LegacyBearer: current.Auth.MCPLegacyBearer, TokenHash: current.Auth.MCPTokenHash}, nil
+	}, auth.VerifyToken)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	handler = authority.Handler(handler)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
 	go func() {
 		<-cmd.Context().Done()
@@ -103,6 +124,15 @@ func runMCPHTTP(cmd *cobra.Command, workspace, host string, port int, enableSSE 
 		return nil
 	}
 	return err
+}
+
+func mcpHTTPLoopbackHost(host string) bool {
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func mcpStdioCommand() *cobra.Command {

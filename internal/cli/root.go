@@ -198,7 +198,7 @@ func authStatusCommand() *cobra.Command {
 			}
 			log := commandLogger(cmd)
 			log.Info("AUTH", "authentication status")
-			log.Detail("mcp", fmt.Sprintf("enabled=%t configured=%t", status.MCPEnabled, status.MCPConfigured))
+			log.Detail("mcp", fmt.Sprintf("enabled=%t configured=%t legacy_bearer=%t", status.MCPEnabled, status.MCPConfigured, status.MCPLegacyBearer))
 			log.Detail("admin", fmt.Sprintf("enabled=%t configured=%t", status.AdminEnabled, status.AdminConfigured))
 			return nil
 		},

@@ -36,6 +36,7 @@ func commandTraceContracts() map[string]commandTraceContract {
 	add(commandTraceStreaming, []string{"runtime.events.connect.completed", "logs.snapshot.load.completed"}, "logs follow")
 	add(commandTraceStreaming, nil, "tui")
 	add(commandTraceStreaming, nil, "mcp stdio")
+	add(commandTraceStreaming, nil, "mcp http")
 	add(commandTraceInstrumented, []string{"server.config.load.completed", "runtime.session.completed"}, "<root>", "serve", "_service run")
 	add(commandTraceInstrumented, []string{"service.backend.start.completed", "service.runtime.ready.wait.completed"}, "up")
 	add(commandTraceInstrumented, []string{"service.backend.stop.completed"}, "down")

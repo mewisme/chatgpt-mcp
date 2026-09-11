@@ -5,21 +5,104 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"go.mewis.me/chatgpt-mcp/internal/app"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func mcpCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "mcp", Short: "Serve ChatGPT MCP transports"}
-	cmd.AddCommand(mcpStdioCommand(), legacyMCPServerCommand())
+	cmd.AddCommand(mcpStdioCommand(), mcpHTTPCommand(), legacyMCPServerCommand())
 	return cmd
+}
+
+func mcpHTTPCommand() *cobra.Command {
+	var workspace, host string
+	var port int
+	var noSSE bool
+	cmd := &cobra.Command{
+		Use:   "http",
+		Short: "Serve MCP over Streamable HTTP with legacy SSE fallback",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMCPHTTP(cmd, workspace, host, port, !noSSE)
+		},
+	}
+	cmd.Flags().StringVar(&workspace, "workspace", "", "bind MCP sessions to a registered workspace ID or path")
+	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "listen host")
+	cmd.Flags().IntVar(&port, "port", 0, "listen port; defaults to configured MCP port")
+	cmd.Flags().BoolVar(&noSSE, "no-sse", false, "disable legacy SSE compatibility endpoint")
+	return cmd
+}
+
+func runMCPHTTP(cmd *cobra.Command, workspace, host string, port int, enableSSE bool) (runErr error) {
+	cfg, err := config.LoadRuntime()
+	if err != nil {
+		return err
+	}
+	if err := config.Validate(cfg); err != nil {
+		return err
+	}
+	if port == 0 {
+		port = cfg.Server.Port
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("invalid MCP HTTP port: %d", port)
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return errors.New("MCP HTTP host is required")
+	}
+	cfg.Server.Enabled = false
+	cfg.Admin.Enabled = false
+	cfg.Tunnel.Enabled = false
+	runtime, err := app.NewWithLoggerContext(cmd.Context(), cfg, commandLogger(cmd))
+	if err != nil {
+		return err
+	}
+	if err := runtime.Start(cmd.Context()); err != nil {
+		return err
+	}
+	defer func() {
+		if err := runtime.Stop(); err != nil && runErr == nil {
+			runErr = err
+		}
+	}()
+	workspaceID, err := resolveMCPWorkspace(runtime.Tools.Workspaces, workspace)
+	if err != nil {
+		return err
+	}
+	handler, err := mcp.NewSDKHTTPHandler(runtime.Tools, workspaceID, enableSSE)
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+	if err != nil {
+		return err
+	}
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
+	go func() {
+		<-cmd.Context().Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+	commandLogger(cmd).Ready("MCP", "mcp.http.ready", "MCP HTTP server ready", logger.With("address", listener.Addr().String()), logger.With("sse", enableSSE))
+	err = server.Serve(listener)
+	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
 }
 
 func mcpStdioCommand() *cobra.Command {

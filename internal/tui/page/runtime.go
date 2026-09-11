@@ -32,6 +32,8 @@ const (
 	RuntimeRestartUser   SystemCommand = "runtime.restart.user"
 	RuntimeRestartSystem SystemCommand = "runtime.restart.system"
 	RuntimeForeground    SystemCommand = "runtime.foreground"
+	MCPStdioForeground   SystemCommand = "mcp.stdio.foreground"
+	MCPHTTPForeground    SystemCommand = "mcp.http.foreground"
 	MCPHTTPEnable        SystemCommand = "transport.mcp-http.enable"
 	MCPHTTPDisable       SystemCommand = "transport.mcp-http.disable"
 	ConfigInitialize     SystemCommand = "config.initialize.external"
@@ -422,6 +424,14 @@ func (page *RuntimePage) openCommand(command SystemCommand) (tea.Cmd, error) {
 		return func() tea.Msg { return NavigateMsg{Path: []string{"runtime", "update"}} }, nil
 	case RuntimeForeground:
 		page.external = &application.ExternalCommand{Command: "cgm serve", Reason: "The foreground runtime owns the terminal. Exit the TUI before starting it."}
+		page.overlay = systemOverlayExternal
+		return nil, nil
+	case MCPStdioForeground:
+		page.external = &application.ExternalCommand{Command: "cgm mcp stdio", Reason: "The stdio MCP server owns stdin/stdout as its protocol transport. Exit the TUI before starting it."}
+		page.overlay = systemOverlayExternal
+		return nil, nil
+	case MCPHTTPForeground:
+		page.external = &application.ExternalCommand{Command: "cgm mcp http", Reason: "The standalone MCP HTTP server is a foreground process. Exit the TUI before starting it."}
 		page.overlay = systemOverlayExternal
 		return nil, nil
 	case ConfigInitialize:
@@ -910,6 +920,13 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 		description += " · auth only"
 	}
 	security := "Token hashes are persisted; plaintext is shown once after rotation."
+	legacyBearer := "n/a"
+	if kind == "mcp" {
+		legacyBearer = "disabled"
+		if page.auth.MCPLegacyBearer {
+			legacyBearer = "enabled"
+		}
+	}
 	if page.auth.UnauthenticatedLoopback && !enabled {
 		security = config.UnauthenticatedLoopbackWarning()
 		description += " · UNAUTHENTICATED LOOPBACK"
@@ -917,7 +934,12 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 		security = config.CleartextHTTPWarning()
 		description += " · CLEARTEXT HTTP"
 	}
-	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind}, detailTitle: title, detail: detailFields([2]string{"Enabled", fmt.Sprint(enabled)}, [2]string{"Token", configuredText}, [2]string{"Scope", scope}, [2]string{"Security", security})}
+	fields := [][2]string{{"Enabled", fmt.Sprint(enabled)}, {"Token", configuredText}}
+	if kind == "mcp" {
+		fields = append(fields, [2]string{"OAuth", "canonical for cgm mcp http"}, [2]string{"Legacy bearer", legacyBearer})
+	}
+	fields = append(fields, [2]string{"Scope", scope}, [2]string{"Security", security})
+	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind}, detailTitle: title, detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) installItem() runtimeItem {

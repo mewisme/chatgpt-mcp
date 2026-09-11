@@ -30,7 +30,7 @@ func TestRuntimePageBuildsSystemRows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		page.runtime.SystemService = application.ServiceOverview{Scope: managed.ScopeSystem, Supported: true}
 	}
-	page.auth = application.AuthStatus{MCPConfigured: true, AdminConfigured: true}
+	page.auth = application.AuthStatus{MCPConfigured: true, MCPLegacyBearer: true, AdminConfigured: true}
 	page.install = application.InstallationOverview{AliasAvailable: true, Alias: install.AliasStatus{State: install.AliasMissing}}
 	page.about = application.AboutInfo{Version: "v1.2.3"}
 	page.rebuildBrowser("")
@@ -72,7 +72,7 @@ func TestRuntimeRowsUseDescriptiveTitlesAndDescriptions(t *testing.T) {
 	}
 	mcpAuthItem, adminAuthItem := page.authItem("mcp"), page.authItem("admin")
 	mcpAuth, adminAuth := mcpAuthItem.row, adminAuthItem.row
-	if mcpAuth.Title != "MCP HTTP authentication" || adminAuth.Title != "Admin UI authentication" || !strings.Contains(mcpAuth.Description, "auth only") || !strings.Contains(mcpAuthItem.detail, "listener is controlled by MCP HTTP server") {
+	if mcpAuth.Title != "MCP HTTP authentication" || adminAuth.Title != "Admin UI authentication" || !strings.Contains(mcpAuth.Description, "auth only") || !strings.Contains(mcpAuthItem.detail, "listener is controlled by MCP HTTP server") || !strings.Contains(mcpAuthItem.detail, "Legacy bearer") {
 		t.Fatalf("authentication rows MCP=%#v admin=%#v", mcpAuth, adminAuth)
 	}
 }
@@ -305,6 +305,26 @@ func TestRuntimeForegroundUsesExplicitExternalWorkflow(t *testing.T) {
 	}
 	if page.external.Command != "cgm serve" || !strings.Contains(page.external.Reason, "Exit the TUI") {
 		t.Fatalf("foreground workflow=%#v", page.external)
+	}
+}
+
+func TestRuntimeMCPForegroundCommandsUseExplicitExternalWorkflow(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	for _, test := range []struct {
+		command SystemCommand
+		want    string
+	}{
+		{command: MCPStdioForeground, want: "cgm mcp stdio"},
+		{command: MCPHTTPForeground, want: "cgm mcp http"},
+	} {
+		cmd, err := page.openCommand(test.command)
+		if err != nil || cmd != nil {
+			t.Fatalf("command=%s err=%v cmd=%v", test.command, err, cmd)
+		}
+		if page.overlay != systemOverlayExternal || page.external == nil || page.external.Command != test.want {
+			t.Fatalf("command=%s overlay=%v external=%#v", test.command, page.overlay, page.external)
+		}
+		page.closeOverlay()
 	}
 }
 

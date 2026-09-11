@@ -16,7 +16,7 @@ Examples of useful searches include:
 
 ```text
 workspace register
-mcp server add
+upstream server add
 request approve
 config verify
 upgrade

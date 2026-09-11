@@ -42,7 +42,7 @@ Examples:
 
 ```text
 workspace register
-mcp server tools
+upstream server tools
 config verify
 auth mcp create
 restart
@@ -129,7 +129,7 @@ Do not automate the full-screen TUI. Use normal commands instead:
 ```bash
 cgm workspace list
 cgm workspace list --json
-cgm mcp server list --json
+cgm upstream server list --json
 cgm config verify
 cgm status
 ```

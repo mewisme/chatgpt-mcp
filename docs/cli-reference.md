@@ -20,7 +20,7 @@ Only a small set of high-value aliases is provided:
 | `list` | `ls` |
 | `status` | `st` |
 
-Aliases compose with nested commands, for example `cgm cfg ls`, `cgm ws ls`, `cgm mcp server ls`, and `cgm tunnel st`.
+Aliases compose with nested commands, for example `cgm cfg ls`, `cgm ws ls`, `cgm upstream server ls`, and `cgm tunnel st`.
 
 ## Shell completion
 
@@ -97,7 +97,9 @@ chatgpt-mcp
 │   ├── path
 │   └── clear
 ├── mcp
-│   └── server
+│   ├── http
+│   ├── stdio
+│   └── server      # deprecated compatibility path
 ├── request
 │   ├── approve
 │   ├── create
@@ -122,6 +124,18 @@ chatgpt-mcp
 │   ├── sync
 │   └── update
 ├── uninit
+├── upstream
+│   └── server
+│       ├── add
+│       ├── auth
+│       ├── configure
+│       ├── disable
+│       ├── enable
+│       ├── list
+│       ├── remove
+│       ├── show
+│       ├── status
+│       └── tools
 ├── up
 ├── update
 │   └── check
@@ -392,6 +406,14 @@ cgm auth admin enable
 cgm auth admin disable
 ```
 
+`cgm mcp stdio` does not use OAuth transport authentication. `cgm mcp http` uses OAuth as the canonical protected transport and keeps the existing static MCP bearer only as a compatibility path controlled by `auth.mcp_legacy_bearer`.
+
+```bash
+cgm config set auth.mcp_legacy_bearer false
+```
+
+Rotating the MCP credential invalidates OAuth codes/tokens issued under the previous credential generation.
+
 Use subcommand help for enable/disable/rotation options exposed by the current binary:
 
 ```bash
@@ -494,16 +516,39 @@ See [OpenAI + ChatGPT setup](openai-chatgpt.md) for Platform/ChatGPT configurati
 ## Upstream MCP servers
 
 ```bash
-cgm mcp --help
-cgm mcp server --help
-cgm mcp server list
-cgm mcp server show <id>
-cgm mcp server status <id>
-cgm mcp server tools <id>
-cgm mcp server auth --help
+cgm upstream --help
+cgm upstream server --help
+cgm upstream server list
+cgm upstream server show <id>
+cgm upstream server status <id>
+cgm upstream server tools <id>
+cgm upstream server auth --help
 ```
 
 Use the server subcommands to add, inspect, update, or remove upstream MCP definitions supported by the current binary.
+
+`cgm mcp server ...` is retained temporarily as a deprecated compatibility path. New scripts and documentation should use `cgm upstream server ...`.
+
+## Generic MCP clients
+
+Local stdio:
+
+```bash
+cgm mcp stdio
+cgm mcp stdio --workspace ~/projects/my-project
+```
+
+Cursor project configuration can use `--workspace ${workspaceFolder}` after that project has already been registered with `cgm workspace register`.
+
+Standalone Streamable HTTP with legacy SSE fallback:
+
+```bash
+cgm mcp http
+cgm mcp http --workspace ws_...
+cgm mcp http --no-sse
+```
+
+The standalone HTTP mode is MCP-only and loopback-only in the current implementation. It does not start the Admin server or OpenAI Secure MCP Tunnel. Its primary endpoint is `/mcp`; legacy SSE compatibility is exposed at `/mcp/sse` unless disabled.
 
 See [MCP and upstreams](mcp.md).
 

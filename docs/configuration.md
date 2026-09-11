@@ -294,6 +294,15 @@ Authorization: Bearer <token>
 
 MCP and Admin authentication are independent policies except for wildcard exposure, which requires both.
 
+For the generic `cgm mcp http` transport, OAuth is canonical when MCP authentication is enabled. `stdio` does not use OAuth transport authentication. The existing MCP token remains available only as a compatibility bearer when `auth.mcp_legacy_bearer=true`:
+
+```bash
+cgm config get auth.mcp_legacy_bearer
+cgm config set auth.mcp_legacy_bearer false
+```
+
+The MCP token hash remains server-side. It is not reused as an OAuth client secret/access token or signing key. Rotating the MCP token invalidates OAuth grants/tokens issued under the previous auth generation.
+
 Disabling authentication while an HTTP endpoint remains enabled requires:
 
 ```bash
@@ -418,9 +427,11 @@ For OpenAI Platform/ChatGPT setup, see [OpenAI + ChatGPT setup](openai-chatgpt.m
 Manage upstream servers with:
 
 ```bash
-cgm mcp --help
-cgm mcp server --help
+cgm upstream --help
+cgm upstream server --help
 ```
+
+`cgm mcp server ...` remains a deprecated compatibility path during the migration window.
 
 Upstream OAuth access/refresh tokens and client secrets are stored in the per-config-root secret-file store. Sensitive upstream header/environment values are also moved there, while non-secret upstream configuration remains in the structured state file. Proxy refresh is atomic: the old exposed proxy catalog remains active if replacement discovery/schema construction fails.
 

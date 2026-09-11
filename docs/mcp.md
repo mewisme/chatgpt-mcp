@@ -12,6 +12,8 @@ http://127.0.0.1:37421/mcp
 
 `server.enabled` controls this direct MCP HTTP listener. OpenAI Secure MCP Tunnel is controlled independently by `tunnel.enabled`. Either transport may be used alone or both may run together, but configuration validation rejects disabling both.
 
+This endpoint belongs to the full `cgm serve` runtime and keeps the project's stateless/OpenAI-compatible protocol profile. Generic desktop MCP clients should use the dedicated `cgm mcp` transports below instead of assuming `/mcp` from `cgm serve` implements the standard initialization lifecycle.
+
 Modern requests use `POST /mcp` and carry protocol/routing metadata on each request.
 
 Typical headers:
@@ -61,9 +63,75 @@ The protocol revision is stateless:
 - unknown/removed methods return HTTP `404` with JSON-RPC method-not-found semantics
 - `GET` and `DELETE` on the MCP endpoint return `405`
 
+## Generic MCP transports
+
+`cgm mcp` exposes standards-compatible transports for clients such as Cursor without starting the Admin server, Tunnel, or managed runtime-control listener.
+
+### stdio
+
+Run a local child-process MCP server:
+
+```bash
+cgm mcp stdio
+```
+
+Bind the entire MCP session to one already registered workspace:
+
+```bash
+cgm mcp stdio --workspace ~/projects/my-project
+cgm mcp stdio --workspace ws_...
+```
+
+Binding never registers or relocates a workspace. The path/ID must already resolve through the workspace registry. For a bound session, workspace-scoped tool schemas omit the redundant `workspace_id`; the runtime injects the canonical workspace ID and rejects attempts to escape to another workspace.
+
+Cursor project configuration can therefore use:
+
+```json
+{
+  "mcpServers": {
+    "chatgpt-mcp": {
+      "type": "stdio",
+      "command": "cgm",
+      "args": ["mcp", "stdio", "--workspace", "${workspaceFolder}"]
+    }
+  }
+}
+```
+
+`stdio` uses the process stdin/stdout exclusively for MCP protocol frames. Diagnostics go to stderr. It does not require OAuth transport authentication because the local child-process boundary owns the connection lifecycle.
+
+### Streamable HTTP and SSE compatibility
+
+Run the dedicated MCP-only HTTP server:
+
+```bash
+cgm mcp http
+```
+
+The standalone server is loopback-only in the current implementation and exposes:
+
+```text
+/mcp       Streamable HTTP
+/mcp/sse   legacy SSE compatibility
+```
+
+SSE compatibility is enabled by default and can be disabled:
+
+```bash
+cgm mcp http --no-sse
+```
+
+Workspace binding is also supported:
+
+```bash
+cgm mcp http --workspace ~/projects/my-project
+```
+
+Streamable HTTP and SSE use the same canonical tool runtime, policies, approval flow, loop guard, workspace enforcement, execution feed, and upstream proxy catalog. Their activity source is recorded separately as `http` or `sse`.
+
 ## Local authentication
 
-When MCP authentication is enabled, direct HTTP clients use:
+The full `cgm serve` stateless HTTP endpoint retains the existing managed MCP bearer for compatibility:
 
 ```http
 Authorization: Bearer <mcp-token>
@@ -76,6 +144,19 @@ cgm auth mcp create
 ```
 
 The OpenAI Secure MCP Tunnel runtime key is unrelated to this local MCP bearer token. The tunnel key authenticates the embedded tunnel client to OpenAI's control plane.
+
+Protected `cgm mcp http` uses OAuth as the canonical authentication flow. It exposes protected-resource/authorization-server discovery, Authorization Code + PKCE, public-client registration compatibility, short-lived authorization codes, opaque access tokens, and refresh-token rotation. Access tokens are bound to the MCP resource and cannot be reused for another resource.
+
+The managed MCP token is **not** sent to Cursor as an OAuth client secret or access token and is not used as a signing key. Rotating the MCP credential changes the auth generation and invalidates OAuth codes/tokens issued under the previous credential generation.
+
+For migration, static MCP bearer compatibility can be controlled with:
+
+```bash
+cgm config set auth.mcp_legacy_bearer true
+cgm config set auth.mcp_legacy_bearer false
+```
+
+The compatibility path is enabled by default for existing installations. New generic clients should use OAuth instead of configuring the raw MCP token manually.
 
 ## Workspace-bound tools
 
@@ -150,28 +231,30 @@ See [Security](security.md#control-guard-approvals-and-self-grant-prevention) fo
 Start with:
 
 ```bash
-cgm mcp --help
-cgm mcp server --help
+cgm upstream --help
+cgm upstream server --help
 ```
+
+`cgm mcp server ...` remains a deprecated compatibility path during the migration window and forwards to the same upstream handlers. New scripts should use `cgm upstream server ...`.
 
 Upstream definitions can also be managed in the embedded admin dashboard.
 
 Common management commands:
 
 ```bash
-cgm mcp server list
-cgm mcp server show <id>
-cgm mcp server status <id>
-cgm mcp server tools <id>
-cgm mcp server enable <id>
-cgm mcp server disable <id>
-cgm mcp server remove <id>
+cgm upstream server list
+cgm upstream server show <id>
+cgm upstream server status <id>
+cgm upstream server tools <id>
+cgm upstream server enable <id>
+cgm upstream server disable <id>
+cgm upstream server remove <id>
 ```
 
 Add an HTTP upstream:
 
 ```bash
-cgm mcp server add example \
+cgm upstream server add example \
   --transport http \
   --url https://mcp.example.com/mcp \
   --auth auto \
@@ -181,7 +264,7 @@ cgm mcp server add example \
 Add a local stdio upstream:
 
 ```bash
-cgm mcp server add local-tools \
+cgm upstream server add local-tools \
   --transport stdio \
   --command node \
   --arg /path/to/server.mjs \
@@ -206,7 +289,7 @@ HTTP upstream URLs are subject to an outbound SSRF policy: userinfo is rejected,
 Update selected fields with:
 
 ```bash
-cgm mcp server configure <id> [flags]
+cgm upstream server configure <id> [flags]
 ```
 
 `configure` also has the alias `set`.
@@ -216,9 +299,9 @@ cgm mcp server configure <id> [flags]
 HTTP upstreams can use OAuth. Access/refresh tokens and client secrets are stored in the selected config root's secret-file store; the structured OAuth state file contains only non-secret metadata and `<secret-file>` markers.
 
 ```bash
-cgm mcp server auth login <id>
-cgm mcp server auth status <id>
-cgm mcp server auth logout <id>
+cgm upstream server auth login <id>
+cgm upstream server auth status <id>
+cgm upstream server auth logout <id>
 ```
 
 Upstream tool discovery and proxy refresh are designed to be atomic:

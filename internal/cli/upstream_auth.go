@@ -14,13 +14,13 @@ import (
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
-func mcpServerAuthCommand() *cobra.Command {
+func upstreamServerAuthCommand() *cobra.Command {
 	command := &cobra.Command{Use: "auth", Short: "Manage OAuth authorization for an upstream MCP server"}
-	command.AddCommand(mcpServerAuthLoginCommand(), mcpServerAuthStatusCommand(), mcpServerAuthLogoutCommand())
+	command.AddCommand(upstreamServerAuthLoginCommand(), upstreamServerAuthStatusCommand(), upstreamServerAuthLogoutCommand())
 	return command
 }
 
-func mcpServerAuthLoginCommand() *cobra.Command {
+func upstreamServerAuthLoginCommand() *cobra.Command {
 	var issuer, clientID, clientSecretEnv, clientMetadataURL, extraScope string
 	var noOpen bool
 	var timeout time.Duration
@@ -101,7 +101,7 @@ func mcpServerAuthLoginCommand() *cobra.Command {
 	return command
 }
 
-func mcpServerAuthStatusCommand() *cobra.Command {
+func upstreamServerAuthStatusCommand() *cobra.Command {
 	var asJSON bool
 	command := &cobra.Command{
 		Use:               "status <id>",
@@ -144,7 +144,7 @@ func mcpServerAuthStatusCommand() *cobra.Command {
 	return command
 }
 
-func mcpServerAuthLogoutCommand() *cobra.Command {
+func upstreamServerAuthLogoutCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:               "logout <id>",
 		Short:             "Delete stored OAuth credentials for an upstream MCP server",

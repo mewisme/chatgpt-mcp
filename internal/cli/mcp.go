@@ -91,8 +91,8 @@ func runMCPHTTP(cmd *cobra.Command, workspace, host string, port int, enableSSE 
 	if cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {
 		return errors.New("MCP authentication is enabled but no credential is configured; run cgm auth mcp create")
 	}
-	if cfg.Auth.MCPEnabled && !mcpHTTPLoopbackHost(host) {
-		return errors.New("built-in MCP OAuth consent is currently loopback-only; use 127.0.0.1, ::1, or localhost")
+	if !mcpHTTPLoopbackHost(host) {
+		return errors.New("standalone MCP HTTP is currently loopback-only; use 127.0.0.1, ::1, or localhost")
 	}
 	listener, err := net.Listen("tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 	if err != nil {

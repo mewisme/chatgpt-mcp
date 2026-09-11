@@ -226,6 +226,11 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		if err != nil {
 			preflightErr = err
 		} else if workspaceScoped {
+			boundWorkspaceID := BoundWorkspace(ctx)
+			if _, exists := args["workspace_id"]; !exists && boundWorkspaceID != "" {
+				args = cloneMap(args)
+				args["workspace_id"] = boundWorkspaceID
+			}
 			workspaceID, preflightErr = requiredString(args, "workspace_id")
 			if preflightErr == nil && r.Workspaces == nil {
 				preflightErr = errors.New("workspace manager is unavailable")
@@ -235,12 +240,22 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 				if err != nil {
 					preflightErr = workspaceScopePreflightError(r.Workspaces, workspaceID, err)
 				} else {
-					if canonical != workspaceID {
+					if boundWorkspaceID != "" {
+						boundCanonical, boundErr := r.Workspaces.CanonicalID(boundWorkspaceID)
+						if boundErr != nil {
+							preflightErr = boundErr
+						} else if canonical != boundCanonical {
+							preflightErr = fmt.Errorf("tool call is bound to workspace %s and cannot access workspace %s", boundCanonical, canonical)
+						}
+					}
+					if preflightErr == nil && canonical != workspaceID {
 						args = cloneMap(args)
 						args["workspace_id"] = canonical
 					}
-					workspaceID = canonical
-					if sessionID != "" {
+					if preflightErr == nil {
+						workspaceID = canonical
+					}
+					if preflightErr == nil && sessionID != "" {
 						_, decision, count, err := r.sessionAccessManager().CheckOrGrant(sessionID, workspaceID)
 						sessionAccess = decision
 						sessionWorkspaceCount = count

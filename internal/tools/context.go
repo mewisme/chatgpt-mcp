@@ -11,6 +11,7 @@ type InputRound struct {
 
 type inputRoundContextKey struct{}
 type approvalRequestContextKey struct{}
+type boundWorkspaceContextKey struct{}
 
 func WithInputRound(ctx context.Context, requestState string, inputResponses map[string]any) context.Context {
 	if requestState == "" && inputResponses == nil {
@@ -39,5 +40,23 @@ func ApprovalRequestID(ctx context.Context) string {
 		return ""
 	}
 	value, _ := ctx.Value(approvalRequestContextKey{}).(string)
+	return value
+}
+
+func WithBoundWorkspace(ctx context.Context, workspaceID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if workspaceID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, boundWorkspaceContextKey{}, workspaceID)
+}
+
+func BoundWorkspace(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(boundWorkspaceContextKey{}).(string)
 	return value
 }

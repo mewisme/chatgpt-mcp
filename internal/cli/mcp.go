@@ -3,13 +3,17 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"go.mewis.me/chatgpt-mcp/internal/app"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func mcpCommand() *cobra.Command {
@@ -19,17 +23,21 @@ func mcpCommand() *cobra.Command {
 }
 
 func mcpStdioCommand() *cobra.Command {
+	var workspace string
 	cmd := &cobra.Command{
 		Use:   "stdio",
 		Short: "Serve MCP over stdin/stdout for local MCP clients",
 		Args:  cobra.NoArgs,
-		RunE:  runMCPStdio,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMCPStdio(cmd, workspace)
+		},
 	}
+	cmd.Flags().StringVar(&workspace, "workspace", "", "bind this MCP session to a registered workspace ID or path")
 	markMachineOutput(cmd, "always")
 	return cmd
 }
 
-func runMCPStdio(cmd *cobra.Command, _ []string) (runErr error) {
+func runMCPStdio(cmd *cobra.Command, workspace string) (runErr error) {
 	if cmd == nil {
 		return errors.New("stdio command is unavailable")
 	}
@@ -62,7 +70,11 @@ func runMCPStdio(cmd *cobra.Command, _ []string) (runErr error) {
 			runErr = err
 		}
 	}()
-	stdio, err := mcp.NewStdioRuntime(runtime.Tools, readCloser{cmd.InOrStdin()}, writeCloser{cmd.OutOrStdout()})
+	workspaceID, err := resolveMCPWorkspace(runtime.Tools.Workspaces, workspace)
+	if err != nil {
+		return err
+	}
+	stdio, err := mcp.NewStdioRuntimeWithWorkspace(runtime.Tools, readCloser{cmd.InOrStdin()}, writeCloser{cmd.OutOrStdout()}, workspaceID)
 	if err != nil {
 		return err
 	}
@@ -71,6 +83,42 @@ func runMCPStdio(cmd *cobra.Command, _ []string) (runErr error) {
 		return nil
 	}
 	return err
+}
+
+func resolveMCPWorkspace(manager interface {
+	Get(string) (workspace.Workspace, error)
+	List() ([]workspace.Workspace, error)
+}, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(value, "ws_") {
+		item, err := manager.Get(value)
+		if err != nil {
+			return "", fmt.Errorf("resolve MCP workspace %q: %w", value, err)
+		}
+		return item.ID, nil
+	}
+	absolute, err := filepath.Abs(value)
+	if err != nil {
+		return "", fmt.Errorf("resolve MCP workspace path: %w", err)
+	}
+	canonical, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", fmt.Errorf("resolve MCP workspace path %q: %w", value, err)
+	}
+	canonical = filepath.Clean(canonical)
+	items, err := manager.List()
+	if err != nil {
+		return "", err
+	}
+	for _, item := range items {
+		if filepath.Clean(item.Path) == canonical {
+			return item.ID, nil
+		}
+	}
+	return "", fmt.Errorf("workspace path is not registered: %s", canonical)
 }
 
 type readCloser struct{ io.Reader }

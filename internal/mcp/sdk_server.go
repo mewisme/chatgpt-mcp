@@ -12,22 +12,23 @@ import (
 )
 
 type SDKServer struct {
-	Server    *sdkmcp.Server
-	Tools     *tools.Runtime
-	Source    string
-	SessionID string
+	Server         *sdkmcp.Server
+	Tools          *tools.Runtime
+	Source         string
+	SessionID      string
+	BoundWorkspace string
 }
 
 func NewSDKServerWithTools(toolRuntime *tools.Runtime, source string) (*SDKServer, error) {
-	return NewSDKServerWithSession(toolRuntime, source, "")
+	return NewSDKServerWithSession(toolRuntime, source, "", "")
 }
 
-func NewSDKServerWithSession(toolRuntime *tools.Runtime, source, sessionID string) (*SDKServer, error) {
+func NewSDKServerWithSession(toolRuntime *tools.Runtime, source, sessionID, boundWorkspace string) (*SDKServer, error) {
 	if toolRuntime == nil {
 		toolRuntime = tools.NewRuntime()
 	}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "chatgpt-mcp", Version: version.Version}, &sdkmcp.ServerOptions{Capabilities: &sdkmcp.ServerCapabilities{Tools: &sdkmcp.ToolCapabilities{ListChanged: true}}})
-	adapter := &SDKServer{Server: server, Tools: toolRuntime, Source: source, SessionID: sessionID}
+	adapter := &SDKServer{Server: server, Tools: toolRuntime, Source: source, SessionID: sessionID, BoundWorkspace: boundWorkspace}
 	for _, schema := range filterHeaderSafeTools(toolRuntime.List()) {
 		if err := adapter.addTool(schema); err != nil {
 			return nil, err
@@ -62,6 +63,9 @@ func (s *SDKServer) addTool(schema tools.Schema) error {
 		}
 		if sessionID != "" {
 			ctx = tools.WithMCPSessionID(ctx, sessionID)
+		}
+		if s.BoundWorkspace != "" {
+			ctx = tools.WithBoundWorkspace(ctx, s.BoundWorkspace)
 		}
 		ctx = tools.WithCallSource(ctx, s.Source)
 		ctx = tools.WithInputRound(ctx, request.Params.RequestState, inputResponses(request.Params.InputResponses))

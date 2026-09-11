@@ -24,6 +24,7 @@ const ScopeTools = "mcp:tools"
 
 const (
 	codeTTL         = 5 * time.Minute
+	consentTTL      = 5 * time.Minute
 	accessTokenTTL  = time.Hour
 	refreshTokenTTL = 30 * 24 * time.Hour
 	maxClients      = 256
@@ -45,6 +46,7 @@ type Authority struct {
 	provider     ConfigProvider
 	legacyVerify LegacyVerifier
 	clients      map[string]client
+	consents     map[string]time.Time
 	codes        map[string]authorizationCode
 	access       map[string]tokenGrant
 	refresh      map[string]tokenGrant
@@ -101,7 +103,7 @@ func New(issuer, resource string, provider ConfigProvider, legacyVerify LegacyVe
 	if provider == nil {
 		return nil, errors.New("MCP OAuth config provider is required")
 	}
-	return &Authority{issuer: issuer, resource: resource, provider: provider, legacyVerify: legacyVerify, clients: map[string]client{}, codes: map[string]authorizationCode{}, access: map[string]tokenGrant{}, refresh: map[string]tokenGrant{}}, nil
+	return &Authority{issuer: issuer, resource: resource, provider: provider, legacyVerify: legacyVerify, clients: map[string]client{}, consents: map[string]time.Time{}, codes: map[string]authorizationCode{}, access: map[string]tokenGrant{}, refresh: map[string]tokenGrant{}}, nil
 }
 
 func (a *Authority) Handler(mcpHandler http.Handler) http.Handler {
@@ -208,7 +210,10 @@ func (a *Authority) serveAuthorizeForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "authorization unavailable", http.StatusInternalServerError)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "mcp_oauth_csrf", Value: csrf, Path: "/oauth/authorize", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 300})
+	a.mu.Lock()
+	a.cleanupLocked(time.Now())
+	a.consents[csrf] = time.Now().Add(consentTTL)
+	a.mu.Unlock()
 	data := struct {
 		ClientName string
 		ClientID   string
@@ -229,8 +234,15 @@ func (a *Authority) completeAuthorization(w http.ResponseWriter, r *http.Request
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid authorization form")
 		return
 	}
-	cookie, err := r.Cookie("mcp_oauth_csrf")
-	if err != nil || cookie.Value == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(r.Form.Get("csrf"))) != 1 {
+	csrf := strings.TrimSpace(r.Form.Get("csrf"))
+	a.mu.Lock()
+	a.cleanupLocked(time.Now())
+	expiresAt, ok := a.consents[csrf]
+	if ok {
+		delete(a.consents, csrf)
+	}
+	a.mu.Unlock()
+	if csrf == "" || !ok || !time.Now().Before(expiresAt) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "authorization form expired or invalid")
 		return
 	}
@@ -404,6 +416,11 @@ func (a *Authority) verifyToken(_ context.Context, token string, _ *http.Request
 }
 
 func (a *Authority) cleanupLocked(now time.Time) {
+	for nonce, expiresAt := range a.consents {
+		if !now.Before(expiresAt) {
+			delete(a.consents, nonce)
+		}
+	}
 	for code, value := range a.codes {
 		if !now.Before(value.ExpiresAt) {
 			delete(a.codes, code)

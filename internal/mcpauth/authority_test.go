@@ -53,19 +53,18 @@ func TestOAuthAuthorizationCodePKCEAndRotation(t *testing.T) {
 	}
 	consent := httptest.NewRecorder()
 	handler.ServeHTTP(consent, httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+params.Encode(), nil))
-	if consent.Code != http.StatusOK || len(consent.Result().Cookies()) == 0 || !strings.Contains(consent.Body.String(), "Authorize ChatGPT MCP") {
+	if consent.Code != http.StatusOK || !strings.Contains(consent.Body.String(), "Authorize ChatGPT MCP") {
 		t.Fatalf("consent status=%d body=%s", consent.Code, consent.Body.String())
 	}
-	csrf := consent.Result().Cookies()[0]
+	csrf := hiddenInputValue(t, consent.Body.String(), "csrf")
 	form := url.Values{}
 	for key, values := range params {
 		form[key] = append([]string(nil), values...)
 	}
-	form.Set("csrf", csrf.Value)
+	form.Set("csrf", csrf)
 	form.Set("decision", "allow")
 	approvalRequest := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(form.Encode()))
 	approvalRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	approvalRequest.AddCookie(csrf)
 	approval := httptest.NewRecorder()
 	handler.ServeHTTP(approval, approvalRequest)
 	if approval.Code != http.StatusFound {
@@ -121,6 +120,21 @@ func TestOAuthAuthorizationCodePKCEAndRotation(t *testing.T) {
 	if rotated.Code != http.StatusUnauthorized {
 		t.Fatalf("rotated token status=%d body=%s", rotated.Code, rotated.Body.String())
 	}
+}
+
+func hiddenInputValue(t *testing.T, body, name string) string {
+	t.Helper()
+	marker := `name="` + name + `" value="`
+	start := strings.Index(body, marker)
+	if start < 0 {
+		t.Fatalf("hidden input %q missing from %q", name, body)
+	}
+	start += len(marker)
+	end := strings.Index(body[start:], `"`)
+	if end < 0 {
+		t.Fatalf("hidden input %q has no closing quote", name)
+	}
+	return body[start : start+end]
 }
 
 func TestOAuthRejectsWrongPKCEAndSupportsLegacyBearerWhenEnabled(t *testing.T) {

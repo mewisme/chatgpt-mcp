@@ -65,7 +65,16 @@ func (a *App) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var wg sync.WaitGroup
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
+	if a.Tools != nil && a.Tools.Processes != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := a.Tools.Processes.Shutdown(ctx); err != nil {
+				errCh <- err
+			}
+		}()
+	}
 	if a.Tunnel != nil {
 		wg.Add(1)
 		go func() {

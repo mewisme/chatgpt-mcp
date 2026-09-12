@@ -99,3 +99,58 @@ func TestClearFinishedProcessRejectsRunningAndDeletesFinished(t *testing.T) {
 		t.Fatalf("process still present=%#v err=%v", status, err)
 	}
 }
+
+func TestProcessManagerEnforcesRunningLimits(t *testing.T) {
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	first, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	processes := NewProcessManager(manager, NewManager(manager, filepath.Join(t.TempDir(), "shell-state")))
+	processes.maxRunning = 2
+	processes.maxWorkspaceRunning = 1
+	processes.processes["first"] = &managedProcess{workspace: first.ID}
+	if err := processes.checkStartLimitLocked(first.ID); !errors.Is(err, ErrProcessLimit) {
+		t.Fatalf("workspace limit error=%v", err)
+	}
+	if err := processes.checkStartLimitLocked(second.ID); err != nil {
+		t.Fatalf("second workspace unexpectedly limited: %v", err)
+	}
+	processes.processes["second"] = &managedProcess{workspace: second.ID}
+	if err := processes.checkStartLimitLocked(second.ID); !errors.Is(err, ErrProcessLimit) {
+		t.Fatalf("global limit error=%v", err)
+	}
+}
+
+func TestProcessManagerShutdownStopsRunningProcess(t *testing.T) {
+	if os.PathSeparator != '\\' && os.Getenv("SHELL") == "" {
+		t.Setenv("SHELL", "/bin/sh")
+	}
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	processes := NewProcessManager(manager, NewManager(manager, filepath.Join(t.TempDir(), "shell-state")))
+	command := "sleep 30"
+	if os.PathSeparator == '\\' {
+		command = "Start-Sleep -Seconds 30"
+	}
+	started, err := processes.Start(t.Context(), item.ID, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := processes.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status, err := processes.Status(item.ID, started.ID)
+	if err != nil || len(status) != 1 || status[0].Running {
+		t.Fatalf("process still running after shutdown: %#v err=%v", status, err)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"runtime"
 	"sort"
@@ -20,10 +21,15 @@ import (
 const (
 	maxProcessLogChars       = 400_000
 	maxFinishedProcesses     = 100
+	maxRunningProcesses      = 32
+	maxWorkspaceProcesses    = 8
 	finishedProcessRetention = 24 * time.Hour
 )
 
-var ErrProcessRunning = errors.New("process is still running")
+var (
+	ErrProcessRunning = errors.New("process is still running")
+	ErrProcessLimit   = errors.New("background process limit reached")
+)
 
 type ProcessInfo struct {
 	ID          string  `json:"id"`
@@ -75,17 +81,20 @@ type managedProcess struct {
 	signal     *string
 	finishedAt time.Time
 	execution  *ExecutionRun
+	done       chan struct{}
 }
 
 type ProcessManager struct {
-	workspaces  *workspace.Manager
-	shell       *Manager
-	mu          sync.RWMutex
-	processes   map[string]*managedProcess
-	order       []string
-	maxFinished int
-	retention   time.Duration
-	executions  *ExecutionHub
+	workspaces          *workspace.Manager
+	shell               *Manager
+	mu                  sync.RWMutex
+	processes           map[string]*managedProcess
+	order               []string
+	maxFinished         int
+	maxRunning          int
+	maxWorkspaceRunning int
+	retention           time.Duration
+	executions          *ExecutionHub
 }
 
 type logBuffer struct {
@@ -94,7 +103,7 @@ type logBuffer struct {
 }
 
 func NewProcessManager(workspaces *workspace.Manager, shell *Manager) *ProcessManager {
-	return &ProcessManager{workspaces: workspaces, shell: shell, processes: map[string]*managedProcess{}, maxFinished: maxFinishedProcesses, retention: finishedProcessRetention}
+	return &ProcessManager{workspaces: workspaces, shell: shell, processes: map[string]*managedProcess{}, maxFinished: maxFinishedProcesses, maxRunning: maxRunningProcesses, maxWorkspaceRunning: maxWorkspaceProcesses, retention: finishedProcessRetention}
 }
 
 func NewProcessManagerWithExecutions(workspaces *workspace.Manager, shell *Manager, executions *ExecutionHub) *ProcessManager {
@@ -142,34 +151,50 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
+		_ = stdoutPipe.Close()
 		return StartResult{}, err
 	}
-	if err := cmd.Start(); err != nil {
-		return StartResult{}, err
+	closePipes := func() {
+		_ = stdoutPipe.Close()
+		_ = stderrPipe.Close()
 	}
 	id, err := processID()
 	if err != nil {
-		_ = signalCommandTree(cmd, true)
+		closePipes()
 		return StartResult{}, err
 	}
 	process := &managedProcess{
 		workspace: workspaceID, id: id, command: command, cwd: cwd,
-		startedAt: time.Now().UTC().Format(time.RFC3339Nano), cmd: cmd, stdout: &logBuffer{}, stderr: &logBuffer{},
-	}
-	if m.executions != nil {
-		metadata := executionMetadata(ctx)
-		process.execution = m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "start_process", Command: command, CWD: cwd, Source: metadata.Source, CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID})
+		startedAt: time.Now().UTC().Format(time.RFC3339Nano), cmd: cmd, stdout: &logBuffer{}, stderr: &logBuffer{}, done: make(chan struct{}),
 	}
 	m.mu.Lock()
 	m.pruneLocked(time.Now().UTC())
+	if err := m.checkStartLimitLocked(workspaceID); err != nil {
+		m.mu.Unlock()
+		closePipes()
+		return StartResult{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		m.mu.Unlock()
+		closePipes()
+		return StartResult{}, err
+	}
 	m.processes[id] = process
 	m.order = append(m.order, id)
 	m.mu.Unlock()
+	var execution *ExecutionRun
+	if m.executions != nil {
+		metadata := executionMetadata(ctx)
+		execution = m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "start_process", Command: command, CWD: cwd, Source: metadata.Source, CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID})
+		process.mu.Lock()
+		process.execution = execution
+		process.mu.Unlock()
+	}
 
 	var outputWG sync.WaitGroup
 	outputWG.Add(2)
-	go copyProcessLog(&outputWG, process.stdout, process.execution, "stdout", stdoutPipe)
-	go copyProcessLog(&outputWG, process.stderr, process.execution, "stderr", stderrPipe)
+	go copyProcessLog(&outputWG, process.stdout, execution, "stdout", stdoutPipe)
+	go copyProcessLog(&outputWG, process.stderr, execution, "stderr", stderrPipe)
 	go func() {
 		outputWG.Wait()
 		waitErr := cmd.Wait()
@@ -194,23 +219,24 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 		exitCode := cloneInt(process.exitCode)
 		signal := cloneString(process.signal)
 		process.mu.Unlock()
-		if process.execution != nil {
+		if execution != nil {
 			status := ExecutionStatusSuccess
 			if signal != nil {
 				status = ExecutionStatusCancelled
 			} else if exitCode == nil || *exitCode != 0 {
 				status = ExecutionStatusFailed
 			}
-			process.execution.Finish(status, exitCode, false)
+			execution.Finish(status, exitCode, false)
 		}
 		m.mu.Lock()
 		m.pruneLocked(time.Now().UTC())
 		m.mu.Unlock()
+		close(process.done)
 	}()
 
 	executionID := ""
-	if process.execution != nil {
-		executionID = process.execution.ID()
+	if execution != nil {
+		executionID = execution.ID()
 	}
 	return StartResult{ID: id, ExecutionID: executionID, PID: cmd.Process.Pid, Command: command, CWD: cwd, StartedAt: process.startedAt}, nil
 }
@@ -277,6 +303,68 @@ func (m *ProcessManager) Stop(workspaceID, id string, force bool) (StopResult, e
 		return StopResult{}, err
 	}
 	return StopResult{ID: id, Force: force}, nil
+}
+
+func (m *ProcessManager) Shutdown(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.mu.RLock()
+	items := make([]*managedProcess, 0, len(m.processes))
+	for _, item := range m.processes {
+		item.mu.Lock()
+		running := item.exitCode == nil
+		item.mu.Unlock()
+		if running {
+			items = append(items, item)
+		}
+	}
+	m.mu.RUnlock()
+	if len(items) == 0 {
+		return nil
+	}
+	var shutdownErr error
+	for _, item := range items {
+		if err := signalCommandTree(item.cmd, false); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			shutdownErr = errors.Join(shutdownErr, err)
+		}
+	}
+	if waitProcesses(ctx, items) {
+		return shutdownErr
+	}
+	for _, item := range items {
+		item.mu.Lock()
+		running := item.exitCode == nil
+		item.mu.Unlock()
+		if running {
+			if err := signalCommandTree(item.cmd, true); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				shutdownErr = errors.Join(shutdownErr, err)
+			}
+		}
+	}
+	forceCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if !waitProcesses(forceCtx, items) {
+		shutdownErr = errors.Join(shutdownErr, errors.New("background processes did not stop"))
+	}
+	return shutdownErr
+}
+
+func waitProcesses(ctx context.Context, items []*managedProcess) bool {
+	for _, item := range items {
+		if item.done == nil {
+			continue
+		}
+		select {
+		case <-item.done:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return true
 }
 
 func (m *ProcessManager) Clear(workspaceID string) (int, error) {
@@ -351,6 +439,38 @@ func (m *ProcessManager) processWorkspaceMatches(processWorkspaceID, workspaceID
 	}
 	canonical, err := m.workspaces.CanonicalID(processWorkspaceID)
 	return err == nil && canonical == workspaceID
+}
+
+func (m *ProcessManager) checkStartLimitLocked(workspaceID string) error {
+	maxRunning := m.maxRunning
+	if maxRunning <= 0 {
+		maxRunning = maxRunningProcesses
+	}
+	maxWorkspace := m.maxWorkspaceRunning
+	if maxWorkspace <= 0 {
+		maxWorkspace = maxWorkspaceProcesses
+	}
+	running, workspaceRunning := 0, 0
+	for _, item := range m.processes {
+		item.mu.Lock()
+		active := item.exitCode == nil
+		itemWorkspace := item.workspace
+		item.mu.Unlock()
+		if !active {
+			continue
+		}
+		running++
+		if m.processWorkspaceMatches(itemWorkspace, workspaceID) {
+			workspaceRunning++
+		}
+	}
+	if running >= maxRunning {
+		return fmt.Errorf("%w: runtime allows at most %d running processes", ErrProcessLimit, maxRunning)
+	}
+	if workspaceRunning >= maxWorkspace {
+		return fmt.Errorf("%w: workspace allows at most %d running processes", ErrProcessLimit, maxWorkspace)
+	}
+	return nil
 }
 
 func (m *ProcessManager) pruneLocked(now time.Time) {

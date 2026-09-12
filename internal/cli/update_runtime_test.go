@@ -27,6 +27,36 @@ type updateRuntimeManager struct {
 	control   *runtimeControl
 }
 
+type updateLifecycleManager struct {
+	installed bool
+	running   bool
+	starts    int
+	stops     int
+	runID     string
+	sequence  []string
+}
+
+func (m *updateLifecycleManager) Backend() string                              { return "fake" }
+func (m *updateLifecycleManager) DefinitionMatches(managed.Spec) (bool, error) { return true, nil }
+func (m *updateLifecycleManager) Install(managed.Spec) error                   { m.installed = true; return nil }
+func (m *updateLifecycleManager) Uninstall(managed.Spec) error                 { m.installed = false; return nil }
+func (m *updateLifecycleManager) Status(managed.Spec) (managed.Status, error) {
+	return managed.Status{Installed: m.installed, Running: m.running, Backend: "fake"}, nil
+}
+func (m *updateLifecycleManager) Start(managed.Spec) error {
+	m.starts++
+	m.running = true
+	m.runID = fmt.Sprintf("run_after_update_%d", m.starts)
+	m.sequence = append(m.sequence, "start")
+	return nil
+}
+func (m *updateLifecycleManager) Stop(managed.Spec) error {
+	m.stops++
+	m.running = false
+	m.sequence = append(m.sequence, "stop")
+	return nil
+}
+
 func (m *updateRuntimeManager) Backend() string                              { return "fake" }
 func (m *updateRuntimeManager) DefinitionMatches(managed.Spec) (bool, error) { return true, nil }
 func (m *updateRuntimeManager) Install(managed.Spec) error                   { m.installed = true; return nil }
@@ -60,34 +90,28 @@ func (m *updateRuntimeManager) Stop(managed.Spec) error {
 }
 
 func TestRestartManagedRuntimeInPlace(t *testing.T) {
-	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")
-	if err := configformat.SetRootPath(root); err != nil {
-		t.Fatal(err)
-	}
 	spec := managed.Spec{ID: managed.ID(root, managed.ScopeUser), Scope: managed.ScopeUser, ConfigRoot: root}
-	manager := &updateRuntimeManager{installed: true}
-	if err := manager.Start(spec); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if manager.control != nil {
-			_ = manager.control.Close()
+	manager := &updateLifecycleManager{installed: true, running: true, runID: "run_before_update"}
+	probe := func(context.Context) (runtimeStatusResult, bool, error) {
+		if !manager.running {
+			return runtimeStatusResult{}, false, nil
 		}
-	}()
-	starts := manager.starts
-	if err := restartManagedRuntimeInPlace(context.Background(), spec, manager); err != nil {
+		return runtimeStatusResult{PID: 123, RunID: manager.runID, Managed: true, ServiceID: spec.ID, ServiceScope: string(spec.Scope), ConfigRoot: root}, true, nil
+	}
+	shutdown := func(context.Context) error {
+		manager.sequence = append(manager.sequence, "shutdown")
+		manager.running = false
+		return nil
+	}
+	if err := restartManagedRuntimeInPlaceWith(context.Background(), spec, manager, probe, shutdown); err != nil {
 		t.Fatal(err)
 	}
-	if manager.stops != 1 || manager.starts != starts+1 || manager.control == nil {
+	if manager.stops != 1 || manager.starts != 1 || !manager.running {
 		t.Fatalf("manager = %+v", manager)
 	}
-	state, err := captureUpdateRuntimeState(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !state.Running || !state.Status.Managed || state.Status.ServiceID != spec.ID {
-		t.Fatalf("runtime state = %+v", state)
+	if got := strings.Join(manager.sequence, ","); got != "shutdown,stop,start" {
+		t.Fatalf("restart sequence = %q", got)
 	}
 }
 

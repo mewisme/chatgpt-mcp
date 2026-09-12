@@ -383,18 +383,6 @@ func waitManagedRuntimeReady(parent context.Context, spec managed.Spec, timeout 
 	return managed.WaitRuntimeReady(parent, spec, managedRuntimeStatus, "", timeout)
 }
 
-func waitManagedRuntimeReadyAfter(parent context.Context, spec managed.Spec, previousRunID string, timeout time.Duration) (runtimeStatusResult, error) {
-	return managed.WaitRuntimeReady(parent, spec, managedRuntimeStatus, previousRunID, timeout)
-}
-
-func waitRuntimeStopped(parent context.Context, timeout time.Duration) error {
-	return managed.WaitRuntimeStopped(parent, managedRuntimeStatus, timeout)
-}
-
-func stopManagedBackend(spec managed.Spec, manager managed.Manager) error {
-	return managed.StopBackend(manager, spec)
-}
-
 func managedScopeConflict(status runtimeStatusResult, spec managed.Spec, action string) error {
 	return managed.ValidateRuntimeOwner(status, true, spec, action)
 }

@@ -107,8 +107,12 @@ func restartManagedRuntimeAfterUpdate(cmd *cobra.Command, layout install.Layout,
 }
 
 func restartManagedRuntimeInPlace(parent context.Context, spec managed.Spec, manager managed.Manager) error {
+	return restartManagedRuntimeInPlaceWith(parent, spec, manager, managedRuntimeStatus, requestManagedShutdown)
+}
+
+func restartManagedRuntimeInPlaceWith(parent context.Context, spec managed.Spec, manager managed.Manager, probe managed.RuntimeProbe, shutdown managed.RuntimeShutdown) error {
 	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
-	current, running, statusErr := managedRuntimeStatus(ctx)
+	current, running, statusErr := probe(ctx)
 	cancel()
 	if statusErr != nil {
 		return statusErr
@@ -123,15 +127,7 @@ func restartManagedRuntimeInPlace(parent context.Context, spec managed.Spec, man
 	if !backendStatus.Installed {
 		return errors.New("managed service is not installed")
 	}
-	if err := stopManagedBackend(spec, manager); err != nil {
-		return err
-	}
-	if err := waitRuntimeStopped(parent, serviceReadyTimeout); err != nil {
-		return err
-	}
-	if err := manager.Start(spec); err != nil {
-		return err
-	}
-	_, err = waitManagedRuntimeReadyAfter(parent, spec, current.RunID, serviceReadyTimeout)
+	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: probe, Shutdown: shutdown, Timeout: serviceReadyTimeout}
+	_, err = lifecycle.Restart(parent)
 	return err
 }

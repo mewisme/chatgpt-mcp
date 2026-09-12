@@ -891,6 +891,65 @@ func TestConfigSaveDoesNotTouchTunnelSecretWhenMainConfigWriteFails(t *testing.T
 	}
 }
 
+func TestConfigRejectsSymlinkMainFile(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	want := []byte(`{"server":{"port":4100}}`)
+	if err := os.WriteFile(outside, want, 0600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	if err := os.Symlink(outside, configPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := loadAt(configPath, secretPath); err == nil {
+		t.Fatal("expected symlink main config to be rejected")
+	}
+	if err := saveAt(configPath, secretPath, Default()); err == nil {
+		t.Fatal("expected save through symlink main config to be rejected")
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(want) {
+		t.Fatalf("outside config changed: %s", data)
+	}
+}
+
+func TestConfigRejectsSymlinkTunnelFile(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	want := []byte(`{"runtime_key_configured":false}`)
+	if err := os.WriteFile(outside, want, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, secretPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	cfg := Default()
+	cfg.Tunnel.APIKey = "secret"
+	if err := saveAt(configPath, secretPath, cfg); err == nil {
+		t.Fatal("expected symlink tunnel config to be rejected")
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(want) {
+		t.Fatalf("outside tunnel config changed: %s", data)
+	}
+}
+
 func TestClearingRuntimeKeyPreservesAdminKeySecret(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")

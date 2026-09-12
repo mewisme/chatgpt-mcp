@@ -11,7 +11,6 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/features"
-	"go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -199,7 +198,7 @@ func loadRuntimeAt(configPath, secretPath string) (Config, error) {
 
 func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSecretLoadPolicy) (Config, error) {
 	cfg := Default()
-	data, err := os.ReadFile(configPath)
+	data, _, err := readConfigFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cfg, nil
@@ -343,7 +342,7 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	if err != nil {
 		return err
 	}
-	if err := state.WriteFileAtomic(configPath, data, 0600); err != nil {
+	if err := writeConfigFile(configPath, data, 0600); err != nil {
 		return err
 	}
 	if err := saveSecret(secretPath, cfg.Tunnel); err != nil {
@@ -359,26 +358,19 @@ type fileSnapshot struct {
 }
 
 func snapshotFile(path string) (fileSnapshot, error) {
-	data, err := os.ReadFile(path)
+	data, mode, err := readConfigFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return fileSnapshot{}, nil
 		}
 		return fileSnapshot{}, err
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return fileSnapshot{}, err
-	}
-	return fileSnapshot{exists: true, data: data, mode: info.Mode().Perm()}, nil
+	return fileSnapshot{exists: true, data: data, mode: mode}, nil
 }
 
 func restoreSnapshot(path string, snapshot fileSnapshot) error {
 	if !snapshot.exists {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
+		return removeConfigFile(path)
 	}
-	return state.WriteFileAtomic(path, snapshot.data, snapshot.mode)
+	return writeConfigFile(path, snapshot.data, snapshot.mode)
 }

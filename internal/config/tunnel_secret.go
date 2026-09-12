@@ -8,7 +8,6 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
-	"go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -47,7 +46,7 @@ func TunnelSecretEntries(root string) ([]string, error) {
 }
 
 func loadTunnelSecretAt(path string) (tunnelSecret, error) {
-	data, err := os.ReadFile(path)
+	data, _, err := readConfigFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return tunnelSecret{}, nil
@@ -131,17 +130,14 @@ func saveTunnelSecretAt(path string, cfg tunnel.Config) error {
 		AdminReadAccess: cfg.AdminReadAccess, AdminManageAccess: cfg.AdminManageAccess,
 	}
 	if stored.RuntimeKeyConfigured || stored.AdminKeyConfigured || stored.AdminOrganizationID != "" || stored.AdminWorkspaceID != "" || stored.AdminTenantID != "" || stored.AdminReadAccess || stored.AdminManageAccess {
-		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-			return err
-		}
 		data, err := configformat.MarshalPath(path, stored)
 		if err != nil {
 			return err
 		}
-		if err := state.WriteFileAtomic(path, data, 0600); err != nil {
+		if err := writeConfigFile(path, data, 0600); err != nil {
 			return err
 		}
-	} else if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	} else if err := removeConfigFile(path); err != nil {
 		return err
 	}
 	changes := make([]secretstore.Change, 0, 2)

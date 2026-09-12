@@ -179,33 +179,9 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/config/config.go",
-    "details": "Potential file inclusion via variable",
-    "code": "cfg := Default()\n\tdata, err := os.ReadFile(configPath)\n\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/config/config.go",
-    "details": "Potential file inclusion via variable",
-    "code": "func snapshotFile(path string) (fileSnapshot, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/config/tunnel_metadata.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/config/tunnel_secret.go",
-    "details": "Potential file inclusion via variable",
-    "code": "func loadTunnelSecretAt(path string) (tunnelSecret, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
   },
   {
     "rule_id": "G304",

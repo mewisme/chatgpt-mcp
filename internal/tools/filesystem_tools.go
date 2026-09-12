@@ -632,7 +632,7 @@ func handleDeleteDirectory(workspaces *workspace.Manager, checkpoints *checkpoin
 		if err := os.RemoveAll(dir); err != nil {
 			return Result{}, err
 		}
-		return JSONResult(map[string]any{"path": dir, "checkpoint_id": checkpointPointer(checkpointID), "run_command_fallback": fmt.Sprintf(`Remove-Item -Recurse -Force "%s"`, dir)}), nil
+		return JSONResult(map[string]any{"path": dir, "checkpoint_id": checkpointPointer(checkpointID), "run_command_fallback": deleteDirectoryFallback(dir)}), nil
 	}
 }
 

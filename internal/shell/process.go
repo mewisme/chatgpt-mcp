@@ -171,8 +171,8 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	go copyProcessLog(&outputWG, process.stdout, process.execution, "stdout", stdoutPipe)
 	go copyProcessLog(&outputWG, process.stderr, process.execution, "stderr", stderrPipe)
 	go func() {
-		waitErr := cmd.Wait()
 		outputWG.Wait()
+		waitErr := cmd.Wait()
 		process.mu.Lock()
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) {

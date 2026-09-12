@@ -3,7 +3,9 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +13,27 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
+
+func TestStdioMessageReaderEnforcesPerMessageLimit(t *testing.T) {
+	input := io.NopCloser(strings.NewReader("ok\n" + strings.Repeat("x", 9) + "\n"))
+	reader := newLineLimitReadCloser(input, 8)
+	data, err := io.ReadAll(reader)
+	if !errors.Is(err, ErrStdioMessageTooLarge) {
+		t.Fatalf("read error=%v", err)
+	}
+	if string(data) != "ok\n"+strings.Repeat("x", 8) {
+		t.Fatalf("bounded data=%q", data)
+	}
+}
+
+func TestStdioMessageReaderResetsLimitPerLine(t *testing.T) {
+	input := io.NopCloser(strings.NewReader("12345678\nabcdefgh\n"))
+	reader := newLineLimitReadCloser(input, 8)
+	data, err := io.ReadAll(reader)
+	if err != nil || string(data) != "12345678\nabcdefgh\n" {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+}
 
 func TestStdioRuntimeOfficialSDKInterop(t *testing.T) {
 	registry := tools.NewRegistry()

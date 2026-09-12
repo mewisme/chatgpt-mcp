@@ -60,7 +60,9 @@ func TestShellEnvironmentInheritsParentAndPrependsConfiguredPath(t *testing.T) {
 func TestShellEnvironmentOutputIsDeterministic(t *testing.T) {
 	values := shellEnvironment(context.Background(), nil)
 	for index := 1; index < len(values); index++ {
-		if strings.ToUpper(values[index-1]) > strings.ToUpper(values[index]) {
+		previous, _, _ := strings.Cut(values[index-1], "=")
+		current, _, _ := strings.Cut(values[index], "=")
+		if strings.ToUpper(previous) > strings.ToUpper(current) {
 			t.Fatalf("environment is not sorted: %#v", values)
 		}
 	}

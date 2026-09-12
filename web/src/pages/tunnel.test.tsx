@@ -19,16 +19,7 @@ const publicConfig = {
     admin_token_configured: true,
   },
   permissions: { allow_dirs: [] },
-  shell: {
-    path: [],
-    approval_policy: "balanced",
-    approval_allow_commands: [],
-    approval_deny_commands: [],
-    environment_policy: "auto",
-    environment_allow: [],
-    sandbox_policy: "auto",
-    network_policy: "auto",
-  },
+  shell: { path: [] },
   features: {
     ponytail: { active: true, mode: "full" },
     caveman: { active: true, mode: "full" },

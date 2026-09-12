@@ -154,28 +154,6 @@ func TestValidateUnauthenticatedLoopbackAppliesPerEnabledEndpoint(t *testing.T) 
 	}
 }
 
-func TestShellPolicyWarnings(t *testing.T) {
-	cfg := Default()
-	if warnings := ShellPolicyWarnings(cfg); len(warnings) != 0 {
-		t.Fatalf("default warnings = %#v", warnings)
-	}
-	cfg.Shell.ApprovalPolicy = "allow"
-	warnings := ShellPolicyWarnings(cfg)
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "approval_policy=allow") {
-		t.Fatalf("allow warnings = %#v", warnings)
-	}
-	cfg.Shell.SandboxPolicy = "off"
-	warnings = ShellPolicyWarnings(cfg)
-	if len(warnings) != 2 || !strings.Contains(warnings[1], "WARNING: shell.sandbox_policy=off") || !strings.Contains(warnings[1], "application-level workspace policy is not an OS sandbox") {
-		t.Fatalf("allow+off warnings = %#v", warnings)
-	}
-	cfg.Shell.NetworkPolicy = "inherit"
-	warnings = ShellPolicyWarnings(cfg)
-	if len(warnings) != 3 || !strings.Contains(warnings[2], "dangerous combination") {
-		t.Fatalf("dangerous combination warnings = %#v", warnings)
-	}
-}
-
 func TestSecurityWarningsIncludeCleartextHTTP(t *testing.T) {
 	cfg := Default()
 	if warnings := SecurityWarnings(cfg); len(warnings) != 0 {
@@ -281,9 +259,7 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			cfg.Tunnel.APIKey = "tunnel-secret"
 			cfg.Tunnel.AdminKey = "admin-secret"
 			cfg.Tunnel.AdminOrganizationID = "org-admin"
-			cfg.Shell.ApprovalPolicy = "deny"
-			cfg.Shell.ApprovalAllowCommands = []string{"git status", "go test *"}
-			cfg.Shell.ApprovalDenyCommands = []string{"git push *"}
+			cfg.Shell.Path = []string{filepath.Join(root, "bin")}
 			if err := saveAt(configPath, secretPath, cfg); err != nil {
 				t.Fatal(err)
 			}
@@ -291,7 +267,7 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey || loaded.Tunnel.AdminKey != cfg.Tunnel.AdminKey || loaded.Tunnel.AdminOrganizationID != cfg.Tunnel.AdminOrganizationID || loaded.Shell.ApprovalPolicy != "deny" || len(loaded.Shell.ApprovalAllowCommands) != 2 || len(loaded.Shell.ApprovalDenyCommands) != 1 {
+			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey || loaded.Tunnel.AdminKey != cfg.Tunnel.AdminKey || loaded.Tunnel.AdminOrganizationID != cfg.Tunnel.AdminOrganizationID || len(loaded.Shell.Path) != 1 || loaded.Shell.Path[0] != cfg.Shell.Path[0] {
 				t.Fatalf("round trip = %#v", loaded)
 			}
 			mainData, err := os.ReadFile(configPath)
@@ -457,112 +433,32 @@ func TestNormalizeShellPath(t *testing.T) {
 	}
 }
 
-func TestNormalizeShellApprovalPolicy(t *testing.T) {
-	if Default().Shell.ApprovalPolicy != "balanced" {
-		t.Fatalf("default shell approval policy = %q", Default().Shell.ApprovalPolicy)
+func TestLegacyShellPolicyFieldsAreIgnoredOnSave(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	data := []byte(`{"server":{"enabled":true,"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"shell":{"path":[],"approval_policy":"strict","approval_allow_commands":["go test *"],"approval_deny_commands":["git push **"],"environment_policy":"minimal","environment_allow":["DATABASE_URL"],"sandbox_policy":"required","network_policy":"deny"},"tunnel":{"enabled":false}}`)
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
+		t.Fatal(err)
 	}
-	for input, expected := range map[string]string{"": "balanced", "allow": "allow", " ALLOW ": "allow", "balanced": "balanced", "BALANCED": "balanced", "strict": "strict", " STRICT ": "strict", "deny": "deny", " DENY ": "deny"} {
-		value, err := NormalizeShellApprovalPolicy(input)
-		if err != nil || value != expected {
-			t.Fatalf("NormalizeShellApprovalPolicy(%q)=%q err=%v", input, value, err)
+	loaded, err := loadAt(configPath, secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Shell.Path) != 0 {
+		t.Fatalf("legacy shell config affected runtime: %#v", loaded.Shell)
+	}
+	if err := saveAt(configPath, secretPath, loaded); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{"approval_policy", "approval_allow_commands", "approval_deny_commands", "environment_policy", "environment_allow", "sandbox_policy", "network_policy"} {
+		if strings.Contains(string(saved), removed) {
+			t.Fatalf("removed shell policy field %q survived save: %s", removed, saved)
 		}
-	}
-	for _, input := range []string{"review", "off", "strictest"} {
-		if _, err := NormalizeShellApprovalPolicy(input); err == nil {
-			t.Fatalf("invalid shell approval policy accepted: %q", input)
-		}
-	}
-}
-
-func TestNormalizeShellApprovalCommands(t *testing.T) {
-	if len(Default().Shell.ApprovalAllowCommands) != 0 || len(Default().Shell.ApprovalDenyCommands) != 0 {
-		t.Fatalf("default shell approval commands = allow %#v deny %#v", Default().Shell.ApprovalAllowCommands, Default().Shell.ApprovalDenyCommands)
-	}
-	value, err := NormalizeShellApprovalCommands([]string{" git status ", "go test *", "git status", ""})
-	if err != nil || len(value) != 2 || value[0] != "git status" || value[1] != "go test *" {
-		t.Fatalf("normalized approval commands = %#v err=%v", value, err)
-	}
-	if _, err := NormalizeShellApprovalCommands([]string{"git status\nrm -rf ."}); err == nil {
-		t.Fatal("multiline approval command pattern accepted")
-	}
-}
-
-func TestLegacyConfigWithoutApprovalOverridesKeepsBalancedDefault(t *testing.T) {
-	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
-		t.Run(string(format), func(t *testing.T) {
-			root := t.TempDir()
-			configPath := configformat.PathFor(root, "config", format)
-			secretPath := configformat.PathFor(root, "tunnel", format)
-			legacy := map[string]any{"server": map[string]any{"enabled": true, "port": int64(37421), "expose": map[string]any{"mode": "none", "interfaces": []any{}}}, "admin": map[string]any{"enabled": false, "port": int64(37422)}, "auth": map[string]any{"mcp_enabled": false, "admin_enabled": false}, "shell": map[string]any{}, "tunnel": map[string]any{"enabled": false}}
-			data, err := configformat.EncodeGeneric(format, legacy)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(configPath, data, 0600); err != nil {
-				t.Fatal(err)
-			}
-			loaded, err := loadAt(configPath, secretPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if loaded.Shell.ApprovalPolicy != "balanced" || len(loaded.Shell.ApprovalAllowCommands) != 0 || len(loaded.Shell.ApprovalDenyCommands) != 0 {
-				t.Fatalf("legacy shell config = %#v", loaded.Shell)
-			}
-		})
-	}
-}
-
-func TestNormalizeShellEnvironmentPolicyAndAllow(t *testing.T) {
-	if Default().Shell.EnvironmentPolicy != "auto" {
-		t.Fatalf("default shell environment policy = %q", Default().Shell.EnvironmentPolicy)
-	}
-	for input, expected := range map[string]string{"": "auto", "AUTO": "auto", "inherit": "inherit", " FILTERED ": "filtered", "minimal": "minimal"} {
-		value, err := NormalizeShellEnvironmentPolicy(input)
-		if err != nil || value != expected {
-			t.Fatalf("NormalizeShellEnvironmentPolicy(%q)=%q err=%v", input, value, err)
-		}
-	}
-	if _, err := NormalizeShellEnvironmentPolicy("unsafe"); err == nil {
-		t.Fatal("invalid shell environment policy accepted")
-	}
-	allow, err := NormalizeShellEnvironmentAllow([]string{"DATABASE_URL", " custom_value ", "database_url"})
-	if err != nil || len(allow) != 2 || allow[0] != "custom_value" || allow[1] != "DATABASE_URL" {
-		t.Fatalf("normalized shell environment allow = %#v err=%v", allow, err)
-	}
-	for _, values := range [][]string{{"1BAD"}, {"BAD-NAME"}, {"CHATGPT_MCP_TOOL_CONTEXT"}, {"CHATGPT_MCP_CONTROL_APPROVAL"}, {"CHATGPT_MCP_CONFIG_DIR"}} {
-		if _, err := NormalizeShellEnvironmentAllow(values); err == nil {
-			t.Fatalf("invalid shell environment allow accepted: %#v", values)
-		}
-	}
-}
-
-func TestNormalizeShellSandboxPolicy(t *testing.T) {
-	if Default().Shell.SandboxPolicy != "auto" {
-		t.Fatalf("default shell sandbox policy = %q", Default().Shell.SandboxPolicy)
-	}
-	for input, expected := range map[string]string{"": "auto", "AUTO": "auto", "off": "off", " REQUIRED ": "required"} {
-		value, err := NormalizeShellSandboxPolicy(input)
-		if err != nil || value != expected {
-			t.Fatalf("NormalizeShellSandboxPolicy(%q)=%q err=%v", input, value, err)
-		}
-	}
-	if _, err := NormalizeShellSandboxPolicy("best-effort"); err == nil {
-		t.Fatal("invalid shell sandbox policy accepted")
-	}
-}
-
-func TestNormalizeShellNetworkPolicy(t *testing.T) {
-	if Default().Shell.NetworkPolicy != "auto" {
-		t.Fatalf("default shell network policy = %q", Default().Shell.NetworkPolicy)
-	}
-	for input, expected := range map[string]string{"": "auto", "AUTO": "auto", "inherit": "inherit", " DENY ": "deny"} {
-		value, err := NormalizeShellNetworkPolicy(input)
-		if err != nil || value != expected {
-			t.Fatalf("NormalizeShellNetworkPolicy(%q)=%q err=%v", input, value, err)
-		}
-	}
-	if _, err := NormalizeShellNetworkPolicy("allow"); err == nil {
-		t.Fatal("invalid shell network policy accepted")
 	}
 }
 

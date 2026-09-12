@@ -277,12 +277,12 @@ func TestConfigExplainLeafBranchAndJSON(t *testing.T) {
 	leaf := configExplainCommand()
 	var out bytes.Buffer
 	leaf.SetOut(&out)
-	leaf.SetArgs([]string{"shell.approval_policy"})
+	leaf.SetArgs([]string{"shell.path"})
 	if err := leaf.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, want := range []string{"shell.approval_policy", "balanced", "allow", "explicit deny rule", "shell.approval_allow_commands"} {
+	for _, want := range []string{"shell.path", "Executable search paths", "PATH"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("leaf explain missing %q:\n%s", want, text)
 		}
@@ -302,19 +302,19 @@ func TestConfigExplainLeafBranchAndJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	text = out.String()
-	if !strings.Contains(text, "shell.approval_policy") || !strings.Contains(text, "shell.network_policy") {
+	if !strings.Contains(text, "shell.path") {
 		t.Fatalf("branch explain output:\n%s", text)
 	}
 
 	jsonCommand := configExplainCommand()
 	out.Reset()
 	jsonCommand.SetOut(&out)
-	jsonCommand.SetArgs([]string{"shell.approval_policy", "--json"})
+	jsonCommand.SetArgs([]string{"shell.path", "--json"})
 	if err := jsonCommand.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	text = out.String()
-	for _, want := range []string{`"key": "shell.approval_policy"`, `"default": "balanced"`, `"value": "allow"`} {
+	for _, want := range []string{`"key": "shell.path"`, `"label": "Executable search paths"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("json explain missing %q:\n%s", want, text)
 		}

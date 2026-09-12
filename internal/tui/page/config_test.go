@@ -169,24 +169,24 @@ func TestConfigDomainRowsAreSectionScopedAndShowState(t *testing.T) {
 	}
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
-	page.overview.Config.Shell.ApprovalPolicy = "strict"
+	page.overview.Config.Shell.Path = []string{t.TempDir()}
 	page.rebuildBrowser("")
 	rows := page.configRows()
 	if len(rows) == 0 {
 		t.Fatal("shell domain has no rows")
 	}
-	foundApproval := false
+	foundPath := false
 	for _, row := range rows {
 		spec, ok := config.FieldByKey(row.ID)
 		if !ok || spec.Section != config.FieldSectionShell {
 			t.Fatalf("non-shell field in shell domain: %#v", row)
 		}
-		if row.ID == "shell.approval_policy" {
-			foundApproval = strings.Contains(row.Meta, "strict") && strings.Contains(row.Meta, "custom")
+		if row.ID == "shell.path" {
+			foundPath = strings.Contains(row.Meta, "custom")
 		}
 	}
-	if !foundApproval {
-		t.Fatalf("approval row missing custom state: %#v", rows)
+	if !foundPath {
+		t.Fatalf("shell path row missing custom state: %#v", rows)
 	}
 	view := ansi.Strip(page.View(100, 30))
 	if !strings.Contains(view, "Configuration / Shell & Execution") || !strings.Contains(view, "e edit") || !strings.Contains(view, "/ filter") {
@@ -327,12 +327,12 @@ func TestConfigGlobalSearchIndexesAllFieldsWithoutSecrets(t *testing.T) {
 	}
 	found := false
 	for _, row := range rows {
-		if row.ID == "shell.approval_policy" {
-			found = strings.Contains(row.Search, "Approval policy") && strings.Contains(row.Search, "shell.approval_policy") && strings.Contains(row.Description, "Shell & Execution")
+		if row.ID == "shell.path" {
+			found = strings.Contains(row.Search, "Executable search paths") && strings.Contains(row.Search, "shell.path") && strings.Contains(row.Description, "Shell & Execution")
 		}
 	}
 	if !found {
-		t.Fatal("search index missing approval policy metadata")
+		t.Fatal("search index missing shell path metadata")
 	}
 }
 
@@ -345,12 +345,12 @@ func TestConfigSearchOpensAndNavigatesToField(t *testing.T) {
 	if !handled || !page.searching || !page.browser.InputActive() {
 		t.Fatalf("search handled=%t searching=%t input=%t", handled, page.searching, page.browser.InputActive())
 	}
-	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "shell.approval_policy"}})
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "shell.path"}})
 	if cmd == nil {
 		t.Fatal("search result returned no navigation")
 	}
 	message, ok := cmd().(NavigateMsg)
-	if !ok || strings.Join(message.Path, "/") != "config/shell.approval_policy" {
+	if !ok || strings.Join(message.Path, "/") != "config/shell.path" {
 		t.Fatalf("search navigation=%#v", message)
 	}
 }
@@ -400,18 +400,18 @@ func TestConfigPageEditIsRoutedAndOperationFailureKeepsEditor(t *testing.T) {
 
 func TestConfigSuccessfulEditorSaveCommitsDraftBeforeNavigation(t *testing.T) {
 	prepareConfigPageRoot(t)
-	page, err := NewConfigRouteAction(t.Context(), "shell.approval_allow_commands", "", "edit")
+	page, err := NewConfigRouteAction(t.Context(), "shell.path", "", "edit")
 	if err != nil {
 		t.Fatal(err)
 	}
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
-	page.fieldForm.Raw = "git status\ngo test ./..."
+	page.fieldForm.Raw = "/opt/tools\n/usr/local/bin"
 	if !page.Dirty() {
 		t.Fatal("config editor was not dirty before save")
 	}
 	mutation := page.overview.Config
-	mutation.Shell.ApprovalAllowCommands = []string{"git status", "go test ./..."}
+	mutation.Shell.Path = []string{"/opt/tools", "/usr/local/bin"}
 	follow := page.finishOperation(configOperationMsg{command: ConfigEdit, mutation: application.ConfigMutationResult{Config: mutation}})
 	if follow == nil || page.Dirty() {
 		t.Fatalf("successful config save follow=%v dirty=%t", follow != nil, page.Dirty())

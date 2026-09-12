@@ -193,27 +193,6 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			if patch.Shell.Path != nil {
 				next.Shell.Path, err = config.NormalizeShellPath(patch.Shell.Path)
 			}
-			if err == nil && strings.TrimSpace(patch.Shell.ApprovalPolicy) != "" {
-				next.Shell.ApprovalPolicy, err = config.NormalizeShellApprovalPolicy(patch.Shell.ApprovalPolicy)
-			}
-			if err == nil && patch.Shell.ApprovalAllowCommands != nil {
-				next.Shell.ApprovalAllowCommands, err = config.NormalizeShellApprovalCommands(patch.Shell.ApprovalAllowCommands)
-			}
-			if err == nil && patch.Shell.ApprovalDenyCommands != nil {
-				next.Shell.ApprovalDenyCommands, err = config.NormalizeShellApprovalCommands(patch.Shell.ApprovalDenyCommands)
-			}
-			if err == nil && strings.TrimSpace(patch.Shell.EnvironmentPolicy) != "" {
-				next.Shell.EnvironmentPolicy, err = config.NormalizeShellEnvironmentPolicy(patch.Shell.EnvironmentPolicy)
-			}
-			if err == nil && patch.Shell.EnvironmentAllow != nil {
-				next.Shell.EnvironmentAllow, err = config.NormalizeShellEnvironmentAllow(patch.Shell.EnvironmentAllow)
-			}
-			if err == nil && strings.TrimSpace(patch.Shell.SandboxPolicy) != "" {
-				next.Shell.SandboxPolicy, err = config.NormalizeShellSandboxPolicy(patch.Shell.SandboxPolicy)
-			}
-			if err == nil && strings.TrimSpace(patch.Shell.NetworkPolicy) != "" {
-				next.Shell.NetworkPolicy, err = config.NormalizeShellNetworkPolicy(patch.Shell.NetworkPolicy)
-			}
 		}
 		if err == nil && patch.Features != nil {
 			if active := patch.Features.Ponytail.active(); active != nil {
@@ -312,22 +291,6 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 	}
 	if api.Tools != nil {
 		api.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
-		if err := api.Tools.SetShellApprovalPolicy(next.Shell.ApprovalPolicy); err != nil {
-			return errors.Join(err, api.persistConfig(previous))
-		}
-		if err := api.Tools.SetShellApprovalCommands(next.Shell.ApprovalAllowCommands, next.Shell.ApprovalDenyCommands); err != nil {
-			return errors.Join(err, api.persistConfig(previous))
-		}
-		if err := api.Tools.SetShellEnvironmentPolicy(next.Shell.EnvironmentPolicy); err != nil {
-			return errors.Join(err, api.persistConfig(previous))
-		}
-		if err := api.Tools.SetShellSandboxPolicy(next.Shell.SandboxPolicy); err != nil {
-			return errors.Join(err, api.persistConfig(previous))
-		}
-		if err := api.Tools.SetShellNetworkPolicy(next.Shell.NetworkPolicy); err != nil {
-			return errors.Join(err, api.persistConfig(previous))
-		}
-		api.Tools.SetShellEnvironmentAllow(next.Shell.EnvironmentAllow)
 		api.Tools.SetShellPath(next.Shell.Path)
 	}
 	return nil

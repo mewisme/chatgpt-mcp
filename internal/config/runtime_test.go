@@ -10,30 +10,15 @@ func TestRuntimeStoreSnapshotIsIsolated(t *testing.T) {
 	cfg := Default()
 	cfg.Server.Expose = ExposureConfig{Mode: ExposureInterfaces, Interfaces: []string{"Ethernet"}}
 	cfg.Shell.Path = []string{"/trusted/bin"}
-	cfg.Shell.ApprovalAllowCommands = []string{"go test *"}
-	cfg.Shell.ApprovalDenyCommands = []string{"git push **"}
-	cfg.Shell.EnvironmentAllow = []string{"DATABASE_URL"}
 	store := NewRuntimeStore(cfg)
 	snapshot := store.Snapshot()
 	snapshot.Server.Expose.Interfaces[0] = "mutated"
 	snapshot.Shell.Path[0] = "/mutated/bin"
-	snapshot.Shell.ApprovalAllowCommands[0] = "unsafe mutation"
-	snapshot.Shell.ApprovalDenyCommands[0] = "echo ok"
-	snapshot.Shell.EnvironmentAllow[0] = "MUTATED_SECRET"
 	if got := store.Snapshot().Server.Expose.Interfaces[0]; got != "Ethernet" {
 		t.Fatalf("stored config mutated through snapshot: %q", got)
 	}
 	if got := store.Snapshot().Shell.Path[0]; got != "/trusted/bin" {
 		t.Fatalf("stored shell path mutated through snapshot: %q", got)
-	}
-	if got := store.Snapshot().Shell.ApprovalAllowCommands[0]; got != "go test *" {
-		t.Fatalf("stored approval allow command mutated through snapshot: %q", got)
-	}
-	if got := store.Snapshot().Shell.ApprovalDenyCommands[0]; got != "git push **" {
-		t.Fatalf("stored approval deny command mutated through snapshot: %q", got)
-	}
-	if got := store.Snapshot().Shell.EnvironmentAllow[0]; got != "DATABASE_URL" {
-		t.Fatalf("stored shell environment allow mutated through snapshot: %q", got)
 	}
 }
 

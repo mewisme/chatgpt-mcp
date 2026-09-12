@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -125,25 +124,13 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	if err != nil {
 		return StartResult{}, err
 	}
-	strict := m.workspaces.ShellApprovalPolicy() == workspace.ShellApprovalStrict
 	processCtx := context.WithoutCancel(ctx)
-	cmd, err := commandForPlatformPolicy(processCtx, command, strict, m.workspaces.ShellPath())
+	cmd, err := commandForPlatform(processCtx, command)
 	if err != nil {
 		return StartResult{}, err
 	}
 	cmd.Dir = cwd
-	cmd.Env = shellEnvironment(ctx, m.workspaces.EffectiveShellEnvironmentPolicy(), m.workspaces.ShellEnvironmentAllow(), m.workspaces.ShellPath(), strict)
-	if strict && runtime.GOOS != "windows" {
-		cmd.Env = setEnvironmentValue(cmd.Env, "SHELL", cmd.Path)
-	}
-	roots, err := m.workspaces.EffectiveRoots(workspaceID)
-	if err != nil {
-		return StartResult{}, err
-	}
-	cmd, err = wrapShellSandbox(processCtx, cmd, command, cwd, roots, m.workspaces.ShellPath(), m.workspaces.EffectiveShellSandboxPolicy(), m.workspaces.EffectiveShellNetworkPolicy())
-	if err != nil {
-		return StartResult{}, err
-	}
+	cmd.Env = shellEnvironment(ctx, m.workspaces.ShellPath())
 	configureCommandLifecycle(cmd)
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {

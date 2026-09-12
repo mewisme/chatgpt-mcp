@@ -102,24 +102,13 @@ A process deliberately running arbitrary native code as the same OS user may hav
 
 If you need a strong boundary against hostile local code, use an OS-level sandbox, container/VM boundary, or a separate operating-system identity with only the required filesystem access.
 
-## Shell OS sandbox (Linux bubblewrap)
+## Shell execution boundary
 
-Application-level workspace path policy is **not** an OS sandbox. Shell execution may additionally wrap commands in Bubblewrap (`bwrap`) on Linux when available:
+Application-level workspace path policy is **not** an OS sandbox. Shell commands inherit the runtime process environment and normal host networking. Optional `shell.path` entries are prepended to `PATH` for foreground and background execution.
 
-| `shell.sandbox_policy` | Behavior |
-| --- | --- |
-| `auto` | With `allow`/`balanced` approval, filesystem sandboxing stays off. With `strict`/`deny`, use `bwrap` when present and fall back if unavailable. |
-| `off` | Do not apply filesystem sandboxing. Status, `cgm config verify`, and the Config TUI warn loudly. |
-| `required` | Require a supported OS sandbox and fail shell execution when isolation cannot be established. |
+The runtime still enforces hard application-level controls around MCP-originated shell use: workspace mutation containment, protected config/state access, exact approval for direct control-plane mutations, and approval for destructive, host, or external mutations. Ordinary and read-only commands are not forced through an additional configurable policy mode.
 
-Limits to keep in mind:
-
-- Bubblewrap is Linux-only in this product. Windows and macOS have no equivalent filesystem sandbox here; `required` fails closed on those hosts.
-- Network isolation is controlled separately by `shell.network_policy` and may still use `bwrap` when filesystem sandboxing is off.
-- Approved host/control-plane mutations can bypass filesystem isolation when the approved operation requires host access.
-- When `bwrap` is missing and policy is `auto`, shell commands continue without OS filesystem isolation.
-
-Prefer `sandbox_policy=auto` (or `required` on Linux hosts with Bubblewrap installed) rather than `off`.
+If you need a stronger boundary against arbitrary native code, use an OS sandbox, container/VM, or separate operating-system identity. This runtime does not claim to provide a portable kernel-level filesystem or network sandbox.
 
 ## MCP and Admin authentication
 
@@ -325,7 +314,7 @@ See [Runtime and services](runtime.md).
 - Do not set `server.allow_unauthenticated_loopback` except for short-lived trusted local debugging.
 - Review `cgm logs --debug` when diagnosing access or tunnel behavior, but avoid publishing raw diagnostic logs without checking their contents.
 - Run risky tool workloads in an OS sandbox/separate identity when application-level workspace controls are not a sufficient trust boundary.
-- Prefer `shell.approval_policy=balanced` (or stricter), keep sandbox/network policies from drifting to `allow` + `off` + `inherit` together, and run `cgm config verify` (or `cgm config verify --strict`) after policy changes.
+- Run `cgm config verify` (or `cgm config verify --strict`) after access or network-exposure changes.
 
 ## Dangerous combinations
 
@@ -333,9 +322,6 @@ These settings are individually valid but weaken the local security boundary. `c
 
 | Combination | Risk |
 | --- | --- |
-| `shell.approval_policy=allow` | Ordinary, risky, and most destructive shell commands skip local approval (security-boundary mutations still require approval). |
-| `shell.sandbox_policy=off` | OS filesystem sandboxing (Linux bubblewrap) is not applied to shell execution; application-level policy is not an OS sandbox. |
-| `shell.approval_policy=allow` + `shell.sandbox_policy=off` + `shell.network_policy=inherit` | Removes approval gates, filesystem isolation, and network isolation together. |
 | `server.expose` other than `none` | Bearer tokens travel on cleartext HTTP; chatgpt-mcp has no built-in TLS. |
 | `auth.mcp_enabled=false` or `auth.admin_enabled=false` without `server.allow_unauthenticated_loopback=true` | Rejected by validation. |
 | Unauthenticated HTTP with `server.expose` other than `none` | Rejected by validation; network exposure always requires authentication. |

@@ -186,15 +186,14 @@ func TestRenderStatusConfigUsesCachedUpdateWithoutNetwork(t *testing.T) {
 
 func TestRenderStatusConfigSurfacesSecurityWarnings(t *testing.T) {
 	cfg := config.Default()
-	cfg.Shell.SandboxPolicy = "off"
 	cfg.Server.Expose.Mode = config.ExposureAll
 	cfg.Server.AllowInsecureHTTP = true
 	snapshot := statusSnapshot{Source: configformat.Source{Path: "/tmp/config.toml", Exists: true}, Config: cfg}
 	var output bytes.Buffer
 	renderStatusConfig(&output, snapshot, false)
 	text := output.String()
-	if !strings.Contains(text, "shell.sandbox_policy=off") || !strings.Contains(text, "cleartext HTTP") {
-		t.Fatalf("expected sandbox and cleartext warnings: %q", text)
+	if !strings.Contains(text, "cleartext HTTP") {
+		t.Fatalf("expected cleartext warning: %q", text)
 	}
 }
 

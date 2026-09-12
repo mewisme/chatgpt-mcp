@@ -393,8 +393,6 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 			name = "status.unauthenticated-loopback"
 		case strings.Contains(warning, "cleartext HTTP"):
 			name = "status.cleartext-http"
-		case strings.Contains(warning, "sandbox_policy=off"):
-			name = "status.sandbox-off"
 		}
 		log.Warning("STATUS", name, warning, nil)
 	}

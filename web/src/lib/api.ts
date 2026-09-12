@@ -273,16 +273,7 @@ export type PublicConfig = {
     admin_token_configured: boolean
   }
   permissions: { allow_dirs: string[] }
-  shell: {
-    path: string[]
-    approval_policy: "allow" | "balanced" | "strict" | "deny"
-    approval_allow_commands: string[]
-    approval_deny_commands: string[]
-    environment_policy: "auto" | "inherit" | "filtered" | "minimal"
-    environment_allow: string[]
-    sandbox_policy: "auto" | "off" | "required"
-    network_policy: "auto" | "inherit" | "deny"
-  }
+  shell: { path: string[] }
   features: {
     ponytail: { active: boolean; mode: "lite" | "full" | "ultra" }
     caveman: {

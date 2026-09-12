@@ -55,12 +55,6 @@ func verifyControlApproval(ctx context.Context, commandPath string, actualArgs [
 		ctx = context.Background()
 	}
 	capability := strings.TrimSpace(os.Getenv(controlplane.ControlApprovalEnv))
-	if capability == "" && controlplane.ApprovalEligibleArgs(actualArgs) && !controlplane.RequiresApprovalInAllow(actualArgs) {
-		status, err := requestRuntimeStatus(ctx)
-		if err == nil && strings.EqualFold(strings.TrimSpace(status.ShellApprovalPolicy), "allow") {
-			return nil
-		}
-	}
 	if capability == "" || !controlplane.ApprovalEligibleArgs(actualArgs) {
 		return fmt.Errorf("control-plane command denied from MCP tool execution context: %s", commandPath)
 	}

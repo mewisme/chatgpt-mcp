@@ -59,29 +59,6 @@ func ApprovalEligibleArgs(args []string) bool {
 	return true
 }
 
-func RequiresApprovalInAllow(args []string) bool {
-	args = stripGlobalFlags(args)
-	if len(args) == 0 {
-		return true
-	}
-	args = canonicalCommandArgs(args)
-	path := PathFromArgs(args)
-	if path == "" || path == "_service" || strings.HasPrefix(path, "_service ") || path == "request" || strings.HasPrefix(path, "request ") {
-		return true
-	}
-	if strings.HasPrefix(path, "auth ") || path == "auth" || path == "config import" {
-		return true
-	}
-	if path == "workspace register" || path == "workspace unregister" || strings.HasPrefix(path, "workspace access ") {
-		return true
-	}
-	if path == "config set" && len(args) >= 3 {
-		key := strings.ToLower(strings.TrimSpace(args[2]))
-		return strings.HasPrefix(key, "permissions.") || strings.HasPrefix(key, "auth.") || strings.HasPrefix(key, "shell.approval_") || key == "server.expose"
-	}
-	return false
-}
-
 func PathFromArgs(args []string) string {
 	args = stripGlobalFlags(args)
 	if len(args) == 0 {

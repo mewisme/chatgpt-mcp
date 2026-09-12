@@ -33,9 +33,9 @@ Everything in **Minimal**, plus:
 | Managed service (`cgm up`) | Keeps the runtime up across sessions; use `cgm up --system` on remote Linux if systemd user lingering is off |
 | Narrow workspace registration | Limits filesystem/shell/Git scope to roots you intentionally grant |
 | Tunnel-first posture | Prefer `tunnel.enabled=true` with `server.expose` left at `none`; for private-only, set `server.enabled=false` (Admin may stay on for local ops) |
-| Shell defaults | Prefer `shell.approval_policy=balanced` (or stricter) and `shell.sandbox_policy=auto` |
-| Optional tools | Install `git` if you use Git MCP tools; on Linux install bubblewrap if you want OS sandboxing (`shell.sandbox_policy=required` needs it) |
-| Verify config | Run `cgm config verify` (or `--strict`) after policy or exposure changes |
+| Shell execution | Commands inherit the runtime environment; destructive/host/external mutations still require local approval and workspace mutations remain contained |
+| Optional tools | Install `git` if you use Git MCP tools; use an external sandbox/container/VM if you need stronger process isolation |
+| Verify config | Run `cgm config verify` (or `--strict`) after access or exposure changes |
 
 Operational defaults and dangerous combinations: [Security](security.md#recommended-operational-defaults).
 

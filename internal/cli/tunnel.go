@@ -290,22 +290,6 @@ func tunnelRunCommand() *cobra.Command {
 		log := commandLogger(cmd)
 		logCommandStep(cmd, "TUNNEL", "tunnel.tools.initializing", "Initializing MCP tool runtime")
 		runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) { return cfg.Admin.Enabled, cfg.Admin.Port })
-		if err := runtime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
-			return err
-		}
-		if err := runtime.SetShellApprovalCommands(cfg.Shell.ApprovalAllowCommands, cfg.Shell.ApprovalDenyCommands); err != nil {
-			return err
-		}
-		if err := runtime.SetShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
-			return err
-		}
-		if err := runtime.SetShellSandboxPolicy(cfg.Shell.SandboxPolicy); err != nil {
-			return err
-		}
-		if err := runtime.SetShellNetworkPolicy(cfg.Shell.NetworkPolicy); err != nil {
-			return err
-		}
-		runtime.SetShellEnvironmentAllow(cfg.Shell.EnvironmentAllow)
 		runtime.SetShellPath(cfg.Shell.Path)
 		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))

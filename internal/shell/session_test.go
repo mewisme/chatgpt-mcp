@@ -17,7 +17,7 @@ import (
 )
 
 func TestShellEnvironmentMarksMCPToolContext(t *testing.T) {
-	values := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentInherit, nil)
+	values := shellEnvironmentMap(context.Background(), nil)
 	if values[controlplane.ToolContextEnv] != "1" {
 		t.Fatalf("tool context = %q", values[controlplane.ToolContextEnv])
 	}
@@ -28,116 +28,41 @@ func TestShellEnvironmentMarksMCPToolContext(t *testing.T) {
 
 func TestShellEnvironmentForwardsOnlyContextApproval(t *testing.T) {
 	t.Setenv(controlplane.ControlApprovalEnv, "cap_inherited")
-	if value := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentInherit, nil)[controlplane.ControlApprovalEnv]; value != "" {
+	if value := shellEnvironmentMap(context.Background(), nil)[controlplane.ControlApprovalEnv]; value != "" {
 		t.Fatalf("unapproved shell inherited capability %q", value)
 	}
 	ctx := controlguard.WithApproval(context.Background(), controlguard.Approval{
 		RequestID: "req_test", Capability: "cap_approved", Invocation: controlguard.Invocation{Program: "cgm", Args: []string{"update"}, Command: "cgm update"},
 	})
-	values := shellEnvironmentMap(ctx, workspace.ShellEnvironmentInherit, nil)
+	values := shellEnvironmentMap(ctx, nil)
 	if values[controlplane.ControlApprovalEnv] != "cap_approved" || values[controlplane.ToolContextEnv] != "1" {
 		t.Fatalf("approved shell env = %#v", values)
 	}
 }
 
-func TestShellEnvironmentPoliciesFilterSecretsAndInjection(t *testing.T) {
-	t.Setenv("PATH", "/safe/bin")
+func TestShellEnvironmentInheritsParentAndPrependsConfiguredPath(t *testing.T) {
 	t.Setenv("CUSTOM_VISIBLE", "visible")
-	t.Setenv("OPENAI_API_KEY", "secret-key")
-	t.Setenv("GITHUB_TOKEN", "secret-token")
-	t.Setenv("NODE_OPTIONS", "--require /tmp/inject.js")
-	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent.sock")
-
-	inherit := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentInherit, nil)
-	if inherit["OPENAI_API_KEY"] != "secret-key" || inherit["NODE_OPTIONS"] == "" || inherit["CUSTOM_VISIBLE"] != "visible" {
-		t.Fatalf("inherit env = %#v", inherit)
+	configured := t.TempDir()
+	values := shellEnvironmentMap(context.Background(), []string{configured})
+	if values["CUSTOM_VISIBLE"] != "visible" {
+		t.Fatalf("parent environment not inherited: %#v", values)
 	}
-	filtered := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentFiltered, nil)
-	for _, name := range []string{"OPENAI_API_KEY", "GITHUB_TOKEN", "NODE_OPTIONS", "SSH_AUTH_SOCK"} {
-		if filtered[name] != "" {
-			t.Fatalf("filtered environment exposed %s", name)
-		}
-	}
-	pathValue := filtered["PATH"]
+	pathValue := values["PATH"]
 	if pathValue == "" && runtime.GOOS == "windows" {
-		pathValue = filtered["Path"]
+		pathValue = values["Path"]
 	}
-	if pathValue != "/safe/bin" || filtered["CUSTOM_VISIBLE"] != "visible" {
-		t.Fatalf("filtered safe environment = %#v", filtered)
-	}
-	minimal := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentMinimal, nil)
-	if minimal["PATH"] != strings.Join(trustedExecutablePath(nil), string(os.PathListSeparator)) || minimal["CUSTOM_VISIBLE"] != "" || minimal["OPENAI_API_KEY"] != "" || minimal["NODE_OPTIONS"] != "" {
-		t.Fatalf("minimal environment = %#v", minimal)
-	}
-}
-
-func TestShellEnvironmentExplicitAllowRestoresSelectedVariable(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://user:secret@example.test/db")
-	t.Setenv("NODE_OPTIONS", "--require /tmp/inject.js")
-	values := shellEnvironmentMap(context.Background(), workspace.ShellEnvironmentMinimal, []string{"DATABASE_URL"})
-	if values["DATABASE_URL"] == "" || values["NODE_OPTIONS"] != "" {
-		t.Fatalf("explicit shell environment allow = %#v", values)
+	parts := filepath.SplitList(pathValue)
+	if len(parts) == 0 || filepath.Clean(parts[0]) != filepath.Clean(configured) {
+		t.Fatalf("configured shell path was not prepended: %q", pathValue)
 	}
 }
 
 func TestShellEnvironmentOutputIsDeterministic(t *testing.T) {
-	values := shellEnvironment(context.Background(), workspace.ShellEnvironmentMinimal, nil, nil, false)
+	values := shellEnvironment(context.Background(), nil)
 	for index := 1; index < len(values); index++ {
 		if strings.ToUpper(values[index-1]) > strings.ToUpper(values[index]) {
 			t.Fatalf("environment is not sorted: %#v", values)
 		}
-	}
-}
-
-func TestStrictShellPathIgnoresUntrustedParentPathShadowing(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Unix executable shadowing test")
-	}
-	fakeBin := t.TempDir()
-	fakeLS := filepath.Join(fakeBin, "ls")
-	if err := os.WriteFile(fakeLS, []byte("#!/bin/sh\necho SHADOWED\n"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	manager, workspaceID, _ := newShellTestManager(t)
-	if err := manager.workspaces.SetShellApprovalPolicy(workspace.ShellApprovalStrict); err != nil {
-		t.Fatal(err)
-	}
-	result, err := manager.Exec(context.Background(), workspaceID, "ls")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(result.Stdout, "SHADOWED") {
-		t.Fatalf("strict shell executed PATH-shadowed binary: %#v", result)
-	}
-}
-
-func TestStrictShellPathAllowsExplicitTrustedShellPath(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Unix executable trusted-path test")
-	}
-	trustedBin := t.TempDir()
-	trustedLS := filepath.Join(trustedBin, "ls")
-	if err := os.WriteFile(trustedLS, []byte("#!/bin/sh\necho EXPLICIT_TRUST\n"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	manager, workspaceID, _ := newShellTestManager(t)
-	if err := manager.workspaces.SetShellApprovalPolicy(workspace.ShellApprovalStrict); err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.workspaces.SetShellSandboxPolicy(workspace.ShellSandboxOff); err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.workspaces.SetShellNetworkPolicy(workspace.ShellNetworkInherit); err != nil {
-		t.Fatal(err)
-	}
-	manager.workspaces.SetShellPath([]string{trustedBin})
-	result, err := manager.Exec(context.Background(), workspaceID, "ls")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(result.Stdout) != "EXPLICIT_TRUST" {
-		t.Fatalf("explicit trusted shell path was not used: %#v", result)
 	}
 }
 
@@ -165,9 +90,9 @@ func TestApprovedControlPlaneCommandUsesCurrentExecutable(t *testing.T) {
 	}
 }
 
-func shellEnvironmentMap(ctx context.Context, policy workspace.ShellEnvironmentPolicy, allow []string) map[string]string {
+func shellEnvironmentMap(ctx context.Context, shellPath []string) map[string]string {
 	values := map[string]string{}
-	for _, value := range shellEnvironment(ctx, policy, allow, nil, false) {
+	for _, value := range shellEnvironment(ctx, shellPath) {
 		if index := strings.IndexByte(value, '='); index >= 0 {
 			values[value[:index]] = value[index+1:]
 		}

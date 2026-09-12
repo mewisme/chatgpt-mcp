@@ -76,8 +76,8 @@ No Docker, Git, or OpenAI account is required just to start the server. `cgm ini
 | Network | Outbound HTTPS `:443` to OpenAI (no inbound port for the tunnel path) |
 | Persistence | `cgm up` managed service; on remote Linux without user lingering, prefer `cgm up --system` |
 | Workspaces | Register only the roots ChatGPT should reach |
-| Posture | Keep `server.expose` at `none`; prefer tunnel-only (`server.enabled=false`, `tunnel.enabled=true`); `shell.approval_policy=balanced`; `shell.sandbox_policy=auto` |
-| Optional | `git` on PATH for Git tools; Linux [bubblewrap](https://github.com/containers/bubblewrap) when you want OS filesystem sandboxing |
+| Posture | Keep `server.expose` at `none`; prefer tunnel-only (`server.enabled=false`, `tunnel.enabled=true`); register only the filesystem roots agents actually need |
+| Optional | `git` on PATH for Git tools; use an external OS sandbox/container/VM when stronger process isolation is required |
 
 Full checklists and install notes: [Getting started](docs/getting-started.md#requirements). Security defaults: [Security](docs/security.md#recommended-operational-defaults).
 

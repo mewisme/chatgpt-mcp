@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 
-	"go.mewis.me/chatgpt-mcp/internal/commandpattern"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instance"
 	"go.mewis.me/chatgpt-mcp/internal/state"
@@ -47,27 +46,20 @@ type storeFile struct {
 }
 
 type Manager struct {
-	path               string
-	trace              tracepkg.Observer
-	protectedRoot      string
-	instanceStore      *instance.Store
-	identityOnce       sync.Once
-	identity           instance.Identity
-	identityErr        error
-	mu                 sync.RWMutex
-	loaded             bool
-	items              map[string]Workspace
-	containers         map[string]WorkspaceContainer
-	aliases            map[string]string
-	globalAllowDirs    []string
-	shellPolicy        ShellApprovalPolicy
-	shellApprovalAllow []commandpattern.Pattern
-	shellApprovalDeny  []commandpattern.Pattern
-	shellEnvPolicy     ShellEnvironmentPolicy
-	shellEnvAllow      []string
-	shellPath          []string
-	shellSandboxPolicy ShellSandboxPolicy
-	shellNetworkPolicy ShellNetworkPolicy
+	path            string
+	trace           tracepkg.Observer
+	protectedRoot   string
+	instanceStore   *instance.Store
+	identityOnce    sync.Once
+	identity        instance.Identity
+	identityErr     error
+	mu              sync.RWMutex
+	loaded          bool
+	items           map[string]Workspace
+	containers      map[string]WorkspaceContainer
+	aliases         map[string]string
+	globalAllowDirs []string
+	shellPath       []string
 }
 
 func DefaultStorePath() string {
@@ -81,7 +73,7 @@ func NewManager(path string) *Manager {
 	if storeRoot != "" && configRoot != "" && storeRoot == configRoot {
 		protectedRoot = configRoot
 	}
-	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}, shellPolicy: ShellApprovalBalanced, shellEnvPolicy: ShellEnvironmentAuto, shellSandboxPolicy: ShellSandboxAuto, shellNetworkPolicy: ShellNetworkAuto}
+	return &Manager{path: path, protectedRoot: protectedRoot, instanceStore: instance.NewStore(filepath.Dir(path)), items: map[string]Workspace{}, containers: map[string]WorkspaceContainer{}, aliases: map[string]string{}}
 }
 
 func (m *Manager) SetTraceObserver(observer tracepkg.Observer) *Manager {
@@ -138,12 +130,6 @@ func (m *Manager) SetGlobalAllowDirs(allowDirs []string) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) SetShellEnvironmentAllow(names []string) {
-	m.mu.Lock()
-	m.shellEnvAllow = normalizeEnvironmentNames(names)
-	m.mu.Unlock()
-}
-
 func (m *Manager) SetShellPath(paths []string) {
 	m.mu.Lock()
 	m.shellPath = normalizeShellPaths(paths)
@@ -178,34 +164,6 @@ func normalizeShellPaths(values []string) []string {
 		seen[key] = true
 		result = append(result, value)
 	}
-	return result
-}
-
-func (m *Manager) ShellEnvironmentAllow() []string {
-	if m == nil {
-		return []string{}
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return append([]string(nil), m.shellEnvAllow...)
-}
-
-func normalizeEnvironmentNames(values []string) []string {
-	seen := map[string]bool{}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		key := strings.ToUpper(value)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		result = append(result, value)
-	}
-	sort.Slice(result, func(i, j int) bool { return strings.ToUpper(result[i]) < strings.ToUpper(result[j]) })
 	return result
 }
 

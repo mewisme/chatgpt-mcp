@@ -65,55 +65,9 @@ List of global filesystem roots that registered workspaces may access in additio
 
 ### `shell.path` — Executable search paths
 
-List of trusted executable directories added to shell PATH resolution. Paths must be absolute. In inherited/filtered environments they are merged before inherited PATH; strict/minimal environments rebuild PATH from these directories plus trusted system executable paths.
+List of additional executable directories prepended to the inherited runtime `PATH`. Paths must be absolute. Foreground and background shell execution use the same resolved path list.
 
-### `shell.approval_policy` — Approval policy
-
-Enum controlling when shell commands require local approval. Explicit deny rules take precedence over allow rules; independent security guards may still reject commands.
-
-- `allow`: run without approval unless an explicit deny rule matches.
-- `balanced`: require approval for guarded/risky operations and external access.
-- `strict`: require approval for execution not recognized as a workspace-confined static read.
-- `deny`: require approval unless an explicit allow rule matches.
-
-### `shell.approval_allow_commands` — Allow commands
-
-List of argv-aware command patterns that bypass ordinary approval gates. The pattern language supports `*`, `?`, character classes, and standalone `**`. For compound shell input every invocation must match an allow pattern. Deny patterns and independent security guards still take precedence. Prefer narrow patterns over broad wildcards.
-
-### `shell.approval_deny_commands` — Deny commands
-
-List of command patterns that always force local approval. Uses the same argv-aware glob syntax as allow rules. A matching deny rule wins over a matching allow rule.
-
-### `shell.environment_policy` — Environment policy
-
-Enum controlling inherited parent environment variables.
-
-- `auto`: inherit under allow/balanced approval; minimal under strict/deny.
-- `inherit`: inherit parent environment except protected internal control variables.
-- `filtered`: inherit ordinary variables while removing known sensitive/credential/injection-related variables.
-- `minimal`: retain a small runtime/toolchain environment and rebuild PATH from trusted executable paths.
-
-### `shell.environment_allow` — Environment allow
-
-List of environment variable names explicitly exposed to shell commands. Matching is case-insensitive and deduplicated. It can restore ordinary variables filtered by filtered/minimal policy, but cannot override protected internal control variables. Secrets added here become available to shell processes.
-
-### `shell.sandbox_policy` — Sandbox policy
-
-Enum controlling OS-level filesystem sandboxing for shell execution.
-
-- `auto`: no filesystem sandbox for allow/balanced; strict/deny uses sandboxing when supported and may fall back when unavailable.
-- `off`: no filesystem sandbox; network policy remains independent.
-- `required`: require a supported OS sandbox and fail when isolation cannot be established.
-
-Current sandboxing uses Bubblewrap on supported Linux hosts.
-
-### `shell.network_policy` — Network policy
-
-Enum controlling external network access from shell commands.
-
-- `auto`: normal host networking for allow/balanced; strict/deny isolates by default and can release isolation for explicitly approved network commands.
-- `inherit`: use the host network namespace without shell network isolation.
-- `deny`: reject detected external access and require network isolation.
+Shell commands otherwise inherit the runtime process environment. The application still enforces workspace mutation containment, protected control-plane state, and risk-based approval for destructive, host, or external mutations. Strong OS-level process isolation should be provided externally when required.
 
 ## Features
 

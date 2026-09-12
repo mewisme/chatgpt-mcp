@@ -91,14 +91,6 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/shell/sandbox.go",
-    "details": "Subprocess launched with variable",
-    "code": "}\n\twrapped := exec.CommandContext(ctx, bwrap, args...)\n\twrapped.Dir = cwd"
-  },
-  {
-    "rule_id": "G204",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/shell/session.go",
     "details": "Subprocess launched with variable",
     "code": "}\n\t\treturn exec.CommandContext(ctx, executable, granted.Invocation.Args...), nil\n\t}"

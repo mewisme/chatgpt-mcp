@@ -138,63 +138,6 @@ func (r *Runtime) ReloadWorkspaces() error {
 	return r.Workspaces.Reload()
 }
 
-func (r *Runtime) SetShellApprovalPolicy(value string) error {
-	if r == nil || r.Workspaces == nil {
-		return errors.New("tool runtime is unavailable")
-	}
-	policy, ok := workspace.NormalizeShellApprovalPolicy(value)
-	if !ok {
-		return fmt.Errorf("unsupported shell approval policy: %q", value)
-	}
-	return r.Workspaces.SetShellApprovalPolicy(policy)
-}
-
-func (r *Runtime) SetShellApprovalCommands(allow, deny []string) error {
-	if r == nil || r.Workspaces == nil {
-		return errors.New("tool runtime is unavailable")
-	}
-	return r.Workspaces.SetShellApprovalCommands(allow, deny)
-}
-
-func (r *Runtime) SetShellEnvironmentPolicy(value string) error {
-	if r == nil || r.Workspaces == nil {
-		return errors.New("tool runtime is unavailable")
-	}
-	policy, ok := workspace.NormalizeShellEnvironmentPolicy(value)
-	if !ok {
-		return fmt.Errorf("unsupported shell environment policy: %q", value)
-	}
-	return r.Workspaces.SetShellEnvironmentPolicy(policy)
-}
-
-func (r *Runtime) SetShellSandboxPolicy(value string) error {
-	if r == nil || r.Workspaces == nil {
-		return errors.New("tool runtime is unavailable")
-	}
-	policy, ok := workspace.NormalizeShellSandboxPolicy(value)
-	if !ok {
-		return fmt.Errorf("unsupported shell sandbox policy: %q", value)
-	}
-	return r.Workspaces.SetShellSandboxPolicy(policy)
-}
-
-func (r *Runtime) SetShellNetworkPolicy(value string) error {
-	if r == nil || r.Workspaces == nil {
-		return errors.New("tool runtime is unavailable")
-	}
-	policy, ok := workspace.NormalizeShellNetworkPolicy(value)
-	if !ok {
-		return fmt.Errorf("unsupported shell network policy: %q", value)
-	}
-	return r.Workspaces.SetShellNetworkPolicy(policy)
-}
-
-func (r *Runtime) SetShellEnvironmentAllow(names []string) {
-	if r != nil && r.Workspaces != nil {
-		r.Workspaces.SetShellEnvironmentAllow(names)
-	}
-}
-
 func (r *Runtime) SetShellPath(paths []string) {
 	if r != nil && r.Workspaces != nil {
 		r.Workspaces.SetShellPath(paths)

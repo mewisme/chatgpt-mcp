@@ -76,27 +76,6 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 		upstreamCount = len(toolRuntime.Upstream.List())
 	}
 	upstreamSpan.EndMessage("Upstream MCP manager bootstrapped", tracepkg.Int("server_count", upstreamCount))
-	if err := toolRuntime.SetShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
-		span.FailMessage("Server runtime application construction failed", err)
-		return nil, err
-	}
-	if err := toolRuntime.SetShellApprovalCommands(cfg.Shell.ApprovalAllowCommands, cfg.Shell.ApprovalDenyCommands); err != nil {
-		span.FailMessage("Server runtime application construction failed", err)
-		return nil, err
-	}
-	if err := toolRuntime.SetShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
-		span.FailMessage("Server runtime application construction failed", err)
-		return nil, err
-	}
-	if err := toolRuntime.SetShellSandboxPolicy(cfg.Shell.SandboxPolicy); err != nil {
-		span.FailMessage("Server runtime application construction failed", err)
-		return nil, err
-	}
-	if err := toolRuntime.SetShellNetworkPolicy(cfg.Shell.NetworkPolicy); err != nil {
-		span.FailMessage("Server runtime application construction failed", err)
-		return nil, err
-	}
-	toolRuntime.SetShellEnvironmentAllow(cfg.Shell.EnvironmentAllow)
 	toolRuntime.SetShellPath(cfg.Shell.Path)
 	var mcpRuntime *mcp.HTTPRuntime
 	if cfg.Server.Enabled {

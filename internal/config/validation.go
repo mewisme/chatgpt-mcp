@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/caveman"
-	"go.mewis.me/chatgpt-mcp/internal/commandpattern"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -32,27 +31,6 @@ func Validate(cfg Config) error {
 		return err
 	}
 	if _, err := NormalizeShellPath(cfg.Shell.Path); err != nil {
-		return err
-	}
-	if _, err := NormalizeShellApprovalPolicy(cfg.Shell.ApprovalPolicy); err != nil {
-		return err
-	}
-	if _, err := NormalizeShellApprovalCommands(cfg.Shell.ApprovalAllowCommands); err != nil {
-		return err
-	}
-	if _, err := NormalizeShellApprovalCommands(cfg.Shell.ApprovalDenyCommands); err != nil {
-		return err
-	}
-	if _, err := NormalizeShellEnvironmentPolicy(cfg.Shell.EnvironmentPolicy); err != nil {
-		return err
-	}
-	if _, err := NormalizeShellEnvironmentAllow(cfg.Shell.EnvironmentAllow); err != nil {
-		return err
-	}
-	if _, err := NormalizeShellSandboxPolicy(cfg.Shell.SandboxPolicy); err != nil {
-		return err
-	}
-	if _, err := NormalizeShellNetworkPolicy(cfg.Shell.NetworkPolicy); err != nil {
 		return err
 	}
 	if _, ok := ponytail.NormalizeRuntimeMode(cfg.Features.Ponytail.Mode); !ok {
@@ -126,42 +104,8 @@ func CleartextHTTPWarning() string {
 	return "WARNING: server.expose is not none — bearer tokens and request contents travel on cleartext HTTP; chatgpt-mcp has no built-in TLS (prefer Secure MCP Tunnel, a TLS reverse proxy, or a trusted/encrypted network)"
 }
 
-func SandboxOffWarning() string {
-	return "WARNING: shell.sandbox_policy=off — OS-level filesystem sandboxing is disabled for shell execution (Linux bubblewrap is not applied); application-level workspace policy is not an OS sandbox"
-}
-
-func ShellPolicyWarnings(cfg Config) []string {
-	approval, err := NormalizeShellApprovalPolicy(cfg.Shell.ApprovalPolicy)
-	if err != nil {
-		approval = strings.ToLower(strings.TrimSpace(cfg.Shell.ApprovalPolicy))
-	}
-	sandbox, err := NormalizeShellSandboxPolicy(cfg.Shell.SandboxPolicy)
-	if err != nil {
-		sandbox = strings.ToLower(strings.TrimSpace(cfg.Shell.SandboxPolicy))
-	}
-	network, err := NormalizeShellNetworkPolicy(cfg.Shell.NetworkPolicy)
-	if err != nil {
-		network = strings.ToLower(strings.TrimSpace(cfg.Shell.NetworkPolicy))
-	}
-	var warnings []string
-	if approval == "allow" {
-		warnings = append(warnings, "shell.approval_policy=allow disables ordinary local approval gates for most commands")
-	}
-	if sandbox == "off" {
-		warnings = append(warnings, SandboxOffWarning())
-	}
-	if approval == "allow" && sandbox == "off" && network == "inherit" {
-		warnings = append(warnings, "dangerous combination: shell.approval_policy=allow with shell.sandbox_policy=off and shell.network_policy=inherit removes approval, filesystem isolation, and network isolation together")
-	}
-	return warnings
-}
-
-func ValidateShellPolicyCombinations(cfg Config) []string {
-	return ShellPolicyWarnings(cfg)
-}
-
 func SecurityWarnings(cfg Config) []string {
-	warnings := append([]string{}, ShellPolicyWarnings(cfg)...)
+	warnings := []string{}
 	if UnauthenticatedLoopbackActive(cfg) {
 		warnings = append(warnings, UnauthenticatedLoopbackWarning())
 	}
@@ -169,116 +113,6 @@ func SecurityWarnings(cfg Config) []string {
 		warnings = append(warnings, CleartextHTTPWarning())
 	}
 	return warnings
-}
-
-func NormalizeShellApprovalPolicy(value string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "balanced":
-		return "balanced", nil
-	case "allow":
-		return "allow", nil
-	case "strict":
-		return "strict", nil
-	case "deny":
-		return "deny", nil
-	default:
-		return "", fmt.Errorf("shell approval policy must be allow, balanced, strict, or deny: %q", value)
-	}
-}
-
-func NormalizeShellApprovalCommands(values []string) ([]string, error) {
-	seen := map[string]struct{}{}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if strings.ContainsAny(value, "\x00\r\n") {
-			return nil, fmt.Errorf("shell approval command pattern must be a single line: %q", value)
-		}
-		if err := commandpattern.Validate(value); err != nil {
-			return nil, err
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	return result, nil
-}
-
-func NormalizeShellEnvironmentPolicy(value string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "auto":
-		return "auto", nil
-	case "inherit":
-		return "inherit", nil
-	case "filtered":
-		return "filtered", nil
-	case "minimal":
-		return "minimal", nil
-	default:
-		return "", fmt.Errorf("shell environment policy must be auto, inherit, filtered, or minimal: %q", value)
-	}
-}
-
-func NormalizeShellSandboxPolicy(value string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "auto":
-		return "auto", nil
-	case "off":
-		return "off", nil
-	case "required":
-		return "required", nil
-	default:
-		return "", fmt.Errorf("shell sandbox policy must be auto, off, or required: %q", value)
-	}
-}
-
-func NormalizeShellNetworkPolicy(value string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "auto":
-		return "auto", nil
-	case "inherit":
-		return "inherit", nil
-	case "deny":
-		return "deny", nil
-	default:
-		return "", fmt.Errorf("shell network policy must be auto, inherit, or deny: %q", value)
-	}
-}
-
-func NormalizeShellEnvironmentAllow(values []string) ([]string, error) {
-	seen := map[string]bool{}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		for index, r := range value {
-			if (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && r != '_' && !(index > 0 && r >= '0' && r <= '9') {
-				return nil, fmt.Errorf("shell environment variable name is invalid: %q", value)
-			}
-			if index == 0 && r >= '0' && r <= '9' {
-				return nil, fmt.Errorf("shell environment variable name is invalid: %q", value)
-			}
-		}
-		upper := strings.ToUpper(value)
-		switch upper {
-		case "CHATGPT_MCP_TOOL_CONTEXT", "CHATGPT_MCP_CONTROL_APPROVAL", "CHATGPT_MCP_CONFIG_DIR":
-			return nil, fmt.Errorf("shell environment allow list cannot override protected variable %s", value)
-		}
-		if seen[upper] {
-			continue
-		}
-		seen[upper] = true
-		result = append(result, value)
-	}
-	sort.Slice(result, func(i, j int) bool { return strings.ToUpper(result[i]) < strings.ToUpper(result[j]) })
-	return result, nil
 }
 
 func ValidateMCPTransports(cfg Config) error {

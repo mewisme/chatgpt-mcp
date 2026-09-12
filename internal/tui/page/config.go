@@ -901,11 +901,10 @@ func (page *ConfigPage) domainSummary(domain string) string {
 		}
 		return summary
 	case "shell":
-		summary := fmt.Sprintf("%s · sandbox %s · network %s · %d command overrides", cfg.Shell.ApprovalPolicy, cfg.Shell.SandboxPolicy, cfg.Shell.NetworkPolicy, len(cfg.Shell.ApprovalAllowCommands)+len(cfg.Shell.ApprovalDenyCommands))
-		if strings.EqualFold(strings.TrimSpace(cfg.Shell.SandboxPolicy), "off") {
-			summary += " · SANDBOX OFF"
+		if len(cfg.Shell.Path) == 0 {
+			return "inherits runtime PATH · risk-based mutation approvals"
 		}
-		return summary
+		return fmt.Sprintf("%d extra PATH entries · risk-based mutation approvals", len(cfg.Shell.Path))
 	case "features":
 		return fmt.Sprintf("Ponytail %s · Caveman %s", configOnOff(cfg.Features.Ponytail.Active), configOnOff(cfg.Features.Caveman.Active))
 	case "tunnel":

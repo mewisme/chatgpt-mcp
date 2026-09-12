@@ -75,15 +75,8 @@ var fieldSpecs = []FieldSpec{
 	{Key: "auth.admin_enabled", Label: "Admin authentication", Section: FieldSectionAccess, Description: "controls token authentication for the admin HTTP endpoint", Details: "When the admin server is enabled and this setting is true, an admin credential must be configured. Disabling authentication while the admin server remains enabled requires server.allow_unauthenticated_loopback=true and server.expose.mode=none. Non-loopback exposure with the admin endpoint enabled always requires admin authentication.", Kind: FieldBool, Editable: true, Related: []string{"auth.admin_token_hash", "admin.enabled", "server.expose.mode", "server.allow_unauthenticated_loopback"}},
 	{Key: "auth.mcp_token_hash", Label: "MCP credential", Section: FieldSectionAccess, Description: "stores the managed credential hash used by MCP HTTP authentication", Details: "The raw token is never exposed through config views. This field is managed by the MCP authentication workflow and is not directly editable through config set.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the MCP auth token workflow.", Related: []string{"auth.mcp_enabled", "server.enabled"}},
 	{Key: "auth.admin_token_hash", Label: "Admin credential", Section: FieldSectionAccess, Description: "stores the managed credential hash used by admin HTTP authentication", Details: "The raw token is never exposed through config views. This field is managed by the admin authentication workflow and is not directly editable through config set.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the admin auth token workflow.", Related: []string{"auth.admin_enabled", "admin.enabled"}},
-	{Key: "permissions.allow_dirs", Label: "Allowed directories", Section: FieldSectionAccess, Description: "adds global filesystem roots that registered workspaces may access", Details: "These roots extend workspace-local access for filesystem and shell operations. Paths must be absolute, are normalized, and apply globally in addition to per-workspace allowed directories.", Kind: FieldList, Editable: true, Related: []string{"shell.sandbox_policy"}},
-	{Key: "shell.path", Label: "Executable search paths", Section: FieldSectionShell, Description: "adds trusted executable directories to shell command PATH resolution", Details: "Paths must be absolute. With inherited or filtered environments they are merged before the inherited PATH. In strict or minimal environments, PATH is rebuilt from these directories plus trusted system executable paths.", Kind: FieldList, Editable: true, Related: []string{"shell.environment_policy", "shell.sandbox_policy"}},
-	{Key: "shell.approval_policy", Label: "Approval policy", Section: FieldSectionShell, Description: "controls when shell commands require local approval", Details: "Explicit deny rules take precedence over allow rules. The selected policy then determines whether commands that are not covered by an explicit rule require local approval. Allow mode is intentionally permissive and only keeps approval for mutations that can weaken the runtime security boundary, such as changing approval/permission settings, authentication, or workspace access. Independent hard security guards can still reject commands in every mode.", Kind: FieldEnum, Options: []string{"allow", "balanced", "strict", "deny"}, Values: []FieldValueSpec{{Value: "allow", Description: "Run ordinary, risky, destructive, external, and most control-plane commands without approval; keep approval only for security-boundary mutations or explicit deny rules."}, {Value: "balanced", Description: "Require approval for guarded or risky operations and external access."}, {Value: "strict", Description: "Require approval for execution that is not recognized as a workspace-confined static read."}, {Value: "deny", Description: "Require approval for commands unless an explicit allow rule matches."}}, Editable: true, Related: []string{"shell.approval_allow_commands", "shell.approval_deny_commands", "shell.environment_policy", "shell.sandbox_policy", "shell.network_policy"}},
-	{Key: "shell.approval_allow_commands", Label: "Allow commands", Section: FieldSectionShell, Description: "lists command patterns that bypass ordinary approval gates", Details: "Patterns are argv-aware globs supporting *, ?, character classes, and standalone **. For compound shell input, every invocation must match an allow pattern. Explicit deny patterns still take precedence, and independent security guards remain enforced.", Kind: FieldList, Editable: true, Guidance: "Use narrow command patterns instead of broad wildcards.", Related: []string{"shell.approval_policy", "shell.approval_deny_commands"}},
-	{Key: "shell.approval_deny_commands", Label: "Deny commands", Section: FieldSectionShell, Description: "lists command patterns that always require local approval", Details: "Patterns use the same argv-aware glob syntax as allow rules. A matching deny rule takes precedence over a matching allow rule and forces the normal local approval flow.", Kind: FieldList, Editable: true, Guidance: "Use deny rules for commands that should always require an explicit local decision.", Related: []string{"shell.approval_policy", "shell.approval_allow_commands"}},
-	{Key: "shell.environment_policy", Label: "Environment policy", Section: FieldSectionShell, Description: "controls which parent environment variables shell commands inherit", Details: "Protected internal control variables are never inherited from the parent process. shell.environment_allow can explicitly re-include ordinary variables excluded by filtered or minimal policies.", Kind: FieldEnum, Options: []string{"auto", "inherit", "filtered", "minimal"}, Values: []FieldValueSpec{{Value: "auto", Description: "Use inherit with allow/balanced approval, and minimal with strict/deny approval."}, {Value: "inherit", Description: "Inherit the parent environment except protected internal control variables."}, {Value: "filtered", Description: "Inherit ordinary variables while removing known sensitive, credential, and injection-related variables."}, {Value: "minimal", Description: "Keep only a small runtime/toolchain environment and rebuild PATH from trusted executable paths."}}, Editable: true, Related: []string{"shell.environment_allow", "shell.path", "shell.approval_policy"}},
-	{Key: "shell.environment_allow", Label: "Environment allow", Section: FieldSectionShell, Description: "lists environment variables explicitly exposed to shell commands", Details: "Names are matched case-insensitively and deduplicated. Allowed names can restore ordinary parent variables filtered by filtered or minimal policies, but protected internal control variables remain managed by the runtime.", Kind: FieldList, Editable: true, Guidance: "Add only variables required by commands; secrets added here become available to shell processes.", Related: []string{"shell.environment_policy"}},
-	{Key: "shell.sandbox_policy", Label: "Sandbox policy", Section: FieldSectionShell, Description: "controls OS-level filesystem sandboxing for shell execution", Details: "Sandboxing currently uses Bubblewrap on supported Linux hosts. Approved host/control-plane mutations can bypass filesystem isolation when required by their approved operation. Network isolation is controlled separately by shell.network_policy.", Kind: FieldEnum, Options: []string{"auto", "off", "required"}, Values: []FieldValueSpec{{Value: "auto", Description: "Disable filesystem sandboxing for allow/balanced approval; with strict/deny, use sandboxing when supported and fall back if unavailable."}, {Value: "off", Description: "Do not apply filesystem sandboxing; network policy may still require network isolation."}, {Value: "required", Description: "Require a supported OS sandbox and fail shell execution when isolation cannot be established."}}, Editable: true, Related: []string{"shell.approval_policy", "shell.network_policy", "permissions.allow_dirs", "shell.path"}},
-	{Key: "shell.network_policy", Label: "Network policy", Section: FieldSectionShell, Description: "controls external network access from shell commands", Details: "The policy combines static command checks with OS network isolation when available. A deny policy is fail-closed and requires isolation support; auto can release isolation for an explicitly approved external-access command.", Kind: FieldEnum, Options: []string{"auto", "inherit", "deny"}, Values: []FieldValueSpec{{Value: "auto", Description: "Use normal host networking with allow/balanced approval; with strict/deny, isolate by default and allow explicitly approved network commands."}, {Value: "inherit", Description: "Use the host network namespace without shell network isolation."}, {Value: "deny", Description: "Reject detected external access and require network isolation for shell execution."}}, Editable: true, Related: []string{"shell.approval_policy", "shell.sandbox_policy"}},
+	{Key: "permissions.allow_dirs", Label: "Allowed directories", Section: FieldSectionAccess, Description: "adds global filesystem roots that registered workspaces may access", Details: "These roots extend workspace-local access for filesystem and shell operations. Paths must be absolute, are normalized, and apply globally in addition to per-workspace allowed directories.", Kind: FieldList, Editable: true},
+	{Key: "shell.path", Label: "Executable search paths", Section: FieldSectionShell, Description: "prepends additional executable directories to PATH for managed shell commands", Details: "Paths must be absolute. Configured entries are prepended to the inherited process PATH for foreground and background shell execution.", Kind: FieldList, Editable: true},
 	{Key: "features.ponytail.active", Label: "Ponytail active", Section: FieldSectionFeatures, Description: "controls whether Ponytail guidance is active by default", Details: "Ponytail biases coding work toward the smallest correct solution: reuse existing code, prefer standard/platform features, avoid speculative abstractions, and minimize unnecessary implementation.", Kind: FieldBool, Editable: true, Related: []string{"features.ponytail.mode"}},
 	{Key: "features.ponytail.mode", Label: "Ponytail mode", Section: FieldSectionFeatures, Description: "sets the default Ponytail intensity", Details: "This persisted value selects the default runtime intensity when Ponytail is active. Session-only modes such as review/off are not valid persisted values.", Kind: FieldEnum, Options: []string{"lite", "full", "ultra"}, Values: []FieldValueSpec{{Value: "lite", Description: "Build the requested solution but point out a simpler alternative when useful."}, {Value: "full", Description: "Enforce the reuse/stdlib/native-first ladder and prefer the shortest correct implementation."}, {Value: "ultra", Description: "Apply aggressive YAGNI pressure, favor deletion or minimal implementation, and challenge unnecessary scope."}}, Editable: true, Related: []string{"features.ponytail.active"}},
 	{Key: "features.caveman.active", Label: "Caveman active", Section: FieldSectionFeatures, Description: "controls whether Caveman response style is active by default", Details: "Caveman compresses assistant prose while preserving technical meaning, exact code, commands, numbers, and safety-critical clarity.", Kind: FieldBool, Editable: true, Related: []string{"features.caveman.mode"}},
@@ -203,48 +196,6 @@ func SetValue(cfg *Config, key, raw string) error {
 		cfg.Permissions.AllowDirs = splitFieldList(raw)
 	case "shell.path":
 		cfg.Shell.Path = splitFieldList(raw)
-	case "shell.approval_policy":
-		value, err := NormalizeShellApprovalPolicy(raw)
-		if err != nil {
-			return err
-		}
-		cfg.Shell.ApprovalPolicy = value
-	case "shell.approval_allow_commands":
-		value, err := NormalizeShellApprovalCommands(splitFieldList(raw))
-		if err != nil {
-			return err
-		}
-		cfg.Shell.ApprovalAllowCommands = value
-	case "shell.approval_deny_commands":
-		value, err := NormalizeShellApprovalCommands(splitFieldList(raw))
-		if err != nil {
-			return err
-		}
-		cfg.Shell.ApprovalDenyCommands = value
-	case "shell.environment_policy":
-		value, err := NormalizeShellEnvironmentPolicy(raw)
-		if err != nil {
-			return err
-		}
-		cfg.Shell.EnvironmentPolicy = value
-	case "shell.environment_allow":
-		value, err := NormalizeShellEnvironmentAllow(splitFieldList(raw))
-		if err != nil {
-			return err
-		}
-		cfg.Shell.EnvironmentAllow = value
-	case "shell.sandbox_policy":
-		value, err := NormalizeShellSandboxPolicy(raw)
-		if err != nil {
-			return err
-		}
-		cfg.Shell.SandboxPolicy = value
-	case "shell.network_policy":
-		value, err := NormalizeShellNetworkPolicy(raw)
-		if err != nil {
-			return err
-		}
-		cfg.Shell.NetworkPolicy = value
 	case "features.ponytail.active":
 		value, err := parseBoolField(raw, key)
 		if err != nil {
@@ -349,20 +300,6 @@ func RawValue(cfg Config, key string) (string, error) {
 		return strings.Join(cfg.Permissions.AllowDirs, ","), nil
 	case "shell.path":
 		return strings.Join(cfg.Shell.Path, ","), nil
-	case "shell.approval_policy":
-		return cfg.Shell.ApprovalPolicy, nil
-	case "shell.approval_allow_commands":
-		return strings.Join(cfg.Shell.ApprovalAllowCommands, ","), nil
-	case "shell.approval_deny_commands":
-		return strings.Join(cfg.Shell.ApprovalDenyCommands, ","), nil
-	case "shell.environment_policy":
-		return cfg.Shell.EnvironmentPolicy, nil
-	case "shell.environment_allow":
-		return strings.Join(cfg.Shell.EnvironmentAllow, ","), nil
-	case "shell.sandbox_policy":
-		return cfg.Shell.SandboxPolicy, nil
-	case "shell.network_policy":
-		return cfg.Shell.NetworkPolicy, nil
 	case "features.ponytail.active":
 		return strconv.FormatBool(cfg.Features.Ponytail.Active), nil
 	case "features.ponytail.mode":

@@ -63,12 +63,12 @@ cgm config list admin
 ```bash
 cgm config explain
 cgm config explain shell
-cgm config explain shell.approval_policy
+cgm config explain shell.path
 cgm config explain server.expose.mode
-cgm config explain shell.approval_policy --json
+cgm config explain shell.path --json
 ```
 
-With no key, `config explain` walks the full schema. A branch such as `shell` explains that subtree. A leaf such as `shell.approval_policy` includes its type, schema default, editability, enum value descriptions when applicable, guidance, and related keys. Defaults come from the built-in config schema, not the currently persisted configuration.
+With no key, `config explain` walks the full schema. A branch such as `shell` explains that subtree. A leaf such as `shell.path` includes its type, schema default, editability, guidance, and related keys when applicable. Defaults come from the built-in config schema, not the currently persisted configuration.
 
 Legacy key aliases are canonicalized before lookup. For example, explaining `features.ponytail.enabled` resolves to `features.ponytail.active`. Sensitive fields expose schema metadata only; secret values are never revealed.
 
@@ -314,19 +314,13 @@ The acknowledgement is valid only with `server.expose.mode=none`. Prefer keeping
 
 The Admin UI skips its login screen when Admin authentication is disabled.
 
-## Dangerous combinations
+## Shell execution model
 
-Shell policy values can be combined in ways that remove multiple controls at once. Prefer balanced/strict defaults.
+Shell commands inherit the runtime process environment, with `shell.path` entries prepended to `PATH`. There are no configurable approval modes, environment filtering modes, filesystem sandbox modes, or network isolation modes.
 
-| Setting | Safer default | Dangerous drift |
-| --- | --- | --- |
-| `shell.approval_policy` | `balanced` | `allow` |
-| `shell.sandbox_policy` | `auto` | `off` |
-| `shell.network_policy` | `auto` | `inherit` with approval `allow` and sandbox `off` |
+The runtime still enforces hard application-level boundaries: workspace mutation containment, protected control-plane state, exact approval for direct control-plane mutations, and approval for destructive, host, or external mutations. Read-only and ordinary commands do not require an extra policy mode.
 
-`cgm config verify` warns about these combinations. Use `cgm config verify --strict` in CI or before enabling network exposure.
-
-See [Security](security.md#dangerous-combinations) for the full matrix, including unauthenticated loopback acknowledgement rules.
+For stronger isolation against arbitrary native code, run the runtime or risky workloads inside an OS sandbox, container/VM, or separate operating-system identity. See [Security](security.md#what-this-boundary-does-not-provide).
 
 ## Workspace filesystem scope
 

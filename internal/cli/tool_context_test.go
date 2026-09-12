@@ -107,61 +107,6 @@ func TestMCPToolContextApprovalMismatchDoesNotBurnCapability(t *testing.T) {
 	}
 }
 
-func TestMCPToolContextAllowsOrdinaryMutationWhenRuntimePolicyIsAllow(t *testing.T) {
-	manager := approval.NewManager("instance-test")
-	control, err := startRuntimeControl(runtimeControlOptions{Approvals: manager, Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult { return runtimeStatusResult{PID: os.Getpid(), ShellApprovalPolicy: "allow"} }, Shutdown: func() {}, ClearLogs: func() error { return nil }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer control.Close()
-	t.Setenv(controlplane.ToolContextEnv, "1")
-	t.Setenv(controlplane.ControlApprovalEnv, "")
-	previous := processCommandArgs
-	defer func() { processCommandArgs = previous }()
-	root := newRootCommand()
-	for _, test := range []struct {
-		actual      []string
-		findPath    []string
-		commandArgs []string
-	}{
-		{actual: []string{"update"}, findPath: []string{"update"}},
-		{actual: []string{"config", "set", "server.port", "41001"}, findPath: []string{"config", "set"}, commandArgs: []string{"server.port", "41001"}},
-	} {
-		actual := append([]string(nil), test.actual...)
-		processCommandArgs = func() []string { return append([]string(nil), actual...) }
-		cmd, _, err := root.Find(test.findPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := prepareCommand(cmd, test.commandArgs); err != nil {
-			t.Fatalf("allow runtime policy rejected %#v: %v", actual, err)
-		}
-	}
-}
-
-func TestMCPToolContextAllowPolicyStillRequiresApprovalForSecurityBoundaryMutation(t *testing.T) {
-	manager := approval.NewManager("instance-test")
-	control, err := startRuntimeControl(runtimeControlOptions{Approvals: manager, Reload: func(context.Context) (runtimeReloadResult, error) { return runtimeReloadResult{PID: os.Getpid()}, nil }, Status: func() runtimeStatusResult { return runtimeStatusResult{PID: os.Getpid(), ShellApprovalPolicy: "allow"} }, Shutdown: func() {}, ClearLogs: func() error { return nil }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer control.Close()
-	t.Setenv(controlplane.ToolContextEnv, "1")
-	t.Setenv(controlplane.ControlApprovalEnv, "")
-	actual := []string{"config", "set", "permissions.allow_dirs", "/tmp"}
-	previous := processCommandArgs
-	processCommandArgs = func() []string { return append([]string(nil), actual...) }
-	defer func() { processCommandArgs = previous }()
-	root := newRootCommand()
-	cmd, _, err := root.Find([]string{"config", "set"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := prepareCommand(cmd, actual[2:]); err == nil || !strings.Contains(err.Error(), "control-plane command denied") {
-		t.Fatalf("allow runtime policy bypassed security-boundary approval: %v", err)
-	}
-}
-
 func mintToolContextCapability(t *testing.T, cliArgs []string) (*approval.Manager, string) {
 	t.Helper()
 	manager := approval.NewManager("instance-test")

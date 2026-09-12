@@ -76,6 +76,8 @@ type LoginOptions struct {
 type Store struct {
 	mu      sync.Mutex
 	path    string
+	root    string
+	name    string
 	client  *http.Client
 	secrets *secretstore.Store
 	trace   tracepkg.Observer
@@ -100,10 +102,12 @@ func NewStoreWithClient(path string, client *http.Client) *Store {
 	if strings.TrimSpace(path) == "" {
 		path = Path()
 	}
+	path = filepath.Clean(path)
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &Store{path: path, client: client, secrets: secretstore.New(filepath.Dir(path))}
+	root := filepath.Dir(path)
+	return &Store{path: path, root: root, name: filepath.Base(path), client: client, secrets: secretstore.New(root)}
 }
 
 func (s *Store) SetTraceObserver(observer tracepkg.Observer) *Store {

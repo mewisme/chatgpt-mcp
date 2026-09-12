@@ -291,14 +291,6 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/oauth/store.go",
-    "details": "Potential file inclusion via variable",
-    "code": "func snapshotOAuthFile(path string) (oauthFileSnapshot, error) {\n\tdata, err := os.ReadFile(path)\n\tif errors.Is(err, os.ErrNotExist) {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/rules/resolver.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\t\tdata, err := os.ReadFile(path)\n\t\tif err != nil {"

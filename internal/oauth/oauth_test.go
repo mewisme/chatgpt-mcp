@@ -3,6 +3,7 @@ package oauth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -317,5 +318,35 @@ func TestLegacyOAuthFileMigratesCredentialsToSecretFiles(t *testing.T) {
 	}
 	if strings.Count(string(migrated), "secret-file") < 3 {
 		t.Fatalf("oauth file missing secret-file markers: %s", migrated)
+	}
+}
+
+func TestStoreRejectsSymlinkOAuthFile(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	want := []byte(`{"version":1,"credentials":{}}`)
+	if err := os.WriteFile(outside, want, 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "oauth.json")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	store := NewStore(path)
+	if _, err := store.Get("alpha"); err == nil || errors.Is(err, ErrCredentialNotFound) {
+		t.Fatalf("expected symlink OAuth store to be rejected, got %v", err)
+	}
+	if err := store.Put(Credential{ServerID: "alpha", AccessToken: "secret"}); err == nil {
+		t.Fatal("expected write through symlink OAuth store to be rejected")
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(want) {
+		t.Fatalf("outside OAuth store changed: %s", data)
 	}
 }

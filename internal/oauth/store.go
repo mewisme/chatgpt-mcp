@@ -3,8 +3,8 @@ package oauth
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -179,7 +179,17 @@ func (s *Store) readLocked() (diskStore, error) {
 func (s *Store) readDiskLocked() (diskStore, error) {
 	span := tracepkg.StartObserver(s.trace, "OAUTH", "oauth.store.read", "Reading OAuth store", tracepkg.String("store_path", s.path))
 	state := diskStore{Version: storeVersion, Credentials: map[string]Credential{}}
-	data, err := os.ReadFile(s.path)
+	root, err := s.openRoot(false)
+	if errors.Is(err, os.ErrNotExist) {
+		span.EndMessage("OAuth store not yet created", tracepkg.Bool("exists", false), tracepkg.Int64("bytes", 0), tracepkg.Int("store_version", storeVersion), tracepkg.Int("entry_count", 0))
+		return state, nil
+	}
+	if err != nil {
+		span.FailMessage("OAuth store read failed", errors.New("OAuth store read failed"))
+		return diskStore{}, fmt.Errorf("read oauth store: %w", err)
+	}
+	defer root.Close()
+	data, _, err := readOAuthFile(root, s.name)
 	if errors.Is(err, os.ErrNotExist) {
 		span.EndMessage("OAuth store not yet created", tracepkg.Bool("exists", false), tracepkg.Int64("bytes", 0), tracepkg.Int("store_version", storeVersion), tracepkg.Int("entry_count", 0))
 		return state, nil
@@ -245,22 +255,24 @@ func (s *Store) writeLocked(previous, next diskStore) error {
 		span.FailMessage("OAuth store encode failed", errors.New("OAuth store encode failed"))
 		return fmt.Errorf("encode oauth store: %w", err)
 	}
-	snapshot, err := snapshotOAuthFile(s.path)
+	root, err := s.openRoot(true)
+	if err != nil {
+		span.FailMessage("OAuth store directory creation failed", errors.New("OAuth store directory creation failed"))
+		return fmt.Errorf("create oauth store directory: %w", err)
+	}
+	defer root.Close()
+	snapshot, err := snapshotOAuthFile(root, s.name)
 	if err != nil {
 		span.FailMessage("OAuth store snapshot failed", errors.New("OAuth store snapshot failed"))
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
-		span.FailMessage("OAuth store directory creation failed", errors.New("OAuth store directory creation failed"))
-		return fmt.Errorf("create oauth store directory: %w", err)
-	}
-	if err := statepkg.WriteFileAtomic(s.path, data, 0600); err != nil {
+	if err := statepkg.WriteFileAtomicRoot(root, s.name, data, 0600); err != nil {
 		span.FailMessage("OAuth store write failed", errors.New("OAuth store write failed"), tracepkg.Int64("bytes", int64(len(data))))
 		return fmt.Errorf("write oauth store: %w", err)
 	}
 	changes := oauthSecretChanges(previous, next)
 	if err := s.secrets.Apply(changes); err != nil {
-		restoreErr := restoreOAuthFile(s.path, snapshot)
+		restoreErr := restoreOAuthFile(root, s.name, snapshot)
 		span.FailMessage("OAuth protected-value persistence failed", errors.New("OAuth protected-value persistence failed"), tracepkg.Int64("bytes", int64(len(data))), tracepkg.Int("protected_value_changes", len(changes)), tracepkg.Bool("store_rollback_succeeded", restoreErr == nil))
 		return errors.Join(err, restoreErr)
 	}
@@ -316,26 +328,59 @@ type oauthFileSnapshot struct {
 	mode   os.FileMode
 }
 
-func snapshotOAuthFile(path string) (oauthFileSnapshot, error) {
-	data, err := os.ReadFile(path)
+func (s *Store) openRoot(create bool) (*os.Root, error) {
+	if create {
+		if err := os.MkdirAll(s.root, 0700); err != nil {
+			return nil, err
+		}
+	}
+	return os.OpenRoot(s.root)
+}
+
+func snapshotOAuthFile(root *os.Root, path string) (oauthFileSnapshot, error) {
+	data, mode, err := readOAuthFile(root, path)
 	if errors.Is(err, os.ErrNotExist) {
 		return oauthFileSnapshot{}, nil
 	}
 	if err != nil {
 		return oauthFileSnapshot{}, err
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return oauthFileSnapshot{}, err
-	}
-	return oauthFileSnapshot{exists: true, data: data, mode: info.Mode().Perm()}, nil
+	return oauthFileSnapshot{exists: true, data: data, mode: mode}, nil
 }
-func restoreOAuthFile(path string, snapshot oauthFileSnapshot) error {
+
+func restoreOAuthFile(root *os.Root, path string, snapshot oauthFileSnapshot) error {
 	if !snapshot.exists {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := root.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		return nil
 	}
-	return statepkg.WriteFileAtomic(path, snapshot.data, snapshot.mode)
+	return statepkg.WriteFileAtomicRoot(root, path, snapshot.data, snapshot.mode)
+}
+
+func readOAuthFile(root *os.Root, path string) ([]byte, os.FileMode, error) {
+	info, err := root.Lstat(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, 0, fmt.Errorf("oauth store path is not a regular file: %s", path)
+	}
+	file, err := root.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		return nil, 0, fmt.Errorf("oauth store path changed while opening: %s", path)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, 0, err
+	}
+	return data, openedInfo.Mode().Perm(), nil
 }

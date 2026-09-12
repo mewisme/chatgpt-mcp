@@ -357,7 +357,15 @@
     "confidence": "HIGH",
     "file": "internal/secretstore/crypto.go",
     "details": "Potential file inclusion via variable",
-    "code": "path := filepath.Join(b.root, masterKeyName)\n\tdata, err := os.ReadFile(path)\n\tif err == nil {"
+    "code": "}\n\tfile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)\n\tif errors.Is(err, os.ErrExist) {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/secretstore/crypto.go",
+    "details": "Potential file inclusion via variable",
+    "code": "func readMasterKey(path string) ([]byte, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
   },
   {
     "rule_id": "G304",

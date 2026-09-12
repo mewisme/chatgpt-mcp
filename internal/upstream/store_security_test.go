@@ -58,3 +58,33 @@ func TestLegacyUpstreamSecretsMigrateToSecretFiles(t *testing.T) {
 		t.Fatalf("upstream file was not migrated: %s", migrated)
 	}
 }
+
+func TestStoreRejectsSymlinkConfigFile(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	want := []byte(`{"servers":[]}`)
+	if err := os.WriteFile(outside, want, 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "upstream.json")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	store := NewStore(path)
+	if _, err := store.Load(); err == nil {
+		t.Fatal("expected symlink upstream config to be rejected")
+	}
+	if err := store.Save(nil); err == nil {
+		t.Fatal("expected save through symlink upstream config to be rejected")
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(want) {
+		t.Fatalf("outside upstream config changed: %s", data)
+	}
+}

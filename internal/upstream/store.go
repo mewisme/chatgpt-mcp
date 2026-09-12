@@ -3,6 +3,7 @@ package upstream
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -13,6 +14,8 @@ import (
 
 type Store struct {
 	Path    string
+	root    string
+	name    string
 	secrets *secretstore.Store
 }
 
@@ -21,7 +24,9 @@ type diskStore struct {
 }
 
 func NewStore(path string) *Store {
-	return &Store{Path: path, secrets: secretstore.New(filepath.Dir(path))}
+	path = filepath.Clean(path)
+	root := filepath.Dir(path)
+	return &Store{Path: path, root: root, name: filepath.Base(path), secrets: secretstore.New(root)}
 }
 
 func (s *Store) SecretEntries() ([]string, error) {
@@ -106,8 +111,16 @@ func (s *Store) Save(servers []Server) error {
 }
 
 func (s *Store) readDisk() ([]Server, error) {
-	data, err := os.ReadFile(s.Path)
-	if os.IsNotExist(err) {
+	root, err := s.openRoot(false)
+	if errors.Is(err, os.ErrNotExist) {
+		return []Server{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	data, _, err := readStoreFile(root, s.name)
+	if errors.Is(err, os.ErrNotExist) {
 		return []Server{}, nil
 	}
 	if err != nil {
@@ -145,22 +158,24 @@ func (s *Store) saveWithPrevious(previous, servers []Server) error {
 			}
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0700); err != nil {
+	root, err := s.openRoot(true)
+	if err != nil {
 		return err
 	}
+	defer root.Close()
 	data, err := configformat.MarshalPath(s.Path, diskStore{Servers: persisted})
 	if err != nil {
 		return err
 	}
-	snapshot, err := snapshotStoreFile(s.Path)
+	snapshot, err := snapshotStoreFile(root, s.name)
 	if err != nil {
 		return err
 	}
-	if err := state.WriteFileAtomic(s.Path, data, 0600); err != nil {
+	if err := state.WriteFileAtomicRoot(root, s.name, data, 0600); err != nil {
 		return err
 	}
 	if err := s.secrets.Apply(upstreamSecretChanges(previous, servers)); err != nil {
-		return errors.Join(err, restoreStoreFile(s.Path, snapshot))
+		return errors.Join(err, restoreStoreFile(root, s.name, snapshot))
 	}
 	return nil
 }
@@ -244,26 +259,58 @@ type storeFileSnapshot struct {
 	mode   os.FileMode
 }
 
-func snapshotStoreFile(path string) (storeFileSnapshot, error) {
-	data, err := os.ReadFile(path)
+func (s *Store) openRoot(create bool) (*os.Root, error) {
+	if create {
+		if err := os.MkdirAll(s.root, 0700); err != nil {
+			return nil, err
+		}
+	}
+	return os.OpenRoot(s.root)
+}
+
+func snapshotStoreFile(root *os.Root, path string) (storeFileSnapshot, error) {
+	data, mode, err := readStoreFile(root, path)
 	if errors.Is(err, os.ErrNotExist) {
 		return storeFileSnapshot{}, nil
 	}
 	if err != nil {
 		return storeFileSnapshot{}, err
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return storeFileSnapshot{}, err
-	}
-	return storeFileSnapshot{exists: true, data: data, mode: info.Mode().Perm()}, nil
+	return storeFileSnapshot{exists: true, data: data, mode: mode}, nil
 }
-func restoreStoreFile(path string, snapshot storeFileSnapshot) error {
+func restoreStoreFile(root *os.Root, path string, snapshot storeFileSnapshot) error {
 	if !snapshot.exists {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := root.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		return nil
 	}
-	return state.WriteFileAtomic(path, snapshot.data, snapshot.mode)
+	return state.WriteFileAtomicRoot(root, path, snapshot.data, snapshot.mode)
+}
+
+func readStoreFile(root *os.Root, path string) ([]byte, os.FileMode, error) {
+	info, err := root.Lstat(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, 0, fmt.Errorf("upstream store path is not a regular file: %s", path)
+	}
+	file, err := root.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		return nil, 0, fmt.Errorf("upstream store path changed while opening: %s", path)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, 0, err
+	}
+	return data, openedInfo.Mode().Perm(), nil
 }

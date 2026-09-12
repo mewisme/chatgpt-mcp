@@ -234,8 +234,9 @@ func TestOpenRootForPathUsesAllowedDirectoryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rootHandle.Close()
-	if rootHandle.Name() != filepath.Clean(allowed) {
-		t.Fatalf("root=%q want=%q", rootHandle.Name(), allowed)
+	wantRoot := canonicalRoot(allowed)
+	if rootHandle.Name() != wantRoot {
+		t.Fatalf("root=%q want=%q", rootHandle.Name(), wantRoot)
 	}
 	if relative != filepath.Join("nested", "file.txt") {
 		t.Fatalf("relative=%q", relative)
@@ -266,8 +267,9 @@ func TestOpenRootForPathAcceptsCanonicalWorkspaceThroughSymlinkedParent(t *testi
 		t.Fatal(err)
 	}
 	defer rootHandle.Close()
-	if rootHandle.Name() != filepath.Clean(root) {
-		t.Fatalf("root=%q want=%q", rootHandle.Name(), root)
+	wantRoot := canonicalRoot(root)
+	if rootHandle.Name() != wantRoot {
+		t.Fatalf("root=%q want=%q", rootHandle.Name(), wantRoot)
 	}
 	if relative != "file.txt" {
 		t.Fatalf("relative=%q", relative)

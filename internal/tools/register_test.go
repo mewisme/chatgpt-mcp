@@ -307,6 +307,39 @@ func TestRootedToolPathRejectsSymlinkSwapEscape(t *testing.T) {
 	}
 }
 
+func TestRootedRecursiveSearchRejectsSymlinkSwapEscape(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	child := filepath.Join(root, "child")
+	outside := t.TempDir()
+	if err := os.Mkdir(child, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("needle\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	rooted, err := openRootedDirectory(runtime.Workspaces, workspaceID, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rooted.Close()
+	if err := os.Remove(child); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, child); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	output, err := grepSearch(rooted, GrepOptions{Pattern: "needle", Glob: "*.txt", OutputMode: "content", HeadLimit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "No matches found" || strings.Contains(output, "secret.txt") {
+		t.Fatalf("recursive search escaped rooted workspace: %q", output)
+	}
+}
+
 func TestCopyAndMoveAcrossAllowedRootsStayRooted(t *testing.T) {
 	runtime, workspaceID, root := newToolTestRuntime(t)
 	allowed := t.TempDir()

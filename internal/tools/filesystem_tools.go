@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -505,11 +504,16 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 
 func handleListDirectory(workspaces *workspace.Manager) Handler {
 	return func(_ context.Context, args map[string]any) (Result, error) {
-		_, _, dir, err := workspacePath(workspaces, args, "path", true)
+		item, _, dir, err := workspacePath(workspaces, args, "path", true)
 		if err != nil {
 			return Result{}, err
 		}
-		entries, err := os.ReadDir(dir)
+		rooted, err := openRootedDirectory(workspaces, item.ID, dir)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		entries, err := rooted.ReadDir()
 		if err != nil {
 			return Result{}, err
 		}
@@ -567,7 +571,12 @@ func handleGlob(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
-		matches, err := globFiles(searchRoot, pattern, maxResults)
+		rooted, err := openRootedDirectory(workspaces, item.ID, searchRoot)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		matches, err := globFiles(rooted, pattern, maxResults)
 		if err != nil {
 			return Result{}, err
 		}
@@ -635,7 +644,12 @@ func handleGrep(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
-		output, err := grepSearch(GrepOptions{
+		rooted, err := openRootedDirectory(workspaces, item.ID, searchRoot)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		output, err := grepSearch(rooted, GrepOptions{
 			Pattern: pattern, Path: searchRoot, Glob: glob, OutputMode: outputMode, CaseInsensitive: caseInsensitive,
 			Multiline: multiline, HeadLimit: headLimit, ContextBefore: contextBefore, ContextAfter: contextAfter, ContextAround: contextAround,
 		})
@@ -846,7 +860,7 @@ func handleMoveFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 
 func handleSearchFiles(workspaces *workspace.Manager) Handler {
 	return func(_ context.Context, args map[string]any) (Result, error) {
-		_, _, root, err := workspacePath(workspaces, args, "path", true)
+		item, _, root, err := workspacePath(workspaces, args, "path", true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -866,14 +880,19 @@ func handleSearchFiles(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
-		matches := searchDirectory(root, regex, glob, maxResults)
+		rooted, err := openRootedDirectory(workspaces, item.ID, root)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		matches := searchDirectory(rooted, regex, glob, maxResults)
 		return JSONResult(SearchFilesResult{Path: root, Pattern: pattern, Matches: matches, Count: len(matches)}), nil
 	}
 }
 
 func handleDirectoryTree(workspaces *workspace.Manager) Handler {
 	return func(_ context.Context, args map[string]any) (Result, error) {
-		_, _, root, err := workspacePath(workspaces, args, "path", true)
+		item, _, root, err := workspacePath(workspaces, args, "path", true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -881,7 +900,12 @@ func handleDirectoryTree(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
-		tree, err := buildTree(root, 0, maxDepth)
+		rooted, err := openRootedDirectory(workspaces, item.ID, root)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		tree, err := buildTree(rooted, 0, maxDepth)
 		if err != nil {
 			return Result{}, err
 		}

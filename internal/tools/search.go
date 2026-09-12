@@ -2,7 +2,6 @@ package tools
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -35,18 +34,18 @@ type TreeNode struct {
 	Children  []TreeNode `json:"children,omitempty"`
 }
 
-func globFiles(rootDir, pattern string, maxResults int) ([]GlobMatch, error) {
+func globFiles(rootDir *rootedDirectory, pattern string, maxResults int) ([]GlobMatch, error) {
 	matcher, err := globRegexp(pattern)
 	if err != nil {
 		return nil, err
 	}
 	matches := make([]GlobMatch, 0)
-	var walk func(string)
-	walk = func(dir string) {
+	var walk func(*rootedDirectory, string)
+	walk = func(dir *rootedDirectory, relativeBase string) {
 		if len(matches) >= maxResults {
 			return
 		}
-		entries, err := os.ReadDir(dir)
+		entries, err := dir.ReadDir()
 		if err != nil {
 			return
 		}
@@ -57,16 +56,19 @@ func globFiles(rootDir, pattern string, maxResults int) ([]GlobMatch, error) {
 			if strings.HasPrefix(entry.Name(), ".") {
 				continue
 			}
-			fullPath := filepath.Join(dir, entry.Name())
-			relative, _ := filepath.Rel(rootDir, fullPath)
-			relative = filepath.ToSlash(relative)
+			relative := filepath.Join(relativeBase, entry.Name())
+			fullPath := filepath.Join(rootDir.absolute, relative)
 			if entry.IsDir() {
 				if !skipGlobDirectory(entry.Name()) {
-					walk(fullPath)
+					child, err := dir.OpenChild(entry.Name())
+					if err == nil {
+						walk(child, relative)
+						_ = child.Close()
+					}
 				}
 				continue
 			}
-			if !matcher.MatchString(relative) && !matcher.MatchString(entry.Name()) {
+			if !matcher.MatchString(filepath.ToSlash(relative)) && !matcher.MatchString(entry.Name()) {
 				continue
 			}
 			info, err := entry.Info()
@@ -75,12 +77,12 @@ func globFiles(rootDir, pattern string, maxResults int) ([]GlobMatch, error) {
 			}
 		}
 	}
-	walk(rootDir)
+	walk(rootDir, "")
 	sort.Slice(matches, func(i, j int) bool { return matches[i].ModTime.After(matches[j].ModTime) })
 	return matches, nil
 }
 
-func grepSearch(options GrepOptions) (string, error) {
+func grepSearch(root *rootedDirectory, options GrepOptions) (string, error) {
 	flags := ""
 	if options.CaseInsensitive {
 		flags += "i"
@@ -108,12 +110,12 @@ func grepSearch(options GrepOptions) (string, error) {
 	}
 	fileMatches := map[string]int{}
 	contentLines := make([]string, 0)
-	var walk func(string)
-	walk = func(dir string) {
+	var walk func(*rootedDirectory)
+	walk = func(dir *rootedDirectory) {
 		if options.OutputMode == "content" && len(contentLines) >= options.HeadLimit {
 			return
 		}
-		entries, err := os.ReadDir(dir)
+		entries, err := dir.ReadDir()
 		if err != nil {
 			return
 		}
@@ -124,17 +126,21 @@ func grepSearch(options GrepOptions) (string, error) {
 			if strings.HasPrefix(entry.Name(), ".") {
 				continue
 			}
-			fullPath := filepath.Join(dir, entry.Name())
+			fullPath := filepath.Join(dir.absolute, entry.Name())
 			if entry.IsDir() {
 				if entry.Name() != "node_modules" && entry.Name() != ".git" {
-					walk(fullPath)
+					child, err := dir.OpenChild(entry.Name())
+					if err == nil {
+						walk(child)
+						_ = child.Close()
+					}
 				}
 				continue
 			}
 			if !globMatcher.MatchString(entry.Name()) {
 				continue
 			}
-			data, err := readRegularFileLimited(fullPath, maxSearchFileBytes, "search file")
+			data, err := dir.ReadRegularFileLimited(entry.Name(), maxSearchFileBytes, "search file")
 			if err != nil {
 				continue
 			}
@@ -182,7 +188,7 @@ func grepSearch(options GrepOptions) (string, error) {
 			}
 		}
 	}
-	walk(options.Path)
+	walk(root)
 
 	files := make([]string, 0, len(fileMatches))
 	for file := range fileMatches {
@@ -215,18 +221,18 @@ func grepSearch(options GrepOptions) (string, error) {
 	}
 }
 
-func searchDirectory(root string, regex *regexp.Regexp, globPattern string, maxResults int) []string {
+func searchDirectory(root *rootedDirectory, regex *regexp.Regexp, globPattern string, maxResults int) []string {
 	matcher, err := simpleGlobRegexp(globPattern)
 	if err != nil {
 		return []string{}
 	}
 	results := make([]string, 0)
-	var walk func(string)
-	walk = func(dir string) {
+	var walk func(*rootedDirectory)
+	walk = func(dir *rootedDirectory) {
 		if len(results) >= maxResults {
 			return
 		}
-		entries, err := os.ReadDir(dir)
+		entries, err := dir.ReadDir()
 		if err != nil {
 			return
 		}
@@ -237,15 +243,19 @@ func searchDirectory(root string, regex *regexp.Regexp, globPattern string, maxR
 			if strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
 				continue
 			}
-			fullPath := filepath.Join(dir, entry.Name())
+			fullPath := filepath.Join(dir.absolute, entry.Name())
 			if entry.IsDir() {
-				walk(fullPath)
+				child, err := dir.OpenChild(entry.Name())
+				if err == nil {
+					walk(child)
+					_ = child.Close()
+				}
 				continue
 			}
 			if !matcher.MatchString(entry.Name()) {
 				continue
 			}
-			data, err := readRegularFileLimited(fullPath, maxSearchFileBytes, "search file")
+			data, err := dir.ReadRegularFileLimited(entry.Name(), maxSearchFileBytes, "search file")
 			if err != nil {
 				continue
 			}
@@ -263,9 +273,9 @@ func searchDirectory(root string, regex *regexp.Regexp, globPattern string, maxR
 	return results
 }
 
-func buildTree(path string, depth, maxDepth int) (TreeNode, error) {
-	node := TreeNode{Name: filepath.Base(path), Type: "directory"}
-	entries, err := os.ReadDir(path)
+func buildTree(path *rootedDirectory, depth, maxDepth int) (TreeNode, error) {
+	node := TreeNode{Name: filepath.Base(path.absolute), Type: "directory"}
+	entries, err := path.ReadDir()
 	if err != nil {
 		return TreeNode{}, err
 	}
@@ -279,7 +289,12 @@ func buildTree(path string, depth, maxDepth int) (TreeNode, error) {
 			continue
 		}
 		if entry.IsDir() {
-			child, err := buildTree(filepath.Join(path, entry.Name()), depth+1, maxDepth)
+			childRoot, err := path.OpenChild(entry.Name())
+			if err != nil {
+				continue
+			}
+			child, err := buildTree(childRoot, depth+1, maxDepth)
+			_ = childRoot.Close()
 			if err != nil {
 				return TreeNode{}, err
 			}

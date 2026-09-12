@@ -147,6 +147,11 @@ type rootedPath struct {
 	absolute string
 }
 
+type rootedDirectory struct {
+	root     *os.Root
+	absolute string
+}
+
 func openRootedPath(workspaces *workspace.Manager, workspaceID, absolute string) (*rootedPath, error) {
 	root, relative, err := workspaces.OpenRootForPath(workspaceID, absolute)
 	if err != nil {
@@ -208,6 +213,87 @@ func (p *rootedPath) RemoveAll() error {
 		return errors.New("rooted path is unavailable")
 	}
 	return p.root.RemoveAll(p.relative)
+}
+
+func openRootedDirectory(workspaces *workspace.Manager, workspaceID, absolute string) (*rootedDirectory, error) {
+	path, err := openRootedPath(workspaces, workspaceID, absolute)
+	if err != nil {
+		return nil, err
+	}
+	info, err := path.Stat()
+	if err != nil {
+		_ = path.Close()
+		return nil, err
+	}
+	if !info.IsDir() {
+		_ = path.Close()
+		return nil, errors.New("path is not a directory")
+	}
+	root, err := path.root.OpenRoot(path.relative)
+	_ = path.Close()
+	if err != nil {
+		return nil, err
+	}
+	return &rootedDirectory{root: root, absolute: absolute}, nil
+}
+
+func (d *rootedDirectory) Close() error {
+	if d == nil || d.root == nil {
+		return nil
+	}
+	return d.root.Close()
+}
+
+func (d *rootedDirectory) ReadDir() ([]os.DirEntry, error) {
+	if d == nil || d.root == nil {
+		return nil, errors.New("rooted directory is unavailable")
+	}
+	file, err := d.root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return file.ReadDir(-1)
+}
+
+func (d *rootedDirectory) OpenChild(name string) (*rootedDirectory, error) {
+	if d == nil || d.root == nil {
+		return nil, errors.New("rooted directory is unavailable")
+	}
+	root, err := d.root.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	return &rootedDirectory{root: root, absolute: filepath.Join(d.absolute, name)}, nil
+}
+
+func (d *rootedDirectory) ReadRegularFileLimited(name string, maxBytes int64, operation string) ([]byte, error) {
+	if d == nil || d.root == nil {
+		return nil, errors.New("rooted directory is unavailable")
+	}
+	file, err := d.root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("path is not a regular file")
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %s limit (%d bytes)", operation, byteLimitLabel(maxBytes), info.Size())
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %s limit", operation, byteLimitLabel(maxBytes))
+	}
+	return data, nil
 }
 
 func checkpointPointer(id string) *string {
@@ -448,20 +534,6 @@ func readLogicalLine(reader *bufio.Reader, capture bool, remaining int) (string,
 			return "", false, err
 		}
 	}
-}
-
-func readRegularFileLimited(path string, maxBytes int64, operation string) ([]byte, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, errors.New("path is not a regular file")
-	}
-	if info.Size() > maxBytes {
-		return nil, fmt.Errorf("%s exceeds %s limit (%d bytes); use a partial/chunked operation", operation, byteLimitLabel(maxBytes), info.Size())
-	}
-	return os.ReadFile(path) // #nosec G304 -- callers pass a workspace-resolved path and size is bounded above.
 }
 
 func readRootedRegularFileLimited(path *rootedPath, maxBytes int64, operation string) ([]byte, error) {

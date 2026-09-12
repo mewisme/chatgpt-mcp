@@ -274,6 +274,72 @@ func TestDeleteAndMoveStayInsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestRootedToolPathRejectsSymlinkSwapEscape(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	safe := filepath.Join(root, "safe")
+	outside := t.TempDir()
+	if err := os.Mkdir(safe, 0755); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := runtime.Workspaces.ResolvePath(workspaceID, root, filepath.Join("safe", "file.txt"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(safe); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, safe); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	rooted, err := openRootedPath(runtime.Workspaces, workspaceID, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rooted.Close()
+	if err := rooted.WriteFile([]byte("escape"), 0644); err == nil {
+		t.Fatal("rooted tool write followed swapped symlink outside workspace")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "file.txt")); !os.IsNotExist(err) {
+		t.Fatalf("outside file was created: %v", err)
+	}
+}
+
+func TestCopyAndMoveAcrossAllowedRootsStayRooted(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	allowed := t.TempDir()
+	if _, err := runtime.Workspaces.AddAllowDir(workspaceID, allowed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "copy.txt"), []byte("copy"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	copyResult := callTool(t, runtime, "copy_file", map[string]any{"workspace_id": workspaceID, "source": "copy.txt", "destination": filepath.Join(allowed, "nested", "copy.txt")})
+	if copyResult.IsError {
+		t.Fatalf("copy across roots failed: %#v", copyResult)
+	}
+	data, err := os.ReadFile(filepath.Join(allowed, "nested", "copy.txt"))
+	if err != nil || string(data) != "copy" {
+		t.Fatalf("copied data=%q err=%v", data, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "move.txt"), []byte("move"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	moveResult := callTool(t, runtime, "move_file", map[string]any{"workspace_id": workspaceID, "source": "move.txt", "destination": filepath.Join(allowed, "move.txt")})
+	if moveResult.IsError {
+		t.Fatalf("move across roots failed: %#v", moveResult)
+	}
+	if _, err := os.Stat(filepath.Join(root, "move.txt")); !os.IsNotExist(err) {
+		t.Fatalf("move source still exists: %v", err)
+	}
+	data, err = os.ReadFile(filepath.Join(allowed, "move.txt"))
+	if err != nil || string(data) != "move" {
+		t.Fatalf("moved data=%q err=%v", data, err)
+	}
+}
+
 func TestDeleteDirectoryLargeFileCanBeRewound(t *testing.T) {
 	runtime, workspaceID, root := newToolTestRuntime(t)
 	runtime.Checkpoints.MaxFileBytes = 1024

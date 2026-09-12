@@ -43,7 +43,7 @@ func RegisterFilesystemTools(registry *Registry, workspaces *workspace.Manager, 
 
 func handleReadTextFile(workspaces *workspace.Manager) Handler {
 	return func(_ context.Context, args map[string]any) (Result, error) {
-		_, _, file, err := workspacePath(workspaces, args, "path", true)
+		item, _, file, err := workspacePath(workspaces, args, "path", true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -63,7 +63,12 @@ func handleReadTextFile(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
-		value, err := readTextFile(file, offset, limit, head, tail)
+		rooted, err := openRootedPath(workspaces, item.ID, file)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		value, err := readRootedTextFile(rooted, offset, limit, head, tail)
 		if err != nil {
 			return Result{}, err
 		}
@@ -74,7 +79,7 @@ func handleReadTextFile(workspaces *workspace.Manager) Handler {
 
 func handleReadFileBase64(workspaces *workspace.Manager) Handler {
 	return func(_ context.Context, args map[string]any) (Result, error) {
-		_, _, file, err := workspacePath(workspaces, args, "path", true)
+		item, _, file, err := workspacePath(workspaces, args, "path", true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -86,7 +91,12 @@ func handleReadFileBase64(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
-		value, err := readBase64Chunk(file, offset, length)
+		rooted, err := openRootedPath(workspaces, item.ID, file)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		value, err := readRootedBase64Chunk(rooted, offset, length)
 		if err != nil {
 			return Result{}, err
 		}
@@ -111,7 +121,12 @@ func handleWriteFile(workspaces *workspace.Manager, checkpoints *checkpoint.Stor
 		if err != nil {
 			return Result{}, err
 		}
-		if err := writeFile(file, []byte(content)); err != nil {
+		rooted, err := openRootedPath(workspaces, item.ID, file)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		if err := rooted.WriteFile([]byte(content), 0644); err != nil {
 			return Result{}, err
 		}
 		return JSONResult(WriteFileResult{Path: file, Bytes: len([]byte(content)), CheckpointID: checkpointPointer(checkpointID)}), nil
@@ -136,7 +151,12 @@ func handleWriteFileBase64(workspaces *workspace.Manager, checkpoints *checkpoin
 		if err != nil {
 			return Result{}, err
 		}
-		if err := writeFile(file, data); err != nil {
+		rooted, err := openRootedPath(workspaces, item.ID, file)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		if err := rooted.WriteFile(data, 0644); err != nil {
 			return Result{}, err
 		}
 		return JSONResult(WriteFileResult{Path: file, Bytes: len(data), CheckpointID: checkpointPointer(checkpointID)}), nil
@@ -165,7 +185,12 @@ func handleEditFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 		if err != nil {
 			return Result{}, err
 		}
-		original, err := readRegularFileLimited(file, maxMutationFileBytes, "text edit")
+		rooted, err := openRootedPath(workspaces, item.ID, file)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		original, err := readRootedRegularFileLimited(rooted, maxMutationFileBytes, "text edit")
 		if err != nil {
 			return Result{}, err
 		}
@@ -182,7 +207,7 @@ func handleEditFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 			return Result{}, err
 		}
 		if !dryRun {
-			if err := os.WriteFile(file, []byte(next), 0644); err != nil {
+			if err := rooted.WriteFile([]byte(next), 0644); err != nil {
 				return Result{}, err
 			}
 		}
@@ -204,7 +229,12 @@ func handleMultiEdit(workspaces *workspace.Manager, checkpoints *checkpoint.Stor
 		if err != nil {
 			return Result{}, err
 		}
-		original, err := readRegularFileLimited(file, maxMutationFileBytes, "multi edit")
+		rooted, err := openRootedPath(workspaces, item.ID, file)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		original, err := readRootedRegularFileLimited(rooted, maxMutationFileBytes, "multi edit")
 		if err != nil {
 			return Result{}, err
 		}
@@ -228,7 +258,7 @@ func handleMultiEdit(workspaces *workspace.Manager, checkpoints *checkpoint.Stor
 			return Result{}, err
 		}
 		if !dryRun {
-			if err := os.WriteFile(file, []byte(next), 0644); err != nil {
+			if err := rooted.WriteFile([]byte(next), 0644); err != nil {
 				return Result{}, err
 			}
 		}
@@ -258,7 +288,12 @@ func handleReplaceRegex(workspaces *workspace.Manager, checkpoints *checkpoint.S
 		if err != nil {
 			return Result{}, err
 		}
-		original, err := readRegularFileLimited(file, maxMutationFileBytes, "regex edit")
+		rooted, err := openRootedPath(workspaces, item.ID, file)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		original, err := readRootedRegularFileLimited(rooted, maxMutationFileBytes, "regex edit")
 		if err != nil {
 			return Result{}, err
 		}
@@ -275,7 +310,7 @@ func handleReplaceRegex(workspaces *workspace.Manager, checkpoints *checkpoint.S
 			return Result{}, err
 		}
 		if !dryRun {
-			if err := os.WriteFile(file, []byte(next), 0644); err != nil {
+			if err := rooted.WriteFile([]byte(next), 0644); err != nil {
 				return Result{}, err
 			}
 		}
@@ -312,7 +347,12 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 				if err != nil {
 					return Result{}, err
 				}
-				info, err := os.Stat(resolved)
+				rooted, err := openRootedPath(workspaces, item.ID, resolved)
+				if err != nil {
+					return Result{}, err
+				}
+				info, err := rooted.Stat()
+				_ = rooted.Close()
 				if err != nil {
 					return Result{}, err
 				}
@@ -344,63 +384,65 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 			}
 			results := make([]patcher.MultiPatchResult, 0, len(resolvedOps))
 			for _, op := range resolvedOps {
-				result := patcher.MultiPatchResult{Path: op.Path, Operation: op.Operation}
-				switch op.Operation {
-				case "delete":
-					if !dryRun {
-						if err := os.Remove(op.Path); err != nil {
-							result.Error = err.Error()
-							results = append(results, result)
-							continue
-						}
-					}
-					result.OK = true
-					result.Diff = "[deleted]"
-				case "create":
-					if err := validateMutationPayload(len(op.Content)); err != nil {
-						result.Error = err.Error()
-						results = append(results, result)
-						continue
-					}
-					if !dryRun {
-						if err := writeFile(op.Path, []byte(op.Content)); err != nil {
-							result.Error = err.Error()
-							results = append(results, result)
-							continue
-						}
-					}
-					result.OK = true
-					result.Diff = patcher.BuildSimpleDiff("", op.Content)
-				case "update":
-					original, err := readRegularFileLimited(op.Path, maxMutationFileBytes, "patch update")
+				result := func() patcher.MultiPatchResult {
+					result := patcher.MultiPatchResult{Path: op.Path, Operation: op.Operation}
+					rooted, err := openRootedPath(workspaces, item.ID, op.Path)
 					if err != nil {
 						result.Error = err.Error()
-						results = append(results, result)
-						continue
+						return result
 					}
-					next, err := patcher.ApplyUnifiedPatchToText(string(original), op.Patch)
-					if err != nil {
-						result.Error = err.Error()
-						results = append(results, result)
-						continue
-					}
-					if err := validateMutationPayload(len(next)); err != nil {
-						result.Error = err.Error()
-						results = append(results, result)
-						continue
-					}
-					result.Diff = patcher.BuildSimpleDiff(string(original), next)
-					if !dryRun {
-						if err := os.WriteFile(op.Path, []byte(next), 0644); err != nil {
-							result.Error = err.Error()
-							results = append(results, result)
-							continue
+					defer rooted.Close()
+					switch op.Operation {
+					case "delete":
+						if !dryRun {
+							if err := rooted.Remove(); err != nil {
+								result.Error = err.Error()
+								return result
+							}
 						}
+						result.OK = true
+						result.Diff = "[deleted]"
+					case "create":
+						if err := validateMutationPayload(len(op.Content)); err != nil {
+							result.Error = err.Error()
+							return result
+						}
+						if !dryRun {
+							if err := rooted.WriteFile([]byte(op.Content), 0644); err != nil {
+								result.Error = err.Error()
+								return result
+							}
+						}
+						result.OK = true
+						result.Diff = patcher.BuildSimpleDiff("", op.Content)
+					case "update":
+						original, err := readRootedRegularFileLimited(rooted, maxMutationFileBytes, "patch update")
+						if err != nil {
+							result.Error = err.Error()
+							return result
+						}
+						next, err := patcher.ApplyUnifiedPatchToText(string(original), op.Patch)
+						if err != nil {
+							result.Error = err.Error()
+							return result
+						}
+						if err := validateMutationPayload(len(next)); err != nil {
+							result.Error = err.Error()
+							return result
+						}
+						result.Diff = patcher.BuildSimpleDiff(string(original), next)
+						if !dryRun {
+							if err := rooted.WriteFile([]byte(next), 0644); err != nil {
+								result.Error = err.Error()
+								return result
+							}
+						}
+						result.OK = true
+					default:
+						result.Error = "unknown patch operation"
 					}
-					result.OK = true
-				default:
-					result.Error = "unknown patch operation"
-				}
+					return result
+				}()
 				results = append(results, result)
 			}
 			files := make([]map[string]any, len(results))
@@ -431,7 +473,12 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 		if err != nil {
 			return Result{}, err
 		}
-		original, err := readRegularFileLimited(file, maxMutationFileBytes, "patch update")
+		rooted, err := openRootedPath(workspaces, item.ID, file)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		original, err := readRootedRegularFileLimited(rooted, maxMutationFileBytes, "patch update")
 		if err != nil {
 			return Result{}, err
 		}
@@ -448,7 +495,7 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 			return Result{}, err
 		}
 		if !dryRun {
-			if err := os.WriteFile(file, []byte(next), 0644); err != nil {
+			if err := rooted.WriteFile([]byte(next), 0644); err != nil {
 				return Result{}, err
 			}
 		}
@@ -605,7 +652,12 @@ func handleDeleteFile(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 		if err != nil {
 			return Result{}, err
 		}
-		info, err := os.Stat(file)
+		rooted, err := openRootedPath(workspaces, item.ID, file)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		info, err := rooted.Stat()
 		if err != nil {
 			return Result{}, err
 		}
@@ -616,7 +668,7 @@ func handleDeleteFile(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 		if err != nil {
 			return Result{}, err
 		}
-		if err := os.Remove(file); err != nil {
+		if err := rooted.Remove(); err != nil {
 			return Result{}, err
 		}
 		return JSONResult(DeleteResult{Path: file, CheckpointID: checkpointPointer(checkpointID)}), nil
@@ -625,11 +677,16 @@ func handleDeleteFile(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 
 func handleCreateDirectory(workspaces *workspace.Manager) Handler {
 	return func(_ context.Context, args map[string]any) (Result, error) {
-		_, _, dir, err := workspacePath(workspaces, args, "path", false)
+		item, _, dir, err := workspacePath(workspaces, args, "path", false)
 		if err != nil {
 			return Result{}, err
 		}
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		rooted, err := openRootedPath(workspaces, item.ID, dir)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		if err := rooted.MkdirAll(0755); err != nil {
 			return Result{}, err
 		}
 		return JSONResult(CreateDirectoryResult{Path: dir}), nil
@@ -642,7 +699,12 @@ func handleDeleteDirectory(workspaces *workspace.Manager, checkpoints *checkpoin
 		if err != nil {
 			return Result{}, err
 		}
-		info, err := os.Stat(dir)
+		rooted, err := openRootedPath(workspaces, item.ID, dir)
+		if err != nil {
+			return Result{}, err
+		}
+		defer rooted.Close()
+		info, err := rooted.Stat()
 		if err != nil {
 			return Result{}, err
 		}
@@ -656,7 +718,7 @@ func handleDeleteDirectory(workspaces *workspace.Manager, checkpoints *checkpoin
 		if err != nil {
 			return Result{}, err
 		}
-		if err := os.RemoveAll(dir); err != nil {
+		if err := rooted.RemoveAll(); err != nil {
 			return Result{}, err
 		}
 		return JSONResult(map[string]any{"path": dir, "checkpoint_id": checkpointPointer(checkpointID), "run_command_fallback": deleteDirectoryFallback(dir)}), nil
@@ -685,7 +747,17 @@ func handleCopyFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 		if err != nil {
 			return Result{}, err
 		}
-		info, err := os.Stat(source)
+		sourceRooted, err := openRootedPath(workspaces, item.ID, source)
+		if err != nil {
+			return Result{}, err
+		}
+		defer sourceRooted.Close()
+		destinationRooted, err := openRootedPath(workspaces, item.ID, destination)
+		if err != nil {
+			return Result{}, err
+		}
+		defer destinationRooted.Close()
+		info, err := sourceRooted.Stat()
 		if err != nil {
 			return Result{}, err
 		}
@@ -696,7 +768,7 @@ func handleCopyFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 		if err != nil {
 			return Result{}, err
 		}
-		if err := copyFileContents(source, destination); err != nil {
+		if err := copyRootedFileContents(sourceRooted, destinationRooted); err != nil {
 			return Result{}, err
 		}
 		return JSONResult(CopyMoveResult{Source: source, Destination: destination, CheckpointID: checkpointPointer(checkpointID)}), nil
@@ -732,10 +804,40 @@ func handleMoveFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 		if err != nil {
 			return Result{}, err
 		}
-		if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
+		sourceRooted, err := openRootedPath(workspaces, item.ID, source)
+		if err != nil {
 			return Result{}, err
 		}
-		if err := os.Rename(source, destination); err != nil {
+		defer sourceRooted.Close()
+		destinationRooted, err := openRootedPath(workspaces, item.ID, destination)
+		if err != nil {
+			return Result{}, err
+		}
+		defer destinationRooted.Close()
+		parent := filepath.Dir(destinationRooted.relative)
+		if sourceRooted.root.Name() == destinationRooted.root.Name() {
+			if parent != "." {
+				if err := sourceRooted.root.MkdirAll(parent, 0755); err != nil {
+					return Result{}, err
+				}
+			}
+			if err := sourceRooted.root.Rename(sourceRooted.relative, destinationRooted.relative); err != nil {
+				return Result{}, err
+			}
+			return JSONResult(CopyMoveResult{Source: source, Destination: destination, CheckpointID: checkpointPointer(checkpointID)}), nil
+		}
+		info, err := sourceRooted.Stat()
+		if err != nil {
+			return Result{}, err
+		}
+		if !info.Mode().IsRegular() {
+			return Result{}, errors.New("moving directories across workspace access roots is not supported safely; copy contents explicitly, then delete the source")
+		}
+		if err := copyRootedFileContents(sourceRooted, destinationRooted); err != nil {
+			return Result{}, err
+		}
+		if err := sourceRooted.Remove(); err != nil {
+			_ = destinationRooted.Remove()
 			return Result{}, err
 		}
 		return JSONResult(CopyMoveResult{Source: source, Destination: destination, CheckpointID: checkpointPointer(checkpointID)}), nil

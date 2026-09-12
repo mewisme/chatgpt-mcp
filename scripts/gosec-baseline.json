@@ -160,30 +160,6 @@
     "code": "path := linuxUnitPath(spec)\n\tif err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {\n\t\treturn err"
   },
   {
-    "rule_id": "G301",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Expect directory permissions to be 0750 or less",
-    "code": "}\n\t\tif err := os.MkdirAll(dir, 0755); err != nil {\n\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G301",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Expect directory permissions to be 0750 or less",
-    "code": "}\n\t\tif err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {\n\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G301",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem.go",
-    "details": "Expect directory permissions to be 0750 or less",
-    "code": "func writeFile(path string, data []byte) error {\n\tif err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {\n\t\treturn err"
-  },
-  {
     "rule_id": "G302",
     "severity": "MEDIUM",
     "confidence": "HIGH",
@@ -387,14 +363,6 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/tools/filesystem.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\tfile, err := os.Open(path)\n\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/tools/register.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\t\t\tdata, err := os.ReadFile(file)\n\t\t\tif err != nil {"
@@ -478,54 +446,6 @@
     "file": "internal/service/backend_linux.go",
     "details": "Expect WriteFile permissions to be 0600 or less",
     "code": "}\n\tif err := os.WriteFile(path, []byte(LinuxUnit(spec)), 0644); err != nil {\n\t\treturn err"
-  },
-  {
-    "rule_id": "G306",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Expect WriteFile permissions to be 0600 or less",
-    "code": "if !dryRun {\n\t\t\t\t\t\tif err := os.WriteFile(op.Path, []byte(next), 0644); err != nil {\n\t\t\t\t\t\t\tresult.Error = err.Error()"
-  },
-  {
-    "rule_id": "G306",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Expect WriteFile permissions to be 0600 or less",
-    "code": "if !dryRun {\n\t\t\tif err := os.WriteFile(file, []byte(next), 0644); err != nil {\n\t\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G306",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Expect WriteFile permissions to be 0600 or less",
-    "code": "if !dryRun {\n\t\t\tif err := os.WriteFile(file, []byte(next), 0644); err != nil {\n\t\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G306",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Expect WriteFile permissions to be 0600 or less",
-    "code": "if !dryRun {\n\t\t\tif err := os.WriteFile(file, []byte(next), 0644); err != nil {\n\t\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G306",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Expect WriteFile permissions to be 0600 or less",
-    "code": "if !dryRun {\n\t\t\tif err := os.WriteFile(file, []byte(next), 0644); err != nil {\n\t\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G306",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem.go",
-    "details": "Expect WriteFile permissions to be 0600 or less",
-    "code": "}\n\treturn os.WriteFile(path, data, 0644)\n}"
   },
   {
     "rule_id": "G306",

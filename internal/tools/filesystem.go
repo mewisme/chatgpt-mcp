@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 const (
@@ -139,6 +141,75 @@ type EditSpec struct {
 	ReplaceAll bool
 }
 
+type rootedPath struct {
+	root     *os.Root
+	relative string
+	absolute string
+}
+
+func openRootedPath(workspaces *workspace.Manager, workspaceID, absolute string) (*rootedPath, error) {
+	root, relative, err := workspaces.OpenRootForPath(workspaceID, absolute)
+	if err != nil {
+		return nil, err
+	}
+	return &rootedPath{root: root, relative: relative, absolute: absolute}, nil
+}
+
+func (p *rootedPath) Close() error {
+	if p == nil || p.root == nil {
+		return nil
+	}
+	return p.root.Close()
+}
+
+func (p *rootedPath) Open() (*os.File, error) {
+	if p == nil || p.root == nil {
+		return nil, errors.New("rooted path is unavailable")
+	}
+	return p.root.Open(p.relative)
+}
+
+func (p *rootedPath) Stat() (os.FileInfo, error) {
+	if p == nil || p.root == nil {
+		return nil, errors.New("rooted path is unavailable")
+	}
+	return p.root.Stat(p.relative)
+}
+
+func (p *rootedPath) WriteFile(data []byte, perm os.FileMode) error {
+	if p == nil || p.root == nil {
+		return errors.New("rooted path is unavailable")
+	}
+	parent := filepath.Dir(p.relative)
+	if parent != "." {
+		if err := p.root.MkdirAll(parent, 0755); err != nil {
+			return err
+		}
+	}
+	return p.root.WriteFile(p.relative, data, perm)
+}
+
+func (p *rootedPath) MkdirAll(perm os.FileMode) error {
+	if p == nil || p.root == nil {
+		return errors.New("rooted path is unavailable")
+	}
+	return p.root.MkdirAll(p.relative, perm)
+}
+
+func (p *rootedPath) Remove() error {
+	if p == nil || p.root == nil {
+		return errors.New("rooted path is unavailable")
+	}
+	return p.root.Remove(p.relative)
+}
+
+func (p *rootedPath) RemoveAll() error {
+	if p == nil || p.root == nil {
+		return errors.New("rooted path is unavailable")
+	}
+	return p.root.RemoveAll(p.relative)
+}
+
 func checkpointPointer(id string) *string {
 	if id == "" {
 		return nil
@@ -200,15 +271,8 @@ func readTextSlice(content string, offset, limit, head, tail *int) ReadTextFileR
 	return result
 }
 
-func readTextFile(path string, offset, limit, head, tail *int) (ReadTextFileResult, error) {
-	if offset == nil && head == nil && tail == nil {
-		data, err := readRegularFileLimited(path, maxTextReadBytes, "text read")
-		if err != nil {
-			return ReadTextFileResult{}, err
-		}
-		return readTextSlice(string(data), nil, nil, nil, nil), nil
-	}
-	file, err := os.Open(path) // #nosec G304 -- path is resolved and workspace-contained before this helper is called.
+func readRootedTextFile(path *rootedPath, offset, limit, head, tail *int) (ReadTextFileResult, error) {
+	file, err := path.Open()
 	if err != nil {
 		return ReadTextFileResult{}, err
 	}
@@ -219,6 +283,19 @@ func readTextFile(path string, offset, limit, head, tail *int) (ReadTextFileResu
 	}
 	if !info.Mode().IsRegular() {
 		return ReadTextFileResult{}, errors.New("path is not a regular file")
+	}
+	if offset == nil && head == nil && tail == nil {
+		if info.Size() > maxTextReadBytes {
+			return ReadTextFileResult{}, fmt.Errorf("text read exceeds %s limit (%d bytes); use a partial/chunked operation", byteLimitLabel(maxTextReadBytes), info.Size())
+		}
+		data, err := io.ReadAll(io.LimitReader(file, maxTextReadBytes+1))
+		if err != nil {
+			return ReadTextFileResult{}, err
+		}
+		if len(data) > maxTextReadBytes {
+			return ReadTextFileResult{}, textOutputLimitError()
+		}
+		return readTextSlice(string(data), nil, nil, nil, nil), nil
 	}
 	reader := bufio.NewReader(file)
 	if offset != nil {
@@ -387,6 +464,32 @@ func readRegularFileLimited(path string, maxBytes int64, operation string) ([]by
 	return os.ReadFile(path) // #nosec G304 -- callers pass a workspace-resolved path and size is bounded above.
 }
 
+func readRootedRegularFileLimited(path *rootedPath, maxBytes int64, operation string) ([]byte, error) {
+	file, err := path.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("path is not a regular file")
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %s limit (%d bytes); use a partial/chunked operation", operation, byteLimitLabel(maxBytes), info.Size())
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %s limit", operation, byteLimitLabel(maxBytes))
+	}
+	return data, nil
+}
+
 func validateMutationPayload(size int) error {
 	if int64(size) > maxMutationFileBytes {
 		return fmt.Errorf("mutation payload exceeds %s limit", byteLimitLabel(maxMutationFileBytes))
@@ -405,8 +508,13 @@ func byteLimitLabel(bytes int64) string {
 	return fmt.Sprintf("%d bytes", bytes)
 }
 
-func readBase64Chunk(path string, offset int64, length int) (ReadFileBase64Result, error) {
-	info, err := os.Stat(path)
+func readRootedBase64Chunk(path *rootedPath, offset int64, length int) (ReadFileBase64Result, error) {
+	file, err := path.Open()
+	if err != nil {
+		return ReadFileBase64Result{}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil {
 		return ReadFileBase64Result{}, err
 	}
@@ -429,14 +537,9 @@ func readBase64Chunk(path string, offset int64, length int) (ReadFileBase64Resul
 	if int64(length) > remaining {
 		length = int(remaining)
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return ReadFileBase64Result{}, err
-	}
-	defer file.Close()
 	buffer := make([]byte, length)
 	bytesRead, err := file.ReadAt(buffer, offset)
-	if err != nil && !errors.Is(err, os.ErrClosed) && bytesRead == 0 && length > 0 {
+	if err != nil && !errors.Is(err, io.EOF) && bytesRead == 0 && length > 0 {
 		return ReadFileBase64Result{}, err
 	}
 	next := offset + int64(bytesRead)
@@ -445,10 +548,7 @@ func readBase64Chunk(path string, offset int64, length int) (ReadFileBase64Resul
 		value := next
 		nextOffset = &value
 	}
-	return ReadFileBase64Result{
-		Path: path, Size: info.Size(), Offset: offset, BytesRead: bytesRead, NextOffset: nextOffset,
-		Done: next >= info.Size(), Encoding: "base64", Content: base64.StdEncoding.EncodeToString(buffer[:bytesRead]),
-	}, nil
+	return ReadFileBase64Result{Path: path.absolute, Size: info.Size(), Offset: offset, BytesRead: bytesRead, NextOffset: nextOffset, Done: next >= info.Size(), Encoding: "base64", Content: base64.StdEncoding.EncodeToString(buffer[:bytesRead])}, nil
 }
 
 func decodeBase64(value string) ([]byte, error) {
@@ -522,18 +622,14 @@ func pathType(entry os.DirEntry) string {
 	return "file"
 }
 
-func writeFile(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
+func copyRootedFileContents(source, destination *rootedPath) error {
+	if source == nil || destination == nil {
+		return errors.New("rooted copy path is unavailable")
 	}
-	return os.WriteFile(path, data, 0644)
-}
-
-func copyFileContents(source, destination string) error {
-	if filepath.Clean(source) == filepath.Clean(destination) {
+	if filepath.Clean(source.absolute) == filepath.Clean(destination.absolute) {
 		return nil
 	}
-	input, err := os.Open(source) // #nosec G304 -- source is workspace-resolved by the caller.
+	input, err := source.Open()
 	if err != nil {
 		return err
 	}
@@ -545,10 +641,13 @@ func copyFileContents(source, destination string) error {
 	if !info.Mode().IsRegular() {
 		return errors.New("source is not a file")
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil { // #nosec G301 -- workspace files intentionally preserve normal user-readable directory semantics.
-		return err
+	parent := filepath.Dir(destination.relative)
+	if parent != "." {
+		if err := destination.root.MkdirAll(parent, 0755); err != nil {
+			return err
+		}
 	}
-	output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644) // #nosec G302,G304 -- workspace copy preserves existing 0644 file semantics; destination is workspace-resolved.
+	output, err := destination.root.OpenFile(destination.relative, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}

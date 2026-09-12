@@ -20,7 +20,7 @@ func RegisterFilesystemTools(registry *Registry, workspaces *workspace.Manager, 
 		registry.MustRegister(name, Schema{Name: name, Title: title, Description: description, InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: ToolAnnotations(risk)}, handler)
 	}
 
-	register("read_text_file", "Read Text File", "Read a file before editing. Use offset+limit for partial reads with 1-based line numbers.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"offset":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1},"head":{"type":"integer","minimum":0},"tail":{"type":"integer","minimum":0}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"},"lines":{"type":"integer"},"head":{"type":"integer"},"tail":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}`, RiskRead, handleReadTextFile(workspaces))
+	register("read_text_file", "Read Text File", "Read a file before editing. Full reads are capped at 4 MiB; use offset+limit/head/tail for bounded reads of larger files.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"offset":{"type":"integer","minimum":1,"maximum":100000},"limit":{"type":"integer","minimum":1,"maximum":100000},"head":{"type":"integer","minimum":0,"maximum":100000},"tail":{"type":"integer","minimum":0,"maximum":100000}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"},"lines":{"type":"integer"},"head":{"type":"integer"},"tail":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}`, RiskRead, handleReadTextFile(workspaces))
 	register("read_file_base64", "Read File Base64", "Read any workspace file as base64. Use offset/length for large files. Max chunk 8 MiB.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"offset":{"type":"integer","minimum":0,"default":0},"length":{"type":"integer","minimum":1,"maximum":8388608,"default":1048576}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"size":{"type":"integer"},"offset":{"type":"integer"},"bytes_read":{"type":"integer"},"next_offset":{"type":["integer","null"]},"done":{"type":"boolean"},"encoding":{"type":"string"},"content":{"type":"string"}},"required":["path","size","offset","bytes_read","next_offset","done","encoding","content"],"additionalProperties":false}`, RiskRead, handleReadFileBase64(workspaces))
 	register("write_file", "Write File", "Save text to a workspace file and capture a rewind checkpoint first.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"}},"required":["workspace_id","path","content"],"additionalProperties":false}`, mutationOutputSchema(`"bytes":{"type":"integer"}`), RiskEdit, handleWriteFile(workspaces, checkpoints))
 	register("write_file_base64", "Write File Base64", "Create or overwrite a binary workspace file from base64 content.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"}},"required":["workspace_id","path","content"],"additionalProperties":false}`, mutationOutputSchema(`"bytes":{"type":"integer"}`), RiskEdit, handleWriteFileBase64(workspaces, checkpoints))
@@ -47,27 +47,26 @@ func handleReadTextFile(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
-		content, err := os.ReadFile(file)
+		offset, err := optionalIntPointer(args, "offset", 1, maxTextSelectionLines)
 		if err != nil {
 			return Result{}, err
 		}
-		offset, err := optionalIntPointer(args, "offset", 1, 1<<30)
+		limit, err := optionalIntPointer(args, "limit", 1, maxTextSelectionLines)
 		if err != nil {
 			return Result{}, err
 		}
-		limit, err := optionalIntPointer(args, "limit", 1, 1<<30)
+		head, err := optionalIntPointer(args, "head", 0, maxTextSelectionLines)
 		if err != nil {
 			return Result{}, err
 		}
-		head, err := optionalIntPointer(args, "head", 0, 1<<30)
+		tail, err := optionalIntPointer(args, "tail", 0, maxTextSelectionLines)
 		if err != nil {
 			return Result{}, err
 		}
-		tail, err := optionalIntPointer(args, "tail", 0, 1<<30)
+		value, err := readTextFile(file, offset, limit, head, tail)
 		if err != nil {
 			return Result{}, err
 		}
-		value := readTextSlice(string(content), offset, limit, head, tail)
 		value.Path = file
 		return JSONResult(value), nil
 	}
@@ -103,6 +102,9 @@ func handleWriteFile(workspaces *workspace.Manager, checkpoints *checkpoint.Stor
 		}
 		content, err := stringArg(args, "content")
 		if err != nil {
+			return Result{}, err
+		}
+		if err := validateMutationPayload(len(content)); err != nil {
 			return Result{}, err
 		}
 		checkpointID, err := checkpointBefore(checkpoints, workspaces, item, "write_file", []string{file}, false)
@@ -163,12 +165,15 @@ func handleEditFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 		if err != nil {
 			return Result{}, err
 		}
-		original, err := os.ReadFile(file)
+		original, err := readRegularFileLimited(file, maxMutationFileBytes, "text edit")
 		if err != nil {
 			return Result{}, err
 		}
 		next, err := replaceExact(string(original), oldText, newText, replaceAll)
 		if err != nil {
+			return Result{}, err
+		}
+		if err := validateMutationPayload(len(next)); err != nil {
 			return Result{}, err
 		}
 		diff := patcher.BuildSimpleDiff(string(original), next)
@@ -199,7 +204,7 @@ func handleMultiEdit(workspaces *workspace.Manager, checkpoints *checkpoint.Stor
 		if err != nil {
 			return Result{}, err
 		}
-		original, err := os.ReadFile(file)
+		original, err := readRegularFileLimited(file, maxMutationFileBytes, "multi edit")
 		if err != nil {
 			return Result{}, err
 		}
@@ -212,6 +217,9 @@ func handleMultiEdit(workspaces *workspace.Manager, checkpoints *checkpoint.Stor
 					preview = preview[:120]
 				}
 				return Result{}, fmt.Errorf("old_text not found: %s", preview)
+			}
+			if err := validateMutationPayload(len(next)); err != nil {
+				return Result{}, err
 			}
 		}
 		diff := patcher.BuildSimpleDiff(string(original), next)
@@ -250,12 +258,15 @@ func handleReplaceRegex(workspaces *workspace.Manager, checkpoints *checkpoint.S
 		if err != nil {
 			return Result{}, err
 		}
-		original, err := os.ReadFile(file)
+		original, err := readRegularFileLimited(file, maxMutationFileBytes, "regex edit")
 		if err != nil {
 			return Result{}, err
 		}
 		next, err := replaceRegex(string(original), pattern, replacement, flags)
 		if err != nil {
+			return Result{}, err
+		}
+		if err := validateMutationPayload(len(next)); err != nil {
 			return Result{}, err
 		}
 		diff := patcher.BuildSimpleDiff(string(original), next)
@@ -280,6 +291,9 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 		}
 		patchText, err := stringArg(args, "patch")
 		if err != nil {
+			return Result{}, err
+		}
+		if err := validateMutationPayload(len(patchText)); err != nil {
 			return Result{}, err
 		}
 		dryRun, err := optionalBool(args, "dry_run", false)
@@ -343,6 +357,11 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 					result.OK = true
 					result.Diff = "[deleted]"
 				case "create":
+					if err := validateMutationPayload(len(op.Content)); err != nil {
+						result.Error = err.Error()
+						results = append(results, result)
+						continue
+					}
 					if !dryRun {
 						if err := writeFile(op.Path, []byte(op.Content)); err != nil {
 							result.Error = err.Error()
@@ -353,7 +372,7 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 					result.OK = true
 					result.Diff = patcher.BuildSimpleDiff("", op.Content)
 				case "update":
-					original, err := os.ReadFile(op.Path)
+					original, err := readRegularFileLimited(op.Path, maxMutationFileBytes, "patch update")
 					if err != nil {
 						result.Error = err.Error()
 						results = append(results, result)
@@ -361,6 +380,11 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 					}
 					next, err := patcher.ApplyUnifiedPatchToText(string(original), op.Patch)
 					if err != nil {
+						result.Error = err.Error()
+						results = append(results, result)
+						continue
+					}
+					if err := validateMutationPayload(len(next)); err != nil {
 						result.Error = err.Error()
 						results = append(results, result)
 						continue
@@ -407,12 +431,15 @@ func handleApplyPatch(workspaces *workspace.Manager, checkpoints *checkpoint.Sto
 		if err != nil {
 			return Result{}, err
 		}
-		original, err := os.ReadFile(file)
+		original, err := readRegularFileLimited(file, maxMutationFileBytes, "patch update")
 		if err != nil {
 			return Result{}, err
 		}
 		next, err := patcher.ApplyUnifiedPatchToText(string(original), patchText)
 		if err != nil {
+			return Result{}, err
+		}
+		if err := validateMutationPayload(len(next)); err != nil {
 			return Result{}, err
 		}
 		diff := patcher.BuildSimpleDiff(string(original), next)
@@ -669,11 +696,7 @@ func handleCopyFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 		if err != nil {
 			return Result{}, err
 		}
-		data, err := os.ReadFile(source)
-		if err != nil {
-			return Result{}, err
-		}
-		if err := writeFile(destination, data); err != nil {
+		if err := copyFileContents(source, destination); err != nil {
 			return Result{}, err
 		}
 		return JSONResult(CopyMoveResult{Source: source, Destination: destination, CheckpointID: checkpointPointer(checkpointID)}), nil

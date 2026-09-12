@@ -134,7 +134,7 @@ func grepSearch(options GrepOptions) (string, error) {
 			if !globMatcher.MatchString(entry.Name()) {
 				continue
 			}
-			data, err := os.ReadFile(fullPath)
+			data, err := readRegularFileLimited(fullPath, maxSearchFileBytes, "search file")
 			if err != nil {
 				continue
 			}
@@ -245,7 +245,7 @@ func searchDirectory(root string, regex *regexp.Regexp, globPattern string, maxR
 			if !matcher.MatchString(entry.Name()) {
 				continue
 			}
-			data, err := os.ReadFile(fullPath)
+			data, err := readRegularFileLimited(fullPath, maxSearchFileBytes, "search file")
 			if err != nil {
 				continue
 			}

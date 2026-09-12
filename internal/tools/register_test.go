@@ -63,6 +63,75 @@ func TestReadTextFilePartialLines(t *testing.T) {
 	}
 }
 
+func TestReadTextFileLargeFileRequiresBoundedSelection(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	paddingLines := maxTextReadBytes/8 + 8
+	var content strings.Builder
+	content.Grow(maxTextReadBytes + 128)
+	content.WriteString("first\n")
+	for range paddingLines {
+		content.WriteString("padding\n")
+	}
+	content.WriteString("last-a\nlast-b")
+	file := filepath.Join(root, "large.txt")
+	if err := os.WriteFile(file, []byte(content.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+	whole := callTool(t, runtime, "read_text_file", map[string]any{"workspace_id": workspaceID, "path": "large.txt"})
+	if !whole.IsError || len(whole.Content) == 0 || !strings.Contains(whole.Content[0].Text, "4 MiB") {
+		t.Fatalf("whole read was not bounded: %#v", whole)
+	}
+	head := callTool(t, runtime, "read_text_file", map[string]any{"workspace_id": workspaceID, "path": "large.txt", "head": 1})
+	if head.IsError || head.StructuredContent.(ReadTextFileResult).Content != "first" {
+		t.Fatalf("head read=%#v", head)
+	}
+	tail := callTool(t, runtime, "read_text_file", map[string]any{"workspace_id": workspaceID, "path": "large.txt", "tail": 2})
+	if tail.IsError || tail.StructuredContent.(ReadTextFileResult).Content != "last-a\nlast-b" {
+		t.Fatalf("tail read=%#v", tail)
+	}
+}
+
+func TestTextMutationRejectsOversizedFile(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	file := filepath.Join(root, "large.txt")
+	if err := os.WriteFile(file, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(file, maxMutationFileBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	result := callTool(t, runtime, "edit_file", map[string]any{"workspace_id": workspaceID, "path": "large.txt", "old_text": "old", "new_text": "new"})
+	if !result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "16 MiB") {
+		t.Fatalf("oversized edit was not rejected: %#v", result)
+	}
+	info, err := os.Stat(file)
+	if err != nil || info.Size() != maxMutationFileBytes+1 {
+		t.Fatalf("oversized file changed: size=%d err=%v", info.Size(), err)
+	}
+}
+
+func TestSearchSkipsOversizedFiles(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	large := filepath.Join(root, "large.txt")
+	if err := os.WriteFile(large, []byte("needle\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(large, maxSearchFileBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "small.txt"), []byte("needle\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result := callTool(t, runtime, "search_files", map[string]any{"workspace_id": workspaceID, "path": ".", "pattern": "needle", "glob": "*.txt"})
+	if result.IsError {
+		t.Fatalf("search failed: %#v", result)
+	}
+	matches := result.StructuredContent.(SearchFilesResult).Matches
+	if len(matches) != 1 || !strings.Contains(matches[0], "small.txt") || strings.Contains(matches[0], "large.txt") {
+		t.Fatalf("search matches=%#v", matches)
+	}
+}
+
 func TestReadFileBase64Chunk(t *testing.T) {
 	runtime, workspaceID, root := newToolTestRuntime(t)
 	data := []byte("abcdefghij")

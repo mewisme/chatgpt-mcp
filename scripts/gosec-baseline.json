@@ -387,54 +387,6 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\tcontent, err := os.ReadFile(file)\n\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\tdata, err := os.ReadFile(source)\n\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\toriginal, err := os.ReadFile(file)\n\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\toriginal, err := os.ReadFile(file)\n\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\toriginal, err := os.ReadFile(file)\n\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\toriginal, err := os.ReadFile(file)\n\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/tools/filesystem.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\tfile, err := os.Open(path)\n\tif err != nil {"
@@ -446,22 +398,6 @@
     "file": "internal/tools/register.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\t\t\tdata, err := os.ReadFile(file)\n\t\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/search.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\t\tdata, err := os.ReadFile(fullPath)\n\t\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/tools/search.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\t\tdata, err := os.ReadFile(fullPath)\n\t\t\tif err != nil {"
   },
   {
     "rule_id": "G304",
@@ -630,54 +566,6 @@
     "file": "internal/instructioncontext/imports.go",
     "details": "Path traversal via taint analysis",
     "code": "resolved := filepath.Clean(absolute)\n\tif info, err := os.Lstat(resolved); err == nil && info.Mode()&os.ModeSymlink != 0 {\n\t\treturn \"\", fmt.Errorf(\"symlink imports are not allowed\")"
-  },
-  {
-    "rule_id": "G703",
-    "severity": "HIGH",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Path traversal via taint analysis",
-    "code": "if !dryRun {\n\t\t\t\t\t\tif err := os.WriteFile(op.Path, []byte(next), 0644); err != nil {\n\t\t\t\t\t\t\tresult.Error = err.Error()"
-  },
-  {
-    "rule_id": "G703",
-    "severity": "HIGH",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Path traversal via taint analysis",
-    "code": "if !dryRun {\n\t\t\tif err := os.WriteFile(file, []byte(next), 0644); err != nil {\n\t\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G703",
-    "severity": "HIGH",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Path traversal via taint analysis",
-    "code": "if !dryRun {\n\t\t\tif err := os.WriteFile(file, []byte(next), 0644); err != nil {\n\t\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G703",
-    "severity": "HIGH",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Path traversal via taint analysis",
-    "code": "if !dryRun {\n\t\t\tif err := os.WriteFile(file, []byte(next), 0644); err != nil {\n\t\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G703",
-    "severity": "HIGH",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem_tools.go",
-    "details": "Path traversal via taint analysis",
-    "code": "if !dryRun {\n\t\t\tif err := os.WriteFile(file, []byte(next), 0644); err != nil {\n\t\t\t\treturn Result{}, err"
-  },
-  {
-    "rule_id": "G703",
-    "severity": "HIGH",
-    "confidence": "HIGH",
-    "file": "internal/tools/filesystem.go",
-    "details": "Path traversal via taint analysis",
-    "code": "}\n\treturn os.WriteFile(path, data, 0644)\n}"
   },
   {
     "rule_id": "G705",

@@ -1,16 +1,24 @@
 package tools
 
 import (
+	"bufio"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
 
-const maxBinaryChunk = 8 * 1024 * 1024
+const (
+	maxBinaryChunk        = 8 * 1024 * 1024
+	maxTextReadBytes      = 4 * 1024 * 1024
+	maxMutationFileBytes  = 16 * 1024 * 1024
+	maxSearchFileBytes    = 16 * 1024 * 1024
+	maxTextSelectionLines = 100_000
+)
 
 type ReadTextFileResult struct {
 	Path    string `json:"path"`
@@ -192,6 +200,211 @@ func readTextSlice(content string, offset, limit, head, tail *int) ReadTextFileR
 	return result
 }
 
+func readTextFile(path string, offset, limit, head, tail *int) (ReadTextFileResult, error) {
+	if offset == nil && head == nil && tail == nil {
+		data, err := readRegularFileLimited(path, maxTextReadBytes, "text read")
+		if err != nil {
+			return ReadTextFileResult{}, err
+		}
+		return readTextSlice(string(data), nil, nil, nil, nil), nil
+	}
+	file, err := os.Open(path) // #nosec G304 -- path is resolved and workspace-contained before this helper is called.
+	if err != nil {
+		return ReadTextFileResult{}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return ReadTextFileResult{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return ReadTextFileResult{}, errors.New("path is not a regular file")
+	}
+	reader := bufio.NewReader(file)
+	if offset != nil {
+		return readTextOffset(reader, offset, limit)
+	}
+	if head != nil {
+		return readTextHead(reader, head)
+	}
+	return readTextTail(reader, tail)
+}
+
+func readTextOffset(reader *bufio.Reader, offset, limit *int) (ReadTextFileResult, error) {
+	start := *offset
+	if start < 1 {
+		start = 1
+	}
+	want := maxTextSelectionLines
+	if limit != nil {
+		want = *limit
+	}
+	lines := make([]string, 0, min(want, 256))
+	lineNumber := 1
+	bytes := 0
+	for len(lines) < want {
+		capture := lineNumber >= start
+		line, ok, err := readLogicalLine(reader, capture, maxTextReadBytes-bytes)
+		if err != nil {
+			return ReadTextFileResult{}, err
+		}
+		if !ok {
+			break
+		}
+		if capture {
+			numbered := fmt.Sprintf("%6d|%s", lineNumber, line)
+			if len(lines) > 0 {
+				bytes++
+			}
+			bytes += len(numbered)
+			if bytes > maxTextReadBytes {
+				return ReadTextFileResult{}, textOutputLimitError()
+			}
+			lines = append(lines, numbered)
+		}
+		lineNumber++
+	}
+	if limit == nil && len(lines) == maxTextSelectionLines {
+		if _, ok, err := readLogicalLine(reader, false, 0); err != nil {
+			return ReadTextFileResult{}, err
+		} else if ok {
+			return ReadTextFileResult{}, fmt.Errorf("text read exceeds %d-line selection limit; provide limit to narrow the result", maxTextSelectionLines)
+		}
+	}
+	count := len(lines)
+	return ReadTextFileResult{Content: strings.Join(lines, "\n"), Offset: offset, Limit: limit, Lines: &count}, nil
+}
+
+func readTextHead(reader *bufio.Reader, head *int) (ReadTextFileResult, error) {
+	want := *head
+	lines := make([]string, 0, min(want, 256))
+	bytes := 0
+	for len(lines) < want {
+		line, ok, err := readLogicalLine(reader, true, maxTextReadBytes-bytes)
+		if err != nil {
+			return ReadTextFileResult{}, err
+		}
+		if !ok {
+			break
+		}
+		if len(lines) > 0 {
+			bytes++
+		}
+		bytes += len(line)
+		if bytes > maxTextReadBytes {
+			return ReadTextFileResult{}, textOutputLimitError()
+		}
+		lines = append(lines, line)
+	}
+	return ReadTextFileResult{Content: strings.Join(lines, "\n"), Head: head}, nil
+}
+
+func readTextTail(reader *bufio.Reader, tail *int) (ReadTextFileResult, error) {
+	want := *tail
+	if want == 0 {
+		return ReadTextFileResult{Content: "", Tail: tail}, nil
+	}
+	ring := make([]string, 0, min(want, 256))
+	bytes := 0
+	truncatedByBytes := false
+	for {
+		line, ok, err := readLogicalLine(reader, true, maxTextReadBytes)
+		if err != nil {
+			return ReadTextFileResult{}, err
+		}
+		if !ok {
+			break
+		}
+		lineBytes := len(line)
+		if len(ring) > 0 {
+			lineBytes++
+		}
+		ring = append(ring, line)
+		bytes += lineBytes
+		if len(ring) > want {
+			bytes -= len(ring[0])
+			if len(ring) > 1 {
+				bytes--
+			}
+			ring = ring[1:]
+		}
+		for bytes > maxTextReadBytes && len(ring) > 0 {
+			truncatedByBytes = true
+			bytes -= len(ring[0])
+			if len(ring) > 1 {
+				bytes--
+			}
+			ring = ring[1:]
+		}
+	}
+	if truncatedByBytes && len(ring) < want {
+		return ReadTextFileResult{}, textOutputLimitError()
+	}
+	return ReadTextFileResult{Content: strings.Join(ring, "\n"), Tail: tail}, nil
+}
+
+func readLogicalLine(reader *bufio.Reader, capture bool, remaining int) (string, bool, error) {
+	if remaining < 0 {
+		return "", false, textOutputLimitError()
+	}
+	var builder strings.Builder
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if capture {
+			if builder.Len()+len(fragment) > remaining+1 {
+				return "", false, textOutputLimitError()
+			}
+			builder.Write(fragment)
+		}
+		switch {
+		case err == nil:
+			line := builder.String()
+			return strings.TrimSuffix(line, "\n"), true, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			if len(fragment) == 0 && builder.Len() == 0 {
+				return "", false, nil
+			}
+			return builder.String(), true, nil
+		default:
+			return "", false, err
+		}
+	}
+}
+
+func readRegularFileLimited(path string, maxBytes int64, operation string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("path is not a regular file")
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %s limit (%d bytes); use a partial/chunked operation", operation, byteLimitLabel(maxBytes), info.Size())
+	}
+	return os.ReadFile(path) // #nosec G304 -- callers pass a workspace-resolved path and size is bounded above.
+}
+
+func validateMutationPayload(size int) error {
+	if int64(size) > maxMutationFileBytes {
+		return fmt.Errorf("mutation payload exceeds %s limit", byteLimitLabel(maxMutationFileBytes))
+	}
+	return nil
+}
+
+func textOutputLimitError() error {
+	return fmt.Errorf("text read exceeds %s output limit; reduce offset/limit/head/tail or use read_file_base64", byteLimitLabel(maxTextReadBytes))
+}
+
+func byteLimitLabel(bytes int64) string {
+	if bytes%(1024*1024) == 0 {
+		return fmt.Sprintf("%d MiB", bytes/(1024*1024))
+	}
+	return fmt.Sprintf("%d bytes", bytes)
+}
+
 func readBase64Chunk(path string, offset int64, length int) (ReadFileBase64Result, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -239,6 +452,9 @@ func readBase64Chunk(path string, offset int64, length int) (ReadFileBase64Resul
 }
 
 func decodeBase64(value string) ([]byte, error) {
+	if int64(base64.StdEncoding.DecodedLen(len(value))) > maxMutationFileBytes {
+		return nil, fmt.Errorf("decoded mutation payload exceeds %s limit", byteLimitLabel(maxMutationFileBytes))
+	}
 	data, err := base64.StdEncoding.DecodeString(value)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64 content: %w", err)
@@ -311,4 +527,35 @@ func writeFile(path string, data []byte) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+func copyFileContents(source, destination string) error {
+	if filepath.Clean(source) == filepath.Clean(destination) {
+		return nil
+	}
+	input, err := os.Open(source) // #nosec G304 -- source is workspace-resolved by the caller.
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	info, err := input.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("source is not a file")
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil { // #nosec G301 -- workspace files intentionally preserve normal user-readable directory semantics.
+		return err
+	}
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644) // #nosec G302,G304 -- workspace copy preserves existing 0644 file semantics; destination is workspace-resolved.
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(output, input)
+	closeErr := output.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }

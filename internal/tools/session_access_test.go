@@ -128,3 +128,53 @@ func TestSessionWorkspaceAccessAnyWorkspaceRefreshesSessionExpiry(t *testing.T) 
 		t.Fatalf("access = %#v ok=%t", access, ok)
 	}
 }
+
+func TestSessionWorkspaceAccessBoundsSessionsAndHashesKeys(t *testing.T) {
+	manager := NewSessionWorkspaceAccessManager()
+	manager.maxSessions = 2
+	now := time.Unix(100, 0)
+	manager.now = func() time.Time { return now }
+	if _, _, _, err := manager.CheckOrGrant("session-secret-a", "ws_x"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	if _, _, _, err := manager.CheckOrGrant("session-secret-b", "ws_x"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	if _, _, _, err := manager.CheckOrGrant("session-secret-c", "ws_x"); err != nil {
+		t.Fatal(err)
+	}
+	if manager.Count() != 2 {
+		t.Fatalf("session count = %d", manager.Count())
+	}
+	if _, ok := manager.Lookup("session-secret-a"); ok {
+		t.Fatal("oldest session was not evicted")
+	}
+	if _, exists := manager.sessions["session-secret-c"]; exists {
+		t.Fatal("raw session id stored as map key")
+	}
+	if _, exists := manager.sessions[mcpSessionStateKey("session-secret-c")]; !exists {
+		t.Fatal("hashed session key missing")
+	}
+}
+
+func TestSessionWorkspaceAccessBoundsWorkspacesPerSession(t *testing.T) {
+	manager := NewSessionWorkspaceAccessManager()
+	manager.maxWorkspaces = 2
+	now := time.Unix(100, 0)
+	manager.now = func() time.Time { return now }
+	for _, workspaceID := range []string{"ws_a", "ws_b", "ws_c"} {
+		if _, _, _, err := manager.CheckOrGrant("session-a", workspaceID); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Minute)
+	}
+	access, ok := manager.Lookup("session-a")
+	if !ok || len(access.Workspaces) != 2 {
+		t.Fatalf("access = %#v ok=%t", access, ok)
+	}
+	if _, exists := access.Workspaces["ws_a"]; exists {
+		t.Fatal("oldest workspace access was not evicted")
+	}
+}

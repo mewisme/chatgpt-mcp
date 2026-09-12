@@ -20,7 +20,10 @@ import (
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
-const defaultFlowTTL = 10 * time.Minute
+const (
+	defaultFlowTTL        = 10 * time.Minute
+	defaultFlowMaxPending = 128
+)
 
 type FlowSession struct {
 	ID               string    `json:"session_id"`
@@ -29,10 +32,13 @@ type FlowSession struct {
 }
 
 type FlowManager struct {
-	mu       sync.Mutex
-	store    *Store
-	sessions map[string]pendingLogin
-	ttl      time.Duration
+	mu         sync.Mutex
+	store      *Store
+	sessions   map[string]pendingLogin
+	ttl        time.Duration
+	maxPending int
+	inflight   int
+	now        func() time.Time
 }
 
 type pendingLogin struct {
@@ -59,7 +65,7 @@ func NewFlowManager(store *Store) *FlowManager {
 	if store == nil {
 		store = NewStore(Path())
 	}
-	return &FlowManager{store: store, sessions: map[string]pendingLogin{}, ttl: defaultFlowTTL}
+	return &FlowManager{store: store, sessions: map[string]pendingLogin{}, ttl: defaultFlowTTL, maxPending: defaultFlowMaxPending, now: time.Now}
 }
 
 func (m *FlowManager) Begin(ctx context.Context, config LoginConfig, redirectBase, extraScope string) (FlowSession, error) {
@@ -77,6 +83,15 @@ func (m *FlowManager) Begin(ctx context.Context, config LoginConfig, redirectBas
 	if err := validateRedirectURL(redirectBase); err != nil {
 		return fail("OAuth redirect URL validation failed", err)
 	}
+	if err := m.reserveFlowSlot(); err != nil {
+		return fail("OAuth login flow capacity exhausted", err)
+	}
+	reserved := true
+	defer func() {
+		if reserved {
+			m.releaseFlowSlot()
+		}
+	}()
 	challengeHeaders, err := m.store.ProbeWWWAuthenticate(ctx, config.ServerURL)
 	if err != nil {
 		wrapped := fmt.Errorf("probe MCP authorization challenge: %w", err)
@@ -122,13 +137,14 @@ func (m *FlowManager) Begin(ctx context.Context, config LoginConfig, redirectBas
 	if err != nil {
 		return fail("OAuth authorization URL construction failed", err)
 	}
-	expiresAt := time.Now().UTC().Add(m.ttl)
-	m.mu.Lock()
-	m.cleanupLocked(time.Now())
-	m.sessions[id] = pendingLogin{
+	expiresAt := m.clock()().UTC().Add(m.ttl)
+	pending := pendingLogin{
 		Config: config, Discovery: discovery, Registration: registration, Scopes: scopes, State: state, Verifier: verifier, RedirectURL: redirectURL, ExpiresAt: expiresAt,
 	}
-	m.mu.Unlock()
+	if err := m.commitFlowSlot(id, pending); err != nil {
+		return fail("OAuth login flow capacity exhausted", err)
+	}
+	reserved = false
 	span.EndMessage("OAuth login flow prepared", tracepkg.URL("authorization_endpoint", discovery.AuthServerMeta.AuthorizationEndpoint), tracepkg.URL("token_endpoint", discovery.AuthServerMeta.TokenEndpoint), tracepkg.String("registration", registration.Kind), tracepkg.String("token_auth_method", registration.TokenAuthMethod), tracepkg.Any("scopes", append([]string(nil), scopes...)), tracepkg.Int("scope_count", len(scopes)), tracepkg.String("callback_origin", redirectBase), tracepkg.Int64("flow_ttl_ms", m.ttl.Milliseconds()))
 	return FlowSession{ID: id, AuthorizationURL: authorizationURL, ExpiresAt: expiresAt}, nil
 }
@@ -138,7 +154,7 @@ func (m *FlowManager) Complete(ctx context.Context, id, state, code, issuer, oau
 	span := tracepkg.Start(ctx, "OAUTH", "oauth.flow.complete", "Completing OAuth login flow", tracepkg.Bool("session_present", strings.TrimSpace(id) != ""), tracepkg.Bool("state_present", state != ""), tracepkg.Bool("code_present", code != ""), tracepkg.Bool("issuer_present", issuer != ""), tracepkg.Bool("oauth_error_present", oauthError != ""))
 	tracepkg.Emit(ctx, "OAUTH", "oauth.callback.received", "OAuth callback received", tracepkg.Bool("state_present", state != ""), tracepkg.Bool("code_present", code != ""), tracepkg.Bool("issuer_present", issuer != ""), tracepkg.Bool("oauth_error_present", oauthError != ""))
 	m.mu.Lock()
-	m.cleanupLocked(time.Now())
+	m.cleanupLocked(m.clock()())
 	pending, ok := m.sessions[id]
 	if !ok {
 		m.mu.Unlock()
@@ -216,6 +232,56 @@ func (m *FlowManager) Cancel(id string) {
 	m.mu.Lock()
 	delete(m.sessions, id)
 	m.mu.Unlock()
+}
+
+func (m *FlowManager) reserveFlowSlot() error {
+	if m == nil {
+		return errors.New("OAuth flow manager is unavailable")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupLocked(m.clock()())
+	if m.maxPending > 0 && len(m.sessions)+m.inflight >= m.maxPending {
+		return fmt.Errorf("too many pending OAuth login flows (maximum %d)", m.maxPending)
+	}
+	m.inflight++
+	return nil
+}
+
+func (m *FlowManager) releaseFlowSlot() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.inflight > 0 {
+		m.inflight--
+	}
+	m.mu.Unlock()
+}
+
+func (m *FlowManager) commitFlowSlot(id string, pending pendingLogin) error {
+	if m == nil {
+		return errors.New("OAuth flow manager is unavailable")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupLocked(m.clock()())
+	if m.maxPending > 0 && len(m.sessions) >= m.maxPending {
+		return fmt.Errorf("too many pending OAuth login flows (maximum %d)", m.maxPending)
+	}
+	if m.inflight <= 0 {
+		return errors.New("OAuth flow reservation is missing")
+	}
+	m.inflight--
+	m.sessions[id] = pending
+	return nil
+}
+
+func (m *FlowManager) clock() func() time.Time {
+	if m != nil && m.now != nil {
+		return m.now
+	}
+	return time.Now
 }
 
 func (m *FlowManager) cleanupLocked(now time.Time) {

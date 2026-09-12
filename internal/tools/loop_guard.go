@@ -13,6 +13,7 @@ import (
 const (
 	toolLoopHistoryLimit = 32
 	toolLoopSessionTTL   = 30 * time.Minute
+	toolLoopMaxSessions  = 4096
 )
 
 type toolLoopClass string
@@ -25,9 +26,10 @@ const (
 )
 
 type ToolLoopGuard struct {
-	mu       sync.Mutex
-	sessions map[string]*toolLoopSession
-	now      func() time.Time
+	mu          sync.Mutex
+	sessions    map[string]*toolLoopSession
+	now         func() time.Time
+	maxSessions int
 }
 
 type toolLoopSession struct {
@@ -52,7 +54,7 @@ type toolLoopDecision struct {
 }
 
 func NewToolLoopGuard() *ToolLoopGuard {
-	return &ToolLoopGuard{sessions: map[string]*toolLoopSession{}, now: time.Now}
+	return &ToolLoopGuard{sessions: map[string]*toolLoopSession{}, now: time.Now, maxSessions: toolLoopMaxSessions}
 }
 
 func (g *ToolLoopGuard) Check(sessionID, name string, args map[string]any, class toolLoopClass) toolLoopDecision {
@@ -143,7 +145,7 @@ func (g *ToolLoopGuard) Delete(sessionID string) {
 		return
 	}
 	g.mu.Lock()
-	delete(g.sessions, strings.TrimSpace(sessionID))
+	delete(g.sessions, mcpSessionStateKey(sessionID))
 	g.mu.Unlock()
 }
 
@@ -155,11 +157,12 @@ func (g *ToolLoopGuard) clock() func() time.Time {
 }
 
 func (g *ToolLoopGuard) sessionLocked(sessionID string, now time.Time) *toolLoopSession {
-	sessionID = strings.TrimSpace(sessionID)
-	session := g.sessions[sessionID]
+	key := mcpSessionStateKey(sessionID)
+	session := g.sessions[key]
 	if session == nil {
+		g.evictOldestSessionLocked()
 		session = &toolLoopSession{}
-		g.sessions[sessionID] = session
+		g.sessions[key] = session
 	}
 	session.lastSeen = now
 	return session
@@ -170,6 +173,26 @@ func (g *ToolLoopGuard) purgeLocked(now time.Time) {
 		if session == nil || now.Sub(session.lastSeen) >= toolLoopSessionTTL {
 			delete(g.sessions, id)
 		}
+	}
+}
+
+func (g *ToolLoopGuard) evictOldestSessionLocked() {
+	if g.maxSessions <= 0 || len(g.sessions) < g.maxSessions {
+		return
+	}
+	oldestKey := ""
+	var oldest time.Time
+	for key, session := range g.sessions {
+		if session == nil {
+			delete(g.sessions, key)
+			return
+		}
+		if oldestKey == "" || session.lastSeen.Before(oldest) {
+			oldestKey, oldest = key, session.lastSeen
+		}
+	}
+	if oldestKey != "" {
+		delete(g.sessions, oldestKey)
 	}
 }
 

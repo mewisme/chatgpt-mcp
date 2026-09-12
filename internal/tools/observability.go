@@ -47,6 +47,15 @@ func MCPSessionFingerprint(sessionID string) string {
 	return hex.EncodeToString(sum[:])[:12]
 }
 
+func mcpSessionStateKey(sessionID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(sessionID))
+	return hex.EncodeToString(sum[:])
+}
+
 func WithReceivedByInstanceID(ctx context.Context, instanceID string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()

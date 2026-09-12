@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestToolLoopGuardBlocksExactContextDuplicates(t *testing.T) {
@@ -79,6 +80,26 @@ func TestToolLoopGuardDifferentMutationResetsDuplicateStreak(t *testing.T) {
 	guard.MarkMutationSuccess("session-a", "delete_file", secondArgs)
 	if decision := guard.Check("session-a", "delete_file", firstArgs, toolLoopClassMutation); decision.blocked || decision.warn || decision.repeats != 1 {
 		t.Fatalf("decision=%#v", decision)
+	}
+}
+
+func TestToolLoopGuardBoundsSessionsAndHashesKeys(t *testing.T) {
+	guard := NewToolLoopGuard()
+	guard.maxSessions = 2
+	now := time.Unix(100, 0)
+	guard.now = func() time.Time { return now }
+	for _, sessionID := range []string{"session-secret-a", "session-secret-b", "session-secret-c"} {
+		_ = guard.Check(sessionID, "project_context", map[string]any{}, toolLoopClassContext)
+		now = now.Add(time.Minute)
+	}
+	if len(guard.sessions) != 2 {
+		t.Fatalf("session count = %d", len(guard.sessions))
+	}
+	if _, exists := guard.sessions[mcpSessionStateKey("session-secret-a")]; exists {
+		t.Fatal("oldest loop-guard session was not evicted")
+	}
+	if _, exists := guard.sessions["session-secret-c"]; exists {
+		t.Fatal("raw session id stored as loop-guard map key")
 	}
 }
 

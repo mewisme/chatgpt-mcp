@@ -54,6 +54,53 @@ func TestStoreRoundTripAndStatus(t *testing.T) {
 	}
 }
 
+func TestFlowManagerBoundsPendingAndInflightFlows(t *testing.T) {
+	manager := NewFlowManager(NewStore(filepath.Join(t.TempDir(), "oauth.json")))
+	manager.maxPending = 2
+	if err := manager.reserveFlowSlot(); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.reserveFlowSlot(); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.reserveFlowSlot(); err == nil || !strings.Contains(err.Error(), "maximum 2") {
+		t.Fatalf("third reservation error = %v", err)
+	}
+	manager.releaseFlowSlot()
+	if err := manager.reserveFlowSlot(); err != nil {
+		t.Fatalf("reservation after release: %v", err)
+	}
+	manager.releaseFlowSlot()
+	manager.releaseFlowSlot()
+	if manager.inflight != 0 {
+		t.Fatalf("inflight = %d", manager.inflight)
+	}
+}
+
+func TestFlowManagerExpiredPendingFlowFreesCapacity(t *testing.T) {
+	manager := NewFlowManager(NewStore(filepath.Join(t.TempDir(), "oauth.json")))
+	manager.maxPending = 1
+	now := time.Unix(100, 0)
+	manager.now = func() time.Time { return now }
+	if err := manager.reserveFlowSlot(); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.commitFlowSlot("flow-a", pendingLogin{ExpiresAt: now.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.reserveFlowSlot(); err == nil {
+		t.Fatal("pending flow did not consume capacity")
+	}
+	now = now.Add(time.Minute)
+	if err := manager.reserveFlowSlot(); err != nil {
+		t.Fatalf("expired flow did not free capacity: %v", err)
+	}
+	if len(manager.sessions) != 0 || manager.inflight != 1 {
+		t.Fatalf("sessions=%d inflight=%d", len(manager.sessions), manager.inflight)
+	}
+	manager.releaseFlowSlot()
+}
+
 func TestValidateIssuerResponseFinalRules(t *testing.T) {
 	issuer := "https://issuer.example"
 	cases := []struct {

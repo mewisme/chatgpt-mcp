@@ -70,6 +70,12 @@ func loadTunnelSecretsWithPolicy(path string, cfg *tunnel.Config, legacyRuntime,
 	if err != nil {
 		return false, err
 	}
+	if stored.APIKey == secretFileMarker {
+		stored.APIKey = ""
+	}
+	if stored.AdminKey == secretFileMarker {
+		stored.AdminKey = ""
+	}
 	if stored.AdminOrganizationID != "" || stored.AdminWorkspaceID != "" || stored.AdminTenantID != "" || stored.AdminReadAccess || stored.AdminManageAccess {
 		cfg.AdminOrganizationID = stored.AdminOrganizationID
 		cfg.AdminWorkspaceID = stored.AdminWorkspaceID
@@ -129,16 +135,21 @@ func saveTunnelSecretAt(path string, cfg tunnel.Config) error {
 		AdminOrganizationID: cfg.AdminOrganizationID, AdminWorkspaceID: cfg.AdminWorkspaceID, AdminTenantID: cfg.AdminTenantID,
 		AdminReadAccess: cfg.AdminReadAccess, AdminManageAccess: cfg.AdminManageAccess,
 	}
-	if stored.RuntimeKeyConfigured || stored.AdminKeyConfigured || stored.AdminOrganizationID != "" || stored.AdminWorkspaceID != "" || stored.AdminTenantID != "" || stored.AdminReadAccess || stored.AdminManageAccess {
-		data, err := configformat.MarshalPath(path, stored)
+	exists := true
+	if _, _, err := readConfigFile(path); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		exists = false
+	}
+	if exists || stored.RuntimeKeyConfigured || stored.AdminKeyConfigured || stored.AdminOrganizationID != "" || stored.AdminWorkspaceID != "" || stored.AdminTenantID != "" || stored.AdminReadAccess || stored.AdminManageAccess {
+		data, err := mergeTunnelSecretData(path, stored, cfg)
 		if err != nil {
 			return err
 		}
 		if err := writeConfigFile(path, data, 0600); err != nil {
 			return err
 		}
-	} else if err := removeConfigFile(path); err != nil {
-		return err
 	}
 	changes := make([]secretstore.Change, 0, 2)
 	if stored.RuntimeKeyConfigured || previous.RuntimeKeyConfigured || previous.APIKey != "" {
@@ -148,4 +159,54 @@ func saveTunnelSecretAt(path string, cfg tunnel.Config) error {
 		changes = append(changes, secretstore.Change{Name: tunnelAdminSecretName, Value: cfg.AdminKey})
 	}
 	return secretstore.New(filepath.Dir(path)).Apply(changes)
+}
+
+func mergeTunnelSecretData(path string, stored tunnelSecret, runtime tunnel.Config) ([]byte, error) {
+	format, err := configformat.Detect(path)
+	if err != nil {
+		return nil, err
+	}
+	overlayData, err := configformat.Marshal(format, stored)
+	if err != nil {
+		return nil, err
+	}
+	overlay, err := configformat.DecodeGeneric(format, overlayData)
+	if err != nil {
+		return nil, err
+	}
+	overlayRoot, ok := overlay.(map[string]any)
+	if !ok {
+		return nil, errors.New("tunnel configuration must encode as an object")
+	}
+	overlayRoot["runtime_key_configured"] = stored.RuntimeKeyConfigured
+	overlayRoot["admin_key_configured"] = stored.AdminKeyConfigured
+	overlayRoot["admin_organization_id"] = stored.AdminOrganizationID
+	overlayRoot["admin_workspace_id"] = stored.AdminWorkspaceID
+	overlayRoot["admin_tenant_id"] = stored.AdminTenantID
+	overlayRoot["admin_read_access"] = stored.AdminReadAccess
+	overlayRoot["admin_manage_access"] = stored.AdminManageAccess
+
+	var base any = map[string]any{}
+	existingData, _, readErr := readConfigFile(path)
+	if readErr == nil {
+		base, err = configformat.DecodeGeneric(format, existingData)
+		if err != nil {
+			return nil, fmt.Errorf("decode existing tunnel configuration for merge: %w", err)
+		}
+	} else if !os.IsNotExist(readErr) {
+		return nil, readErr
+	}
+	merged, ok := configformat.MergeGeneric(base, overlayRoot).(map[string]any)
+	if !ok {
+		return nil, errors.New("tunnel configuration must be an object")
+	}
+	if existing, ok := base.(map[string]any); ok {
+		if _, exists := existing["api_key"]; exists {
+			merged["api_key"] = secretMarkerValue(runtime.APIKey)
+		}
+		if _, exists := existing["admin_key"]; exists {
+			merged["admin_key"] = secretMarkerValue(runtime.AdminKey)
+		}
+	}
+	return configformat.EncodeGeneric(format, merged)
 }

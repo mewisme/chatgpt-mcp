@@ -74,7 +74,7 @@ func TestConvertFormatAtConvertsStructuredTree(t *testing.T) {
 	}
 }
 
-func TestConvertFormatAtDropsLegacyInteractiveKey(t *testing.T) {
+func TestConvertFormatAtPreservesLegacyInteractiveKey(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "config.json")
 	if err := os.WriteFile(source, []byte(`{"interactive":true,"server":{"port":37421}}`), 0600); err != nil {
@@ -95,8 +95,8 @@ func TestConvertFormatAtDropsLegacyInteractiveKey(t *testing.T) {
 	if !ok {
 		t.Fatalf("converted config = %#v", value)
 	}
-	if _, exists := configValue["interactive"]; exists {
-		t.Fatalf("legacy interactive key survived conversion: %s", data)
+	if value, exists := configValue["interactive"]; !exists || value != true {
+		t.Fatalf("legacy interactive key was removed during conversion: %s", data)
 	}
 }
 

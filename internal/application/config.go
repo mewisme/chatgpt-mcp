@@ -94,12 +94,18 @@ func Initialize(options InitOptions) (result InitResult, resultErr error) {
 		}
 	}
 	if source.Exists && !options.Force {
-		return InitResult{}, errors.New("configuration already exists; use --force to rotate tokens and rewrite config")
+		return InitResult{}, errors.New("configuration already exists; use --force to rotate tokens")
 	}
 	if source.Exists && options.FormatSelected && format != source.Format {
 		return InitResult{}, fmt.Errorf("cannot change storage format with init --force; convert configuration to %s first", format)
 	}
 	cfg := config.Default()
+	if source.Exists {
+		cfg, err = config.Load()
+		if err != nil {
+			return InitResult{}, fmt.Errorf("load existing configuration: %w", err)
+		}
+	}
 	tokenSpan := tracepkg.Start(ctx, "AUTH", "auth.tokens.generate", "Generating initial authentication tokens", tracepkg.String("kinds", "mcp,admin"))
 	mcpToken := auth.GenerateToken("mcp")
 	adminToken := auth.GenerateToken("admin")

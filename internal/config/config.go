@@ -206,6 +206,12 @@ func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSe
 		return cfg, err
 	}
 	legacyRuntime, legacyAdmin := cfg.Tunnel.APIKey, cfg.Tunnel.AdminKey
+	if legacyRuntime == secretFileMarker {
+		legacyRuntime = ""
+	}
+	if legacyAdmin == secretFileMarker {
+		legacyAdmin = ""
+	}
 	migrateSecrets, err := loadTunnelSecretsWithPolicy(secretPath, &cfg.Tunnel, legacyRuntime, legacyAdmin, policy)
 	if err != nil {
 		return cfg, err
@@ -288,7 +294,7 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	persisted.Tunnel.AdminOrganizationID = ""
 	persisted.Tunnel.AdminWorkspaceID = ""
 	persisted.Tunnel.AdminTenantID = ""
-	data, err := configformat.MarshalPath(configPath, persisted)
+	data, err := mergeConfigData(configPath, persisted, cfg)
 	if err != nil {
 		return err
 	}
@@ -307,6 +313,81 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 		return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
 	}
 	return nil
+}
+
+const secretFileMarker = "<secret-file>"
+
+func mergeConfigData(path string, persisted, runtime Config) ([]byte, error) {
+	format, err := configformat.Detect(path)
+	if err != nil {
+		return nil, err
+	}
+	overlayData, err := configformat.Marshal(format, persisted)
+	if err != nil {
+		return nil, err
+	}
+	overlay, err := configformat.DecodeGeneric(format, overlayData)
+	if err != nil {
+		return nil, err
+	}
+	overlayRoot, ok := overlay.(map[string]any)
+	if !ok {
+		return nil, errors.New("configuration must encode as an object")
+	}
+	auth := ensureGenericObject(overlayRoot, "auth")
+	auth["mcp_token_hash"] = persisted.Auth.MCPTokenHash
+	auth["admin_token_hash"] = persisted.Auth.AdminTokenHash
+	tunnelOverlay := ensureGenericObject(overlayRoot, "tunnel")
+	tunnelOverlay["id"] = persisted.Tunnel.ID
+	tunnelOverlay["control_plane_base_url"] = persisted.Tunnel.ControlPlaneBaseURL
+	tunnelOverlay["organization_id"] = persisted.Tunnel.OrganizationID
+
+	var base any = map[string]any{}
+	existingData, _, readErr := readConfigFile(path)
+	if readErr == nil {
+		base, err = configformat.DecodeGeneric(format, existingData)
+		if err != nil {
+			return nil, fmt.Errorf("decode existing configuration for merge: %w", err)
+		}
+	} else if !os.IsNotExist(readErr) {
+		return nil, readErr
+	}
+	merged, ok := configformat.MergeGeneric(base, overlayRoot).(map[string]any)
+	if !ok {
+		return nil, errors.New("configuration must be an object")
+	}
+	if existingRoot, ok := base.(map[string]any); ok {
+		existingTunnel, _ := existingRoot["tunnel"].(map[string]any)
+		mergedTunnel := ensureGenericObject(merged, "tunnel")
+		if _, exists := existingTunnel["api_key"]; exists {
+			mergedTunnel["api_key"] = secretMarkerValue(runtime.Tunnel.APIKey)
+		}
+		if _, exists := existingTunnel["admin_key"]; exists {
+			mergedTunnel["admin_key"] = secretMarkerValue(runtime.Tunnel.AdminKey)
+		}
+		for _, key := range []string{"admin_organization_id", "admin_workspace_id", "admin_tenant_id"} {
+			if _, exists := existingTunnel[key]; exists {
+				mergedTunnel[key] = ""
+			}
+		}
+	}
+	return configformat.EncodeGeneric(format, merged)
+}
+
+func ensureGenericObject(root map[string]any, key string) map[string]any {
+	if current, ok := root[key].(map[string]any); ok {
+		return current
+	}
+	current := map[string]any{}
+	root[key] = current
+	return current
+}
+
+func secretMarkerValue(value string) string {
+	if value == "" {
+		return ""
+	}
+	return secretFileMarker
 }
 
 type fileSnapshot struct {

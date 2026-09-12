@@ -76,3 +76,17 @@ func TestStructuredPathFollowsMainConfigExtension(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeGenericPreservesUnknownNestedKeysAndReplacesLeaves(t *testing.T) {
+	base := map[string]any{"server": map[string]any{"port": int64(3000), "legacy": true}, "unknown": "keep", "list": []any{"old"}}
+	overlay := map[string]any{"server": map[string]any{"port": int64(4000), "enabled": true}, "list": []any{"new"}}
+	merged := MergeGeneric(base, overlay).(map[string]any)
+	server := merged["server"].(map[string]any)
+	if server["port"] != int64(4000) || server["legacy"] != true || server["enabled"] != true || merged["unknown"] != "keep" {
+		t.Fatalf("merged = %#v", merged)
+	}
+	list := merged["list"].([]any)
+	if len(list) != 1 || list[0] != "new" {
+		t.Fatalf("list = %#v", list)
+	}
+}

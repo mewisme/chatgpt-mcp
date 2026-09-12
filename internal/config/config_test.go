@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -316,8 +317,8 @@ func TestLegacyTunnelAPIKeyMigratesOnSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(configData), "legacy-secret") || strings.Contains(string(configData), `"api_key"`) {
-		t.Fatalf("legacy secret was not migrated out of config.json: %s", configData)
+	if strings.Contains(string(configData), "legacy-secret") || !strings.Contains(string(configData), `"api_key": "<secret-file>"`) {
+		t.Fatalf("legacy secret was not replaced by a safe marker in config.json: %s", configData)
 	}
 	secret, err := loadTunnelSecretAt(secretPath)
 	if err != nil {
@@ -332,7 +333,7 @@ func TestLegacyTunnelAPIKeyMigratesOnSave(t *testing.T) {
 	}
 }
 
-func TestLegacyGenericTunnelFieldsAreIgnored(t *testing.T) {
+func TestLegacyGenericTunnelFieldsArePreservedOnSave(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")
 	secretPath := filepath.Join(root, "tunnel.json")
@@ -359,9 +360,9 @@ func TestLegacyGenericTunnelFieldsAreIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, obsolete := range []string{`"command"`, `"args"`, `"origin"`, `"public_url"`} {
-		if strings.Contains(string(saved), obsolete) {
-			t.Fatalf("obsolete generic tunnel field survived migration: %s", saved)
+	for _, legacy := range []string{`"command"`, `"args"`, `"origin"`, `"public_url"`} {
+		if !strings.Contains(string(saved), legacy) {
+			t.Fatalf("legacy generic tunnel field %s was removed: %s", legacy, saved)
 		}
 	}
 }
@@ -433,7 +434,7 @@ func TestNormalizeShellPath(t *testing.T) {
 	}
 }
 
-func TestLegacyShellPolicyFieldsAreIgnoredOnSave(t *testing.T) {
+func TestLegacyShellPolicyFieldsArePreservedOnSave(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")
 	secretPath := filepath.Join(root, "tunnel.json")
@@ -455,9 +456,9 @@ func TestLegacyShellPolicyFieldsAreIgnoredOnSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, removed := range []string{"approval_policy", "approval_allow_commands", "approval_deny_commands", "environment_policy", "environment_allow", "sandbox_policy", "network_policy"} {
-		if strings.Contains(string(saved), removed) {
-			t.Fatalf("removed shell policy field %q survived save: %s", removed, saved)
+	for _, legacy := range []string{"approval_policy", "approval_allow_commands", "approval_deny_commands", "environment_policy", "environment_allow", "sandbox_policy", "network_policy"} {
+		if !strings.Contains(string(saved), legacy) {
+			t.Fatalf("legacy shell policy field %q was removed: %s", legacy, saved)
 		}
 	}
 }
@@ -526,8 +527,8 @@ func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 				if !ok {
 					t.Fatalf("saved config = %#v", value)
 				}
-				if _, exists := savedRoot["interactive"]; exists {
-					t.Fatalf("legacy interactive key survived %s migration: %s", format, saved)
+				if _, exists := savedRoot["interactive"]; !exists {
+					t.Fatalf("legacy interactive key was removed from %s config: %s", format, saved)
 				}
 			})
 		}
@@ -641,8 +642,8 @@ func TestLegacyServerHostMigratesToExpose(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(saved), `"host"`) {
-				t.Fatalf("legacy host survived save: %s", saved)
+			if !strings.Contains(string(saved), `"host"`) {
+				t.Fatalf("legacy host was removed during save: %s", saved)
 			}
 			if !strings.Contains(string(saved), `"expose": {`) || !strings.Contains(string(saved), `"mode": "`+string(test.want)+`"`) {
 				t.Fatalf("saved exposure missing: %s", saved)
@@ -687,7 +688,7 @@ func TestLegacyBooleanExposureMigratesAcrossFormats(t *testing.T) {
 	}
 }
 
-func TestClearingTunnelAPIKeyRemovesSecretFile(t *testing.T) {
+func TestClearingTunnelAPIKeyPreservesTunnelConfigFile(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")
 	secretPath := filepath.Join(root, "tunnel.json")
@@ -700,11 +701,57 @@ func TestClearingTunnelAPIKeyRemovesSecretFile(t *testing.T) {
 	if err := saveAt(configPath, secretPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(secretPath); !os.IsNotExist(err) {
-		t.Fatalf("secret file still exists: %v", err)
+	secretData, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(secretData), "secret") || !strings.Contains(string(secretData), `"runtime_key_configured": false`) {
+		t.Fatalf("tunnel config was not preserved after clear: %s", secretData)
 	}
 	if _, err := secretstore.New(root).Get(tunnelRuntimeSecretName); !errors.Is(err, secretstore.ErrNotFound) {
 		t.Fatalf("runtime key still exists in secret file store: %v", err)
+	}
+}
+
+func TestConfigSaveDeepMergesUnknownKeysAcrossFormats(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		t.Run(string(format), func(t *testing.T) {
+			root := t.TempDir()
+			configPath := configformat.PathFor(root, "config", format)
+			secretPath := configformat.PathFor(root, "tunnel", format)
+			existing := map[string]any{
+				"server": map[string]any{"port": int64(3000), "legacy_flag": true},
+				"custom": map[string]any{"nested": "keep"},
+				"shell":  map[string]any{"path": []any{}, "legacy_mode": "keep"},
+			}
+			data, err := configformat.EncodeGeneric(format, existing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(configPath, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg := Default()
+			cfg.Server.Port = 41001
+			if err := saveAt(configPath, secretPath, cfg); err != nil {
+				t.Fatal(err)
+			}
+			saved, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := configformat.DecodeGeneric(format, saved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rootValue := raw.(map[string]any)
+			server := rootValue["server"].(map[string]any)
+			shell := rootValue["shell"].(map[string]any)
+			custom := rootValue["custom"].(map[string]any)
+			if fmt.Sprint(server["port"]) != "41001" || server["legacy_flag"] != true || shell["legacy_mode"] != "keep" || custom["nested"] != "keep" {
+				t.Fatalf("merged %s config = %#v", format, rootValue)
+			}
+		})
 	}
 }
 

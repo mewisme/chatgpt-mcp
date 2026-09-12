@@ -201,6 +201,31 @@ func TestMaterializeCanonicalizesFilePermissions(t *testing.T) {
 	}
 }
 
+func TestNormalizeMainConfigPreservesUnknownKeys(t *testing.T) {
+	raw := map[string]any{
+		"server": map[string]any{"port": int64(37421), "legacy_flag": true},
+		"custom": map[string]any{"nested": "keep"},
+	}
+	data, err := configformat.EncodeGeneric(configformat.JSON, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized, _, err := normalizeMainConfig("config.json", data, currentPlatform(), currentPlatform())
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := configformat.DecodeGeneric(configformat.JSON, normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := decoded.(map[string]any)
+	server := root["server"].(map[string]any)
+	custom := root["custom"].(map[string]any)
+	if server["legacy_flag"] != true || custom["nested"] != "keep" {
+		t.Fatalf("normalized config lost unknown keys: %#v", root)
+	}
+}
+
 func TestImportRestoresSecretAndRollsBackInvalidReplacement(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "config")
 	bundleFile := filepath.Join(t.TempDir(), "portable.cgm")
@@ -259,6 +284,52 @@ func TestImportRestoresSecretAndRollsBackInvalidReplacement(t *testing.T) {
 	secret, err = secretstore.New(root).Get(secretName)
 	if err != nil || secret != "sk-imported" {
 		t.Fatalf("rolled back secret = %q err=%v", secret, err)
+	}
+}
+
+func TestImportForceMergesExistingMainConfig(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "config")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	existing := map[string]any{
+		"server": map[string]any{"port": int64(40100), "existing_only": true},
+		"custom": map[string]any{"nested": "keep"},
+	}
+	existingData, err := configformat.EncodeGeneric(configformat.JSON, existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config.json"), existingData, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := configformat.MarkRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	imported := validConfig()
+	imported.Server.Port = 40200
+	importedData, err := configformat.Marshal(configformat.JSON, imported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleFile := filepath.Join(t.TempDir(), "merge.cgm")
+	writeBundleFile(t, bundleFile, Bundle{Version: Version, CreatedAt: time.Now().UTC(), Source: currentPlatform(), Files: []File{{Path: "config.json", Mode: 0600, Data: importedData}}})
+	if _, err := Import(root, bundleFile, ImportOptions{Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(filepath.Join(root, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := configformat.DecodeGeneric(configformat.JSON, saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := raw.(map[string]any)
+	server := result["server"].(map[string]any)
+	custom := result["custom"].(map[string]any)
+	if server["port"] != int64(40200) || server["existing_only"] != true || custom["nested"] != "keep" {
+		t.Fatalf("merged import = %#v", result)
 	}
 }
 

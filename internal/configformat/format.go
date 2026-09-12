@@ -180,6 +180,26 @@ func EncodeGeneric(format Format, value any) ([]byte, error) {
 	}
 }
 
+func MergeGeneric(base, overlay any) any {
+	baseMap, baseOK := base.(map[string]any)
+	overlayMap, overlayOK := overlay.(map[string]any)
+	if !baseOK || !overlayOK {
+		return overlay
+	}
+	result := make(map[string]any, len(baseMap)+len(overlayMap))
+	for key, value := range baseMap {
+		result[key] = value
+	}
+	for key, value := range overlayMap {
+		if previous, exists := result[key]; exists {
+			result[key] = MergeGeneric(previous, value)
+		} else {
+			result[key] = value
+		}
+	}
+	return result
+}
+
 func toGeneric(value any) (any, error) {
 	data, err := json.Marshal(value)
 	if err != nil {

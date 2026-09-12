@@ -171,7 +171,7 @@ func Import(root, source string, options ImportOptions) (ImportResult, error) {
 		return ImportResult{}, err
 	}
 	if hasTarget && !options.Force {
-		return ImportResult{}, errors.New("configuration/state already exists; use --force to replace it")
+		return ImportResult{}, errors.New("configuration/state already exists; use --force to merge imported state")
 	}
 	parent := filepath.Dir(root)
 	if err := os.MkdirAll(parent, 0700); err != nil {
@@ -181,16 +181,15 @@ func Import(root, source string, options ImportOptions) (ImportResult, error) {
 	if err != nil {
 		return ImportResult{}, err
 	}
-	stageOwned := true
-	defer func() {
-		if stageOwned {
-			_ = os.RemoveAll(stage)
-		}
-	}()
 	target := currentPlatform()
 	materialized, err := materialize(stage, bundle, target)
 	if err != nil {
 		return ImportResult{}, err
+	}
+	if hasTarget {
+		if err := mergeImportedMainConfig(root, stage); err != nil {
+			return ImportResult{}, err
+		}
 	}
 	if err := configformat.MarkRoot(stage); err != nil {
 		return ImportResult{}, err
@@ -205,7 +204,12 @@ func Import(root, source string, options ImportOptions) (ImportResult, error) {
 		return ImportResult{}, err
 	}
 	rollback := func(cause error) error {
-		_ = os.RemoveAll(root)
+		failed := uniqueSibling(root, "failed-import")
+		if _, statErr := os.Stat(root); statErr == nil {
+			if renameErr := os.Rename(root, failed); renameErr != nil {
+				return errors.Join(cause, fmt.Errorf("preserve failed imported config root: %w", renameErr))
+			}
+		}
 		if backup != "" {
 			if restoreErr := os.Rename(backup, root); restoreErr != nil {
 				return errors.Join(cause, fmt.Errorf("restore previous config root: %w", restoreErr))
@@ -219,7 +223,6 @@ func Import(root, source string, options ImportOptions) (ImportResult, error) {
 		}
 		return ImportResult{}, fmt.Errorf("activate imported config root: %w", err)
 	}
-	stageOwned = false
 	changes := make([]secretstore.Change, 0, len(bundle.Secrets))
 	secretNames := make([]string, 0, len(bundle.Secrets))
 	for name := range bundle.Secrets {
@@ -235,17 +238,9 @@ func Import(root, source string, options ImportOptions) (ImportResult, error) {
 	if _, err := config.VerifyAt(root); err != nil {
 		return ImportResult{}, rollback(fmt.Errorf("verify imported configuration: %w", err))
 	}
-	if backup != "" {
-		if err := os.RemoveAll(backup); err != nil {
-			return ImportResult{
-				Files: materialized.files, Secrets: len(bundle.Secrets), SkippedPaths: materialized.skippedPaths,
-				SkippedFiles: materialized.skippedFiles, BackupPath: backup, Source: bundle.Source, Target: target,
-			}, nil
-		}
-	}
 	return ImportResult{
 		Files: materialized.files, Secrets: len(bundle.Secrets), SkippedPaths: materialized.skippedPaths,
-		SkippedFiles: materialized.skippedFiles, Source: bundle.Source, Target: target,
+		SkippedFiles: materialized.skippedFiles, BackupPath: backup, Source: bundle.Source, Target: target,
 	}, nil
 }
 
@@ -461,23 +456,84 @@ func normalizeMainConfig(relative string, data []byte, source, target Platform) 
 	if err != nil {
 		return nil, 0, err
 	}
+	raw, err := configformat.DecodeGeneric(format, data)
+	if err != nil {
+		return nil, 0, fmt.Errorf("decode bundled config: %w", err)
+	}
+	root, ok := raw.(map[string]any)
+	if !ok {
+		return nil, 0, errors.New("bundled config must be an object")
+	}
 	cfg := config.Default()
 	if err := configformat.Unmarshal(format, data, &cfg); err != nil {
 		return nil, 0, fmt.Errorf("decode bundled config: %w", err)
 	}
 	skipped := 0
-	cfg.Permissions.AllowDirs, skipped = portableDirectories(cfg.Permissions.AllowDirs, source, target)
-	shellPath, shellSkipped := portableDirectories(cfg.Shell.Path, source, target)
-	cfg.Shell.Path = shellPath
-	skipped += shellSkipped
-	if source.OS != target.OS && cfg.Server.Expose.Mode == config.ExposureInterfaces {
-		cfg.Server.Expose = config.ExposureConfig{Mode: config.ExposureNone, Interfaces: []string{}}
+	if permissions, ok := root["permissions"].(map[string]any); ok {
+		if _, exists := permissions["allow_dirs"]; exists {
+			allowDirs, count := portableDirectories(cfg.Permissions.AllowDirs, source, target)
+			permissions["allow_dirs"] = allowDirs
+			skipped += count
+		}
 	}
-	encoded, err := configformat.Marshal(format, cfg)
+	if shell, ok := root["shell"].(map[string]any); ok {
+		if _, exists := shell["path"]; exists {
+			shellPath, count := portableDirectories(cfg.Shell.Path, source, target)
+			shell["path"] = shellPath
+			skipped += count
+		}
+	}
+	if source.OS != target.OS && cfg.Server.Expose.Mode == config.ExposureInterfaces {
+		if server, ok := root["server"].(map[string]any); ok {
+			if _, exists := server["expose"]; exists {
+				server["expose"] = map[string]any{"mode": string(config.ExposureNone), "interfaces": []any{}}
+			}
+		}
+	}
+	encoded, err := configformat.EncodeGeneric(format, root)
 	if err != nil {
 		return nil, 0, err
 	}
 	return encoded, skipped, nil
+}
+
+func mergeImportedMainConfig(existingRoot, stagedRoot string) error {
+	existing, err := configformat.Discover(existingRoot)
+	if err != nil {
+		return fmt.Errorf("discover existing configuration for merge: %w", err)
+	}
+	staged, err := configformat.Discover(stagedRoot)
+	if err != nil {
+		return fmt.Errorf("discover imported configuration for merge: %w", err)
+	}
+	if !existing.Exists || !staged.Exists {
+		return nil
+	}
+	existingData, err := os.ReadFile(existing.Path)
+	if err != nil {
+		return err
+	}
+	stagedData, err := os.ReadFile(staged.Path)
+	if err != nil {
+		return err
+	}
+	existingRaw, err := configformat.DecodeGeneric(existing.Format, existingData)
+	if err != nil {
+		return fmt.Errorf("decode existing configuration for import merge: %w", err)
+	}
+	stagedRaw, err := configformat.DecodeGeneric(staged.Format, stagedData)
+	if err != nil {
+		return fmt.Errorf("decode imported configuration for merge: %w", err)
+	}
+	merged, ok := configformat.MergeGeneric(existingRaw, stagedRaw).(map[string]any)
+	if !ok {
+		return errors.New("configuration import merge requires object roots")
+	}
+	data, err := configformat.EncodeGeneric(staged.Format, merged)
+	if err != nil {
+		return err
+	}
+	return state.WriteFileAtomic(staged.Path, data, 0600)
 }
 
 func normalizeWorkspaceRegistry(file File, source, target Platform) ([]byte, map[string]string, map[string]string, int, error) {

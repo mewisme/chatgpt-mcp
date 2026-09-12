@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/state"
@@ -17,11 +18,12 @@ var structuredStateNames = map[string]bool{
 }
 
 type conversionFile struct {
-	source string
-	target string
-	data   []byte
-	orig   []byte
-	mode   os.FileMode
+	source  string
+	target  string
+	archive string
+	pending string
+	data    []byte
+	mode    os.FileMode
 }
 
 type structuredFile struct {
@@ -69,11 +71,6 @@ func convertFormatAt(root string, target configformat.Format) (int, error) {
 				raw = map[string]any{"servers": values}
 			}
 		}
-		if item.base == "config" {
-			if values, ok := raw.(map[string]any); ok {
-				delete(values, "interactive")
-			}
-		}
 		if targetPath == item.path {
 			continue
 		}
@@ -90,36 +87,39 @@ func convertFormatAt(root string, target configformat.Format) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		files = append(files, conversionFile{source: item.path, target: targetPath, data: encoded, orig: original, mode: info.Mode().Perm()})
+		stamp := time.Now().UTC().UnixNano()
+		archive := fmt.Sprintf("%s.preserved-%d", item.path, stamp)
+		pending := fmt.Sprintf("%s.pending-%d", targetPath, stamp)
+		files = append(files, conversionFile{source: item.path, target: targetPath, archive: archive, pending: pending, data: encoded, mode: info.Mode().Perm()})
 	}
 	if len(files) == 0 {
 		return 0, nil
 	}
 
-	written := make([]conversionFile, 0, len(files))
-	rollbackTargets := func() {
-		for _, file := range written {
-			_ = os.Remove(file.target)
+	for _, file := range files {
+		if err := state.WriteFileAtomic(file.pending, file.data, file.mode); err != nil {
+			return 0, fmt.Errorf("write pending converted file %s: %w", file.pending, err)
 		}
 	}
 	for _, file := range files {
-		if err := state.WriteFileAtomic(file.target, file.data, file.mode); err != nil {
-			rollbackTargets()
-			return 0, fmt.Errorf("write converted file %s: %w", file.target, err)
+		if err := os.Rename(file.source, file.archive); err != nil {
+			return 0, fmt.Errorf("preserve old structured file %s: %w", file.source, err)
 		}
-		written = append(written, file)
 	}
-
-	removed := make([]conversionFile, 0, len(files))
+	activated := make([]conversionFile, 0, len(files))
 	for _, file := range files {
-		if err := os.Remove(file.source); err != nil {
-			for _, restore := range removed {
-				_ = state.WriteFileAtomic(restore.source, restore.orig, restore.mode)
+		if err := os.Rename(file.pending, file.target); err != nil {
+			for _, current := range activated {
+				_ = os.Rename(current.target, current.pending+".failed")
 			}
-			rollbackTargets()
-			return 0, fmt.Errorf("remove old structured file %s: %w", file.source, err)
+			for _, current := range files {
+				if _, statErr := os.Stat(current.archive); statErr == nil {
+					_ = os.Rename(current.archive, current.source)
+				}
+			}
+			return 0, fmt.Errorf("activate converted file %s: %w", file.target, err)
 		}
-		removed = append(removed, file)
+		activated = append(activated, file)
 	}
 	return len(files), nil
 }

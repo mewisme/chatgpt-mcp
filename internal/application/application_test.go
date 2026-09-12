@@ -74,12 +74,22 @@ func TestInitializePreservesFormatOnForce(t *testing.T) {
 	if _, err := Initialize(InitOptions{}); err == nil {
 		t.Fatal("existing config unexpectedly overwritten without force")
 	}
+	if _, err := SetConfigField(t.Context(), "server.port", "40123"); err != nil {
+		t.Fatal(err)
+	}
 	forced, err := Initialize(InitOptions{Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if forced.Format != configformat.YAML || filepath.Ext(forced.ConfigPath) != ".yaml" {
 		t.Fatalf("forced result = %#v", forced)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server.Port != 40123 {
+		t.Fatalf("init --force reset existing config: %#v", loaded.Server)
 	}
 	if _, err := Initialize(InitOptions{Force: true, Format: configformat.TOML, FormatSelected: true}); err == nil {
 		t.Fatal("init force unexpectedly changed storage format")

@@ -203,7 +203,10 @@ func TestOpenRootForPathRejectsSymlinkSwapEscape(t *testing.T) {
 	}
 	rootHandle, relative, err := manager.OpenRootForPath(item.ID, resolved)
 	if err != nil {
-		t.Fatal(err)
+		if _, statErr := os.Stat(filepath.Join(outside, "file.txt")); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("outside file was created: %v", statErr)
+		}
+		return
 	}
 	defer rootHandle.Close()
 	if err := rootHandle.WriteFile(relative, []byte("escape"), 0644); err == nil {
@@ -235,6 +238,38 @@ func TestOpenRootForPathUsesAllowedDirectoryRoot(t *testing.T) {
 		t.Fatalf("root=%q want=%q", rootHandle.Name(), allowed)
 	}
 	if relative != filepath.Join("nested", "file.txt") {
+		t.Fatalf("relative=%q", relative)
+	}
+}
+
+func TestOpenRootForPathAcceptsCanonicalWorkspaceThroughSymlinkedParent(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	parent := t.TempDir()
+	canonicalParent := filepath.Join(parent, "canonical")
+	aliasParent := filepath.Join(parent, "alias")
+	root := filepath.Join(canonicalParent, "workspace")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(canonicalParent, aliasParent); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	manager := newTestManager(t)
+	item, err := manager.Register(filepath.Join(aliasParent, "workspace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootHandle, relative, err := manager.OpenRootForPath(item.ID, filepath.Join(aliasParent, "workspace", "file.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rootHandle.Close()
+	if rootHandle.Name() != filepath.Clean(root) {
+		t.Fatalf("root=%q want=%q", rootHandle.Name(), root)
+	}
+	if relative != "file.txt" {
 		t.Fatalf("relative=%q", relative)
 	}
 }

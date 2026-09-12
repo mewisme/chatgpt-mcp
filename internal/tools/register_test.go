@@ -296,7 +296,10 @@ func TestRootedToolPathRejectsSymlinkSwapEscape(t *testing.T) {
 	}
 	rooted, err := openRootedPath(runtime.Workspaces, workspaceID, resolved)
 	if err != nil {
-		t.Fatal(err)
+		if _, statErr := os.Stat(filepath.Join(outside, "file.txt")); !os.IsNotExist(statErr) {
+			t.Fatalf("outside file was created: %v", statErr)
+		}
+		return
 	}
 	defer rooted.Close()
 	if err := rooted.WriteFile([]byte("escape"), 0644); err == nil {

@@ -305,7 +305,13 @@ func (m *Manager) EffectiveRoots(id string) ([]string, error) {
 	roots := []string{item.Path}
 	roots = append(roots, global...)
 	roots = append(roots, item.AllowDirs...)
-	return normalizeRoots(roots), nil
+	result := make([]string, 0, len(roots))
+	for _, root := range roots {
+		root = filepath.Clean(root)
+		result = appendUniqueRoot(result, root)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 func (m *Manager) Get(id string) (Workspace, error) {
@@ -418,11 +424,10 @@ func (m *Manager) OpenRootForPath(id, path string) (*os.Root, string, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, "", errors.New("path is required")
 	}
-	absolute, err := filepath.Abs(path)
+	absolute, err := canonicalForContainment(path, false)
 	if err != nil {
 		return nil, "", err
 	}
-	absolute = filepath.Clean(absolute)
 	if m.protected(absolute) {
 		return nil, "", fmt.Errorf("path is protected: %s", absolute)
 	}

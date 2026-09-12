@@ -10,8 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"go.mewis.me/chatgpt-mcp/internal/state"
+	"time"
 )
 
 const (
@@ -85,24 +84,71 @@ func (b *fileBackend) masterKey() ([]byte, error) {
 		return b.key, nil
 	}
 	path := filepath.Join(b.root, masterKeyName)
-	data, err := os.ReadFile(path)
+	data, err := readMasterKey(path)
 	if err == nil {
-		if len(data) != masterKeySize {
-			return nil, fmt.Errorf("master key %s has invalid length %d", path, len(data))
-		}
-		b.key = append([]byte(nil), data...)
+		b.key = data
 		return b.key, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if err := os.MkdirAll(b.root, 0700); err != nil {
 		return nil, err
 	}
 	key := make([]byte, masterKeySize)
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	if err := state.WriteFileAtomic(path, key, 0600); err != nil {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if errors.Is(err, os.ErrExist) {
+		data, err := waitForMasterKey(path)
+		if err != nil {
+			return nil, err
+		}
+		b.key = data
+		return b.key, nil
+	}
+	if err != nil {
 		return nil, fmt.Errorf("create master key: %w", err)
+	}
+	if _, err := file.Write(key); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("write master key: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("sync master key: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return nil, fmt.Errorf("close master key: %w", err)
 	}
 	b.key = key
 	return b.key, nil
+}
+
+func readMasterKey(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) != masterKeySize {
+		return nil, fmt.Errorf("master key %s has invalid length %d", path, len(data))
+	}
+	return append([]byte(nil), data...), nil
+}
+
+func waitForMasterKey(path string) ([]byte, error) {
+	var err error
+	for range 50 {
+		var data []byte
+		data, err = readMasterKey(path)
+		if err == nil {
+			return data, nil
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return nil, err
 }

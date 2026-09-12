@@ -106,6 +106,34 @@ func TestUninitializeRemovesManagedRoot(t *testing.T) {
 	}
 }
 
+func TestUninitializePreservesUnrelatedFilesInManagedRoot(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	unrelated := filepath.Join(root, "keep.txt")
+	if err := os.WriteFile(unrelated, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Initialize(InitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Uninitialize(root); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(unrelated)
+	if err != nil || string(data) != "keep" {
+		t.Fatalf("unrelated file data=%q err=%v", data, err)
+	}
+	if configformat.IsManagedRoot(root) {
+		t.Fatal("managed root marker remained after uninitialize")
+	}
+}
+
 func TestSetAuthEnabledRequiresConfiguredToken(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")

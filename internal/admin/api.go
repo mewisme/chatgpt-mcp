@@ -41,6 +41,11 @@ type authSettings struct {
 	AdminTokenConfigured bool `json:"admin_token_configured"`
 }
 
+type authPatch struct {
+	MCPEnabled   *bool `json:"mcp_enabled,omitempty"`
+	AdminEnabled *bool `json:"admin_enabled,omitempty"`
+}
+
 type publicConfig struct {
 	Server      config.ServerConfig      `json:"server"`
 	Admin       config.AdminConfig       `json:"admin"`
@@ -53,7 +58,7 @@ type publicConfig struct {
 type configPatch struct {
 	Server      *serverPatch              `json:"server,omitempty"`
 	Admin       *config.AdminConfig       `json:"admin,omitempty"`
-	Auth        *authSettings             `json:"auth,omitempty"`
+	Auth        *authPatch                `json:"auth,omitempty"`
 	Permissions *config.PermissionsConfig `json:"permissions,omitempty"`
 	Shell       *config.ShellConfig       `json:"shell,omitempty"`
 	Features    *featurePatch             `json:"features,omitempty"`
@@ -169,8 +174,12 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			next.Admin = *patch.Admin
 		}
 		if patch.Auth != nil {
-			next.Auth.MCPEnabled = patch.Auth.MCPEnabled
-			next.Auth.AdminEnabled = patch.Auth.AdminEnabled
+			if patch.Auth.MCPEnabled != nil {
+				next.Auth.MCPEnabled = *patch.Auth.MCPEnabled
+			}
+			if patch.Auth.AdminEnabled != nil {
+				next.Auth.AdminEnabled = *patch.Auth.AdminEnabled
+			}
 		}
 
 		if patch.Permissions != nil {

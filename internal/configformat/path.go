@@ -105,6 +105,14 @@ func IsManagedRoot(root string) bool {
 	return err == nil && strings.TrimSpace(string(data)) == "chatgpt-mcp"
 }
 
+func RemoveRootMarker(root string) error {
+	err := os.Remove(filepath.Join(root, rootMarker))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
 func Discover(root string) (Source, error) {
 	if strings.TrimSpace(root) == "" {
 		root = RootPath()

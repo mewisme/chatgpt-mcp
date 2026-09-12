@@ -53,6 +53,12 @@ func cloneConfig(value Config) Config {
 	if value.Shell.Path != nil {
 		value.Shell.Path = append([]string{}, value.Shell.Path...)
 	}
+	if value.Shell.ApprovalAllowCommands != nil {
+		value.Shell.ApprovalAllowCommands = append([]string{}, value.Shell.ApprovalAllowCommands...)
+	}
+	if value.Shell.ApprovalDenyCommands != nil {
+		value.Shell.ApprovalDenyCommands = append([]string{}, value.Shell.ApprovalDenyCommands...)
+	}
 	if value.Shell.EnvironmentAllow != nil {
 		value.Shell.EnvironmentAllow = append([]string{}, value.Shell.EnvironmentAllow...)
 	}

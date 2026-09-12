@@ -214,12 +214,56 @@ func RemoveConfigRootContext(ctx context.Context, root string) error {
 		span.FailMessage("Configuration root removal refused", err, tracepkg.String("path", clean))
 		return err
 	}
-	if err := os.RemoveAll(clean); err != nil {
+	if err := removeOwnedConfigRootEntries(clean); err != nil {
 		span.FailMessage("Configuration root removal failed", err, tracepkg.String("path", clean))
 		return err
 	}
+	if err := configformat.RemoveRootMarker(clean); err != nil {
+		span.FailMessage("Configuration root marker removal failed", err, tracepkg.String("path", clean))
+		return err
+	}
+	entries, err := os.ReadDir(clean)
+	if err != nil && !os.IsNotExist(err) {
+		span.FailMessage("Configuration root inspection failed", err, tracepkg.String("path", clean))
+		return err
+	}
+	if err == nil && len(entries) == 0 {
+		if err := os.Remove(clean); err != nil && !os.IsNotExist(err) {
+			span.FailMessage("Configuration root removal failed", err, tracepkg.String("path", clean))
+			return err
+		}
+	}
 	span.EndMessage("Configuration root removed", tracepkg.String("path", clean))
 	return nil
+}
+
+func removeOwnedConfigRootEntries(root string) error {
+	for _, name := range []string{"state", "logs", "instructions", "workspaces", "tunnels"} {
+		if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"tui-state.json"} {
+		if err := removeIfExists(filepath.Join(root, name)); err != nil {
+			return err
+		}
+	}
+	for _, stem := range []string{"config", "tunnel", "workspaces", "upstream", "oauth"} {
+		for _, extension := range []string{".json", ".yaml", ".yml", ".toml"} {
+			if err := removeIfExists(filepath.Join(root, stem+extension)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func removeIfExists(path string) error {
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 func MigrateLegacySecrets() error {

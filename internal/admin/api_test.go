@@ -233,6 +233,23 @@ func TestConfigAPIWildcardExposureRequiresBothAuth(t *testing.T) {
 	}
 }
 
+func TestConfigAPIPartialAuthPatchPreservesOmittedSetting(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-hash"
+	cfg.Auth.AdminTokenHash = "admin-hash"
+	store := config.NewRuntimeStore(cfg)
+	handler := New(API{Config: store, saveConfig: func(config.Config) error { return nil }})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(`{"auth":{"mcp_enabled":true}}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	got := store.Snapshot()
+	if !got.Auth.MCPEnabled || !got.Auth.AdminEnabled {
+		t.Fatalf("partial auth patch changed omitted setting: %#v", got.Auth)
+	}
+}
+
 func TestHealthReportsAdminAuthState(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.AdminEnabled = false

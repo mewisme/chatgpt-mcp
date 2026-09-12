@@ -2,10 +2,12 @@ package secretstore
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -159,6 +161,34 @@ func TestFileBackendIsolatesConfigRoots(t *testing.T) {
 	}
 	if _, err := right.Get(name); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("right err=%v", err)
+	}
+}
+
+func TestConcurrentStoresShareFirstMasterKey(t *testing.T) {
+	root := t.TempDir()
+	const count = 64
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for index := range count {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			store := New(root)
+			<-start
+			if err := store.Set(Name("concurrent", fmt.Sprint(index)), fmt.Sprintf("value-%d", index)); err != nil {
+				t.Errorf("set %d: %v", index, err)
+			}
+		}(index)
+	}
+	close(start)
+	wg.Wait()
+	fresh := New(root)
+	for index := range count {
+		want := fmt.Sprintf("value-%d", index)
+		got, err := fresh.Get(Name("concurrent", fmt.Sprint(index)))
+		if err != nil || got != want {
+			t.Fatalf("get %d value=%q want=%q err=%v", index, got, want, err)
+		}
 	}
 }
 

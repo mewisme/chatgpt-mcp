@@ -1,6 +1,7 @@
 package checkpoint
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,8 +20,13 @@ func (s *Store) ValidateRestorePathsAllowed(workspaceID, workspaceRoot string, a
 	if err != nil {
 		return err
 	}
+	roots, err := openRestoreRoots(allowedRoots)
+	if err != nil {
+		return err
+	}
+	defer roots.Close()
 	for _, stored := range snapshots {
-		if err := validateSnapshotPathAllowed(allowedRoots, stored.Snapshot); err != nil {
+		if err := validateSnapshotPathAllowed(roots, stored.Snapshot); err != nil {
 			return err
 		}
 		if err := s.validateSnapshotStorage(workspaceID, stored.CheckpointID, stored.Snapshot); err != nil {
@@ -30,12 +36,16 @@ func (s *Store) ValidateRestorePathsAllowed(workspaceID, workspaceRoot string, a
 	return nil
 }
 
-func validateSnapshotPathAllowed(roots []string, snapshot FileSnapshot) error {
+func validateSnapshotPathAllowed(roots restoreRoots, snapshot FileSnapshot) error {
+	root, relative, err := roots.target(snapshot.Path)
+	if err != nil {
+		return fmt.Errorf("checkpoint restore denied for %s: %w", snapshot.Path, err)
+	}
 	if snapshot.IsSymlink {
-		if err := validateSymlinkSnapshot(roots, snapshot.Path, snapshot.LinkTarget); err != nil {
+		if err := validateRootedSymlinkSnapshot(root, relative, snapshot.Path, snapshot.LinkTarget); err != nil {
 			return fmt.Errorf("checkpoint restore denied for %s: %w", snapshot.Path, err)
 		}
-	} else if _, err := safeCanonicalAny(roots, snapshot.Path); err != nil {
+	} else if err := validateRootedPath(root, relative, snapshot.Path); err != nil {
 		return fmt.Errorf("checkpoint restore denied for %s: %w", snapshot.Path, err)
 	}
 	for _, child := range snapshot.Children {
@@ -46,28 +56,84 @@ func validateSnapshotPathAllowed(roots []string, snapshot FileSnapshot) error {
 	return nil
 }
 
-func validateSymlinkSnapshot(roots []string, path, target string) error {
+func validateRootedSymlinkSnapshot(root *os.Root, relative, path, target string) error {
+	if root == nil {
+		return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", filepath.Clean(path), target)
+	}
 	if strings.TrimSpace(target) == "" {
-		return fmt.Errorf("checkpoint symlink target is empty: %s", path)
+		return fmt.Errorf("checkpoint symlink target is empty: %s", filepath.Clean(path))
 	}
 	cleanPath := filepath.Clean(path)
-	targetPath := filepath.Clean(target)
-	if !filepath.IsAbs(targetPath) {
-		targetPath = filepath.Join(filepath.Dir(cleanPath), targetPath)
+	targetRelative := filepath.Clean(target)
+	if filepath.IsAbs(targetRelative) {
+		absoluteTarget := filepath.Clean(targetRelative)
+		rootPath := filepath.Clean(root.Name())
+		if !pathWithin(rootPath, absoluteTarget) {
+			return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", cleanPath, target)
+		}
+		var err error
+		targetRelative, err = filepath.Rel(rootPath, absoluteTarget)
+		if err != nil {
+			return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", cleanPath, target)
+		}
+	} else {
+		targetRelative = filepath.Clean(filepath.Join(filepath.Dir(relative), targetRelative))
 	}
-	for _, root := range roots {
-		root = filepath.Clean(root)
-		if !within(root, cleanPath) || !within(root, targetPath) {
-			continue
-		}
-		if _, err := safeCanonical(root, filepath.Dir(cleanPath)); err != nil {
-			continue
-		}
-		if _, err := safeCanonical(root, targetPath); err == nil {
-			return nil
-		}
+	if targetRelative == ".." || strings.HasPrefix(targetRelative, ".."+string(filepath.Separator)) || filepath.IsAbs(targetRelative) {
+		return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", cleanPath, target)
 	}
-	return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", cleanPath, target)
+	if _, err := root.Stat(targetRelative); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", cleanPath, target)
+	}
+	ancestor := filepath.Dir(targetRelative)
+	for {
+		candidate, err := root.OpenRoot(ancestor)
+		if err == nil {
+			return candidate.Close()
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", cleanPath, target)
+		}
+		if ancestor == "." {
+			return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", cleanPath, target)
+		}
+		next := filepath.Dir(ancestor)
+		if next == ancestor {
+			return fmt.Errorf("checkpoint symlink target escapes allowed root: %s -> %s", cleanPath, target)
+		}
+		ancestor = next
+	}
+}
+
+func validateRootedPath(root *os.Root, relative, path string) error {
+	if root == nil {
+		return fmt.Errorf("checkpoint path is outside allowed root: %s", filepath.Clean(path))
+	}
+	if _, err := root.Stat(relative); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("checkpoint path escapes allowed root: %s", filepath.Clean(path))
+	}
+	ancestor := filepath.Dir(relative)
+	for {
+		candidate, err := root.OpenRoot(ancestor)
+		if err == nil {
+			return candidate.Close()
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("checkpoint path escapes allowed root: %s", filepath.Clean(path))
+		}
+		if ancestor == "." {
+			return fmt.Errorf("checkpoint path escapes allowed root: %s", filepath.Clean(path))
+		}
+		next := filepath.Dir(ancestor)
+		if next == ancestor {
+			return fmt.Errorf("checkpoint path escapes allowed root: %s", filepath.Clean(path))
+		}
+		ancestor = next
+	}
 }
 
 func (s *Store) validateSnapshotStorage(workspaceID, checkpointID string, snapshot FileSnapshot) error {
@@ -86,60 +152,6 @@ func (s *Store) validateSnapshotStorage(workspaceID, checkpointID string, snapsh
 		}
 	}
 	return nil
-}
-
-func safeCanonicalAny(roots []string, candidate string) (string, error) {
-	var lastErr error
-	for _, root := range roots {
-		resolved, err := safeCanonical(root, candidate)
-		if err == nil {
-			return resolved, nil
-		}
-		lastErr = err
-	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("no allowed roots configured")
-	}
-	return "", lastErr
-}
-
-func safeCanonical(root, candidate string) (string, error) {
-	rootCanonical, err := filepath.EvalSymlinks(filepath.Clean(root))
-	if err != nil {
-		return "", err
-	}
-	clean := filepath.Clean(candidate)
-	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
-		if !pathWithin(rootCanonical, resolved) {
-			return "", fmt.Errorf("path escapes workspace through symlink: %s", resolved)
-		}
-		return resolved, nil
-	}
-
-	current := clean
-	var suffix []string
-	for {
-		if _, err := os.Lstat(current); err == nil {
-			break
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", fmt.Errorf("cannot resolve path ancestor: %s", candidate)
-		}
-		suffix = append(suffix, filepath.Base(current))
-		current = parent
-	}
-	resolved, err := filepath.EvalSymlinks(current)
-	if err != nil {
-		return "", err
-	}
-	for i := len(suffix) - 1; i >= 0; i-- {
-		resolved = filepath.Join(resolved, suffix[i])
-	}
-	if !pathWithin(rootCanonical, resolved) {
-		return "", fmt.Errorf("path escapes workspace through symlink: %s", resolved)
-	}
-	return resolved, nil
 }
 
 func pathWithin(root, candidate string) bool {

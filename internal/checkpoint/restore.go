@@ -26,12 +26,31 @@ func openRestoreRoots(paths []string) (restoreRoots, error) {
 	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
 	roots := make(restoreRoots, 0, len(values))
 	for _, path := range values {
-		root, err := os.OpenRoot(filepath.Clean(path))
+		path = filepath.Clean(path)
+		info, err := os.Lstat(path)
+		if err != nil {
+			_ = roots.Close()
+			return nil, fmt.Errorf("inspect checkpoint restore root %s: %w", path, err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			_ = roots.Close()
+			return nil, fmt.Errorf("checkpoint restore root is not a stable directory: %s", path)
+		}
+		root, err := os.OpenRoot(path)
 		if err != nil {
 			_ = roots.Close()
 			return nil, fmt.Errorf("open checkpoint restore root %s: %w", path, err)
 		}
-		roots = append(roots, restoreRoot{path: filepath.Clean(path), root: root})
+		openedInfo, err := root.Stat(".")
+		if err != nil || !openedInfo.IsDir() || !os.SameFile(info, openedInfo) {
+			_ = root.Close()
+			_ = roots.Close()
+			if err != nil {
+				return nil, fmt.Errorf("verify checkpoint restore root %s: %w", path, err)
+			}
+			return nil, fmt.Errorf("checkpoint restore root changed while opening: %s", path)
+		}
+		roots = append(roots, restoreRoot{path: path, root: root})
 	}
 	return roots, nil
 }

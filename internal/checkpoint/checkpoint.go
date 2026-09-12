@@ -154,6 +154,11 @@ func (s *Store) BeforeAllowed(workspaceID, workspaceRoot string, allowedRoots []
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	roots, err := openRestoreRoots(allowedRoots)
+	if err != nil {
+		return "", err
+	}
+	defer roots.Close()
 
 	id, err := checkpointID()
 	if err != nil {
@@ -172,7 +177,7 @@ func (s *Store) BeforeAllowed(workspaceID, workspaceRoot string, allowedRoots []
 
 	snapshots := make([]FileSnapshot, 0, len(unique))
 	for _, path := range unique {
-		snapshot, err := s.snapshot(workspaceID, id, allowedRoots, path, 0)
+		snapshot, err := s.snapshot(workspaceID, id, roots, path, 0)
 		if err != nil {
 			return "", err
 		}
@@ -255,10 +260,16 @@ func (s *Store) PreviewRestore(workspaceID, workspaceRoot, id string) (Preview, 
 func (s *Store) PreviewRestoreAllowed(workspaceID, workspaceRoot string, allowedRoots []string, id string) (Preview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, effectiveRoots(workspaceRoot, allowedRoots), id)
+	allowedRoots = effectiveRoots(workspaceRoot, allowedRoots)
+	target, snapshots, err := s.collectRestorePlanLocked(workspaceID, workspaceRoot, allowedRoots, id)
 	if err != nil {
 		return Preview{}, err
 	}
+	roots, err := openRestoreRoots(allowedRoots)
+	if err != nil {
+		return Preview{}, err
+	}
+	defer roots.Close()
 	changes := make([]RestoreChange, 0, len(snapshots))
 	skipped := make([]RestoreChange, 0)
 	for path, stored := range snapshots {
@@ -269,7 +280,14 @@ func (s *Store) PreviewRestoreAllowed(workspaceID, workspaceRoot string, allowed
 			skipped = append(skipped, change)
 			continue
 		}
-		_, statErr := os.Lstat(path)
+		root, relative, err := roots.target(path)
+		if err != nil {
+			return Preview{}, err
+		}
+		_, statErr := root.Lstat(relative)
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return Preview{}, statErr
+		}
 		existsNow := statErr == nil
 		if !snapshot.Existed {
 			if existsNow {
@@ -381,76 +399,108 @@ func Fingerprint(paths []string) string {
 	return hex.EncodeToString(sum[:])[:12]
 }
 
-func (s *Store) snapshot(workspaceID, checkpointID string, allowedRoots []string, path string, depth int) (FileSnapshot, error) {
+func (s *Store) snapshot(workspaceID, checkpointID string, roots restoreRoots, path string, depth int) (FileSnapshot, error) {
 	resolved := filepath.Clean(path)
-	info, err := os.Lstat(resolved)
-	if errors.Is(err, os.ErrNotExist) {
-		return FileSnapshot{Path: resolved, Existed: false}, nil
-	}
+	root, relative, err := roots.target(resolved)
 	if err != nil {
 		return FileSnapshot{}, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		target, err := os.Readlink(resolved)
-		if err != nil {
-			return FileSnapshot{}, err
-		}
-		if err := validateSymlinkSnapshot(allowedRoots, resolved, target); err != nil {
-			return FileSnapshot{}, err
-		}
-		return FileSnapshot{Path: resolved, Existed: true, IsSymlink: true, LinkTarget: target}, nil
-	}
-	if info.IsDir() {
-		return s.snapshotDirectory(workspaceID, checkpointID, allowedRoots, resolved, depth)
-	}
-	if !info.Mode().IsRegular() {
-		return FileSnapshot{}, fmt.Errorf("checkpoint cannot safely snapshot unsupported file type: %s", resolved)
-	}
-	if info.Size() > s.maxFileBytes() {
-		blob, digest, size, err := s.writeBlob(workspaceID, checkpointID, allowedRoots, resolved)
-		if err != nil {
-			return FileSnapshot{}, fmt.Errorf("checkpoint large file %s: %w", resolved, err)
-		}
-		if size != info.Size() {
-			return FileSnapshot{}, fmt.Errorf("checkpoint source changed while snapshotting %s", resolved)
-		}
-		return FileSnapshot{Path: resolved, Existed: true, Mode: uint32(info.Mode().Perm()), Blob: blob, BlobSHA256: digest, Size: size}, nil
-	}
-	data, err := os.ReadFile(resolved)
-	if err != nil {
-		return FileSnapshot{}, err
-	}
-	if utf8.Valid(data) {
-		return FileSnapshot{Path: resolved, Existed: true, Mode: uint32(info.Mode().Perm()), Encoding: "utf-8", Content: string(data), Size: int64(len(data))}, nil
-	}
-	return FileSnapshot{Path: resolved, Existed: true, Mode: uint32(info.Mode().Perm()), Encoding: "base64", Content: base64.StdEncoding.EncodeToString(data), Size: int64(len(data))}, nil
+	return s.snapshotRooted(workspaceID, checkpointID, root, relative, resolved, depth)
 }
 
-func (s *Store) snapshotDirectory(workspaceID, checkpointID string, allowedRoots []string, path string, depth int) (FileSnapshot, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return FileSnapshot{}, err
-	}
+func (s *Store) snapshotDirectory(workspaceID, checkpointID string, root *os.Root, relative, path string, info os.FileInfo, depth int) (FileSnapshot, error) {
 	if depth > s.maxDepth() {
 		return FileSnapshot{}, fmt.Errorf("checkpoint directory depth exceeds %d at %s", s.maxDepth(), path)
 	}
-	entries, err := os.ReadDir(path)
+	dir, err := root.Open(relative)
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	defer dir.Close()
+	openedInfo, err := dir.Stat()
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	if !openedInfo.IsDir() || !os.SameFile(info, openedInfo) {
+		return FileSnapshot{}, fmt.Errorf("checkpoint source changed while snapshotting %s", path)
+	}
+	entries, err := dir.ReadDir(-1)
 	if err != nil {
 		return FileSnapshot{}, err
 	}
 	children := make([]FileSnapshot, 0, len(entries))
 	for _, entry := range entries {
 		childPath := filepath.Join(path, entry.Name())
-		child, err := s.snapshot(workspaceID, checkpointID, allowedRoots, childPath, depth+1)
+		childRelative := filepath.Join(relative, entry.Name())
+		child, err := s.snapshotRooted(workspaceID, checkpointID, root, childRelative, childPath, depth+1)
 		if err != nil {
 			return FileSnapshot{}, err
 		}
 		children = append(children, child)
 	}
-	return FileSnapshot{Path: path, Existed: true, IsDirectory: true, Mode: uint32(info.Mode().Perm()), Children: children}, nil
+	return FileSnapshot{Path: path, Existed: true, IsDirectory: true, Mode: uint32(openedInfo.Mode().Perm()), Children: children}, nil
 }
 
-func (s *Store) writeBlob(workspaceID, checkpointID string, allowedRoots []string, source string) (string, string, int64, error) {
+func (s *Store) snapshotRooted(workspaceID, checkpointID string, root *os.Root, relative, path string, depth int) (FileSnapshot, error) {
+	info, err := root.Lstat(relative)
+	if errors.Is(err, os.ErrNotExist) {
+		return FileSnapshot{Path: path, Existed: false}, nil
+	}
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := root.Readlink(relative)
+		if err != nil {
+			return FileSnapshot{}, err
+		}
+		if err := validateRootedSymlinkSnapshot(root, relative, path, target); err != nil {
+			return FileSnapshot{}, err
+		}
+		return FileSnapshot{Path: path, Existed: true, IsSymlink: true, LinkTarget: target}, nil
+	}
+	if info.IsDir() {
+		return s.snapshotDirectory(workspaceID, checkpointID, root, relative, path, info, depth)
+	}
+	if !info.Mode().IsRegular() {
+		return FileSnapshot{}, fmt.Errorf("checkpoint cannot safely snapshot unsupported file type: %s", path)
+	}
+	file, err := root.Open(relative)
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		return FileSnapshot{}, fmt.Errorf("checkpoint source changed while snapshotting %s", path)
+	}
+	if openedInfo.Size() > s.maxFileBytes() {
+		blob, digest, size, err := s.writeBlob(workspaceID, checkpointID, path, file)
+		if err != nil {
+			return FileSnapshot{}, fmt.Errorf("checkpoint large file %s: %w", path, err)
+		}
+		if size != openedInfo.Size() {
+			return FileSnapshot{}, fmt.Errorf("checkpoint source changed while snapshotting %s", path)
+		}
+		return FileSnapshot{Path: path, Existed: true, Mode: uint32(openedInfo.Mode().Perm()), Blob: blob, BlobSHA256: digest, Size: size}, nil
+	}
+	data, err := io.ReadAll(io.LimitReader(file, s.maxFileBytes()+1))
+	if err != nil {
+		return FileSnapshot{}, err
+	}
+	if int64(len(data)) != openedInfo.Size() {
+		return FileSnapshot{}, fmt.Errorf("checkpoint source changed while snapshotting %s", path)
+	}
+	if utf8.Valid(data) {
+		return FileSnapshot{Path: path, Existed: true, Mode: uint32(openedInfo.Mode().Perm()), Encoding: "utf-8", Content: string(data), Size: int64(len(data))}, nil
+	}
+	return FileSnapshot{Path: path, Existed: true, Mode: uint32(openedInfo.Mode().Perm()), Encoding: "base64", Content: base64.StdEncoding.EncodeToString(data), Size: int64(len(data))}, nil
+}
+
+func (s *Store) writeBlob(workspaceID, checkpointID, source string, input io.Reader) (string, string, int64, error) {
 	sum := sha256.Sum256([]byte(filepath.Clean(source)))
 	relative := filepath.ToSlash(filepath.Join("blobs", hex.EncodeToString(sum[:])))
 	destination, err := s.blobPath(workspaceID, checkpointID, relative)
@@ -460,20 +510,6 @@ func (s *Store) writeBlob(workspaceID, checkpointID string, allowedRoots []strin
 	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
 		return "", "", 0, err
 	}
-	roots, err := openRestoreRoots(allowedRoots)
-	if err != nil {
-		return "", "", 0, err
-	}
-	defer roots.Close()
-	root, sourceRelative, err := roots.target(source)
-	if err != nil {
-		return "", "", 0, err
-	}
-	input, err := root.Open(sourceRelative)
-	if err != nil {
-		return "", "", 0, err
-	}
-	defer input.Close()
 	temp, err := os.CreateTemp(filepath.Dir(destination), ".blob-*")
 	if err != nil {
 		return "", "", 0, err

@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -175,6 +176,66 @@ func TestResolvePathRejectsSymlinkEscape(t *testing.T) {
 	}
 	if _, err := manager.ResolvePath(item.ID, root, filepath.Join("outside-link", "file.txt"), false); err == nil {
 		t.Fatal("expected symlink escape to be rejected")
+	}
+}
+
+func TestOpenRootForPathRejectsSymlinkSwapEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	safe := filepath.Join(root, "safe")
+	if err := os.Mkdir(safe, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := manager.ResolvePath(item.ID, root, filepath.Join("safe", "file.txt"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(safe); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, safe); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	rootHandle, relative, err := manager.OpenRootForPath(item.ID, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rootHandle.Close()
+	if err := rootHandle.WriteFile(relative, []byte("escape"), 0644); err == nil {
+		t.Fatal("rooted write followed swapped symlink outside workspace")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "file.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside file was created: %v", err)
+	}
+}
+
+func TestOpenRootForPathUsesAllowedDirectoryRoot(t *testing.T) {
+	root := t.TempDir()
+	allowed := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.AddAllowDir(item.ID, allowed); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(allowed, "nested", "file.txt")
+	rootHandle, relative, err := manager.OpenRootForPath(item.ID, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rootHandle.Close()
+	if rootHandle.Name() != filepath.Clean(allowed) {
+		t.Fatalf("root=%q want=%q", rootHandle.Name(), allowed)
+	}
+	if relative != filepath.Join("nested", "file.txt") {
+		t.Fatalf("relative=%q", relative)
 	}
 }
 

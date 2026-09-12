@@ -456,6 +456,46 @@ func (m *Manager) ResolvePath(id, baseDirectory, input string, mustExist bool) (
 	return canonical, nil
 }
 
+func (m *Manager) OpenRootForPath(id, path string) (*os.Root, string, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, "", errors.New("path is required")
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return nil, "", err
+	}
+	absolute = filepath.Clean(absolute)
+	if m.protected(absolute) {
+		return nil, "", fmt.Errorf("path is protected: %s", absolute)
+	}
+	roots, err := m.EffectiveRoots(id)
+	if err != nil {
+		return nil, "", err
+	}
+	selected := ""
+	for _, root := range roots {
+		root = filepath.Clean(root)
+		if !within(root, absolute) {
+			continue
+		}
+		if selected == "" || len(root) > len(selected) {
+			selected = root
+		}
+	}
+	if selected == "" {
+		return nil, "", fmt.Errorf("path escapes workspace: %s", absolute)
+	}
+	relative, err := filepath.Rel(selected, absolute)
+	if err != nil {
+		return nil, "", err
+	}
+	root, err := os.OpenRoot(selected)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, relative, nil
+}
+
 func (m *Manager) ensureLoaded() error {
 	m.mu.RLock()
 	if m.loaded {

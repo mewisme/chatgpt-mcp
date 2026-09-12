@@ -408,8 +408,8 @@ func serveRuntimeEvents(w http.ResponseWriter, r *http.Request, stream *runtimee
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
-	sub := stream.Subscribe()
-	defer stream.Unsubscribe(sub)
+	sub := stream.SubscribeDetailed()
+	defer stream.UnsubscribeDetailed(sub)
 	_, _ = fmt.Fprintf(w, "event: ready\ndata: {\"latest_sequence\":%d}\n\n", stream.LatestSequence())
 	flusher.Flush()
 	heartbeat := time.NewTicker(15 * time.Second)
@@ -421,7 +421,14 @@ func serveRuntimeEvents(w http.ResponseWriter, r *http.Request, stream *runtimee
 		case <-heartbeat.C:
 			_, _ = fmt.Fprintf(w, "event: heartbeat\ndata: {\"latest_sequence\":%d}\n\n", stream.LatestSequence())
 			flusher.Flush()
-		case event, ok := <-sub:
+		case overflow, ok := <-sub.Overflow:
+			if !ok {
+				return
+			}
+			_, _ = fmt.Fprintf(w, "event: gap\ndata: {\"dropped_sequence\":%d,\"latest_sequence\":%d}\n\n", overflow.DroppedSequence, stream.LatestSequence())
+			flusher.Flush()
+			stream.AcknowledgeOverflow(sub)
+		case event, ok := <-sub.Events:
 			if !ok {
 				return
 			}

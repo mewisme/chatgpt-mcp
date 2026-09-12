@@ -134,11 +134,11 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 	}
 	replay := newRuntimeReplay(cmd, options.showTime)
 	lastByRun := map[string]uint64{}
+	for runID, sequence := range snapshot.LatestSequence {
+		lastByRun[runID] = sequence
+	}
 	for _, event := range snapshot.Events {
 		replay.Render(event)
-		if event.RunID != "" && event.Sequence > lastByRun[event.RunID] {
-			lastByRun[event.RunID] = event.Sequence
-		}
 	}
 	if !options.follow {
 		return nil
@@ -244,6 +244,13 @@ func followRuntimeEventStream(ctx context.Context, stream *runtimecontrol.EventS
 			if ctx.Err() != nil {
 				return nil
 			}
+			if errors.Is(err, runtimecontrol.ErrEventStreamGap) {
+				replay.log.Warning("LOGS", "logs.stream.gap", "Runtime log stream gap detected; resyncing journal", err)
+				if err := replayRuntimeEventGap(query, visibility, lastByRun, replay); err != nil {
+					return err
+				}
+				continue
+			}
 			return err
 		}
 		if event.RunID != "" && event.Sequence <= lastByRun[event.RunID] {
@@ -257,4 +264,21 @@ func followRuntimeEventStream(ctx context.Context, stream *runtimecontrol.EventS
 			lastByRun[event.RunID] = event.Sequence
 		}
 	}
+}
+
+func replayRuntimeEventGap(query runtimeevent.Query, visibility logger.Visibility, lastByRun map[string]uint64, replay *runtimeReplay) error {
+	events, err := runtimeevent.Read(config.RootPath(), runtimeevent.Query{})
+	if err != nil {
+		return fmt.Errorf("resync runtime log journal: %w", err)
+	}
+	for _, event := range events {
+		if event.RunID == "" || event.Sequence <= lastByRun[event.RunID] {
+			continue
+		}
+		if query.Match(event) && event.Visibility <= visibility {
+			replay.Render(event)
+		}
+		lastByRun[event.RunID] = event.Sequence
+	}
+	return nil
 }

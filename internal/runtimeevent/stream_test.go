@@ -74,6 +74,33 @@ func TestStreamPublishWriteAndLatestSequence(t *testing.T) {
 	}
 }
 
+func TestStreamReportsSubscriberOverflow(t *testing.T) {
+	stream := NewStream(Metadata{})
+	sub := stream.SubscribeDetailed()
+	defer stream.UnsubscribeDetailed(sub)
+	for index := 0; index <= defaultStreamBuffer; index++ {
+		stream.Publish(Event{Name: "event"})
+	}
+	select {
+	case overflow := <-sub.Overflow:
+		if overflow.DroppedSequence != defaultStreamBuffer+1 {
+			t.Fatalf("dropped sequence=%d", overflow.DroppedSequence)
+		}
+	default:
+		t.Fatal("subscriber overflow was not reported")
+	}
+	stream.AcknowledgeOverflow(sub)
+	stream.Publish(Event{Name: "event"})
+	select {
+	case overflow := <-sub.Overflow:
+		if overflow.DroppedSequence != defaultStreamBuffer+2 {
+			t.Fatalf("second dropped sequence=%d", overflow.DroppedSequence)
+		}
+	default:
+		t.Fatal("subscriber overflow was not re-armed")
+	}
+}
+
 func TestNilStreamOperationsAreSafe(t *testing.T) {
 	var stream *Stream
 	if got := stream.Publish(Event{Name: "one"}); got.Name != "one" {

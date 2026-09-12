@@ -9,15 +9,26 @@ import (
 
 const defaultStreamBuffer = 64
 
+type StreamOverflow struct {
+	DroppedSequence uint64
+}
+
+type Subscription struct {
+	Events   chan Event
+	Overflow chan StreamOverflow
+	overflow bool
+	closed   bool
+}
+
 type Stream struct {
 	metadata Metadata
 	mu       sync.RWMutex
-	subs     map[chan Event]struct{}
+	subs     map[chan Event]*Subscription
 	sequence uint64
 }
 
 func NewStream(metadata Metadata) *Stream {
-	return &Stream{metadata: metadata, subs: map[chan Event]struct{}{}}
+	return &Stream{metadata: metadata, subs: map[chan Event]*Subscription{}}
 }
 
 func (s *Stream) WriteEvent(event logger.Event) error {
@@ -35,10 +46,14 @@ func (s *Stream) Publish(event Event) Event {
 	s.mu.Lock()
 	s.sequence++
 	event.Sequence = s.sequence
-	for ch := range s.subs {
+	for ch, sub := range s.subs {
 		select {
 		case ch <- event:
 		default:
+			if !sub.overflow {
+				sub.overflow = true
+				sub.Overflow <- StreamOverflow{DroppedSequence: event.Sequence}
+			}
 		}
 	}
 	s.mu.Unlock()
@@ -46,15 +61,20 @@ func (s *Stream) Publish(event Event) Event {
 }
 
 func (s *Stream) Subscribe() chan Event {
-	ch := make(chan Event, defaultStreamBuffer)
+	return s.SubscribeDetailed().Events
+}
+
+func (s *Stream) SubscribeDetailed() *Subscription {
+	sub := &Subscription{Events: make(chan Event, defaultStreamBuffer), Overflow: make(chan StreamOverflow, 1)}
 	if s == nil {
-		close(ch)
-		return ch
+		close(sub.Events)
+		close(sub.Overflow)
+		return sub
 	}
 	s.mu.Lock()
-	s.subs[ch] = struct{}{}
+	s.subs[sub.Events] = sub
 	s.mu.Unlock()
-	return ch
+	return sub
 }
 
 func (s *Stream) Unsubscribe(ch chan Event) {
@@ -62,9 +82,28 @@ func (s *Stream) Unsubscribe(ch chan Event) {
 		return
 	}
 	s.mu.Lock()
-	if _, ok := s.subs[ch]; ok {
+	if sub, ok := s.subs[ch]; ok && !sub.closed {
 		delete(s.subs, ch)
-		close(ch)
+		close(sub.Events)
+		close(sub.Overflow)
+		sub.closed = true
+	}
+	s.mu.Unlock()
+}
+
+func (s *Stream) UnsubscribeDetailed(sub *Subscription) {
+	if sub != nil {
+		s.Unsubscribe(sub.Events)
+	}
+}
+
+func (s *Stream) AcknowledgeOverflow(sub *Subscription) {
+	if s == nil || sub == nil {
+		return
+	}
+	s.mu.Lock()
+	if current, ok := s.subs[sub.Events]; ok && current == sub && !sub.closed {
+		sub.overflow = false
 	}
 	s.mu.Unlock()
 }
@@ -139,10 +178,14 @@ func (r *Recorder) Record(value Event) error {
 	if r.Stream.sequence < value.Sequence {
 		r.Stream.sequence = value.Sequence
 	}
-	for ch := range r.Stream.subs {
+	for ch, sub := range r.Stream.subs {
 		select {
 		case ch <- value:
 		default:
+			if !sub.overflow {
+				sub.overflow = true
+				sub.Overflow <- StreamOverflow{DroppedSequence: value.Sequence}
+			}
 		}
 	}
 	r.Stream.mu.Unlock()

@@ -2,6 +2,7 @@ package runtimecontrol
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -145,6 +146,24 @@ func TestEventStreamReportsMalformedRuntimeFrame(t *testing.T) {
 	defer stream.Close()
 	if _, err := stream.Next(); err == nil || !strings.Contains(err.Error(), "decode runtime event") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestEventStreamReportsGapFrame(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "event: ready\ndata: {\"latest_sequence\":1}\n\nevent: gap\ndata: {\"dropped_sequence\":2,\"latest_sequence\":70}\n\n")
+	}))
+	defer server.Close()
+	root := setupRuntimeControlRoot(t)
+	writeRuntimeControlState(t, root, server.URL, "runtime-secret")
+	stream, _, err := OpenEvents(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	if _, err := stream.Next(); !errors.Is(err, ErrEventStreamGap) {
+		t.Fatalf("gap err=%v", err)
 	}
 }
 

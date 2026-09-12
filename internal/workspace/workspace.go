@@ -489,9 +489,24 @@ func (m *Manager) OpenRootForPath(id, path string) (*os.Root, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	info, err := os.Lstat(selected)
+	if err != nil {
+		return nil, "", fmt.Errorf("inspect workspace access root %s: %w", selected, err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, "", fmt.Errorf("workspace access root is not a stable directory: %s", selected)
+	}
 	root, err := os.OpenRoot(selected)
 	if err != nil {
 		return nil, "", err
+	}
+	openedInfo, err := root.Stat(".")
+	if err != nil || !openedInfo.IsDir() || !os.SameFile(info, openedInfo) {
+		_ = root.Close()
+		if err != nil {
+			return nil, "", fmt.Errorf("verify workspace access root %s: %w", selected, err)
+		}
+		return nil, "", fmt.Errorf("workspace access root changed while opening: %s", selected)
 	}
 	return root, relative, nil
 }

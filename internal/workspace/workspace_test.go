@@ -239,6 +239,33 @@ func TestOpenRootForPathUsesAllowedDirectoryRoot(t *testing.T) {
 	}
 }
 
+func TestOpenRootForPathRejectsReplacedWorkspaceRootSymlink(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "workspace")
+	if err := os.Mkdir(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Remove(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, root); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if handle, _, err := manager.OpenRootForPath(item.ID, filepath.Join(root, "file.txt")); err == nil {
+		_ = handle.Close()
+		t.Fatal("expected replaced workspace root symlink to be rejected")
+	}
+}
+
 func TestMutationGuardAllowsWorkspaceLocalRm(t *testing.T) {
 	root := t.TempDir()
 	file := filepath.Join(root, "file.txt")

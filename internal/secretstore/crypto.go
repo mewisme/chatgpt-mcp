@@ -83,8 +83,17 @@ func (b *fileBackend) masterKey() ([]byte, error) {
 	if len(b.key) == masterKeySize {
 		return b.key, nil
 	}
-	path := filepath.Join(b.root, masterKeyName)
-	data, err := readMasterKey(path)
+	root, err := b.openConfigRoot(true)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	dir := filepath.Join("state", "secrets")
+	if err := root.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, masterKeyName)
+	data, err := readMasterKey(root, path)
 	if err == nil {
 		b.key = data
 		return b.key, nil
@@ -92,16 +101,13 @@ func (b *fileBackend) masterKey() ([]byte, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	if err := os.MkdirAll(b.root, 0700); err != nil {
-		return nil, err
-	}
 	key := make([]byte, masterKeySize)
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	file, err := root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if errors.Is(err, os.ErrExist) {
-		data, err := waitForMasterKey(path)
+		data, err := waitForMasterKey(root, path)
 		if err != nil {
 			return nil, err
 		}
@@ -126,8 +132,8 @@ func (b *fileBackend) masterKey() ([]byte, error) {
 	return b.key, nil
 }
 
-func readMasterKey(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
+func readMasterKey(root *os.Root, path string) ([]byte, error) {
+	data, err := readRootedRegularFile(root, path)
 	if err != nil {
 		return nil, err
 	}
@@ -137,11 +143,11 @@ func readMasterKey(path string) ([]byte, error) {
 	return append([]byte(nil), data...), nil
 }
 
-func waitForMasterKey(path string) ([]byte, error) {
+func waitForMasterKey(root *os.Root, path string) ([]byte, error) {
 	var err error
 	for range 50 {
 		var data []byte
-		data, err = readMasterKey(path)
+		data, err = readMasterKey(root, path)
 		if err == nil {
 			return data, nil
 		}

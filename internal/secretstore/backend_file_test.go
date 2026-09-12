@@ -139,7 +139,7 @@ func TestMigratePlaintextEncryptsLegacyFiles(t *testing.T) {
 }
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
-	backend := &fileBackend{root: t.TempDir()}
+	backend := newFileBackend(t.TempDir()).(*fileBackend)
 	sealed, err := backend.seal([]byte("round-trip-secret"))
 	if err != nil {
 		t.Fatal(err)
@@ -150,6 +150,55 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	opened, err := backend.open(sealed)
 	if err != nil || string(opened) != "round-trip-secret" {
 		t.Fatalf("opened=%q err=%v", opened, err)
+	}
+}
+
+func TestFileBackendRejectsSecretStateSymlinkEscape(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "state")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	store := New(root)
+	if err := store.Set(Name("oauth", "access-token"), "secret-value"); err == nil {
+		t.Fatal("expected secret write through escaped state symlink to fail")
+	}
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("secret write escaped config root: %#v", entries)
+	}
+}
+
+func TestFileBackendRejectsSecretFileSymlink(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	root := t.TempDir()
+	store := New(root)
+	backend := store.backend.(*fileBackend)
+	name := Name("oauth", "access-token")
+	path, err := backend.path(store.service, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.secret")
+	if err := os.WriteFile(outside, []byte("outside-secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := store.Get(name); err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected symlink secret file to be rejected, got %v", err)
 	}
 }
 

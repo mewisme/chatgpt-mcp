@@ -315,38 +315,6 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/secretstore/backend_file.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\tdata, err := os.ReadFile(path)\n\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/secretstore/backend_file.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\tdata, err := os.ReadFile(path)\n\tif errors.Is(err, os.ErrNotExist) {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/secretstore/crypto.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\tfile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)\n\tif errors.Is(err, os.ErrExist) {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
-    "file": "internal/secretstore/crypto.go",
-    "details": "Potential file inclusion via variable",
-    "code": "func readMasterKey(path string) ([]byte, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/service/service.go",
     "details": "Potential file inclusion via variable",
     "code": "defer os.Remove(tempPath)\n\tsourceFile, err := os.Open(source)\n\tif err != nil {"

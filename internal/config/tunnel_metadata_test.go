@@ -98,3 +98,34 @@ func TestTunnelMetadataPathRejectsTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestTunnelMetadataRejectsSymlinkDirectoryEscape(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("symlink creation may require Windows Developer Mode or elevation")
+	}
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	if err := SaveAs(cfg, configformat.JSON); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, TunnelMetadataDir()); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_test", Name: "Outside"}); err == nil {
+		t.Fatal("expected symlink tunnel metadata directory to be rejected")
+	}
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("tunnel metadata escaped config root: %#v", entries)
+	}
+}

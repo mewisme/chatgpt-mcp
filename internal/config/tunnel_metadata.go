@@ -46,7 +46,16 @@ func LoadTunnelMetadata(id string) (tunnel.Metadata, error) {
 	if err != nil {
 		return tunnel.Metadata{}, err
 	}
-	data, err := os.ReadFile(path)
+	root, err := openTunnelMetadataRoot(false)
+	if err != nil {
+		return tunnel.Metadata{}, err
+	}
+	defer root.Close()
+	relative, err := tunnelMetadataRelative(path)
+	if err != nil {
+		return tunnel.Metadata{}, err
+	}
+	data, err := readTunnelMetadataFile(root, relative)
 	if err != nil {
 		return tunnel.Metadata{}, err
 	}
@@ -85,11 +94,18 @@ func SaveTunnelMetadataContext(ctx context.Context, metadata tunnel.Metadata) (s
 		span.FailMessage("Tunnel metadata cache encoding failed", err)
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	root, err := openTunnelMetadataRoot(true)
+	if err != nil {
 		span.FailMessage("Tunnel metadata cache directory creation failed", err)
 		return "", err
 	}
-	if err := state.WriteFileAtomic(path, data, 0600); err != nil {
+	defer root.Close()
+	relative, err := tunnelMetadataRelative(path)
+	if err != nil {
+		span.FailMessage("Tunnel metadata cache path validation failed", err)
+		return "", err
+	}
+	if err := state.WriteFileAtomicRoot(root, relative, data, 0600); err != nil {
 		span.FailMessage("Tunnel metadata cache persistence failed", err, tracepkg.Int64("bytes", int64(len(data))))
 		return "", err
 	}
@@ -114,7 +130,22 @@ func RemoveTunnelMetadataContext(ctx context.Context, id string) error {
 		return err
 	}
 	span := tracepkg.Start(ctx, "TUNNEL", "tunnel.metadata.remove", "Removing tunnel metadata cache", tracepkg.String("tunnel_id", strings.TrimSpace(id)), tracepkg.String("path", path))
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	root, err := openTunnelMetadataRoot(false)
+	if errors.Is(err, os.ErrNotExist) {
+		span.EndMessage("Tunnel metadata cache removed")
+		return nil
+	}
+	if err != nil {
+		span.FailMessage("Tunnel metadata cache removal failed", err)
+		return err
+	}
+	defer root.Close()
+	relative, err := tunnelMetadataRelative(path)
+	if err != nil {
+		span.FailMessage("Tunnel metadata cache path validation failed", err)
+		return err
+	}
+	if err := root.Remove(relative); err != nil && !errors.Is(err, os.ErrNotExist) {
 		span.FailMessage("Tunnel metadata cache removal failed", err)
 		return err
 	}
@@ -123,39 +154,38 @@ func RemoveTunnelMetadataContext(ctx context.Context, id string) error {
 }
 
 func ListTunnelMetadata() ([]tunnel.Metadata, error) {
-	dir := TunnelMetadataDir()
-	entries, err := os.ReadDir(dir)
+	root, err := openTunnelMetadataRoot(false)
 	if errors.Is(err, os.ErrNotExist) {
 		return []tunnel.Metadata{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	root, err := os.OpenRoot(dir)
+	defer root.Close()
+	directory, err := root.Open("tunnels")
+	if errors.Is(err, os.ErrNotExist) {
+		return []tunnel.Metadata{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer directory.Close()
+	entries, err := directory.ReadDir(-1)
+	if err != nil {
+		return nil, err
+	}
 	result := make([]tunnel.Metadata, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name())
+		path := filepath.Join(TunnelMetadataDir(), entry.Name())
 		if _, err := configformat.Detect(path); err != nil {
 			continue
 		}
-		file, err := root.Open(entry.Name())
+		data, err := readTunnelMetadataFile(root, filepath.Join("tunnels", entry.Name()))
 		if err != nil {
 			return nil, err
-		}
-		data, readErr := io.ReadAll(file)
-		closeErr := file.Close()
-		if readErr != nil {
-			return nil, readErr
-		}
-		if closeErr != nil {
-			return nil, closeErr
 		}
 		var metadata tunnel.Metadata
 		if err := configformat.UnmarshalPath(path, data, &metadata); err != nil {
@@ -171,6 +201,61 @@ func ListTunnelMetadata() ([]tunnel.Metadata, error) {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
+}
+
+func openTunnelMetadataRoot(create bool) (*os.Root, error) {
+	rootPath := filepath.Clean(RootPath())
+	if create {
+		if err := os.MkdirAll(rootPath, 0700); err != nil {
+			return nil, err
+		}
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, err
+	}
+	if create {
+		if err := root.MkdirAll("tunnels", 0700); err != nil {
+			_ = root.Close()
+			return nil, err
+		}
+	}
+	return root, nil
+}
+
+func tunnelMetadataRelative(path string) (string, error) {
+	rootPath := filepath.Clean(RootPath())
+	relative, err := filepath.Rel(rootPath, filepath.Clean(path))
+	if err != nil {
+		return "", err
+	}
+	if relative == "." || relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("tunnel metadata path escapes config root: %s", path)
+	}
+	return relative, nil
+}
+
+func readTunnelMetadataFile(root *os.Root, relative string) ([]byte, error) {
+	info, err := root.Lstat(relative)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("tunnel metadata path is not a regular file: %s", relative)
+	}
+	file, err := root.Open(relative)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		return nil, fmt.Errorf("tunnel metadata path changed while opening: %s", relative)
+	}
+	return io.ReadAll(file)
 }
 
 func SyncTunnelMetadata(ctx context.Context, cfg tunnel.Config) (tunnel.Metadata, string, error) {

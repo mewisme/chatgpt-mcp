@@ -179,14 +179,6 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/config/tunnel_metadata.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/configbundle/bundle.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\tdata, err := os.ReadFile(file)\n\tif err != nil {"

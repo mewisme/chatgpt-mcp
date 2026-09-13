@@ -301,3 +301,14 @@ func TestShellStateFollowsRootConfigFormat(t *testing.T) {
 		t.Fatalf("shell state did not follow TOML format: %v", err)
 	}
 }
+
+func TestShellMarkdownLanguage(t *testing.T) {
+	for shell, want := range map[string]string{
+		"/bin/bash": "bash", "/usr/bin/zsh": "zsh", "/usr/local/bin/fish": "fish", "/bin/sh": "sh",
+		"pwsh.exe": "powershell", "powershell.exe": "powershell", "cmd.exe": "batch", "/opt/custom-shell": "shell",
+	} {
+		if got := shellMarkdownLanguage(shell); got != want {
+			t.Fatalf("shellMarkdownLanguage(%q)=%q want %q", shell, got, want)
+		}
+	}
+}

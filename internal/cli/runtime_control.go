@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/activity"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
@@ -40,6 +41,7 @@ type runtimeControlOptions struct {
 	ServiceScope     string
 	StartedAt        time.Time
 	Events           *runtimeevent.Stream
+	Activity         *activity.Stream
 	Reload           func(context.Context) (runtimeReloadResult, error)
 	ReloadWorkspaces func() (workspaceReloadResult, error)
 	Status           func() runtimeStatusResult
@@ -277,6 +279,29 @@ func startRuntimeControlContext(ctx context.Context, options runtimeControlOptio
 	mux.HandleFunc("/events", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		serveRuntimeEvents(w, r, options.Events)
 	}))
+	mux.HandleFunc("/tool-calls/stream", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		serveRuntimeToolCallFeed(w, r, options.Activity)
+	}))
+	mux.HandleFunc("/executions", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, _ *http.Request) {
+		if options.Executions == nil {
+			http.Error(w, "execution stream unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		writeControlJSON(w, options.Executions.List("", 100), nil)
+	}))
+	mux.HandleFunc("/executions/", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		if options.Executions == nil {
+			http.Error(w, "execution stream unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/executions/"), "/")
+		if id == "" || id == "stream" {
+			http.NotFound(w, r)
+			return
+		}
+		snapshot, err := options.Executions.Get("", id)
+		writeControlJSON(w, snapshot, err)
+	}))
 	mux.HandleFunc("/executions/stream", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		serveRuntimeExecutionFeed(w, r, options.Executions)
 	}))
@@ -359,6 +384,75 @@ func serveRuntimeExecutionFeed(w http.ResponseWriter, r *http.Request, hub *shel
 				continue
 			}
 			if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, event.Type, data); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+func serveRuntimeToolCallFeed(w http.ResponseWriter, r *http.Request, stream *activity.Stream) {
+	if stream == nil {
+		http.Error(w, "tool call stream unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	sub, recent, latestSequence := stream.SubscribeToolCallsSnapshot(activity.MaxRecentToolCalls)
+	defer stream.UnsubscribeDetailed(sub)
+	replay := make([]activity.Event, 0, len(recent))
+	for _, event := range recent {
+		if event.Kind == string(activity.EventToolCall) {
+			replay = append(replay, event)
+		}
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	if _, err := fmt.Fprintf(w, "event: ready\ndata: {\"latest_sequence\":%d,\"replay_count\":%d}\n\n", latestSequence, len(replay)); err != nil {
+		return
+	}
+	for _, event := range replay {
+		data, err := json.Marshal(event)
+		if err != nil {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "id: %d\nevent: tool_call\ndata: %s\n\n", event.Sequence, data); err != nil {
+			return
+		}
+	}
+	flusher.Flush()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case overflow := <-sub.Overflow:
+			if overflow.DroppedSequence == 0 {
+				return
+			}
+			_, _ = fmt.Fprintf(w, "event: overflow\ndata: {\"dropped_sequence\":%d}\n\n", overflow.DroppedSequence)
+			flusher.Flush()
+			return
+		case <-heartbeat.C:
+			_, _ = fmt.Fprintf(w, "event: heartbeat\ndata: {\"latest_sequence\":%d}\n\n", stream.LatestSequence())
+			flusher.Flush()
+		case event, ok := <-sub.Events:
+			if !ok {
+				return
+			}
+			if event.Kind != string(activity.EventToolCall) {
+				continue
+			}
+			data, err := json.Marshal(event)
+			if err != nil {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "id: %d\nevent: tool_call\ndata: %s\n\n", event.Sequence, data); err != nil {
 				return
 			}
 			flusher.Flush()

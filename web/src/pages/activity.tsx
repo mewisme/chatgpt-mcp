@@ -123,8 +123,9 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={destructive ? "destructive" : status === "success" || status === "completed" || status === "ok" ? "secondary" : "outline"}>{status}</Badge>
 }
 
-function prependActivity(items: ActivityEvent[], event: ActivityEvent) { return [event, ...items.filter((item) => !event.sequence || item.sequence !== event.sequence)].slice(0, 200) }
-function mergeActivity(head: ActivityEvent[], tail: ActivityEvent[]) { return [...head, ...tail].reduce<ActivityEvent[]>((items, event) => event.sequence && items.some((item) => item.sequence === event.sequence) ? items : [...items, event], []).slice(0, 200) }
+function activityKey(event: ActivityEvent) { return event.kind === "tool_call" && event.call_id ? `tool:${event.call_id}` : event.sequence ? `seq:${event.sequence}` : `${event.kind}:${event.timestamp}:${event.method || ""}` }
+function prependActivity(items: ActivityEvent[], event: ActivityEvent) { const key = activityKey(event); return [event, ...items.filter((item) => activityKey(item) !== key)].slice(0, 200) }
+function mergeActivity(head: ActivityEvent[], tail: ActivityEvent[]) { return [...head, ...tail].reduce<ActivityEvent[]>((items, event) => { const key = activityKey(event); return items.some((item) => activityKey(item) === key) ? items : [...items, event] }, []).slice(0, 200) }
 function unique(events: ActivityEvent[], pending: ActivityEvent[], pick: (event: ActivityEvent) => string | undefined) { return [...new Set([...events, ...pending].map(pick).filter((value): value is string => Boolean(value)))].sort() }
 function activityTitle(event: ActivityEvent) { return event.tool || event.method || event.kind }
 function formatDuration(value: number) { return value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} s` }

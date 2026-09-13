@@ -20,8 +20,10 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"tunnels", "tunnel_abc"}, Route{Kind: RouteTunnels, ResourceID: "tunnel_abc"}},
 		{[]string{"logs"}, Route{Kind: RouteLogs}},
 		{[]string{"logs-exec"}, Route{Kind: RouteLogsExec}},
-		{[]string{"logs-exec", "settings"}, Route{Kind: RouteLogsExec, Action: "settings"}},
 		{[]string{"command-execution"}, Route{Kind: RouteLogsExec}},
+		{[]string{"logs-exec", "exec_abc"}, Route{Kind: RouteLogsExec, ResourceID: "exec_abc"}},
+		{[]string{"logs-tools"}, Route{Kind: RouteLogsTools}},
+		{[]string{"logs-tools", "call_abc"}, Route{Kind: RouteLogsTools, ResourceID: "call_abc"}},
 		{[]string{"logs", "event_abc"}, Route{Kind: RouteLogs, ResourceID: "event_abc"}},
 		{[]string{"logs", "event_abc", "fields"}, Route{Kind: RouteLogs, ResourceID: "event_abc", Section: "fields"}},
 		{[]string{"ws", "ws_abc", "access"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_abc", Section: "access"}},
@@ -57,7 +59,7 @@ func TestParseRoute(t *testing.T) {
 			t.Fatalf("ParseRoute(%v) = %#v, %v; want %#v", test.args, got, err, test.want)
 		}
 	}
-	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
+	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "settings"}, {"logs-exec", "exec_a", "extra"}, {"logs-tools", "call_a", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
 		if _, err := ParseRoute(args); err == nil {
 			t.Fatalf("ParseRoute(%v) unexpectedly succeeded", args)
 		}
@@ -187,6 +189,7 @@ func TestRouteStacksTreatTopLevelTabsAsRoots(t *testing.T) {
 		{Kind: RouteContainers}:                    {{Kind: RouteContainers}},
 		{Kind: RouteTunnels}:                       {{Kind: RouteTunnel}, {Kind: RouteTunnels}},
 		{Kind: RouteLogsExec}:                      {{Kind: RouteLogsExec}},
+		{Kind: RouteLogsTools}:                     {{Kind: RouteLogsTools}},
 		{Kind: RouteRequests, Mode: "pending"}:     {{Kind: RouteRequests, Mode: "pending"}},
 		{Kind: RouteInstruction, Section: "rules"}: {{Kind: RouteInstruction, Section: "rules"}},
 	} {
@@ -213,7 +216,9 @@ func TestRouteBreadcrumbLabelsUseNavigableAncestry(t *testing.T) {
 		{Route{Kind: RouteTunnels, ResourceID: "tun_demo", Action: "configure"}, []string{"Tunnel", "Managed Tunnels", "tun_demo", "Configure"}},
 		{Route{Kind: RouteRequests, Mode: "pending", ResourceID: "req_demo", Section: "guard"}, []string{"Pending", "req_demo", "Guard"}},
 		{Route{Kind: RouteLogsExec}, []string{"Command Execution"}},
-		{Route{Kind: RouteLogsExec, Action: "settings"}, []string{"Command Execution", "Settings"}},
+		{Route{Kind: RouteLogsExec, ResourceID: "exec_demo"}, []string{"Command Execution", "exec_demo"}},
+		{Route{Kind: RouteLogsTools}, []string{"Tool Calls"}},
+		{Route{Kind: RouteLogsTools, ResourceID: "call_demo"}, []string{"Tool Calls", "call_demo"}},
 		{Route{Kind: RouteConfig, Section: "storage", Action: "export"}, []string{"Config", "Storage", "Export"}},
 		{Route{Kind: RouteInstruction, ResourceID: "rule_demo", Section: "rules", Action: "edit"}, []string{"Rules", "Edit rule_demo"}},
 		{Route{Kind: RouteGuide, ResourceID: "config/storage/bundles"}, []string{"Guide", "Config", "Storage", "Bundles"}},
@@ -256,7 +261,9 @@ func TestRouteBreadcrumbInventoryCoversAllChildFamilies(t *testing.T) {
 		{Kind: RouteLogs, ResourceID: "event_a", Section: "fields"},
 		{Kind: RouteLogs, Action: "filter"},
 		{Kind: RouteLogsExec},
-		{Kind: RouteLogsExec, Action: "settings"},
+		{Kind: RouteLogsExec, ResourceID: "exec_a"},
+		{Kind: RouteLogsTools},
+		{Kind: RouteLogsTools, ResourceID: "call_a"},
 		{Kind: RouteConfig, ResourceID: "shell"},
 		{Kind: RouteConfig, ResourceID: "server.port", Action: "edit"},
 		{Kind: RouteConfig, Section: "storage", Action: "export"},
@@ -313,9 +320,11 @@ func TestRouteTitleIncludesChildSection(t *testing.T) {
 	}
 }
 
-func TestHeaderOwnerTreatsLogsExecAsLogsChild(t *testing.T) {
-	if got := headerOwner(RouteLogsExec); got != RouteLogs {
-		t.Fatalf("header owner=%s want=%s", got, RouteLogs)
+func TestHeaderOwnerTreatsLogTabsAsLogsChildren(t *testing.T) {
+	for _, kind := range []RouteKind{RouteLogsExec, RouteLogsTools} {
+		if got := headerOwner(kind); got != RouteLogs {
+			t.Fatalf("header owner for %s=%s want=%s", kind, got, RouteLogs)
+		}
 	}
 }
 

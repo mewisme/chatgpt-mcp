@@ -2,12 +2,14 @@ package page
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -19,7 +21,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
 
-const logsBufferCap = 2000
+const logsBufferCap = 1024
 const logsDefaultTail = 200
 const logsReconnectDelay = 2 * time.Second
 
@@ -79,7 +81,12 @@ type LogsPage struct {
 	section           string
 	action            string
 	tab               logsTab
+	view              logsDisplayView
+	timeline          logsTimelineState
+	runtimeScope      logsScopeState
 	exec              logsExecutionFeed
+	tools             logsToolCallFeed
+	modeDialog        *logsModeDialog
 	cancel            context.CancelFunc
 	browser           component.Browser
 	detail            component.DetailPage
@@ -115,6 +122,10 @@ type LogsPage struct {
 
 type LogsSessionViewState struct {
 	Tab                         string
+	View                        string
+	RuntimeScope                string
+	RuntimeWorkspaceID          string
+	RuntimeContainerID          string
 	Options                     application.LogsQueryOptions
 	Visibility                  logger.Visibility
 	RuntimePaused               bool
@@ -128,6 +139,11 @@ type LogsSessionViewState struct {
 	ExecutionProcessRunning     bool
 	ExecutionPaused             bool
 	ExecutionYOffset            int
+	ToolCallScope               string
+	ToolCallWorkspaceID         string
+	ToolCallContainerID         string
+	ToolCallPaused              bool
+	ToolCallYOffset             int
 }
 
 func NewLogs(ctx context.Context) (*LogsPage, error) {
@@ -143,7 +159,7 @@ func NewLogsRouteAction(ctx context.Context, resourceID, section, action string)
 		ctx = context.Background()
 	}
 	pageCtx, cancel := context.WithCancel(ctx)
-	page := &LogsPage{ctx: pageCtx, cancel: cancel, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose, exec: newLogsExecutionFeed()}
+	page := &LogsPage{ctx: pageCtx, cancel: cancel, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), view: logsViewBrowser, timeline: newLogsTimelineState(), runtimeScope: newLogsScopeState(), options: application.LogsQueryOptions{Tail: logsDefaultTail}, visibility: logger.VisibilityVerbose, exec: newLogsExecutionFeed(), tools: newLogsToolCallFeed()}
 	page.browser = component.NewBrowser(pageCtx, "Logs", nil, nil).WithTitleVisible(false).WithExternalHelp(true)
 	page.syncBrowserHelp()
 	if page.action == "filter" {
@@ -153,42 +169,49 @@ func NewLogsRouteAction(ctx context.Context, resourceID, section, action string)
 }
 
 func NewCommandExecutionLogs(ctx context.Context) (*LogsPage, error) {
-	return NewCommandExecutionLogsRouteAction(ctx, "")
+	return NewCommandExecutionLogsRoute(ctx, "")
 }
 
-func NewCommandExecutionLogsRouteAction(ctx context.Context, action string) (*LogsPage, error) {
+func NewCommandExecutionLogsRoute(ctx context.Context, resourceID string) (*LogsPage, error) {
 	page, err := NewLogsRoute(ctx, "", "")
 	if err != nil {
 		return nil, err
 	}
 	page.tab = logsTabCommandExec
-	page.action = strings.TrimSpace(action)
-	switch page.action {
-	case "":
-	case "settings":
-		if err := page.initExecutionScopeEditor(); err != nil {
-			page.Close()
-			return nil, err
-		}
-	default:
-		page.Close()
-		return nil, fmt.Errorf("unsupported command execution action: %s", page.action)
+	page.resourceID = strings.TrimSpace(resourceID)
+	page.view = logsViewTimeline
+	if page.resourceID != "" {
+		page.detail = component.NewDetailPage("Execution · "+page.resourceID, "loading", component.Muted("Loading execution...")).WithTitleVisible(false)
 	}
 	return page, nil
+}
+
+// NewCommandExecutionLogsRouteAction is kept as a compatibility wrapper for callers
+// that have not migrated from the removed settings route.
+func NewCommandExecutionLogsRouteAction(ctx context.Context, action string) (*LogsPage, error) {
+	if strings.TrimSpace(action) != "" {
+		return nil, fmt.Errorf("unsupported command execution action: %s", action)
+	}
+	return NewCommandExecutionLogsRoute(ctx, "")
 }
 
 func (page *LogsPage) Init() tea.Cmd {
 	if page == nil {
 		return nil
 	}
-	if page.tab == logsTabCommandExec {
+	switch page.tab {
+	case logsTabCommandExec:
 		commands := []tea.Cmd{page.startExecutionFeed()}
-		if page.exec.scopeEditor != nil {
-			commands = append(commands, page.exec.scopeEditor.Init())
+		if page.resourceID != "" {
+			commands = append(commands, page.loadExecutionDetailCmd())
 		}
 		return tea.Batch(commands...)
+	case logsTabToolCalls:
+		return page.startToolCallFeed()
+	default:
+		page.refreshRuntimeScope()
+		return page.startBootstrap()
 	}
-	return page.startBootstrap()
 }
 
 func (page *LogsPage) Close() {
@@ -197,6 +220,7 @@ func (page *LogsPage) Close() {
 	}
 	page.stopStream()
 	page.stopExecutionFeed()
+	page.stopToolCallFeed()
 	page.cleanupSelectedFinishedProcess()
 	if page.cancel != nil {
 		page.cancel()
@@ -204,16 +228,16 @@ func (page *LogsPage) Close() {
 }
 
 func (page *LogsPage) OverlayActive() bool {
-	return page != nil && page.overlay != logsOverlayNone
+	return page != nil && (page.overlay != logsOverlayNone || page.modeDialog != nil)
 }
 func (page *LogsPage) InputActive() bool {
-	return page != nil && (page.editor != nil || page.exec.scopeEditor != nil || page.tab == logsTabRuntime && page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.modeDialog != nil || page.editor != nil || page.view == logsViewBrowser && page.resourceID == "" && page.browser.InputActive())
 }
 func (page *LogsPage) Dirty() bool {
-	return page != nil && (page.editor != nil && page.editor.Dirty() || page.exec.scopeEditor != nil && page.exec.scopeEditor.Dirty())
+	return page != nil && page.editor != nil && page.editor.Dirty()
 }
 func (page *LogsPage) Submitting() bool {
-	return page != nil && (page.editor != nil && page.editor.Submitting() || page.exec.scopeEditor != nil && page.exec.scopeEditor.Submitting())
+	return page != nil && page.editor != nil && page.editor.Submitting()
 }
 
 func (page *LogsPage) SessionViewState() any {
@@ -221,8 +245,11 @@ func (page *LogsPage) SessionViewState() any {
 		return LogsSessionViewState{}
 	}
 	tab := "runtime"
-	if page.tab == logsTabCommandExec {
+	switch page.tab {
+	case logsTabCommandExec:
 		tab = "command-execution"
+	case logsTabToolCalls:
+		tab = "tool-calls"
 	}
 	executionYOffset := page.exec.viewport.YOffset()
 	if page.exec.restoreYOffsetSet {
@@ -234,10 +261,13 @@ func (page *LogsPage) SessionViewState() any {
 		workspaceView, processID, processExecutionID = executionWorkspaceCommands, "", ""
 	}
 	return LogsSessionViewState{
-		Tab: tab, Options: page.options, Visibility: page.visibility, RuntimePaused: page.paused, RuntimeSelectedID: page.selectedID(),
+		Tab: tab, View: string(page.view), Options: page.options, Visibility: page.visibility, RuntimePaused: page.paused, RuntimeSelectedID: page.selectedID(),
+		RuntimeScope: string(page.runtimeScope.mode), RuntimeWorkspaceID: page.runtimeScope.workspaceID, RuntimeContainerID: page.runtimeScope.containerID,
 		ExecutionScope: string(page.exec.scopeMode), ExecutionWorkspaceID: page.exec.workspaceID, ExecutionContainerID: page.exec.containerID,
 		ExecutionWorkspaceView: string(workspaceView), ExecutionProcessID: processID, ExecutionProcessExecutionID: processExecutionID, ExecutionProcessRunning: processRunning,
 		ExecutionPaused: page.exec.paused, ExecutionYOffset: executionYOffset,
+		ToolCallScope: string(page.tools.scope.mode), ToolCallWorkspaceID: page.tools.scope.workspaceID, ToolCallContainerID: page.tools.scope.containerID,
+		ToolCallPaused: page.tools.paused, ToolCallYOffset: page.tools.viewport.YOffset(),
 	}
 }
 
@@ -249,12 +279,19 @@ func (page *LogsPage) RestoreSessionViewState(value any) {
 	if !ok {
 		return
 	}
-	if state.Tab == "command-execution" {
+	switch state.Tab {
+	case "command-execution":
 		page.tab = logsTabCommandExec
-	} else {
+	case "tool-calls":
+		page.tab = logsTabToolCalls
+	default:
 		page.tab = logsTabRuntime
 	}
+	page.view = normalizeLogsDisplayView(logsDisplayView(state.View))
 	page.options, page.visibility, page.paused = state.Options, state.Visibility, state.RuntimePaused
+	page.runtimeScope.mode = normalizeExecutionScopeMode(executionScopeMode(state.RuntimeScope))
+	page.runtimeScope.workspaceID, page.runtimeScope.containerID = strings.TrimSpace(state.RuntimeWorkspaceID), strings.TrimSpace(state.RuntimeContainerID)
+	page.refreshRuntimeScope()
 	page.restoreSelectedID = strings.TrimSpace(state.RuntimeSelectedID)
 	switch executionScopeMode(state.ExecutionScope) {
 	case executionScopeWorkspace, executionScopeContainer:
@@ -273,6 +310,11 @@ func (page *LogsPage) RestoreSessionViewState(value any) {
 	}
 	page.exec.paused = state.ExecutionPaused
 	page.exec.restoreYOffset, page.exec.restoreYOffsetSet = max(0, state.ExecutionYOffset), true
+	page.tools.scope.mode = normalizeExecutionScopeMode(executionScopeMode(state.ToolCallScope))
+	page.tools.scope.workspaceID, page.tools.scope.containerID = strings.TrimSpace(state.ToolCallWorkspaceID), strings.TrimSpace(state.ToolCallContainerID)
+	page.refreshToolCallScope()
+	page.tools.paused = state.ToolCallPaused
+	page.tools.restoreYOffset = max(0, state.ToolCallYOffset)
 	page.syncBrowserHelp()
 }
 
@@ -310,9 +352,29 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		return page, page.startExecutionFeed()
+	case logsExecutionDetailMsg:
+		page.finishExecutionDetail(msg)
+		return page, nil
+	case logsToolCallOpenMsg:
+		return page, page.finishToolCallFeedOpen(msg)
+	case logsToolCallEventMsg:
+		return page, page.finishToolCallEvent(msg)
+	case logsToolCallReconnectMsg:
+		if uint64(msg) != page.tools.generation || page.tools.connected {
+			return page, nil
+		}
+		return page, page.startToolCallFeed()
+	case logsModeProcessesMsg:
+		page.finishLogsModeProcesses(msg)
+		return page, nil
 	case logsExecutionMouseMsg:
 		if page.tab == logsTabCommandExec && page.resourceID == "" {
 			page.handleExecutionMouse(msg)
+		}
+		return page, nil
+	case logsTimelineMouseMsg:
+		if page.resourceID == "" && page.view == logsViewTimeline && page.tab == msg.Tab {
+			page.handleTimelineMouse(msg)
 		}
 		return page, nil
 	case logsBootstrapMsg:
@@ -343,14 +405,8 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, tea.Batch(browserCmd, page.startBootstrap())
 	case component.EditorSubmitMsg:
-		if page.exec.scopeEditor != nil {
-			return page, page.submitExecutionScopeEditor()
-		}
 		return page, page.submitFilterEditor()
 	case component.EditorCancelMsg:
-		if page.exec.scopeEditor != nil {
-			return page, page.closeExecutionScopeEditor()
-		}
 		return page, page.closeFilterEditor()
 	case component.ConfirmChoiceMsg:
 		if page.overlay == logsOverlayConfirm {
@@ -361,16 +417,19 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case LogsCommandMsg:
 		return page, page.openCommand(msg.Command)
 	case component.BrowserOpenMsg:
-		if page.tab == logsTabRuntime && page.resourceID == "" && msg.Row.ID != "" {
-			return page, func() tea.Msg { return NavigateMsg{Path: []string{"logs", msg.Row.ID}} }
-		}
-		return page, nil
-	case tea.WindowSizeMsg:
-		page.width, page.height = msg.Width, msg.Height
-		if page.exec.scopeEditor != nil {
-			page.resizeExecutionScopeEditor()
+		if page.resourceID != "" || msg.Row.ID == "" || page.view != logsViewBrowser {
 			return page, nil
 		}
+		path := []string{"logs", msg.Row.ID}
+		switch page.tab {
+		case logsTabCommandExec:
+			path = []string{"logs-exec", msg.Row.ID}
+		case logsTabToolCalls:
+			path = []string{"logs-tools", msg.Row.ID}
+		}
+		return page, func() tea.Msg { return NavigateMsg{Path: path} }
+	case tea.WindowSizeMsg:
+		page.width, page.height = msg.Width, msg.Height
 		if page.editor != nil {
 			page.resizeFilterEditor()
 			return page, nil
@@ -379,14 +438,23 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		switch {
 		case page.resourceID != "":
 			page.detail.Resize(msg.Width, msg.Height)
+		case page.view == logsViewBrowser:
+			browserCmd = page.resizeBrowser()
 		case page.tab == logsTabCommandExec:
 			tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, msg.Width)
 			page.resizeExecutionViewport(msg.Width, max(1, msg.Height-lipgloss.Height(tabs)-1))
+		case page.tab == logsTabToolCalls:
+			tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, msg.Width)
+			page.resizeToolCallViewport(msg.Width, max(1, msg.Height-lipgloss.Height(tabs)-1))
 		default:
-			browserCmd = page.resizeBrowser()
+			tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, msg.Width)
+			page.resizeRuntimeTimeline(msg.Width, max(1, msg.Height-lipgloss.Height(tabs)-1))
 		}
 		return page, browserCmd
 	case tea.KeyPressMsg:
+		if page.modeDialog != nil {
+			return page, page.updateLogsModeDialog(msg)
+		}
 		if page.overlay == logsOverlayOperation {
 			if msg.String() == "esc" {
 				page.closeOverlay()
@@ -396,11 +464,6 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.editor != nil {
 			updated, cmd := page.editor.Update(msg)
 			page.editor = &updated
-			return page, cmd
-		}
-		if page.exec.scopeEditor != nil {
-			updated, cmd := page.exec.scopeEditor.Update(msg)
-			page.exec.scopeEditor = &updated
 			return page, cmd
 		}
 		if page.overlay == logsOverlayConfirm {
@@ -417,7 +480,7 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.detail = updated
 			return page, cmd
 		}
-		if page.tab == logsTabRuntime && page.browser.InputActive() {
+		if page.view == logsViewBrowser && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
@@ -425,8 +488,11 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if cmd, handled := page.handleTabKey(msg); handled {
 			return page, cmd
 		}
-		if page.tab == logsTabCommandExec {
+		switch page.tab {
+		case logsTabCommandExec:
 			return page, page.handleExecutionKey(msg)
+		case logsTabToolCalls:
+			return page, page.handleToolCallKey(msg)
 		}
 		if cmd, handled := page.handleKey(msg); handled {
 			return page, cmd
@@ -437,18 +503,16 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.editor = &updated
 		return page, cmd
 	}
-	if page.exec.scopeEditor != nil {
-		updated, cmd := page.exec.scopeEditor.Update(message)
-		page.exec.scopeEditor = &updated
-		return page, cmd
-	}
-	if page.tab == logsTabCommandExec {
+	if page.tab == logsTabCommandExec || page.tab == logsTabToolCalls {
 		return page, nil
 	}
 	if page.resourceID != "" {
 		updated, cmd := page.detail.Update(message)
 		page.detail = updated
 		return page, cmd
+	}
+	if page.view == logsViewTimeline {
+		return page, nil
 	}
 	before := page.selectedID()
 	updated, cmd := page.browser.Update(message)
@@ -465,34 +529,51 @@ func (page *LogsPage) View(width, height int) string {
 	}
 	page.width, page.height = width, height
 	var content string
-	if page.exec.scopeEditor != nil {
-		content = page.executionScopeEditorView(width, height)
-	} else if page.editor != nil {
+	switch {
+	case page.editor != nil:
 		content = page.filterEditorView(width, height)
-	} else if page.resourceID != "" {
+	case page.resourceID != "":
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
 		content = page.detail.View()
-	} else if page.tab == logsTabCommandExec {
+	default:
 		tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, width)
 		bodyHeight := max(1, height-lipgloss.Height(tabs))
-		help := page.executionHelpView(width)
-		layout := component.NewSectionLayout("", "", page.executionHeaderView(width), width, bodyHeight, lipgloss.Height(help))
-		section := component.BottomHelp(layout.View(page.executionBodyView(width, layout.BodyHeight)), help, width, bodyHeight)
-		content = tabs + "\n" + section
-	} else {
-		tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, width)
-		header := page.statusView(width)
-		if page.err != nil {
-			header += "\n" + component.BannerWidth(page.err.Error(), component.ToneDanger, width)
+		var header, body, help string
+		switch page.tab {
+		case logsTabCommandExec:
+			header = page.executionHeaderView(width)
+			help = page.executionHelpView(width)
+			layout := component.NewSectionLayout("", "", header, width, bodyHeight, lipgloss.Height(help))
+			body = page.executionBodyView(width, layout.BodyHeight)
+			content = tabs + "\n" + component.BottomHelp(layout.View(body), help, width, bodyHeight)
+		case logsTabToolCalls:
+			header = page.toolCallStatusView(width)
+			if page.tools.err != nil {
+				header += "\n" + component.BannerWidth(page.tools.err.Error(), component.ToneDanger, width)
+			} else if page.tools.notice != "" {
+				header += "\n" + component.WrapContent(component.Muted(page.tools.notice), width)
+			}
+			help = page.toolCallHelpView(width)
+			layout := component.NewSectionLayout("", "", header, width, bodyHeight, lipgloss.Height(help))
+			body = page.toolCallBodyView(width, layout.BodyHeight)
+			content = tabs + "\n" + component.BottomHelp(layout.View(body), help, width, bodyHeight)
+		default:
+			header = page.statusView(width)
+			if page.err != nil {
+				header += "\n" + component.BannerWidth(page.err.Error(), component.ToneDanger, width)
+			}
+			help = page.runtimeHelpView(width)
+			layout := component.NewSectionLayout("", "", header, width, bodyHeight, lipgloss.Height(help))
+			if page.view == logsViewTimeline {
+				body = page.runtimeTimelineBody(width, layout.BodyHeight)
+			} else {
+				updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
+				page.browser = updated.(component.Browser)
+				body = page.browser.BodyContent()
+			}
+			content = tabs + "\n" + component.BottomHelp(layout.View(body), help, width, bodyHeight)
 		}
-		bodyHeight := max(1, height-lipgloss.Height(tabs))
-		help := page.browser.HelpView()
-		layout := component.NewSectionLayout("", "", header, width, bodyHeight, lipgloss.Height(help))
-		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
-		page.browser = updated.(component.Browser)
-		section := component.BottomHelp(layout.View(page.browser.BodyContent()), help, width, bodyHeight)
-		content = tabs + "\n" + section
 	}
 	switch page.overlay {
 	case logsOverlayConfirm:
@@ -510,12 +591,19 @@ func (page *LogsPage) View(width, height int) string {
 		}
 		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 62)), width, height)
 	}
+	if page.modeDialog != nil {
+		modalWidth := overlayWidth(width, 72)
+		content = component.CenterOverlay(content, component.Modal(page.logsModeDialogView(width), modalWidth), width, height)
+	}
 	return content
 }
 
 func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTarget {
 	if page == nil {
 		return nil
+	}
+	if page.modeDialog != nil {
+		return page.modeDialogMouseTargets(originX, originY, z)
 	}
 	switch page.overlay {
 	case logsOverlayConfirm:
@@ -526,9 +614,6 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	case logsOverlayOperation:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
-	if page.exec.scopeEditor != nil {
-		return page.executionScopeEditorMouseTargets(originX, originY, z)
-	}
 	if page.editor != nil {
 		return page.filterEditorMouseTargets(originX, originY, z)
 	}
@@ -538,22 +623,25 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, page.width)
 	tabTargets := page.logsTabMouseTargets(originX, originY, z+2)
 	tabsHeight := lipgloss.Height(tabs)
-	if page.tab == logsTabCommandExec {
-		bodyHeight := max(1, page.height-tabsHeight)
-		help := page.executionHelpView(page.width)
-		layout := component.NewSectionLayout("", "", page.executionHeaderView(page.width), page.width, bodyHeight, lipgloss.Height(help))
-		bodyY := originY + tabsHeight + 1 + layout.BodyY
-		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, layout.BodyHeight)...)
-	}
-	header := page.statusView(page.width)
-	if page.err != nil {
-		header += "\n" + component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
-	}
 	bodyHeight := max(1, page.height-tabsHeight)
-	help := page.browser.HelpView()
+	var header, help string
+	switch page.tab {
+	case logsTabCommandExec:
+		header, help = page.executionHeaderView(page.width), page.executionHelpView(page.width)
+	case logsTabToolCalls:
+		header, help = page.toolCallStatusView(page.width), page.toolCallHelpView(page.width)
+	default:
+		header, help = page.statusView(page.width), page.runtimeHelpView(page.width)
+	}
 	layout := component.NewSectionLayout("", "", header, page.width, bodyHeight, lipgloss.Height(help))
-	browserY := originY + tabsHeight + 1 + layout.BodyY
-	tabTargets = append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
+	bodyY := originY + tabsHeight + 1 + layout.BodyY
+	if page.view == logsViewTimeline {
+		if page.tab == logsTabCommandExec {
+			return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, layout.BodyHeight)...)
+		}
+		return append(tabTargets, timelineMouseTarget(page.tab, originX, bodyY, z, page.width, layout.BodyHeight))
+	}
+	tabTargets = append(tabTargets, page.browser.MouseTargets(originX, bodyY, z)...)
 	helpY := originY + tabsHeight + 1 + bodyHeight - lipgloss.Height(help)
 	return append(tabTargets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
 }
@@ -564,6 +652,8 @@ func (page *LogsPage) handleTabKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return page.switchLogsTab(logsTabRuntime), true
 	case "2":
 		return page.switchLogsTab(logsTabCommandExec), true
+	case "3":
+		return page.switchLogsTab(logsTabToolCalls), true
 	}
 	delta, ok := component.TabDelta(msg)
 	if !ok {
@@ -574,7 +664,16 @@ func (page *LogsPage) handleTabKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 
 func (page *LogsPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch msg.String() {
+	case "v":
+		page.toggleLogsView()
+		page.syncBrowserHelp()
+		return nil, true
+	case "m":
+		return page.openLogsModeDialog(), true
 	case "space":
+		if page.view != logsViewTimeline {
+			return nil, true
+		}
 		return page.togglePause(), true
 	case "f":
 		return page.openCommand(LogsFilter), true
@@ -584,9 +683,16 @@ func (page *LogsPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return page.openCommand(LogsInfo), true
 	case "d":
 		return page.openCommand(LogsClear), true
-	default:
-		return nil, false
 	}
+	if page.view == logsViewTimeline {
+		view, cmd := page.timeline.viewport.Update(msg)
+		page.timeline.viewport = view
+		if !page.timeline.viewport.AtBottom() {
+			page.paused = true
+		}
+		return cmd, true
+	}
+	return nil, false
 }
 
 func (page *LogsPage) openCommand(command LogsCommand) tea.Cmd {
@@ -661,7 +767,11 @@ func (page *LogsPage) togglePause() tea.Cmd {
 	page.paused = !page.paused
 	page.notice, page.toastNotice = "", false
 	if !page.paused {
-		page.browser.SelectLast()
+		if page.view == logsViewTimeline {
+			page.refreshRuntimeTimeline()
+		} else {
+			page.browser.SelectLast()
+		}
 	}
 	page.syncBrowserHelp()
 	return nil
@@ -669,6 +779,7 @@ func (page *LogsPage) togglePause() tea.Cmd {
 
 func (page *LogsPage) startBootstrap() tea.Cmd {
 	page.stopStream()
+	page.refreshRuntimeScope()
 	page.generation++
 	generation := page.generation
 	ctx, cancel := context.WithCancel(page.ctx)
@@ -824,6 +935,9 @@ func (page *LogsPage) mergeEvents(events []runtimeevent.Event) tea.Cmd {
 	merged := append(append([]runtimeevent.Event(nil), page.events...), events...)
 	seen := map[string]runtimeevent.Event{}
 	for _, event := range merged {
+		if isToolCallRuntimeEvent(event) {
+			continue
+		}
 		seen[logEventID(event)] = event
 	}
 	merged = merged[:0]
@@ -846,10 +960,17 @@ func (page *LogsPage) mergeEvents(events []runtimeevent.Event) tea.Cmd {
 	if !page.paused {
 		selected = page.tailID()
 	}
+	if page.view == logsViewTimeline {
+		page.refreshRuntimeTimeline()
+		return nil
+	}
 	return page.rebuildBrowser(selected)
 }
 
 func (page *LogsPage) appendEvent(event runtimeevent.Event) tea.Cmd {
+	if isToolCallRuntimeEvent(event) {
+		return nil
+	}
 	id := logEventID(event)
 	for _, current := range page.events {
 		if logEventID(current) == id {
@@ -867,6 +988,10 @@ func (page *LogsPage) appendEvent(event runtimeevent.Event) tea.Cmd {
 	if !page.paused {
 		selected = page.tailID()
 	}
+	if page.view == logsViewTimeline {
+		page.refreshRuntimeTimeline()
+		return nil
+	}
 	return page.rebuildBrowser(selected)
 }
 
@@ -875,8 +1000,9 @@ func (page *LogsPage) rebuildBrowser(selected string) tea.Cmd {
 		page.syncDetail()
 		return nil
 	}
-	rows := make([]component.Row, 0, len(page.events))
-	for _, event := range page.events {
+	visible := page.visibleRuntimeEvents()
+	rows := make([]component.Row, 0, len(visible))
+	for _, event := range visible {
 		rows = append(rows, page.logRow(event))
 	}
 	cmd := page.browser.ReplaceRows(rows, selected)
@@ -891,12 +1017,19 @@ func (page *LogsPage) rebuildBrowser(selected string) tea.Cmd {
 
 func (page *LogsPage) resizeBrowser() tea.Cmd {
 	tabsHeight := lipgloss.Height(component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, page.width))
-	header := page.statusView(page.width)
+	var header, help string
+	switch page.tab {
+	case logsTabCommandExec:
+		header, help = page.executionHeaderView(page.width), page.executionHelpView(page.width)
+	case logsTabToolCalls:
+		header, help = page.toolCallStatusView(page.width), page.toolCallHelpView(page.width)
+	default:
+		header, help = page.statusView(page.width), page.runtimeHelpView(page.width)
+	}
 	if page.err != nil {
 		header += "\n" + component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
 	bodyHeight := max(1, page.height-tabsHeight)
-	help := page.browser.HelpView()
 	layout := component.NewSectionLayout("", "", header, page.width, bodyHeight, lipgloss.Height(help))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
 	page.browser = updated.(component.Browser)
@@ -930,7 +1063,7 @@ func (page *LogsPage) syncDetail() {
 	var event runtimeevent.Event
 	found := false
 	for _, current := range page.events {
-		if logEventID(current) == page.resourceID {
+		if logEventID(current) == page.resourceID && !isToolCallRuntimeEvent(current) {
 			event, found = current, true
 			break
 		}
@@ -943,32 +1076,16 @@ func (page *LogsPage) syncDetail() {
 		}
 		return
 	}
+	data, err := json.MarshalIndent(event, "", "  ")
+	if err != nil {
+		page.err = fmt.Errorf("encode log event: %w", err)
+		return
+	}
 	page.err = nil
-	overview := detailFields(
-		[2]string{"Time", event.Time.Local().Format(time.RFC3339Nano)}, [2]string{"Run", event.RunID}, [2]string{"Sequence", fmt.Sprintf("%d", event.Sequence)},
-		[2]string{"PID", fmt.Sprintf("%d", event.PID)}, [2]string{"Level", event.Level}, [2]string{"Kind", event.Kind}, [2]string{"Component", event.Component}, [2]string{"Event", event.Name},
-		[2]string{"Workspace", event.WorkspaceID}, [2]string{"Tool", event.Tool}, [2]string{"Method", event.Method}, [2]string{"Source", event.Source}, [2]string{"Status", event.Status}, [2]string{"Duration", durationLabel(event.DurationMS)},
-		[2]string{"Message", event.Message}, [2]string{"Error", event.Error}, [2]string{"Service", compactParts(event.ServiceID, event.ServiceScope)},
-	)
-	fields := application.LogFields(event, page.visibility)
-	fieldLines := make([]string, 0, len(fields))
-	for _, field := range fields {
-		fieldLines = append(fieldLines, component.KeyValue(field.Key, fmt.Sprint(field.Value)))
-	}
-	if len(fieldLines) == 0 {
-		fieldLines = append(fieldLines, component.Muted("No visible structured fields"))
-	}
-	content := overview
-	if page.section == "fields" {
-		content = strings.Join(fieldLines, "\n")
-	}
+	content := component.RenderCodeBlock(string(data), "json", max(20, page.width))
 	meta := compactParts(event.Level, event.Component, event.RunID, fmt.Sprintf("seq %d", event.Sequence))
 	page.detail = component.NewDetailPage("Log event · "+event.Name, meta, content).WithTitleVisible(false)
-	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: LogsCommandMsg{Command: LogsRefresh}}}
-	if page.section == "" {
-		bindings = append([]component.DetailPageBinding{{Key: "f", Desc: "fields", Message: NavigateMsg{Path: []string{"logs", page.resourceID, "fields"}}}}, bindings...)
-	}
-	page.detail.SetBindings(bindings...)
+	page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: LogsCommandMsg{Command: LogsRefresh}})
 	if page.width > 0 && page.height > 0 {
 		page.detail.Resize(page.width, page.height)
 	}
@@ -987,24 +1104,44 @@ func (page *LogsPage) statusView(width int) string {
 	if page.paused {
 		follow = component.ToneText("○ PAUSED", component.ToneWarning)
 	}
-	session := page.query.RunID
-	if session == "" {
-		session = "all / none yet"
+	view := "Browser"
+	if page.view == logsViewTimeline {
+		view = "Timeline"
 	}
-	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("View", logsVisibilityValue(page.visibility)) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.events), logsBufferCap))
-	right := component.KeyValue("Session", session)
+	left := component.KeyValue("Stream", stream) + "   "
+	if page.view == logsViewTimeline {
+		left += component.KeyValue("Follow", follow) + "   "
+	}
+	left += component.KeyValue("View", view) + "   " + component.KeyValue("Visibility", logsVisibilityValue(page.visibility)) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.visibleRuntimeEvents()), logsBufferCap))
+	right := component.KeyValue("Mode", logsScopeLabel(page.runtimeScope))
+	if page.query.RunID != "" {
+		right += "   " + component.KeyValue("Session", page.query.RunID)
+	}
 	return component.TwoColumn(left, right, width)
 }
 
-func (page *LogsPage) syncBrowserHelp() {
-	toggle := "pause"
-	if page.paused {
-		toggle = "resume"
-	}
-	page.browser.SetHelpBindings(
-		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"space"}, "space", toggle),
+func (page *LogsPage) runtimeHelpView(width int) string {
+	bindings := []key.Binding{
+		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode"),
 		component.Binding([]string{"f"}, "f", "filters"), component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"),
-	)
+	}
+	if page.view == logsViewTimeline {
+		bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.paused)))
+	}
+	return component.NewHelpFooter(bindings...).View(width)
+}
+
+func (page *LogsPage) syncBrowserHelp() {
+	bindings := []key.Binding{component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode")}
+	switch page.tab {
+	case logsTabCommandExec:
+		bindings = append(bindings, component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"))
+	case logsTabToolCalls:
+		bindings = append(bindings, component.Binding([]string{"r"}, "r", "reconnect"))
+	default:
+		bindings = append(bindings, component.Binding([]string{"f"}, "f", "filters"), component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"))
+	}
+	page.browser.SetHelpBindings(bindings...)
 }
 
 func (page *LogsPage) selectedID() string {
@@ -1015,10 +1152,11 @@ func (page *LogsPage) selectedID() string {
 	return row.ID
 }
 func (page *LogsPage) tailID() string {
-	if len(page.events) == 0 {
+	visible := page.visibleRuntimeEvents()
+	if len(visible) == 0 {
 		return ""
 	}
-	return logEventID(page.events[len(page.events)-1])
+	return logEventID(visible[len(visible)-1])
 }
 func (page *LogsPage) stopStream() {
 	page.stopStreamOnly()

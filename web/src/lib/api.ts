@@ -16,6 +16,7 @@ export type ActivityEvent = {
   sequence?: number
   call_id?: string
   kind: string
+  phase?: string
   method?: string
   source?: string
   tool?: string

@@ -167,6 +167,19 @@ func TestModelRestoresLogsViewStateAcrossTopLevelNavigation(t *testing.T) {
 	}
 }
 
+func TestModelSwitchingToToolCallsRestoresToolCallsTab(t *testing.T) {
+	model := NewModel(Route{Kind: RouteLogsExec})
+	model.switchPage(Route{Kind: RouteLogsTools})
+	page, ok := model.currentPage.(tuipage.SessionViewStateModel)
+	if !ok {
+		t.Fatalf("tool calls page does not expose session state: %T", model.currentPage)
+	}
+	state, ok := page.SessionViewState().(tuipage.LogsSessionViewState)
+	if !ok || state.Tab != "tool-calls" {
+		t.Fatalf("tool calls state=%#v", page.SessionViewState())
+	}
+}
+
 func TestModelMCPCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {

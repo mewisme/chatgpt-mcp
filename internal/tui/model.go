@@ -1090,8 +1090,11 @@ func (model *Model) restoreCurrentPageViewState(route Route) {
 	}
 	if logsState, ok := state.(tuipage.LogsSessionViewState); ok {
 		logsState.Tab = "runtime"
-		if route.Kind == RouteLogsExec {
+		switch route.Kind {
+		case RouteLogsExec:
 			logsState.Tab = "command-execution"
+		case RouteLogsTools:
+			logsState.Tab = "tool-calls"
 		}
 		state = logsState
 	}
@@ -1135,7 +1138,9 @@ func (model *Model) loadPage(route Route) {
 	case RouteLogs:
 		value, err = tuipage.NewLogsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteLogsExec:
-		value, err = tuipage.NewCommandExecutionLogsRouteAction(model.ctx, route.Action)
+		value, err = tuipage.NewCommandExecutionLogsRoute(model.ctx, route.ResourceID)
+	case RouteLogsTools:
+		value, err = tuipage.NewToolCallLogsRoute(model.ctx, route.ResourceID)
 	case RouteRuntime:
 		value, err = tuipage.NewRuntimeRouteAction(model.ctx, route.ResourceID, route.Action)
 	case RouteAbout:

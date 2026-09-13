@@ -356,7 +356,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		}
 	}
 	runtime.Logger.Verbose("CONTROL", "runtime.control.starting", "Starting runtime control endpoint")
-	control, err = startRuntimeControlContext(runtimeCtx, runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Reload: reload, ReloadWorkspaces: func() (workspaceReloadResult, error) {
+	control, err = startRuntimeControlContext(runtimeCtx, runtimeControlOptions{RunID: metadata.RunID, Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, Events: recorder.Stream, Activity: runtime.Activity, Reload: reload, ReloadWorkspaces: func() (workspaceReloadResult, error) {
 		if err := runtime.Tools.ReloadWorkspaces(); err != nil {
 			return workspaceReloadResult{}, err
 		}

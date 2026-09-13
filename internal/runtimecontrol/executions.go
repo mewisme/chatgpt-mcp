@@ -80,7 +80,7 @@ type executionFeedReady struct {
 
 func readExecutionFeedReady(reader *bufio.Reader) (shellruntime.ExecutionFeedSnapshot, error) {
 	for {
-		eventType, data, err := readExecutionFeedPacket(reader)
+		eventType, data, err := readSSEPacket(reader)
 		if err != nil {
 			return shellruntime.ExecutionFeedSnapshot{}, err
 		}
@@ -122,7 +122,7 @@ func (stream *ExecutionFeedStream) Next() (shellruntime.ExecutionFeedEvent, erro
 
 func readExecutionFeedEvent(reader *bufio.Reader) (shellruntime.ExecutionFeedEvent, error) {
 	for {
-		eventType, data, err := readExecutionFeedPacket(reader)
+		eventType, data, err := readSSEPacket(reader)
 		if err != nil {
 			return shellruntime.ExecutionFeedEvent{}, err
 		}
@@ -143,11 +143,11 @@ func readExecutionFeedEvent(reader *bufio.Reader) (shellruntime.ExecutionFeedEve
 	}
 }
 
-func readExecutionFeedPacket(reader *bufio.Reader) (string, string, error) {
+func readSSEPacket(reader *bufio.Reader) (string, string, error) {
 	eventType := ""
 	var data strings.Builder
 	for {
-		line, err := readExecutionFeedLine(reader)
+		line, err := readSSELine(reader)
 		if err != nil && !errors.Is(err, io.EOF) {
 			return "", "", err
 		}
@@ -172,7 +172,7 @@ func readExecutionFeedPacket(reader *bufio.Reader) (string, string, error) {
 	}
 }
 
-func readExecutionFeedLine(reader *bufio.Reader) (string, error) {
+func readSSELine(reader *bufio.Reader) (string, error) {
 	line, err := reader.ReadString('\n')
 	line = strings.TrimSuffix(line, "\n")
 	line = strings.TrimSuffix(line, "\r")

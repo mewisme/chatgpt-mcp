@@ -182,7 +182,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 		source = executionSource(ctx)
 	}
 	run := m.executions.Begin(ExecutionInput{
-		WorkspaceID: workspaceID, Tool: "run_command", Command: effective, CWD: cwd, Source: source,
+		WorkspaceID: workspaceID, Tool: "run_command", Command: effective, CWD: cwd, Shell: commandShellLanguage(ctx), Source: source,
 		CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID,
 	})
 	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.ShellPath())
@@ -400,16 +400,38 @@ func commandForPlatform(ctx context.Context, command string) (*exec.Cmd, error) 
 		}
 		return exec.CommandContext(ctx, executable, granted.Invocation.Args...), nil
 	}
+	shell, isPwsh, _, err := resolveCommandShell()
+	if err != nil {
+		return nil, err
+	}
 	if runtime.GOOS == "windows" {
-		shell, isPwsh, err := windowsShell()
-		if err != nil {
-			return nil, err
-		}
 		effective := command
 		if !isPwsh {
 			effective = transpileCompoundOperators(command)
 		}
 		return exec.CommandContext(ctx, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", effective), nil
+	}
+	return exec.CommandContext(ctx, shell, "-c", command), nil
+}
+
+func commandShellLanguage(ctx context.Context) string {
+	if _, ok := controlguard.ApprovalFromContext(ctx); ok {
+		return ""
+	}
+	_, _, language, err := resolveCommandShell()
+	if err != nil {
+		return ""
+	}
+	return language
+}
+
+func resolveCommandShell() (string, bool, string, error) {
+	if runtime.GOOS == "windows" {
+		shell, isPwsh, err := windowsShell()
+		if err != nil {
+			return "", false, "", err
+		}
+		return shell, isPwsh, "powershell", nil
 	}
 	shell := strings.TrimSpace(os.Getenv("SHELL"))
 	if shell == "" {
@@ -419,7 +441,27 @@ func commandForPlatform(ctx context.Context, command string) (*exec.Cmd, error) 
 			shell = "/bin/sh"
 		}
 	}
-	return exec.CommandContext(ctx, shell, "-c", command), nil
+	return shell, false, shellMarkdownLanguage(shell), nil
+}
+
+func shellMarkdownLanguage(shell string) string {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(shell)))
+	switch base {
+	case "bash", "bash.exe":
+		return "bash"
+	case "zsh", "zsh.exe":
+		return "zsh"
+	case "fish", "fish.exe":
+		return "fish"
+	case "sh", "sh.exe", "dash", "dash.exe", "ash", "ash.exe":
+		return "sh"
+	case "pwsh", "pwsh.exe", "powershell", "powershell.exe":
+		return "powershell"
+	case "cmd", "cmd.exe":
+		return "batch"
+	default:
+		return "shell"
+	}
 }
 
 func windowsShell() (string, bool, error) {

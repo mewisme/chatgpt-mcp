@@ -13,7 +13,7 @@ import (
 
 const (
 	maxExecutionLogBytes      = 400_000
-	MaxExecutionFeedEvents    = 2048
+	MaxExecutionFeedEvents    = 1024
 	maxExecutionEventBytes    = 8 << 10
 	maxRecentExecutions       = 100
 	executionSubscriberBuffer = 64
@@ -36,6 +36,7 @@ type ExecutionInfo struct {
 	Tool                 string `json:"tool"`
 	Command              string `json:"command"`
 	CWD                  string `json:"cwd"`
+	Shell                string `json:"shell,omitempty"`
 	Source               string `json:"source,omitempty"`
 	CallID               string `json:"call_id,omitempty"`
 	SessionHash          string `json:"session_hash,omitempty"`
@@ -111,6 +112,7 @@ type ExecutionInput struct {
 	Tool                 string
 	Command              string
 	CWD                  string
+	Shell                string
 	Source               string
 	CallID               string
 	SessionHash          string
@@ -209,7 +211,7 @@ func (h *ExecutionHub) Begin(input ExecutionInput) *ExecutionRun {
 	h.mu.Lock()
 	id := idgen.Must("exec", 8)
 	record := &executionRecord{info: ExecutionInfo{
-		ID: id, WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, CWD: input.CWD,
+		ID: id, WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, CWD: input.CWD, Shell: strings.TrimSpace(input.Shell),
 		Source: strings.TrimSpace(input.Source), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),
 		ReceivedByInstanceID: strings.TrimSpace(input.ReceivedByInstanceID), ExecutedByInstanceID: strings.TrimSpace(input.ExecutedByInstanceID),
 		StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: ExecutionStatusRunning,

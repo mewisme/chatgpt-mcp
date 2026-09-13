@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -24,9 +25,10 @@ type logsTab int
 const (
 	logsTabRuntime logsTab = iota
 	logsTabCommandExec
+	logsTabToolCalls
 )
 
-var logsTabLabels = []string{"Runtime", "Command Execution"}
+var logsTabLabels = []string{"Runtime", "Command Execution", "Tool Calls"}
 
 type logsExecutionFeed struct {
 	viewport           viewport.Model
@@ -43,8 +45,6 @@ type logsExecutionFeed struct {
 	containerMembers   map[string]struct{}
 	scopeStale         bool
 	scopeNotice        string
-	scopeEditor        *component.Editor
-	scopeForm          *executionScopeFormData
 	stream             *runtimecontrol.ExecutionFeedStream
 	streamCtx          context.Context
 	streamCancel       context.CancelFunc
@@ -98,7 +98,7 @@ func newLogsExecutionFeed() logsExecutionFeed {
 }
 
 func (page *LogsPage) switchLogsTab(tab logsTab) tea.Cmd {
-	if tab > logsTabCommandExec || page.resourceID != "" || tab == page.tab {
+	if tab > logsTabToolCalls || page.resourceID != "" || tab == page.tab {
 		return nil
 	}
 	cleanup := tea.Cmd(nil)
@@ -107,8 +107,11 @@ func (page *LogsPage) switchLogsTab(tab logsTab) tea.Cmd {
 	}
 	page.tab = tab
 	path := []string{"logs"}
-	if tab == logsTabCommandExec {
+	switch tab {
+	case logsTabCommandExec:
 		path = []string{"logs-exec"}
+	case logsTabToolCalls:
+		path = []string{"logs-tools"}
 	}
 	navigate := func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }
 	return tea.Batch(cleanup, navigate)
@@ -164,8 +167,12 @@ func (page *LogsPage) finishExecutionFeedOpen(msg logsExecutionOpenMsg) tea.Cmd 
 	page.syncSelectedProcessRunningFromEvents()
 	page.refreshExecutionScope()
 	page.exec.notice, page.exec.err = "", nil
-	page.refreshExecutionViewport()
-	page.restoreExecutionViewportOffset()
+	if page.view == logsViewBrowser {
+		page.rebuildExecutionBrowser()
+	} else {
+		page.refreshExecutionViewport()
+		page.restoreExecutionViewportOffset()
+	}
 	return page.nextExecutionEventCmd(msg.generation)
 }
 
@@ -224,7 +231,11 @@ func (page *LogsPage) finishExecutionFeedEvent(msg logsExecutionEventMsg) tea.Cm
 	}
 	page.exec.notice, page.exec.err = "", nil
 	if !page.exec.paused {
-		page.refreshExecutionViewport()
+		if page.view == logsViewBrowser {
+			page.rebuildExecutionBrowser()
+		} else {
+			page.refreshExecutionViewport()
+		}
 	}
 	return page.nextExecutionEventCmd(msg.generation)
 }
@@ -235,21 +246,32 @@ func (page *LogsPage) executionReconnectCmd(generation uint64) tea.Cmd {
 
 func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
+	case "v":
+		page.toggleLogsView()
+		page.syncBrowserHelp()
+		return nil
+	case "m":
+		return page.openLogsModeDialog()
 	case "space":
-		page.exec.paused = !page.exec.paused
-		if !page.exec.paused {
-			page.refreshExecutionViewport()
+		if page.view == logsViewTimeline {
+			page.exec.paused = !page.exec.paused
+			if !page.exec.paused {
+				page.refreshExecutionViewport()
+			}
 		}
 		return nil
 	case "r":
 		return page.startExecutionFeed()
-	case "f":
-		return page.openExecutionScopeEditor()
 	case "c":
 		page.exec.events = nil
 		page.exec.notice = "Command stream view cleared"
-		page.refreshExecutionViewport()
+		page.refreshActiveLogsView()
 		return nil
+	}
+	if page.view == logsViewBrowser {
+		updated, cmd := page.browser.Update(msg)
+		page.browser = updated.(component.Browser)
+		return cmd
 	}
 	view, cmd := page.exec.viewport.Update(msg)
 	page.exec.viewport = view
@@ -316,7 +338,15 @@ func (page *LogsPage) executionStatusView(width int) string {
 	if page.exec.paused {
 		follow = component.ToneText("○ PAUSED", component.ToneWarning)
 	}
-	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.visibleExecutionEvents()), shellruntime.MaxExecutionFeedEvents))
+	view := "Browser"
+	if page.view == logsViewTimeline {
+		view = "Timeline"
+	}
+	left := component.KeyValue("Stream", stream) + "   "
+	if page.view == logsViewTimeline {
+		left += component.KeyValue("Follow", follow) + "   "
+	}
+	left += component.KeyValue("View", view) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.visibleExecutionEvents()), shellruntime.MaxExecutionFeedEvents))
 	return component.TwoColumn(left, component.KeyValue("Mode", page.executionScopeLabel()), width)
 }
 
@@ -333,15 +363,21 @@ func (page *LogsPage) executionHeaderView(width int) string {
 }
 
 func (page *LogsPage) executionHelpView(width int) string {
-	return component.NewHelpFooter(
-		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"),
-		component.Binding([]string{"space"}, "space", executionFollowLabel(page.exec.paused)),
-		component.Binding([]string{"f"}, "f", "settings"), component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
-	).View(width)
+	bindings := []key.Binding{
+		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode"),
+		component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
+	}
+	if page.view == logsViewTimeline {
+		bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.exec.paused)))
+	}
+	return component.NewHelpFooter(bindings...).View(width)
 }
 
 func (page *LogsPage) executionBodyView(width, height int) string {
 	bodyHeight := max(1, height)
+	if page.view == logsViewBrowser {
+		return page.executionBrowserBody(width, bodyHeight)
+	}
 	page.resizeExecutionViewport(width, bodyHeight)
 	sticky := page.executionStickyHeader(width)
 	if sticky != "" {
@@ -399,10 +435,14 @@ func (page *LogsPage) logsTabMouseTargets(originX, originY, z int) []component.M
 				if event.Button != tea.MouseLeft {
 					return nil
 				}
-				if tab == logsTabCommandExec {
+				switch tab {
+				case logsTabCommandExec:
 					return tea.KeyPressMsg{Code: '2'}
+				case logsTabToolCalls:
+					return tea.KeyPressMsg{Code: '3'}
+				default:
+					return tea.KeyPressMsg{Code: '1'}
 				}
-				return tea.KeyPressMsg{Code: '1'}
 			},
 		})
 	}
@@ -598,7 +638,11 @@ func formatExecutionSegment(start, end shellruntime.ExecutionFeedEvent, body str
 	headerFields := executionHeaderFields(start, first)
 	content := []string{}
 	if first && start.Execution != nil && strings.TrimSpace(start.Execution.Command) != "" {
-		content = append(content, "$ "+sanitizeExecutionInline(start.Execution.Command))
+		language := strings.TrimSpace(start.Execution.Shell)
+		if language == "" {
+			language = "shell"
+		}
+		content = append(content, component.RenderCodeBlock(sanitizeExecutionInline(start.Execution.Command), language, max(1, width-4)))
 	}
 	if clean := strings.TrimSuffix(sanitizeExecutionOutput(body), "\n"); clean != "" {
 		content = append(content, strings.Split(clean, "\n")...)
@@ -681,6 +725,9 @@ func executionHeaderFields(event shellruntime.ExecutionFeedEvent, first bool) []
 	if info.CWD != "" {
 		fields = append(fields, executionFrameField{Label: "CWD", Values: []string{info.CWD}})
 	}
+	if info.Shell != "" {
+		fields = append(fields, executionFrameField{Label: "Shell", Values: []string{info.Shell}})
+	}
 	return fields
 }
 
@@ -699,110 +746,18 @@ func executionEndFields(event shellruntime.ExecutionFeedEvent) []executionFrameF
 	return fields
 }
 
-func executionSegmentFrame(headerKind, footerKind string, start, end shellruntime.ExecutionFeedEvent, headerFields []executionFrameField, content []string, footerFields []executionFrameField, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if width < 4 {
-		return strings.Repeat("─", width) + "\n"
-	}
-	innerWidth := max(1, width-4)
+func executionSegmentFrame(headerKind, footerKind string, start, end shellruntime.ExecutionFeedEvent, headerFields []logFrameField, content []string, footerFields []logFrameField, width int) string {
 	headerLabel := strings.TrimSpace(headerKind + " " + executionEventClock(start))
 	if headerKind == "CONTINUE" {
 		if elapsed := executionEventElapsed(start); elapsed != "" {
 			headerLabel += " +" + elapsed
 		}
 	}
-	headerLabel = ansi.Truncate(headerLabel, max(0, width-6), "…")
 	footerLabel := strings.TrimSpace(footerKind + " " + executionEventClock(end))
-	footerLabel = ansi.Truncate(footerLabel, max(0, width-6), "…")
-	var output strings.Builder
-	topUsed := 4 + lipgloss.Width(headerLabel)
-	output.WriteString("╭─ " + headerLabel + " " + strings.Repeat("─", max(0, width-topUsed-1)) + "╮\n")
-	fields := append([]executionFrameField{{Label: "Execution", Values: []string{start.ExecutionID}}}, headerFields...)
-	for _, field := range fields {
-		for _, line := range wrappedExecutionFrameLines(field.Label, field.Values, innerWidth) {
-			output.WriteString("│ " + line + strings.Repeat(" ", max(0, innerWidth-lipgloss.Width(line))) + " │\n")
-		}
-	}
-	output.WriteString("├" + strings.Repeat("─", width-2) + "┤\n")
-	for _, raw := range content {
-		clean := sanitizeExecutionOutput(raw)
-		for _, line := range strings.Split(component.WrapContent(clean, innerWidth), "\n") {
-			output.WriteString("│ " + line + strings.Repeat(" ", max(0, innerWidth-lipgloss.Width(line))) + " │\n")
-		}
-	}
-	output.WriteString("├" + strings.Repeat("─", width-2) + "┤\n")
-	for _, field := range footerFields {
-		for _, line := range wrappedExecutionFrameLines(field.Label, field.Values, innerWidth) {
-			output.WriteString("│ " + line + strings.Repeat(" ", max(0, innerWidth-lipgloss.Width(line))) + " │\n")
-		}
-	}
-	bottomUsed := 4 + lipgloss.Width(footerLabel)
-	output.WriteString("╰─ " + footerLabel + " " + strings.Repeat("─", max(0, width-bottomUsed-1)) + "╯\n")
-	return output.String()
+	return renderLogBlock(headerLabel, footerLabel, "Execution", start.ExecutionID, headerFields, content, footerFields, width)
 }
 
-type executionFrameField struct {
-	Label  string
-	Values []string
-}
-
-func wrappedExecutionFrameLines(label string, values []string, width int) []string {
-	label = sanitizeExecutionInline(label)
-	clean := make([]string, 0, len(values))
-	for _, value := range values {
-		value = sanitizeExecutionInline(value)
-		if value != "" {
-			clean = append(clean, value)
-		}
-	}
-	if len(clean) == 0 {
-		return nil
-	}
-	if len(clean) == 1 {
-		prefix := label + "  "
-		if lipgloss.Width(prefix) >= width {
-			bullet := "  • "
-			available := max(1, width-lipgloss.Width(bullet))
-			wrapped := strings.Split(component.WrapContent(clean[0], available), "\n")
-			result := []string{ansi.Truncate(label, width, "")}
-			for index, line := range wrapped {
-				if index == 0 {
-					result = append(result, bullet+line)
-				} else {
-					result = append(result, strings.Repeat(" ", lipgloss.Width(bullet))+line)
-				}
-			}
-			return result
-		}
-		available := max(1, width-lipgloss.Width(prefix))
-		wrapped := strings.Split(component.WrapContent(clean[0], available), "\n")
-		result := make([]string, 0, len(wrapped))
-		for index, line := range wrapped {
-			if index == 0 {
-				result = append(result, prefix+line)
-			} else {
-				result = append(result, strings.Repeat(" ", lipgloss.Width(prefix))+line)
-			}
-		}
-		return result
-	}
-	result := []string{label}
-	for _, value := range clean {
-		prefix := "  • "
-		available := max(1, width-lipgloss.Width(prefix))
-		wrapped := strings.Split(component.WrapContent(value, available), "\n")
-		for index, line := range wrapped {
-			if index == 0 {
-				result = append(result, prefix+line)
-			} else {
-				result = append(result, strings.Repeat(" ", lipgloss.Width(prefix))+line)
-			}
-		}
-	}
-	return result
-}
+type executionFrameField = logFrameField
 
 func executionEventClock(event shellruntime.ExecutionFeedEvent) string {
 	value := executionEventTime(event)

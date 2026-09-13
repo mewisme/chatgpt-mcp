@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -124,10 +125,77 @@ func TestSubscribeWithRecentDoesNotReplayFutureEvent(t *testing.T) {
 }
 
 func TestHistoryLimit(t *testing.T) {
-	for raw, want := range map[string]int{"": 100, "0": 0, "10": 10, "999": 200, "bad": 100, "-1": 100} {
+	for raw, want := range map[string]int{"": 100, "0": 0, "10": 10, "999": 999, "bad": 100, "-1": 100} {
 		request := httptest.NewRequest("GET", "/?history="+raw, nil)
 		if got := historyLimit(request); got != want {
 			t.Fatalf("history=%q: got %d want %d", raw, got, want)
 		}
+	}
+}
+
+func TestToolCallHistoryIsBoundedIndependentlyFromGeneralActivity(t *testing.T) {
+	stream := NewStream()
+	for index := 0; index < MaxRecentToolCalls+17; index++ {
+		stream.Publish(Event{Kind: string(EventSystem), Message: "system"})
+		stream.Publish(Event{CallID: fmt.Sprintf("call_%04d", index), Kind: string(EventToolCall), Tool: "run_command"})
+	}
+	sub, recent := stream.SubscribeToolCallsDetailed(MaxRecentToolCalls)
+	defer stream.UnsubscribeDetailed(sub)
+	if len(recent) != MaxRecentToolCalls {
+		t.Fatalf("tool history len=%d want %d", len(recent), MaxRecentToolCalls)
+	}
+	if recent[0].CallID != "call_0017" || recent[len(recent)-1].CallID != fmt.Sprintf("call_%04d", MaxRecentToolCalls+16) {
+		t.Fatalf("tool history bounds=%s..%s", recent[0].CallID, recent[len(recent)-1].CallID)
+	}
+	if len(stream.Recent(MaxRecentEvents)) != MaxRecentEvents {
+		t.Fatalf("general history len=%d want %d", len(stream.Recent(MaxRecentEvents)), MaxRecentEvents)
+	}
+}
+
+func TestToolCallSubscriberIgnoresUnrelatedActivity(t *testing.T) {
+	stream := NewStream()
+	sub, _ := stream.SubscribeToolCallsDetailed(0)
+	defer stream.UnsubscribeDetailed(sub)
+	for range defaultSubscriberBuffer + 5 {
+		stream.Publish(Event{Kind: string(EventSystem), Message: "system"})
+	}
+	select {
+	case event := <-sub.Events:
+		t.Fatalf("tool subscriber received unrelated event: %#v", event)
+	default:
+	}
+	select {
+	case overflow := <-sub.Overflow:
+		t.Fatalf("tool subscriber overflowed from unrelated activity: %#v", overflow)
+	default:
+	}
+	stream.Publish(Event{CallID: "call_1", Kind: string(EventToolCall), Tool: "run_command"})
+	select {
+	case event := <-sub.Events:
+		if event.CallID != "call_1" || event.Tool != "run_command" {
+			t.Fatalf("tool event=%#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for tool call event")
+	}
+}
+
+func TestToolCallSnapshotWatermarkPrecedesBufferedLiveEvents(t *testing.T) {
+	stream := NewStream()
+	stream.Publish(Event{Kind: string(EventSystem), Message: "system"})
+	stream.Publish(Event{CallID: "call_history", Kind: string(EventToolCall), Tool: "run_command"})
+	sub, recent, latestSequence := stream.SubscribeToolCallsSnapshot(MaxRecentToolCalls)
+	defer stream.UnsubscribeDetailed(sub)
+	if latestSequence != 2 || len(recent) != 1 || recent[0].Sequence != 2 {
+		t.Fatalf("snapshot latest=%d recent=%#v", latestSequence, recent)
+	}
+	stream.Publish(Event{CallID: "call_live", Kind: string(EventToolCall), Tool: "run_command"})
+	select {
+	case event := <-sub.Events:
+		if event.Sequence != 3 || event.Sequence <= latestSequence || event.CallID != "call_live" {
+			t.Fatalf("live event=%#v snapshot latest=%d", event, latestSequence)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for buffered live tool call")
 	}
 }

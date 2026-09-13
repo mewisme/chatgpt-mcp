@@ -6,7 +6,9 @@ import (
 )
 
 const (
-	defaultRecentLimit      = 200
+	MaxRecentEvents         = 1024
+	MaxRecentToolCalls      = 1024
+	defaultRecentLimit      = MaxRecentEvents
 	defaultSubscriberBuffer = 32
 )
 
@@ -22,15 +24,17 @@ type Subscription struct {
 }
 
 type Stream struct {
-	mu           sync.RWMutex
-	subs         map[chan Event]*Subscription
-	recent       []Event
-	maxRecent    int
-	nextSequence uint64
+	mu              sync.RWMutex
+	subs            map[chan Event]*Subscription
+	toolCallSubs    map[chan Event]*Subscription
+	recent          []Event
+	recentToolCalls []Event
+	maxRecent       int
+	nextSequence    uint64
 }
 
 func NewStream() *Stream {
-	return &Stream{subs: map[chan Event]*Subscription{}, maxRecent: defaultRecentLimit}
+	return &Stream{subs: map[chan Event]*Subscription{}, toolCallSubs: map[chan Event]*Subscription{}, maxRecent: defaultRecentLimit}
 }
 
 func (s *Stream) Subscribe() chan Event {
@@ -52,9 +56,26 @@ func (s *Stream) SubscribeDetailed(limit int) (*Subscription, []Event) {
 	return sub, recent
 }
 
+func (s *Stream) SubscribeToolCallsDetailed(limit int) (*Subscription, []Event) {
+	sub, recent, _ := s.SubscribeToolCallsSnapshot(limit)
+	return sub, recent
+}
+
+func (s *Stream) SubscribeToolCallsSnapshot(limit int) (*Subscription, []Event, uint64) {
+	sub := &Subscription{Events: make(chan Event, defaultSubscriberBuffer), Overflow: make(chan Overflow, 1)}
+	s.mu.Lock()
+	s.toolCallSubs[sub.Events] = sub
+	recent := recentEvents(s.recentToolCalls, limit)
+	latestSequence := s.nextSequence
+	s.mu.Unlock()
+	return sub, recent, latestSequence
+}
+
 func (s *Stream) Unsubscribe(ch chan Event) {
 	s.mu.Lock()
 	if sub, ok := s.subs[ch]; ok {
+		s.unsubscribeLocked(sub)
+	} else if sub, ok := s.toolCallSubs[ch]; ok {
 		s.unsubscribeLocked(sub)
 	}
 	s.mu.Unlock()
@@ -74,6 +95,7 @@ func (s *Stream) unsubscribeLocked(sub *Subscription) {
 		return
 	}
 	delete(s.subs, sub.Events)
+	delete(s.toolCallSubs, sub.Events)
 	close(sub.Events)
 	close(sub.Overflow)
 	sub.closed = true
@@ -88,9 +110,9 @@ func (s *Stream) Recent(limit int) []Event {
 func (s *Stream) FindCall(callID string) (Event, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for index := len(s.recent) - 1; index >= 0; index-- {
-		if s.recent[index].CallID == callID {
-			return s.recent[index], true
+	for index := len(s.recentToolCalls) - 1; index >= 0; index-- {
+		if s.recentToolCalls[index].CallID == callID {
+			return s.recentToolCalls[index], true
 		}
 	}
 	return Event{}, false
@@ -111,7 +133,21 @@ func (s *Stream) Publish(event Event) {
 	if overflow := len(s.recent) - s.maxRecent; overflow > 0 {
 		s.recent = append([]Event(nil), s.recent[overflow:]...)
 	}
-	for _, sub := range s.subs {
+	if event.Kind == string(EventToolCall) {
+		s.recentToolCalls = append(s.recentToolCalls, event)
+		if overflow := len(s.recentToolCalls) - MaxRecentToolCalls; overflow > 0 {
+			s.recentToolCalls = append([]Event(nil), s.recentToolCalls[overflow:]...)
+		}
+	}
+	publishSubscriptions(s.subs, event)
+	if event.Kind == string(EventToolCall) {
+		publishSubscriptions(s.toolCallSubs, event)
+	}
+	s.mu.Unlock()
+}
+
+func publishSubscriptions(subs map[chan Event]*Subscription, event Event) {
+	for _, sub := range subs {
 		if sub.overflow || sub.closed {
 			continue
 		}
@@ -122,7 +158,6 @@ func (s *Stream) Publish(event Event) {
 			sub.Overflow <- Overflow{DroppedSequence: event.Sequence}
 		}
 	}
-	s.mu.Unlock()
 }
 
 func recentEvents(events []Event, limit int) []Event {

@@ -17,6 +17,7 @@ const (
 	RouteRequests    RouteKind = "requests"
 	RouteLogs        RouteKind = "logs"
 	RouteLogsExec    RouteKind = "logs-exec"
+	RouteLogsTools   RouteKind = "logs-tools"
 	RouteConfig      RouteKind = "config"
 	RouteInstruction RouteKind = "instruction"
 	RouteRuntime     RouteKind = "runtime"
@@ -83,6 +84,8 @@ func ParseRoute(args []string) (Route, error) {
 		return parseLogsRoute(parts)
 	case RouteLogsExec:
 		return parseLogsExecRoute(parts)
+	case RouteLogsTools:
+		return parseLogsToolsRoute(parts)
 	case RouteConfig:
 		return parseConfigRoute(parts)
 	case RouteInstruction:
@@ -281,11 +284,23 @@ func parseLogsExecRoute(parts []string) (Route, error) {
 	if len(parts) == 1 {
 		return route, nil
 	}
-	if len(parts) == 2 && parts[1] == "settings" {
-		route.Action = "settings"
+	if len(parts) == 2 && parts[1] != "settings" {
+		route.ResourceID = parts[1]
 		return route, nil
 	}
 	return Route{}, fmt.Errorf("unsupported command execution path %q", strings.Join(parts, " "))
+}
+
+func parseLogsToolsRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteLogsTools}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) == 2 {
+		route.ResourceID = parts[1]
+		return route, nil
+	}
+	return Route{}, fmt.Errorf("unsupported tool calls path %q", strings.Join(parts, " "))
 }
 
 func parseConfigRoute(parts []string) (Route, error) {
@@ -448,6 +463,8 @@ func parseRouteKind(value string) (RouteKind, bool) {
 		return RouteLogs, true
 	case "logs-exec", "exec-logs", "command-execution", "command-execution-logs":
 		return RouteLogsExec, true
+	case "logs-tools", "tool-calls", "tool-call-logs":
+		return RouteLogsTools, true
 	case "config", "cfg":
 		return RouteConfig, true
 	case "instruction", "instructions", "instr":
@@ -466,7 +483,7 @@ func parseRouteKind(value string) (RouteKind, bool) {
 func (route Route) Title() string {
 	base := map[RouteKind]string{
 		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
-		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteConfig: "Config", RouteInstruction: "Instruction", RouteRuntime: "Runtime", RouteAbout: "About", RouteGuide: "Guide",
+		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteLogsTools: "Logs · Tool Calls", RouteConfig: "Config", RouteInstruction: "Instruction", RouteRuntime: "Runtime", RouteAbout: "About", RouteGuide: "Guide",
 	}[route.Kind]
 	if route.Kind == RouteRequests && route.Mode != "" {
 		base += " · " + routeSectionTitle(route.Mode)
@@ -604,6 +621,8 @@ func breadcrumbRootLabel(kind RouteKind) string {
 		return "Logs"
 	case RouteLogsExec:
 		return "Command Execution"
+	case RouteLogsTools:
+		return "Tool Calls"
 	case RouteConfig:
 		return "Config"
 	case RouteInstruction:
@@ -678,8 +697,6 @@ func breadcrumbActionLabel(route Route) string {
 		return "Edit Admin Key"
 	case route.Kind == RouteLogs && route.Action == "filter":
 		return "Filters"
-	case route.Kind == RouteLogsExec && route.Action == "settings":
-		return "Settings"
 	default:
 		return routeSectionTitle(route.Action)
 	}
@@ -830,7 +847,7 @@ func headerOwner(kind RouteKind) RouteKind {
 		return RouteWorkspaces
 	case RouteTunnels:
 		return RouteTunnel
-	case RouteLogsExec:
+	case RouteLogsExec, RouteLogsTools:
 		return RouteLogs
 	default:
 		return kind

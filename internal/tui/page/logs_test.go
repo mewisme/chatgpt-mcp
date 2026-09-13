@@ -21,6 +21,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"go.mewis.me/chatgpt-mcp/internal/activity"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
@@ -135,16 +136,8 @@ func TestLogsEventChildDetailStaysPinnedWhileLiveEventsAppend(t *testing.T) {
 		t.Fatalf("detail child unexpectedly paused follow state")
 	}
 	detail := ansi.Strip(page.View(100, 26))
-	if !strings.Contains(detail, "Message  two") || strings.Contains(detail, "Message  three") || strings.Contains(detail, "Log event · two") {
+	if !strings.Contains(detail, `"event"`) || !strings.Contains(detail, `"two"`) || strings.Contains(detail, `"three"`) || strings.Contains(detail, "Log event · two") {
 		t.Fatalf("detail jumped after live append: %q", detail)
-	}
-	_, cmd := page.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
-	if cmd == nil {
-		t.Fatal("fields child navigation returned no command")
-	}
-	navigate, ok := cmd().(NavigateMsg)
-	if !ok || strings.Join(navigate.Path, "/") != "logs/run:2/fields" {
-		t.Fatalf("fields navigation=%#v", navigate)
 	}
 }
 
@@ -170,7 +163,7 @@ func TestLogsPageMouseActionsUseKeyboardMessages(t *testing.T) {
 	page.browser = updated.(component.Browser)
 	_ = page.View(page.width, page.height)
 	targets := page.MouseTargets(0, 0, 1)
-	want := map[string]bool{"space": false, "f": false, "r": false, "i": false, "d": false}
+	want := map[string]bool{"v": false, "m": false, "f": false, "r": false, "i": false, "d": false}
 	for _, target := range targets {
 		if target.ID != "browser.help" {
 			continue
@@ -243,7 +236,7 @@ func TestLogsPageDefaultVerboseShowsRuntimeEventsButHidesDebugNoise(t *testing.T
 	for _, event := range page.events {
 		got = append(got, event.Name)
 	}
-	want := []string{"approval.requested", "tunnel.connected", "tool.call.completed", "tool.call.started"}
+	want := []string{"approval.requested", "tunnel.connected"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("default verbose events=%#v want %#v", got, want)
 	}
@@ -418,10 +411,13 @@ func TestLogsStatusPlacesSessionBesideFullStreamRow(t *testing.T) {
 	if len(lines) != 1 || !strings.HasSuffix(lines[0], "Session  run_0123456789abcdef") {
 		t.Fatalf("status row = %#v", lines)
 	}
-	for _, want := range []string{"Stream", "Follow", "View", "Events"} {
+	for _, want := range []string{"Stream", "View", "Events", "Mode"} {
 		if !strings.Contains(lines[0], want) {
 			t.Fatalf("status row missing %q: %#v", want, lines)
 		}
+	}
+	if strings.Contains(lines[0], "Follow") {
+		t.Fatalf("browser status unexpectedly includes follow: %#v", lines)
 	}
 }
 
@@ -593,10 +589,11 @@ func TestLogsPageUpdateCoversBrowserActionsAndOverlays(t *testing.T) {
 	if !page.paused {
 		t.Fatal("toggle command did not pause")
 	}
+	page.view = logsViewTimeline
 	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	page = updated.(*LogsPage)
 	if page.paused {
-		t.Fatal("space did not resume")
+		t.Fatal("space did not resume timeline follow")
 	}
 }
 
@@ -773,7 +770,7 @@ func TestLogsCommandExecutionRouteStreamsCombinedOutputInEventOrder(t *testing.T
 		t.Fatalf("completed events=%#v next=%v", page.exec.events, next)
 	}
 	plain := ansi.Strip(page.View(120, 32))
-	for _, want := range []string{"Runtime", "Command Execution", "Mode  combined", "START", "exec_test", "$ printf demo", "Workspace  ws_a", "Source  mcp", "Session  session-test", "Call  call_test", "Route", "• received: instance-a", "• executed: instance-b", "out", "err", "END", "Status  success", "Exit  0", "Duration  2s", "←/→ tabs"} {
+	for _, want := range []string{"Runtime", "Command Execution", "Mode  combined", "START", "exec_test", "printf demo", "Workspace  ws_a", "Source  mcp", "Session  session-test", "Call  call_test", "Route", "• received: instance-a", "• executed: instance-b", "out", "err", "END", "Status  success", "Exit  0", "Duration  2s", "←/→ tabs"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("command exec view missing %q: %q", want, plain)
 		}
@@ -823,13 +820,13 @@ func TestLogsCommandExecutionEmptyViewPinsHelpToBottom(t *testing.T) {
 	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
 		last--
 	}
-	if last < 0 || !strings.Contains(lines[last], "reconnect") || !strings.Contains(lines[last], "clear view") {
+	if last < 0 || !strings.Contains(lines[last], "reconnect") {
 		t.Fatalf("bottom help not pinned: last=%d line=%q view=%q", last, lines[last], plain)
 	}
 	status := -1
 	waiting := -1
 	for index, line := range lines {
-		if status < 0 && strings.Contains(line, "Stream") && strings.Contains(line, "Follow") && strings.Contains(line, "Events") && strings.Contains(line, "2048") && strings.Contains(line, "Mode") {
+		if status < 0 && strings.Contains(line, "Stream") && strings.Contains(line, "Follow") && strings.Contains(line, "Events") && strings.Contains(line, "1024") && strings.Contains(line, "Mode") {
 			status = index
 		}
 		if strings.Contains(line, "Waiting for command output") {
@@ -1018,16 +1015,16 @@ func TestExecutionFrameFitsRenderWidthAndKeepsCommandInside(t *testing.T) {
 		if len(lines) == 0 || lipgloss.Width(lines[0]) != width || strings.Contains(lines[0], "exec_resize") || strings.Contains(lines[0], "exec_id=") || !strings.Contains(lines[0], "START") {
 			t.Fatalf("width=%d top border=%q", width, lines[0])
 		}
-		flat := strings.Join(strings.Fields(strings.NewReplacer("│", "", "╭", "", "╮", "", "╰", "", "╯", "", "─", "", "•", "").Replace(view)), "")
+		flat := strings.Join(strings.Fields(strings.NewReplacer("│", "", "╭", "", "╮", "", "╰", "", "╯", "", "─", "", "•", "").Replace(ansi.Strip(view))), "")
 		if !strings.Contains(flat, "exec_resize") {
 			t.Fatalf("width=%d execution id not rendered inside frame: %q", width, view)
 		}
-		if !strings.Contains(view, "Route") || !strings.Contains(flat, "received:receive-a") || !strings.Contains(flat, "executed:execute-b") || !strings.Contains(view, "$ ") {
+		if !strings.Contains(view, "Route") || !strings.Contains(flat, "received:receive-a") || !strings.Contains(flat, "executed:execute-b") || !strings.Contains(flat, "command-token") {
 			t.Fatalf("width=%d frame content=%q", width, view)
 		}
-		separator := strings.Index(view, "├")
-		command := strings.Index(view, "$ ")
-		close := strings.Index(view, "╰")
+		separator := strings.Index(ansi.Strip(view), "├")
+		command := strings.Index(ansi.Strip(view), "comm")
+		close := strings.Index(ansi.Strip(view), "╰")
 		if separator < 0 || command <= separator || close <= command {
 			t.Fatalf("width=%d command is not inside stream body: %q", width, view)
 		}
@@ -1095,9 +1092,10 @@ func TestExecutionFrameUnsafeTerminalControlsDoNotBreakRightBorder(t *testing.T)
 		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt},
 		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Data: "alpha\r\nbeta\rprogress\b!\x00nul\vvertical\fform\x1b[31mred\x1b[0m\n", Timestamp: started.Add(time.Second).Format(time.RFC3339Nano)},
 	}, 84)
+	plain := ansi.Strip(view)
 	for _, control := range []string{"\r", "\b", "\x00", "\v", "\f", "\x1b"} {
-		if strings.Contains(view, control) {
-			t.Fatalf("unsafe control %q remained in frame: %q", control, view)
+		if strings.Contains(plain, control) {
+			t.Fatalf("unsafe control %q remained in frame: %q", control, plain)
 		}
 	}
 	for _, line := range strings.Split(strings.TrimSuffix(view, "\n"), "\n") {
@@ -1105,8 +1103,8 @@ func TestExecutionFrameUnsafeTerminalControlsDoNotBreakRightBorder(t *testing.T)
 			t.Fatalf("frame line width=%d want 84: %q", got, line)
 		}
 	}
-	for _, want := range []string{"alpha", "beta", "progress!", "nulverticalformred", "$ demo command", "C:\\workdir"} {
-		if !strings.Contains(view, want) {
+	for _, want := range []string{"alpha", "beta", "progress!", "nulverticalformred", "demo command", "C:\\workdir"} {
+		if !strings.Contains(plain, want) {
 			t.Fatalf("frame missing sanitized content %q: %q", want, view)
 		}
 	}
@@ -1191,7 +1189,7 @@ func TestSelectedProcessUsesExistingExecutionRenderer(t *testing.T) {
 		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Data: "ready\n", Timestamp: started.Add(500 * time.Millisecond).Format(time.RFC3339Nano)},
 	}
 	view := formatExecutionFeed(page.visibleExecutionEvents(), 80)
-	if !strings.Contains(view, "START") || !strings.Contains(view, "$ serve") || !strings.Contains(view, "ready") || !strings.Contains(view, "RUNNING") {
+	if !strings.Contains(view, "START") || !strings.Contains(ansi.Strip(view), "serve") || !strings.Contains(view, "ready") || !strings.Contains(view, "RUNNING") {
 		t.Fatalf("running process view=%q", view)
 	}
 	page.exec.events = append(page.exec.events, shellruntime.ExecutionFeedEvent{Sequence: 3, Type: shellruntime.ExecutionEventCompleted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &finished, Status: shellruntime.ExecutionStatusSuccess, ExitCode: &code, Timestamp: finished.FinishedAt})
@@ -1300,7 +1298,7 @@ func TestLogsSessionStateRestoresRunningProcessSelection(t *testing.T) {
 	}
 }
 
-func TestExecutionScopeEditorAppliesWithoutReconnectingGlobalFeed(t *testing.T) {
+func TestLogsModeDialogAppliesContainerWithoutReconnectingExecutionFeed(t *testing.T) {
 	setupLogsPageRoot(t)
 	manager := workspace.NewManager(workspace.DefaultStorePath())
 	first, err := manager.Register(t.TempDir())
@@ -1321,117 +1319,177 @@ func TestExecutionScopeEditorAppliesWithoutReconnectingGlobalFeed(t *testing.T) 
 	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()
 	page.exec.generation = 9
-	if cmd := page.openExecutionScopeEditor(); cmd == nil || page.exec.scopeEditor == nil || page.exec.scopeForm == nil {
-		t.Fatalf("scope editor missing: cmd=%v editor=%v form=%v", cmd, page.exec.scopeEditor != nil, page.exec.scopeForm != nil)
+	page.openLogsModeDialog()
+	if page.modeDialog == nil || len(page.modeDialog.options) != 4 {
+		t.Fatalf("mode dialog=%#v", page.modeDialog)
 	}
-	page.exec.scopeForm.Mode, page.exec.scopeForm.ContainerID = string(executionScopeContainer), container.ID
-	page.submitExecutionScopeEditor()
-	if page.exec.scopeEditor != nil || page.exec.scopeMode != executionScopeContainer || page.exec.containerID != container.ID || page.exec.containerName != "project" || len(page.exec.containerMembers) != 2 || page.exec.generation != 9 {
-		t.Fatalf("scope applied=%#v", page.exec)
+	page.modeDialog.index = 2
+	page.updateLogsModeDialog(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if page.modeDialog == nil || page.modeDialog.stage != logsModeStageContainer || len(page.modeDialog.options) != 1 {
+		t.Fatalf("container dialog=%#v", page.modeDialog)
 	}
-	if label := page.executionScopeLabel(); !strings.Contains(label, "container · project · 2 workspaces") {
-		t.Fatalf("scope label=%q", label)
+	page.updateLogsModeDialog(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if page.modeDialog != nil || page.exec.scopeMode != executionScopeContainer || page.exec.containerID != container.ID || page.exec.containerName != "project" || len(page.exec.containerMembers) != 2 || page.exec.generation != 9 {
+		t.Fatalf("scope applied=%#v generation=%d", page.exec, page.exec.generation)
 	}
 }
 
-func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
+func TestLogsModeDialogEnterAppliesWorkspaceImmediately(t *testing.T) {
 	setupLogsPageRoot(t)
 	manager := workspace.NewManager(workspace.DefaultStorePath())
 	workspaceItem, err := manager.Register(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	container, err := manager.CreateContainer("project")
-	if err != nil {
-		t.Fatal(err)
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.openLogsModeDialog()
+	page.modeDialog.index = 1
+	page.updateLogsModeDialog(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if page.modeDialog == nil || page.modeDialog.stage != logsModeStageWorkspace {
+		t.Fatalf("workspace dialog=%#v", page.modeDialog)
 	}
-	if _, err := manager.AddWorkspaceToContainer(container.ID, workspaceItem.ID); err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		name     string
-		down     int
-		wantMode executionScopeMode
-		wantID   string
-		steps    int
-	}{
-		{name: "combined", wantMode: executionScopeCombined},
-		{name: "workspace", down: 1, wantMode: executionScopeWorkspace, wantID: workspaceItem.ID, steps: 2},
-		{name: "container", down: 2, wantMode: executionScopeContainer, wantID: container.ID, steps: 1},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			page, _ := NewCommandExecutionLogs(t.Context())
-			defer page.Close()
-			page.exec.generation = 11
-			page = runLogsPageCmd(t, page, page.openExecutionScopeEditor())
-			var updated Model
-			var cmd tea.Cmd
-			for range test.down {
-				updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-				page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
-			}
-			updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-			page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
-			for range test.steps {
-				if page.exec.scopeEditor == nil {
-					t.Fatal("mode selection submitted before scope selector")
-				}
-				updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-				page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
-			}
-			if page.exec.scopeEditor != nil || page.exec.scopeMode != test.wantMode || page.exec.generation != 11 {
-				t.Fatalf("scope editor=%v mode=%s generation=%d", page.exec.scopeEditor != nil, page.exec.scopeMode, page.exec.generation)
-			}
-			if test.wantMode == executionScopeWorkspace && page.exec.workspaceID != test.wantID {
-				t.Fatalf("workspace=%q want=%q", page.exec.workspaceID, test.wantID)
-			}
-			if test.wantMode == executionScopeContainer && page.exec.containerID != test.wantID {
-				t.Fatalf("container=%q want=%q", page.exec.containerID, test.wantID)
-			}
-		})
+	page.updateLogsModeDialog(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if page.modeDialog != nil || page.exec.scopeMode != executionScopeWorkspace || page.exec.workspaceID != workspaceItem.ID {
+		t.Fatalf("scope mode=%s workspace=%s", page.exec.scopeMode, page.exec.workspaceID)
 	}
 }
 
-func TestExecutionSettingsStartsWithMode(t *testing.T) {
-	setupLogsPageRoot(t)
+func TestLogsModeDialogProcessOnlyExistsForCommandExecution(t *testing.T) {
+	exec, _ := NewCommandExecutionLogs(t.Context())
+	defer exec.Close()
+	exec.openLogsModeDialog()
+	if len(exec.modeDialog.options) != 4 || exec.modeDialog.options[3].value != "process" {
+		t.Fatalf("execution mode options=%#v", exec.modeDialog.options)
+	}
+	tools, _ := NewToolCallLogsRoute(t.Context(), "")
+	defer tools.Close()
+	tools.openLogsModeDialog()
+	if len(tools.modeDialog.options) != 3 {
+		t.Fatalf("tool mode options=%#v", tools.modeDialog.options)
+	}
+	for _, option := range tools.modeDialog.options {
+		if option.value == "process" {
+			t.Fatalf("tool calls exposed process option: %#v", tools.modeDialog.options)
+		}
+	}
+}
+
+func TestLogsViewShortcutDoesNotReconnectExecutionFeed(t *testing.T) {
 	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()
+	page.exec.generation = 11
+	if page.view != logsViewTimeline {
+		t.Fatalf("default view=%s", page.view)
+	}
+	page.handleExecutionKey(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	if page.view != logsViewBrowser || page.exec.generation != 11 {
+		t.Fatalf("view=%s generation=%d", page.view, page.exec.generation)
+	}
+	page.handleExecutionKey(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	if page.view != logsViewTimeline || page.exec.generation != 11 {
+		t.Fatalf("view=%s generation=%d", page.view, page.exec.generation)
+	}
+}
+
+func TestRuntimeViewShortcutAndModeDoNotReconnectStream(t *testing.T) {
+	setupLogsPageRoot(t)
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	workspaceItem, err := manager.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.generation = 7
+	page.handleKey(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	if page.view != logsViewTimeline || page.generation != 7 {
+		t.Fatalf("runtime view=%s generation=%d", page.view, page.generation)
+	}
+	page.openLogsModeDialog()
+	if len(page.modeDialog.options) != 3 {
+		t.Fatalf("runtime mode options=%#v", page.modeDialog.options)
+	}
+	page.modeDialog.index = 1
+	page.updateLogsModeDialog(tea.KeyPressMsg{Code: tea.KeyEnter})
+	page.updateLogsModeDialog(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if page.modeDialog != nil || page.runtimeScope.mode != executionScopeWorkspace || page.runtimeScope.workspaceID != workspaceItem.ID || page.generation != 7 {
+		t.Fatalf("runtime scope=%#v generation=%d", page.runtimeScope, page.generation)
+	}
+}
+
+func TestRuntimeTimelineFiltersToolCallsAndRendersVisibleFields(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.visibility = logger.VisibilityVerbose
+	page.events = []runtimeevent.Event{
+		{Sequence: 1, Time: time.Now(), Level: "info", Name: "server.ready", Component: "SERVER", Message: "Ready", WorkspaceID: "ws_a", Fields: []runtimeevent.Field{{Key: "visible", Value: "ok"}, {Key: "debug", Value: "hidden", Visibility: logger.VisibilityDebug}}},
+		{Sequence: 2, Time: time.Now(), Level: "info", Name: "tool.call.finish", Component: "TOOLS", Message: "duplicate", WorkspaceID: "ws_a"},
+	}
+	visible := page.visibleRuntimeEvents()
+	if len(visible) != 1 || visible[0].Name != "server.ready" {
+		t.Fatalf("visible runtime events=%#v", visible)
+	}
+	plain := ansi.Strip(renderRuntimeTimeline(visible, 100, page.visibility).Content)
+	if !strings.Contains(plain, "visible") || !strings.Contains(plain, "ok") || strings.Contains(plain, "hidden") || strings.Contains(plain, "tool.call.finish") {
+		t.Fatalf("runtime timeline=%q", plain)
+	}
+}
+
+func TestToolCallsMergeLifecycleAndRenderFullRequestResponse(t *testing.T) {
+	page, _ := NewToolCallLogsRoute(t.Context(), "")
+	defer page.Close()
+	page.tools.events = []activity.Event{
+		{Sequence: 1, Timestamp: time.Now(), Kind: string(activity.EventToolCall), Phase: "start", CallID: "call_1", Tool: "run_command", WorkspaceID: "ws_a", Status: "running", Raw: map[string]any{"arguments": map[string]any{"command": "go test ./..."}}},
+		{Sequence: 2, Timestamp: time.Now(), Kind: string(activity.EventToolCall), Phase: "finish", CallID: "call_1", Tool: "run_command", WorkspaceID: "ws_a", Status: "ok", DurationMS: 12, Raw: map[string]any{"arguments": map[string]any{"command": "go test ./..."}, "result": map[string]any{"exit_code": 0, "stdout": "ok"}}},
+	}
+	records := page.visibleToolCallRecords()
+	if len(records) != 1 || records[0].First.Phase != "start" || records[0].Latest.Phase != "finish" {
+		t.Fatalf("tool records=%#v", records)
+	}
+	plain := ansi.Strip(renderToolCallTimeline(records, 100).Content)
+	for _, want := range []string{"REQUEST", "RESPONSE", "go test ./...", "exit_code", "stdout", "12ms"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("tool timeline missing %q: %q", want, plain)
+		}
+	}
+	page.resourceID = "call_1"
 	page.width, page.height = 100, 30
-	page = runLogsPageCmd(t, page, page.openExecutionScopeEditor())
-	if page.exec.scopeForm == nil || page.exec.scopeForm.Mode != string(executionScopeCombined) {
-		t.Fatalf("initial scope=%#v", page.exec.scopeForm)
-	}
-	plain := ansi.Strip(page.executionScopeEditorView(page.width, page.height))
-	if !strings.Contains(plain, "Mode") || strings.Contains(plain, "Event buffer") || strings.Contains(plain, "Buffer") || strings.Contains(plain, "Setting") {
-		t.Fatalf("settings view=%q", plain)
+	page.syncToolCallDetail()
+	detail := ansi.Strip(page.detail.View())
+	for _, want := range []string{"call_1", "arguments", "result", "go test ./...", "exit_code"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("tool detail missing %q: %q", want, detail)
+		}
 	}
 }
 
-func TestCommandExecutionSettingsRouteHasNoLocalPageTitle(t *testing.T) {
+func TestToolCallViewShortcutAndModeDoNotReconnectFeed(t *testing.T) {
 	setupLogsPageRoot(t)
-	page, err := NewCommandExecutionLogsRouteAction(t.Context(), "settings")
+	manager := workspace.NewManager(workspace.DefaultStorePath())
+	workspaceItem, err := manager.Register(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	page, _ := NewToolCallLogsRoute(t.Context(), "")
 	defer page.Close()
-	page = runLogsPageCmd(t, page, page.exec.scopeEditor.Init())
-	plain := ansi.Strip(page.View(100, 30))
-	if strings.Contains(plain, "Command Execution Settings") {
-		t.Fatalf("settings retained redundant page title: %q", plain)
+	page.tools.generation = 13
+	page.handleToolCallKey(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	if page.view != logsViewTimeline || page.tools.generation != 13 {
+		t.Fatalf("tool view=%s generation=%d", page.view, page.tools.generation)
 	}
-	if !strings.Contains(plain, "Mode") || strings.Contains(plain, "Buffer") || strings.Contains(plain, "Event buffer") || strings.Contains(plain, "Setting") {
-		t.Fatalf("settings route content=%q", plain)
+	page.openLogsModeDialog()
+	page.modeDialog.index = 1
+	page.updateLogsModeDialog(tea.KeyPressMsg{Code: tea.KeyEnter})
+	page.updateLogsModeDialog(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if page.modeDialog != nil || page.tools.scope.mode != executionScopeWorkspace || page.tools.scope.workspaceID != workspaceItem.ID || page.tools.generation != 13 {
+		t.Fatalf("tool scope=%#v generation=%d", page.tools.scope, page.tools.generation)
 	}
 }
 
-func TestExecutionSettingsCloseForcesFullRepaint(t *testing.T) {
-	setupLogsPageRoot(t)
-	page, _ := NewCommandExecutionLogs(t.Context())
-	defer page.Close()
-	page = runLogsPageCmd(t, page, page.openExecutionScopeEditor())
-	cmd := page.closeExecutionScopeEditor()
-	if cmd == nil || page.exec.scopeEditor != nil || page.exec.scopeForm != nil {
-		t.Fatalf("settings close cmd=%v editor=%v form=%v", cmd, page.exec.scopeEditor != nil, page.exec.scopeForm != nil)
+func TestCommandExecutionSettingsRouteIsRemoved(t *testing.T) {
+	if _, err := NewCommandExecutionLogsRouteAction(t.Context(), "settings"); err == nil {
+		t.Fatal("legacy command execution settings route unexpectedly accepted")
 	}
 }
 
@@ -1461,7 +1519,7 @@ func TestRuntimeLogsStatusRendersAboveDividerWithoutLiveJournalLabel(t *testing.
 	lines := strings.Split(plain, "\n")
 	status := -1
 	for index, line := range lines {
-		if strings.Contains(line, "Stream") && strings.Contains(line, "Follow") && strings.Contains(line, "View") && strings.Contains(line, "Events") && strings.Contains(line, "Session") {
+		if strings.Contains(line, "Stream") && strings.Contains(line, "View") && strings.Contains(line, "Events") && strings.Contains(line, "Mode") {
 			status = index
 			break
 		}
@@ -1471,14 +1529,6 @@ func TestRuntimeLogsStatusRendersAboveDividerWithoutLiveJournalLabel(t *testing.
 	}
 	if strings.Contains(plain, "live journal") {
 		t.Fatalf("runtime logs retained redundant live journal label: %q", plain)
-	}
-}
-
-func TestExecutionProcessOptionsPreferRunningAndExposeStatus(t *testing.T) {
-	zero := 0
-	options := executionProcessOptions([]shellruntime.ProcessInfo{{ID: "old", PID: 10, Command: "done", ExitCode: &zero}, {ID: "live", PID: 20, Command: "serve", Running: true}})
-	if len(options) != 2 || options[0].Value != "live" || options[1].Value != "old" || !strings.Contains(options[0].Key, "running") || !strings.Contains(options[1].Key, "exited 0") {
-		t.Fatalf("process options=%#v", options)
 	}
 }
 
@@ -1583,7 +1633,6 @@ func TestLogsSessionViewStateRestoresStablePreferencesOnly(t *testing.T) {
 	page.exec.events = []shellruntime.ExecutionFeedEvent{{Sequence: 1, ExecutionID: "exec_state", WorkspaceID: "ws_exec", Type: shellruntime.ExecutionEventOutput, Data: strings.Repeat("line\n", 40)}}
 	page.resizeExecutionViewport(60, 8)
 	page.exec.viewport.SetYOffset(7)
-	page.exec.scopeEditor = &component.Editor{}
 	page.exec.stream = &runtimecontrol.ExecutionFeedStream{}
 
 	state, ok := page.SessionViewState().(LogsSessionViewState)
@@ -1600,8 +1649,8 @@ func TestLogsSessionViewStateRestoresStablePreferencesOnly(t *testing.T) {
 	if restored.Tab != "command-execution" || restored.Options != state.Options || restored.Visibility != logger.VisibilityDebug || !restored.RuntimePaused || restored.ExecutionScope != string(executionScopeWorkspace) || restored.ExecutionWorkspaceID != "ws_exec" || !restored.ExecutionPaused {
 		t.Fatalf("restored state=%#v want=%#v", restored, state)
 	}
-	if fresh.exec.scopeEditor != nil || fresh.exec.stream != nil || len(fresh.exec.events) != 0 || fresh.loaded || fresh.exec.loaded {
-		t.Fatalf("transient state restored: editor=%v stream=%v events=%d runtime_loaded=%t exec_loaded=%t", fresh.exec.scopeEditor != nil, fresh.exec.stream != nil, len(fresh.exec.events), fresh.loaded, fresh.exec.loaded)
+	if fresh.exec.stream != nil || len(fresh.exec.events) != 0 || fresh.loaded || fresh.exec.loaded {
+		t.Fatalf("transient state restored: stream=%v events=%d runtime_loaded=%t exec_loaded=%t", fresh.exec.stream != nil, len(fresh.exec.events), fresh.loaded, fresh.exec.loaded)
 	}
 	if !fresh.exec.restoreYOffsetSet || fresh.exec.restoreYOffset != 7 {
 		t.Fatalf("deferred offset set=%t offset=%d", fresh.exec.restoreYOffsetSet, fresh.exec.restoreYOffset)
@@ -1623,19 +1672,12 @@ func TestLogsSessionViewStateRestoresAndClampsExecutionOffset(t *testing.T) {
 	}
 }
 
-func TestExecutionScopeEditorWrapsAtNarrowWidths(t *testing.T) {
-	setupLogsPageRoot(t)
-	manager := workspace.NewManager(workspace.DefaultStorePath())
-	if _, err := manager.Register(t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
+func TestLogsModeDialogWrapsAtNarrowWidths(t *testing.T) {
 	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()
-	if cmd := page.openExecutionScopeEditor(); cmd == nil {
-		t.Fatal("scope editor command missing")
-	}
+	page.openLogsModeDialog()
 	for _, width := range []int{120, 80, 24} {
-		view := page.executionScopeEditorView(width, 24)
+		view := component.Modal(page.logsModeDialogView(width), overlayWidth(width, 72))
 		for _, line := range strings.Split(view, "\n") {
 			if got := lipgloss.Width(line); got > width {
 				t.Fatalf("width=%d line=%d: %q", width, got, ansi.Strip(line))
@@ -1649,7 +1691,7 @@ func TestLogsRuntimeAndCommandExecutionRemainTabbedParentViews(t *testing.T) {
 	page, _ := NewLogs(t.Context())
 	defer page.Close()
 	page.width, page.height = 100, 24
-	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime") || !strings.Contains(view, "Command Execution") {
+	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime") || !strings.Contains(view, "Command Execution") || !strings.Contains(view, "Tool Calls") {
 		t.Fatalf("runtime logs tab view=%q", view)
 	}
 	updated, cmd := page.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
@@ -1657,7 +1699,7 @@ func TestLogsRuntimeAndCommandExecutionRemainTabbedParentViews(t *testing.T) {
 	if page.tab != logsTabCommandExec || cmd == nil {
 		t.Fatalf("execution tab=%d cmd=%v", page.tab, cmd)
 	}
-	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime") || !strings.Contains(view, "Command Execution") || !strings.Contains(view, "Waiting for command output") {
+	if view := ansi.Strip(page.View(page.width, page.height)); !strings.Contains(view, "Runtime") || !strings.Contains(view, "Command Execution") || !strings.Contains(view, "Tool Calls") || !strings.Contains(view, "Waiting for command executions") {
 		t.Fatalf("execution tab view=%q", view)
 	}
 	foundTabTarget := false
@@ -1805,27 +1847,4 @@ func TestConfirmOverlayBodyWrapsLongDescription(t *testing.T) {
 	if !strings.Contains(flat, strings.ReplaceAll(description, " ", "")) {
 		t.Fatalf("confirm description changed: %q", ansi.Strip(body))
 	}
-}
-
-func runLogsPageCmd(t *testing.T, page *LogsPage, cmd tea.Cmd) *LogsPage {
-	t.Helper()
-	queue := []tea.Cmd{cmd}
-	for steps := 0; steps < 64 && len(queue) > 0; steps++ {
-		next := queue[0]
-		queue = queue[1:]
-		if next == nil {
-			continue
-		}
-		message := next()
-		if batch, ok := message.(tea.BatchMsg); ok {
-			queue = append(queue, batch...)
-			continue
-		}
-		updated, followup := page.Update(message)
-		page = updated.(*LogsPage)
-		if followup != nil {
-			queue = append(queue, followup)
-		}
-	}
-	return page
 }

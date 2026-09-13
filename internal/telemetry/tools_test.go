@@ -38,10 +38,10 @@ func TestAttachToolsPublishesActivityAndKeepsDefaultLogQuiet(t *testing.T) {
 		t.Fatalf("default tool logging should be quiet: %q", output.String())
 	}
 	events := stream.Recent(10)
-	if len(events) != 1 {
+	if len(events) != 2 || events[0].Phase != "start" || events[0].Status != "running" || events[1].Phase != "finish" {
 		t.Fatalf("events=%#v", events)
 	}
-	event := events[0]
+	event := events[1]
 	if event.Kind != "tool_call" || event.CallID == "" || event.Source != "tunnel" || event.Tool != "echo" || event.WorkspaceID != "" || event.Status != "ok" {
 		t.Fatalf("event=%#v", event)
 	}

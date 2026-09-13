@@ -8,6 +8,7 @@ type Event struct {
 	Sequence              uint64         `json:"sequence,omitempty"`
 	CallID                string         `json:"call_id,omitempty"`
 	Kind                  string         `json:"kind"`
+	Phase                 string         `json:"phase,omitempty"`
 	Method                string         `json:"method,omitempty"`
 	Source                string         `json:"source,omitempty"`
 	Tool                  string         `json:"tool,omitempty"`

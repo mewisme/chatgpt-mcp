@@ -108,3 +108,21 @@ func TestRenderCodeBlockFallsBackToStructuredContent(t *testing.T) {
 		t.Fatalf("fallback output=%q", got)
 	}
 }
+
+func TestRenderMarkdownCompactAlignsCodeBlockWithLabel(t *testing.T) {
+	got := ansi.Strip(RenderMarkdownCompact("REQUEST\n\n```json\n{\n  \"head\": 80\n}\n```", 42))
+	lines := strings.Split(got, "\n")
+	labelColumn, jsonColumn := -1, -1
+	for _, line := range lines {
+		if strings.Contains(line, "REQUEST") {
+			labelColumn = strings.Index(line, "REQUEST")
+		}
+		if strings.Contains(line, "{") {
+			jsonColumn = strings.Index(line, "{")
+			break
+		}
+	}
+	if labelColumn < 0 || jsonColumn < 0 || labelColumn != jsonColumn {
+		t.Fatalf("compact markdown columns label=%d json=%d: %q", labelColumn, jsonColumn, got)
+	}
+}

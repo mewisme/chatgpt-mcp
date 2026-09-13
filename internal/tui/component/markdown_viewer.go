@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	glamour "charm.land/glamour/v2"
+	glamourstyles "charm.land/glamour/v2/styles"
 )
 
 type markdownViewerWheelMsg int
@@ -32,13 +33,7 @@ var markdownRender = func(source, style string, width int) (string, error) {
 }
 
 func RenderCodeBlock(content, language string, width int) string {
-	content = strings.TrimRight(content, "\n")
-	language = strings.TrimSpace(language)
-	fence := "```"
-	for strings.Contains(content, fence) {
-		fence += "`"
-	}
-	source := fmt.Sprintf("%s%s\n%s\n%s", fence, language, content, fence)
+	source := CodeBlockMarkdown(content, language)
 	style := "dark"
 	if !currentTheme.isDark {
 		style = "light"
@@ -46,6 +41,38 @@ func RenderCodeBlock(content, language string, width int) string {
 	value, err := markdownRender(source, style, max(1, width))
 	if err != nil {
 		return WrapStructuredContent(content, max(1, width))
+	}
+	return strings.TrimSpace(value)
+}
+
+func CodeBlockMarkdown(content, language string) string {
+	content = strings.TrimRight(content, "\n")
+	language = strings.TrimSpace(language)
+	fence := "```"
+	for strings.Contains(content, fence) {
+		fence += "`"
+	}
+	return fmt.Sprintf("%s%s\n%s\n%s", fence, language, content, fence)
+}
+
+func RenderMarkdownCompact(source string, width int) string {
+	style := glamourstyles.DarkStyleConfig
+	if !currentTheme.isDark {
+		style = glamourstyles.LightStyleConfig
+	}
+	zero := uint(0)
+	style.Document.Margin = &zero
+	style.Document.BlockPrefix = ""
+	style.Document.BlockSuffix = ""
+	style.CodeBlock.Margin = &zero
+	renderer, err := glamour.NewTermRenderer(glamour.WithStyles(style), glamour.WithWordWrap(max(1, width)))
+	if err != nil {
+		return WrapStructuredContent(source, max(1, width))
+	}
+	defer renderer.Close()
+	value, err := renderer.Render(strings.TrimSpace(source))
+	if err != nil {
+		return WrapStructuredContent(source, max(1, width))
 	}
 	return strings.TrimSpace(value)
 }

@@ -1464,6 +1464,27 @@ func TestToolCallsMergeLifecycleAndRenderFullRequestResponse(t *testing.T) {
 	}
 }
 
+func TestToolCallTimelineAlignsBodyWithLabels(t *testing.T) {
+	record := toolCallRecord{
+		CallID: "call_1",
+		First:  activity.Event{Sequence: 1, Timestamp: time.Now(), Kind: string(activity.EventToolCall), Phase: "start", CallID: "call_1", Tool: "read_file", Status: "running", Raw: map[string]any{"arguments": map[string]any{"head": 80, "path": "I:/Project/workspaces/hiresense/.env"}}},
+		Latest: activity.Event{Sequence: 2, Timestamp: time.Now(), Kind: string(activity.EventToolCall), Phase: "finish", CallID: "call_1", Tool: "read_file", Status: "error", Raw: map[string]any{"error": "head: must be an integer"}},
+	}
+	plain := ansi.Strip(renderToolCallTimeline([]toolCallRecord{record}, 100).Content)
+	labelColumn, bodyColumn := -1, -1
+	for _, line := range strings.Split(plain, "\n") {
+		if strings.Contains(line, "REQUEST") {
+			labelColumn = strings.Index(line, "REQUEST")
+		}
+		if strings.Contains(line, "{") {
+			bodyColumn = strings.Index(line, "{")
+		}
+	}
+	if labelColumn < 0 || bodyColumn < 0 || labelColumn != bodyColumn {
+		t.Fatalf("tool timeline columns label=%d body=%d: %q", labelColumn, bodyColumn, plain)
+	}
+}
+
 func TestToolCallViewShortcutAndModeDoNotReconnectFeed(t *testing.T) {
 	setupLogsPageRoot(t)
 	manager := workspace.NewManager(workspace.DefaultStorePath())

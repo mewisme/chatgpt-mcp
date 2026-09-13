@@ -341,31 +341,30 @@ func toolCallTimelineContent(record toolCallRecord, width int) []string {
 			request = record.First.Raw["params"]
 		}
 	}
-	content := []string{"REQUEST"}
-	content = append(content, renderJSONValue(request, width))
+	content := []string{"REQUEST", component.CodeBlockMarkdown(marshalJSONValue(request), "json")}
 	latest := record.Latest
 	if latest.Phase == "finish" || latest.Status != "running" {
 		if latest.Raw != nil && latest.Raw["error"] != nil {
-			content = append(content, "ERROR", renderJSONValue(latest.Raw["error"], width))
+			content = append(content, "ERROR", component.CodeBlockMarkdown(marshalJSONValue(latest.Raw["error"]), "json"))
 		} else {
 			var response any
 			if latest.Raw != nil {
 				response = latest.Raw["result"]
 			}
-			content = append(content, "RESPONSE", renderJSONValue(response, width))
+			content = append(content, "RESPONSE", component.CodeBlockMarkdown(marshalJSONValue(response), "json"))
 		}
 	} else {
-		content = append(content, "RESPONSE", component.Muted("waiting..."))
+		content = append(content, "RESPONSE", "waiting...")
 	}
-	return content
+	return []string{component.RenderMarkdownCompact(strings.Join(content, "\n\n"), width)}
 }
 
-func renderJSONValue(value any, width int) string {
+func marshalJSONValue(value any) string {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		data = []byte(fmt.Sprint(value))
 	}
-	return component.RenderCodeBlock(string(data), "json", width)
+	return string(data)
 }
 
 func (page *LogsPage) syncToolCallDetail() {

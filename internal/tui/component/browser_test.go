@@ -94,6 +94,40 @@ func TestBrowserMouseSelectThenOpenSelectedRow(t *testing.T) {
 	}
 }
 
+func TestBrowserMouseRowTargetsMatchRenderedRows(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		model Browser
+	}{
+		{name: "default", model: NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil)},
+		{name: "title-hidden", model: NewBrowser(t.Context(), "Items", []Row{{ID: "one", Title: "One"}}, nil).WithTitleVisible(false).WithExternalHelp(true)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			updated, _ := test.model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+			model := updated.(Browser)
+			rowY := -1
+			for index, line := range strings.Split(ansi.Strip(model.Content()), "\n") {
+				if strings.Contains(line, "One") {
+					rowY = index
+					break
+				}
+			}
+			if rowY < 0 {
+				t.Fatal("browser row not rendered")
+			}
+			for _, target := range model.MouseTargets(0, 0, 1) {
+				if target.ID == "browser.row" {
+					if target.Rect.Y != rowY {
+						t.Fatalf("row target y=%d want rendered y=%d", target.Rect.Y, rowY)
+					}
+					return
+				}
+			}
+			t.Fatal("browser row target not found")
+		})
+	}
+}
+
 func TestBrowserRefreshPreservesSelection(t *testing.T) {
 	refresh := func(context.Context) ([]Row, error) {
 		return []Row{{ID: "one", Title: "One updated"}, {ID: "two", Title: "Two updated"}, {ID: "three", Title: "Three"}}, nil

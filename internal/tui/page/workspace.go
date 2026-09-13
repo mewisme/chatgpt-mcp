@@ -391,9 +391,9 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 		bodyHeight := max(1, page.height-lipgloss.Height(tabs))
 		help := page.browser.HelpView()
 		layout := component.NewSectionLayout("", "", feedback, page.width, bodyHeight, lipgloss.Height(help))
-		browserY := originY + lipgloss.Height(tabs) + 1 + layout.BodyY
+		browserY := originY + lipgloss.Height(tabs) + layout.BodyY
 		targets = append(targets, page.browser.MouseTargets(originX, browserY, z)...)
-		helpY := originY + lipgloss.Height(tabs) + 1 + bodyHeight - lipgloss.Height(help)
+		helpY := originY + lipgloss.Height(tabs) + bodyHeight - lipgloss.Height(help)
 		return append(targets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
 	}
 }

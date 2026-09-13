@@ -366,8 +366,12 @@ func (m Browser) MouseTargets(originX, originY, z int) []MouseTarget {
 		},
 	}}
 	startY := 0
-	if m.list.ShowTitle() || m.list.ShowFilter() {
-		startY += 1 + m.list.Styles.TitleBar.GetPaddingTop() + m.list.Styles.TitleBar.GetPaddingBottom()
+	if m.list.ShowTitle() || m.list.ShowFilter() && m.list.FilteringEnabled() {
+		if m.list.ShowTitle() || m.list.FilterState() == list.Filtering {
+			startY += 1 + m.list.Styles.TitleBar.GetPaddingTop() + m.list.Styles.TitleBar.GetPaddingBottom()
+		} else {
+			startY++
+		}
 	}
 	if m.list.ShowStatusBar() {
 		startY += 1 + m.list.Styles.StatusBar.GetPaddingTop() + m.list.Styles.StatusBar.GetPaddingBottom()

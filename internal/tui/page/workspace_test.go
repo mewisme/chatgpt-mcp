@@ -558,6 +558,63 @@ func TestWorkspaceBrowserOpenNavigatesToResourceChild(t *testing.T) {
 	}
 }
 
+func TestWorkspaceBrowserMouseClickUsesRenderedRowPosition(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	page, err := NewWorkspaces(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := page.manager.Register(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := page.reload(); err != nil {
+		t.Fatal(err)
+	}
+	view := ansi.Strip(page.View(100, 24))
+	rowY := -1
+	for index, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, item.ID) {
+			rowY = index
+			break
+		}
+	}
+	if rowY < 0 {
+		t.Fatalf("workspace row %q not rendered: %q", item.ID, view)
+	}
+	targets := page.MouseTargets(0, 0, 10)
+	dispatch := component.DispatchMouse(targets, tea.MouseClickMsg(tea.Mouse{X: 1, Y: rowY, Button: tea.MouseLeft}))
+	if dispatch == nil {
+		rows := make([]component.Rect, 0)
+		for _, target := range targets {
+			if target.ID == "browser.row" {
+				rows = append(rows, target.Rect)
+			}
+		}
+		t.Fatalf("rendered workspace row at y=%d has no mouse target; row targets=%#v view=%q", rowY, rows, view)
+	}
+	updated, open := page.Update(dispatch())
+	page = updated.(*WorkspacePage)
+	if open == nil {
+		t.Fatal("workspace row click did not open selected row")
+	}
+	_, navigate := page.Update(open())
+	if navigate == nil {
+		t.Fatal("workspace row open did not navigate")
+	}
+	message, ok := navigate().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "workspaces/"+item.ID {
+		t.Fatalf("workspace mouse navigation=%#v", message)
+	}
+}
+
 func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {

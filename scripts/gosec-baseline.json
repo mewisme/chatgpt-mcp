@@ -368,14 +368,6 @@
     "code": "path := filepath.Join(destinationDir, binaryName)\n\tif err := os.WriteFile(path, content, 0755); err != nil {\n\t\treturn \"\", err"
   },
   {
-    "rule_id": "G702",
-    "severity": "HIGH",
-    "confidence": "HIGH",
-    "file": "internal/shell/session.go",
-    "details": "Command injection via taint analysis",
-    "code": "}\n\treturn exec.CommandContext(ctx, shell, \"-c\", command), nil\n}"
-  },
-  {
     "rule_id": "G703",
     "severity": "HIGH",
     "confidence": "HIGH",

@@ -133,9 +133,18 @@ func TestWorkspaceExecutionFeedSSEReplaysAndContinuesAcrossCommands(t *testing.T
 	defer response.Body.Close()
 	scanner := bufio.NewScanner(response.Body)
 	ready := scanEventData(t, scanner, "ready")
-	var snapshot shellruntime.ExecutionFeedSnapshot
-	if err := json.Unmarshal([]byte(ready), &snapshot); err != nil || len(snapshot.Events) != 3 || snapshot.Events[0].ExecutionID != first.ID() || snapshot.Events[1].Data != "before\n" || snapshot.Events[2].Type != shellruntime.ExecutionEventCompleted {
-		t.Fatalf("feed snapshot=%#v err=%v", snapshot, err)
+	var metadata struct {
+		LatestSequence uint64 `json:"latest_sequence"`
+		ReplayCount    int    `json:"replay_count"`
+	}
+	if err := json.Unmarshal([]byte(ready), &metadata); err != nil || metadata.LatestSequence != 3 || metadata.ReplayCount != 3 {
+		t.Fatalf("feed metadata=%#v err=%v", metadata, err)
+	}
+	replayStarted := scanEventData(t, scanner, shellruntime.ExecutionEventStarted)
+	replayOutput := scanEventData(t, scanner, shellruntime.ExecutionEventOutput)
+	replayCompleted := scanEventData(t, scanner, shellruntime.ExecutionEventCompleted)
+	if !strings.Contains(replayStarted, first.ID()) || !strings.Contains(replayOutput, "before") || !strings.Contains(replayCompleted, `"status":"success"`) {
+		t.Fatalf("replay started=%q output=%q completed=%q", replayStarted, replayOutput, replayCompleted)
 	}
 
 	second := hub.Begin(shellruntime.ExecutionInput{WorkspaceID: item.ID, Tool: "run_command", Command: "second", CWD: item.Path, Source: "mcp"})

@@ -32,9 +32,6 @@ type logsExecutionFeed struct {
 	viewport           viewport.Model
 	render             executionFeedRender
 	events             []shellruntime.ExecutionFeedEvent
-	feedBytes          int
-	feedMaxBytes       int
-	configMutationSeq  uint64
 	scopeMode          executionScopeMode
 	workspaceID        string
 	workspaceView      executionWorkspaceView
@@ -97,7 +94,7 @@ func newLogsExecutionFeed() logsExecutionFeed {
 	view := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
 	view.SoftWrap = false
 	view.FillHeight = false
-	return logsExecutionFeed{viewport: view, feedMaxBytes: shellruntime.DefaultExecutionFeedBytes, scopeMode: executionScopeCombined, workspaceView: executionWorkspaceCommands, containerMembers: map[string]struct{}{}}
+	return logsExecutionFeed{viewport: view, scopeMode: executionScopeCombined, workspaceView: executionWorkspaceCommands, containerMembers: map[string]struct{}{}}
 }
 
 func (page *LogsPage) switchLogsTab(tab logsTab) tea.Cmd {
@@ -155,6 +152,7 @@ func (page *LogsPage) finishExecutionFeedOpen(msg logsExecutionOpenMsg) tea.Cmd 
 			page.exec.notice = "Restart the running server to enable command execution streaming"
 			return nil
 		}
+		page.exec.err = msg.err
 		page.exec.connected, page.exec.reconnecting, page.exec.unsupported = false, true, false
 		page.exec.notice = "Runtime offline; reconnecting command execution stream"
 		return page.executionReconnectCmd(msg.generation)
@@ -162,11 +160,7 @@ func (page *LogsPage) finishExecutionFeedOpen(msg logsExecutionOpenMsg) tea.Cmd 
 	page.exec.stream, page.exec.connected, page.exec.reconnecting, page.exec.loaded, page.exec.unsupported = msg.stream, true, false, true, false
 	snapshot := msg.stream.Snapshot()
 	page.exec.latestSeq = snapshot.LatestSequence
-	page.exec.feedMaxBytes = snapshot.MaxBytes
-	if page.exec.feedMaxBytes <= 0 {
-		page.exec.feedMaxBytes = shellruntime.DefaultExecutionFeedBytes
-	}
-	page.exec.events, page.exec.feedBytes = trimExecutionFeed(snapshot.Events, page.exec.feedMaxBytes)
+	page.exec.events = trimExecutionFeed(snapshot.Events)
 	page.syncSelectedProcessRunningFromEvents()
 	page.refreshExecutionScope()
 	page.exec.notice, page.exec.err = "", nil
@@ -253,7 +247,6 @@ func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 		return page.openExecutionScopeEditor()
 	case "c":
 		page.exec.events = nil
-		page.exec.feedBytes = 0
 		page.exec.notice = "Command stream view cleared"
 		page.refreshExecutionViewport()
 		return nil
@@ -323,7 +316,7 @@ func (page *LogsPage) executionStatusView(width int) string {
 	if page.exec.paused {
 		follow = component.ToneText("○ PAUSED", component.ToneWarning)
 	}
-	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("Events", fmt.Sprintf("%d", len(page.visibleExecutionEvents()))) + "   " + component.KeyValue("Buffer", executionBytesLabel(page.exec.feedBytes)+" / "+executionBytesLabel(page.exec.feedMaxBytes))
+	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.visibleExecutionEvents()), shellruntime.MaxExecutionFeedEvents))
 	return component.TwoColumn(left, component.KeyValue("Mode", page.executionScopeLabel()), width)
 }
 
@@ -462,49 +455,15 @@ func (page *LogsPage) appendExecutionFeedEvent(event shellruntime.ExecutionFeedE
 	if page == nil {
 		return
 	}
-	if page.exec.feedMaxBytes <= 0 {
-		page.exec.feedMaxBytes = shellruntime.DefaultExecutionFeedBytes
-	}
 	page.exec.events = append(page.exec.events, event)
-	page.exec.feedBytes += shellruntime.ExecutionFeedEventBytes(event)
-	for len(page.exec.events) > 0 && page.exec.feedBytes > page.exec.feedMaxBytes {
-		page.exec.feedBytes -= shellruntime.ExecutionFeedEventBytes(page.exec.events[0])
-		page.exec.events = page.exec.events[1:]
-	}
+	page.exec.events = trimExecutionFeed(page.exec.events)
 }
 
-func trimExecutionFeed(events []shellruntime.ExecutionFeedEvent, maxBytes int) ([]shellruntime.ExecutionFeedEvent, int) {
-	if maxBytes <= 0 {
-		maxBytes = shellruntime.DefaultExecutionFeedBytes
+func trimExecutionFeed(events []shellruntime.ExecutionFeedEvent) []shellruntime.ExecutionFeedEvent {
+	if len(events) <= shellruntime.MaxExecutionFeedEvents {
+		return events
 	}
-	total, start := 0, len(events)
-	for index := len(events) - 1; index >= 0; index-- {
-		size := shellruntime.ExecutionFeedEventBytes(events[index])
-		if total+size > maxBytes {
-			break
-		}
-		total += size
-		start = index
-	}
-	return append([]shellruntime.ExecutionFeedEvent(nil), events[start:]...), total
-}
-
-func executionBytesLabel(value int) string {
-	if value < 0 {
-		value = 0
-	}
-	switch {
-	case value >= 1_000_000 && value%1_000_000 == 0:
-		return fmt.Sprintf("%d MB", value/1_000_000)
-	case value >= 1_000_000:
-		return fmt.Sprintf("%.1f MB", float64(value)/1_000_000)
-	case value >= 1_000 && value%1_000 == 0:
-		return fmt.Sprintf("%d KB", value/1_000)
-	case value >= 1_000:
-		return fmt.Sprintf("%.1f KB", float64(value)/1_000)
-	default:
-		return fmt.Sprintf("%d B", value)
-	}
+	return append([]shellruntime.ExecutionFeedEvent(nil), events[len(events)-shellruntime.MaxExecutionFeedEvents:]...)
 }
 
 func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int) string {

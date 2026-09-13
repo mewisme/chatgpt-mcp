@@ -80,13 +80,17 @@ func serveWorkspaceExecutionFeed(w http.ResponseWriter, r *http.Request, hub *sh
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if _, err := fmt.Fprintf(w, "event: ready\ndata: {\"latest_sequence\":%d,\"replay_count\":%d}\n\n", snapshot.LatestSequence, len(snapshot.Events)); err != nil {
 		return
 	}
-	if _, err := fmt.Fprintf(w, "event: ready\ndata: %s\n\n", data); err != nil {
-		return
+	for _, event := range snapshot.Events {
+		data, err := json.Marshal(event)
+		if err != nil {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, event.Type, data); err != nil {
+			return
+		}
 	}
 	flusher.Flush()
 	latestSequence := snapshot.LatestSequence

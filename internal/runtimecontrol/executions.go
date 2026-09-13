@@ -23,7 +23,7 @@ var (
 
 type ExecutionFeedStream struct {
 	response *http.Response
-	scanner  *bufio.Scanner
+	reader   *bufio.Reader
 	snapshot shellruntime.ExecutionFeedSnapshot
 }
 
@@ -63,48 +63,47 @@ func OpenExecutionFeed(ctx context.Context) (*ExecutionFeedStream, State, error)
 		}
 		return nil, state, fmt.Errorf("runtime execution stream failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
-	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	snapshot, err := readExecutionFeedReady(scanner)
+	reader := bufio.NewReader(response.Body)
+	snapshot, err := readExecutionFeedReady(reader)
 	if err != nil {
 		_ = response.Body.Close()
 		return nil, state, err
 	}
-	return &ExecutionFeedStream{response: response, scanner: scanner, snapshot: snapshot}, state, nil
+	return &ExecutionFeedStream{response: response, reader: reader, snapshot: snapshot}, state, nil
 }
 
-func readExecutionFeedReady(scanner *bufio.Scanner) (shellruntime.ExecutionFeedSnapshot, error) {
-	eventType := ""
-	var data strings.Builder
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			if eventType == "ready" {
-				var snapshot shellruntime.ExecutionFeedSnapshot
-				if err := json.Unmarshal([]byte(data.String()), &snapshot); err != nil {
-					return shellruntime.ExecutionFeedSnapshot{}, fmt.Errorf("decode execution feed ready frame: %w", err)
-				}
-				return snapshot, nil
-			}
-			eventType = ""
-			data.Reset()
+type executionFeedReady struct {
+	Events         []shellruntime.ExecutionFeedEvent `json:"events,omitempty"`
+	LatestSequence uint64                            `json:"latest_sequence"`
+	ReplayCount    int                               `json:"replay_count,omitempty"`
+}
+
+func readExecutionFeedReady(reader *bufio.Reader) (shellruntime.ExecutionFeedSnapshot, error) {
+	for {
+		eventType, data, err := readExecutionFeedPacket(reader)
+		if err != nil {
+			return shellruntime.ExecutionFeedSnapshot{}, err
+		}
+		if eventType != "ready" {
 			continue
 		}
-		if strings.HasPrefix(line, "event:") {
-			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-			continue
+		var ready executionFeedReady
+		if err := json.Unmarshal([]byte(data), &ready); err != nil {
+			return shellruntime.ExecutionFeedSnapshot{}, fmt.Errorf("decode execution feed ready frame: %w", err)
 		}
-		if strings.HasPrefix(line, "data:") {
-			if data.Len() > 0 {
-				data.WriteByte('\n')
+		snapshot := shellruntime.ExecutionFeedSnapshot{Events: append([]shellruntime.ExecutionFeedEvent(nil), ready.Events...), LatestSequence: ready.LatestSequence}
+		if ready.ReplayCount < 0 {
+			return shellruntime.ExecutionFeedSnapshot{}, fmt.Errorf("invalid execution feed replay count: %d", ready.ReplayCount)
+		}
+		for range ready.ReplayCount {
+			event, err := readExecutionFeedEvent(reader)
+			if err != nil {
+				return shellruntime.ExecutionFeedSnapshot{}, fmt.Errorf("read execution feed replay: %w", err)
 			}
-			data.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+			snapshot.Events = append(snapshot.Events, event)
 		}
+		return snapshot, nil
 	}
-	if err := scanner.Err(); err != nil {
-		return shellruntime.ExecutionFeedSnapshot{}, err
-	}
-	return shellruntime.ExecutionFeedSnapshot{}, io.EOF
 }
 
 func (stream *ExecutionFeedStream) Snapshot() shellruntime.ExecutionFeedSnapshot {
@@ -115,53 +114,69 @@ func (stream *ExecutionFeedStream) Snapshot() shellruntime.ExecutionFeedSnapshot
 }
 
 func (stream *ExecutionFeedStream) Next() (shellruntime.ExecutionFeedEvent, error) {
-	if stream == nil || stream.scanner == nil {
+	if stream == nil || stream.reader == nil {
 		return shellruntime.ExecutionFeedEvent{}, io.EOF
 	}
-	eventType := ""
-	var data strings.Builder
-	flush := func() (shellruntime.ExecutionFeedEvent, bool, error) {
+	return readExecutionFeedEvent(stream.reader)
+}
+
+func readExecutionFeedEvent(reader *bufio.Reader) (shellruntime.ExecutionFeedEvent, error) {
+	for {
+		eventType, data, err := readExecutionFeedPacket(reader)
+		if err != nil {
+			return shellruntime.ExecutionFeedEvent{}, err
+		}
 		if eventType == "overflow" {
-			return shellruntime.ExecutionFeedEvent{}, false, ErrExecutionFeedOverflow
+			return shellruntime.ExecutionFeedEvent{}, ErrExecutionFeedOverflow
 		}
 		if eventType != shellruntime.ExecutionEventStarted && eventType != shellruntime.ExecutionEventOutput && eventType != shellruntime.ExecutionEventCompleted {
-			return shellruntime.ExecutionFeedEvent{}, false, nil
+			continue
 		}
-		if strings.TrimSpace(data.String()) == "" {
-			return shellruntime.ExecutionFeedEvent{}, false, nil
+		if strings.TrimSpace(data) == "" {
+			continue
 		}
 		var event shellruntime.ExecutionFeedEvent
-		if err := json.Unmarshal([]byte(data.String()), &event); err != nil {
-			return shellruntime.ExecutionFeedEvent{}, false, fmt.Errorf("decode execution feed event: %w", err)
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			return shellruntime.ExecutionFeedEvent{}, fmt.Errorf("decode execution feed event: %w", err)
 		}
-		return event, true, nil
+		return event, nil
 	}
-	for stream.scanner.Scan() {
-		line := stream.scanner.Text()
+}
+
+func readExecutionFeedPacket(reader *bufio.Reader) (string, string, error) {
+	eventType := ""
+	var data strings.Builder
+	for {
+		line, err := readExecutionFeedLine(reader)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", "", err
+		}
 		if line == "" {
-			event, ok, err := flush()
-			if err != nil || ok {
-				return event, err
+			if eventType != "" || data.Len() > 0 {
+				return eventType, data.String(), nil
 			}
-			eventType = ""
-			data.Reset()
-			continue
-		}
-		if strings.HasPrefix(line, "event:") {
+		} else if strings.HasPrefix(line, "event:") {
 			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-			continue
-		}
-		if strings.HasPrefix(line, "data:") {
+		} else if strings.HasPrefix(line, "data:") {
 			if data.Len() > 0 {
 				data.WriteByte('\n')
 			}
 			data.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 		}
+		if errors.Is(err, io.EOF) {
+			if eventType != "" || data.Len() > 0 {
+				return eventType, data.String(), nil
+			}
+			return "", "", io.EOF
+		}
 	}
-	if err := stream.scanner.Err(); err != nil {
-		return shellruntime.ExecutionFeedEvent{}, err
-	}
-	return shellruntime.ExecutionFeedEvent{}, io.EOF
+}
+
+func readExecutionFeedLine(reader *bufio.Reader) (string, error) {
+	line, err := reader.ReadString('\n')
+	line = strings.TrimSuffix(line, "\n")
+	line = strings.TrimSuffix(line, "\r")
+	return line, err
 }
 
 func (stream *ExecutionFeedStream) Close() error {

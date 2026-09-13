@@ -29,8 +29,7 @@ type PermissionsConfig struct {
 }
 
 type ShellConfig struct {
-	Path                  []string `json:"path"`
-	ExecutionFeedMaxBytes int      `json:"execution_feed_max_bytes"`
+	Path []string `json:"path"`
 }
 
 type ServerConfig struct {
@@ -71,7 +70,7 @@ type AuthConfig struct {
 type FeaturesConfig = features.Config
 
 func Default() Config {
-	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, MCPLegacyBearer: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}, ExecutionFeedMaxBytes: DefaultExecutionFeedMaxBytes}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, MCPLegacyBearer: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {

@@ -236,8 +236,13 @@ func TestRuntimeControlExecutionFeedReplaysAndStreamsCombinedOutput(t *testing.T
 	defer response.Body.Close()
 	scanner := bufio.NewScanner(response.Body)
 	ready := scanRuntimeControlEventData(t, scanner, "ready")
-	if !strings.Contains(ready, run.ID()) || !strings.Contains(ready, "before") {
+	if !strings.Contains(ready, `"latest_sequence":2`) || !strings.Contains(ready, `"replay_count":2`) {
 		t.Fatalf("ready=%q", ready)
+	}
+	replayStarted := scanRuntimeControlEventData(t, scanner, shellruntime.ExecutionEventStarted)
+	replayOutput := scanRuntimeControlEventData(t, scanner, shellruntime.ExecutionEventOutput)
+	if !strings.Contains(replayStarted, run.ID()) || !strings.Contains(replayOutput, "before") {
+		t.Fatalf("replay started=%q output=%q", replayStarted, replayOutput)
 	}
 	_, _ = run.Writer("stderr").Write([]byte("after\n"))
 	output := scanRuntimeControlEventData(t, scanner, shellruntime.ExecutionEventOutput)

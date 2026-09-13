@@ -14,12 +14,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-const (
-	DefaultExecutionFeedMaxBytes = 10_000_000
-	MinExecutionFeedMaxBytes     = 64_000
-	MaxExecutionFeedMaxBytes     = 100_000_000
-)
-
 func Validate(cfg Config) error {
 	if err := ValidateMCPTransports(cfg); err != nil {
 		return err
@@ -37,9 +31,6 @@ func Validate(cfg Config) error {
 		return err
 	}
 	if _, err := NormalizeShellPath(cfg.Shell.Path); err != nil {
-		return err
-	}
-	if err := ValidateExecutionFeedMaxBytes(cfg.Shell.ExecutionFeedMaxBytes); err != nil {
 		return err
 	}
 	if _, ok := ponytail.NormalizeRuntimeMode(cfg.Features.Ponytail.Mode); !ok {
@@ -90,13 +81,6 @@ func Validate(cfg Config) error {
 	}
 	if err := tunnel.ValidateConfig(cfg.Tunnel); err != nil {
 		return err
-	}
-	return nil
-}
-
-func ValidateExecutionFeedMaxBytes(value int) error {
-	if value < MinExecutionFeedMaxBytes || value > MaxExecutionFeedMaxBytes {
-		return fmt.Errorf("shell execution feed max bytes must be between %d and %d: %d", MinExecutionFeedMaxBytes, MaxExecutionFeedMaxBytes, value)
 	}
 	return nil
 }

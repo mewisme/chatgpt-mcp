@@ -6,13 +6,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
 )
 
 const (
 	maxExecutionLogBytes      = 400_000
-	DefaultExecutionFeedBytes = 10_000_000
+	MaxExecutionFeedEvents    = 2048
+	maxExecutionEventBytes    = 8 << 10
 	maxRecentExecutions       = 100
 	executionSubscriberBuffer = 64
 	executionFeedBuffer       = 128
@@ -82,7 +84,6 @@ type ExecutionFeedEvent struct {
 type ExecutionFeedSnapshot struct {
 	Events         []ExecutionFeedEvent `json:"events"`
 	LatestSequence uint64               `json:"latest_sequence"`
-	MaxBytes       int                  `json:"max_bytes"`
 }
 
 type ExecutionOverflow struct {
@@ -124,8 +125,6 @@ type ExecutionHub struct {
 	maxRecent    int
 	feedMu       sync.Mutex
 	feed         []ExecutionFeedEvent
-	feedBytes    int
-	feedMaxBytes int
 	feedSequence uint64
 	feedSubs     map[*ExecutionFeedSubscription]struct{}
 }
@@ -161,32 +160,7 @@ type ExecutionMetadata struct {
 }
 
 func NewExecutionHub() *ExecutionHub {
-	return &ExecutionHub{executions: map[string]*executionRecord{}, maxRecent: maxRecentExecutions, feedMaxBytes: DefaultExecutionFeedBytes, feedSubs: map[*ExecutionFeedSubscription]struct{}{}}
-}
-
-func (h *ExecutionHub) SetFeedMaxBytes(value int) {
-	if h == nil {
-		return
-	}
-	if value <= 0 {
-		value = DefaultExecutionFeedBytes
-	}
-	h.feedMu.Lock()
-	h.feedMaxBytes = value
-	h.pruneFeedLocked()
-	h.feedMu.Unlock()
-}
-
-func (h *ExecutionHub) FeedMaxBytes() int {
-	if h == nil {
-		return DefaultExecutionFeedBytes
-	}
-	h.feedMu.Lock()
-	defer h.feedMu.Unlock()
-	if h.feedMaxBytes <= 0 {
-		return DefaultExecutionFeedBytes
-	}
-	return h.feedMaxBytes
+	return &ExecutionHub{executions: map[string]*executionRecord{}, maxRecent: maxRecentExecutions, feedSubs: map[*ExecutionFeedSubscription]struct{}{}}
 }
 
 func WithExecutionSource(ctx context.Context, source string) context.Context {
@@ -329,7 +303,7 @@ func (h *ExecutionHub) SubscribeFeed(workspaceID string) (*ExecutionFeedSubscrip
 			events = append(events, cloneExecutionFeedEvent(event))
 		}
 	}
-	snapshot := ExecutionFeedSnapshot{Events: events, LatestSequence: h.feedSequence, MaxBytes: h.feedMaxBytes}
+	snapshot := ExecutionFeedSnapshot{Events: events, LatestSequence: h.feedSequence}
 	h.feedMu.Unlock()
 	return sub, snapshot
 }
@@ -402,14 +376,13 @@ func (w *executionWriter) Write(data []byte) (int, error) {
 	} else {
 		record.stdout = appendExecutionTail(record.stdout, data)
 	}
-	record.sequence++
-	event := ExecutionEvent{
-		Sequence: record.sequence, Type: ExecutionEventOutput, ExecutionID: record.info.ID, Stream: w.stream,
-		Data: strings.ToValidUTF8(string(data), "�"), Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	record.publishLocked(event)
-	if w.run.hub != nil {
-		w.run.hub.publishFeed(ExecutionFeedEvent{Type: ExecutionEventOutput, ExecutionID: record.info.ID, WorkspaceID: record.info.WorkspaceID, Execution: executionInfoPtr(record.info), Stream: event.Stream, Data: event.Data, Timestamp: event.Timestamp})
+	for _, chunk := range splitExecutionOutput(strings.ToValidUTF8(string(data), "�")) {
+		record.sequence++
+		event := ExecutionEvent{Sequence: record.sequence, Type: ExecutionEventOutput, ExecutionID: record.info.ID, Stream: w.stream, Data: chunk, Timestamp: time.Now().UTC().Format(time.RFC3339Nano)}
+		record.publishLocked(event)
+		if w.run.hub != nil {
+			w.run.hub.publishFeed(ExecutionFeedEvent{Type: ExecutionEventOutput, ExecutionID: record.info.ID, WorkspaceID: record.info.WorkspaceID, Execution: executionInfoPtr(record.info), Stream: event.Stream, Data: event.Data, Timestamp: event.Timestamp})
+		}
 	}
 	record.mu.Unlock()
 	return len(data), nil
@@ -487,7 +460,6 @@ func (h *ExecutionHub) publishFeed(event ExecutionFeedEvent) {
 	event.Sequence = h.feedSequence
 	event = cloneExecutionFeedEvent(event)
 	h.feed = append(h.feed, event)
-	h.feedBytes += executionFeedEventBytes(event)
 	h.pruneFeedLocked()
 	for sub := range h.feedSubs {
 		if sub.closed || sub.overflow || (sub.workspaceID != "" && sub.workspaceID != event.WorkspaceID) {
@@ -504,25 +476,30 @@ func (h *ExecutionHub) publishFeed(event ExecutionFeedEvent) {
 }
 
 func (h *ExecutionHub) pruneFeedLocked() {
-	maxBytes := h.feedMaxBytes
-	if maxBytes <= 0 {
-		maxBytes = DefaultExecutionFeedBytes
+	if len(h.feed) <= MaxExecutionFeedEvents {
+		return
 	}
-	for len(h.feed) > 0 && h.feedBytes > maxBytes {
-		h.feedBytes -= executionFeedEventBytes(h.feed[0])
-		h.feed = h.feed[1:]
-	}
+	h.feed = append([]ExecutionFeedEvent(nil), h.feed[len(h.feed)-MaxExecutionFeedEvents:]...)
 }
 
-func executionFeedEventBytes(event ExecutionFeedEvent) int {
-	bytes := len(event.Data) + len(event.ExecutionID) + len(event.WorkspaceID) + len(event.Stream) + len(event.Status) + len(event.Timestamp) + 128
-	if event.Execution != nil {
-		bytes += len(event.Execution.Command) + len(event.Execution.CWD) + len(event.Execution.Source) + len(event.Execution.Tool)
+func splitExecutionOutput(value string) []string {
+	if value == "" {
+		return nil
 	}
-	return bytes
+	chunks := make([]string, 0, (len(value)+maxExecutionEventBytes-1)/maxExecutionEventBytes)
+	for len(value) > maxExecutionEventBytes {
+		end := maxExecutionEventBytes
+		for end > 0 && !utf8.RuneStart(value[end]) {
+			end--
+		}
+		chunks = append(chunks, value[:end])
+		value = value[end:]
+	}
+	if value != "" {
+		chunks = append(chunks, value)
+	}
+	return chunks
 }
-
-func ExecutionFeedEventBytes(event ExecutionFeedEvent) int { return executionFeedEventBytes(event) }
 
 func appendExecutionTail(existing, data []byte) []byte {
 	existing = append(existing, data...)

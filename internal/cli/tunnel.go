@@ -287,7 +287,6 @@ func tunnelRunCommand() *cobra.Command {
 		logCommandStep(cmd, "TUNNEL", "tunnel.tools.initializing", "Initializing MCP tool runtime")
 		runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) { return cfg.Admin.Enabled, cfg.Admin.Port })
 		runtime.SetShellPath(cfg.Shell.Path)
-		runtime.SetExecutionFeedMaxBytes(cfg.Shell.ExecutionFeedMaxBytes)
 		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 		defer runtimeCancel()

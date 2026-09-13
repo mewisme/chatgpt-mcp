@@ -374,25 +374,6 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 	}
 }
 
-func TestExecutionFeedMaxBytesDefaultsAndValidates(t *testing.T) {
-	if DefaultExecutionFeedMaxBytes != 10_000_000 {
-		t.Fatalf("default execution feed constant=%d want=10000000", DefaultExecutionFeedMaxBytes)
-	}
-	if got := Default().Shell.ExecutionFeedMaxBytes; got != DefaultExecutionFeedMaxBytes {
-		t.Fatalf("default execution feed bytes=%d want=%d", got, DefaultExecutionFeedMaxBytes)
-	}
-	for _, value := range []int{MinExecutionFeedMaxBytes, DefaultExecutionFeedMaxBytes, MaxExecutionFeedMaxBytes} {
-		if err := ValidateExecutionFeedMaxBytes(value); err != nil {
-			t.Fatalf("ValidateExecutionFeedMaxBytes(%d): %v", value, err)
-		}
-	}
-	for _, value := range []int{MinExecutionFeedMaxBytes - 1, MaxExecutionFeedMaxBytes + 1} {
-		if err := ValidateExecutionFeedMaxBytes(value); err == nil {
-			t.Fatalf("ValidateExecutionFeedMaxBytes(%d) accepted invalid value", value)
-		}
-	}
-}
-
 func TestDefaultFeaturesActive(t *testing.T) {
 	cfg := Default()
 	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "full" {

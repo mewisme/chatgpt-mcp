@@ -63,7 +63,7 @@ export async function streamWorkspaceExecutions(workspaceID: string, signal: Abo
   }
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
-  let buffer = ""
+  let buffer = "", replayRemaining = 0, replayEvents: ExecutionFeedEvent[] = [], replayLatestSequence = 0
   while (true) {
     const { value, done } = await reader.read()
     if (done) {
@@ -75,15 +75,26 @@ export async function streamWorkspaceExecutions(workspaceID: string, signal: Abo
     while (boundary >= 0) {
       const packet = buffer.slice(0, boundary)
       buffer = buffer.slice(boundary + 2)
-      let eventType = "message"
-      let data = ""
+      let eventType = "message", data = ""
       for (const line of packet.split("\n")) {
         if (line.startsWith("event: ")) eventType = line.slice(7).trim()
         if (line.startsWith("data: ")) data += line.slice(6)
       }
       if (eventType === "overflow") throw new Error("Execution feed overflowed; reconnecting from bounded replay.")
-      if (eventType === "ready" && data) handlers.onSnapshot?.(JSON.parse(data) as ExecutionFeedSnapshot)
-      else if ((eventType === "started" || eventType === "output" || eventType === "completed") && data) handlers.onEvent?.(JSON.parse(data) as ExecutionFeedEvent)
+      if (eventType === "ready" && data) {
+        const ready = JSON.parse(data) as ExecutionFeedSnapshot & { replay_count?: number }
+        replayEvents = [...(ready.events ?? [])]
+        replayLatestSequence = ready.latest_sequence
+        replayRemaining = Math.max(0, ready.replay_count ?? 0)
+        if (replayRemaining === 0) handlers.onSnapshot?.({ events: replayEvents, latest_sequence: replayLatestSequence })
+      } else if ((eventType === "started" || eventType === "output" || eventType === "completed") && data) {
+        const event = JSON.parse(data) as ExecutionFeedEvent
+        if (replayRemaining > 0) {
+          replayEvents.push(event)
+          replayRemaining--
+          if (replayRemaining === 0) handlers.onSnapshot?.({ events: replayEvents, latest_sequence: replayLatestSequence })
+        } else handlers.onEvent?.(event)
+      }
       boundary = buffer.indexOf("\n\n")
     }
   }

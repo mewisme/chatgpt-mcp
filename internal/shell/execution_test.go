@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -57,42 +58,48 @@ func TestExecutionHubSnapshotsAndStreamsOutput(t *testing.T) {
 	}
 }
 
-func TestExecutionHubFeedLimitIsConfigurableAndPrunesImmediately(t *testing.T) {
-	if DefaultExecutionFeedBytes != 10_000_000 {
-		t.Fatalf("default feed constant=%d want=10000000", DefaultExecutionFeedBytes)
-	}
+func TestExecutionHubFeedRetainsLatestEvents(t *testing.T) {
 	hub := NewExecutionHub()
-	if got := hub.FeedMaxBytes(); got != DefaultExecutionFeedBytes {
-		t.Fatalf("default feed max bytes=%d want=%d", got, DefaultExecutionFeedBytes)
-	}
-	hub.SetFeedMaxBytes(600)
-	for range 4 {
-		hub.publishFeed(ExecutionFeedEvent{ExecutionID: "exec_limit", WorkspaceID: "ws_limit", Type: ExecutionEventOutput, Data: strings.Repeat("x", 120)})
+	for i := 0; i < MaxExecutionFeedEvents+17; i++ {
+		hub.publishFeed(ExecutionFeedEvent{ExecutionID: "exec_limit", WorkspaceID: "ws_limit", Type: ExecutionEventOutput, Data: "x"})
 	}
 	sub, snapshot := hub.SubscribeFeed("")
 	defer hub.UnsubscribeFeed(sub)
-	if snapshot.MaxBytes != 600 || len(snapshot.Events) == 0 {
-		t.Fatalf("snapshot max=%d events=%d", snapshot.MaxBytes, len(snapshot.Events))
+	if len(snapshot.Events) != MaxExecutionFeedEvents {
+		t.Fatalf("events=%d want=%d", len(snapshot.Events), MaxExecutionFeedEvents)
 	}
-	total := 0
+	if snapshot.Events[0].Sequence != 18 || snapshot.Events[len(snapshot.Events)-1].Sequence != uint64(MaxExecutionFeedEvents+17) {
+		t.Fatalf("sequence range=%d..%d", snapshot.Events[0].Sequence, snapshot.Events[len(snapshot.Events)-1].Sequence)
+	}
+}
+
+func TestExecutionWriterChunksLargeUTF8Output(t *testing.T) {
+	hub := NewExecutionHub()
+	run := hub.Begin(ExecutionInput{WorkspaceID: "ws_chunk", Tool: "run_command"})
+	data := strings.Repeat("x", maxExecutionEventBytes-1) + "你" + strings.Repeat("y", maxExecutionEventBytes)
+	if _, err := run.Writer("stdout").Write([]byte(data)); err != nil {
+		t.Fatal(err)
+	}
+	sub, snapshot := hub.SubscribeFeed("ws_chunk")
+	defer hub.UnsubscribeFeed(sub)
+	outputs := make([]ExecutionFeedEvent, 0, 3)
 	for _, event := range snapshot.Events {
-		total += ExecutionFeedEventBytes(event)
+		if event.Type == ExecutionEventOutput {
+			outputs = append(outputs, event)
+		}
 	}
-	if total > snapshot.MaxBytes {
-		t.Fatalf("snapshot bytes=%d max=%d", total, snapshot.MaxBytes)
+	if len(outputs) != 3 {
+		t.Fatalf("output chunks=%d", len(outputs))
 	}
-	hub.SetFeedMaxBytes(300)
-	sub2, pruned := hub.SubscribeFeed("")
-	defer hub.UnsubscribeFeed(sub2)
-	if pruned.MaxBytes != 300 {
-		t.Fatalf("pruned max=%d", pruned.MaxBytes)
+	var joined strings.Builder
+	for _, event := range outputs {
+		if len(event.Data) > maxExecutionEventBytes || !utf8.ValidString(event.Data) {
+			t.Fatalf("invalid chunk bytes=%d valid=%t", len(event.Data), utf8.ValidString(event.Data))
+		}
+		joined.WriteString(event.Data)
 	}
-	total = 0
-	for _, event := range pruned.Events {
-		total += ExecutionFeedEventBytes(event)
-	}
-	if total > pruned.MaxBytes {
-		t.Fatalf("pruned bytes=%d max=%d", total, pruned.MaxBytes)
+	if joined.String() != data {
+		t.Fatal("chunked output changed content")
 	}
 }
 

@@ -3,16 +3,12 @@ package page
 import (
 	"context"
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
-	"go.mewis.me/chatgpt-mcp/internal/application"
-	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -34,51 +30,16 @@ const (
 	executionWorkspaceProcess  executionWorkspaceView = "process"
 )
 
-type executionSetting string
-
-const (
-	executionSettingMode   executionSetting = "mode"
-	executionSettingBuffer executionSetting = "buffer"
-)
-
 type executionScopeFormData struct {
-	Setting       string
-	Mode          string
-	WorkspaceID   string
-	ContainerID   string
-	View          string
-	ProcessID     string
-	Processes     map[string][]shellruntime.ProcessInfo
-	BufferPreset  string
-	BufferCustom  string
-	BufferCurrent int
-}
-
-const executionFeedCustomPreset = "custom"
-
-var executionFeedSizePresets = []struct {
-	Label string
-	Bytes int
-}{
-	{Label: "1 MB", Bytes: 1_000_000},
-	{Label: "2 MB", Bytes: 2_000_000},
-	{Label: "5 MB", Bytes: 5_000_000},
-	{Label: "10 MB (default)", Bytes: 10_000_000},
-	{Label: "25 MB", Bytes: 25_000_000},
-	{Label: "50 MB", Bytes: 50_000_000},
-}
-
-type logsExecutionConfigMsg struct {
-	operation uint64
-	bytes     int
-	err       error
+	Mode        string
+	WorkspaceID string
+	ContainerID string
+	View        string
+	ProcessID   string
+	Processes   map[string][]shellruntime.ProcessInfo
 }
 
 func newExecutionScopeEditor(ctx context.Context, feed logsExecutionFeed) (component.Editor, *executionScopeFormData, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return component.Editor{}, nil, err
-	}
 	manager := workspace.NewManager(workspace.DefaultStorePath())
 	workspaces, err := manager.List()
 	if err != nil {
@@ -88,18 +49,7 @@ func newExecutionScopeEditor(ctx context.Context, feed logsExecutionFeed) (compo
 	if err != nil {
 		return component.Editor{}, nil, err
 	}
-	bufferBytes := cfg.Shell.ExecutionFeedMaxBytes
-	if bufferBytes <= 0 {
-		bufferBytes = config.DefaultExecutionFeedMaxBytes
-	}
-	bufferPreset := executionFeedCustomPreset
-	for _, preset := range executionFeedSizePresets {
-		if preset.Bytes == bufferBytes {
-			bufferPreset = strconv.Itoa(preset.Bytes)
-			break
-		}
-	}
-	data := &executionScopeFormData{Setting: string(executionSettingMode), Mode: string(normalizeExecutionScopeMode(feed.scopeMode)), WorkspaceID: feed.workspaceID, ContainerID: feed.containerID, View: string(normalizeExecutionWorkspaceView(feed.workspaceView)), ProcessID: feed.processID, Processes: map[string][]shellruntime.ProcessInfo{}, BufferPreset: bufferPreset, BufferCustom: strconv.Itoa(bufferBytes), BufferCurrent: bufferBytes}
+	data := &executionScopeFormData{Mode: string(normalizeExecutionScopeMode(feed.scopeMode)), WorkspaceID: feed.workspaceID, ContainerID: feed.containerID, View: string(normalizeExecutionWorkspaceView(feed.workspaceView)), ProcessID: feed.processID, Processes: map[string][]shellruntime.ProcessInfo{}}
 	workspaceOptions := make([]huh.Option[string], 0, len(workspaces))
 	for _, item := range workspaces {
 		workspaceOptions = append(workspaceOptions, huh.NewOption(item.Path+" · "+item.ID, item.ID))
@@ -117,108 +67,32 @@ func newExecutionScopeEditor(ctx context.Context, feed logsExecutionFeed) (compo
 	if len(containerOptions) == 0 {
 		containerOptions = append(containerOptions, huh.NewOption("No workspace containers", ""))
 	}
-	bufferOptions := make([]huh.Option[string], 0, len(executionFeedSizePresets)+1)
-	for _, preset := range executionFeedSizePresets {
-		bufferOptions = append(bufferOptions, huh.NewOption(preset.Label, strconv.Itoa(preset.Bytes)))
-	}
-	bufferOptions = append(bufferOptions, huh.NewOption("Custom", executionFeedCustomPreset))
 	form := component.NewEditorForm(
-		component.Group(component.Select("Setting", &data.Setting,
-			huh.NewOption("Mode", string(executionSettingMode)),
-			huh.NewOption("Buffer", string(executionSettingBuffer)),
-		)),
 		component.Group(component.Select("Mode", &data.Mode,
 			huh.NewOption("Combined", string(executionScopeCombined)),
 			huh.NewOption("Workspace", string(executionScopeWorkspace)),
 			huh.NewOption("Container", string(executionScopeContainer)),
-		)).WithHideFunc(func() bool { return data.Setting != string(executionSettingMode) }),
+		)),
 		component.Group(component.Select("Workspace", &data.WorkspaceID, workspaceOptions...)).WithHideFunc(func() bool {
-			return data.Setting != string(executionSettingMode) || data.Mode != string(executionScopeWorkspace)
+			return data.Mode != string(executionScopeWorkspace)
 		}),
 		component.Group(component.Select("View", &data.View,
 			huh.NewOption("Run commands", string(executionWorkspaceCommands)),
 			huh.NewOption("View process", string(executionWorkspaceProcess)),
 		)).WithHideFunc(func() bool {
-			return data.Setting != string(executionSettingMode) || data.Mode != string(executionScopeWorkspace)
+			return data.Mode != string(executionScopeWorkspace)
 		}),
 		component.Group(huh.NewSelect[string]().Title("Process").Value(&data.ProcessID).OptionsFunc(func() []huh.Option[string] {
 			return executionProcessOptions(data.Processes[data.WorkspaceID])
 		}, &data.WorkspaceID)).WithHideFunc(func() bool {
-			return data.Setting != string(executionSettingMode) || data.Mode != string(executionScopeWorkspace) || data.View != string(executionWorkspaceProcess)
+			return data.Mode != string(executionScopeWorkspace) || data.View != string(executionWorkspaceProcess)
 		}),
 		component.Group(component.Select("Container", &data.ContainerID, containerOptions...)).WithHideFunc(func() bool {
-			return data.Setting != string(executionSettingMode) || data.Mode != string(executionScopeContainer)
-		}),
-		component.Group(component.Select("Event buffer", &data.BufferPreset, bufferOptions...)).WithHideFunc(func() bool { return data.Setting != string(executionSettingBuffer) }),
-		component.Group(component.Input("Custom event buffer", &data.BufferCustom).Description("64 KB-100 MB; examples: 512 KB, 5 MB, 1.5 MiB").Validate(func(value string) error {
-			_, err := parseExecutionFeedSize(value)
-			return err
-		})).WithHideFunc(func() bool {
-			return data.Setting != string(executionSettingBuffer) || data.BufferPreset != executionFeedCustomPreset
+			return data.Mode != string(executionScopeContainer)
 		}),
 	)
-	editor := component.NewEditor("apply", component.EditorSection{ID: "scope", Title: "Command Execution", Description: "Choose whether to configure the output mode or retained event buffer.", Form: form}).WithSubmitMode(component.EditorSubmitOnComplete)
+	editor := component.NewEditor("apply", component.EditorSection{ID: "scope", Title: "Command Execution", Description: "Choose the command execution scope and workspace view.", Form: form}).WithSubmitMode(component.EditorSubmitOnComplete)
 	return editor, data, nil
-}
-
-func parseExecutionFeedSize(raw string) (int, error) {
-	value := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(raw), " ", ""))
-	if value == "" {
-		return 0, fmt.Errorf("event buffer is required")
-	}
-	multiplier := float64(1)
-	number := value
-	matched := false
-	for _, unit := range []struct {
-		Suffix     string
-		Multiplier float64
-	}{
-		{Suffix: "MIB", Multiplier: 1024 * 1024},
-		{Suffix: "KIB", Multiplier: 1024},
-		{Suffix: "MB", Multiplier: 1_000_000},
-		{Suffix: "KB", Multiplier: 1_000},
-		{Suffix: "B", Multiplier: 1},
-	} {
-		if strings.HasSuffix(value, unit.Suffix) {
-			number = strings.TrimSuffix(value, unit.Suffix)
-			multiplier = unit.Multiplier
-			matched = true
-			break
-		}
-	}
-	if !matched && strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
-		return 0, fmt.Errorf("use bytes or B, KB, MB, KiB, MiB")
-	}
-	parsed, err := strconv.ParseFloat(number, 64)
-	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed <= 0 {
-		return 0, fmt.Errorf("invalid event buffer size")
-	}
-	bytesValue := parsed * multiplier
-	if math.IsInf(bytesValue, 0) || bytesValue < float64(config.MinExecutionFeedMaxBytes) || bytesValue > float64(config.MaxExecutionFeedMaxBytes) {
-		return 0, fmt.Errorf("event buffer must be between 64 KB and 100 MB")
-	}
-	result := int(math.Round(bytesValue))
-	if err := config.ValidateExecutionFeedMaxBytes(result); err != nil {
-		return 0, fmt.Errorf("event buffer must be between 64 KB and 100 MB")
-	}
-	return result, nil
-}
-
-func (data *executionScopeFormData) executionFeedMaxBytes() (int, error) {
-	if data == nil {
-		return 0, fmt.Errorf("event buffer is unavailable")
-	}
-	if data.BufferPreset == executionFeedCustomPreset {
-		return parseExecutionFeedSize(data.BufferCustom)
-	}
-	value, err := strconv.Atoi(data.BufferPreset)
-	if err != nil {
-		return 0, fmt.Errorf("invalid event buffer preset")
-	}
-	if err := config.ValidateExecutionFeedMaxBytes(value); err != nil {
-		return 0, fmt.Errorf("invalid event buffer preset")
-	}
-	return value, nil
 }
 
 func normalizeExecutionWorkspaceView(view executionWorkspaceView) executionWorkspaceView {
@@ -302,31 +176,6 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 	if page == nil || page.exec.scopeEditor == nil || page.exec.scopeForm == nil {
 		return nil
 	}
-	setting := executionSetting(strings.TrimSpace(page.exec.scopeForm.Setting))
-	if setting != executionSettingMode && setting != executionSettingBuffer {
-		page.exec.scopeEditor.SetFeedback("", fmt.Errorf("setting must be mode or buffer"))
-		return nil
-	}
-	if setting == executionSettingBuffer {
-		bufferBytes, err := page.exec.scopeForm.executionFeedMaxBytes()
-		if err != nil {
-			page.exec.scopeEditor.SetFeedback("", err)
-			return nil
-		}
-		if bufferBytes != page.exec.scopeForm.BufferCurrent {
-			page.exec.configMutationSeq++
-			operation := page.exec.configMutationSeq
-			ctx := page.ctx
-			page.exec.scopeEditor.SetSubmitting(true)
-			return func() tea.Msg {
-				_, err := application.SetConfigField(ctx, "shell.execution_feed_max_bytes", strconv.Itoa(bufferBytes))
-				return logsExecutionConfigMsg{operation: operation, bytes: bufferBytes, err: err}
-			}
-		}
-		page.exec.err = nil
-		page.refreshExecutionViewport()
-		return page.leaveExecutionScopeEditor()
-	}
 	mode := normalizeExecutionScopeMode(executionScopeMode(strings.TrimSpace(page.exec.scopeForm.Mode)))
 	manager := workspace.NewManager(workspace.DefaultStorePath())
 	workspaceID, containerID := strings.TrimSpace(page.exec.scopeForm.WorkspaceID), strings.TrimSpace(page.exec.scopeForm.ContainerID)
@@ -398,32 +247,6 @@ func (page *LogsPage) submitExecutionScopeEditor() tea.Cmd {
 		return page.leaveExecutionScopeEditor(cleanupFinishedProcessCmd(page.ctx, oldWorkspaceID, oldProcessID, oldProcessExecutionID, oldProcessRunning))
 	}
 	return page.leaveExecutionScopeEditor()
-}
-
-func (page *LogsPage) finishExecutionConfig(msg logsExecutionConfigMsg) tea.Cmd {
-	if page == nil || msg.operation != page.exec.configMutationSeq {
-		return nil
-	}
-	if msg.err != nil {
-		if page.exec.scopeEditor != nil {
-			page.exec.scopeEditor.SetSubmitting(false)
-			page.exec.scopeEditor.SetFeedback("", msg.err)
-		} else {
-			page.exec.err = msg.err
-		}
-		return nil
-	}
-	page.exec.feedMaxBytes = msg.bytes
-	page.exec.events, page.exec.feedBytes = trimExecutionFeed(page.exec.events, msg.bytes)
-	page.exec.notice = "Command execution event buffer updated · " + executionBytesLabel(msg.bytes)
-	if page.exec.scopeEditor == nil || page.exec.scopeForm == nil {
-		page.refreshExecutionViewport()
-		return nil
-	}
-	page.exec.scopeEditor.SetSubmitting(false)
-	page.exec.scopeForm.BufferCurrent = msg.bytes
-	cmd := page.submitExecutionScopeEditor()
-	return cmd
 }
 
 var deleteFinishedProcess = runtimecontrol.DeleteFinishedProcess

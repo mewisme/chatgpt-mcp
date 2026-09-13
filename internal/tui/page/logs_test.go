@@ -3,6 +3,7 @@ package page
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -797,6 +798,21 @@ func TestLogsCommandExecutionUnsupportedRuntimeStopsReconnectLoop(t *testing.T) 
 	}
 }
 
+func TestLogsCommandExecutionReconnectPreservesOpenError(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.exec.generation = 9
+	page.exec.loading = true
+	want := errors.New("execution stream failed")
+	cmd := page.finishExecutionFeedOpen(logsExecutionOpenMsg{generation: 9, err: want})
+	if cmd == nil || !page.exec.reconnecting || !errors.Is(page.exec.err, want) {
+		t.Fatalf("cmd=%v reconnecting=%t err=%v", cmd, page.exec.reconnecting, page.exec.err)
+	}
+	if !strings.Contains(ansi.Strip(page.executionHeaderView(100)), want.Error()) {
+		t.Fatalf("header=%q", ansi.Strip(page.executionHeaderView(100)))
+	}
+}
+
 func TestLogsCommandExecutionEmptyViewPinsHelpToBottom(t *testing.T) {
 	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()
@@ -813,7 +829,7 @@ func TestLogsCommandExecutionEmptyViewPinsHelpToBottom(t *testing.T) {
 	status := -1
 	waiting := -1
 	for index, line := range lines {
-		if status < 0 && strings.Contains(line, "Stream") && strings.Contains(line, "Follow") && strings.Contains(line, "Events") && strings.Contains(line, "Buffer") && strings.Contains(line, "Mode") {
+		if status < 0 && strings.Contains(line, "Stream") && strings.Contains(line, "Follow") && strings.Contains(line, "Events") && strings.Contains(line, "2048") && strings.Contains(line, "Mode") {
 			status = index
 		}
 		if strings.Contains(line, "Waiting for command output") {
@@ -894,38 +910,14 @@ func TestCommandExecutionStickyHeaderTracksTopSegment(t *testing.T) {
 	}
 }
 
-func TestParseExecutionFeedSizeSupportsPresetsAndHumanReadableValues(t *testing.T) {
-	for _, test := range []struct {
-		raw  string
-		want int
-	}{
-		{raw: "64000", want: 64_000},
-		{raw: "512 KB", want: 512_000},
-		{raw: "2 MB", want: 2_000_000},
-		{raw: "1.5 MiB", want: 1_572_864},
-	} {
-		got, err := parseExecutionFeedSize(test.raw)
-		if err != nil || got != test.want {
-			t.Fatalf("parseExecutionFeedSize(%q)=%d,%v want=%d", test.raw, got, err, test.want)
-		}
+func TestTrimExecutionFeedRetainsLatestEvents(t *testing.T) {
+	events := make([]shellruntime.ExecutionFeedEvent, shellruntime.MaxExecutionFeedEvents+3)
+	for index := range events {
+		events[index].Sequence = uint64(index + 1)
 	}
-	for _, raw := range []string{"", "63 KB", "101 MB", "2 GB", "invalid"} {
-		if _, err := parseExecutionFeedSize(raw); err == nil {
-			t.Fatalf("parseExecutionFeedSize(%q) accepted invalid value", raw)
-		}
-	}
-}
-
-func TestTrimExecutionFeedUsesByteBudget(t *testing.T) {
-	events := []shellruntime.ExecutionFeedEvent{
-		{Sequence: 1, ExecutionID: "a", Data: strings.Repeat("a", 120)},
-		{Sequence: 2, ExecutionID: "b", Data: strings.Repeat("b", 120)},
-		{Sequence: 3, ExecutionID: "c", Data: strings.Repeat("c", 120)},
-	}
-	lastSize := shellruntime.ExecutionFeedEventBytes(events[2])
-	kept, total := trimExecutionFeed(events, lastSize+10)
-	if len(kept) != 1 || kept[0].Sequence != 3 || total != lastSize {
-		t.Fatalf("kept=%#v total=%d last=%d", kept, total, lastSize)
+	kept := trimExecutionFeed(events)
+	if len(kept) != shellruntime.MaxExecutionFeedEvents || kept[0].Sequence != 4 || kept[len(kept)-1].Sequence != uint64(shellruntime.MaxExecutionFeedEvents+3) {
+		t.Fatalf("kept=%d range=%d..%d", len(kept), kept[0].Sequence, kept[len(kept)-1].Sequence)
 	}
 }
 
@@ -1342,41 +1334,6 @@ func TestExecutionScopeEditorAppliesWithoutReconnectingGlobalFeed(t *testing.T) 
 	}
 }
 
-func TestExecutionSettingsPersistEventBufferPreset(t *testing.T) {
-	setupLogsPageRoot(t)
-	if _, err := application.Initialize(application.InitOptions{Context: t.Context()}); err != nil {
-		t.Fatal(err)
-	}
-	page, _ := NewCommandExecutionLogs(t.Context())
-	defer page.Close()
-	if cmd := page.openExecutionScopeEditor(); cmd == nil || page.exec.scopeEditor == nil || page.exec.scopeForm == nil {
-		t.Fatalf("settings editor missing: cmd=%v editor=%v form=%v", cmd, page.exec.scopeEditor != nil, page.exec.scopeForm != nil)
-	}
-	page.exec.scopeForm.Setting = string(executionSettingBuffer)
-	page.exec.scopeForm.BufferPreset = "5000000"
-	cmd := page.submitExecutionScopeEditor()
-	if cmd == nil || page.exec.scopeEditor == nil {
-		t.Fatalf("buffer mutation did not stay pending: cmd=%v editor=%v", cmd, page.exec.scopeEditor != nil)
-	}
-	msg, ok := cmd().(logsExecutionConfigMsg)
-	if !ok || msg.err != nil || msg.bytes != 5_000_000 {
-		t.Fatalf("buffer mutation result=%#v err=%v", msg, msg.err)
-	}
-	updated, followup := page.Update(msg)
-	page = updated.(*LogsPage)
-	if followup == nil || page.exec.scopeEditor != nil || page.exec.feedMaxBytes != 5_000_000 || !strings.Contains(page.exec.notice, "5 MB") {
-		t.Fatalf("buffer apply editor=%v max=%d notice=%q followup=%v", page.exec.scopeEditor != nil, page.exec.feedMaxBytes, page.exec.notice, followup)
-	}
-	runLogsPageCmd(t, page, followup)
-	cfg, err := application.LoadConfig(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Shell.ExecutionFeedMaxBytes != 5_000_000 {
-		t.Fatalf("persisted execution buffer=%d", cfg.Shell.ExecutionFeedMaxBytes)
-	}
-}
-
 func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 	setupLogsPageRoot(t)
 	manager := workspace.NewManager(workspace.DefaultStorePath())
@@ -1407,8 +1364,8 @@ func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 			defer page.Close()
 			page.exec.generation = 11
 			page = runLogsPageCmd(t, page, page.openExecutionScopeEditor())
-			updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-			page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
+			var updated Model
+			var cmd tea.Cmd
 			for range test.down {
 				updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 				page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
@@ -1435,29 +1392,18 @@ func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 	}
 }
 
-func TestExecutionSettingsStartsWithModeOrBufferChoice(t *testing.T) {
+func TestExecutionSettingsStartsWithMode(t *testing.T) {
 	setupLogsPageRoot(t)
 	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()
 	page.width, page.height = 100, 30
 	page = runLogsPageCmd(t, page, page.openExecutionScopeEditor())
-	if page.exec.scopeForm == nil || page.exec.scopeForm.Setting != string(executionSettingMode) {
-		t.Fatalf("initial setting=%#v", page.exec.scopeForm)
+	if page.exec.scopeForm == nil || page.exec.scopeForm.Mode != string(executionScopeCombined) {
+		t.Fatalf("initial scope=%#v", page.exec.scopeForm)
 	}
-	initial := ansi.Strip(page.executionScopeEditorView(page.width, page.height))
-	if !strings.Contains(initial, "Setting") || !strings.Contains(initial, "Mode") || !strings.Contains(initial, "Buffer") || strings.Contains(initial, "Event buffer") {
-		t.Fatalf("initial settings view=%q", initial)
-	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
-	updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
-	if page.exec.scopeForm == nil || page.exec.scopeForm.Setting != string(executionSettingBuffer) {
-		t.Fatalf("selected setting=%#v", page.exec.scopeForm)
-	}
-	bufferView := ansi.Strip(page.executionScopeEditorView(page.width, page.height))
-	if !strings.Contains(bufferView, "Event buffer") || strings.Contains(bufferView, "Workspace") || strings.Contains(bufferView, "Container") {
-		t.Fatalf("buffer settings view=%q", bufferView)
+	plain := ansi.Strip(page.executionScopeEditorView(page.width, page.height))
+	if !strings.Contains(plain, "Mode") || strings.Contains(plain, "Event buffer") || strings.Contains(plain, "Buffer") || strings.Contains(plain, "Setting") {
+		t.Fatalf("settings view=%q", plain)
 	}
 }
 
@@ -1473,10 +1419,8 @@ func TestCommandExecutionSettingsRouteHasNoLocalPageTitle(t *testing.T) {
 	if strings.Contains(plain, "Command Execution Settings") {
 		t.Fatalf("settings retained redundant page title: %q", plain)
 	}
-	for _, want := range []string{"Setting", "Mode", "Buffer"} {
-		if !strings.Contains(plain, want) {
-			t.Fatalf("settings route missing %q: %q", want, plain)
-		}
+	if !strings.Contains(plain, "Mode") || strings.Contains(plain, "Buffer") || strings.Contains(plain, "Event buffer") || strings.Contains(plain, "Setting") {
+		t.Fatalf("settings route content=%q", plain)
 	}
 }
 

@@ -40,6 +40,49 @@ func TestExecutionFeedStreamReplaysCombinedEventsAndContinues(t *testing.T) {
 	}
 }
 
+func TestExecutionFeedStreamReplaysFramedEvents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "event: ready\ndata: {\"latest_sequence\":1,\"replay_count\":1}\n\nid: 1\nevent: started\ndata: {\"sequence\":1,\"type\":\"started\",\"execution_id\":\"exec_replay\"}\n\nid: 2\nevent: output\ndata: {\"sequence\":2,\"type\":\"output\",\"execution_id\":\"exec_replay\",\"data\":\"live\"}\n\n")
+	}))
+	defer server.Close()
+	root := setupRuntimeControlRoot(t)
+	writeRuntimeControlState(t, root, server.URL, "runtime-secret")
+	stream, _, err := OpenExecutionFeed(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	snapshot := stream.Snapshot()
+	if snapshot.LatestSequence != 1 || len(snapshot.Events) != 1 || snapshot.Events[0].ExecutionID != "exec_replay" {
+		t.Fatalf("snapshot=%#v", snapshot)
+	}
+	event, err := stream.Next()
+	if err != nil || event.Sequence != 2 || event.Data != "live" {
+		t.Fatalf("event=%#v err=%v", event, err)
+	}
+}
+
+func TestExecutionFeedStreamAcceptsLargeReplayFrame(t *testing.T) {
+	data := strings.Repeat("x", 5*1024*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "event: ready\ndata: {\"latest_sequence\":1,\"replay_count\":1}\n\nid: 1\nevent: output\ndata: {\"sequence\":1,\"type\":\"output\",\"execution_id\":\"exec_large\",\"data\":%q}\n\n", data)
+	}))
+	defer server.Close()
+	root := setupRuntimeControlRoot(t)
+	writeRuntimeControlState(t, root, server.URL, "runtime-secret")
+	stream, _, err := OpenExecutionFeed(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	snapshot := stream.Snapshot()
+	if len(snapshot.Events) != 1 || snapshot.Events[0].Data != data {
+		t.Fatalf("large snapshot events=%d data_bytes=%d", len(snapshot.Events), len(snapshot.Events[0].Data))
+	}
+}
+
 func TestExecutionFeedStreamReportsUnsupportedRunningServer(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())
 	defer server.Close()

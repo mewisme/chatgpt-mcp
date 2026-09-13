@@ -85,7 +85,8 @@ function executionFeedStream() {
     { sequence: 3, type: "completed", execution_id: "exec_1", workspace_id: "ws_test", execution: first, status: "success", exit_code: 0, timestamp: first.started_at },
   ], latest_sequence: 3 }
   const packets = [
-    `event: ready\ndata: ${JSON.stringify(snapshot)}\n\n`,
+    `event: ready\ndata: ${JSON.stringify({ latest_sequence: snapshot.latest_sequence, replay_count: snapshot.events.length })}\n\n`,
+    ...snapshot.events.map((event) => `id: ${event.sequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`),
     `id: 4\nevent: started\ndata: ${JSON.stringify({ sequence: 4, type: "started", execution_id: "exec_2", workspace_id: "ws_test", execution: second, status: "running", timestamp: second.started_at })}\n\n`,
     `id: 5\nevent: output\ndata: ${JSON.stringify({ sequence: 5, type: "output", execution_id: "exec_2", workspace_id: "ws_test", execution: second, stream: "stderr", data: "two\n", timestamp: second.started_at })}\n\n`,
   ]

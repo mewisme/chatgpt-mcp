@@ -484,7 +484,7 @@ func formatExecutionSegment(start, end shellruntime.ExecutionFeedEvent, body str
 	if first && start.Execution != nil && strings.TrimSpace(start.Execution.Command) != "" {
 		content = append(content, "$ "+ansi.Strip(start.Execution.Command))
 	}
-	if clean := strings.TrimSuffix(ansi.Strip(body), "\n"); clean != "" {
+	if clean := strings.TrimSuffix(normalizeExecutionOutput(ansi.Strip(body)), "\n"); clean != "" {
 		content = append(content, strings.Split(clean, "\n")...)
 	}
 	if len(content) == 0 {
@@ -499,6 +499,11 @@ func formatExecutionSegment(start, end shellruntime.ExecutionFeedEvent, body str
 		footerKind = "PAUSE"
 	}
 	return executionSegmentFrame(headerKind, footerKind, start, end, headerFields, content, footerFields, width)
+}
+
+func normalizeExecutionOutput(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	return strings.ReplaceAll(value, "\r", "\n")
 }
 
 func executionHeaderFields(event shellruntime.ExecutionFeedEvent, first bool) []executionFrameField {

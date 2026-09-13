@@ -949,6 +949,28 @@ func TestExecutionFrameTabsDoNotBreakRightBorder(t *testing.T) {
 	}
 }
 
+func TestExecutionFrameWindowsNewlinesDoNotBreakRightBorder(t *testing.T) {
+	started := time.Now().UTC()
+	info := shellruntime.ExecutionInfo{ID: "exec_crlf", WorkspaceID: "ws_crlf", Command: "node -e test", StartedAt: started.Format(time.RFC3339Nano)}
+	view := formatExecutionFeed([]shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Data: "node:internal/modules/cjs/loader:1520\r\n    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1095:10)\r\nnext\rprogress\r\n", Timestamp: started.Add(time.Second).Format(time.RFC3339Nano)},
+	}, 84)
+	if strings.Contains(view, "\r") {
+		t.Fatalf("raw carriage return remained in frame: %q", view)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(view, "\n"), "\n") {
+		if got := lipgloss.Width(line); got != 84 {
+			t.Fatalf("frame line width=%d want 84: %q", got, line)
+		}
+	}
+	for _, want := range []string{"node:internal/modules/cjs/loader:1520", "10)", "next", "progress"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("frame missing %q: %q", want, view)
+		}
+	}
+}
+
 func TestPausedExecutionFeedDefersViewportRefreshUntilResume(t *testing.T) {
 	page, _ := NewCommandExecutionLogs(t.Context())
 	defer page.Close()

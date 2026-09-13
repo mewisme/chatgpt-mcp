@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 )
 
 var (
@@ -158,12 +160,35 @@ func Cleanup(layout Layout, keepVersions ...string) error {
 			continue
 		}
 		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".staging-") {
-			if err := os.RemoveAll(path); err != nil {
+			if err := removeAllInstallPath(path); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func removeAllInstallPath(path string) error {
+	attempts := 1
+	if runtime.GOOS == "windows" {
+		attempts = 6
+	}
+	return removeAllWithRetry(path, attempts, 25*time.Millisecond, os.RemoveAll, time.Sleep)
+}
+
+func removeAllWithRetry(path string, attempts int, delay time.Duration, remove func(string) error, sleep func(time.Duration)) error {
+	attempts = max(1, attempts)
+	var err error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if err = remove(path); err == nil {
+			return nil
+		}
+		if attempt+1 < attempts && delay > 0 {
+			sleep(delay)
+			delay *= 2
+		}
+	}
+	return err
 }
 
 func resolveSourceBinary(source string) (string, error) {

@@ -43,35 +43,56 @@ func upgradeCommand() *cobra.Command {
 		if alias.State == install.AliasConflict {
 			return fmt.Errorf("cannot preserve cgm alias state: %w: %s", install.ErrAliasConflict, alias.Path)
 		}
-		startCommandSpinner(cmd, log, "UPDATE", "update.updating", "Checking and applying update")
+		updater := updatepkg.Updater{
+			Resolver:   updatepkg.Client{UserAgent: "chatgpt-mcp/" + version.Version},
+			Downloader: updatepkg.Downloader{UserAgent: "chatgpt-mcp/" + version.Version},
+		}
+		options := updatepkg.ApplyOptions{Layout: layout, CurrentVersion: version.Version, TargetVersion: targetVersion, NoAlias: alias.State == install.AliasMissing}
+		startCommandSpinner(cmd, log, "UPDATE", "update.checking", "Checking for updates")
+		plan, err := updater.Resolve(cmd.Context(), options)
+		if err != nil {
+			return fmt.Errorf("check update: %w", err)
+		}
+		log.StopAnimation()
+		if targetVersion == "" {
+			cacheLatestRelease(cmd, layout, plan.Target)
+		}
+		if !plan.Changed {
+			if plan.Current == plan.Target {
+				log.Ready("UPDATE", "update.current", "Already up to date")
+			} else {
+				log.Notice("UPDATE", "update.ahead", "Current version is newer than the latest release")
+			}
+			log.Detail("current", plan.Current)
+			log.Detail("latest", plan.Target)
+			return nil
+		}
+		if targetVersion == "" {
+			log.Ready("UPDATE", "update.available", "Update available")
+			log.Detail("current", plan.Current)
+			log.Detail("latest", plan.Target)
+		} else {
+			log.Ready("UPDATE", "update.target-resolved", "Target version resolved")
+			log.Detail("current", plan.Current)
+			log.Detail("target", plan.Target)
+		}
 		logCommandStep(cmd, "UPDATE", "update.runtime.inspecting", "Inspecting managed runtime state")
 		runtimeState, err := captureUpdateRuntimeState(cmd.Context())
 		if err != nil {
 			return fmt.Errorf("inspect managed runtime before update: %w", err)
 		}
-		updater := updatepkg.Updater{
-			Resolver:   updatepkg.Client{UserAgent: "chatgpt-mcp/" + version.Version},
-			Downloader: updatepkg.Downloader{UserAgent: "chatgpt-mcp/" + version.Version},
-		}
-		logCommandStep(cmd, "UPDATE", "update.release.applying", "Resolving, downloading, and activating release", logger.WithVerbose("target", targetVersion))
-		result, err := updater.Apply(cmd.Context(), updatepkg.ApplyOptions{Layout: layout, CurrentVersion: version.Version, TargetVersion: targetVersion, NoAlias: alias.State == install.AliasMissing})
+		startCommandSpinner(cmd, log, "UPDATE", "update.applying", "Applying update "+plan.Target)
+		logCommandStep(cmd, "UPDATE", "update.release.applying", "Downloading and activating release", logger.WithVerbose("target", plan.Target))
+		options.ResolvedRelease = &plan.Release
+		result, err := updater.Apply(cmd.Context(), options)
 		if err != nil {
 			return fmt.Errorf("apply update: %w", err)
 		}
-		if targetVersion == "" {
-			cacheLatestRelease(cmd, layout, result.Target)
-		}
-		if !result.Changed {
-			if result.Current == result.Target {
-				log.Ready("UPDATE", "update.current", "Already up to date")
-			} else {
-				log.Notice("UPDATE", "update.ahead", "Current version is newer than the latest release")
-			}
-			log.Detail("current", result.Current)
-			log.Detail("latest", result.Target)
-			return nil
-		}
 		log.StopAnimation()
+		log.Ready("UPDATE", "update.applied", "Update applied")
+		log.Detail("previous", result.Current)
+		log.Detail("current", result.Target)
+		log.Detail("binary", result.Install.Staged.Binary)
 		logCommandStep(cmd, "UPDATE", "update.runtime.coordinating", "Coordinating updated managed runtime", logger.WithVerbose("restart", !noRestart))
 		if err := coordinateUpdatedRuntime(cmd, result.Install, runtimeState, noRestart); err != nil {
 			return fmt.Errorf("update to %s failed after activation: %w", result.Target, err)
@@ -79,14 +100,11 @@ func upgradeCommand() *cobra.Command {
 		if err := install.FinalizeResultContext(cmd.Context(), result.Install); err != nil {
 			log.Warning("UPDATE", "update.cleanup-failed", "Update succeeded but old version cleanup failed", err)
 		}
-		message := "updated"
+		message := "Update complete"
 		if result.Downgrade {
-			message = "version changed"
+			message = "Version change complete"
 		}
 		log.Success("UPDATE", message)
-		log.Detail("previous", result.Current)
-		log.Detail("current", result.Target)
-		log.Detail("binary", result.Install.Staged.Binary)
 		return nil
 	}}
 	cmd.Flags().StringVar(&targetVersion, "version", "", "install a specific release version (allows explicit downgrade)")
@@ -105,6 +123,7 @@ func upgradeCheckCommand() *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("check latest release: %w", err)
 		}
+		log.StopAnimation()
 		cacheLatestReleaseForCurrentInstall(cmd, result.Latest)
 		switch result.Status {
 		case updatepkg.StatusAvailable:

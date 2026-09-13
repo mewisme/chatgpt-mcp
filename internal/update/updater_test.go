@@ -30,6 +30,15 @@ func (f fakeResolver) Version(_ context.Context, version string) (Release, error
 	return release, nil
 }
 
+type failingResolver struct{}
+
+func (failingResolver) Latest(context.Context) (Release, error) {
+	return Release{}, errors.New("unexpected latest resolution")
+}
+func (failingResolver) Version(context.Context, string) (Release, error) {
+	return Release{}, errors.New("unexpected version resolution")
+}
+
 type fakeArtifactSource struct {
 	binary string
 	calls  *int
@@ -65,6 +74,36 @@ func TestUpdaterApplyLatest(t *testing.T) {
 	}
 	if _, err := os.Stat(artifactDir); !os.IsNotExist(err) {
 		t.Fatalf("artifact directory was not cleaned up: %v", err)
+	}
+}
+
+func TestUpdaterResolvePlansUpdateWithoutDownloading(t *testing.T) {
+	layout := updateTestLayout(t)
+	installCurrentVersion(t, layout, "v1.0.0", "old")
+	calls := 0
+	updater := Updater{Resolver: fakeResolver{latest: Release{Version: "v1.1.0"}}, Downloader: fakeArtifactSource{calls: &calls}}
+	result, err := updater.Resolve(context.Background(), ApplyOptions{Layout: layout, CurrentVersion: "v1.0.0", NoAlias: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.Current != "v1.0.0" || result.Target != "v1.1.0" || result.Downgrade || calls != 0 {
+		t.Fatalf("result = %+v, calls = %d", result, calls)
+	}
+}
+
+func TestUpdaterApplyUsesResolvedReleaseWithoutResolvingAgain(t *testing.T) {
+	layout := updateTestLayout(t)
+	installCurrentVersion(t, layout, "v1.0.0", "old")
+	binary, _ := updateTestBinary(t, "new")
+	calls := 0
+	release := Release{Version: "v1.1.0"}
+	updater := Updater{Resolver: failingResolver{}, Downloader: fakeArtifactSource{binary: binary, calls: &calls}}
+	result, err := updater.Apply(context.Background(), ApplyOptions{Layout: layout, CurrentVersion: "v1.0.0", NoAlias: true, ResolvedRelease: &release})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.Target != "v1.1.0" || calls != 1 {
+		t.Fatalf("result = %+v, calls = %d", result, calls)
 	}
 }
 

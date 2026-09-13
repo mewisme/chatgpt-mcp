@@ -130,15 +130,17 @@ func runManagedRestart(cmd *cobra.Command, spec managed.Spec, manager managed.Ma
 		return err
 	}
 	log := commandLogger(cmd)
-	log.Action("SERVICE", "service.restarting", "Restarting managed service")
+	progress := managedLifecycleProgress(cmd)
 	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: managedRuntimeStatus, Shutdown: requestManagedShutdown, Timeout: serviceReadyTimeout, Observe: func(event managed.LifecycleEvent) {
-		logCommandStep(cmd, "SERVICE", "service."+event.Phase, event.Message)
+		progress.Start("service."+event.Phase, event.Message, managedLifecycleDoneMessage(event))
 	}}
 	result, err := lifecycle.Restart(cmd.Context())
 	if err != nil {
+		progress.Stop()
 		logManagedStartupFailure(cmd, spec, manager, err)
 		return err
 	}
+	progress.Complete()
 	status := result.Status
 	log.Ready("SERVICE", "service.restarted", "Managed service restarted")
 	logManagedDetails(log, spec, manager)
@@ -280,15 +282,17 @@ func runManagedUp(cmd *cobra.Command, spec managed.Spec, manager managed.Manager
 		}
 	}
 	log := commandLogger(cmd)
-	log.Action("SERVICE", managedServiceActionEvent(action), managedServiceActionMessage(action, spec.Scope))
+	progress := managedLifecycleProgress(cmd)
 	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: managedRuntimeStatus, Shutdown: requestManagedShutdown, Timeout: serviceReadyTimeout, Observe: func(event managed.LifecycleEvent) {
-		logCommandStep(cmd, "SERVICE", "service."+event.Phase, event.Message)
+		progress.Start("service."+event.Phase, event.Message, managedLifecycleDoneMessage(event))
 	}}
 	result, err := lifecycle.Up(cmd.Context())
 	if err != nil {
+		progress.Stop()
 		logManagedStartupFailure(cmd, spec, manager, err)
 		return err
 	}
+	progress.Complete()
 	status := result.Status
 	if !result.Changed {
 		logManagedAlreadyRunning(cmd, spec, manager, status, cfg.Tunnel)
@@ -342,14 +346,16 @@ func logManagedStartupFailure(cmd *cobra.Command, spec managed.Spec, manager man
 
 func runManagedDown(cmd *cobra.Command, spec managed.Spec, manager managed.Manager) error {
 	log := commandLogger(cmd)
-	log.Action("SERVICE", "service.stopping", "Stopping managed service")
+	progress := managedLifecycleProgress(cmd)
 	lifecycle := managed.Lifecycle{Manager: manager, Spec: spec, Probe: managedRuntimeStatus, Shutdown: requestManagedShutdown, Timeout: serviceReadyTimeout, Observe: func(event managed.LifecycleEvent) {
-		logCommandStep(cmd, "SERVICE", "service."+event.Phase, event.Message)
+		progress.Start("service."+event.Phase, event.Message, managedLifecycleDoneMessage(event))
 	}}
 	result, err := lifecycle.Down(cmd.Context())
 	if err != nil {
+		progress.Stop()
 		return err
 	}
+	progress.Complete()
 	if !result.Changed {
 		log.Notice("SERVICE", "service.not-installed", "Managed service is not installed")
 		return nil
@@ -359,6 +365,32 @@ func runManagedDown(cmd *cobra.Command, spec managed.Spec, manager managed.Manag
 	log.Detail("config preserved", spec.ConfigRoot)
 	log.Detail("logs preserved", filepath.Join(spec.ConfigRoot, "logs"))
 	return nil
+}
+
+func managedLifecycleProgress(cmd *cobra.Command) *commandProgress {
+	return newCommandProgress(cmd, "SERVICE")
+}
+
+func managedLifecycleDoneMessage(event managed.LifecycleEvent) string {
+	switch event.Phase {
+	case "runtime.stopping":
+		return "Managed runtime stopped"
+	case "backend.stopping":
+		return "Managed service backend stopped"
+	case "definition.installing":
+		if strings.HasPrefix(strings.ToLower(event.Message), "updating") {
+			return "Managed service definition updated"
+		}
+		return "Managed service definition installed"
+	case "definition.uninstalling":
+		return "Managed service definition removed"
+	case "backend.starting":
+		return "Managed service backend started"
+	case "runtime.waiting":
+		return "Managed runtime ready"
+	default:
+		return event.Message + " complete"
+	}
 }
 
 func managedRuntimeStatus(ctx context.Context) (runtimeStatusResult, bool, error) {
@@ -406,32 +438,6 @@ func logManagedUp(log *logger.Logger, spec managed.Spec, manager managed.Manager
 	logManagedDetails(log, spec, manager)
 	log.Ready("SERVER", "server.started", "Server started")
 	logRuntimeDetails(log, status)
-}
-
-func managedServiceActionMessage(action string, scope managed.Scope) string {
-	prefix := "Managed service"
-	if scope == managed.ScopeSystem {
-		prefix = "System service"
-	}
-	switch action {
-	case "installed":
-		return "Installing " + strings.ToLower(prefix)
-	case "updated":
-		return "Updating " + strings.ToLower(prefix)
-	default:
-		return "Starting " + strings.ToLower(prefix)
-	}
-}
-
-func managedServiceActionEvent(action string) string {
-	switch action {
-	case "installed":
-		return "service.installing"
-	case "updated":
-		return "service.updating"
-	default:
-		return "service.starting"
-	}
 }
 
 func logManagedDetails(log *logger.Logger, spec managed.Spec, manager managed.Manager) {

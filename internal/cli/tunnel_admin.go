@@ -82,7 +82,6 @@ func tunnelAdminKeySetCommand() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 			defer cancel()
 			log := commandLogger(cmd)
-			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.admin.verifying", "Verifying tunnel admin key")
 			var scope *tunnel.AdminScope
 			if scopeFlags.changed(cmd) {
 				value := scopeFlags.scope()
@@ -134,7 +133,6 @@ func tunnelAdminKeyVerifyCommand() *cobra.Command {
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		log := commandLogger(cmd)
-		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.admin.verifying", "Verifying tunnel admin key")
 		count, scope, err := application.VerifyTunnelAdminKey(ctx)
 		if err != nil {
 			return err
@@ -179,9 +177,6 @@ func tunnelListCommand() *cobra.Command {
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		log := commandLogger(cmd)
-		if !asJSON {
-			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.list.loading", "Loading managed tunnels")
-		}
 		items, err := tunnel.ListManaged(ctx, cfg.Tunnel, scope)
 		if err != nil {
 			return err
@@ -207,9 +202,6 @@ func tunnelGetCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "get <tunnel_id>", Short: "Fetch a managed tunnel by id", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		logCommandStep(cmd, "TUNNEL", "tunnel.admin.get.preparing", "Preparing managed tunnel lookup", logger.WithVerbose("tunnel_id", args[0]))
 		log := commandLogger(cmd)
-		if !asJSON {
-			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.get.loading", "Loading managed tunnel")
-		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		result, err := application.GetManagedTunnel(ctx, args[0], application.ManagedTunnelOptions{Configure: configure, RuntimeAPIKey: runtimeAPIKey, Enable: enable})
@@ -241,7 +233,6 @@ func tunnelUseCommand() *cobra.Command {
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		log := commandLogger(cmd)
-		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.use.loading", "Selecting managed tunnel")
 		result, err := application.UseManagedTunnel(ctx, args[0], application.ManagedTunnelUseOptions{RuntimeAPIKey: runtimeAPIKey, AutoGenerateRuntimeKey: autoRuntimeKey, ProjectID: projectID})
 		if err != nil {
 			return err
@@ -273,7 +264,6 @@ func tunnelCreateCommand() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 			defer cancel()
 			log := commandLogger(cmd)
-			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.create.creating", "Creating managed tunnel")
 			result, err := application.CreateManagedTunnel(ctx, request, application.ManagedTunnelOptions{Configure: configure, RuntimeAPIKey: runtimeAPIKey, Enable: enable})
 			if err != nil {
 				return err
@@ -326,7 +316,6 @@ func tunnelUpdateCommand() *cobra.Command {
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		log := commandLogger(cmd)
-		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.update.updating", "Updating managed tunnel")
 		result, err := application.UpdateManagedTunnel(ctx, args[0], request, application.ManagedTunnelOptions{Configure: configure, RuntimeAPIKey: runtimeAPIKey, Enable: enable})
 		if err != nil {
 			return err
@@ -355,7 +344,6 @@ func tunnelDeleteCommand() *cobra.Command {
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		log := commandLogger(cmd)
-		startCommandSpinner(cmd, log, "TUNNEL", "tunnel.delete.deleting", "Deleting managed tunnel")
 		result, err := application.DeleteManagedTunnel(ctx, args[0], clearConfig)
 		if err != nil {
 			return err

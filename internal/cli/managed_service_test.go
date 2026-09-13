@@ -104,7 +104,7 @@ func TestManagedUpAndDownLifecycle(t *testing.T) {
 		t.Fatalf("manager after up = %#v", manager)
 	}
 	text := output.String()
-	for _, expected := range []string{"⠋ Installing managed service", "Managed service installed", "Server started", "OpenAI Secure MCP Tunnel is disabled", "View logs: cgm logs -f", "Stop service: cgm down", "session", "pid"} {
+	for _, expected := range []string{"Managed service definition installed", "Managed service backend started", "Managed runtime ready", "Managed service installed", "Server started", "OpenAI Secure MCP Tunnel is disabled", "View logs: cgm logs -f", "Stop service: cgm down", "session", "pid"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("up output missing %q: %s", expected, text)
 		}
@@ -126,7 +126,7 @@ func TestManagedUpAndDownLifecycle(t *testing.T) {
 	if _, err := os.Stat(config.Path()); err != nil {
 		t.Fatalf("down removed config: %v", err)
 	}
-	for _, expected := range []string{"Server stopped", "Managed service removed", "config preserved", "logs preserved"} {
+	for _, expected := range []string{"Managed runtime stopped", "Managed service backend stopped", "Managed service definition removed", "Server stopped", "Managed service removed", "config preserved", "logs preserved"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("down output missing %q: %s", expected, output.String())
 		}
@@ -221,7 +221,7 @@ func TestManagedRestartKeepsServiceInstalledAndStartsNewRuntime(t *testing.T) {
 		t.Fatalf("restart reused runtime session %q", previousRunID)
 	}
 	text := output.String()
-	for _, expected := range []string{"Restarting managed service", "Managed service restarted", "Server started"} {
+	for _, expected := range []string{"Managed runtime stopped", "Managed service backend stopped", "Managed service backend started", "Managed runtime ready", "Managed service restarted", "Server started"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("restart output missing %q: %s", expected, text)
 		}

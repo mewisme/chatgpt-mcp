@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,47 @@ import (
 const machineOutputAnnotation = "chatgpt-mcp.machine-output"
 
 var commandLoggers sync.Map
+
+type commandProgress struct {
+	cmd       *cobra.Command
+	log       *logger.Logger
+	component string
+	name      string
+	done      string
+}
+
+type traceProgressSpec struct {
+	start string
+	done  string
+}
+
+var traceProgress = map[string]traceProgressSpec{
+	"config.persist":              {start: "Saving configuration", done: "Configuration saved"},
+	"config.persist.rollback":     {start: "Rolling back configuration", done: "Configuration rollback complete"},
+	"config.runtime.reload":       {start: "Reloading running runtime", done: "Runtime configuration reloaded"},
+	"install.source.validate":     {start: "Validating source binary", done: "Source binary validated"},
+	"install.legacy.discover":     {start: "Checking legacy installations", done: "Legacy installations checked"},
+	"install.stage":               {start: "Staging installation binary", done: "Installation binary staged"},
+	"install.activate":            {start: "Activating installation", done: "Installation activated"},
+	"install.rollback":            {start: "Rolling back installation", done: "Installation rollback complete"},
+	"install.legacy.backup":       {start: "Backing up legacy installation", done: "Legacy installation backed up"},
+	"install.alias.legacy.backup": {start: "Backing up legacy alias", done: "Legacy alias backed up"},
+	"install.canonical.install":   {start: "Installing canonical command", done: "Canonical command installed"},
+	"install.alias.install":       {start: "Installing command alias", done: "Command alias installed"},
+	"install.metadata.write":      {start: "Writing installation metadata", done: "Installation metadata written"},
+	"install.legacy.cleanup":      {start: "Cleaning legacy installations", done: "Legacy installation cleanup complete"},
+	"install.versions.cleanup":    {start: "Cleaning old installed versions", done: "Old installed versions cleaned"},
+	"tunnel.admin.verify":         {start: "Verifying tunnel admin access", done: "Tunnel admin access verified"},
+	"tunnel.admin.read-probe":     {start: "Checking tunnel admin read access", done: "Tunnel admin read access verified"},
+	"tunnel.admin.list":           {start: "Loading managed tunnels", done: "Managed tunnels loaded"},
+	"tunnel.admin.get":            {start: "Fetching managed tunnel", done: "Managed tunnel fetched"},
+	"tunnel.admin.create":         {start: "Creating managed tunnel", done: "Managed tunnel created"},
+	"tunnel.admin.update":         {start: "Updating managed tunnel", done: "Managed tunnel updated"},
+	"tunnel.admin.delete":         {start: "Deleting managed tunnel", done: "Managed tunnel deleted"},
+	"tunnel.runtime-key.generate": {start: "Generating runtime API key", done: "Runtime API key generated"},
+	"tunnel.metadata.fetch":       {start: "Fetching tunnel metadata", done: "Tunnel metadata fetched"},
+	"tunnel.metadata.refresh":     {start: "Refreshing tunnel metadata", done: "Tunnel metadata refreshed"},
+}
 
 func addLoggingFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().Bool("verbose", false, "show additional runtime context")
@@ -70,6 +112,37 @@ func startCommandSpinner(cmd *cobra.Command, log *logger.Logger, component, name
 	if err == nil && format == logger.FormatText && !verbose && !debug && logger.CanAnimate(commandLogWriter(cmd)) {
 		log.Action(component, name, message)
 	}
+}
+
+func newCommandProgress(cmd *cobra.Command, component string) *commandProgress {
+	return &commandProgress{cmd: cmd, log: commandLogger(cmd), component: component}
+}
+
+func (p *commandProgress) Start(name, message, done string) {
+	if p == nil {
+		return
+	}
+	p.Complete()
+	p.name, p.done = name, done
+	startCommandSpinner(p.cmd, p.log, p.component, name, message)
+	p.log.Verbose(p.component, name, message)
+}
+
+func (p *commandProgress) Complete() {
+	if p == nil || p.name == "" {
+		return
+	}
+	p.log.StopAnimation()
+	p.log.Ready(p.component, p.name+".completed", p.done)
+	p.name, p.done = "", ""
+}
+
+func (p *commandProgress) Stop() {
+	if p == nil {
+		return
+	}
+	p.log.StopAnimation()
+	p.name, p.done = "", ""
 }
 
 func commandLogMode(cmd *cobra.Command) (bool, bool) {
@@ -230,6 +303,44 @@ func commandTraceObserver(cmd *cobra.Command) tracepkg.Observer {
 		for _, field := range event.Fields {
 			fields = append(fields, logger.WithVerbose(field.Key, field.Value))
 		}
+		if commandMachineOutput(cmd) {
+			commandLogger(cmd).Verbose(event.Component, event.Name, event.Message, fields...)
+			return
+		}
+		if spec, ok := commandTraceProgressSpec(event); ok {
+			log := commandLogger(cmd)
+			switch event.Phase {
+			case tracepkg.PhaseStart:
+				startCommandSpinner(cmd, log, event.Component, event.Name, spec.start)
+				log.Verbose(event.Component, event.Name, spec.start, fields...)
+			case tracepkg.PhaseEnd:
+				message := spec.done
+				if strings.Contains(strings.ToLower(event.Message), "skipped") {
+					message = event.Message
+				}
+				log.Ready(event.Component, event.Name, message, fields...)
+			case tracepkg.PhaseError:
+				log.StopAnimation()
+				log.Verbose(event.Component, event.Name, event.Message, fields...)
+			}
+			return
+		}
 		commandLogger(cmd).Verbose(event.Component, event.Name, event.Message, fields...)
 	}
+}
+
+func commandTraceProgressSpec(event tracepkg.Event) (traceProgressSpec, bool) {
+	name := strings.TrimSpace(event.Name)
+	switch event.Phase {
+	case tracepkg.PhaseStart:
+		name = strings.TrimSuffix(name, ".started")
+	case tracepkg.PhaseEnd:
+		name = strings.TrimSuffix(name, ".completed")
+	case tracepkg.PhaseError:
+		name = strings.TrimSuffix(name, ".failed")
+	default:
+		return traceProgressSpec{}, false
+	}
+	spec, ok := traceProgress[name]
+	return spec, ok
 }

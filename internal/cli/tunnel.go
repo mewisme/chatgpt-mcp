@@ -196,7 +196,6 @@ func tunnelSyncCommand() *cobra.Command {
 	return &cobra.Command{Use: "sync", Short: "Fetch and persist metadata for the configured tunnel", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		log := commandLogger(cmd)
 		logCommandStep(cmd, "TUNNEL", "tunnel.metadata.preparing", "Preparing tunnel metadata synchronization")
-		log.Action("TUNNEL", "tunnel.metadata.syncing", "Syncing tunnel metadata")
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		defer cancel()
 		metadata, path, err := application.SyncConfiguredTunnel(ctx)
@@ -235,9 +234,6 @@ func tunnelConfigureCommand() *cobra.Command {
 			input.OrganizationID = &organizationID
 		}
 		log := commandLogger(cmd)
-		if cmd.Flags().Changed("id") || cmd.Flags().Changed("api-key") || cmd.Flags().Changed("control-plane-base-url") {
-			startCommandSpinner(cmd, log, "TUNNEL", "tunnel.metadata.syncing", "Syncing tunnel metadata")
-		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
 		_, err := application.ConfigureTunnelRuntime(ctx, input)
 		cancel()

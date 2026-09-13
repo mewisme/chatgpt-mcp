@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestStageCreatesImmutableVersion(t *testing.T) {
@@ -89,6 +90,35 @@ func TestCleanupKeepsSelectedVersions(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("non-version file should be preserved: %v", err)
+	}
+}
+
+func TestRemoveAllWithRetryEventuallySucceeds(t *testing.T) {
+	attempts, sleeps := 0, []time.Duration{}
+	err := removeAllWithRetry("old-version", 4, 10*time.Millisecond, func(string) error {
+		attempts++
+		if attempts < 3 {
+			return errors.New("locked")
+		}
+		return nil
+	}, func(delay time.Duration) { sleeps = append(sleeps, delay) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts=%d want=3", attempts)
+	}
+	if len(sleeps) != 2 || sleeps[0] != 10*time.Millisecond || sleeps[1] != 20*time.Millisecond {
+		t.Fatalf("sleeps=%v", sleeps)
+	}
+}
+
+func TestRemoveAllWithRetryReturnsLastError(t *testing.T) {
+	want := errors.New("still locked")
+	attempts := 0
+	err := removeAllWithRetry("old-version", 3, 0, func(string) error { attempts++; return want }, func(time.Duration) {})
+	if !errors.Is(err, want) || attempts != 3 {
+		t.Fatalf("error=%v attempts=%d", err, attempts)
 	}
 }
 

@@ -60,6 +60,7 @@ func (l Lifecycle) Up(ctx context.Context) (LifecycleResult, error) {
 	}
 	if running && backend.Installed && matches {
 		if current.Starting {
+			l.emit("runtime.waiting", "Waiting for managed runtime readiness")
 			current, err = l.waitReady(ctx, "")
 			if err != nil {
 				return LifecycleResult{}, err
@@ -74,6 +75,7 @@ func (l Lifecycle) Up(ctx context.Context) (LifecycleResult, error) {
 		}
 	}
 	if backend.Running || (running && backend.Installed) {
+		l.emit("backend.stopping", "Stopping managed service backend")
 		if err := l.backendOperation(ctx, "stop", "Stopping managed service backend", func() error { return StopBackend(l.Manager, l.Spec) }); err != nil {
 			return LifecycleResult{}, err
 		}
@@ -121,6 +123,7 @@ func (l Lifecycle) Down(ctx context.Context) (LifecycleResult, error) {
 		}
 	}
 	if backend.Running || backend.Installed {
+		l.emit("backend.stopping", "Stopping managed service backend")
 		if err := l.backendOperation(ctx, "stop", "Stopping managed service backend", func() error { return StopBackend(l.Manager, l.Spec) }); err != nil {
 			return LifecycleResult{}, err
 		}
@@ -163,6 +166,7 @@ func (l Lifecycle) Restart(ctx context.Context) (LifecycleResult, error) {
 			return LifecycleResult{}, err
 		}
 	}
+	l.emit("backend.stopping", "Stopping managed service backend")
 	if err := l.backendOperation(ctx, "stop", "Stopping managed service backend", func() error { return StopBackend(l.Manager, l.Spec) }); err != nil {
 		return LifecycleResult{}, err
 	}

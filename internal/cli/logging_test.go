@@ -235,6 +235,64 @@ func TestCommandTraceObserverUsesSharedVerboseLogger(t *testing.T) {
 	}
 }
 
+func TestCommandTraceProgressIsVisibleByDefault(t *testing.T) {
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.AddCommand(&cobra.Command{Use: "progress-test", RunE: func(cmd *cobra.Command, _ []string) error {
+		span := tracepkg.Start(cmd.Context(), "CONFIG", "config.persist", "Persisting configuration")
+		span.EndMessage("Configuration persisted")
+		return nil
+	}})
+	cmd.SetArgs(testCommandArgs(t, "progress-test"))
+	if err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if text := output.String(); !strings.Contains(text, "Configuration saved") {
+		t.Fatalf("default progress output missing completion: %q", text)
+	}
+}
+
+func TestCommandTraceNonProgressRemainsHiddenByDefault(t *testing.T) {
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.AddCommand(&cobra.Command{Use: "quiet-trace-test", RunE: func(cmd *cobra.Command, _ []string) error {
+		span := tracepkg.Start(cmd.Context(), "TEST", "test.internal", "Internal traced operation")
+		span.EndMessage("Internal traced operation completed")
+		return nil
+	}})
+	cmd.SetArgs(testCommandArgs(t, "quiet-trace-test"))
+	if err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if text := output.String(); strings.Contains(text, "Internal traced operation") {
+		t.Fatalf("default output exposed non-progress trace: %q", text)
+	}
+}
+
+func TestCommandTraceProgressPreservesSkippedResult(t *testing.T) {
+	var output bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.AddCommand(&cobra.Command{Use: "skip-progress-test", RunE: func(cmd *cobra.Command, _ []string) error {
+		span := tracepkg.Start(cmd.Context(), "CONFIG", "config.runtime.reload", "Reloading persisted configuration into runtime")
+		span.EndMessage("Runtime reload skipped")
+		return nil
+	}})
+	cmd.SetArgs(testCommandArgs(t, "skip-progress-test"))
+	if err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "Runtime reload skipped") || strings.Contains(text, "Runtime configuration reloaded") {
+		t.Fatalf("skipped progress result was not preserved: %q", text)
+	}
+}
+
 func TestMachineOutputTraceStaysOnStderr(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	cmd := newRootCommand()

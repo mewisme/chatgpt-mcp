@@ -345,9 +345,9 @@ func (page *LogsPage) executionBodyView(width, height int) string {
 	} else if page.exec.scopeNotice != "" {
 		message = component.WrapContent(component.Muted(page.exec.scopeNotice), width)
 	}
-	reserved := lipgloss.Height(status) + 2
+	reserved := lipgloss.Height(status) + 1
 	if message != "" {
-		reserved += lipgloss.Height(message) + 1
+		reserved += lipgloss.Height(message)
 	}
 	bodyHeight := max(1, height-reserved)
 	page.resizeExecutionViewport(width, bodyHeight)

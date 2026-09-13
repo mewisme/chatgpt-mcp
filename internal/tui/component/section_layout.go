@@ -16,11 +16,8 @@ func NewSectionLayout(title, meta, feedback string, width, height, footerHeight 
 		prefix += "\n" + feedback
 	}
 	prefix += "\n" + Divider(width)
-	prefixHeight := lipgloss.Height(header) + 1 + lipgloss.Height(Divider(width))
-	if feedback != "" {
-		prefixHeight += lipgloss.Height(feedback) + 1
-	}
-	return SectionLayout{Header: prefix, BodyY: lipgloss.Height(prefix) + 1, BodyHeight: max(1, height-prefixHeight-footerHeight-1)}
+	prefixHeight := lipgloss.Height(prefix)
+	return SectionLayout{Header: prefix, BodyY: prefixHeight, BodyHeight: max(1, height-prefixHeight-footerHeight)}
 }
 
 func (layout SectionLayout) View(body string) string { return layout.Header + "\n" + body }

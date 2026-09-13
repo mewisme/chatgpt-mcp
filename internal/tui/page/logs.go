@@ -492,7 +492,7 @@ func (page *LogsPage) View(width, height int) string {
 		bodyHeight := max(1, height-lipgloss.Height(tabs))
 		help := page.browser.HelpView()
 		layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, width, bodyHeight, lipgloss.Height(help))
-		browserHeight := max(1, layout.BodyHeight-lipgloss.Height(status)-1)
+		browserHeight := max(1, layout.BodyHeight-lipgloss.Height(status))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
 		section := component.BottomHelp(layout.View(status+"\n"+page.browser.BodyContent()), help, width, bodyHeight)
@@ -557,7 +557,7 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	help := page.browser.HelpView()
 	layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
 	statusHeight := lipgloss.Height(page.statusView(page.width))
-	browserY := originY + tabsHeight + 1 + layout.BodyY + statusHeight + 1
+	browserY := originY + tabsHeight + 1 + layout.BodyY + statusHeight
 	tabTargets = append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
 	helpY := originY + tabsHeight + 1 + bodyHeight - lipgloss.Height(help)
 	return append(tabTargets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
@@ -904,7 +904,7 @@ func (page *LogsPage) resizeBrowser() tea.Cmd {
 	bodyHeight := max(1, page.height-tabsHeight)
 	help := page.browser.HelpView()
 	layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
-	height := max(1, layout.BodyHeight-statusHeight-1)
+	height := max(1, layout.BodyHeight-statusHeight)
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd

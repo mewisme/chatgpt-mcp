@@ -1473,6 +1473,24 @@ func TestExecutionSettingsCloseForcesFullRepaint(t *testing.T) {
 	}
 }
 
+func TestCommandExecutionUsesFullBodyHeight(t *testing.T) {
+	page, err := NewCommandExecutionLogs(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer page.Close()
+	page.width, page.height = 100, 30
+	help := page.executionHelpView(page.width)
+	tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, page.width)
+	bodyHeight := page.height - lipgloss.Height(tabs)
+	layout := component.NewSectionLayout("Command Execution", "live output", "", page.width, bodyHeight, lipgloss.Height(help))
+	page.executionBodyView(page.width, layout.BodyHeight)
+	want := layout.BodyHeight - lipgloss.Height(page.executionStatusView(page.width)) - 1
+	if got := page.exec.viewport.Height(); got != want {
+		t.Fatalf("execution viewport height=%d want=%d", got, want)
+	}
+}
+
 func TestExecutionProcessOptionsPreferRunningAndExposeStatus(t *testing.T) {
 	zero := 0
 	options := executionProcessOptions([]shellruntime.ProcessInfo{{ID: "old", PID: 10, Command: "done", ExitCode: &zero}, {ID: "live", PID: 20, Command: "serve", Running: true}})

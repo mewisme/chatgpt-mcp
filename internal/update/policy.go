@@ -26,6 +26,18 @@ type InstallPolicy struct {
 	Command string
 }
 
+type PackageManagerCommand struct {
+	Name string
+	Args []string
+}
+
+type PackageManagerPlan struct {
+	Method  install.Method
+	Name    string
+	Refresh PackageManagerCommand
+	Apply   PackageManagerCommand
+}
+
 func PolicyForInstallation(detection install.Detection) InstallPolicy {
 	policy := InstallPolicy{Method: detection.Method}
 	switch detection.Method {
@@ -47,11 +59,11 @@ func PolicyForInstallation(detection install.Detection) InstallPolicy {
 	case install.MethodHomebrew:
 		policy.Action = PolicyDelegate
 		policy.Message = "Managed by Homebrew"
-		policy.Command = "brew upgrade --cask chatgpt-mcp"
+		policy.Command = "cgm upgrade"
 	case install.MethodScoop:
 		policy.Action = PolicyDelegate
 		policy.Message = "Managed by Scoop"
-		policy.Command = "scoop update chatgpt-mcp"
+		policy.Command = "cgm upgrade"
 	case install.MethodGo:
 		policy.Action = PolicyUnsupported
 		policy.Message = "Self-update is unavailable for Go installations"
@@ -67,6 +79,27 @@ func PolicyForInstallation(detection install.Detection) InstallPolicy {
 		policy.Message = "Unable to determine how chatgpt-mcp was installed"
 	}
 	return policy
+}
+
+func PackageManagerPlanFor(method install.Method) (PackageManagerPlan, bool) {
+	switch method {
+	case install.MethodHomebrew:
+		return PackageManagerPlan{
+			Method:  method,
+			Name:    "Homebrew",
+			Refresh: PackageManagerCommand{Name: "brew", Args: []string{"update"}},
+			Apply:   PackageManagerCommand{Name: "brew", Args: []string{"upgrade", "--cask", "chatgpt-mcp"}},
+		}, true
+	case install.MethodScoop:
+		return PackageManagerPlan{
+			Method:  method,
+			Name:    "Scoop",
+			Refresh: PackageManagerCommand{Name: "scoop", Args: []string{"update"}},
+			Apply:   PackageManagerCommand{Name: "scoop", Args: []string{"update", "mew/chatgpt-mcp"}},
+		}, true
+	default:
+		return PackageManagerPlan{}, false
+	}
 }
 
 func (p InstallPolicy) Error() error {

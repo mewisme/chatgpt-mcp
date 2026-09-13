@@ -2,6 +2,7 @@ package update
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/install"
@@ -17,8 +18,8 @@ func TestPolicyForInstallation(t *testing.T) {
 	}{
 		{"direct", install.Detection{Method: install.MethodDirect, Metadata: directMetadata}, PolicySelfUpdate, ""},
 		{"legacy-direct", install.Detection{Method: install.MethodDirect}, PolicyInstallFirst, "chatgpt-mcp install"},
-		{"homebrew", install.Detection{Method: install.MethodHomebrew}, PolicyDelegate, "brew upgrade --cask chatgpt-mcp"},
-		{"scoop", install.Detection{Method: install.MethodScoop}, PolicyDelegate, "scoop update chatgpt-mcp"},
+		{"homebrew", install.Detection{Method: install.MethodHomebrew}, PolicyDelegate, "cgm upgrade"},
+		{"scoop", install.Detection{Method: install.MethodScoop}, PolicyDelegate, "cgm upgrade"},
 		{"go", install.Detection{Method: install.MethodGo}, PolicyUnsupported, ""},
 		{"development", install.Detection{Method: install.MethodDevelopment}, PolicyUnsupported, ""},
 		{"standalone", install.Detection{Method: install.MethodStandalone}, PolicyInstallFirst, "chatgpt-mcp install"},
@@ -38,6 +39,32 @@ func TestPolicyForInstallation(t *testing.T) {
 				t.Fatalf("policy error = %v", err)
 			}
 		})
+	}
+}
+
+func TestPackageManagerPlanFor(t *testing.T) {
+	tests := []struct {
+		method  install.Method
+		name    string
+		refresh PackageManagerCommand
+		apply   PackageManagerCommand
+	}{
+		{install.MethodHomebrew, "Homebrew", PackageManagerCommand{Name: "brew", Args: []string{"update"}}, PackageManagerCommand{Name: "brew", Args: []string{"upgrade", "--cask", "chatgpt-mcp"}}},
+		{install.MethodScoop, "Scoop", PackageManagerCommand{Name: "scoop", Args: []string{"update"}}, PackageManagerCommand{Name: "scoop", Args: []string{"update", "mew/chatgpt-mcp"}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan, ok := PackageManagerPlanFor(test.method)
+			if !ok || plan.Method != test.method || plan.Name != test.name || plan.Refresh.Name != test.refresh.Name || plan.Apply.Name != test.apply.Name {
+				t.Fatalf("plan = %+v, ok = %t", plan, ok)
+			}
+			if strings.Join(plan.Refresh.Args, " ") != strings.Join(test.refresh.Args, " ") || strings.Join(plan.Apply.Args, " ") != strings.Join(test.apply.Args, " ") {
+				t.Fatalf("plan = %+v", plan)
+			}
+		})
+	}
+	if _, ok := PackageManagerPlanFor(install.MethodDirect); ok {
+		t.Fatal("direct installation returned a package manager plan")
 	}
 }
 

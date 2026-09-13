@@ -149,10 +149,12 @@ A foreground `cgm serve` process is never killed by the updater; the files on di
 Install ownership is preserved:
 
 - managed direct install → built-in transactional self-update
-- Homebrew → reports `brew upgrade --cask chatgpt-mcp`
-- Scoop → reports `scoop update chatgpt-mcp`
+- Homebrew → runs `brew update`, then `brew upgrade --cask chatgpt-mcp`, verifies the installed version, and restarts a running managed service when needed
+- Scoop → runs `scoop update`, then `scoop update mew/chatgpt-mcp`, verifies the installed version, and restarts a running managed service when needed
 - `go install` / development builds → built-in self-update is refused
 - standalone release binary → run `chatgpt-mcp install` first to adopt the managed layout
+
+Package-manager installs follow the latest published manifest. `cgm upgrade --version ...` remains available only to the managed direct installation because Homebrew/Scoop own version selection. If the remote tap or bucket has not published the GitHub release yet, package-manager verification fails instead of reporting a successful upgrade to an older manifest.
 
 Explicit update checks use the network. Normal commands do not; `cgm status` may surface fresh cached availability from `<install-root>/state/update.json`.
 

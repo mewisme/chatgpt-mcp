@@ -24,10 +24,7 @@ func upgradeCommand() *cobra.Command {
 		log := commandLogger(cmd)
 		logCommandDebug(cmd, "UPDATE", "update.policy.resolved", "Update policy resolved", logger.WithDebug("method", policy.Method), logger.WithDebug("action", policy.Action))
 		if policy.Action == updatepkg.PolicyDelegate {
-			log.Notice("UPDATE", "update.delegated", policy.Message)
-			log.Detail("method", policy.Method)
-			log.Detail("run", policy.Command)
-			return nil
+			return runPackageManagedUpgrade(cmd, detection, targetVersion, noRestart)
 		}
 		if err := policy.Error(); err != nil {
 			return err

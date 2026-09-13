@@ -479,23 +479,21 @@ func (page *LogsPage) View(width, height int) string {
 		tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, width)
 		bodyHeight := max(1, height-lipgloss.Height(tabs))
 		help := page.executionHelpView(width)
-		layout := component.NewSectionLayout("", "live output", "", width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", "", page.executionHeaderView(width), width, bodyHeight, lipgloss.Height(help))
 		section := component.BottomHelp(layout.View(page.executionBodyView(width, layout.BodyHeight)), help, width, bodyHeight)
 		content = tabs + "\n" + section
 	} else {
 		tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, width)
-		status := page.statusView(width)
-		feedback := ""
+		header := page.statusView(width)
 		if page.err != nil {
-			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
+			header += "\n" + component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 		}
 		bodyHeight := max(1, height-lipgloss.Height(tabs))
 		help := page.browser.HelpView()
-		layout := component.NewSectionLayout("", "live journal", feedback, width, bodyHeight, lipgloss.Height(help))
-		browserHeight := max(1, layout.BodyHeight-lipgloss.Height(status))
-		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
+		layout := component.NewSectionLayout("", "", header, width, bodyHeight, lipgloss.Height(help))
+		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 		page.browser = updated.(component.Browser)
-		section := component.BottomHelp(layout.View(status+"\n"+page.browser.BodyContent()), help, width, bodyHeight)
+		section := component.BottomHelp(layout.View(page.browser.BodyContent()), help, width, bodyHeight)
 		content = tabs + "\n" + section
 	}
 	switch page.overlay {
@@ -545,19 +543,18 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	if page.tab == logsTabCommandExec {
 		bodyHeight := max(1, page.height-tabsHeight)
 		help := page.executionHelpView(page.width)
-		layout := component.NewSectionLayout("", "live output", "", page.width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", "", page.executionHeaderView(page.width), page.width, bodyHeight, lipgloss.Height(help))
 		bodyY := originY + tabsHeight + 1 + layout.BodyY
 		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, layout.BodyHeight)...)
 	}
-	feedback := ""
+	header := page.statusView(page.width)
 	if page.err != nil {
-		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
+		header += "\n" + component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
 	bodyHeight := max(1, page.height-tabsHeight)
 	help := page.browser.HelpView()
-	layout := component.NewSectionLayout("", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
-	statusHeight := lipgloss.Height(page.statusView(page.width))
-	browserY := originY + tabsHeight + 1 + layout.BodyY + statusHeight
+	layout := component.NewSectionLayout("", "", header, page.width, bodyHeight, lipgloss.Height(help))
+	browserY := originY + tabsHeight + 1 + layout.BodyY
 	tabTargets = append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
 	helpY := originY + tabsHeight + 1 + bodyHeight - lipgloss.Height(help)
 	return append(tabTargets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
@@ -896,16 +893,14 @@ func (page *LogsPage) rebuildBrowser(selected string) tea.Cmd {
 
 func (page *LogsPage) resizeBrowser() tea.Cmd {
 	tabsHeight := lipgloss.Height(component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, page.width))
-	statusHeight := lipgloss.Height(page.statusView(page.width))
-	feedback := ""
+	header := page.statusView(page.width)
 	if page.err != nil {
-		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
+		header += "\n" + component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
 	bodyHeight := max(1, page.height-tabsHeight)
 	help := page.browser.HelpView()
-	layout := component.NewSectionLayout("", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
-	height := max(1, layout.BodyHeight-statusHeight)
-	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
+	layout := component.NewSectionLayout("", "", header, page.width, bodyHeight, lipgloss.Height(help))
+	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
 	page.browser = updated.(component.Browser)
 	return cmd
 }

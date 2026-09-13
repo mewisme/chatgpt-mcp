@@ -8,7 +8,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"go.mewis.me/chatgpt-mcp/internal/auth"
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
@@ -25,7 +25,7 @@ func NewStdioRuntime(toolRuntime *tools.Runtime, in io.ReadCloser, out io.WriteC
 }
 
 func NewStdioRuntimeWithWorkspace(toolRuntime *tools.Runtime, in io.ReadCloser, out io.WriteCloser, workspaceID string) (*StdioRuntime, error) {
-	server, err := NewSDKServerWithSession(toolRuntime, "stdio", auth.GenerateToken("stdio"), workspaceID)
+	server, err := NewSDKServerWithSession(toolRuntime, "stdio", idgen.Must("stdio", 8), workspaceID)
 	if err != nil {
 		return nil, err
 	}

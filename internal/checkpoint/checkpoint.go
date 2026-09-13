@@ -1,7 +1,6 @@
 package checkpoint
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -17,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
@@ -694,11 +694,7 @@ func (s *Store) maxDepth() int {
 }
 
 func checkpointID() (string, error) {
-	buffer := make([]byte, 6)
-	if _, err := rand.Read(buffer); err != nil {
-		return "", err
-	}
-	return "cp_" + hex.EncodeToString(buffer), nil
+	return idgen.New("cp", 6)
 }
 
 func buildSummary(manifest Manifest) Summary {

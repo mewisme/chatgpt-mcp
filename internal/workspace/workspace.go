@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -15,6 +14,7 @@ import (
 	"sync"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/instance"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -899,11 +899,7 @@ func workspaceID(path string) string {
 }
 
 func workspaceContainerID() (string, error) {
-	var bytes [8]byte
-	if _, err := rand.Read(bytes[:]); err != nil {
-		return "", err
-	}
-	return "wsc_" + hex.EncodeToString(bytes[:]), nil
+	return idgen.New("wsc", 8)
 }
 
 func IDForPath(path string) string { return workspaceID(path) }

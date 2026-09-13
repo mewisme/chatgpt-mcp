@@ -1,10 +1,9 @@
 package application
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"os"
 
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 )
@@ -102,11 +101,7 @@ func (service *InstructionSettingsService) store() *instructionpolicy.Store {
 }
 
 func NewInstructionRuleID() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	return "rule_" + hex.EncodeToString(value[:]), nil
+	return idgen.New("rule", 16)
 }
 
 func cloneInstructionSourcePolicy(values map[string]instructionpolicy.SourcePolicy) map[string]instructionpolicy.SourcePolicy {

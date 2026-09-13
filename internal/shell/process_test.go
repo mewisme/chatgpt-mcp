@@ -1,9 +1,25 @@
 package shell
 
 import (
+	"encoding/hex"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestProcessIDUsesCompactHex(t *testing.T) {
+	id, err := processID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := strings.TrimPrefix(id, "proc_")
+	if len(value) != 16 {
+		t.Fatalf("process id=%q", id)
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		t.Fatalf("process id is not hex: %q", id)
+	}
+}
 
 func TestProcessManagerPrunesFinishedHistory(t *testing.T) {
 	now := time.Now().UTC()

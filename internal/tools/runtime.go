@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
@@ -14,6 +13,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/features"
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -38,7 +38,6 @@ type Runtime struct {
 	Executions      *shellruntime.ExecutionHub
 	Processes       *shellruntime.ProcessManager
 	LoopGuard       *ToolLoopGuard
-	callSequence    atomic.Uint64
 	sessionMu       sync.Mutex
 	featureMu       sync.Mutex
 	features        features.Config
@@ -360,7 +359,7 @@ func tunnelResponseBudgetError(name string) error {
 }
 
 func (r *Runtime) nextCallID() string {
-	return fmt.Sprintf("call_%x_%x", time.Now().UnixMilli(), r.callSequence.Add(1))
+	return idgen.Must("call", 8)
 }
 
 func observedResult(name string, result Result) any {

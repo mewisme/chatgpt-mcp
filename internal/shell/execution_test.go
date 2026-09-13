@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -18,6 +19,13 @@ func TestExecutionHubSnapshotsAndStreamsOutput(t *testing.T) {
 		WorkspaceID: "ws_test", Tool: "run_command", Command: "demo", CWD: "/tmp", Source: "mcp", CallID: "call_test",
 		SessionHash: "session-hash", ReceivedByInstanceID: "instance-received", ExecutedByInstanceID: "instance-executed",
 	})
+	executionHex := strings.TrimPrefix(run.ID(), "exec_")
+	if len(executionHex) != 16 {
+		t.Fatalf("execution id=%q", run.ID())
+	}
+	if _, err := hex.DecodeString(executionHex); err != nil {
+		t.Fatalf("execution id is not hex: %q", run.ID())
+	}
 	sub, snapshot, err := hub.Subscribe("ws_test", run.ID())
 	if err != nil {
 		t.Fatal(err)

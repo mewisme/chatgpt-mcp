@@ -3,10 +3,11 @@ package shell
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 )
 
 const (
@@ -120,7 +121,6 @@ type ExecutionHub struct {
 	mu           sync.RWMutex
 	executions   map[string]*executionRecord
 	order        []string
-	nextID       uint64
 	maxRecent    int
 	feedMu       sync.Mutex
 	feed         []ExecutionFeedEvent
@@ -233,8 +233,7 @@ func (h *ExecutionHub) Begin(input ExecutionInput) *ExecutionRun {
 		tool = "run_command"
 	}
 	h.mu.Lock()
-	h.nextID++
-	id := fmt.Sprintf("exec_%x_%x", time.Now().UnixMilli(), h.nextID)
+	id := idgen.Must("exec", 8)
 	record := &executionRecord{info: ExecutionInfo{
 		ID: id, WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, CWD: input.CWD,
 		Source: strings.TrimSpace(input.Source), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),

@@ -311,6 +311,89 @@ func TestDefaultRestartDelayIsBoundedExponential(t *testing.T) {
 	}
 }
 
+func TestTunnelIdleReconnectRepeats(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	created := make(chan *fakeBackend, 8)
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+		fake := newFakeBackend()
+		created <- fake
+		return fake, nil
+	})
+	client.idleInterval = 25 * time.Millisecond
+	client.restartDelay = func(int) time.Duration { return time.Millisecond }
+	events := make(chan LifecycleEvent, 32)
+	client.SetLifecycleObserver(func(event LifecycleEvent) { events <- event })
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	first := waitBackendCreated(t, created)
+	waitLifecycleState(t, events, LifecycleReady)
+	second := waitBackendCreated(t, created)
+	if second == first {
+		t.Fatal("idle reconnect reused the previous backend")
+	}
+	waitLifecycleState(t, events, LifecycleReady)
+	third := waitBackendCreated(t, created)
+	if third == second {
+		t.Fatal("repeated idle reconnect reused the previous backend")
+	}
+	waitLifecycleState(t, events, LifecycleReady)
+	if err := client.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTunnelMCPActivityResetsIdleDeadline(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	created := make(chan *fakeBackend, 4)
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+		fake := newFakeBackend()
+		created <- fake
+		return fake, nil
+	})
+	client.idleInterval = 100 * time.Millisecond
+	client.restartDelay = func(int) time.Duration { return time.Millisecond }
+	events := make(chan LifecycleEvent, 16)
+	client.SetLifecycleObserver(func(event LifecycleEvent) { events <- event })
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitBackendCreated(t, created)
+	waitLifecycleState(t, events, LifecycleReady)
+	client.mu.RLock()
+	session, before := client.session, client.lastActivity
+	client.mu.RUnlock()
+	time.Sleep(60 * time.Millisecond)
+	client.markMCPActivity(session)
+	client.mu.RLock()
+	after := client.lastActivity
+	client.mu.RUnlock()
+	if !after.After(before) {
+		t.Fatalf("last activity did not advance: before=%s after=%s", before, after)
+	}
+	select {
+	case <-created:
+		t.Fatal("MCP activity did not postpone idle reconnect")
+	case <-time.After(60 * time.Millisecond):
+	}
+	waitBackendCreated(t, created)
+	waitLifecycleState(t, events, LifecycleReady)
+	if err := client.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitBackendCreated(t *testing.T, created <-chan *fakeBackend) *fakeBackend {
+	t.Helper()
+	select {
+	case backend := <-created:
+		return backend
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for tunnel backend")
+		return nil
+	}
+}
+
 func waitLifecycleState(t *testing.T, events <-chan LifecycleEvent, state LifecycleState) LifecycleEvent {
 	t.Helper()
 	deadline := time.After(time.Second)

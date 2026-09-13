@@ -2,8 +2,6 @@ package approval
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -12,6 +10,7 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/commandpattern"
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 )
 
 type challengeRecord struct {
@@ -788,9 +787,5 @@ func cloneRequest(value Request) Request {
 }
 
 func randomID(prefix string) (string, error) {
-	buffer := make([]byte, 12)
-	if _, err := rand.Read(buffer); err != nil {
-		return "", err
-	}
-	return prefix + "_" + hex.EncodeToString(buffer), nil
+	return idgen.New(prefix, 12)
 }

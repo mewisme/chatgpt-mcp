@@ -10,6 +10,10 @@ import (
 
 func TestSectionLayoutUsesAllRowsBeforeFooter(t *testing.T) {
 	layout := NewSectionLayout("Logs", "live", "", 80, 20, 1)
+	lines := strings.Split(ansi.Strip(layout.Header), "\n")
+	if len(lines) < 3 || strings.TrimSpace(lines[1]) != "" {
+		t.Fatalf("root section title is not followed by an empty row: %q", ansi.Strip(layout.Header))
+	}
 	prefixHeight := lipgloss.Height(layout.Header)
 	if layout.BodyY != prefixHeight {
 		t.Fatalf("body y=%d want=%d", layout.BodyY, prefixHeight)

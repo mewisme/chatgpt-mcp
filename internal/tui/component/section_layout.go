@@ -17,6 +17,7 @@ func NewSectionLayout(title, meta, feedback string, width, height, footerHeight 
 	parts := make([]string, 0, 3)
 	if title = strings.TrimSpace(title); title != "" {
 		parts = append(parts, TwoColumn(Title(title), Secondary(meta), width))
+		parts = append(parts, "")
 	} else if meta = strings.TrimSpace(meta); meta != "" {
 		parts = append(parts, TwoColumn("", Secondary(meta), width))
 	}

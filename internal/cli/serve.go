@@ -14,8 +14,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.mewis.me/chatgpt-mcp/internal/app"
-	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -87,7 +87,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	interrupt := newForegroundInterrupt(cmd, false)
 	defer interrupt.Close()
 	log := commandLogger(cmd)
-	metadata := runtimeevent.Metadata{RunID: auth.GenerateToken("run"), PID: os.Getpid(), Managed: serviceInfo.Managed, ServiceID: serviceInfo.ID, ServiceScope: serviceInfo.Scope}
+	metadata := runtimeevent.Metadata{RunID: idgen.Must("run", 8), PID: os.Getpid(), Managed: serviceInfo.Managed, ServiceID: serviceInfo.ID, ServiceScope: serviceInfo.Scope}
 	logCommandStep(cmd, "SESSION", "runtime.journal.opening", "Opening runtime journal")
 	journal, err := runtimeevent.NewJournal(config.RootPath(), runtimeevent.Options{Metadata: metadata})
 	if err != nil {

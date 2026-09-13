@@ -327,6 +327,18 @@ func (page *LogsPage) executionStatusView(width int) string {
 	return component.TwoColumn(left, component.KeyValue("Mode", page.executionScopeLabel()), width)
 }
 
+func (page *LogsPage) executionHeaderView(width int) string {
+	parts := []string{page.executionStatusView(width)}
+	if page.exec.err != nil {
+		parts = append(parts, component.BannerWidth(page.exec.err.Error(), component.ToneDanger, width))
+	} else if page.exec.notice != "" {
+		parts = append(parts, component.WrapContent(component.Muted(page.exec.notice), width))
+	} else if page.exec.scopeNotice != "" {
+		parts = append(parts, component.WrapContent(component.Muted(page.exec.scopeNotice), width))
+	}
+	return strings.Join(parts, "\n")
+}
+
 func (page *LogsPage) executionHelpView(width int) string {
 	return component.NewHelpFooter(
 		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"),
@@ -336,20 +348,7 @@ func (page *LogsPage) executionHelpView(width int) string {
 }
 
 func (page *LogsPage) executionBodyView(width, height int) string {
-	status := page.executionStatusView(width)
-	message := ""
-	if page.exec.err != nil {
-		message = component.BannerWidth(page.exec.err.Error(), component.ToneDanger, width)
-	} else if page.exec.notice != "" {
-		message = component.WrapContent(component.Muted(page.exec.notice), width)
-	} else if page.exec.scopeNotice != "" {
-		message = component.WrapContent(component.Muted(page.exec.scopeNotice), width)
-	}
-	reserved := lipgloss.Height(status) + 1
-	if message != "" {
-		reserved += lipgloss.Height(message)
-	}
-	bodyHeight := max(1, height-reserved)
+	bodyHeight := max(1, height)
 	page.resizeExecutionViewport(width, bodyHeight)
 	sticky := page.executionStickyHeader(width)
 	if sticky != "" {
@@ -362,14 +361,11 @@ func (page *LogsPage) executionBodyView(width, height int) string {
 		empty.SetContent(component.Muted("Waiting for command output"))
 		body = empty.View()
 	}
-	content := status + "\n\n"
+	content := ""
 	if sticky != "" {
-		content += sticky + "\n"
+		content = sticky + "\n"
 	}
 	content += body
-	if message != "" {
-		content += "\n" + message
-	}
 	return content
 }
 

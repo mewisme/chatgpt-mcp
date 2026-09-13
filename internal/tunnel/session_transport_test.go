@@ -64,3 +64,19 @@ func TestSessionTransportDoesNotInjectIntoNonToolRequest(t *testing.T) {
 		t.Fatalf("params changed: %s", request.Params)
 	}
 }
+
+func TestSessionTransportReportsMCPRequestActivity(t *testing.T) {
+	base := &captureTransport{conn: &captureConnection{}}
+	activity := 0
+	conn, err := withSessionTransportActivity(base, func() { activity++ }).Connect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &jsonrpc.Request{Method: "tools/list", Params: json.RawMessage(`{}`)}
+	if err := conn.Write(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if activity != 1 {
+		t.Fatalf("activity callbacks=%d want=1", activity)
+	}
+}

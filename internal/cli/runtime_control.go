@@ -18,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
@@ -178,7 +179,7 @@ func startRuntimeControlContext(ctx context.Context, options runtimeControlOptio
 		if command == "" {
 			command = "echo dummy approval"
 		}
-		sessionID := auth.GenerateToken("dummy")
+		sessionID := idgen.Must("dummy", 8)
 		challenge, _, err := options.Approvals.CreateChallenge(approval.ChallengeInput{
 			SessionID: sessionID, SessionHash: "dummy", WorkspaceID: workspaceID, Source: "cli-dummy", TargetTool: "run_command",
 			Arguments: map[string]any{"workspace_id": workspaceID, "command": command, "dummy": true}, GuardCode: controlguard.CodeControlPlaneMutation,

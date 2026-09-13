@@ -2,8 +2,6 @@ package shell
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -571,11 +570,7 @@ func (b *logBuffer) tail(chars int) string {
 }
 
 func processID() (string, error) {
-	buffer := make([]byte, 4)
-	if _, err := rand.Read(buffer); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x-%s", time.Now().UnixMilli(), hex.EncodeToString(buffer)), nil
+	return idgen.New("proc", 8)
 }
 
 func cloneInt(value *int) *int {

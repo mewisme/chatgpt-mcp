@@ -230,7 +230,7 @@ func (replay *runtimeReplay) renderSessionHeader(event runtimeevent.Event) {
 
 func shortSessionID(value string) string {
 	value = strings.TrimSpace(value)
-	const max = 16
+	const max = 20
 	if len(value) <= max {
 		return value
 	}

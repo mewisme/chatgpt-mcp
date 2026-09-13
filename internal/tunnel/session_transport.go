@@ -11,15 +11,25 @@ import (
 
 const sessionMetaKey = "go.mewis.me/chatgpt-mcp/mcp-session-id"
 
-type sessionTransport struct{ base sdkmcp.Transport }
+type sessionTransport struct {
+	base       sdkmcp.Transport
+	onActivity func()
+}
 
-type sessionConnection struct{ base sdkmcp.Connection }
+type sessionConnection struct {
+	base       sdkmcp.Connection
+	onActivity func()
+}
 
 func withSessionTransport(base sdkmcp.Transport) sdkmcp.Transport {
+	return withSessionTransportActivity(base, nil)
+}
+
+func withSessionTransportActivity(base sdkmcp.Transport, onActivity func()) sdkmcp.Transport {
 	if base == nil {
 		return nil
 	}
-	return &sessionTransport{base: base}
+	return &sessionTransport{base: base, onActivity: onActivity}
 }
 
 func (t *sessionTransport) Connect(ctx context.Context) (sdkmcp.Connection, error) {
@@ -27,7 +37,7 @@ func (t *sessionTransport) Connect(ctx context.Context) (sdkmcp.Connection, erro
 	if err != nil {
 		return nil, err
 	}
-	return &sessionConnection{base: conn}, nil
+	return &sessionConnection{base: conn, onActivity: t.onActivity}, nil
 }
 
 func (c *sessionConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
@@ -35,8 +45,9 @@ func (c *sessionConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
 }
 
 func (c *sessionConnection) Write(ctx context.Context, msg jsonrpc.Message) error {
+	request, isRequest := msg.(*jsonrpc.Request)
 	if sessionID, ok := tunnelctx.SessionIDFromContext(ctx); ok {
-		if request, ok := msg.(*jsonrpc.Request); ok && request != nil && request.Method == "tools/call" {
+		if isRequest && request != nil && request.Method == "tools/call" {
 			params := map[string]any{}
 			if len(request.Params) > 0 && string(request.Params) != "null" {
 				if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -56,7 +67,11 @@ func (c *sessionConnection) Write(ctx context.Context, msg jsonrpc.Message) erro
 			request.Params = encoded
 		}
 	}
-	return c.base.Write(ctx, msg)
+	err := c.base.Write(ctx, msg)
+	if err == nil && isRequest && request != nil && c.onActivity != nil {
+		c.onActivity()
+	}
+	return err
 }
 
 func (c *sessionConnection) Close() error      { return c.base.Close() }

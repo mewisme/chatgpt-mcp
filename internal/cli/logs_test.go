@@ -79,6 +79,13 @@ func TestLogsSessionFilterUsesDisplayedPrefix(t *testing.T) {
 	}
 }
 
+func TestShortSessionIDKeepsCompactHexRunID(t *testing.T) {
+	const value = "run_0123456789abcdef"
+	if got := shortSessionID(value); got != value {
+		t.Fatalf("short session id=%q want=%q", got, value)
+	}
+}
+
 func TestLogsDefaultsToLatestSessionAndAllRestoresHistory(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := t.TempDir()

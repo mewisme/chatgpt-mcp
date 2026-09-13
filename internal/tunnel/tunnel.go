@@ -26,6 +26,7 @@ const (
 	defaultStopTimeout = 5 * time.Second
 	restartMinDelay    = time.Second
 	restartMaxDelay    = 30 * time.Second
+	idleReconnectDelay = 10 * time.Minute
 	metadataTTL        = 5 * time.Minute
 )
 
@@ -152,6 +153,9 @@ type Client struct {
 	generation     uint64
 	restartAttempt int
 	restartDelay   func(int) time.Duration
+	idleInterval   time.Duration
+	lastActivity   time.Time
+	idleWake       chan struct{}
 	metadataFetch  metadataFetcher
 	metadata       *Metadata
 	metadataError  string
@@ -177,7 +181,7 @@ func newConfigured(cfg Config, runtime *tools.Runtime, factory backendFactory) *
 	if factory == nil {
 		factory = newOpenAIBackendFactory(nil)
 	}
-	return &Client{config: cfg, runtime: runtime, factory: factory, restartDelay: defaultRestartDelay, metadataFetch: FetchMetadata}
+	return &Client{config: cfg, runtime: runtime, factory: factory, restartDelay: defaultRestartDelay, idleInterval: idleReconnectDelay, metadataFetch: FetchMetadata}
 }
 
 func FetchMetadata(ctx context.Context, cfg Config) (Metadata, error) {
@@ -562,6 +566,9 @@ func (c *Client) StartContext(parent context.Context) error {
 	c.restartAttempt = 0
 	c.recovering = false
 	c.restarting = false
+	c.lastActivity = time.Now()
+	c.idleWake = make(chan struct{}, 1)
+	idleWake := c.idleWake
 	c.mu.Unlock()
 
 	if err := c.startGeneration(session, sessionCtx, true); err != nil {
@@ -571,11 +578,14 @@ func (c *Client) StartContext(parent context.Context) error {
 			c.sessionCtx = nil
 			c.sessionCancel = nil
 			c.sessionReady = nil
+			c.lastActivity = time.Time{}
+			c.idleWake = nil
 		}
 		c.mu.Unlock()
 		return err
 	}
 	go c.watchSession(session, sessionCtx)
+	go c.watchIdleReconnect(session, sessionCtx, idleWake)
 	return nil
 }
 
@@ -608,7 +618,7 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 		return err
 	}
 	serverTransport, tunnelTransport := newCancellationSafeInMemoryTransports()
-	tunnelBackend, err := c.factory(c.config, withSessionTransport(tunnelTransport))
+	tunnelBackend, err := c.factory(c.config, withSessionTransportActivity(tunnelTransport, func() { c.markMCPActivity(session) }))
 	if err != nil {
 		c.lastError = err.Error()
 		c.mu.Unlock()
@@ -698,6 +708,94 @@ func (c *Client) watchSession(session uint64, ctx context.Context) {
 	_ = c.stopSession(stopCtx, session, true)
 }
 
+func (c *Client) markMCPActivity(session uint64) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.session != session || c.sessionCtx == nil {
+		c.mu.Unlock()
+		return
+	}
+	c.lastActivity = time.Now()
+	wake := c.idleWake
+	c.mu.Unlock()
+	if wake != nil {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (c *Client) watchIdleReconnect(session uint64, ctx context.Context, wake <-chan struct{}) {
+	for {
+		c.mu.RLock()
+		if c.session != session || c.idleWake == nil || c.idleWake != wake {
+			c.mu.RUnlock()
+			return
+		}
+		interval := c.idleInterval
+		if interval <= 0 {
+			interval = idleReconnectDelay
+		}
+		lastActivity := c.lastActivity
+		c.mu.RUnlock()
+		if lastActivity.IsZero() {
+			lastActivity = time.Now()
+		}
+		delay := time.Until(lastActivity.Add(interval))
+		if delay < 0 {
+			delay = 0
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return
+		case <-wake:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			continue
+		case <-timer.C:
+			c.reconnectIdle(session, ctx)
+		}
+	}
+}
+
+func (c *Client) reconnectIdle(session uint64, parent context.Context) {
+	now := time.Now()
+	c.mu.Lock()
+	if c.session != session || parent.Err() != nil {
+		c.mu.Unlock()
+		return
+	}
+	interval := c.idleInterval
+	if interval <= 0 {
+		interval = idleReconnectDelay
+	}
+	if !c.lastActivity.IsZero() && now.Before(c.lastActivity.Add(interval)) {
+		c.mu.Unlock()
+		return
+	}
+	c.lastActivity = now
+	generation := c.generation
+	canRestart := c.config.Enabled && c.running && c.ready && !c.stopping && !c.recovering && !c.restarting
+	c.mu.Unlock()
+	if canRestart {
+		c.restartGeneration(session, generation, parent, "MCP idle timeout reached", false)
+	}
+}
+
 func (c *Client) watchServer(session, generation uint64, run *serverRun, parent context.Context) {
 	<-run.done
 	if run.err == nil || errors.Is(run.err, context.Canceled) {
@@ -724,17 +822,31 @@ func (c *Client) watchBackend(session, generation uint64, tunnelBackend backend,
 }
 
 func (c *Client) recoverGeneration(session, generation uint64, parent context.Context, message string) {
+	c.restartGeneration(session, generation, parent, message, true)
+}
+
+func (c *Client) restartGeneration(session, generation uint64, parent context.Context, message string, degraded bool) {
 	c.mu.Lock()
 	if c.session != session || c.generation != generation || !c.running || c.stopping || c.recovering || parent.Err() != nil {
 		c.mu.Unlock()
 		return
 	}
+	if !degraded && !c.ready {
+		c.mu.Unlock()
+		return
+	}
 	c.recovering = true
 	c.restarting = true
-	c.lastError = message
+	if degraded {
+		c.lastError = message
+	} else {
+		c.lastError = ""
+	}
 	id := c.config.ID
 	c.mu.Unlock()
-	c.emitLifecycle(LifecycleDegraded, id, message)
+	if degraded {
+		c.emitLifecycle(LifecycleDegraded, id, message)
+	}
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), defaultStopTimeout)
 	_ = c.stopGeneration(stopCtx, generation)
@@ -855,6 +967,8 @@ func (c *Client) stopSession(ctx context.Context, expectedSession uint64, emitSt
 	c.restarting = false
 	c.recovering = false
 	c.restartAttempt = 0
+	c.lastActivity = time.Time{}
+	c.idleWake = nil
 	c.mu.Unlock()
 
 	if cancel != nil {

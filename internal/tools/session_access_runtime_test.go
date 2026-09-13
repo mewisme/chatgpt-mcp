@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -122,8 +123,12 @@ func TestRuntimeObservesSessionWorkspaceAccessWithoutRawSessionID(t *testing.T) 
 		t.Fatalf("first call = %#v err=%v", result, err)
 	}
 	start, finish := <-observed, <-observed
-	if !strings.HasPrefix(start.CallID, "call_") || strings.Count(start.CallID, "_") != 2 || finish.CallID != start.CallID {
+	callHex := strings.TrimPrefix(start.CallID, "call_")
+	if len(callHex) != 16 || finish.CallID != start.CallID {
 		t.Fatalf("call ids = %q / %q", start.CallID, finish.CallID)
+	}
+	if _, err := hex.DecodeString(callHex); err != nil {
+		t.Fatalf("call id is not hex: %q", start.CallID)
 	}
 	if start.SessionAccess != SessionWorkspaceAccessNew || finish.SessionAccess != SessionWorkspaceAccessNew || finish.SessionWorkspaceCount != 1 {
 		t.Fatalf("first access observations = %#v / %#v", start, finish)

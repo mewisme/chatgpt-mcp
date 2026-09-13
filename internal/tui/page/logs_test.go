@@ -409,6 +409,21 @@ func TestLogsStatusShowsFullSessionID(t *testing.T) {
 	}
 }
 
+func TestLogsStatusPlacesSessionBesideFullStreamRow(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	page.connected = true
+	page.query.RunID = "run_0123456789abcdef"
+	lines := strings.Split(ansi.Strip(page.statusView(120)), "\n")
+	if len(lines) != 1 || !strings.HasSuffix(lines[0], "Session  run_0123456789abcdef") {
+		t.Fatalf("status row = %#v", lines)
+	}
+	for _, want := range []string{"Stream", "Follow", "View", "Events"} {
+		if !strings.Contains(lines[0], want) {
+			t.Fatalf("status row missing %q: %#v", want, lines)
+		}
+	}
+}
+
 func TestLogsClearKeepsLiveStreamAndStableNotice(t *testing.T) {
 	page, _ := NewLogs(t.Context())
 	page.connected = true
@@ -798,7 +813,7 @@ func TestLogsCommandExecutionEmptyViewPinsHelpToBottom(t *testing.T) {
 	status := -1
 	waiting := -1
 	for index, line := range lines {
-		if status < 0 && strings.Contains(line, "Stream") && strings.Contains(line, "Follow") {
+		if status < 0 && strings.Contains(line, "Stream") && strings.Contains(line, "Follow") && strings.Contains(line, "Events") && strings.Contains(line, "Buffer") && strings.Contains(line, "Mode") {
 			status = index
 		}
 		if strings.Contains(line, "Waiting for command output") {
@@ -806,8 +821,11 @@ func TestLogsCommandExecutionEmptyViewPinsHelpToBottom(t *testing.T) {
 			break
 		}
 	}
-	if status < 0 || status+1 >= len(lines) || strings.TrimSpace(lines[status+1]) != "" {
-		t.Fatalf("command execution status missing spacer row: status=%d view=%q", status, plain)
+	if status < 0 || status+1 >= len(lines) || !strings.Contains(lines[status+1], "──") {
+		t.Fatalf("command execution status is not above divider: status=%d view=%q", status, plain)
+	}
+	if strings.Contains(plain, "live output") {
+		t.Fatalf("command execution retained redundant live output label: %q", plain)
 	}
 	if waiting < 0 || last-waiting < 10 {
 		t.Fatalf("empty body did not reserve vertical space: waiting=%d help=%d", waiting, last)
@@ -1483,11 +1501,32 @@ func TestCommandExecutionUsesFullBodyHeight(t *testing.T) {
 	help := page.executionHelpView(page.width)
 	tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, page.width)
 	bodyHeight := page.height - lipgloss.Height(tabs)
-	layout := component.NewSectionLayout("Command Execution", "live output", "", page.width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", "", page.executionHeaderView(page.width), page.width, bodyHeight, lipgloss.Height(help))
 	page.executionBodyView(page.width, layout.BodyHeight)
-	want := layout.BodyHeight - lipgloss.Height(page.executionStatusView(page.width)) - 1
+	want := layout.BodyHeight
 	if got := page.exec.viewport.Height(); got != want {
 		t.Fatalf("execution viewport height=%d want=%d", got, want)
+	}
+}
+
+func TestRuntimeLogsStatusRendersAboveDividerWithoutLiveJournalLabel(t *testing.T) {
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	page.connected, page.loaded = true, true
+	plain := ansi.Strip(page.View(120, 28))
+	lines := strings.Split(plain, "\n")
+	status := -1
+	for index, line := range lines {
+		if strings.Contains(line, "Stream") && strings.Contains(line, "Follow") && strings.Contains(line, "View") && strings.Contains(line, "Events") && strings.Contains(line, "Session") {
+			status = index
+			break
+		}
+	}
+	if status < 0 || status+1 >= len(lines) || !strings.Contains(lines[status+1], "──") {
+		t.Fatalf("runtime log status is not above divider: status=%d view=%q", status, plain)
+	}
+	if strings.Contains(plain, "live journal") {
+		t.Fatalf("runtime logs retained redundant live journal label: %q", plain)
 	}
 }
 

@@ -57,5 +57,5 @@ function normalizeGlobalInstructions(value: GlobalInstructions): GlobalInstructi
   const sources = Array.isArray(value?.detected_sources) ? value.detected_sources.filter((source) => source && typeof source === "object").map((source) => ({ ...source, paths: Array.isArray(source.paths) ? source.paths : [] })) : []
   return { ...value, context: typeof value?.context === "string" ? value.context : "", rules: Array.isArray(value?.rules) ? value.rules : [], source_policy: value?.source_policy && typeof value.source_policy === "object" && !Array.isArray(value.source_policy) ? value.source_policy : {}, detected_sources: sources }
 }
-function newRuleID() { return `rule_${crypto.randomUUID()}` }
+function newRuleID() { return `rule_${Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join("")}` }
 function errorText(value: unknown) { return value instanceof Error ? value.message : String(value) }

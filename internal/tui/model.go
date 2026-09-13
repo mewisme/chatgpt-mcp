@@ -1350,6 +1350,7 @@ func (model Model) render() (string, []component.MouseTarget) {
 		breadcrumb, breadcrumbTargets := model.breadcrumb(metrics.contentWidth, metrics.contentX, metrics.breadcrumbY)
 		targets = append(targets, breadcrumbTargets...)
 		lines = append(lines, frameLine(breadcrumb, width, border))
+		lines = append(lines, frameLine("", width, border))
 	}
 	body := fitFrameContent(model.page(metrics.contentWidth, metrics.bodyHeight), metrics.contentWidth, metrics.bodyHeight)
 	for _, line := range body {
@@ -1580,11 +1581,11 @@ func (model Model) frameMetrics(width, height int) frameMetrics {
 		fixedHeight += 2
 		bodyY = 3
 	}
-	showBreadcrumb := len(routeStack(model.router.Current())) > 1 && contentWidth > 0 && height-fixedHeight > 1
+	showBreadcrumb := len(routeStack(model.router.Current())) > 1 && contentWidth > 0 && height-fixedHeight > 2
 	breadcrumbY := bodyY
 	if showBreadcrumb {
-		fixedHeight++
-		bodyY++
+		fixedHeight += 2
+		bodyY += 2
 	}
 	showFooter := height >= 6 && contentWidth >= 16
 	if showFooter {

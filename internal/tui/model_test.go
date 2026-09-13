@@ -859,6 +859,20 @@ func TestModelBreadcrumbRendersAndNavigatesAncestors(t *testing.T) {
 			t.Fatalf("breadcrumb missing %q: %q", want, plain)
 		}
 	}
+	metrics := model.frameMetrics(120, 32)
+	if !metrics.showBreadcrumb || metrics.bodyY != metrics.breadcrumbY+2 {
+		t.Fatalf("breadcrumb spacing y=%d body=%d visible=%t", metrics.breadcrumbY, metrics.bodyY, metrics.showBreadcrumb)
+	}
+	lines := strings.Split(plain, "\n")
+	for index, line := range lines {
+		if !strings.Contains(line, "Project Context") {
+			continue
+		}
+		if index+1 >= len(lines) || strings.TrimSpace(strings.Trim(lines[index+1], "│")) != "" {
+			t.Fatalf("breadcrumb is not followed by one empty row: index=%d next=%q", index, lines[index+1])
+		}
+		break
+	}
 	_, targets := model.render()
 	var middle tea.Msg
 	for _, target := range targets {

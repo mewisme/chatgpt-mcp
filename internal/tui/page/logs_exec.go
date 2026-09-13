@@ -253,12 +253,15 @@ func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "m":
 		return page.openLogsModeDialog()
 	case "space":
-		if page.view == logsViewTimeline {
-			page.exec.paused = !page.exec.paused
-			if !page.exec.paused {
+		page.exec.paused = !page.exec.paused
+		if !page.exec.paused {
+			if page.view == logsViewBrowser {
+				page.browser.SelectLast()
+			} else {
 				page.refreshExecutionViewport()
 			}
 		}
+		page.syncBrowserHelp()
 		return nil
 	case "r":
 		return page.startExecutionFeed()
@@ -269,8 +272,18 @@ func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	if page.view == logsViewBrowser {
+		before := ""
+		if row, ok := page.browser.Selected(); ok {
+			before = row.ID
+		}
 		updated, cmd := page.browser.Update(msg)
 		page.browser = updated.(component.Browser)
+		if !page.exec.paused && before != "" {
+			if row, ok := page.browser.Selected(); ok && row.ID != before {
+				page.exec.paused = true
+				page.syncBrowserHelp()
+			}
+		}
 		return cmd
 	}
 	view, cmd := page.exec.viewport.Update(msg)
@@ -367,9 +380,7 @@ func (page *LogsPage) executionHelpView(width int) string {
 		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode"),
 		component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
 	}
-	if page.view == logsViewTimeline {
-		bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.exec.paused)))
-	}
+	bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.exec.paused)))
 	return component.NewHelpFooter(bindings...).View(width)
 }
 

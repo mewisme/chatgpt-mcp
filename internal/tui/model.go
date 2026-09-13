@@ -945,7 +945,9 @@ func (model *Model) navigate(route Route) {
 	if model == nil {
 		return
 	}
+	from := model.router.Current()
 	model.captureCurrentView()
+	model.prepareViewStateForNavigation(from, route)
 	model.router.Navigate(route)
 	model.loadPage(route)
 	if route.Kind == RouteHome || model.currentPage != nil {
@@ -1027,12 +1029,28 @@ func (model *Model) switchPage(route Route) {
 	if model == nil {
 		return
 	}
+	from := model.router.Current()
 	model.captureCurrentView()
+	model.prepareViewStateForNavigation(from, route)
 	model.router.Switch(route)
 	model.loadPage(route)
 	if route.Kind == RouteHome || model.currentPage != nil {
 		model.rememberStableRoute(route)
 	}
+}
+
+func (model *Model) prepareViewStateForNavigation(from, to Route) {
+	if model == nil || model.pageViewStates == nil || headerOwner(from.Kind) == RouteLogs || headerOwner(to.Kind) != RouteLogs {
+		return
+	}
+	state, ok := model.pageViewStates[RouteLogs].(tuipage.LogsSessionViewState)
+	if !ok {
+		return
+	}
+	state.RuntimePaused, state.RuntimeSelectedID = false, ""
+	state.ExecutionPaused, state.ExecutionYOffset = false, 0
+	state.ToolCallPaused, state.ToolCallYOffset = false, 0
+	model.pageViewStates[RouteLogs] = state
 }
 
 func (model *Model) captureCurrentView() {

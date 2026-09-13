@@ -671,9 +671,6 @@ func (page *LogsPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case "m":
 		return page.openLogsModeDialog(), true
 	case "space":
-		if page.view != logsViewTimeline {
-			return nil, true
-		}
 		return page.togglePause(), true
 	case "f":
 		return page.openCommand(LogsFilter), true
@@ -1125,9 +1122,7 @@ func (page *LogsPage) runtimeHelpView(width int) string {
 		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode"),
 		component.Binding([]string{"f"}, "f", "filters"), component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"),
 	}
-	if page.view == logsViewTimeline {
-		bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.paused)))
-	}
+	bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.paused)))
 	return component.NewHelpFooter(bindings...).View(width)
 }
 
@@ -1141,7 +1136,19 @@ func (page *LogsPage) syncBrowserHelp() {
 	default:
 		bindings = append(bindings, component.Binding([]string{"f"}, "f", "filters"), component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"))
 	}
+	bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.activeLogsPaused())))
 	page.browser.SetHelpBindings(bindings...)
+}
+
+func (page *LogsPage) activeLogsPaused() bool {
+	switch page.tab {
+	case logsTabCommandExec:
+		return page.exec.paused
+	case logsTabToolCalls:
+		return page.tools.paused
+	default:
+		return page.paused
+	}
 }
 
 func (page *LogsPage) selectedID() string {

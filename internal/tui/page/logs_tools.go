@@ -227,8 +227,11 @@ func (page *LogsPage) rebuildToolCallBrowser() {
 	if row, ok := page.browser.Selected(); ok {
 		selected = row.ID
 	}
+	if !page.tools.paused {
+		selected = ""
+	}
 	_ = page.browser.ReplaceRows(rows, selected)
-	if !page.tools.paused && selected == "" {
+	if !page.tools.paused {
 		page.browser.SelectLast()
 	}
 }
@@ -408,9 +411,7 @@ func (page *LogsPage) toolCallStatusView(width int) string {
 
 func (page *LogsPage) toolCallHelpView(width int) string {
 	bindings := []key.Binding{component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode"), component.Binding([]string{"r"}, "r", "reconnect")}
-	if page.view == logsViewTimeline {
-		bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.tools.paused)))
-	}
+	bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.tools.paused)))
 	return component.NewHelpFooter(bindings...).View(width)
 }
 
@@ -423,19 +424,32 @@ func (page *LogsPage) handleToolCallKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "m":
 		return page.openLogsModeDialog()
 	case "space":
-		if page.view == logsViewTimeline {
-			page.tools.paused = !page.tools.paused
-			if !page.tools.paused {
+		page.tools.paused = !page.tools.paused
+		if !page.tools.paused {
+			if page.view == logsViewBrowser {
+				page.browser.SelectLast()
+			} else {
 				page.refreshToolCallView()
 			}
 		}
+		page.syncBrowserHelp()
 		return nil
 	case "r":
 		return page.startToolCallFeed()
 	}
 	if page.view == logsViewBrowser {
+		before := ""
+		if row, ok := page.browser.Selected(); ok {
+			before = row.ID
+		}
 		updated, cmd := page.browser.Update(msg)
 		page.browser = updated.(component.Browser)
+		if !page.tools.paused && before != "" {
+			if row, ok := page.browser.Selected(); ok && row.ID != before {
+				page.tools.paused = true
+				page.syncBrowserHelp()
+			}
+		}
 		return cmd
 	}
 	view, cmd := page.tools.viewport.Update(msg)

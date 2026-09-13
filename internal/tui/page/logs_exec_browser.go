@@ -51,8 +51,11 @@ func (page *LogsPage) rebuildExecutionBrowser() {
 	if row, ok := page.browser.Selected(); ok {
 		selected = row.ID
 	}
+	if !page.exec.paused {
+		selected = ""
+	}
 	_ = page.browser.ReplaceRows(rows, selected)
-	if !page.exec.paused && selected == "" {
+	if !page.exec.paused {
 		page.browser.SelectLast()
 	}
 }

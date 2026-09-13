@@ -139,14 +139,14 @@ func TestModelDoesNotRememberActionRoutesOrPersistLastRoutes(t *testing.T) {
 	}
 }
 
-func TestModelRestoresLogsViewStateAcrossTopLevelNavigation(t *testing.T) {
+func TestModelRestoresLogsViewStateAcrossTopLevelNavigationAndResumesFollow(t *testing.T) {
 	model := NewModel(Route{Kind: RouteLogsExec})
 	page, ok := model.currentPage.(tuipage.SessionViewStateModel)
 	if !ok {
 		t.Fatalf("logs page does not expose session state: %T", model.currentPage)
 	}
 	page.RestoreSessionViewState(tuipage.LogsSessionViewState{
-		Tab: "command-execution", ExecutionScope: "workspace", ExecutionWorkspaceID: "ws_a", ExecutionPaused: true, ExecutionYOffset: 6,
+		Tab: "command-execution", RuntimePaused: true, RuntimeSelectedID: "run:4", ExecutionScope: "workspace", ExecutionWorkspaceID: "ws_a", ExecutionPaused: true, ExecutionYOffset: 6, ToolCallPaused: true, ToolCallYOffset: 5,
 	})
 	model.switchPage(Route{Kind: RouteTunnel})
 	updated, _ := model.requestNavigation(navigationIntent{route: Route{Kind: RouteLogs}, replace: true, restoreRemembered: true})
@@ -162,7 +162,7 @@ func TestModelRestoresLogsViewStateAcrossTopLevelNavigation(t *testing.T) {
 	if !ok {
 		t.Fatalf("restored logs state type=%T", restoredPage.SessionViewState())
 	}
-	if state.Tab != "command-execution" || state.ExecutionScope != "workspace" || state.ExecutionWorkspaceID != "ws_a" || !state.ExecutionPaused || state.ExecutionYOffset != 6 {
+	if state.Tab != "command-execution" || state.ExecutionScope != "workspace" || state.ExecutionWorkspaceID != "ws_a" || state.RuntimePaused || state.RuntimeSelectedID != "" || state.ExecutionPaused || state.ExecutionYOffset != 0 || state.ToolCallPaused || state.ToolCallYOffset != 0 {
 		t.Fatalf("restored logs state=%#v", state)
 	}
 }

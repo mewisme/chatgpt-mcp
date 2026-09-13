@@ -114,9 +114,47 @@ func TestLogsPagePauseBuffersWithoutFollowingAndResumeReturnsToTail(t *testing.T
 	if !page.paused || page.selectedID() != "run:1" || len(page.events) != 3 {
 		t.Fatalf("paused=%t selected=%q events=%d", page.paused, page.selectedID(), len(page.events))
 	}
-	page.togglePause()
+	page.handleKey(tea.KeyPressMsg{Code: tea.KeySpace})
 	if page.paused || page.selectedID() != "run:3" {
 		t.Fatalf("resume paused=%t selected=%q", page.paused, page.selectedID())
+	}
+}
+
+func TestLogsBrowserSpaceResumesExecutionAndToolCallFollow(t *testing.T) {
+	execPage, _ := NewCommandExecutionLogs(t.Context())
+	defer execPage.Close()
+	execPage.view = logsViewBrowser
+	execPage.exec.paused = true
+	execPage.exec.events = []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, ExecutionID: "exec_1", Type: shellruntime.ExecutionEventStarted, Execution: &shellruntime.ExecutionInfo{ID: "exec_1", Tool: "run_command"}},
+		{Sequence: 2, ExecutionID: "exec_2", Type: shellruntime.ExecutionEventStarted, Execution: &shellruntime.ExecutionInfo{ID: "exec_2", Tool: "run_command"}},
+	}
+	execPage.rebuildExecutionBrowser()
+	if !execPage.browser.SelectID("exec_1") {
+		t.Fatal("could not select first execution")
+	}
+	execPage.handleExecutionKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	row, ok := execPage.browser.Selected()
+	if !ok || execPage.exec.paused || row.ID != "exec_2" {
+		t.Fatalf("execution resume paused=%t selected=%#v", execPage.exec.paused, row)
+	}
+
+	toolPage, _ := NewToolCallLogsRoute(t.Context(), "")
+	defer toolPage.Close()
+	toolPage.view = logsViewBrowser
+	toolPage.tools.paused = true
+	toolPage.tools.events = []activity.Event{
+		{Sequence: 1, CallID: "call_1", Tool: "read_file", Status: "ok"},
+		{Sequence: 2, CallID: "call_2", Tool: "read_file", Status: "ok"},
+	}
+	toolPage.rebuildToolCallBrowser()
+	if !toolPage.browser.SelectID("call_1") {
+		t.Fatal("could not select first tool call")
+	}
+	toolPage.handleToolCallKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	row, ok = toolPage.browser.Selected()
+	if !ok || toolPage.tools.paused || row.ID != "call_2" {
+		t.Fatalf("tool call resume paused=%t selected=%#v", toolPage.tools.paused, row)
 	}
 }
 

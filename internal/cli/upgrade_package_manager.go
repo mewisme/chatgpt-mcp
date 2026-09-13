@@ -113,20 +113,61 @@ func runPackageManagerPhase(cmd *cobra.Command, log *logger.Logger, plan updatep
 }
 
 func runPackageManagerCommand(ctx context.Context, command updatepkg.PackageManagerCommand) (string, error) {
+	key := command.Name + "\x00" + strings.Join(command.Args, "\x00")
 	var process *exec.Cmd
-	if runtime.GOOS == "windows" && strings.EqualFold(command.Name, "scoop") {
-		shell, err := packagePowerShell()
-		if err != nil {
-			return "", err
+	switch key {
+	case "brew\x00update":
+		process = exec.CommandContext(ctx, "brew", "update")
+	case "brew\x00upgrade\x00--cask\x00chatgpt-mcp":
+		process = exec.CommandContext(ctx, "brew", "upgrade", "--cask", "chatgpt-mcp")
+	case "scoop\x00update":
+		if runtime.GOOS == "windows" {
+			return runScoopPowerShell(ctx, false)
 		}
-		statement := "& scoop"
-		if len(command.Args) > 0 {
-			statement += " " + strings.Join(command.Args, " ")
+		process = exec.CommandContext(ctx, "scoop", "update")
+	case "scoop\x00update\x00mew/chatgpt-mcp":
+		if runtime.GOOS == "windows" {
+			return runScoopPowerShell(ctx, true)
 		}
-		process = exec.CommandContext(ctx, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", statement)
-	} else {
-		process = exec.CommandContext(ctx, command.Name, command.Args...)
+		process = exec.CommandContext(ctx, "scoop", "update", "mew/chatgpt-mcp")
+	default:
+		return "", fmt.Errorf("unsupported package manager command: %s %s", command.Name, strings.Join(command.Args, " "))
 	}
+	return packageCommandOutput(process)
+}
+
+func runScoopPowerShell(ctx context.Context, apply bool) (string, error) {
+	shell, err := packagePowerShell()
+	if err != nil {
+		return "", err
+	}
+	var process *exec.Cmd
+	switch shell {
+	case "pwsh":
+		if apply {
+			process = exec.CommandContext(ctx, "pwsh", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "& scoop update mew/chatgpt-mcp")
+		} else {
+			process = exec.CommandContext(ctx, "pwsh", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "& scoop update")
+		}
+	case "powershell.exe":
+		if apply {
+			process = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "& scoop update mew/chatgpt-mcp")
+		} else {
+			process = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "& scoop update")
+		}
+	case "powershell":
+		if apply {
+			process = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "& scoop update mew/chatgpt-mcp")
+		} else {
+			process = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "& scoop update")
+		}
+	default:
+		return "", errors.New("PowerShell is required to run Scoop")
+	}
+	return packageCommandOutput(process)
+}
+
+func packageCommandOutput(process *exec.Cmd) (string, error) {
 	output, err := process.CombinedOutput()
 	text := strings.TrimSpace(string(output))
 	if err == nil {
@@ -140,8 +181,8 @@ func runPackageManagerCommand(ctx context.Context, command updatepkg.PackageMana
 
 func packagePowerShell() (string, error) {
 	for _, name := range []string{"pwsh", "powershell.exe", "powershell"} {
-		if path, err := exec.LookPath(name); err == nil {
-			return path, nil
+		if _, err := exec.LookPath(name); err == nil {
+			return name, nil
 		}
 	}
 	return "", errors.New("PowerShell is required to run Scoop")
@@ -152,17 +193,18 @@ func verifyPackageManagedVersion(ctx context.Context, target string, lookup pack
 	if err != nil {
 		return "", "", err
 	}
-	var binary string
+	var binary, commandName string
 	for _, name := range []string{"chatgpt-mcp", "cgm"} {
 		binary, err = lookup(name)
 		if err == nil {
+			commandName = name
 			break
 		}
 	}
 	if err != nil {
 		return "", "", errors.New("updated chatgpt-mcp command was not found on PATH")
 	}
-	output, err := readVersion(ctx, binary)
+	output, err := readVersion(ctx, commandName)
 	if err != nil {
 		return binary, "", err
 	}
@@ -180,16 +222,17 @@ func verifyPackageManagedVersion(ctx context.Context, target string, lookup pack
 	return binary, installed, nil
 }
 
-func runPackageBinaryVersion(ctx context.Context, binary string) (string, error) {
-	output, err := exec.CommandContext(ctx, binary, "--version").CombinedOutput()
-	text := strings.TrimSpace(string(output))
-	if err == nil {
-		return text, nil
+func runPackageBinaryVersion(ctx context.Context, commandName string) (string, error) {
+	var process *exec.Cmd
+	switch commandName {
+	case "chatgpt-mcp":
+		process = exec.CommandContext(ctx, "chatgpt-mcp", "--version")
+	case "cgm":
+		process = exec.CommandContext(ctx, "cgm", "--version")
+	default:
+		return "", fmt.Errorf("unsupported package binary: %s", commandName)
 	}
-	if text == "" {
-		return "", err
-	}
-	return text, fmt.Errorf("%w: %s", err, text)
+	return packageCommandOutput(process)
 }
 
 func packageVersionFromOutput(output string) (string, error) {

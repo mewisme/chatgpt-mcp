@@ -51,15 +51,31 @@ func TestVerifyPackageManagedVersion(t *testing.T) {
 		}
 		return "", errors.New("not found")
 	}
-	readVersion := func(context.Context, string) (string, error) {
+	readName := ""
+	readVersion := func(_ context.Context, name string) (string, error) {
+		readName = name
 		return "chatgpt-mcp version v1.2.3 (abc123) 2026-09-13", nil
 	}
 	binary, installed, err := verifyPackageManagedVersion(context.Background(), "v1.2.3", lookup, readVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if binary != "/bin/chatgpt-mcp" || installed != "v1.2.3" {
-		t.Fatalf("binary = %q installed = %q", binary, installed)
+	if binary != "/bin/chatgpt-mcp" || installed != "v1.2.3" || readName != "chatgpt-mcp" {
+		t.Fatalf("binary = %q installed = %q read = %q", binary, installed, readName)
+	}
+}
+
+func TestRunPackageManagerCommandRejectsUnknownInvocation(t *testing.T) {
+	_, err := runPackageManagerCommand(t.Context(), updatepkg.PackageManagerCommand{Name: "scoop", Args: []string{"update", "other/app"}})
+	if err == nil || !strings.Contains(err.Error(), "unsupported package manager command") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRunPackageBinaryVersionRejectsUnknownBinary(t *testing.T) {
+	_, err := runPackageBinaryVersion(t.Context(), "/tmp/chatgpt-mcp")
+	if err == nil || !strings.Contains(err.Error(), "unsupported package binary") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 
 const (
 	maxExecutionLogBytes      = 400_000
-	maxExecutionFeedBytes     = 1_000_000
+	DefaultExecutionFeedBytes = 1_000_000
 	maxRecentExecutions       = 100
 	executionSubscriberBuffer = 64
 	executionFeedBuffer       = 128
@@ -81,6 +81,7 @@ type ExecutionFeedEvent struct {
 type ExecutionFeedSnapshot struct {
 	Events         []ExecutionFeedEvent `json:"events"`
 	LatestSequence uint64               `json:"latest_sequence"`
+	MaxBytes       int                  `json:"max_bytes"`
 }
 
 type ExecutionOverflow struct {
@@ -124,6 +125,7 @@ type ExecutionHub struct {
 	feedMu       sync.Mutex
 	feed         []ExecutionFeedEvent
 	feedBytes    int
+	feedMaxBytes int
 	feedSequence uint64
 	feedSubs     map[*ExecutionFeedSubscription]struct{}
 }
@@ -159,7 +161,32 @@ type ExecutionMetadata struct {
 }
 
 func NewExecutionHub() *ExecutionHub {
-	return &ExecutionHub{executions: map[string]*executionRecord{}, maxRecent: maxRecentExecutions, feedSubs: map[*ExecutionFeedSubscription]struct{}{}}
+	return &ExecutionHub{executions: map[string]*executionRecord{}, maxRecent: maxRecentExecutions, feedMaxBytes: DefaultExecutionFeedBytes, feedSubs: map[*ExecutionFeedSubscription]struct{}{}}
+}
+
+func (h *ExecutionHub) SetFeedMaxBytes(value int) {
+	if h == nil {
+		return
+	}
+	if value <= 0 {
+		value = DefaultExecutionFeedBytes
+	}
+	h.feedMu.Lock()
+	h.feedMaxBytes = value
+	h.pruneFeedLocked()
+	h.feedMu.Unlock()
+}
+
+func (h *ExecutionHub) FeedMaxBytes() int {
+	if h == nil {
+		return DefaultExecutionFeedBytes
+	}
+	h.feedMu.Lock()
+	defer h.feedMu.Unlock()
+	if h.feedMaxBytes <= 0 {
+		return DefaultExecutionFeedBytes
+	}
+	return h.feedMaxBytes
 }
 
 func WithExecutionSource(ctx context.Context, source string) context.Context {
@@ -303,7 +330,7 @@ func (h *ExecutionHub) SubscribeFeed(workspaceID string) (*ExecutionFeedSubscrip
 			events = append(events, cloneExecutionFeedEvent(event))
 		}
 	}
-	snapshot := ExecutionFeedSnapshot{Events: events, LatestSequence: h.feedSequence}
+	snapshot := ExecutionFeedSnapshot{Events: events, LatestSequence: h.feedSequence, MaxBytes: h.feedMaxBytes}
 	h.feedMu.Unlock()
 	return sub, snapshot
 }
@@ -462,10 +489,7 @@ func (h *ExecutionHub) publishFeed(event ExecutionFeedEvent) {
 	event = cloneExecutionFeedEvent(event)
 	h.feed = append(h.feed, event)
 	h.feedBytes += executionFeedEventBytes(event)
-	for len(h.feed) > 0 && h.feedBytes > maxExecutionFeedBytes {
-		h.feedBytes -= executionFeedEventBytes(h.feed[0])
-		h.feed = h.feed[1:]
-	}
+	h.pruneFeedLocked()
 	for sub := range h.feedSubs {
 		if sub.closed || sub.overflow || (sub.workspaceID != "" && sub.workspaceID != event.WorkspaceID) {
 			continue
@@ -480,6 +504,17 @@ func (h *ExecutionHub) publishFeed(event ExecutionFeedEvent) {
 	h.feedMu.Unlock()
 }
 
+func (h *ExecutionHub) pruneFeedLocked() {
+	maxBytes := h.feedMaxBytes
+	if maxBytes <= 0 {
+		maxBytes = DefaultExecutionFeedBytes
+	}
+	for len(h.feed) > 0 && h.feedBytes > maxBytes {
+		h.feedBytes -= executionFeedEventBytes(h.feed[0])
+		h.feed = h.feed[1:]
+	}
+}
+
 func executionFeedEventBytes(event ExecutionFeedEvent) int {
 	bytes := len(event.Data) + len(event.ExecutionID) + len(event.WorkspaceID) + len(event.Stream) + len(event.Status) + len(event.Timestamp) + 128
 	if event.Execution != nil {
@@ -487,6 +522,8 @@ func executionFeedEventBytes(event ExecutionFeedEvent) int {
 	}
 	return bytes
 }
+
+func ExecutionFeedEventBytes(event ExecutionFeedEvent) int { return executionFeedEventBytes(event) }
 
 func appendExecutionTail(existing, data []byte) []byte {
 	existing = append(existing, data...)

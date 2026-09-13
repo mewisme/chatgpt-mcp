@@ -145,7 +145,7 @@ func branchDescription(key string) string {
 	case "permissions":
 		return "Filesystem access configuration."
 	case "shell":
-		return "Shell execution, approval, environment, sandbox, and network configuration."
+		return "Shell execution, event retention, approval, environment, sandbox, and network configuration."
 	case "features":
 		return "Optional runtime feature configuration."
 	case "features.ponytail":

@@ -144,6 +144,12 @@ func (r *Runtime) SetShellPath(paths []string) {
 	}
 }
 
+func (r *Runtime) SetExecutionFeedMaxBytes(value int) {
+	if r != nil && r.Executions != nil {
+		r.Executions.SetFeedMaxBytes(value)
+	}
+}
+
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
 

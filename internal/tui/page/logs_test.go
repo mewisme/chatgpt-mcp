@@ -792,15 +792,119 @@ func TestLogsCommandExecutionEmptyViewPinsHelpToBottom(t *testing.T) {
 	if last < 0 || !strings.Contains(lines[last], "reconnect") || !strings.Contains(lines[last], "clear view") {
 		t.Fatalf("bottom help not pinned: last=%d line=%q view=%q", last, lines[last], plain)
 	}
+	status := -1
 	waiting := -1
 	for index, line := range lines {
+		if status < 0 && strings.Contains(line, "Stream") && strings.Contains(line, "Follow") {
+			status = index
+		}
 		if strings.Contains(line, "Waiting for command output") {
 			waiting = index
 			break
 		}
 	}
+	if status < 0 || status+1 >= len(lines) || strings.TrimSpace(lines[status+1]) != "" {
+		t.Fatalf("command execution status missing spacer row: status=%d view=%q", status, plain)
+	}
 	if waiting < 0 || last-waiting < 10 {
 		t.Fatalf("empty body did not reserve vertical space: waiting=%d help=%d", waiting, last)
+	}
+}
+
+func TestCommandExecutionStickyHeaderAppearsAfterSegmentHeaderScrollsAway(t *testing.T) {
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	started := time.Now().UTC()
+	info := shellruntime.ExecutionInfo{ID: "exec_sticky", WorkspaceID: "ws_sticky", Command: "go test ./...", StartedAt: started.Format(time.RFC3339Nano)}
+	page.exec.events = []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Data: strings.Repeat("line\n", 30), Timestamp: started.Add(time.Second).Format(time.RFC3339Nano)},
+	}
+	page.exec.paused = true
+	page.exec.viewport.SetWidth(80)
+	page.exec.viewport.SetHeight(8)
+	page.refreshExecutionViewport()
+	if len(page.exec.render.Segments) != 1 {
+		t.Fatalf("segments=%#v", page.exec.render.Segments)
+	}
+	segment := page.exec.render.Segments[0]
+	page.exec.viewport.SetYOffset(max(0, segment.BodyStartLine-1))
+	if sticky := page.executionStickyHeader(80); sticky != "" {
+		t.Fatalf("sticky appeared before header fully scrolled away: %q", ansi.Strip(sticky))
+	}
+	page.exec.viewport.SetYOffset(segment.BodyStartLine)
+	sticky := ansi.Strip(page.executionStickyHeader(80))
+	for _, want := range []string{"START", "exec_sticky", "ws_sticky", "$ go test ./..."} {
+		if !strings.Contains(sticky, want) {
+			t.Fatalf("sticky header missing %q: %q", want, sticky)
+		}
+	}
+	if got := lipgloss.Width(sticky); got != 80 {
+		t.Fatalf("sticky width=%d want 80: %q", got, sticky)
+	}
+}
+
+func TestCommandExecutionStickyHeaderTracksTopSegment(t *testing.T) {
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	started := time.Now().UTC()
+	first := shellruntime.ExecutionInfo{ID: "exec_first", WorkspaceID: "ws_first", Command: "first", StartedAt: started.Format(time.RFC3339Nano)}
+	second := shellruntime.ExecutionInfo{ID: "exec_second", WorkspaceID: "ws_second", Command: "second", StartedAt: started.Add(time.Second).Format(time.RFC3339Nano)}
+	page.exec.events = []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: first.ID, WorkspaceID: first.WorkspaceID, Execution: &first, Timestamp: first.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: first.ID, WorkspaceID: first.WorkspaceID, Execution: &first, Data: strings.Repeat("first-line\n", 20), Timestamp: started.Add(500 * time.Millisecond).Format(time.RFC3339Nano)},
+		{Sequence: 3, Type: shellruntime.ExecutionEventStarted, ExecutionID: second.ID, WorkspaceID: second.WorkspaceID, Execution: &second, Timestamp: second.StartedAt},
+		{Sequence: 4, Type: shellruntime.ExecutionEventOutput, ExecutionID: second.ID, WorkspaceID: second.WorkspaceID, Execution: &second, Data: strings.Repeat("second-line\n", 20), Timestamp: started.Add(1500 * time.Millisecond).Format(time.RFC3339Nano)},
+	}
+	page.exec.paused = true
+	page.exec.viewport.SetWidth(80)
+	page.exec.viewport.SetHeight(6)
+	page.refreshExecutionViewport()
+	if len(page.exec.render.Segments) != 2 {
+		t.Fatalf("segments=%#v", page.exec.render.Segments)
+	}
+	page.exec.viewport.SetYOffset(page.exec.render.Segments[0].BodyStartLine)
+	if sticky := ansi.Strip(page.executionStickyHeader(80)); !strings.Contains(sticky, "exec_first") || strings.Contains(sticky, "exec_second") {
+		t.Fatalf("first sticky=%q", sticky)
+	}
+	page.exec.viewport.SetYOffset(page.exec.render.Segments[1].BodyStartLine)
+	if sticky := ansi.Strip(page.executionStickyHeader(80)); !strings.Contains(sticky, "exec_second") || strings.Contains(sticky, "exec_first") {
+		t.Fatalf("second sticky=%q", sticky)
+	}
+}
+
+func TestParseExecutionFeedSizeSupportsPresetsAndHumanReadableValues(t *testing.T) {
+	for _, test := range []struct {
+		raw  string
+		want int
+	}{
+		{raw: "64000", want: 64_000},
+		{raw: "512 KB", want: 512_000},
+		{raw: "2 MB", want: 2_000_000},
+		{raw: "1.5 MiB", want: 1_572_864},
+	} {
+		got, err := parseExecutionFeedSize(test.raw)
+		if err != nil || got != test.want {
+			t.Fatalf("parseExecutionFeedSize(%q)=%d,%v want=%d", test.raw, got, err, test.want)
+		}
+	}
+	for _, raw := range []string{"", "63 KB", "101 MB", "2 GB", "invalid"} {
+		if _, err := parseExecutionFeedSize(raw); err == nil {
+			t.Fatalf("parseExecutionFeedSize(%q) accepted invalid value", raw)
+		}
+	}
+}
+
+func TestTrimExecutionFeedUsesByteBudget(t *testing.T) {
+	events := []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, ExecutionID: "a", Data: strings.Repeat("a", 120)},
+		{Sequence: 2, ExecutionID: "b", Data: strings.Repeat("b", 120)},
+		{Sequence: 3, ExecutionID: "c", Data: strings.Repeat("c", 120)},
+	}
+	lastSize := shellruntime.ExecutionFeedEventBytes(events[2])
+	kept, total := trimExecutionFeed(events, lastSize+10)
+	if len(kept) != 1 || kept[0].Sequence != 3 || total != lastSize {
+		t.Fatalf("kept=%#v total=%d last=%d", kept, total, lastSize)
 	}
 }
 
@@ -967,6 +1071,30 @@ func TestExecutionFrameWindowsNewlinesDoNotBreakRightBorder(t *testing.T) {
 	for _, want := range []string{"node:internal/modules/cjs/loader:1520", "10)", "next", "progress"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("frame missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestExecutionFrameUnsafeTerminalControlsDoNotBreakRightBorder(t *testing.T) {
+	started := time.Now().UTC()
+	info := shellruntime.ExecutionInfo{ID: "exec_controls", WorkspaceID: "ws_controls", Command: "demo\b\x00\rcommand", CWD: "C:\\work\x00\vdir", StartedAt: started.Format(time.RFC3339Nano)}
+	view := formatExecutionFeed([]shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, Type: shellruntime.ExecutionEventStarted, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Timestamp: info.StartedAt},
+		{Sequence: 2, Type: shellruntime.ExecutionEventOutput, ExecutionID: info.ID, WorkspaceID: info.WorkspaceID, Execution: &info, Data: "alpha\r\nbeta\rprogress\b!\x00nul\vvertical\fform\x1b[31mred\x1b[0m\n", Timestamp: started.Add(time.Second).Format(time.RFC3339Nano)},
+	}, 84)
+	for _, control := range []string{"\r", "\b", "\x00", "\v", "\f", "\x1b"} {
+		if strings.Contains(view, control) {
+			t.Fatalf("unsafe control %q remained in frame: %q", control, view)
+		}
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(view, "\n"), "\n") {
+		if got := lipgloss.Width(line); got != 84 {
+			t.Fatalf("frame line width=%d want 84: %q", got, line)
+		}
+	}
+	for _, want := range []string{"alpha", "beta", "progress!", "nulverticalformred", "$ demo command", "C:\\workdir"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("frame missing sanitized content %q: %q", want, view)
 		}
 	}
 }
@@ -1193,6 +1321,39 @@ func TestExecutionScopeEditorAppliesWithoutReconnectingGlobalFeed(t *testing.T) 
 	}
 }
 
+func TestExecutionSettingsPersistEventBufferPreset(t *testing.T) {
+	setupLogsPageRoot(t)
+	if _, err := application.Initialize(application.InitOptions{Context: t.Context()}); err != nil {
+		t.Fatal(err)
+	}
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	if cmd := page.openExecutionScopeEditor(); cmd == nil || page.exec.scopeEditor == nil || page.exec.scopeForm == nil {
+		t.Fatalf("settings editor missing: cmd=%v editor=%v form=%v", cmd, page.exec.scopeEditor != nil, page.exec.scopeForm != nil)
+	}
+	page.exec.scopeForm.BufferPreset = "5000000"
+	cmd := page.submitExecutionScopeEditor()
+	if cmd == nil || page.exec.scopeEditor == nil {
+		t.Fatalf("buffer mutation did not stay pending: cmd=%v editor=%v", cmd, page.exec.scopeEditor != nil)
+	}
+	msg, ok := cmd().(logsExecutionConfigMsg)
+	if !ok || msg.err != nil || msg.bytes != 5_000_000 {
+		t.Fatalf("buffer mutation result=%#v err=%v", msg, msg.err)
+	}
+	updated, followup := page.Update(msg)
+	page = updated.(*LogsPage)
+	if followup != nil || page.exec.scopeEditor != nil || page.exec.feedMaxBytes != 5_000_000 || !strings.Contains(page.exec.notice, "5 MB") {
+		t.Fatalf("buffer apply editor=%v max=%d notice=%q followup=%v", page.exec.scopeEditor != nil, page.exec.feedMaxBytes, page.exec.notice, followup)
+	}
+	cfg, err := application.LoadConfig(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Shell.ExecutionFeedMaxBytes != 5_000_000 {
+		t.Fatalf("persisted execution buffer=%d", cfg.Shell.ExecutionFeedMaxBytes)
+	}
+}
+
 func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 	setupLogsPageRoot(t)
 	manager := workspace.NewManager(workspace.DefaultStorePath())
@@ -1214,9 +1375,9 @@ func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 		wantID   string
 		steps    int
 	}{
-		{name: "combined", wantMode: executionScopeCombined},
-		{name: "workspace", down: 1, wantMode: executionScopeWorkspace, wantID: workspaceItem.ID, steps: 2},
-		{name: "container", down: 2, wantMode: executionScopeContainer, wantID: container.ID, steps: 1},
+		{name: "combined", wantMode: executionScopeCombined, steps: 1},
+		{name: "workspace", down: 1, wantMode: executionScopeWorkspace, wantID: workspaceItem.ID, steps: 3},
+		{name: "container", down: 2, wantMode: executionScopeContainer, wantID: container.ID, steps: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			page, _ := NewCommandExecutionLogs(t.Context())

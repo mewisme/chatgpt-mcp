@@ -49,6 +49,42 @@ func TestExecutionHubSnapshotsAndStreamsOutput(t *testing.T) {
 	}
 }
 
+func TestExecutionHubFeedLimitIsConfigurableAndPrunesImmediately(t *testing.T) {
+	hub := NewExecutionHub()
+	if got := hub.FeedMaxBytes(); got != DefaultExecutionFeedBytes {
+		t.Fatalf("default feed max bytes=%d want=%d", got, DefaultExecutionFeedBytes)
+	}
+	hub.SetFeedMaxBytes(600)
+	for range 4 {
+		hub.publishFeed(ExecutionFeedEvent{ExecutionID: "exec_limit", WorkspaceID: "ws_limit", Type: ExecutionEventOutput, Data: strings.Repeat("x", 120)})
+	}
+	sub, snapshot := hub.SubscribeFeed("")
+	defer hub.UnsubscribeFeed(sub)
+	if snapshot.MaxBytes != 600 || len(snapshot.Events) == 0 {
+		t.Fatalf("snapshot max=%d events=%d", snapshot.MaxBytes, len(snapshot.Events))
+	}
+	total := 0
+	for _, event := range snapshot.Events {
+		total += ExecutionFeedEventBytes(event)
+	}
+	if total > snapshot.MaxBytes {
+		t.Fatalf("snapshot bytes=%d max=%d", total, snapshot.MaxBytes)
+	}
+	hub.SetFeedMaxBytes(300)
+	sub2, pruned := hub.SubscribeFeed("")
+	defer hub.UnsubscribeFeed(sub2)
+	if pruned.MaxBytes != 300 {
+		t.Fatalf("pruned max=%d", pruned.MaxBytes)
+	}
+	total = 0
+	for _, event := range pruned.Events {
+		total += ExecutionFeedEventBytes(event)
+	}
+	if total > pruned.MaxBytes {
+		t.Fatalf("pruned bytes=%d max=%d", total, pruned.MaxBytes)
+	}
+}
+
 func TestExecutionHubWorkspaceFeedReplaysAndFilters(t *testing.T) {
 	hub := NewExecutionHub()
 	first := hub.Begin(ExecutionInput{WorkspaceID: "ws_first", Tool: "run_command", Command: "first", CWD: "/tmp", Source: "mcp"})

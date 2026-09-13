@@ -193,6 +193,9 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			if patch.Shell.Path != nil {
 				next.Shell.Path, err = config.NormalizeShellPath(patch.Shell.Path)
 			}
+			if patch.Shell.ExecutionFeedMaxBytes != 0 {
+				next.Shell.ExecutionFeedMaxBytes = patch.Shell.ExecutionFeedMaxBytes
+			}
 		}
 		if err == nil && patch.Features != nil {
 			if active := patch.Features.Ponytail.active(); active != nil {
@@ -292,6 +295,7 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 	if api.Tools != nil {
 		api.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
 		api.Tools.SetShellPath(next.Shell.Path)
+		api.Tools.SetExecutionFeedMaxBytes(next.Shell.ExecutionFeedMaxBytes)
 	}
 	return nil
 }

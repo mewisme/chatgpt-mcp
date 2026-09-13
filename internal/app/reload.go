@@ -23,6 +23,7 @@ func (a *App) ReloadConfig(next config.Config) error {
 	featuresChanged := previous.Features != next.Features
 	permissionsChanged := !slices.Equal(previous.Permissions.AllowDirs, next.Permissions.AllowDirs)
 	shellPathChanged := !slices.Equal(previous.Shell.Path, next.Shell.Path)
+	executionFeedChanged := previous.Shell.ExecutionFeedMaxBytes != next.Shell.ExecutionFeedMaxBytes
 	tunnelChanged := previous.Tunnel != next.Tunnel
 	tunnelRuntimeChanged := tunnelChanged && !tunnel.RuntimeConfigEqual(previous.Tunnel, next.Tunnel)
 
@@ -32,14 +33,14 @@ func (a *App) ReloadConfig(next config.Config) error {
 	if reloadTestAfterCommit != nil {
 		reloadTestAfterCommit()
 	}
-	if err := a.applyRuntimeConfig(next, httpChanged, featuresChanged, permissionsChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged); err != nil {
+	if err := a.applyRuntimeConfig(next, httpChanged, featuresChanged, permissionsChanged, shellPathChanged, executionFeedChanged, tunnelChanged, tunnelRuntimeChanged); err != nil {
 		_, restoreErr := a.Config.Update(func(config.Config) (config.Config, error) { return previous, nil })
-		return errors.Join(err, restoreErr, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged))
+		return errors.Join(err, restoreErr, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellPathChanged, executionFeedChanged, tunnelChanged, tunnelRuntimeChanged))
 	}
 	return nil
 }
 
-func (a *App) applyRuntimeConfig(next config.Config, httpChanged, featuresChanged, permissionsChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
+func (a *App) applyRuntimeConfig(next config.Config, httpChanged, featuresChanged, permissionsChanged, shellPathChanged, executionFeedChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
 	if featuresChanged {
 		if err := a.Tools.SyncFeatures(next.Features); err != nil {
 			return err
@@ -50,6 +51,9 @@ func (a *App) applyRuntimeConfig(next config.Config, httpChanged, featuresChange
 	}
 	if shellPathChanged {
 		a.Tools.SetShellPath(next.Shell.Path)
+	}
+	if executionFeedChanged {
+		a.Tools.SetExecutionFeedMaxBytes(next.Shell.ExecutionFeedMaxBytes)
 	}
 	if httpChanged {
 		a.syncMCPHTTP(next.Server.Enabled)
@@ -77,7 +81,7 @@ func (a *App) applyRuntimeConfig(next config.Config, httpChanged, featuresChange
 	return nil
 }
 
-func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, featuresChanged, permissionsChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
+func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, featuresChanged, permissionsChanged, shellPathChanged, executionFeedChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
 	var rollbackErr error
 	if tunnelChanged && a.Tunnel != nil {
 		if tunnelRuntimeChanged {
@@ -98,6 +102,9 @@ func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, feature
 	}
 	if shellPathChanged {
 		a.Tools.SetShellPath(previous.Shell.Path)
+	}
+	if executionFeedChanged {
+		a.Tools.SetExecutionFeedMaxBytes(previous.Shell.ExecutionFeedMaxBytes)
 	}
 	if httpChanged {
 		a.syncMCPHTTP(previous.Server.Enabled)

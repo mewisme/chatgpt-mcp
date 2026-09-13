@@ -290,6 +290,8 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		return page, page.startExecutionFeed()
+	case logsExecutionConfigMsg:
+		return page, page.finishExecutionConfig(msg)
 	case logsExecutionMouseMsg:
 		if page.tab == logsTabCommandExec && page.resourceID == "" {
 			page.handleExecutionMouse(msg)

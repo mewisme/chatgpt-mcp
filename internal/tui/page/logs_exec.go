@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -17,8 +18,6 @@ import (
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
-
-const logsExecutionFeedCap = 4000
 
 type logsTab int
 
@@ -31,7 +30,11 @@ var logsTabLabels = []string{"Runtime", "Command Execution"}
 
 type logsExecutionFeed struct {
 	viewport           viewport.Model
+	render             executionFeedRender
 	events             []shellruntime.ExecutionFeedEvent
+	feedBytes          int
+	feedMaxBytes       int
+	configMutationSeq  uint64
 	scopeMode          executionScopeMode
 	workspaceID        string
 	workspaceView      executionWorkspaceView
@@ -62,6 +65,18 @@ type logsExecutionFeed struct {
 	restoreYOffsetSet  bool
 }
 
+type executionFeedRender struct {
+	Content  string
+	Segments []executionRenderedSegment
+}
+
+type executionRenderedSegment struct {
+	StartLine     int
+	BodyStartLine int
+	EndLine       int
+	StickyLabel   string
+}
+
 type logsExecutionOpenMsg struct {
 	generation uint64
 	stream     *runtimecontrol.ExecutionFeedStream
@@ -82,7 +97,7 @@ func newLogsExecutionFeed() logsExecutionFeed {
 	view := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
 	view.SoftWrap = false
 	view.FillHeight = false
-	return logsExecutionFeed{viewport: view, scopeMode: executionScopeCombined, workspaceView: executionWorkspaceCommands, containerMembers: map[string]struct{}{}}
+	return logsExecutionFeed{viewport: view, feedMaxBytes: shellruntime.DefaultExecutionFeedBytes, scopeMode: executionScopeCombined, workspaceView: executionWorkspaceCommands, containerMembers: map[string]struct{}{}}
 }
 
 func (page *LogsPage) switchLogsTab(tab logsTab) tea.Cmd {
@@ -148,7 +163,11 @@ func (page *LogsPage) finishExecutionFeedOpen(msg logsExecutionOpenMsg) tea.Cmd 
 	page.exec.stream, page.exec.connected, page.exec.reconnecting, page.exec.loaded, page.exec.unsupported = msg.stream, true, false, true, false
 	snapshot := msg.stream.Snapshot()
 	page.exec.latestSeq = snapshot.LatestSequence
-	page.exec.events = trimExecutionFeed(snapshot.Events)
+	page.exec.feedMaxBytes = snapshot.MaxBytes
+	if page.exec.feedMaxBytes <= 0 {
+		page.exec.feedMaxBytes = shellruntime.DefaultExecutionFeedBytes
+	}
+	page.exec.events, page.exec.feedBytes = trimExecutionFeed(snapshot.Events, page.exec.feedMaxBytes)
 	page.syncSelectedProcessRunningFromEvents()
 	page.refreshExecutionScope()
 	page.exec.notice, page.exec.err = "", nil
@@ -206,7 +225,7 @@ func (page *LogsPage) finishExecutionFeedEvent(msg logsExecutionEventMsg) tea.Cm
 		return page.startExecutionFeed()
 	}
 	page.exec.latestSeq = msg.event.Sequence
-	page.exec.events = trimExecutionFeed(append(page.exec.events, msg.event))
+	page.appendExecutionFeedEvent(msg.event)
 	if page.exec.processExecutionID != "" && msg.event.ExecutionID == page.exec.processExecutionID && msg.event.Type == shellruntime.ExecutionEventCompleted {
 		page.exec.processRunning = false
 	}
@@ -235,6 +254,7 @@ func (page *LogsPage) handleExecutionKey(msg tea.KeyPressMsg) tea.Cmd {
 		return page.openExecutionScopeEditor()
 	case "c":
 		page.exec.events = nil
+		page.exec.feedBytes = 0
 		page.exec.notice = "Command stream view cleared"
 		page.refreshExecutionViewport()
 		return nil
@@ -252,7 +272,8 @@ func (page *LogsPage) resizeExecutionViewport(width, height int) {
 	offset := page.exec.viewport.YOffset()
 	if page.exec.viewport.Width() != width {
 		page.exec.viewport.SetWidth(width)
-		page.exec.viewport.SetContent(formatExecutionFeed(page.visibleExecutionEvents(), width))
+		page.exec.render = renderExecutionFeed(page.visibleExecutionEvents(), width)
+		page.exec.viewport.SetContent(page.exec.render.Content)
 	}
 	page.exec.viewport.SetHeight(height)
 	if !page.exec.paused {
@@ -265,7 +286,8 @@ func (page *LogsPage) resizeExecutionViewport(width, height int) {
 
 func (page *LogsPage) refreshExecutionViewport() {
 	offset := page.exec.viewport.YOffset()
-	page.exec.viewport.SetContent(formatExecutionFeed(page.visibleExecutionEvents(), max(1, page.exec.viewport.Width())))
+	page.exec.render = renderExecutionFeed(page.visibleExecutionEvents(), max(1, page.exec.viewport.Width()))
+	page.exec.viewport.SetContent(page.exec.render.Content)
 	if !page.exec.paused {
 		page.exec.viewport.GotoBottom()
 		return
@@ -302,7 +324,7 @@ func (page *LogsPage) executionStatusView(width int) string {
 	if page.exec.paused {
 		follow = component.ToneText("○ PAUSED", component.ToneWarning)
 	}
-	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("Events", fmt.Sprintf("%d / %d", len(page.visibleExecutionEvents()), logsExecutionFeedCap))
+	left := component.KeyValue("Stream", stream) + "   " + component.KeyValue("Follow", follow) + "   " + component.KeyValue("Events", fmt.Sprintf("%d", len(page.visibleExecutionEvents()))) + "   " + component.KeyValue("Buffer", executionBytesLabel(page.exec.feedBytes)+" / "+executionBytesLabel(page.exec.feedMaxBytes))
 	return component.TwoColumn(left, component.KeyValue("Mode", page.executionScopeLabel()), width)
 }
 
@@ -310,7 +332,7 @@ func (page *LogsPage) executionHelpView(width int) string {
 	return component.NewHelpFooter(
 		component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"),
 		component.Binding([]string{"space"}, "space", executionFollowLabel(page.exec.paused)),
-		component.Binding([]string{"f"}, "f", "scope"), component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
+		component.Binding([]string{"f"}, "f", "settings"), component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"),
 	).View(width)
 }
 
@@ -324,23 +346,58 @@ func (page *LogsPage) executionBodyView(width, height int) string {
 	} else if page.exec.scopeNotice != "" {
 		message = component.WrapContent(component.Muted(page.exec.scopeNotice), width)
 	}
-	reserved := lipgloss.Height(status) + 1
+	reserved := lipgloss.Height(status) + 2
 	if message != "" {
 		reserved += lipgloss.Height(message) + 1
 	}
 	bodyHeight := max(1, height-reserved)
 	page.resizeExecutionViewport(width, bodyHeight)
+	sticky := page.executionStickyHeader(width)
+	if sticky != "" {
+		page.resizeExecutionViewport(width, max(1, bodyHeight-lipgloss.Height(sticky)))
+		sticky = page.executionStickyHeader(width)
+	}
 	body := page.exec.viewport.View()
 	if len(page.visibleExecutionEvents()) == 0 {
 		empty := page.exec.viewport
 		empty.SetContent(component.Muted("Waiting for command output"))
 		body = empty.View()
 	}
-	content := status + "\n" + body
+	content := status + "\n\n"
+	if sticky != "" {
+		content += sticky + "\n"
+	}
+	content += body
 	if message != "" {
 		content += "\n" + message
 	}
 	return content
+}
+
+func (page *LogsPage) executionStickyHeader(width int) string {
+	if page == nil || len(page.exec.render.Segments) == 0 {
+		return ""
+	}
+	top := page.exec.viewport.YOffset()
+	for _, segment := range page.exec.render.Segments {
+		if top < segment.BodyStartLine || top >= segment.EndLine {
+			continue
+		}
+		return executionStickyFrame(segment.StickyLabel, width)
+	}
+	return ""
+}
+
+func executionStickyFrame(label string, width int) string {
+	if width <= 0 || strings.TrimSpace(label) == "" {
+		return ""
+	}
+	if width < 4 {
+		return ansi.Truncate(label, width, "")
+	}
+	label = ansi.Truncate(label, max(0, width-6), "…")
+	used := 4 + lipgloss.Width(label)
+	return "╭─ " + label + " " + strings.Repeat("─", max(0, width-used-1)) + "╮"
 }
 
 func (page *LogsPage) logsTabMouseTargets(originX, originY, z int) []component.MouseTarget {
@@ -406,14 +463,60 @@ func (page *LogsPage) stopExecutionFeedOnly() {
 	page.exec.connected = false
 }
 
-func trimExecutionFeed(events []shellruntime.ExecutionFeedEvent) []shellruntime.ExecutionFeedEvent {
-	if len(events) <= logsExecutionFeedCap {
-		return append([]shellruntime.ExecutionFeedEvent(nil), events...)
+func (page *LogsPage) appendExecutionFeedEvent(event shellruntime.ExecutionFeedEvent) {
+	if page == nil {
+		return
 	}
-	return append([]shellruntime.ExecutionFeedEvent(nil), events[len(events)-logsExecutionFeedCap:]...)
+	if page.exec.feedMaxBytes <= 0 {
+		page.exec.feedMaxBytes = shellruntime.DefaultExecutionFeedBytes
+	}
+	page.exec.events = append(page.exec.events, event)
+	page.exec.feedBytes += shellruntime.ExecutionFeedEventBytes(event)
+	for len(page.exec.events) > 0 && page.exec.feedBytes > page.exec.feedMaxBytes {
+		page.exec.feedBytes -= shellruntime.ExecutionFeedEventBytes(page.exec.events[0])
+		page.exec.events = page.exec.events[1:]
+	}
+}
+
+func trimExecutionFeed(events []shellruntime.ExecutionFeedEvent, maxBytes int) ([]shellruntime.ExecutionFeedEvent, int) {
+	if maxBytes <= 0 {
+		maxBytes = shellruntime.DefaultExecutionFeedBytes
+	}
+	total, start := 0, len(events)
+	for index := len(events) - 1; index >= 0; index-- {
+		size := shellruntime.ExecutionFeedEventBytes(events[index])
+		if total+size > maxBytes {
+			break
+		}
+		total += size
+		start = index
+	}
+	return append([]shellruntime.ExecutionFeedEvent(nil), events[start:]...), total
+}
+
+func executionBytesLabel(value int) string {
+	if value < 0 {
+		value = 0
+	}
+	switch {
+	case value >= 1_000_000 && value%1_000_000 == 0:
+		return fmt.Sprintf("%d MB", value/1_000_000)
+	case value >= 1_000_000:
+		return fmt.Sprintf("%.1f MB", float64(value)/1_000_000)
+	case value >= 1_000 && value%1_000 == 0:
+		return fmt.Sprintf("%d KB", value/1_000)
+	case value >= 1_000:
+		return fmt.Sprintf("%.1f KB", float64(value)/1_000)
+	default:
+		return fmt.Sprintf("%d B", value)
+	}
 }
 
 func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int) string {
+	return renderExecutionFeed(events, widths...).Content
+}
+
+func renderExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int) executionFeedRender {
 	width := 80
 	if len(widths) > 0 && widths[0] > 0 {
 		width = widths[0]
@@ -453,7 +556,7 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int
 		case shellruntime.ExecutionEventStarted:
 			current.start = event
 		case shellruntime.ExecutionEventOutput:
-			current.body.WriteString(ansi.Strip(event.Data))
+			current.body.WriteString(event.Data)
 		case shellruntime.ExecutionEventCompleted:
 			current.last = event
 			closeCurrent(event, true, false)
@@ -465,13 +568,72 @@ func formatExecutionFeed(events []shellruntime.ExecutionFeedEvent, widths ...int
 		closeCurrent(current.last, false, false)
 	}
 	var output strings.Builder
+	rendered := executionFeedRender{}
+	stickyLabels := map[string]string{}
+	line := 0
 	for index, segment := range segments {
 		if index > 0 {
 			output.WriteString("\n")
+			line++
 		}
-		output.WriteString(formatExecutionSegment(segment.start, segment.end, segment.body.String(), segment.first, segment.final, segment.interrupted, width))
+		block := formatExecutionSegment(segment.start, segment.end, segment.body.String(), segment.first, segment.final, segment.interrupted, width)
+		startLine := line
+		bodyStartLine := startLine
+		for blockLine, value := range strings.Split(strings.TrimSuffix(block, "\n"), "\n") {
+			if strings.HasPrefix(value, "├") {
+				bodyStartLine = startLine + blockLine + 1
+				break
+			}
+		}
+		blockLines := strings.Count(block, "\n")
+		if blockLines == 0 && block != "" {
+			blockLines = 1
+		}
+		line += blockLines
+		output.WriteString(block)
+		stickyLabel := executionStickyLabel(segment.start)
+		if previous := stickyLabels[segment.start.ExecutionID]; previous != "" && !segment.first {
+			stickyLabel = previous
+		} else if segment.start.ExecutionID != "" {
+			stickyLabels[segment.start.ExecutionID] = stickyLabel
+		}
+		rendered.Segments = append(rendered.Segments, executionRenderedSegment{StartLine: startLine, BodyStartLine: bodyStartLine, EndLine: line, StickyLabel: stickyLabel})
 	}
-	return output.String()
+	rendered.Content = output.String()
+	return rendered
+}
+
+func executionStickyLabel(event shellruntime.ExecutionFeedEvent) string {
+	parts := []string{"START"}
+	if started := executionStartClock(event); started != "" {
+		parts = append(parts, started)
+	}
+	if event.ExecutionID != "" {
+		parts = append(parts, event.ExecutionID)
+	}
+	workspaceID := event.WorkspaceID
+	if event.Execution != nil && event.Execution.WorkspaceID != "" {
+		workspaceID = event.Execution.WorkspaceID
+	}
+	if workspaceID != "" {
+		parts = append(parts, workspaceID)
+	}
+	if event.Execution != nil && strings.TrimSpace(event.Execution.Command) != "" {
+		parts = append(parts, "$ "+sanitizeExecutionInline(event.Execution.Command))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func executionStartClock(event shellruntime.ExecutionFeedEvent) string {
+	if event.Execution != nil && event.Execution.StartedAt != "" {
+		if started, err := time.Parse(time.RFC3339Nano, event.Execution.StartedAt); err == nil {
+			return started.Local().Format("15:04:05.000")
+		}
+	}
+	if value := executionEventTime(event); !value.IsZero() {
+		return value.Local().Format("15:04:05.000")
+	}
+	return ""
 }
 
 func formatExecutionSegment(start, end shellruntime.ExecutionFeedEvent, body string, first, final, interrupted bool, width int) string {
@@ -482,9 +644,9 @@ func formatExecutionSegment(start, end shellruntime.ExecutionFeedEvent, body str
 	headerFields := executionHeaderFields(start, first)
 	content := []string{}
 	if first && start.Execution != nil && strings.TrimSpace(start.Execution.Command) != "" {
-		content = append(content, "$ "+ansi.Strip(start.Execution.Command))
+		content = append(content, "$ "+sanitizeExecutionInline(start.Execution.Command))
 	}
-	if clean := strings.TrimSuffix(normalizeExecutionOutput(ansi.Strip(body)), "\n"); clean != "" {
+	if clean := strings.TrimSuffix(sanitizeExecutionOutput(body), "\n"); clean != "" {
 		content = append(content, strings.Split(clean, "\n")...)
 	}
 	if len(content) == 0 {
@@ -501,9 +663,24 @@ func formatExecutionSegment(start, end shellruntime.ExecutionFeedEvent, body str
 	return executionSegmentFrame(headerKind, footerKind, start, end, headerFields, content, footerFields, width)
 }
 
-func normalizeExecutionOutput(value string) string {
+func sanitizeExecutionOutput(value string) string {
+	value = ansi.Strip(value)
 	value = strings.ReplaceAll(value, "\r\n", "\n")
-	return strings.ReplaceAll(value, "\r", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	value = strings.ReplaceAll(value, "\t", "    ")
+	return strings.Map(func(r rune) rune {
+		if r == '\n' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, value)
+}
+
+func sanitizeExecutionInline(value string) string {
+	return strings.Join(strings.Fields(sanitizeExecutionOutput(value)), " ")
 }
 
 func executionHeaderFields(event shellruntime.ExecutionFeedEvent, first bool) []executionFrameField {
@@ -596,7 +773,7 @@ func executionSegmentFrame(headerKind, footerKind string, start, end shellruntim
 	}
 	output.WriteString("├" + strings.Repeat("─", width-2) + "┤\n")
 	for _, raw := range content {
-		clean := strings.ReplaceAll(ansi.Strip(raw), "\t", "    ")
+		clean := sanitizeExecutionOutput(raw)
 		for _, line := range strings.Split(component.WrapContent(clean, innerWidth), "\n") {
 			output.WriteString("│ " + line + strings.Repeat(" ", max(0, innerWidth-lipgloss.Width(line))) + " │\n")
 		}
@@ -618,10 +795,10 @@ type executionFrameField struct {
 }
 
 func wrappedExecutionFrameLines(label string, values []string, width int) []string {
-	label = ansi.Strip(strings.TrimSpace(label))
+	label = sanitizeExecutionInline(label)
 	clean := make([]string, 0, len(values))
 	for _, value := range values {
-		value = ansi.Strip(strings.TrimSpace(value))
+		value = sanitizeExecutionInline(value)
 		if value != "" {
 			clean = append(clean, value)
 		}

@@ -1450,13 +1450,20 @@ func (model Model) shortcutFooterWidth(width int) string {
 func (model Model) header(width, originX, originY int) (string, []component.MouseTarget) {
 	owner := headerOwner(model.router.Current().Kind)
 	compact := !headerFullLabelsFit(width)
-	parts := make([]string, 0, len(headerPages))
+	parts := make([]string, 0, len(headerPages)*2-1)
 	targets := make([]component.MouseTarget, 0, len(headerPages))
+	divider := component.Muted("│")
+	dividerWidth := lipgloss.Width(divider)
+	itemsWidth := max(0, width-dividerWidth*(len(headerPages)-1))
 	x := 0
 	for index, page := range headerPages {
+		if index > 0 {
+			parts = append(parts, divider)
+			x += dividerWidth
+		}
 		style := component.NavItemStyle(page.Kind == owner)
-		cellWidth := width / len(headerPages)
-		if index < width%len(headerPages) {
+		cellWidth := itemsWidth / len(headerPages)
+		if index < itemsWidth%len(headerPages) {
 			cellWidth++
 		}
 		label := page.Label
@@ -1618,7 +1625,7 @@ func (model Model) showNavbar(contentWidth, height int) bool {
 	if height < navbarMinHeight || contentWidth <= 0 || len(headerPages) == 0 {
 		return false
 	}
-	minCellWidth := contentWidth / len(headerPages)
+	minCellWidth := max(0, contentWidth-(len(headerPages)-1)) / len(headerPages)
 	maxLabelWidth := 0
 	for _, page := range headerPages {
 		label := page.CompactLabel
@@ -1634,7 +1641,7 @@ func headerFullLabelsFit(width int) bool {
 	if width <= 0 || len(headerPages) == 0 {
 		return false
 	}
-	minCellWidth := width / len(headerPages)
+	minCellWidth := max(0, width-(len(headerPages)-1)) / len(headerPages)
 	for _, page := range headerPages {
 		if lipgloss.Width(page.Label) > minCellWidth {
 			return false

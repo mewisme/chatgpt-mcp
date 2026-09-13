@@ -424,8 +424,9 @@ func TestModelRendersDeepLinkAndNavigation(t *testing.T) {
 	if len(lines) < 2 || !strings.Contains(lines[0], "ChatGPT MCP") || strings.Contains(lines[1], "ChatGPT MCP") || !strings.Contains(plain, "Deep-linked resource: github") {
 		t.Fatalf("view = %q", view)
 	}
-	cellWidth := (100 - 4) / len(headerPages)
-	if 1 < (100-4)%len(headerPages) {
+	itemsWidth := (100 - 4) - len(headerPages) + 1
+	cellWidth := itemsWidth / len(headerPages)
+	if 1 < itemsWidth%len(headerPages) {
 		cellWidth++
 	}
 	active := model.theme.navActive.Padding(0).Width(cellWidth).Align(lipgloss.Center).Render("MCP")
@@ -471,11 +472,14 @@ func TestModelHeaderCellsFillUsableWidth(t *testing.T) {
 			if target.Rect.X != x || target.Rect.Y != 1 || target.Rect.Height != 1 {
 				t.Fatalf("target %d rect=%#v want x=%d y=1", index, target.Rect, x)
 			}
-			x += target.Rect.Width
+			x += target.Rect.Width + 1
 			total += target.Rect.Width
 		}
-		if total != width || x != width+2 {
-			t.Fatalf("navbar coverage total=%d end=%d want total=%d end=%d", total, x, width, width+2)
+		if total != width-len(headerPages)+1 || x-1 != width+2 {
+			t.Fatalf("navbar coverage total=%d end=%d width=%d", total, x-1, width)
+		}
+		if count := strings.Count(ansi.Strip(header), "│"); count != len(headerPages)-1 {
+			t.Fatalf("navbar dividers=%d want=%d: %q", count, len(headerPages)-1, ansi.Strip(header))
 		}
 	}
 }

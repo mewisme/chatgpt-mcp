@@ -49,13 +49,22 @@ func PageTabsLayout(labels []string, active int, notice string, width int) (stri
 		return "", nil
 	}
 	active = MoveTab(active, len(labels), 0)
-	parts := make([]string, 0, len(labels)+1)
+	parts := make([]string, 0, len(labels)*2)
 	spans := make([]TabSpan, 0, len(labels))
+	divider := Muted("│")
+	dividerWidth := lipgloss.Width(divider)
 	x := 0
 	for index, raw := range labels {
 		label := strings.TrimSpace(raw)
 		if label == "" {
 			continue
+		}
+		if len(spans) > 0 {
+			if width > 0 && x+dividerWidth >= width {
+				break
+			}
+			parts = append(parts, divider)
+			x += dividerWidth
 		}
 		desired := lipgloss.Width(label) + 2
 		if width > 0 && x >= width {

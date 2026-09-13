@@ -8,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
-	"charm.land/lipgloss/v2"
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
@@ -224,20 +223,16 @@ func (page *WorkspacePage) resizeWorkspaceContextEditor() {
 	if page == nil || page.contextEditor == nil || page.width <= 0 || page.height <= 0 {
 		return
 	}
-	title := component.PageTitleNotice("Project Context · "+page.resourceID, page.notice, page.width)
-	page.contextEditor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
+	page.contextEditor.Resize(page.width, page.height)
 }
 
 func (page *WorkspacePage) workspaceContextView(width, height int) string {
-	title := component.PageTitleNotice("Project Context · "+page.resourceID, page.notice, width)
-	bodyHeight := max(1, height-lipgloss.Height(title)-1)
 	if page.contextBuilding && page.contextProgress != nil {
-		body := component.CenterLayout(page.contextProgress.View()+"\n\n"+component.Muted("Esc cancel"), width, bodyHeight)
-		return title + "\n" + body
+		return component.CenterLayout(page.contextProgress.View()+"\n\n"+component.Muted("Esc cancel"), width, height)
 	}
 	if page.contextEditor == nil {
-		return title + "\n" + component.StateView(component.PageError, "Project Context editor unavailable", "")
+		return component.StateView(component.PageError, "Project Context editor unavailable", "")
 	}
-	page.contextEditor.Resize(width, bodyHeight)
-	return title + "\n" + page.contextEditor.View()
+	page.contextEditor.Resize(width, height)
+	return page.contextEditor.View()
 }

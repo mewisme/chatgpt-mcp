@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -32,39 +31,20 @@ func (page *TunnelPage) initRuntimeEditor() error {
 	return nil
 }
 
-func (page *TunnelPage) editorTitle() string {
-	if page != nil && page.kind == tunnelPageManaged {
-		switch page.action {
-		case "create":
-			return "Create Managed Tunnel"
-		case "edit":
-			return "Edit Managed Tunnel · " + page.resourceID
-		case "configure":
-			return "Use Managed Tunnel · " + page.resourceID
-		}
-	}
-	if page != nil && page.command == TunnelAdminKeySet {
-		return "Tunnel Admin Key"
-	}
-	return "Configure Runtime Tunnel"
-}
-
 func (page *TunnelPage) resizeEditor() {
 	if page == nil || page.editor == nil || page.width <= 0 || page.height <= 0 {
 		return
 	}
-	title := component.PageTitleNotice(page.editorTitle(), page.notice, page.width)
-	page.editor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
+	page.editor.Resize(page.width, page.height)
 }
 
 func (page *TunnelPage) editorView(width, height int) string {
-	title := component.PageTitleNotice(page.editorTitle(), page.notice, width)
 	if page == nil || page.editor == nil {
-		return title + "\n" + component.StateView(component.PageError, "Tunnel editor unavailable", "")
+		return component.StateView(component.PageError, "Tunnel editor unavailable", "")
 	}
 	page.width, page.height = width, height
 	page.resizeEditor()
-	return title + "\n" + page.editor.View()
+	return page.editor.View()
 }
 
 func (page *TunnelPage) editorParentNavigation() tea.Cmd {

@@ -81,6 +81,8 @@ func ParseRoute(args []string) (Route, error) {
 		return parseRequestsRoute(parts)
 	case RouteLogs:
 		return parseLogsRoute(parts)
+	case RouteLogsExec:
+		return parseLogsExecRoute(parts)
 	case RouteConfig:
 		return parseConfigRoute(parts)
 	case RouteInstruction:
@@ -272,6 +274,18 @@ func parseLogsRoute(parts []string) (Route, error) {
 	}
 	route.Section = section
 	return route, nil
+}
+
+func parseLogsExecRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteLogsExec}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) == 2 && parts[1] == "settings" {
+		route.Action = "settings"
+		return route, nil
+	}
+	return Route{}, fmt.Errorf("unsupported command execution path %q", strings.Join(parts, " "))
 }
 
 func parseConfigRoute(parts []string) (Route, error) {
@@ -489,7 +503,7 @@ func normalizeRouteSection(kind RouteKind, value string) (string, bool) {
 		RouteContainers:  {"workspaces": true},
 		RouteMCP:         {"health": true, "tools": true, "oauth": true},
 		RouteTunnels:     {"scope": true},
-		RouteRequests:    {"arguments": true, "guard": true},
+		RouteRequests:    {"command": true, "arguments": true, "guard": true},
 		RouteLogs:        {"fields": true},
 	}
 	return value, allowed[kind][value]
@@ -506,6 +520,169 @@ func routeSectionTitle(section string) string {
 		}
 	}
 	return strings.Join(words, " ")
+}
+
+func routeBreadcrumb(route Route) ([]Route, []string) {
+	stack := routeStack(route)
+	labels := make([]string, len(stack))
+	for index := range stack {
+		labels[index] = breadcrumbRouteLabel(stack, index)
+	}
+	return stack, labels
+}
+
+func breadcrumbRouteLabel(stack []Route, index int) string {
+	if index < 0 || index >= len(stack) {
+		return ""
+	}
+	route := stack[index]
+	previous := Route{}
+	if index > 0 {
+		previous = stack[index-1]
+	}
+	if route.Action != "" {
+		return breadcrumbActionLabel(route)
+	}
+	if index == 0 || route.Kind != previous.Kind {
+		return breadcrumbRootRouteLabel(route)
+	}
+	if route.Mode != previous.Mode && route.Mode != "" {
+		return routeSectionTitle(route.Mode)
+	}
+	if route.ResourceID != previous.ResourceID && route.ResourceID != "" {
+		if route.Kind == RouteConfig {
+			if label := configBreadcrumbResourceLabel(route.ResourceID); label != "" {
+				return label
+			}
+		}
+		if route.Kind == RouteGuide {
+			parts := strings.Split(strings.Trim(route.ResourceID, "/"), "/")
+			return breadcrumbSegmentLabel(parts[len(parts)-1])
+		}
+		return route.ResourceID
+	}
+	if route.Section != previous.Section && route.Section != "" {
+		return breadcrumbSectionLabel(route.Kind, route.Section)
+	}
+	return breadcrumbRootRouteLabel(route)
+}
+
+func breadcrumbRootRouteLabel(route Route) string {
+	switch route.Kind {
+	case RouteLogs:
+		return "Runtime"
+	case RouteRequests:
+		if route.Mode == "" {
+			return "Pending"
+		}
+		return routeSectionTitle(route.Mode)
+	case RouteInstruction:
+		if route.Section == "" {
+			return "Context"
+		}
+		return breadcrumbSectionLabel(route.Kind, route.Section)
+	default:
+		return breadcrumbRootLabel(route.Kind)
+	}
+}
+
+func breadcrumbRootLabel(kind RouteKind) string {
+	switch kind {
+	case RouteWorkspaces:
+		return "Workspaces"
+	case RouteContainers:
+		return "Containers"
+	case RouteMCP:
+		return "MCP"
+	case RouteTunnel:
+		return "Tunnel"
+	case RouteTunnels:
+		return "Managed Tunnels"
+	case RouteRequests:
+		return "Requests"
+	case RouteLogs:
+		return "Logs"
+	case RouteLogsExec:
+		return "Command Execution"
+	case RouteConfig:
+		return "Config"
+	case RouteInstruction:
+		return "Instruction"
+	case RouteRuntime:
+		return "Runtime"
+	case RouteAbout:
+		return "About"
+	case RouteGuide:
+		return "Guide"
+	default:
+		return routeSectionTitle(string(kind))
+	}
+}
+
+func configBreadcrumbResourceLabel(resourceID string) string {
+	switch resourceID {
+	case "runtime":
+		return "Runtime & Network"
+	case "access":
+		return "Access & Security"
+	case "shell":
+		return "Shell & Execution"
+	case "features":
+		return "Features"
+	case "tunnel":
+		return "Tunnel"
+	case "storage":
+		return "Storage"
+	default:
+		return ""
+	}
+}
+
+func breadcrumbSegmentLabel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "mcp":
+		return "MCP"
+	case "tui":
+		return "TUI"
+	case "oauth":
+		return "OAuth"
+	case "api":
+		return "API"
+	case "json":
+		return "JSON"
+	default:
+		return routeSectionTitle(value)
+	}
+}
+
+func breadcrumbSectionLabel(kind RouteKind, section string) string {
+	if kind == RouteWorkspaces {
+		switch section {
+		case "context":
+			return "Project Context"
+		case "context-preview":
+			return "Context Preview"
+		}
+	}
+	if section == "oauth" {
+		return "OAuth"
+	}
+	return routeSectionTitle(section)
+}
+
+func breadcrumbActionLabel(route Route) string {
+	switch {
+	case route.Kind == RouteInstruction && route.Section == "rules" && route.Action == "edit" && route.ResourceID != "":
+		return "Edit " + route.ResourceID
+	case route.Kind == RouteTunnel && route.Section == "admin-key" && route.Action == "edit":
+		return "Edit Admin Key"
+	case route.Kind == RouteLogs && route.Action == "filter":
+		return "Filters"
+	case route.Kind == RouteLogsExec && route.Action == "settings":
+		return "Settings"
+	default:
+		return routeSectionTitle(route.Action)
+	}
 }
 
 type Router struct {
@@ -547,12 +724,6 @@ func routeStack(route Route) []Route {
 	if route.Kind == RouteHome {
 		return []Route{{Kind: RouteHome}}
 	}
-	if route.Kind == RouteInstruction {
-		if route.Action == "" {
-			return []Route{route}
-		}
-		return []Route{{Kind: RouteInstruction, Section: route.Section}, route}
-	}
 	if route.Kind == RouteGuide {
 		stack := []Route{{Kind: RouteGuide}}
 		if route.ResourceID == "" {
@@ -564,31 +735,93 @@ func routeStack(route Route) []Route {
 		}
 		return stack
 	}
-	main := Route{Kind: route.Kind}
-	if route.Kind == RouteRequests {
-		main.Mode = route.Mode
+	switch route.Kind {
+	case RouteContainers:
+		return genericRouteStack(route)
+	case RouteTunnels:
+		return append([]Route{{Kind: RouteTunnel}}, genericRouteStack(route)...)
+	case RouteLogsExec:
+		return genericRouteStack(route)
+	case RouteRequests:
+		return requestRouteStack(route)
+	case RouteInstruction:
+		return instructionRouteStack(route)
+	case RouteConfig:
+		return configRouteStack(route)
+	case RouteTunnel:
+		return tunnelRouteStack(route)
+	default:
+		return genericRouteStack(route)
 	}
-	stack := []Route{main}
-	parent := main
+}
+
+func genericRouteStack(route Route) []Route {
+	root := Route{Kind: route.Kind}
+	stack := []Route{root}
+	parent := root
 	if route.ResourceID != "" {
 		parent.ResourceID = route.ResourceID
 		stack = append(stack, parent)
 	}
-	if route.Section != "" && routeSectionCreatesAncestry(route.Kind, route.Section) {
+	if route.Section != "" {
 		parent.Section = route.Section
 		stack = append(stack, parent)
 	}
 	if route.Action != "" {
-		return append(stack, route)
+		stack = append(stack, route)
 	}
-	if route.Section != "" && (len(stack) == 0 || stack[len(stack)-1] != route) {
-		return append(stack, route)
-	}
-	return stack
+	return dedupeRouteStack(stack)
 }
 
-func routeSectionCreatesAncestry(kind RouteKind, section string) bool {
-	return !(kind == RouteTunnel && section == "admin-key" || kind == RouteConfig && section == "storage")
+func requestRouteStack(route Route) []Route {
+	root := Route{Kind: RouteRequests, Mode: route.Mode}
+	stack := []Route{root}
+	parent := root
+	if route.ResourceID != "" {
+		parent.ResourceID = route.ResourceID
+		stack = append(stack, parent)
+	}
+	if route.Section != "" {
+		parent.Section = route.Section
+		stack = append(stack, parent)
+	}
+	if route.Action != "" {
+		stack = append(stack, route)
+	}
+	return dedupeRouteStack(stack)
+}
+
+func instructionRouteStack(route Route) []Route {
+	root := Route{Kind: RouteInstruction, Section: route.Section}
+	stack := []Route{root}
+	if route.Action != "" {
+		stack = append(stack, route)
+	}
+	return dedupeRouteStack(stack)
+}
+
+func configRouteStack(route Route) []Route {
+	if route.Section == "storage" && route.Action != "" {
+		return []Route{{Kind: RouteConfig}, {Kind: RouteConfig, ResourceID: "storage"}, route}
+	}
+	return genericRouteStack(route)
+}
+
+func tunnelRouteStack(route Route) []Route {
+	if route.Section == "admin-key" && route.Action != "" {
+		return []Route{{Kind: RouteTunnel}, route}
+	}
+	return genericRouteStack(route)
+}
+
+func dedupeRouteStack(stack []Route) []Route {
+	result := make([]Route, 0, len(stack))
+	for _, route := range stack {
+		if len(result) == 0 || result[len(result)-1] != route {
+			result = append(result, route)
+		}
+	}
+	return result
 }
 
 func headerOwner(kind RouteKind) RouteKind {

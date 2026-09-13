@@ -667,7 +667,7 @@ func (page *RequestsPage) syncDetail() {
 		if page.resourceErr != nil {
 			body = component.Muted("The approval request is no longer available.")
 		}
-		page.detail = component.NewDetailPage("Approval request · "+page.resourceID, "", body)
+		page.detail = component.NewDetailPage(page.requestDetailTitle(), "", body)
 		page.detailReady = true
 		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: RequestCommandMsg{Command: RequestRefresh, ResourceID: page.resourceID}})
 		if page.width > 0 && page.height > 0 {
@@ -693,11 +693,11 @@ func (page *RequestsPage) syncDetail() {
 		meta += " · " + countdown
 	}
 	if page.detailReady {
-		page.detail.SetTitle("Approval request · " + request.ID)
+		page.detail.SetTitle(page.requestDetailTitle())
 		page.detail.SetMeta(meta)
 		page.detail.SetContentPreserveScroll(content)
 	} else {
-		page.detail = component.NewDetailPage("Approval request · "+request.ID, meta, content)
+		page.detail = component.NewDetailPage(page.requestDetailTitle(), meta, content)
 		page.detailReady = true
 	}
 	bindings := make([]component.DetailPageBinding, 0, 6)
@@ -761,7 +761,7 @@ func (page *RequestsPage) requestCodeView(width, height int) string {
 	}
 	feedback := requestCodeFeedback(page.notice, page.err, width)
 	help := page.codeHelp.View(width)
-	layout := component.NewSectionLayout("Approval request · "+request.ID+" · "+page.requestCodeTitle(), meta, feedback, width, height, lipgloss.Height(help))
+	layout := component.NewSectionLayout(page.requestCodeTitle(), meta, feedback, width, height, lipgloss.Height(help))
 	body := component.Muted("No content")
 	if page.codeViewer != nil {
 		page.codeViewer.Resize(width, layout.BodyHeight)
@@ -775,7 +775,7 @@ func (page *RequestsPage) resizeCodeViewer(width, height int) {
 		return
 	}
 	help := page.codeHelp.View(width)
-	layout := component.NewSectionLayout("Approval request · "+page.resourceID+" · "+page.requestCodeTitle(), "", requestCodeFeedback(page.notice, page.err, width), width, height, lipgloss.Height(help))
+	layout := component.NewSectionLayout(page.requestCodeTitle(), "", requestCodeFeedback(page.notice, page.err, width), width, height, lipgloss.Height(help))
 	page.codeViewer.Resize(width, layout.BodyHeight)
 }
 
@@ -784,8 +784,24 @@ func (page *RequestsPage) requestCodeMouseTargets(originX, originY, z int) []com
 		return nil
 	}
 	help := page.codeHelp.View(page.width)
-	layout := component.NewSectionLayout("Approval request · "+page.resourceID+" · "+page.requestCodeTitle(), "", requestCodeFeedback(page.notice, page.err, page.width), page.width, page.height, lipgloss.Height(help))
+	layout := component.NewSectionLayout(page.requestCodeTitle(), "", requestCodeFeedback(page.notice, page.err, page.width), page.width, page.height, lipgloss.Height(help))
 	return page.codeViewer.MouseTargets(originX, originY+layout.BodyY, z)
+}
+
+func (page *RequestsPage) requestDetailTitle() string {
+	if page == nil {
+		return "Overview"
+	}
+	switch page.section {
+	case "command":
+		return "Command"
+	case "arguments":
+		return "Arguments"
+	case "guard":
+		return "Guard"
+	default:
+		return "Overview"
+	}
 }
 
 func (page *RequestsPage) requestCodeTitle() string {

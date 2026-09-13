@@ -111,10 +111,13 @@ func TestWorkspaceEditorRoutesFromKeyAndCommandMessage(t *testing.T) {
 		t.Fatalf("editor=%v overlay=%t input=%t", page.editor != nil, page.OverlayActive(), page.InputActive())
 	}
 	plain := ansi.Strip(page.View(100, 24))
-	for _, want := range []string{"Register Workspace", "Workspace path", "ctrl+s register", "ctrl+o"} {
+	for _, want := range []string{"Workspace path", "ctrl+s register", "ctrl+o"} {
 		if !strings.Contains(strings.ToLower(plain), strings.ToLower(want)) {
 			t.Fatalf("workspace editor missing %q: %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "Register Workspace") {
+		t.Fatalf("workspace editor retained redundant page title: %q", plain)
 	}
 }
 
@@ -414,7 +417,7 @@ func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 		if cmd == nil || page.resourceID != item.ID {
 			t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)
 		}
-		if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Workspace · "+item.ID) {
+		if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Overview") {
 			t.Fatalf("intermediate detail render=%q", got)
 		}
 		message, ok := cmd().(NavigateMsg)
@@ -446,7 +449,7 @@ func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 	if cmd == nil || page.resourceID != container.ID {
 		t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)
 	}
-	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Container · Primary") {
+	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Primary") {
 		t.Fatalf("intermediate container detail render=%q", got)
 	}
 	message, ok := cmd().(NavigateMsg)
@@ -586,7 +589,7 @@ func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 		t.Fatal("resource detail incorrectly reports overlay active")
 	}
 	plain := ansi.Strip(detail.View(100, 24))
-	if !strings.Contains(plain, "Workspace · "+item.ID) || !strings.Contains(plain, filepath.Base(item.Path)) || !strings.Contains(plain, "p context") || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
+	if !strings.Contains(plain, "Overview") || !strings.Contains(plain, filepath.Base(item.Path)) || !strings.Contains(plain, "p context") || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
 		t.Fatalf("workspace detail=%q", plain)
 	}
 	if strings.Contains(plain, "Overview   Access") || strings.Contains(plain, "╭") {
@@ -654,10 +657,13 @@ func TestWorkspaceRelocateEditorUsesExplicitMutationSubmit(t *testing.T) {
 		t.Fatalf("relocate editor value=%q want=%q", page.value, item.Path)
 	}
 	plain := strings.ToLower(ansi.Strip(page.View(100, 24)))
-	for _, want := range []string{"relocate workspace", "new workspace path", "ctrl+s relocate"} {
+	for _, want := range []string{"rebind this workspace", "new workspace path", "ctrl+s relocate"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("relocate editor missing %q: %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "relocate workspace") {
+		t.Fatalf("relocate editor retained redundant page title: %q", plain)
 	}
 	if strings.Contains(plain, "enter relocate") {
 		t.Fatalf("relocate mutation unexpectedly uses enter submit: %q", plain)
@@ -796,10 +802,13 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		t.Fatalf("context input=%t data=%v", page.InputActive(), page.contextData != nil)
 	}
 	plain := ansi.Strip(page.View(110, 30))
-	for _, want := range []string{"Project Context · " + item.ID, "Scope", "Budgets", "Include"} {
+	for _, want := range []string{"Scope", "Budgets", "Include"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("context editor missing %q: %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "Project Context · "+item.ID) {
+		t.Fatalf("context editor retained redundant page title: %q", plain)
 	}
 	if strings.Contains(plain, "ctrl+s build") {
 		t.Fatalf("non-mutating project context editor still advertises ctrl+s: %q", plain)
@@ -847,10 +856,13 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	previewView := ansi.Strip(preview.View(110, 30))
-	for _, want := range []string{"Project Context Preview", "Rendered", "Sources", "JSON", "Rendered Context", "Use compact code.", "2 rules", "1 skills", "truncated"} {
+	for _, want := range []string{"Rendered", "Sources", "JSON", "Rendered Context", "Use compact code.", "2 rules", "1 skills", "truncated"} {
 		if !strings.Contains(previewView, want) {
 			t.Fatalf("preview missing %q: %q", want, previewView)
 		}
+	}
+	if strings.Contains(previewView, "Project Context Preview") {
+		t.Fatalf("preview retained redundant page title: %q", previewView)
 	}
 	updated, _ = preview.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	preview = updated.(*WorkspacePage)

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	DefaultExecutionFeedMaxBytes = 1_000_000
+	DefaultExecutionFeedMaxBytes = 10_000_000
 	MinExecutionFeedMaxBytes     = 64_000
 	MaxExecutionFeedMaxBytes     = 100_000_000
 )

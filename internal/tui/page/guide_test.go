@@ -46,7 +46,7 @@ func TestGuideTopicLoadsOnlySelectedMarkdownWithGlamourViewer(t *testing.T) {
 		t.Fatal("guide viewer source differs from selected embedded topic")
 	}
 	plain := ansi.Strip(page.View(100, 30))
-	if !strings.Contains(plain, "Guide · MCP Servers") || !strings.Contains(plain, "Use Topics for detailed documentation") || strings.Contains(plain, "Shell & Execution") {
+	if !strings.Contains(plain, "MCP Servers") || !strings.Contains(plain, "Use Topics for detailed documentation") || strings.Contains(plain, "Shell & Execution") {
 		t.Fatalf("selected guide render=%q", plain)
 	}
 	if page.viewer.RenderError() != nil {
@@ -60,7 +60,7 @@ func TestGuideFolderOverviewAndNestedTopics(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := ansi.Strip(page.View(100, 30))
-	if !strings.Contains(plain, "Overview") || !strings.Contains(plain, "Topics") || !strings.Contains(plain, "Guide · Configuration") {
+	if !strings.Contains(plain, "Overview") || !strings.Contains(plain, "Topics") || !strings.Contains(plain, "Configuration") {
 		t.Fatalf("config overview=%q", plain)
 	}
 	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyRight})
@@ -81,7 +81,7 @@ func TestGuideFolderOverviewAndNestedTopics(t *testing.T) {
 	}
 	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
 	page = updated.(*GuidePage)
-	if page.tab != 0 || !strings.Contains(ansi.Strip(page.View(100, 30)), "Guide · Configuration") {
+	if page.tab != 0 || !strings.Contains(ansi.Strip(page.View(100, 30)), "Configuration") {
 		t.Fatalf("left arrow did not return to overview: tab=%d", page.tab)
 	}
 	nested, err := NewGuide(t.Context(), "config/storage/bundles")

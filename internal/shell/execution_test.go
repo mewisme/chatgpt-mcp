@@ -50,6 +50,9 @@ func TestExecutionHubSnapshotsAndStreamsOutput(t *testing.T) {
 }
 
 func TestExecutionHubFeedLimitIsConfigurableAndPrunesImmediately(t *testing.T) {
+	if DefaultExecutionFeedBytes != 10_000_000 {
+		t.Fatalf("default feed constant=%d want=10000000", DefaultExecutionFeedBytes)
+	}
 	hub := NewExecutionHub()
 	if got := hub.FeedMaxBytes(); got != DefaultExecutionFeedBytes {
 		t.Fatalf("default feed max bytes=%d want=%d", got, DefaultExecutionFeedBytes)

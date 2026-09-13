@@ -402,10 +402,9 @@ func (page *WorkspacePage) resizeWorkspaceContextPreview(width, height int) tea.
 }
 
 func (page *WorkspacePage) workspaceContextPreviewBodySize(width, height int) (int, int) {
-	title := component.PageTitleNotice("Project Context Preview · "+page.resourceID, page.notice, width)
-	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(page.contextPreview.tab), "", width)
+	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(page.contextPreview.tab), page.notice, width)
 	feedback := page.listFeedback(width)
-	bodyHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(tabs)-1)
+	bodyHeight := max(1, height-lipgloss.Height(tabs)-1)
 	layout := page.workspaceContextPreviewSectionLayout(width, bodyHeight, feedback)
 	return max(1, width), layout.BodyHeight
 }
@@ -415,8 +414,7 @@ func (page *WorkspacePage) workspaceContextPreviewView(width, height int) string
 	if state == nil {
 		return component.StateView(component.PageError, "Project Context preview unavailable", "")
 	}
-	title := component.PageTitleNotice("Project Context Preview · "+page.resourceID, page.notice, width)
-	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(state.tab), "", width)
+	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(state.tab), page.notice, width)
 	feedback := page.listFeedback(width)
 	bodyWidth, bodyHeight := page.workspaceContextPreviewBodySize(width, height)
 	body := ""
@@ -445,9 +443,9 @@ func (page *WorkspacePage) workspaceContextPreviewView(width, height int) string
 			body += "\n" + help
 		}
 	}
-	layoutHeight := max(1, height-lipgloss.Height(title)-lipgloss.Height(tabs)-1)
+	layoutHeight := max(1, height-lipgloss.Height(tabs)-1)
 	layout := page.workspaceContextPreviewSectionLayout(width, layoutHeight, feedback)
-	return title + "\n" + tabs + "\n" + layout.View(body)
+	return tabs + "\n" + layout.View(body)
 }
 
 func (page *WorkspacePage) workspaceContextPreviewSectionLayout(width, height int, feedback string) component.SectionLayout {
@@ -494,10 +492,9 @@ func (page *WorkspacePage) workspaceContextPreviewMouseTargets(originX, originY,
 	if state == nil {
 		return nil
 	}
-	title := component.PageTitleNotice("Project Context Preview · "+page.resourceID, page.notice, page.width)
-	_, spans := component.PageTabsLayout(workspaceContextPreviewTabLabels, int(state.tab), "", page.width)
-	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(state.tab), "", page.width)
-	tabsY := originY + lipgloss.Height(title)
+	_, spans := component.PageTabsLayout(workspaceContextPreviewTabLabels, int(state.tab), page.notice, page.width)
+	tabs := component.PageTabsNotice(workspaceContextPreviewTabLabels, int(state.tab), page.notice, page.width)
+	tabsY := originY
 	targets := make([]component.MouseTarget, 0, len(spans)+1)
 	for _, span := range spans {
 		tab := workspaceContextPreviewTab(span.Index)
@@ -512,7 +509,7 @@ func (page *WorkspacePage) workspaceContextPreviewMouseTargets(originX, originY,
 		})
 	}
 	feedback := page.listFeedback(page.width)
-	layoutHeight := max(1, page.height-lipgloss.Height(title)-lipgloss.Height(tabs)-1)
+	layoutHeight := max(1, page.height-lipgloss.Height(tabs)-1)
 	layout := page.workspaceContextPreviewSectionLayout(page.width, layoutHeight, feedback)
 	contentY := tabsY + lipgloss.Height(tabs) + 1 + layout.BodyY
 	if state.sourceViewer != nil {

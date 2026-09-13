@@ -11,7 +11,7 @@ import (
 
 const (
 	maxExecutionLogBytes      = 400_000
-	DefaultExecutionFeedBytes = 1_000_000
+	DefaultExecutionFeedBytes = 10_000_000
 	maxRecentExecutions       = 100
 	executionSubscriberBuffer = 64
 	executionFeedBuffer       = 128

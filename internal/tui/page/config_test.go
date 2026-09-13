@@ -189,7 +189,7 @@ func TestConfigDomainRowsAreSectionScopedAndShowState(t *testing.T) {
 		t.Fatalf("shell path row missing custom state: %#v", rows)
 	}
 	view := ansi.Strip(page.View(100, 30))
-	if !strings.Contains(view, "Configuration / Shell & Execution") || !strings.Contains(view, "e edit") || !strings.Contains(view, "/ filter") {
+	if !strings.Contains(view, "Shell & Execution") || !strings.Contains(view, "e edit") || !strings.Contains(view, "/ filter") {
 		t.Fatalf("shell domain view=%q", view)
 	}
 }
@@ -242,7 +242,7 @@ func TestConfigStoragePageCentralizesMaintenanceActions(t *testing.T) {
 		}
 	}
 	view := ansi.Strip(page.View(100, 34))
-	for _, want := range []string{"Configuration / Storage & Maintenance", "Format", "Config", "Root", "Initialized", "Runtime sync", "Persisted", "Runtime", "enter run"} {
+	for _, want := range []string{"Storage & Maintenance", "Format", "Config", "Root", "Initialized", "Runtime sync", "Persisted", "Runtime", "enter run"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("storage view missing %q: %q", want, view)
 		}

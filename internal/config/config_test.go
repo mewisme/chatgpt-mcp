@@ -375,6 +375,9 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 }
 
 func TestExecutionFeedMaxBytesDefaultsAndValidates(t *testing.T) {
+	if DefaultExecutionFeedMaxBytes != 10_000_000 {
+		t.Fatalf("default execution feed constant=%d want=10000000", DefaultExecutionFeedMaxBytes)
+	}
 	if got := Default().Shell.ExecutionFeedMaxBytes; got != DefaultExecutionFeedMaxBytes {
 		t.Fatalf("default execution feed bytes=%d want=%d", got, DefaultExecutionFeedMaxBytes)
 	}

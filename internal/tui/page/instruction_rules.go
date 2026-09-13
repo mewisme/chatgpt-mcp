@@ -159,25 +159,13 @@ func (page *InstructionPage) ruleEditorParentNavigation() tea.Cmd {
 	return func() tea.Msg { return NavigateMsg{Path: []string{"instruction", "rules"}, Replace: true} }
 }
 
-func (page *InstructionPage) ruleEditorTitle() string {
-	if page == nil || page.ruleEditor == nil {
-		return "Global Rule"
-	}
-	if _, ok := page.ruleByID(page.ruleEditID); ok {
-		return "Edit Global Rule · " + page.ruleEditID
-	}
-	return "Create Global Rule"
-}
-
 func (page *InstructionPage) ruleEditorView(width, height int) string {
-	title := component.PageTitle(page.ruleEditorTitle(), width)
-	page.ruleEditor.Resize(width, max(1, height-lipgloss.Height(title)-1))
-	return title + "\n" + page.ruleEditor.View()
+	page.ruleEditor.Resize(width, height)
+	return page.ruleEditor.View()
 }
 
 func (page *InstructionPage) ruleEditorMouseTargets(originX, originY, z int) []component.MouseTarget {
-	title := component.PageTitle(page.ruleEditorTitle(), page.width)
-	return page.ruleEditor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
+	return page.ruleEditor.MouseTargets(originX, originY, z)
 }
 
 func (page *InstructionPage) saveRuleEditorCmd() tea.Cmd {

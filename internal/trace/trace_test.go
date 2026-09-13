@@ -43,6 +43,22 @@ func TestNoopObserverIsSafe(t *testing.T) {
 	Emit(context.Background(), "TEST", "noop.info", "No-op")
 }
 
+func TestWithoutObserverShadowsParentObserver(t *testing.T) {
+	events := []Event{}
+	parent := WithObserver(context.Background(), func(event Event) { events = append(events, event) })
+	quiet := WithoutObserver(parent)
+	if ObserverFromContext(parent) == nil {
+		t.Fatal("parent observer missing")
+	}
+	if ObserverFromContext(quiet) != nil {
+		t.Fatal("observer was not suppressed")
+	}
+	Emit(quiet, "TEST", "quiet", "Quiet event")
+	if len(events) != 0 {
+		t.Fatalf("suppressed context emitted %d events", len(events))
+	}
+}
+
 func TestSensitiveFieldsAreRedacted(t *testing.T) {
 	events := []Event{}
 	EmitObserver(func(event Event) { events = append(events, event) }, "AUTH", "auth.test", "test", String("access_token", "secret-value"), String("name", "safe"))

@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
@@ -44,39 +43,25 @@ func (page *RuntimePage) runtimeEditorParentNavigation() tea.Cmd {
 	return func() tea.Msg { return NavigateMsg{Path: []string{"runtime"}, Replace: true} }
 }
 
-func (page *RuntimePage) runtimeEditorTitle() string {
-	switch page.pending {
-	case InstallRun:
-		return "Managed Install"
-	case UpdateApply:
-		return "Apply Update"
-	default:
-		return "Runtime Editor"
-	}
-}
-
 func (page *RuntimePage) runtimeEditorView(width, height int) string {
 	if page == nil || page.editor == nil {
 		return ""
 	}
 	page.width, page.height = width, height
-	title := component.PageTitle(page.runtimeEditorTitle(), width)
 	page.resizeRuntimeEditor()
-	return title + "\n" + page.editor.View()
+	return page.editor.View()
 }
 
 func (page *RuntimePage) resizeRuntimeEditor() {
 	if page == nil || page.editor == nil || page.width <= 0 || page.height <= 0 {
 		return
 	}
-	title := component.PageTitle(page.runtimeEditorTitle(), page.width)
-	page.editor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
+	page.editor.Resize(page.width, page.height)
 }
 
 func (page *RuntimePage) runtimeEditorMouseTargets(originX, originY, z int) []component.MouseTarget {
 	if page == nil || page.editor == nil {
 		return nil
 	}
-	title := component.PageTitle(page.runtimeEditorTitle(), page.width)
-	return page.editor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
+	return page.editor.MouseTargets(originX, originY, z)
 }

@@ -297,8 +297,9 @@ func TestInstructionPageManagesGlobalRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if edit.ruleEditor == nil || edit.ruleEditID != "rule_one" || !strings.Contains(ansi.Strip(edit.View(100, 30)), "Edit Global Rule · rule_one") {
-		t.Fatalf("edit route editor=%v id=%q view=%q", edit.ruleEditor != nil, edit.ruleEditID, ansi.Strip(edit.View(100, 30)))
+	editView := ansi.Strip(edit.View(100, 30))
+	if edit.ruleEditor == nil || edit.ruleEditID != "rule_one" || !strings.Contains(editView, "rule_one") || !strings.Contains(editView, "ctrl+s save") || strings.Contains(editView, "Edit Global Rule") {
+		t.Fatalf("edit route editor=%v id=%q view=%q", edit.ruleEditor != nil, edit.ruleEditID, editView)
 	}
 	edit.ruleName, edit.ruleContent, edit.ruleEnabled = "Updated rule", "Updated content", true
 	_, cmd = edit.Update(edit.saveRuleEditorCmd()())

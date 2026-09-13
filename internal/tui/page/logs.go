@@ -153,11 +153,27 @@ func NewLogsRouteAction(ctx context.Context, resourceID, section, action string)
 }
 
 func NewCommandExecutionLogs(ctx context.Context) (*LogsPage, error) {
+	return NewCommandExecutionLogsRouteAction(ctx, "")
+}
+
+func NewCommandExecutionLogsRouteAction(ctx context.Context, action string) (*LogsPage, error) {
 	page, err := NewLogsRoute(ctx, "", "")
 	if err != nil {
 		return nil, err
 	}
 	page.tab = logsTabCommandExec
+	page.action = strings.TrimSpace(action)
+	switch page.action {
+	case "":
+	case "settings":
+		if err := page.initExecutionScopeEditor(); err != nil {
+			page.Close()
+			return nil, err
+		}
+	default:
+		page.Close()
+		return nil, fmt.Errorf("unsupported command execution action: %s", page.action)
+	}
 	return page, nil
 }
 
@@ -166,7 +182,11 @@ func (page *LogsPage) Init() tea.Cmd {
 		return nil
 	}
 	if page.tab == logsTabCommandExec {
-		return page.startExecutionFeed()
+		commands := []tea.Cmd{page.startExecutionFeed()}
+		if page.exec.scopeEditor != nil {
+			commands = append(commands, page.exec.scopeEditor.Init())
+		}
+		return tea.Batch(commands...)
 	}
 	return page.startBootstrap()
 }

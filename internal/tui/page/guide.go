@@ -152,7 +152,7 @@ func (page *GuidePage) View(width, height int) string {
 		tabs = component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", width) + "\n"
 	}
 	bodyHeight := max(1, height-lipgloss.Height(tabs))
-	layout := component.NewSectionLayout("Guide · "+page.topic.Title, page.topic.Description, "", width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout(page.topic.Title, page.topic.Description, "", width, bodyHeight, lipgloss.Height(help))
 	page.viewer.Resize(width, layout.BodyHeight)
 	content := tabs + layout.View(page.viewer.View())
 	return component.BottomHelp(content, help, width, height)
@@ -184,7 +184,7 @@ func (page *GuidePage) MouseTargets(originX, originY, z int) []component.MouseTa
 		tabsHeight = lipgloss.Height(component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", page.width)) + 1
 	}
 	bodyHeight := max(1, page.height-tabsHeight)
-	layout := component.NewSectionLayout("Guide · "+page.topic.Title, page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout(page.topic.Title, page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
 	viewerY := originY + tabsHeight + layout.BodyY
 	page.viewer.Resize(page.width, layout.BodyHeight)
 	return page.viewer.MouseTargets(originX, viewerY, z)
@@ -220,7 +220,7 @@ func (page *GuidePage) resize() {
 		tabsHeight = lipgloss.Height(component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", page.width)) + 1
 	}
 	bodyHeight := max(1, page.height-tabsHeight)
-	layout := component.NewSectionLayout("Guide · "+page.topic.Title, page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout(page.topic.Title, page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
 	page.viewer.Resize(page.width, layout.BodyHeight)
 }
 

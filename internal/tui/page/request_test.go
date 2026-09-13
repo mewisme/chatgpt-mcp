@@ -77,7 +77,7 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 		t.Fatalf("deep resource=%q overlay=%t mode=%d", deep.resourceID, deep.OverlayActive(), deep.mode)
 	}
 	view := ansi.Strip(deep.View(100, 28))
-	for _, expected := range []string{"Approval request · " + pending.ID, pending.WorkspaceID, pending.TargetTool, "c command", "v arguments", "g guard", "? more"} {
+	for _, expected := range []string{"Overview", pending.WorkspaceID, pending.TargetTool, "c command", "v arguments", "g guard", "? more"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("deep view missing %q: %q", expected, view)
 		}

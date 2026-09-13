@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -35,46 +34,27 @@ func (page *RequestsPage) initResolveEditor(request approval.Request, approve bo
 	return nil
 }
 
-func (page *RequestsPage) requestEditorTitle() string {
-	if page == nil {
-		return "Approval Request"
-	}
-	switch page.action {
-	case "create-test":
-		return "Create Test Request"
-	case "approve":
-		return "Approve Request"
-	case "deny":
-		return "Deny Request"
-	default:
-		return "Approval Request"
-	}
-}
-
 func (page *RequestsPage) requestEditorView(width, height int) string {
 	if page == nil || page.editor == nil {
 		return ""
 	}
 	page.width, page.height = width, height
-	title := component.PageTitle(page.requestEditorTitle(), width)
 	page.resizeRequestEditor()
-	return title + "\n" + page.editor.View()
+	return page.editor.View()
 }
 
 func (page *RequestsPage) resizeRequestEditor() {
 	if page == nil || page.editor == nil || page.width <= 0 || page.height <= 0 {
 		return
 	}
-	title := component.PageTitle(page.requestEditorTitle(), page.width)
-	page.editor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
+	page.editor.Resize(page.width, page.height)
 }
 
 func (page *RequestsPage) requestEditorMouseTargets(originX, originY, z int) []component.MouseTarget {
 	if page == nil || page.editor == nil {
 		return nil
 	}
-	title := component.PageTitle(page.requestEditorTitle(), page.width)
-	return page.editor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
+	return page.editor.MouseTargets(originX, originY, z)
 }
 
 func (page *RequestsPage) closeRequestEditor() tea.Cmd {

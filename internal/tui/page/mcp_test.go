@@ -93,7 +93,7 @@ func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
 		t.Fatalf("resource detail state overlay=%t resource=%q", page.OverlayActive(), page.resourceID)
 	}
 	view := ansi.Strip(page.View(110, 28))
-	for _, want := range []string{"MCP server · docs", "https://example.test/mcp", "h health", "v tools", "u oauth", "? more"} {
+	for _, want := range []string{"Overview", "https://example.test/mcp", "h health", "v tools", "u oauth", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("MCP detail missing %q: %q", want, view)
 		}
@@ -148,10 +148,13 @@ func TestMCPRoutedServerEditorsAndSecretRedaction(t *testing.T) {
 		t.Fatalf("create editor=%v overlay=%t input=%t dirty=%t", create.editor != nil, create.OverlayActive(), create.InputActive(), create.Dirty())
 	}
 	view := ansi.Strip(create.View(100, 28))
-	for _, want := range []string{"Create MCP Server", "General", "Connection", "Authentication", "Tools", "ctrl+s create"} {
+	for _, want := range []string{"General", "Connection", "Authentication", "Tools", "ctrl+s create"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("create editor missing %q: %q", want, view)
 		}
+	}
+	if strings.Contains(view, "Create MCP Server") {
+		t.Fatalf("create editor retained redundant page title: %q", view)
 	}
 	testutil.AssertLinesFit(t, create.View(40, 18), 40)
 	updated, _ = create.Update(tea.KeyPressMsg{Code: 'd', Text: "docs"})
@@ -262,7 +265,7 @@ func TestMCPDetailRemovalKeepsDetailUntilParentNavigation(t *testing.T) {
 	if cmd == nil || page.resourceID != "docs" {
 		t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)
 	}
-	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "MCP server · docs") {
+	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Overview") {
 		t.Fatalf("intermediate MCP detail render=%q", got)
 	}
 	message, ok := cmd().(NavigateMsg)
@@ -346,10 +349,13 @@ func TestMCPPageOAuthEmitsURLStoresCredentialAndLogoutPreservesServer(t *testing
 	}
 	_ = page.Init()
 	view := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"Authorize MCP Server · secure", "Open authorization URL in browser", "ctrl+s authorize"} {
+	for _, want := range []string{"Open authorization URL in browser", "ctrl+s authorize"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("OAuth editor missing %q: %q", want, view)
 		}
+	}
+	if strings.Contains(view, "Authorize MCP Server") {
+		t.Fatalf("OAuth editor retained redundant page title: %q", view)
 	}
 	if page.OverlayActive() || page.oauthForm == nil || !page.oauthForm.OpenBrowser {
 		t.Fatalf("OAuth editor overlay=%t data=%#v", page.OverlayActive(), page.oauthForm)

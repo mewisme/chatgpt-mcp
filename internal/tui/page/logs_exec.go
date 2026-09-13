@@ -101,7 +101,7 @@ func newLogsExecutionFeed() logsExecutionFeed {
 }
 
 func (page *LogsPage) switchLogsTab(tab logsTab) tea.Cmd {
-	if tab > logsTabCommandExec || page.resourceID != "" {
+	if tab > logsTabCommandExec || page.resourceID != "" || tab == page.tab {
 		return nil
 	}
 	cleanup := tea.Cmd(nil)
@@ -109,13 +109,12 @@ func (page *LogsPage) switchLogsTab(tab logsTab) tea.Cmd {
 		cleanup = page.detachSelectedProcessCmd()
 	}
 	page.tab = tab
-	if tab == logsTabRuntime && !page.loaded && !page.loading {
-		return tea.Batch(cleanup, page.startBootstrap())
+	path := []string{"logs"}
+	if tab == logsTabCommandExec {
+		path = []string{"logs-exec"}
 	}
-	if tab == logsTabCommandExec && !page.exec.loaded && !page.exec.loading {
-		return page.startExecutionFeed()
-	}
-	return cleanup
+	navigate := func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }
+	return tea.Batch(cleanup, navigate)
 }
 
 func (page *LogsPage) moveLogsTab(delta int) tea.Cmd {

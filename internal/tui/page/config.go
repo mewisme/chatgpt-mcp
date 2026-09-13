@@ -305,10 +305,10 @@ func (page *ConfigPage) View(width, height int) string {
 		pageTitle := "Configuration"
 		overview := page.overviewView(width)
 		if page.isDomainRoute() {
-			pageTitle = "Configuration / " + page.domainTitle()
+			pageTitle = page.domainTitle()
 			overview = component.WrapKeyValue("", page.domainSummary(page.resourceID), width)
 		} else if page.isStorageRoute() {
-			pageTitle = "Configuration / Storage & Maintenance"
+			pageTitle = "Storage & Maintenance"
 			overview = page.storageOverview(width)
 		}
 		title := component.PageTitleNotice(pageTitle, page.notice, width)
@@ -647,10 +647,10 @@ func (page *ConfigPage) browserHeader(width int) (string, string) {
 	pageTitle := "Configuration"
 	overview := page.overviewView(width)
 	if page.isDomainRoute() {
-		return "Configuration / " + page.domainTitle(), component.WrapKeyValue("", page.domainSummary(page.resourceID), width)
+		return page.domainTitle(), component.WrapKeyValue("", page.domainSummary(page.resourceID), width)
 	}
 	if page.isStorageRoute() {
-		return "Configuration / Storage & Maintenance", page.storageOverview(width)
+		return "Storage & Maintenance", page.storageOverview(width)
 	}
 	return pageTitle, overview
 }
@@ -733,7 +733,7 @@ func (page *ConfigPage) syncDetail() {
 	spec, ok := config.FieldByKey(key)
 	if !ok {
 		page.err = fmt.Errorf("unknown config field: %s", key)
-		page.detail = component.NewDetailPage("Config · "+key, "unavailable", component.Muted("Configuration field not found."))
+		page.detail = component.NewDetailPage(key, "unavailable", component.Muted("Configuration field not found."))
 		page.detail.SetBindings(component.DetailPageBinding{Key: "f", Desc: "refresh", Message: ConfigCommandMsg{Command: ConfigRefresh, ResourceID: key}})
 		return
 	}

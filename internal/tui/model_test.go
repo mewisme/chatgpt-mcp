@@ -16,6 +16,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -139,7 +140,7 @@ func TestModelDoesNotRememberActionRoutesOrPersistLastRoutes(t *testing.T) {
 }
 
 func TestModelRestoresLogsViewStateAcrossTopLevelNavigation(t *testing.T) {
-	model := NewModel(Route{Kind: RouteLogs})
+	model := NewModel(Route{Kind: RouteLogsExec})
 	page, ok := model.currentPage.(tuipage.SessionViewStateModel)
 	if !ok {
 		t.Fatalf("logs page does not expose session state: %T", model.currentPage)
@@ -150,6 +151,9 @@ func TestModelRestoresLogsViewStateAcrossTopLevelNavigation(t *testing.T) {
 	model.switchPage(Route{Kind: RouteTunnel})
 	updated, _ := model.requestNavigation(navigationIntent{route: Route{Kind: RouteLogs}, replace: true, restoreRemembered: true})
 	model = updated.(Model)
+	if model.router.Current() != (Route{Kind: RouteLogsExec}) {
+		t.Fatalf("restored route=%#v want command execution", model.router.Current())
+	}
 	restoredPage, ok := model.currentPage.(tuipage.SessionViewStateModel)
 	if !ok {
 		t.Fatalf("restored logs page does not expose session state: %T", model.currentPage)
@@ -243,7 +247,7 @@ func TestModelMCPOAuthEditorDeepLinkUsesDirtyNavigationGuard(t *testing.T) {
 	if model.currentPage == nil || model.currentPage.OverlayActive() || !model.currentPage.InputActive() {
 		t.Fatalf("OAuth deep link page=%v overlay=%t input=%t", model.currentPage != nil, model.currentPage != nil && model.currentPage.OverlayActive(), model.currentPage != nil && model.currentPage.InputActive())
 	}
-	if got := ansi.Strip(model.View().Content); !strings.Contains(got, "Authorize MCP Server · secure") {
+	if got := ansi.Strip(model.View().Content); !strings.Contains(got, "MCP  /  secure  /  OAuth  /  Login") || !strings.Contains(got, "ctrl+s authorize") {
 		t.Fatalf("OAuth deep link view=%q", got)
 	}
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'i', Text: "https://issuer.example"})
@@ -338,7 +342,7 @@ func TestConfigEditorRouteLoadsNativePageWithoutCompatibilityShim(t *testing.T) 
 	if follow == nil || model.router.Current() != route || !model.currentPage.InputActive() {
 		t.Fatalf("route=%#v follow=%v input=%t", model.router.Current(), follow != nil, model.currentPage.InputActive())
 	}
-	if plain := ansi.Strip(model.View().Content); !strings.Contains(plain, "Edit Configuration") || !strings.Contains(plain, "ctrl+s save") {
+	if plain := ansi.Strip(model.View().Content); !strings.Contains(plain, "Config  /  server.port  /  Edit") || !strings.Contains(plain, "ctrl+s save") || strings.Contains(plain, "Edit MCP HTTP port") {
 		t.Fatalf("config editor view=%q", plain)
 	}
 }
@@ -431,7 +435,7 @@ func TestModelRendersEmbeddedGuideDeepLink(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 32})
 	model = updated.(Model)
 	plain := ansi.Strip(model.View().Content)
-	if !strings.Contains(plain, "Guide · MCP Servers") || !strings.Contains(plain, "Use Topics for detailed documentation") || strings.Contains(plain, "Shell & Execution") {
+	if !strings.Contains(plain, "MCP Servers") || !strings.Contains(plain, "Use Topics for detailed documentation") || strings.Contains(plain, "Shell & Execution") {
 		t.Fatalf("guide deep-link=%q", plain)
 	}
 	if len(model.router.stack) != 2 || model.router.stack[0] != (Route{Kind: RouteGuide}) {
@@ -632,9 +636,10 @@ func TestModelEscBacksToCurrentMainThenHomeThenQuits(t *testing.T) {
 	}
 }
 
-func TestModelInstructionDeepLinkEscapesDirectlyToHome(t *testing.T) {
-	model := NewModel(Route{Kind: RouteInstruction, Section: "rules"})
-	if model.router.Current() != (Route{Kind: RouteInstruction, Section: "rules"}) || len(model.router.stack) != 1 {
+func TestModelInstructionTabDeepLinkIsRoot(t *testing.T) {
+	route := Route{Kind: RouteInstruction, Section: "rules"}
+	model := NewModel(route)
+	if model.router.Current() != route || len(model.router.stack) != 1 {
 		t.Fatalf("instruction route=%#v stack=%#v", model.router.Current(), model.router.stack)
 	}
 	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
@@ -660,7 +665,7 @@ func TestModelInstructionRuleEditorDeepLinkLoadsRoutedEditor(t *testing.T) {
 		t.Fatalf("route=%#v stack=%#v notice=%q", model.router.Current(), model.router.stack, model.notice)
 	}
 	plain := ansi.Strip(model.View().Content)
-	for _, want := range []string{"Edit Global Rule · rule_one", "rule_one", "ctrl+s save"} {
+	for _, want := range []string{"Rules", "Edit rule_one", "ctrl+s save"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("rule editor missing %q: %q", want, plain)
 		}
@@ -844,6 +849,140 @@ func TestModelHeaderMouseClickUsesTypedNavigation(t *testing.T) {
 	}
 }
 
+func TestModelBreadcrumbRendersAndNavigatesAncestors(t *testing.T) {
+	model := NewModel(Route{Kind: RouteWorkspaces, ResourceID: "ws_demo", Section: "context"})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updated.(Model)
+	plain := ansi.Strip(model.View().Content)
+	for _, want := range []string{"Workspaces", "ws_demo", "Project Context", " / "} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("breadcrumb missing %q: %q", want, plain)
+		}
+	}
+	_, targets := model.render()
+	var middle tea.Msg
+	for _, target := range targets {
+		if target.ID != "app.breadcrumb" {
+			continue
+		}
+		message := target.Handle(component.MouseEvent{Button: tea.MouseLeft})
+		if navigation, ok := message.(navigateMsg); ok && navigation.route.ResourceID == "ws_demo" && navigation.route.Section == "" {
+			middle = message
+			break
+		}
+	}
+	if middle == nil {
+		t.Fatal("workspace breadcrumb ancestor target not found")
+	}
+	updated, _ = model.Update(middle)
+	model = updated.(Model)
+	if model.router.Current() != (Route{Kind: RouteWorkspaces, ResourceID: "ws_demo"}) || len(model.router.stack) != 2 {
+		t.Fatalf("middle breadcrumb route=%#v stack=%#v", model.router.Current(), model.router.stack)
+	}
+	_, targets = model.render()
+	var root tea.Msg
+	for _, target := range targets {
+		if target.ID != "app.breadcrumb" {
+			continue
+		}
+		message := target.Handle(component.MouseEvent{Button: tea.MouseLeft})
+		if navigation, ok := message.(navigateMsg); ok && navigation.route == (Route{Kind: RouteWorkspaces}) {
+			root = message
+			break
+		}
+	}
+	if root == nil {
+		t.Fatal("workspace breadcrumb root target not found")
+	}
+	updated, _ = model.Update(root)
+	model = updated.(Model)
+	if model.router.Current() != (Route{Kind: RouteWorkspaces}) || len(model.router.stack) != 1 {
+		t.Fatalf("root breadcrumb route=%#v stack=%#v", model.router.Current(), model.router.stack)
+	}
+}
+
+func TestModelBreadcrumbNavigationRespectsDirtyGuard(t *testing.T) {
+	model := NewModel(Route{Kind: RouteInstruction, Section: "context", Action: "edit"})
+	model.currentPage = &navigationGuardTestPage{dirty: true, input: true}
+	_, targets := model.breadcrumb(96, 2, 3)
+	var message tea.Msg
+	for _, target := range targets {
+		candidate := target.Handle(component.MouseEvent{Button: tea.MouseLeft})
+		if navigation, ok := candidate.(navigateMsg); ok && navigation.route == (Route{Kind: RouteInstruction, Section: "context"}) {
+			message = candidate
+			break
+		}
+	}
+	if message == nil {
+		t.Fatal("instruction context breadcrumb root target not found")
+	}
+	updated, cmd := model.Update(message)
+	model = updated.(Model)
+	if cmd != nil || model.pendingNavigation == nil || model.router.Current() != (Route{Kind: RouteInstruction, Section: "context", Action: "edit"}) {
+		t.Fatalf("breadcrumb bypassed dirty guard: route=%#v pending=%v cmd=%v", model.router.Current(), model.pendingNavigation != nil, cmd != nil)
+	}
+}
+
+func TestModelPreservePageNavigationReflowsForBreadcrumb(t *testing.T) {
+	model := NewModel(Route{Kind: RouteLogs})
+	page := &navigationGuardTestPage{}
+	model.currentPage = page
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model = updated.(Model)
+	rootHeight := page.height
+	if rootHeight != model.frameMetrics(100, 30).bodyHeight {
+		t.Fatalf("root page height=%d metrics=%d", rootHeight, model.frameMetrics(100, 30).bodyHeight)
+	}
+
+	updated, cmd := model.Update(tuipage.NavigateMsg{Path: []string{"logs", "filter"}, Replace: true, PreservePage: true})
+	model = updated.(Model)
+	childMetrics := model.frameMetrics(100, 30)
+	if cmd != nil || model.router.Current() != (Route{Kind: RouteLogs, Action: "filter"}) || !childMetrics.showBreadcrumb {
+		t.Fatalf("child route=%#v breadcrumb=%t cmd=%v", model.router.Current(), childMetrics.showBreadcrumb, cmd != nil)
+	}
+	if page.height != childMetrics.bodyHeight || page.height >= rootHeight {
+		t.Fatalf("child page height=%d metrics=%d root=%d", page.height, childMetrics.bodyHeight, rootHeight)
+	}
+
+	updated, cmd = model.Update(tuipage.NavigateMsg{Path: []string{"logs"}, Replace: true, PreservePage: true})
+	model = updated.(Model)
+	rootMetrics := model.frameMetrics(100, 30)
+	if cmd != nil || model.router.Current() != (Route{Kind: RouteLogs}) || rootMetrics.showBreadcrumb {
+		t.Fatalf("restored route=%#v breadcrumb=%t cmd=%v", model.router.Current(), rootMetrics.showBreadcrumb, cmd != nil)
+	}
+	if page.height != rootHeight || page.height != rootMetrics.bodyHeight {
+		t.Fatalf("restored page height=%d root=%d metrics=%d", page.height, rootHeight, rootMetrics.bodyHeight)
+	}
+}
+
+func TestModelTopLevelTabRouteDoesNotRenderBreadcrumbParent(t *testing.T) {
+	model := NewModel(Route{Kind: RouteLogsExec})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model = updated.(Model)
+	metrics := model.frameMetrics(100, 30)
+	if metrics.showBreadcrumb {
+		t.Fatalf("command execution root rendered breadcrumb: route=%#v", model.router.Current())
+	}
+	plain := ansi.Strip(model.View().Content)
+	if strings.Contains(plain, "Logs  /  Command Execution") {
+		t.Fatalf("command execution root rendered parent breadcrumb: %q", plain)
+	}
+}
+
+func TestModelSuppressesInheritedTraceObserver(t *testing.T) {
+	events := 0
+	ctx := tracepkg.WithObserver(context.Background(), func(tracepkg.Event) { events++ })
+	model := NewModelWithContext(ctx, Route{Kind: RouteHome})
+	if tracepkg.ObserverFromContext(model.ctx) != nil {
+		t.Fatal("TUI retained inherited trace observer")
+	}
+	span := tracepkg.Start(model.ctx, "CONFIG", "config.persist", "Persisting configuration")
+	span.EndMessage("Configuration persisted")
+	if events != 0 {
+		t.Fatalf("TUI emitted %d CLI trace events", events)
+	}
+}
+
 func TestModelCommandsNavigateResource(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
@@ -941,12 +1080,17 @@ type navigationGuardTestPage struct {
 	submitting bool
 	input      bool
 	keys       []string
+	width      int
+	height     int
 }
 
 func (*navigationGuardTestPage) Init() tea.Cmd { return nil }
 func (page *navigationGuardTestPage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {
 	if key, ok := message.(tea.KeyPressMsg); ok {
 		page.keys = append(page.keys, key.String())
+	}
+	if size, ok := message.(tea.WindowSizeMsg); ok {
+		page.width, page.height = size.Width, size.Height
 	}
 	return page, nil
 }

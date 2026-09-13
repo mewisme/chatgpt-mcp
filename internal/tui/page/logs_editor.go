@@ -2,7 +2,6 @@ package page
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 )
@@ -29,23 +28,20 @@ func (page *LogsPage) filterEditorView(width, height int) string {
 		return ""
 	}
 	page.width, page.height = width, height
-	title := component.PageTitle("Log Filters", width)
 	page.resizeFilterEditor()
-	return title + "\n" + page.editor.View()
+	return page.editor.View()
 }
 
 func (page *LogsPage) resizeFilterEditor() {
 	if page == nil || page.editor == nil || page.width <= 0 || page.height <= 0 {
 		return
 	}
-	title := component.PageTitle("Log Filters", page.width)
-	page.editor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
+	page.editor.Resize(page.width, page.height)
 }
 
 func (page *LogsPage) filterEditorMouseTargets(originX, originY, z int) []component.MouseTarget {
 	if page == nil || page.editor == nil {
 		return nil
 	}
-	title := component.PageTitle("Log Filters", page.width)
-	return page.editor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
+	return page.editor.MouseTargets(originX, originY, z)
 }

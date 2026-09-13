@@ -406,8 +406,7 @@ func (page *MCPPage) MouseTargets(originX, originY, z int) []component.MouseTarg
 		return nil
 	}
 	if page.serverEditorActive() {
-		title := component.PageTitleNotice(page.editorTitle(), page.notice, page.width)
-		y := originY + lipgloss.Height(title) + 1
+		y := originY
 		if page.jsonEditor == nil {
 			if page.editor == nil {
 				return nil
@@ -661,26 +660,11 @@ func (page *MCPPage) initEditorRoute() error {
 	return nil
 }
 
-func (page *MCPPage) editorTitle() string {
-	if page == nil {
-		return "MCP Editor"
-	}
-	switch page.command {
-	case MCPServerConfigure:
-		return "Edit MCP Server · " + page.targetID
-	case MCPAuthLogin:
-		return "Authorize MCP Server · " + page.targetID
-	default:
-		return "Create MCP Server"
-	}
-}
-
 func (page *MCPPage) resizeEditor() {
 	if page == nil || !page.serverEditorActive() || page.width <= 0 || page.height <= 0 {
 		return
 	}
-	title := component.PageTitleNotice(page.editorTitle(), page.notice, page.width)
-	bodyHeight := max(1, page.height-lipgloss.Height(title)-1)
+	bodyHeight := page.height
 	if page.jsonEditor == nil {
 		if page.editor != nil {
 			page.editor.Resize(page.width, bodyHeight)
@@ -701,20 +685,19 @@ func (page *MCPPage) resizeEditor() {
 }
 
 func (page *MCPPage) editorView(width, height int) string {
-	title := component.PageTitleNotice(page.editorTitle(), page.notice, width)
 	if !page.serverEditorActive() {
-		return title + "\n" + component.StateView(component.PageError, "MCP editor unavailable", "")
+		return component.StateView(component.PageError, "MCP editor unavailable", "")
 	}
 	page.width, page.height = width, height
 	page.resizeEditor()
 	if page.jsonEditor == nil {
 		if page.editor == nil {
-			return title + "\n" + component.StateView(component.PageError, "MCP editor unavailable", "")
+			return component.StateView(component.PageError, "MCP editor unavailable", "")
 		}
-		return title + "\n" + page.editor.View()
+		return page.editor.View()
 	}
 	header, _ := page.serverEditorModeHeader(width)
-	parts := []string{title, header, ""}
+	parts := []string{header, ""}
 	if feedback := page.serverEditorFeedback(width); feedback != "" {
 		parts = append(parts, feedback)
 	}
@@ -1141,7 +1124,16 @@ func (page *MCPPage) syncDetail() error {
 	if redacted.Enabled {
 		state = "enabled"
 	}
-	page.detail = component.NewDetailPage("MCP server · "+server.ID, redacted.Transport+" · "+state, content)
+	detailTitle := "Overview"
+	switch page.section {
+	case "health":
+		detailTitle = "Health"
+	case "tools":
+		detailTitle = "Tools"
+	case "oauth":
+		detailTitle = "OAuth"
+	}
+	page.detail = component.NewDetailPage(detailTitle, redacted.Transport+" · "+state, content)
 	bindings := make([]component.DetailPageBinding, 0, 10)
 	if page.section == "" {
 		bindings = append(bindings,

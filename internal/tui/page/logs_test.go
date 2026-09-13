@@ -625,10 +625,13 @@ func TestLogsFilterDeepLinkUsesNativeWrappedEditor(t *testing.T) {
 		}
 	}
 	plain := ansi.Strip(view)
-	for _, want := range []string{"Log Filters", "Range", "Filters"} {
+	for _, want := range []string{"Range", "Filters"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("filter editor missing %q: %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "Log Filters") {
+		t.Fatalf("filter editor retained redundant page title: %q", plain)
 	}
 	if strings.Contains(plain, "ctrl+s apply") {
 		t.Fatalf("non-mutating filter editor still advertises ctrl+s: %q", plain)
@@ -1331,6 +1334,7 @@ func TestExecutionSettingsPersistEventBufferPreset(t *testing.T) {
 	if cmd := page.openExecutionScopeEditor(); cmd == nil || page.exec.scopeEditor == nil || page.exec.scopeForm == nil {
 		t.Fatalf("settings editor missing: cmd=%v editor=%v form=%v", cmd, page.exec.scopeEditor != nil, page.exec.scopeForm != nil)
 	}
+	page.exec.scopeForm.Setting = string(executionSettingBuffer)
 	page.exec.scopeForm.BufferPreset = "5000000"
 	cmd := page.submitExecutionScopeEditor()
 	if cmd == nil || page.exec.scopeEditor == nil {
@@ -1342,9 +1346,10 @@ func TestExecutionSettingsPersistEventBufferPreset(t *testing.T) {
 	}
 	updated, followup := page.Update(msg)
 	page = updated.(*LogsPage)
-	if followup != nil || page.exec.scopeEditor != nil || page.exec.feedMaxBytes != 5_000_000 || !strings.Contains(page.exec.notice, "5 MB") {
+	if followup == nil || page.exec.scopeEditor != nil || page.exec.feedMaxBytes != 5_000_000 || !strings.Contains(page.exec.notice, "5 MB") {
 		t.Fatalf("buffer apply editor=%v max=%d notice=%q followup=%v", page.exec.scopeEditor != nil, page.exec.feedMaxBytes, page.exec.notice, followup)
 	}
+	runLogsPageCmd(t, page, followup)
 	cfg, err := application.LoadConfig(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -1375,20 +1380,22 @@ func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 		wantID   string
 		steps    int
 	}{
-		{name: "combined", wantMode: executionScopeCombined, steps: 1},
-		{name: "workspace", down: 1, wantMode: executionScopeWorkspace, wantID: workspaceItem.ID, steps: 3},
-		{name: "container", down: 2, wantMode: executionScopeContainer, wantID: container.ID, steps: 2},
+		{name: "combined", wantMode: executionScopeCombined},
+		{name: "workspace", down: 1, wantMode: executionScopeWorkspace, wantID: workspaceItem.ID, steps: 2},
+		{name: "container", down: 2, wantMode: executionScopeContainer, wantID: container.ID, steps: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			page, _ := NewCommandExecutionLogs(t.Context())
 			defer page.Close()
 			page.exec.generation = 11
 			page = runLogsPageCmd(t, page, page.openExecutionScopeEditor())
+			updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+			page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
 			for range test.down {
-				updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+				updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 				page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
 			}
-			updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+			updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
 			for range test.steps {
 				if page.exec.scopeEditor == nil {
@@ -1407,6 +1414,62 @@ func TestExecutionScopeEditorCompletesWithEnterForDynamicScopes(t *testing.T) {
 				t.Fatalf("container=%q want=%q", page.exec.containerID, test.wantID)
 			}
 		})
+	}
+}
+
+func TestExecutionSettingsStartsWithModeOrBufferChoice(t *testing.T) {
+	setupLogsPageRoot(t)
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.width, page.height = 100, 30
+	page = runLogsPageCmd(t, page, page.openExecutionScopeEditor())
+	if page.exec.scopeForm == nil || page.exec.scopeForm.Setting != string(executionSettingMode) {
+		t.Fatalf("initial setting=%#v", page.exec.scopeForm)
+	}
+	initial := ansi.Strip(page.executionScopeEditorView(page.width, page.height))
+	if !strings.Contains(initial, "Setting") || !strings.Contains(initial, "Mode") || !strings.Contains(initial, "Buffer") || strings.Contains(initial, "Event buffer") {
+		t.Fatalf("initial settings view=%q", initial)
+	}
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
+	updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	page = runLogsPageCmd(t, updated.(*LogsPage), cmd)
+	if page.exec.scopeForm == nil || page.exec.scopeForm.Setting != string(executionSettingBuffer) {
+		t.Fatalf("selected setting=%#v", page.exec.scopeForm)
+	}
+	bufferView := ansi.Strip(page.executionScopeEditorView(page.width, page.height))
+	if !strings.Contains(bufferView, "Event buffer") || strings.Contains(bufferView, "Workspace") || strings.Contains(bufferView, "Container") {
+		t.Fatalf("buffer settings view=%q", bufferView)
+	}
+}
+
+func TestCommandExecutionSettingsRouteHasNoLocalPageTitle(t *testing.T) {
+	setupLogsPageRoot(t)
+	page, err := NewCommandExecutionLogsRouteAction(t.Context(), "settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer page.Close()
+	page = runLogsPageCmd(t, page, page.exec.scopeEditor.Init())
+	plain := ansi.Strip(page.View(100, 30))
+	if strings.Contains(plain, "Command Execution Settings") {
+		t.Fatalf("settings retained redundant page title: %q", plain)
+	}
+	for _, want := range []string{"Setting", "Mode", "Buffer"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("settings route missing %q: %q", want, plain)
+		}
+	}
+}
+
+func TestExecutionSettingsCloseForcesFullRepaint(t *testing.T) {
+	setupLogsPageRoot(t)
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page = runLogsPageCmd(t, page, page.openExecutionScopeEditor())
+	cmd := page.closeExecutionScopeEditor()
+	if cmd == nil || page.exec.scopeEditor != nil || page.exec.scopeForm != nil {
+		t.Fatalf("settings close cmd=%v editor=%v form=%v", cmd, page.exec.scopeEditor != nil, page.exec.scopeForm != nil)
 	}
 }
 

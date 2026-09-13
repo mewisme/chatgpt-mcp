@@ -15,6 +15,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
+	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
@@ -130,6 +131,7 @@ func NewModelWithState(ctx context.Context, initial Route, root string) Model {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx = tracepkg.WithoutObserver(ctx)
 	state := tuistate.Default()
 	if root != "" {
 		if loaded, err := tuistate.Load(root); err == nil {
@@ -211,10 +213,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			metrics := model.frameMetrics(msg.Width, msg.Height)
 			updated, cmd := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})
 			model.currentPage = updated
-			if cmd != nil {
-				return model, cmd
-			}
+			return model, cmd
 		}
+		return model, nil
 	case palette.ClosedMsg:
 		model.closeOverlay()
 		return model, nil
@@ -275,6 +276,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				model.router.Navigate(route)
 			}
 			model.rememberStableRoute(route)
+			if model.currentPage != nil && model.width > 0 && model.height > 0 {
+				metrics := model.frameMetrics(model.width, model.height)
+				updated, cmd := model.currentPage.Update(tea.WindowSizeMsg{Width: metrics.contentWidth, Height: metrics.bodyHeight})
+				model.currentPage = updated
+				return model, cmd
+			}
 			return model, nil
 		}
 		return model.requestNavigation(navigationIntent{route: route, replace: msg.Replace})
@@ -1081,6 +1088,13 @@ func (model *Model) restoreCurrentPageViewState(route Route) {
 	if !ok {
 		return
 	}
+	if logsState, ok := state.(tuipage.LogsSessionViewState); ok {
+		logsState.Tab = "runtime"
+		if route.Kind == RouteLogsExec {
+			logsState.Tab = "command-execution"
+		}
+		state = logsState
+	}
 	if page, ok := model.currentPage.(tuipage.SessionViewStateModel); ok {
 		page.RestoreSessionViewState(state)
 	}
@@ -1121,7 +1135,7 @@ func (model *Model) loadPage(route Route) {
 	case RouteLogs:
 		value, err = tuipage.NewLogsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteLogsExec:
-		value, err = tuipage.NewCommandExecutionLogs(model.ctx)
+		value, err = tuipage.NewCommandExecutionLogsRouteAction(model.ctx, route.Action)
 	case RouteRuntime:
 		value, err = tuipage.NewRuntimeRouteAction(model.ctx, route.ResourceID, route.Action)
 	case RouteAbout:
@@ -1306,12 +1320,14 @@ type mousePage interface {
 }
 
 type frameMetrics struct {
-	contentWidth int
-	contentX     int
-	bodyY        int
-	bodyHeight   int
-	showNavbar   bool
-	showFooter   bool
+	contentWidth   int
+	contentX       int
+	breadcrumbY    int
+	bodyY          int
+	bodyHeight     int
+	showNavbar     bool
+	showBreadcrumb bool
+	showFooter     bool
 }
 
 func (model Model) render() (string, []component.MouseTarget) {
@@ -1329,6 +1345,11 @@ func (model Model) render() (string, []component.MouseTarget) {
 		targets = append(targets, headerTargets...)
 		lines = append(lines, frameLine(header, width, border))
 		lines = append(lines, frameDivider(width, border))
+	}
+	if metrics.showBreadcrumb {
+		breadcrumb, breadcrumbTargets := model.breadcrumb(metrics.contentWidth, metrics.contentX, metrics.breadcrumbY)
+		targets = append(targets, breadcrumbTargets...)
+		lines = append(lines, frameLine(breadcrumb, width, border))
 	}
 	body := fitFrameContent(model.page(metrics.contentWidth, metrics.bodyHeight), metrics.contentWidth, metrics.bodyHeight)
 	for _, line := range body {
@@ -1454,6 +1475,31 @@ func (model Model) header(width, originX, originY int) (string, []component.Mous
 	return fitFrameLine(strings.Join(parts, ""), width), targets
 }
 
+func (model Model) breadcrumb(width, originX, originY int) (string, []component.MouseTarget) {
+	routes, labels := routeBreadcrumb(model.router.Current())
+	if len(routes) < 2 {
+		return "", nil
+	}
+	view, spans := component.BreadcrumbLayout(labels, width)
+	targets := make([]component.MouseTarget, 0, len(spans)-1)
+	for _, span := range spans {
+		if span.Index < 0 || span.Index >= len(routes)-1 {
+			continue
+		}
+		route := routes[span.Index]
+		targets = append(targets, component.MouseTarget{
+			ID: "app.breadcrumb", Rect: component.Rect{X: originX + span.X, Y: originY, Width: span.Width, Height: 1}, Z: 2,
+			Handle: func(event component.MouseEvent) tea.Msg {
+				if event.Button != tea.MouseLeft {
+					return nil
+				}
+				return navigateMsg{route: route}
+			},
+		})
+	}
+	return fitFrameLine(view, width), targets
+}
+
 func (model Model) page(width, height int) string {
 	if model.currentPage != nil {
 		return model.currentPage.View(width, height)
@@ -1534,6 +1580,12 @@ func (model Model) frameMetrics(width, height int) frameMetrics {
 		fixedHeight += 2
 		bodyY = 3
 	}
+	showBreadcrumb := len(routeStack(model.router.Current())) > 1 && contentWidth > 0 && height-fixedHeight > 1
+	breadcrumbY := bodyY
+	if showBreadcrumb {
+		fixedHeight++
+		bodyY++
+	}
 	showFooter := height >= 6 && contentWidth >= 16
 	if showFooter {
 		footerHeight := lipgloss.Height(model.shortcutFooterWidth(contentWidth))
@@ -1545,12 +1597,14 @@ func (model Model) frameMetrics(width, height int) frameMetrics {
 		}
 	}
 	return frameMetrics{
-		contentWidth: contentWidth,
-		contentX:     contentX,
-		bodyY:        bodyY,
-		bodyHeight:   max(0, height-fixedHeight),
-		showNavbar:   showNavbar,
-		showFooter:   showFooter,
+		contentWidth:   contentWidth,
+		contentX:       contentX,
+		breadcrumbY:    breadcrumbY,
+		bodyY:          bodyY,
+		bodyHeight:     max(0, height-fixedHeight),
+		showNavbar:     showNavbar,
+		showBreadcrumb: showBreadcrumb,
+		showFooter:     showFooter,
 	}
 }
 

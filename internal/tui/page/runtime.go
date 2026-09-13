@@ -719,7 +719,7 @@ func (page *RuntimePage) syncDetail(items []runtimeItem) error {
 		}
 	}
 	if !found {
-		page.detail = component.NewDetailPage("Runtime · "+page.resourceID, "unavailable", component.Muted("Runtime/system item not found."))
+		page.detail = component.NewDetailPage("Unavailable", page.resourceID, component.Muted("Runtime/system item not found."))
 		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: SystemCommandMsg{Command: SystemRefresh}})
 		if page.width > 0 && page.height > 0 {
 			page.detail.Resize(page.width, page.height)

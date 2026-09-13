@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -143,48 +142,27 @@ func (page *ConfigPage) configEditorParentNavigation() tea.Cmd {
 	return func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }
 }
 
-func (page *ConfigPage) configEditorTitle() string {
-	switch page.command {
-	case ConfigEdit:
-		if spec, ok := config.FieldByKey(page.targetKey); ok {
-			return "Edit Configuration · " + spec.Label
-		}
-		return "Edit Configuration · " + page.targetKey
-	case ConfigConvert:
-		return "Convert Configuration Storage"
-	case ConfigExport:
-		return "Export Configuration Bundle"
-	case ConfigImport:
-		return "Import Configuration Bundle"
-	default:
-		return "Configuration Editor"
-	}
-}
-
 func (page *ConfigPage) configEditorView(width, height int) string {
 	if page == nil || page.editor == nil {
 		return ""
 	}
 	page.width, page.height = width, height
-	title := component.PageTitle(page.configEditorTitle(), width)
 	page.resizeConfigEditor()
-	return title + "\n" + page.editor.View()
+	return page.editor.View()
 }
 
 func (page *ConfigPage) resizeConfigEditor() {
 	if page == nil || page.editor == nil || page.width <= 0 || page.height <= 0 {
 		return
 	}
-	title := component.PageTitle(page.configEditorTitle(), page.width)
-	page.editor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
+	page.editor.Resize(page.width, page.height)
 }
 
 func (page *ConfigPage) configEditorMouseTargets(originX, originY, z int) []component.MouseTarget {
 	if page == nil || page.editor == nil {
 		return nil
 	}
-	title := component.PageTitle(page.configEditorTitle(), page.width)
-	return page.editor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
+	return page.editor.MouseTargets(originX, originY, z)
 }
 
 func (page *ConfigPage) configImportConfirmBody(width int) string {

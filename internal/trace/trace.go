@@ -54,6 +54,13 @@ func WithObserver(ctx context.Context, observer Observer) context.Context {
 	return context.WithValue(ctx, observerContextKey{}, observer)
 }
 
+func WithoutObserver(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, observerContextKey{}, Observer(nil))
+}
+
 func ObserverFromContext(ctx context.Context) Observer {
 	if ctx == nil {
 		return nil

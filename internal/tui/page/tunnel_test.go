@@ -40,7 +40,7 @@ func TestTunnelRuntimeEditorsRedactSecretsAndBlankRuntimeKeyPreservesSecret(t *t
 		t.Fatalf("blank runtime key should preserve existing secret: %#v", input.APIKey)
 	}
 	view := ansi.Strip(runtimeEditor.View(100, 28))
-	if strings.Contains(view, "runtime-secret") || !strings.Contains(view, "Configure Runtime Tunnel") || !strings.Contains(view, "ctrl+s save") {
+	if strings.Contains(view, "runtime-secret") || !strings.Contains(view, "Configure the selected runtime tunnel") || !strings.Contains(view, "ctrl+s save") || strings.Contains(view, "Configure Runtime Tunnel") {
 		t.Fatalf("runtime editor view=%q", view)
 	}
 	adminEditor, err := NewTunnelDashboardRoute(t.Context(), "admin-key", "edit")
@@ -117,7 +117,7 @@ func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 		t.Fatal("managed tunnel detail incorrectly reports overlay active")
 	}
 	view := ansi.Strip(page.View(100, 26))
-	for _, want := range []string{"Managed tunnel · tunnel_one", "primary", "s scope", "r refresh", "u use", "? more"} {
+	for _, want := range []string{"One", "primary", "s scope", "r refresh", "u use", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("managed detail missing %q: %q", want, view)
 		}
@@ -479,10 +479,13 @@ func TestManagedTunnelEditPrefetchFailureShowsExplicitWrappedErrorState(t *testi
 	}
 	view := page.View(36, 16)
 	plain := ansi.Strip(view)
-	for _, want := range []string{"Edit Managed Tunnel", "tunnel_one", "Unable to load managed tunnel"} {
+	for _, want := range []string{"tunnel_one", "Unable to load managed tunnel"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("prefetch failure missing %q: %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "Edit Managed Tunnel") {
+		t.Fatalf("prefetch failure retained redundant page title: %q", plain)
 	}
 	testutil.AssertLinesFit(t, view, 36)
 }
@@ -563,10 +566,13 @@ func TestManagedTunnelCreateEditorSectionsWrapAndFailureKeepsDraft(t *testing.T)
 	}
 	_ = page.Init()
 	plain := ansi.Strip(page.View(40, 20))
-	for _, want := range []string{"Create Managed Tunnel", "General", "Scope", "Runtime", "ctrl+s create"} {
+	for _, want := range []string{"General", "Scope", "Runtime", "ctrl+s create"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("create editor missing %q: %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "Create Managed Tunnel") {
+		t.Fatalf("create editor retained redundant page title: %q", plain)
 	}
 	testutil.AssertLinesFit(t, page.View(40, 20), 40)
 	updated, _ := page.Update(tea.KeyPressMsg{Code: 'd', Text: "draft-name"})

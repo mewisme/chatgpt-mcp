@@ -1,6 +1,9 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseRoute(t *testing.T) {
 	tests := []struct {
@@ -17,6 +20,7 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"tunnels", "tunnel_abc"}, Route{Kind: RouteTunnels, ResourceID: "tunnel_abc"}},
 		{[]string{"logs"}, Route{Kind: RouteLogs}},
 		{[]string{"logs-exec"}, Route{Kind: RouteLogsExec}},
+		{[]string{"logs-exec", "settings"}, Route{Kind: RouteLogsExec, Action: "settings"}},
 		{[]string{"command-execution"}, Route{Kind: RouteLogsExec}},
 		{[]string{"logs", "event_abc"}, Route{Kind: RouteLogs, ResourceID: "event_abc"}},
 		{[]string{"logs", "event_abc", "fields"}, Route{Kind: RouteLogs, ResourceID: "event_abc", Section: "fields"}},
@@ -30,6 +34,7 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"requests", "req_abc", "guard"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_abc", Section: "guard"}},
 		{[]string{"requests", "pending"}, Route{Kind: RouteRequests, Mode: "pending"}},
 		{[]string{"requests", "history", "req_abc"}, Route{Kind: RouteRequests, Mode: "history", ResourceID: "req_abc"}},
+		{[]string{"requests", "all", "req_abc", "command"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_abc", Section: "command"}},
 		{[]string{"requests", "all", "req_abc", "arguments"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_abc", Section: "arguments"}},
 		{[]string{"config", "runtime.port"}, Route{Kind: RouteConfig, ResourceID: "runtime.port"}},
 		{[]string{"instruction"}, Route{Kind: RouteInstruction}},
@@ -149,7 +154,7 @@ func TestEditorRouteStacksFollowSemanticAncestry(t *testing.T) {
 		},
 		{
 			Route{Kind: RouteConfig, Section: "storage", Action: "export"},
-			[]Route{{Kind: RouteConfig}, {Kind: RouteConfig, Section: "storage", Action: "export"}},
+			[]Route{{Kind: RouteConfig}, {Kind: RouteConfig, ResourceID: "storage"}, {Kind: RouteConfig, Section: "storage", Action: "export"}},
 		},
 		{
 			Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"},
@@ -177,6 +182,105 @@ func TestEditorRouteStacksFollowSemanticAncestry(t *testing.T) {
 	}
 }
 
+func TestRouteStacksTreatTopLevelTabsAsRoots(t *testing.T) {
+	for route, want := range map[Route][]Route{
+		{Kind: RouteContainers}:                    {{Kind: RouteContainers}},
+		{Kind: RouteTunnels}:                       {{Kind: RouteTunnel}, {Kind: RouteTunnels}},
+		{Kind: RouteLogsExec}:                      {{Kind: RouteLogsExec}},
+		{Kind: RouteRequests, Mode: "pending"}:     {{Kind: RouteRequests, Mode: "pending"}},
+		{Kind: RouteInstruction, Section: "rules"}: {{Kind: RouteInstruction, Section: "rules"}},
+	} {
+		got := routeStack(route)
+		if len(got) != len(want) {
+			t.Fatalf("routeStack(%#v)=%#v want %#v", route, got, want)
+		}
+		for index := range want {
+			if got[index] != want[index] {
+				t.Fatalf("routeStack(%#v)[%d]=%#v want %#v", route, index, got[index], want[index])
+			}
+		}
+	}
+}
+
+func TestRouteBreadcrumbLabelsUseNavigableAncestry(t *testing.T) {
+	tests := []struct {
+		route  Route
+		labels []string
+	}{
+		{Route{Kind: RouteWorkspaces, ResourceID: "ws_demo", Section: "context"}, []string{"Workspaces", "ws_demo", "Project Context"}},
+		{Route{Kind: RouteContainers, ResourceID: "wsc_demo", Section: "workspaces", Action: "edit"}, []string{"Containers", "wsc_demo", "Workspaces", "Edit"}},
+		{Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}, []string{"MCP", "github", "OAuth", "Login"}},
+		{Route{Kind: RouteTunnels, ResourceID: "tun_demo", Action: "configure"}, []string{"Tunnel", "Managed Tunnels", "tun_demo", "Configure"}},
+		{Route{Kind: RouteRequests, Mode: "pending", ResourceID: "req_demo", Section: "guard"}, []string{"Pending", "req_demo", "Guard"}},
+		{Route{Kind: RouteLogsExec}, []string{"Command Execution"}},
+		{Route{Kind: RouteLogsExec, Action: "settings"}, []string{"Command Execution", "Settings"}},
+		{Route{Kind: RouteConfig, Section: "storage", Action: "export"}, []string{"Config", "Storage", "Export"}},
+		{Route{Kind: RouteInstruction, ResourceID: "rule_demo", Section: "rules", Action: "edit"}, []string{"Rules", "Edit rule_demo"}},
+		{Route{Kind: RouteGuide, ResourceID: "config/storage/bundles"}, []string{"Guide", "Config", "Storage", "Bundles"}},
+	}
+	for _, test := range tests {
+		_, labels := routeBreadcrumb(test.route)
+		if len(labels) != len(test.labels) {
+			t.Fatalf("routeBreadcrumb(%#v)=%#v want %#v", test.route, labels, test.labels)
+		}
+		for index := range labels {
+			if labels[index] != test.labels[index] {
+				t.Fatalf("routeBreadcrumb(%#v)[%d]=%q want %q", test.route, index, labels[index], test.labels[index])
+			}
+		}
+	}
+}
+
+func TestRouteBreadcrumbInventoryCoversAllChildFamilies(t *testing.T) {
+	routes := []Route{
+		{Kind: RouteWorkspaces, ResourceID: "ws_a"},
+		{Kind: RouteWorkspaces, ResourceID: "ws_a", Section: "access"},
+		{Kind: RouteWorkspaces, ResourceID: "ws_a", Section: "access", Action: "add"},
+		{Kind: RouteWorkspaces, ResourceID: "ws_a", Section: "context"},
+		{Kind: RouteContainers},
+		{Kind: RouteContainers, ResourceID: "wsc_a"},
+		{Kind: RouteContainers, ResourceID: "wsc_a", Section: "workspaces", Action: "edit"},
+		{Kind: RouteMCP, ResourceID: "server_a"},
+		{Kind: RouteMCP, ResourceID: "server_a", Section: "health"},
+		{Kind: RouteMCP, ResourceID: "server_a", Section: "oauth", Action: "login"},
+		{Kind: RouteTunnel, Action: "edit"},
+		{Kind: RouteTunnel, Section: "admin-key", Action: "edit"},
+		{Kind: RouteTunnels},
+		{Kind: RouteTunnels, ResourceID: "tun_a", Section: "scope"},
+		{Kind: RouteTunnels, ResourceID: "tun_a", Action: "configure"},
+		{Kind: RouteRequests, Mode: "pending"},
+		{Kind: RouteRequests, Mode: "pending", ResourceID: "req_a"},
+		{Kind: RouteRequests, Mode: "all", ResourceID: "req_a", Section: "command"},
+		{Kind: RouteRequests, Mode: "pending", ResourceID: "req_a", Action: "approve"},
+		{Kind: RouteLogs, ResourceID: "event_a"},
+		{Kind: RouteLogs, ResourceID: "event_a", Section: "fields"},
+		{Kind: RouteLogs, Action: "filter"},
+		{Kind: RouteLogsExec},
+		{Kind: RouteLogsExec, Action: "settings"},
+		{Kind: RouteConfig, ResourceID: "shell"},
+		{Kind: RouteConfig, ResourceID: "server.port", Action: "edit"},
+		{Kind: RouteConfig, Section: "storage", Action: "export"},
+		{Kind: RouteInstruction, Section: "context"},
+		{Kind: RouteInstruction, Section: "rules"},
+		{Kind: RouteInstruction, Section: "context", Action: "edit"},
+		{Kind: RouteInstruction, ResourceID: "rule_a", Section: "rules", Action: "edit"},
+		{Kind: RouteRuntime, ResourceID: "service"},
+		{Kind: RouteRuntime, Action: "install"},
+		{Kind: RouteGuide, ResourceID: "config/storage/bundles"},
+	}
+	for _, route := range routes {
+		stack, labels := routeBreadcrumb(route)
+		if len(stack) == 0 || len(labels) != len(stack) || stack[len(stack)-1] != route {
+			t.Fatalf("breadcrumb inventory route=%#v stack=%#v labels=%#v", route, stack, labels)
+		}
+		for index, label := range labels {
+			if strings.TrimSpace(label) == "" {
+				t.Fatalf("breadcrumb inventory route=%#v has empty label at %d", route, index)
+			}
+		}
+	}
+}
+
 func TestEditorRouteTitlesIncludeActionWithoutChangingLegacyOrder(t *testing.T) {
 	for route, want := range map[Route]string{
 		{Kind: RouteMCP, Action: "create"}:                                               "MCP Servers · Create",
@@ -191,14 +295,14 @@ func TestEditorRouteTitlesIncludeActionWithoutChangingLegacyOrder(t *testing.T) 
 	}
 }
 
-func TestInstructionTabsDoNotCreateRouterHistory(t *testing.T) {
+func TestInstructionTabsAreBreadcrumbRoots(t *testing.T) {
 	route := Route{Kind: RouteInstruction, Section: "rules"}
 	router := NewRouter(route)
-	if router.Current() != route || len(router.stack) != 1 {
+	if router.Current() != route || len(router.stack) != 1 || router.stack[0] != route {
 		t.Fatalf("instruction route stack=%#v", router.stack)
 	}
 	if router.Back() {
-		t.Fatalf("instruction tab became a back-stack level: %#v", router.stack)
+		t.Fatalf("instruction tab root backed unexpectedly: route=%#v stack=%#v", router.Current(), router.stack)
 	}
 }
 

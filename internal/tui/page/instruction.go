@@ -535,8 +535,7 @@ func (page *InstructionPage) resizeContent() {
 	tabs := component.PageTabsNotice(instructionTabLabels, int(page.tab), page.notice, page.width)
 	height := max(1, page.height-lipgloss.Height(tabs))
 	if page.ruleEditor != nil {
-		title := component.PageTitle(page.ruleEditorTitle(), page.width)
-		page.ruleEditor.Resize(page.width, max(1, page.height-lipgloss.Height(title)-1))
+		page.ruleEditor.Resize(page.width, page.height)
 		return
 	}
 	if page.contextEditor != nil {

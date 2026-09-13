@@ -171,7 +171,7 @@ func TestRuntimeUnknownResourceRendersUnavailableChild(t *testing.T) {
 	page.loaded = true
 	page.rebuildBrowser("")
 	view := page.View(90, 20)
-	if page.err == nil || !strings.Contains(view, "Runtime · missing") || !strings.Contains(view, "not found") {
+	if page.err == nil || !strings.Contains(view, "Unavailable") || !strings.Contains(view, "not found") {
 		t.Fatalf("unknown runtime detail err=%v view=%q", page.err, view)
 	}
 }

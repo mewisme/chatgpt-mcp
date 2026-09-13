@@ -378,8 +378,7 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 				if page.contextBuilding || page.contextEditor == nil {
 					return nil
 				}
-				title := component.PageTitleNotice("Project Context · "+page.resourceID, page.notice, page.width)
-				return page.contextEditor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
+				return page.contextEditor.MouseTargets(originX, originY, z)
 			}
 			if !page.containers && page.section == "context-preview" && page.contextPreview != nil {
 				return page.workspaceContextPreviewMouseTargets(originX, originY, z)
@@ -737,7 +736,13 @@ func (page *WorkspacePage) syncWorkspaceDetail() error {
 	default:
 		return fmt.Errorf("unsupported workspace child section: %s", page.section)
 	}
-	page.detail = component.NewDetailPage("Workspace · "+item.ID, fmt.Sprintf("%d extra roots", len(item.AllowDirs)), content)
+	detailTitle := "Overview"
+	if page.section == "access" {
+		detailTitle = "Access"
+	} else if page.section == "containers" {
+		detailTitle = "Containers"
+	}
+	page.detail = component.NewDetailPage(detailTitle, fmt.Sprintf("%d extra roots", len(item.AllowDirs)), content)
 	bindings := []component.DetailPageBinding{}
 	if page.section == "" {
 		bindings = append(bindings,
@@ -786,7 +791,11 @@ func (page *WorkspacePage) syncContainerDetail() error {
 	default:
 		return fmt.Errorf("unsupported container child section: %s", page.section)
 	}
-	page.detail = component.NewDetailPage("Container · "+item.Name, fmt.Sprintf("%d workspaces", len(item.WorkspaceIDs)), content)
+	detailTitle := item.Name
+	if page.section == "workspaces" {
+		detailTitle = "Workspaces"
+	}
+	page.detail = component.NewDetailPage(detailTitle, fmt.Sprintf("%d workspaces", len(item.WorkspaceIDs)), content)
 	bindings := []component.DetailPageBinding{}
 	if page.section == "" {
 		bindings = append(bindings, component.DetailPageBinding{Key: "w", Desc: "workspaces", Message: NavigateMsg{Path: []string{"containers", item.ID, "workspaces"}}})

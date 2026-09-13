@@ -369,12 +369,11 @@ func (page *TunnelPage) View(width, height int) string {
 		content = page.editorView(width, height)
 	} else if page.kind == tunnelPageManaged {
 		if page.action == "edit" && page.resourceID != "" {
-			title := component.PageTitleNotice(page.editorTitle(), page.notice, width)
 			state := component.StateView(component.PageLoading, "Loading managed tunnel", page.resourceID)
 			if page.err != nil && page.overlay != tunnelOverlayOperation {
 				state = component.StateView(component.PageError, "Unable to load managed tunnel", page.err.Error())
 			}
-			content = title + "\n" + component.WrapContent(state, width)
+			content = component.WrapContent(state, width)
 		} else if page.resourceID != "" {
 			page.detail.SetFeedback(page.notice, page.err)
 			page.detail.Resize(width, height)
@@ -429,8 +428,7 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
 	if page.editor != nil {
-		title := component.PageTitleNotice(page.editorTitle(), page.notice, page.width)
-		return page.editor.MouseTargets(originX, originY+lipgloss.Height(title)+1, z)
+		return page.editor.MouseTargets(originX, originY, z)
 	}
 	feedback := ""
 	if page.err != nil {
@@ -866,7 +864,14 @@ func (page *TunnelPage) syncManagedDetail() error {
 	if dashboard.Config.ID == item.ID {
 		meta = "selected runtime"
 	}
-	page.detail = component.NewDetailPage("Managed tunnel · "+item.ID, meta, content)
+	detailTitle := item.Name
+	if strings.TrimSpace(detailTitle) == "" {
+		detailTitle = "Overview"
+	}
+	if page.section == "scope" {
+		detailTitle = "Scope"
+	}
+	page.detail = component.NewDetailPage(detailTitle, meta, content)
 	bindings := make([]component.DetailPageBinding, 0, 5)
 	if page.section == "" {
 		bindings = append(bindings, component.DetailPageBinding{Key: "s", Desc: "scope", Message: NavigateMsg{Path: []string{"tunnels", item.ID, "scope"}}})

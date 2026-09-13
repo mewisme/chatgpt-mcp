@@ -6,7 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
-	"charm.land/lipgloss/v2"
 
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
@@ -218,51 +217,25 @@ func (page *WorkspacePage) workspaceEditorParentNavigation() tea.Cmd {
 	return func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }
 }
 
-func (page *WorkspacePage) workspaceEditorTitle() string {
-	switch page.command {
-	case WorkspaceRegister:
-		return "Register Workspace"
-	case WorkspaceRelocate:
-		return "Relocate Workspace · " + page.targetID
-	case WorkspaceAccessAdd:
-		return "Add Workspace Access · " + page.targetID
-	case WorkspaceAccessRemove:
-		return "Remove Workspace Access · " + page.targetID
-	case WorkspaceContainerCreate:
-		return "Create Container"
-	case WorkspaceContainerRename:
-		return "Edit Container · " + page.targetID
-	case WorkspaceContainerMembers:
-		return "Container Workspaces · " + page.targetID
-	default:
-		return "Workspace Editor"
-	}
-}
-
 func (page *WorkspacePage) workspaceEditorView(width, height int) string {
 	if page == nil || page.editor == nil {
 		return ""
 	}
 	page.width, page.height = width, height
-	title := component.PageTitle(page.workspaceEditorTitle(), width)
 	page.resizeWorkspaceEditor()
-	return title + "\n" + page.editor.View()
+	return page.editor.View()
 }
 
 func (page *WorkspacePage) resizeWorkspaceEditor() {
 	if page == nil || page.editor == nil || page.width <= 0 || page.height <= 0 {
 		return
 	}
-	title := component.PageTitle(page.workspaceEditorTitle(), page.width)
-	bodyHeight := max(1, page.height-lipgloss.Height(title)-1)
-	page.editor.Resize(page.width, bodyHeight)
+	page.editor.Resize(page.width, page.height)
 }
 
 func (page *WorkspacePage) workspaceEditorMouseTargets(originX, originY, z int) []component.MouseTarget {
 	if page == nil || page.editor == nil {
 		return nil
 	}
-	title := component.PageTitle(page.workspaceEditorTitle(), page.width)
-	y := originY + lipgloss.Height(title) + 1
-	return page.editor.MouseTargets(originX, y, z)
+	return page.editor.MouseTargets(originX, originY, z)
 }

@@ -96,10 +96,13 @@ func TestConfigResourceUsesFullChildDetailPage(t *testing.T) {
 		t.Fatal("config detail incorrectly reports overlay active")
 	}
 	view := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"MCP HTTP port", "server.port", "Value", "Default", "State", "default", "sets the TCP port for the MCP HTTP server", "e edit", "r refresh"} {
+	for _, want := range []string{"server.port", "Value", "Default", "State", "default", "sets the TCP port for the MCP HTTP server", "e edit", "r refresh"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("config detail missing %q: %q", want, view)
 		}
+	}
+	if strings.Contains(view, "MCP HTTP port") {
+		t.Fatalf("config child repeated breadcrumb title: %q", view)
 	}
 	if strings.Contains(view, "╭") {
 		t.Fatalf("config detail retained modal chrome: %q", view)
@@ -123,7 +126,7 @@ func TestConfigReadOnlyResourceHidesEditAction(t *testing.T) {
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
 	view := ansi.Strip(page.View(100, 28))
-	if !strings.Contains(view, "MCP credential") || !strings.Contains(view, "managed") || !strings.Contains(view, "r refresh") || strings.Contains(view, "e edit") {
+	if !strings.Contains(view, "managed") || !strings.Contains(view, "Guidance") || !strings.Contains(view, "r refresh") || strings.Contains(view, "e edit") || strings.Contains(view, "MCP credential") {
 		t.Fatalf("read-only config detail=%q", view)
 	}
 }
@@ -189,7 +192,7 @@ func TestConfigDomainRowsAreSectionScopedAndShowState(t *testing.T) {
 		t.Fatalf("shell path row missing custom state: %#v", rows)
 	}
 	view := ansi.Strip(page.View(100, 30))
-	if !strings.Contains(view, "Shell & Execution") || !strings.Contains(view, "e edit") || !strings.Contains(view, "/ filter") {
+	if !strings.Contains(view, "Executable search paths") || !strings.Contains(view, "e edit") || !strings.Contains(view, "/ filter") || strings.Contains(view, "Shell & Execution") {
 		t.Fatalf("shell domain view=%q", view)
 	}
 }
@@ -242,10 +245,13 @@ func TestConfigStoragePageCentralizesMaintenanceActions(t *testing.T) {
 		}
 	}
 	view := ansi.Strip(page.View(100, 34))
-	for _, want := range []string{"Storage & Maintenance", "Format", "Config", "Root", "Initialized", "Runtime sync", "Persisted", "Runtime", "enter run"} {
+	for _, want := range []string{"Format", "Config", "Root", "Initialized", "Runtime sync", "Persisted", "Runtime", "enter run"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("storage view missing %q: %q", want, view)
 		}
+	}
+	if strings.Contains(view, "Storage & Maintenance") {
+		t.Fatalf("storage child repeated breadcrumb title: %q", view)
 	}
 }
 

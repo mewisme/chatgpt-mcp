@@ -134,7 +134,7 @@ func TestLogsEventChildDetailStaysPinnedWhileLiveEventsAppend(t *testing.T) {
 		t.Fatalf("detail child unexpectedly paused follow state")
 	}
 	detail := ansi.Strip(page.View(100, 26))
-	if !strings.Contains(detail, "Log event · two") || strings.Contains(detail, "Log event · three") {
+	if !strings.Contains(detail, "Message  two") || strings.Contains(detail, "Message  three") || strings.Contains(detail, "Log event · two") {
 		t.Fatalf("detail jumped after live append: %q", detail)
 	}
 	_, cmd := page.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})

@@ -66,16 +66,16 @@ func TestTunnelRuntimeTitleStartsAtWorkspaceTitlePosition(t *testing.T) {
 	}
 }
 
-func TestManagedTunnelMutationNoticeRendersBesidePageTitle(t *testing.T) {
+func TestManagedTunnelMutationNoticeRendersWithoutDuplicateChildTitle(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{})
 	page, err := NewManagedTunnels(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	page.notice = "Managed tunnel created"
-	line := strings.Split(ansi.Strip(page.View(100, 24)), "\n")[0]
-	if !strings.Contains(line, "Managed tunnels  · Managed tunnel created") {
-		t.Fatalf("managed tunnel title notice=%q", line)
+	view := ansi.Strip(page.View(100, 24))
+	if !strings.Contains(view, "Managed tunnel created") || strings.Contains(view, "Managed tunnels") {
+		t.Fatalf("managed tunnel child view=%q", view)
 	}
 }
 

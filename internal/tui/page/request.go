@@ -388,7 +388,7 @@ func (page *RequestsPage) View(width, height int) string {
 		tabs := component.PageTabsNotice(requestTabLabels, int(page.mode), page.notice, width)
 		bodyHeight := max(1, height-lipgloss.Height(tabs))
 		help := page.browser.HelpView()
-		layout := component.NewSectionLayout("Approval Requests", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, width, bodyHeight, lipgloss.Height(help))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 		page.browser = updated.(component.Browser)
 		content = tabs + "\n" + component.BottomHelp(layout.View(page.browser.BodyContent()), help, width, bodyHeight)
@@ -442,7 +442,7 @@ func (page *RequestsPage) MouseTargets(originX, originY, z int) []component.Mous
 		}
 		bodyHeight := max(1, page.height-lipgloss.Height(header))
 		help := page.browser.HelpView()
-		layout := component.NewSectionLayout("Approval Requests", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, page.width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", fmt.Sprintf("%d requests", len(page.requestRows())), feedback, page.width, bodyHeight, lipgloss.Height(help))
 		offsetY := lipgloss.Height(header) + 1 + layout.BodyY
 		targets = append(targets, page.browser.MouseTargets(originX, originY+offsetY, z)...)
 		helpY := originY + lipgloss.Height(header) + 1 + bodyHeight - lipgloss.Height(help)
@@ -667,7 +667,7 @@ func (page *RequestsPage) syncDetail() {
 		if page.resourceErr != nil {
 			body = component.Muted("The approval request is no longer available.")
 		}
-		page.detail = component.NewDetailPage(page.requestDetailTitle(), "", body)
+		page.detail = component.NewDetailPage(page.requestDetailTitle(), "", body).WithTitleVisible(false)
 		page.detailReady = true
 		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: RequestCommandMsg{Command: RequestRefresh, ResourceID: page.resourceID}})
 		if page.width > 0 && page.height > 0 {
@@ -697,7 +697,7 @@ func (page *RequestsPage) syncDetail() {
 		page.detail.SetMeta(meta)
 		page.detail.SetContentPreserveScroll(content)
 	} else {
-		page.detail = component.NewDetailPage(page.requestDetailTitle(), meta, content)
+		page.detail = component.NewDetailPage(page.requestDetailTitle(), meta, content).WithTitleVisible(false)
 		page.detailReady = true
 	}
 	bindings := make([]component.DetailPageBinding, 0, 6)
@@ -761,7 +761,7 @@ func (page *RequestsPage) requestCodeView(width, height int) string {
 	}
 	feedback := requestCodeFeedback(page.notice, page.err, width)
 	help := page.codeHelp.View(width)
-	layout := component.NewSectionLayout(page.requestCodeTitle(), meta, feedback, width, height, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", meta, feedback, width, height, lipgloss.Height(help))
 	body := component.Muted("No content")
 	if page.codeViewer != nil {
 		page.codeViewer.Resize(width, layout.BodyHeight)
@@ -775,7 +775,7 @@ func (page *RequestsPage) resizeCodeViewer(width, height int) {
 		return
 	}
 	help := page.codeHelp.View(width)
-	layout := component.NewSectionLayout(page.requestCodeTitle(), "", requestCodeFeedback(page.notice, page.err, width), width, height, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", "", requestCodeFeedback(page.notice, page.err, width), width, height, lipgloss.Height(help))
 	page.codeViewer.Resize(width, layout.BodyHeight)
 }
 
@@ -784,7 +784,7 @@ func (page *RequestsPage) requestCodeMouseTargets(originX, originY, z int) []com
 		return nil
 	}
 	help := page.codeHelp.View(page.width)
-	layout := component.NewSectionLayout(page.requestCodeTitle(), "", requestCodeFeedback(page.notice, page.err, page.width), page.width, page.height, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", "", requestCodeFeedback(page.notice, page.err, page.width), page.width, page.height, lipgloss.Height(help))
 	return page.codeViewer.MouseTargets(originX, originY+layout.BodyY, z)
 }
 
@@ -802,13 +802,6 @@ func (page *RequestsPage) requestDetailTitle() string {
 	default:
 		return "Overview"
 	}
-}
-
-func (page *RequestsPage) requestCodeTitle() string {
-	if page != nil && page.section == "arguments" {
-		return "Arguments"
-	}
-	return "Command"
 }
 
 func requestCodeFeedback(notice string, err error, width int) string {

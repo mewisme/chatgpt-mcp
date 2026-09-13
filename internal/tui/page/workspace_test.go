@@ -417,7 +417,7 @@ func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 		if cmd == nil || page.resourceID != item.ID {
 			t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)
 		}
-		if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Overview") {
+		if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Root") || strings.Contains(got, "Overview") {
 			t.Fatalf("intermediate detail render=%q", got)
 		}
 		message, ok := cmd().(NavigateMsg)
@@ -589,7 +589,7 @@ func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 		t.Fatal("resource detail incorrectly reports overlay active")
 	}
 	plain := ansi.Strip(detail.View(100, 24))
-	if !strings.Contains(plain, "Overview") || !strings.Contains(plain, filepath.Base(item.Path)) || !strings.Contains(plain, "p context") || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") {
+	if !strings.Contains(plain, filepath.Base(item.Path)) || !strings.Contains(plain, "p context") || !strings.Contains(plain, "a access") || !strings.Contains(plain, "v containers") || strings.Contains(plain, "Overview") {
 		t.Fatalf("workspace detail=%q", plain)
 	}
 	if strings.Contains(plain, "Overview   Access") || strings.Contains(plain, "╭") {
@@ -821,7 +821,7 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		return projectcontext.Result{
 			Root: project, WorkspaceID: item.ID,
 			InstructionContext: instructioncontext.InstructionContext{
-				Root: project, WorkspaceID: item.ID, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: 77}, InstructionsText: "# Rendered Context\n\nUse compact code.", InstructionTruncated: true,
+				Root: project, WorkspaceID: item.ID, ToolProfile: instructioncontext.ToolProfile{Name: "full", Count: 77}, InstructionsText: "# Context Document\n\nUse compact code.", InstructionTruncated: true,
 				ProjectMemory: instructioncontext.ProjectMemoryBundle{Sections: []instructioncontext.Section{{Path: sourcePath, Kind: instructioncontext.SectionProject, Content: "# AGENTS\n\nSource body.", LoadedBytes: 22}}},
 				AutoMemory:    instructioncontext.AutoMemorySnapshot{Loaded: true, Content: "## general\n\n- remember compact code", Bytes: 36, Entries: 1, Truncated: true},
 				GlobalContext: "# Global Context\n\nShared policy.",
@@ -856,21 +856,24 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	previewView := ansi.Strip(preview.View(110, 30))
-	for _, want := range []string{"Rendered", "Sources", "JSON", "Rendered Context", "Use compact code.", "2 rules", "1 skills", "truncated"} {
+	for _, want := range []string{"Rendered", "Sources", "JSON", "Use compact code.", "2 rules", "1 skills", "truncated"} {
 		if !strings.Contains(previewView, want) {
 			t.Fatalf("preview missing %q: %q", want, previewView)
 		}
 	}
-	if strings.Contains(previewView, "Project Context Preview") {
+	if strings.Contains(previewView, "Project Context Preview") || strings.Contains(previewView, "Rendered Context") {
 		t.Fatalf("preview retained redundant page title: %q", previewView)
 	}
 	updated, _ = preview.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	preview = updated.(*WorkspacePage)
 	sourcesView := ansi.Strip(preview.View(110, 30))
-	for _, want := range []string{"Context Sources", "User-level Sources", "Claude", "Context · 1 · included", "Global Context", "Auto Memory", "Project/User Instruction Files · 1", "Global Rules · 1", "Rules · 1"} {
+	for _, want := range []string{"User-level Sources", "Claude", "Context · 1 · included", "Global Context", "Auto Memory", "Project/User Instruction Files · 1", "Global Rules · 1", "Rules · 1"} {
 		if !strings.Contains(sourcesView, want) {
 			t.Fatalf("sources preview missing %q: %q", want, sourcesView)
 		}
+	}
+	if strings.Contains(sourcesView, "Context Sources") {
+		t.Fatalf("sources preview retained redundant local title: %q", sourcesView)
 	}
 	foundSkills := false
 	for _, node := range preview.contextPreview.sources.AllNodes() {
@@ -951,7 +954,7 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ansi.Strip(fresh.View(110, 30)); !strings.Contains(got, "not built") || !strings.Contains(got, "Rendered Context") {
+	if got := ansi.Strip(fresh.View(110, 30)); !strings.Contains(got, "not built") || strings.Contains(got, "Rendered Context") {
 		t.Fatalf("fresh session unexpectedly reused preview: %q", got)
 	}
 }

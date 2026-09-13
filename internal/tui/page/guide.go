@@ -139,7 +139,7 @@ func (page *GuidePage) View(width, height int) string {
 		tabs := component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", width)
 		bodyHeight := max(1, height-lipgloss.Height(tabs))
 		help := page.browser.HelpView()
-		layout := component.NewSectionLayout(page.topic.Title+" Topics", guideTopicCountLabel(len(page.children)), "", width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", guideTopicCountLabel(len(page.children)), "", width, bodyHeight, lipgloss.Height(help))
 		return tabs + "\n" + component.BottomHelp(layout.View(page.browser.BodyContent()), help, width, bodyHeight)
 	}
 	helpBindings := []key.Binding{component.Binding([]string{"j", "k"}, "j/k", "scroll")}
@@ -152,7 +152,7 @@ func (page *GuidePage) View(width, height int) string {
 		tabs = component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", width) + "\n"
 	}
 	bodyHeight := max(1, height-lipgloss.Height(tabs))
-	layout := component.NewSectionLayout(page.topic.Title, page.topic.Description, "", width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", page.topic.Description, "", width, bodyHeight, lipgloss.Height(help))
 	page.viewer.Resize(width, layout.BodyHeight)
 	content := tabs + layout.View(page.viewer.View())
 	return component.BottomHelp(content, help, width, height)
@@ -173,7 +173,7 @@ func (page *GuidePage) MouseTargets(originX, originY, z int) []component.MouseTa
 		tabs := component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", page.width)
 		bodyHeight := max(1, page.height-lipgloss.Height(tabs))
 		help := page.browser.HelpView()
-		layout := component.NewSectionLayout(page.topic.Title+" Topics", guideTopicCountLabel(len(page.children)), "", page.width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", guideTopicCountLabel(len(page.children)), "", page.width, bodyHeight, lipgloss.Height(help))
 		targets := page.browser.MouseTargets(originX, originY+lipgloss.Height(tabs)+1+layout.BodyY, z)
 		helpY := originY + page.height - lipgloss.Height(help)
 		return append(targets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
@@ -184,7 +184,7 @@ func (page *GuidePage) MouseTargets(originX, originY, z int) []component.MouseTa
 		tabsHeight = lipgloss.Height(component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", page.width)) + 1
 	}
 	bodyHeight := max(1, page.height-tabsHeight)
-	layout := component.NewSectionLayout(page.topic.Title, page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
 	viewerY := originY + tabsHeight + layout.BodyY
 	page.viewer.Resize(page.width, layout.BodyHeight)
 	return page.viewer.MouseTargets(originX, viewerY, z)
@@ -205,7 +205,7 @@ func (page *GuidePage) resize() {
 		tabs := component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", page.width)
 		bodyHeight := max(1, page.height-lipgloss.Height(tabs))
 		help := page.browser.HelpView()
-		layout := component.NewSectionLayout(page.topic.Title+" Topics", guideTopicCountLabel(len(page.children)), "", page.width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", guideTopicCountLabel(len(page.children)), "", page.width, bodyHeight, lipgloss.Height(help))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
 		page.browser = updated.(component.Browser)
 		return
@@ -220,7 +220,7 @@ func (page *GuidePage) resize() {
 		tabsHeight = lipgloss.Height(component.PageTabsNotice([]string{"Overview", "Topics"}, page.tab, "", page.width)) + 1
 	}
 	bodyHeight := max(1, page.height-tabsHeight)
-	layout := component.NewSectionLayout(page.topic.Title, page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", page.topic.Description, "", page.width, bodyHeight, lipgloss.Height(help))
 	page.viewer.Resize(page.width, layout.BodyHeight)
 }
 

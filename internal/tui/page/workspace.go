@@ -390,7 +390,7 @@ func (page *WorkspacePage) MouseTargets(originX, originY, z int) []component.Mou
 		targets := page.workspaceTabMouseTargets(originX, originY, z+2)
 		bodyHeight := max(1, page.height-lipgloss.Height(tabs))
 		help := page.browser.HelpView()
-		layout := component.NewSectionLayout(page.listTitle(), "", feedback, page.width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", "", feedback, page.width, bodyHeight, lipgloss.Height(help))
 		browserY := originY + lipgloss.Height(tabs) + 1 + layout.BodyY
 		targets = append(targets, page.browser.MouseTargets(originX, browserY, z)...)
 		helpY := originY + lipgloss.Height(tabs) + 1 + bodyHeight - lipgloss.Height(help)
@@ -668,7 +668,7 @@ func (page *WorkspacePage) baseView(width, height int) string {
 	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, width)
 	bodyHeight := max(1, height-lipgloss.Height(tabs))
 	help := page.browser.HelpView()
-	layout := component.NewSectionLayout(page.listTitle(), "", feedback, width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", "", feedback, width, bodyHeight, lipgloss.Height(help))
 	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 	page.browser = updated.(component.Browser)
 	return tabs + "\n" + component.BottomHelp(layout.View(page.browser.BodyContent()), help, width, bodyHeight)
@@ -681,7 +681,7 @@ func (page *WorkspacePage) resizeBrowser() tea.Cmd {
 	tabs := component.PageTabsNotice(workspaceTabLabels, int(page.activeTab()), page.notice, page.width)
 	bodyHeight := max(1, page.height-lipgloss.Height(tabs))
 	help := page.browser.HelpView()
-	layout := component.NewSectionLayout(page.listTitle(), "", page.listFeedback(page.width), page.width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", "", page.listFeedback(page.width), page.width, bodyHeight, lipgloss.Height(help))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
 	page.browser = updated.(component.Browser)
 	return cmd
@@ -742,7 +742,7 @@ func (page *WorkspacePage) syncWorkspaceDetail() error {
 	} else if page.section == "containers" {
 		detailTitle = "Containers"
 	}
-	page.detail = component.NewDetailPage(detailTitle, fmt.Sprintf("%d extra roots", len(item.AllowDirs)), content)
+	page.detail = component.NewDetailPage(detailTitle, fmt.Sprintf("%d extra roots", len(item.AllowDirs)), content).WithTitleVisible(false)
 	bindings := []component.DetailPageBinding{}
 	if page.section == "" {
 		bindings = append(bindings,
@@ -795,7 +795,7 @@ func (page *WorkspacePage) syncContainerDetail() error {
 	if page.section == "workspaces" {
 		detailTitle = "Workspaces"
 	}
-	page.detail = component.NewDetailPage(detailTitle, fmt.Sprintf("%d workspaces", len(item.WorkspaceIDs)), content)
+	page.detail = component.NewDetailPage(detailTitle, fmt.Sprintf("%d workspaces", len(item.WorkspaceIDs)), content).WithTitleVisible(false)
 	bindings := []component.DetailPageBinding{}
 	if page.section == "" {
 		bindings = append(bindings, component.DetailPageBinding{Key: "w", Desc: "workspaces", Message: NavigateMsg{Path: []string{"containers", item.ID, "workspaces"}}})

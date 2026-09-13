@@ -479,7 +479,7 @@ func (page *LogsPage) View(width, height int) string {
 		tabs := component.PageTabsNotice(logsTabLabels, int(page.tab), page.notice, width)
 		bodyHeight := max(1, height-lipgloss.Height(tabs))
 		help := page.executionHelpView(width)
-		layout := component.NewSectionLayout("Command Execution", "live output", "", width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", "live output", "", width, bodyHeight, lipgloss.Height(help))
 		section := component.BottomHelp(layout.View(page.executionBodyView(width, layout.BodyHeight)), help, width, bodyHeight)
 		content = tabs + "\n" + section
 	} else {
@@ -491,7 +491,7 @@ func (page *LogsPage) View(width, height int) string {
 		}
 		bodyHeight := max(1, height-lipgloss.Height(tabs))
 		help := page.browser.HelpView()
-		layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", "live journal", feedback, width, bodyHeight, lipgloss.Height(help))
 		browserHeight := max(1, layout.BodyHeight-lipgloss.Height(status))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
@@ -545,7 +545,7 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	if page.tab == logsTabCommandExec {
 		bodyHeight := max(1, page.height-tabsHeight)
 		help := page.executionHelpView(page.width)
-		layout := component.NewSectionLayout("Command Execution", "live output", "", page.width, bodyHeight, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", "live output", "", page.width, bodyHeight, lipgloss.Height(help))
 		bodyY := originY + tabsHeight + 1 + layout.BodyY
 		return append(tabTargets, page.executionMouseTargets(originX, bodyY, z, page.width, layout.BodyHeight)...)
 	}
@@ -555,7 +555,7 @@ func (page *LogsPage) MouseTargets(originX, originY, z int) []component.MouseTar
 	}
 	bodyHeight := max(1, page.height-tabsHeight)
 	help := page.browser.HelpView()
-	layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
 	statusHeight := lipgloss.Height(page.statusView(page.width))
 	browserY := originY + tabsHeight + 1 + layout.BodyY + statusHeight
 	tabTargets = append(tabTargets, page.browser.MouseTargets(originX, browserY, z)...)
@@ -903,7 +903,7 @@ func (page *LogsPage) resizeBrowser() tea.Cmd {
 	}
 	bodyHeight := max(1, page.height-tabsHeight)
 	help := page.browser.HelpView()
-	layout := component.NewSectionLayout("Runtime Logs", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", "live journal", feedback, page.width, bodyHeight, lipgloss.Height(help))
 	height := max(1, layout.BodyHeight-statusHeight)
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
@@ -943,7 +943,7 @@ func (page *LogsPage) syncDetail() {
 		}
 	}
 	if !found {
-		page.detail = component.NewDetailPage("Log event · "+page.resourceID, "unavailable", component.Muted("Log event not found in the current journal view."))
+		page.detail = component.NewDetailPage("Log event · "+page.resourceID, "unavailable", component.Muted("Log event not found in the current journal view.")).WithTitleVisible(false)
 		page.detail.SetBindings(component.DetailPageBinding{Key: "r", Desc: "refresh", Message: LogsCommandMsg{Command: LogsRefresh}})
 		if page.loaded {
 			page.err = fmt.Errorf("log event not found: %s", page.resourceID)
@@ -970,7 +970,7 @@ func (page *LogsPage) syncDetail() {
 		content = strings.Join(fieldLines, "\n")
 	}
 	meta := compactParts(event.Level, event.Component, event.RunID, fmt.Sprintf("seq %d", event.Sequence))
-	page.detail = component.NewDetailPage("Log event · "+event.Name, meta, content)
+	page.detail = component.NewDetailPage("Log event · "+event.Name, meta, content).WithTitleVisible(false)
 	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: LogsCommandMsg{Command: LogsRefresh}}}
 	if page.section == "" {
 		bindings = append([]component.DetailPageBinding{{Key: "f", Desc: "fields", Message: NavigateMsg{Path: []string{"logs", page.resourceID, "fields"}}}}, bindings...)

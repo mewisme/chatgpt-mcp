@@ -145,10 +145,13 @@ func TestRuntimeResourceUsesFullChildDetailPage(t *testing.T) {
 		t.Fatal("runtime detail incorrectly reports overlay active")
 	}
 	view := ansi.Strip(page.View(110, 28))
-	for _, want := range []string{"User managed service", "systemd --user", "u up", "x restart", "d down", "r refresh"} {
+	for _, want := range []string{"Scope  user", "systemd --user", "u up", "x restart", "d down", "r refresh"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("runtime detail missing %q: %q", want, view)
 		}
+	}
+	if strings.Contains(view, "User managed service") {
+		t.Fatalf("runtime child repeated breadcrumb title: %q", view)
 	}
 	if strings.Contains(view, "╭") {
 		t.Fatalf("runtime detail retained modal chrome: %q", view)
@@ -171,7 +174,7 @@ func TestRuntimeUnknownResourceRendersUnavailableChild(t *testing.T) {
 	page.loaded = true
 	page.rebuildBrowser("")
 	view := page.View(90, 20)
-	if page.err == nil || !strings.Contains(view, "Unavailable") || !strings.Contains(view, "not found") {
+	if page.err == nil || !strings.Contains(view, "not found") || strings.Contains(view, "Unavailable") {
 		t.Fatalf("unknown runtime detail err=%v view=%q", page.err, view)
 	}
 }

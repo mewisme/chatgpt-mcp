@@ -77,10 +77,13 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 		t.Fatalf("deep resource=%q overlay=%t mode=%d", deep.resourceID, deep.OverlayActive(), deep.mode)
 	}
 	view := ansi.Strip(deep.View(100, 28))
-	for _, expected := range []string{"Overview", pending.WorkspaceID, pending.TargetTool, "c command", "v arguments", "g guard", "? more"} {
+	for _, expected := range []string{pending.WorkspaceID, pending.TargetTool, "c command", "v arguments", "g guard", "? more"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("deep view missing %q: %q", expected, view)
 		}
+	}
+	if strings.Contains(view, "Overview") {
+		t.Fatalf("request child repeated breadcrumb title: %q", view)
 	}
 	if strings.Contains(view, "cgm update") {
 		t.Fatalf("overview still renders raw command: %q", view)
@@ -118,7 +121,7 @@ func TestRequestsPageRefreshModesAndDeepLink(t *testing.T) {
 	updated, _ = command.Update(command.refreshCmd()())
 	command = updated.(*RequestsPage)
 	commandView := ansi.Strip(command.View(100, 28))
-	if command.codeViewer == nil || command.codeViewer.Content() != "cgm update" || !strings.Contains(commandView, "Command") || !strings.Contains(commandView, "cgm update") {
+	if command.codeViewer == nil || command.codeViewer.Content() != "cgm update" || !strings.Contains(commandView, "cgm update") {
 		t.Fatalf("command child=%q viewer=%#v", commandView, command.codeViewer)
 	}
 

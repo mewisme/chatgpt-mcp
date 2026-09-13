@@ -424,7 +424,7 @@ func (page *InstructionPage) View(width, height int) string {
 	}
 	feedback := page.instructionFeedback(width)
 	help := page.contextHelp.View(width)
-	layout := component.NewSectionLayout("Global Context", formatInstructionBytes(len([]byte(page.settings.Context))), feedback, width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", formatInstructionBytes(len([]byte(page.settings.Context))), feedback, width, bodyHeight, lipgloss.Height(help))
 	page.contextPreview.Resize(width, layout.BodyHeight)
 	return tabs + "\n" + component.BottomHelp(layout.View(page.contextPreview.View()), help, width, bodyHeight)
 }
@@ -458,7 +458,7 @@ func (page *InstructionPage) MouseTargets(originX, originY, z int) []component.M
 		feedback := page.instructionFeedback(page.width)
 		height := max(1, page.height-lipgloss.Height(tabs))
 		help := page.rules.HelpView()
-		layout := component.NewSectionLayout("Global Rules", fmt.Sprintf("%d rules", len(page.settings.Rules)), feedback, page.width, height, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", fmt.Sprintf("%d rules", len(page.settings.Rules)), feedback, page.width, height, lipgloss.Height(help))
 		targets = append(targets, page.rules.MouseTargets(originX, contentY+layout.BodyY, z)...)
 		helpY := contentY + height - lipgloss.Height(help)
 		return append(targets, page.rules.HelpMouseTargets(originX, helpY, z+2)...)
@@ -471,7 +471,7 @@ func (page *InstructionPage) MouseTargets(originX, originY, z int) []component.M
 	if page.tab == instructionTabContext && page.contextEditor == nil {
 		feedback := page.instructionFeedback(page.width)
 		help := page.contextHelp.View(page.width)
-		layout := component.NewSectionLayout("Global Context", formatInstructionBytes(len([]byte(page.settings.Context))), feedback, page.width, max(1, page.height-lipgloss.Height(tabs)-1), lipgloss.Height(help))
+		layout := component.NewSectionLayout("", formatInstructionBytes(len([]byte(page.settings.Context))), feedback, page.width, max(1, page.height-lipgloss.Height(tabs)-1), lipgloss.Height(help))
 		return append(targets, page.contextPreview.MouseTargets(originX, contentY+layout.BodyY, z)...)
 	}
 	return targets
@@ -546,13 +546,13 @@ func (page *InstructionPage) resizeContent() {
 	if page.tab == instructionTabContext {
 		feedback := page.instructionFeedback(page.width)
 		help := page.contextHelp.View(page.width)
-		layout := component.NewSectionLayout("Global Context", formatInstructionBytes(len([]byte(page.settings.Context))), feedback, page.width, height, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", formatInstructionBytes(len([]byte(page.settings.Context))), feedback, page.width, height, lipgloss.Height(help))
 		page.contextPreview.Resize(page.width, layout.BodyHeight)
 		return
 	}
 	if page.tab == instructionTabRules {
 		help := page.rules.HelpView()
-		layout := component.NewSectionLayout("Global Rules", fmt.Sprintf("%d rules", len(page.settings.Rules)), page.instructionFeedback(page.width), page.width, height, lipgloss.Height(help))
+		layout := component.NewSectionLayout("", fmt.Sprintf("%d rules", len(page.settings.Rules)), page.instructionFeedback(page.width), page.width, height, lipgloss.Height(help))
 		updated, _ := page.rules.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
 		page.rules = updated.(component.Browser)
 		return
@@ -576,14 +576,14 @@ func (page *InstructionPage) instructionSectionLayout(tab instructionTab, feedba
 	if page.contextEditor != nil {
 		context = page.contextEditor.Value()
 	}
-	title, meta := "Global Context", formatInstructionBytes(len([]byte(context)))
+	meta := formatInstructionBytes(len([]byte(context)))
 	switch tab {
 	case instructionTabRules:
-		title, meta = "Global Rules", fmt.Sprintf("%d rules", len(page.settings.Rules))
+		meta = fmt.Sprintf("%d rules", len(page.settings.Rules))
 	case instructionTabSources:
-		title, meta = "Instruction Sources", fmt.Sprintf("%d providers", len(groupedInstructionSources(page.settings.DetectedSources)))
+		meta = fmt.Sprintf("%d providers", len(groupedInstructionSources(page.settings.DetectedSources)))
 	}
-	return component.NewSectionLayout(title, meta, feedback, width, height, 0)
+	return component.NewSectionLayout("", meta, feedback, width, height, 0)
 }
 
 func (page *InstructionPage) refreshCmd() tea.Cmd {

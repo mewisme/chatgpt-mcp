@@ -18,32 +18,35 @@ import (
 func TestInstructionPageShowsContextAndReadOnlySummaries(t *testing.T) {
 	page, _ := newTestInstructionPage(t)
 	plain := ansi.Strip(page.View(100, 30))
-	for _, want := range []string{"Context", "Rules", "Sources", "Global Context", "Shared instructions", "e edit", "r refresh"} {
+	for _, want := range []string{"Context", "Rules", "Sources", "Shared instructions", "e edit", "r refresh"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("context view missing %q: %q", want, plain)
 		}
 	}
+	if strings.Contains(plain, "Global Context") {
+		t.Fatalf("context tab repeated root title: %q", plain)
+	}
 
 	page.switchTab(instructionTabRules)
 	plain = ansi.Strip(page.View(100, 30))
-	for _, want := range []string{"Global Rules", "One global rule", "enabled", "rule_one"} {
+	for _, want := range []string{"One global rule", "enabled", "rule_one"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("rules view missing %q: %q", want, plain)
 		}
 	}
-	if strings.Count(plain, "Global Rules") != 1 {
-		t.Fatalf("rules rendered competing titles: %q", plain)
+	if strings.Contains(plain, "Global Rules") {
+		t.Fatalf("rules tab repeated root title: %q", plain)
 	}
 
 	page.switchTab(instructionTabSources)
 	plain = ansi.Strip(page.View(100, 30))
-	for _, want := range []string{"Instruction Sources", "Providers", "Claude · enabled", "Context · 1 · detected"} {
+	for _, want := range []string{"Providers", "Claude · enabled", "Context · 1 · detected"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("sources view missing %q: %q", want, plain)
 		}
 	}
-	if strings.Count(plain, "Instruction Sources") != 1 {
-		t.Fatalf("sources rendered competing titles: %q", plain)
+	if strings.Contains(plain, "Instruction Sources") {
+		t.Fatalf("sources tab repeated root title: %q", plain)
 	}
 }
 

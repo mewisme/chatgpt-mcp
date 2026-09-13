@@ -1133,7 +1133,7 @@ func (page *MCPPage) syncDetail() error {
 	case "oauth":
 		detailTitle = "OAuth"
 	}
-	page.detail = component.NewDetailPage(detailTitle, redacted.Transport+" · "+state, content)
+	page.detail = component.NewDetailPage(detailTitle, redacted.Transport+" · "+state, content).WithTitleVisible(false)
 	bindings := make([]component.DetailPageBinding, 0, 10)
 	if page.section == "" {
 		bindings = append(bindings,

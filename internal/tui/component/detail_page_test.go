@@ -26,6 +26,15 @@ func TestDetailPagePreservesWorkspaceDetailStructure(t *testing.T) {
 	}
 }
 
+func TestDetailPageCanHideTitleForBreadcrumbChild(t *testing.T) {
+	page := NewDetailPage("Overview", "running", "Body content").WithTitleVisible(false)
+	page.Resize(60, 12)
+	view := ansi.Strip(page.View())
+	if strings.Contains(view, "Overview") || !strings.Contains(view, "running") || !strings.Contains(view, "Body content") {
+		t.Fatalf("titleless detail=%q", view)
+	}
+}
+
 func TestDetailPageScrollsLongContent(t *testing.T) {
 	lines := make([]string, 40)
 	for i := range lines {

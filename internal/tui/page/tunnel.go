@@ -379,7 +379,7 @@ func (page *TunnelPage) View(width, height int) string {
 			page.detail.Resize(width, height)
 			content = page.detail.View()
 		} else {
-			page.browser.SetTitleNotice(page.notice)
+			feedback = page.managedFeedback(width, feedback)
 			browserHeight := max(1, height-pageFeedbackHeight(feedback))
 			updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 			page.browser = updated.(component.Browser)
@@ -438,7 +438,7 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 		if page.resourceID != "" {
 			return page.detail.MouseTargets(originX, originY, z)
 		}
-		page.browser.SetTitleNotice(page.notice)
+		feedback = page.managedFeedback(page.width, feedback)
 		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
 	}
 	view := page.runtimeViewWithFeedback(page.width, feedback)
@@ -814,13 +814,20 @@ func (page *TunnelPage) reloadManagedBrowser() error {
 	if page.adminStatus.Access.Manage {
 		bindings = append(bindings, component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"a"}, "a", "add"))
 	}
-	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithHelpBindings(bindings...)
+	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithTitleVisible(false).WithHelpBindings(bindings...)
 	page.browser.SetHelpExpanded(helpExpanded)
 	if page.width > 0 && page.height > 0 {
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: page.height})
 		page.browser = updated.(component.Browser)
 	}
 	return nil
+}
+
+func (page *TunnelPage) managedFeedback(width int, feedback string) string {
+	if page == nil || strings.TrimSpace(page.notice) == "" {
+		return feedback
+	}
+	return prependPageFeedback(feedback, component.BannerWidth(page.notice, component.ToneSuccess, width))
 }
 
 func (page *TunnelPage) managedRows() []component.Row {
@@ -871,7 +878,7 @@ func (page *TunnelPage) syncManagedDetail() error {
 	if page.section == "scope" {
 		detailTitle = "Scope"
 	}
-	page.detail = component.NewDetailPage(detailTitle, meta, content)
+	page.detail = component.NewDetailPage(detailTitle, meta, content).WithTitleVisible(false)
 	bindings := make([]component.DetailPageBinding, 0, 5)
 	if page.section == "" {
 		bindings = append(bindings, component.DetailPageBinding{Key: "s", Desc: "scope", Message: NavigateMsg{Path: []string{"tunnels", item.ID, "scope"}}})

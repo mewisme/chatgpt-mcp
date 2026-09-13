@@ -66,10 +66,13 @@ func TestGuideFolderOverviewAndNestedTopics(t *testing.T) {
 	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	page = updated.(*GuidePage)
 	plain = ansi.Strip(page.View(100, 30))
-	for _, want := range []string{"Configuration Topics", "Shell & Execution", "Storage & Maintenance"} {
+	for _, want := range []string{"Shell & Execution", "Storage & Maintenance"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("config topics missing %q: %q", want, plain)
 		}
+	}
+	if strings.Contains(plain, "Configuration Topics") {
+		t.Fatalf("guide child repeated breadcrumb title: %q", plain)
 	}
 	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "config/storage"}})
 	if cmd == nil {

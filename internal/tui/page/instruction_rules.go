@@ -271,7 +271,7 @@ func (page *InstructionPage) rulesView(tabs string, width, bodyHeight int) strin
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 	}
 	help := page.rules.HelpView()
-	layout := component.NewSectionLayout("Global Rules", fmt.Sprintf("%d rules", len(page.settings.Rules)), feedback, width, bodyHeight, lipgloss.Height(help))
+	layout := component.NewSectionLayout("", fmt.Sprintf("%d rules", len(page.settings.Rules)), feedback, width, bodyHeight, lipgloss.Height(help))
 	updated, _ := page.rules.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 	page.rules = updated.(component.Browser)
 	content := tabs + "\n" + component.BottomHelp(layout.View(page.rules.BodyContent()), help, width, bodyHeight)

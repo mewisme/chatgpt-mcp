@@ -302,28 +302,13 @@ func (page *ConfigPage) View(width, height int) string {
 		page.detail.Resize(width, height)
 		content = page.detail.View()
 	} else {
-		pageTitle := "Configuration"
-		overview := page.overviewView(width)
-		if page.isDomainRoute() {
-			pageTitle = page.domainTitle()
-			overview = component.WrapKeyValue("", page.domainSummary(page.resourceID), width)
-		} else if page.isStorageRoute() {
-			pageTitle = "Storage & Maintenance"
-			overview = page.storageOverview(width)
-		}
-		title := component.PageTitleNotice(pageTitle, page.notice, width)
-		headerHeight := lipgloss.Height(title) + lipgloss.Height(overview)
-		feedback := ""
-		if page.err != nil {
-			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
-		}
-		if warning := page.securityWarningBanner(width); warning != "" {
-			feedback = prependPageFeedback(feedback, warning)
-		}
+		header := page.browserHeaderView(width)
+		feedback := page.browserFeedback(width)
+		headerHeight := lipgloss.Height(header)
 		browserHeight := max(1, height-headerHeight-pageFeedbackHeight(feedback))
 		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
 		page.browser = updated.(component.Browser)
-		content = title + "\n" + overview + "\n" + prependPageFeedback(feedback, page.browser.Content())
+		content = header + "\n" + prependPageFeedback(feedback, page.browser.Content())
 	}
 	switch page.overlay {
 	case configOverlayConfirm:
@@ -363,15 +348,8 @@ func (page *ConfigPage) MouseTargets(originX, originY, z int) []component.MouseT
 		if page.isFieldRoute() {
 			return page.detail.MouseTargets(originX, originY, z)
 		}
-		feedback := ""
-		if page.err != nil {
-			feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
-		}
-		if warning := page.securityWarningBanner(page.width); warning != "" {
-			feedback = prependPageFeedback(feedback, warning)
-		}
-		pageTitle, overview := page.browserHeader(page.width)
-		offsetY := lipgloss.Height(component.PageTitleNotice(pageTitle, page.notice, page.width)) + lipgloss.Height(overview) + pageFeedbackHeight(feedback)
+		feedback := page.browserFeedback(page.width)
+		offsetY := lipgloss.Height(page.browserHeaderView(page.width)) + pageFeedbackHeight(feedback)
 		return page.browser.MouseTargets(originX, originY+offsetY, z)
 	}
 }
@@ -631,16 +609,34 @@ func (page *ConfigPage) sectionLabel(section config.FieldSection) string {
 }
 
 func (page *ConfigPage) resizeBrowser() tea.Cmd {
-	pageTitle, overview := page.browserHeader(page.width)
-	headerHeight := lipgloss.Height(component.PageTitleNotice(pageTitle, page.notice, page.width)) + lipgloss.Height(overview)
-	feedback := ""
-	if page.err != nil {
-		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
-	}
+	headerHeight := lipgloss.Height(page.browserHeaderView(page.width))
+	feedback := page.browserFeedback(page.width)
 	height := max(1, page.height-headerHeight-pageFeedbackHeight(feedback))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: height})
 	page.browser = updated.(component.Browser)
 	return cmd
+}
+
+func (page *ConfigPage) browserHeaderView(width int) string {
+	_, overview := page.browserHeader(width)
+	if page.resourceID != "" {
+		return overview
+	}
+	return component.PageTitleNotice("Configuration", page.notice, width) + "\n" + overview
+}
+
+func (page *ConfigPage) browserFeedback(width int) string {
+	feedback := ""
+	if page.err != nil {
+		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
+	}
+	if page.resourceID != "" && strings.TrimSpace(page.notice) != "" {
+		feedback = prependPageFeedback(feedback, component.BannerWidth(page.notice, component.ToneSuccess, width))
+	}
+	if warning := page.securityWarningBanner(width); warning != "" {
+		feedback = prependPageFeedback(feedback, warning)
+	}
+	return feedback
 }
 
 func (page *ConfigPage) browserHeader(width int) (string, string) {
@@ -733,7 +729,7 @@ func (page *ConfigPage) syncDetail() {
 	spec, ok := config.FieldByKey(key)
 	if !ok {
 		page.err = fmt.Errorf("unknown config field: %s", key)
-		page.detail = component.NewDetailPage(key, "unavailable", component.Muted("Configuration field not found."))
+		page.detail = component.NewDetailPage(key, "unavailable", component.Muted("Configuration field not found.")).WithTitleVisible(false)
 		page.detail.SetBindings(component.DetailPageBinding{Key: "f", Desc: "refresh", Message: ConfigCommandMsg{Command: ConfigRefresh, ResourceID: key}})
 		return
 	}
@@ -758,7 +754,7 @@ func (page *ConfigPage) syncDetail() {
 	if spec.Guidance != "" {
 		detail += "\n" + detailFields([2]string{"Guidance", spec.Guidance})
 	}
-	page.detail = component.NewDetailPage(spec.Label, value+" · "+string(state), detail)
+	page.detail = component.NewDetailPage(spec.Label, value+" · "+string(state), detail).WithTitleVisible(false)
 	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: ConfigCommandMsg{Command: ConfigRefresh, ResourceID: spec.Key}}}
 	if spec.Editable {
 		bindings = append([]component.DetailPageBinding{{Key: "e", Desc: "edit", Message: ConfigCommandMsg{Command: ConfigEdit, ResourceID: spec.Key}}}, bindings...)

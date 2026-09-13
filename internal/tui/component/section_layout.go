@@ -1,6 +1,10 @@
 package component
 
-import "charm.land/lipgloss/v2"
+import (
+	"strings"
+
+	"charm.land/lipgloss/v2"
+)
 
 type SectionLayout struct {
 	Header     string
@@ -10,12 +14,17 @@ type SectionLayout struct {
 
 func NewSectionLayout(title, meta, feedback string, width, height, footerHeight int) SectionLayout {
 	width, height, footerHeight = max(1, width), max(1, height), max(0, footerHeight)
-	header := TwoColumn(Title(title), Secondary(meta), width)
-	prefix := header
-	if feedback != "" {
-		prefix += "\n" + feedback
+	parts := make([]string, 0, 3)
+	if title = strings.TrimSpace(title); title != "" {
+		parts = append(parts, TwoColumn(Title(title), Secondary(meta), width))
+	} else if meta = strings.TrimSpace(meta); meta != "" {
+		parts = append(parts, TwoColumn("", Secondary(meta), width))
 	}
-	prefix += "\n" + Divider(width)
+	if feedback = strings.TrimSpace(feedback); feedback != "" {
+		parts = append(parts, feedback)
+	}
+	parts = append(parts, Divider(width))
+	prefix := strings.Join(parts, "\n")
 	prefixHeight := lipgloss.Height(prefix)
 	return SectionLayout{Header: prefix, BodyY: prefixHeight, BodyHeight: max(1, height-prefixHeight-footerHeight)}
 }

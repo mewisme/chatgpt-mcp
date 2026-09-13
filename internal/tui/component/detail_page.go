@@ -18,16 +18,17 @@ type DetailPageBinding struct {
 }
 
 type DetailPage struct {
-	viewport viewport.Model
-	help     HelpFooter
-	title    string
-	meta     string
-	content  string
-	notice   string
-	err      string
-	bindings []DetailPageBinding
-	width    int
-	height   int
+	viewport  viewport.Model
+	help      HelpFooter
+	title     string
+	hideTitle bool
+	meta      string
+	content   string
+	notice    string
+	err       string
+	bindings  []DetailPageBinding
+	width     int
+	height    int
 }
 
 func NewDetailPage(title, meta, content string) DetailPage {
@@ -44,6 +45,20 @@ func (page *DetailPage) SetTitle(value string) {
 	if page != nil {
 		page.title = strings.TrimSpace(value)
 	}
+}
+
+func (page *DetailPage) SetTitleVisible(visible bool) {
+	if page == nil {
+		return
+	}
+	page.hideTitle = !visible
+	page.resizeViewport()
+}
+
+func (page DetailPage) WithTitleVisible(visible bool) DetailPage {
+	page.hideTitle = !visible
+	page.resizeViewport()
+	return page
 }
 
 func (page *DetailPage) SetMeta(value string) {
@@ -151,7 +166,7 @@ func (page DetailPage) View() string {
 	}
 	feedback := page.feedbackView(width)
 	footer := page.footerView(width)
-	layout := NewSectionLayout(page.title, page.meta, feedback, width, height, lipgloss.Height(footer))
+	layout := NewSectionLayout(page.layoutTitle(), page.meta, feedback, width, height, lipgloss.Height(footer))
 	body := layout.View(page.viewport.View())
 	return BottomHelp(body, footer, width, height)
 }
@@ -239,10 +254,17 @@ func (page *DetailPage) resizeViewport() {
 	width := max(1, page.width)
 	feedback := page.feedbackView(width)
 	footerHeight := lipgloss.Height(page.footerView(width))
-	layout := NewSectionLayout(page.title, page.meta, feedback, width, page.height, footerHeight)
+	layout := NewSectionLayout(page.layoutTitle(), page.meta, feedback, width, page.height, footerHeight)
 	page.viewport.SetWidth(width)
 	page.viewport.SetHeight(layout.BodyHeight)
 	page.reflowContent(false)
+}
+
+func (page DetailPage) layoutTitle() string {
+	if page.hideTitle {
+		return ""
+	}
+	return page.title
 }
 
 func (page *DetailPage) reflowContent(reset bool) {

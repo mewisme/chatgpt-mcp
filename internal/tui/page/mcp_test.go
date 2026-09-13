@@ -93,10 +93,13 @@ func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
 		t.Fatalf("resource detail state overlay=%t resource=%q", page.OverlayActive(), page.resourceID)
 	}
 	view := ansi.Strip(page.View(110, 28))
-	for _, want := range []string{"Overview", "https://example.test/mcp", "h health", "v tools", "u oauth", "? more"} {
+	for _, want := range []string{"ID  docs", "https://example.test/mcp", "h health", "v tools", "u oauth", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("MCP detail missing %q: %q", want, view)
 		}
+	}
+	if strings.Contains(view, "Overview") {
+		t.Fatalf("MCP child repeated breadcrumb title: %q", view)
 	}
 	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	page = updated.(*MCPPage)
@@ -265,7 +268,7 @@ func TestMCPDetailRemovalKeepsDetailUntilParentNavigation(t *testing.T) {
 	if cmd == nil || page.resourceID != "docs" {
 		t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)
 	}
-	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Overview") {
+	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "ID  docs") || strings.Contains(got, "Overview") {
 		t.Fatalf("intermediate MCP detail render=%q", got)
 	}
 	message, ok := cmd().(NavigateMsg)

@@ -450,20 +450,11 @@ func (page *WorkspacePage) workspaceContextPreviewView(width, height int) string
 
 func (page *WorkspacePage) workspaceContextPreviewSectionLayout(width, height int, feedback string) component.SectionLayout {
 	state := page.contextPreview
-	title := "Rendered Context"
-	if state != nil {
-		switch state.tab {
-		case workspaceContextPreviewSources:
-			title = "Context Sources"
-		case workspaceContextPreviewJSON:
-			title = "Context JSON"
-		}
-	}
 	meta := ""
 	if state != nil && state.result != nil {
 		meta = workspaceContextPreviewSummary(*state.result, width)
 	}
-	return component.NewSectionLayout(title, meta, feedback, width, height, 0)
+	return component.NewSectionLayout("", meta, feedback, width, height, 0)
 }
 
 func workspaceContextPreviewSummary(result projectcontext.Result, width int) string {

@@ -29,7 +29,7 @@ func RegisterFilesystemTools(registry *Registry, workspaces *workspace.Manager, 
 	register("apply_patch", "Apply Patch", "Preferred code editing tool. Supports Codex @@ hunks, standard unified diff, and *** Begin Patch multi-file format.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"patch":{"type":"string"},"dry_run":{"type":"boolean","default":false}},"required":["workspace_id","patch"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"diff":{"type":"string"},"files":{"type":"array","items":{"type":"object","additionalProperties":true}},"dry_run":{"type":"boolean"},"multi_file":{"type":"boolean"},"checkpoint_id":{"type":["string","null"]}},"required":["dry_run","checkpoint_id"],"additionalProperties":false}`, RiskEdit, handleApplyPatch(workspaces, checkpoints))
 	register("list_directory", "List Directory", "List files and directories with optional ignore globs.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"ignore":{"type":"array","items":{"type":"string"}}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"entries":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"}},"required":["name","type"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["path","entries","count"],"additionalProperties":false}`, RiskRead, handleListDirectory(workspaces))
 	register("glob", "Glob", "Find files by name pattern under a workspace directory.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"pattern":{"type":"string"},"path":{"type":"string"},"max_results":{"type":"integer","minimum":1,"maximum":500,"default":100}},"required":["workspace_id","pattern"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"pattern":{"type":"string"},"matches":{"type":"array","items":{"type":"string"}},"count":{"type":"integer"}},"required":["path","pattern","matches","count"],"additionalProperties":false}`, RiskRead, handleGlob(workspaces))
-	register("grep", "Grep", "Search workspace file contents by regex. Modes: content, files_with_matches, count.", grepInputSchema(), `{"type":"object","properties":{"path":{"type":"string"},"pattern":{"type":"string"},"output_mode":{"type":"string"},"output":{"type":"string"}},"required":["path","pattern","output_mode","output"],"additionalProperties":false}`, RiskRead, handleGrep(workspaces))
+	register("grep", "Grep", "Search a workspace file or directory by regex. Modes: content, files_with_matches, count.", grepInputSchema(), `{"type":"object","properties":{"path":{"type":"string"},"pattern":{"type":"string"},"output_mode":{"type":"string"},"output":{"type":"string"}},"required":["path","pattern","output_mode","output"],"additionalProperties":false}`, RiskRead, handleGrep(workspaces))
 	register("delete_file", "Delete File", "Delete a workspace file after capturing a rewind checkpoint.", basePathInputSchema(), `{"type":"object","properties":{"path":{"type":"string"},"checkpoint_id":{"type":["string","null"]}},"required":["path","checkpoint_id"],"additionalProperties":false}`, RiskEdit, handleDeleteFile(workspaces, checkpoints))
 	register("create_directory", "Create Directory", "Create a workspace directory and parents if needed.", basePathInputSchema(), `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`, RiskEdit, handleCreateDirectory(workspaces))
 	register("delete_directory", "Remove Local Folder", "Recursively remove a workspace folder after capturing a rewind checkpoint.", basePathInputSchema(), `{"type":"object","properties":{"path":{"type":"string"},"checkpoint_id":{"type":["string","null"]},"run_command_fallback":{"type":"string"}},"required":["path","checkpoint_id","run_command_fallback"],"additionalProperties":false}`, RiskEdit, handleDeleteDirectory(workspaces, checkpoints))
@@ -609,6 +609,24 @@ func handleGrep(workspaces *workspace.Manager) Handler {
 				return Result{}, err
 			}
 		}
+		resultPath := searchRoot
+		exactFile := ""
+		rootedPath, err := openRootedPath(workspaces, item.ID, searchRoot)
+		if err != nil {
+			return Result{}, err
+		}
+		info, err := rootedPath.Stat()
+		_ = rootedPath.Close()
+		if err != nil {
+			return Result{}, err
+		}
+		if !info.IsDir() {
+			if !info.Mode().IsRegular() {
+				return Result{}, errors.New("path is not a regular file or directory")
+			}
+			exactFile = filepath.Base(searchRoot)
+			searchRoot = filepath.Dir(searchRoot)
+		}
 		glob, err := optionalStringDefault(args, "glob", "*")
 		if err != nil {
 			return Result{}, err
@@ -651,12 +669,12 @@ func handleGrep(workspaces *workspace.Manager) Handler {
 		defer rooted.Close()
 		output, err := grepSearch(rooted, GrepOptions{
 			Pattern: pattern, Path: searchRoot, Glob: glob, OutputMode: outputMode, CaseInsensitive: caseInsensitive,
-			Multiline: multiline, HeadLimit: headLimit, ContextBefore: contextBefore, ContextAfter: contextAfter, ContextAround: contextAround,
+			Multiline: multiline, HeadLimit: headLimit, ContextBefore: contextBefore, ContextAfter: contextAfter, ContextAround: contextAround, ExactFile: exactFile,
 		})
 		if err != nil {
 			return Result{}, err
 		}
-		return JSONResult(GrepResult{Path: searchRoot, Pattern: pattern, OutputMode: outputMode, Output: output}), nil
+		return JSONResult(GrepResult{Path: resultPath, Pattern: pattern, OutputMode: outputMode, Output: output}), nil
 	}
 }
 

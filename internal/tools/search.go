@@ -18,6 +18,7 @@ type GrepOptions struct {
 	Pattern         string
 	Path            string
 	Glob            string
+	ExactFile       string
 	OutputMode      string
 	CaseInsensitive bool
 	Multiline       bool
@@ -123,7 +124,10 @@ func grepSearch(root *rootedDirectory, options GrepOptions) (string, error) {
 			if options.OutputMode == "content" && len(contentLines) >= options.HeadLimit {
 				break
 			}
-			if strings.HasPrefix(entry.Name(), ".") {
+			if options.ExactFile != "" && entry.Name() != options.ExactFile {
+				continue
+			}
+			if options.ExactFile == "" && strings.HasPrefix(entry.Name(), ".") {
 				continue
 			}
 			fullPath := filepath.Join(dir.absolute, entry.Name())
@@ -137,7 +141,7 @@ func grepSearch(root *rootedDirectory, options GrepOptions) (string, error) {
 				}
 				continue
 			}
-			if !globMatcher.MatchString(entry.Name()) {
+			if options.ExactFile == "" && !globMatcher.MatchString(entry.Name()) {
 				continue
 			}
 			data, err := dir.ReadRegularFileLimited(entry.Name(), maxSearchFileBytes, "search file")

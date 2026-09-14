@@ -275,23 +275,22 @@ In `cgm tui`, open the workspace detail, press `m` for **Relocate**, choose the 
 
 Relocation is intentionally unavailable to MCP tools and agents. It changes the trusted workspace root, so perform it through the local CLI, TUI, or authenticated Admin API instead.
 
-## MCP tool cannot run `cgm config set`, `up`, or other mutations
+## An Agent action returns `approval_required`
 
-This is intentional.
+Some control-plane mutations are guarded instead of being executed immediately. When the runtime classifies a direct action as approvable, the Agent receives an `approval_required` challenge and can ask the local operator to review that exact action.
 
-MCP tool execution context allows read-only inspection but denies control-plane self-modification such as:
+If approved, the Agent must retry the original action exactly. Approval does not create a general shell or CLI bypass.
 
-- `up` / `down`
-- config mutation
-- workspace registration/access grants
-- workspace relocation
-- auth changes
-- tunnel configuration
-- upstream changes
-- `logs clear`
-- `init` / `uninit`
+Other mutations remain hard-denied when they cannot be safely bound, including path/protected-state escape, tool-context tampering, self-approval, or unsafe wrapper/compound execution.
 
-Make control-plane changes from a trusted user terminal instead.
+Review pending requests locally with:
+
+```bash
+cgm request list
+cgm request view <request_id>
+```
+
+See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for the boundary.
 
 ## Direct MCP request gets 401/403
 

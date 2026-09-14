@@ -1,17 +1,19 @@
 # Storage & Maintenance
 
-Storage operations maintain persisted configuration and state without mixing those workflows into individual field editors.
+Storage contains maintenance operations for persistent configuration/state rather than individual schema fields.
 
-## Verify and reload
+## Verify
 
-**Verify** checks structured config/state consistency and configuration validity. **Reload** asks the running runtime to load the latest persisted configuration.
+**Verify** checks structured config/state consistency and configuration validity. Use it after access, exposure, format, migration, or manual state changes when you want an explicit health check.
 
-## Convert
+## Migrate and convert
 
-Convert changes the structured config/state representation among supported formats while preserving validated configuration semantics.
+**Migrate** moves supported legacy credential state into the managed secret store. **Convert** changes the structured configuration/state representation among supported formats while preserving validated semantics.
 
 ## Import and export
 
-Export creates a portable sealed bundle. Import restores a bundle and uses explicit destructive confirmation before applying it. Import supports picker-first file selection with manual path entry fallback.
+**Export** creates a portable sealed bundle. **Import** restores a bundle and requires explicit confirmation before replacing existing persistent state.
 
-More detailed bundle behavior is documented under the child topic.
+Import uses an existing-file picker with manual input fallback. Export accepts a destination that may not exist yet.
+
+See the child bundle topic for the contextual import/export behavior. Use the public [Configuration](../../../../configuration.md) guide for the broader storage model.

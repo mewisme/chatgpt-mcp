@@ -1,17 +1,17 @@
 # Shell & Execution
 
-Shell configuration controls command execution policy independently from workspace filesystem boundaries and the approval/control-guard layer.
+Shell configuration changes how `chatgpt-mcp` locates and launches commands; it does not define a separate sandbox or a user-selectable approval mode.
 
-## Approval policy
+## Executable search path
 
-The shell approval policy determines when a command requires user approval. Changing approval behavior does not grant filesystem access outside the workspace or configured allowed directories; those checks remain separate.
+Configured `shell.path` entries are prepended to the inherited runtime `PATH` for command execution. Paths are validated as configuration values and are shared by foreground/background execution paths where applicable.
 
-## Allow and deny commands
+## Security boundaries
 
-Allow/deny command patterns are edited as multiline content in a full-page editor. `Ctrl+S` validates and persists the draft. After a successful save, the editor accepts the persisted value as its new clean baseline before navigation, so closing the success toast does not trigger a false discard prompt.
+Keep these concerns separate:
 
-Failed saves keep the exact draft in place and surface validation or persistence errors in the editor.
+- **Workspace access** defines which filesystem roots a concrete `ws_*` workspace may reach.
+- **Control guard and approvals** protect selected control-plane/destructive/host/external actions.
+- **OS isolation** is external to `chatgpt-mcp` when you need a kernel-level sandbox.
 
-## Security layers
-
-Treat command policy, workspace access, runtime control guard, and approval requests as distinct layers. Relaxing one layer does not implicitly relax the others.
+Changing shell path configuration does not broaden workspace access or bypass approval/control-guard behavior.

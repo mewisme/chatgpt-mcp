@@ -1,18 +1,20 @@
 # Embedded TUI Guide
 
-These Markdown files are the canonical feature guides for the `cgm tui` Command Center. They are also embedded directly into the Go binary by `guides.go`; do not maintain a separate copy of the same guide text in Go source.
+These Markdown files are contextual help for the `cgm tui` Command Center and are embedded directly into the binary. They should explain the current page/editor without duplicating the full public documentation.
 
-| Topic | File |
+| Topic | Guide |
 | --- | --- |
 | Getting started and navigation | [Getting Started](content/getting-started.md) |
-| Editors, dirty drafts, path pickers, and switches | [Editors & Forms](content/editors.md) |
-| Workspaces, containers, and Project Context | [Workspaces](content/workspaces.md) |
-| Upstream MCP servers and OAuth | [MCP Servers](content/mcp.md) |
-| Runtime and managed tunnels | [Tunnel](content/tunnel.md) |
-| Approval requests and live approval dialogs | [Requests & Approvals](content/requests.md) |
-| Runtime logs and command execution | [Logs](content/logs.md) |
-| Typed configuration and storage operations | [Configuration](content/config/index.md) |
-| Global Context, rules, and sources | [Instruction](content/instruction.md) |
-| Runtime/service/auth/install/update operations | [Runtime & System](content/runtime.md) |
+| Editors and forms | [Editors & Forms](content/editors/index.md) |
+| Workspaces, containers, and Project Context | [Workspaces](content/workspaces/index.md) |
+| Upstream MCP servers and OAuth | [MCP Servers](content/mcp/index.md) |
+| OpenAI Secure MCP Tunnel | [Tunnel](content/tunnel/index.md) |
+| Requests and approvals | [Requests & Approvals](content/requests/index.md) |
+| Runtime, command execution, and tool-call logs | [Logs](content/logs/index.md) |
+| Configuration | [Configuration](content/config/index.md) |
+| Global Context, rules, and sources | [Instruction](content/instruction/index.md) |
+| Runtime/service/auth/install/update operations | [Runtime & System](content/runtime/index.md) |
 
-The canonical guide tree lives under `content/`. A leaf may be `child.md`; a branch is a directory with `index.md`, and branches may nest without a fixed depth. Inside the TUI, use `Ctrl+K` → **Guide** to browse these topics, or open a direct guide action. `cgm tui guide <topic...>` deep-links to any node. Only the selected Markdown file is rendered by Glamour.
+The canonical guide tree lives under `content/`. A leaf is a Markdown file; a branch is a directory with `index.md`. Inside the TUI, use `Ctrl+K` and search for **Guide**, or deep-link with `cgm tui guide <topic...>`.
+
+Only the selected document is rendered. Keep implementation details in development/code documentation and keep broad product concepts in the public docs under `docs/`.

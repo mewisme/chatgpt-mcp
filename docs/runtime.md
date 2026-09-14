@@ -1,144 +1,205 @@
-# Runtime and services
+# Runtime and operations
 
-`chatgpt-mcp` can run either attached to the current terminal with `serve`, or as an OS-managed background runtime with `up`.
+Use `serve` for a foreground process and `up` for the normal managed background runtime.
 
-## Foreground: `serve`
+| Mode | Command | Best for |
+| --- | --- | --- |
+| Foreground | `cgm serve` | development, one-off testing, direct terminal output |
+| Managed | `cgm up` | normal daily use, remote servers, restartable background operation |
+
+## Foreground runtime
 
 ```bash
 cgm serve
 ```
 
-Use this for:
+The process stays attached to the current terminal. Closing that terminal or SSH session can stop it.
 
-- interactive development
-- quick testing
-- seeing current terminal output directly
-- one-off `--expose` overrides
-
-The process remains attached to the current terminal/session. Closing an SSH session can terminate a foreground runtime.
-
-Examples:
+Useful variants:
 
 ```bash
-cgm serve
 cgm serve --verbose
 cgm serve --debug
-cgm serve --log-format=json
-cgm serve --expose=eth0
 ```
 
-## Managed runtime: `up`
+The default ChatGPT setup still uses OpenAI Secure MCP Tunnel; a foreground runtime starts the configured tunnel along with the local runtime.
+
+## Managed runtime
+
+Start or reconcile the managed service:
 
 ```bash
 cgm up
 ```
 
-`up` resolves the selected config root, creates or updates the appropriate OS service definition, starts it, waits for the local runtime control channel, and prints enough context for the user to understand what was installed.
+Inspect it:
 
-The startup summary includes the runtime session ID, PID, MCP/admin endpoints, and tunnel state. Tunnel state distinguishes whether it is enabled, whether ID/API-key setup is complete, and whether the live tunnel is connected, connecting, reconnecting, or stopped. The tunnel ID is shown when configured; the API key is never printed.
+```bash
+cgm status
+```
 
-The service definition stores an absolute `--config-dir`, so it does not depend on the environment of a future login session.
+Restart it:
 
-`up` is idempotent:
+```bash
+cgm restart
+```
 
-- missing service → install + start
-- installed but stopped → start
-- installed with stale definition → update + restart as needed
-- already correct and running → report the existing runtime
-
-If a foreground `serve` is already using the selected config root, `up` refuses to adopt or kill it.
-
-## Stop/remove: `down`
+Stop and remove the managed service definition:
 
 ```bash
 cgm down
 ```
 
-`down` stops and removes the managed service for the selected scope. It does **not** delete:
+`down` preserves configuration, workspaces, secrets, and runtime logs. Use `cgm uninit` only when you intentionally want to remove the selected local config/state root.
 
-- configuration
-- workspaces
-- checkpoints
-- OAuth/upstream state
-- runtime logs
+`up` is idempotent: it creates a missing service, starts a stopped service, reconciles a stale definition, or reports an already healthy runtime.
 
-Use `cgm uninit` only when you intentionally want to remove the selected local config/state root.
+If a foreground `serve` process already owns the selected config root, `up` refuses to silently take it over.
 
-## Linux service behavior
+## Service scope by platform
 
-### Normal user
+### Linux
 
 ```bash
 cgm up
 ```
 
-Uses:
+uses a user systemd service.
 
-```text
-systemd --user
-```
-
-The MCP process runs as the current user.
-
-If user lingering is disabled, `chatgpt-mcp` warns that the user service manager may stop after the final login/SSH session ends. It does not enable lingering automatically.
-
-### Machine-level scope
+For a machine-level service that starts with the machine:
 
 ```bash
 cgm up --system
 ```
 
-Uses a system-level systemd unit and starts with the machine. From a normal user shell, the CLI detects user scope and automatically re-executes its stable absolute launcher through `sudo`, avoiding `sudo secure_path` issues when `cgm` lives under `~/.local/bin`. Development invocations through `go run . ... --system` stage their transient binary before elevation, keeping the runtime binary cache owned by the invoking user rather than root.
+The CLI may elevate the service-management operation through `sudo`, but the `chatgpt-mcp` runtime itself is configured to run as the invoking user rather than root.
 
-The service itself still runs the MCP process as the invoking user from `SUDO_USER`; `chatgpt-mcp` does not run the MCP runtime as root.
+On remote Linux, use `--system` when a user service would otherwise stop after the final login because user lingering is disabled.
 
-The default config root is also resolved for the invoking user instead of `/root` unless an explicit `--config-dir` or environment override is supplied.
+### macOS
 
-Stop/remove the matching system service with:
+`cgm up` uses a user LaunchAgent. `cgm up --system` uses a system LaunchDaemon while keeping the runtime under the invoking user's identity.
 
-```bash
-cgm down --system
-```
+### Windows
 
-Normal `cgm down` does not silently remove the system-scope service. Direct `sudo /absolute/path/cgm up|down` remains supported for compatibility.
+`cgm up` uses a per-user Task Scheduler task with least privilege. It does not run the runtime as LocalSystem.
 
-## macOS service behavior
-
-Normal:
+## Status
 
 ```bash
-cgm up
+cgm status
 ```
 
-uses a user LaunchAgent.
+Use status as the first operational overview. It reports the selected config root, runtime/service state, transport state, tunnel state, relevant endpoints, and registered resource summaries.
 
-Machine-level:
+For tunnel-specific state:
 
 ```bash
-cgm up --system
+cgm tunnel status
 ```
 
-uses a system LaunchDaemon, but the daemon's `UserName` remains the invoking user. The CLI elevates through `sudo` automatically when needed.
+## Logs
 
-Use the same privilege/scope to remove it with `down`.
+Runtime events are persisted under the selected config root and can be replayed or followed live.
 
-## Windows service behavior
+History:
 
-```powershell
-cgm up
+```bash
+cgm logs
+cgm logs -n 200
+cgm logs --verbose
+cgm logs --debug
 ```
 
-uses a per-user Task Scheduler task.
+Follow:
 
-The task uses the current user, an interactive token, and least privilege. It does not run as LocalSystem and does not store the user's password.
+```bash
+cgm logs -f
+```
 
-An elevated terminal does not switch `cgm up` to a LocalSystem/system-service mode.
+Useful filters:
 
-## Service identity and parallel config roots
+```bash
+cgm logs --since 30m
+cgm logs --level warn
+cgm logs --component SERVER,TUNNEL
+cgm logs --workspace ws_...
+cgm logs --tool run_command --status error
+cgm logs --grep timeout
+```
 
-Managed service identity includes a stable hash of the canonical config root. This lets different config roots coexist without colliding.
+Locate or clear the journal:
 
-For example:
+```bash
+cgm logs path
+cgm logs clear --force
+```
+
+Use `--log-format=json` when consuming event output programmatically. See [CLI reference](cli-reference.md#logs) for the full filter surface.
+
+## Configuration changes
+
+Supported configuration mutations are applied to the running runtime through its local control plane. Network changes such as port or exposure updates are rebound transactionally; if a new listener cannot be opened, the previous working listener set is retained and the local mutation reports failure.
+
+If the runtime is stopped, persisted changes take effect on the next start.
+
+```bash
+cgm config set server.port 41021
+cgm config verify
+```
+
+See [Configuration](configuration.md).
+
+## Tunnel lifecycle
+
+The normal managed runtime automatically starts the configured OpenAI Secure MCP Tunnel.
+
+Useful commands:
+
+```bash
+cgm tunnel status
+cgm tunnel enable
+cgm tunnel disable
+cgm tunnel run
+```
+
+`tunnel run` is a foreground tunnel-only operation; normal `serve` / `up` own the usual integrated lifecycle.
+
+See [OpenAI + ChatGPT](openai-chatgpt.md) for setup.
+
+## Updates
+
+Check without changing the installation:
+
+```bash
+cgm upgrade check
+```
+
+Upgrade a managed direct installation:
+
+```bash
+cgm upgrade
+```
+
+Install an exact version, including an intentional downgrade:
+
+```bash
+cgm upgrade --version vX.Y.Z
+```
+
+Keep a running managed runtime on its current in-memory version until a later restart:
+
+```bash
+cgm upgrade --no-restart
+```
+
+Direct managed updates stage the target version, verify release checksums, switch the stable installation target, restart a matching managed runtime when requested, and roll back if the new runtime cannot become ready. A foreground `serve` process is never killed by the updater; restart it manually to load the new binary.
+
+Homebrew and Scoop installations remain owned by their package managers. Development/`go install` binaries do not silently adopt the managed direct-update flow.
+
+## Multiple config roots
+
+Each selected config root is an independent runtime instance:
 
 ```bash
 cgm up
@@ -146,203 +207,26 @@ cgm --config-dir ~/cgm-dev up
 cgm --config-dir ~/cgm-test up
 ```
 
-Each selected root maps to a distinct managed service.
+Configuration, workspaces, secrets, logs, runtime control state, and service identity remain scoped to the selected root.
 
-On Linux/macOS, user and system scopes also have distinct service identities.
+## Interactive operation
 
-## Updates and runtime lifecycle
+Open the full-screen Command Center:
 
-For a managed direct installation, `cgm upgrade` captures the runtime state for the selected config root before switching the stable install target.
+```bash
+cgm tui
+```
 
-Behavior depends on that selected runtime:
+The TUI can inspect runtime state, logs, requests, workspaces, tunnel state, configuration, and lifecycle actions without replacing the scriptable CLI. See [TUI Command Center](tui.md).
 
-- no runtime is running → activate the new version on disk only
-- foreground `serve` → leave the process running on its current in-memory binary and report that a manual restart is needed
-- managed runtime → activate the new version, restart the existing service in place, and wait for composite runtime readiness
-- `cgm upgrade --no-restart` → activate on disk but intentionally leave any running process on the previous binary
+## Troubleshooting
 
-The updater does not uninstall/reinstall a healthy service definition just to change versions. Managed services keep using the stable launcher/current path, so restart naturally resolves the newly activated binary.
-
-Managed readiness is composite. The new runtime must answer through its runtime-control plane with the new run identity; when `server.enabled=true`, its direct MCP HTTP listener must become reachable; and when `tunnel.enabled=true`, the embedded OpenAI Secure MCP Tunnel must also report `ready`. `up`, managed restart, and transactional update therefore do not report success while an enabled transport is still unavailable. Configuration requires at least one of `server.enabled` or `tunnel.enabled`, so HTTP-only, tunnel-only, and dual-transport runtimes are all valid. Managed restart is transactional across that full readiness boundary: if the new runtime cannot become healthy, the updater restores the previous `current` target and install metadata, then attempts to restart the previous managed runtime. The failed target is not treated as a successful update. After a healthy update, version cleanup retains the active version and its immediate previous version for rollback safety.
-
-With multiple config roots, the binary installation is shared but runtime ownership is not. Updating from one selected config root only coordinates the managed service associated with that root. Other foreground or managed instances continue running their loaded binary and pick up the new stable version on their next restart.
-
-See [CLI reference](cli-reference.md#installation-and-updates) for update flags and install-method policy.
-
-## Inspect status
+Start with:
 
 ```bash
 cgm status
+cgm tunnel status
+cgm logs --debug -n 200
 ```
 
-Status reports information such as:
-
-- selected config root
-- initialized/uninitialized state
-- runtime running/stopped
-- foreground vs managed runtime
-- service backend
-- user/system scope where applicable
-- service ID
-- current runtime session ID
-- PID and start information
-- MCP HTTP enabled/disabled state and endpoint when enabled
-- tunnel enabled/configured/live state and tunnel ID
-- workspaces and upstream state
-
-A normal user can inspect a system-managed runtime. Mutations such as removing a system service still require the matching privilege.
-
-## Runtime control channel
-
-A running server creates a loopback-only authenticated runtime control endpoint associated with the selected config root.
-
-It supports internal operations used by CLI commands such as:
-
-- live config reload
-- runtime status
-- graceful shutdown
-- live event streaming
-- safe log clearing
-- approval request list/detail/approve/deny operations
-- verification and one-shot consumption of approved child CLI capabilities
-
-The control token is stored under the protected config/state root and is not intended as a user-facing API credential. Control-guard challenges, pending approval requests, approved retry grants, and child capabilities live only in runtime memory; restarting the runtime invalidates them.
-
-When a guarded MCP tool action creates a pending human request, the runtime publishes approval lifecycle events and the Admin UI shows a global approval dialog with request details, exact target arguments, and a countdown. `cgm request list` uses the same runtime-control source of truth. Approval requests expire after 60 seconds; approved retries remain valid only for their short retry window and exact original target.
-
-The Admin workspace routes also expose runtime-owned project context and command execution views. `Context` previews the same effective context builder used by the MCP `project_context` tool. `Requests` scopes approval list/event traffic to the selected workspace. `Activity` lists recent `run_command` executions for the selected workspace and can attach to a running execution through snapshot-first SSE to display stdout/stderr as they arrive. Every authoritative runtime tool call also receives a compact runtime-local `call_id` in the form `call_<unix_ms_hex>_<counter_hex>`; command execution metadata carries that call ID together with source, safe session fingerprint, and received/executed instance IDs when available. Raw MCP session IDs are not exposed. The global Activity page uses `/activity/:call_id` as the addressable detail route instead of opening tool-call details in a dialog.
-
-Admin workspace-registry mutations reload the runtime workspace manager before returning success. This includes workspace register/relocate/unregister, container CRUD, and membership changes from either the workspace or container route, preserving immediate MCP read-after-write consistency. Workspace relocation is a trusted control-plane operation and is not exposed in the MCP tool catalog.
-
-Command execution output is kept in bounded process memory rather than persisted to the runtime activity journal. The MCP `run_command` response remains synchronous and unchanged; the Admin stream is an observation path layered alongside it. Completed execution records are retained only in the bounded recent in-memory execution history and disappear when the runtime restarts or old entries are pruned.
-
-## Live config reload
-
-Persist a change:
-
-```bash
-cgm config set server.port 41021
-```
-
-The mutation automatically applies to the running process without restarting it. If the runtime is stopped, the next start uses the persisted configuration.
-
-Live changes include:
-
-- authentication state
-- features
-- filesystem permission roots
-- tunnel configuration
-
-Network-affecting changes such as MCP/admin port or exposure cause listener rebind inside the same process.
-
-Listener reload is transactional: if the new listeners cannot be opened, the previous listener set is restored.
-
-A foreground `serve --expose=...` command-line override remains authoritative across automatic config reloads.
-
-## Structured runtime logs
-
-Runtime events are persisted under the selected config root:
-
-```text
-<config-root>/logs/runtime.jsonl
-```
-
-Default rotation:
-
-```text
-10 MiB per file
-5 files retained
-```
-
-Events are persisted before terminal visibility filtering, so a service started normally can later be inspected at verbose or debug detail.
-
-Every runtime process has a stable `run_id` for its lifetime. New runtimes also write `runtime.session.started` and `runtime.session.ended` journal markers. Text replay uses the same ID to print a clear session separator even when the requested tail/filter begins in the middle of a session.
-
-### Replay
-
-```bash
-cgm logs
-cgm logs -n 200
-cgm logs --verbose
-cgm logs --debug
-cgm logs --log-format=json
-```
-
-Text replay shows `HH:MM:SS` on primary event lines by default. Indented detail lines do not repeat the timestamp. Normal command output such as `cgm status`, `cgm up`, or foreground `cgm serve` remains timestamp-free, including debug mode.
-
-Hide replay timestamps when desired:
-
-```bash
-cgm logs --no-time
-```
-
-The session separator includes the local date and time; individual event lines only repeat `HH:MM:SS`.
-
-Filter a single runtime session using the full ID or the shortened prefix printed in the session separator / `cgm status` / `cgm up`:
-
-```bash
-cgm logs --session run_a1b2c3d4e5f6
-cgm logs --session run_a1b2c3d4e5f6 -f
-```
-
-JSON replay does not emit the text separator; each JSON event instead carries `run_id`, `pid`, and managed service metadata where applicable.
-
-### Follow
-
-```bash
-cgm logs -f
-cgm logs follow
-cgm logs --debug -f
-```
-
-Follow first reads matching history and then switches to the authenticated live runtime event stream. It does not poll the journal file.
-
-### Filters
-
-```bash
-cgm logs --since 30m
-cgm logs --until 2026-08-31T12:00:00+07:00
-cgm logs --session run_a1b2c3d4e5f6
-cgm logs --level warn
-cgm logs --component SERVER,TUNNEL
-cgm logs --workspace ws_...
-cgm logs --workspace ~/projects/my-project
-cgm logs --tool run_command --status error
-cgm logs --source tunnel
-cgm logs --event 'tool.call.*'
-cgm logs --grep timeout
-```
-
-Filters operate on structured event fields before CLI rendering.
-
-### Journal location
-
-```bash
-cgm logs path
-```
-
-### Clear logs
-
-```bash
-cgm logs clear --force
-```
-
-If the runtime is running, clearing is performed through the runtime control channel so the active writer can safely reset journal state. If stopped, files are cleared directly.
-
-Log reading/following is considered read-only in MCP tool execution context; clearing is a control-plane mutation and is denied there.
-
-## CLI-first rendering
-
-Normal text output intentionally avoids noisy level/component prefixes. Stable markers are used instead:
-
-```text
-✓ success / ready
-! warning
-× error
-· information
-→ action
-```
-
-Use `--verbose` for operational context and `--debug` for full diagnostics including levels, components, event names, IDs, TLS/proxy metadata, and low-level tunnel/runtime events. Historical/live `cgm logs` adds timestamps independently of visibility mode.
-
-Use `--log-format=json` when logs will be consumed by automation.
+Then use [Troubleshooting](troubleshooting.md) for symptom-specific fixes.

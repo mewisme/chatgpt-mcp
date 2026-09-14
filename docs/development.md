@@ -193,7 +193,7 @@ Control-approval native smoke additionally verifies:
 - CLI plain/JSON behavior and non-TTY safety
 - Admin loopback and remote-auth policy
 
-The portable runtime smoke also checks that `request_control_approval` is present in the MCP catalog and that `cgm request list` reaches the running runtime. A dedicated native TUI release gate exercises route parsing, non-TTY refusal, Command Palette and Quick Open model integration, and public-command capability parity without attempting to drive a real alternate-screen terminal session inside CI.
+The portable runtime smoke also checks that `request_control_approval` is present in the MCP catalog and that `cgm request list` reaches the running runtime. A dedicated native TUI release gate exercises route parsing, non-TTY refusal, Commands/resource navigation model integration, and public-command capability parity without attempting to drive a real alternate-screen terminal session inside CI.
 
 Updater and control-approval integration gates run in every native Linux, macOS, and Windows CI/release job. Cross-build jobs continue to compile all six release OS/architecture targets.
 

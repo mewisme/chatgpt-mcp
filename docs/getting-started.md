@@ -1,45 +1,21 @@
 # Getting started
 
-This guide gets `chatgpt-mcp` installed, initialized, and running locally. If your goal is specifically to connect ChatGPT through OpenAI Secure MCP Tunnel, continue with [OpenAI + ChatGPT setup](openai-chatgpt.md) after initialization.
+This is the default `chatgpt-mcp` path: install one local runtime, register the projects ChatGPT may use, connect it through OpenAI Secure MCP Tunnel, and keep the runtime running as a managed service.
+
+```text
+install → init → register workspace → configure tunnel → cgm up → connect ChatGPT
+```
 
 ## Requirements
 
-### Minimal — run the server locally
+- Linux, macOS, or Windows on `amd64` or `arm64`.
+- A normal user account. The MCP runtime should not run as root.
+- For ChatGPT: an OpenAI Secure MCP Tunnel and a restricted runtime API key with **Tunnels Read + Use**.
+- Outbound HTTPS to OpenAI. The default ChatGPT setup does **not** require a public inbound MCP port.
 
-| Requirement | Notes |
-| --- | --- |
-| Supported OS | Linux, macOS, or Windows |
-| Architecture | `amd64` or `arm64` (installers reject other combinations) |
-| Privileges | Run as a normal user. The MCP process never needs to be root; `sudo` is only used when registering a machine-level service (`cgm up --system` on Linux/macOS). |
-| Config root | Default `~/.config/chatgpt-mcp/` (override with `--config-dir` / `CHATGPT_MCP_CONFIG_DIR`) |
-| Ports | Defaults MCP `127.0.0.1:37421` and Admin `127.0.0.1:37422` when those HTTP listeners are enabled; if a port is busy the runtime picks a free fallback |
-| Network after install | Not required for loopback-only local use |
+Docker is not required. Git is optional unless you want to use Git tools.
 
-**Not required to start:** Docker/containers, Git, a shell sandbox helper, or an OpenAI account. Workspace containers (`wsc_*`) are logical groups of registered workspaces, not Docker.
-
-Install-time only: outbound access to the installer CDN / GitHub Releases, plus `sha256sum`/`shasum` on Unix. Cosign/Sigstore verification is preferred; set `INSTALL_ALLOW_CHECKSUM_ONLY=1` only when signatures are unavailable.
-
-Bootstrap steps: install → `cgm init` → `cgm serve` or `cgm up` → `cgm status`.
-
-### Recommended — ChatGPT + production-minded use
-
-Everything in **Minimal**, plus:
-
-| Recommendation | Why |
-| --- | --- |
-| OpenAI Secure MCP Tunnel ID + runtime API key (**Tunnels Read + Use**) | Private ChatGPT path without inbound ports; see [OpenAI + ChatGPT setup](openai-chatgpt.md) |
-| Outbound HTTPS `:443` to OpenAI | Tunnel control plane; no inbound firewall hole for the tunnel |
-| ChatGPT Developer Mode for the connecting user | Required to create/use the ChatGPT app that binds the tunnel |
-| Managed service (`cgm up`) | Keeps the runtime up across sessions; use `cgm up --system` on remote Linux if systemd user lingering is off |
-| Narrow workspace registration | Limits filesystem/shell/Git scope to roots you intentionally grant |
-| Tunnel-first posture | Prefer `tunnel.enabled=true` with `server.expose` left at `none`; for private-only, set `server.enabled=false` (Admin may stay on for local ops) |
-| Shell execution | Commands inherit the runtime environment; destructive/host/external mutations still require local approval and workspace mutations remain contained |
-| Optional tools | Install `git` if you use Git MCP tools; use an external sandbox/container/VM if you need stronger process isolation |
-| Verify config | Run `cgm config verify` (or `--strict`) after access or exposure changes |
-
-Operational defaults and dangerous combinations: [Security](security.md#recommended-operational-defaults).
-
-## Install
+## 1. Install
 
 ### Linux / macOS
 
@@ -67,235 +43,62 @@ scoop bucket add mew https://github.com/mewisme/scoop-mew
 scoop install mew/chatgpt-mcp
 ```
 
-The installers expose both commands:
+The installed commands are `chatgpt-mcp` and its shorter alias, `cgm`.
 
-```text
-chatgpt-mcp
-cgm
-```
-
-The rest of this guide uses `cgm`.
-
-Direct bootstrap installers download the release archive, verify its SHA-256 against `checksums.txt`, and (when available) verify that checksum file with Sigstore via `cosign` and `checksums.txt.sigstore.json`. They extract only the `chatgpt-mcp` binary (rejecting unsafe archive paths and symlinks). If cosign or the signature artifact is unavailable, set `INSTALL_ALLOW_CHECKSUM_ONLY=1` to proceed with a loud checksum-only warning; otherwise the installer fails. The binary owns the managed installation layout. If you downloaded a release archive manually, install it with:
-
-```bash
-./chatgpt-mcp install
-```
-
-Skip the short alias when needed:
-
-```bash
-./chatgpt-mcp install --no-alias
-```
-
-## Pin a release
-
-Linux/macOS:
-
-```bash
-curl -fsSL get.mewis.me/chatgpt-mcp.sh | env CHATGPT_MCP_VERSION=vX.Y.Z sh
-```
-
-Windows:
-
-```powershell
-$env:CHATGPT_MCP_VERSION = 'vX.Y.Z'
-irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
-```
-
-The installers keep a stable launcher path so managed service definitions continue to work across upgrades.
-
-Checksum-only bootstrap (when cosign or `checksums.txt.sigstore.json` is unavailable):
-
-```bash
-curl -fsSL get.mewis.me/chatgpt-mcp.sh | env INSTALL_ALLOW_CHECKSUM_ONLY=1 sh
-```
-
-```powershell
-$env:INSTALL_ALLOW_CHECKSUM_ONLY = '1'
-irm https://get.mewis.me/chatgpt-mcp.ps1 | iex
-```
-
-## Update
-
-Check without changing files:
-
-```bash
-cgm upgrade check
-```
-
-Update a managed direct installation to the latest stable release:
-
-```bash
-cgm upgrade
-```
-
-Install an exact release, including an intentional downgrade:
-
-```bash
-cgm upgrade --version vX.Y.Z
-```
-
-If the selected config root has a running managed service, update switches the stable `current` target, restarts that service, and waits for full runtime readiness. When the Secure MCP Tunnel is enabled, that includes waiting for the tunnel to become ready instead of returning while it is still connecting. If the new runtime fails to become healthy, `chatgpt-mcp` restores the previous `current` target and metadata, then restarts the previous version.
-
-Skip the managed-service restart when you intentionally want the running process to remain on the old binary until a later restart:
-
-```bash
-cgm upgrade --no-restart
-```
-
-A foreground `cgm serve` process is never killed by the updater; the files on disk are updated and that foreground process continues using its old in-memory binary until restarted manually.
-
-Install ownership is preserved:
-
-- managed direct install → built-in transactional self-update
-- Homebrew → runs `brew update`, then `brew upgrade --cask chatgpt-mcp`, verifies the installed version, and restarts a running managed service when needed
-- Scoop → runs `scoop update`, then `scoop update mew/chatgpt-mcp`, verifies the installed version, and restarts a running managed service when needed
-- `go install` / development builds → built-in self-update is refused
-- standalone release binary → run `chatgpt-mcp install` first to adopt the managed layout
-
-Package-manager installs follow the latest published manifest. `cgm upgrade --version ...` remains available only to the managed direct installation because Homebrew/Scoop own version selection. If the remote tap or bucket has not published the GitHub release yet, package-manager verification fails instead of reporting a successful upgrade to an older manifest.
-
-Explicit update checks use the network. Normal commands do not; `cgm status` may surface fresh cached availability from `<install-root>/state/update.json`.
-
-## Uninstall the binary
-
-Linux/macOS:
-
-```bash
-curl -fsSL get.mewis.me/chatgpt-mcp.sh | sh -s -- --uninstall
-```
-
-Windows:
-
-```powershell
-& ([scriptblock]::Create((irm https://get.mewis.me/chatgpt-mcp.ps1))) -Uninstall
-```
-
-Binary uninstall and `cgm uninit` are different operations. `uninit` removes the selected `chatgpt-mcp` config/state root; the installer uninstall removes the installed command.
-
-## Initialize
+## 2. Initialize
 
 ```bash
 cgm init
 ```
 
-JSON is the default storage format. YAML and TOML are also supported:
-
-```bash
-cgm init --json
-cgm init --yaml
-cgm init --toml
-cgm init --format toml
-```
-
-Initialization creates the local configuration and authentication material under:
+The default config/state root is:
 
 ```text
 ~/.config/chatgpt-mcp/
 ```
 
-on the selected user account.
+For isolated instances, tests, or development runs, select another root with `--config-dir` or `CHATGPT_MCP_CONFIG_DIR`. See [Configuration](configuration.md#config-root).
 
-## Isolated config roots
+## 3. Register a workspace
 
-Use an isolated root for tests, experiments, or parallel instances:
-
-```bash
-cgm --config-dir ./.tmp/cgm-dev init
-cgm --config-dir ./.tmp/cgm-dev serve
-```
-
-or:
-
-```bash
-export CHATGPT_MCP_CONFIG_DIR="$PWD/.tmp/cgm-dev"
-cgm init
-cgm serve
-```
-
-Precedence is:
-
-```text
---config-dir
-    >
-CHATGPT_MCP_CONFIG_DIR
-    >
-default ~/.config/chatgpt-mcp
-```
-
-The selected root includes configuration, tunnel secrets, workspaces, OAuth/upstream state, shell state, memory, checkpoints, logs, and runtime control state.
-
-## Register your first workspace
+Register only project roots you want ChatGPT to reach:
 
 ```bash
 cgm workspace register ~/projects/my-project
 ```
 
-Example output includes a stable ID such as:
-
-```text
-ws_...
-```
-
-Use the workspace ID in tool calls and workspace-specific access rules.
-
-Inspect registered workspaces:
+The command returns a stable `ws_*` workspace ID. Filesystem, shell, Git, process, context, memory, rules, skills, and checkpoint operations use explicit workspace targets.
 
 ```bash
 cgm workspace list
-cgm workspace show ws_...
 ```
 
-Grant one workspace access to an extra directory:
+Read [Workspaces](workspaces.md) before adding extra filesystem roots or using workspace containers.
+
+## 4. Configure OpenAI Secure MCP Tunnel
+
+Create a tunnel in OpenAI Platform and a restricted runtime API key with **Tunnels Read + Use**, then configure them locally:
 
 ```bash
-cgm workspace access add ws_... /path/to/build-cache
-cgm workspace access list ws_...
+cgm tunnel configure \
+  --enabled \
+  --id tunnel_... \
+  --api-key 'sk-...'
 ```
 
-See [Configuration](configuration.md) and [Security](security.md) before broadening filesystem scope.
-
-## Open the interactive Command Center
-
-For human-driven administration, launch the full-screen TUI explicitly:
+Check the local configuration:
 
 ```bash
-cgm tui
+cgm tunnel status
 ```
 
-You can also deep-link to a page or resource:
+The tunnel ID is an identifier. The runtime API key is a secret used only to authenticate the tunnel client; do not use a Platform Admin API key as the long-lived runtime key.
 
-```bash
-cgm tui workspace
-cgm tui workspace ws_...
-cgm tui mcp github
-cgm tui logs
-cgm tui config
-```
+For tunnel creation, associations, permissions, Developer Mode, and ChatGPT app setup, follow [OpenAI + ChatGPT](openai-chatgpt.md).
 
-`Ctrl+P` opens the Command Palette, `Ctrl+O` opens resource/page search, and `Alt+Left` / `Alt+Right` cycle the main pages. The TUI requires terminal stdin/stdout; use ordinary `cgm ...` commands and structured flags such as `--json` in scripts or pipelines.
+## 5. Start the runtime
 
-See [TUI Command Center](tui.md) for the complete interaction model.
-
-## Start the runtime
-
-Foreground:
-
-```bash
-cgm serve
-```
-
-Default local endpoints:
-
-```text
-MCP:   http://127.0.0.1:37421/mcp
-Admin: http://127.0.0.1:37422/
-```
-
-The MCP HTTP endpoint exists only while `server.enabled=true`. You may instead run tunnel-only with `server.enabled=false` and `tunnel.enabled=true`; both MCP transports cannot be disabled at the same time.
-
-For a managed background runtime:
+For normal use, start the managed background runtime:
 
 ```bash
 cgm up
@@ -305,45 +108,57 @@ Inspect it:
 
 ```bash
 cgm status
+cgm tunnel status
+```
+
+For one-off foreground testing, use:
+
+```bash
+cgm serve
+```
+
+`serve` stays attached to the current terminal. On a remote server, prefer a managed service instead of relying on an SSH session. See [Runtime and operations](runtime.md).
+
+## 6. Connect ChatGPT
+
+In ChatGPT:
+
+1. Enable Developer Mode if required for your workspace/account.
+2. Create a custom app.
+3. Choose **Tunnel** as the connection type.
+4. Select the same `tunnel_...` configured locally.
+5. Run **Scan Tools**.
+6. Review the discovered tools and create/enable the app.
+
+Then test with a read-only action such as listing registered workspaces or reading runtime status.
+
+## 7. Verify and operate
+
+Useful commands:
+
+```bash
+cgm status
+cgm tunnel status
 cgm logs -f
+cgm config verify
 ```
 
-Stop and remove only the managed service:
+For interactive operation:
 
 ```bash
-cgm down
+cgm tui
 ```
 
-`down` preserves configuration, workspaces, checkpoints, and runtime logs.
+## Next steps
 
-See [Runtime and services](runtime.md) for Linux/macOS `sudo` behavior, SSH/logout semantics, Windows Task Scheduler, persistent logs, and service lifecycle details.
+- [OpenAI + ChatGPT](openai-chatgpt.md) — complete tunnel/app setup
+- [Workspaces](workspaces.md) — scope, extra roots, relocation, containers
+- [Runtime and operations](runtime.md) — services, logs, updates
+- [TUI Command Center](tui.md) — interactive operation
+- [Security](security.md) — trust boundaries and recommended posture
+- [Configuration](configuration.md) — config roots, auth, exposure, storage
+- [MCP and upstreams](mcp.md) — generic MCP clients and upstream servers
 
-## Connect ChatGPT
+## Advanced installation and development
 
-The recommended private path is OpenAI Secure MCP Tunnel. Continue with:
-
-[Connect ChatGPT with OpenAI Secure MCP Tunnel →](openai-chatgpt.md)
-
-## Build from source
-
-Requirements:
-
-- Go 1.27+
-- Node.js 24+
-- pnpm 11+
-
-```bash
-git clone https://github.com/mewisme/chatgpt-mcp.git
-cd chatgpt-mcp
-pnpm --dir web install
-node scripts/install-local.mjs
-```
-
-Useful variants:
-
-```bash
-node scripts/install-local.mjs --no-deps
-node scripts/install-local.mjs --from-dist
-```
-
-See [Development](development.md) for the complete verification flow.
+The built-in updater, exact version selection, package-manager ownership, source builds, release verification, and CI workflows are intentionally kept out of this happy path. See [Runtime and operations](runtime.md#updates) and [Development](development.md).

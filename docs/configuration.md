@@ -1,6 +1,6 @@
 # Configuration
 
-`chatgpt-mcp` keeps persistent configuration and runtime state under one selected config root. JSON is the default format; YAML and TOML are also supported.
+`chatgpt-mcp` keeps persistent configuration and runtime state under one selected config root. Use this guide for the configuration model and common operations; use `cgm config explain` for the exhaustive schema of the installed version.
 
 ## Config root
 
@@ -10,385 +10,199 @@ Default:
 ~/.config/chatgpt-mcp/
 ```
 
-Override it with:
+Select another root per command:
 
 ```bash
 cgm --config-dir /path/to/instance status
 ```
 
-or:
+or by environment:
 
 ```bash
 export CHATGPT_MCP_CONFIG_DIR=/path/to/instance
-cgm status
 ```
 
-Precedence:
+Precedence is:
 
 ```text
 --config-dir
-    >
-CHATGPT_MCP_CONFIG_DIR
-    >
-default user config root
+> CHATGPT_MCP_CONFIG_DIR
+> default user config root
 ```
 
-The selected root covers configuration, non-secret credential metadata, upstream/OAuth state, workspace registry, shell state, memory, checkpoints, logs, runtime control state, and the per-root secret-file store under `state/secrets/`. Long-lived reversible credentials are namespaced to this config root and stored there instead of structured config.
-
-Use a non-default root for tests, temporary instances, and development binaries that mutate configuration.
-
-## Initialize and choose format
-
-```bash
-cgm init
-cgm init --json
-cgm init --yaml
-cgm init --toml
-cgm init --format toml
-```
-
-The main configuration determines the serialization format used by managed structured state files.
+A config root owns that instance's configuration, workspaces, secrets, upstream/OAuth state, logs, shell/runtime state, memory, checkpoints, and runtime-control metadata. Use isolated roots for tests or parallel instances.
 
 ## Inspect configuration
 
 ```bash
 cgm config get
 cgm config list
+cgm config get server
 cgm config get admin.enabled
-cgm config list admin
 ```
 
-`config get` and `config list` inspect persisted values. `config explain` inspects the schema and explains what a key means, its default, valid values, and related settings:
-
-```bash
-cgm config explain
-cgm config explain shell
-cgm config explain shell.path
-cgm config explain server.expose.mode
-cgm config explain shell.path --json
-```
-
-With no key, `config explain` walks the full schema. A branch such as `shell` explains that subtree. A leaf such as `shell.path` includes its type, schema default, editability, guidance, and related keys when applicable. Defaults come from the built-in config schema, not the currently persisted configuration.
-
-Legacy key aliases are canonicalized before lookup. For example, explaining `features.ponytail.enabled` resolves to `features.ponytail.active`. Sensitive fields expose schema metadata only; secret values are never revealed.
-
-Structured output can be selected independently from the on-disk format:
+Structured display is available where supported:
 
 ```bash
 cgm config list --json
 cgm config list --yaml
 cgm config list --toml
-cgm config list --format yaml
-cgm config get admin --toml
 ```
 
-Sensitive values keep their real key names but render as:
+Sensitive fields are redacted.
 
-```text
-<redacted>
+## Explain the schema
+
+`cgm config explain` is the authoritative configuration reference for the installed binary:
+
+```bash
+cgm config explain
+cgm config explain server
+cgm config explain server.expose.mode
+cgm config explain shell.path
+cgm config explain shell.path --json
 ```
+
+A branch explains a subtree; a leaf reports its type, built-in default, editability, valid values, guidance, and related settings where applicable.
+
+The public docs intentionally do not duplicate every schema field, because that inventory would drift from the binary.
 
 ## Set values
 
 ```bash
 cgm config set server.enabled false
 cgm config set server.port 41021
-cgm config set admin.port 41022
 cgm config set admin.enabled true
 ```
 
-`key=value` syntax is also accepted by the CLI.
+Values are parsed according to the schema and validated before persistence. `key=value` syntax is also accepted by the CLI.
 
-Changes are validated before persistence. MCP must remain reachable through at least one transport: direct HTTP (`server.enabled`) or OpenAI Secure MCP Tunnel (`tunnel.enabled`). Either can be disabled independently, but not both.
+At least one MCP transport must remain enabled: direct MCP HTTP (`server.enabled`) or OpenAI Secure MCP Tunnel (`tunnel.enabled`). The default ChatGPT path is the tunnel; direct HTTP is an optional transport for clients that need it.
 
 ## Applying changes to a running runtime
 
-Configuration mutations automatically reload the selected config root's running runtime through its loopback-only runtime control channel. If no runtime is running, the persisted change is used on the next start.
+Supported local config mutations are applied to the selected running runtime automatically. If the runtime is stopped, the persisted value is used on the next start.
 
-For direct local mutations, a failed live reload rolls the persisted change back so disk and runtime state do not drift.
+Network-affecting changes such as listener ports or exposure are rebound transactionally. If the new listener cannot be opened, the working listener set is retained and the local mutation reports failure rather than silently leaving runtime and disk in different states.
 
-Changes to auth, feature flags, filesystem permissions, and tunnel settings can be applied live.
-
-Changes to these network settings trigger listener rebind inside the same process:
-
-- `server.enabled`
-- `server.port`
-- `server.expose`
-- `admin.enabled`
-- `admin.port`
-
-Rebind is transactional. If a requested port/address cannot be opened, the previous listener set is restored.
-
-## Migrate legacy credentials
-
-```bash
-cgm config migrate
-```
-
-This moves legacy plaintext tunnel keys, OAuth credentials, and sensitive upstream header/environment values into the per-config-root secret-file store and rewrites structured state with non-secret `<secret-file>` markers. Normal credential-loading paths also migrate automatically. The secret store encrypts values at rest (AES-256-GCM) under a per-root master key and has no OS-keyring dependency; migration fails rather than retaining a reversible secret in structured config when the secret file cannot be written safely.
-
-Encrypt existing plaintext secret files:
-
-```bash
-cgm config migrate secrets
-```
-
-New secret writes are encrypted automatically. Reading a legacy plaintext secret file also rewrites it encrypted when possible.
-
-## Verify config/state
+Verify after meaningful access/network changes:
 
 ```bash
 cgm config verify
 cgm config verify --strict
-cgm config validate
 ```
 
-`verify` and `validate` are aliases.
+## Storage format
 
-Verification checks:
+JSON is the default structured format. YAML and TOML are also supported:
 
-- main config exists
-- managed structured files use the expected format/extension
-- files decode successfully
-- loaded runtime configuration passes semantic validation
+```bash
+cgm init --json
+cgm init --yaml
+cgm init --toml
+```
 
-By default, dangerous shell-policy combinations and active unauthenticated loopback emit warnings without failing. `--strict` fails when any warning is present.
-
-## Convert formats
+Convert an existing managed structured state tree:
 
 ```bash
 cgm config convert json
 cgm config convert yaml
 cgm config convert toml
-cgm config transform toml
 ```
 
-`convert` and `transform` are aliases.
+Conversion validates the managed state before activating the new representation.
 
-The operation preflights the managed structured state tree before mutation and rolls back if persistence fails.
+## Secrets
 
-## Portable export and import
+Long-lived reversible credentials such as tunnel runtime keys, upstream OAuth credentials, and sensitive upstream header/environment values are stored through the selected config root's managed secret store rather than as plaintext values in ordinary structured config.
 
-Export the selected config root into one portable bundle:
+MCP/Admin endpoint credentials are represented by one-way hashes where appropriate. Normal config/status output does not reveal managed secrets.
+
+Migrate older plaintext credential state:
 
 ```bash
-cgm config export
+cgm config migrate
 ```
 
-Import it on another supported machine:
+Encrypt legacy plaintext secret-store files:
 
 ```bash
-cgm config import
+cgm config migrate secrets
 ```
 
-When no file is supplied, both commands use `chatgpt-mcp-config.cgm` in the current directory. A custom path remains supported:
-
-```bash
-cgm config export laptop.cgm
-cgm config import laptop.cgm
-```
-
-The `.cgm` bundle is platform-neutral and can move in any direction between supported Linux, macOS, and Windows installations, including between amd64 and arm64 machines. It contains the persistent configuration/state that can meaningfully be restored plus all currently managed reversible secrets. MCP/Admin token hashes are preserved as part of the config, so existing endpoint tokens keep working even though their plaintext values are not stored by `chatgpt-mcp`.
-
-Secrets are serialized by logical secret name and recreated through the destination secret store. Raw `state/secrets/*` files are never copied, because their on-disk names are namespaced to the source config root and are not portable across machines.
-
-The bundle is compressed and sealed with authenticated encryption using an application-level key and a random nonce. It requires no password and rejects modified/corrupted ciphertext, but it is intentionally a portability/obfuscation boundary rather than password-grade secret storage: possession of both the bundle and a compatible `chatgpt-mcp` binary should not be treated as strong cryptographic separation.
-
-Filesystem state is normalized for the destination machine:
-
-- paths under the source user's home are mapped to the same relative location under the destination user's home when that directory exists
-- other absolute paths are kept only on the same OS when they still exist
-- unavailable `permissions.allow_dirs`, `shell.path`, workspace roots, and workspace allow directories are skipped
-- mapped workspaces receive the stable ID for their destination path, retain the source ID as a legacy alias, and portable workspace state such as auto memory follows the new ID
-- interface-specific network exposure is reset to loopback-only when moving between different OSes
-
-The bundle intentionally excludes transient or machine-owned state that should be regenerated on the destination: runtime control state/PIDs, runtime logs, managed-service environment snapshots, instance identity, shell session state/history, checkpoints, update cache, and service-manager definitions. The original source values remain inside the bundle only where they are part of portable data; import never requires the source filesystem to exist.
-
-Export refuses to overwrite an existing output file unless requested explicitly:
-
-```bash
-cgm config export --force
-```
-
-Import refuses to replace an existing config root unless requested explicitly:
-
-```bash
-cgm config import --force
-```
-
-Import must run while the selected runtime is stopped. It stages the imported tree, swaps it into place, restores logical secrets, verifies the resulting configuration, and restores the previous config root if activation or verification fails.
-
-## Network exposure
-
-Default exposure is loopback-only:
-
-```json
-{
-  "server": {
-    "enabled": true,
-    "port": 37421,
-    "expose": {
-      "mode": "none",
-      "interfaces": []
-    }
-  }
-}
-```
-
-`server.enabled=false` removes the direct MCP HTTP listener entirely. This is valid only while `tunnel.enabled=true`. Conversely, the tunnel can be disabled while MCP HTTP remains enabled. The default is HTTP enabled and tunnel disabled.
-
-Supported modes:
-
-| Mode | Behavior |
-| --- | --- |
-| `none` | bind loopback only |
-| `all` | loopback plus currently active eligible IPv4 interfaces |
-| `interfaces` / interface names | loopback plus selected active interfaces |
-| `0.0.0.0` | wildcard IPv4 listener including interfaces that appear later |
-
-One-run override:
-
-```bash
-cgm serve --expose
-cgm serve --expose=all
-cgm serve --expose=0.0.0.0
-cgm serve --expose=eth0
-cgm serve --expose=eth0,tailscale0
-cgm serve --expose=none
-```
-
-Bare `--expose` means `all`.
-
-Persist the policy:
-
-```bash
-cgm config set server.expose all
-cgm config set server.expose 0.0.0.0
-cgm config set server.expose eth0,tailscale0
-cgm config set server.expose none
-```
-
-Selected interfaces must be active, non-loopback, and expose an eligible IPv4 address. Startup fails rather than silently broadening exposure when a configured interface is unavailable.
-
-Wildcard `0.0.0.0` is rejected unless both MCP and Admin authentication are enabled with configured tokens.
+See [Security](security.md) for the storage and trust model.
 
 ## Authentication
 
-`chatgpt-mcp` stores token hashes rather than plaintext MCP/admin tokens. Plain tokens are shown only when created or rotated.
+MCP and Admin endpoint authentication are separate policies:
 
 ```bash
+cgm auth status
 cgm auth mcp create
 cgm auth admin create
-cgm auth status
 cgm auth mcp enable
-cgm auth mcp disable
 cgm auth admin enable
-cgm auth admin disable
 ```
 
-Use an enabled endpoint token as:
+Direct authenticated HTTP clients use the credential expected by that endpoint/transport. The OpenAI tunnel runtime API key is different: it authenticates the tunnel client to OpenAI and is not an MCP/Admin bearer token.
 
-```http
-Authorization: Bearer <token>
-```
-
-MCP and Admin authentication are independent policies except for wildcard exposure, which requires both.
-
-For the generic `cgm mcp http` transport, OAuth is canonical when MCP authentication is enabled. `stdio` does not use OAuth transport authentication. The existing MCP token remains available only as a compatibility bearer when `auth.mcp_legacy_bearer=true`:
+Generic protected `cgm mcp http` uses OAuth as its canonical transport auth. Legacy static MCP bearer compatibility is controlled by:
 
 ```bash
-cgm config get auth.mcp_legacy_bearer
 cgm config set auth.mcp_legacy_bearer false
 ```
 
-The MCP token hash remains server-side. It is not reused as an OAuth client secret/access token or signing key. Rotating the MCP token invalidates OAuth grants/tokens issued under the previous auth generation.
+## Network exposure
 
-Disabling authentication while an HTTP endpoint remains enabled requires:
+The safest direct-listener posture is loopback-only:
 
 ```bash
-cgm config set server.allow_unauthenticated_loopback true
-cgm auth mcp disable
+cgm config set server.expose none
 ```
 
-The acknowledgement is valid only with `server.expose.mode=none`. Prefer keeping authentication enabled.
+Other supported exposure modes can bind selected interfaces or broader addresses, but non-loopback direct HTTP changes the trust model and requires the appropriate authentication/insecure-HTTP acknowledgement.
 
-The Admin UI skips its login screen when Admin authentication is disabled.
+For ChatGPT, prefer the Secure MCP Tunnel instead of opening the MCP listener publicly:
 
-## Shell execution model
+```bash
+cgm tunnel configure --enabled --id tunnel_... --api-key 'sk-...'
+```
 
-Shell commands inherit the runtime process environment, with `shell.path` entries prepended to `PATH`. There are no configurable approval modes, environment filtering modes, filesystem sandbox modes, or network isolation modes.
+Read [Security](security.md#network-exposure) before widening exposure.
 
-The runtime still enforces hard application-level boundaries: workspace mutation containment, protected control-plane state, exact approval for direct control-plane mutations, and approval for destructive, host, or external mutations. Read-only and ordinary commands do not require an extra policy mode.
+## Workspace access
 
-For stronger isolation against arbitrary native code, run the runtime or risky workloads inside an OS sandbox, container/VM, or separate operating-system identity. See [Security](security.md#what-this-boundary-does-not-provide).
-
-## Workspace filesystem scope
-
-Register a workspace:
+Register concrete project roots with:
 
 ```bash
 cgm workspace register ~/projects/my-project
 ```
 
-Workspace IDs are stable hashes of canonical workspace paths. Older registry-v2 instance-scoped IDs are migrated to the stable ID and retained as aliases. The runtime never guesses or falls back to another registered workspace when an ID is invalid.
-
-Because the ID is path-derived, renaming or moving a registered project directory changes its canonical ID. After moving the directory on disk, use the control-plane relocate operation rather than registering the destination as an unrelated workspace:
-
-```bash
-cgm workspace relocate ws_... /new/path/to/project
-```
-
-Relocation preserves the previous `ws_*` as a legacy alias, updates container membership, migrates workspace-scoped persistent state to the new canonical ID, and rewrites absolute state paths that were under the old root. Workspace-specific extra roots nested under the old project root are rebased as well. It does not move the project directory itself.
-
-An MCP session may access multiple registered workspaces. Every workspace-scoped tool call must explicitly provide a valid concrete `ws_*` `workspace_id`; the runtime canonicalizes that ID and records the workspace in the session's in-memory access set. Invalid workspace IDs do not create access entries. `wsc_*` workspace containers are orchestration-only: resolving a container does not grant access to its members, and passing a container ID to a workspace-scoped tool is rejected instead of selecting or fanning out to a member. Workspace-specific filesystem scope and state remain isolated even when the same session moves between projects.
-
-Every successful persistent workspace-registry mutation synchronizes the running tool runtime before the mutation surface reports success. This applies to workspace register/relocate/unregister, workspace-specific access roots, container create/rename/delete, and both directions of container membership changes across CLI, TUI, Admin API, and MCP workspace registration. Relocate itself is intentionally available only through trusted control-plane surfaces (CLI, TUI, and Admin API), not as an MCP tool. A following MCP read using either the new canonical ID or a retained legacy alias therefore sees the relocated workspace without a runtime restart or MCP reconnect. If synchronization fails, the mutation surface reports the reload failure even though the registry change may already be persisted.
-
-Global extra roots apply to every workspace:
-
-```bash
-cgm config set permissions.allow_dirs /tmp,/var/tmp/chatgpt-mcp
-cgm config get permissions.allow_dirs
-```
-
 Workspace-specific extra roots:
 
 ```bash
-cgm workspace access add ws_... /path/to/build-cache
-cgm workspace access list ws_...
-cgm workspace access remove ws_... /path/to/build-cache
+cgm workspace access add ws_... /path/to/cache
 ```
 
-Effective filesystem scope is:
-
-```text
-workspace root
-+ global permissions.allow_dirs
-+ workspace-specific allow_dirs
-```
-
-Filesystem operations, shell mutation validation, Git/process working directories, and rewind/checkpoint validation use the same canonical root set. Symlink escapes remain denied.
-
-## Built-in mode state
-
-Built-in response modes live under `features` and can be updated through config or Admin Settings. Their controller tools remain registered; `active` controls the default runtime state.
-
-Examples:
+Global extra roots:
 
 ```bash
-cgm config set features.ponytail.active true
-cgm config set features.ponytail.mode full
-cgm config set features.caveman.active true
-cgm config set features.caveman.mode full
+cgm config set permissions.allow_dirs /path/one,/path/two
 ```
 
-Ponytail is built into `chatgpt-mcp`; it does not require the external Ponytail plugin, hooks, or Node.js. `features.ponytail.mode` accepts `lite`, `full`, or `ultra`; `review` is a session-only mode selected with `/ponytail-review`. Admin Settings applies persisted mode changes to the live runtime immediately. Legacy `enabled` values are accepted when loading older configuration and are written back as `active`.
+See [Workspaces](workspaces.md) for the canonical `ws_*` / `wsc_*` model and effective scope rules.
 
-Caveman response mode is also built into `chatgpt-mcp`; it does not require the external Caveman plugin, hooks, proxy, engine, or Node.js. `features.caveman.mode` accepts `lite`, `full`, `ultra`, `wenyan-lite`, `wenyan-full`, or `wenyan-ultra`. Runtime commands use the same modes, with `/caveman wenyan` accepted as an alias for `wenyan-full`; `/caveman off`, `stop caveman`, and `normal mode` disable it for that workspace state. Only the MIT-licensed upstream response-mode/ruleset behavior is adapted. Upstream BSL-1.1 engine, proxy, MCP, rewriter, shrink, browse, and Cavemem runtime components are not embedded.
+## Shell execution
+
+Shell commands inherit the runtime process environment, with configured `shell.path` entries prepended to `PATH`.
+
+`chatgpt-mcp` does not claim to provide a configurable kernel-level process sandbox. Workspace containment, protected control-plane state, and runtime approval/control-guard rules are application-level boundaries. Use an OS sandbox, container/VM, or separate operating-system identity when stronger isolation is required.
+
+See [Security](security.md#shell-execution-boundary).
 
 ## Tunnel configuration
 
-Configure OpenAI Secure MCP Tunnel:
+Configure the default ChatGPT transport:
 
 ```bash
 cgm tunnel configure \
@@ -397,24 +211,7 @@ cgm tunnel configure \
   --api-key 'sk-...'
 ```
 
-Optional:
-
-```bash
-cgm tunnel configure \
-  --control-plane-base-url https://api.openai.com \
-  --organization-id org_...
-```
-
-Tunnel keys are persisted in the per-config-root secret-file store. The companion tunnel file uses the selected serialization format only for configured-state markers and admin scope metadata, for example:
-
-```text
-config.toml
-tunnel.toml
-```
-
-Tunnel configuration updates are transactional with rollback on persistence/apply failure.
-
-For OpenAI Platform/ChatGPT setup, see [OpenAI + ChatGPT setup](openai-chatgpt.md).
+See [OpenAI + ChatGPT](openai-chatgpt.md) for Platform and ChatGPT setup. Use `cgm tunnel --help` for the current local/managed tunnel command surface.
 
 ## Upstream MCP configuration
 
@@ -425,18 +222,30 @@ cgm upstream --help
 cgm upstream server --help
 ```
 
-`cgm mcp server ...` remains a deprecated compatibility path during the migration window.
-
-Upstream OAuth access/refresh tokens and client secrets are stored in the per-config-root secret-file store. Sensitive upstream header/environment values are also moved there, while non-secret upstream configuration remains in the structured state file. Proxy refresh is atomic: the old exposed proxy catalog remains active if replacement discovery/schema construction fails.
-
 See [MCP and upstreams](mcp.md).
 
-## Remove config/state
+## Portable backup and transfer
+
+Export the selected portable configuration/state plus managed reversible secrets:
+
+```bash
+cgm config export
+```
+
+Import it on another supported installation:
+
+```bash
+cgm config import
+```
+
+Both default to `chatgpt-mcp-config.cgm` in the current directory; provide an explicit path when needed.
+
+The portable bundle intentionally excludes transient machine-owned state such as runtime control/PIDs, logs, service-manager definitions, shell session history, checkpoints, and update cache. Import requires the selected runtime to be stopped and protects existing state unless replacement is explicitly requested.
+
+## Remove local config/state
 
 ```bash
 cgm uninit
 ```
 
-This removes the selected `chatgpt-mcp` config/state root. It is intentionally different from uninstalling the binary.
-
-If a managed service is active, use `cgm down` or `cgm down --system` for the matching Linux/macOS system scope before removing the instance.
+`uninit` removes the selected config/state root. It is different from uninstalling the binary. Stop the matching managed service first when appropriate.

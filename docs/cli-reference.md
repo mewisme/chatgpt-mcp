@@ -79,6 +79,7 @@ chatgpt-mcp
 ├── completion
 ├── config
 │   ├── convert
+│   ├── explain
 │   ├── export
 │   ├── get
 │   ├── import
@@ -86,7 +87,6 @@ chatgpt-mcp
 │   ├── migrate
 │   │   └── secrets
 │   ├── path
-│   ├── reload
 │   ├── set
 │   └── verify
 ├── down
@@ -107,6 +107,7 @@ chatgpt-mcp
 │   ├── deny
 │   ├── list
 │   └── view
+├── restart
 ├── serve
 ├── status
 ├── tui
@@ -122,8 +123,12 @@ chatgpt-mcp
 │   ├── run
 │   ├── status
 │   ├── sync
-│   └── update
+│   ├── update
+│   └── use
 ├── uninit
+├── up
+├── upgrade
+│   └── check
 ├── upstream
 │   └── server
 │       ├── add
@@ -136,18 +141,16 @@ chatgpt-mcp
 │       ├── show
 │       ├── status
 │       └── tools
-├── up
-├── update
-│   └── check
 ├── version
 └── workspace
     ├── access
     │   ├── add
     │   ├── list
     │   └── remove
+    ├── container
     ├── list
-    ├── relocate
     ├── register
+    ├── relocate
     ├── show
     └── unregister
 ```
@@ -217,11 +220,11 @@ cgm tui logs
 cgm tui config
 ```
 
-The TUI requires terminal stdin/stdout. Its global navigation uses `Ctrl+P` for the Command Palette, `Ctrl+O` for Quick Open, `Alt+Left` / `Alt+Right` to cycle top-level pages, and `Esc` to close the current overlay or navigate back.
+The TUI requires terminal stdin/stdout. `Ctrl+K` opens Commands for actions, pages, resources, and Guide topics; `Alt+Left` / `Alt+Right` cycle top-level pages, and `Esc` closes the nearest overlay or navigates back.
 
 Use explicit `cgm tui` for interactive work and ordinary CLI/JSON output for automation. List commands do not auto-open a TUI and no longer expose per-command `--interactive` / `--no-interactive` flags.
 
-See [TUI Command Center](tui.md) for Command Palette search, Quick Open, mouse behavior, deep links, forms, confirmations, and scripting guidance. See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for approval challenge binding and one-shot capability semantics.
+See [TUI Command Center](tui.md) for Commands search, mouse behavior, deep links, forms, confirmations, logs, and scripting guidance. See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for approval challenge binding and one-shot capability semantics.
 
 ## Lifecycle
 
@@ -260,7 +263,7 @@ cgm down --system
 
 When invoked from a normal user shell, `--system` automatically re-executes the stable absolute `cgm` launcher through `sudo`, so it does not depend on `sudo` including `~/.local/bin` in `secure_path`. For `go run . up|down|restart --system`, the transient Go build is first staged by the invoking user and that staged binary is passed to `sudo`; elevated service management therefore never creates a root-owned `runtime/bin/go-run` cache inside the user's config root. Running the absolute binary under `sudo` directly remains supported for compatibility.
 
-See [Runtime and services](runtime.md).
+See [Runtime and operations](runtime.md).
 
 ## Logs
 

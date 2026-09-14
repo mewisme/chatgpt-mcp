@@ -1,153 +1,194 @@
 # TUI Command Center
 
-`chatgpt-mcp` has two user interfaces with different jobs:
+`cgm tui` is the human-operated terminal interface for `chatgpt-mcp`. The normal CLI remains the stable surface for scripts and automation.
 
 ```text
-cgm ...       stable scriptable CLI
-cgm tui       full-screen interactive terminal application
+cgm ...   scriptable CLI
+cgm tui   interactive Command Center
 ```
 
-Use normal CLI commands in scripts, automation, CI, and any workflow that needs deterministic text or structured output. Use `cgm tui` when a human wants to browse resources, run actions, edit configuration, review requests, or inspect runtime state interactively.
-
-## Start the Command Center
+## Start
 
 ```bash
 cgm tui
 ```
 
-The TUI requires terminal stdin and stdout. Redirected/non-TTY invocation fails clearly instead of emitting alternate-screen or ANSI output into a pipe.
+The TUI requires a real terminal. Redirected/non-TTY invocation fails instead of writing alternate-screen output into a pipe.
+
+Deep-link directly to a page or resource when useful:
 
 ```bash
-cgm tui --help
+cgm tui workspace
+cgm tui workspace ws_...
+cgm tui mcp github
+cgm tui tunnel
+cgm tui requests
+cgm tui logs
+cgm tui config
+cgm tui runtime
+cgm tui guide
 ```
 
-The application uses the terminal's current size, adapts to light/dark backgrounds with Charm-native styles, and supports both keyboard and mouse interaction. Every mouse operation has a keyboard equivalent and follows the same action, validation, and confirmation path.
-
-## Global shortcuts
+## Global navigation
 
 | Key | Action |
 | --- | --- |
 | `Ctrl+K` | open Commands for actions, pages, resources, and Guide topics |
-| `Alt+Left` / `Alt+Right` | cycle top-level pages with wrap-around |
-| `Esc` | close the nearest overlay/child page, return to Home, then exit from Home |
-| `Backspace` | navigate back when the current page is not actively editing input |
+| `Alt+Left` / `Alt+Right` | cycle top-level pages |
+| `Esc` | close the nearest overlay/child page, then navigate back/exit |
+| `Backspace` | navigate back when an input is not consuming the key |
 
-Lists, forms, tabs, and detail views expose their own contextual key hints. Page-level hints and Browser-list hints are anchored to the bottom of the page body, directly above the app footer, so switching pages does not move the local control row vertically. Transient notices and errors consume space above the main content instead of pushing hints away from the footer. Browser lists keep up to five custom actions in the compact hint row; when a page has more than five custom actions, those actions are hidden from the compact row and are available through `? more`. Expanded help stays expanded across automatic refreshes and list rebuilds. The app footer stays focused on global navigation instead of duplicating local controls.
+Page-local shortcuts are shown directly above the application footer. Press `?` where available to expand additional bindings.
+
+Mouse clicks and scrolling follow the same actions and validation paths as keyboard input.
 
 ## Commands
 
-Press `Ctrl+K` to search the shared action registry and discoverable resources. Search matches action titles, categories, keywords, resource context, resource IDs, and canonical CLI command paths, so CLI knowledge transfers directly to the TUI.
+Press `Ctrl+K` and search for an action, resource, page, ID, or canonical CLI path.
 
 Examples:
 
 ```text
 workspace register
-upstream server tools
+upstream server add
+request approve
 config verify
-auth mcp create
 restart
-guide mcp
+guide logs
 ```
 
-Use `Up` / `Down` to move, `Enter` to run the selected action, and `Esc` to close. Results can also be selected with the mouse and the wheel moves through the result list.
-
-Actions execute typed application/domain operations directly. The TUI never shells out to `cgm ...` to implement an action.
-
-Pages and resources are part of the same Commands surface rather than a separate Quick Open overlay. For example, searching a workspace ID, MCP server ID, `logs`, `config`, or `guide requests` can navigate directly to that resource or embedded guide topic.
-
-## Deep links
-
-`cgm tui [path...]` opens a page or resource directly. Useful entry points include:
-
-```bash
-cgm tui
-cgm tui workspace
-cgm tui workspace ws_...
-cgm tui containers wsc_...
-cgm tui mcp github
-cgm tui tunnel
-cgm tui tunnels tunnel_...
-cgm tui requests req_...
-cgm tui logs
-cgm tui config
-cgm tui instruction
-cgm tui runtime
-cgm tui about
-cgm tui guide
-cgm tui guide mcp
-```
-
-Aliases accepted by the route parser include `ws`, `cfg`, `req`, `status`, and `version`. Unknown paths fail instead of silently opening an unrelated page.
-
-Resource routes keep their owning top-level page active. For example, a workspace container still belongs to the Workspaces navigation section, while a managed tunnel belongs to Tunnel.
-
-## Editors and confirmations
-
-Create/configure/edit workflows use full-page editors backed by Huh/Bubbles components and the same validators used by the underlying domain/config operations where possible. Dialogs are reserved for destructive confirmation or operation progress.
-
-- Current values are prefilled for edit flows.
-- Sensitive values use password-style fields and remain redacted after persistence.
-- Validation errors stay on the relevant field instead of submitting partial state.
-- Mutating editors use `Ctrl+S` for their explicit primary action; non-mutating editors may opt into `Enter` on the final visible field (currently Runtime Logs filters, Command Execution scope, and Project Context build).
-- Multiline inputs keep `Enter` for newlines.
-- File/directory fields can use picker-first input with `Ctrl+O` manual-entry fallback.
-- Successful saves commit the current editor draft as the clean baseline before returning to the parent page, while failed saves preserve the exact draft.
-- Workspace and workspace-container mutations synchronously reload the running workspace registry before the TUI reports success, so Agent workspace/container reads see the change immediately.
-- A workspace detail exposes **Relocate** (`m`) for projects whose directory was already renamed or moved. The routed full-page editor selects the new directory and uses `Ctrl+S` because relocation mutates control-plane state; it never moves project files itself. The old workspace ID is retained as a legacy alias after a successful relocation.
-- Navigating away from an unsaved editor requires explicit discard confirmation.
-- Destructive actions such as unregister, remove, delete, clear, logout, token rotation, and similar lifecycle changes require explicit confirmation.
-- Long-running operations execute asynchronously through Bubble Tea commands so the interface stays responsive and cancellable where cancellation is safe.
-
-Mouse clicks on fields, choices, tabs, rows, and confirmation buttons dispatch the same messages used by keyboard interaction; mouse handlers do not bypass business or security logic.
+Commands is the primary discovery surface. There is no separate Quick Open workflow.
 
 ## Main areas
 
-The persistent navigation covers the main operational surfaces:
+The top-level navigation covers:
 
 ```text
-Workspaces  MCP  Tunnel  Requests  Logs  Config  Instruction  Runtime
+Workspaces | MCP | Tunnel | Requests | Logs | Config | Instruction | Runtime
 ```
 
-Additional resources such as workspace containers, managed tunnels, About/build information, and the embedded Guide are reachable through Commands or deep links.
+Child resources remain owned by their parent area. Additional resources such as workspace containers, managed tunnels, About/build information, and embedded Guide topics are reachable through Commands or deep links.
 
-The Logs page uses a natural-width `Runtime | Command Execution` tab list rather than an evenly divided navigation bar. `Runtime` loads persistent runtime history before opening its live stream and follows new events in real time. Its default visibility is `Verbose`, which includes useful lifecycle, approval, tunnel, and completed tool-call events while keeping debug diagnostics hidden. The Filters form can switch visibility between `Normal`, `Verbose`, and `Debug`; the selected visibility applies consistently to both journal history and live events.
+## Editors and confirmations
 
-`Command Execution` reuses the same bounded globally ordered execution feed produced by the runtime. It replays recent events before continuing live and renders stdout and stderr in event order instead of splitting them into separate panels. Each segment is one terminal-width block: `START` opens the first segment, a live trailing segment closes visually with `RUNNING`, an execution interrupted by another visible execution closes with `PAUSE`, a resumed execution opens with `CONTINUE`, and only an actual completion closes with `END`. The top border carries the opening marker and local time, the bottom border carries the current/final state and local time, and the execution ID is rendered as an `Execution` field inside the block. Metadata, command, and streamed content are separated by horizontal borders; empty content renders `No output`. Multi-value metadata such as routing uses indented bullets. Borders and wrapped content are recomputed from the current viewport width on every render. Raw MCP session IDs are never shown.
+Create/edit/configure workflows use full-page editors so long forms remain usable in small terminals.
 
-Press `f` to scope the view to `combined` (default), one registered workspace, or one workspace container. Workspace scope adds a `View` selector: `Run commands` shows normal command executions for that workspace, while `View process` lists managed `start_process` jobs and attaches the view to one selected process without opening a second SSE connection. Process output uses the same segmented execution renderer. If the selected process finishes while it is still being viewed, its output and final `END` block remain visible. Leaving that finished process view removes only that finished process record; leaving a still-running process only detaches the TUI and never stops the process. Combined/container/normal workspace command views exclude process-backed executions so background output does not pollute command history.
+Common behavior:
 
-Filtering remains presentation-only over the single global feed, so hidden events still advance the global sequence and cannot create false stream-gap detection. Container scope resolves the current member `ws_*` IDs and never treats `wsc_*` as filesystem permission. Reconnect or reapply scope to refresh changed container membership. A deleted selected workspace/container stays selected but shows an unavailable warning instead of silently falling back to combined. The view keeps at most 4000 feed events and supports follow/pause, reconnect, clear-view, keyboard scrolling, and mouse scrolling. Its contextual key hints stay pinned to the bottom even when the feed is empty. If an older running server does not expose the execution feed endpoint yet, the page reports `RESTART REQUIRED` instead of retrying forever.
+- `Ctrl+S` performs explicit mutating actions such as save/create/update.
+- Multiline inputs keep `Enter` for newlines.
+- Non-mutating selectors/forms may use `Enter` on the final field to apply/build.
+- Path fields use `Ctrl+O` to switch between picker and manual input where supported.
+- Sensitive fields use password-style input and do not expose persisted secrets.
+- Failed operations keep the current draft.
+- Leaving an unsaved editor requires explicit discard confirmation.
+- Destructive actions require confirmation.
 
-Top-level navigation remembers the last stable view for the lifetime of the current TUI process. Returning to a page through the header or `Alt+Left/Right` restores its last stable route; Logs additionally restores the active Runtime/Command Execution tab, applied Runtime query/visibility, execution scope, follow/pause state, selected Runtime event when still available, and Command Execution scroll offset as closely as the fresh bounded snapshot permits. A still-running selected process can be restored during that same TUI session; a finished process selection is not persisted because leaving its view cleans up its finished record. Pages and streams are always reconstructed rather than cached. This state is never persisted to disk and disappears when the TUI exits. Mutation/editor routes and dirty or submitting mutation forms are not saved as last views.
+## Workspaces
 
-The Command Center covers the public CLI capability inventory rather than mechanically copying Cobra into nested menus. Related commands are grouped around the resource they operate on.
+The Workspaces area manages concrete `ws_*` project roots, additional access directories, workspace containers, and Project Context previews.
+
+A workspace detail can relocate a project after its directory has already moved. Relocation updates the trusted registered root; it does not move project files itself.
+
+Workspace containers (`wsc_*`) are grouping/orchestration resources, not filesystem scopes. See [Workspaces](workspaces.md).
+
+## MCP
+
+The MCP area manages upstream MCP servers, health/tool discovery, tool exposure, and OAuth where supported.
+
+Server creation supports both form-driven setup and canonical JSON input. Sensitive environment/header values remain managed as secrets rather than being echoed into normal detail views.
+
+See [MCP and upstreams](mcp.md).
+
+## Tunnel
+
+Tunnel manages the local OpenAI Secure MCP Tunnel configuration and, when an appropriate verified admin credential is configured, managed tunnel resources.
+
+The normal ChatGPT runtime credential is the restricted **Tunnels Read + Use** key. Administrative tunnel management remains separate. See [OpenAI + ChatGPT](openai-chatgpt.md).
+
+## Requests
+
+Requests is the approval inbox for guarded actions. Pending requests can also appear in the global live approval dialog so a local operator can review the exact action without leaving the current page.
+
+Approval does not create a general shell bypass; it authorizes the runtime-defined action/retry scope. See [Security](security.md#control-guard-approvals-and-self-grant-prevention).
+
+## Logs
+
+Logs has three tabs:
+
+```text
+Runtime | Command Execution | Tool Calls
+```
+
+All three support two views:
+
+- **Browser** — inspect individual records and open details.
+- **Timeline** — follow the chronological stream.
+
+Use:
+
+| Key | Action |
+| --- | --- |
+| `v` | switch Browser / Timeline |
+| `m` | choose Stream Mode |
+| `Space` | pause/resume follow |
+| `r` | refresh/reconnect where applicable |
+
+Stream Mode controls the visible scope for Runtime, Command Execution, and Tool Calls. Command Execution can additionally select Process view for a workspace; the other tabs do not expose Process mode.
+
+### Runtime
+
+Runtime combines persistent journal history with the live runtime event stream. Tool-call lifecycle events are presented in the dedicated Tool Calls tab rather than duplicated into Runtime history.
+
+### Command Execution
+
+Command Execution follows the runtime execution feed and keeps stdout/stderr in event order. Browser view makes individual executions easy to inspect; Timeline is better for watching interleaved activity live.
+
+### Tool Calls
+
+Tool Calls shows authoritative tool-call lifecycle records. Browser detail renders the complete structured call body; Timeline renders request/result/error blocks in chronological order.
+
+### Follow behavior
+
+While a Logs page is active, follow keeps the selected view at the newest visible item/event. Navigating a Browser row away from the tail pauses follow so the selection does not get pulled out from under the user. Press `Space` to return to follow.
+
+Leaving Logs for another top-level page closes its live feeds. Returning reconstructs the page from fresh history/snapshots and **resumes follow automatically** instead of restoring a stale paused stream.
+
+## Config and Instruction
+
+Config is schema-driven. Use it for typed configuration editing and storage/maintenance operations; exhaustive configuration semantics remain available through `cgm config explain` and [Configuration](configuration.md).
+
+Instruction manages Global Context, managed rules, and detected instruction sources used by Project Context assembly.
+
+## Runtime
+
+Runtime is the operational control surface for service state, authentication, install/update actions, alias state, and version/build information.
+
+For scripts or remote automation, use the equivalent CLI commands instead. See [Runtime and operations](runtime.md).
+
+## Embedded Guide
+
+The Markdown tree under [`tuiguide/`](tuiguide/) is embedded into the binary as contextual help.
+
+Open Commands (`Ctrl+K`) and search for **Guide**, or deep-link directly:
+
+```bash
+cgm tui guide
+cgm tui guide logs
+cgm tui guide mcp
+```
+
+The embedded Guide intentionally explains the current page/editor instead of duplicating the complete public documentation.
 
 ## Scripting and automation
 
-Do not automate the full-screen TUI. Use normal commands instead:
+Do not automate the full-screen TUI. Use normal CLI commands and structured output instead:
 
 ```bash
-cgm workspace list
 cgm workspace list --json
 cgm upstream server list --json
 cgm config verify
 cgm status
 ```
 
-Use `--json` or other structured-output flags where supported. Normal CLI commands remain the compatibility surface for scripts and pipelines; `cgm tui` is intentionally TTY-only.
-
-The interaction model is explicit: interactive work starts with `cgm tui`, while normal `cgm ...` commands stay deterministic. Per-command interactive flags and automatic TUI branching are not part of the public CLI surface.
-
-## Release and parity guarantees
-
-The project keeps a canonical inventory of public CLI capabilities and verifies that every capability has a TUI representation discoverable through its CLI path. CI/release gates also exercise route parsing, Commands/resource navigation, non-TTY refusal, and representative model integration without trying to drive a real interactive terminal session in CI.
-
-The portable release smoke additionally checks `cgm tui --help`, the non-TTY refusal path, and normal CLI plain/JSON output so TUI evolution cannot silently break the scriptable interface.
-
-## Embedded feature guides
-
-Detailed TUI documentation lives in [`docs/tuiguide/content/`](tuiguide/content/) and the same Markdown tree is embedded into the `cgm` binary at build time. This avoids maintaining a second in-binary copy of the docs.
-
-Open `Ctrl+K` and search for **Guide** to browse topics, or search a direct action such as **Guide: MCP Servers** or **Guide: Requests & Approvals**. `cgm tui guide <topic>` is also a deep link.
-
-The guide tree mirrors the filesystem. A leaf is `child.md`; a branch is `child/index.md`, and branches may nest to any depth. `/guide` browses top-level nodes; a branch page has **Overview** for its `index.md` and **Topics** for direct children. Deep links mirror the same hierarchy, for example `cgm tui guide config storage bundles`. Only the selected Markdown document is rendered with Glamour, so the TUI never concatenates the full guide library into one oversized Markdown viewport.
+Use `cgm <command> --help` and the [CLI reference](cli-reference.md) for the scriptable interface.

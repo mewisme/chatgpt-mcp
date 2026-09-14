@@ -10,4 +10,4 @@ Export writes a sealed bundle to the selected destination. The destination may b
 
 Import reads a bundle, validates it, and requires explicit confirmation before replacing persisted state. The file picker and manual path entry feed the same validated path value.
 
-After import, runtime state may still differ from persisted state until reload or restart applies the imported configuration.
+Import requires the selected runtime to be stopped. Start the runtime again after a successful restore when you want the imported configuration to become live.

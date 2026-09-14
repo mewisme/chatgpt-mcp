@@ -1,90 +1,29 @@
-# MCP and upstreams
+# MCP clients and upstreams
 
-`chatgpt-mcp` implements the stateless MCP `2026-07-28` protocol revision and can also aggregate tools from configured upstream MCP servers.
+For ChatGPT, the recommended/default transport is **OpenAI Secure MCP Tunnel**. Use this guide when you need a generic MCP client such as Cursor, or when `chatgpt-mcp` should aggregate tools from another MCP server.
 
-## Local MCP endpoint
+For the ChatGPT setup, start with [OpenAI + ChatGPT](openai-chatgpt.md).
 
-Default endpoint when the direct HTTP transport is enabled:
+## Generic local MCP clients
 
-```text
-http://127.0.0.1:37421/mcp
-```
-
-`server.enabled` controls this direct MCP HTTP listener. OpenAI Secure MCP Tunnel is controlled independently by `tunnel.enabled`. Either transport may be used alone or both may run together, but configuration validation rejects disabling both.
-
-This endpoint belongs to the full `cgm serve` runtime and keeps the project's stateless/OpenAI-compatible protocol profile. Generic desktop MCP clients should use the dedicated `cgm mcp` transports below instead of assuming `/mcp` from `cgm serve` implements the standard initialization lifecycle.
-
-Modern requests use `POST /mcp` and carry protocol/routing metadata on each request.
-
-Typical headers:
-
-```http
-MCP-Protocol-Version: 2026-07-28
-Mcp-Method: tools/list
-Content-Type: application/json
-```
-
-Typical request metadata:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/list",
-  "params": {
-    "_meta": {
-      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-      "io.modelcontextprotocol/clientCapabilities": {},
-      "io.modelcontextprotocol/clientInfo": {
-        "name": "example-client",
-        "version": "1.0.0"
-      }
-    }
-  }
-}
-```
-
-## Protocol behavior
-
-The runtime supports the current project surface including:
-
-- `server/discover`
-- `tools/list`
-- `tools/call`
-- `subscriptions/listen`
-- per-request client/protocol metadata
-- SEP-2243 `Mcp-Method`, `Mcp-Name`, and `Mcp-Param-*` validation
-- Multi Round-Trip Requests (MRTR)
-
-The protocol revision is stateless:
-
-- no `initialize` handshake
-- the direct stateless endpoint does not create `Mcp-Session-Id`; when a client or Secure MCP Tunnel supplies one, the runtime uses it to track the session's ephemeral multi-workspace access set and approval identity
-- unknown/removed methods return HTTP `404` with JSON-RPC method-not-found semantics
-- `GET` and `DELETE` on the MCP endpoint return `405`
-
-## Generic MCP transports
-
-`cgm mcp` exposes standards-compatible transports for clients such as Cursor without starting the Admin server, Tunnel, or managed runtime-control listener.
+`cgm mcp` starts an MCP-only transport without the normal Admin server, Secure MCP Tunnel lifecycle, or managed runtime service.
 
 ### stdio
-
-Run a local child-process MCP server:
 
 ```bash
 cgm mcp stdio
 ```
 
-Bind the entire MCP session to one already registered workspace:
+Bind the session to one already registered workspace:
 
 ```bash
 cgm mcp stdio --workspace ~/projects/my-project
 cgm mcp stdio --workspace ws_...
 ```
 
-Binding never registers or relocates a workspace. The path/ID must already resolve through the workspace registry. For a bound session, workspace-scoped tool schemas omit the redundant `workspace_id`; the runtime injects the canonical workspace ID and rejects attempts to escape to another workspace.
+Binding does not register or relocate a workspace. The target must already exist in the workspace registry.
 
-Cursor project configuration can therefore use:
+A Cursor project configuration can therefore use:
 
 ```json
 {
@@ -98,135 +37,53 @@ Cursor project configuration can therefore use:
 }
 ```
 
-`stdio` uses the process stdin/stdout exclusively for MCP protocol frames. Diagnostics go to stderr. It does not require OAuth transport authentication because the local child-process boundary owns the connection lifecycle.
+### Streamable HTTP
 
-### Streamable HTTP and SSE compatibility
-
-Run the dedicated MCP-only HTTP server:
+Run the dedicated loopback MCP HTTP server:
 
 ```bash
 cgm mcp http
 ```
 
-The standalone server is loopback-only in the current implementation and exposes:
-
-```text
-/mcp       Streamable HTTP
-/mcp/sse   legacy SSE compatibility
-```
-
-SSE compatibility is enabled by default and can be disabled:
+It exposes the current Streamable HTTP endpoint and legacy SSE compatibility. Disable SSE compatibility when unnecessary:
 
 ```bash
 cgm mcp http --no-sse
 ```
 
-Workspace binding is also supported:
+Bind it to one registered workspace:
 
 ```bash
-cgm mcp http --workspace ~/projects/my-project
+cgm mcp http --workspace ws_...
 ```
 
-Streamable HTTP and SSE use the same canonical tool runtime, policies, approval flow, loop guard, workspace enforcement, execution feed, and upstream proxy catalog. Their activity source is recorded separately as `http` or `sse`.
+The dedicated generic-client HTTP transport is intentionally separate from the tunnel-first ChatGPT path.
 
-## Local authentication
+## Authentication
 
-The full `cgm serve` stateless HTTP endpoint retains the existing managed MCP bearer for compatibility:
+`stdio` uses the local child-process boundary and does not require transport OAuth.
 
-```http
-Authorization: Bearer <mcp-token>
-```
-
-Create or rotate the token with:
+Protected `cgm mcp http` uses OAuth as the canonical client authentication flow. Static managed MCP bearer compatibility can be controlled with:
 
 ```bash
-cgm auth mcp create
-```
-
-The OpenAI Secure MCP Tunnel runtime key is unrelated to this local MCP bearer token. The tunnel key authenticates the embedded tunnel client to OpenAI's control plane.
-
-Protected `cgm mcp http` uses OAuth as the canonical authentication flow. It exposes protected-resource/authorization-server discovery, Authorization Code + PKCE, public-client registration compatibility, short-lived authorization codes, opaque access tokens, and refresh-token rotation. Access tokens are bound to the MCP resource and cannot be reused for another resource.
-
-The managed MCP token is **not** sent to Cursor as an OAuth client secret or access token and is not used as a signing key. Rotating the MCP credential changes the auth generation and invalidates OAuth codes/tokens issued under the previous credential generation.
-
-For migration, static MCP bearer compatibility can be controlled with:
-
-```bash
-cgm config set auth.mcp_legacy_bearer true
 cgm config set auth.mcp_legacy_bearer false
 ```
 
-The compatibility path is enabled by default for existing installations. New generic clients should use OAuth instead of configuring the raw MCP token manually.
+The OpenAI Secure MCP Tunnel runtime API key is unrelated to generic MCP client authentication.
 
-## Workspace-bound tools
+See [Configuration](configuration.md#authentication) and [Security](security.md).
 
-Tools that operate on the filesystem, shell, Git, processes, rules, skills, context, or checkpoints require an explicit registered workspace handle where applicable.
+## Workspace binding
 
-Register:
+Without transport-level binding, workspace-scoped tools target explicit registered `ws_*` IDs. With `--workspace`, the generic transport binds the session to that one concrete workspace and removes redundant workspace selection from the client-facing surface where applicable.
 
-```bash
-cgm workspace register ~/projects/my-project
-```
+Workspace containers (`wsc_*`) remain orchestration groups and are never substituted for a concrete filesystem workspace.
 
-The workspace ID is stable by canonical path and does not silently switch to another project. Older instance-scoped IDs from registry v2 are migrated and retained as aliases.
-
-If a project directory is renamed or moved, a trusted operator can relocate the workspace through the CLI, TUI, or Admin API. The resulting canonical ID follows the new path and the previous ID remains a legacy alias, so an existing MCP session holding the old ID can still resolve the same workspace after runtime synchronization. **Workspace relocation is deliberately not exposed as an MCP tool** because changing the trusted workspace root is a control-plane mutation that an agent must not grant to itself.
-
-For requests carrying an MCP session ID, each valid explicitly targeted workspace is added to that session's in-memory access set. The same session can therefore work across multiple registered projects without a workspace-switch operation. Every scoped call still requires `workspace_id`, and workspace-specific context, filesystem scope, shell/REPL state, checkpoints, and approvals remain isolated by that target.
-
-Workspace containers use a separate orchestration scope. `ws_*` identifies an execution/filesystem workspace; `wsc_*` identifies only a logical group of registered workspaces. Agents can discover and resolve containers with:
-
-```text
-workspace_container_list()
-workspace_container_status(container_id="wsc_...")
-workspace_container_context(container_id="wsc_...")
-```
-
-`workspace_container_context` returns container metadata, member workspace IDs/roots, and orchestration guidance. It intentionally does not merge or eagerly load member project context, memory, rules, cwd, permissions, or checkpoints. Before substantial work in a selected member, call `project_context` for that concrete `ws_*` with memory enabled. Container-only calls do not add a fake workspace to the MCP session access set; only concrete member workspace calls do.
-
-Passing an existing `wsc_*` to a workspace-scoped tool as `workspace_id` fails with an actionable error instead of selecting a member or fanning the operation out. Container membership by itself grants no filesystem permission.
-
-Effective filesystem scope and session isolation are described in [Security](security.md).
-
-Checkpointed filesystem mutations are fail-safe. Existing files up to the inline threshold are stored in the checkpoint manifest; larger files are streamed into private checkpoint blobs with size and SHA-256 verification. Recursive directory snapshots include safe symlinks. If a directory is too deep, contains an unsupported file type, or otherwise cannot be captured completely, the mutation fails before changing the filesystem. `delete_directory` and `move_file` also refuse to remove or relocate a workspace root or configured allowed root because doing so would make that scope unavailable to rewind. Shell-command filesystem changes remain outside checkpoint tracking.
-
-## Effective project context and global instructions
-
-`project_context` is assembled by one shared builder used by both the MCP tool and the Admin workspace preview. Its effective instruction text can include project-local instruction files, managed global context/rules, enabled user-level instruction sources, matching path rules, optional skill metadata, Git context, and memory according to the tool options and configured byte/line budgets.
-
-The Admin `Global Instructions` view manages the runtime-owned global context and always-on rules. It also discovers supported user-level instruction providers on the current machine and exposes policy switches only for resource kinds that actually exist. A missing provider or missing context/rules/skills kind is not synthesized into the UI. Disabling a detected user-level source is enforced in the shared discovery/load path used by `project_context`, `list_skills`, `load_skill`, and `load_path_rules`; project-local sources remain independent from those user-level switches.
-
-The Admin workspace `Context` view calls the same builder as the MCP tool, so its rendered preview is intended to represent the effective context a corresponding `project_context` call would receive with the same options.
-
-## Synchronous commands and Admin execution streaming
-
-`run_command` remains a synchronous MCP tool: the caller receives the normal final command result with stdout, stderr, cwd, exit code, and timeout state. While the command is running, the runtime additionally mirrors stdout/stderr into a workspace-scoped in-memory execution stream for the Admin workspace `Activity` view.
-
-Execution streams use a bounded output tail and bounded recent-execution history. Reconnecting clients first receive a full execution snapshot and then globally sequence-numbered start/output/completion events, so they can recover from a dropped or overflowed SSE connection without changing the MCP result contract. Execution metadata carries the runtime-local call ID, safe MCP session fingerprint, source, and received/executed instance IDs when available; it never carries the raw MCP session ID. Raw streamed stdout/stderr is intentionally excluded from the normal activity observation payload; the activity journal keeps command/result metadata while live command output stays in the execution buffer.
-
-## Control-guard approval flow
-
-When a workspace-scoped tool attempts an approvable control-plane mutation, the tool call returns structured `approval_required` content instead of executing the mutation. The response includes a short-lived `challenge_id`, the workspace, target tool, exact canonical arguments, guard reason, and the `request_control_approval` tool name.
-
-The agent may then call, supplying its own concise human-readable summary of the action:
-
-```text
-request_control_approval(workspace_id, challenge_id, title)
-```
-
-`title` is authored by the agent from the command intent, not generated by the runtime. It should describe what the command will do, for example `Update ChatGPT MCP`, `Delete generated files`, or `Push commits to origin`. It must not be the MCP tool name and should not copy the raw command, flags, arguments, tokens, secrets, or IDs.
-
-That request is accepted only when the challenge came from a real guard failure in the same MCP session and workspace and includes a non-empty title. The exact command and canonical arguments remain runtime-bound to the challenge; the agent-authored title is display metadata only. The human request expires after 60 seconds and can be reviewed in the Admin UI or with `cgm request list/view`. Approval or denial is performed outside the agent's MCP tool context.
-
-If approved, the tool response instructs the agent to retry the original target tool. The retry must match the approved session, workspace, target tool, source, guard code, and arguments exactly. A mismatched retry returns `approval_mismatch` and does not consume the valid approval; an exact retry consumes it once. Hard-deny guards such as protected-state access, path escape, nested/wrapper control-plane commands, session/workspace rebinding, and tool-context tampering never produce an approval challenge.
-
-For direct `cgm` execution, the approved retry is additionally narrowed to one opaque, short-lived child capability bound to the exact CLI argv. The MCP tool-context marker remains present; the child CLI verifies the capability over authenticated loopback runtime-control before executing.
-
-See [Security](security.md#control-guard-approvals-and-self-grant-prevention) for the full trust model.
+See [Workspaces](workspaces.md) for the canonical workspace model.
 
 ## Upstream MCP aggregation
 
-`chatgpt-mcp` can connect to other MCP servers and expose enabled upstream tools through the same local tool catalog.
+`chatgpt-mcp` can connect to other MCP servers and expose selected upstream tools through its own catalog.
 
 Start with:
 
@@ -235,11 +92,7 @@ cgm upstream --help
 cgm upstream server --help
 ```
 
-`cgm mcp server ...` remains a deprecated compatibility path during the migration window and forwards to the same upstream handlers. New scripts should use `cgm upstream server ...`.
-
-Upstream definitions can also be managed in the embedded admin dashboard.
-
-Common management commands:
+Common operations:
 
 ```bash
 cgm upstream server list
@@ -251,7 +104,7 @@ cgm upstream server disable <id>
 cgm upstream server remove <id>
 ```
 
-Add an HTTP upstream:
+### HTTP upstream
 
 ```bash
 cgm upstream server add example \
@@ -261,7 +114,7 @@ cgm upstream server add example \
   --expose all
 ```
 
-Add a local stdio upstream:
+### stdio upstream
 
 ```bash
 cgm upstream server add local-tools \
@@ -272,31 +125,13 @@ cgm upstream server add local-tools \
   --expose all
 ```
 
-Useful add/configure controls include:
+Tool exposure can be narrowed with prefixes, allowlists, disabled-tool lists, or exposure modes. Use `cgm upstream server add --help` and `configure --help` for the installed version's exact fields.
 
-- `--tool-prefix <prefix>` for proxy tool names
-- `--tool <name>` to allowlist tools
-- `--disable-tool <name>` to hide tools
-- `--expose none|meta_only|allowlist|all`
-- `--bearer-token-env <ENV_NAME>` for HTTP bearer auth without storing the token in config
-- `--header KEY=VALUE` for HTTP headers
-- `--env KEY=VALUE` for stdio environments
-- `--idle-timeout <seconds>`
-- `--allow-private-network` to permit loopback/private HTTP upstream URLs for that server only
-
-HTTP upstream URLs are subject to an outbound SSRF policy: userinfo is rejected, non-loopback targets must use HTTPS, and private/link-local/metadata addresses are blocked unless `allow_private_network` is set. Redirects and dialed IPs are re-validated. Configured headers are allowlisted (for example `Authorization`, `Accept`, `Content-Type`, `User-Agent`, `X-*`, `Mcp-*`); hop-by-hop headers such as `Host` and values containing CR/LF are rejected. See [Security](security.md#upstream-http-outbound-policy).
-
-Update selected fields with:
-
-```bash
-cgm upstream server configure <id> [flags]
-```
-
-`configure` also has the alias `set`.
+`cgm mcp server ...` is a deprecated compatibility path; new automation should use `cgm upstream server ...`.
 
 ## Upstream OAuth
 
-HTTP upstreams can use OAuth. Access/refresh tokens and client secrets are stored in the selected config root's secret-file store; the structured OAuth state file contains only non-secret metadata and `<secret-file>` markers.
+HTTP upstreams can use managed OAuth:
 
 ```bash
 cgm upstream server auth login <id>
@@ -304,61 +139,32 @@ cgm upstream server auth status <id>
 cgm upstream server auth logout <id>
 ```
 
-Upstream tool discovery and proxy refresh are designed to be atomic:
+Managed access/refresh tokens and client secrets are stored through the selected config root's secret store rather than ordinary structured configuration.
 
-1. build the complete replacement proxy set
-2. validate required upstream discovery/schema state
-3. commit one registry swap only after the replacement is ready
+## Outbound network policy
 
-If discovery or schema refresh fails, the previous working proxy catalog remains active instead of being partially replaced.
+HTTP upstreams are subject to outbound URL and redirect validation. Public non-loopback targets normally require HTTPS; private/link-local/metadata destinations are rejected unless that upstream explicitly opts into private-network access.
+
+Use `--allow-private-network` only for upstreams you intentionally expect to reach on loopback/private networks.
+
+See [Security](security.md#upstream-http-outbound-policy) for the exact boundary.
 
 ## Tool catalog changes
 
-The exposed tool catalog can change when:
+The visible tool catalog can change when upstream servers are added, removed, enabled, disabled, or rediscovered, or when local feature/configuration state changes the available tool surface.
 
-- upstream MCP servers are added/removed/updated
-- upstream discovery succeeds with a changed schema
-- built-in features are toggled
-- permissions/configuration alter available tools
+Replacement discovery is applied as a complete catalog update rather than intentionally exposing a partially refreshed upstream.
 
-Subscribers can observe catalog changes through the MCP subscription surface.
+## Protocol profile
 
-## MRTR
+The integrated ChatGPT runtime follows the project's current stateless MCP profile and OpenAI tunnel requirements. Generic `cgm mcp stdio` / `cgm mcp http` transports provide standards-compatible client lifecycles for ordinary MCP clients.
 
-The runtime supports Multi Round-Trip Requests with the project's current fields such as:
-
-```text
-input_required
-inputRequests
-inputResponses
-requestState
-```
-
-Upstream MRTR behavior can be relayed through the proxy path where supported.
-
-## OpenAI Secure MCP Tunnel transport
-
-For private ChatGPT connectivity, the embedded OpenAI tunnel client connects the local MCP runtime to an OpenAI-hosted tunnel endpoint without requiring the local `/mcp` listener to be public.
-
-The high-level path is:
-
-```text
-ChatGPT
-  -> OpenAI-hosted tunnel endpoint
-  -> embedded tunnel client
-  -> chatgpt-mcp MCP runtime
-  -> tools / workspaces / upstream MCPs
-```
-
-See [OpenAI + ChatGPT setup](openai-chatgpt.md).
-
-## Version inspection
-
-The MCP tool catalog includes a read-only runtime version tool where supported by the current binary. The CLI also exposes:
+The current binary is the authoritative source for its supported transport/command surface:
 
 ```bash
-cgm version
-cgm --version
+cgm mcp --help
+cgm mcp stdio --help
+cgm mcp http --help
 ```
 
-Version metadata can include build version, commit, and build time depending on how the binary was produced.
+Protocol-specific implementation details such as the exact revision, method/header validation, MRTR support, and compatibility behavior are intentionally kept out of the normal setup path because most users do not need them to connect or operate the runtime.

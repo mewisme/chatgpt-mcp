@@ -4,84 +4,36 @@
 
 **A secure, workspace-bound bridge between ChatGPT and your machine.**
 
-Single Go binary · MCP `2026-07-28` · OpenAI Secure MCP Tunnel · Managed services · Embedded admin UI
+Single Go binary · OpenAI Secure MCP Tunnel · Linux, macOS, and Windows
 
 [![Latest Release](https://img.shields.io/github/v/release/mewisme/chatgpt-mcp?display_name=tag&sort=semver&style=flat-square)](https://github.com/mewisme/chatgpt-mcp/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/mewisme/chatgpt-mcp/ci.yml?branch=main&label=CI&style=flat-square)](https://github.com/mewisme/chatgpt-mcp/actions/workflows/ci.yml)
-[![MCP](https://img.shields.io/badge/MCP-2026--07--28-111111?style=flat-square)](docs/mcp.md)
-[![OpenAI](https://img.shields.io/badge/OpenAI-Secure%20MCP%20Tunnel-000000?style=flat-square&logo=openai)](docs/openai-chatgpt.md)
 [![Go](https://img.shields.io/github/go-mod/go-version/mewisme/chatgpt-mcp?style=flat-square&logo=go)](go.mod)
 [![License](https://img.shields.io/github/license/mewisme/chatgpt-mcp?style=flat-square)](LICENSE)
 
-[Getting started](docs/getting-started.md) · [TUI Command Center](docs/tui.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [CLI reference](docs/cli-reference.md) · [Security](docs/security.md) · [Troubleshooting](docs/troubleshooting.md) · [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
+[Get started](docs/getting-started.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [Command Center](docs/tui.md) · [Security](docs/security.md) · [Documentation](docs/README.md)
 
 </div>
 
----
+`chatgpt-mcp` lets ChatGPT work with local projects through explicitly registered workspaces. The default setup uses **OpenAI Secure MCP Tunnel**, so the runtime can stay private without exposing an inbound MCP port to the public internet.
 
-`chatgpt-mcp` gives ChatGPT controlled access to local workspaces, shell/Git operations, upstream MCP servers, runtime logs, and administration without requiring you to expose your machine directly to the public internet.
+## Overview
 
-It includes OpenAI Secure MCP Tunnel support directly in the binary, so the common private setup is simply:
+<p align="center">
+  <img src="docs/architecture/overview.svg" alt="chatgpt-mcp architecture overview" width="100%">
+</p>
 
-```text
-ChatGPT
-   │
-   │ OpenAI-hosted Secure MCP Tunnel
-   ▼
-chatgpt-mcp
-   ├─ workspace-bound filesystem / shell / Git tools
-   ├─ upstream MCP aggregation
-   ├─ runtime journal + live logs
-   └─ embedded admin dashboard
-```
+The main path is intentionally small: ChatGPT reaches the local runtime through the Secure MCP Tunnel, then `chatgpt-mcp` applies workspace scope before filesystem, shell, Git, process, or upstream MCP work happens.
 
-## Highlights
+### Why chatgpt-mcp
 
-- Stateless MCP `2026-07-28` HTTP runtime at `/mcp`
-- Builtin OpenAI Secure MCP Tunnel client with supervised reconnects
-- Multi-workspace MCP sessions with explicit `workspace_id` targeting and per-workspace state isolation
-- Workspace-bound filesystem, shell, Git, rules, skills, checkpoints, and utilities
-- Managed global context/rules plus detected user-level instruction sources, with per-provider context/rules/skills policy
-- Dynamic upstream MCP aggregation with OAuth and MRTR relay
-- Managed background runtime via systemd, launchd, or Task Scheduler
-- Full-screen `cgm tui` Command Center with Command Palette, Quick Open, deep links, forms, confirmations, live logs, and mouse/keyboard parity
-- Persistent structured logs with session boundaries, replay timestamps, filters, `--verbose`, `--debug`, JSON, and live follow
-- Live configuration reload with transactional listener rebind and rollback
-- Embedded React admin dashboard
-- Workspace-scoped Admin views for effective project context, approval requests, and live `run_command` executions
-- Separate MCP/admin authentication and explicit network exposure controls
-- Human-approved one-shot elevation for guarded control-plane actions, with CLI/Admin review
-- Single-binary releases for Linux, macOS, and Windows on amd64/arm64
-- Transactional direct install/self-update with checksum verification, stable launchers, managed-runtime restart, and automatic rollback
+- **Private by default for ChatGPT** — the Secure MCP Tunnel is outbound-only from your machine; public MCP ingress is not required.
+- **Workspace-bound access** — filesystem, shell, Git, process, context, memory, rules, skills, and checkpoints operate against explicit `ws_*` workspace targets.
+- **Local control stays local** — use the CLI, full-screen TUI, or embedded Admin UI to inspect and operate the runtime.
+- **MCP aggregation** — optionally expose tools from upstream MCP servers through the same runtime.
+- **One cross-platform binary** — native releases for Linux, macOS, and Windows on amd64 and arm64, with managed background-service support.
 
-## Requirements
-
-### Minimal (local runtime)
-
-| Need | Detail |
-| --- | --- |
-| OS / CPU | Linux, macOS, or Windows on **amd64** or **arm64** |
-| Privileges | Normal user account (do not run the MCP process as root) |
-| Disk | Config/state under `~/.config/chatgpt-mcp/` plus modest log rotation (~50 MiB default) |
-| Network | Not required after install for loopback-only `cgm serve` / `cgm up` |
-| Ports | Defaults `127.0.0.1:37421` (MCP) and `127.0.0.1:37422` (Admin); busy ports fall back automatically |
-
-No Docker, Git, or OpenAI account is required just to start the server. `cgm init` creates local MCP/Admin tokens.
-
-### Recommended (ChatGPT daily use)
-
-| Need | Detail |
-| --- | --- |
-| OpenAI | Secure MCP Tunnel ID + runtime API key with **Tunnels Read + Use** (not an Admin API key) |
-| Network | Outbound HTTPS `:443` to OpenAI (no inbound port for the tunnel path) |
-| Persistence | `cgm up` managed service; on remote Linux without user lingering, prefer `cgm up --system` |
-| Workspaces | Register only the roots ChatGPT should reach |
-| Posture | Keep `server.expose` at `none`; prefer tunnel-only (`server.enabled=false`, `tunnel.enabled=true`); register only the filesystem roots agents actually need |
-| Optional | `git` on PATH for Git tools; use an external OS sandbox/container/VM when stronger process isolation is required |
-
-Full checklists and install notes: [Getting started](docs/getting-started.md#requirements). Security defaults: [Security](docs/security.md#recommended-operational-defaults).
-
-## Installation
+## Install
 
 ### Linux / macOS
 
@@ -109,22 +61,9 @@ scoop bucket add mew https://github.com/mewisme/scoop-mew
 scoop install mew/chatgpt-mcp
 ```
 
-Both `chatgpt-mcp` and the shorter `cgm` alias are installed. The examples below use `cgm`.
+Both `chatgpt-mcp` and the shorter `cgm` command are installed. The examples below use `cgm`.
 
-Direct installs are managed by the binary itself. A downloaded release can adopt the managed layout with `./chatgpt-mcp install`; pass `--no-alias` to skip `cgm`. Managed direct installs can then update transactionally:
-
-```bash
-cgm upgrade check
-cgm upgrade
-cgm upgrade --version vX.Y.Z
-cgm upgrade --no-restart
-```
-
-`cgm upgrade` verifies the release checksum before activation. A running managed service is restarted and health-checked by default; restart failure automatically restores the previous version. Foreground runtimes are left running on the previous binary until restarted manually. Homebrew and Scoop installations remain owned by their package managers. `cgm update` remains an alias for compatibility.
-
-See [Getting started](docs/getting-started.md) for install ownership, version pinning, updates, uninstall, and platform details.
-
-## 5-minute quick start
+## 5-minute setup
 
 ### 1. Initialize
 
@@ -132,32 +71,15 @@ See [Getting started](docs/getting-started.md) for install ownership, version pi
 cgm init
 ```
 
-The default config/state root is:
-
-```text
-~/.config/chatgpt-mcp/
-```
-
-Use `--config-dir` or `CHATGPT_MCP_CONFIG_DIR` for isolated instances.
-
-### 2. Register a workspace
+### 2. Register the project ChatGPT may work with
 
 ```bash
 cgm workspace register ~/projects/my-project
 ```
 
-The returned `workspace_id` is the stable handle used by workspace-bound tools.
+The command returns a stable `ws_*` workspace ID. Register only roots you intentionally want the runtime to reach.
 
-For interactive administration, open the Command Center at any time:
-
-```bash
-cgm tui
-cgm tui workspace
-```
-
-Normal `cgm ...` commands remain the scriptable interface. See [TUI Command Center](docs/tui.md) for shortcuts, Quick Open, deep links, and interaction details.
-
-### 3. Connect OpenAI Secure MCP Tunnel
+### 3. Configure the Secure MCP Tunnel
 
 Create a tunnel and a restricted runtime API key in OpenAI Platform, then configure them locally:
 
@@ -168,133 +90,92 @@ cgm tunnel configure \
   --api-key 'sk-...'
 ```
 
-The runtime key should have **Tunnels Read + Use**. Tunnel creation/editing requires **Tunnels Read + Manage**. Associate the tunnel with the ChatGPT workspace that should be able to discover it.
+The runtime key should have **Tunnels Read + Use**. It is not an OpenAI Admin API key and is not used to call a language model.
 
-For the complete OpenAI flow — tunnel ID, runtime key, permissions, Developer Mode, creating the ChatGPT app, Scan Tools, and verification — follow [Connect ChatGPT with OpenAI Secure MCP Tunnel](docs/openai-chatgpt.md).
-
-### 4. Start the runtime
-
-Foreground:
-
-```bash
-cgm serve
-```
-
-Managed background service:
+### 4. Start the managed runtime
 
 ```bash
 cgm up
 ```
 
-`up` reports the managed scope/backend, runtime session, PID/endpoints, and whether the OpenAI tunnel is enabled, configured, and currently connected/connecting.
-
-On Linux/macOS, `cgm up --system` installs a machine-level service and automatically elevates through `sudo` when the current process is user-scoped; the MCP process itself still runs as the invoking user. On Windows, `cgm up` always uses a per-user Scheduled Task.
-
-### 5. Verify
+Verify locally:
 
 ```bash
 cgm status
 cgm tunnel status
+```
+
+### 5. Connect ChatGPT
+
+Enable Developer Mode in ChatGPT, create a custom app using **Tunnel**, select the same tunnel, and **Scan Tools**.
+
+The complete Platform permissions and ChatGPT setup flow is in [Connect ChatGPT with OpenAI Secure MCP Tunnel](docs/openai-chatgpt.md).
+
+## Operate it
+
+For interactive administration:
+
+```bash
+cgm tui
+```
+
+For scripts and automation, use the normal CLI:
+
+```bash
+cgm status
+cgm workspace list
 cgm logs -f
+cgm config verify
 ```
 
-Then create or enable the developer-mode app in ChatGPT and select the same tunnel.
+Use `cgm <command> --help` for the live command surface. The exhaustive command inventory lives in the [CLI reference](docs/cli-reference.md), not in this README.
 
-## Common commands
+## Other MCP clients
 
-| Goal | Command |
-| --- | --- |
-| Install current binary into managed layout | `chatgpt-mcp install` |
-| Check for an upgrade | `cgm upgrade check` |
-| Upgrade managed direct install | `cgm upgrade` |
-| Initialize | `cgm init` |
-| Open the interactive Command Center | `cgm tui` |
-| Start foreground | `cgm serve` |
-| Start managed service | `cgm up` |
-| Stop/remove managed service | `cgm down` |
-| Inspect runtime | `cgm status` |
-| Review control approval requests | `cgm request list` |
-| Follow logs | `cgm logs -f` |
-| Full diagnostic logs | `cgm logs --debug -f` |
-| Explain config schema | `cgm config explain [key]` |
-| Migrate legacy credentials | `cgm config migrate` |
-| Encrypt secret files at rest | `cgm config migrate secrets` |
-| Verify config/state | `cgm config verify` |
-| Export portable config/state + secrets | `cgm config export` |
-| Import portable config/state + secrets | `cgm config import` |
-| Register workspace | `cgm workspace register <path>` |
-| Manage workspace containers | `cgm workspace container --help` |
-| Add workspace access | `cgm workspace access add <workspace_id> <path>` |
-| Inspect tunnel | `cgm tunnel status` |
-| Manage upstream MCPs | `cgm mcp --help` |
-| Rotate MCP/admin credentials | `cgm auth --help` |
+The tunnel-first flow above is the default ChatGPT setup. Generic local MCP clients can instead use dedicated `stdio` or local Streamable HTTP transports:
 
-`--verbose`, `--debug`, and `--log-format=json` are global flags. Use `cgm <command> --help` for the live command surface.
-
-Workspace containers (`wsc_*`) are Agent orchestration scopes, not filesystem workspaces. An Agent resolves a container with `workspace_container_context`, then uses concrete member `ws_*` IDs for `project_context`, filesystem, Git, shell, memory, rules, and checkpoint tools. Container selection never merges member cwd, permissions, rules, memory, or checkpoints.
-
-## Runtime endpoints
-
-Defaults when both local HTTP endpoints are enabled:
-
-```text
-MCP:   http://127.0.0.1:37421/mcp
-Admin: http://127.0.0.1:37422/
+```bash
+cgm mcp stdio --workspace ~/projects/my-project
+cgm mcp http --workspace ws_...
 ```
 
-MCP connectivity can use the direct HTTP transport (`server.enabled=true`), OpenAI Secure MCP Tunnel (`tunnel.enabled=true`), or both. At least one MCP transport must remain enabled. The default exposure mode is loopback-only. Network exposure, authentication, config formats, reload semantics, and isolated config roots are documented in [Configuration](docs/configuration.md).
-
-## Documentation
-
-| I want to… | Read |
-| --- | --- |
-| Install and get a local runtime running | [Getting started](docs/getting-started.md) |
-| Connect ChatGPT through OpenAI Secure MCP Tunnel | [OpenAI + ChatGPT setup](docs/openai-chatgpt.md) |
-| Understand `serve`, `up`, `down`, services, status, and logs | [Runtime and services](docs/runtime.md) |
-| Configure auth, exposure, formats, reload, and workspace access | [Configuration](docs/configuration.md) |
-| Use Command Palette, Quick Open, forms, and interactive resource pages | [TUI Command Center](docs/tui.md) |
-| Find commands and useful flag combinations | [CLI reference](docs/cli-reference.md) |
-| Understand MCP protocol behavior and upstream aggregation | [MCP and upstreams](docs/mcp.md) |
-| Understand trust boundaries and security controls | [Security](docs/security.md) |
-| Build, test, run CI, and prepare releases | [Development](docs/development.md) |
-| Diagnose tunnel, service, config, or port failures | [Troubleshooting](docs/troubleshooting.md) |
-
-The full documentation index lives in [`docs/README.md`](docs/README.md).
+See [MCP clients and upstream servers](docs/mcp.md).
 
 ## Security model
 
-`chatgpt-mcp` is intentionally workspace-scoped. Filesystem/shell/Git mutations are constrained to the explicitly targeted registered workspace plus its allowed directories, symlink escapes are rejected, and MCP tool execution cannot silently grant itself control-plane permissions. One MCP session may use multiple registered workspaces, but every workspace-scoped call must carry `workspace_id`, and project context, rules, memory, shell cwd, REPL state, checkpoints, and other workspace state remain isolated by workspace. When a direct `cgm` mutation is eligible for elevation, the tool receives a short-lived approval challenge; a human can review it in the Admin UI or with `cgm request ...`, and an approved retry must match the original session, workspace, tool, and arguments exactly and is usable once. Hard security boundaries such as path escape, protected control-state access, nested/wrapper execution, and tool-context tampering remain non-approvable.
+`chatgpt-mcp` provides an application-level workspace and control-plane boundary, not a kernel sandbox. Paths are canonicalized, symlink escapes are rejected, trusted control-plane mutations are separated from ordinary workspace operations, and sensitive managed credentials are not stored as plaintext structured config.
 
-Long-lived reversible credentials such as OpenAI tunnel keys, upstream OAuth tokens, and sensitive upstream header/environment values are stored in per-config-root secret files under `<config-root>/state/secrets` with restrictive permissions instead of plaintext structured config. MCP/Admin app tokens remain one-way hashes in config. A tunnel ID is an identifier, not a secret. Do not use a Platform Admin API key as the long-lived tunnel runtime key.
+If you need isolation from deliberately hostile native code running as the same OS user, use an OS sandbox, container/VM, or separate operating-system identity.
 
-Read [Security](docs/security.md) before widening network exposure or granting additional filesystem roots.
+Read [Security](docs/security.md) before widening network exposure or filesystem access.
+
+## Documentation
+
+| Goal | Read |
+| --- | --- |
+| Install and connect ChatGPT | [Getting started](docs/getting-started.md) |
+| Configure OpenAI Secure MCP Tunnel and the ChatGPT app | [OpenAI + ChatGPT](docs/openai-chatgpt.md) |
+| Understand workspace scope and containers | [Workspaces](docs/workspaces.md) |
+| Run, stop, inspect, update, and read logs | [Runtime and operations](docs/runtime.md) |
+| Use the full-screen terminal UI | [TUI Command Center](docs/tui.md) |
+| Configure auth, exposure, storage, and runtime settings | [Configuration](docs/configuration.md) |
+| Connect generic clients or upstream MCP servers | [MCP and upstreams](docs/mcp.md) |
+| Look up commands and flags | [CLI reference](docs/cli-reference.md) |
+| Understand trust boundaries | [Security](docs/security.md) |
+| Diagnose common failures | [Troubleshooting](docs/troubleshooting.md) |
+| Build and contribute | [Development](docs/development.md) |
+
+See the [documentation index](docs/README.md) for the recommended reading paths.
 
 ## Development
 
-Requirements for source builds:
-
-- Go 1.27+
-- Node.js 24+
-- pnpm 11+
+Source builds require Go 1.27+, Node.js 24+, and pnpm 11+.
 
 ```bash
-pnpm --dir web install
-pnpm --dir web test
-pnpm --dir web lint
-pnpm --dir web typecheck
-node scripts/prepare-web-embed.mjs
-CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
-go vet ./...
-go build -trimpath ./
+./scripts/check.sh
 ```
 
-See [Development](docs/development.md) for the release smoke, cross-platform matrix, and the repository rule that tests must never mutate the real default config root.
-
-## Contributing
-
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, and PR expectations. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-To report a vulnerability, use the [security policy](SECURITY.md) (private GitHub advisories — do not open a public issue).
+See [Development](docs/development.md) for the complete verification, CI, and release workflow, and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations.
 
 ## License
 

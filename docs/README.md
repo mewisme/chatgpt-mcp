@@ -1,62 +1,45 @@
 # Documentation
 
-This directory contains the detailed documentation for `chatgpt-mcp`. The repository README is intentionally short and optimized as a project landing page.
+Start with a task guide, then use the reference docs only when you need exact commands, configuration, protocol, or security details.
 
 ## Start here
 
-| Goal | Guide |
+| I want to… | Read |
 | --- | --- |
-| Check runtime requirements and recommendations | [Getting started → Requirements](getting-started.md#requirements) |
-| Install and start `chatgpt-mcp` | [Getting started](getting-started.md) |
-| Connect ChatGPT to a private/local runtime | [OpenAI + ChatGPT setup](openai-chatgpt.md) |
-| Run as a foreground process or managed service | [Runtime and services](runtime.md) |
-| Configure ports, auth, exposure, formats, and workspaces | [Configuration](configuration.md) |
-| Use the full-screen interactive Command Center | [TUI Command Center](tui.md) |
-| Read detailed TUI feature guides | [Embedded TUI Guide topics](tuiguide/) |
-| Browse commands and common flag combinations | [CLI reference](cli-reference.md) |
-| Understand MCP protocol behavior and upstream servers | [MCP and upstreams](mcp.md) |
-| Review filesystem, shell, auth, tunnel, and control-plane boundaries | [Security](security.md) |
-| Build, test, run smoke tests, CI, and release | [Development](development.md) |
-| Diagnose common failures | [Troubleshooting](troubleshooting.md) |
+| Install `chatgpt-mcp` and connect ChatGPT | [Getting started](getting-started.md) |
+| Configure the OpenAI tunnel and ChatGPT app | [OpenAI + ChatGPT](openai-chatgpt.md) |
+| Understand `ws_*`, workspace scope, and `wsc_*` containers | [Workspaces](workspaces.md) |
+| Operate the runtime, services, logs, and updates | [Runtime and operations](runtime.md) |
+| Use the full-screen terminal UI | [TUI Command Center](tui.md) |
+| Fix a problem | [Troubleshooting](troubleshooting.md) |
 
-## Recommended reading paths
+## Extend and integrate
 
-### I just want ChatGPT connected to my computer
+| Topic | Guide |
+| --- | --- |
+| Generic MCP clients, stdio/HTTP transports, upstream servers, OAuth | [MCP and upstreams](mcp.md) |
+| Authentication, exposure, storage, config roots, import/export | [Configuration](configuration.md) |
+| Trust boundaries, approvals, credentials, and network policy | [Security](security.md) |
 
-1. [Getting started](getting-started.md)
-2. [OpenAI + ChatGPT setup](openai-chatgpt.md)
-3. [Runtime and services](runtime.md)
-4. [Security](security.md)
+## Reference
 
-### I am operating a remote Linux server
+The runtime itself is the authoritative source for the live command and configuration surface:
 
-1. [Getting started](getting-started.md)
-2. [Runtime and services](runtime.md) — especially user vs system service behavior
-3. [OpenAI + ChatGPT setup](openai-chatgpt.md)
-4. [Troubleshooting](troubleshooting.md)
+```bash
+cgm --help
+cgm <command> --help
+cgm config explain [key]
+```
 
-### I use multiple ChatGPT conversations
+Use [CLI reference](cli-reference.md) for the curated command map and useful combinations. Use [Configuration](configuration.md) for configuration concepts; `cgm config explain` provides the exhaustive schema inventory for the installed version.
 
-1. [MCP and upstreams](mcp.md) — MCP session behavior
-2. [Security](security.md) — session-to-workspace isolation
-3. [Configuration](configuration.md) — workspace registration and stable IDs
+## Develop and contribute
 
-### I am developing or contributing
+- [Development](development.md) — source builds, checks, CI, release workflow
+- [Contributing](../CONTRIBUTING.md) — contribution and PR expectations
+- [Security policy](../SECURITY.md) — private vulnerability reporting
+- [Code of Conduct](../CODE_OF_CONDUCT.md)
 
-1. [Contributing guide](../CONTRIBUTING.md) — setup, PR expectations, Code of Conduct
-2. [MCP and upstreams](mcp.md)
-3. [Configuration](configuration.md)
-4. [Security](security.md) — product boundaries; see also [SECURITY.md](../SECURITY.md) for vulnerability disclosure
-5. [TUI Command Center](tui.md)
-6. [Development](development.md)
+## Embedded TUI help
 
-## External references
-
-The OpenAI setup guide is based on the current official documentation. OpenAI product UI and availability can change, so use these as the authoritative references if the UI differs from the screenshots or wording you see locally:
-
-- [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
-- [Developer mode and MCP apps in ChatGPT](https://help.openai.com/en/articles/12584461)
-- [OpenAI tunnel-client](https://github.com/openai/tunnel-client)
-- [Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels)
-- [Platform runtime API keys](https://platform.openai.com/settings/organization/api-keys)
-- [ChatGPT app/connector settings](https://chatgpt.com/#settings/Connectors)
+The contextual guides under [`tuiguide/`](tuiguide/) are embedded into `cgm tui`. They explain the page or editor a user is currently operating and intentionally do not duplicate the full public documentation.

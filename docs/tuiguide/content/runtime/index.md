@@ -18,7 +18,7 @@ Runtime exposes MCP/admin authentication enable/disable and token rotation actio
 
 ## MCP HTTP transport
 
-The MCP HTTP listener can be enabled/disabled when configuration constraints allow it. Disabling the listener is prevented when another enabled feature requires it, such as a runtime tunnel configuration that depends on the local MCP transport.
+The direct MCP HTTP listener can be enabled or disabled when configuration constraints allow it. At least one MCP transport must remain enabled: direct MCP HTTP or OpenAI Secure MCP Tunnel. The normal ChatGPT setup can therefore run tunnel-only with the direct listener disabled.
 
 ## Install and update editors
 

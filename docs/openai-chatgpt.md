@@ -1,175 +1,90 @@
 # Connect ChatGPT with OpenAI Secure MCP Tunnel
 
-This is the recommended end-to-end path for connecting a private or local `chatgpt-mcp` runtime to ChatGPT without exposing the MCP server directly to the public internet.
-
-`chatgpt-mcp` embeds OpenAI's Secure MCP Tunnel client, so you do **not** need to install a separate `tunnel-client`, `cloudflared`, or `ngrok` process for the normal setup.
-
-> OpenAI changes product availability and UI over time. This guide follows the current official Secure MCP Tunnel and ChatGPT Developer Mode documentation. If labels differ, use the official links at the bottom of this page as the source of truth.
-
-## How the connection works
+OpenAI Secure MCP Tunnel is the default way to connect ChatGPT to `chatgpt-mcp`. The tunnel is established outbound from your machine, so the local MCP runtime does not need a public inbound port.
 
 ```text
 ChatGPT
    │
-   │ OpenAI-hosted MCP tunnel endpoint
-   │
    ▼
-OpenAI Tunnel control plane
-   ▲
-   │ outbound HTTPS :443
-   │
+OpenAI Secure MCP Tunnel
+   │ outbound HTTPS
+   ▼
 chatgpt-mcp
-   ├─ embedded Secure MCP Tunnel client
-   ├─ MCP runtime
-   └─ private/local workspaces and tools
+   │
+   └─ registered local workspaces and tools
 ```
-
-The connection is outbound-only from your machine to OpenAI. You do not need to open an inbound firewall port for the tunnel path.
 
 ## What you need
 
-Before configuring `chatgpt-mcp`, you need:
+- A running `chatgpt-mcp` installation.
+- An OpenAI Platform tunnel (`tunnel_...`).
+- A restricted runtime API key with **Tunnels Read + Use**.
+- The tunnel associated with the ChatGPT workspace/account that should discover it.
+- ChatGPT Developer Mode access for the user creating the custom app.
 
-1. Access to OpenAI Platform tunnel settings.
-2. A tunnel with an ID such as `tunnel_...`.
-3. A **runtime API key** allowed to use that tunnel.
-4. The tunnel associated with the ChatGPT workspace/account that should discover it.
-5. ChatGPT Developer Mode access for the user creating the app.
-6. A configured and running `chatgpt-mcp` instance.
-
-For a private tunnel-only runtime, set `server.enabled=false` and keep `tunnel.enabled=true`. You may also keep both transports enabled. Configuration rejects turning both off, so the runtime always retains at least one MCP transport.
+The runtime API key is only for the tunnel transport. It is not used to call a language model.
 
 ## Keep these values separate
 
-| Value | Example | Secret? | Purpose |
-| --- | --- | --- | --- |
-| Tunnel ID | `tunnel_...` | No | Identifies the OpenAI-hosted tunnel object |
-| Runtime API key | `sk-...` | **Yes** | Authenticates the long-lived tunnel runtime |
-| Admin API key | `sk-admin-...` / Platform admin key | **Yes** | Tunnel CRUD/admin operations only; not needed by `chatgpt-mcp` runtime |
-| MCP token | `mcp_...` | **Yes** | Authenticates direct access to the local/public MCP HTTP endpoint when MCP auth is enabled |
-| Admin token | `admin_...` | **Yes** | Authenticates the embedded admin UI/API when Admin auth is enabled |
+| Value | Secret? | Purpose |
+| --- | --- | --- |
+| Tunnel ID (`tunnel_...`) | No | Selects the OpenAI-hosted tunnel |
+| Runtime API key (`sk-...`) | Yes | Lets the local runtime use the tunnel |
+| Platform Admin API key | Yes | Administrative tunnel operations; not the normal runtime credential |
+| MCP/Admin tokens | Yes | Authenticate direct local/network endpoints when those endpoints are enabled |
 
-The OpenAI runtime key is **not** used by `chatgpt-mcp` to call a language model. It only authenticates the Secure MCP Tunnel client to OpenAI's tunnel control plane.
+For the normal setup, the only OpenAI credential `chatgpt-mcp` needs long-term is a restricted runtime key with **Tunnels Read + Use**.
 
-## 1. Get the required Platform permissions
+## 1. Create the tunnel
 
-OpenAI tunnel permissions are organization-level.
-
-Recommended split:
-
-### Runtime user
-
-Needs:
-
-```text
-Tunnels: Read
-Tunnels: Use
-```
-
-This is the minimum role for the principal creating the runtime key used by `chatgpt-mcp`, and for users who need to select/use an existing tunnel.
-
-### Tunnel manager
-
-Needs:
-
-```text
-Tunnels: Read
-Tunnels: Manage
-```
-
-Add `Use` as well if the same operator also runs the tunnel or attaches it in ChatGPT.
-
-OpenAI Platform role management:
-
-- Roles: https://platform.openai.com/settings/organization/people/roles
-- Groups: https://platform.openai.com/settings/organization/people/groups
-
-If your organization uses RBAC, prefer assigning tunnel roles to a group instead of directly broadening individual permissions.
-
-## 2. Create the tunnel and copy its ID
-
-Open:
+Open OpenAI Platform tunnel settings:
 
 https://platform.openai.com/settings/organization/tunnels
 
-Create a tunnel and give it a recognizable name, for example:
+Create a tunnel and copy its ID:
 
 ```text
-mew-dev-machine
+tunnel_...
 ```
 
-After creation, copy the tunnel ID:
+Associate the tunnel with the ChatGPT workspace that should use it. A tunnel that exists in Platform but is not associated with the target ChatGPT workspace may not appear when creating the custom app.
 
-```text
-tunnel_0123456789abcdef0123456789abcdef
-```
-
-You will pass this value to `cgm tunnel configure` and select the same tunnel in ChatGPT.
-
-### Associate the tunnel with the right workspace
-
-This step is important.
-
-A tunnel can be associated with Platform organizations and ChatGPT workspaces. If you want the tunnel to appear when creating a ChatGPT developer-mode app, include the target **ChatGPT workspace** in the tunnel's associations.
-
-A tunnel associated only with a Platform organization does not automatically appear in every ChatGPT Enterprise/Edu workspace.
-
-## 3. Create the runtime API key
+## 2. Create the runtime API key
 
 Open:
 
 https://platform.openai.com/settings/organization/api-keys
 
-Create a **Restricted** runtime API key for the tunnel daemon. Grant only:
+Create a **Restricted** key for the tunnel runtime with:
 
 ```text
 Tunnels: Read
 Tunnels: Use
 ```
 
-Copy the key when OpenAI displays it. Treat it as a secret.
+Do not use a Platform Admin API key as the long-lived runtime key.
 
-Do **not** use an OpenAI Admin API key as the long-lived tunnel runtime key.
+Tunnel creation/editing is an administrative task and requires **Tunnels Read + Manage** for the operator performing it. That permission does not need to be granted to the daemon's runtime key.
 
-A useful mental model is:
+## 3. Initialize and register a workspace
 
-```text
-tunnel_... = which tunnel to use
-sk-...     = permission for the local runtime to use it
-```
-
-## 4. Initialize chatgpt-mcp
-
-If you have not initialized the runtime yet:
+If needed:
 
 ```bash
 cgm init
-```
-
-Optionally register the project(s) ChatGPT should work with:
-
-```bash
 cgm workspace register ~/projects/my-project
 ```
 
-## 5. Configure the embedded tunnel
+See [Workspaces](workspaces.md) for how workspace scope works.
+
+## 4. Configure the local tunnel
 
 ```bash
 cgm tunnel configure \
   --enabled \
-  --id tunnel_0123456789abcdef0123456789abcdef \
+  --id tunnel_... \
   --api-key 'sk-...'
 ```
-
-Optional OpenAI-specific settings:
-
-```bash
-cgm tunnel configure \
-  --control-plane-base-url https://api.openai.com \
-  --organization-id org_...
-```
-
-The runtime API key is stored in the selected config root's secret-file store. The selected config format keeps only non-secret tunnel metadata and `<secret-file>` configured-state markers, and normal config/status commands never return the key.
 
 Inspect the result:
 
@@ -177,161 +92,113 @@ Inspect the result:
 cgm tunnel status
 ```
 
-## 6. Start chatgpt-mcp
+The runtime key is kept in the selected config root's managed secret store and is not printed by normal status/config output.
 
-For interactive testing:
+## 5. Start the runtime
 
-```bash
-cgm serve
-```
-
-For normal background use:
+For normal use:
 
 ```bash
 cgm up
 ```
 
-Then verify:
+Verify:
 
 ```bash
 cgm status
 cgm tunnel status
-cgm logs --component TUNNEL -f
 ```
 
-The tunnel must remain connected while ChatGPT scans tools or invokes them.
+The tunnel should reach its ready/connected state before ChatGPT scans or invokes tools.
 
-### Remote Linux server / SSH
-
-If you run only:
+For foreground testing only:
 
 ```bash
 cgm serve
 ```
 
-it is a foreground process tied to that terminal/session.
+See [Runtime and operations](runtime.md) for service behavior, remote Linux usage, and logs.
 
-For a user-level managed service:
+## 6. Enable ChatGPT Developer Mode
 
-```bash
-cgm up
-```
+OpenAI controls Developer Mode access separately from Platform tunnel permissions. Availability and the exact settings surface vary by ChatGPT plan/workspace policy, so use the current Help Center article below as the source of truth.
 
-On Linux, this uses `systemd --user`. If user lingering is disabled, the CLI warns that the user manager may stop after the final login/SSH session ends.
-
-For a machine-level systemd service that starts with the machine:
-
-```bash
-cgm up --system
-```
-
-If the current process is user-scoped, `cgm` automatically re-executes its stable absolute launcher through `sudo`. The systemd unit is system-level, but `chatgpt-mcp` itself still runs as the invoking `SUDO_USER`, not as root.
-
-See [Runtime and services](runtime.md) for the complete lifecycle.
-
-## 7. Enable ChatGPT Developer Mode
-
-OpenAI treats ChatGPT Developer Mode permission separately from Platform tunnel permissions.
-
-Current OpenAI guidance:
-
-- Business: admins/owners can enable Developer Mode and create/test custom MCP apps.
-- Enterprise/Edu: workspace admins can grant Developer Mode access through workspace permissions/RBAC; authorized users can then enable it for their account.
-- OpenAI currently documents full MCP/write support for Business and Enterprise/Edu, while Pro has more limited custom MCP support. Check the current Help Center article before relying on plan-specific behavior.
-
-Depending on workspace plan and role, enable Developer Mode from one of the current OpenAI settings surfaces:
+Current settings commonly appear under:
 
 ```text
 Settings → Apps → Advanced Settings → Developer Mode
 ```
 
-or start from:
+or from the workspace app-creation flow.
 
-```text
-Workspace Settings → Apps → Create
-```
+If the UI differs, use OpenAI's current Help Center guidance linked below.
 
-OpenAI may show the enablement prompt as part of creating a custom app.
+## 7. Create the ChatGPT app
 
-## 8. Create the ChatGPT MCP app
-
-Open ChatGPT app/connector settings:
-
-https://chatgpt.com/#settings/Connectors
+Open **Settings → Apps → Create** (or **Workspace Settings → Apps → Create** when your workspace policy uses the admin surface).
 
 Then:
 
-1. Choose **Create** / the plus button for a developer-mode custom app.
-2. Enter the app name and metadata you want ChatGPT users to see.
-3. Under **Connection**, choose **Tunnel**.
-4. Select your tunnel from the list, or paste the `tunnel_...` ID when allowed.
-5. Choose the app authentication mechanism if your MCP server requires app-level auth. The Secure MCP Tunnel runtime key is transport authentication and is not pasted here as the app's bearer token.
-6. Click **Scan Tools**.
-7. Wait for tool discovery to finish.
-8. Review the discovered tools and permissions.
-9. Click **Create**.
+1. Create a developer-mode custom app.
+2. Enter the app metadata you want users to see.
+3. Choose **Tunnel** for the connection.
+4. Select or enter the same `tunnel_...` used by `chatgpt-mcp`.
+5. Configure app-level authentication only if your MCP surface requires it. Do **not** paste the tunnel runtime key into the app's normal bearer-auth field.
+6. Run **Scan Tools**.
+7. Review the discovered tools and create/enable the app.
 
-For workspace plans, the app may first appear as a draft. Admins/owners can review and publish it according to the workspace's app policy.
+## 8. Verify from ChatGPT
 
-## 9. Verify from ChatGPT
-
-Before testing a prompt, verify locally:
+Before the first prompt, check locally:
 
 ```bash
 cgm status
 cgm tunnel status
-cgm logs --component TUNNEL -n 100
 ```
 
-Then enable/select the custom app in ChatGPT and ask for a read-only action first, for example listing registered workspaces or getting runtime version/status.
+Then try a read-only action in ChatGPT, such as listing registered workspaces or reading runtime/version information.
 
-For live inspection while testing:
+For live diagnostics while testing:
 
 ```bash
-cgm logs -f
+cgm logs --component TUNNEL -f
 ```
 
 For full diagnostics:
 
 ```bash
-cgm logs --debug -f
+cgm logs --component TUNNEL --debug -f
 ```
 
-## Tunnel lifecycle commands
+## Common problems
 
-```bash
-cgm tunnel status
-cgm tunnel enable
-cgm tunnel disable
-cgm tunnel run
-```
+### The tunnel does not appear in ChatGPT
 
-`tunnel run` runs only the builtin tunnel in the foreground. Normal `cgm serve` / `cgm up` automatically starts the tunnel when it is configured and enabled.
+Check:
 
-Unexpected tunnel failures are supervised with bounded exponential reconnect backoff. Explicit disable/reconfigure/shutdown does not trigger an unwanted reconnect.
+1. The tunnel is associated with the target ChatGPT workspace.
+2. Your Platform principal has the required tunnel permissions.
+3. Your ChatGPT user has Developer Mode access.
+4. `cgm tunnel status` shows the intended tunnel.
+5. The runtime is still running and the tunnel is connected.
+
+Permission/association changes can take time to propagate.
+
+### Tunnel authentication fails
+
+The runtime key likely lacks **Tunnels Read + Use**, belongs to the wrong scope, or is no longer valid. Reconfigure it with `cgm tunnel configure` after correcting the Platform permission.
+
+### Scan Tools fails
+
+Keep `chatgpt-mcp` running during discovery and inspect `cgm tunnel status` plus tunnel logs. See [Troubleshooting](troubleshooting.md) for more cases.
 
 ## What not to do
 
-- Do not expose the local MCP port publicly just to make Secure MCP Tunnel work.
-- Do not paste your runtime API key into the ChatGPT app's normal auth field.
-- Do not use an OpenAI Admin API key as the daemon runtime key.
-- Do not commit runtime keys, MCP tokens, admin tokens, or exported config secrets.
-- Do not give the runtime key `Manage` permission unless the same principal genuinely needs tunnel CRUD.
-- Do not assume a tunnel visible in Platform is automatically associated with the correct ChatGPT workspace.
-
-## If the tunnel does not appear in ChatGPT
-
-Check, in this order:
-
-1. The tunnel is associated with the target ChatGPT workspace.
-2. Your Platform principal has **Tunnels Read + Use**.
-3. Your ChatGPT user has Developer Mode access enabled.
-4. `cgm tunnel status` reports the configured tunnel.
-5. `cgm` is still running.
-6. `cgm logs --component TUNNEL --debug -n 200` does not show authentication or polling failures.
-7. Wait briefly after creating/changing the tunnel or RBAC assignment; OpenAI notes that permission changes can take time to propagate.
-
-See [Troubleshooting](troubleshooting.md) for more cases.
+- Do not expose the local MCP HTTP port publicly just to use Secure MCP Tunnel.
+- Do not use an OpenAI Admin API key as the long-lived runtime key.
+- Do not paste the tunnel runtime key into the ChatGPT app's normal auth field.
+- Do not commit runtime keys, MCP tokens, Admin tokens, or exported secrets.
+- Do not grant `Manage` to the runtime key unless the same principal genuinely needs tunnel administration.
 
 ## Official OpenAI references
 
@@ -340,6 +207,3 @@ See [Troubleshooting](troubleshooting.md) for more cases.
 - Platform Tunnels: https://platform.openai.com/settings/organization/tunnels
 - Runtime API keys: https://platform.openai.com/settings/organization/api-keys
 - Organization roles: https://platform.openai.com/settings/organization/people/roles
-- Organization groups: https://platform.openai.com/settings/organization/people/groups
-- ChatGPT app/connector settings: https://chatgpt.com/#settings/Connectors
-- OpenAI tunnel-client source/docs: https://github.com/openai/tunnel-client

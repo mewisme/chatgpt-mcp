@@ -122,7 +122,7 @@ func TestGitAddCommitLogDiffAndRestore(t *testing.T) {
 	}
 }
 
-func TestGitPushRequiresApprovalAndForcePushIsDestructive(t *testing.T) {
+func TestGitPushAllowsNormalPushAndForcePushIsDestructive(t *testing.T) {
 	runtime, workspaceID, _ := newGitToolTestRuntime(t)
 	identity, err := runtime.Workspaces.Instance()
 	if err != nil {
@@ -132,24 +132,20 @@ func TestGitPushRequiresApprovalAndForcePushIsDestructive(t *testing.T) {
 	runtime.Approvals = approval.NewManager(identity.ID)
 	RegisterApprovalTools(runtime.Registry, runtime)
 	ctx := approvalContext("git-approval")
-	for _, test := range []struct {
-		name string
-		args map[string]any
-		code controlguard.Code
-	}{
-		{name: "push", args: map[string]any{"workspace_id": workspaceID, "remote": "origin"}, code: controlguard.CodeExternalMutation},
-		{name: "force", args: map[string]any{"workspace_id": workspaceID, "remote": "origin", "force": true}, code: controlguard.CodeDestructiveMutation},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			result, err := runtime.Call(ctx, "git_push", test.args)
-			if err != nil || !result.IsError {
-				t.Fatalf("result=%#v err=%v", result, err)
-			}
-			challenge, ok := result.StructuredContent.(approvalRequiredResponse)
-			if !ok || challenge.TargetTool != "git_push" || challenge.GuardCode != string(test.code) {
-				t.Fatalf("challenge=%#v", result.StructuredContent)
-			}
-		})
+	result, err := runtime.Call(ctx, "git_push", map[string]any{"workspace_id": workspaceID, "remote": "origin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError && strings.Contains(result.Content[0].Text, "local approval") {
+		t.Fatalf("normal push unexpectedly required approval: %#v", result)
+	}
+	result, err = runtime.Call(ctx, "git_push", map[string]any{"workspace_id": workspaceID, "remote": "origin", "force": true})
+	if err != nil || !result.IsError {
+		t.Fatalf("force push result=%#v err=%v", result, err)
+	}
+	challenge, ok := result.StructuredContent.(approvalRequiredResponse)
+	if !ok || challenge.TargetTool != "git_push" || challenge.GuardCode != string(controlguard.CodeDestructiveMutation) {
+		t.Fatalf("challenge=%#v", result.StructuredContent)
 	}
 }
 

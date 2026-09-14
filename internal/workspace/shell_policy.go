@@ -84,7 +84,7 @@ func shellApprovalRisk(command string) (controlguard.Code, string, string, bool)
 	if reason, ok := destructiveMutationReason(command); ok && strings.HasPrefix(reason, "Git ") {
 		return controlguard.CodeDestructiveMutation, "destructive", reason, true
 	}
-	if reason, ok := externalMutationReason(command); ok {
+	if reason, ok := approvalExternalMutationReason(command); ok {
 		return controlguard.CodeExternalMutation, "external", reason, true
 	}
 	if reason, ok := hostMutationReason(command); ok {
@@ -94,6 +94,17 @@ func shellApprovalRisk(command string) (controlguard.Code, string, string, bool)
 		return controlguard.CodeDestructiveMutation, "destructive", reason, true
 	}
 	return "", "", "", false
+}
+
+func approvalExternalMutationReason(command string) (string, bool) {
+	return shellInvocationReason(command, func(name string, args []string) (string, bool) {
+		if name == "git" {
+			if gitCommand, _, ok := gitCommand(args); ok && gitCommand == "push" {
+				return "", false
+			}
+		}
+		return externalMutationReasonForInvocation(name, args)
+	})
 }
 
 func unboundedRemoteSessionReason(command string) (string, bool) {

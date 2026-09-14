@@ -288,8 +288,6 @@ func TestShellPolicyRequiresApprovalForExternalMutations(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, command := range []string{
-		"git push origin main",
-		"git -C . push origin main",
 		"rsync -a source/ user@example.com:/srv/app/",
 		"scp artifact.txt user@example.com:/srv/app/",
 		"ssh user@example.com 'sudo systemctl restart app'",
@@ -311,6 +309,27 @@ func TestShellPolicyRequiresApprovalForExternalMutations(t *testing.T) {
 				t.Fatalf("external mutation did not require approval: %#v / %v", guard, err)
 			}
 		})
+	}
+}
+
+func TestShellPolicyAllowsNormalGitPushButGuardsForcePush(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"git push origin main", "git -C . push origin main"} {
+		if err := manager.ValidateShellCommand(item.ID, root, command); err != nil {
+			t.Fatalf("normal push rejected: %s: %v", command, err)
+		}
+	}
+	for _, command := range []string{"git push --force origin main", "git push -f origin main", "git push --force-with-lease origin main"} {
+		err := manager.ValidateShellCommand(item.ID, root, command)
+		guard, ok := controlguard.As(err)
+		if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation || !guard.Approvable {
+			t.Fatalf("force push did not require destructive approval: %s: %#v / %v", command, guard, err)
+		}
 	}
 }
 
@@ -344,7 +363,7 @@ func TestShellPolicyRiskGrantsAreCategoryBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	destructiveGrant := controlguard.WithGrant(context.Background(), controlguard.Grant{RequestID: "req_destructive", Code: controlguard.CodeDestructiveMutation})
-	for _, command := range []string{"kill 123", "git push origin main"} {
+	for _, command := range []string{"kill 123", "npm publish"} {
 		err := manager.ValidateShellCommandContext(destructiveGrant, item.ID, root, command)
 		guard, ok := controlguard.As(err)
 		if err == nil || !ok || guard.Code == controlguard.CodeDestructiveMutation {

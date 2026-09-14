@@ -160,14 +160,11 @@ func gitForcePush(args []string) bool {
 }
 
 func ValidateGitOperationContext(ctx context.Context, args []string) error {
-	code, category, reason := controlguard.Code(""), "", ""
-	if value, ok := destructiveGitReason(args); ok {
-		code, category, reason = controlguard.CodeDestructiveMutation, "destructive", value
-	} else if value, ok := externalMutationReasonForInvocation("git", args); ok {
-		code, category, reason = controlguard.CodeExternalMutation, "external", value
-	} else {
+	reason, ok := destructiveGitReason(args)
+	if !ok {
 		return nil
 	}
+	code, category := controlguard.CodeDestructiveMutation, "destructive"
 	if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == code {
 		return nil
 	}

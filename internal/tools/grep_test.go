@@ -22,6 +22,10 @@ func TestGrepAcceptsFilePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	expectedFile, err := workspaces.ResolvePath(item.ID, root, file, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	registry := NewRegistry()
 	RegisterFilesystemTools(registry, workspaces, checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints")))
 	runtime := &Runtime{Registry: registry, Workspaces: workspaces}
@@ -35,7 +39,7 @@ func TestGrepAcceptsFilePath(t *testing.T) {
 		t.Fatalf("grep file failed: result=%#v err=%v", result, err)
 	}
 	value := result.StructuredContent.(GrepResult)
-	if value.Path != file || !strings.Contains(value.Output, file+":1: ValkeyRedis cache") {
+	if value.Path != expectedFile || !strings.Contains(value.Output, expectedFile+":1: ValkeyRedis cache") {
 		t.Fatalf("grep file result=%#v", value)
 	}
 }
@@ -51,6 +55,10 @@ func TestGrepAcceptsHiddenFilePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	expectedFile, err := workspaces.ResolvePath(item.ID, root, file, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	registry := NewRegistry()
 	RegisterFilesystemTools(registry, workspaces, checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints")))
 	runtime := &Runtime{Registry: registry, Workspaces: workspaces}
@@ -58,7 +66,7 @@ func TestGrepAcceptsHiddenFilePath(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("grep hidden file failed: result=%#v err=%v", result, err)
 	}
-	if output := result.StructuredContent.(GrepResult).Output; !strings.Contains(output, file) {
+	if output := result.StructuredContent.(GrepResult).Output; !strings.Contains(output, expectedFile) {
 		t.Fatalf("grep hidden file output=%q", output)
 	}
 }

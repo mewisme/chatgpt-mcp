@@ -1034,6 +1034,12 @@ func optionalInt64(args map[string]any, key string, fallback, min, max int64) (i
 		number = int64(typed)
 	case int64:
 		number = typed
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			return 0, fmt.Errorf("%s must be an integer", key)
+		}
+		number = parsed
 	case float64:
 		if typed != float64(int64(typed)) {
 			return 0, fmt.Errorf("%s must be an integer", key)
@@ -1053,7 +1059,16 @@ func intValue(value any) (int, error) {
 	case int:
 		return typed, nil
 	case int64:
+		if int64(int(typed)) != typed {
+			return 0, errors.New("must be an integer")
+		}
 		return int(typed), nil
+	case json.Number:
+		number, err := typed.Int64()
+		if err != nil || int64(int(number)) != number {
+			return 0, errors.New("must be an integer")
+		}
+		return int(number), nil
 	case float64:
 		if typed != float64(int(typed)) {
 			return 0, errors.New("must be an integer")

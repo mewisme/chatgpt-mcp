@@ -3,6 +3,7 @@ package tunnel
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/openai/tunnel-client/pkg/tunnelctx"
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
+	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
@@ -140,6 +142,43 @@ func TestSDKBridgeCallsSharedToolsRuntime(t *testing.T) {
 	case <-serverDone:
 	case <-time.After(time.Second):
 		t.Fatal("bridge server did not stop")
+	}
+}
+
+func TestSDKBridgeAcceptsIntegerArgumentsForBuiltInTools(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "sample.ts"), []byte("ValkeyRedis\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	workspaces := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := workspaces.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoints := checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints"))
+	registry := tools.NewRegistry()
+	tools.RegisterFilesystemTools(registry, workspaces, checkpoints)
+	bridge, err := newSDKBridge(&tools.Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints})
+	if err != nil {
+		t.Fatal(err)
+	}
+	arguments, err := json.Marshal(map[string]any{
+		"workspace_id": item.ID,
+		"path":         root,
+		"pattern":      "ValkeyRedis",
+		"glob":         "*.ts",
+		"output_mode":  "files_with_matches",
+		"head_limit":   200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := bridge.toolHandler("grep")(context.Background(), &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "grep", Arguments: arguments}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("grep returned tool error: %#v", result)
 	}
 }
 

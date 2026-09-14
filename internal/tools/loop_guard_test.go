@@ -148,3 +148,25 @@ func TestRuntimeLoopGuardBlocksContextLoopAndMutationResetsIt(t *testing.T) {
 		t.Fatalf("post-progress result=%#v err=%v", result, err)
 	}
 }
+
+func TestToolLoopClassForMixedActionTools(t *testing.T) {
+	schema := Schema{Annotations: ToolAnnotations(RiskDestructive)}
+	for _, test := range []struct {
+		name string
+		args map[string]any
+		want toolLoopClass
+	}{
+		{name: "git_branch", args: map[string]any{}, want: toolLoopClassRead},
+		{name: "git_branch", args: map[string]any{"action": "switch"}, want: toolLoopClassMutation},
+		{name: "git_stash", args: map[string]any{"action": "list"}, want: toolLoopClassRead},
+		{name: "git_stash", args: map[string]any{"action": "pop"}, want: toolLoopClassMutation},
+		{name: "rewind", args: map[string]any{"action": "preview"}, want: toolLoopClassRead},
+		{name: "rewind", args: map[string]any{"action": "restore"}, want: toolLoopClassMutation},
+		{name: "node_repl", args: map[string]any{"action": "status"}, want: toolLoopClassRead},
+		{name: "node_repl", args: map[string]any{"action": "eval"}, want: toolLoopClassMutation},
+	} {
+		if got := toolLoopClassFor(test.name, schema, test.args); got != test.want {
+			t.Fatalf("%s %#v class=%s want=%s", test.name, test.args, got, test.want)
+		}
+	}
+}

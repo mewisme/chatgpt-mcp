@@ -20,6 +20,7 @@ const (
 	maxMutationFileBytes  = 16 * 1024 * 1024
 	maxSearchFileBytes    = 16 * 1024 * 1024
 	maxTextSelectionLines = 100_000
+	maxTextLineOffset     = 1_000_000_000
 )
 
 type ReadTextFileResult struct {
@@ -111,13 +112,6 @@ type CopyMoveResult struct {
 	Source       string  `json:"source"`
 	Destination  string  `json:"destination"`
 	CheckpointID *string `json:"checkpoint_id"`
-}
-
-type SearchFilesResult struct {
-	Path    string   `json:"path"`
-	Pattern string   `json:"pattern"`
-	Matches []string `json:"matches"`
-	Count   int      `json:"count"`
 }
 
 type DirectoryTreeResult struct {

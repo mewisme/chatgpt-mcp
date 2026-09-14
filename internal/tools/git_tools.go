@@ -103,11 +103,14 @@ type gitLocation struct {
 }
 
 func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
-	register := func(name, title, description, input, output string, risk Risk, handler Handler) {
+	registerAnnotated := func(name, title, description, input, output string, annotations map[string]any, handler Handler) {
 		registry.MustRegister(name, Schema{
 			Name: name, Title: title, Description: description,
-			InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: ToolAnnotations(risk),
+			InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: annotations,
 		}, handler)
+	}
+	register := func(name, title, description, input, output string, risk Risk, handler Handler) {
+		registerAnnotated(name, title, description, input, output, ToolAnnotations(risk), handler)
 	}
 
 	register("git_status", "Git Status", "Show git working tree status.", gitLocationSchema(``), `{"type":"object","properties":{"path":{"type":"string"},"output":{"type":"string"}},"required":["path","output"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
@@ -163,7 +166,7 @@ func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
 		return JSONResult(GitDiffResult{Path: location.CWD, Staged: staged, File: filePtr, Output: output}), nil
 	})
 
-	register("git_log", "Git Log", "Show recent commit history.", gitLocationSchema(`"count":{"type":"integer","minimum":1,"default":10},`), `{"type":"object","properties":{"path":{"type":"string"},"count":{"type":"integer"},"commits":{"type":"array","items":{"type":"string"}}},"required":["path","count","commits"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("git_log", "Git Log", "Show recent commit history.", gitLocationSchema(`"count":{"type":"integer","minimum":1,"maximum":10000,"default":10},`), `{"type":"object","properties":{"path":{"type":"string"},"count":{"type":"integer"},"commits":{"type":"array","items":{"type":"string"}}},"required":["path","count","commits"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
 		location, err := resolveGitLocation(ctx, workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -314,7 +317,7 @@ func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
 		}), nil
 	})
 
-	register("git_restore", "Restore Tracked Files", "Restore tracked files from a revision. Local workspace only.", gitLocationSchema(`"files":{"type":"array","items":{"type":"string"},"minItems":1},"source":{"type":"string","default":"HEAD"},`), `{"type":"object","properties":{"path":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"source":{"type":"string"},"output":{"type":"string"},"run_command_fallback":{"type":"string"}},"required":["path","files","source","output","run_command_fallback"],"additionalProperties":false}`, RiskEdit, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("git_restore", "Restore Tracked Files", "Restore tracked files from a revision. Local workspace only.", gitLocationSchema(`"files":{"type":"array","items":{"type":"string"},"minItems":1},"source":{"type":"string","default":"HEAD"},`), `{"type":"object","properties":{"path":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"source":{"type":"string"},"output":{"type":"string"},"run_command_fallback":{"type":"string"}},"required":["path","files","source","output","run_command_fallback"],"additionalProperties":false}`, RiskDestructive, func(ctx context.Context, args map[string]any) (Result, error) {
 		location, err := resolveGitLocation(ctx, workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -361,7 +364,7 @@ func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
 		}), nil
 	})
 
-	register("git_push", "Sync Commits to Remote", "Upload local commits to the configured remote. Requires local approval; force push uses destructive approval.", gitLocationSchema(`"remote":{"type":"string","default":"origin"},"branch":{"type":"string"},"set_upstream":{"type":"boolean","default":false},"force":{"type":"boolean","default":false},`), `{"type":"object","properties":{"path":{"type":"string"},"remote":{"type":"string"},"branch":{"type":["string","null"]},"force":{"type":"boolean"},"output":{"type":"string"},"run_command_fallback":{"type":"string"}},"required":["path","remote","branch","force","output","run_command_fallback"],"additionalProperties":false}`, RiskEdit, func(ctx context.Context, args map[string]any) (Result, error) {
+	registerAnnotated("git_push", "Sync Commits to Remote", "Upload local commits to the configured remote. Requires local approval; force push uses destructive approval.", gitLocationSchema(`"remote":{"type":"string","default":"origin"},"branch":{"type":"string"},"set_upstream":{"type":"boolean","default":false},"force":{"type":"boolean","default":false},`), `{"type":"object","properties":{"path":{"type":"string"},"remote":{"type":"string"},"branch":{"type":["string","null"]},"force":{"type":"boolean"},"output":{"type":"string"},"run_command_fallback":{"type":"string"}},"required":["path","remote","branch","force","output","run_command_fallback"],"additionalProperties":false}`, ToolAnnotationsOpenWorld(RiskDestructive), func(ctx context.Context, args map[string]any) (Result, error) {
 		location, err := resolveGitLocation(ctx, workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -428,7 +431,7 @@ func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
 		}), nil
 	})
 
-	register("git_pull", "Sync from Remote", "Download updates from the configured remote into the local working copy.", gitLocationSchema(`"remote":{"type":"string","default":"origin"},"branch":{"type":"string"},`), `{"type":"object","properties":{"path":{"type":"string"},"remote":{"type":"string"},"branch":{"type":["string","null"]},"output":{"type":"string"}},"required":["path","remote","branch","output"],"additionalProperties":false}`, RiskEdit, func(ctx context.Context, args map[string]any) (Result, error) {
+	registerAnnotated("git_pull", "Sync from Remote", "Download updates from the configured remote into the local working copy.", gitLocationSchema(`"remote":{"type":"string","default":"origin"},"branch":{"type":"string"},`), `{"type":"object","properties":{"path":{"type":"string"},"remote":{"type":"string"},"branch":{"type":["string","null"]},"output":{"type":"string"}},"required":["path","remote","branch","output"],"additionalProperties":false}`, ToolAnnotationsOpenWorld(RiskEdit), func(ctx context.Context, args map[string]any) (Result, error) {
 		location, err := resolveGitLocation(ctx, workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -499,7 +502,7 @@ func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
 		return JSONResult(GitStashResult{Path: location.CWD, Action: action, Output: output}), nil
 	})
 
-	register("git_reset", "Git Reset", "Move HEAD to a ref. mixed=unstage, soft=keep staged, hard=discard working changes.", gitLocationSchema(`"mode":{"type":"string","enum":["soft","mixed","hard"],"default":"mixed"},"ref":{"type":"string","default":"HEAD"},`), `{"type":"object","properties":{"path":{"type":"string"},"mode":{"type":"string"},"ref":{"type":"string"},"output":{"type":"string"}},"required":["path","mode","ref","output"],"additionalProperties":false}`, RiskEdit, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("git_reset", "Git Reset", "Move HEAD to a ref. mixed=unstage, soft=keep staged, hard=discard working changes.", gitLocationSchema(`"mode":{"type":"string","enum":["soft","mixed","hard"],"default":"mixed"},"ref":{"type":"string","default":"HEAD"},`), `{"type":"object","properties":{"path":{"type":"string"},"mode":{"type":"string"},"ref":{"type":"string"},"output":{"type":"string"}},"required":["path","mode","ref","output"],"additionalProperties":false}`, RiskDestructive, func(ctx context.Context, args map[string]any) (Result, error) {
 		location, err := resolveGitLocation(ctx, workspaces, args)
 		if err != nil {
 			return Result{}, err

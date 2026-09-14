@@ -110,28 +110,6 @@ func TestTextMutationRejectsOversizedFile(t *testing.T) {
 	}
 }
 
-func TestSearchSkipsOversizedFiles(t *testing.T) {
-	runtime, workspaceID, root := newToolTestRuntime(t)
-	large := filepath.Join(root, "large.txt")
-	if err := os.WriteFile(large, []byte("needle\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Truncate(large, maxSearchFileBytes+1); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "small.txt"), []byte("needle\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	result := callTool(t, runtime, "search_files", map[string]any{"workspace_id": workspaceID, "path": ".", "pattern": "needle", "glob": "*.txt"})
-	if result.IsError {
-		t.Fatalf("search failed: %#v", result)
-	}
-	matches := result.StructuredContent.(SearchFilesResult).Matches
-	if len(matches) != 1 || !strings.Contains(matches[0], "small.txt") || strings.Contains(matches[0], "large.txt") {
-		t.Fatalf("search matches=%#v", matches)
-	}
-}
-
 func TestReadFileBase64Chunk(t *testing.T) {
 	runtime, workspaceID, root := newToolTestRuntime(t)
 	data := []byte("abcdefghij")
@@ -188,6 +166,53 @@ func TestReadFilesRejectsTooManyPaths(t *testing.T) {
 	result := callTool(t, runtime, "read_files", map[string]any{"workspace_id": workspaceID, "paths": paths})
 	if !result.IsError || !strings.Contains(result.Content[0].Text, "at most 32") {
 		t.Fatalf("path count was not bounded: %#v", result)
+	}
+}
+
+func TestWriteFilesAllowEmptyContent(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	for _, test := range []struct {
+		name string
+		path string
+	}{
+		{name: "write_file", path: "empty.txt"},
+		{name: "write_file_base64", path: "empty.bin"},
+	} {
+		result := callTool(t, runtime, test.name, map[string]any{"workspace_id": workspaceID, "path": test.path, "content": ""})
+		if result.IsError {
+			t.Fatalf("%s failed: %#v", test.name, result)
+		}
+		info, err := os.Stat(filepath.Join(root, test.path))
+		if err != nil {
+			t.Fatalf("%s stat: %v", test.name, err)
+		}
+		if info.Size() != 0 {
+			t.Fatalf("%s size=%d", test.name, info.Size())
+		}
+	}
+}
+
+func TestReadTextFileRejectsConflictingSelectors(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("one\ntwo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{name: "limit_without_offset", args: map[string]any{"workspace_id": workspaceID, "path": "file.txt", "limit": 1}, want: "limit requires offset"},
+		{name: "head_and_tail", args: map[string]any{"workspace_id": workspaceID, "path": "file.txt", "head": 1, "tail": 1}, want: "mutually exclusive"},
+	} {
+		result := callTool(t, runtime, "read_text_file", test.args)
+		if !result.IsError || len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, test.want) {
+			t.Fatalf("%s result=%#v", test.name, result)
+		}
+	}
+	result := callTool(t, runtime, "read_text_file", map[string]any{"workspace_id": workspaceID, "path": "file.txt", "offset": 100001, "limit": 1})
+	if result.IsError {
+		t.Fatalf("large offset rejected: %#v", result)
 	}
 }
 
@@ -611,12 +636,15 @@ func TestFilesystemToolCatalog(t *testing.T) {
 	for _, name := range []string{
 		"read_text_file", "read_file_base64", "write_file", "write_file_base64", "edit_file", "multi_edit",
 		"replace_regex", "apply_patch", "list_directory", "glob", "grep", "delete_file", "create_directory",
-		"delete_directory", "copy_file", "move_file", "search_files", "directory_tree", "list_allowed_directories",
+		"delete_directory", "copy_file", "move_file", "directory_tree", "list_allowed_directories",
 		"read_files",
 	} {
 		if !names[name] {
 			t.Fatalf("missing tool %q", name)
 		}
+	}
+	if names["search_files"] {
+		t.Fatal("search_files overlaps grep and should not be exposed")
 	}
 }
 

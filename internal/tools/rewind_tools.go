@@ -50,7 +50,7 @@ func RegisterRewindTools(registry *Registry, workspaces *workspace.Manager, chec
 		Description:  "List automatic file checkpoints, preview changes, restore files, inspect config, or clear checkpoints. Shell command file changes are not tracked.",
 		InputSchema:  json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"action":{"type":"string","enum":["list","preview","restore","status","clear"],"default":"list"},"checkpoint_id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":200,"default":30}},"required":["workspace_id"],"additionalProperties":false}`),
 		OutputSchema: json.RawMessage(`{"type":"object","additionalProperties":true}`),
-		Annotations:  ToolAnnotations(RiskEdit),
+		Annotations:  ToolAnnotations(RiskDestructive),
 	}, func(_ context.Context, args map[string]any) (Result, error) {
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {

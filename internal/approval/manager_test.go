@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,6 +30,18 @@ func TestManagerCoalescesChallengeAndRequest(t *testing.T) {
 	reused, created, err := manager.CreateRequest(first.ID, "session-a", "ws_x")
 	if err != nil || created || reused.ID != request.ID {
 		t.Fatalf("reused request = %#v created=%t err=%v", reused, created, err)
+	}
+}
+
+func TestCreateRequestRejectsOverlongTitle(t *testing.T) {
+	manager, _ := testManager()
+	challenge, _, err := manager.CreateChallenge(testChallenge("session-a", "ws_x", "cgm update"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = manager.CreateRequestWithTitle(challenge.ID, "session-a", "ws_x", strings.Repeat("x", 121))
+	if err == nil || !strings.Contains(err.Error(), "at most 120") {
+		t.Fatalf("error=%v", err)
 	}
 }
 

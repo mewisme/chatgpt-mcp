@@ -25,7 +25,7 @@ func RegisterAdvancedTools(registry *Registry, workspaces *workspace.Manager) {
 		}, handler)
 	}
 
-	register("node_repl", "Node REPL", "Stateful JavaScript session per workspace. globalThis persists across calls. Filesystem access is constrained by the Node permission model to the registered workspace.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"action":{"type":"string","enum":["eval","reset","status"],"default":"eval"},"code":{"type":"string"},"timeout_ms":{"type":"integer","minimum":100,"maximum":60000,"default":30000}},"required":["workspace_id"],"additionalProperties":false}`, `{"type":"object","additionalProperties":true}`, RiskEdit, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("node_repl", "Node REPL", "Stateful JavaScript session per workspace. globalThis persists across calls. Filesystem access is constrained by the Node permission model to the registered workspace.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"action":{"type":"string","enum":["eval","reset","status"],"default":"eval"},"code":{"type":"string"},"timeout_ms":{"type":"integer","minimum":100,"maximum":60000,"default":30000}},"required":["workspace_id"],"additionalProperties":false}`, `{"type":"object","additionalProperties":true}`, RiskCommand, func(ctx context.Context, args map[string]any) (Result, error) {
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err

@@ -19,7 +19,7 @@ func RegisterFilesystemTools(registry *Registry, workspaces *workspace.Manager, 
 		registry.MustRegister(name, Schema{Name: name, Title: title, Description: description, InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: ToolAnnotations(risk)}, handler)
 	}
 
-	register("read_text_file", "Read Text File", "Read a file before editing. Full reads are capped at 4 MiB; use offset+limit/head/tail for bounded reads of larger files.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"offset":{"type":"integer","minimum":1,"maximum":100000},"limit":{"type":"integer","minimum":1,"maximum":100000},"head":{"type":"integer","minimum":0,"maximum":100000},"tail":{"type":"integer","minimum":0,"maximum":100000}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"},"lines":{"type":"integer"},"head":{"type":"integer"},"tail":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}`, RiskRead, handleReadTextFile(workspaces))
+	register("read_text_file", "Read Text File", "Read a file before editing. Full reads are capped at 4 MiB; use offset+limit, head, or tail for bounded reads of larger files.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"offset":{"type":"integer","minimum":1,"maximum":1000000000},"limit":{"type":"integer","minimum":1,"maximum":100000},"head":{"type":"integer","minimum":0,"maximum":100000},"tail":{"type":"integer","minimum":0,"maximum":100000}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"},"lines":{"type":"integer"},"head":{"type":"integer"},"tail":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}`, RiskRead, handleReadTextFile(workspaces))
 	register("read_file_base64", "Read File Base64", "Read any workspace file as base64. Use offset/length for large files. Max chunk 8 MiB.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"offset":{"type":"integer","minimum":0,"default":0},"length":{"type":"integer","minimum":1,"maximum":8388608,"default":1048576}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"size":{"type":"integer"},"offset":{"type":"integer"},"bytes_read":{"type":"integer"},"next_offset":{"type":["integer","null"]},"done":{"type":"boolean"},"encoding":{"type":"string"},"content":{"type":"string"}},"required":["path","size","offset","bytes_read","next_offset","done","encoding","content"],"additionalProperties":false}`, RiskRead, handleReadFileBase64(workspaces))
 	register("write_file", "Write File", "Save text to a workspace file and capture a rewind checkpoint first.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"}},"required":["workspace_id","path","content"],"additionalProperties":false}`, mutationOutputSchema(`"bytes":{"type":"integer"}`), RiskEdit, handleWriteFile(workspaces, checkpoints))
 	register("write_file_base64", "Write File Base64", "Create or overwrite a binary workspace file from base64 content.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"}},"required":["workspace_id","path","content"],"additionalProperties":false}`, mutationOutputSchema(`"bytes":{"type":"integer"}`), RiskEdit, handleWriteFileBase64(workspaces, checkpoints))
@@ -30,13 +30,12 @@ func RegisterFilesystemTools(registry *Registry, workspaces *workspace.Manager, 
 	register("list_directory", "List Directory", "List files and directories with optional ignore globs.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"ignore":{"type":"array","items":{"type":"string"}}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"entries":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"}},"required":["name","type"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["path","entries","count"],"additionalProperties":false}`, RiskRead, handleListDirectory(workspaces))
 	register("glob", "Glob", "Find files by name pattern under a workspace directory.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"pattern":{"type":"string"},"path":{"type":"string"},"max_results":{"type":"integer","minimum":1,"maximum":500,"default":100}},"required":["workspace_id","pattern"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"pattern":{"type":"string"},"matches":{"type":"array","items":{"type":"string"}},"count":{"type":"integer"}},"required":["path","pattern","matches","count"],"additionalProperties":false}`, RiskRead, handleGlob(workspaces))
 	register("grep", "Grep", "Search a workspace file or directory by regex. Modes: content, files_with_matches, count.", grepInputSchema(), `{"type":"object","properties":{"path":{"type":"string"},"pattern":{"type":"string"},"output_mode":{"type":"string"},"output":{"type":"string"}},"required":["path","pattern","output_mode","output"],"additionalProperties":false}`, RiskRead, handleGrep(workspaces))
-	register("delete_file", "Delete File", "Delete a workspace file after capturing a rewind checkpoint.", basePathInputSchema(), `{"type":"object","properties":{"path":{"type":"string"},"checkpoint_id":{"type":["string","null"]}},"required":["path","checkpoint_id"],"additionalProperties":false}`, RiskEdit, handleDeleteFile(workspaces, checkpoints))
+	register("delete_file", "Delete File", "Delete a workspace file after capturing a rewind checkpoint.", basePathInputSchema(), `{"type":"object","properties":{"path":{"type":"string"},"checkpoint_id":{"type":["string","null"]}},"required":["path","checkpoint_id"],"additionalProperties":false}`, RiskDestructive, handleDeleteFile(workspaces, checkpoints))
 	register("create_directory", "Create Directory", "Create a workspace directory and parents if needed.", basePathInputSchema(), `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`, RiskEdit, handleCreateDirectory(workspaces))
-	register("delete_directory", "Remove Local Folder", "Recursively remove a workspace folder after capturing a rewind checkpoint.", basePathInputSchema(), `{"type":"object","properties":{"path":{"type":"string"},"checkpoint_id":{"type":["string","null"]},"run_command_fallback":{"type":"string"}},"required":["path","checkpoint_id","run_command_fallback"],"additionalProperties":false}`, RiskEdit, handleDeleteDirectory(workspaces, checkpoints))
+	register("delete_directory", "Remove Local Folder", "Recursively remove a workspace folder after capturing a rewind checkpoint.", basePathInputSchema(), `{"type":"object","properties":{"path":{"type":"string"},"checkpoint_id":{"type":["string","null"]},"run_command_fallback":{"type":"string"}},"required":["path","checkpoint_id","run_command_fallback"],"additionalProperties":false}`, RiskDestructive, handleDeleteDirectory(workspaces, checkpoints))
 	register("copy_file", "Copy File", "Copy a workspace file to a new workspace location.", sourceDestinationInputSchema(), `{"type":"object","properties":{"source":{"type":"string"},"destination":{"type":"string"},"checkpoint_id":{"type":["string","null"]}},"required":["source","destination","checkpoint_id"],"additionalProperties":false}`, RiskEdit, handleCopyFile(workspaces, checkpoints))
 	register("move_file", "Move File", "Move or rename a file or directory. Source and destination must remain inside the registered workspace.", sourceDestinationInputSchema(), `{"type":"object","properties":{"source":{"type":"string"},"destination":{"type":"string"},"checkpoint_id":{"type":["string","null"]}},"required":["source","destination","checkpoint_id"],"additionalProperties":false}`, RiskEdit, handleMoveFile(workspaces, checkpoints))
-	register("search_files", "Search Files", "Search file contents for a text pattern.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"pattern":{"type":"string"},"glob":{"type":"string","default":"*"},"max_results":{"type":"integer","minimum":1,"default":50}},"required":["workspace_id","path","pattern"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"pattern":{"type":"string"},"matches":{"type":"array","items":{"type":"string"}},"count":{"type":"integer"}},"required":["path","pattern","matches","count"],"additionalProperties":false}`, RiskRead, handleSearchFiles(workspaces))
-	register("directory_tree", "Directory Tree", "Get recursive workspace directory structure as JSON.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"max_depth":{"type":"integer","minimum":0,"default":4}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"tree":{"type":"object","additionalProperties":true},"max_depth":{"type":"integer"}},"required":["path","tree","max_depth"],"additionalProperties":false}`, RiskRead, handleDirectoryTree(workspaces))
+	register("directory_tree", "Directory Tree", "Get recursive workspace directory structure as JSON.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"},"max_depth":{"type":"integer","minimum":0,"maximum":128,"default":4}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"tree":{"type":"object","additionalProperties":true},"max_depth":{"type":"integer"}},"required":["path","tree","max_depth"],"additionalProperties":false}`, RiskRead, handleDirectoryTree(workspaces))
 	register("list_allowed_directories", "List Allowed Directories", "Show the registered workspace access scope for this tool workflow.", `{"type":"object","properties":{"workspace_id":{"type":"string"}},"required":["workspace_id"],"additionalProperties":false}`, `{"type":"object","properties":{"full_machine_access":{"type":"boolean"},"permission":{"type":"string"},"default_cwd":{"type":"string"},"machine_roots":{"type":"array","items":{"type":"string"}},"workspace_id":{"type":"string"},"workspace_root":{"type":"string"}},"required":["full_machine_access","permission","default_cwd","machine_roots","workspace_id","workspace_root"],"additionalProperties":false}`, RiskRead, handleListAllowedDirectories(workspaces))
 }
 
@@ -46,7 +45,7 @@ func handleReadTextFile(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
-		offset, err := optionalIntPointer(args, "offset", 1, maxTextSelectionLines)
+		offset, err := optionalIntPointer(args, "offset", 1, maxTextLineOffset)
 		if err != nil {
 			return Result{}, err
 		}
@@ -61,6 +60,18 @@ func handleReadTextFile(workspaces *workspace.Manager) Handler {
 		tail, err := optionalIntPointer(args, "tail", 0, maxTextSelectionLines)
 		if err != nil {
 			return Result{}, err
+		}
+		if limit != nil && offset == nil {
+			return Result{}, errors.New("limit requires offset")
+		}
+		selectors := 0
+		for _, value := range []*int{offset, head, tail} {
+			if value != nil {
+				selectors++
+			}
+		}
+		if selectors > 1 {
+			return Result{}, errors.New("offset, head, and tail are mutually exclusive")
 		}
 		rooted, err := openRootedPath(workspaces, item.ID, file)
 		if err != nil {
@@ -109,7 +120,7 @@ func handleWriteFile(workspaces *workspace.Manager, checkpoints *checkpoint.Stor
 		if err != nil {
 			return Result{}, err
 		}
-		content, err := stringArg(args, "content")
+		content, err := stringArgAllowEmpty(args, "content")
 		if err != nil {
 			return Result{}, err
 		}
@@ -138,7 +149,7 @@ func handleWriteFileBase64(workspaces *workspace.Manager, checkpoints *checkpoin
 		if err != nil {
 			return Result{}, err
 		}
-		content, err := stringArg(args, "content")
+		content, err := stringArgAllowEmpty(args, "content")
 		if err != nil {
 			return Result{}, err
 		}
@@ -873,38 +884,6 @@ func handleMoveFile(workspaces *workspace.Manager, checkpoints *checkpoint.Store
 			return Result{}, err
 		}
 		return JSONResult(CopyMoveResult{Source: source, Destination: destination, CheckpointID: checkpointPointer(checkpointID)}), nil
-	}
-}
-
-func handleSearchFiles(workspaces *workspace.Manager) Handler {
-	return func(_ context.Context, args map[string]any) (Result, error) {
-		item, _, root, err := workspacePath(workspaces, args, "path", true)
-		if err != nil {
-			return Result{}, err
-		}
-		pattern, err := stringArg(args, "pattern")
-		if err != nil {
-			return Result{}, err
-		}
-		regex, err := regexp.Compile("(?i)" + pattern)
-		if err != nil {
-			return Result{}, err
-		}
-		glob, err := optionalStringDefault(args, "glob", "*")
-		if err != nil {
-			return Result{}, err
-		}
-		maxResults, err := optionalInt(args, "max_results", 50, 1, 10000)
-		if err != nil {
-			return Result{}, err
-		}
-		rooted, err := openRootedDirectory(workspaces, item.ID, root)
-		if err != nil {
-			return Result{}, err
-		}
-		defer rooted.Close()
-		matches := searchDirectory(rooted, regex, glob, maxResults)
-		return JSONResult(SearchFilesResult{Path: root, Pattern: pattern, Matches: matches, Count: len(matches)}), nil
 	}
 }
 

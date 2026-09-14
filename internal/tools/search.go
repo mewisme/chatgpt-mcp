@@ -225,58 +225,6 @@ func grepSearch(root *rootedDirectory, options GrepOptions) (string, error) {
 	}
 }
 
-func searchDirectory(root *rootedDirectory, regex *regexp.Regexp, globPattern string, maxResults int) []string {
-	matcher, err := simpleGlobRegexp(globPattern)
-	if err != nil {
-		return []string{}
-	}
-	results := make([]string, 0)
-	var walk func(*rootedDirectory)
-	walk = func(dir *rootedDirectory) {
-		if len(results) >= maxResults {
-			return
-		}
-		entries, err := dir.ReadDir()
-		if err != nil {
-			return
-		}
-		for _, entry := range entries {
-			if len(results) >= maxResults {
-				break
-			}
-			if strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
-				continue
-			}
-			fullPath := filepath.Join(dir.absolute, entry.Name())
-			if entry.IsDir() {
-				child, err := dir.OpenChild(entry.Name())
-				if err == nil {
-					walk(child)
-					_ = child.Close()
-				}
-				continue
-			}
-			if !matcher.MatchString(entry.Name()) {
-				continue
-			}
-			data, err := dir.ReadRegularFileLimited(entry.Name(), maxSearchFileBytes, "search file")
-			if err != nil {
-				continue
-			}
-			for index, line := range strings.Split(string(data), "\n") {
-				if len(results) >= maxResults {
-					break
-				}
-				if regex.MatchString(line) {
-					results = append(results, fmt.Sprintf("%s:%d: %s", fullPath, index+1, strings.TrimSpace(line)))
-				}
-			}
-		}
-	}
-	walk(root)
-	return results
-}
-
 func buildTree(path *rootedDirectory, depth, maxDepth int) (TreeNode, error) {
 	node := TreeNode{Name: filepath.Base(path.absolute), Type: "directory"}
 	entries, err := path.ReadDir()

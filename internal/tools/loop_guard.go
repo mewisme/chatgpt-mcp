@@ -246,17 +246,41 @@ func toolCallFingerprint(name string, args map[string]any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func toolLoopClassFor(name string, schema Schema) toolLoopClass {
+func toolLoopClassFor(name string, schema Schema, args map[string]any) toolLoopClass {
 	switch strings.TrimSpace(name) {
 	case "process_status", "process_output", "workspace_status", "shell_status", "agent_status", "get_version", "request_control_approval":
 		return toolLoopClassExempt
 	case "project_context", "load_path_rules", "list_skills", "load_skill":
 		return toolLoopClassContext
+	case "git_branch", "git_stash":
+		if toolAction(args, "list") == "list" {
+			return toolLoopClassRead
+		}
+		return toolLoopClassMutation
+	case "rewind":
+		switch toolAction(args, "list") {
+		case "list", "status", "preview":
+			return toolLoopClassRead
+		default:
+			return toolLoopClassMutation
+		}
+	case "node_repl":
+		if toolAction(args, "eval") == "status" {
+			return toolLoopClassRead
+		}
+		return toolLoopClassMutation
 	}
 	if readOnly, _ := schema.Annotations["readOnlyHint"].(bool); readOnly {
 		return toolLoopClassRead
 	}
 	return toolLoopClassMutation
+}
+
+func toolAction(args map[string]any, fallback string) string {
+	if value, ok := args["action"].(string); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return fallback
 }
 
 func toolLoopBlockedResult(name string, decision toolLoopDecision) Result {

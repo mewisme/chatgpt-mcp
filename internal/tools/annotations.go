@@ -10,13 +10,16 @@ const (
 )
 
 func ToolAnnotations(risk Risk) map[string]any {
-	if risk == RiskRead {
-		return map[string]any{"readOnlyHint": true, "openWorldHint": false}
-	}
 	return map[string]any{
-		"readOnlyHint":    false,
-		"destructiveHint": false,
-		"openWorldHint":   false,
-		"idempotentHint":  risk != RiskCommand,
+		"readOnlyHint":    risk == RiskRead,
+		"destructiveHint": risk == RiskDestructive || risk == RiskCommand,
+		"openWorldHint":   risk == RiskCommand,
+		"idempotentHint":  risk == RiskRead,
 	}
+}
+
+func ToolAnnotationsOpenWorld(risk Risk) map[string]any {
+	annotations := ToolAnnotations(risk)
+	annotations["openWorldHint"] = true
+	return annotations
 }

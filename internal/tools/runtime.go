@@ -218,7 +218,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	loopClass, loopDecision := toolLoopClassMutation, toolLoopDecision{}
 	if preflightErr == nil && forcedResult == nil && strings.TrimSpace(sessionID) != "" && r.Registry != nil {
 		if schema, ok := r.Registry.Schema(name); ok {
-			loopClass = toolLoopClassFor(name, schema)
+			loopClass = toolLoopClassFor(name, schema, args)
 			loopDecision = r.loopGuard().Check(sessionID, name, args, loopClass)
 			if loopDecision.blocked {
 				blocked := toolLoopBlockedResult(name, loopDecision)

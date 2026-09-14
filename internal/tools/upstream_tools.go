@@ -48,14 +48,17 @@ func RegisterUpstreamTools(registry *Registry, manager *upstream.Manager) {
 		}
 		return refreshServerProxy(registry, manager, server, values)
 	})
-	register := func(name, title, description, input, output string, risk Risk, handler Handler) {
+	registerAnnotated := func(name, title, description, input, output string, annotations map[string]any, handler Handler) {
 		registry.MustRegister(name, Schema{
 			Name: name, Title: title, Description: description,
-			InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: ToolAnnotations(risk),
+			InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output), Annotations: annotations,
 		}, handler)
 	}
+	register := func(name, title, description, input, output string, risk Risk, handler Handler) {
+		registerAnnotated(name, title, description, input, output, ToolAnnotations(risk), handler)
+	}
 
-	register("mcp_servers", "MCP Upstream Servers", "List configured upstream MCP servers with health status.", `{"type":"object","properties":{"refresh":{"type":"boolean","default":false}},"additionalProperties":false}`, `{"type":"object","properties":{"servers":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["servers","count"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
+	registerAnnotated("mcp_servers", "MCP Upstream Servers", "List configured upstream MCP servers with health status.", `{"type":"object","properties":{"refresh":{"type":"boolean","default":false}},"additionalProperties":false}`, `{"type":"object","properties":{"servers":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["servers","count"],"additionalProperties":false}`, ToolAnnotationsOpenWorld(RiskRead), func(ctx context.Context, args map[string]any) (Result, error) {
 		refresh, err := optionalBool(args, "refresh", false)
 		if err != nil {
 			return Result{}, err
@@ -72,7 +75,7 @@ func RegisterUpstreamTools(registry *Registry, manager *upstream.Manager) {
 		return JSONResult(MCPServersResult{Servers: statuses, Count: len(statuses)}), nil
 	})
 
-	register("mcp_tools", "MCP Upstream Tools", "List tools exposed by one configured upstream MCP server and their proxied names.", `{"type":"object","properties":{"server_id":{"type":"string"}},"required":["server_id"],"additionalProperties":false}`, `{"type":"object","properties":{"server_id":{"type":"string"},"tools":{"type":"array","items":{"type":"object","additionalProperties":true}},"proxied_tools":{"type":"array","items":{"type":"string"}},"count":{"type":"integer"}},"required":["server_id","tools","proxied_tools","count"],"additionalProperties":false}`, RiskRead, func(ctx context.Context, args map[string]any) (Result, error) {
+	registerAnnotated("mcp_tools", "MCP Upstream Tools", "List tools exposed by one configured upstream MCP server and their proxied names.", `{"type":"object","properties":{"server_id":{"type":"string"}},"required":["server_id"],"additionalProperties":false}`, `{"type":"object","properties":{"server_id":{"type":"string"},"tools":{"type":"array","items":{"type":"object","additionalProperties":true}},"proxied_tools":{"type":"array","items":{"type":"string"}},"count":{"type":"integer"}},"required":["server_id","tools","proxied_tools","count"],"additionalProperties":false}`, ToolAnnotationsOpenWorld(RiskRead), func(ctx context.Context, args map[string]any) (Result, error) {
 		serverID, err := requiredString(args, "server_id")
 		if err != nil {
 			return Result{}, err
@@ -103,7 +106,7 @@ func RegisterUpstreamTools(registry *Registry, manager *upstream.Manager) {
 		return JSONResult(MCPToolsResult{ServerID: serverID, Tools: info, ProxiedTools: proxied, Count: len(values)}), nil
 	})
 
-	register("mcp_call", "MCP Upstream Call", "Invoke a tool on a configured upstream MCP server. Upstream tool semantics are external and are not workspace-enforced by chatgpt-mcp.", `{"type":"object","properties":{"server_id":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object","additionalProperties":true,"default":{}}},"required":["server_id","tool"],"additionalProperties":false}`, `{"type":"object","additionalProperties":true}`, RiskEdit, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("mcp_call", "MCP Upstream Call", "Invoke a tool on a configured upstream MCP server. Upstream tool semantics are external and are not workspace-enforced by chatgpt-mcp.", `{"type":"object","properties":{"server_id":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object","additionalProperties":true,"default":{}}},"required":["server_id","tool"],"additionalProperties":false}`, `{"type":"object","additionalProperties":true}`, RiskCommand, func(ctx context.Context, args map[string]any) (Result, error) {
 		serverID, err := requiredString(args, "server_id")
 		if err != nil {
 			return Result{}, err

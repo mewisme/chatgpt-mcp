@@ -283,14 +283,6 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/tools/register.go",
-    "details": "Potential file inclusion via variable",
-    "code": "}\n\t\t\tdata, err := os.ReadFile(file)\n\t\t\tif err != nil {"
-  },
-  {
-    "rule_id": "G304",
-    "severity": "MEDIUM",
-    "confidence": "HIGH",
     "file": "internal/update/archive.go",
     "details": "Potential file inclusion via variable",
     "code": "func extractTarBinary(archivePath, destinationDir, binaryName string) (string, error) {\n\tfile, err := os.Open(archivePath)\n\tif err != nil {"

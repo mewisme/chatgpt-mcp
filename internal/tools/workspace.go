@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -33,11 +34,14 @@ func RegisterWorkspaceTools(registry *Registry, manager *workspace.Manager, shel
 		Description:  "Register a local workspace root. Re-registering the same canonical path returns the same workspace_id.",
 		InputSchema:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
 		OutputSchema: json.RawMessage(`{"type":"object","properties":{"workspace_id":{"type":"string"},"workspace_root":{"type":"string"},"instance_id":{"type":"string"},"instance_name":{"type":"string"}},"required":["workspace_id","workspace_root","instance_id","instance_name"],"additionalProperties":false}`),
-		Annotations:  ToolAnnotations(RiskRead),
-	}, func(_ context.Context, args map[string]any) (Result, error) {
+		Annotations:  ToolAnnotations(RiskEdit),
+	}, func(ctx context.Context, args map[string]any) (Result, error) {
 		path, err := requiredString(args, "path")
 		if err != nil {
 			return Result{}, err
+		}
+		if grant, ok := controlguard.GrantFromContext(ctx); !ok || grant.Code != controlguard.CodeControlPlaneMutation {
+			return Result{}, controlguard.New(controlguard.CodeControlPlaneMutation, "registering a local workspace requires local approval", true, nil)
 		}
 		item, err := manager.Register(path)
 		if err != nil {

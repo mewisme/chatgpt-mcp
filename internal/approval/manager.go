@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go.mewis.me/chatgpt-mcp/internal/commandpattern"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
@@ -162,6 +163,9 @@ func (m *Manager) CreateRequestWithTitle(challengeID, sessionID, workspaceID, ti
 	}
 	if title == "" {
 		return Request{}, false, errors.New("approval request title is required")
+	}
+	if utf8.RuneCountInString(title) > 120 {
+		return Request{}, false, errors.New("approval request title must be at most 120 characters")
 	}
 	if challenge.value.requestID != "" {
 		if request := m.requests[challenge.value.requestID]; request != nil {

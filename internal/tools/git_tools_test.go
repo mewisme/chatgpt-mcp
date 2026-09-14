@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -103,7 +105,11 @@ func TestGitAddCommitLogDiffAndRestore(t *testing.T) {
 
 	restoreArgs := gitBaseArgs(workspaceID, root)
 	restoreArgs["files"] = []any{"file.txt"}
-	restoreResult := gitToolCall(t, runtime, "git_restore", restoreArgs)
+	restoreCtx := controlguard.WithGrant(context.Background(), controlguard.Grant{RequestID: "req_test", Code: controlguard.CodeDestructiveMutation})
+	restoreResult, err := runtime.Call(restoreCtx, "git_restore", restoreArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if restoreResult.IsError {
 		t.Fatalf("git_restore failed: %#v", restoreResult)
 	}
@@ -113,6 +119,37 @@ func TestGitAddCommitLogDiffAndRestore(t *testing.T) {
 	}
 	if string(data) != "initial\n" {
 		t.Fatalf("restored content = %q", data)
+	}
+}
+
+func TestGitPushRequiresApprovalAndForcePushIsDestructive(t *testing.T) {
+	runtime, workspaceID, _ := newGitToolTestRuntime(t)
+	identity, err := runtime.Workspaces.Instance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.SessionAccess = NewSessionWorkspaceAccessManager()
+	runtime.Approvals = approval.NewManager(identity.ID)
+	RegisterApprovalTools(runtime.Registry, runtime)
+	ctx := approvalContext("git-approval")
+	for _, test := range []struct {
+		name string
+		args map[string]any
+		code controlguard.Code
+	}{
+		{name: "push", args: map[string]any{"workspace_id": workspaceID, "remote": "origin"}, code: controlguard.CodeExternalMutation},
+		{name: "force", args: map[string]any{"workspace_id": workspaceID, "remote": "origin", "force": true}, code: controlguard.CodeDestructiveMutation},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := runtime.Call(ctx, "git_push", test.args)
+			if err != nil || !result.IsError {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+			challenge, ok := result.StructuredContent.(approvalRequiredResponse)
+			if !ok || challenge.TargetTool != "git_push" || challenge.GuardCode != string(test.code) {
+				t.Fatalf("challenge=%#v", result.StructuredContent)
+			}
+		})
 	}
 }
 

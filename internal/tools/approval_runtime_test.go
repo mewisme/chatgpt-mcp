@@ -159,6 +159,43 @@ func TestRuntimeGuardChallengeApprovalAndExactOneShotRetry(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRegisterRequiresLocalApproval(t *testing.T) {
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	identity, err := manager.Instance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry()
+	runtime := &Runtime{Registry: registry, Workspaces: manager, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID)}
+	RegisterWorkspaceTools(registry, manager)
+	RegisterApprovalTools(registry, runtime)
+	target := t.TempDir()
+	ctx := approvalContext("workspace-register")
+	args := map[string]any{"path": target}
+	first, err := runtime.Call(ctx, "workspace_register", args)
+	if err != nil || !first.IsError {
+		t.Fatalf("first=%#v err=%v", first, err)
+	}
+	challenge, ok := first.StructuredContent.(approvalRequiredResponse)
+	if !ok || challenge.WorkspaceID != approvalControlWorkspace || challenge.TargetTool != "workspace_register" || challenge.GuardCode != string(controlguard.CodeControlPlaneMutation) {
+		t.Fatalf("challenge=%#v", first.StructuredContent)
+	}
+	if _, _, err := manager.ResolveDirectory(workspace.IDForPath(target), target); err == nil {
+		t.Fatal("workspace registered before approval")
+	}
+	request, _, err := runtime.Approvals.CreateRequestWithTitle(challenge.ChallengeID, "workspace-register", approvalControlWorkspace, "Register local workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Approvals.Approve(request.ID, "test", ""); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := runtime.Call(ctx, "workspace_register", args)
+	if err != nil || retry.IsError {
+		t.Fatalf("retry=%#v err=%v", retry, err)
+	}
+}
+
 func TestRuntimeApprovalMismatchDoesNotConsumeGrant(t *testing.T) {
 	runtime, workspaceID := newApprovalRuntime(t)
 	ctx := approvalContext("session-a")

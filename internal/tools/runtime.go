@@ -174,10 +174,11 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 				args["workspace_id"] = boundWorkspaceID
 			}
 			workspaceID, preflightErr = requiredString(args, "workspace_id")
-			if preflightErr == nil && r.Workspaces == nil {
+			if preflightErr == nil && name == ApprovalRequestToolName {
+				// Approval requests may target the synthetic local-control scope used by global control-plane tools.
+			} else if preflightErr == nil && r.Workspaces == nil {
 				preflightErr = errors.New("workspace manager is unavailable")
-			}
-			if preflightErr == nil {
+			} else if preflightErr == nil {
 				canonical, err := r.Workspaces.CanonicalID(workspaceID)
 				if err != nil {
 					preflightErr = workspaceScopePreflightError(r.Workspaces, workspaceID, err)
@@ -205,6 +206,8 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 					}
 				}
 			}
+		} else if name == "workspace_register" {
+			workspaceID = approvalControlWorkspace
 		}
 	}
 	claimedApproval := approval.Request{}

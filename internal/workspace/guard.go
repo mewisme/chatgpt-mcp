@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"unicode"
+
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 )
 
 var mutationWord = regexp.MustCompile(`(?i)(^|[^a-z0-9_.-])(rm|rmdir|unlink|mv|rename|del|erase|move|ren|remove-item|move-item|rename-item)([^a-z0-9_.-]|$)|\bgit\s+(?:mv|rm|clean)\b|\bfind\b[\s\S]*\s-delete\b|\b(?:os\.(?:remove|unlink|rename|replace)|shutil\.(?:move|rmtree)|fs\.(?:unlink|rm|rename))\b`)
@@ -108,6 +111,10 @@ func destructiveGitReason(args []string) (string, bool) {
 		return "", false
 	}
 	switch command {
+	case "push":
+		if gitForcePush(rest) {
+			return "Git force push", true
+		}
 	case "rm":
 		return "Git tracked-file deletion", true
 	case "clean":
@@ -140,6 +147,35 @@ func destructiveGitReason(args []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func gitForcePush(args []string) bool {
+	for _, arg := range args {
+		lower := strings.ToLower(arg)
+		if lower == "-f" || lower == "--force" || lower == "--force-with-lease" || lower == "--force-if-includes" || strings.HasPrefix(lower, "--force-with-lease=") || strings.HasPrefix(lower, "--force-if-includes=") {
+			return true
+		}
+	}
+	return false
+}
+
+func ValidateGitOperationContext(ctx context.Context, args []string) error {
+	code, category, reason := controlguard.Code(""), "", ""
+	if value, ok := destructiveGitReason(args); ok {
+		code, category, reason = controlguard.CodeDestructiveMutation, "destructive", value
+	} else if value, ok := externalMutationReasonForInvocation("git", args); ok {
+		code, category, reason = controlguard.CodeExternalMutation, "external", value
+	} else {
+		return nil
+	}
+	if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == code {
+		return nil
+	}
+	command := "git"
+	if len(args) > 0 {
+		command += " " + strings.Join(args, " ")
+	}
+	return controlguard.New(code, category+" Git mutation requires local approval: "+reason, true, &controlguard.Invocation{Command: command})
 }
 
 func hostMutationReason(command string) (string, bool) {

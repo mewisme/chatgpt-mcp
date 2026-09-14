@@ -81,6 +81,9 @@ func (m *Manager) ValidateShellCommandContext(ctx context.Context, id, baseDirec
 }
 
 func shellApprovalRisk(command string) (controlguard.Code, string, string, bool) {
+	if reason, ok := destructiveMutationReason(command); ok && strings.HasPrefix(reason, "Git ") {
+		return controlguard.CodeDestructiveMutation, "destructive", reason, true
+	}
 	if reason, ok := externalMutationReason(command); ok {
 		return controlguard.CodeExternalMutation, "external", reason, true
 	}

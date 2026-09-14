@@ -10,7 +10,10 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 )
 
-const ApprovalRequestToolName = "request_control_approval"
+const (
+	ApprovalRequestToolName  = "request_control_approval"
+	approvalControlWorkspace = "__local_control__"
+)
 
 type approvalRequiredResponse struct {
 	Code        string    `json:"code"`

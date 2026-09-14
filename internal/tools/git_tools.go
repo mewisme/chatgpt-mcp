@@ -71,6 +71,7 @@ type GitPushResult struct {
 	Path               string  `json:"path"`
 	Remote             string  `json:"remote"`
 	Branch             *string `json:"branch"`
+	Force              bool    `json:"force"`
 	Output             string  `json:"output"`
 	RunCommandFallback string  `json:"run_command_fallback"`
 }
@@ -360,7 +361,7 @@ func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
 		}), nil
 	})
 
-	register("git_push", "Sync Commits to Remote", "Upload local commits to the configured remote.", gitLocationSchema(`"remote":{"type":"string","default":"origin"},"branch":{"type":"string"},"set_upstream":{"type":"boolean","default":false},`), `{"type":"object","properties":{"path":{"type":"string"},"remote":{"type":"string"},"branch":{"type":["string","null"]},"output":{"type":"string"},"run_command_fallback":{"type":"string"}},"required":["path","remote","branch","output","run_command_fallback"],"additionalProperties":false}`, RiskEdit, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("git_push", "Sync Commits to Remote", "Upload local commits to the configured remote. Requires local approval; force push uses destructive approval.", gitLocationSchema(`"remote":{"type":"string","default":"origin"},"branch":{"type":"string"},"set_upstream":{"type":"boolean","default":false},"force":{"type":"boolean","default":false},`), `{"type":"object","properties":{"path":{"type":"string"},"remote":{"type":"string"},"branch":{"type":["string","null"]},"force":{"type":"boolean"},"output":{"type":"string"},"run_command_fallback":{"type":"string"}},"required":["path","remote","branch","force","output","run_command_fallback"],"additionalProperties":false}`, RiskEdit, func(ctx context.Context, args map[string]any) (Result, error) {
 		location, err := resolveGitLocation(ctx, workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -387,7 +388,14 @@ func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
 		if err != nil {
 			return Result{}, err
 		}
+		force, err := optionalBool(args, "force", false)
+		if err != nil {
+			return Result{}, err
+		}
 		gitArgs := []string{"push"}
+		if force {
+			gitArgs = append(gitArgs, "--force")
+		}
 		if setUpstream {
 			gitArgs = append(gitArgs, "-u")
 		}
@@ -404,6 +412,9 @@ func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
 			output = result.Stderr
 		}
 		fallback := []string{"git push"}
+		if force {
+			fallback = append(fallback, "--force")
+		}
 		if setUpstream {
 			fallback = append(fallback, "-u")
 		}
@@ -412,7 +423,7 @@ func RegisterGitTools(registry *Registry, workspaces *workspace.Manager) {
 			fallback = append(fallback, quoteFallback(branch))
 		}
 		return JSONResult(GitPushResult{
-			Path: location.CWD, Remote: remote, Branch: branchPtr, Output: output,
+			Path: location.CWD, Remote: remote, Branch: branchPtr, Force: force, Output: output,
 			RunCommandFallback: strings.Join(fallback, " "),
 		}), nil
 	})
@@ -608,6 +619,9 @@ func validateGitScalar(key, value string) error {
 }
 
 func runGit(ctx context.Context, cwd string, args ...string) (gitexec.Result, error) {
+	if err := workspace.ValidateGitOperationContext(ctx, args); err != nil {
+		return gitexec.Result{}, err
+	}
 	runCtx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	result, err := gitexec.OrThrow(runCtx, cwd, args...)
@@ -618,6 +632,9 @@ func runGit(ctx context.Context, cwd string, args ...string) (gitexec.Result, er
 }
 
 func runGitRaw(ctx context.Context, cwd string, args ...string) (gitexec.Result, error) {
+	if err := workspace.ValidateGitOperationContext(ctx, args); err != nil {
+		return gitexec.Result{}, err
+	}
 	runCtx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	result, err := gitexec.Run(runCtx, cwd, args...)

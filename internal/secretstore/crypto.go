@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const (
@@ -105,18 +104,20 @@ func (b *fileBackend) masterKey() ([]byte, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	file, err := root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if errors.Is(err, os.ErrExist) {
-		data, err := waitForMasterKey(root, path)
-		if err != nil {
-			return nil, err
-		}
-		b.key = data
-		return b.key, nil
-	}
+	data, err = publishMasterKey(root, dir, path, key)
 	if err != nil {
-		return nil, fmt.Errorf("create master key: %w", err)
+		return nil, err
 	}
+	b.key = data
+	return b.key, nil
+}
+
+func publishMasterKey(root *os.Root, dir, path string, key []byte) ([]byte, error) {
+	tempPath, file, err := createMasterKeyTemp(root, dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Remove(tempPath)
 	if _, err := file.Write(key); err != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("write master key: %w", err)
@@ -128,8 +129,32 @@ func (b *fileBackend) masterKey() ([]byte, error) {
 	if err := file.Close(); err != nil {
 		return nil, fmt.Errorf("close master key: %w", err)
 	}
-	b.key = key
-	return b.key, nil
+	if err := root.Link(tempPath, path); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return readMasterKey(root, path)
+		}
+		return nil, fmt.Errorf("publish master key: %w", err)
+	}
+	return append([]byte(nil), key...), nil
+}
+
+func createMasterKeyTemp(root *os.Root, dir string) (string, *os.File, error) {
+	for range 8 {
+		suffix := make([]byte, 12)
+		if _, err := rand.Read(suffix); err != nil {
+			return "", nil, err
+		}
+		path := filepath.Join(dir, "."+masterKeyName+"."+base64.RawURLEncoding.EncodeToString(suffix)+".tmp")
+		file, err := root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", nil, fmt.Errorf("create master key temp file: %w", err)
+		}
+		return path, file, nil
+	}
+	return "", nil, errors.New("create master key temp file: exhausted unique names")
 }
 
 func readMasterKey(root *os.Root, path string) ([]byte, error) {
@@ -141,20 +166,4 @@ func readMasterKey(root *os.Root, path string) ([]byte, error) {
 		return nil, fmt.Errorf("master key %s has invalid length %d", path, len(data))
 	}
 	return append([]byte(nil), data...), nil
-}
-
-func waitForMasterKey(root *os.Root, path string) ([]byte, error) {
-	var err error
-	for range 50 {
-		var data []byte
-		data, err = readMasterKey(root, path)
-		if err == nil {
-			return data, nil
-		}
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-		time.Sleep(time.Millisecond)
-	}
-	return nil, err
 }

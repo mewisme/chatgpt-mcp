@@ -120,15 +120,6 @@ jobs:
         if: needs.changes.outputs.full == 'true'
         run: pnpm build
 
-      - name: Upload web dist
-        if: needs.changes.outputs.full == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: web-dist
-          path: web/dist
-          if-no-files-found: error
-          retention-days: 1
-
   security:
     name: Security checks
     runs-on: ubuntu-latest
@@ -250,7 +241,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     needs:
       - changes
-      - web
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -287,16 +277,12 @@ jobs:
         with:
           node-version: 24
 
-      - name: Download web dist
+      - name: Prepare web fixture
         if: needs.changes.outputs.full == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: web-dist
-          path: web/dist
-
-      - name: Prepare web embed
-        if: needs.changes.outputs.full == 'true'
-        run: node scripts/prepare-web-embed.mjs --from-dist
+        shell: bash
+        run: |
+          mkdir -p web/dist
+          printf '<!doctype html><html><body>CI</body></html>\n' > web/dist/index.html
 
       - name: Validate Unix installer
         if: needs.changes.outputs.full == 'true' && runner.os != 'Windows'

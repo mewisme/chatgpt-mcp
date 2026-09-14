@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -42,12 +41,14 @@ type Status struct {
 }
 
 type ExecResult struct {
-	Command  string `json:"command"`
-	CWD      string `json:"cwd"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
-	TimedOut bool   `json:"timed_out"`
+	Command         string `json:"command"`
+	CWD             string `json:"cwd"`
+	Stdout          string `json:"stdout"`
+	Stderr          string `json:"stderr"`
+	StdoutTruncated bool   `json:"stdout_truncated"`
+	StderrTruncated bool   `json:"stderr_truncated"`
+	ExitCode        int    `json:"exit_code"`
+	TimedOut        bool   `json:"timed_out"`
 }
 
 type Manager struct {
@@ -357,9 +358,9 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, ex
 	cmd.Dir = cwd
 	cmd.Env = shellEnvironment(ctx, shellPath)
 	configureCommandLifecycle(cmd)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = io.MultiWriter(&stdout, execution.Writer("stdout"))
-	cmd.Stderr = io.MultiWriter(&stderr, execution.Writer("stderr"))
+	stdout, stderr := &logBuffer{}, &logBuffer{}
+	cmd.Stdout = io.MultiWriter(stdout, execution.Writer("stdout"))
+	cmd.Stderr = io.MultiWriter(stderr, execution.Writer("stderr"))
 	err = cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		execution.Finish(ExecutionStatusCancelled, nil, false)
@@ -383,10 +384,9 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, ex
 		status = ExecutionStatusFailed
 	}
 	execution.Finish(status, &exitCode, false)
-	return ExecResult{
-		Command: command, CWD: cwd, Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()),
-		ExitCode: exitCode, TimedOut: false,
-	}, nil
+	stdoutText, stdoutTruncated := stdout.snapshot()
+	stderrText, stderrTruncated := stderr.snapshot()
+	return ExecResult{Command: command, CWD: cwd, Stdout: strings.TrimSpace(stdoutText), Stderr: strings.TrimSpace(stderrText), StdoutTruncated: stdoutTruncated, StderrTruncated: stderrTruncated, ExitCode: exitCode, TimedOut: false}, nil
 }
 
 func commandForPlatform(ctx context.Context, command string) (*exec.Cmd, error) {

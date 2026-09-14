@@ -312,3 +312,17 @@ func TestShellMarkdownLanguage(t *testing.T) {
 		}
 	}
 }
+
+func TestShellExecBoundsSynchronousOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix output generator")
+	}
+	manager, workspaceID, _ := newShellTestManager(t)
+	result, err := manager.Exec(context.Background(), workspaceID, "head -c 450000 /dev/zero | tr '\\0' x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.StdoutTruncated || result.StderrTruncated || len(result.Stdout) > maxProcessLogChars {
+		t.Fatalf("stdout=%d stdout_truncated=%t stderr_truncated=%t", len(result.Stdout), result.StdoutTruncated, result.StderrTruncated)
+	}
+}

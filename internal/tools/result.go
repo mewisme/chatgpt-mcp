@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+const maxToolResultBytes = 8 * 1024 * 1024
+
 type Content struct {
 	Type string         `json:"type"`
 	Text string         `json:"text,omitempty"`
@@ -75,6 +77,12 @@ func (r Result) MarshalJSON() ([]byte, error) {
 }
 
 func TextResult(text string) Result {
+	if len(text) > maxToolResultBytes {
+		return toolResultLimitResult(false, len(text))
+	}
+	if len(text) > maxToolResultBytes/2 {
+		return Result{Content: []Content{{Type: "text", Text: text}}, ResultType: "complete"}
+	}
 	return Result{Content: []Content{{Type: "text", Text: text}}, StructuredContent: text, ResultType: "complete"}
 }
 
@@ -82,6 +90,12 @@ func JSONResult(value any) Result {
 	text, err := resultText(value)
 	if err != nil {
 		return ErrorResult(fmt.Errorf("encode tool result: %w", err))
+	}
+	if len(text) > maxToolResultBytes {
+		return toolResultLimitResult(false, len(text))
+	}
+	if len(text) > maxToolResultBytes/2 {
+		return Result{Content: []Content{{Type: "text", Text: "Structured result available; duplicate text representation omitted due to response budget."}}, StructuredContent: value, ResultType: "complete"}
 	}
 	return Result{Content: []Content{{Type: "text", Text: text}}, StructuredContent: value, ResultType: "complete"}
 }
@@ -103,4 +117,26 @@ func resultText(value any) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+func limitToolResult(result Result) Result {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return ErrorResult(fmt.Errorf("encode tool result: %w", err))
+	}
+	if len(data) <= maxToolResultBytes {
+		return result
+	}
+	if result.ResultType == "input_required" {
+		return toolResultLimitResult(true, len(data))
+	}
+	return toolResultLimitResult(result.IsError, len(data))
+}
+
+func toolResultLimitResult(isError bool, actualBytes int) Result {
+	message := fmt.Sprintf("Tool completed, but result exceeded %d-byte response limit; narrow the request or use a chunked tool.", maxToolResultBytes)
+	return Result{
+		Content: []Content{{Type: "text", Text: message}}, IsError: isError, ResultType: "complete",
+		Meta: map[string]any{"outputLimit": map[string]any{"omitted": true, "max_bytes": maxToolResultBytes, "actual_bytes": actualBytes}},
+	}
 }

@@ -96,8 +96,9 @@ type ProcessManager struct {
 }
 
 type logBuffer struct {
-	mu   sync.Mutex
-	data []byte
+	mu        sync.Mutex
+	data      []byte
+	truncated bool
 }
 
 func NewProcessManager(workspaces *workspace.Manager, shell *Manager) *ProcessManager {
@@ -555,9 +556,16 @@ func (b *logBuffer) Write(data []byte) (int, error) {
 	defer b.mu.Unlock()
 	b.data = append(b.data, data...)
 	if len(b.data) > maxProcessLogChars {
+		b.truncated = true
 		b.data = append([]byte(nil), b.data[len(b.data)-maxProcessLogChars:]...)
 	}
 	return len(data), nil
+}
+
+func (b *logBuffer) snapshot() (string, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.data), b.truncated
 }
 
 func (b *logBuffer) tail(chars int) string {

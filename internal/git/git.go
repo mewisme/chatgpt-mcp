@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +8,30 @@ import (
 	"os/exec"
 	"strings"
 )
+
+const maxOutputBytes = 400_000
+
+type boundedBuffer struct {
+	data      []byte
+	truncated bool
+}
+
+func (b *boundedBuffer) Write(data []byte) (int, error) {
+	b.data = append(b.data, data...)
+	if len(b.data) > maxOutputBytes {
+		b.truncated = true
+		b.data = append([]byte(nil), b.data[len(b.data)-maxOutputBytes:]...)
+	}
+	return len(data), nil
+}
+
+func (b *boundedBuffer) String() string {
+	text := string(b.data)
+	if b.truncated {
+		return "[output truncated to last 400000 bytes]\n" + text
+	}
+	return text
+}
 
 type Result struct {
 	Stdout   string `json:"stdout"`
@@ -20,7 +43,7 @@ func Run(ctx context.Context, cwd string, args ...string) (Result, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = cwd
 	cmd.Env = environment()
-	var stdout, stderr bytes.Buffer
+	var stdout, stderr boundedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()

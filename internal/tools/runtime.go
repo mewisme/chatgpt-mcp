@@ -243,6 +243,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	} else if err == nil {
 		result, err = r.Registry.Call(ctx, name, args)
 	}
+	if err == nil {
+		result = limitToolResult(result)
+	}
 	if err != nil && errors.Is(context.Cause(ctx), errTunnelResponseBudgetExceeded) && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		err = tunnelResponseBudgetError(name)
 	}

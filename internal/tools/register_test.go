@@ -152,6 +152,45 @@ func TestReadFileBase64Chunk(t *testing.T) {
 	}
 }
 
+func TestReadFilesUsesRootedBoundedReads(t *testing.T) {
+	runtime, workspaceID, root := newToolTestRuntime(t)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "outside-link")
+	if err := os.Symlink(outside, link); err == nil {
+		result := callTool(t, runtime, "read_files", map[string]any{"workspace_id": workspaceID, "paths": []any{"outside-link/secret.txt"}})
+		if !result.IsError {
+			t.Fatalf("symlink escape read succeeded: %#v", result)
+		}
+	}
+	first := bytes.Repeat([]byte("a"), maxTextReadBytes/2+1)
+	second := bytes.Repeat([]byte("b"), maxTextReadBytes/2+1)
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), first, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.txt"), second, 0644); err != nil {
+		t.Fatal(err)
+	}
+	result := callTool(t, runtime, "read_files", map[string]any{"workspace_id": workspaceID, "paths": []any{"a.txt", "b.txt"}})
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "combined multi-file text read exceeds") {
+		t.Fatalf("combined read was not bounded: %#v", result)
+	}
+}
+
+func TestReadFilesRejectsTooManyPaths(t *testing.T) {
+	runtime, workspaceID, _ := newToolTestRuntime(t)
+	paths := make([]any, maxReadFiles+1)
+	for index := range paths {
+		paths[index] = "missing.txt"
+	}
+	result := callTool(t, runtime, "read_files", map[string]any{"workspace_id": workspaceID, "paths": paths})
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "at most 32") {
+		t.Fatalf("path count was not bounded: %#v", result)
+	}
+}
+
 func TestWriteAndEditCreateCheckpoints(t *testing.T) {
 	runtime, workspaceID, root := newToolTestRuntime(t)
 	args := baseArgs(workspaceID, root)

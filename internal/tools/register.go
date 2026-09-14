@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -32,6 +31,11 @@ type VersionResult struct {
 
 var processStartedAt = time.Now().UTC()
 var machineUptime = readMachineUptime
+
+const (
+	maxReadFiles            = 32
+	maxReadFilesBytes int64 = maxTextReadBytes
+)
 
 func RegisterCore(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store, shells ...*shellruntime.Manager) {
 	registerCore(registry, workspaces, checkpoints, nil, shells...)
@@ -67,7 +71,7 @@ func registerCoreWithManagers(registry *Registry, workspaces *workspace.Manager,
 	RegisterContextTools(registry, workspaces, checkpoints, environment)
 	RegisterRewindTools(registry, workspaces, checkpoints)
 	RegisterAdvancedTools(registry, workspaces)
-	registry.MustRegister("read_files", coreSchema("read_files", "Read multiple text files", `{"type":"object","properties":{"workspace_id":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["workspace_id","paths"],"additionalProperties":false}`, `{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["files","count"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
+	registry.MustRegister("read_files", coreSchema("read_files", "Read multiple text files with rooted workspace access and a bounded combined payload.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"paths":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32}},"required":["workspace_id","paths"],"additionalProperties":false}`, `{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"count":{"type":"integer"}},"required":["files","count"],"additionalProperties":false}`, RiskRead), handleReadFiles(workspaces))
 }
 
 func coreSchema(name, description, input, output string, risk Risk) Schema {
@@ -84,15 +88,28 @@ func handleReadFiles(workspaces *workspace.Manager) Handler {
 		if err != nil {
 			return Result{}, err
 		}
+		if len(paths) > maxReadFiles {
+			return Result{}, fmt.Errorf("paths must contain at most %d files", maxReadFiles)
+		}
 		files := make([]ReadFile, 0, len(paths))
+		var totalBytes int64
 		for _, value := range paths {
 			file, err := workspaces.ResolvePath(item.ID, cwd, value, true)
 			if err != nil {
 				return Result{}, fmt.Errorf("path %q: %w", value, err)
 			}
-			data, err := os.ReadFile(file)
+			rooted, err := openRootedPath(workspaces, item.ID, file)
 			if err != nil {
-				return Result{}, err
+				return Result{}, fmt.Errorf("path %q: %w", value, err)
+			}
+			data, readErr := readRootedRegularFileLimited(rooted, maxTextReadBytes, "multi-file text read")
+			_ = rooted.Close()
+			if readErr != nil {
+				return Result{}, fmt.Errorf("path %q: %w", value, readErr)
+			}
+			totalBytes += int64(len(data))
+			if totalBytes > maxReadFilesBytes {
+				return Result{}, fmt.Errorf("combined multi-file text read exceeds %s limit", byteLimitLabel(maxReadFilesBytes))
 			}
 			files = append(files, ReadFile{Path: file, Content: string(data)})
 		}

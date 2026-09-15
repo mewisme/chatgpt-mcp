@@ -14,7 +14,7 @@ import (
 
 const (
 	maxPluginExtractedBytes int64 = 512 << 20
-	maxPluginArchiveEntries       = 10000
+	maxPluginArchiveEntries       = 12000
 )
 
 func ExtractArchive(archivePath, archiveType, destination string) error {

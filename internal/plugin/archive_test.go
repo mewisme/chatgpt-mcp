@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -91,6 +92,29 @@ func TestExtractArchiveRejectsSymlinkAndDuplicateEntries(t *testing.T) {
 				t.Fatalf("%s archive accepted", fixture.name)
 			}
 		})
+	}
+}
+
+func TestExtractArchiveRejectsTooManyEntries(t *testing.T) {
+	archive := filepath.Join(t.TempDir(), "many.zip")
+	file, err := os.Create(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	for i := 0; i <= maxPluginArchiveEntries; i++ {
+		if _, err := writer.Create("files/" + strconv.Itoa(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExtractArchive(archive, "zip", filepath.Join(t.TempDir(), "extract")); err == nil {
+		t.Fatal("archive entry limit was not enforced")
 	}
 }
 

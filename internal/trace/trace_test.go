@@ -2,7 +2,9 @@ package trace
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +85,26 @@ func TestURLFieldSanitizesCredentialQuery(t *testing.T) {
 	value, _ := fieldValue(events[0], "url")
 	if value == "https://example.com/callback?access_token=abc&state=def&safe=1" {
 		t.Fatalf("URL was not sanitized: %v", value)
+	}
+}
+
+func TestTraceRedactsMessagesErrorsAndNestedFields(t *testing.T) {
+	events := []Event{}
+	ctx := WithObserver(context.Background(), func(event Event) { events = append(events, event) })
+	span := Start(ctx, "PLUGIN", "plugin.security", `calling plugin api_key=message-secret`, Any("payload", map[string]any{"client_secret": "nested-secret", "route_kind": "mcp_channel"}))
+	span.Fail(errors.New(`GET https://user:pass@example.test/plugin?token=query-secret failed Authorization: Bearer bearer-secret`))
+	data, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, secret := range []string{"message-secret", "user:pass@", "query-secret", "nested-secret", "bearer-secret"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("trace leaked %q: %s", secret, text)
+		}
+	}
+	if !strings.Contains(text, "mcp_channel") || !strings.Contains(text, "redacted") {
+		t.Fatalf("trace lost safe context: %s", text)
 	}
 }
 

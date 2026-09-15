@@ -230,7 +230,7 @@ Remote Admin approval mutation is stricter than ordinary local browsing and requ
 
 ## Runtime journal sanitization
 
-Persistent runtime events are sanitized before writing. The journal is not intended to retain raw authorization credentials, tunnel keys, token hashes, arbitrary full tool arguments containing secrets, or raw file contents.
+Logger output, trace observers, and persistent runtime events use the same secret-redaction policy before diagnostics are emitted or stored. The sanitizer removes common bearer/token/secret assignments, sensitive nested fields, URL userinfo, and sensitive signed/query parameters. The journal is not intended to retain raw authorization credentials, tunnel keys, token hashes, arbitrary full tool arguments containing secrets, or raw file contents.
 
 Operational metadata such as component, event, workspace, tool, source, status, and duration may be retained.
 
@@ -241,6 +241,14 @@ cgm logs path
 ```
 
 Review diagnostic logs before publishing them because project paths or command output may still be sensitive to your environment.
+
+## Plugin trust boundary
+
+Plugins are signed local-user extensions and remain subordinate to core workspace, control-guard, and approval policy. Registry metadata is pinned to a Sigstore identity; publisher trust, manifest signatures, artifact hashes, platform compatibility, and capability dependencies are verified before activation. Plugin hooks cannot remove core guard decisions, and command-wrapper security projections cannot hide the original dangerous command from classification.
+
+Plugin subprocesses receive a reduced environment and do not inherit approval/control-plane capability. Corrupt or unverifiable lock state is disabled/quarantined rather than reconstructed from executable payloads. Config bundles carry plugin desired state but not verified lock state or executable payloads.
+
+Native plugins still execute as the runtime OS user, so these controls are application boundaries rather than a kernel sandbox. See [Plugins](plugins.md) for the full trust chain, capability contracts, rollback verification, and recovery behavior.
 
 ## Config/state isolation
 

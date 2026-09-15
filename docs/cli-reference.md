@@ -90,6 +90,7 @@ chatgpt-mcp
 │   ├── set
 │   └── verify
 ├── down
+├── doctor
 ├── init
 ├── install
 ├── logs
@@ -100,6 +101,23 @@ chatgpt-mcp
 │   ├── http
 │   ├── stdio
 │   └── server      # deprecated compatibility path
+├── plugin
+│   ├── search
+│   ├── info
+│   ├── list
+│   ├── install
+│   ├── uninstall
+│   ├── enable
+│   ├── disable
+│   ├── update
+│   ├── rollback
+│   ├── prune
+│   ├── outdated
+│   ├── verify
+│   └── registry
+│       ├── list
+│       ├── add
+│       └── remove
 ├── request
 │   ├── approve
 │   ├── create
@@ -188,6 +206,46 @@ Direct updates download the expected platform archive and `checksums.txt`, verif
 When the selected config root has a managed runtime, `cgm upgrade` restarts it and waits for full readiness. If the Secure MCP Tunnel is enabled, readiness includes the tunnel reaching its ready state; connecting/reconnecting is not treated as success. Failure restores the previous install target and metadata and restarts the previous runtime. `--no-restart` leaves an existing process on the previous binary; foreground `serve` is also never killed by the updater.
 
 `cgm status` never performs a network update check. It may show availability from the fresh install-global cache at `<install-root>/state/update.json`.
+
+## Plugins
+
+Inspect signed registries and installed plugins:
+
+```bash
+cgm plugin search [query]
+cgm plugin info official/bash
+cgm plugin list
+cgm plugin outdated
+cgm plugin registry list
+```
+
+Manage lifecycle:
+
+```bash
+cgm plugin install official/bash
+cgm plugin verify bash
+cgm plugin disable bash
+cgm plugin enable bash
+cgm plugin update bash
+cgm plugin rollback bash
+cgm plugin rollback bash 1.2.3
+cgm plugin prune bash
+cgm plugin prune --retain 1 --cache
+cgm plugin uninstall bash
+```
+
+Updates keep the active version plus two inactive rollback versions. Rollback re-resolves and re-verifies the exact signed manifest/artifact before activation instead of trusting the retained executable copy directly. `plugin prune [plugin] --retain N` removes older inactive versions; without a plugin it also removes orphaned versions from uninstalled plugins, and `--cache` clears only plugin registry/download cache plus stale extraction directories.
+
+Configure a custom registry only with an explicit pinned signing identity:
+
+```bash
+cgm plugin registry add community https://plugins.example.com/releases \
+  --issuer https://token.actions.githubusercontent.com \
+  --repository example/plugins
+cgm plugin registry remove community
+```
+
+Use `cgm doctor` to reconcile activation state and diagnose a corrupt or unverifiable plugin lock. See [Plugins](plugins.md) for authoring, security contracts, desired-state portability, rollback, and recovery.
 
 ## Control approval requests
 
@@ -385,7 +443,7 @@ cgm config import
 
 Both commands default to `chatgpt-mcp-config.cgm` in the current directory. Pass an explicit file only when a custom path/name is needed, for example `cgm config export laptop.cgm` and `cgm config import laptop.cgm`.
 
-`config export` creates one sealed bundle containing portable persistent config/state plus all currently managed reversible secrets. `config import` restores that bundle on Linux, macOS, or Windows and rebuilds the destination secret store instead of copying source secret files. Existing config/state requires `--force` on import; an existing bundle requires `--force` on export. Import requires the selected runtime to be stopped.
+`config export` creates one sealed bundle containing portable persistent config/state plus all currently managed reversible secrets. Plugin registry/desired state is portable, but `plugins.lock.json`, installed executable payloads, and registry/download cache are not exported. `config import` restores that intent on Linux, macOS, or Windows, reports missing/incompatible/pending plugins without silently installing them, and rebuilds the destination secret store instead of copying source secret files. Existing config/state requires `--force` on import; an existing bundle requires `--force` on export. Import requires the selected runtime to be stopped.
 
 Machine-local filesystem paths are normalized during import. Home-relative paths are mapped to the destination user's home when the corresponding directory exists; unavailable paths and workspaces are skipped. Runtime control state, logs, managed-service environment snapshots, instance identity, shell session state, checkpoints, update cache, and raw secret-store files are intentionally not migrated.
 

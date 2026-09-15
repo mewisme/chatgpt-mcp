@@ -13,6 +13,8 @@ import (
 	spinnerlib "github.com/briandowns/spinner"
 	"github.com/fatih/color"
 	"golang.org/x/term"
+
+	"go.mewis.me/chatgpt-mcp/internal/redact"
 )
 
 type Options struct {
@@ -119,11 +121,20 @@ func terminalWriter(writer io.Writer) bool {
 }
 
 func (l *Logger) normalize(event Event) Event {
+	event.Message = redact.Text(strings.TrimSpace(event.Message))
 	if strings.TrimSpace(event.Name) == "" {
 		event.Name = legacyEventName(event.Component, event.Message)
 	}
-	if strings.TrimSpace(event.Message) == "" {
+	if event.Message == "" {
 		event.Message = event.Name
+	}
+	if event.Err != nil {
+		event.Err = errors.New(redact.Text(event.Err.Error()))
+	}
+	for index, field := range event.Fields {
+		field.Key = strings.TrimSpace(field.Key)
+		field.Value = redact.Value(field.Key, field.Value)
+		event.Fields[index] = field
 	}
 	if event.Component == "" {
 		event.Component = "CLI"

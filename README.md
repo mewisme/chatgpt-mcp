@@ -11,7 +11,7 @@ Single Go binary · OpenAI Secure MCP Tunnel · Linux, macOS, and Windows
 [![Go](https://img.shields.io/github/go-mod/go-version/mewisme/chatgpt-mcp?style=flat-square&logo=go)](go.mod)
 [![License](https://img.shields.io/github/license/mewisme/chatgpt-mcp?style=flat-square)](LICENSE)
 
-[Get started](docs/getting-started.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [Command Center](docs/tui.md) · [Security](docs/security.md) · [Documentation](docs/README.md)
+[Get started](docs/getting-started.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [Command Center](docs/tui.md) · [Plugins](docs/plugins.md) · [Security](docs/security.md) · [Documentation](docs/README.md)
 
 </div>
 
@@ -160,6 +160,7 @@ Read [Security](docs/security.md) before widening network exposure or filesystem
 | Use the full-screen terminal UI | [TUI Command Center](docs/tui.md) |
 | Configure auth, exposure, storage, and runtime settings | [Configuration](docs/configuration.md) |
 | Connect generic clients or upstream MCP servers | [MCP and upstreams](docs/mcp.md) |
+| Install, author, verify, update, or recover plugins | [Plugins](docs/plugins.md) |
 | Look up commands and flags | [CLI reference](docs/cli-reference.md) |
 | Understand trust boundaries | [Security](docs/security.md) |
 | Diagnose common failures | [Troubleshooting](docs/troubleshooting.md) |

@@ -158,11 +158,11 @@ func TestEditorFormMultilineEnterAddsNewlineAndTabMovesFocus(t *testing.T) {
 	}
 }
 
-func TestEditorFormLastFieldNeverCompletesAndCtrlSPassesThrough(t *testing.T) {
+func TestEditorFormLastFieldNeverCompletesOnItsOwn(t *testing.T) {
 	value := "demo"
 	form := NewEditorForm(Group(Input("Name", &value)))
 	form = runFormCmd(t, form, form.Init())
-	for _, message := range []tea.KeyPressMsg{{Code: tea.KeyEnter}, {Code: tea.KeyTab}, {Code: 's', Mod: tea.ModCtrl}} {
+	for _, message := range []tea.KeyPressMsg{{Code: tea.KeyEnter}, {Code: tea.KeyTab}} {
 		updated, cmd := form.Update(message)
 		form = runFormCmd(t, updated, cmd)
 		if form.State() != huh.StateNormal || form.FocusedFieldIndex() != 0 {

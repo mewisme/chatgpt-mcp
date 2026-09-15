@@ -82,7 +82,7 @@ func (form Form) Update(message tea.Msg) (Form, tea.Cmd) {
 	if form.OnFirstField() && reflect.TypeOf(message) == reflect.TypeOf(huh.PrevField()) {
 		return form, nil
 	}
-	if msg, ok := message.(tea.KeyPressMsg); ok && (msg.String() == "esc" || msg.String() == "ctrl+s") {
+	if msg, ok := message.(tea.KeyPressMsg); ok && msg.String() == "esc" {
 		return form, nil
 	}
 	if msg, ok := message.(FormMouseMsg); ok {
@@ -377,11 +377,18 @@ func (form Form) OnLastField() bool {
 }
 
 func (form Form) CompletionSubmittable() bool {
-	if form.model == nil {
+	if form.model == nil || form.model.GetFocusedField() == nil {
+		return false
+	}
+	return !form.FocusedMultiline()
+}
+
+func (form Form) FocusedMultiline() bool {
+	if form.model == nil || form.model.GetFocusedField() == nil {
 		return false
 	}
 	_, multiline := form.model.GetFocusedField().(*huh.Text)
-	return !multiline
+	return multiline
 }
 
 func (form Form) FocusField(index int) (Form, tea.Cmd) {

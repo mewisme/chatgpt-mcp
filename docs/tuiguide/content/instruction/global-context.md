@@ -8,7 +8,7 @@ The default state is a Glamour-rendered Markdown preview, not an active textarea
 
 ## Edit state
 
-Trigger **Edit** to enter the routed Global Context editor. The textarea owns normal text-entry keys only in this state. Enter inserts newlines; `Ctrl+S` saves through the page workflow; Esc/back navigation participates in the global dirty-draft guard.
+Trigger **Edit** to enter the routed Global Context editor. The textarea owns normal text-entry keys only in this state. `Enter` inserts newlines; `Ctrl+Enter` saves through the page workflow; Esc/back navigation participates in the global dirty-draft guard.
 
 ## Content
 

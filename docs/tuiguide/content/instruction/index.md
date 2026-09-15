@@ -6,7 +6,7 @@ Instruction manages user-level instruction context used by Project Context assem
 
 Global Context opens in **preview mode**, not edit mode. The Markdown is rendered with Glamour and scrolls through a bounded Markdown viewport. Because preview is not an input, normal tab-navigation keys remain owned by the page rather than being consumed by an editor.
 
-Press `e` to enter the routed Global Context editor. The editor uses a multiline textarea; `Enter` inserts a newline and `Ctrl+S` saves. On successful save the page returns to the Markdown preview. Unsaved edits participate in the global dirty-navigation guard.
+Press `e` to enter the routed Global Context editor. The editor uses a multiline textarea; `Enter` inserts a newline and `Ctrl+Enter` saves. On successful save the page returns to the Markdown preview. Unsaved edits participate in the global dirty-navigation guard.
 
 ## Global Rules
 

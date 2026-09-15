@@ -684,8 +684,8 @@ func TestLogsFilterDeepLinkUsesNativeWrappedEditor(t *testing.T) {
 	if strings.Contains(plain, "Log Filters") {
 		t.Fatalf("filter editor retained redundant page title: %q", plain)
 	}
-	if strings.Contains(plain, "ctrl+s apply") {
-		t.Fatalf("non-mutating filter editor still advertises ctrl+s: %q", plain)
+	if !strings.Contains(plain, "enter next") {
+		t.Fatalf("filter editor does not advertise Enter navigation: %q", plain)
 	}
 }
 

@@ -75,9 +75,8 @@ Create/edit/configure workflows use full-page editors so long forms remain usabl
 
 Common behavior:
 
-- `Ctrl+S` performs explicit mutating actions such as save/create/update.
-- Multiline inputs keep `Enter` for newlines.
-- Non-mutating selectors/forms may use `Enter` on the final field to apply/build.
+- `Enter` advances structured fields/sections and performs the editor action on the final visible field.
+- Multiline inputs keep `Enter` for newlines and use `Ctrl+Enter` for save/create/apply actions.
 - Path fields use `Ctrl+O` to switch between picker and manual input where supported.
 - Sensitive fields use password-style input and do not expose persisted secrets.
 - Failed operations keep the current draft.

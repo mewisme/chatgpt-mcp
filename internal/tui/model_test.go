@@ -260,7 +260,7 @@ func TestModelMCPOAuthEditorDeepLinkUsesDirtyNavigationGuard(t *testing.T) {
 	if model.currentPage == nil || model.currentPage.OverlayActive() || !model.currentPage.InputActive() {
 		t.Fatalf("OAuth deep link page=%v overlay=%t input=%t", model.currentPage != nil, model.currentPage != nil && model.currentPage.OverlayActive(), model.currentPage != nil && model.currentPage.InputActive())
 	}
-	if got := ansi.Strip(model.View().Content); !strings.Contains(got, "MCP  /  secure  /  OAuth  /  Login") || !strings.Contains(got, "ctrl+s authorize") {
+	if got := ansi.Strip(model.View().Content); !strings.Contains(got, "MCP  /  secure  /  OAuth  /  Login") || !strings.Contains(got, "enter next") {
 		t.Fatalf("OAuth deep link view=%q", got)
 	}
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'i', Text: "https://issuer.example"})
@@ -355,7 +355,7 @@ func TestConfigEditorRouteLoadsNativePageWithoutCompatibilityShim(t *testing.T) 
 	if follow == nil || model.router.Current() != route || !model.currentPage.InputActive() {
 		t.Fatalf("route=%#v follow=%v input=%t", model.router.Current(), follow != nil, model.currentPage.InputActive())
 	}
-	if plain := ansi.Strip(model.View().Content); !strings.Contains(plain, "Config  /  server.port  /  Edit") || !strings.Contains(plain, "ctrl+s save") || strings.Contains(plain, "Edit MCP HTTP port") {
+	if plain := ansi.Strip(model.View().Content); !strings.Contains(plain, "Config  /  server.port  /  Edit") || !strings.Contains(plain, "enter save") || strings.Contains(plain, "Edit MCP HTTP port") {
 		t.Fatalf("config editor view=%q", plain)
 	}
 }
@@ -682,7 +682,7 @@ func TestModelInstructionRuleEditorDeepLinkLoadsRoutedEditor(t *testing.T) {
 		t.Fatalf("route=%#v stack=%#v notice=%q", model.router.Current(), model.router.stack, model.notice)
 	}
 	plain := ansi.Strip(model.View().Content)
-	for _, want := range []string{"Rules", "Edit rule_one", "ctrl+s save"} {
+	for _, want := range []string{"Rules", "Edit rule_one", "enter next"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("rule editor missing %q: %q", want, plain)
 		}

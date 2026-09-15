@@ -14,13 +14,6 @@ type EditorSubmitMsg struct{}
 type EditorCancelMsg struct{}
 type EditorSectionMsg struct{ Index int }
 
-type EditorSubmitMode uint8
-
-const (
-	EditorSubmitExplicit EditorSubmitMode = iota
-	EditorSubmitOnComplete
-)
-
 type EditorSection struct {
 	ID          string
 	Title       string
@@ -32,7 +25,6 @@ type Editor struct {
 	sections     []EditorSection
 	active       int
 	primaryLabel string
-	submitMode   EditorSubmitMode
 	notice       string
 	err          string
 	submitting   bool
@@ -50,12 +42,6 @@ func NewEditor(primaryLabel string, sections ...EditorSection) Editor {
 	}
 	editor.syncHelp()
 	editor.resizeForms()
-	return editor
-}
-
-func (editor Editor) WithSubmitMode(mode EditorSubmitMode) Editor {
-	editor.submitMode = mode
-	editor.syncHelp()
 	return editor
 }
 
@@ -97,7 +83,10 @@ func (editor Editor) Update(message tea.Msg) (Editor, tea.Cmd) {
 			return editor.switchSectionValidated(editor.active-1, true)
 		}
 		switch msg.String() {
-		case "ctrl+s":
+		case "ctrl+enter":
+			if !form.FocusedMultiline() {
+				break
+			}
 			if editor.submitting {
 				return editor, nil
 			}
@@ -114,7 +103,7 @@ func (editor Editor) Update(message tea.Msg) (Editor, tea.Cmd) {
 		if editor.active < len(editor.sections)-1 {
 			return editor.switchSection(editor.active+1, false)
 		}
-		if editor.submitMode == EditorSubmitOnComplete && !editor.submitting && form.CompletionSubmittable() {
+		if !editor.submitting && form.CompletionSubmittable() {
 			return editor, func() tea.Msg { return EditorSubmitMsg{} }
 		}
 		return editor, nil
@@ -325,19 +314,26 @@ func (editor *Editor) syncHelp() {
 		return
 	}
 	bindings := make([]key.Binding, 0, 10)
-	if editor.submitMode == EditorSubmitExplicit {
-		primary := Binding([]string{"ctrl+s"}, "ctrl+s", editor.primaryLabel)
-		if editor.submitting {
-			primary.SetEnabled(false)
+	if editor.active >= 0 && editor.active < len(editor.sections) {
+		form := editor.sections[editor.active].Form
+		var primary key.Binding
+		switch {
+		case form.FocusedMultiline():
+			primary = Binding([]string{"ctrl+enter"}, "ctrl+enter", editor.primaryLabel)
+		case editor.active == len(editor.sections)-1 && form.OnLastField() && form.CompletionSubmittable():
+			primary = Binding([]string{"enter"}, "enter", editor.primaryLabel)
 		}
-		bindings = append(bindings, primary)
-	} else if editor.active == len(editor.sections)-1 && editor.sections[editor.active].Form.OnLastField() && editor.sections[editor.active].Form.CompletionSubmittable() {
-		bindings = append(bindings, Binding([]string{"enter"}, "enter", editor.primaryLabel))
+		if primary.Help().Key != "" {
+			if editor.submitting {
+				primary.SetEnabled(false)
+			}
+			bindings = append(bindings, primary)
+		}
 	}
-	bindings = append(bindings, Binding([]string{"tab"}, "tab", "next"), Binding([]string{"shift+tab"}, "shift+tab", "back"), Binding([]string{"esc"}, "esc", "cancel"))
 	if editor.active >= 0 && editor.active < len(editor.sections) {
 		bindings = append(bindings, editor.sections[editor.active].Form.FocusedKeyBinds()...)
 	}
+	bindings = append(bindings, Binding([]string{"tab"}, "tab", "next"), Binding([]string{"shift+tab"}, "shift+tab", "back"), Binding([]string{"esc"}, "esc", "cancel"))
 	editor.help.SetBindings(uniqueHelpBindings(bindings)...)
 }
 

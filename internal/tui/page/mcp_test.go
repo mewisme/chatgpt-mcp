@@ -151,7 +151,7 @@ func TestMCPRoutedServerEditorsAndSecretRedaction(t *testing.T) {
 		t.Fatalf("create editor=%v overlay=%t input=%t dirty=%t", create.editor != nil, create.OverlayActive(), create.InputActive(), create.Dirty())
 	}
 	view := ansi.Strip(create.View(100, 28))
-	for _, want := range []string{"General", "Connection", "Authentication", "Tools", "ctrl+s create"} {
+	for _, want := range []string{"General", "Connection", "Authentication", "Tools", "enter next"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("create editor missing %q: %q", want, view)
 		}
@@ -352,7 +352,7 @@ func TestMCPPageOAuthEmitsURLStoresCredentialAndLogoutPreservesServer(t *testing
 	}
 	_ = page.Init()
 	view := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"Open authorization URL in browser", "ctrl+s authorize"} {
+	for _, want := range []string{"Open authorization URL in browser", "enter next"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("OAuth editor missing %q: %q", want, view)
 		}

@@ -271,7 +271,7 @@ cgm workspace relocate ws_... /new/path/to/project
 
 The canonical workspace ID changes because IDs are derived from canonical paths, but the previous ID remains a legacy alias. Persistent workspace state and container membership follow the new ID, and state paths under the old root are rebased to the new root. The operation does not rename or move the project directory itself.
 
-In `cgm tui`, open the workspace detail, press `m` for **Relocate**, choose the new directory, and save with `Ctrl+S`.
+In `cgm tui`, open the workspace detail, press `m` for **Relocate**, choose the new directory, and press `Enter` on the final field to relocate it.
 
 Relocation is intentionally unavailable to MCP tools and agents. It changes the trusted workspace root, so perform it through the local CLI, TUI, or authenticated Admin API instead.
 

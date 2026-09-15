@@ -40,7 +40,7 @@ func TestTunnelRuntimeEditorsRedactSecretsAndBlankRuntimeKeyPreservesSecret(t *t
 		t.Fatalf("blank runtime key should preserve existing secret: %#v", input.APIKey)
 	}
 	view := ansi.Strip(runtimeEditor.View(100, 28))
-	if strings.Contains(view, "runtime-secret") || !strings.Contains(view, "Configure the selected runtime tunnel") || !strings.Contains(view, "ctrl+s save") || strings.Contains(view, "Configure Runtime Tunnel") {
+	if strings.Contains(view, "runtime-secret") || !strings.Contains(view, "Configure the selected runtime tunnel") || !strings.Contains(view, "enter next") || strings.Contains(view, "Configure Runtime Tunnel") {
 		t.Fatalf("runtime editor view=%q", view)
 	}
 	adminEditor, err := NewTunnelDashboardRoute(t.Context(), "admin-key", "edit")
@@ -49,7 +49,7 @@ func TestTunnelRuntimeEditorsRedactSecretsAndBlankRuntimeKeyPreservesSecret(t *t
 	}
 	_ = adminEditor.Init()
 	view = ansi.Strip(adminEditor.View(100, 28))
-	if adminEditor.OverlayActive() || adminEditor.adminForm == nil || adminEditor.adminForm.AdminKey != "" || strings.Contains(view, "admin-secret") || !strings.Contains(view, "ctrl+s verify") {
+	if adminEditor.OverlayActive() || adminEditor.adminForm == nil || adminEditor.adminForm.AdminKey != "" || strings.Contains(view, "admin-secret") || !strings.Contains(view, "enter next") {
 		t.Fatalf("admin editor overlay=%t draft=%#v view=%q", adminEditor.OverlayActive(), adminEditor.adminForm, view)
 	}
 }
@@ -566,7 +566,7 @@ func TestManagedTunnelCreateEditorSectionsWrapAndFailureKeepsDraft(t *testing.T)
 	}
 	_ = page.Init()
 	plain := ansi.Strip(page.View(40, 20))
-	for _, want := range []string{"General", "Scope", "Runtime", "ctrl+s create"} {
+	for _, want := range []string{"General", "Scope", "Runtime", "enter next"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("create editor missing %q: %q", want, plain)
 		}

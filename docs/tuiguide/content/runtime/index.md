@@ -22,7 +22,7 @@ The direct MCP HTTP listener can be enabled or disabled when configuration const
 
 ## Install and update editors
 
-Install and Apply Upgrade use routed full-page editors rather than confirmation fields embedded inside forms. `Ctrl+S` starts the requested operation. Progress remains an operation overlay so the editor does not disappear while long-running work is active.
+Install and Apply Upgrade use routed full-page editors rather than confirmation fields embedded inside forms. `Enter` advances the form and starts the requested operation when the final visible field completes. Progress remains an operation overlay so the editor does not disappear while long-running work is active.
 
 Backend failure returns to the editor and preserves its draft. Success commits the editor baseline before navigating away.
 

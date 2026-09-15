@@ -45,12 +45,9 @@ func TestEditorSubmitCancelFeedbackDirtyAndResponsiveLayout(t *testing.T) {
 	if !editor.Dirty() {
 		t.Fatal("editor did not detect dirty draft")
 	}
-	_, cmd := editor.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	if cmd == nil {
-		t.Fatal("ctrl+s returned no submit command")
-	}
-	if _, ok := cmd().(EditorSubmitMsg); !ok {
-		t.Fatalf("submit message=%T", cmd())
+	updated, cmd := editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if _, submitted := runEditorUntilSubmit(t, updated, cmd); !submitted {
+		t.Fatal("final Enter did not submit editor")
 	}
 	_, cmd = editor.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd == nil {
@@ -62,39 +59,31 @@ func TestEditorSubmitCancelFeedbackDirtyAndResponsiveLayout(t *testing.T) {
 	editor.SetFeedback("saved", errors.New("invalid "+strings.Repeat("value ", 10)))
 	testutil.AssertLinesFit(t, editor.View(), 24)
 	editor.SetSubmitting(true)
-	_, cmd = editor.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	if cmd != nil {
-		t.Fatal("submitting editor accepted second submit")
+	updated, cmd = editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if _, submitted := runEditorUntilSubmit(t, updated, cmd); submitted {
+		t.Fatal("submitting editor accepted duplicate Enter submit")
 	}
 }
 
-func TestEditorSubmitModeDefaultsExplicitAndCompletesOnEnterWhenEnabled(t *testing.T) {
-	explicitValue := "explicit"
-	explicit := NewEditor("save", EditorSection{ID: "main", Title: "Main", Form: NewEditorForm(Group(Input("Name", &explicitValue)))})
-	explicit = runEditorCmd(t, explicit, explicit.Init())
-	updated, cmd := explicit.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if submit := editorCmdProducesSubmit(t, updated, cmd); submit {
-		t.Fatal("default editor submitted on Enter")
-	}
-
-	completeValue := "complete"
-	complete := NewEditor("apply", EditorSection{ID: "main", Title: "Main", Form: NewEditorForm(Group(Input("Name", &completeValue)))}).WithSubmitMode(EditorSubmitOnComplete)
-	complete = runEditorCmd(t, complete, complete.Init())
-	updated, cmd = complete.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+func TestEditorDefaultsToEnterCompletion(t *testing.T) {
+	value := "complete"
+	editor := NewEditor("apply", EditorSection{ID: "main", Title: "Main", Form: NewEditorForm(Group(Input("Name", &value)))})
+	editor = runEditorCmd(t, editor, editor.Init())
+	updated, cmd := editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !editorCmdProducesSubmit(t, updated, cmd) {
-		t.Fatal("on-complete editor did not submit final Input on Enter")
+		t.Fatal("default editor did not submit final Input on Enter")
 	}
-	if plain := ansi.Strip(complete.View()); strings.Contains(plain, "ctrl+s apply") {
-		t.Fatalf("on-complete editor still advertises ctrl+s: %q", plain)
+	if plain := ansi.Strip(editor.View()); !strings.Contains(plain, "enter apply") {
+		t.Fatalf("default editor does not advertise Enter submit: %q", plain)
 	}
 }
 
-func TestEditorSubmitOnCompleteAdvancesSectionsThenSubmits(t *testing.T) {
+func TestEditorEnterAdvancesSectionsThenSubmits(t *testing.T) {
 	first, second := "first", "second"
 	editor := NewEditor("apply",
 		EditorSection{ID: "first", Title: "First", Form: NewEditorForm(Group(Input("First", &first)))},
 		EditorSection{ID: "second", Title: "Second", Form: NewEditorForm(Group(Input("Second", &second)))},
-	).WithSubmitMode(EditorSubmitOnComplete)
+	)
 	editor = runEditorCmd(t, editor, editor.Init())
 	updated, cmd := editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	editor, submitted := runEditorUntilSubmit(t, updated, cmd)
@@ -108,9 +97,9 @@ func TestEditorSubmitOnCompleteAdvancesSectionsThenSubmits(t *testing.T) {
 	}
 }
 
-func TestEditorSubmitOnCompleteSelectAndSwitchEmitCompletion(t *testing.T) {
+func TestEditorEnterCompletesSelectAndSwitch(t *testing.T) {
 	selected := "a"
-	selectEditor := NewEditor("apply", EditorSection{ID: "select", Title: "Select", Form: NewEditorForm(Group(Select("Mode", &selected, huh.NewOption("A", "a"), huh.NewOption("B", "b"))))}).WithSubmitMode(EditorSubmitOnComplete)
+	selectEditor := NewEditor("apply", EditorSection{ID: "select", Title: "Select", Form: NewEditorForm(Group(Select("Mode", &selected, huh.NewOption("A", "a"), huh.NewOption("B", "b"))))})
 	selectEditor = runEditorCmd(t, selectEditor, selectEditor.Init())
 	updated, cmd := selectEditor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if _, submitted := runEditorUntilSubmit(t, updated, cmd); !submitted {
@@ -118,7 +107,7 @@ func TestEditorSubmitOnCompleteSelectAndSwitchEmitCompletion(t *testing.T) {
 	}
 
 	enabled := true
-	switchEditor := NewEditor("build", EditorSection{ID: "switch", Title: "Switch", Form: NewEditorForm(Group(Switch("Enabled", &enabled)))}).WithSubmitMode(EditorSubmitOnComplete)
+	switchEditor := NewEditor("build", EditorSection{ID: "switch", Title: "Switch", Form: NewEditorForm(Group(Switch("Enabled", &enabled)))})
 	switchEditor = runEditorCmd(t, switchEditor, switchEditor.Init())
 	updated, cmd = switchEditor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if _, submitted := runEditorUntilSubmit(t, updated, cmd); !submitted {
@@ -126,21 +115,27 @@ func TestEditorSubmitOnCompleteSelectAndSwitchEmitCompletion(t *testing.T) {
 	}
 }
 
-func TestEditorSubmitOnCompleteTextKeepsEnterAsNewline(t *testing.T) {
+func TestEditorMultilineUsesEnterForNewlineAndCtrlEnterToSubmit(t *testing.T) {
 	value := "line one"
-	editor := NewEditor("build", EditorSection{ID: "text", Title: "Text", Form: NewEditorForm(Group(Text("Content", &value)))}).WithSubmitMode(EditorSubmitOnComplete)
+	editor := NewEditor("build", EditorSection{ID: "text", Title: "Text", Form: NewEditorForm(Group(Text("Content", &value)))})
 	editor = runEditorCmd(t, editor, editor.Init())
 	updated, cmd := editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	editor, submitted := runEditorUntilSubmit(t, updated, cmd)
 	if submitted || !strings.Contains(value, "\n") {
 		t.Fatalf("multiline Enter submitted=%t value=%q", submitted, value)
 	}
-	_ = editor
+	updated, cmd = editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
+	if _, submitted = runEditorUntilSubmit(t, updated, cmd); !submitted {
+		t.Fatal("multiline Ctrl+Enter did not submit")
+	}
+	if plain := ansi.Strip(editor.View()); !strings.Contains(plain, "ctrl+enter build") || !strings.Contains(plain, "enter new line") {
+		t.Fatalf("multiline help=%q", plain)
+	}
 }
 
-func TestEditorSubmitOnCompleteBlocksDuplicateWhileSubmitting(t *testing.T) {
+func TestEditorCompletionBlocksDuplicateWhileSubmitting(t *testing.T) {
 	value := "demo"
-	editor := NewEditor("apply", EditorSection{ID: "main", Title: "Main", Form: NewEditorForm(Group(Input("Name", &value)))}).WithSubmitMode(EditorSubmitOnComplete)
+	editor := NewEditor("apply", EditorSection{ID: "main", Title: "Main", Form: NewEditorForm(Group(Input("Name", &value)))})
 	editor = runEditorCmd(t, editor, editor.Init())
 	editor.SetSubmitting(true)
 	updated, cmd := editor.Update(huh.NextField())

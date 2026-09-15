@@ -4,9 +4,9 @@ Data-entry workflows use full-page editors instead of modal forms. Dialogs are r
 
 ## Saving and leaving
 
-Mutating editors use `Ctrl+S` for their explicit primary action, such as `save`, `create`, `authorize`, `install`, or `update`. Reaching the final field or pressing `Enter` does not persist a mutation.
+All structured editors use natural completion. `Enter` advances single-line fields, selects, switches, and sections; completing the final visible field invokes the editor's primary action, such as `save`, `create`, `authorize`, `install`, `update`, `apply`, or `build`.
 
-Non-mutating editors can opt into natural completion. In those editors, `Enter` advances fields/sections and invokes the primary action only when the final visible field completes. Runtime Logs filters, Command Execution scope, and Workspace Project Context build use this mode. Multiline text still owns `Enter` for newlines and never auto-submits from a newline.
+Multiline content keeps `Enter` for newlines. While a multiline field or standalone textarea/JSON editor is focused, use `Ctrl+Enter` for the primary action.
 
 When a save succeeds, the current draft is committed as the editor baseline before navigation begins. This is important because navigation is protected by the global dirty-draft guard. A successful save can therefore show its success toast and return to the parent without incorrectly asking to discard the data that was just saved.
 
@@ -26,11 +26,11 @@ Section titles use one shared visual contract: no title background, consistent t
 
 Labels describe what a value represents. Input-specific entry guidance is placed in the input placeholder rather than a separate sublabel where possible. This keeps forms compact while still showing format hints such as RFC3339 timestamps, comma-separated lists, optional values, or blank-to-preserve-secret behavior.
 
-Multiline text uses Bubbles textarea semantics. `Enter` inserts a newline instead of submitting. JSON creation mode and Global Context editing therefore behave like text editors rather than single-line forms.
+Multiline text uses Bubbles textarea semantics. `Enter` inserts a newline instead of submitting, while `Ctrl+Enter` invokes the editor action. JSON creation mode and Global Context editing therefore behave like text editors rather than single-line forms.
 
 ## Boolean values
 
-Persistent booleans use a two-state Switch control. `Space` or a mouse click toggles the value. `Enter` remains normal field traversal; only an editor explicitly configured for non-mutating completion can turn final-field traversal into its primary action.
+Persistent booleans use a two-state Switch control. `Space` or a mouse click toggles the value. `Enter` remains normal field traversal and performs the primary action when the switch is the final visible field.
 
 ## File and directory paths
 

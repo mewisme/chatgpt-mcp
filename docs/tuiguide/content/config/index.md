@@ -6,7 +6,7 @@ Use `cgm config explain [key]` outside the TUI when you need the exhaustive sche
 
 ## Editing fields
 
-Opening an editable field uses the shared full-page editor. `Ctrl+S` saves mutations. Failed validation keeps the draft open; managed secret/hash fields never render their underlying secret values.
+Opening an editable field uses the shared full-page editor. `Enter` advances fields and saves when the final visible field completes; multiline values use `Ctrl+Enter`. Failed validation keeps the draft open; managed secret/hash fields never render their underlying secret values.
 
 ## Runtime and network
 

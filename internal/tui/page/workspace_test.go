@@ -111,7 +111,7 @@ func TestWorkspaceEditorRoutesFromKeyAndCommandMessage(t *testing.T) {
 		t.Fatalf("editor=%v overlay=%t input=%t", page.editor != nil, page.OverlayActive(), page.InputActive())
 	}
 	plain := ansi.Strip(page.View(100, 24))
-	for _, want := range []string{"Workspace path", "ctrl+s register", "ctrl+o"} {
+	for _, want := range []string{"Workspace path", "enter register", "ctrl+o"} {
 		if !strings.Contains(strings.ToLower(plain), strings.ToLower(want)) {
 			t.Fatalf("workspace editor missing %q: %q", want, plain)
 		}
@@ -691,7 +691,7 @@ func TestWorkspaceDetailUsesFullChildPageAndNestedSections(t *testing.T) {
 	}
 }
 
-func TestWorkspaceRelocateEditorUsesExplicitMutationSubmit(t *testing.T) {
+func TestWorkspaceRelocateEditorUsesFinalEnterSubmit(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(filepath.Join(t.TempDir(), "config")); err != nil {
 		t.Fatal(err)
@@ -714,16 +714,13 @@ func TestWorkspaceRelocateEditorUsesExplicitMutationSubmit(t *testing.T) {
 		t.Fatalf("relocate editor value=%q want=%q", page.value, item.Path)
 	}
 	plain := strings.ToLower(ansi.Strip(page.View(100, 24)))
-	for _, want := range []string{"rebind this workspace", "new workspace path", "ctrl+s relocate"} {
+	for _, want := range []string{"rebind this workspace", "new workspace path", "enter relocate"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("relocate editor missing %q: %q", want, plain)
 		}
 	}
 	if strings.Contains(plain, "relocate workspace") {
 		t.Fatalf("relocate editor retained redundant page title: %q", plain)
-	}
-	if strings.Contains(plain, "enter relocate") {
-		t.Fatalf("relocate mutation unexpectedly uses enter submit: %q", plain)
 	}
 }
 
@@ -867,8 +864,8 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	if strings.Contains(plain, "Project Context · "+item.ID) {
 		t.Fatalf("context editor retained redundant page title: %q", plain)
 	}
-	if strings.Contains(plain, "ctrl+s build") {
-		t.Fatalf("non-mutating project context editor still advertises ctrl+s: %q", plain)
+	if !strings.Contains(plain, "enter next") {
+		t.Fatalf("project context editor does not advertise Enter navigation: %q", plain)
 	}
 	sourcePath := filepath.Join(project, "AGENTS.md")
 	page.contextBuild = func(_ context.Context, workspaceID string, options projectcontext.Options) (projectcontext.Result, error) {

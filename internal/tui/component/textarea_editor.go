@@ -37,7 +37,7 @@ func NewTextAreaEditorAction(title, value, action string) TextAreaEditor {
 	}
 	return TextAreaEditor{
 		input: input, title: strings.TrimSpace(title), initial: value,
-		help: NewHelpFooter(Binding([]string{"ctrl+s"}, "ctrl+s", action), Binding([]string{"esc"}, "esc", "cancel")),
+		help: NewHelpFooter(Binding([]string{"ctrl+enter"}, "ctrl+enter", action), Binding([]string{"esc"}, "esc", "cancel")),
 	}
 }
 
@@ -54,7 +54,7 @@ func (editor TextAreaEditor) Update(message tea.Msg) (TextAreaEditor, tea.Cmd) {
 		return editor, nil
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case "ctrl+s":
+		case "ctrl+enter":
 			value := editor.input.Value()
 			return editor, func() tea.Msg { return TextAreaSavedMsg{Value: value} }
 		case "esc":

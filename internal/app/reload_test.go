@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -53,6 +55,33 @@ func TestReloadConfigUpdatesShellPath(t *testing.T) {
 	}
 	if got := app.Tools.Workspaces.ShellPath(); len(got) != 1 || got[0] != next.Shell.Path[0] {
 		t.Fatalf("runtime shell path = %#v", got)
+	}
+}
+
+func TestReloadConfigUpdatesShellExecutable(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bash := filepath.Join(t.TempDir(), "bash")
+	if err := os.WriteFile(bash, []byte("test"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	next := cfg
+	next.Shell.Executable = bash
+	if err := app.ReloadConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := app.Tools.Shell.Provider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Config.Snapshot().Shell.Executable != bash || provider.Source != "configured" || filepath.Clean(provider.Executable) != filepath.Clean(bash) {
+		t.Fatalf("shell config=%q provider=%#v", app.Config.Snapshot().Shell.Executable, provider)
 	}
 }
 

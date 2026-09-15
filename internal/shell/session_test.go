@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -71,7 +72,7 @@ func TestShellEnvironmentOutputIsDeterministic(t *testing.T) {
 func TestApprovedControlPlaneCommandUsesCurrentExecutable(t *testing.T) {
 	invocation := controlguard.Invocation{Program: "cgm", Args: []string{"config", "set", "server.port", "41001"}, Command: "cgm config set server.port 41001"}
 	ctx := controlguard.WithApproval(context.Background(), controlguard.Approval{RequestID: "req_test", Capability: "cap_test", Invocation: invocation})
-	cmd, err := commandForPlatform(ctx, invocation.Command)
+	cmd, err := commandForProvider(ctx, invocation.Command, Provider{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func TestApprovedControlPlaneCommandUsesCurrentExecutable(t *testing.T) {
 			t.Fatalf("arg %d = %q want %q", index, cmd.Args[index+1], invocation.Args[index])
 		}
 	}
-	if _, err := commandForPlatform(ctx, "cgm config set server.port 41002"); err == nil {
+	if _, err := commandForProvider(ctx, "cgm config set server.port 41002", Provider{}); err == nil {
 		t.Fatal("changed approved shell command selected current executable")
 	}
 }
@@ -310,6 +311,32 @@ func TestShellMarkdownLanguage(t *testing.T) {
 		if got := shellMarkdownLanguage(shell); got != want {
 			t.Fatalf("shellMarkdownLanguage(%q)=%q want %q", shell, got, want)
 		}
+	}
+}
+
+func TestShellExecRecordsBashProviderMetadata(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses system Bash path")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("Bash unavailable")
+	}
+	manager, workspaceID, _ := newShellTestManager(t)
+	resolver := NewProviderResolver(nil)
+	resolver.goos = runtime.GOOS
+	resolver.lookPath = func(name string) (string, error) { return bash, nil }
+	manager.providers = resolver
+	result, err := manager.Exec(context.Background(), workspaceID, `printf "%s" "$SHELL"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(result.Stdout) != filepath.Clean(bash) {
+		t.Fatalf("SHELL = %q want %q", result.Stdout, bash)
+	}
+	executions := manager.Executions().List(workspaceID, 1)
+	if len(executions) != 1 || executions[0].Shell != "bash" || executions[0].ShellProvider != "system" {
+		t.Fatalf("execution metadata = %#v", executions)
 	}
 }
 

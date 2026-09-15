@@ -1,7 +1,10 @@
 package shell
 
 import (
+	"context"
 	"encoding/hex"
+	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -53,5 +56,53 @@ func TestProcessManagerPrunesFinishedHistory(t *testing.T) {
 	}
 	if len(manager.order) != 3 {
 		t.Fatalf("order = %#v", manager.order)
+	}
+}
+
+func TestProcessManagerRecordsBashProviderMetadata(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses system Bash path")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("Bash unavailable")
+	}
+	manager, workspaceID, _ := newShellTestManager(t)
+	resolver := NewProviderResolver(nil)
+	resolver.goos = runtime.GOOS
+	resolver.lookPath = func(name string) (string, error) { return bash, nil }
+	manager.providers = resolver
+	processes := NewProcessManagerWithExecutions(manager.workspaces, manager, manager.Executions())
+	started, err := processes.Start(context.Background(), workspaceID, `printf "%s" "$SHELL"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status, err := processes.Status(workspaceID, started.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(status) == 1 && !status[0].Running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background process did not finish")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	output, err := processes.Output(workspaceID, started.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Stdout != bash {
+		t.Fatalf("SHELL = %q want %q", output.Stdout, bash)
+	}
+	snapshot, err := manager.Executions().Get(workspaceID, started.ExecutionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Execution.Shell != "bash" || snapshot.Execution.ShellProvider != "system" {
+		t.Fatalf("execution metadata = %#v", snapshot.Execution)
 	}
 }

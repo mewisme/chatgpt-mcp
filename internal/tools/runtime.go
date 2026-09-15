@@ -36,6 +36,7 @@ type Runtime struct {
 	SessionAccess   *SessionWorkspaceAccessManager
 	Approvals       *approval.Manager
 	Executions      *shellruntime.ExecutionHub
+	Shell           *shellruntime.Manager
 	Processes       *shellruntime.ProcessManager
 	LoopGuard       *ToolLoopGuard
 	sessionMu       sync.Mutex
@@ -66,7 +67,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	executions := shellruntime.NewExecutionHub()
 	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
 	processes := shellruntime.NewProcessManagerWithExecutions(workspaces, shell, executions)
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Processes: processes, LoopGuard: NewToolLoopGuard(), ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterWorkspaceContainerTools(registry, workspaces)
@@ -141,6 +142,13 @@ func (r *Runtime) SetShellPath(paths []string) {
 	if r != nil && r.Workspaces != nil {
 		r.Workspaces.SetShellPath(paths)
 	}
+}
+
+func (r *Runtime) SetShellExecutable(path string) error {
+	if r == nil || r.Shell == nil {
+		return errors.New("shell runtime is unavailable")
+	}
+	return r.Shell.SetConfiguredExecutable(path)
 }
 
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }

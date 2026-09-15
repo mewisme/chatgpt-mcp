@@ -25,6 +25,12 @@ func (a *App) Bootstrap() error {
 				return current.Admin.Enabled, current.Admin.Port
 			})
 		}
+		cfg := a.Config.Snapshot()
+		if err := a.Tools.SetShellExecutable(cfg.Shell.Executable); err != nil {
+			a.bootstrapErr = err
+			return
+		}
+		a.Tools.SetShellPath(cfg.Shell.Path)
 		if a.Activity == nil {
 			a.Activity = activity.NewStream()
 		}
@@ -37,6 +43,10 @@ func (a *App) Bootstrap() error {
 		a.syncMCPHTTP(a.Config.Snapshot().Server.Enabled)
 		a.attachTunnelLifecycle()
 	})
+	if a.bootstrapErr != nil {
+		span.FailMessage("Application runtime bootstrap failed", a.bootstrapErr)
+		return a.bootstrapErr
+	}
 	span.EndMessage("Application runtime bootstrapped", tracepkg.Bool("performed", didBootstrap), tracepkg.Bool("mcp_http_enabled", a.MCP != nil), tracepkg.Bool("tunnel_configured", a.Tunnel != nil), tracepkg.Int("tool_count", len(a.Tools.List())))
 	return nil
 }

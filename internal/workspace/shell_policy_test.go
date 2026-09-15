@@ -124,6 +124,11 @@ func TestShellPolicyValidatesNestedShellMutation(t *testing.T) {
 	if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation || !guard.Approvable {
 		t.Fatalf("nested destructive mutation did not require approval: %#v / %v", guard, err)
 	}
+	err = manager.ValidateShellCommand(item.ID, root, `pwsh -Command "git push --force origin main"`)
+	guard, ok = controlguard.As(err)
+	if err == nil || !ok || guard.Code != controlguard.CodeDestructiveMutation || !guard.Approvable {
+		t.Fatalf("nested PowerShell force push did not require approval: %#v / %v", guard, err)
+	}
 }
 
 func TestShellPolicyRejectsInlineInterpreterMutation(t *testing.T) {

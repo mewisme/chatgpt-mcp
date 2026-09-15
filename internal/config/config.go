@@ -29,7 +29,8 @@ type PermissionsConfig struct {
 }
 
 type ShellConfig struct {
-	Path []string `json:"path"`
+	Executable string   `json:"executable,omitempty"`
+	Path       []string `json:"path"`
 }
 
 type ServerConfig struct {
@@ -286,7 +287,12 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	if err != nil {
 		return err
 	}
+	shellExecutable, err := NormalizeShellExecutable(persisted.Shell.Executable)
+	if err != nil {
+		return err
+	}
 	persisted.Permissions.AllowDirs = allowDirs
+	persisted.Shell.Executable = shellExecutable
 	persisted.Shell.Path = shellPath
 	persisted.Server.Expose = NormalizeExposure(persisted.Server.Expose)
 	persisted.Tunnel.APIKey = ""

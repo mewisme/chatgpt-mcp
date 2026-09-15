@@ -21,19 +21,20 @@ import (
 )
 
 type App struct {
-	Config     *config.RuntimeStore
-	MCP        *mcp.HTTPRuntime
-	Upstream   *upstream.Manager
-	Tools      *tools.Runtime
-	Activity   *activity.Stream
-	Tunnel     *tunnel.Client
-	Logger     *logger.Logger
-	OAuth      *mcpoauth.Store
-	OAuthFlows *mcpoauth.FlowManager
-	runtimeCtx context.Context
-	trace      tracepkg.Observer
-	running    bool
-	bootstrap  sync.Once
+	Config       *config.RuntimeStore
+	MCP          *mcp.HTTPRuntime
+	Upstream     *upstream.Manager
+	Tools        *tools.Runtime
+	Activity     *activity.Stream
+	Tunnel       *tunnel.Client
+	Logger       *logger.Logger
+	OAuth        *mcpoauth.Store
+	OAuthFlows   *mcpoauth.FlowManager
+	runtimeCtx   context.Context
+	trace        tracepkg.Observer
+	running      bool
+	bootstrap    sync.Once
+	bootstrapErr error
 }
 
 func New(cfg config.Config) (*App, error) {
@@ -76,6 +77,10 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 		upstreamCount = len(toolRuntime.Upstream.List())
 	}
 	upstreamSpan.EndMessage("Upstream MCP manager bootstrapped", tracepkg.Int("server_count", upstreamCount))
+	if err := toolRuntime.SetShellExecutable(cfg.Shell.Executable); err != nil {
+		span.FailMessage("Shell provider configuration failed", err)
+		return nil, err
+	}
 	toolRuntime.SetShellPath(cfg.Shell.Path)
 	var mcpRuntime *mcp.HTTPRuntime
 	if cfg.Server.Enabled {

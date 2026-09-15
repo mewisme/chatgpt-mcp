@@ -37,6 +37,8 @@ type ExecutionInfo struct {
 	Command              string `json:"command"`
 	CWD                  string `json:"cwd"`
 	Shell                string `json:"shell,omitempty"`
+	ShellProvider        string `json:"shell_provider,omitempty"`
+	ShellProviderVersion string `json:"shell_provider_version,omitempty"`
 	Source               string `json:"source,omitempty"`
 	CallID               string `json:"call_id,omitempty"`
 	SessionHash          string `json:"session_hash,omitempty"`
@@ -113,6 +115,8 @@ type ExecutionInput struct {
 	Command              string
 	CWD                  string
 	Shell                string
+	ShellProvider        string
+	ShellProviderVersion string
 	Source               string
 	CallID               string
 	SessionHash          string
@@ -211,7 +215,7 @@ func (h *ExecutionHub) Begin(input ExecutionInput) *ExecutionRun {
 	h.mu.Lock()
 	id := idgen.Must("exec", 8)
 	record := &executionRecord{info: ExecutionInfo{
-		ID: id, WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, CWD: input.CWD, Shell: strings.TrimSpace(input.Shell),
+		ID: id, WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, CWD: input.CWD, Shell: strings.TrimSpace(input.Shell), ShellProvider: strings.TrimSpace(input.ShellProvider), ShellProviderVersion: strings.TrimSpace(input.ShellProviderVersion),
 		Source: strings.TrimSpace(input.Source), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),
 		ReceivedByInstanceID: strings.TrimSpace(input.ReceivedByInstanceID), ExecutedByInstanceID: strings.TrimSpace(input.ExecutedByInstanceID),
 		StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: ExecutionStatusRunning,

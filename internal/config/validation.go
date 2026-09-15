@@ -33,6 +33,9 @@ func Validate(cfg Config) error {
 	if _, err := NormalizeShellPath(cfg.Shell.Path); err != nil {
 		return err
 	}
+	if _, err := NormalizeShellExecutable(cfg.Shell.Executable); err != nil {
+		return err
+	}
 	if _, ok := ponytail.NormalizeRuntimeMode(cfg.Features.Ponytail.Mode); !ok {
 		return fmt.Errorf("features.ponytail.mode must be lite, full, or ultra: %q", cfg.Features.Ponytail.Mode)
 	}
@@ -145,6 +148,22 @@ func NormalizeShellPath(values []string) ([]string, error) {
 		result = append(result, path)
 	}
 	return result, nil
+}
+
+func NormalizeShellExecutable(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(value) {
+		return "", fmt.Errorf("shell executable must be absolute: %q", value)
+	}
+	value = filepath.Clean(value)
+	base := strings.ToLower(filepath.Base(value))
+	if base != "bash" && base != "bash.exe" {
+		return "", fmt.Errorf("shell executable must be Bash: %s", value)
+	}
+	return value, nil
 }
 
 func NormalizeAllowDirs(values []string) ([]string, error) {

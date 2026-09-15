@@ -76,6 +76,7 @@ var fieldSpecs = []FieldSpec{
 	{Key: "auth.mcp_token_hash", Label: "MCP credential", Section: FieldSectionAccess, Description: "stores the managed credential hash used by MCP HTTP authentication", Details: "The raw token is never exposed through config views. This field is managed by the MCP authentication workflow and is not directly editable through config set.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the MCP auth token workflow.", Related: []string{"auth.mcp_enabled", "server.enabled"}},
 	{Key: "auth.admin_token_hash", Label: "Admin credential", Section: FieldSectionAccess, Description: "stores the managed credential hash used by admin HTTP authentication", Details: "The raw token is never exposed through config views. This field is managed by the admin authentication workflow and is not directly editable through config set.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage this credential with the admin auth token workflow.", Related: []string{"auth.admin_enabled", "admin.enabled"}},
 	{Key: "permissions.allow_dirs", Label: "Allowed directories", Section: FieldSectionAccess, Description: "adds global filesystem roots that registered workspaces may access", Details: "These roots extend workspace-local access for filesystem and shell operations. Paths must be absolute, are normalized, and apply globally in addition to per-workspace allowed directories.", Kind: FieldList, Editable: true},
+	{Key: "shell.executable", Label: "Bash executable", Section: FieldSectionShell, Description: "selects an explicit Bash executable for managed shell commands", Details: "When set, this absolute Bash path has priority over the enabled shell/bash plugin and system Bash discovery. PowerShell is not a valid agent shell provider.", Kind: FieldString, Editable: true, Related: []string{"shell.path"}},
 	{Key: "shell.path", Label: "Executable search paths", Section: FieldSectionShell, Description: "prepends additional executable directories to PATH for managed shell commands", Details: "Paths must be absolute. Configured entries are prepended to the inherited process PATH for foreground and background shell execution.", Kind: FieldList, Editable: true},
 	{Key: "features.ponytail.active", Label: "Ponytail active", Section: FieldSectionFeatures, Description: "controls whether Ponytail guidance is active by default", Details: "Ponytail biases coding work toward the smallest correct solution: reuse existing code, prefer standard/platform features, avoid speculative abstractions, and minimize unnecessary implementation.", Kind: FieldBool, Editable: true, Related: []string{"features.ponytail.mode"}},
 	{Key: "features.ponytail.mode", Label: "Ponytail mode", Section: FieldSectionFeatures, Description: "sets the default Ponytail intensity", Details: "This persisted value selects the default runtime intensity when Ponytail is active. Session-only modes such as review/off are not valid persisted values.", Kind: FieldEnum, Options: []string{"lite", "full", "ultra"}, Values: []FieldValueSpec{{Value: "lite", Description: "Build the requested solution but point out a simpler alternative when useful."}, {Value: "full", Description: "Enforce the reuse/stdlib/native-first ladder and prefer the shortest correct implementation."}, {Value: "ultra", Description: "Apply aggressive YAGNI pressure, favor deletion or minimal implementation, and challenge unnecessary scope."}}, Editable: true, Related: []string{"features.ponytail.active"}},
@@ -194,6 +195,8 @@ func SetValue(cfg *Config, key, raw string) error {
 		cfg.Auth.AdminEnabled = value
 	case "permissions.allow_dirs":
 		cfg.Permissions.AllowDirs = splitFieldList(raw)
+	case "shell.executable":
+		cfg.Shell.Executable = strings.TrimSpace(raw)
 	case "shell.path":
 		cfg.Shell.Path = splitFieldList(raw)
 	case "features.ponytail.active":
@@ -298,6 +301,8 @@ func RawValue(cfg Config, key string) (string, error) {
 		return cfg.Auth.AdminTokenHash, nil
 	case "permissions.allow_dirs":
 		return strings.Join(cfg.Permissions.AllowDirs, ","), nil
+	case "shell.executable":
+		return cfg.Shell.Executable, nil
 	case "shell.path":
 		return strings.Join(cfg.Shell.Path, ","), nil
 	case "features.ponytail.active":

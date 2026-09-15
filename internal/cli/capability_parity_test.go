@@ -14,6 +14,7 @@ import (
 var publicCapabilityExemptions = map[string]string{
 	"tui":                    "TUI entrypoint; it is the surface being checked",
 	"completion":             "local shell integration; it does not access runtime capabilities",
+	"doctor":                 "local runtime dependency diagnostic; it does not invoke MCP capabilities",
 	"config":                 "configuration namespace entrypoint only renders help and rejects positional fallbacks",
 	"request create dummy":   "public test-only helper for approval UI development",
 	"plugin":                 "plugin TUI capability mapping lands with plugin manager UI in phase 8",

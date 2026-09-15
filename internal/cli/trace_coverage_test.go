@@ -31,7 +31,7 @@ func commandTraceContracts() map[string]commandTraceContract {
 			contracts[path] = commandTraceContract{Class: class, Expected: append([]string(nil), expected...)}
 		}
 	}
-	add(commandTraceTrivial, nil, "config", "logs path", "version")
+	add(commandTraceTrivial, nil, "config", "doctor", "logs path", "version")
 	add(commandTraceTrivial, nil, "plugin", "plugin list", "plugin registry", "plugin registry list")
 	add(commandTraceInstrumented, []string{"plugin.registry.snapshots.completed"}, "plugin search")
 	add(commandTraceInstrumented, []string{"plugin.install.completed"}, "plugin install")

@@ -60,8 +60,13 @@ type configPatch struct {
 	Admin       *config.AdminConfig       `json:"admin,omitempty"`
 	Auth        *authPatch                `json:"auth,omitempty"`
 	Permissions *config.PermissionsConfig `json:"permissions,omitempty"`
-	Shell       *config.ShellConfig       `json:"shell,omitempty"`
+	Shell       *shellPatch               `json:"shell,omitempty"`
 	Features    *featurePatch             `json:"features,omitempty"`
+}
+
+type shellPatch struct {
+	Executable *string  `json:"executable,omitempty"`
+	Path       []string `json:"path,omitempty"`
 }
 
 type serverPatch struct {
@@ -190,7 +195,10 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err == nil && patch.Shell != nil {
-			if patch.Shell.Path != nil {
+			if patch.Shell.Executable != nil {
+				next.Shell.Executable, err = config.NormalizeShellExecutable(*patch.Shell.Executable)
+			}
+			if err == nil && patch.Shell.Path != nil {
 				next.Shell.Path, err = config.NormalizeShellPath(patch.Shell.Path)
 			}
 		}
@@ -284,15 +292,19 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 	if err := api.persistConfig(next); err != nil {
 		return err
 	}
-	if next.Features != previous.Features && api.Tools != nil {
+	if api.Tools == nil {
+		return nil
+	}
+	if err := api.Tools.SetShellExecutable(next.Shell.Executable); err != nil {
+		return errors.Join(err, api.persistConfig(previous))
+	}
+	if next.Features != previous.Features {
 		if err := api.Tools.SyncFeatures(next.Features); err != nil {
-			return errors.Join(err, api.persistConfig(previous))
+			return errors.Join(err, api.Tools.SetShellExecutable(previous.Shell.Executable), api.persistConfig(previous))
 		}
 	}
-	if api.Tools != nil {
-		api.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
-		api.Tools.SetShellPath(next.Shell.Path)
-	}
+	api.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
+	api.Tools.SetShellPath(next.Shell.Path)
 	return nil
 }
 

@@ -260,6 +260,7 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			cfg.Tunnel.APIKey = "tunnel-secret"
 			cfg.Tunnel.AdminKey = "admin-secret"
 			cfg.Tunnel.AdminOrganizationID = "org-admin"
+			cfg.Shell.Executable = filepath.Join(root, "bash")
 			cfg.Shell.Path = []string{filepath.Join(root, "bin")}
 			if err := saveAt(configPath, secretPath, cfg); err != nil {
 				t.Fatal(err)
@@ -268,7 +269,7 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey || loaded.Tunnel.AdminKey != cfg.Tunnel.AdminKey || loaded.Tunnel.AdminOrganizationID != cfg.Tunnel.AdminOrganizationID || len(loaded.Shell.Path) != 1 || loaded.Shell.Path[0] != cfg.Shell.Path[0] {
+			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey || loaded.Tunnel.AdminKey != cfg.Tunnel.AdminKey || loaded.Tunnel.AdminOrganizationID != cfg.Tunnel.AdminOrganizationID || loaded.Shell.Executable != cfg.Shell.Executable || len(loaded.Shell.Path) != 1 || loaded.Shell.Path[0] != cfg.Shell.Path[0] {
 				t.Fatalf("round trip = %#v", loaded)
 			}
 			mainData, err := os.ReadFile(configPath)
@@ -431,6 +432,23 @@ func TestNormalizeShellPath(t *testing.T) {
 	}
 	if _, err := NormalizeShellPath([]string{"relative/bin"}); err == nil {
 		t.Fatal("relative shell path was accepted")
+	}
+}
+
+func TestNormalizeShellExecutable(t *testing.T) {
+	bash := filepath.Join(t.TempDir(), "bash")
+	got, err := NormalizeShellExecutable("  " + bash + "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != filepath.Clean(bash) {
+		t.Fatalf("shell executable = %q", got)
+	}
+	if _, err := NormalizeShellExecutable("bash"); err == nil {
+		t.Fatal("relative Bash executable was accepted")
+	}
+	if _, err := NormalizeShellExecutable(filepath.Join(t.TempDir(), "pwsh")); err == nil {
+		t.Fatal("PowerShell executable was accepted")
 	}
 }
 

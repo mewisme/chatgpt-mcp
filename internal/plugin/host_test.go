@@ -291,6 +291,7 @@ func TestEnablingHostBackedPluginRevalidatesExecutable(t *testing.T) {
 	fake := writeFakeHostWrapper(t)
 	t.Setenv("PATH", filepath.Dir(fake))
 	store := testStore(t)
+	store.runtime.OS, store.runtime.Arch = runtime.GOOS, runtime.GOARCH
 	manifest := testHostWrapperManifest()
 	if _, err := store.Install(manifest, ""); err != nil {
 		t.Fatal(err)
@@ -315,6 +316,7 @@ func TestReconcileDisablesHostBackedPluginWhenExecutableDisappears(t *testing.T)
 	fake := writeFakeHostWrapper(t)
 	t.Setenv("PATH", filepath.Dir(fake))
 	store := testStore(t)
+	store.runtime.OS, store.runtime.Arch = runtime.GOOS, runtime.GOARCH
 	manifest := testHostWrapperManifest()
 	if _, err := store.Install(manifest, ""); err != nil {
 		t.Fatal(err)

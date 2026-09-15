@@ -188,6 +188,12 @@ jobs:
           echo "Go coverage: ${coverage}%"
           awk -v coverage="${coverage}" 'BEGIN { if (coverage + 0 < 66.0) { print "Go coverage must be at least 66.0%" > "/dev/stderr"; exit 1 } }'
 
+      - name: Plugin workflow definitions
+        if: needs.changes.outputs.full == 'true'
+        run: |
+          node scripts/plugin-workflow.mjs validate
+          node --test scripts/plugin-workflow.test.mjs
+
       - name: Workflow lint
         if: needs.changes.outputs.full == 'true'
         run: actionlint .github/workflows/ci.yml .github/workflows/release.yml .github/workflows/plugins.yml

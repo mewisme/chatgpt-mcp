@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "id": "bash",
+      "build": {
+        "runner": "windows-latest",
+        "command": [
+          "pwsh",
+          "-NoProfile",
+          "-File",
+          "plugins/bash/workflow/build.ps1",
+          "-Output",
+          "{output}"
+        ]
+      },
+      "smoke": {
+        "runner": "windows-latest",
+        "probe": {
+          "kind": "command",
+          "path": "payload/usr/bin/bash.exe",
+          "args": [
+            "--noprofile",
+            "--norc",
+            "-lc",
+            "test -n \"$BASH_VERSION\" && printf cgm-bash-install-smoke"
+          ],
+          "stdout": "cgm-bash-install-smoke"
+        }
+      }
+    },
+    {
+      "id": "admin-ui",
+      "build": {
+        "runner": "ubuntu-latest",
+        "command": [
+          "node",
+          "scripts/prepare-web-embed.mjs",
+          "--output",
+          "{output}"
+        ]
+      },
+      "smoke": {
+        "runner": "ubuntu-latest",
+        "probe": {
+          "kind": "file",
+          "path": "payload/index.html"
+        }
+      }
+    },
+    {
+      "id": "rtk",
+      "build": {
+        "runner": "ubuntu-latest",
+        "mode": "manifest"
+      }
+    }
+  ]
+}

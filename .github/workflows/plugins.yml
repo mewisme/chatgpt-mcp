@@ -11,70 +11,41 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-bash:
-    name: Build Bash runtime
-    if: github.ref == 'refs/heads/main'
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Download and verify PortableGit
-        shell: pwsh
-        run: |
-          $source = Get-Content plugins/bash/source.json -Raw | ConvertFrom-Json
-          $download = Join-Path $env:RUNNER_TEMP 'portable-git.7z.exe'
-          Invoke-WebRequest -Uri $source.url -OutFile $download
-          $actual = (Get-FileHash -Path $download -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $source.sha256) {
-            throw "PortableGit SHA-256 mismatch: $actual"
-          }
-          $root = Join-Path $env:RUNNER_TEMP 'portable-git'
-          New-Item -ItemType Directory -Force -Path $root | Out-Null
-          & 7z x $download "-o$root" -y
-          if ($LASTEXITCODE -ne 0) { throw "PortableGit extraction failed" }
-          Push-Location $root
-          try {
-            & cmd.exe /d /c post-install.bat
-            if ($LASTEXITCODE -ne 0) { throw "PortableGit post-install preparation failed" }
-          } finally {
-            Pop-Location
-          }
-          "PORTABLE_GIT_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Smoke upstream Bash runtime
-        shell: pwsh
-        run: |
-          $bash = Join-Path $env:PORTABLE_GIT_ROOT 'usr\bin\bash.exe'
-          $output = & $bash --noprofile --norc -lc 'test -n "$BASH_VERSION" && printf cgm-bash-build-smoke'
-          if ($LASTEXITCODE -ne 0 -or $output -ne 'cgm-bash-build-smoke') {
-            throw "Prepared Bash runtime smoke test failed: $output"
-          }
-
-      - name: Build deterministic plugin assets
-        shell: pwsh
-        run: go run ./plugins/bash/build --source-root "$env:PORTABLE_GIT_ROOT" --output dist/plugins
-
-      - name: Upload plugin build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: bash-plugin
-          path: |
-            dist/plugins/bash-*.json
-            dist/plugins/bash-*.zip
-          if-no-files-found: error
-          retention-days: 1
-
-  build-admin-ui:
-    name: Build Admin UI
+  definitions:
+    name: Resolve plugin definitions
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.matrix.outputs.build }}
+      smoke: ${{ steps.matrix.outputs.smoke }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Validate plugin workflow definitions
+        run: |
+          node scripts/plugin-workflow.mjs validate
+          node --test scripts/plugin-workflow.test.mjs
+
+      - name: Generate matrices
+        id: matrix
+        shell: bash
+        run: |
+          echo "build=$(node scripts/plugin-workflow.mjs matrix build)" >> "$GITHUB_OUTPUT"
+          echo "smoke=$(node scripts/plugin-workflow.mjs matrix smoke)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.id }}
+    needs: definitions
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.definitions.outputs.build) }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,40 +55,31 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 11
 
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Build Admin UI
-        run: |
-          pnpm --dir web install --frozen-lockfile
-          pnpm --dir web build
-          go run ./plugins/admin-ui/build --source-root web/dist --output dist/plugins
+      - name: Build plugin
+        run: node scripts/plugin-workflow.mjs build "${{ matrix.id }}" dist/plugins
 
       - name: Upload plugin build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: admin-ui-plugin
-          path: |
-            dist/plugins/admin-ui-*.json
-            dist/plugins/admin-ui-*.zip
+          name: plugin-${{ matrix.id }}
+          path: dist/plugins/${{ matrix.id }}-*
           if-no-files-found: error
           retention-days: 1
 
   publish:
     name: Publish official marketplace
-    needs:
-      - build-bash
-      - build-admin-ui
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -134,17 +96,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Download Bash plugin build
+      - name: Download plugin builds
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
-          name: bash-plugin
+          pattern: plugin-*
           path: dist/plugins
-
-      - name: Download Admin UI plugin build
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
-        with:
-          name: admin-ui-plugin
-          path: dist/plugins
+          merge-multiple: true
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -152,14 +109,27 @@ jobs:
           cosign-release: 'v3.1.3'
 
       - name: Prepare registry
+        shell: bash
         run: |
+          set -euo pipefail
           cp plugins/registry/index.json dist/plugins/index.json
           cp plugins/registry/publishers.json dist/plugins/publishers.json
-          cp plugins/rtk/plugin.json dist/plugins/rtk-1.0.0.json
           generated_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           jq --arg generated_at "$generated_at" '.generated_at = $generated_at' dist/plugins/index.json > dist/plugins/index.tmp
           mv dist/plugins/index.tmp dist/plugins/index.json
           go run ./scripts/validate-plugin-registry.go dist/plugins/index.json dist/plugins/publishers.json dist/plugins
+          : > dist/plugins/immutable-assets.txt
+          while IFS= read -r manifest; do
+            printf '%s\n' "$manifest" >> dist/plugins/immutable-assets.txt
+            while IFS= read -r artifact; do
+              [ -n "$artifact" ] && printf 'dist/plugins/%s\n' "$artifact" >> dist/plugins/immutable-assets.txt
+            done < <(jq -r '.platforms[] | .artifact // empty' "$manifest")
+          done < <(find dist/plugins -maxdepth 1 -type f -name '*.json' ! -name 'index.json' ! -name 'publishers.json' ! -name '*.sigstore.json' | sort)
+          sort -u -o dist/plugins/immutable-assets.txt dist/plugins/immutable-assets.txt
+          if [ ! -s dist/plugins/immutable-assets.txt ]; then
+            echo "::error::No immutable plugin assets were prepared."
+            exit 1
+          fi
 
       - name: Ensure fixed marketplace release
         env:
@@ -174,14 +144,15 @@ jobs:
           fi
 
       - name: Verify immutable versioned assets
-        id: immutable
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist/plugins/existing
           : > dist/plugins/upload-immutable.txt
           while IFS= read -r asset; do
+            [ -n "$asset" ] || continue
             name=$(basename "$asset")
             existing="dist/plugins/existing/$name"
             if gh release download plugins --pattern "$name" --dir dist/plugins/existing >/dev/null 2>&1; then
@@ -193,15 +164,12 @@ jobs:
             else
               printf '%s\n' "$asset" >> dist/plugins/upload-immutable.txt
             fi
-          done < <(find dist/plugins -maxdepth 1 -type f \( -name 'admin-ui-*.json' -o -name 'admin-ui-*.zip' -o -name 'bash-*.json' -o -name 'bash-*.zip' -o -name 'rtk-*.json' \) ! -name '*.sigstore.json' | sort)
-          if [ ! -s dist/plugins/upload-immutable.txt ] && [ -z "$(find dist/plugins -maxdepth 1 -type f \( -name 'admin-ui-*.json' -o -name 'admin-ui-*.zip' -o -name 'bash-*.json' -o -name 'bash-*.zip' -o -name 'rtk-*.json' \) ! -name '*.sigstore.json' -print -quit)" ]; then
-            echo "::error::No immutable plugin assets were prepared."
-            exit 1
-          fi
+          done < dist/plugins/immutable-assets.txt
 
       - name: Sign immutable assets when needed
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
           : > dist/plugins/upload-signatures.txt
@@ -216,11 +184,12 @@ jobs:
             fi
             cosign sign-blob --yes --bundle "$signature" "$asset"
             printf '%s\n' "$signature" >> dist/plugins/upload-signatures.txt
-          done < <(find dist/plugins -maxdepth 1 -type f \( -name 'admin-ui-*.json' -o -name 'admin-ui-*.zip' -o -name 'bash-*.json' -o -name 'bash-*.zip' -o -name 'rtk-*.json' \) ! -name '*.sigstore.json' | sort)
+          done < dist/plugins/immutable-assets.txt
 
       - name: Publish immutable versioned assets
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
           mapfile -t assets < <(cat dist/plugins/upload-immutable.txt dist/plugins/upload-signatures.txt | sed '/^$/d')
@@ -246,10 +215,15 @@ jobs:
             dist/plugins/publishers.json.sigstore.json \
             --clobber
 
-  smoke-bash:
-    name: Smoke installed Bash plugin
-    needs: publish
-    runs-on: windows-latest
+  smoke:
+    name: Smoke ${{ matrix.id }}
+    needs:
+      - definitions
+      - publish
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.definitions.outputs.smoke) }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -260,40 +234,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install and verify Bash plugin
-        shell: pwsh
-        run: |
-          $configRoot = Join-Path $env:RUNNER_TEMP 'chatgpt-mcp-plugin-smoke'
-          go run . --config-dir "$configRoot" plugin install bash
-          if ($LASTEXITCODE -ne 0) { throw "cgm plugin install bash failed" }
-          go run . --config-dir "$configRoot" plugin verify bash
-          if ($LASTEXITCODE -ne 0) { throw "cgm plugin verify bash failed" }
-          $version = (Get-Content plugins/bash/plugin.json -Raw | ConvertFrom-Json).version
-          $bash = Join-Path "$configRoot-data" "plugins\bash\$version\payload\usr\bin\bash.exe"
-          $output = & $bash --noprofile --norc -lc 'test -n "$BASH_VERSION" && printf cgm-bash-install-smoke'
-          if ($LASTEXITCODE -ne 0 -or $output -ne 'cgm-bash-install-smoke') {
-            throw "Installed Bash plugin smoke test failed: $output"
-          }
-
-  smoke-admin-ui:
-    name: Smoke installed Admin UI plugin
-    needs: publish
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          go-version-file: go.mod
-          cache: true
+          node-version: 24
 
-      - name: Install and verify Admin UI plugin
-        run: |
-          set -euo pipefail
-          config_root="${RUNNER_TEMP}/chatgpt-mcp-admin-ui-smoke"
-          go run . --config-dir "$config_root" plugin install admin-ui
-          go run . --config-dir "$config_root" plugin verify admin-ui
-          version=$(jq -r .version plugins/admin-ui/plugin.json)
-          test -f "${config_root}-data/plugins/admin-ui/${version}/payload/index.html"
+      - name: Install, verify, and smoke plugin
+        run: node scripts/plugin-workflow.mjs smoke "${{ matrix.id }}"

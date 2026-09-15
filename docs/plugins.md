@@ -183,6 +183,23 @@ Supported permissions are:
 
 Permissions are declarations enforced by capability contracts where implemented; they do not create an OS sandbox around arbitrary native code.
 
+## Official plugin CI definitions
+
+Official marketplace CI is definition-driven. `plugins/workflow.json` is the only plugin list consumed by `.github/workflows/plugins.yml`; build, publish, signing, immutable-asset checks, and post-publish smoke jobs are generic matrices.
+
+Adding another official plugin does not require adding or editing GitHub Actions jobs. Add the normal `plugins/<id>/plugin.json` and registry entry, then add one definition to `plugins/workflow.json` with its runner and build behavior. Use `mode: "manifest"` for metadata-only plugins. Packaged plugins declare a structured build `command` argv; plugin-specific preparation belongs in a script under that plugin directory rather than in the shared workflow.
+
+An optional `smoke` definition can verify either a payload file or execute a payload command after the generic install + verify sequence. The publish job derives immutable artifact names directly from the generated signed manifest instead of maintaining plugin-specific filename globs.
+
+Run the same definition checks locally with:
+
+```bash
+node scripts/plugin-workflow.mjs validate
+node --test scripts/plugin-workflow.test.mjs
+```
+
+The validation requires workflow definitions, source manifests, and the official registry index to stay in sync.
+
 ## Shell capability
 
 A `shell/bash` provider is a runtime plugin whose platform entrypoint is the Bash executable itself. The core selects it only when no configured/Git Bash provider has priority. Foreground and background shell execution use the same provider resolver.

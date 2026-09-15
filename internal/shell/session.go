@@ -207,8 +207,9 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 		return ExecResult{}, err
 	}
 	run := m.executions.Begin(ExecutionInput{
-		WorkspaceID: workspaceID, Tool: "run_command", Command: effective, CWD: cwd, Shell: provider.Language, ShellProvider: provider.Label(), ShellProviderVersion: string(provider.Version), Source: source,
+		WorkspaceID: workspaceID, Tool: "run_command", Command: effective, RequestedCommand: command, EffectiveCommand: effective, SecurityCommand: effective, CWD: cwd, Shell: provider.Language, ShellProvider: provider.Label(), ShellProviderVersion: string(provider.Version), Source: source,
 		CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID,
+		ParentExecutionID: metadata.ParentExecutionID, Origin: metadata.Origin, HookDepth: metadata.HookDepth,
 	})
 	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.ShellPath(), provider)
 	if saveErr := m.save(current.state); saveErr != nil && err == nil {

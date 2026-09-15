@@ -10,10 +10,11 @@ import (
 var ErrCapabilityNotFound = errors.New("plugin capability provider not found")
 
 type CapabilityProvider struct {
-	PluginID PluginID
-	Version  Version
-	Name     string
-	Path     string
+	PluginID    PluginID
+	Version     Version
+	Name        string
+	Path        string
+	Permissions []Permission
 }
 
 type CapabilityConflictError struct {
@@ -75,7 +76,7 @@ func NewResolver(store *Store) (*Resolver, error) {
 		if !compatible {
 			continue
 		}
-		provider := CapabilityProvider{PluginID: id, Version: entry.Version, Name: installed.Manifest.Name, Path: installed.Entrypoint}
+		provider := CapabilityProvider{PluginID: id, Version: entry.Version, Name: installed.Manifest.Name, Path: installed.Entrypoint, Permissions: append([]Permission(nil), installed.Manifest.Permissions...)}
 		for _, capability := range installed.Manifest.Provides {
 			providers[capability] = append(providers[capability], provider)
 		}
@@ -118,7 +119,7 @@ func pluginCoreCompatible(store *Store, manifest Manifest) (bool, error) {
 
 func (resolver *Resolver) Providers(capability Capability) []CapabilityProvider {
 	providers := resolver.providers[capability]
-	return append([]CapabilityProvider(nil), providers...)
+	return cloneCapabilityProviders(providers)
 }
 
 func (resolver *Resolver) Resolve(capability Capability) (CapabilityProvider, error) {
@@ -127,7 +128,18 @@ func (resolver *Resolver) Resolve(capability Capability) (CapabilityProvider, er
 		return CapabilityProvider{}, fmt.Errorf("%w: %s", ErrCapabilityNotFound, capability)
 	}
 	if len(providers) > 1 {
-		return CapabilityProvider{}, CapabilityConflictError{Capability: capability, Providers: append([]CapabilityProvider(nil), providers...)}
+		return CapabilityProvider{}, CapabilityConflictError{Capability: capability, Providers: cloneCapabilityProviders(providers)}
 	}
-	return providers[0], nil
+	provider := providers[0]
+	provider.Permissions = append([]Permission(nil), provider.Permissions...)
+	return provider, nil
+}
+
+func cloneCapabilityProviders(providers []CapabilityProvider) []CapabilityProvider {
+	cloned := make([]CapabilityProvider, len(providers))
+	for index, provider := range providers {
+		provider.Permissions = append([]Permission(nil), provider.Permissions...)
+		cloned[index] = provider
+	}
+	return cloned
 }

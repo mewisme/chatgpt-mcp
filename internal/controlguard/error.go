@@ -14,6 +14,7 @@ const (
 	CodeExternalAccess       Code = "external_access"
 	CodeExternalMutation     Code = "external_mutation"
 	CodeShellExecution       Code = "shell_execution"
+	CodeHookPolicy           Code = "hook_policy"
 	CodeProtectedState       Code = "protected_state_access"
 	CodeContextTamper        Code = "tool_context_tamper"
 )

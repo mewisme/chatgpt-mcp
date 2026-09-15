@@ -14,6 +14,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -36,6 +37,7 @@ type Runtime struct {
 	SessionAccess   *SessionWorkspaceAccessManager
 	Approvals       *approval.Manager
 	Executions      *shellruntime.ExecutionHub
+	Hooks           *pluginpkg.HookDispatcher
 	Shell           *shellruntime.Manager
 	Processes       *shellruntime.ProcessManager
 	LoopGuard       *ToolLoopGuard
@@ -65,9 +67,13 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 		panic(err)
 	}
 	executions := shellruntime.NewExecutionHub()
-	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
+	pluginStore, err := pluginpkg.NewStore(pluginpkg.DefaultLayout(), pluginpkg.RuntimeContext{})
+	if err != nil {
+		panic(err)
+	}
+	shell := shellruntime.NewManagerWithProviderResolver(workspaces, shellruntime.DefaultStateRoot(), executions, shellruntime.NewProviderResolver(pluginStore))
 	processes := shellruntime.NewProcessManagerWithExecutions(workspaces, shell, executions)
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Hooks: pluginpkg.NewHookDispatcher(pluginStore), Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterWorkspaceContainerTools(registry, workspaces)
@@ -161,6 +167,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	callCtx, cancelCall := toolCallContext(ctx, source, started)
 	defer cancelCall()
 	ctx = callCtx
+	ctx, hookProvenance := hookCallProvenance(ctx, callID, source)
 	receivedBy := ReceivedByInstanceID(ctx)
 	if receivedBy == "" {
 		receivedBy = r.runtimeInstanceID()
@@ -220,8 +227,12 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	}
 	claimedApproval := approval.Request{}
 	var forcedResult *Result
+	approvalWorkspaceID := workspaceID
+	if approvalWorkspaceID == "" && r.Hooks != nil {
+		approvalWorkspaceID = approvalControlWorkspace
+	}
 	if preflightErr == nil {
-		ctx, claimedApproval, forcedResult, preflightErr = r.prepareApprovalRetry(ctx, sessionID, workspaceID, source, name, args)
+		ctx, claimedApproval, forcedResult, preflightErr = r.prepareApprovalRetry(ctx, sessionID, approvalWorkspaceID, source, name, args)
 	}
 	loopClass, loopDecision := toolLoopClassMutation, toolLoopDecision{}
 	if preflightErr == nil && forcedResult == nil && strings.TrimSpace(sessionID) != "" && r.Registry != nil {
@@ -234,9 +245,13 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 			}
 		}
 	}
+	if preflightErr == nil && forcedResult == nil {
+		preflightErr = r.runPreToolHook(ctx, hookProvenance, name, workspaceID, args)
+	}
 	executedBy := r.runtimeInstanceID()
 	ctx = shellruntime.WithExecutionMetadata(ctx, shellruntime.ExecutionMetadata{
 		Source: source, CallID: callID, SessionHash: sessionHash, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy,
+		ParentExecutionID: hookProvenance.ExecutionID, Origin: string(hookProvenance.Origin), HookDepth: hookProvenance.HookDepth,
 	})
 	raw := callRaw(ctx, source, name, args)
 	raw["call_id"] = callID
@@ -246,11 +261,15 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	r.observeCall(CallObservation{CallID: callID, Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy})
 
 	result, err := Result{}, preflightErr
+	registryCalled := false
 	if err == nil && forcedResult != nil {
 		result = *forcedResult
 	} else if err == nil {
+		registryCalled = true
 		result, err = r.Registry.Call(ctx, name, args)
 	}
+	hookEventType := hookObservationType(registryCalled, result, err)
+	r.observeToolHook(hookEventType, hookProvenance, name, workspaceID, args, &result, hookObservationError(hookEventType, result, err), started, hookObservationStatus(hookEventType))
 	if err == nil {
 		result = limitToolResult(result)
 	}
@@ -259,7 +278,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	}
 	if err != nil {
 		if guard, ok := controlguard.As(err); ok {
-			if guardedResult, handled, guardErr := r.approvalResultForGuard(guard, sessionID, sessionHash, workspaceID, source, name, args, claimedApproval); guardErr != nil {
+			if guardedResult, handled, guardErr := r.approvalResultForGuard(guard, sessionID, sessionHash, approvalWorkspaceID, source, name, args, claimedApproval); guardErr != nil {
 				err = guardErr
 			} else if handled {
 				result, err = guardedResult, nil

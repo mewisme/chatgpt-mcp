@@ -327,7 +327,8 @@ func TestShellExecRecordsBashProviderMetadata(t *testing.T) {
 	resolver.goos = runtime.GOOS
 	resolver.lookPath = func(name string) (string, error) { return bash, nil }
 	manager.providers = resolver
-	result, err := manager.Exec(context.Background(), workspaceID, `printf "%s" "$SHELL"`)
+	ctx := WithExecutionMetadata(context.Background(), ExecutionMetadata{ParentExecutionID: "call_parent", Origin: "agent", HookDepth: 0})
+	result, err := manager.Exec(ctx, workspaceID, `printf "%s" "$SHELL"`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,8 +336,41 @@ func TestShellExecRecordsBashProviderMetadata(t *testing.T) {
 		t.Fatalf("SHELL = %q want %q", result.Stdout, bash)
 	}
 	executions := manager.Executions().List(workspaceID, 1)
-	if len(executions) != 1 || executions[0].Shell != "bash" || executions[0].ShellProvider != "system" {
+	if len(executions) != 1 || executions[0].Shell != "bash" || executions[0].ShellProvider != "system" || executions[0].ParentExecutionID != "call_parent" || executions[0].Origin != "agent" {
 		t.Fatalf("execution metadata = %#v", executions)
+	}
+	if executions[0].RequestedCommand != `printf "%s" "$SHELL"` || executions[0].EffectiveCommand != executions[0].RequestedCommand || executions[0].SecurityCommand != executions[0].EffectiveCommand {
+		t.Fatalf("command provenance = %#v", executions[0])
+	}
+}
+
+func TestShellExecutionAuditsRequestedEffectiveAndSecurityCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses system Bash path")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("Bash unavailable")
+	}
+	manager, workspaceID, root := newShellTestManager(t)
+	resolver := NewProviderResolver(nil)
+	resolver.goos = runtime.GOOS
+	resolver.lookPath = func(name string) (string, error) { return bash, nil }
+	manager.providers = resolver
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	requested := "cd nested && printf ok"
+	if _, err := manager.Exec(context.Background(), workspaceID, requested); err != nil {
+		t.Fatal(err)
+	}
+	executions := manager.Executions().List(workspaceID, 1)
+	if len(executions) != 1 {
+		t.Fatalf("executions = %#v", executions)
+	}
+	info := executions[0]
+	if info.RequestedCommand != requested || info.EffectiveCommand != "printf ok" || info.SecurityCommand != "printf ok" || filepath.Clean(info.CWD) != filepath.Join(root, "nested") {
+		t.Fatalf("execution command audit = %#v", info)
 	}
 }
 

@@ -32,9 +32,15 @@ var ErrExecutionNotFound = errors.New("execution not found")
 
 type ExecutionInfo struct {
 	ID                   string `json:"id"`
+	ParentExecutionID    string `json:"parent_execution_id,omitempty"`
+	Origin               string `json:"origin,omitempty"`
+	HookDepth            int    `json:"hook_depth,omitempty"`
 	WorkspaceID          string `json:"workspace_id"`
 	Tool                 string `json:"tool"`
 	Command              string `json:"command"`
+	RequestedCommand     string `json:"requested_command,omitempty"`
+	EffectiveCommand     string `json:"effective_command,omitempty"`
+	SecurityCommand      string `json:"security_command,omitempty"`
 	CWD                  string `json:"cwd"`
 	Shell                string `json:"shell,omitempty"`
 	ShellProvider        string `json:"shell_provider,omitempty"`
@@ -113,6 +119,9 @@ type ExecutionInput struct {
 	WorkspaceID          string
 	Tool                 string
 	Command              string
+	RequestedCommand     string
+	EffectiveCommand     string
+	SecurityCommand      string
 	CWD                  string
 	Shell                string
 	ShellProvider        string
@@ -122,6 +131,9 @@ type ExecutionInput struct {
 	SessionHash          string
 	ReceivedByInstanceID string
 	ExecutedByInstanceID string
+	ParentExecutionID    string
+	Origin               string
+	HookDepth            int
 }
 
 type ExecutionHub struct {
@@ -163,6 +175,9 @@ type ExecutionMetadata struct {
 	SessionHash          string
 	ReceivedByInstanceID string
 	ExecutedByInstanceID string
+	ParentExecutionID    string
+	Origin               string
+	HookDepth            int
 }
 
 func NewExecutionHub() *ExecutionHub {
@@ -185,6 +200,11 @@ func WithExecutionMetadata(ctx context.Context, metadata ExecutionMetadata) cont
 	metadata.SessionHash = strings.TrimSpace(metadata.SessionHash)
 	metadata.ReceivedByInstanceID = strings.TrimSpace(metadata.ReceivedByInstanceID)
 	metadata.ExecutedByInstanceID = strings.TrimSpace(metadata.ExecutedByInstanceID)
+	metadata.ParentExecutionID = strings.TrimSpace(metadata.ParentExecutionID)
+	metadata.Origin = strings.TrimSpace(metadata.Origin)
+	if metadata.HookDepth < 0 {
+		metadata.HookDepth = 0
+	}
 	return context.WithValue(ctx, executionMetadataKey{}, metadata)
 }
 
@@ -215,7 +235,9 @@ func (h *ExecutionHub) Begin(input ExecutionInput) *ExecutionRun {
 	h.mu.Lock()
 	id := idgen.Must("exec", 8)
 	record := &executionRecord{info: ExecutionInfo{
-		ID: id, WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, CWD: input.CWD, Shell: strings.TrimSpace(input.Shell), ShellProvider: strings.TrimSpace(input.ShellProvider), ShellProviderVersion: strings.TrimSpace(input.ShellProviderVersion),
+		ID: id, ParentExecutionID: strings.TrimSpace(input.ParentExecutionID), Origin: strings.TrimSpace(input.Origin), HookDepth: input.HookDepth,
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, RequestedCommand: input.RequestedCommand, EffectiveCommand: input.EffectiveCommand, SecurityCommand: input.SecurityCommand,
+		CWD: input.CWD, Shell: strings.TrimSpace(input.Shell), ShellProvider: strings.TrimSpace(input.ShellProvider), ShellProviderVersion: strings.TrimSpace(input.ShellProviderVersion),
 		Source: strings.TrimSpace(input.Source), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),
 		ReceivedByInstanceID: strings.TrimSpace(input.ReceivedByInstanceID), ExecutedByInstanceID: strings.TrimSpace(input.ExecutedByInstanceID),
 		StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: ExecutionStatusRunning,

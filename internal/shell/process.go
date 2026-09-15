@@ -176,7 +176,12 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	var execution *ExecutionRun
 	if m.executions != nil {
 		metadata := executionMetadata(ctx)
-		execution = m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "start_process", Command: command, CWD: cwd, Shell: provider.Language, ShellProvider: provider.Label(), ShellProviderVersion: string(provider.Version), Source: metadata.Source, CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID})
+		execution = m.executions.Begin(ExecutionInput{
+			WorkspaceID: workspaceID, Tool: "start_process", Command: command, RequestedCommand: command, EffectiveCommand: command, SecurityCommand: command,
+			CWD: cwd, Shell: provider.Language, ShellProvider: provider.Label(), ShellProviderVersion: string(provider.Version), Source: metadata.Source,
+			CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID,
+			ParentExecutionID: metadata.ParentExecutionID, Origin: metadata.Origin, HookDepth: metadata.HookDepth,
+		})
 		process.mu.Lock()
 		process.execution = execution
 		process.mu.Unlock()

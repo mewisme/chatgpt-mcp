@@ -144,6 +144,9 @@ func (manifest Manifest) Validate() error {
 		}
 		seenPermissions[permission] = struct{}{}
 	}
+	if err := validateHookPermissions(manifest.Provides, seenPermissions); err != nil {
+		return err
+	}
 	if len(manifest.Platforms) == 0 {
 		return errors.New("plugin must declare at least one platform artifact")
 	}
@@ -158,6 +161,27 @@ func (manifest Manifest) Validate() error {
 		}
 		if err := manifest.Platforms[platform].validate(platform); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateHookPermissions(capabilities []Capability, permissions map[Permission]struct{}) error {
+	for _, capability := range capabilities {
+		var required Permission
+		switch capability {
+		case CapabilityHookPreToolUse:
+			required = PermissionHookToolControl
+		case CapabilityHookPostToolUse, CapabilityHookToolError, CapabilityHookToolDenied:
+			required = PermissionHookToolObserve
+		default:
+			continue
+		}
+		if _, ok := permissions[PermissionProcessExecute]; !ok {
+			return fmt.Errorf("hook capability %s requires permission %s", capability, PermissionProcessExecute)
+		}
+		if _, ok := permissions[required]; !ok {
+			return fmt.Errorf("hook capability %s requires permission %s", capability, required)
 		}
 	}
 	return nil

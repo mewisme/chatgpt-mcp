@@ -26,6 +26,8 @@ type Permission string
 type PluginType string
 
 const (
+	CapabilityWebUIAdmin Capability = "web-ui/admin"
+
 	PermissionProcessExecute       Permission = "process/execute"
 	PermissionNetworkOutbound      Permission = "network/outbound"
 	PermissionFilesystemPluginData Permission = "filesystem/plugin-data"
@@ -128,7 +130,7 @@ var knownPermissions = map[Permission]struct{}{
 }
 
 var knownPluginTypes = map[PluginType]struct{}{
-	"runtime": {}, "command-wrapper": {}, "hook": {}, "tool-provider": {}, "secret-provider": {}, "formatter": {},
+	"runtime": {}, "command-wrapper": {}, "hook": {}, "tool-provider": {}, "secret-provider": {}, "formatter": {}, "web-ui": {},
 }
 
 func ParseManifest(data []byte) (Manifest, error) {
@@ -189,6 +191,22 @@ func (manifest Manifest) Validate() error {
 	if err := validateWrapperPermissions(manifest.Provides, seenPermissions); err != nil {
 		return err
 	}
+	webUICapabilities := 0
+	for _, capability := range manifest.Provides {
+		if strings.HasPrefix(string(capability), "web-ui/") {
+			webUICapabilities++
+		}
+	}
+	if manifest.Type == "web-ui" {
+		if len(manifest.Provides) != 1 || webUICapabilities != 1 {
+			return errors.New("web-ui plugin requires exactly one web-ui capability")
+		}
+		if len(manifest.Permissions) != 0 {
+			return errors.New("web-ui plugin cannot request runtime permissions")
+		}
+	} else if webUICapabilities > 0 {
+		return errors.New("web-ui capabilities require plugin type web-ui")
+	}
 	if len(manifest.Platforms) == 0 {
 		return errors.New("plugin must declare at least one platform artifact")
 	}
@@ -204,6 +222,9 @@ func (manifest Manifest) Validate() error {
 		artifact := manifest.Platforms[platform]
 		if err := artifact.validate(platform); err != nil {
 			return err
+		}
+		if manifest.Type == "web-ui" && !strings.HasSuffix(strings.ToLower(artifact.Entrypoint), ".html") {
+			return fmt.Errorf("platform %s web-ui entrypoint must be an HTML file", platform)
 		}
 		if artifact.HostBacked() {
 			if manifest.Type != "command-wrapper" {
@@ -263,11 +284,13 @@ func (manifest Manifest) Platform(goos, goarch string) (PlatformArtifact, error)
 		return PlatformArtifact{}, err
 	}
 	key := strings.TrimSpace(goos) + "/" + strings.TrimSpace(goarch)
-	artifact, ok := manifest.Platforms[key]
-	if !ok {
-		return PlatformArtifact{}, fmt.Errorf("plugin %s@%s does not support platform %s", manifest.ID, manifest.Version, key)
+	if artifact, ok := manifest.Platforms[key]; ok {
+		return artifact, nil
 	}
-	return artifact, nil
+	if artifact, ok := manifest.Platforms["any/any"]; ok {
+		return artifact, nil
+	}
+	return PlatformArtifact{}, fmt.Errorf("plugin %s@%s does not support platform %s", manifest.ID, manifest.Version, key)
 }
 
 func (manifest Manifest) CompatibleWithCore(coreVersion string) (bool, error) {
@@ -517,7 +540,7 @@ func validCapability(capability Capability) bool {
 		return false
 	}
 	switch parts[0] {
-	case "shell", "command-wrapper", "hook", "tool-provider", "secret-provider", "formatter":
+	case "shell", "command-wrapper", "hook", "tool-provider", "secret-provider", "formatter", "web-ui":
 		return true
 	default:
 		return false

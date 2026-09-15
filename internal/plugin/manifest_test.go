@@ -60,6 +60,57 @@ func TestManifestRejectsUnsafeMetadata(t *testing.T) {
 	}
 }
 
+func TestManifestPlatformFallsBackToAnyAny(t *testing.T) {
+	manifest := Manifest{
+		Schema: ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", Version: "1.0.0", Type: "web-ui",
+		Provides: []Capability{CapabilityWebUIAdmin}, Permissions: []Permission{},
+		Platforms: map[string]PlatformArtifact{
+			"any/any":     {Artifact: "admin-ui-1.0.0.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "index.html"},
+			"linux/amd64": {Artifact: "admin-ui-linux.zip", SHA256: strings.Repeat("b", 64), Archive: "zip", Entrypoint: "index.html"},
+		},
+	}
+	artifact, err := manifest.Platform("windows", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Artifact != "admin-ui-1.0.0.zip" {
+		t.Fatalf("fallback artifact = %q", artifact.Artifact)
+	}
+	artifact, err = manifest.Platform("linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Artifact != "admin-ui-linux.zip" {
+		t.Fatalf("exact artifact = %q", artifact.Artifact)
+	}
+}
+
+func TestManifestWebUIIsolation(t *testing.T) {
+	base := Manifest{
+		Schema: ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", Version: "1.0.0", Type: "web-ui",
+		Provides: []Capability{CapabilityWebUIAdmin}, Permissions: []Permission{},
+		Platforms: map[string]PlatformArtifact{"any/any": {Artifact: "admin-ui-1.0.0.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "index.html"}},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	withPermission := base
+	withPermission.Permissions = []Permission{PermissionProcessExecute}
+	if err := withPermission.Validate(); err == nil {
+		t.Fatal("web-ui runtime permission accepted")
+	}
+	wrongType := base
+	wrongType.Type = "runtime"
+	if err := wrongType.Validate(); err == nil {
+		t.Fatal("web-ui capability on non-web-ui plugin accepted")
+	}
+	nonHTML := base
+	nonHTML.Platforms = map[string]PlatformArtifact{"any/any": {Artifact: "admin-ui-1.0.0.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "app.js"}}
+	if err := nonHTML.Validate(); err == nil {
+		t.Fatal("web-ui non-HTML entrypoint accepted")
+	}
+}
+
 func TestManifestCoreCompatibility(t *testing.T) {
 	manifest := testManifest("bash", "1.0.0", "shell/bash")
 	manifest.Requires.ChatGPTMCP = ">=0.2.24"

@@ -154,7 +154,7 @@ func (a *App) AdminHandler() http.Handler {
 	mux.Handle("/api/", adminHandler)
 	mux.Handle("/api/activity/stream", auth.DynamicHashedMiddleware(adminAuth, activity.Handler(a.Activity)))
 	mux.Handle("/api/activity/", auth.DynamicHashedMiddleware(adminAuth, activity.CallHandler(a.Activity)))
-	mux.Handle("/", web.Handler())
+	mux.Handle("/", web.Handler(a.Tools.PluginStore))
 	return web.SecurityHeaders(mux)
 }
 

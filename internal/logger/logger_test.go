@@ -168,6 +168,21 @@ func TestJSONRendererIncludesReplaySessionMetadata(t *testing.T) {
 	}
 }
 
+func TestLoggerSecretPreservesOneTimeReveal(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Info, Format: FormatText, Writer: &output})
+	token := "mcp_abcdefghijklmnopqrstuvwxyz012345"
+	log.Detail("mcp", token)
+	log.Secret("mcp", token)
+	text := output.String()
+	if strings.Count(text, "<redacted>") != 1 {
+		t.Fatalf("detail should redact once: %q", text)
+	}
+	if !strings.Contains(text, token) {
+		t.Fatalf("secret reveal missing token: %q", text)
+	}
+}
+
 func TestLoggerRedactsSecretsBeforeRenderingAndSinks(t *testing.T) {
 	var output bytes.Buffer
 	log := NewWithOptions(Options{Level: Debug, Mode: ModeDebug, Format: FormatJSON, Writer: &output})

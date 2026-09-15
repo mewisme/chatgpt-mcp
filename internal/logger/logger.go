@@ -133,7 +133,9 @@ func (l *Logger) normalize(event Event) Event {
 	}
 	for index, field := range event.Fields {
 		field.Key = strings.TrimSpace(field.Key)
-		field.Value = redact.Value(field.Key, field.Value)
+		if !field.Raw {
+			field.Value = redact.Value(field.Key, field.Value)
+		}
 		event.Fields[index] = field
 	}
 	if event.Component == "" {
@@ -192,6 +194,11 @@ func (l *Logger) Success(component, message string, fields ...any) {
 }
 func (l *Logger) Detail(label string, value any) {
 	l.Emit(Event{Level: Info, Name: "cli.detail", Message: strings.TrimSpace(label), Fields: []Field{With("value", value)}, Component: "CLI", Kind: KindInfo})
+}
+
+// Secret prints a one-time credential like Detail, without redacting the value.
+func (l *Logger) Secret(label string, value string) {
+	l.Emit(Event{Level: Info, Name: "cli.detail", Message: strings.TrimSpace(label), Fields: []Field{WithRaw("value", value)}, Component: "CLI", Kind: KindInfo})
 }
 
 func (l *Logger) eventTime(event Event) time.Time {

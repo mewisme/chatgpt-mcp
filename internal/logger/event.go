@@ -60,6 +60,8 @@ type Field struct {
 	Key        string
 	Value      any
 	Visibility Visibility
+	// Raw skips redaction. Use only for intentional one-time secret reveal to the operator.
+	Raw bool
 }
 
 type Event struct {
@@ -101,6 +103,9 @@ func ModeFor(verbose, debug bool) Mode {
 }
 
 func With(key string, value any) Field { return Field{Key: key, Value: value} }
+func WithRaw(key string, value any) Field {
+	return Field{Key: key, Value: value, Raw: true}
+}
 func WithVerbose(key string, value any) Field {
 	return Field{Key: key, Value: value, Visibility: VisibilityVerbose}
 }

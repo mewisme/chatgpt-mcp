@@ -96,8 +96,8 @@ func initCommand() *cobra.Command {
 			log.Detail("config", result.ConfigPath)
 			log.Detail("format", result.Format)
 			logEndpointDetails(log, result.Config)
-			log.Detail("mcp token", result.MCPToken)
-			log.Detail("admin token", result.AdminToken)
+			log.Secret("mcp token", result.MCPToken)
+			log.Secret("admin token", result.AdminToken)
 			return nil
 		},
 	}
@@ -158,7 +158,7 @@ func authCreateCommand(kind string) *cobra.Command {
 			}
 			log := commandLogger(cmd)
 			log.Success("AUTH", "token rotated", "type", kind)
-			log.Detail(strings.ToUpper(kind), token)
+			log.Secret(strings.ToUpper(kind), token)
 			return nil
 		},
 	}

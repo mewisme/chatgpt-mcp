@@ -797,3 +797,61 @@ func TestTunnelAdminsPageRefreshRemoveFinishAndMouseTargets(t *testing.T) {
 	}
 	_ = detail
 }
+
+func TestTunnelAdminsPageSubmitValidationAndWindowResize(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewTunnelAdmins(t.Context(), "", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	if cmd := page.submitEditor(); cmd != nil || page.editor == nil {
+		t.Fatalf("empty create submit cmd=%v", cmd != nil)
+	}
+	page.form.ID = "personal"
+	page.form.AdminKey = ""
+	page.form.ScopeKind = "organization"
+	page.form.ScopeID = "org_demo"
+	if cmd := page.submitEditor(); cmd != nil {
+		t.Fatal("blank key create unexpectedly submitted")
+	}
+	page.form.AdminKey = "secret"
+	page.form.ScopeKind = "nope"
+	if cmd := page.submitEditor(); cmd != nil {
+		t.Fatal("invalid scope create unexpectedly submitted")
+	}
+	page.form.ScopeKind = "organization"
+	updated, _ := page.Update(tea.WindowSizeMsg{Width: 90, Height: 28})
+	page = updated.(*TunnelAdminsPage)
+	if page.width != 90 || page.height != 28 {
+		t.Fatalf("editor resize size=%dx%d", page.width, page.height)
+	}
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", WorkspaceID: "ws_admin", ManageAccess: true}}
+	setupTunnelPageConfig(t, tunnel.Config{Admins: &admins})
+	list, err := NewTunnelAdmins(t.Context(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ = list.Update(tea.WindowSizeMsg{Width: 88, Height: 26})
+	list = updated.(*TunnelAdminsPage)
+	if list.width != 88 || list.height != 26 {
+		t.Fatalf("list resize size=%dx%d", list.width, list.height)
+	}
+	updated, cmd := list.Update(TunnelAdminCommandMsg{Command: TunnelAdminUpdate, ResourceID: "work"})
+	list = updated.(*TunnelAdminsPage)
+	nav, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(nav.Path, "/") != "admins/work/edit" {
+		t.Fatalf("update navigation=%#v", cmd)
+	}
+	updated, cmd = list.Update(tea.KeyPressMsg{Text: "a", Code: 'a'})
+	nav, ok = cmd().(NavigateMsg)
+	if !ok || strings.Join(nav.Path, "/") != "admins/create" {
+		t.Fatalf("add key navigation=%#v", cmd)
+	}
+	_, cmd = list.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
+	nav, ok = cmd().(NavigateMsg)
+	if !ok || strings.Join(nav.Path, "/") != "tunnels" {
+		t.Fatalf("managed key navigation=%#v", cmd)
+	}
+	_ = updated
+}

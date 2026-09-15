@@ -24,9 +24,6 @@ func TestProcessManagerResolvesRelocatedWorkspaceAliases(t *testing.T) {
 	shell := NewManager(manager, filepath.Join(t.TempDir(), "shell-state"))
 	processes := NewProcessManager(manager, shell)
 	command := "printf relocate-process"
-	if os.PathSeparator == '\\' {
-		command = "Write-Output relocate-process"
-	}
 	started, err := processes.Start(context.Background(), item.ID, command)
 	if err != nil {
 		t.Fatal(err)
@@ -70,9 +67,6 @@ func TestClearFinishedProcessRejectsRunningAndDeletesFinished(t *testing.T) {
 	shell := NewManager(manager, filepath.Join(t.TempDir(), "shell-state"))
 	processes := NewProcessManager(manager, shell)
 	command := "sleep 0.2"
-	if os.PathSeparator == '\\' {
-		command = "Start-Sleep -Milliseconds 200"
-	}
 	started, err := processes.Start(t.Context(), item.ID, command)
 	if err != nil {
 		t.Fatal(err)
@@ -137,9 +131,6 @@ func TestProcessManagerShutdownStopsRunningProcess(t *testing.T) {
 	}
 	processes := NewProcessManager(manager, NewManager(manager, filepath.Join(t.TempDir(), "shell-state")))
 	command := "sleep 30"
-	if os.PathSeparator == '\\' {
-		command = "Start-Sleep -Seconds 30"
-	}
 	started, err := processes.Start(t.Context(), item.ID, command)
 	if err != nil {
 		t.Fatal(err)

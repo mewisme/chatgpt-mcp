@@ -186,8 +186,11 @@ func (store *Store) Activate(id PluginID, version Version, trust ActivationTrust
 	if err != nil {
 		return err
 	}
+	previous := lock
 	lock.Plugins[id] = LockPlugin{Registry: trust.Registry, Publisher: trust.Publisher, Version: version, ManifestDigest: manifestDigest, ArtifactDigest: "sha256:" + artifact.SHA256, Enabled: true}
-	return WriteLock(store.layout.LockPath(), lock)
+	return store.writeLockAndDesired(previous, lock, func(config *Config) error {
+		return config.SetDesired(id, trust.Registry, version, true)
+	})
 }
 
 func (store *Store) SetEnabled(id PluginID, enabled bool) error {
@@ -197,6 +200,7 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 	if err != nil {
 		return err
 	}
+	previous := lock
 	entry, ok := lock.Plugins[id]
 	if !ok {
 		return fmt.Errorf("plugin %s is not active", id)
@@ -230,7 +234,9 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 	}
 	entry.Enabled = enabled
 	lock.Plugins[id] = entry
-	return WriteLock(store.layout.LockPath(), lock)
+	return store.writeLockAndDesired(previous, lock, func(config *Config) error {
+		return config.SetDesired(id, entry.Registry, entry.Version, enabled)
+	})
 }
 
 func (store *Store) DisableIfEnabled(id PluginID) (bool, error) {
@@ -246,16 +252,41 @@ func (store *Store) DisableIfEnabled(id PluginID) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	previous := lock
 	entry, ok := lock.Plugins[id]
 	if !ok || !entry.Enabled {
 		return false, nil
 	}
 	entry.Enabled = false
 	lock.Plugins[id] = entry
-	if err := WriteLock(store.layout.LockPath(), lock); err != nil {
+	if err := store.writeLockAndDesired(previous, lock, func(config *Config) error {
+		return config.SetDesired(id, entry.Registry, entry.Version, false)
+	}); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func (store *Store) writeLockAndDesired(previous, next LockFile, mutate func(*Config) error) error {
+	config, err := LoadConfig(store.layout.ConfigPath())
+	if err != nil {
+		return err
+	}
+	if mutate != nil {
+		if err := mutate(&config); err != nil {
+			return err
+		}
+	}
+	if err := WriteLock(store.layout.LockPath(), next); err != nil {
+		return err
+	}
+	if err := WriteConfig(store.layout.ConfigPath(), config); err != nil {
+		if rollbackErr := WriteLock(store.layout.LockPath(), previous); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("restore previous plugin lock: %w", rollbackErr))
+		}
+		return err
+	}
+	return nil
 }
 
 func (store *Store) RemoveVersion(id PluginID, version Version) error {

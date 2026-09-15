@@ -23,6 +23,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/oauth"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -75,13 +76,19 @@ type ImportOptions struct {
 }
 
 type ImportResult struct {
-	Files        int
-	Secrets      int
-	SkippedPaths int
-	SkippedFiles int
-	BackupPath   string
-	Source       Platform
-	Target       Platform
+	Files              int
+	Secrets            int
+	SkippedPaths       int
+	SkippedFiles       int
+	BackupPath         string
+	Source             Platform
+	Target             Platform
+	PluginDesired      int
+	PluginSatisfied    int
+	PluginMissing      []string
+	PluginIncompatible []string
+	PluginPending      []string
+	PluginLockError    string
 }
 
 type workspaceRegistry struct {
@@ -190,6 +197,12 @@ func Import(root, source string, options ImportOptions) (ImportResult, error) {
 		if err := mergeImportedMainConfig(root, stage); err != nil {
 			return ImportResult{}, err
 		}
+		if err := preserveLocalPluginState(root, stage); err != nil {
+			return ImportResult{}, err
+		}
+	}
+	if _, err := pluginpkg.LoadConfig(filepath.Join(stage, "plugins.json")); err != nil {
+		return ImportResult{}, fmt.Errorf("verify imported plugin desired state: %w", err)
 	}
 	if err := configformat.MarkRoot(stage); err != nil {
 		return ImportResult{}, err
@@ -314,7 +327,7 @@ func collectFiles(root string) ([]File, int, error) {
 
 func excludedFile(relative string) bool {
 	relative = pathpkg.Clean(strings.TrimPrefix(relative, "./"))
-	if relative == ".runtime-control.json" || relative == "state/instance.json" || relative == "state/update.json" {
+	if relative == ".runtime-control.json" || relative == "plugins.lock.json" || relative == "state/instance.json" || relative == "state/update.json" {
 		return true
 	}
 	for _, prefix := range []string{"logs/", "runtime/", "state/secrets/"} {
@@ -407,6 +420,10 @@ func materialize(root string, bundle Bundle, target Platform) (materializeResult
 		if !ok {
 			return result, fmt.Errorf("config bundle contains unsafe path: %q", item.Path)
 		}
+		if relative == "plugins.lock.json" {
+			result.skippedFiles++
+			continue
+		}
 		data := item.Data
 		if topLevelStructured(relative, "config") {
 			normalized, skipped, err := normalizeMainConfig(relative, data, bundle.Source, target)
@@ -449,6 +466,41 @@ func materialize(root string, bundle Bundle, target Platform) (materializeResult
 		result.files++
 	}
 	return result, nil
+}
+
+func preserveLocalPluginState(existingRoot, stagedRoot string) error {
+	for _, item := range []struct {
+		name      string
+		ifMissing bool
+	}{{name: "plugins.lock.json"}, {name: "plugins.json", ifMissing: true}} {
+		target := filepath.Join(stagedRoot, item.name)
+		if item.ifMissing {
+			if _, err := os.Stat(target); err == nil {
+				continue
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		source := filepath.Join(existingRoot, item.name)
+		info, err := os.Lstat(source)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("local plugin state is not a regular file: %s", item.name)
+		}
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return err
+		}
+		if err := state.WriteFileAtomic(target, data, 0600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeMainConfig(relative string, data []byte, source, target Platform) ([]byte, int, error) {

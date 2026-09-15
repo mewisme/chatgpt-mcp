@@ -12,6 +12,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	memorypkg "go.mewis.me/chatgpt-mcp/internal/memory"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -57,6 +58,7 @@ func TestExportIncludesLogicalSecretsAndSkipsRuntimeState(t *testing.T) {
 	}
 	for path, content := range map[string]string{
 		".runtime-control.json":                     `{"pid":1}`,
+		"plugins.lock.json":                         `{"schema":1,"plugins":{}}`,
 		"logs/runtime.jsonl":                        "runtime log\n",
 		"runtime/environment.json":                  `{"version":1}`,
 		"state/instance.json":                       `{"version":1}`,
@@ -71,12 +73,19 @@ func TestExportIncludesLogicalSecretsAndSkipsRuntimeState(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	pluginConfig := pluginpkg.NewConfig()
+	if err := pluginConfig.SetDesired("bash", pluginpkg.OfficialRegistryName, "1.0.0", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginpkg.WriteConfig(filepath.Join(root, "plugins.json"), pluginConfig); err != nil {
+		t.Fatal(err)
+	}
 	destination := filepath.Join(t.TempDir(), "backup.cgm")
 	result, err := Export(root, destination, ExportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Secrets != 1 || result.SkippedFiles < 6 {
+	if result.Secrets != 1 || result.SkippedFiles < 7 {
 		t.Fatalf("result = %#v", result)
 	}
 	raw, err := os.ReadFile(destination)
@@ -97,6 +106,15 @@ func TestExportIncludesLogicalSecretsAndSkipsRuntimeState(t *testing.T) {
 		if excludedFile(file.Path) {
 			t.Fatalf("excluded file was exported: %s", file.Path)
 		}
+	}
+	foundPlugins := false
+	for _, file := range bundle.Files {
+		if file.Path == "plugins.json" {
+			foundPlugins = true
+		}
+	}
+	if !foundPlugins {
+		t.Fatal("portable plugin desired state was not exported")
 	}
 }
 
@@ -333,6 +351,70 @@ func TestImportForceMergesExistingMainConfig(t *testing.T) {
 	}
 }
 
+func TestImportPreservesLocalPluginLockAndImportsDesiredState(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "config")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeConfigFile(t, root, validConfig())
+	if err := configformat.MarkRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	localLock := []byte(`{"schema":1,"plugins":{}}`)
+	if err := os.WriteFile(filepath.Join(root, "plugins.lock.json"), localLock, 0600); err != nil {
+		t.Fatal(err)
+	}
+	localPlugins := pluginpkg.NewConfig()
+	if err := localPlugins.SetDesired("local", pluginpkg.OfficialRegistryName, "1.0.0", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginpkg.WriteConfig(filepath.Join(root, "plugins.json"), localPlugins); err != nil {
+		t.Fatal(err)
+	}
+	importedPlugins := pluginpkg.NewConfig()
+	if err := importedPlugins.SetDesired("bash", pluginpkg.OfficialRegistryName, "2.0.0", false); err != nil {
+		t.Fatal(err)
+	}
+	pluginData, err := os.ReadFile(writePluginConfigFixture(t, importedPlugins))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configData, err := configformat.Marshal(configformat.JSON, validConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleFile := filepath.Join(t.TempDir(), "plugins.cgm")
+	writeBundleFile(t, bundleFile, Bundle{Version: Version, CreatedAt: time.Now().UTC(), Source: currentPlatform(), Files: []File{
+		{Path: "config.json", Mode: 0600, Data: configData},
+		{Path: "plugins.json", Mode: 0600, Data: pluginData},
+		{Path: "plugins.lock.json", Mode: 0600, Data: []byte(`{"schema":1,"plugins":{"malicious":{}}}`)},
+	}})
+	result, err := Import(root, bundleFile, ImportOptions{Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SkippedFiles < 1 {
+		t.Fatalf("legacy lock was not skipped: %#v", result)
+	}
+	lock, err := os.ReadFile(filepath.Join(root, "plugins.lock.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(lock, localLock) {
+		t.Fatalf("local lock changed: %s", lock)
+	}
+	plugins, err := pluginpkg.LoadConfig(filepath.Join(root, "plugins.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := plugins.Desired["local"]; ok {
+		t.Fatal("local desired state incorrectly overrode imported intent")
+	}
+	if desired := plugins.Desired["bash"]; desired.Version != "2.0.0" || desired.Enabled {
+		t.Fatalf("imported desired state = %#v", desired)
+	}
+}
+
 func validConfig() config.Config {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = "mcp-hash"
@@ -360,6 +442,15 @@ func writeBundleFile(t *testing.T, path string, bundle Bundle) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writePluginConfigFixture(t *testing.T, config pluginpkg.Config) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "plugins.json")
+	if err := pluginpkg.WriteConfig(path, config); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func foreignPlatform(targetHome string) Platform {

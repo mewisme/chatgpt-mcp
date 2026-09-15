@@ -101,6 +101,21 @@ func configImportCommand() *cobra.Command {
 			if result.BackupPath != "" {
 				log.Detail("previous config backup retained", result.BackupPath)
 			}
+			if result.PluginDesired > 0 {
+				log.Detail("plugin desired state", fmt.Sprintf("%d desired, %d satisfied", result.PluginDesired, result.PluginSatisfied))
+			}
+			if len(result.PluginMissing) > 0 {
+				log.Detail("plugins missing", strings.Join(result.PluginMissing, ", "))
+			}
+			if len(result.PluginIncompatible) > 0 {
+				log.Detail("plugins incompatible", strings.Join(result.PluginIncompatible, ", "))
+			}
+			if len(result.PluginPending) > 0 {
+				log.Detail("plugins pending activation", strings.Join(result.PluginPending, ", "))
+			}
+			if result.PluginLockError != "" {
+				log.Detail("plugin lock recovery required", result.PluginLockError)
+			}
 			return nil
 		},
 	}

@@ -14,10 +14,12 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configbundle"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
+	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
 type ConfigOverview struct {
@@ -441,8 +443,33 @@ func ImportConfig(ctx context.Context, source string, force bool) (configbundle.
 		span.FailMessage("Configuration bundle import failed", err, tracepkg.String("source", source))
 		return configbundle.ImportResult{}, err
 	}
-	span.EndMessage("Configuration bundle imported", tracepkg.String("source", source), tracepkg.String("destination_root", config.RootPath()), tracepkg.Int("files", result.Files), tracepkg.Int("secrets", result.Secrets), tracepkg.Int("skipped_paths", result.SkippedPaths), tracepkg.Int("skipped_files", result.SkippedFiles), tracepkg.Bool("backup_created", result.BackupPath != ""), tracepkg.String("source_platform", result.Source.OS+"/"+result.Source.Arch), tracepkg.String("target_platform", result.Target.OS+"/"+result.Target.Arch))
+	layout := pluginpkg.DefaultLayout()
+	store, storeErr := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{CoreVersion: version.Version})
+	if storeErr != nil {
+		result.PluginLockError = storeErr.Error()
+	} else {
+		report, reportErr := (&pluginpkg.Manager{Store: store}).AssessDesired()
+		if reportErr != nil {
+			result.PluginLockError = reportErr.Error()
+		} else {
+			result.PluginDesired = report.Desired
+			result.PluginSatisfied = report.Satisfied
+			result.PluginMissing = pluginIDsToStrings(report.Missing)
+			result.PluginIncompatible = pluginIDsToStrings(report.Incompatible)
+			result.PluginPending = pluginIDsToStrings(report.Pending)
+			result.PluginLockError = report.LockError
+		}
+	}
+	span.EndMessage("Configuration bundle imported", tracepkg.String("source", source), tracepkg.String("destination_root", config.RootPath()), tracepkg.Int("files", result.Files), tracepkg.Int("secrets", result.Secrets), tracepkg.Int("skipped_paths", result.SkippedPaths), tracepkg.Int("skipped_files", result.SkippedFiles), tracepkg.Int("plugin_desired", result.PluginDesired), tracepkg.Int("plugin_missing", len(result.PluginMissing)), tracepkg.Int("plugin_incompatible", len(result.PluginIncompatible)), tracepkg.Int("plugin_pending", len(result.PluginPending)), tracepkg.Bool("backup_created", result.BackupPath != ""), tracepkg.String("source_platform", result.Source.OS+"/"+result.Source.Arch), tracepkg.String("target_platform", result.Target.OS+"/"+result.Target.Arch))
 	return result, nil
+}
+
+func pluginIDsToStrings(ids []pluginpkg.PluginID) []string {
+	values := make([]string, len(ids))
+	for index, id := range ids {
+		values[index] = string(id)
+	}
+	return values
 }
 
 func reloadConfig(ctx context.Context) (configReloadResult, error) {

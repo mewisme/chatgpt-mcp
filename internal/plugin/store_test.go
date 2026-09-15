@@ -116,6 +116,13 @@ func TestStoreDisableIfEnabledIsIdempotent(t *testing.T) {
 	if lock.Plugins["bash"].Enabled {
 		t.Fatal("plugin remained enabled")
 	}
+	config, err := LoadConfig(store.layout.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if desired, ok := config.Desired["bash"]; !ok || desired.Enabled || desired.Version != "1.0.0" || desired.Registry != "official" {
+		t.Fatalf("desired Bash state = %#v ok=%t", desired, ok)
+	}
 	changed, err = store.DisableIfEnabled("missing")
 	if err != nil || changed {
 		t.Fatalf("missing plugin disable changed=%t err=%v", changed, err)

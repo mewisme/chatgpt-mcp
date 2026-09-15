@@ -116,6 +116,16 @@ func TestManagerUninstallRefusesActiveDependentWithoutForce(t *testing.T) {
 	if lock.Plugins["consumer"].Enabled {
 		t.Fatal("forced uninstall left dependent plugin enabled")
 	}
+	config, err := LoadConfig(store.layout.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := config.Desired["bash"]; ok {
+		t.Fatal("uninstalled plugin remained in desired state")
+	}
+	if desired := config.Desired["consumer"]; desired.Enabled {
+		t.Fatalf("forced dependent desired state remained enabled: %#v", desired)
+	}
 }
 
 func TestParseReference(t *testing.T) {

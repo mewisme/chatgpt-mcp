@@ -50,17 +50,19 @@ type configLoadMsg struct {
 }
 
 type configOperationMsg struct {
-	operationID uint64
-	command     ConfigCommand
-	mutation    application.ConfigMutationResult
-	verify      config.VerifyResult
-	format      configformat.Format
-	converted   int
-	files       int
-	secrets     int
-	migrated    int
-	path        string
-	err         error
+	operationID  uint64
+	command      ConfigCommand
+	mutation     application.ConfigMutationResult
+	verify       config.VerifyResult
+	format       configformat.Format
+	converted    int
+	files        int
+	secrets      int
+	migrated     int
+	path         string
+	plugins      int
+	pluginIssues int
+	err          error
 }
 
 type ConfigPage struct {
@@ -521,6 +523,12 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 		page.notice = fmt.Sprintf("Configuration exported · %d files · %d secrets · %s", msg.files, msg.secrets, msg.path)
 	case ConfigImport:
 		page.notice = fmt.Sprintf("Configuration imported · %d files · %d secrets", msg.files, msg.secrets)
+		if msg.plugins > 0 {
+			page.notice += fmt.Sprintf(" · %d plugin intents", msg.plugins)
+		}
+		if msg.pluginIssues > 0 {
+			page.notice += fmt.Sprintf(" · %d require attention", msg.pluginIssues)
+		}
 	}
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)

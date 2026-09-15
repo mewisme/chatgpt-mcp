@@ -14,11 +14,20 @@ import (
 const ConfigSchema = 1
 
 type Config struct {
-	Schema     int                 `json:"schema"`
-	Registries map[string]Registry `json:"registries"`
+	Schema     int                        `json:"schema"`
+	Registries map[string]Registry        `json:"registries"`
+	Desired    map[PluginID]DesiredPlugin `json:"desired,omitempty"`
 }
 
-func NewConfig() Config { return Config{Schema: ConfigSchema, Registries: map[string]Registry{}} }
+type DesiredPlugin struct {
+	Registry string  `json:"registry"`
+	Version  Version `json:"version"`
+	Enabled  bool    `json:"enabled"`
+}
+
+func NewConfig() Config {
+	return Config{Schema: ConfigSchema, Registries: map[string]Registry{}, Desired: map[PluginID]DesiredPlugin{}}
+}
 
 func LoadConfig(path string) (Config, error) {
 	data, err := os.ReadFile(path)
@@ -34,6 +43,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
+	}
+	if config.Desired == nil {
+		config.Desired = map[PluginID]DesiredPlugin{}
 	}
 	return config, nil
 }
@@ -67,7 +79,41 @@ func (config Config) Validate() error {
 			return err
 		}
 	}
+	for id, desired := range config.Desired {
+		if !validCanonicalName(string(id)) {
+			return fmt.Errorf("invalid desired plugin id: %q", id)
+		}
+		if !validCanonicalName(desired.Registry) {
+			return fmt.Errorf("invalid desired registry for plugin %s: %q", id, desired.Registry)
+		}
+		if desired.Registry != OfficialRegistryName {
+			if _, ok := config.Registries[desired.Registry]; !ok {
+				return fmt.Errorf("desired plugin %s references unconfigured registry %s", id, desired.Registry)
+			}
+		}
+		if err := validateVersion(string(desired.Version)); err != nil {
+			return fmt.Errorf("invalid desired version for plugin %s: %q", id, desired.Version)
+		}
+	}
 	return nil
+}
+
+func (config *Config) SetDesired(id PluginID, registry string, version Version, enabled bool) error {
+	if config.Desired == nil {
+		config.Desired = map[PluginID]DesiredPlugin{}
+	}
+	config.Desired[id] = DesiredPlugin{Registry: registry, Version: version, Enabled: enabled}
+	if err := config.Validate(); err != nil {
+		delete(config.Desired, id)
+		return err
+	}
+	return nil
+}
+
+func (config *Config) RemoveDesired(id PluginID) {
+	if config.Desired != nil {
+		delete(config.Desired, id)
+	}
 }
 
 func (config Config) AllRegistries() []Registry {
@@ -109,6 +155,11 @@ func (config *Config) RemoveRegistry(name string) error {
 	}
 	if _, ok := config.Registries[name]; !ok {
 		return fmt.Errorf("plugin registry %s is not configured", name)
+	}
+	for id, desired := range config.Desired {
+		if desired.Registry == name {
+			return fmt.Errorf("plugin registry %s is required by desired plugin %s", name, id)
+		}
 	}
 	delete(config.Registries, name)
 	return nil

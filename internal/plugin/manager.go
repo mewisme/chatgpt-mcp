@@ -129,19 +129,25 @@ func (manager Manager) Uninstall(ctx context.Context, id PluginID, force bool) (
 	if manager.Store == nil {
 		return errors.New("plugin store is unavailable")
 	}
+	manager.Store.mu.Lock()
 	lock, err := LoadLock(manager.Store.layout.LockPath())
 	if err != nil {
+		manager.Store.mu.Unlock()
 		return err
 	}
+	previous := lock
 	entry, ok := lock.Plugins[id]
 	if !ok {
+		manager.Store.mu.Unlock()
 		return fmt.Errorf("plugin %s is not installed", id)
 	}
 	dependents, err := manager.activeDependents(id, entry.Version, lock)
 	if err != nil {
+		manager.Store.mu.Unlock()
 		return err
 	}
 	if len(dependents) > 0 && !force {
+		manager.Store.mu.Unlock()
 		return fmt.Errorf("plugin %s is required by active plugin %s; use --force to uninstall", id, dependents[0])
 	}
 	for _, dependentID := range dependents {
@@ -150,9 +156,20 @@ func (manager Manager) Uninstall(ctx context.Context, id PluginID, force bool) (
 		lock.Plugins[dependentID] = dependent
 	}
 	delete(lock.Plugins, id)
-	if err := WriteLock(manager.Store.layout.LockPath(), lock); err != nil {
+	if err := manager.Store.writeLockAndDesired(previous, lock, func(config *Config) error {
+		config.RemoveDesired(id)
+		for _, dependentID := range dependents {
+			dependent := lock.Plugins[dependentID]
+			if err := config.SetDesired(dependentID, dependent.Registry, dependent.Version, false); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		manager.Store.mu.Unlock()
 		return err
 	}
+	manager.Store.mu.Unlock()
 	return manager.Store.RemoveVersion(id, entry.Version)
 }
 

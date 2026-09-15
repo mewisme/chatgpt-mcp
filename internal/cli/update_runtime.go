@@ -37,31 +37,6 @@ func coordinateUpdatedRuntime(cmd *cobra.Command, installed install.Result, stat
 	return coordinateUpdatedRuntimeWith(cmd, installed, state, noRestart, restartManagedRuntimeAfterUpdate)
 }
 
-func coordinatePackageManagedRuntime(cmd *cobra.Command, binary string, state updateRuntimeState, noRestart bool) error {
-	logCommandDebug(cmd, "UPDATE", "update.runtime.state", "Resolved runtime coordination state", logger.WithDebug("running", state.Running), logger.WithDebug("managed", state.Status.Managed), logger.WithDebug("pid", state.Status.PID), logger.WithDebug("service", state.Status.ServiceID))
-	if !state.Running {
-		return nil
-	}
-	log := commandLogger(cmd)
-	if noRestart {
-		log.Notice("UPDATE", "update.restart-skipped", "Runtime restart skipped")
-		log.Detail("pid", state.Status.PID)
-		return nil
-	}
-	if !state.Status.Managed {
-		log.Notice("UPDATE", "update.foreground-running", "Foreground runtime is still using the previous version; restart it manually")
-		log.Detail("pid", state.Status.PID)
-		return nil
-	}
-	log.Action("UPDATE", "update.runtime-restarting", "Restarting managed runtime")
-	if err := restartManagedRuntimeAfterPackageUpdate(cmd, binary, state.Status); err != nil {
-		log.Warning("UPDATE", "update.runtime-restart-failed", "Package update succeeded but managed runtime restart failed", err)
-		return err
-	}
-	log.Ready("UPDATE", "update.runtime-restarted", "Managed runtime restarted")
-	return nil
-}
-
 func coordinateUpdatedRuntimeWith(cmd *cobra.Command, installed install.Result, state updateRuntimeState, noRestart bool, restart updateRuntimeRestartFunc) error {
 	logCommandDebug(cmd, "UPDATE", "update.runtime.state", "Resolved runtime coordination state", logger.WithDebug("running", state.Running), logger.WithDebug("managed", state.Status.Managed), logger.WithDebug("pid", state.Status.PID), logger.WithDebug("service", state.Status.ServiceID))
 	if !state.Running {
@@ -128,39 +103,6 @@ func restartManagedRuntimeAfterUpdate(cmd *cobra.Command, layout install.Layout,
 		return elevateManagedCommandWithBinary(cmd, "restart", environmentHash, layout.CanonicalBinary)
 	}
 	logCommandStep(cmd, "UPDATE", "update.runtime.restart.local", "Restarting managed runtime in place")
-	return restartManagedRuntimeInPlace(cmd.Context(), spec, managed.NewManagerWithObserver(tracepkg.ObserverFromContext(cmd.Context())))
-}
-
-func restartManagedRuntimeAfterPackageUpdate(cmd *cobra.Command, binary string, status runtimeStatusResult) error {
-	logCommandStep(cmd, "UPDATE", "update.runtime.restart.preparing", "Preparing managed runtime restart after package update")
-	if filepath.Clean(status.ConfigRoot) != filepath.Clean(config.RootPath()) {
-		return fmt.Errorf("managed runtime config root mismatch: runtime %s, selected %s", status.ConfigRoot, config.RootPath())
-	}
-	scope := managed.Scope(status.ServiceScope)
-	if scope != managed.ScopeUser && scope != managed.ScopeSystem {
-		return fmt.Errorf("managed runtime has invalid service scope %q", status.ServiceScope)
-	}
-	account, err := managed.InvokingAccountContext(cmd.Context(), scope)
-	if err != nil {
-		return err
-	}
-	spec, err := managed.NewSpecContext(cmd.Context(), status.ConfigRoot, binary, scope, account)
-	if err != nil {
-		return err
-	}
-	if status.ServiceID == "" || spec.ID != status.ServiceID {
-		return fmt.Errorf("managed runtime service mismatch: runtime %s, expected %s", status.ServiceID, spec.ID)
-	}
-	environmentHash, err := saveManagedEnvironmentContext(cmd.Context(), spec)
-	if err != nil {
-		return err
-	}
-	spec.EnvironmentHash = environmentHash
-	if scope == managed.ScopeSystem && managed.DetectScope() == managed.ScopeUser {
-		logCommandStep(cmd, "UPDATE", "update.runtime.restart.elevating", "Elevating managed runtime restart")
-		return elevateManagedCommandWithBinary(cmd, "restart", environmentHash, binary)
-	}
-	logCommandStep(cmd, "UPDATE", "update.runtime.restart.local", "Restarting managed runtime with package-managed binary")
 	return restartManagedRuntimeInPlace(cmd.Context(), spec, managed.NewManagerWithObserver(tracepkg.ObserverFromContext(cmd.Context())))
 }
 

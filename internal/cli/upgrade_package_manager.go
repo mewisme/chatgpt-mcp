@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
@@ -62,29 +64,18 @@ func runPackageManagedUpgrade(cmd *cobra.Command, detection install.Detection, t
 	if err != nil {
 		return fmt.Errorf("inspect managed runtime before update: %w", err)
 	}
-
-	if err := runPackageManagerPhase(cmd, log, plan, "refresh", runPackageManagerCommand); err != nil {
-		return err
-	}
-	if err := runPackageManagerPhase(cmd, log, plan, "apply", runPackageManagerCommand); err != nil {
-		return err
-	}
-
-	startCommandSpinner(cmd, log, "UPDATE", "update.package.verify", "Verifying installed version")
-	binary, installedVersion, err := verifyPackageManagedVersion(cmd.Context(), check.Latest, exec.LookPath, runPackageBinaryVersion)
-	log.StopAnimation()
+	handoff, err := preparePackageUpgradeHandoff(plan, check.Latest, config.RootPath(), runtimeState, noRestart)
 	if err != nil {
-		return fmt.Errorf("verify %s update: %w", plan.Name, err)
+		return fmt.Errorf("prepare %s update handoff: %w", plan.Name, err)
 	}
-	log.Ready("UPDATE", "update.applied", "Update applied")
-	log.Detail("previous", check.Current)
-	log.Detail("current", installedVersion)
-	log.Detail("binary", binary)
-
-	if err := coordinatePackageManagedRuntime(cmd, binary, runtimeState, noRestart); err != nil {
-		return fmt.Errorf("update to %s installed but runtime coordination failed: %w", installedVersion, err)
+	if err := launchPackageUpgradeHandoff(handoff); err != nil {
+		_ = os.Remove(handoff.ScriptPath)
+		return fmt.Errorf("launch %s update handoff: %w", plan.Name, err)
 	}
-	log.Success("UPDATE", "Update complete")
+	log.Ready("UPDATE", "update.package.handoff", plan.Name+" update handed off")
+	log.Detail("target", check.Latest)
+	log.Detail("log", handoff.LogPath)
+	log.Notice("UPDATE", "update.package.detached", "Update continues after this process exits")
 	return nil
 }
 

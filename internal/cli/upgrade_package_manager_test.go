@@ -105,3 +105,39 @@ func TestPackageVersionFromOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestPreparePackageUpgradeHandoffRejectsForegroundRuntime(t *testing.T) {
+	plan, _ := updatepkg.PackageManagerPlanFor("scoop")
+	_, err := preparePackageUpgradeHandoff(plan, "v1.2.3", t.TempDir(), updateRuntimeState{Running: true, Status: runtimeStatusResult{PID: 42}}, false)
+	if err == nil || !strings.Contains(err.Error(), "foreground runtime") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestPackageUpgradePowerShellWaitsForParentAndUsesScoopAfterRuntimeStops(t *testing.T) {
+	plan, _ := updatepkg.PackageManagerPlanFor("scoop")
+	script := packageUpgradePowerShell(packageUpgradeHandoff{ParentPID: 1234, Plan: plan, Target: "v1.2.3", ConfigRoot: `C:\Users\Mew\.chatgpt-mcp`, Runtime: updateRuntimeState{Running: true, Status: runtimeStatusResult{Managed: true}}, ScriptPath: `C:\Temp\upgrade.ps1`, LogPath: `C:\Temp\upgrade.log`})
+	for _, expected := range []string{"Wait-Process -Id $parentPid", "& cgm '--config-dir' 'C:\\Users\\Mew\\.chatgpt-mcp' 'down'", "& scoop update", "& scoop update mew/chatgpt-mcp", "$version = (& cgm --version | Out-String)", "$restartRuntime = $true", "& cgm '--config-dir' 'C:\\Users\\Mew\\.chatgpt-mcp' 'up'"} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("script missing %q:\n%s", expected, script)
+		}
+	}
+}
+
+func TestPackageUpgradeShellRestoresSystemRuntime(t *testing.T) {
+	plan, _ := updatepkg.PackageManagerPlanFor("homebrew")
+	script := packageUpgradeShell(packageUpgradeHandoff{ParentPID: 1234, Plan: plan, Target: "v1.2.3", ConfigRoot: "/etc/chatgpt-mcp", Runtime: updateRuntimeState{Running: true, Status: runtimeStatusResult{Managed: true, ServiceScope: "system"}}, ScriptPath: "/tmp/upgrade.sh", LogPath: "/tmp/upgrade.log"})
+	for _, expected := range []string{"while kill -0 \"$parent_pid\"", "cgm '--config-dir' '/etc/chatgpt-mcp' 'down' '--system'", "brew update", "brew upgrade --cask chatgpt-mcp", "cgm '--config-dir' '/etc/chatgpt-mcp' 'up' '--system'"} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("script missing %q:\n%s", expected, script)
+		}
+	}
+}
+
+func TestPackageUpgradePowerShellHonorsNoRestart(t *testing.T) {
+	plan, _ := updatepkg.PackageManagerPlanFor("scoop")
+	script := packageUpgradePowerShell(packageUpgradeHandoff{ParentPID: 1234, Plan: plan, Target: "v1.2.3", ConfigRoot: `C:\cfg`, Runtime: updateRuntimeState{Running: true, Status: runtimeStatusResult{Managed: true}}, NoRestart: true, ScriptPath: `C:\Temp\upgrade.ps1`, LogPath: `C:\Temp\upgrade.log`})
+	if !strings.Contains(script, "$stopRuntime = $true") || !strings.Contains(script, "$restartRuntime = $false") {
+		t.Fatalf("unexpected no-restart script:\n%s", script)
+	}
+}

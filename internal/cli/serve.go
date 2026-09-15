@@ -468,7 +468,7 @@ func waitRuntimeHTTPReady(parent context.Context, cfg config.Config, timeout tim
 		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Server.Port, "/health"))
 	}
 	if cfg.Admin.Enabled {
-		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Admin.Port, "/"))
+		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Admin.Port, "/api/health"))
 	}
 	span := tracepkg.Start(parent, "NETWORK", "server.http-readiness", "Waiting for HTTP listener readiness", tracepkg.Any("endpoints", append([]string(nil), endpoints...)), tracepkg.DurationMS("timeout_ms", timeout))
 	if len(endpoints) == 0 {

@@ -148,12 +148,6 @@ jobs:
         with:
           node-version: 24
 
-      - name: Prepare web fixture
-        if: needs.changes.outputs.full == 'true'
-        run: |
-          mkdir -p internal/web/dist
-          printf '<!doctype html><html><body>CI</body></html>\n' > internal/web/dist/index.html
-
       - name: Install security tooling
         if: needs.changes.outputs.full == 'true'
         run: |
@@ -196,7 +190,7 @@ jobs:
 
       - name: Workflow lint
         if: needs.changes.outputs.full == 'true'
-        run: actionlint .github/workflows/ci.yml .github/workflows/release.yml
+        run: actionlint .github/workflows/ci.yml .github/workflows/release.yml .github/workflows/plugins.yml
 
       - name: Installer lint
         if: needs.changes.outputs.full == 'true'
@@ -223,12 +217,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Prepare web fixture
-        if: needs.changes.outputs.full == 'true'
-        run: |
-          mkdir -p internal/web/dist
-          printf '<!doctype html><html><body>CI</body></html>\n' > internal/web/dist/index.html
 
       - name: Test with race detector
         if: needs.changes.outputs.full == 'true'
@@ -277,13 +265,6 @@ jobs:
         with:
           node-version: 24
 
-      - name: Prepare web fixture
-        if: needs.changes.outputs.full == 'true'
-        shell: bash
-        run: |
-          mkdir -p web/dist
-          printf '<!doctype html><html><body>CI</body></html>\n' > web/dist/index.html
-
       - name: Validate Unix installer
         if: needs.changes.outputs.full == 'true' && runner.os != 'Windows'
         run: sh -n install.sh
@@ -300,7 +281,7 @@ jobs:
 
       - name: Local install smoke
         if: needs.changes.outputs.full == 'true'
-        run: node scripts/install-local.mjs --from-dist
+        run: node scripts/install-local.mjs
 
       - name: Package alias smoke
         if: needs.changes.outputs.full == 'true'
@@ -362,12 +343,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Prepare web fixture
-        if: needs.changes.outputs.full == 'true'
-        run: |
-          mkdir -p internal/web/dist
-          printf '<!doctype html><html><body>CI</body></html>\n' > internal/web/dist/index.html
 
       - name: Build
         if: needs.changes.outputs.full == 'true'

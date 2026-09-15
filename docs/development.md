@@ -48,15 +48,15 @@ pnpm --dir web typecheck
 pnpm --dir web build
 ```
 
-## Prepare the embedded frontend
+## Build the Admin UI plugin
 
-The Go binary embeds the built admin dashboard. The prepare script installs frontend dependencies with the frozen lockfile, builds the Admin UI, then copies `web/dist` into `internal/web/dist`:
+The Go binary no longer embeds the admin dashboard. The official `admin-ui` plugin packages the production `web/dist` as one deterministic, platform-independent artifact:
 
 ```bash
 node scripts/prepare-web-embed.mjs
 ```
 
-Use `--no-deps` to reuse the current frontend installation, or `--from-dist` to copy an already-built `web/dist` without running install/build.
+Use `--no-deps` to reuse the current frontend installation, or `--from-dist` to package an already-built `web/dist` without running install/build. The core retains the admin server, authentication, API routes, activity endpoints, and security headers; the plugin only provides `web-ui/admin` static assets.
 
 ## Backend checks
 
@@ -124,14 +124,7 @@ This rule applies especially to commands such as:
 node scripts/install-local.mjs
 ```
 
-The script prepares the web embed and runs the local Go installation flow.
-
-Variants:
-
-```bash
-node scripts/install-local.mjs --no-deps
-node scripts/install-local.mjs --from-dist
-```
+The script installs the Go binary and the `cgm` alias only. The Admin UI is installed and updated independently through the plugin system.
 
 Both `chatgpt-mcp` and `cgm` are installed beside the Go binary (`cgm` is a symlink on Unix and a command shim on Windows).
 
@@ -140,7 +133,6 @@ Both `chatgpt-mcp` and `cgm` are installed beside the Go binary (`cgm` is a syml
 Build a native binary:
 
 ```bash
-node scripts/prepare-web-embed.mjs
 go build -trimpath -o chatgpt-mcp ./
 ```
 
@@ -301,7 +293,7 @@ Normal commands only read a fresh cache; explicit update checks bypass it and qu
 
 Releases are produced by GoReleaser after release-native checks pass.
 
-The release archive contains the standalone binary with the embedded admin dashboard plus release metadata/files configured by GoReleaser.
+The release archive contains the standalone core binary plus release metadata/files configured by GoReleaser. The Admin UI is released independently through the signed plugin marketplace.
 
 GoReleaser also produces package-manager manifests used by:
 

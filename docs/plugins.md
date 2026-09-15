@@ -29,15 +29,16 @@ cgm plugin prune --retain 1 --cache
 cgm plugin uninstall bash
 ```
 
-The official RTK wrapper is host-backed. Install RTK Token Killer on the machine first, ensure `rtk`/`rtk.exe` is on `PATH`, then install the signed plugin metadata:
+The official Admin UI is a platform-independent static plugin:
 
 ```bash
-rtk --version
-cgm plugin install rtk
-cgm plugin verify rtk
+cgm plugin install admin-ui
+cgm plugin verify admin-ui
 ```
 
-`cgm plugin install rtk` does not download RTK. It fails before writing plugin state if the host executable is missing or any manifest-declared prerequisite check fails, and prints the installation commands declared by the RTK plugin for the current platform.
+The core keeps the admin listener, authentication, `/api/*`, OAuth callback, activity endpoints, and security headers. `admin-ui` only provides signed static assets through `web-ui/admin` and requests no runtime permissions. Without an enabled provider, API routes remain available while the root UI returns a service-unavailable response with the install command.
+
+The official RTK wrapper is host-backed. If RTK is not available on `PATH`, installation can use the manifest-declared verified portable binary or a supported global installer; manual shell installation hints remain recommendations only.
 
 `cgm plugin rollback <plugin> [version]` rolls back to a retained version. With no version it selects the newest retained version older than the active version. Rollback does not trust retained activation state blindly: the exact version is resolved through the configured signed registry again. Packaged plugins re-verify and replace the payload; host-backed plugins re-verify the signed manifest and host prerequisite before activation.
 
@@ -164,9 +165,9 @@ A host-backed wrapper declares a generic host contract instead of an artifact. T
 }
 ```
 
-Host-backed entries cannot mix `host` with `artifact`, `sha256`, `archive`, or `entrypoint` fields. Checks and install commands are declarative metadata; the install commands are recommendations only and are never executed automatically by ChatGPT MCP.
+Host-backed entries cannot mix `host` with `artifact`, `sha256`, `archive`, or `entrypoint` fields. Checks and install commands are declarative metadata. Manual shell hints are recommendations only; a structured global installer is executed only after the operator explicitly selects that option.
 
-Recognized plugin types are `runtime`, `command-wrapper`, `hook`, `tool-provider`, `secret-provider`, and `formatter`. Recognized capability namespaces are `shell/*`, `command-wrapper/*`, `hook/*`, `tool-provider/*`, `secret-provider/*`, and `formatter/*`. A manifest must provide at least one capability.
+Recognized plugin types are `runtime`, `command-wrapper`, `hook`, `tool-provider`, `secret-provider`, `formatter`, and `web-ui`. Recognized capability namespaces are `shell/*`, `command-wrapper/*`, `hook/*`, `tool-provider/*`, `secret-provider/*`, `formatter/*`, and `web-ui/*`. A manifest must provide at least one capability. A `web-ui` plugin must provide exactly one `web-ui/*` capability, requests no runtime permissions, and may use `any/any` for a platform-independent static bundle.
 
 Supported permissions are:
 

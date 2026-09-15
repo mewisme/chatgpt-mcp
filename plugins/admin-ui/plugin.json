@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "admin-ui",
+  "name": "Admin UI",
+  "publisher": "mewisme",
+  "version": "1.0.0",
+  "type": "web-ui",
+  "requires": {
+    "chatgpt-mcp": ">=0.2.25"
+  },
+  "provides": [
+    "web-ui/admin"
+  ],
+  "permissions": [],
+  "platforms": {
+    "any/any": {
+      "artifact": "admin-ui-1.0.0.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "index.html"
+    }
+  }
+}

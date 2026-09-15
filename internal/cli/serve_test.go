@@ -28,7 +28,13 @@ func TestWaitRuntimeHTTPReadyRequiresMCPAndAdminListeners(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer mcp.Close()
-	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/health" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
 	defer admin.Close()
 	cfg := config.Default()
 	cfg.Server.Port = testServerPort(t, mcp.Listener.Addr())

@@ -1,6 +1,6 @@
 # Admin UI (`web/`)
 
-Embedded React admin dashboard for `chatgpt-mcp`. Built with React, TypeScript, Vite, Tailwind CSS, and shadcn/ui; packaged into the Go binary via `scripts/prepare-web-embed.mjs`.
+React admin dashboard for `chatgpt-mcp`, built with React, TypeScript, Vite, Tailwind CSS, and shadcn/ui. Production assets are distributed independently as the official `admin-ui` plugin; they are not embedded in the Go binary.
 
 ## Requirements
 
@@ -23,7 +23,7 @@ Local Vite dev server:
 pnpm --dir web dev
 ```
 
-## Embedding into the Go binary
+## Build the Admin UI plugin
 
 From the repository root:
 
@@ -31,7 +31,9 @@ From the repository root:
 node scripts/prepare-web-embed.mjs
 ```
 
-This installs frontend dependencies (frozen lockfile), builds the UI, and copies `web/dist` into `internal/web/dist` for `go:embed`. Use `--no-deps` to skip install, or `--from-dist` to copy an already-built `web/dist`.
+The compatibility helper builds `web/dist` and packages it as a deterministic platform-independent `admin-ui` plugin artifact under `dist/plugins`. It no longer copies assets into the Go source tree. Use `--no-deps` to reuse the current frontend installation, or `--from-dist` to package an existing `web/dist`.
+
+The core continues to own the admin listener, authentication, `/api/*`, OAuth callback, activity endpoints, and security headers. The plugin only provides signed static assets through `web-ui/admin` and requests no runtime permissions.
 
 Full backend/frontend workflow, CI gates, and release notes: [docs/development.md](../docs/development.md).
 

@@ -22,10 +22,12 @@ Quick path:
 
 ```bash
 pnpm --dir web install
-node scripts/prepare-web-embed.mjs
+pnpm --dir web build
 CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
 go build -trimpath ./
 ```
+
+Production Admin UI assets are distributed as the independent `admin-ui` plugin. Use `node scripts/prepare-web-embed.mjs --from-dist` when you need to package the current frontend build.
 
 Fast local gate (subset of CI):
 

@@ -131,6 +131,27 @@ func TestHandlersHonorDisabledAuthentication(t *testing.T) {
 	}
 }
 
+func TestAdminAPIAvailableWithoutAdminUIPlugin(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := app.AdminHandler()
+	apiRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(apiRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if apiRecorder.Code != http.StatusOK {
+		t.Fatalf("admin API without UI plugin = %d", apiRecorder.Code)
+	}
+	uiRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(uiRecorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if uiRecorder.Code != http.StatusServiceUnavailable || !strings.Contains(uiRecorder.Body.String(), "cgm plugin install admin-ui") {
+		t.Fatalf("admin UI without plugin = %d %q", uiRecorder.Code, uiRecorder.Body.String())
+	}
+}
+
 func TestHandlersRequireEnabledAuthentication(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = auth.HashToken("mcp-test")

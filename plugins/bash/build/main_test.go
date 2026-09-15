@@ -22,6 +22,15 @@ func TestBuildIsDeterministicAndGeneratesExactManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourceRoot, "LICENSE.txt"), []byte("license"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "etc"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	machineFiles := []string{"hosts", "networks", "protocols", "services"}
+	for _, name := range machineFiles {
+		if err := os.WriteFile(filepath.Join(sourceRoot, "etc", name), []byte("machine-specific"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	templatePath := filepath.Join(t.TempDir(), "plugin.json")
 	manifest := plugin.Manifest{
 		Schema: plugin.ManifestSchema, ID: "bash", Name: "Bash Runtime", Publisher: "mewisme", Version: "1.0.0", Type: "runtime",
@@ -40,6 +49,11 @@ func TestBuildIsDeterministicAndGeneratesExactManifest(t *testing.T) {
 	firstArtifact, firstManifest, err := build(sourceRoot, templatePath, firstRoot)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range machineFiles {
+		if err := os.WriteFile(filepath.Join(sourceRoot, "etc", name), []byte("different-machine"), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	secondArtifact, _, err := build(sourceRoot, templatePath, secondRoot)
 	if err != nil {
@@ -74,6 +88,9 @@ func TestBuildIsDeterministicAndGeneratesExactManifest(t *testing.T) {
 	defer reader.Close()
 	foundEntrypoint := false
 	for _, entry := range reader.File {
+		if machineSpecificPortablePath(entry.Name) {
+			t.Fatalf("machine-specific PortableGit file was packaged: %s", entry.Name)
+		}
 		if entry.Name == "usr/bin/bash.exe" {
 			foundEntrypoint = true
 			if !entry.Modified.Equal(zipEpoch) {

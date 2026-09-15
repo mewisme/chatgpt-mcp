@@ -17,9 +17,10 @@
       "name": "Bash Runtime",
       "description": "Portable Bash runtime for ChatGPT MCP on Windows",
       "type": "runtime",
-      "stable": "1.0.0",
+      "stable": "1.0.1",
       "versions": {
-        "1.0.0": "bash-1.0.0.json"
+        "1.0.0": "bash-1.0.0.json",
+        "1.0.1": "bash-1.0.1.json"
       }
     },
     "rtk": {

@@ -2,7 +2,7 @@
 
 The official `bash` plugin provides the `shell/bash` capability on Windows without requiring a system Git for Windows installation.
 
-Version `1.0.0` is built from the pinned Git for Windows PortableGit source declared in `source.json`. The release build verifies the upstream SHA-256, runs PortableGit's upstream post-install preparation in the build environment, and repackages the resulting portable tree into a deterministic ZIP. End-user plugin installation remains declarative extraction only; no installer or post-install script is executed by ChatGPT MCP.
+Version `1.0.1` is built from the pinned Git for Windows PortableGit source declared in `source.json`. The release build verifies the upstream SHA-256, runs PortableGit's upstream post-install preparation in the build environment, excludes the runner-specific `/etc/hosts`, `/etc/networks`, `/etc/protocols`, and `/etc/services` copies, and repackages the resulting portable tree into a deterministic ZIP. End-user plugin installation remains declarative extraction only; no installer or post-install script is executed by ChatGPT MCP.
 
 The source `plugin.json` is a release template. Its all-zero platform digest is a required build sentinel and is replaced with the SHA-256 of the generated immutable artifact before the exact-version manifest is published.
 

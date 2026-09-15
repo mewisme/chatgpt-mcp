@@ -99,6 +99,13 @@ func deterministicZip(sourceRoot, outputPath string) error {
 		if path == sourceRoot {
 			return nil
 		}
+		relative, err := filepath.Rel(sourceRoot, path)
+		if err != nil {
+			return err
+		}
+		if machineSpecificPortablePath(relative) {
+			return nil
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
@@ -140,6 +147,15 @@ func deterministicZip(sourceRoot, outputPath string) error {
 	}
 	_ = os.Remove(outputPath)
 	return os.Rename(tempPath, outputPath)
+}
+
+func machineSpecificPortablePath(path string) bool {
+	switch filepath.ToSlash(path) {
+	case "etc/hosts", "etc/networks", "etc/protocols", "etc/services":
+		return true
+	default:
+		return false
+	}
 }
 
 func addZipEntry(writer *zip.Writer, root, path string) error {

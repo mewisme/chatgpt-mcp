@@ -21,6 +21,7 @@ import (
 
 type sdkBridge struct {
 	runtime          *tools.Runtime
+	tunnelID         string
 	server           *sdkmcp.Server
 	mu               sync.Mutex
 	fingerprints     map[string]string
@@ -32,11 +33,15 @@ type sdkBridge struct {
 var sdkBridgeNamespace atomic.Uint64
 
 func newSDKBridge(runtime *tools.Runtime) (*sdkBridge, error) {
+	return newSDKBridgeForTunnel(runtime, "")
+}
+
+func newSDKBridgeForTunnel(runtime *tools.Runtime, tunnelID string) (*sdkBridge, error) {
 	if runtime == nil || runtime.Registry == nil {
 		return nil, errors.New("MCP tools runtime is required")
 	}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "chatgpt-mcp", Version: version.Version}, &sdkmcp.ServerOptions{Capabilities: &sdkmcp.ServerCapabilities{}})
-	bridge := &sdkBridge{runtime: runtime, server: server, fingerprints: map[string]string{}, sessionNamespace: sdkBridgeNamespace.Add(1), sessionIDs: map[*sdkmcp.ServerSession]string{}}
+	bridge := &sdkBridge{runtime: runtime, tunnelID: tunnelID, server: server, fingerprints: map[string]string{}, sessionNamespace: sdkBridgeNamespace.Add(1), sessionIDs: map[*sdkmcp.ServerSession]string{}}
 	if err := bridge.syncTools(); err != nil {
 		return nil, err
 	}
@@ -198,6 +203,9 @@ func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
 		}
 		ctx = tools.WithCallSource(ctx, "tunnel")
 		if sessionID := b.sessionID(ctx, request); sessionID != "" {
+			if b.tunnelID != "" {
+				sessionID = fmt.Sprintf("tunnel:%d:%s:%s", len(b.tunnelID), b.tunnelID, sessionID)
+			}
 			ctx = tools.WithMCPSessionID(ctx, sessionID)
 		}
 		if request.Params.Meta != nil {

@@ -610,7 +610,7 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 		return err
 	}
 
-	bridge, err := newSDKBridge(c.runtime)
+	bridge, err := newSDKBridgeForTunnel(c.runtime, c.config.ID)
 	if err != nil {
 		c.lastError = err.Error()
 		c.mu.Unlock()

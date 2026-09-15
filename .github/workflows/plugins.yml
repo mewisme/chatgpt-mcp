@@ -140,7 +140,7 @@ jobs:
             git push origin refs/tags/plugins
           fi
           if ! gh release view plugins >/dev/null 2>&1; then
-            gh release create plugins --verify-tag --title "Official Plugins" --notes "Official ChatGPT MCP plugin marketplace assets."
+            gh release create plugins --verify-tag --latest=false --title "Official Plugins" --notes "Official ChatGPT MCP plugin marketplace assets."
           fi
 
       - name: Verify immutable versioned assets

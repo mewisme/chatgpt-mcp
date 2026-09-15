@@ -35,7 +35,7 @@ func TestRuntimePageBuildsSystemRows(t *testing.T) {
 	page.about = application.AboutInfo{Version: "v1.2.3"}
 	page.rebuildBrowser("")
 	ids := map[string]bool{}
-	for _, id := range []string{"runtime", "transport.mcp-http", "service.user", "auth.mcp", "auth.admin", "installation", "alias", "update", "about"} {
+	for _, id := range []string{"runtime", "shell.bash", "transport.mcp-http", "service.user", "auth.mcp", "auth.admin", "installation", "alias", "update", "about"} {
 		if !page.browser.SelectID(id) {
 			t.Fatalf("row missing: %s", id)
 		}
@@ -43,6 +43,22 @@ func TestRuntimePageBuildsSystemRows(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" && !page.browser.SelectID("service.system") {
 		t.Fatal("system service row missing")
+	}
+}
+
+func TestRuntimeShellDiagnosticShowsBashRemediation(t *testing.T) {
+	page, err := NewRuntimeRoute(t.Context(), "shell.bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.loaded = true
+	page.shell = application.ShellDiagnostic{Error: "bash runtime is not installed", Remediation: "cgm plugin install bash"}
+	page.rebuildBrowser("")
+	view := ansi.Strip(page.View(100, 24))
+	for _, want := range []string{"unavailable", "bash runtime is not installed", "cgm plugin install bash", "r refresh"} {
+		if !strings.Contains(strings.ToLower(view), strings.ToLower(want)) {
+			t.Fatalf("shell diagnostic missing %q: %q", want, view)
+		}
 	}
 }
 

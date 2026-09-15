@@ -507,9 +507,9 @@ func TestModelHidesNavbarWhenTerminalIsTooNarrow(t *testing.T) {
 	if !strings.Contains(plain, "Instr") || strings.Contains(plain, "Instruction") {
 		t.Fatalf("compact header=%q", plain)
 	}
-	updated, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
 	model = updated.(Model)
-	header, _ = model.header(96, 2, 1)
+	header, _ = model.header(116, 2, 1)
 	if plain = ansi.Strip(header); !strings.Contains(plain, "Instruction") {
 		t.Fatalf("full header=%q", plain)
 	}

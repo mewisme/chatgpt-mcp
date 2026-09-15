@@ -12,6 +12,7 @@ const (
 	RouteWorkspaces  RouteKind = "workspaces"
 	RouteContainers  RouteKind = "containers"
 	RouteMCP         RouteKind = "mcp"
+	RoutePlugins     RouteKind = "plugins"
 	RouteTunnel      RouteKind = "tunnel"
 	RouteTunnels     RouteKind = "tunnels"
 	RouteRequests    RouteKind = "requests"
@@ -42,6 +43,7 @@ type headerPage struct {
 var headerPages = []headerPage{
 	{Kind: RouteWorkspaces, Label: "Workspaces", CompactLabel: "Work"},
 	{Kind: RouteMCP, Label: "MCP"},
+	{Kind: RoutePlugins, Label: "Plugins", CompactLabel: "Plug"},
 	{Kind: RouteTunnel, Label: "Tunnel", CompactLabel: "Tun"},
 	{Kind: RouteRequests, Label: "Requests", CompactLabel: "Req"},
 	{Kind: RouteLogs, Label: "Logs"},
@@ -74,6 +76,8 @@ func ParseRoute(args []string) (Route, error) {
 		return parseContainerRoute(parts)
 	case RouteMCP:
 		return parseMCPRoute(parts)
+	case RoutePlugins:
+		return parsePluginRoute(parts)
 	case RouteTunnel:
 		return parseTunnelRoute(parts)
 	case RouteTunnels:
@@ -103,6 +107,42 @@ func ParseRoute(args []string) (Route, error) {
 			return Route{}, fmt.Errorf("TUI path %q does not accept child segments", parts[0])
 		}
 		return Route{Kind: kind}, nil
+	}
+}
+
+func parsePluginRoute(parts []string) (Route, error) {
+	route := Route{Kind: RoutePlugins}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) > 3 {
+		return Route{}, fmt.Errorf("plugin path is too deep: %s", strings.Join(parts, " "))
+	}
+	section := strings.ToLower(strings.TrimSpace(parts[1]))
+	switch section {
+	case "installed":
+		if len(parts) == 2 {
+			return route, nil
+		}
+		route.ResourceID = parts[2]
+		return route, nil
+	case "marketplace", "updates", "registries":
+		route.Section = section
+		if len(parts) == 2 {
+			return route, nil
+		}
+		if section == "registries" && parts[2] == "add" {
+			route.Action = "add"
+			return route, nil
+		}
+		route.ResourceID = parts[2]
+		return route, nil
+	default:
+		if len(parts) != 2 {
+			return Route{}, fmt.Errorf("unsupported plugins child section %q", parts[1])
+		}
+		route.ResourceID = parts[1]
+		return route, nil
 	}
 }
 
@@ -453,6 +493,8 @@ func parseRouteKind(value string) (RouteKind, bool) {
 		return RouteContainers, true
 	case "mcp", "server", "servers":
 		return RouteMCP, true
+	case "plugin", "plugins", "marketplace":
+		return RoutePlugins, true
 	case "tunnel":
 		return RouteTunnel, true
 	case "tunnels", "managed-tunnels":
@@ -482,7 +524,7 @@ func parseRouteKind(value string) (RouteKind, bool) {
 
 func (route Route) Title() string {
 	base := map[RouteKind]string{
-		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
+		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RoutePlugins: "Plugins", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
 		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteLogsTools: "Logs · Tool Calls", RouteConfig: "Config", RouteInstruction: "Instruction", RouteRuntime: "Runtime", RouteAbout: "About", RouteGuide: "Guide",
 	}[route.Kind]
 	if route.Kind == RouteRequests && route.Mode != "" {
@@ -519,6 +561,7 @@ func normalizeRouteSection(kind RouteKind, value string) (string, bool) {
 		RouteInstruction: {"context": true, "rules": true, "sources": true},
 		RouteContainers:  {"workspaces": true},
 		RouteMCP:         {"health": true, "tools": true, "oauth": true},
+		RoutePlugins:     {"marketplace": true, "updates": true, "registries": true},
 		RouteTunnels:     {"scope": true},
 		RouteRequests:    {"command": true, "arguments": true, "guard": true},
 		RouteLogs:        {"fields": true},
@@ -611,6 +654,8 @@ func breadcrumbRootLabel(kind RouteKind) string {
 		return "Containers"
 	case RouteMCP:
 		return "MCP"
+	case RoutePlugins:
+		return "Plugins"
 	case RouteTunnel:
 		return "Tunnel"
 	case RouteTunnels:
@@ -759,6 +804,8 @@ func routeStack(route Route) []Route {
 		return append([]Route{{Kind: RouteTunnel}}, genericRouteStack(route)...)
 	case RouteLogsExec:
 		return genericRouteStack(route)
+	case RoutePlugins:
+		return pluginRouteStack(route)
 	case RouteRequests:
 		return requestRouteStack(route)
 	case RouteInstruction:
@@ -770,6 +817,24 @@ func routeStack(route Route) []Route {
 	default:
 		return genericRouteStack(route)
 	}
+}
+
+func pluginRouteStack(route Route) []Route {
+	root := Route{Kind: RoutePlugins}
+	stack := []Route{root}
+	parent := root
+	if route.Section != "" {
+		parent.Section = route.Section
+		stack = append(stack, parent)
+	}
+	if route.ResourceID != "" {
+		parent.ResourceID = route.ResourceID
+		stack = append(stack, parent)
+	}
+	if route.Action != "" {
+		stack = append(stack, route)
+	}
+	return dedupeRouteStack(stack)
 }
 
 func genericRouteStack(route Route) []Route {

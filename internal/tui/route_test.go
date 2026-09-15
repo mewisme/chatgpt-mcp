@@ -15,6 +15,13 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"ws", "ws_abc"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_abc"}},
 		{[]string{"containers", "wsc_abc"}, Route{Kind: RouteContainers, ResourceID: "wsc_abc"}},
 		{[]string{"mcp", "github"}, Route{Kind: RouteMCP, ResourceID: "github"}},
+		{[]string{"plugins"}, Route{Kind: RoutePlugins}},
+		{[]string{"plugin", "bash"}, Route{Kind: RoutePlugins, ResourceID: "bash"}},
+		{[]string{"plugins", "marketplace"}, Route{Kind: RoutePlugins, Section: "marketplace"}},
+		{[]string{"plugins", "marketplace", "official/bash"}, Route{Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"}},
+		{[]string{"plugins", "updates", "bash"}, Route{Kind: RoutePlugins, Section: "updates", ResourceID: "bash"}},
+		{[]string{"plugins", "registries"}, Route{Kind: RoutePlugins, Section: "registries"}},
+		{[]string{"plugins", "registries", "community"}, Route{Kind: RoutePlugins, Section: "registries", ResourceID: "community"}},
 		{[]string{"tunnel"}, Route{Kind: RouteTunnel}},
 		{[]string{"tunnels"}, Route{Kind: RouteTunnels}},
 		{[]string{"tunnels", "tunnel_abc"}, Route{Kind: RouteTunnels, ResourceID: "tunnel_abc"}},
@@ -59,7 +66,7 @@ func TestParseRoute(t *testing.T) {
 			t.Fatalf("ParseRoute(%v) = %#v, %v; want %#v", test.args, got, err, test.want)
 		}
 	}
-	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "settings"}, {"logs-exec", "exec_a", "extra"}, {"logs-tools", "call_a", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
+	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"plugins", "missing", "extra"}, {"plugins", "marketplace", "bash", "extra"}, {"config", "key", "extra"}, {"logs-exec", "settings"}, {"logs-exec", "exec_a", "extra"}, {"logs-tools", "call_a", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
 		if _, err := ParseRoute(args); err == nil {
 			t.Fatalf("ParseRoute(%v) unexpectedly succeeded", args)
 		}
@@ -81,6 +88,7 @@ func TestParseEditorRoutes(t *testing.T) {
 		{[]string{"mcp", "create"}, Route{Kind: RouteMCP, Action: "create"}},
 		{[]string{"mcp", "github", "edit"}, Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
 		{[]string{"mcp", "github", "oauth", "login"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}},
+		{[]string{"plugins", "registries", "add"}, Route{Kind: RoutePlugins, Section: "registries", Action: "add"}},
 		{[]string{"tunnel", "edit"}, Route{Kind: RouteTunnel, Action: "edit"}},
 		{[]string{"tunnel", "admin-key", "edit"}, Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
 		{[]string{"tunnels", "create"}, Route{Kind: RouteTunnels, Action: "create"}},
@@ -159,6 +167,14 @@ func TestEditorRouteStacksFollowSemanticAncestry(t *testing.T) {
 			[]Route{{Kind: RouteConfig}, {Kind: RouteConfig, ResourceID: "storage"}, {Kind: RouteConfig, Section: "storage", Action: "export"}},
 		},
 		{
+			Route{Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"},
+			[]Route{{Kind: RoutePlugins}, {Kind: RoutePlugins, Section: "marketplace"}, {Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"}},
+		},
+		{
+			Route{Kind: RoutePlugins, Section: "registries", Action: "add"},
+			[]Route{{Kind: RoutePlugins}, {Kind: RoutePlugins, Section: "registries"}, {Kind: RoutePlugins, Section: "registries", Action: "add"}},
+		},
+		{
 			Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"},
 			[]Route{{Kind: RouteTunnel}, {Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
 		},
@@ -190,6 +206,7 @@ func TestRouteStacksTreatTopLevelTabsAsRoots(t *testing.T) {
 		{Kind: RouteTunnels}:                       {{Kind: RouteTunnel}, {Kind: RouteTunnels}},
 		{Kind: RouteLogsExec}:                      {{Kind: RouteLogsExec}},
 		{Kind: RouteLogsTools}:                     {{Kind: RouteLogsTools}},
+		{Kind: RoutePlugins}:                       {{Kind: RoutePlugins}},
 		{Kind: RouteRequests, Mode: "pending"}:     {{Kind: RouteRequests, Mode: "pending"}},
 		{Kind: RouteInstruction, Section: "rules"}: {{Kind: RouteInstruction, Section: "rules"}},
 	} {
@@ -213,6 +230,8 @@ func TestRouteBreadcrumbLabelsUseNavigableAncestry(t *testing.T) {
 		{Route{Kind: RouteWorkspaces, ResourceID: "ws_demo", Section: "context"}, []string{"Workspaces", "ws_demo", "Project Context"}},
 		{Route{Kind: RouteContainers, ResourceID: "wsc_demo", Section: "workspaces", Action: "edit"}, []string{"Containers", "wsc_demo", "Workspaces", "Edit"}},
 		{Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}, []string{"MCP", "github", "OAuth", "Login"}},
+		{Route{Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"}, []string{"Plugins", "Marketplace", "official/bash"}},
+		{Route{Kind: RoutePlugins, Section: "registries", Action: "add"}, []string{"Plugins", "Registries", "Add"}},
 		{Route{Kind: RouteTunnels, ResourceID: "tun_demo", Action: "configure"}, []string{"Tunnel", "Managed Tunnels", "tun_demo", "Configure"}},
 		{Route{Kind: RouteRequests, Mode: "pending", ResourceID: "req_demo", Section: "guard"}, []string{"Pending", "req_demo", "Guard"}},
 		{Route{Kind: RouteLogsExec}, []string{"Command Execution"}},

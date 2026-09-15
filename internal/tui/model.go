@@ -1147,6 +1147,8 @@ func (model *Model) loadPage(route Route) {
 		} else {
 			value, err = tuipage.NewMCPRoute(model.ctx, route.ResourceID, route.Section)
 		}
+	case RoutePlugins:
+		value, err = tuipage.NewPluginsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteTunnel:
 		value, err = tuipage.NewTunnelDashboardRoute(model.ctx, route.Section, route.Action)
 	case RouteTunnels:

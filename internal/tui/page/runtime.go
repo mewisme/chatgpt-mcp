@@ -69,6 +69,7 @@ type systemLoadMsg struct {
 	auth    application.AuthStatus
 	install application.InstallationOverview
 	about   application.AboutInfo
+	shell   application.ShellDiagnostic
 	err     error
 }
 
@@ -100,6 +101,7 @@ type RuntimePage struct {
 	auth            application.AuthStatus
 	install         application.InstallationOverview
 	about           application.AboutInfo
+	shell           application.ShellDiagnostic
 	loaded          bool
 	loading         bool
 	overlay         systemOverlay
@@ -218,7 +220,7 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		page.loaded, page.err = true, nil
-		page.runtime, page.auth, page.install, page.about = msg.runtime, msg.auth, msg.install, msg.about
+		page.runtime, page.auth, page.install, page.about, page.shell = msg.runtime, msg.auth, msg.install, msg.about, msg.shell
 		if page.action != "" && page.editor == nil {
 			if err := page.initRuntimeEditor(); err != nil {
 				page.err = err
@@ -408,7 +410,7 @@ func (page *RuntimePage) loadCmd() tea.Cmd {
 			return systemLoadMsg{err: err}
 		}
 		about, err := application.LoadAbout(ctx)
-		return systemLoadMsg{runtime: runtimeState, auth: auth, install: installation, about: about, err: err}
+		return systemLoadMsg{runtime: runtimeState, auth: auth, install: installation, about: about, shell: application.LoadShellDiagnostic(), err: err}
 	}
 }
 
@@ -702,7 +704,7 @@ func (page *RuntimePage) resizeBrowser() tea.Cmd {
 }
 
 func (page *RuntimePage) runtimeItems() []runtimeItem {
-	items := []runtimeItem{page.runtimeItem(), page.mcpHTTPItem(), page.serviceItem(page.runtime.UserService)}
+	items := []runtimeItem{page.runtimeItem(), page.shellItem(), page.mcpHTTPItem(), page.serviceItem(page.runtime.UserService)}
 	if page.runtime.SystemService.Supported {
 		items = append(items, page.serviceItem(page.runtime.SystemService))
 	}
@@ -767,6 +769,10 @@ func (page *RuntimePage) runtimeDetailBindings(row component.Row) []component.De
 			command, label = MCPHTTPDisable, "disable"
 		}
 		add("space", label, command)
+	case "shell.bash":
+		if !page.shell.Available && runtime.GOOS == "windows" {
+			bindings = append(bindings, component.DetailPageBinding{Key: "i", Desc: "install Bash", Message: NavigateMsg{Path: []string{"plugins", "marketplace", "official/bash"}}})
+		}
 	case "auth.mcp":
 		if page.auth.MCPConfigured || page.auth.MCPEnabled {
 			command, label := AuthMCPEnable, "enable"
@@ -830,6 +836,19 @@ func (page *RuntimePage) runtimeItem() runtimeItem {
 		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP HTTP", mcpHTTP}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}}
 	}
 	return runtimeItem{row: component.Row{ID: "runtime", Title: "MCP runtime process", Description: description, Search: "runtime process status service server"}, detailTitle: "MCP runtime process", detail: detailFields(fields...)}
+}
+
+func (page *RuntimePage) shellItem() runtimeItem {
+	state := "unavailable"
+	description := "Bash runtime unavailable"
+	fields := [][2]string{{"State", state}, {"Configured executable", page.shell.Configured}, {"Error", page.shell.Error}, {"Remediation", page.shell.Remediation}}
+	if page.shell.Available {
+		provider := page.shell.Provider
+		state = "available"
+		description = "Bash · " + provider.Label()
+		fields = [][2]string{{"State", state}, {"Language", provider.Language}, {"Provider", provider.Label()}, {"Version", string(provider.Version)}, {"Executable", provider.Executable}, {"Configured executable", page.shell.Configured}}
+	}
+	return runtimeItem{row: component.Row{ID: "shell.bash", Title: "Agent Bash shell", Description: description, Search: "bash shell provider plugin runtime executable remediation"}, detailTitle: "Agent Bash shell", detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) mcpHTTPRow() component.Row {

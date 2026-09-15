@@ -659,3 +659,141 @@ func TestTunnelAdminsPageCreateFailureKeepsDirtyDraft(t *testing.T) {
 		t.Fatalf("failure lost draft cmd=%v editor=%v draft=%#v dirty=%t submitting=%t", cmd != nil, page.editor != nil, page.form, page.Dirty(), page.Submitting())
 	}
 }
+
+func TestTunnelAdminsPageDetailVerifyRemoveAndUpdateSuccess(t *testing.T) {
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", WorkspaceID: "ws_admin", ManageAccess: true, ReadAccess: true}}
+	setupTunnelPageConfig(t, tunnel.Config{Admins: &admins})
+	page, err := NewTunnelAdmins(t.Context(), "work", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.InputActive() || page.OverlayActive() || page.Notice() != "" {
+		t.Fatalf("detail input=%t overlay=%t notice=%q", page.InputActive(), page.OverlayActive(), page.Notice())
+	}
+	view := ansi.Strip(page.View(100, 26))
+	for _, want := range []string{"work", "manage", "workspace:ws_admin", "e edit", "v verify", "d remove"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("detail missing %q: %q", want, view)
+		}
+	}
+	page.SetNotice("ready")
+	if page.Notice() != "ready" {
+		t.Fatalf("notice=%q", page.Notice())
+	}
+	updated, cmd := page.Update(TunnelAdminCommandMsg{Command: TunnelAdminVerify, ResourceID: "work"})
+	page = updated.(*TunnelAdminsPage)
+	if cmd == nil {
+		t.Fatal("verify command missing")
+	}
+	updated, _ = page.Update(tunnelAdminResultMsg{
+		command: TunnelAdminVerify,
+		item:    application.TunnelAdminProfile{ID: "work", WorkspaceID: "ws_admin", ManageAccess: true, ReadAccess: true, KeyConfigured: true},
+		count:   3,
+	})
+	page = updated.(*TunnelAdminsPage)
+	if !strings.Contains(page.notice, "Verified work") || page.Dirty() {
+		t.Fatalf("verify notice=%q dirty=%t", page.notice, page.Dirty())
+	}
+	updated, cmd = page.Update(TunnelAdminCommandMsg{Command: TunnelAdminRemove, ResourceID: "work"})
+	page = updated.(*TunnelAdminsPage)
+	if cmd != nil || !page.OverlayActive() || page.confirmID != "work" {
+		t.Fatalf("remove confirm cmd=%v overlay=%t id=%q", cmd != nil, page.OverlayActive(), page.confirmID)
+	}
+	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	page = updated.(*TunnelAdminsPage)
+	if page.OverlayActive() || page.confirmID != "" {
+		t.Fatalf("esc did not clear confirm overlay=%t id=%q", page.OverlayActive(), page.confirmID)
+	}
+	edit, err := NewTunnelAdmins(t.Context(), "work", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = edit.Init()
+	if !edit.InputActive() || edit.form == nil || edit.form.ScopeKind != "workspace" {
+		t.Fatalf("edit input=%t form=%#v", edit.InputActive(), edit.form)
+	}
+	edit.form.ScopeID = "ws_updated"
+	edit.editor.SetSubmitting(true)
+	cmd = edit.finishCommand(tunnelAdminResultMsg{
+		command: TunnelAdminUpdate,
+		item:    application.TunnelAdminProfile{ID: "work", WorkspaceID: "ws_updated", ManageAccess: true, KeyConfigured: true},
+		count:   1,
+	})
+	if cmd == nil || edit.Dirty() || edit.editor != nil {
+		t.Fatalf("update success cmd=%v dirty=%t editor=%v", cmd != nil, edit.Dirty(), edit.editor != nil)
+	}
+	_, cancel := edit.Update(component.EditorCancelMsg{})
+	nav, ok := cancel().(NavigateMsg)
+	if !ok || strings.Join(nav.Path, "/") != "admins/work" {
+		t.Fatalf("editor cancel navigation=%#v", cancel)
+	}
+}
+
+func TestTunnelAdminsPageRefreshRemoveFinishAndMouseTargets(t *testing.T) {
+	admins := []tunnel.AdminConfig{
+		{ID: "work", AdminKey: "admin-secret", OrganizationID: "org_demo", ManageAccess: true, ReadAccess: true},
+		{ID: "read", AdminKey: "admin-secret", TenantID: "ten_demo", ReadAccess: true},
+		{ID: "raw", AdminKey: "admin-secret", WorkspaceID: "ws_demo"},
+	}
+	setupTunnelPageConfig(t, tunnel.Config{Admins: &admins})
+	page, err := NewTunnelAdmins(t.Context(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.View(90, 24)
+	targets := page.MouseTargets(0, 0, 1)
+	if len(targets) == 0 {
+		t.Fatal("list mouse targets empty")
+	}
+	updated, cmd := page.Update(tea.KeyPressMsg{Text: "r", Code: 'r'})
+	page = updated.(*TunnelAdminsPage)
+	if cmd == nil {
+		t.Fatal("refresh command missing")
+	}
+	updated, _ = page.Update(tunnelAdminResultMsg{command: TunnelAdminRefresh, items: []application.TunnelAdminProfile{
+		{ID: "work", OrganizationID: "org_demo", ManageAccess: true, KeyConfigured: true},
+		{ID: "read", TenantID: "ten_demo", ReadAccess: true, KeyConfigured: true},
+		{ID: "raw", WorkspaceID: "ws_demo", KeyConfigured: true},
+	}})
+	page = updated.(*TunnelAdminsPage)
+	view := ansi.Strip(page.View(100, 28))
+	for _, want := range []string{"work", "read", "raw", "manage", "read", "unverified", "organization:org_demo", "tenant:ten_demo", "workspace:ws_demo", "Refreshed 3"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("refresh list missing %q: %q", want, view)
+		}
+	}
+	page.err = fmt.Errorf("boom")
+	if !strings.Contains(ansi.Strip(page.View(80, 20)), "boom") {
+		t.Fatal("list feedback missing error")
+	}
+	updated, _ = page.Update(TunnelAdminCommandMsg{Command: TunnelAdminRemove, ResourceID: "raw"})
+	page = updated.(*TunnelAdminsPage)
+	if !page.OverlayActive() || len(page.MouseTargets(0, 0, 1)) == 0 {
+		t.Fatalf("remove overlay=%t targets=%d", page.OverlayActive(), len(page.MouseTargets(0, 0, 1)))
+	}
+	page.confirm.Select(true)
+	updated, cmd = page.Update(component.ConfirmChoiceMsg{Affirmative: true})
+	page = updated.(*TunnelAdminsPage)
+	if cmd == nil || page.OverlayActive() {
+		t.Fatalf("affirm remove cmd=%v overlay=%t", cmd != nil, page.OverlayActive())
+	}
+	updated, follow := page.Update(tunnelAdminResultMsg{command: TunnelAdminRemove, id: "raw"})
+	page = updated.(*TunnelAdminsPage)
+	if follow != nil {
+		t.Fatalf("list remove unexpectedly navigated: %#v", follow)
+	}
+	if page.notice != "Admin profile removed" || len(page.items) != 2 {
+		t.Fatalf("remove finish notice=%q items=%d", page.notice, len(page.items))
+	}
+	detail, err := NewTunnelAdmins(t.Context(), "work", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, follow = detail.Update(tunnelAdminResultMsg{command: TunnelAdminRemove, id: "work"})
+	detail = updated.(*TunnelAdminsPage)
+	nav, ok := follow().(NavigateMsg)
+	if !ok || strings.Join(nav.Path, "/") != "admins" || !nav.Replace {
+		t.Fatalf("detail remove navigation=%#v", follow)
+	}
+	_ = detail
+}

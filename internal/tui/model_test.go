@@ -245,6 +245,38 @@ func TestModelManagedTunnelCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 	}
 }
 
+func TestModelPluginCommandRoutesThroughEnsurePluginPage(t *testing.T) {
+	defer configformat.SetRootPath("")
+	if err := configformat.SetRootPath(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Save(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(Route{Kind: RouteHome})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model = updated.(Model)
+	updated, cmd := model.Update(tuipage.PluginCommandMsg{Command: tuipage.PluginInstall, TargetID: "official/bash"})
+	model = updated.(Model)
+	if model.router.Current() != (Route{Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"}) {
+		t.Fatalf("install route=%#v", model.router.Current())
+	}
+	if model.currentPage == nil {
+		t.Fatal("plugin page missing after install command")
+	}
+	_ = cmd
+	updated, _ = model.Update(tuipage.PluginCommandMsg{Command: tuipage.PluginRegistryRemove, TargetID: "community"})
+	model = updated.(Model)
+	if model.router.Current() != (Route{Kind: RoutePlugins, Section: "registries", ResourceID: "community"}) {
+		t.Fatalf("registry remove route=%#v", model.router.Current())
+	}
+	updated, _ = model.Update(tuipage.PluginCommandMsg{Command: tuipage.PluginRefresh, TargetID: ""})
+	model = updated.(Model)
+	if model.router.Current().Kind != RoutePlugins || model.router.Current().Section != "registries" {
+		t.Fatalf("refresh changed section unexpectedly: %#v", model.router.Current())
+	}
+}
+
 func TestModelMCPOAuthEditorDeepLinkUsesDirtyNavigationGuard(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {

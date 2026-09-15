@@ -9,6 +9,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
+	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -209,6 +210,49 @@ func TestTunnelActionAvailabilityFollowsRouteContext(t *testing.T) {
 		if !has(ctx, id) {
 			t.Fatalf("managed tunnel context action missing: %s", id)
 		}
+	}
+}
+
+func TestPluginActionAvailabilityAndInstallCommand(t *testing.T) {
+	registry := defaultActionRegistry()
+	has := func(ctx action.Context, id string) bool {
+		for _, item := range registry.Actions(ctx) {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	if has(action.Context{Route: string(RoutePlugins)}, "plugin.install") || has(action.Context{Route: string(RoutePlugins), ResourceID: "bash"}, "plugin.install") {
+		t.Fatal("plugin install leaked outside marketplace detail")
+	}
+	marketplace := action.Context{Route: string(RoutePlugins), Section: "marketplace", ResourceID: "official/bash"}
+	if !has(marketplace, "plugin.install") {
+		t.Fatal("plugin install missing on marketplace detail")
+	}
+	installed := action.Context{Route: string(RoutePlugins), ResourceID: "bash"}
+	for _, id := range []string{"plugin.update", "plugin.verify", "plugin.uninstall", "plugin.enable", "plugin.disable", "plugin.rollback", "plugin.prune"} {
+		if !has(installed, id) {
+			t.Fatalf("installed plugin action missing: %s", id)
+		}
+	}
+	if has(marketplace, "plugin.update") || has(action.Context{Route: string(RoutePlugins), Section: "registries", ResourceID: "community"}, "plugin.update") {
+		t.Fatal("installed plugin actions leaked into marketplace/registries")
+	}
+	registries := action.Context{Route: string(RoutePlugins), Section: "registries", ResourceID: "community"}
+	if !has(registries, "plugin.registry.remove") || has(installed, "plugin.registry.remove") {
+		t.Fatal("registry remove action scoping is incorrect")
+	}
+	if !has(action.Context{Route: string(RouteHome)}, "plugin.registry.add") {
+		t.Fatal("plugin registry add should be globally available")
+	}
+	cmd, err := registry.Execute(context.Background(), "plugin.install", marketplace)
+	if err != nil || cmd == nil {
+		t.Fatalf("plugin.install cmd=%v err=%v", cmd != nil, err)
+	}
+	message, ok := cmd().(tuipage.PluginCommandMsg)
+	if !ok || message.Command != tuipage.PluginInstall || message.TargetID != "official/bash" {
+		t.Fatalf("plugin.install message=%#v", message)
 	}
 }
 

@@ -85,8 +85,8 @@ func TestReconcileDisablesIntegrityFailureWithoutChangingIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Disabled) != 1 || report.Disabled[0] != "bash" {
-		t.Fatalf("disabled plugins = %#v", report.Disabled)
+	if len(report.Disabled) != 1 || report.Disabled[0] != "bash" || report.Issues["bash"] == "" {
+		t.Fatalf("reconcile report = %#v", report)
 	}
 	lock, err := LoadLock(store.layout.LockPath())
 	if err != nil {
@@ -136,8 +136,8 @@ func TestReconcileDisablesDependentWhenProviderUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Disabled) != 2 || report.Disabled[0] != "bash" || report.Disabled[1] != "consumer" {
-		t.Fatalf("disabled plugins = %#v", report.Disabled)
+	if len(report.Disabled) != 2 || report.Disabled[0] != "bash" || report.Disabled[1] != "consumer" || !strings.Contains(report.Issues["consumer"], "shell/bash") {
+		t.Fatalf("reconcile report = %#v", report)
 	}
 	lock, err = LoadLock(store.layout.LockPath())
 	if err != nil {

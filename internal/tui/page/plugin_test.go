@@ -48,12 +48,12 @@ func TestPluginPageInstalledListDetailAndConfirmation(t *testing.T) {
 	detailMessage := detail.loadCmd()().(pluginLoadMsg)
 	detail.finishLoad(detailMessage)
 	view := ansi.Strip(detail.View(100, 28))
-	for _, want := range []string{"formatter/demo", "process/execute", "enabled", "official", "mewisme", "space toggle", "u update", "? more"} {
+	for _, want := range []string{"formatter/demo", "process/execute", "enabled", "official", "mewisme", "verified at install", "github.com/mewisme/chatgpt-mcp", "mewisme/chatgpt-mcp", "Core compatibility", "space toggle", "u update", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("plugin detail missing %q: %q", want, view)
 		}
 	}
-	for key, want := range map[rune]PluginCommand{'v': PluginVerify, 'd': PluginUninstall} {
+	for key, want := range map[rune]PluginCommand{'b': PluginRollback, 'p': PluginPrune, 'v': PluginVerify, 'd': PluginUninstall} {
 		_, cmd := detail.detail.Update(tea.KeyPressMsg{Code: key, Text: string(key)})
 		if cmd == nil {
 			t.Fatalf("detail key %q returned no command", key)

@@ -352,6 +352,34 @@ func TestParseReference(t *testing.T) {
 	}
 }
 
+func TestManagerResolveRejectsUnverifiedCachedRegistryFallback(t *testing.T) {
+	now := time.Date(2026, 9, 15, 1, 0, 0, 0, time.UTC)
+	server, _ := testRegistryServer(t, now)
+	layout := testLayout(t)
+	client := RegistryClient{HTTPClient: server.Client(), Layout: layout, Now: func() time.Time { return now }, Verifier: testRegistryVerifier}
+	registry := Registry{Name: "community", URL: server.URL, UnqualifiedResolution: true, Trust: &SigstoreIdentity{Issuer: OfficialSigstoreIssuer, Repository: OfficialSigstoreRepo}}
+	config := NewConfig()
+	config.Registries[registry.Name] = registry
+	if err := WriteConfig(layout.ConfigPath(), config); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Refresh(context.Background(), registry); err != nil {
+		t.Fatal(err)
+	}
+	server.Close()
+	client.Verifier = func(context.Context, []byte, []byte, SigstoreIdentity) error {
+		return errors.New("cached signature rejected")
+	}
+	store, err := NewStore(layout, RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := Manager{Store: store, RegistryClient: client}
+	if _, err := manager.Resolve(context.Background(), "community/bash"); err == nil || !strings.Contains(err.Error(), "cached signature rejected") {
+		t.Fatalf("unverified cached registry accepted: %v", err)
+	}
+}
+
 func TestManagerResolveQualifiedRegistryIgnoresUnrelatedOfficialFailure(t *testing.T) {
 	now := time.Date(2026, 9, 15, 1, 0, 0, 0, time.UTC)
 	server, _ := testRegistryServer(t, now)

@@ -168,7 +168,7 @@ Hook subprocesses receive one bounded JSON event on stdin and return one bounded
 
 Pre-tool hooks are fail-closed on timeout, execution failure, or invalid protocol output. Observation hooks are bounded asynchronous notifications and fail open; failures/drops are counted rather than blocking the tool result.
 
-Hook execution carries provenance (`execution_id`, parent ID, origin, hook depth), and hook-originated work is not recursively dispatched back into hooks. The subprocess environment is allowlisted and marked as tool context; approval/control-plane capability is not inherited.
+Hook execution carries provenance (`execution_id`, parent ID, origin, hook depth), and hook-originated work is not recursively dispatched back into hooks. Tool-call diagnostics record the pre-tool hook provider ID, version, and capability when a plugin participates in the decision. The subprocess environment is allowlisted and marked as tool context; approval/control-plane capability is not inherited.
 
 Hooks can add policy, but they cannot remove core policy. Core workspace containment, control guard, and approval checks still run independently.
 

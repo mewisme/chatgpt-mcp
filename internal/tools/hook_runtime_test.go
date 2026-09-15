@@ -91,6 +91,29 @@ func TestRuntimePreHookDenyAndFailureAreFailClosed(t *testing.T) {
 	}
 }
 
+func TestRuntimePreHookProviderMetadataIsRecordedInCallObservation(t *testing.T) {
+	runtime, workspaceID, _ := newHookSyntheticRuntime(t)
+	attachTestHooks(t, runtime, []pluginpkg.Capability{pluginpkg.CapabilityHookPreToolUse}, continueTestHook)
+	var start CallObservation
+	runtime.CallObserver = func(observation CallObservation) {
+		if observation.Phase == "start" {
+			start = observation
+		}
+	}
+	result, err := runtime.Call(context.Background(), "hook_target", map[string]any{"workspace_id": workspaceID})
+	if err != nil || result.IsError {
+		t.Fatalf("result = %#v err=%v", result, err)
+	}
+	plugins, ok := start.Raw["plugins"].(map[string]any)
+	if !ok {
+		t.Fatalf("plugin diagnostics = %#v", start.Raw["plugins"])
+	}
+	providers, ok := plugins["pre_tool_hooks"].([]pluginpkg.HookProviderMetadata)
+	if !ok || len(providers) != 1 || providers[0].PluginID != "test-hook" || providers[0].Version != "1.0.0" || providers[0].Capability != pluginpkg.CapabilityHookPreToolUse {
+		t.Fatalf("hook provider diagnostics = %#v", plugins["pre_tool_hooks"])
+	}
+}
+
 func TestRuntimeHookDenialEmitsToolDeniedObservation(t *testing.T) {
 	runtime, workspaceID, called := newHookSyntheticRuntime(t)
 	denied := make(chan pluginpkg.HookEvent, 1)

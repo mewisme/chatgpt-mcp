@@ -7,6 +7,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
@@ -73,6 +74,7 @@ func upgradeCommand() *cobra.Command {
 			log.Detail("current", plan.Current)
 			log.Detail("target", plan.Target)
 		}
+		warnPluginUpgradeCompatibility(cmd, plan.Target)
 		logCommandStep(cmd, "UPDATE", "update.runtime.inspecting", "Inspecting managed runtime state")
 		runtimeState, err := captureUpdateRuntimeState(cmd.Context())
 		if err != nil {
@@ -141,4 +143,30 @@ func upgradeCheckCommand() *cobra.Command {
 		}
 		return nil
 	}}
+}
+
+func warnPluginUpgradeCompatibility(cmd *cobra.Command, target string) {
+	layout := pluginpkg.DefaultLayout()
+	store, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{CoreVersion: version.Version})
+	log := commandLogger(cmd)
+	if err != nil {
+		log.Warning("UPDATE", "update.plugin-compatibility-unavailable", "Plugin compatibility preflight unavailable", err)
+		return
+	}
+	issues, err := (&pluginpkg.Manager{Store: store}).AssessCoreCompatibility(target)
+	if err != nil {
+		log.Warning("UPDATE", "update.plugin-compatibility-unavailable", "Plugin compatibility preflight unavailable", err)
+		return
+	}
+	if len(issues) == 0 {
+		return
+	}
+	log.Warning("UPDATE", "update.plugin-compatibility", "Enabled plugins may be incompatible with the target core version", nil)
+	for _, issue := range issues {
+		requirement := issue.Requirement
+		if requirement == "" {
+			requirement = "unknown"
+		}
+		log.Detail("plugin "+string(issue.ID), fmt.Sprintf("%s -> core %s; requires %s; %s", issue.Version, target, requirement, issue.Error))
+	}
 }

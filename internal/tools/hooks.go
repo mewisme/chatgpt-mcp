@@ -30,26 +30,26 @@ func hookOriginForSource(source string) pluginpkg.HookOrigin {
 	}
 }
 
-func (r *Runtime) runPreToolHook(ctx context.Context, provenance pluginpkg.HookProvenance, name, workspaceID string, args map[string]any) error {
+func (r *Runtime) runPreToolHook(ctx context.Context, provenance pluginpkg.HookProvenance, name, workspaceID string, args map[string]any) (pluginpkg.HookResult, error) {
 	if r == nil || r.Hooks == nil || name == ApprovalRequestToolName {
-		return nil
+		return pluginpkg.HookResult{Schema: pluginpkg.HookSchema, Decision: pluginpkg.HookDecisionContinue}, nil
 	}
 	result, err := r.Hooks.PreToolUse(ctx, r.hookEvent(pluginpkg.HookEventPreToolUse, provenance, name, workspaceID, args, nil, nil, 0, ""))
 	if err != nil {
-		return controlguard.New(controlguard.CodeHookPolicy, "pre-tool hook failed: "+err.Error(), false, nil)
+		return result, controlguard.New(controlguard.CodeHookPolicy, "pre-tool hook failed: "+err.Error(), false, nil)
 	}
 	switch result.Decision {
 	case pluginpkg.HookDecisionContinue:
-		return nil
+		return result, nil
 	case pluginpkg.HookDecisionDeny:
-		return controlguard.New(controlguard.CodeHookPolicy, "pre-tool hook denied execution: "+strings.TrimSpace(result.Reason), false, nil)
+		return result, controlguard.New(controlguard.CodeHookPolicy, "pre-tool hook denied execution: "+strings.TrimSpace(result.Reason), false, nil)
 	case pluginpkg.HookDecisionRequireApproval:
 		if grant, ok := controlguard.GrantFromContext(ctx); ok && grant.Code == controlguard.CodeHookPolicy {
-			return nil
+			return result, nil
 		}
-		return controlguard.New(controlguard.CodeHookPolicy, "pre-tool hook requires approval: "+strings.TrimSpace(result.Reason), true, nil)
+		return result, controlguard.New(controlguard.CodeHookPolicy, "pre-tool hook requires approval: "+strings.TrimSpace(result.Reason), true, nil)
 	default:
-		return controlguard.New(controlguard.CodeHookPolicy, "pre-tool hook returned an unsupported decision", false, nil)
+		return result, controlguard.New(controlguard.CodeHookPolicy, "pre-tool hook returned an unsupported decision", false, nil)
 	}
 }
 

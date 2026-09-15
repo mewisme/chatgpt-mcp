@@ -81,10 +81,10 @@ func (manager Manager) Install(ctx context.Context, reference string) (result In
 	if err != nil {
 		return InstallResult{}, err
 	}
-	return manager.installResolved(ctx, resolved, false)
+	return manager.installResolved(ctx, resolved, false, true)
 }
 
-func (manager Manager) installResolved(ctx context.Context, resolved ResolvedPlugin, replaceExisting bool) (InstallResult, error) {
+func (manager Manager) installResolved(ctx context.Context, resolved ResolvedPlugin, replaceExisting, enabled bool) (InstallResult, error) {
 	manifest, _, err := manager.RegistryClient.FetchManifest(ctx, resolved)
 	if err != nil {
 		return InstallResult{}, err
@@ -129,7 +129,7 @@ func (manager Manager) installResolved(ctx context.Context, resolved ResolvedPlu
 		return InstallResult{}, err
 	}
 	trust := ActivationTrust{Registry: resolved.Registry.Name, Publisher: resolved.Publisher.Name, Trusted: resolved.Publisher.Trusted}
-	if err := manager.Store.Activate(manifest.ID, manifest.Version, trust); err != nil {
+	if err := manager.Store.ActivateWithState(manifest.ID, manifest.Version, trust, enabled); err != nil {
 		return InstallResult{}, err
 	}
 	return InstallResult{Plugin: installed, Registry: resolved.Registry, Publisher: resolved.Publisher}, nil
@@ -258,7 +258,13 @@ func (manager Manager) Outdated(ctx context.Context) (result []OutdatedPlugin, e
 	}
 	result = []OutdatedPlugin{}
 	registrySnapshots := map[string][]RegistrySnapshot{}
-	for id, entry := range lock.Plugins {
+	ids := make([]PluginID, 0, len(lock.Plugins))
+	for id := range lock.Plugins {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		entry := lock.Plugins[id]
 		snapshots, ok := registrySnapshots[entry.Registry]
 		if !ok {
 			snapshots, err = manager.loadSnapshots(ctx, entry.Registry)
@@ -318,14 +324,13 @@ func (manager Manager) Update(ctx context.Context, id PluginID) (result InstallR
 	if !ok {
 		return InstallResult{}, fmt.Errorf("plugin %s is not installed", id)
 	}
-	result, err = manager.Install(ctx, entry.Registry+"/"+string(id))
+	resolved, err := manager.Resolve(ctx, entry.Registry+"/"+string(id))
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if !entry.Enabled {
-		if err := manager.Store.SetEnabled(id, false); err != nil {
-			return result, fmt.Errorf("restore disabled plugin state after update: %w", err)
-		}
+	result, err = manager.installResolved(ctx, resolved, false, entry.Enabled)
+	if err != nil {
+		return InstallResult{}, err
 	}
 	if _, err := manager.PruneVersions(id, DefaultRollbackRetention); err != nil {
 		return result, fmt.Errorf("plugin updated to %s but rollback version pruning failed: %w", result.Plugin.Manifest.Version, err)
@@ -490,14 +495,9 @@ func (manager Manager) Rollback(ctx context.Context, id PluginID, target Version
 	if err != nil {
 		return InstallResult{}, err
 	}
-	result, err = manager.installResolved(ctx, resolved, true)
+	result, err = manager.installResolved(ctx, resolved, true, entry.Enabled)
 	if err != nil {
 		return InstallResult{}, err
-	}
-	if !entry.Enabled {
-		if err := manager.Store.SetEnabled(id, false); err != nil {
-			return result, fmt.Errorf("restore disabled plugin state after rollback: %w", err)
-		}
 	}
 	return result, nil
 }
@@ -548,10 +548,10 @@ func (manager Manager) loadSnapshots(ctx context.Context, requiredRegistry strin
 		found = true
 		snapshot, refreshErr := manager.RegistryClient.Refresh(ctx, registry)
 		if refreshErr != nil {
-			snapshot, err = manager.RegistryClient.LoadCached(registry, DefaultRegistryCacheTTL)
+			snapshot, err = manager.RegistryClient.LoadCachedVerified(ctx, registry, DefaultRegistryCacheTTL)
 			if err != nil {
 				if requiredRegistry != "" || registry.Name == OfficialRegistryName || registry.UnqualifiedResolution {
-					return nil, fmt.Errorf("refresh plugin registry %s: %w", registry.Name, refreshErr)
+					return nil, fmt.Errorf("plugin registry %s unavailable: %w", registry.Name, errors.Join(refreshErr, fmt.Errorf("verified cache fallback: %w", err)))
 				}
 				continue
 			}

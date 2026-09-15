@@ -12,6 +12,7 @@ type ReconcileReport struct {
 	CorruptLock    bool
 	QuarantinePath string
 	Disabled       []PluginID
+	Issues         map[PluginID]string
 }
 
 func Reconcile(store *Store) (ReconcileReport, error) {
@@ -29,6 +30,7 @@ func Reconcile(store *Store) (ReconcileReport, error) {
 	}
 	manifests := map[PluginID]Manifest{}
 	disabled := map[PluginID]struct{}{}
+	issues := map[PluginID]string{}
 	for id, entry := range lock.Plugins {
 		if !entry.Enabled {
 			continue
@@ -38,6 +40,7 @@ func Reconcile(store *Store) (ReconcileReport, error) {
 			entry.Enabled = false
 			lock.Plugins[id] = entry
 			disabled[id] = struct{}{}
+			issues[id] = err.Error()
 			continue
 		}
 		manifests[id] = manifest
@@ -64,6 +67,7 @@ func Reconcile(store *Store) (ReconcileReport, error) {
 				entry.Enabled = false
 				lock.Plugins[id] = entry
 				disabled[id] = struct{}{}
+				issues[id] = fmt.Sprintf("missing required capability %s", dependency)
 				changed = true
 				break
 			}
@@ -78,7 +82,7 @@ func Reconcile(store *Store) (ReconcileReport, error) {
 	if err := WriteLock(store.layout.LockPath(), lock); err != nil {
 		return ReconcileReport{}, err
 	}
-	report := ReconcileReport{Disabled: make([]PluginID, 0, len(disabled))}
+	report := ReconcileReport{Disabled: make([]PluginID, 0, len(disabled)), Issues: issues}
 	for id := range disabled {
 		report.Disabled = append(report.Disabled, id)
 	}

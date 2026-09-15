@@ -137,6 +137,45 @@ func (client RegistryClient) LoadCached(registry Registry, maxAge time.Duration)
 	return snapshot, nil
 }
 
+func (client RegistryClient) LoadCachedVerified(ctx context.Context, registry Registry, maxAge time.Duration) (RegistrySnapshot, error) {
+	snapshot, err := client.LoadCached(registry, maxAge)
+	if err != nil {
+		return RegistrySnapshot{}, err
+	}
+	dir := client.cacheDir(registry)
+	indexData, err := os.ReadFile(filepath.Join(dir, "index.json"))
+	if err != nil {
+		return RegistrySnapshot{}, err
+	}
+	indexSignature, err := os.ReadFile(filepath.Join(dir, "index.json.sigstore.json"))
+	if err != nil {
+		return RegistrySnapshot{}, err
+	}
+	publishersData, err := os.ReadFile(filepath.Join(dir, "publishers.json"))
+	if err != nil {
+		return RegistrySnapshot{}, err
+	}
+	publishersSignature, err := os.ReadFile(filepath.Join(dir, "publishers.json.sigstore.json"))
+	if err != nil {
+		return RegistrySnapshot{}, err
+	}
+	identity, err := registryTrustIdentity(registry)
+	if err != nil {
+		return RegistrySnapshot{}, err
+	}
+	verifier := client.Verifier
+	if verifier == nil {
+		verifier = VerifySignedBlob
+	}
+	if err := verifier(ctx, publishersData, publishersSignature, identity); err != nil {
+		return RegistrySnapshot{}, fmt.Errorf("verify cached publisher registry signature: %w", err)
+	}
+	if err := verifier(ctx, indexData, indexSignature, identity); err != nil {
+		return RegistrySnapshot{}, fmt.Errorf("verify cached plugin registry signature: %w", err)
+	}
+	return snapshot, nil
+}
+
 func (client RegistryClient) FetchManifest(ctx context.Context, resolved ResolvedPlugin) (Manifest, []byte, error) {
 	data, signature, err := client.fetchSigned(ctx, resolved.Registry.URL, resolved.ManifestName)
 	if err != nil {

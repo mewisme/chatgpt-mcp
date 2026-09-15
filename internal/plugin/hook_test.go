@@ -59,6 +59,9 @@ func TestHookDispatcherPreToolUseIsDeterministicAndFailClosed(t *testing.T) {
 	if len(called) != 2 || called[0] != "a-hook" || called[1] != "b-hook" || result.Decision != HookDecisionRequireApproval {
 		t.Fatalf("called=%#v result=%#v", called, result)
 	}
+	if len(result.Providers) != 2 || result.Providers[0].PluginID != "a-hook" || result.Providers[1].PluginID != "b-hook" || result.Providers[1].Version != "1.0.0" || result.Providers[1].Capability != CapabilityHookPreToolUse {
+		t.Fatalf("hook provider metadata = %#v", result.Providers)
+	}
 
 	dispatcher.runner = func(_ context.Context, _ CapabilityProvider, _ HookEvent) (HookResult, error) {
 		return HookResult{}, errors.New("boom")

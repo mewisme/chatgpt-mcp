@@ -23,6 +23,8 @@ const (
 	PluginRefresh        PluginCommand = "plugin.refresh"
 	PluginInstall        PluginCommand = "plugin.install"
 	PluginUpdate         PluginCommand = "plugin.update"
+	PluginRollback       PluginCommand = "plugin.rollback"
+	PluginPrune          PluginCommand = "plugin.prune"
 	PluginUninstall      PluginCommand = "plugin.uninstall"
 	PluginEnable         PluginCommand = "plugin.enable"
 	PluginDisable        PluginCommand = "plugin.disable"
@@ -539,7 +541,7 @@ func (page *PluginPage) rowActions() []component.RowAction {
 		return []component.RowAction{command("d", "remove", PluginRegistryRemove, func(row component.Row) bool { return row.ID != pluginpkg.OfficialRegistryName })}
 	default:
 		return []component.RowAction{
-			command("space", "toggle", PluginEnable, nil), command("u", "update", PluginUpdate, nil), command("v", "verify", PluginVerify, nil), command("d", "uninstall", PluginUninstall, nil),
+			command("space", "toggle", PluginEnable, nil), command("u", "update", PluginUpdate, nil), command("b", "rollback", PluginRollback, nil), command("p", "prune", PluginPrune, nil), command("v", "verify", PluginVerify, nil), command("d", "uninstall", PluginUninstall, nil),
 		}
 	}
 }
@@ -633,6 +635,22 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 				_, msg.err = page.service.Update(ctx, id)
 			}
 			msg.notice = "Plugin updated"
+		case PluginRollback:
+			id, err := pluginID(target)
+			if err != nil {
+				msg.err = err
+			} else {
+				_, msg.err = page.service.Rollback(ctx, id)
+			}
+			msg.notice = "Plugin rolled back"
+		case PluginPrune:
+			id, err := pluginID(target)
+			if err != nil {
+				msg.err = err
+			} else {
+				_, msg.err = page.service.Prune(id)
+			}
+			msg.notice = "Plugin versions pruned"
 		case PluginUninstall:
 			id, err := pluginID(target)
 			if err != nil {
@@ -697,6 +715,10 @@ func (page *PluginPage) operationTitle(command PluginCommand) string {
 		return "Installing plugin"
 	case PluginUpdate:
 		return "Updating plugin"
+	case PluginRollback:
+		return "Rolling back plugin"
+	case PluginPrune:
+		return "Pruning plugin versions"
 	case PluginUninstall:
 		return "Uninstalling plugin"
 	case PluginEnable:
@@ -718,6 +740,10 @@ func (page *PluginPage) confirmAffirmative() string {
 		return "Install"
 	case PluginUpdate:
 		return "Update"
+	case PluginRollback:
+		return "Rollback"
+	case PluginPrune:
+		return "Prune"
 	case PluginUninstall:
 		return "Uninstall"
 	case PluginEnable:
@@ -744,6 +770,10 @@ func (page *PluginPage) confirmDescription() string {
 		return "Install and enable the signed plugin " + page.targetID + ". Manifest and artifact signatures are verified before activation."
 	case PluginUpdate:
 		return "Install the latest stable signed version and atomically switch the active plugin: " + page.targetID
+	case PluginRollback:
+		return "Re-fetch, re-verify, and activate the newest retained version older than the current plugin: " + page.targetID
+	case PluginPrune:
+		return "Keep the active version and the default rollback retention, removing older inactive versions for plugin " + page.targetID + "."
 	case PluginUninstall:
 		return "Disable and remove the active plugin version: " + page.targetID + ". Active dependents will prevent removal."
 	case PluginEnable:
@@ -778,8 +808,8 @@ func (page *PluginPage) syncPluginDetail() {
 	}
 	content := detailFields(
 		[2]string{"ID", string(manifest.ID)}, [2]string{"Name", manifest.Name}, [2]string{"Version", string(manifest.Version)}, [2]string{"Type", string(manifest.Type)}, [2]string{"State", state},
-		[2]string{"Registry", detail.Registry.Name}, [2]string{"Publisher", detail.Publisher.Name}, [2]string{"Publisher trust", trust}, [2]string{"Capabilities", pluginCapabilities(manifest.Provides)},
-		[2]string{"Permissions", pluginPermissions(manifest.Permissions)}, [2]string{"Dependencies", pluginCapabilities(manifest.Dependencies.Capabilities)}, [2]string{"Core requirement", manifest.Requires.ChatGPTMCP}, [2]string{"Platforms", pluginPlatforms(manifest.Platforms)},
+		[2]string{"Registry", detail.Registry.Name}, [2]string{"Publisher", detail.Publisher.Name}, [2]string{"Publisher trust", trust}, [2]string{"Signature", detail.SignatureStatus}, [2]string{"Source", detail.Publisher.Source}, [2]string{"Signing repository", detail.Publisher.Sigstore.Repository},
+		[2]string{"Capabilities", pluginCapabilities(manifest.Provides)}, [2]string{"Permissions", pluginPermissions(manifest.Permissions)}, [2]string{"Dependencies", pluginCapabilities(manifest.Dependencies.Capabilities)}, [2]string{"Core requirement", manifest.Requires.ChatGPTMCP}, [2]string{"Core compatibility", detail.CoreCompatibility}, [2]string{"Platforms", pluginPlatforms(manifest.Platforms)},
 	)
 	page.detail = component.NewDetailPage(manifest.Name, string(manifest.Version)+" · "+string(manifest.Type)+" · "+state, content).WithTitleVisible(false)
 	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: PluginCommandMsg{Command: PluginRefresh}}}
@@ -791,6 +821,8 @@ func (page *PluginPage) syncPluginDetail() {
 		bindings = append(bindings,
 			component.DetailPageBinding{Key: "space", HelpKey: "space", Desc: "toggle", Message: PluginCommandMsg{Command: toggle, TargetID: string(manifest.ID)}},
 			component.DetailPageBinding{Key: "u", Desc: "update", Message: PluginCommandMsg{Command: PluginUpdate, TargetID: string(manifest.ID)}},
+			component.DetailPageBinding{Key: "b", Desc: "rollback", Message: PluginCommandMsg{Command: PluginRollback, TargetID: string(manifest.ID)}},
+			component.DetailPageBinding{Key: "p", Desc: "prune", Message: PluginCommandMsg{Command: PluginPrune, TargetID: string(manifest.ID)}},
 			component.DetailPageBinding{Key: "v", Desc: "verify", Message: PluginCommandMsg{Command: PluginVerify, TargetID: string(manifest.ID)}},
 			component.DetailPageBinding{Key: "d", Desc: "uninstall", Message: PluginCommandMsg{Command: PluginUninstall, TargetID: string(manifest.ID)}},
 		)

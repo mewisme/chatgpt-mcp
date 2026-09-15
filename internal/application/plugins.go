@@ -33,12 +33,14 @@ type MarketplacePluginInfo struct {
 }
 
 type PluginDetail struct {
-	Reference string
-	Manifest  pluginpkg.Manifest
-	Registry  pluginpkg.Registry
-	Publisher pluginpkg.Publisher
-	Installed bool
-	Enabled   bool
+	Reference         string
+	Manifest          pluginpkg.Manifest
+	Registry          pluginpkg.Registry
+	Publisher         pluginpkg.Publisher
+	Installed         bool
+	Enabled           bool
+	SignatureStatus   string
+	CoreCompatibility string
 }
 
 type PluginRegistryInfo struct {
@@ -165,7 +167,21 @@ func (service *PluginService) InstalledDetail(id pluginpkg.PluginID) (PluginDeta
 			break
 		}
 	}
-	return PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: pluginpkg.Publisher{Name: entry.Publisher, Trusted: true}, Installed: true, Enabled: entry.Enabled}, nil
+	publisher := pluginpkg.Publisher{Name: entry.Publisher, Trusted: true}
+	if registry.Name == pluginpkg.OfficialRegistryName {
+		publisher.Source = "https://github.com/" + pluginpkg.OfficialSigstoreRepo
+		publisher.Sigstore = pluginpkg.SigstoreIdentity{Issuer: pluginpkg.OfficialSigstoreIssuer, Repository: pluginpkg.OfficialSigstoreRepo}
+	} else if registry.Trust != nil {
+		publisher.Sigstore = *registry.Trust
+	}
+	if registry.Name != "" {
+		if snapshot, cacheErr := service.Manager.RegistryClient.LoadCachedVerified(context.Background(), registry, 0); cacheErr == nil {
+			if cached, ok := snapshot.Publishers.Publishers[entry.Publisher]; ok {
+				publisher = cached
+			}
+		}
+	}
+	return PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: publisher, Installed: true, Enabled: entry.Enabled, SignatureStatus: "verified at install", CoreCompatibility: pluginCoreCompatibility(installed.Manifest)}, nil
 }
 
 func (service *PluginService) MarketplaceDetail(ctx context.Context, reference string) (PluginDetail, error) {
@@ -185,7 +201,7 @@ func (service *PluginService) MarketplaceDetail(ctx context.Context, reference s
 		return PluginDetail{}, err
 	}
 	entry, installed := lock.Plugins[resolved.PluginID]
-	return PluginDetail{Reference: resolved.Registry.Name + "/" + string(resolved.PluginID), Manifest: manifest, Registry: resolved.Registry, Publisher: resolved.Publisher, Installed: installed, Enabled: installed && entry.Enabled}, nil
+	return PluginDetail{Reference: resolved.Registry.Name + "/" + string(resolved.PluginID), Manifest: manifest, Registry: resolved.Registry, Publisher: resolved.Publisher, Installed: installed, Enabled: installed && entry.Enabled, SignatureStatus: "verified signed manifest", CoreCompatibility: pluginCoreCompatibility(manifest)}, nil
 }
 
 func (service *PluginService) Install(ctx context.Context, reference string) (pluginpkg.InstallResult, error) {
@@ -200,6 +216,20 @@ func (service *PluginService) Update(ctx context.Context, id pluginpkg.PluginID)
 		return pluginpkg.InstallResult{}, fmt.Errorf("plugin service is unavailable")
 	}
 	return service.Manager.Update(ctx, id)
+}
+
+func (service *PluginService) Rollback(ctx context.Context, id pluginpkg.PluginID) (pluginpkg.InstallResult, error) {
+	if service == nil || service.Manager == nil {
+		return pluginpkg.InstallResult{}, fmt.Errorf("plugin service is unavailable")
+	}
+	return service.Manager.Rollback(ctx, id, "")
+}
+
+func (service *PluginService) Prune(id pluginpkg.PluginID) ([]pluginpkg.Version, error) {
+	if service == nil || service.Manager == nil {
+		return nil, fmt.Errorf("plugin service is unavailable")
+	}
+	return service.Manager.PruneVersions(id, pluginpkg.DefaultRollbackRetention)
 }
 
 func (service *PluginService) Uninstall(ctx context.Context, id pluginpkg.PluginID, force bool) error {
@@ -255,4 +285,18 @@ func (service *PluginService) RemoveRegistry(ctx context.Context, name string) (
 		return err
 	}
 	return pluginpkg.WriteConfig(service.Layout.ConfigPath(), config)
+}
+
+func pluginCoreCompatibility(manifest pluginpkg.Manifest) string {
+	if version.Version == "" || version.Version == "dev" {
+		return "not evaluated (development core)"
+	}
+	compatible, err := manifest.CompatibleWithCore(version.Version)
+	if err != nil {
+		return "unknown: " + err.Error()
+	}
+	if compatible {
+		return "compatible with " + version.Version
+	}
+	return "incompatible with " + version.Version
 }

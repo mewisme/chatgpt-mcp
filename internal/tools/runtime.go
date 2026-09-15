@@ -250,8 +250,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 			}
 		}
 	}
+	hookResult := pluginpkg.HookResult{Schema: pluginpkg.HookSchema, Decision: pluginpkg.HookDecisionContinue}
 	if preflightErr == nil && forcedResult == nil {
-		preflightErr = r.runPreToolHook(ctx, hookProvenance, name, workspaceID, args)
+		hookResult, preflightErr = r.runPreToolHook(ctx, hookProvenance, name, workspaceID, args)
 	}
 	executedBy := r.runtimeInstanceID()
 	ctx = shellruntime.WithExecutionMetadata(ctx, shellruntime.ExecutionMetadata{
@@ -260,6 +261,9 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	})
 	raw := callRaw(ctx, source, name, args)
 	raw["call_id"] = callID
+	if len(hookResult.Providers) > 0 {
+		raw["plugins"] = map[string]any{"pre_tool_hooks": hookResult.Providers}
+	}
 	if sessionHash != "" {
 		raw["session"] = map[string]any{"hash": sessionHash, "access": sessionAccess, "workspace_count": sessionWorkspaceCount}
 	}

@@ -149,6 +149,10 @@ func (store *Store) Installed(id PluginID, version Version) (InstalledPlugin, er
 }
 
 func (store *Store) Activate(id PluginID, version Version, trust ActivationTrust) error {
+	return store.ActivateWithState(id, version, trust, true)
+}
+
+func (store *Store) ActivateWithState(id PluginID, version Version, trust ActivationTrust, enabled bool) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if !trust.Trusted {
@@ -187,9 +191,9 @@ func (store *Store) Activate(id PluginID, version Version, trust ActivationTrust
 		return err
 	}
 	previous := lock
-	lock.Plugins[id] = LockPlugin{Registry: trust.Registry, Publisher: trust.Publisher, Version: version, ManifestDigest: manifestDigest, ArtifactDigest: "sha256:" + artifact.SHA256, Enabled: true}
+	lock.Plugins[id] = LockPlugin{Registry: trust.Registry, Publisher: trust.Publisher, Version: version, ManifestDigest: manifestDigest, ArtifactDigest: "sha256:" + artifact.SHA256, Enabled: enabled}
 	return store.writeLockAndDesired(previous, lock, func(config *Config) error {
-		return config.SetDesired(id, trust.Registry, version, true)
+		return config.SetDesired(id, trust.Registry, version, enabled)
 	})
 }
 

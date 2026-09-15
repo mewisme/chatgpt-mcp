@@ -76,10 +76,17 @@ type HookEvent struct {
 	Error              string              `json:"error,omitempty"`
 }
 
+type HookProviderMetadata struct {
+	PluginID   PluginID   `json:"plugin_id"`
+	Version    Version    `json:"version"`
+	Capability Capability `json:"capability"`
+}
+
 type HookResult struct {
-	Schema   int          `json:"schema"`
-	Decision HookDecision `json:"decision"`
-	Reason   string       `json:"reason,omitempty"`
+	Schema    int                    `json:"schema"`
+	Decision  HookDecision           `json:"decision"`
+	Reason    string                 `json:"reason,omitempty"`
+	Providers []HookProviderMetadata `json:"-"`
 }
 
 type HookStats struct {
@@ -148,24 +155,29 @@ func (dispatcher *HookDispatcher) PreToolUse(ctx context.Context, event HookEven
 	}
 	decision := HookResult{Schema: HookSchema, Decision: HookDecisionContinue}
 	for _, provider := range providers {
+		metadata := HookProviderMetadata{PluginID: provider.PluginID, Version: provider.Version, Capability: CapabilityHookPreToolUse}
 		if !providerHasPermission(provider, PermissionProcessExecute) || !providerHasPermission(provider, PermissionHookToolControl) {
-			return HookResult{}, fmt.Errorf("hook provider %s@%s lacks required control permissions", provider.PluginID, provider.Version)
+			decision.Providers = append(decision.Providers, metadata)
+			return decision, fmt.Errorf("hook provider %s@%s lacks required control permissions", provider.PluginID, provider.Version)
 		}
 		runCtx, cancel := context.WithTimeout(ctx, dispatcher.preTimeout)
 		result, runErr := dispatcher.runner(runCtx, provider, event)
 		cancel()
+		decision.Providers = append(decision.Providers, metadata)
 		if runErr != nil {
-			return HookResult{}, fmt.Errorf("pre-tool hook %s@%s failed: %w", provider.PluginID, provider.Version, runErr)
+			return decision, fmt.Errorf("pre-tool hook %s@%s failed: %w", provider.PluginID, provider.Version, runErr)
 		}
 		if err := result.Validate(); err != nil {
-			return HookResult{}, fmt.Errorf("pre-tool hook %s@%s returned invalid result: %w", provider.PluginID, provider.Version, err)
+			return decision, fmt.Errorf("pre-tool hook %s@%s returned invalid result: %w", provider.PluginID, provider.Version, err)
 		}
 		switch result.Decision {
 		case HookDecisionDeny:
+			result.Providers = append([]HookProviderMetadata(nil), decision.Providers...)
 			return result, nil
 		case HookDecisionRequireApproval:
 			if decision.Decision == HookDecisionContinue {
-				decision = result
+				decision.Decision = result.Decision
+				decision.Reason = result.Reason
 			}
 		}
 	}

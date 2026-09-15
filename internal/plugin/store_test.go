@@ -93,6 +93,34 @@ func TestStoreEnableRevalidatesCoreCompatibility(t *testing.T) {
 	}
 }
 
+func TestStoreActivateWithStatePersistsDisabledLockAndDesiredAtomically(t *testing.T) {
+	store := testStore(t)
+	manifest := testManifest("bash", "1.0.0", "shell/bash")
+	if _, err := store.Install(manifest, testPayload(t, "bash")); err != nil {
+		t.Fatal(err)
+	}
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	if err := store.ActivateWithState("bash", "1.0.0", trust, false); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := LoadLock(store.layout.LockPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := lock.Plugins["bash"]
+	if !ok || entry.Enabled || entry.Version != "1.0.0" {
+		t.Fatalf("lock entry = %#v", entry)
+	}
+	config, err := LoadConfig(store.layout.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired, ok := config.Desired["bash"]
+	if !ok || desired.Enabled || desired.Version != "1.0.0" || desired.Registry != "official" {
+		t.Fatalf("desired entry = %#v", desired)
+	}
+}
+
 func TestStoreDisableIfEnabledIsIdempotent(t *testing.T) {
 	store := testStore(t)
 	if _, err := store.Install(testManifest("bash", "1.0.0", "shell/bash"), testPayload(t, "bash")); err != nil {

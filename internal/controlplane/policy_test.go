@@ -19,7 +19,7 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 		{"config", "set", "permissions.allow_dirs", "/tmp"}, {"config", "convert", "yaml"}, {"config", "export", "backup.cgm"}, {"config", "import", "backup.cgm"},
 		{"cfg", "set", "permissions.allow_dirs", "/tmp"}, {"ws", "register", "."},
 		{"auth", "mcp", "create"}, {"workspace", "register", "."}, {"workspace", "access", "add", "ws_test", "/tmp"},
-		{"plugin", "install", "bash"}, {"plugin", "uninstall", "bash"}, {"plugin", "enable", "bash"}, {"plugin", "disable", "bash"}, {"plugin", "update", "bash"}, {"plugin", "update", "--all"}, {"plugin", "registry", "add", "community", "https://plugins.example.test"}, {"plugin", "registry", "remove", "community"},
+		{"plugin", "install", "bash"}, {"plugin", "uninstall", "bash"}, {"plugin", "enable", "bash"}, {"plugin", "disable", "bash"}, {"plugin", "update", "bash"}, {"plugin", "update", "--all"}, {"plugin", "rollback", "bash"}, {"plugin", "prune", "bash"}, {"plugin", "prune", "--cache"}, {"plugin", "registry", "add", "community", "https://plugins.example.test"}, {"plugin", "registry", "remove", "community"},
 		{"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"request", "grant", "revoke", "req_test"}, {"req", "accept", "req_test"}, {"req", "allow", "req_test"}, {"req", "reject", "req_test"},
 		{"mcp", "server", "add", "server"}, {"tunnel", "enable"}, {"alias", "install"}, {"alias", "remove"}, {"upgrade"}, {"update"}, {"serve"}, {},
 	} {
@@ -31,7 +31,7 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 
 func TestApprovalEligibleCommandPolicy(t *testing.T) {
 	for _, args := range [][]string{
-		{"upgrade"}, {"update"}, {"install"}, {"config", "set", "server.port", "41001"}, {"workspace", "access", "add", "ws_test", "/tmp"}, {"plugin", "install", "bash"}, {"plugin", "uninstall", "bash"}, {"plugin", "update", "bash"}, {"plugin", "registry", "add", "community", "https://plugins.example.test"},
+		{"upgrade"}, {"update"}, {"install"}, {"config", "set", "server.port", "41001"}, {"workspace", "access", "add", "ws_test", "/tmp"}, {"plugin", "install", "bash"}, {"plugin", "uninstall", "bash"}, {"plugin", "update", "bash"}, {"plugin", "rollback", "bash"}, {"plugin", "prune", "bash"}, {"plugin", "prune", "--cache"}, {"plugin", "registry", "add", "community", "https://plugins.example.test"},
 	} {
 		if !ApprovalEligibleArgs(args) {
 			t.Fatalf("approval-eligible command denied: %#v -> %q", args, PathFromArgs(args))

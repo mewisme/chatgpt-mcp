@@ -111,7 +111,7 @@ func reconcileLockEntry(store *Store, id PluginID, entry LockPlugin) (Manifest, 
 		return Manifest{}, errors.New("plugin artifact lock integrity verification failed")
 	}
 	if artifact.HostBacked() {
-		if _, err := preflightHostExecutable(context.Background(), artifact); err != nil {
+		if err := preflightHostPath(context.Background(), installed.Entrypoint, artifact.Host); err != nil {
 			return Manifest{}, err
 		}
 	}

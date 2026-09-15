@@ -106,6 +106,44 @@ func TestPluginPageShowsLoadingState(t *testing.T) {
 	}
 }
 
+func TestPluginPageHostInstallChooser(t *testing.T) {
+	page, err := newPluginsRouteAction(t.Context(), "", "marketplace", "", testPluginService(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prerequisite := &pluginpkg.HostPrerequisiteError{
+		Executable: "rtk", Reason: "required host executable \"rtk\" is not installed or not on PATH", Portable: &pluginpkg.HostPortableInstall{},
+		Install: []pluginpkg.HostInstallHint{
+			{Label: "Package manager", Command: "winget install rtk-ai.rtk", Executable: "winget", Args: []string{"install", "rtk-ai.rtk"}},
+			{Label: "Install script", Command: "curl https://example.test/install.sh | sh"},
+		},
+	}
+	if !page.openHostInstall(prerequisite) {
+		t.Fatal("host install chooser did not open")
+	}
+	if page.overlay != pluginOverlayHostInstall || page.hostIndex != 0 || len(page.hostOptions) != 2 || !page.hostOptions[0].portable || page.hostOptions[1].portable {
+		t.Fatalf("host chooser state overlay=%d index=%d options=%#v", page.overlay, page.hostIndex, page.hostOptions)
+	}
+	body := ansi.Strip(page.hostInstallBody())
+	for _, want := range []string{"Host dependency required", "Install verified portable binary locally", "Install globally: winget install rtk-ai.rtk", "Manual install commands:", "curl https://example.test/install.sh | sh"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("host chooser missing %q: %q", want, body)
+		}
+	}
+	page.updateHostInstall(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	if page.hostIndex != 1 {
+		t.Fatalf("host chooser down index = %d", page.hostIndex)
+	}
+	page.updateHostInstall(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	if page.hostIndex != 0 {
+		t.Fatalf("host chooser wrap index = %d", page.hostIndex)
+	}
+	page.updateHostInstall(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if page.overlay != pluginOverlayNone || page.hostPrerequisite != nil || len(page.hostOptions) != 0 {
+		t.Fatalf("host chooser did not close cleanly: overlay=%d prerequisite=%#v options=%#v", page.overlay, page.hostPrerequisite, page.hostOptions)
+	}
+}
+
 func testPluginService(t *testing.T) *application.PluginService {
 	t.Helper()
 	root := t.TempDir()

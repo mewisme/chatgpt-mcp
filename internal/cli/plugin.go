@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -116,12 +121,21 @@ func pluginListCommand() *cobra.Command {
 }
 
 func pluginInstallCommand() *cobra.Command {
-	return &cobra.Command{Use: "install <plugin>[@version]", Short: "Install and enable a signed plugin", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	var portable bool
+	cmd := &cobra.Command{Use: "install <plugin>[@version]", Short: "Install and enable a signed plugin", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		manager, _, err := newPluginManager()
 		if err != nil {
 			return err
 		}
-		result, err := manager.Install(cmd.Context(), args[0])
+		var result pluginpkg.InstallResult
+		if portable {
+			result, err = manager.InstallWithOptions(cmd.Context(), args[0], pluginpkg.InstallOptions{HostInstall: pluginpkg.HostInstallPortable})
+		} else {
+			result, err = manager.Install(cmd.Context(), args[0])
+			if err != nil {
+				result, err = promptPluginHostInstall(cmd, manager, args[0], err)
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -131,6 +145,70 @@ func pluginInstallCommand() *cobra.Command {
 		log.Detail("publisher", result.Publisher.Name)
 		return nil
 	}}
+	cmd.Flags().BoolVar(&portable, "portable", false, "install a manifest-declared portable host dependency into plugin data")
+	return cmd
+}
+
+type pluginHostInstallChoice struct {
+	portable bool
+	hint     pluginpkg.HostInstallHint
+	label    string
+}
+
+func promptPluginHostInstall(cmd *cobra.Command, manager *pluginpkg.Manager, reference string, installErr error) (pluginpkg.InstallResult, error) {
+	var prerequisite *pluginpkg.HostPrerequisiteError
+	if !errors.As(installErr, &prerequisite) {
+		return pluginpkg.InstallResult{}, installErr
+	}
+	input, ok := cmd.InOrStdin().(*os.File)
+	if !ok || !term.IsTerminal(int(input.Fd())) {
+		return pluginpkg.InstallResult{}, installErr
+	}
+	choices := make([]pluginHostInstallChoice, 0, len(prerequisite.Install)+1)
+	if prerequisite.Portable != nil {
+		choices = append(choices, pluginHostInstallChoice{portable: true, label: "Install verified portable binary locally in plugin data"})
+	}
+	for _, hint := range prerequisite.Install {
+		if hint.Runnable() {
+			choices = append(choices, pluginHostInstallChoice{hint: hint, label: "Install globally: " + hint.DisplayCommand()})
+		}
+	}
+	if len(choices) == 0 {
+		return pluginpkg.InstallResult{}, installErr
+	}
+	writer := cmd.OutOrStdout()
+	fmt.Fprintln(writer, prerequisite.Reason)
+	fmt.Fprintln(writer, "Choose how to install the required host dependency:")
+	for index, choice := range choices {
+		fmt.Fprintf(writer, "  %d. %s\n", index+1, choice.label)
+	}
+	for _, hint := range prerequisite.Install {
+		if !hint.Runnable() {
+			fmt.Fprintf(writer, "  - Manual: %s\n", hint.DisplayCommand())
+		}
+	}
+	fmt.Fprint(writer, "Selection [Enter to cancel]: ")
+	line, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if readErr != nil && strings.TrimSpace(line) == "" {
+		return pluginpkg.InstallResult{}, installErr
+	}
+	selection := strings.TrimSpace(line)
+	if selection == "" {
+		return pluginpkg.InstallResult{}, installErr
+	}
+	index, parseErr := strconv.Atoi(selection)
+	if parseErr != nil || index < 1 || index > len(choices) {
+		return pluginpkg.InstallResult{}, fmt.Errorf("invalid host install selection %q", selection)
+	}
+	choice := choices[index-1]
+	if choice.portable {
+		return manager.InstallWithOptions(cmd.Context(), reference, pluginpkg.InstallOptions{HostInstall: pluginpkg.HostInstallPortable})
+	}
+	fmt.Fprintf(writer, "Running: %s\n", choice.hint.DisplayCommand())
+	if _, err := pluginpkg.RunHostInstallHint(cmd.Context(), choice.hint); err != nil {
+		return pluginpkg.InstallResult{}, err
+	}
+	return manager.Install(cmd.Context(), reference)
 }
 
 func pluginUninstallCommand() *cobra.Command {

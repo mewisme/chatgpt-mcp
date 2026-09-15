@@ -14,6 +14,37 @@ import (
 )
 
 const hostCheckTimeout = 2 * time.Second
+const maxHostInstallOutputBytes = 1 << 20
+
+type HostPrerequisiteError struct {
+	Executable string
+	Reason     string
+	Install    []HostInstallHint
+	Portable   *HostPortableInstall
+}
+
+func (err *HostPrerequisiteError) Error() string {
+	if err == nil {
+		return "host prerequisite unavailable"
+	}
+	var builder strings.Builder
+	builder.WriteString(strings.TrimSpace(err.Reason))
+	if err.Portable != nil {
+		builder.WriteString("\n- Portable local: install the verified release binary into plugin data")
+	}
+	if len(err.Install) > 0 {
+		builder.WriteString("\nRecommended global installation commands:")
+		for _, hint := range err.Install {
+			builder.WriteString("\n- ")
+			if label := strings.TrimSpace(hint.Label); label != "" {
+				builder.WriteString(label)
+				builder.WriteString(": ")
+			}
+			builder.WriteString(hint.DisplayCommand())
+		}
+	}
+	return builder.String()
+}
 
 func resolveHostExecutable(artifact PlatformArtifact) (string, error) {
 	if !artifact.HostBacked() || artifact.Host == nil {
@@ -31,16 +62,26 @@ func preflightHostExecutable(ctx context.Context, artifact PlatformArtifact) (st
 	if err != nil {
 		return "", err
 	}
-	for index, check := range artifact.Host.Checks {
+	if err := preflightHostPath(ctx, path, artifact.Host); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func preflightHostPath(ctx context.Context, path string, host *HostExecutableSpec) error {
+	if host == nil {
+		return errors.New("host prerequisite configuration is unavailable")
+	}
+	for index, check := range host.Checks {
 		if err := runHostCheck(ctx, path, check); err != nil {
 			name := strings.TrimSpace(check.Name)
 			if name == "" {
 				name = fmt.Sprintf("check %d", index+1)
 			}
-			return "", hostPrerequisiteError(artifact.Host, fmt.Sprintf("host prerequisite %s failed: %v", name, err))
+			return hostPrerequisiteError(host, fmt.Sprintf("host prerequisite %s failed: %v", name, err))
 		}
 	}
-	return path, nil
+	return nil
 }
 
 func runHostCheck(ctx context.Context, path string, check HostExecutableCheck) error {
@@ -82,22 +123,64 @@ func runHostCheck(ctx context.Context, path string, check HostExecutableCheck) e
 }
 
 func hostPrerequisiteError(host *HostExecutableSpec, message string) error {
-	if host == nil || len(host.Install) == 0 {
+	if host == nil {
 		return errors.New(message)
 	}
-	var builder strings.Builder
-	builder.WriteString(message)
-	builder.WriteString("\nRecommended installation commands:")
-	for _, hint := range host.Install {
-		builder.WriteString("\n- ")
-		if label := strings.TrimSpace(hint.Label); label != "" {
-			builder.WriteString(label)
-			builder.WriteString(": ")
-		}
-		builder.WriteString(strings.TrimSpace(hint.Command))
+	install := append([]HostInstallHint(nil), host.Install...)
+	var portable *HostPortableInstall
+	if host.Portable != nil {
+		copy := *host.Portable
+		portable = &copy
 	}
-	return errors.New(builder.String())
+	return &HostPrerequisiteError{Executable: host.Executable, Reason: message, Install: install, Portable: portable}
 }
+
+func RunHostInstallHint(ctx context.Context, hint HostInstallHint) (string, error) {
+	if err := validateHostInstallHint(hint); err != nil {
+		return "", err
+	}
+	if !hint.Runnable() {
+		return "", errors.New("host install hint is display-only")
+	}
+	cmd := exec.CommandContext(nonNilContext(ctx), hint.Executable, hint.Args...)
+	output := &limitedBuffer{limit: maxHostInstallOutputBytes}
+	cmd.Stdout, cmd.Stderr = output, output
+	err := cmd.Run()
+	if output.exceeded {
+		return output.String(), fmt.Errorf("host install output exceeds %d-byte limit", maxHostInstallOutputBytes)
+	}
+	if err != nil {
+		message := strings.TrimSpace(output.String())
+		if message == "" {
+			message = err.Error()
+		}
+		return output.String(), fmt.Errorf("run %s: %s", hint.DisplayCommand(), message)
+	}
+	return output.String(), nil
+}
+
+type limitedBuffer struct {
+	buffer   strings.Builder
+	limit    int
+	exceeded bool
+}
+
+func (buffer *limitedBuffer) Write(data []byte) (int, error) {
+	original := len(data)
+	remaining := buffer.limit - buffer.buffer.Len()
+	if remaining <= 0 {
+		buffer.exceeded = original > 0
+		return original, nil
+	}
+	if len(data) > remaining {
+		data = data[:remaining]
+		buffer.exceeded = true
+	}
+	_, _ = buffer.buffer.Write(data)
+	return original, nil
+}
+
+func (buffer *limitedBuffer) String() string { return buffer.buffer.String() }
 
 func hostExitCode(err error) (int, error) {
 	if err == nil {

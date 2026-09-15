@@ -24,14 +24,21 @@
           { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
         ],
         "install": [
-          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk" },
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk", "executable": "brew", "args": ["install", "rtk-ai/tap/rtk"] },
           { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
-          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
         ],
         "command_wrapper": {
           "args": ["rewrite", "{command}"],
           "rewrite_exit_codes": [0, 3],
           "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-x86_64-unknown-linux-musl.tar.gz",
+          "checksum_url": "https://github.com/rtk-ai/rtk/releases/latest/download/checksums.txt",
+          "checksum_asset": "rtk-x86_64-unknown-linux-musl.tar.gz",
+          "archive": "tar.gz",
+          "entrypoint": "rtk"
         }
       }
     },
@@ -44,14 +51,21 @@
           { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
         ],
         "install": [
-          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk" },
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk", "executable": "brew", "args": ["install", "rtk-ai/tap/rtk"] },
           { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
-          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
         ],
         "command_wrapper": {
           "args": ["rewrite", "{command}"],
           "rewrite_exit_codes": [0, 3],
           "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-aarch64-unknown-linux-gnu.tar.gz",
+          "checksum_url": "https://github.com/rtk-ai/rtk/releases/latest/download/checksums.txt",
+          "checksum_asset": "rtk-aarch64-unknown-linux-gnu.tar.gz",
+          "archive": "tar.gz",
+          "entrypoint": "rtk"
         }
       }
     },
@@ -64,14 +78,21 @@
           { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
         ],
         "install": [
-          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk" },
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk", "executable": "brew", "args": ["install", "rtk-ai/tap/rtk"] },
           { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
-          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
         ],
         "command_wrapper": {
           "args": ["rewrite", "{command}"],
           "rewrite_exit_codes": [0, 3],
           "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-x86_64-apple-darwin.tar.gz",
+          "checksum_url": "https://github.com/rtk-ai/rtk/releases/latest/download/checksums.txt",
+          "checksum_asset": "rtk-x86_64-apple-darwin.tar.gz",
+          "archive": "tar.gz",
+          "entrypoint": "rtk"
         }
       }
     },
@@ -84,14 +105,21 @@
           { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
         ],
         "install": [
-          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk" },
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk", "executable": "brew", "args": ["install", "rtk-ai/tap/rtk"] },
           { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
-          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
         ],
         "command_wrapper": {
           "args": ["rewrite", "{command}"],
           "rewrite_exit_codes": [0, 3],
           "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-aarch64-apple-darwin.tar.gz",
+          "checksum_url": "https://github.com/rtk-ai/rtk/releases/latest/download/checksums.txt",
+          "checksum_asset": "rtk-aarch64-apple-darwin.tar.gz",
+          "archive": "tar.gz",
+          "entrypoint": "rtk"
         }
       }
     },
@@ -104,13 +132,20 @@
           { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
         ],
         "install": [
-          { "label": "winget", "command": "winget install rtk-ai.rtk" },
-          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+          { "label": "winget", "command": "winget install rtk-ai.rtk", "executable": "winget", "args": ["install", "rtk-ai.rtk"] },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
         ],
         "command_wrapper": {
           "args": ["rewrite", "{command}"],
           "rewrite_exit_codes": [0, 3],
           "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-x86_64-pc-windows-msvc.zip",
+          "checksum_url": "https://github.com/rtk-ai/rtk/releases/latest/download/checksums.txt",
+          "checksum_asset": "rtk-x86_64-pc-windows-msvc.zip",
+          "archive": "zip",
+          "entrypoint": "rtk.exe"
         }
       }
     }

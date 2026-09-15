@@ -211,6 +211,20 @@ func (service *PluginService) Install(ctx context.Context, reference string) (pl
 	return service.Manager.Install(ctx, strings.TrimSpace(reference))
 }
 
+func (service *PluginService) InstallPortable(ctx context.Context, reference string) (pluginpkg.InstallResult, error) {
+	if service == nil || service.Manager == nil {
+		return pluginpkg.InstallResult{}, fmt.Errorf("plugin service is unavailable")
+	}
+	return service.Manager.InstallWithOptions(ctx, strings.TrimSpace(reference), pluginpkg.InstallOptions{HostInstall: pluginpkg.HostInstallPortable})
+}
+
+func (service *PluginService) RunHostInstallHint(ctx context.Context, hint pluginpkg.HostInstallHint) (string, error) {
+	if service == nil {
+		return "", fmt.Errorf("plugin service is unavailable")
+	}
+	return pluginpkg.RunHostInstallHint(ctx, hint)
+}
+
 func (service *PluginService) Update(ctx context.Context, id pluginpkg.PluginID) (pluginpkg.InstallResult, error) {
 	if service == nil || service.Manager == nil {
 		return pluginpkg.InstallResult{}, fmt.Errorf("plugin service is unavailable")

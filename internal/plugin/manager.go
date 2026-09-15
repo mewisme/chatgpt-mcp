@@ -34,6 +34,17 @@ type InstallResult struct {
 	Publisher Publisher
 }
 
+type HostInstallMode string
+
+const (
+	HostInstallExisting HostInstallMode = ""
+	HostInstallPortable HostInstallMode = "portable"
+)
+
+type InstallOptions struct {
+	HostInstall HostInstallMode
+}
+
 type OutdatedPlugin struct {
 	ID      PluginID
 	Current Version
@@ -65,8 +76,12 @@ func ParseReference(value string) (registry string, id PluginID, version Version
 	return registry, id, version, nil
 }
 
-func (manager Manager) Install(ctx context.Context, reference string) (result InstallResult, err error) {
-	span := tracepkg.Start(ctx, "PLUGIN", "plugin.install", "Installing plugin", tracepkg.String("reference", reference))
+func (manager Manager) Install(ctx context.Context, reference string) (InstallResult, error) {
+	return manager.InstallWithOptions(ctx, reference, InstallOptions{})
+}
+
+func (manager Manager) InstallWithOptions(ctx context.Context, reference string, options InstallOptions) (result InstallResult, err error) {
+	span := tracepkg.Start(ctx, "PLUGIN", "plugin.install", "Installing plugin", tracepkg.String("reference", reference), tracepkg.String("host_install", string(options.HostInstall)))
 	defer func() {
 		fields := []tracepkg.Field{}
 		if result.Plugin.Manifest.ID != "" {
@@ -77,14 +92,21 @@ func (manager Manager) Install(ctx context.Context, reference string) (result In
 	if manager.Store == nil {
 		return InstallResult{}, errors.New("plugin store is unavailable")
 	}
+	if options.HostInstall != HostInstallExisting && options.HostInstall != HostInstallPortable {
+		return InstallResult{}, fmt.Errorf("unsupported host install mode %q", options.HostInstall)
+	}
 	resolved, err := manager.Resolve(ctx, reference)
 	if err != nil {
 		return InstallResult{}, err
 	}
-	return manager.installResolved(ctx, resolved, false, true)
+	return manager.installResolvedWithOptions(ctx, resolved, false, true, options)
 }
 
 func (manager Manager) installResolved(ctx context.Context, resolved ResolvedPlugin, replaceExisting, enabled bool) (InstallResult, error) {
+	return manager.installResolvedWithOptions(ctx, resolved, replaceExisting, enabled, InstallOptions{})
+}
+
+func (manager Manager) installResolvedWithOptions(ctx context.Context, resolved ResolvedPlugin, replaceExisting, enabled bool, options InstallOptions) (InstallResult, error) {
 	manifest, _, err := manager.RegistryClient.FetchManifest(ctx, resolved)
 	if err != nil {
 		return InstallResult{}, err
@@ -104,8 +126,24 @@ func (manager Manager) installResolved(ctx context.Context, resolved ResolvedPlu
 	}
 	extracted := ""
 	if artifact.HostBacked() {
-		if _, err := preflightHostExecutable(ctx, artifact); err != nil {
-			return InstallResult{}, fmt.Errorf("plugin %s pre-install check failed: %w", manifest.ID, err)
+		switch options.HostInstall {
+		case HostInstallPortable:
+			if artifact.Host.Portable == nil {
+				return InstallResult{}, fmt.Errorf("plugin %s does not provide a portable host install", manifest.ID)
+			}
+			extracted, err = manager.preparePortableHost(ctx, *artifact.Host.Portable)
+			if err != nil {
+				return InstallResult{}, fmt.Errorf("plugin %s portable host install failed: %w", manifest.ID, err)
+			}
+			defer os.RemoveAll(extracted)
+			entrypoint := filepath.Join(extracted, filepath.FromSlash(artifact.Host.Portable.Entrypoint))
+			if err := preflightHostPath(ctx, entrypoint, artifact.Host); err != nil {
+				return InstallResult{}, fmt.Errorf("plugin %s portable pre-install check failed: %w", manifest.ID, err)
+			}
+		default:
+			if _, err := preflightHostExecutable(ctx, artifact); err != nil {
+				return InstallResult{}, fmt.Errorf("plugin %s pre-install check failed: %w", manifest.ID, err)
+			}
 		}
 	} else {
 		archivePath, err := manager.downloadArtifact(ctx, resolved.Registry.URL, artifact)
@@ -254,7 +292,7 @@ func (manager Manager) Verify(ctx context.Context, id PluginID) (err error) {
 		return errors.New("plugin artifact lock integrity verification failed")
 	}
 	if artifact.HostBacked() {
-		if _, err := preflightHostExecutable(ctx, artifact); err != nil {
+		if err := preflightHostPath(ctx, installed.Entrypoint, artifact.Host); err != nil {
 			return err
 		}
 	}
@@ -319,6 +357,18 @@ func (manager Manager) Resolve(ctx context.Context, reference string) (ResolvedP
 	return ResolveAcross(snapshots, registryName, id, requestedVersion)
 }
 
+func installOptionsForInstalled(installed InstalledPlugin) InstallOptions {
+	if installed.Host == nil || installed.Host.Portable == nil || strings.TrimSpace(installed.Entrypoint) == "" {
+		return InstallOptions{}
+	}
+	hostRoot := filepath.Join(installed.Root, "host")
+	relative, err := filepath.Rel(hostRoot, installed.Entrypoint)
+	if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return InstallOptions{HostInstall: HostInstallPortable}
+	}
+	return InstallOptions{}
+}
+
 func (manager Manager) Update(ctx context.Context, id PluginID) (result InstallResult, err error) {
 	span := tracepkg.Start(ctx, "PLUGIN", "plugin.update", "Updating plugin", tracepkg.String("plugin_id", string(id)))
 	defer func() {
@@ -336,11 +386,15 @@ func (manager Manager) Update(ctx context.Context, id PluginID) (result InstallR
 	if !ok {
 		return InstallResult{}, fmt.Errorf("plugin %s is not installed", id)
 	}
+	active, err := manager.Store.Installed(id, entry.Version)
+	if err != nil {
+		return InstallResult{}, err
+	}
 	resolved, err := manager.Resolve(ctx, entry.Registry+"/"+string(id))
 	if err != nil {
 		return InstallResult{}, err
 	}
-	result, err = manager.installResolved(ctx, resolved, false, entry.Enabled)
+	result, err = manager.installResolvedWithOptions(ctx, resolved, false, entry.Enabled, installOptionsForInstalled(active))
 	if err != nil {
 		return InstallResult{}, err
 	}
@@ -503,11 +557,15 @@ func (manager Manager) Rollback(ctx context.Context, id PluginID, target Version
 	if installed.Manifest.Publisher != entry.Publisher {
 		return InstallResult{}, fmt.Errorf("rollback publisher %q does not match active publisher %q", installed.Manifest.Publisher, entry.Publisher)
 	}
+	active, err := manager.Store.Installed(id, entry.Version)
+	if err != nil {
+		return InstallResult{}, err
+	}
 	resolved, err := manager.Resolve(ctx, entry.Registry+"/"+string(id)+"@"+string(target))
 	if err != nil {
 		return InstallResult{}, err
 	}
-	result, err = manager.installResolved(ctx, resolved, true, entry.Enabled)
+	result, err = manager.installResolvedWithOptions(ctx, resolved, true, entry.Enabled, installOptionsForInstalled(active))
 	if err != nil {
 		return InstallResult{}, err
 	}
@@ -636,21 +694,173 @@ func (manager Manager) downloadArtifact(ctx context.Context, baseURL string, art
 	return path, nil
 }
 
+func (manager Manager) preparePortableHost(ctx context.Context, portable HostPortableInstall) (string, error) {
+	if !validHTTPSURL(portable.URL) || !validHTTPSURL(portable.ChecksumURL) {
+		return "", errors.New("portable URLs must use HTTPS")
+	}
+	if err := os.MkdirAll(manager.Store.layout.CacheRoot, 0700); err != nil {
+		return "", err
+	}
+	checksumData, err := manager.downloadPortableBytes(ctx, portable.ChecksumURL, 1<<20)
+	if err != nil {
+		return "", fmt.Errorf("download checksum manifest: %w", err)
+	}
+	expected, err := checksumForAsset(string(checksumData), portable.ChecksumAsset)
+	if err != nil {
+		return "", err
+	}
+	archivePath, err := manager.downloadPortableFile(ctx, portable.URL, expected)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(archivePath)
+	extracted, err := os.MkdirTemp(manager.Store.layout.CacheRoot, ".plugin-extract-")
+	if err != nil {
+		return "", err
+	}
+	if err := ExtractArchive(archivePath, portable.Archive, extracted); err != nil {
+		os.RemoveAll(extracted)
+		return "", err
+	}
+	entrypoint := filepath.Join(extracted, filepath.FromSlash(portable.Entrypoint))
+	if err := validateEntrypoint(extracted, entrypoint); err != nil {
+		os.RemoveAll(extracted)
+		return "", err
+	}
+	return extracted, nil
+}
+
+func (manager Manager) downloadPortableBytes(ctx context.Context, rawURL string, limit int64) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("User-Agent", "chatgpt-mcp/plugin-installer")
+	response, err := securePortableHTTPClient(manager.HTTPClient, 2*time.Minute).Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("portable download returned %s", response.Status)
+	}
+	if response.ContentLength > limit {
+		return nil, errors.New("portable metadata exceeds size limit")
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, errors.New("portable metadata exceeds size limit")
+	}
+	return data, nil
+}
+
+func (manager Manager) downloadPortableFile(ctx context.Context, rawURL, expectedSHA256 string) (string, error) {
+	if err := os.MkdirAll(manager.Store.layout.DownloadsPath(), 0700); err != nil {
+		return "", err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("User-Agent", "chatgpt-mcp/plugin-installer")
+	response, err := securePortableHTTPClient(manager.HTTPClient, 2*time.Minute).Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("portable binary download returned %s", response.Status)
+	}
+	if response.ContentLength > maxPluginArtifactSize {
+		return "", errors.New("portable binary exceeds size limit")
+	}
+	temp, err := os.CreateTemp(manager.Store.layout.DownloadsPath(), ".portable-")
+	if err != nil {
+		return "", err
+	}
+	path := temp.Name()
+	written, copyErr := io.Copy(temp, io.LimitReader(response.Body, maxPluginArtifactSize+1))
+	closeErr := temp.Close()
+	if copyErr != nil || closeErr != nil || written <= 0 || written > maxPluginArtifactSize {
+		os.Remove(path)
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		return "", errors.New("portable binary has invalid size")
+	}
+	if err := verifyFileSHA256(path, expectedSHA256); err != nil {
+		os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+func checksumForAsset(manifest, asset string) (string, error) {
+	for _, line := range strings.Split(manifest, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[len(fields)-1], "*")
+		if name == asset && validSHA256(fields[0]) {
+			return strings.ToLower(fields[0]), nil
+		}
+	}
+	return "", fmt.Errorf("portable checksum for %s not found", asset)
+}
+
+func securePortableHTTPClient(base *http.Client, timeout time.Duration) *http.Client {
+	client := &http.Client{Timeout: timeout}
+	if base != nil {
+		*client = *base
+		if client.Timeout == 0 {
+			client.Timeout = timeout
+		}
+	}
+	previous := client.CheckRedirect
+	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if request.URL.Scheme != "https" {
+			return errors.New("portable download redirect must use HTTPS")
+		}
+		if previous != nil {
+			return previous(request, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 portable download redirects")
+		}
+		return nil
+	}
+	return client
+}
+
 func verifyFileSHA256(path, expected string) error {
-	file, err := os.Open(path)
+	actual, err := fileSHA256(path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return err
-	}
-	actual := hex.EncodeToString(hash.Sum(nil))
 	if !strings.EqualFold(actual, expected) {
 		return errors.New("plugin artifact digest mismatch")
 	}
 	return nil
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func comparePluginVersions(left, right Version) (int, error) {

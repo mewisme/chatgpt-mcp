@@ -75,9 +75,13 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 	}
 	hostPath := ""
 	if artifact.HostBacked() {
-		hostPath, err = resolveHostExecutable(artifact)
-		if err != nil {
-			return InstalledPlugin{}, err
+		if strings.TrimSpace(payloadSource) == "" {
+			hostPath, err = resolveHostExecutable(artifact)
+			if err != nil {
+				return InstalledPlugin{}, err
+			}
+		} else if artifact.Host.Portable == nil {
+			return InstalledPlugin{}, errors.New("host plugin does not declare a portable install")
 		}
 	} else {
 		info, err := os.Stat(payloadSource)
@@ -104,8 +108,24 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 	}
 	defer os.RemoveAll(staging)
 	payloadTarget := filepath.Join(staging, "payload")
+	hostTarget := filepath.Join(staging, "host")
 	entrypoint := hostPath
-	if !artifact.HostBacked() {
+	if artifact.HostBacked() && strings.TrimSpace(payloadSource) != "" {
+		if err := copyPayloadTree(payloadSource, hostTarget); err != nil {
+			return InstalledPlugin{}, err
+		}
+		entrypoint = filepath.Join(hostTarget, filepath.FromSlash(artifact.Host.Portable.Entrypoint))
+		if err := validateEntrypoint(hostTarget, entrypoint); err != nil {
+			return InstalledPlugin{}, err
+		}
+		digest, err := fileSHA256(entrypoint)
+		if err != nil {
+			return InstalledPlugin{}, err
+		}
+		if err := os.WriteFile(filepath.Join(staging, "host.sha256"), []byte(digest+"\n"), 0600); err != nil {
+			return InstalledPlugin{}, err
+		}
+	} else if !artifact.HostBacked() {
 		if err := copyPayloadTree(payloadSource, payloadTarget); err != nil {
 			return InstalledPlugin{}, err
 		}
@@ -128,6 +148,9 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 		return InstalledPlugin{}, err
 	}
 	if artifact.HostBacked() {
+		if strings.TrimSpace(payloadSource) != "" {
+			hostPath = filepath.Join(target, "host", filepath.FromSlash(artifact.Host.Portable.Entrypoint))
+		}
 		return InstalledPlugin{Manifest: manifest, Root: target, Entrypoint: hostPath, Host: artifact.Host}, nil
 	}
 	return InstalledPlugin{Manifest: manifest, Root: target, Payload: filepath.Join(target, "payload"), Entrypoint: filepath.Join(target, "payload", filepath.FromSlash(artifact.Entrypoint))}, nil
@@ -157,6 +180,29 @@ func (store *Store) Installed(id PluginID, version Version) (InstalledPlugin, er
 		return InstalledPlugin{}, err
 	}
 	if artifact.HostBacked() {
+		if artifact.Host.Portable != nil {
+			hostRoot := filepath.Join(root, "host")
+			if _, err := os.Stat(hostRoot); err == nil {
+				entrypoint := filepath.Join(hostRoot, filepath.FromSlash(artifact.Host.Portable.Entrypoint))
+				if err := validateEntrypoint(hostRoot, entrypoint); err != nil {
+					return InstalledPlugin{}, err
+				}
+				digestData, err := os.ReadFile(filepath.Join(root, "host.sha256"))
+				if err != nil {
+					return InstalledPlugin{}, fmt.Errorf("read portable host integrity metadata: %w", err)
+				}
+				digest := strings.TrimSpace(string(digestData))
+				if !validSHA256(digest) {
+					return InstalledPlugin{}, errors.New("portable host integrity metadata is invalid")
+				}
+				if err := verifyFileSHA256(entrypoint, digest); err != nil {
+					return InstalledPlugin{}, fmt.Errorf("portable host integrity verification failed: %w", err)
+				}
+				return InstalledPlugin{Manifest: manifest, Root: root, Entrypoint: entrypoint, Host: artifact.Host}, nil
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return InstalledPlugin{}, err
+			}
+		}
 		entrypoint, err := resolveHostExecutable(artifact)
 		if err != nil {
 			return InstalledPlugin{}, err
@@ -215,7 +261,7 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 	}
 	previous := lock
 	if artifact.HostBacked() && enabled {
-		if _, err := preflightHostExecutable(context.Background(), artifact); err != nil {
+		if err := preflightHostPath(context.Background(), installed.Entrypoint, artifact.Host); err != nil {
 			return err
 		}
 	}
@@ -264,7 +310,7 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 			return err
 		}
 		if artifact.HostBacked() {
-			if _, err := preflightHostExecutable(context.Background(), artifact); err != nil {
+			if err := preflightHostPath(context.Background(), installed.Entrypoint, artifact.Host); err != nil {
 				return err
 			}
 		}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"path"
 	"regexp"
 	"sort"
@@ -68,6 +69,7 @@ type HostExecutableSpec struct {
 	Executable     string                `json:"executable"`
 	Checks         []HostExecutableCheck `json:"checks,omitempty"`
 	Install        []HostInstallHint     `json:"install,omitempty"`
+	Portable       *HostPortableInstall  `json:"portable,omitempty"`
 	CommandWrapper *HostCommandWrapper   `json:"command_wrapper,omitempty"`
 }
 
@@ -80,8 +82,18 @@ type HostExecutableCheck struct {
 }
 
 type HostInstallHint struct {
-	Label   string `json:"label,omitempty"`
-	Command string `json:"command"`
+	Label      string   `json:"label,omitempty"`
+	Command    string   `json:"command,omitempty"`
+	Executable string   `json:"executable,omitempty"`
+	Args       []string `json:"args,omitempty"`
+}
+
+type HostPortableInstall struct {
+	URL           string `json:"url"`
+	ChecksumURL   string `json:"checksum_url"`
+	ChecksumAsset string `json:"checksum_asset"`
+	Archive       string `json:"archive"`
+	Entrypoint    string `json:"entrypoint"`
 }
 
 type HostCommandWrapper struct {
@@ -313,8 +325,13 @@ func (artifact PlatformArtifact) validate(platform string) error {
 			}
 		}
 		for index, hint := range artifact.Host.Install {
-			if strings.TrimSpace(hint.Command) == "" || strings.ContainsAny(hint.Command, "\r\n\x00") {
-				return fmt.Errorf("platform %s host install hint %d has invalid command", platform, index+1)
+			if err := validateHostInstallHint(hint); err != nil {
+				return fmt.Errorf("platform %s host install hint %d: %w", platform, index+1, err)
+			}
+		}
+		if artifact.Host.Portable != nil {
+			if err := validateHostPortable(*artifact.Host.Portable); err != nil {
+				return fmt.Errorf("platform %s host portable install: %w", platform, err)
 			}
 		}
 		if artifact.Host.CommandWrapper != nil {
@@ -353,6 +370,66 @@ func validateHostCheck(check HostExecutableCheck) error {
 		}
 	}
 	return validateExitCodes(check.SuccessExitCodes, true)
+}
+
+func validateHostInstallHint(hint HostInstallHint) error {
+	command, executable := strings.TrimSpace(hint.Command), strings.TrimSpace(hint.Executable)
+	if command == "" && executable == "" {
+		return errors.New("command or executable is required")
+	}
+	if command != "" && strings.ContainsAny(command, "\r\n\x00") {
+		return errors.New("command contains invalid characters")
+	}
+	if executable != "" && !safeHostExecutable(executable) {
+		return fmt.Errorf("invalid executable %q", executable)
+	}
+	for _, arg := range hint.Args {
+		if strings.ContainsRune(arg, '\x00') {
+			return errors.New("argument contains NUL")
+		}
+	}
+	if executable == "" && len(hint.Args) > 0 {
+		return errors.New("args require executable")
+	}
+	return nil
+}
+
+func validateHostPortable(portable HostPortableInstall) error {
+	if !validHTTPSURL(portable.URL) || !validHTTPSURL(portable.ChecksumURL) {
+		return errors.New("portable URLs must use HTTPS")
+	}
+	if !safeAssetName(portable.ChecksumAsset) {
+		return fmt.Errorf("invalid checksum asset %q", portable.ChecksumAsset)
+	}
+	parsed, _ := url.Parse(portable.URL)
+	if path.Base(parsed.Path) != portable.ChecksumAsset {
+		return fmt.Errorf("portable URL asset %q does not match checksum asset %q", path.Base(parsed.Path), portable.ChecksumAsset)
+	}
+	if portable.Archive != "zip" && portable.Archive != "tar.gz" {
+		return fmt.Errorf("unsupported archive type %q", portable.Archive)
+	}
+	if !safeRelativePath(portable.Entrypoint) {
+		return fmt.Errorf("unsafe entrypoint %q", portable.Entrypoint)
+	}
+	return nil
+}
+
+func validHTTPSURL(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil
+}
+
+func (hint HostInstallHint) Runnable() bool {
+	return safeHostExecutable(strings.TrimSpace(hint.Executable))
+}
+
+func (hint HostInstallHint) DisplayCommand() string {
+	executable := strings.TrimSpace(hint.Executable)
+	if safeHostExecutable(executable) {
+		parts := append([]string{executable}, hint.Args...)
+		return strings.Join(parts, " ")
+	}
+	return strings.TrimSpace(hint.Command)
 }
 
 func validateHostCommandWrapper(wrapper HostCommandWrapper) error {

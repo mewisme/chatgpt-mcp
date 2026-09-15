@@ -2,6 +2,7 @@ package page
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -16,6 +17,7 @@ import (
 )
 
 const pluginOperationTimeout = 2 * time.Minute
+const pluginHostInstallTimeout = 10 * time.Minute
 
 type PluginCommand string
 
@@ -43,7 +45,14 @@ const (
 	pluginOverlayNone pluginOverlay = iota
 	pluginOverlayConfirm
 	pluginOverlayOperation
+	pluginOverlayHostInstall
 )
+
+type pluginHostInstallOption struct {
+	portable bool
+	hint     pluginpkg.HostInstallHint
+	label    string
+}
 
 type pluginLoadMsg struct {
 	section     string
@@ -71,32 +80,35 @@ type pluginRegistryFormData struct {
 }
 
 type PluginPage struct {
-	ctx             context.Context
-	service         *application.PluginService
-	resourceID      string
-	section         string
-	action          string
-	browser         component.Browser
-	detail          component.DetailPage
-	installed       map[pluginpkg.PluginID]application.InstalledPluginInfo
-	marketplace     map[string]application.MarketplacePluginInfo
-	updates         map[pluginpkg.PluginID]pluginpkg.OutdatedPlugin
-	registries      map[string]application.PluginRegistryInfo
-	detailValue     application.PluginDetail
-	loaded          bool
-	loading         bool
-	overlay         pluginOverlay
-	confirm         component.ConfirmButtons
-	command         PluginCommand
-	targetID        string
-	progress        *component.Progress
-	operationCancel context.CancelFunc
-	editor          *component.Editor
-	registryForm    *pluginRegistryFormData
-	notice          string
-	err             error
-	width           int
-	height          int
+	ctx              context.Context
+	service          *application.PluginService
+	resourceID       string
+	section          string
+	action           string
+	browser          component.Browser
+	detail           component.DetailPage
+	installed        map[pluginpkg.PluginID]application.InstalledPluginInfo
+	marketplace      map[string]application.MarketplacePluginInfo
+	updates          map[pluginpkg.PluginID]pluginpkg.OutdatedPlugin
+	registries       map[string]application.PluginRegistryInfo
+	detailValue      application.PluginDetail
+	loaded           bool
+	loading          bool
+	overlay          pluginOverlay
+	confirm          component.ConfirmButtons
+	command          PluginCommand
+	targetID         string
+	progress         *component.Progress
+	operationCancel  context.CancelFunc
+	hostPrerequisite *pluginpkg.HostPrerequisiteError
+	hostOptions      []pluginHostInstallOption
+	hostIndex        int
+	editor           *component.Editor
+	registryForm     *pluginRegistryFormData
+	notice           string
+	err              error
+	width            int
+	height           int
 }
 
 func NewPlugins(ctx context.Context, resourceID, section string) (*PluginPage, error) {
@@ -223,6 +235,12 @@ func (page *PluginPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, nil
 	}
+	if page.overlay == pluginOverlayHostInstall {
+		if key, ok := message.(tea.KeyPressMsg); ok {
+			return page, page.updateHostInstall(key)
+		}
+		return page, nil
+	}
 	if page.overlay == pluginOverlayConfirm {
 		if key, ok := message.(tea.KeyPressMsg); ok {
 			return page, page.updateConfirm(key)
@@ -295,6 +313,9 @@ func (page *PluginPage) View(width, height int) string {
 		}
 		body += "\n\n" + component.Muted("Esc cancel")
 		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
+	case pluginOverlayHostInstall:
+		modalWidth := overlayWidth(width, 84)
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(page.hostInstallBody(), modalWidth), modalWidth), width, height)
 	}
 	return content
 }
@@ -309,7 +330,7 @@ func (page *PluginPage) MouseTargets(originX, originY, z int) []component.MouseT
 	switch page.overlay {
 	case pluginOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
-	case pluginOverlayOperation:
+	case pluginOverlayOperation, pluginOverlayHostInstall:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
 		if page.resourceID != "" {
@@ -694,6 +715,12 @@ func (page *PluginPage) finishOperation(msg pluginOperationMsg) tea.Cmd {
 	}
 	page.operationCancel = nil
 	page.overlay, page.progress = pluginOverlayNone, nil
+	if msg.command == PluginInstall && msg.err != nil {
+		var prerequisite *pluginpkg.HostPrerequisiteError
+		if errors.As(msg.err, &prerequisite) && page.openHostInstall(prerequisite) {
+			return nil
+		}
+	}
 	page.err = msg.err
 	if msg.err != nil {
 		return nil
@@ -707,6 +734,117 @@ func (page *PluginPage) finishOperation(msg pluginOperationMsg) tea.Cmd {
 	}
 	page.loading = true
 	return page.loadCmd()
+}
+
+func (page *PluginPage) openHostInstall(prerequisite *pluginpkg.HostPrerequisiteError) bool {
+	if prerequisite == nil {
+		return false
+	}
+	options := make([]pluginHostInstallOption, 0, len(prerequisite.Install)+1)
+	if prerequisite.Portable != nil {
+		options = append(options, pluginHostInstallOption{portable: true, label: "Install verified portable binary locally in plugin data"})
+	}
+	for _, hint := range prerequisite.Install {
+		if hint.Runnable() {
+			options = append(options, pluginHostInstallOption{hint: hint, label: "Install globally: " + hint.DisplayCommand()})
+		}
+	}
+	if len(options) == 0 {
+		return false
+	}
+	page.hostPrerequisite, page.hostOptions, page.hostIndex = prerequisite, options, 0
+	page.err = nil
+	page.overlay = pluginOverlayHostInstall
+	return true
+}
+
+func (page *PluginPage) updateHostInstall(msg tea.KeyPressMsg) tea.Cmd {
+	if len(page.hostOptions) == 0 {
+		page.closeHostInstall()
+		return nil
+	}
+	switch msg.String() {
+	case "esc":
+		page.closeHostInstall()
+		return nil
+	case "up", "k":
+		page.hostIndex = (page.hostIndex - 1 + len(page.hostOptions)) % len(page.hostOptions)
+		return nil
+	case "down", "j":
+		page.hostIndex = (page.hostIndex + 1) % len(page.hostOptions)
+		return nil
+	case "enter":
+		choice := page.hostOptions[page.hostIndex]
+		page.closeHostInstall()
+		return page.startHostInstall(choice)
+	default:
+		return nil
+	}
+}
+
+func (page *PluginPage) startHostInstall(choice pluginHostInstallOption) tea.Cmd {
+	ctx, cancel := context.WithTimeout(page.ctx, pluginHostInstallTimeout)
+	page.operationCancel = cancel
+	progress := component.NewProgress("Installing host dependency")
+	page.progress = &progress
+	page.overlay = pluginOverlayOperation
+	target := page.targetID
+	return func() tea.Msg {
+		msg := pluginOperationMsg{command: PluginInstall, target: target, notice: "Plugin installed"}
+		if choice.portable {
+			_, msg.err = page.service.InstallPortable(ctx, target)
+			return msg
+		}
+		if _, msg.err = page.service.RunHostInstallHint(ctx, choice.hint); msg.err != nil {
+			return msg
+		}
+		_, msg.err = page.service.Install(ctx, target)
+		return msg
+	}
+}
+
+func (page *PluginPage) hostInstallBody() string {
+	if page.hostPrerequisite == nil || len(page.hostOptions) == 0 {
+		return component.Muted("Host dependency options are unavailable")
+	}
+	var builder strings.Builder
+	builder.WriteString(component.ToneText("Host dependency required", component.ToneWarning))
+	builder.WriteString("\n\n")
+	builder.WriteString(strings.TrimSpace(page.hostPrerequisite.Reason))
+	builder.WriteString("\n\nChoose how to install the required host dependency:\n")
+	for index, option := range page.hostOptions {
+		line := "  " + option.label
+		if index == page.hostIndex {
+			line = component.ToneText("> "+option.label, component.ToneAccent)
+		}
+		builder.WriteString(line)
+		builder.WriteByte('\n')
+	}
+	manual := make([]string, 0, len(page.hostPrerequisite.Install))
+	for _, hint := range page.hostPrerequisite.Install {
+		if !hint.Runnable() {
+			manual = append(manual, hint.DisplayCommand())
+		}
+	}
+	if len(manual) > 0 {
+		builder.WriteString("\n")
+		builder.WriteString(component.Muted("Manual install commands:"))
+		builder.WriteByte('\n')
+		for _, command := range manual {
+			builder.WriteString(component.Muted("- " + command))
+			builder.WriteByte('\n')
+		}
+	}
+	builder.WriteString("\n")
+	builder.WriteString(component.Muted("↑/↓ select  Enter install  Esc cancel"))
+	return strings.TrimSpace(builder.String())
+}
+
+func (page *PluginPage) closeHostInstall() {
+	page.overlay = pluginOverlayNone
+	page.hostPrerequisite = nil
+	page.hostOptions = nil
+	page.hostIndex = 0
 }
 
 func (page *PluginPage) operationTitle(command PluginCommand) string {

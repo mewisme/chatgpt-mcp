@@ -133,6 +133,17 @@ func TestSecurePluginHTTPClientRejectsCrossHostRedirect(t *testing.T) {
 	}
 }
 
+func TestSecurePluginHTTPClientAllowsGitHubReleaseAssetRedirect(t *testing.T) {
+	client := securePluginHTTPClient(nil, time.Second, "github.com")
+	request, err := http.NewRequest(http.MethodGet, "https://release-assets.githubusercontent.com/asset", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.CheckRedirect(request, nil); err != nil {
+		t.Fatalf("GitHub release asset redirect rejected: %v", err)
+	}
+}
+
 func TestSafeRegistryAssetNameRejectsTraversalSignature(t *testing.T) {
 	if safeRegistryAssetName("../index.json.sigstore.json") {
 		t.Fatal("traversal signature asset accepted")

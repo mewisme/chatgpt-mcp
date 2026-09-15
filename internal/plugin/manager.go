@@ -908,7 +908,7 @@ func securePluginHTTPClient(base *http.Client, timeout time.Duration, allowedHos
 		if request.URL.Scheme != "https" {
 			return errors.New("plugin download redirect must use HTTPS")
 		}
-		if !strings.EqualFold(request.URL.Host, allowedHost) {
+		if !strings.EqualFold(request.URL.Host, allowedHost) && !(strings.EqualFold(allowedHost, "github.com") && strings.EqualFold(request.URL.Host, "release-assets.githubusercontent.com")) {
 			return errors.New("plugin download redirect changed registry host")
 		}
 		if previous != nil {

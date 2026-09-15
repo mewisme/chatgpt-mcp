@@ -1,6 +1,7 @@
 package page
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -18,7 +19,8 @@ func TestGuideIndexBrowsesTopicMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := ansi.Strip(page.View(100, 30))
-	for _, want := range []string{"TUI Guide", "Getting Started", "MCP Servers", "10 topics"} {
+	topicCount := strconv.Itoa(len(tuiguide.Children(""))) + " topics"
+	for _, want := range []string{"TUI Guide", "Getting Started", "MCP Servers", "Plugins", topicCount} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("guide index missing %q: %q", want, plain)
 		}

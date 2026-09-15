@@ -24,7 +24,7 @@ func (a *App) ReloadConfig(next config.Config) error {
 	permissionsChanged := !slices.Equal(previous.Permissions.AllowDirs, next.Permissions.AllowDirs)
 	shellExecutableChanged := previous.Shell.Executable != next.Shell.Executable
 	shellPathChanged := !slices.Equal(previous.Shell.Path, next.Shell.Path)
-	tunnelChanged := previous.Tunnel != next.Tunnel
+	tunnelChanged := !tunnel.ConfigEqual(previous.Tunnel, next.Tunnel)
 	tunnelRuntimeChanged := tunnelChanged && !tunnel.RuntimeConfigEqual(previous.Tunnel, next.Tunnel)
 
 	if _, err := a.Config.Update(func(config.Config) (config.Config, error) { return next, nil }); err != nil {

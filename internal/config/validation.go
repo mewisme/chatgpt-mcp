@@ -85,6 +85,9 @@ func Validate(cfg Config) error {
 	if err := tunnel.ValidateConfig(cfg.Tunnel); err != nil {
 		return err
 	}
+	if err := cfg.Tunnel.Collection().Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -119,7 +122,11 @@ func SecurityWarnings(cfg Config) []string {
 }
 
 func ValidateMCPTransports(cfg Config) error {
-	if !cfg.Server.Enabled && !cfg.Tunnel.Enabled {
+	tunnelEnabled := cfg.Tunnel.Enabled
+	for _, instance := range cfg.Tunnel.Collection().Instances {
+		tunnelEnabled = tunnelEnabled || instance.Enabled
+	}
+	if !cfg.Server.Enabled && !tunnelEnabled {
 		return errors.New("at least one MCP transport must be enabled: MCP HTTP (server.enabled) or OpenAI Secure MCP Tunnel (tunnel.enabled)")
 	}
 	return nil

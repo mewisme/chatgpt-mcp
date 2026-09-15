@@ -217,6 +217,9 @@ func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSe
 	if err != nil {
 		return cfg, err
 	}
+	if err := loadCollectionSecrets(secretPath, &cfg.Tunnel, policy); err != nil {
+		return cfg, err
+	}
 	if migrateSecrets || legacyRuntime != "" || legacyAdmin != "" {
 		if err := saveAt(configPath, secretPath, cfg); err != nil {
 			return cfg, fmt.Errorf("migrate credentials to secret file store: %w", err)
@@ -317,6 +320,11 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	}
 	if err := saveSecret(secretPath, cfg.Tunnel); err != nil {
 		return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
+	}
+	if cfg.Tunnel.Instances != nil || cfg.Tunnel.Admins != nil {
+		if err := saveCollectionSecrets(secretPath, cfg.Tunnel); err != nil {
+			return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
+		}
 	}
 	return nil
 }

@@ -12,21 +12,30 @@ import (
 )
 
 type tunnelSecret struct {
-	RuntimeKeyConfigured bool   `json:"runtime_key_configured,omitempty"`
-	AdminKeyConfigured   bool   `json:"admin_key_configured,omitempty"`
-	APIKey               string `json:"api_key,omitempty"`
-	AdminKey             string `json:"admin_key,omitempty"`
-	AdminOrganizationID  string `json:"admin_organization_id,omitempty"`
-	AdminWorkspaceID     string `json:"admin_workspace_id,omitempty"`
-	AdminTenantID        string `json:"admin_tenant_id,omitempty"`
-	AdminReadAccess      bool   `json:"admin_read_access,omitempty"`
-	AdminManageAccess    bool   `json:"admin_manage_access,omitempty"`
+	InstanceKeys         map[string]bool `json:"instance_keys,omitempty"`
+	AdminKeys            map[string]bool `json:"admin_keys,omitempty"`
+	RuntimeKeyConfigured bool            `json:"runtime_key_configured,omitempty"`
+	AdminKeyConfigured   bool            `json:"admin_key_configured,omitempty"`
+	APIKey               string          `json:"api_key,omitempty"`
+	AdminKey             string          `json:"admin_key,omitempty"`
+	AdminOrganizationID  string          `json:"admin_organization_id,omitempty"`
+	AdminWorkspaceID     string          `json:"admin_workspace_id,omitempty"`
+	AdminTenantID        string          `json:"admin_tenant_id,omitempty"`
+	AdminReadAccess      bool            `json:"admin_read_access,omitempty"`
+	AdminManageAccess    bool            `json:"admin_manage_access,omitempty"`
 }
 
 var (
 	tunnelRuntimeSecretName = secretstore.Name("tunnel", "runtime-key")
 	tunnelAdminSecretName   = secretstore.Name("tunnel", "admin-key")
 )
+
+func instanceSecretName(id string) string {
+	return secretstore.Name("tunnel", "instance", id, "runtime-key")
+}
+func adminProfileSecretName(id string) string {
+	return secretstore.Name("tunnel", "admin", id, "admin-key")
+}
 
 func TunnelSecretPath() string { return configformat.StructuredPath(RootPath(), "tunnel") }
 
@@ -42,7 +51,117 @@ func TunnelSecretEntries(root string) ([]string, error) {
 	if stored.AdminKeyConfigured {
 		entries = append(entries, tunnelAdminSecretName)
 	}
+	for id, configured := range stored.InstanceKeys {
+		if configured {
+			entries = append(entries, instanceSecretName(id))
+		}
+	}
+	for id, configured := range stored.AdminKeys {
+		if configured {
+			entries = append(entries, adminProfileSecretName(id))
+		}
+	}
 	return entries, nil
+}
+
+func loadCollectionSecrets(path string, cfg *tunnel.Config, policy tunnelSecretLoadPolicy) error {
+	stored, err := loadTunnelSecretAt(path)
+	if err != nil {
+		return err
+	}
+	store := secretstore.New(filepath.Dir(path))
+	instances := cfg.Collection().Instances
+	for i := range instances {
+		instance := &instances[i]
+		if !stored.InstanceKeys[instance.ID] {
+			continue
+		}
+		key, err := store.Get(instanceSecretName(instance.ID))
+		if err != nil {
+			if policy.allowMissingRuntime && errors.Is(err, secretstore.ErrNotFound) {
+				continue
+			}
+			return fmt.Errorf("load tunnel %q runtime key: %w", instance.ID, err)
+		}
+		instance.APIKey = key
+	}
+	admins := cfg.Collection().Admins
+	for i := range admins {
+		admin := &admins[i]
+		if !stored.AdminKeys[admin.ID] {
+			continue
+		}
+		key, err := store.Get(adminProfileSecretName(admin.ID))
+		if err != nil {
+			if policy.allowMissingAdmin && errors.Is(err, secretstore.ErrNotFound) {
+				continue
+			}
+			return fmt.Errorf("load admin profile %q key: %w", admin.ID, err)
+		}
+		admin.AdminKey = key
+	}
+	return nil
+}
+
+func saveCollectionSecrets(path string, cfg tunnel.Config) error {
+	previous, err := loadTunnelSecretAt(path)
+	if err != nil {
+		return err
+	}
+	stored := previous
+	collection := cfg.Collection()
+	stored.InstanceKeys = make(map[string]bool, len(collection.Instances))
+	stored.AdminKeys = make(map[string]bool, len(collection.Admins))
+	changes := make([]secretstore.Change, 0, len(collection.Instances)+len(collection.Admins))
+	for _, instance := range collection.Instances {
+		stored.InstanceKeys[instance.ID] = instance.APIKey != ""
+		changes = append(changes, secretstore.Change{Name: instanceSecretName(instance.ID), Value: instance.APIKey})
+	}
+	for _, admin := range collection.Admins {
+		stored.AdminKeys[admin.ID] = admin.AdminKey != ""
+		changes = append(changes, secretstore.Change{Name: adminProfileSecretName(admin.ID), Value: admin.AdminKey})
+	}
+	for id := range previous.InstanceKeys {
+		if _, ok := stored.InstanceKeys[id]; !ok {
+			changes = append(changes, secretstore.Change{Name: instanceSecretName(id)})
+		}
+	}
+	for id := range previous.AdminKeys {
+		if _, ok := stored.AdminKeys[id]; !ok {
+			changes = append(changes, secretstore.Change{Name: adminProfileSecretName(id)})
+		}
+	}
+	data, err := mergeCollectionSecretData(path, stored)
+	if err != nil {
+		return err
+	}
+	if err := writeConfigFile(path, data, 0600); err != nil {
+		return err
+	}
+	return secretstore.New(filepath.Dir(path)).Apply(changes)
+}
+
+func mergeCollectionSecretData(path string, stored tunnelSecret) ([]byte, error) {
+	format, err := configformat.Detect(path)
+	if err != nil {
+		return nil, err
+	}
+	var base any = map[string]any{}
+	if data, _, err := readConfigFile(path); err == nil {
+		base, err = configformat.DecodeGeneric(format, data)
+		if err != nil {
+			return nil, err
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	root, ok := base.(map[string]any)
+	if !ok {
+		return nil, errors.New("tunnel secret data must be an object")
+	}
+	root["instance_keys"] = stored.InstanceKeys
+	root["admin_keys"] = stored.AdminKeys
+	return configformat.EncodeGeneric(format, root)
 }
 
 func loadTunnelSecretAt(path string) (tunnelSecret, error) {

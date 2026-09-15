@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -83,6 +84,8 @@ var fieldSpecs = []FieldSpec{
 	{Key: "features.caveman.active", Label: "Caveman active", Section: FieldSectionFeatures, Description: "controls whether Caveman response style is active by default", Details: "Caveman compresses assistant prose while preserving technical meaning, exact code, commands, numbers, and safety-critical clarity.", Kind: FieldBool, Editable: true, Related: []string{"features.caveman.mode"}},
 	{Key: "features.caveman.mode", Label: "Caveman mode", Section: FieldSectionFeatures, Description: "sets the default Caveman response intensity and language register", Details: "The persisted mode controls how aggressively response prose is compressed. The wenyan variants use progressively stronger classical Chinese compression. Session-only aliases such as off or wenyan are not persisted modes.", Kind: FieldEnum, Options: []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"}, Values: []FieldValueSpec{{Value: "lite", Description: "Remove filler and hedging while keeping normal professional sentences."}, {Value: "full", Description: "Use terse fragments where clear and aggressively remove nonessential prose."}, {Value: "ultra", Description: "Maximize compression while preserving unambiguous technical meaning."}, {Value: "wenyan-lite", Description: "Use a semi-classical Chinese register with moderate compression."}, {Value: "wenyan-full", Description: "Use strongly compressed classical Chinese sentence patterns."}, {Value: "wenyan-ultra", Description: "Use extreme classical Chinese abbreviation while retaining meaning."}}, Editable: true, Related: []string{"features.caveman.active"}},
 	{Key: "tunnel.enabled", Label: "Tunnel", Section: FieldSectionTunnel, Description: "controls whether the OpenAI Secure MCP Tunnel transport is enabled", Details: "An enabled tunnel requires both tunnel.id and a configured runtime API key. The tunnel can satisfy the requirement that at least one MCP transport remains enabled when the local MCP HTTP server is disabled.", Kind: FieldBool, Editable: true, Related: []string{"tunnel.id", "tunnel.api_key", "server.enabled"}},
+	{Key: "tunnel.instances", Label: "Tunnel instances", Section: FieldSectionTunnel, Description: "lists configured runtime tunnel instances", Details: "Manage instances by tunnel ID; collection editing is not available through config set.", Kind: FieldReadOnly},
+	{Key: "tunnel.admins", Label: "Tunnel admin profiles", Section: FieldSectionTunnel, Description: "lists configured management profiles", Details: "Manage profiles by profile ID; collection editing is not available through config set.", Kind: FieldReadOnly},
 	{Key: "tunnel.id", Label: "Tunnel ID", Section: FieldSectionTunnel, Description: "identifies the OpenAI Secure MCP Tunnel used by this runtime", Details: "The ID is required when the tunnel transport is enabled and is used together with the runtime API key to connect to the configured tunnel.", Kind: FieldString, Editable: true, Related: []string{"tunnel.enabled", "tunnel.api_key"}},
 	{Key: "tunnel.api_key", Label: "Runtime API key", Section: FieldSectionTunnel, Description: "stores the managed runtime credential used to connect to the Secure MCP Tunnel", Details: "The raw runtime key is stored through the secret workflow and is redacted from config views. A configured runtime key is required when the tunnel transport is enabled.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage the runtime key from the Tunnel page.", Related: []string{"tunnel.enabled", "tunnel.id"}},
 	{Key: "tunnel.admin_key", Label: "Admin key", Section: FieldSectionTunnel, Description: "stores the managed admin credential used for tunnel control-plane operations", Details: "The admin key is separate from the runtime tunnel key. It is used for management operations such as listing, creating, updating, or deleting managed tunnels and is redacted from config views.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage and verify the admin key from the Tunnel page.", Related: []string{"tunnel.admin_organization_id", "tunnel.admin_workspace_id", "tunnel.admin_tenant_id"}},
@@ -231,6 +234,8 @@ func SetValue(cfg *Config, key, raw string) error {
 			return err
 		}
 		cfg.Tunnel.Enabled = value
+	case "tunnel.instances", "tunnel.admins":
+		return errors.New("tunnel collections cannot be edited through config set")
 	case "tunnel.id":
 		cfg.Tunnel.ID = raw
 	case "tunnel.api_key":
@@ -315,6 +320,12 @@ func RawValue(cfg Config, key string) (string, error) {
 		return cfg.Features.Caveman.Mode, nil
 	case "tunnel.enabled":
 		return strconv.FormatBool(cfg.Tunnel.Enabled), nil
+	case "tunnel.instances":
+		data, err := json.Marshal(cfg.Tunnel.Collection().Instances)
+		return string(data), err
+	case "tunnel.admins":
+		data, err := json.Marshal(cfg.Tunnel.Collection().Admins)
+		return string(data), err
 	case "tunnel.id":
 		return cfg.Tunnel.ID, nil
 	case "tunnel.api_key":

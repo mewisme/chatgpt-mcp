@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -31,17 +32,19 @@ const (
 )
 
 type Config struct {
-	Enabled             bool   `json:"enabled"`
-	ID                  string `json:"id,omitempty"`
-	APIKey              string `json:"api_key,omitempty"`
-	AdminKey            string `json:"admin_key,omitempty"`
-	AdminOrganizationID string `json:"admin_organization_id,omitempty"`
-	AdminWorkspaceID    string `json:"admin_workspace_id,omitempty"`
-	AdminTenantID       string `json:"admin_tenant_id,omitempty"`
-	AdminReadAccess     bool   `json:"-"`
-	AdminManageAccess   bool   `json:"-"`
-	ControlPlaneBaseURL string `json:"control_plane_base_url,omitempty"`
-	OrganizationID      string `json:"organization_id,omitempty"`
+	Instances           *[]InstanceConfig `json:"instances,omitempty"`
+	Admins              *[]AdminConfig    `json:"admins,omitempty"`
+	Enabled             bool              `json:"enabled"`
+	ID                  string            `json:"id,omitempty"`
+	APIKey              string            `json:"api_key,omitempty"`
+	AdminKey            string            `json:"admin_key,omitempty"`
+	AdminOrganizationID string            `json:"admin_organization_id,omitempty"`
+	AdminWorkspaceID    string            `json:"admin_workspace_id,omitempty"`
+	AdminTenantID       string            `json:"admin_tenant_id,omitempty"`
+	AdminReadAccess     bool              `json:"-"`
+	AdminManageAccess   bool              `json:"-"`
+	ControlPlaneBaseURL string            `json:"control_plane_base_url,omitempty"`
+	OrganizationID      string            `json:"organization_id,omitempty"`
 }
 
 type AdminAccess struct {
@@ -436,13 +439,28 @@ func Configured(cfg Config) bool {
 }
 
 func RuntimeConfigEqual(left, right Config) bool {
+	left.Instances, right.Instances = nil, nil
+	left.Admins, right.Admins = nil, nil
 	left.AdminKey, right.AdminKey = "", ""
 	left.AdminOrganizationID, right.AdminOrganizationID = "", ""
 	left.AdminWorkspaceID, right.AdminWorkspaceID = "", ""
 	left.AdminTenantID, right.AdminTenantID = "", ""
 	left.AdminReadAccess, right.AdminReadAccess = false, false
 	left.AdminManageAccess, right.AdminManageAccess = false, false
-	return left == right
+	return reflect.DeepEqual(left, right)
+}
+
+func ConfigEqual(left, right Config) bool { return reflect.DeepEqual(left, right) }
+
+func (cfg Config) Collection() CollectionConfig {
+	var collection CollectionConfig
+	if cfg.Instances != nil {
+		collection.Instances = *cfg.Instances
+	}
+	if cfg.Admins != nil {
+		collection.Admins = *cfg.Admins
+	}
+	return collection
 }
 
 func (c *Client) SyncManagementConfig(cfg Config) error {

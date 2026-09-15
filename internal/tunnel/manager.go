@@ -75,12 +75,20 @@ func (cfg InstanceConfig) clientConfig() Config {
 
 // Manager owns independent tunnel transports pointing at exactly one tools runtime.
 type Manager struct {
-	mu      sync.RWMutex
-	runtime *tools.Runtime
-	logger  *logger.Logger
-	clients map[string]*Client
-	configs map[string]InstanceConfig
-	running bool
+	opMu     sync.Mutex
+	mu       sync.RWMutex
+	runtime  *tools.Runtime
+	logger   *logger.Logger
+	clients  map[string]*Client
+	configs  map[string]InstanceConfig
+	running  bool
+	observer LifecycleObserver
+	factory  backendFactory
+}
+
+type managerChange struct {
+	old, next  *Client
+	oldEnabled bool
 }
 
 func NewManager(runtime *tools.Runtime, log *logger.Logger) *Manager {
@@ -92,6 +100,15 @@ func (m *Manager) Client(id string) (*Client, bool) {
 	defer m.mu.RUnlock()
 	client, ok := m.clients[id]
 	return client, ok
+}
+
+func (m *Manager) SetLifecycleObserver(observer LifecycleObserver) {
+	m.mu.Lock()
+	m.observer = observer
+	for _, client := range m.clients {
+		client.SetLifecycleObserver(observer)
+	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) Statuses() []Status {
@@ -123,35 +140,102 @@ func (m *Manager) Ready() bool {
 }
 
 func (m *Manager) StartContext(ctx context.Context) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.Lock()
 	m.running = true
 	m.mu.Unlock()
-	var errs []error
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(m.Statuses()))
 	for _, status := range m.Statuses() {
 		if status.Enabled {
 			if client, ok := m.Client(status.ID); ok {
-				if err := client.StartContext(ctx); err != nil {
-					errs = append(errs, fmt.Errorf("tunnel %s: %w", status.ID, err))
-				}
+				wg.Add(1)
+				go func(id string, client *Client) {
+					defer wg.Done()
+					if err := client.StartContext(ctx); err != nil {
+						errCh <- fmt.Errorf("tunnel %s: %w", id, err)
+					}
+				}(status.ID, client)
 			}
 		}
+	}
+	wg.Wait()
+	close(errCh)
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
 
 func (m *Manager) StopContext(ctx context.Context) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.Lock()
 	m.running = false
 	m.mu.Unlock()
-	var errs []error
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(m.Statuses()))
 	for _, status := range m.Statuses() {
 		if client, ok := m.Client(status.ID); ok {
-			if err := client.StopContext(ctx); err != nil {
-				errs = append(errs, fmt.Errorf("tunnel %s: %w", status.ID, err))
+			wg.Add(1)
+			go func(id string, client *Client) {
+				defer wg.Done()
+				if err := client.StopContext(ctx); err != nil {
+					errCh <- fmt.Errorf("tunnel %s: %w", id, err)
+				}
+			}(status.ID, client)
+		}
+	}
+	wg.Wait()
+	close(errCh)
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// WaitUntilAnyReady succeeds as soon as one enabled tunnel becomes usable.
+func (m *Manager) WaitUntilAnyReady(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if m.Ready() {
+		return nil
+	}
+	statuses := m.Statuses()
+	clients := make([]*Client, 0, len(statuses))
+	for _, status := range statuses {
+		if status.Enabled {
+			if client, ok := m.Client(status.ID); ok {
+				clients = append(clients, client)
 			}
 		}
 	}
-	return errors.Join(errs...)
+	if len(clients) == 0 {
+		return errors.New("no enabled tunnels")
+	}
+	ready := make(chan struct{}, 1)
+	for _, client := range clients {
+		go func(client *Client) {
+			if client.WaitUntilReady(ctx) == nil {
+				select {
+				case ready <- struct{}{}:
+				default:
+				}
+			}
+		}(client)
+	}
+	select {
+	case <-ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Reconcile preserves unchanged clients and changes only the affected connections.
@@ -159,45 +243,66 @@ func (m *Manager) Reconcile(ctx context.Context, cfg CollectionConfig) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	m.mu.Lock()
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	m.mu.RLock()
 	previous := m.clients
 	previousCfg := m.configs
 	running := m.running
+	observer := m.observer
 	next := make(map[string]*Client, len(cfg.Instances))
 	nextCfg := make(map[string]InstanceConfig, len(cfg.Instances))
-	var stop []*Client
-	var start []*Client
+	var changes []managerChange
 	for _, instance := range cfg.Instances {
 		nextCfg[instance.ID] = instance
 		if old, ok := previous[instance.ID]; ok && previousCfg[instance.ID] == instance {
 			next[instance.ID] = old
 			continue
 		}
-		if old, ok := previous[instance.ID]; ok {
-			stop = append(stop, old)
-		}
+		old := previous[instance.ID]
 		client := NewConfiguredWithLogger(instance.clientConfig(), m.runtime, m.logger)
-		next[instance.ID] = client
-		if running && instance.Enabled {
-			start = append(start, client)
+		if m.factory != nil {
+			client = newConfigured(instance.clientConfig(), m.runtime, m.factory)
 		}
+		client.SetLifecycleObserver(observer)
+		next[instance.ID] = client
+		changes = append(changes, managerChange{old: old, next: client, oldEnabled: old != nil && previousCfg[instance.ID].Enabled})
 	}
 	for id, old := range previous {
 		if _, ok := next[id]; !ok {
-			stop = append(stop, old)
+			changes = append(changes, managerChange{old: old, oldEnabled: previousCfg[id].Enabled})
 		}
 	}
+	m.mu.RUnlock()
+	var applied []managerChange
+	for _, item := range changes {
+		if item.old != nil {
+			if err := item.old.StopContext(ctx); err != nil {
+				return errors.Join(fmt.Errorf("stop tunnel %s: %w", item.old.Status().ID, err), rollbackChanges(ctx, applied, running))
+			}
+		}
+		applied = append(applied, item)
+		if running && item.next != nil && item.next.Status().Enabled {
+			if err := item.next.StartContext(ctx); err != nil {
+				return errors.Join(fmt.Errorf("start tunnel %s: %w", item.next.Status().ID, err), rollbackChanges(ctx, applied, running))
+			}
+		}
+	}
+	m.mu.Lock()
 	m.clients, m.configs = next, nextCfg
 	m.mu.Unlock()
+	return nil
+}
+
+func rollbackChanges(ctx context.Context, changes []managerChange, running bool) error {
 	var errs []error
-	for _, client := range stop {
-		if err := client.StopContext(ctx); err != nil {
-			errs = append(errs, err)
+	for i := len(changes) - 1; i >= 0; i-- {
+		item := changes[i]
+		if item.next != nil {
+			errs = append(errs, item.next.StopContext(ctx))
 		}
-	}
-	for _, client := range start {
-		if err := client.StartContext(ctx); err != nil {
-			errs = append(errs, err)
+		if running && item.old != nil && item.oldEnabled {
+			errs = append(errs, item.old.StartContext(ctx))
 		}
 	}
 	return errors.Join(errs...)

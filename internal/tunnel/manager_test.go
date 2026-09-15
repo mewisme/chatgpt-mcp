@@ -3,8 +3,10 @@ package tunnel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/openai/tunnel-client/pkg/tunnelctx"
@@ -38,6 +40,81 @@ func TestManagerSharesRuntimeAndKeepsUnchangedClients(t *testing.T) {
 	afterB, _ := manager.Client("tunnel_b")
 	if afterA != a || afterB == b {
 		t.Fatal("reconcile must preserve unchanged client and replace changed client")
+	}
+}
+
+func TestManagerStartsHealthyTunnelWhenAnotherFails(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	m := NewManager(runtime, nil)
+	m.factory = func(cfg Config, _ sdkmcp.Transport) (backend, error) {
+		fake := newFakeBackend()
+		if cfg.ID == "bad" {
+			fake.startErr = errors.New("backend unavailable")
+		}
+		return fake, nil
+	}
+	cfg := CollectionConfig{Instances: []InstanceConfig{{ID: "bad", APIKey: "key", Enabled: true}, {ID: "good", APIKey: "key", Enabled: true}}}
+	if err := m.Reconcile(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.StartContext(context.Background()); err == nil {
+		t.Fatal("expected failed tunnel error")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := m.WaitUntilAnyReady(ctx); err != nil {
+		t.Fatal(err)
+	}
+	good, _ := m.Client("good")
+	if !good.Status().Ready {
+		t.Fatal("healthy tunnel was affected by failed tunnel")
+	}
+	if err := m.StopContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagerReconcileRollsBackChangedTunnelOnly(t *testing.T) {
+	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
+	m := NewManager(runtime, nil)
+	m.factory = func(cfg Config, _ sdkmcp.Transport) (backend, error) {
+		fake := newFakeBackend()
+		if cfg.APIKey == "bad-key" {
+			fake.startErr = errors.New("backend unavailable")
+		}
+		return fake, nil
+	}
+	initial := CollectionConfig{Instances: []InstanceConfig{{ID: "a", APIKey: "old-key", Enabled: true}, {ID: "b", APIKey: "old-key", Enabled: true}}}
+	if err := m.Reconcile(context.Background(), initial); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.StartContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	readyCtx, readyCancel := context.WithTimeout(context.Background(), time.Second)
+	defer readyCancel()
+	if err := m.WaitUntilAnyReady(readyCtx); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := m.Client("a")
+	b, _ := m.Client("b")
+	changed := CollectionConfig{Instances: []InstanceConfig{{ID: "a", APIKey: "bad-key", Enabled: true}, {ID: "b", APIKey: "old-key", Enabled: true}}}
+	if err := m.Reconcile(context.Background(), changed); err == nil {
+		t.Fatal("expected reconcile error")
+	}
+	afterA, _ := m.Client("a")
+	afterB, _ := m.Client("b")
+	if err := a.WaitUntilReady(readyCtx); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WaitUntilReady(readyCtx); err != nil {
+		t.Fatal(err)
+	}
+	if afterA != a || afterB != b || !b.Status().Ready || !a.Status().Ready {
+		t.Fatalf("failed reconcile changed healthy manager state: a=%+v b=%+v", a.Status(), b.Status())
+	}
+	if err := m.StopContext(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

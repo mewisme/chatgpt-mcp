@@ -445,17 +445,11 @@ func pluginRegistryAddCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		config, err := pluginpkg.LoadConfig(layout.ConfigPath())
-		if err != nil {
-			return err
-		}
 		trust := pluginpkg.SigstoreIdentity{Issuer: strings.TrimSpace(issuer), Repository: strings.TrimSpace(repository)}
 		span := tracepkg.Start(cmd.Context(), "PLUGIN", "plugin.registry.add", "Adding plugin registry", tracepkg.String("registry", strings.TrimSpace(args[0])), tracepkg.URL("url", args[1]))
-		if err := config.AddRegistry(args[0], args[1], unqualified, trust); err != nil {
-			span.Fail(err)
-			return err
-		}
-		if err := pluginpkg.WriteConfig(layout.ConfigPath(), config); err != nil {
+		if err := pluginpkg.MutateConfig(layout, func(config *pluginpkg.Config) error {
+			return config.AddRegistry(args[0], args[1], unqualified, trust)
+		}); err != nil {
 			span.Fail(err)
 			return err
 		}
@@ -476,15 +470,10 @@ func pluginRegistryRemoveCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		config, err := pluginpkg.LoadConfig(layout.ConfigPath())
-		if err != nil {
-			return err
-		}
-		if err := config.RemoveRegistry(args[0]); err != nil {
-			return err
-		}
 		span := tracepkg.Start(cmd.Context(), "PLUGIN", "plugin.registry.remove", "Removing plugin registry", tracepkg.String("registry", strings.TrimSpace(args[0])))
-		if err := pluginpkg.WriteConfig(layout.ConfigPath(), config); err != nil {
+		if err := pluginpkg.MutateConfig(layout, func(config *pluginpkg.Config) error {
+			return config.RemoveRegistry(args[0])
+		}); err != nil {
 			span.Fail(err)
 			return err
 		}

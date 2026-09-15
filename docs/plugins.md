@@ -40,7 +40,7 @@ The core keeps the admin listener, authentication, `/api/*`, OAuth callback, act
 
 The official RTK wrapper is host-backed. If RTK is not available on `PATH`, installation can use the manifest-declared verified portable binary or a supported global installer; manual shell installation hints remain recommendations only.
 
-`cgm plugin rollback <plugin> [version]` rolls back to a retained version. With no version it selects the newest retained version older than the active version. Rollback does not trust retained activation state blindly: the exact version is resolved through the configured signed registry again. Packaged plugins re-verify and replace the payload; host-backed plugins re-verify the signed manifest and host prerequisite before activation.
+`cgm plugin rollback <plugin> [version]` rolls back to a retained version. With no version it selects the newest retained version older than the active version. Current installs persist verified registry/publisher identity plus manifest and artifact digests alongside a local payload integrity root, so a retained version can be re-verified and activated while its registry is offline. Legacy retained versions created before that metadata existed fall back to registry re-resolution and signature verification before activation.
 
 The default update retention policy keeps the active version plus the two newest inactive rollback versions. `cgm plugin prune [plugin] --retain N` applies the same retention rule manually; without a plugin it also removes orphaned inactive versions left by uninstalled plugins. Add `--cache` to remove registry/download cache and stale extraction directories without touching config, lock state, or the active payload.
 
@@ -65,13 +65,42 @@ A registry trust pin identifies the expected Sigstore OIDC issuer and signing re
 
 A custom registry is never allowed to replace the built-in `official` registry. Unqualified plugin resolution is only used for registries explicitly configured to allow it.
 
+## Third-party registry authoring
+
+A registry can be any HTTPS static asset root that follows the signed registry protocol; it does not need to share the ChatGPT MCP repository layout. A minimal registry contains:
+
+```text
+index.json
+index.json.sigstore.json
+publishers.json
+publishers.json.sigstore.json
+example-1.2.3.json
+example-1.2.3.json.sigstore.json
+example-1.2.3-linux-amd64.tar.gz
+example-1.2.3-linux-amd64.tar.gz.sigstore.json
+```
+
+`index.json` and `publishers.json` are mutable discovery metadata and may be replaced after being re-signed. Versioned manifests and packaged artifacts are immutable: publish a new plugin version instead of replacing bytes behind an existing versioned filename. The registry index maps each plugin/version to its exact manifest filename, while the publisher index names the trusted publisher and its Sigstore issuer/repository identity.
+
+Sign registry metadata, exact-version manifests, and packaged artifacts with Sigstore/cosign bundles. The client pins the registry signing identity when it is configured, verifies the root metadata first, then requires the selected plugin publisher to be trusted before accepting its manifest. A packaged artifact SHA-256 must be covered by the signed manifest. For portable host dependencies, prefer an exact upstream release URL plus a direct SHA-256 in the signed manifest; do not use moving aliases such as `latest` for an immutable plugin version.
+
+Register the hosted registry with the same identity used by its signing workflow:
+
+```bash
+cgm plugin registry add community https://plugins.example.com/releases \
+  --issuer https://token.actions.githubusercontent.com \
+  --repository example/plugins
+```
+
+Without unqualified resolution, install with an explicit registry prefix such as `cgm plugin install community/example`. Enable unqualified resolution only when ambiguity with the official or another configured registry is acceptable; ambiguous names fail rather than being selected by registry order.
+
 ## Desired state versus activation state
 
 Plugin state is deliberately split:
 
 - `plugins.json` contains portable **desired state**: registries and exact desired plugin versions plus enabled/disabled intent;
 - `plugins.lock.json` contains machine-local **verified activation state**: active version, publisher, manifest digest, platform integrity digest, and enabled state;
-- packaged plugin payloads live under the plugin data root; host-backed plugins keep signed metadata there without copying the host executable;
+- installed version directories retain verified source metadata plus a payload-tree integrity digest; packaged payloads live under the plugin data root, while global host-backed plugins retain metadata without copying the host executable;
 - downloaded registry/artifact cache lives under the plugin cache root.
 
 This split keeps backup/import portable without treating executable state from another machine as trusted.
@@ -272,8 +301,8 @@ Plugin capabilities are subordinate to core policy:
 - plugin rewrites cannot weaken command classification;
 - plugins cannot expand registered workspace roots by returning different paths;
 - plugin installation/trust configuration is a local operator action, not an Agent self-grant path;
-- signed metadata is verified before activation; packaged payloads are additionally SHA-256 verified before extraction;
-- activation records bind registry, publisher, manifest digest, platform integrity digest, version, and enabled state;
+- signed metadata is verified before activation; packaged artifacts are SHA-256 verified before extraction and installed payload trees are re-verified by `plugin verify`, enable, rollback, and reconciliation;
+- activation records bind registry, publisher, manifest digest, platform integrity digest, version, and enabled state, while each installed version retains verified trust metadata for offline rollback;
 - corrupt or unverifiable activation state is disabled instead of being guessed/reconstructed from executable files;
 - plugin subprocesses receive a reduced environment and do not inherit control-plane approval authority;
 - trace, logger, and persisted runtime-event paths apply shared secret redaction before diagnostic data is emitted or stored.

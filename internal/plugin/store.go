@@ -64,8 +64,11 @@ func NewStore(layout Layout, context RuntimeContext) (*Store, error) {
 func (store *Store) Layout() Layout { return store.layout }
 
 func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledPlugin, error) {
-	store.mu.Lock()
-	defer store.mu.Unlock()
+	unlock, err := store.lockMutation()
+	if err != nil {
+		return InstalledPlugin{}, err
+	}
+	defer unlock()
 	if err := manifest.Validate(); err != nil {
 		return InstalledPlugin{}, err
 	}
@@ -118,7 +121,7 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 		if err := validateEntrypoint(hostTarget, entrypoint); err != nil {
 			return InstalledPlugin{}, err
 		}
-		digest, err := fileSHA256(entrypoint)
+		digest, err := payloadTreeSHA256(hostTarget)
 		if err != nil {
 			return InstalledPlugin{}, err
 		}
@@ -131,6 +134,9 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 		}
 		entrypoint = filepath.Join(payloadTarget, filepath.FromSlash(artifact.Entrypoint))
 		if err := validateEntrypoint(payloadTarget, entrypoint); err != nil {
+			return InstalledPlugin{}, err
+		}
+		if err := writePayloadIntegrity(staging, payloadTarget); err != nil {
 			return InstalledPlugin{}, err
 		}
 	}
@@ -195,8 +201,12 @@ func (store *Store) Installed(id PluginID, version Version) (InstalledPlugin, er
 				if !validSHA256(digest) {
 					return InstalledPlugin{}, errors.New("portable host integrity metadata is invalid")
 				}
-				if err := verifyFileSHA256(entrypoint, digest); err != nil {
+				actual, err := payloadTreeSHA256(hostRoot)
+				if err != nil {
 					return InstalledPlugin{}, fmt.Errorf("portable host integrity verification failed: %w", err)
+				}
+				if actual != digest {
+					return InstalledPlugin{}, fmt.Errorf("portable host integrity verification failed: expected %s, got %s", digest, actual)
 				}
 				return InstalledPlugin{Manifest: manifest, Root: root, Entrypoint: entrypoint, Host: artifact.Host}, nil
 			} else if !errors.Is(err, os.ErrNotExist) {
@@ -222,8 +232,11 @@ func (store *Store) Activate(id PluginID, version Version, trust ActivationTrust
 }
 
 func (store *Store) ActivateWithState(id PluginID, version Version, trust ActivationTrust, enabled bool) error {
-	store.mu.Lock()
-	defer store.mu.Unlock()
+	unlock, err := store.lockMutation()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if !trust.Trusted {
 		return errors.New("plugin publisher is not trusted")
 	}
@@ -247,6 +260,14 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 	if err := ValidateDependencies(store, installed.Manifest); err != nil {
 		return err
 	}
+	if enabled {
+		if err := store.verifyInstalledIntegrity(context.Background(), installed); err != nil {
+			return err
+		}
+	}
+	if err := store.writeInstalledTrust(installed, trust); err != nil {
+		return err
+	}
 	manifestDigest, err := ManifestDigest(installed.Manifest)
 	if err != nil {
 		return err
@@ -260,11 +281,6 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 		return err
 	}
 	previous := lock
-	if artifact.HostBacked() && enabled {
-		if err := preflightHostPath(context.Background(), installed.Entrypoint, artifact.Host); err != nil {
-			return err
-		}
-	}
 	lock.Plugins[id] = LockPlugin{Registry: trust.Registry, Publisher: trust.Publisher, Version: version, ManifestDigest: manifestDigest, ArtifactDigest: platformLockDigest(artifact), Enabled: enabled}
 	return store.writeLockAndDesired(previous, lock, func(config *Config) error {
 		return config.SetDesired(id, trust.Registry, version, enabled)
@@ -272,8 +288,11 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 }
 
 func (store *Store) SetEnabled(id PluginID, enabled bool) error {
-	store.mu.Lock()
-	defer store.mu.Unlock()
+	unlock, err := store.lockMutation()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	lock, err := LoadLock(store.layout.LockPath())
 	if err != nil {
 		return err
@@ -309,10 +328,8 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 		if err := ValidateDependencies(store, installed.Manifest); err != nil {
 			return err
 		}
-		if artifact.HostBacked() {
-			if err := preflightHostPath(context.Background(), installed.Entrypoint, artifact.Host); err != nil {
-				return err
-			}
+		if err := store.verifyInstalledIntegrity(context.Background(), installed); err != nil {
+			return err
 		}
 	}
 	entry.Enabled = enabled
@@ -329,8 +346,11 @@ func (store *Store) DisableIfEnabled(id PluginID) (bool, error) {
 	if !validCanonicalName(string(id)) {
 		return false, fmt.Errorf("invalid plugin id: %q", id)
 	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
+	unlock, err := store.lockMutation()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	lock, err := LoadLock(store.layout.LockPath())
 	if err != nil {
 		return false, err
@@ -373,8 +393,11 @@ func (store *Store) writeLockAndDesired(previous, next LockFile, mutate func(*Co
 }
 
 func (store *Store) RemoveVersion(id PluginID, version Version) error {
-	store.mu.Lock()
-	defer store.mu.Unlock()
+	unlock, err := store.lockMutation()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	lock, err := LoadLock(store.layout.LockPath())
 	if err != nil {
 		return err

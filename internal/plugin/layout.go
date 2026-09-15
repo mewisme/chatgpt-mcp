@@ -40,8 +40,11 @@ func (layout Layout) Validate() error {
 	return nil
 }
 
-func (layout Layout) ConfigPath() string  { return filepath.Join(layout.ConfigRoot, "plugins.json") }
-func (layout Layout) LockPath() string    { return filepath.Join(layout.ConfigRoot, "plugins.lock.json") }
+func (layout Layout) ConfigPath() string { return filepath.Join(layout.ConfigRoot, "plugins.json") }
+func (layout Layout) LockPath() string   { return filepath.Join(layout.ConfigRoot, "plugins.lock.json") }
+func (layout Layout) MutationLockPath() string {
+	return filepath.Join(layout.ConfigRoot, "plugins.mutation.lock")
+}
 func (layout Layout) PluginsPath() string { return filepath.Join(layout.DataRoot, "plugins") }
 func (layout Layout) DownloadsPath() string {
 	return filepath.Join(layout.CacheRoot, "plugins", "downloads")

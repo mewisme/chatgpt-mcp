@@ -181,7 +181,11 @@ func (service *PluginService) InstalledDetail(id pluginpkg.PluginID) (PluginDeta
 			}
 		}
 	}
-	return PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: publisher, Installed: true, Enabled: entry.Enabled, SignatureStatus: "verified at install", CoreCompatibility: pluginCoreCompatibility(installed.Manifest)}, nil
+	verification := "verified installed state"
+	if verifyErr := service.Manager.Verify(context.Background(), id); verifyErr != nil {
+		verification = "verification failed: " + verifyErr.Error()
+	}
+	return PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: publisher, Installed: true, Enabled: entry.Enabled, SignatureStatus: verification, CoreCompatibility: pluginCoreCompatibility(installed.Manifest)}, nil
 }
 
 func (service *PluginService) MarketplaceDetail(ctx context.Context, reference string) (PluginDetail, error) {
@@ -275,14 +279,9 @@ func (service *PluginService) AddRegistry(ctx context.Context, name, rawURL stri
 	}
 	span := tracepkg.Start(ctx, "PLUGIN", "plugin.registry.add", "Adding plugin registry", tracepkg.String("registry", strings.TrimSpace(name)), tracepkg.URL("url", rawURL))
 	defer func() { span.Finish(err) }()
-	config, err := pluginpkg.LoadConfig(service.Layout.ConfigPath())
-	if err != nil {
-		return err
-	}
-	if err := config.AddRegistry(name, rawURL, unqualified, trust); err != nil {
-		return err
-	}
-	return pluginpkg.WriteConfig(service.Layout.ConfigPath(), config)
+	return pluginpkg.MutateConfig(service.Layout, func(config *pluginpkg.Config) error {
+		return config.AddRegistry(name, rawURL, unqualified, trust)
+	})
 }
 
 func (service *PluginService) RemoveRegistry(ctx context.Context, name string) (err error) {
@@ -291,14 +290,9 @@ func (service *PluginService) RemoveRegistry(ctx context.Context, name string) (
 	}
 	span := tracepkg.Start(ctx, "PLUGIN", "plugin.registry.remove", "Removing plugin registry", tracepkg.String("registry", strings.TrimSpace(name)))
 	defer func() { span.Finish(err) }()
-	config, err := pluginpkg.LoadConfig(service.Layout.ConfigPath())
-	if err != nil {
-		return err
-	}
-	if err := config.RemoveRegistry(name); err != nil {
-		return err
-	}
-	return pluginpkg.WriteConfig(service.Layout.ConfigPath(), config)
+	return pluginpkg.MutateConfig(service.Layout, func(config *pluginpkg.Config) error {
+		return config.RemoveRegistry(name)
+	})
 }
 
 func pluginCoreCompatibility(manifest pluginpkg.Manifest) string {

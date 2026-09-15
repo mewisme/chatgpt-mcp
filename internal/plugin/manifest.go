@@ -92,8 +92,9 @@ type HostInstallHint struct {
 
 type HostPortableInstall struct {
 	URL           string `json:"url"`
-	ChecksumURL   string `json:"checksum_url"`
-	ChecksumAsset string `json:"checksum_asset"`
+	SHA256        string `json:"sha256,omitempty"`
+	ChecksumURL   string `json:"checksum_url,omitempty"`
+	ChecksumAsset string `json:"checksum_asset,omitempty"`
 	Archive       string `json:"archive"`
 	Entrypoint    string `json:"entrypoint"`
 }
@@ -418,15 +419,25 @@ func validateHostInstallHint(hint HostInstallHint) error {
 }
 
 func validateHostPortable(portable HostPortableInstall) error {
-	if !validHTTPSURL(portable.URL) || !validHTTPSURL(portable.ChecksumURL) {
-		return errors.New("portable URLs must use HTTPS")
+	if !validHTTPSURL(portable.URL) {
+		return errors.New("portable URL must use HTTPS")
 	}
-	if !safeAssetName(portable.ChecksumAsset) {
-		return fmt.Errorf("invalid checksum asset %q", portable.ChecksumAsset)
-	}
-	parsed, _ := url.Parse(portable.URL)
-	if path.Base(parsed.Path) != portable.ChecksumAsset {
-		return fmt.Errorf("portable URL asset %q does not match checksum asset %q", path.Base(parsed.Path), portable.ChecksumAsset)
+	pinned := strings.TrimSpace(portable.SHA256)
+	if pinned != "" {
+		if !validSHA256(pinned) {
+			return errors.New("portable sha256 digest is invalid")
+		}
+	} else {
+		if !validHTTPSURL(portable.ChecksumURL) {
+			return errors.New("portable checksum URL must use HTTPS")
+		}
+		if !safeAssetName(portable.ChecksumAsset) {
+			return fmt.Errorf("invalid checksum asset %q", portable.ChecksumAsset)
+		}
+		parsed, _ := url.Parse(portable.URL)
+		if path.Base(parsed.Path) != portable.ChecksumAsset {
+			return fmt.Errorf("portable URL asset %q does not match checksum asset %q", path.Base(parsed.Path), portable.ChecksumAsset)
+		}
 	}
 	if portable.Archive != "zip" && portable.Archive != "tar.gz" {
 		return fmt.Errorf("unsupported archive type %q", portable.Archive)

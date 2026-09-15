@@ -186,25 +186,28 @@ func (manager Manager) Uninstall(ctx context.Context, id PluginID, force bool) (
 	if manager.Store == nil {
 		return errors.New("plugin store is unavailable")
 	}
-	manager.Store.mu.Lock()
+	unlock, err := manager.Store.lockMutation()
+	if err != nil {
+		return err
+	}
 	lock, err := LoadLock(manager.Store.layout.LockPath())
 	if err != nil {
-		manager.Store.mu.Unlock()
+		unlock()
 		return err
 	}
 	previous := lock
 	entry, ok := lock.Plugins[id]
 	if !ok {
-		manager.Store.mu.Unlock()
+		unlock()
 		return fmt.Errorf("plugin %s is not installed", id)
 	}
 	dependents, err := manager.activeDependents(id, entry.Version, lock)
 	if err != nil {
-		manager.Store.mu.Unlock()
+		unlock()
 		return err
 	}
 	if len(dependents) > 0 && !force {
-		manager.Store.mu.Unlock()
+		unlock()
 		return fmt.Errorf("plugin %s is required by active plugin %s; use --force to uninstall", id, dependents[0])
 	}
 	for _, dependentID := range dependents {
@@ -223,10 +226,10 @@ func (manager Manager) Uninstall(ctx context.Context, id PluginID, force bool) (
 		}
 		return nil
 	}); err != nil {
-		manager.Store.mu.Unlock()
+		unlock()
 		return err
 	}
-	manager.Store.mu.Unlock()
+	unlock()
 	return manager.Store.RemoveVersion(id, entry.Version)
 }
 
@@ -277,6 +280,10 @@ func (manager Manager) Verify(ctx context.Context, id PluginID) (err error) {
 	if err != nil {
 		return err
 	}
+	record, err := manager.Store.readInstalledTrust(installed)
+	if err != nil {
+		return err
+	}
 	digest, err := ManifestDigest(installed.Manifest)
 	if err != nil {
 		return err
@@ -291,12 +298,10 @@ func (manager Manager) Verify(ctx context.Context, id PluginID) (err error) {
 	if entry.ArtifactDigest != platformLockDigest(artifact) {
 		return errors.New("plugin artifact lock integrity verification failed")
 	}
-	if artifact.HostBacked() {
-		if err := preflightHostPath(ctx, installed.Entrypoint, artifact.Host); err != nil {
-			return err
-		}
+	if record.Registry != entry.Registry || record.Publisher != entry.Publisher || record.ManifestDigest != entry.ManifestDigest || record.ArtifactDigest != entry.ArtifactDigest {
+		return errors.New("plugin install trust does not match active lock state")
 	}
-	return nil
+	return manager.Store.verifyInstalledIntegrity(ctx, installed)
 }
 
 func (manager Manager) Outdated(ctx context.Context) (result []OutdatedPlugin, err error) {
@@ -557,19 +562,42 @@ func (manager Manager) Rollback(ctx context.Context, id PluginID, target Version
 	if installed.Manifest.Publisher != entry.Publisher {
 		return InstallResult{}, fmt.Errorf("rollback publisher %q does not match active publisher %q", installed.Manifest.Publisher, entry.Publisher)
 	}
-	active, err := manager.Store.Installed(id, entry.Version)
+	record, err := manager.Store.readInstalledTrust(installed)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return InstallResult{}, err
+		}
+		active, activeErr := manager.Store.Installed(id, entry.Version)
+		if activeErr != nil {
+			return InstallResult{}, activeErr
+		}
+		resolved, resolveErr := manager.Resolve(ctx, entry.Registry+"/"+string(id)+"@"+string(target))
+		if resolveErr != nil {
+			return InstallResult{}, resolveErr
+		}
+		return manager.installResolvedWithOptions(ctx, resolved, true, entry.Enabled, installOptionsForInstalled(active))
+	}
+	if record.Publisher != entry.Publisher || record.Registry != entry.Registry {
+		return InstallResult{}, errors.New("rollback trust metadata does not match active plugin source")
+	}
+	if err := manager.Store.verifyInstalledIntegrity(ctx, installed); err != nil {
 		return InstallResult{}, err
 	}
-	resolved, err := manager.Resolve(ctx, entry.Registry+"/"+string(id)+"@"+string(target))
-	if err != nil {
+	if err := manager.Store.ActivateWithState(id, target, ActivationTrust{Registry: record.Registry, Publisher: record.Publisher, Trusted: true}, entry.Enabled); err != nil {
 		return InstallResult{}, err
 	}
-	result, err = manager.installResolvedWithOptions(ctx, resolved, true, entry.Enabled, installOptionsForInstalled(active))
-	if err != nil {
-		return InstallResult{}, err
+	registry := Registry{Name: record.Registry}
+	if record.Registry == OfficialRegistryName {
+		registry = OfficialRegistry()
+	} else if config, configErr := LoadConfig(manager.Store.layout.ConfigPath()); configErr == nil {
+		for _, candidate := range config.AllRegistries() {
+			if candidate.Name == record.Registry {
+				registry = candidate
+				break
+			}
+		}
 	}
-	return result, nil
+	return InstallResult{Plugin: installed, Registry: registry, Publisher: Publisher{Name: record.Publisher, Trusted: true}}, nil
 }
 
 func (manager Manager) previousVersion(id PluginID, active Version) (Version, error) {
@@ -695,19 +723,22 @@ func (manager Manager) downloadArtifact(ctx context.Context, baseURL string, art
 }
 
 func (manager Manager) preparePortableHost(ctx context.Context, portable HostPortableInstall) (string, error) {
-	if !validHTTPSURL(portable.URL) || !validHTTPSURL(portable.ChecksumURL) {
-		return "", errors.New("portable URLs must use HTTPS")
+	if err := validateHostPortable(portable); err != nil {
+		return "", err
 	}
 	if err := os.MkdirAll(manager.Store.layout.CacheRoot, 0700); err != nil {
 		return "", err
 	}
-	checksumData, err := manager.downloadPortableBytes(ctx, portable.ChecksumURL, 1<<20)
-	if err != nil {
-		return "", fmt.Errorf("download checksum manifest: %w", err)
-	}
-	expected, err := checksumForAsset(string(checksumData), portable.ChecksumAsset)
-	if err != nil {
-		return "", err
+	expected := strings.ToLower(strings.TrimSpace(portable.SHA256))
+	if expected == "" {
+		checksumData, err := manager.downloadPortableBytes(ctx, portable.ChecksumURL, 1<<20)
+		if err != nil {
+			return "", fmt.Errorf("download checksum manifest: %w", err)
+		}
+		expected, err = checksumForAsset(string(checksumData), portable.ChecksumAsset)
+		if err != nil {
+			return "", err
+		}
 	}
 	archivePath, err := manager.downloadPortableFile(ctx, portable.URL, expected)
 	if err != nil {

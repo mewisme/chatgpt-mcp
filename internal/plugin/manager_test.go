@@ -345,6 +345,59 @@ func TestManagerRollbackRefetchesRetainedVersionBeforeActivation(t *testing.T) {
 	}
 }
 
+func TestManagerVerifyAndReconcileDetectPackagedPayloadTamper(t *testing.T) {
+	store := testStore(t)
+	manifest := testManifest("demo", "1.0.0", "formatter/demo")
+	installed, err := store.Install(manifest, testPayload(t, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Activate("demo", "1.0.0", ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed.Entrypoint, []byte("tampered"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	manager := Manager{Store: store}
+	if err := manager.Verify(context.Background(), "demo"); err == nil || !strings.Contains(err.Error(), "packaged payload integrity verification failed") {
+		t.Fatalf("tampered payload verify error = %v", err)
+	}
+	report, err := Reconcile(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Disabled) != 1 || report.Disabled[0] != "demo" || !strings.Contains(report.Issues["demo"], "packaged payload integrity verification failed") {
+		t.Fatalf("tampered payload reconcile report = %#v", report)
+	}
+}
+
+func TestManagerRollbackUsesRetainedVerifiedStateOffline(t *testing.T) {
+	store := testStore(t)
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	for _, version := range []string{"1.0.0", "2.0.0"} {
+		if _, err := store.Install(testManifest("bash", version, "shell/bash"), testPayload(t, "bash")); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Activate("bash", Version(version), trust); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := (&Manager{Store: store}).Rollback(context.Background(), "bash", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Plugin.Manifest.Version != "1.0.0" || result.Registry.Name != OfficialRegistryName || result.Publisher.Name != "mewisme" {
+		t.Fatalf("offline rollback result = %#v", result)
+	}
+	lock, err := LoadLock(store.layout.LockPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lock.Plugins["bash"].Version != "1.0.0" || !lock.Plugins["bash"].Enabled {
+		t.Fatalf("offline rollback lock = %#v", lock.Plugins["bash"])
+	}
+}
+
 func TestParseReference(t *testing.T) {
 	registry, id, version, err := ParseReference("community/bash@1.2.3")
 	if err != nil || registry != "community" || id != "bash" || version != "1.2.3" {

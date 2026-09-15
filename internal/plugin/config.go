@@ -50,6 +50,27 @@ func LoadConfig(path string) (Config, error) {
 	return config, nil
 }
 
+func MutateConfig(layout Layout, mutate func(*Config) error) error {
+	if err := layout.Validate(); err != nil {
+		return err
+	}
+	lock, err := acquireMutationFileLock(layout.MutationLockPath())
+	if err != nil {
+		return err
+	}
+	defer lock.release()
+	config, err := LoadConfig(layout.ConfigPath())
+	if err != nil {
+		return err
+	}
+	if mutate != nil {
+		if err := mutate(&config); err != nil {
+			return err
+		}
+	}
+	return WriteConfig(layout.ConfigPath(), config)
+}
+
 func WriteConfig(path string, config Config) error {
 	if err := config.Validate(); err != nil {
 		return err

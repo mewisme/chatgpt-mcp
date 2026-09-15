@@ -99,6 +99,41 @@ func TestProviderResolverWindowsDoesNotTreatWSLBashAsGitBash(t *testing.T) {
 	}
 }
 
+func TestProviderResolverPOSIXFallsBackToBashPlugin(t *testing.T) {
+	root := t.TempDir()
+	layout := pluginpkg.Layout{ConfigRoot: filepath.Join(root, "config"), DataRoot: filepath.Join(root, "data"), CacheRoot: filepath.Join(root, "cache")}
+	store, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := filepath.Join(root, "payload")
+	entrypoint := filepath.Join(payload, "bin", "bash")
+	if err := os.MkdirAll(filepath.Dir(entrypoint), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(entrypoint, []byte("bash"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := pluginpkg.Manifest{Schema: pluginpkg.ManifestSchema, ID: "bash", Name: "Bash Runtime", Publisher: "mewisme", Version: "1.0.0", Type: "runtime", Provides: []pluginpkg.Capability{bashCapability}, Permissions: []pluginpkg.Permission{pluginpkg.PermissionProcessExecute}, Platforms: map[string]pluginpkg.PlatformArtifact{"linux/amd64": {Artifact: "bash.tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: "bin/bash"}}}
+	installed, err := store.Install(manifest, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Activate("bash", "1.0.0", pluginpkg.ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}); err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewProviderResolver(store)
+	resolver.goos = "linux"
+	resolver.lookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	provider, err := resolver.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.Source != "plugin" || provider.PluginID != "bash" || filepath.Clean(provider.Executable) != filepath.Clean(installed.Entrypoint) {
+		t.Fatalf("POSIX plugin provider = %#v", provider)
+	}
+}
+
 func TestProviderResolverWindowsNeverFallsBackToPowerShell(t *testing.T) {
 	root := t.TempDir()
 	layout := pluginpkg.Layout{ConfigRoot: filepath.Join(root, "config"), DataRoot: filepath.Join(root, "data"), CacheRoot: filepath.Join(root, "cache")}

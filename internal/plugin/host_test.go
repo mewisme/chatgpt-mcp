@@ -37,6 +37,11 @@ func TestOfficialRTKManifestUsesDeclarativeHostContract(t *testing.T) {
 	if len(artifact.Host.Install) == 0 || len(artifact.Host.Checks) < 2 {
 		t.Fatalf("official RTK host metadata = %#v", artifact.Host)
 	}
+	for platform, candidate := range manifest.Platforms {
+		if candidate.Host == nil || candidate.Host.Portable == nil || !validSHA256(candidate.Host.Portable.SHA256) || strings.Contains(candidate.Host.Portable.URL, "/latest/") || !strings.Contains(candidate.Host.Portable.URL, "/releases/download/v0.49.0/") {
+			t.Fatalf("official RTK portable metadata for %s is not pinned: %#v", platform, candidate.Host)
+		}
+	}
 	windows := manifest.Platforms["windows/amd64"]
 	if windows.Host == nil || !hasInstallHint(windows.Host.Install, "winget install rtk-ai.rtk") {
 		t.Fatalf("official RTK Windows install hints = %#v", windows.Host)

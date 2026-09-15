@@ -55,12 +55,9 @@ func extractPluginZip(archivePath, destination string) error {
 		if mode&os.ModeSymlink != 0 || !mode.IsRegular() && !mode.IsDir() {
 			return fmt.Errorf("plugin archive contains unsupported entry type: %s", name)
 		}
-		if entry.UncompressedSize64 > uint64(maxPluginExtractedBytes) {
-			return fmt.Errorf("plugin archive entry is too large: %s", name)
-		}
-		total += int64(entry.UncompressedSize64)
-		if total > maxPluginExtractedBytes {
-			return errors.New("plugin archive exceeds extracted size limit")
+		total, err = addExtractedBytes(total, int64(entry.UncompressedSize64), name)
+		if err != nil {
+			return err
 		}
 		target := filepath.Join(destination, filepath.FromSlash(name))
 		if mode.IsDir() {
@@ -133,12 +130,9 @@ func extractPluginTar(archivePath, destination string) error {
 		default:
 			return fmt.Errorf("plugin archive contains unsupported entry type: %s", name)
 		}
-		if header.Size < 0 || header.Size > maxPluginExtractedBytes {
-			return fmt.Errorf("plugin archive entry has invalid size: %s", name)
-		}
-		total += header.Size
-		if total > maxPluginExtractedBytes {
-			return errors.New("plugin archive exceeds extracted size limit")
+		total, err = addExtractedBytes(total, header.Size, name)
+		if err != nil {
+			return err
 		}
 		target := filepath.Join(destination, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
@@ -149,6 +143,16 @@ func extractPluginTar(archivePath, destination string) error {
 		}
 	}
 	return nil
+}
+
+func addExtractedBytes(total, size int64, name string) (int64, error) {
+	if size < 0 || size > maxPluginExtractedBytes {
+		return 0, fmt.Errorf("plugin archive entry has invalid size: %s", name)
+	}
+	if total > maxPluginExtractedBytes-size {
+		return 0, errors.New("plugin archive exceeds extracted size limit")
+	}
+	return total + size, nil
 }
 
 func safePluginArchivePath(name string) (string, error) {

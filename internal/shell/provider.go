@@ -119,25 +119,40 @@ func (resolver *ProviderResolver) Resolve() (Provider, error) {
 			}
 			return bashProvider(executable, "system", "", ""), nil
 		}
-		if store != nil {
-			plugins, err := pluginpkg.NewResolver(store)
-			if err != nil {
-				return Provider{}, fmt.Errorf("resolve Bash plugin capability: %w", err)
-			}
-			provider, err := plugins.Resolve(bashCapability)
-			if err == nil {
-				return bashProvider(provider.Path, "plugin", provider.PluginID, provider.Version), nil
-			}
-			if !errors.Is(err, pluginpkg.ErrCapabilityNotFound) {
-				return Provider{}, err
-			}
+		if provider, found, err := resolveBashPlugin(store); err != nil {
+			return Provider{}, err
+		} else if found {
+			return provider, nil
 		}
 		return Provider{}, missingBashError(goos)
 	}
 	if executable, err := lookPath("bash"); err == nil {
 		return bashProvider(executable, "system", "", ""), nil
 	}
+	if provider, found, err := resolveBashPlugin(store); err != nil {
+		return Provider{}, err
+	} else if found {
+		return provider, nil
+	}
 	return Provider{}, missingBashError(goos)
+}
+
+func resolveBashPlugin(store *pluginpkg.Store) (Provider, bool, error) {
+	if store == nil {
+		return Provider{}, false, nil
+	}
+	plugins, err := pluginpkg.NewResolver(store)
+	if err != nil {
+		return Provider{}, false, fmt.Errorf("resolve Bash plugin capability: %w", err)
+	}
+	provider, err := plugins.Resolve(bashCapability)
+	if err == nil {
+		return bashProvider(provider.Path, "plugin", provider.PluginID, provider.Version), true, nil
+	}
+	if errors.Is(err, pluginpkg.ErrCapabilityNotFound) {
+		return Provider{}, false, nil
+	}
+	return Provider{}, false, err
 }
 
 func windowsGitBash(lookPath func(string) (string, error)) (string, error) {

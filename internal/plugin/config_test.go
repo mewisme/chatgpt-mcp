@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestConfigRegistryLifecycle(t *testing.T) {
@@ -61,6 +62,53 @@ func TestConfigDesiredStateIsPortableAndProtectsRegistry(t *testing.T) {
 	desired := loaded.Desired["formatter"]
 	if desired.Registry != "community" || desired.Version != "1.2.3" || desired.Enabled {
 		t.Fatalf("desired state = %#v", desired)
+	}
+}
+
+func TestMutateConfigSerializesAcrossStoreInstances(t *testing.T) {
+	root := t.TempDir()
+	layout := Layout{ConfigRoot: filepath.Join(root, "config"), DataRoot: filepath.Join(root, "data"), CacheRoot: filepath.Join(root, "cache")}
+	trust := SigstoreIdentity{Issuer: OfficialSigstoreIssuer, Repository: "example/plugins"}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- MutateConfig(layout, func(config *Config) error {
+			close(entered)
+			<-release
+			return config.AddRegistry("one", "https://one.example.test", false, trust)
+		})
+	}()
+	<-entered
+	secondEntered := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- MutateConfig(layout, func(config *Config) error {
+			close(secondEntered)
+			return config.AddRegistry("two", "https://two.example.test", false, trust)
+		})
+	}()
+	select {
+	case <-secondEntered:
+		t.Fatal("second plugin mutation entered while first mutation lock was held")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+	config, err := LoadConfig(layout.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := config.Registries["one"]; !ok {
+		t.Fatal("first serialized registry mutation was lost")
+	}
+	if _, ok := config.Registries["two"]; !ok {
+		t.Fatal("second serialized registry mutation was lost")
 	}
 }
 

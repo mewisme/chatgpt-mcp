@@ -20,8 +20,11 @@ func Reconcile(store *Store) (ReconcileReport, error) {
 	if store == nil {
 		return ReconcileReport{}, errors.New("plugin store is unavailable")
 	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
+	unlock, err := store.lockMutation()
+	if err != nil {
+		return ReconcileReport{}, err
+	}
+	defer unlock()
 	lock, err := LoadLock(store.layout.LockPath())
 	if err != nil {
 		if !errors.Is(err, ErrLockCorrupt) {
@@ -110,10 +113,15 @@ func reconcileLockEntry(store *Store, id PluginID, entry LockPlugin) (Manifest, 
 	if entry.ArtifactDigest != platformLockDigest(artifact) {
 		return Manifest{}, errors.New("plugin artifact lock integrity verification failed")
 	}
-	if artifact.HostBacked() {
-		if err := preflightHostPath(context.Background(), installed.Entrypoint, artifact.Host); err != nil {
-			return Manifest{}, err
-		}
+	record, err := store.readInstalledTrust(installed)
+	if err != nil {
+		return Manifest{}, err
+	}
+	if record.Registry != entry.Registry || record.Publisher != entry.Publisher || record.ManifestDigest != entry.ManifestDigest || record.ArtifactDigest != entry.ArtifactDigest {
+		return Manifest{}, errors.New("plugin install trust does not match active lock state")
+	}
+	if err := store.verifyInstalledIntegrity(context.Background(), installed); err != nil {
+		return Manifest{}, err
 	}
 	compatible, err := pluginCoreCompatible(store, installed.Manifest)
 	if err != nil {

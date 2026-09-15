@@ -28,6 +28,7 @@ const (
 	PluginRollback       PluginCommand = "plugin.rollback"
 	PluginPrune          PluginCommand = "plugin.prune"
 	PluginUninstall      PluginCommand = "plugin.uninstall"
+	PluginForceUninstall PluginCommand = "plugin.uninstall.force"
 	PluginEnable         PluginCommand = "plugin.enable"
 	PluginDisable        PluginCommand = "plugin.disable"
 	PluginVerify         PluginCommand = "plugin.verify"
@@ -562,7 +563,7 @@ func (page *PluginPage) rowActions() []component.RowAction {
 		return []component.RowAction{command("d", "remove", PluginRegistryRemove, func(row component.Row) bool { return row.ID != pluginpkg.OfficialRegistryName })}
 	default:
 		return []component.RowAction{
-			command("space", "toggle", PluginEnable, nil), command("u", "update", PluginUpdate, nil), command("b", "rollback", PluginRollback, nil), command("p", "prune", PluginPrune, nil), command("v", "verify", PluginVerify, nil), command("d", "uninstall", PluginUninstall, nil),
+			command("space", "toggle", PluginEnable, nil), command("u", "update", PluginUpdate, nil), command("b", "rollback", PluginRollback, nil), command("p", "prune", PluginPrune, nil), command("v", "verify", PluginVerify, nil), command("d", "uninstall", PluginUninstall, nil), command("D", "force uninstall", PluginForceUninstall, nil),
 		}
 	}
 }
@@ -672,12 +673,12 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 				_, msg.err = page.service.Prune(id)
 			}
 			msg.notice = "Plugin versions pruned"
-		case PluginUninstall:
+		case PluginUninstall, PluginForceUninstall:
 			id, err := pluginID(target)
 			if err != nil {
 				msg.err = err
 			} else {
-				msg.err = page.service.Uninstall(ctx, id, false)
+				msg.err = page.service.Uninstall(ctx, id, command == PluginForceUninstall)
 			}
 			msg.notice = "Plugin uninstalled"
 		case PluginEnable, PluginDisable:
@@ -726,7 +727,7 @@ func (page *PluginPage) finishOperation(msg pluginOperationMsg) tea.Cmd {
 		return nil
 	}
 	page.notice = msg.notice
-	if msg.command == PluginUninstall && page.resourceID != "" && page.section == "" {
+	if (msg.command == PluginUninstall || msg.command == PluginForceUninstall) && page.resourceID != "" && page.section == "" {
 		return func() tea.Msg { return NavigateMsg{Path: []string{"plugins"}, Replace: true} }
 	}
 	if msg.command == PluginRegistryRemove && page.resourceID != "" {
@@ -859,6 +860,8 @@ func (page *PluginPage) operationTitle(command PluginCommand) string {
 		return "Pruning plugin versions"
 	case PluginUninstall:
 		return "Uninstalling plugin"
+	case PluginForceUninstall:
+		return "Force uninstalling plugin"
 	case PluginEnable:
 		return "Enabling plugin"
 	case PluginDisable:
@@ -884,6 +887,8 @@ func (page *PluginPage) confirmAffirmative() string {
 		return "Prune"
 	case PluginUninstall:
 		return "Uninstall"
+	case PluginForceUninstall:
+		return "Force uninstall"
 	case PluginEnable:
 		return "Enable"
 	case PluginDisable:
@@ -909,11 +914,13 @@ func (page *PluginPage) confirmDescription() string {
 	case PluginUpdate:
 		return "Install the latest stable signed version and atomically switch the active plugin: " + page.targetID
 	case PluginRollback:
-		return "Re-fetch, re-verify, and activate the newest retained version older than the current plugin: " + page.targetID
+		return "Verify and activate the newest retained version older than the current plugin: " + page.targetID
 	case PluginPrune:
 		return "Keep the active version and the default rollback retention, removing older inactive versions for plugin " + page.targetID + "."
 	case PluginUninstall:
 		return "Disable and remove the active plugin version: " + page.targetID + ". Active dependents will prevent removal."
+	case PluginForceUninstall:
+		return "Force removal of plugin " + page.targetID + ". Active dependents will be disabled before the provider is removed."
 	case PluginEnable:
 		return "Enable plugin " + page.targetID + " after revalidating integrity, compatibility, and dependencies."
 	case PluginDisable:
@@ -963,6 +970,7 @@ func (page *PluginPage) syncPluginDetail() {
 			component.DetailPageBinding{Key: "p", Desc: "prune", Message: PluginCommandMsg{Command: PluginPrune, TargetID: string(manifest.ID)}},
 			component.DetailPageBinding{Key: "v", Desc: "verify", Message: PluginCommandMsg{Command: PluginVerify, TargetID: string(manifest.ID)}},
 			component.DetailPageBinding{Key: "d", Desc: "uninstall", Message: PluginCommandMsg{Command: PluginUninstall, TargetID: string(manifest.ID)}},
+			component.DetailPageBinding{Key: "D", Desc: "force uninstall", Message: PluginCommandMsg{Command: PluginForceUninstall, TargetID: string(manifest.ID)}},
 		)
 	} else {
 		bindings = append(bindings, component.DetailPageBinding{Key: "i", Desc: "install", Message: PluginCommandMsg{Command: PluginInstall, TargetID: detail.Reference}})

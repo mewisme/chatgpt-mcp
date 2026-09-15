@@ -1,5 +1,16 @@
 {
   "schema": 1,
   "generated_at": "2026-09-15T00:00:00Z",
-  "plugins": {}
+  "plugins": {
+    "bash": {
+      "publisher": "mewisme",
+      "name": "Bash Runtime",
+      "description": "Portable Bash runtime for ChatGPT MCP on Windows",
+      "type": "runtime",
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "bash-1.0.0.json"
+      }
+    }
+  }
 }

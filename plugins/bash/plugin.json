@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "bash",
+  "name": "Bash Runtime",
+  "publisher": "mewisme",
+  "version": "1.0.0",
+  "type": "runtime",
+  "requires": {
+    "chatgpt-mcp": ">=0.2.24"
+  },
+  "provides": [
+    "shell/bash"
+  ],
+  "permissions": [
+    "process/execute"
+  ],
+  "platforms": {
+    "windows/amd64": {
+      "artifact": "bash-1.0.0-windows-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "usr/bin/bash.exe"
+    }
+  }
+}

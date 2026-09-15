@@ -229,32 +229,43 @@ func adminProfileView(admin tunnel.AdminConfig) TunnelAdminProfile {
 	return TunnelAdminProfile{ID: admin.ID, KeyConfigured: admin.AdminKey != "", OrganizationID: admin.OrganizationID, WorkspaceID: admin.WorkspaceID, TenantID: admin.TenantID, ReadAccess: admin.ReadAccess, ManageAccess: admin.ManageAccess, ControlPlaneBaseURL: admin.ControlPlaneBaseURL}
 }
 
-func AddTunnelAdminProfile(ctx context.Context, admin tunnel.AdminConfig) (TunnelAdminProfile, error) {
+func AddTunnelAdminProfile(ctx context.Context, admin tunnel.AdminConfig) (TunnelAdminProfile, int, error) {
 	admin.ID = strings.TrimSpace(admin.ID)
 	if admin.ID == "" {
-		return TunnelAdminProfile{}, errors.New("admin profile id is required")
+		return TunnelAdminProfile{}, 0, errors.New("admin profile id is required")
+	}
+	if strings.TrimSpace(admin.AdminKey) == "" {
+		return TunnelAdminProfile{}, 0, errors.New("admin key is required")
+	}
+	if err := tunnel.ValidateAdminScope(tunnel.AdminScope{OrganizationID: admin.OrganizationID, WorkspaceID: admin.WorkspaceID, TenantID: admin.TenantID}); err != nil {
+		return TunnelAdminProfile{}, 0, err
 	}
 	previous, err := config.Load()
 	if err != nil {
-		return TunnelAdminProfile{}, err
+		return TunnelAdminProfile{}, 0, err
 	}
 	collection := previous.RuntimeTunnels()
 	for _, existing := range collection.Admins {
 		if existing.ID == admin.ID {
-			return TunnelAdminProfile{}, fmt.Errorf("admin profile %q already exists", admin.ID)
+			return TunnelAdminProfile{}, 0, fmt.Errorf("admin profile %q already exists", admin.ID)
 		}
 	}
+	access, count, err := tunnel.VerifyAdminProfile(ctx, admin)
+	if err != nil {
+		return TunnelAdminProfile{}, 0, err
+	}
+	admin.ReadAccess, admin.ManageAccess = access.Read, access.Manage
 	collection.Admins = append(collection.Admins, admin)
 	if err := saveTunnelCollection(ctx, previous, collection); err != nil {
-		return TunnelAdminProfile{}, err
+		return TunnelAdminProfile{}, 0, err
 	}
-	return adminProfileView(admin), nil
+	return adminProfileView(admin), count, nil
 }
 
-func UpdateTunnelAdminProfile(ctx context.Context, admin tunnel.AdminConfig) (TunnelAdminProfile, error) {
+func UpdateTunnelAdminProfile(ctx context.Context, admin tunnel.AdminConfig) (TunnelAdminProfile, int, error) {
 	previous, err := config.Load()
 	if err != nil {
-		return TunnelAdminProfile{}, err
+		return TunnelAdminProfile{}, 0, err
 	}
 	collection := previous.RuntimeTunnels()
 	for i, existing := range collection.Admins {
@@ -263,15 +274,25 @@ func UpdateTunnelAdminProfile(ctx context.Context, admin tunnel.AdminConfig) (Tu
 		}
 		if admin.AdminKey == "" {
 			admin.AdminKey = existing.AdminKey
-			admin.ReadAccess, admin.ManageAccess = existing.ReadAccess, existing.ManageAccess
 		}
+		if strings.TrimSpace(admin.ControlPlaneBaseURL) == "" {
+			admin.ControlPlaneBaseURL = existing.ControlPlaneBaseURL
+		}
+		if err := tunnel.ValidateAdminScope(tunnel.AdminScope{OrganizationID: admin.OrganizationID, WorkspaceID: admin.WorkspaceID, TenantID: admin.TenantID}); err != nil {
+			return TunnelAdminProfile{}, 0, err
+		}
+		access, count, err := tunnel.VerifyAdminProfile(ctx, admin)
+		if err != nil {
+			return TunnelAdminProfile{}, 0, err
+		}
+		admin.ReadAccess, admin.ManageAccess = access.Read, access.Manage
 		collection.Admins[i] = admin
 		if err := saveTunnelCollection(ctx, previous, collection); err != nil {
-			return TunnelAdminProfile{}, err
+			return TunnelAdminProfile{}, 0, err
 		}
-		return adminProfileView(admin), nil
+		return adminProfileView(admin), count, nil
 	}
-	return TunnelAdminProfile{}, fmt.Errorf("admin profile %q not found", admin.ID)
+	return TunnelAdminProfile{}, 0, fmt.Errorf("admin profile %q not found", admin.ID)
 }
 
 func RemoveTunnelAdminProfile(ctx context.Context, id string) error {

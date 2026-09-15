@@ -87,9 +87,9 @@ func TestTunnelAdminProfileAndManagedLifecycle(t *testing.T) {
 	}))
 	defer server.Close()
 	setupTunnelApplicationRoot(t, tunnel.Config{})
-	profile, err := AddTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "work", AdminKey: "admin-secret", WorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL})
-	if err != nil || !profile.KeyConfigured {
-		t.Fatalf("profile=%#v err=%v", profile, err)
+	profile, count, err := AddTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "work", AdminKey: "admin-secret", WorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL})
+	if err != nil || !profile.KeyConfigured || count != 1 || !profile.ReadAccess || !profile.ManageAccess {
+		t.Fatalf("profile=%#v count=%d err=%v", profile, count, err)
 	}
 	verified, count, err := VerifyTunnelAdminProfile(t.Context(), "work")
 	if err != nil || count != 1 || !verified.ReadAccess || !verified.ManageAccess {
@@ -264,26 +264,67 @@ func TestUpdateLocalTunnelPreservesRuntimeKeyAndMutatesOnlyTarget(t *testing.T) 
 }
 
 func TestUpdateTunnelAdminProfilePreservesKeyAndAccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer admin-secret" {
+			t.Fatalf("authorization=%q", r.Header.Get("Authorization"))
+		}
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels" {
+			t.Fatalf("unexpected request=%s %s", r.Method, r.URL.Path)
+		}
+		if r.URL.Query().Get("organization_id") != "org_new" {
+			t.Fatalf("scope query=%s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"tunnels":[{"id":"tunnel_one","name":"One","description":"First"}]}`))
+	}))
+	defer server.Close()
 	setupTunnelApplicationRoot(t, tunnel.Config{})
-	saveTunnelCollectionFixture(t, nil, []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", OrganizationID: "org_old", WorkspaceID: "ws_old", ReadAccess: true, ManageAccess: true}})
+	saveTunnelCollectionFixture(t, nil, []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", OrganizationID: "org_old", ReadAccess: true, ManageAccess: true, ControlPlaneBaseURL: server.URL}})
 
-	updated, err := UpdateTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "work", OrganizationID: "org_new", WorkspaceID: "ws_new"})
+	updated, count, err := UpdateTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "work", OrganizationID: "org_new"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.ID != "work" || !updated.KeyConfigured || !updated.ReadAccess || !updated.ManageAccess || updated.OrganizationID != "org_new" || updated.WorkspaceID != "ws_new" {
-		t.Fatalf("updated=%#v", updated)
+	if updated.ID != "work" || !updated.KeyConfigured || !updated.ReadAccess || !updated.ManageAccess || updated.OrganizationID != "org_new" || updated.WorkspaceID != "" || count != 1 {
+		t.Fatalf("updated=%#v count=%d", updated, count)
 	}
 	loaded, err := config.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	admins := loaded.RuntimeTunnels().Admins
-	if len(admins) != 1 || admins[0].AdminKey != "admin-secret" || !admins[0].ReadAccess || !admins[0].ManageAccess || admins[0].OrganizationID != "org_new" {
+	if len(admins) != 1 || admins[0].AdminKey != "admin-secret" || !admins[0].ReadAccess || !admins[0].ManageAccess || admins[0].OrganizationID != "org_new" || admins[0].WorkspaceID != "" {
 		t.Fatalf("admins=%#v", admins)
 	}
-	if _, err := UpdateTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "missing"}); err == nil || !strings.Contains(err.Error(), "not found") {
+	if _, _, err := UpdateTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "missing"}); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("missing update err=%v", err)
+	}
+}
+
+func TestAddTunnelAdminProfileRequiresVerifyBeforeSave(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"bad key"}`))
+	}))
+	defer server.Close()
+	setupTunnelApplicationRoot(t, tunnel.Config{})
+	_, _, err := AddTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "work", AdminKey: "bad-secret", WorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL})
+	if err == nil {
+		t.Fatal("add unexpectedly succeeded")
+	}
+	loaded, loadErr := config.Load()
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if admins := loaded.RuntimeTunnels().Admins; len(admins) != 0 {
+		t.Fatalf("failed verify still persisted admins=%#v", admins)
+	}
+	retry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"tunnels":[]}`))
+	}))
+	defer retry.Close()
+	profile, count, err := AddTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "work", AdminKey: "admin-secret", WorkspaceID: "ws_admin", ControlPlaneBaseURL: retry.URL})
+	if err != nil || profile.ID != "work" || count != 0 || !profile.ReadAccess {
+		t.Fatalf("retry profile=%#v count=%d err=%v", profile, count, err)
 	}
 }
 

@@ -350,19 +350,11 @@ func (page *TunnelAdminsPage) submitEditor() tea.Cmd {
 		msg := tunnelAdminResultMsg{id: admin.ID}
 		if create {
 			msg.command = TunnelAdminAdd
-			if _, err := application.AddTunnelAdminProfile(ctx, admin); err != nil {
-				msg.err = err
-				return msg
-			}
+			msg.item, msg.count, msg.err = application.AddTunnelAdminProfile(ctx, admin)
 		} else {
 			msg.command = TunnelAdminUpdate
-			if _, err := application.UpdateTunnelAdminProfile(ctx, admin); err != nil {
-				msg.err = err
-				return msg
-			}
+			msg.item, msg.count, msg.err = application.UpdateTunnelAdminProfile(ctx, admin)
 		}
-		verified, count, err := application.VerifyTunnelAdminProfile(ctx, admin.ID)
-		msg.item, msg.count, msg.err = verified, count, err
 		return msg
 	}
 }

@@ -61,9 +61,9 @@ func newTunnelAdminProfileEditor(profile application.TunnelAdminProfile, create 
 	if create {
 		primary = "add"
 	}
-	title, description := "Admin Profile", "Update this management credential. Verification runs after save."
+	title, description := "Admin Profile", "Update this management credential. Changes are verified before they are saved."
 	if create {
-		title, description = "Admin Profile", "Add a named OpenAI admin credential. Verification runs after save."
+		title, description = "Admin Profile", "Add a named OpenAI admin credential. Verification must succeed before the profile is saved."
 	}
 	editor := component.NewEditor(primary, component.EditorSection{ID: "profile", Title: title, Description: description, Form: component.NewEditorForm(component.Group(fields...))})
 	return editor, data

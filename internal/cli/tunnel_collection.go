@@ -318,11 +318,12 @@ func tunnelAdminAddProfileCommand() *cobra.Command {
 		if err := tunnel.ValidateAdminScope(tunnel.AdminScope{OrganizationID: admin.OrganizationID, WorkspaceID: admin.WorkspaceID, TenantID: admin.TenantID}); err != nil {
 			return err
 		}
-		item, err := application.AddTunnelAdminProfile(cmd.Context(), admin)
+		item, count, err := application.AddTunnelAdminProfile(cmd.Context(), admin)
 		if err != nil {
 			return err
 		}
 		commandLogger(cmd).Success("TUNNEL", "Admin profile added", "profile", item.ID)
+		commandLogger(cmd).Detail("tunnels", count)
 		return nil
 	}}
 	cmd.Flags().StringVar(&adminKey, "admin-key", "", "OpenAI admin API key")

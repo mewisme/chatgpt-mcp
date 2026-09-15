@@ -295,6 +295,11 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, model.showToast("MCP", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
+	case tuipage.PluginCommandMsg:
+		if err := model.ensurePluginPage(msg.Command, msg.TargetID); err != nil {
+			return model, model.showToast("Plugins", err.Error(), component.ToneDanger)
+		}
+		return model.updatePage(msg)
 	case tuipage.TunnelCommandMsg:
 		if err := model.ensureTunnelPage(msg.Command, msg.ResourceID); err != nil {
 			return model, model.showToast("Tunnel", err.Error(), component.ToneDanger)
@@ -1252,6 +1257,30 @@ func (model *Model) ensureMCPPage(resourceID string) error {
 	}
 	if model.currentPage == nil {
 		return fmt.Errorf("MCP page is unavailable")
+	}
+	return nil
+}
+
+func (model *Model) ensurePluginPage(command tuipage.PluginCommand, targetID string) error {
+	section := ""
+	forceSection := false
+	switch command {
+	case tuipage.PluginInstall:
+		section = "marketplace"
+		forceSection = true
+	case tuipage.PluginRegistryRemove:
+		section = "registries"
+		forceSection = true
+	}
+	current := model.router.Current()
+	if current.Kind == RoutePlugins && !forceSection {
+		section = current.Section
+	}
+	if current.Kind != RoutePlugins || current.Section != section || (targetID != "" && current.ResourceID != targetID) {
+		model.navigate(Route{Kind: RoutePlugins, Section: section, ResourceID: targetID})
+	}
+	if model.currentPage == nil {
+		return fmt.Errorf("plugin page is unavailable")
 	}
 	return nil
 }

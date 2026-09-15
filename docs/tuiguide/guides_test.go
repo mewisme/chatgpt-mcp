@@ -36,6 +36,13 @@ func TestMarkdownReturnsOnlyRequestedTopic(t *testing.T) {
 	if !strings.Contains(mcp, "# MCP Servers") || strings.Contains(mcp, "## Shell & Execution") {
 		t.Fatalf("MCP topic contains unexpected content: %q", mcp)
 	}
+	plugins, err := Markdown("plugins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plugins, "# Plugins") || strings.Contains(plugins, "# MCP Servers") {
+		t.Fatalf("Plugins topic contains unexpected content: %q", plugins)
+	}
 	if _, err := Markdown("missing-topic"); err == nil {
 		t.Fatal("unknown topic unexpectedly loaded")
 	}

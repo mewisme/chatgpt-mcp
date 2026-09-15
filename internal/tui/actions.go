@@ -23,10 +23,10 @@ func defaultActionRegistry() *action.Registry {
 	actions := []action.Action{
 		navigationAction("app.go.workspaces", "Workspaces", Route{Kind: RouteWorkspaces}, []string{"workspace", "workspaces", "ws", "container", "containers"}, capability.WorkspaceList, capability.WorkspaceShow, capability.WorkspaceAccessList, capability.WorkspaceContainerList, capability.WorkspaceContainerShow),
 		navigationAction("app.go.mcp", "MCP Servers", Route{Kind: RouteMCP}, []string{"mcp", "server", "upstream"}, capability.MCPServerList, capability.MCPServerShow, capability.MCPAuthStatus),
-		navigationAction("app.go.plugins", "Plugins", Route{Kind: RoutePlugins}, []string{"plugin", "plugins", "installed", "marketplace"}),
-		navigationAction("app.go.plugins.marketplace", "Plugin Marketplace", Route{Kind: RoutePlugins, Section: "marketplace"}, []string{"plugin", "marketplace", "search", "install"}),
-		navigationAction("app.go.plugins.updates", "Plugin Updates", Route{Kind: RoutePlugins, Section: "updates"}, []string{"plugin", "update", "outdated"}),
-		navigationAction("app.go.plugins.registries", "Plugin Registries", Route{Kind: RoutePlugins, Section: "registries"}, []string{"plugin", "registry", "trust"}),
+		navigationAction("app.go.plugins", "Plugins", Route{Kind: RoutePlugins}, []string{"plugin", "plugins", "installed", "marketplace"}, capability.PluginList, capability.PluginInfo),
+		navigationAction("app.go.plugins.marketplace", "Plugin Marketplace", Route{Kind: RoutePlugins, Section: "marketplace"}, []string{"plugin", "marketplace", "search", "install"}, capability.PluginSearch),
+		navigationAction("app.go.plugins.updates", "Plugin Updates", Route{Kind: RoutePlugins, Section: "updates"}, []string{"plugin", "update", "outdated"}, capability.PluginOutdated),
+		navigationAction("app.go.plugins.registries", "Plugin Registries", Route{Kind: RoutePlugins, Section: "registries"}, []string{"plugin", "registry", "trust"}, capability.PluginRegistryList),
 		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure", "admin", "profiles"}, capability.TunnelList, capability.TunnelStatus, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
 		navigationAction("app.go.admins", "Admin Profiles", Route{Kind: RouteTunnelAdmins}, []string{"tunnel", "admin", "profile", "profiles"}, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
 		navigationAction("app.go.tunnels", "Managed Tunnels", Route{Kind: RouteTunnels}, []string{"tunnel", "tunnels", "managed", "openai"}, capability.TunnelManagedList, capability.TunnelManagedGet),
@@ -44,6 +44,7 @@ func defaultActionRegistry() *action.Registry {
 	actions = append(actions, instructionNavigationActions()...)
 	actions = append(actions, workspaceActions()...)
 	actions = append(actions, mcpActions()...)
+	actions = append(actions, pluginActions()...)
 	actions = append(actions, tunnelActions()...)
 	actions = append(actions, requestActions()...)
 	actions = append(actions, logsActions()...)
@@ -308,6 +309,46 @@ func mcpActions() []action.Action {
 			return Route{Kind: RouteMCP, ResourceID: ctx.ResourceID, Section: "oauth", Action: "login"}
 		}),
 		mcpAction("mcp.server.auth.logout", "OAuth logout", "Remove stored OAuth authorization for the current MCP server", []string{"mcp", "server", "auth", "logout", "oauth"}, []string{"mcp", "server", "auth", "logout"}, tuipage.MCPAuthLogout, true),
+	}
+}
+
+func pluginActions() []action.Action {
+	return []action.Action{
+		pluginAction("plugin.install", "Install plugin", "Install the selected marketplace plugin", []string{"plugin", "install", "marketplace"}, []string{"plugin", "install"}, tuipage.PluginInstall, "marketplace", true),
+		pluginAction("plugin.uninstall", "Uninstall plugin", "Uninstall the current plugin", []string{"plugin", "uninstall", "remove"}, []string{"plugin", "uninstall"}, tuipage.PluginUninstall, "", true),
+		pluginAction("plugin.enable", "Enable plugin", "Enable the current plugin", []string{"plugin", "enable"}, []string{"plugin", "enable"}, tuipage.PluginEnable, "", true),
+		pluginAction("plugin.disable", "Disable plugin", "Disable the current plugin", []string{"plugin", "disable"}, []string{"plugin", "disable"}, tuipage.PluginDisable, "", true),
+		pluginAction("plugin.update", "Update plugin", "Update the current plugin to the latest available version", []string{"plugin", "update", "upgrade"}, []string{"plugin", "update"}, tuipage.PluginUpdate, "", true),
+		pluginAction("plugin.rollback", "Rollback plugin", "Roll back the current plugin to a retained version", []string{"plugin", "rollback"}, []string{"plugin", "rollback"}, tuipage.PluginRollback, "", true),
+		pluginAction("plugin.prune", "Prune plugin versions", "Prune retained inactive versions for the current plugin", []string{"plugin", "prune", "retain"}, []string{"plugin", "prune"}, tuipage.PluginPrune, "", true),
+		pluginAction("plugin.verify", "Verify plugin", "Re-verify the current plugin integrity and trust chain", []string{"plugin", "verify"}, []string{"plugin", "verify"}, tuipage.PluginVerify, "", true),
+		editorNavigationAction("plugin.registry.add", "Add plugin registry", "Plugins", "Add a trusted third-party plugin registry", []string{"plugin", "registry", "add", "trust"}, []string{"plugin", "registry", "add"}, nil, func(action.Context) Route {
+			return Route{Kind: RoutePlugins, Section: "registries", Action: "add"}
+		}),
+		pluginAction("plugin.registry.remove", "Remove plugin registry", "Remove the selected third-party plugin registry", []string{"plugin", "registry", "remove", "delete"}, []string{"plugin", "registry", "remove"}, tuipage.PluginRegistryRemove, "registries", true),
+	}
+}
+
+func pluginAction(id, title, description string, keywords, commandPath []string, command tuipage.PluginCommand, section string, needsResource bool) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "Plugins", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool {
+			if ctx.Route != string(RoutePlugins) {
+				return false
+			}
+			if needsResource && ctx.ResourceID == "" {
+				return false
+			}
+			switch section {
+			case "marketplace", "registries":
+				return ctx.Section == section
+			default:
+				return ctx.Section == "" || ctx.Section == "updates"
+			}
+		},
+		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
+			return func() tea.Msg { return tuipage.PluginCommandMsg{Command: command, TargetID: ctx.ResourceID} }
+		},
 	}
 }
 

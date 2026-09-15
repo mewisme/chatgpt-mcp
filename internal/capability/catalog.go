@@ -82,6 +82,21 @@ const (
 	MCPAuthLogin             ID = "mcp.auth.login"
 	MCPAuthStatus            ID = "mcp.auth.status"
 	MCPAuthLogout            ID = "mcp.auth.logout"
+	PluginSearch             ID = "plugin.search"
+	PluginInfo               ID = "plugin.info"
+	PluginList               ID = "plugin.list"
+	PluginInstall            ID = "plugin.install"
+	PluginUninstall          ID = "plugin.uninstall"
+	PluginEnable             ID = "plugin.enable"
+	PluginDisable            ID = "plugin.disable"
+	PluginUpdate             ID = "plugin.update"
+	PluginRollback           ID = "plugin.rollback"
+	PluginPrune              ID = "plugin.prune"
+	PluginOutdated           ID = "plugin.outdated"
+	PluginVerify             ID = "plugin.verify"
+	PluginRegistryList       ID = "plugin.registry.list"
+	PluginRegistryAdd        ID = "plugin.registry.add"
+	PluginRegistryRemove     ID = "plugin.registry.remove"
 	TunnelStatus             ID = "tunnel.status"
 	TunnelAttach             ID = "tunnel.attach"
 	TunnelDetach             ID = "tunnel.detach"
@@ -139,6 +154,10 @@ var specs = []Spec{
 	{MCPServerList, "upstream server list", []string{"mcp server list"}}, {MCPServerAdd, "upstream server add", []string{"mcp server add"}}, {MCPServerConfigure, "upstream server configure", []string{"mcp server configure"}}, {MCPServerShow, "upstream server show", []string{"mcp server show"}},
 	{MCPServerRemove, "upstream server remove", []string{"mcp server remove"}}, {MCPServerEnable, "upstream server enable", []string{"mcp server enable"}}, {MCPServerDisable, "upstream server disable", []string{"mcp server disable"}}, {MCPServerStatus, "upstream server status", []string{"mcp server status"}}, {MCPServerTools, "upstream server tools", []string{"mcp server tools"}},
 	{MCPAuthLogin, "upstream server auth login", []string{"mcp server auth login"}}, {MCPAuthStatus, "upstream server auth status", []string{"mcp server auth status"}}, {MCPAuthLogout, "upstream server auth logout", []string{"mcp server auth logout"}},
+	{PluginSearch, "plugin search", nil}, {PluginInfo, "plugin info", nil}, {PluginList, "plugin list", nil}, {PluginInstall, "plugin install", nil}, {PluginUninstall, "plugin uninstall", nil},
+	{PluginEnable, "plugin enable", nil}, {PluginDisable, "plugin disable", nil}, {PluginUpdate, "plugin update", nil}, {PluginRollback, "plugin rollback", nil}, {PluginPrune, "plugin prune", nil},
+	{PluginOutdated, "plugin outdated", nil}, {PluginVerify, "plugin verify", nil},
+	{PluginRegistryList, "plugin registry list", nil}, {PluginRegistryAdd, "plugin registry add", nil}, {PluginRegistryRemove, "plugin registry remove", nil},
 	{TunnelStatus, "tunnel status", nil}, {TunnelList, "tunnel list", nil}, {TunnelAttach, "tunnel attach", nil}, {TunnelDetach, "tunnel detach", nil}, {TunnelEnable, "tunnel enable", nil}, {TunnelDisable, "tunnel disable", nil}, {TunnelStart, "tunnel start", nil}, {TunnelStop, "tunnel stop", nil}, {TunnelForeground, "tunnel run", nil},
 	{TunnelManagedList, "tunnel managed list", nil}, {TunnelManagedGet, "tunnel managed get", nil}, {TunnelManagedCreate, "tunnel managed create", nil}, {TunnelManagedUpdate, "tunnel managed update", nil}, {TunnelManagedDelete, "tunnel managed delete", nil},
 	{TunnelAdminList, "tunnel admin list", nil}, {TunnelAdminAdd, "tunnel admin add", nil}, {TunnelAdminVerify, "tunnel admin verify", nil}, {TunnelAdminRemove, "tunnel admin remove", nil},

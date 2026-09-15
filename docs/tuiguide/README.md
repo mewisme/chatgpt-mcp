@@ -8,6 +8,7 @@ These Markdown files are contextual help for the `cgm tui` Command Center and ar
 | Editors and forms | [Editors & Forms](content/editors/index.md) |
 | Workspaces, containers, and Project Context | [Workspaces](content/workspaces/index.md) |
 | Upstream MCP servers and OAuth | [MCP Servers](content/mcp/index.md) |
+| Installed plugins, marketplace, and registries | [Plugins](content/plugins/index.md) |
 | OpenAI Secure MCP Tunnel | [Tunnel](content/tunnel/index.md) |
 | Requests and approvals | [Requests & Approvals](content/requests/index.md) |
 | Runtime, command execution, and tool-call logs | [Logs](content/logs/index.md) |

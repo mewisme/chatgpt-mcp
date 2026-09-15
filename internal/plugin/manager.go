@@ -750,13 +750,11 @@ func (manager Manager) preparePortableHost(ctx context.Context, portable HostPor
 		return "", err
 	}
 	if err := ExtractArchive(archivePath, portable.Archive, extracted); err != nil {
-		os.RemoveAll(extracted)
-		return "", err
+		return "", errors.Join(err, os.RemoveAll(extracted))
 	}
 	entrypoint := filepath.Join(extracted, filepath.FromSlash(portable.Entrypoint))
 	if err := validateEntrypoint(extracted, entrypoint); err != nil {
-		os.RemoveAll(extracted)
-		return "", err
+		return "", errors.Join(err, os.RemoveAll(extracted))
 	}
 	return extracted, nil
 }
@@ -816,18 +814,17 @@ func (manager Manager) downloadPortableFile(ctx context.Context, rawURL, expecte
 	written, copyErr := io.Copy(temp, io.LimitReader(response.Body, maxPluginArtifactSize+1))
 	closeErr := temp.Close()
 	if copyErr != nil || closeErr != nil || written <= 0 || written > maxPluginArtifactSize {
-		os.Remove(path)
+		cleanupErr := os.Remove(path)
 		if copyErr != nil {
-			return "", copyErr
+			return "", errors.Join(copyErr, cleanupErr)
 		}
 		if closeErr != nil {
-			return "", closeErr
+			return "", errors.Join(closeErr, cleanupErr)
 		}
-		return "", errors.New("portable binary has invalid size")
+		return "", errors.Join(errors.New("portable binary has invalid size"), cleanupErr)
 	}
 	if err := verifyFileSHA256(path, expectedSHA256); err != nil {
-		os.Remove(path)
-		return "", err
+		return "", errors.Join(err, os.Remove(path))
 	}
 	return path, nil
 }

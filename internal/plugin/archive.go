@@ -55,7 +55,8 @@ func extractPluginZip(archivePath, destination string) error {
 		if mode&os.ModeSymlink != 0 || !mode.IsRegular() && !mode.IsDir() {
 			return fmt.Errorf("plugin archive contains unsupported entry type: %s", name)
 		}
-		total, err = addExtractedBytes(total, int64(entry.UncompressedSize64), name)
+		size := entry.FileInfo().Size()
+		total, err = addExtractedBytes(total, size, name)
 		if err != nil {
 			return err
 		}
@@ -73,7 +74,7 @@ func extractPluginZip(archivePath, destination string) error {
 		if err != nil {
 			return err
 		}
-		err = writeArchiveFile(target, stream, int64(entry.UncompressedSize64), mode.Perm())
+		err = writeArchiveFile(target, stream, size, mode.Perm())
 		closeErr := stream.Close()
 		if err != nil {
 			return err
@@ -138,7 +139,7 @@ func extractPluginTar(archivePath, destination string) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
 			return err
 		}
-		if err := writeArchiveFile(target, reader, header.Size, os.FileMode(header.Mode).Perm()); err != nil {
+		if err := writeArchiveFile(target, reader, header.Size, header.FileInfo().Mode().Perm()); err != nil {
 			return err
 		}
 	}

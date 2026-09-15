@@ -90,7 +90,7 @@ try {
   await verifyWorkspaceContainerMCP(serverPort, workspaceID)
   verifyApprovalCLI()
   const foregroundStatus = run(["status"], { quiet: true })
-  for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "OpenAI Secure MCP Tunnel is disabled"]) {
+  for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "tunnels 0/0 enabled"]) {
     if (!foregroundStatus.includes(expected)) fail(`foreground status missing ${JSON.stringify(expected)}:\n${foregroundStatus}`)
   }
 
@@ -139,7 +139,7 @@ try {
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
 
   const managedStatus = await waitForStatus(child, () => `${stdout}\n${stderr}`)
-  for (const expected of ["✓ ChatGPT MCP is running", "managed     user ·", `service     ${managedServiceID}`, "session     run_", "OpenAI Secure MCP Tunnel is disabled"]) {
+  for (const expected of ["✓ ChatGPT MCP is running", "managed     user ·", `service     ${managedServiceID}`, "session     run_", "tunnels 0/0 enabled"]) {
     if (!managedStatus.includes(expected)) fail(`managed status missing ${JSON.stringify(expected)}:\n${managedStatus}`)
   }
   const managedLogs = run(["logs", "--debug", "--event", "server.*", "--grep", "Server", "--tail", "50"], { quiet: true })

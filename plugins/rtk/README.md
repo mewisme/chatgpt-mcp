@@ -12,6 +12,6 @@ curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
 cargo install --git https://github.com/rtk-ai/rtk --branch master rtk
 ```
 
-On native Windows the manifest recommends `winget install rtk-ai.rtk` first, with the documented explicit-Git Cargo command as an alternative. Portable-local installation is pinned to upstream RTK `v0.49.0`; every supported portable asset has its exact SHA-256 embedded in the signed plugin manifest, so `rtk@1.0.0` cannot drift when upstream publishes a newer release.
+On native Windows the manifest recommends `winget install rtk-ai.rtk` first, with the documented explicit-Git Cargo command as an alternative. Portable-local installation is pinned to upstream RTK `v0.49.0`; every supported portable asset has its exact SHA-256 embedded in the signed plugin manifest, so the portable payload selected by `rtk@1.0.0` cannot drift when upstream publishes a newer release. A separately managed global RTK installation remains under the operator's package-manager lifecycle.
 
 At runtime the generic host-wrapper harness invokes the command template declared by the manifest. RTK maps this to `rtk rewrite <command>`. Unsupported commands pass through unchanged. Rewritten commands retain the original command as the security projection, so core guard, workspace, and approval policy are evaluated against the unwrapped operation.

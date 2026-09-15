@@ -60,6 +60,28 @@ func TestManifestRejectsUnsafeMetadata(t *testing.T) {
 	}
 }
 
+func TestHostPortableIntegrityModesAreExclusive(t *testing.T) {
+	pinned := HostPortableInstall{URL: "https://example.test/tool.tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: "tool"}
+	if err := validateHostPortable(pinned); err != nil {
+		t.Fatal(err)
+	}
+	checksum := HostPortableInstall{URL: "https://example.test/tool.tar.gz", ChecksumURL: "https://example.test/checksums.txt", ChecksumAsset: "tool.tar.gz", Archive: "tar.gz", Entrypoint: "tool"}
+	if err := validateHostPortable(checksum); err != nil {
+		t.Fatal(err)
+	}
+	mixed := pinned
+	mixed.ChecksumURL = checksum.ChecksumURL
+	mixed.ChecksumAsset = checksum.ChecksumAsset
+	if err := validateHostPortable(mixed); err == nil {
+		t.Fatal("portable install accepted mixed pinned and checksum integrity modes")
+	}
+	missing := pinned
+	missing.SHA256 = ""
+	if err := validateHostPortable(missing); err == nil {
+		t.Fatal("portable install accepted without integrity metadata")
+	}
+}
+
 func TestManifestPlatformFallsBackToAnyAny(t *testing.T) {
 	manifest := Manifest{
 		Schema: ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", Version: "1.0.0", Type: "web-ui",

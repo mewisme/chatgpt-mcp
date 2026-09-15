@@ -54,6 +54,11 @@ func TestExtractArchiveRejectsSymlinkAndDuplicateEntries(t *testing.T) {
 			_, err = entry.Write([]byte("target"))
 		}
 		return err
+	}}, {name: "special", write: func(writer *zip.Writer) error {
+		header := &zip.FileHeader{Name: "pipe"}
+		header.SetMode(os.ModeNamedPipe | 0600)
+		_, err := writer.CreateHeader(header)
+		return err
 	}}, {name: "duplicate", write: func(writer *zip.Writer) error {
 		for range 2 {
 			entry, err := writer.Create("same.txt")

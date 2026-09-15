@@ -427,6 +427,9 @@ func validateHostPortable(portable HostPortableInstall) error {
 		if !validSHA256(pinned) {
 			return errors.New("portable sha256 digest is invalid")
 		}
+		if strings.TrimSpace(portable.ChecksumURL) != "" || strings.TrimSpace(portable.ChecksumAsset) != "" {
+			return errors.New("portable install cannot mix pinned sha256 with checksum metadata")
+		}
 	} else {
 		if !validHTTPSURL(portable.ChecksumURL) {
 			return errors.New("portable checksum URL must use HTTPS")

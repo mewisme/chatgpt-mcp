@@ -139,6 +139,26 @@ func (m *Manager) Ready() bool {
 	return false
 }
 
+func (m *Manager) Start(ctx context.Context, id string) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	client, ok := m.Client(id)
+	if !ok {
+		return fmt.Errorf("tunnel %q is not attached", id)
+	}
+	return client.StartContext(ctx)
+}
+
+func (m *Manager) Stop(ctx context.Context, id string) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	client, ok := m.Client(id)
+	if !ok {
+		return fmt.Errorf("tunnel %q is not attached", id)
+	}
+	return client.StopContext(ctx)
+}
+
 func (m *Manager) StartContext(ctx context.Context) error {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()

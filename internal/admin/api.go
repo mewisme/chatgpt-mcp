@@ -27,6 +27,7 @@ type API struct {
 	Tools        *tools.Runtime
 	Workspaces   *workspace.Manager
 	Tunnel       *tunnel.Client
+	Tunnels      *tunnel.Manager
 	Config       *config.RuntimeStore
 	OAuth        *mcpoauth.Store
 	OAuthFlows   *mcpoauth.FlowManager
@@ -119,6 +120,12 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/upstream", api.handleUpstreams)
 	mux.HandleFunc("/api/upstream/", api.handleUpstream)
 	mux.HandleFunc("/api/tunnel/config", api.handleTunnelConfig)
+	mux.HandleFunc("/api/tunnels", api.handleLocalTunnels)
+	mux.HandleFunc("/api/tunnels/", api.handleLocalTunnel)
+	mux.HandleFunc("/api/tunnel-admins", api.handleTunnelAdmins)
+	mux.HandleFunc("/api/tunnel-admins/", api.handleTunnelAdmin)
+	mux.HandleFunc("/api/managed-tunnels", api.handleManagedTunnelCollection)
+	mux.HandleFunc("/api/managed-tunnels/", api.handleManagedTunnelCollectionItem)
 	mux.HandleFunc("/api/tunnel/admin/key", api.handleTunnelAdminKey)
 	mux.HandleFunc("/api/tunnel/managed", api.handleManagedTunnels)
 	mux.HandleFunc("/api/tunnel/managed/use", api.handleManagedTunnelUse)

@@ -29,13 +29,18 @@ func (cfg Config) RuntimeTunnels() tunnel.CollectionConfig {
 	if cfg.Tunnel.Instances != nil || cfg.Tunnel.Admins != nil {
 		return cfg.Tunnel.Collection()
 	}
-	if cfg.Tunnel.ID == "" {
-		return tunnel.CollectionConfig{}
+	collection := tunnel.CollectionConfig{}
+	if cfg.Tunnel.AdminKey != "" || cfg.Tunnel.AdminOrganizationID != "" || cfg.Tunnel.AdminWorkspaceID != "" || cfg.Tunnel.AdminTenantID != "" {
+		collection.Admins = []tunnel.AdminConfig{{ID: "default", AdminKey: cfg.Tunnel.AdminKey, OrganizationID: cfg.Tunnel.AdminOrganizationID, WorkspaceID: cfg.Tunnel.AdminWorkspaceID, TenantID: cfg.Tunnel.AdminTenantID, ReadAccess: cfg.Tunnel.AdminReadAccess, ManageAccess: cfg.Tunnel.AdminManageAccess, ControlPlaneBaseURL: cfg.Tunnel.ControlPlaneBaseURL}}
 	}
-	return tunnel.CollectionConfig{Instances: []tunnel.InstanceConfig{{
-		Enabled: cfg.Tunnel.Enabled, ID: cfg.Tunnel.ID, APIKey: cfg.Tunnel.APIKey,
-		ControlPlaneBaseURL: cfg.Tunnel.ControlPlaneBaseURL, OrganizationID: cfg.Tunnel.OrganizationID,
-	}}}
+	if cfg.Tunnel.ID != "" {
+		instance := tunnel.InstanceConfig{Enabled: cfg.Tunnel.Enabled, ID: cfg.Tunnel.ID, APIKey: cfg.Tunnel.APIKey, ControlPlaneBaseURL: cfg.Tunnel.ControlPlaneBaseURL, OrganizationID: cfg.Tunnel.OrganizationID}
+		if len(collection.Admins) > 0 {
+			instance.AdminProfileID = "default"
+		}
+		collection.Instances = []tunnel.InstanceConfig{instance}
+	}
+	return collection
 }
 
 type PermissionsConfig struct {

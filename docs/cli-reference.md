@@ -401,7 +401,7 @@ cgm config set admin.port 41022
 cgm config set server.expose none
 ```
 
-At least one MCP transport must remain enabled: `server.enabled` for direct MCP HTTP or `tunnel.enabled` for OpenAI Secure MCP Tunnel.
+At least one MCP transport must remain enabled: `server.enabled` for direct MCP HTTP or at least one enabled local tunnel instance. Tunnel collections are edited with `cgm tunnel ...`, not scalar `config set` keys.
 
 Successful config mutations automatically apply to a running process. If the runtime is stopped, they take effect on the next start.
 
@@ -547,30 +547,52 @@ cgm workspace access remove ws_... /path/to/cache
 
 ## OpenAI Secure MCP Tunnel
 
-Configure:
+Local instances:
 
 ```bash
-cgm tunnel configure \
-  --enabled \
-  --id tunnel_... \
-  --api-key 'sk-...'
+cgm tunnel list
+cgm tunnel status [tunnel_id]
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
+cgm tunnel detach tunnel_...
+cgm tunnel enable tunnel_...
+cgm tunnel disable tunnel_...
+cgm tunnel start tunnel_...
+cgm tunnel stop tunnel_...
+cgm tunnel run tunnel_...
 ```
 
-Optional flags:
+`attach` accepts:
 
 ```text
---control-plane-base-url <url>
---organization-id <org_...>
+--admin <profile>
+--runtime-api-key <key>
+--auto-runtime-key
+--project-id <project>
+--disabled
 ```
 
-Lifecycle:
+Admin profiles:
 
 ```bash
-cgm tunnel status
-cgm tunnel enable
-cgm tunnel disable
-cgm tunnel run
+cgm tunnel admin list
+cgm tunnel admin add personal --admin-key 'sk-admin-...' --organization-id org_...
+cgm tunnel admin verify personal
+cgm tunnel admin remove personal
 ```
+
+Exactly one scope flag (`--organization-id`, `--workspace-id`, or `--tenant-id`) is used when adding a profile. Admin credentials are management-only and never become tunnel runtime keys.
+
+Managed remote tunnels:
+
+```bash
+cgm tunnel managed list [--admin profile]
+cgm tunnel managed get tunnel_... [--admin profile]
+cgm tunnel managed create --admin profile --name NAME --description DESCRIPTION [scope flags]
+cgm tunnel managed update tunnel_... --admin profile [fields]
+cgm tunnel managed delete tunnel_... --admin profile --confirm
+```
+
+Discovery without `--admin` can aggregate multiple profiles and preserves profile provenance. If the same remote tunnel is reachable through multiple profiles, operations that need one management credential require an explicit `--admin`.
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md) for Platform/ChatGPT configuration.
 
@@ -628,7 +650,7 @@ Status is the main read-only overview for:
 - runtime session ID
 - PID/start information
 - MCP HTTP enabled/disabled state and endpoint when enabled
-- tunnel enabled/configured/live state
+- aggregate tunnel counts and per-instance enabled/configured/live state
 - registered workspaces
 - upstream servers
 - cached update availability when a fresh install-global cache exists

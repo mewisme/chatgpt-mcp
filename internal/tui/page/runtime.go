@@ -878,11 +878,11 @@ func (page *RuntimePage) mcpHTTPItem() runtimeItem {
 	} else if page.runtime.MCPHTTPEnabled {
 		description += " · starts with runtime"
 	}
-	fallback := "off"
+	fallback := "none enabled"
 	if page.runtime.TunnelEnabled {
-		fallback = "on"
+		fallback = "available"
 	}
-	fields := [][2]string{{"Configured", configured}, {"Runtime", runtimeState}, {"Port", fmt.Sprint(page.runtime.MCPHTTPPort)}, {"Endpoint", endpointValue}, {"Tunnel", fallback}, {"Invariant", "MCP HTTP or OpenAI Secure MCP Tunnel must remain enabled."}}
+	fields := [][2]string{{"Configured", configured}, {"Runtime", runtimeState}, {"Port", fmt.Sprint(page.runtime.MCPHTTPPort)}, {"Endpoint", endpointValue}, {"Tunnels", fallback}, {"Invariant", "MCP HTTP or at least one Secure MCP Tunnel must remain enabled."}}
 	return runtimeItem{row: component.Row{ID: "transport.mcp-http", Title: "MCP HTTP server", Description: description, Search: "mcp http server transport listener port enable disable"}, detailTitle: "MCP HTTP server", detail: detailFields(fields...)}
 }
 
@@ -1162,6 +1162,9 @@ func valueInt(value int) string {
 }
 
 func runtimeTunnelStatus(status runtimecontrol.RuntimeStatus) string {
+	if status.TunnelSummary.Total > 0 {
+		return fmt.Sprintf("%d attached · %d enabled · %d ready · %d degraded", status.TunnelSummary.Total, status.TunnelSummary.Enabled, status.TunnelSummary.Ready, status.TunnelSummary.Degraded)
+	}
 	if !status.TunnelEnabled {
 		return "disabled"
 	}

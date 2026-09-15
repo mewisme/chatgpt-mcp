@@ -32,7 +32,7 @@ type DashboardData = {
   servers: number
   enabledServers: number
   tunnel: "Ready" | "Connecting" | "Stopped"
-  tunnelName: string
+  tunnelSummary: string
   mcpEndpoint: string
   adminEndpoint: string
   mcpAuth: boolean
@@ -140,7 +140,7 @@ export function OverviewPage() {
         <DashboardCard
           title="Tunnel"
           value={data?.tunnel ?? "-"}
-          description={data?.tunnelName || "OpenAI Secure MCP Tunnel"}
+          description={data?.tunnelSummary || "OpenAI Secure MCP Tunnels"}
           icon={Network}
         />
       </div>
@@ -216,26 +216,27 @@ function AuthState({ label, enabled }: { label: string; enabled?: boolean }) {
 }
 
 async function loadDashboard(): Promise<DashboardData> {
-  const [workspaces, tools, servers, tunnel, config] =
+  const [workspaces, tools, servers, tunnels, config] =
     await Promise.all([
       adminApi.workspaces(),
       adminApi.tools(),
       adminApi.upstream(),
-      adminApi.tunnel(),
+      adminApi.localTunnels(),
       adminApi.config(),
     ])
   const host = window.location.hostname || "127.0.0.1"
+  const enabledTunnels = tunnels.filter((item) => item.enabled).length
+  const readyTunnels = tunnels.filter((item) => item.status.ready).length
+  const activeTunnels = tunnels.filter(
+    (item) => item.status.running || item.status.restarting
+  ).length
   return {
     workspaces: workspaces.length,
     tools: tools.length,
     servers: servers.length,
     enabledServers: servers.filter((server) => server.enabled).length,
-    tunnel: tunnel.running
-      ? tunnel.ready
-        ? "Ready"
-        : "Connecting"
-      : "Stopped",
-    tunnelName: tunnel.metadata?.name ?? "",
+    tunnel: readyTunnels > 0 ? "Ready" : activeTunnels > 0 ? "Connecting" : "Stopped",
+    tunnelSummary: `${tunnels.length} attached · ${enabledTunnels} enabled · ${readyTunnels} ready`,
     mcpEndpoint: `http://${host}:${config.server.port}/mcp`,
     adminEndpoint: config.admin.enabled
       ? `http://${host}:${config.admin.port}`

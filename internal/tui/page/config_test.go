@@ -16,6 +16,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
@@ -35,8 +36,9 @@ func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
 	}
 	page.overview.Config.Auth.MCPTokenHash = "MCP_HASH_SECRET"
 	page.overview.Config.Auth.AdminTokenHash = "ADMIN_HASH_SECRET"
-	page.overview.Config.Tunnel.APIKey = "TUNNEL_RUNTIME_SECRET"
-	page.overview.Config.Tunnel.AdminKey = "TUNNEL_ADMIN_SECRET"
+	instances := []tunnel.InstanceConfig{{ID: "tunnel_demo", APIKey: "TUNNEL_RUNTIME_SECRET", AdminProfileID: "work"}}
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "TUNNEL_ADMIN_SECRET"}}
+	page.overview.Config.Tunnel = tunnel.Config{Instances: &instances, Admins: &admins}
 	page.rebuildBrowser("")
 	view := page.View(100, 32)
 	rows := page.configRows()
@@ -50,7 +52,7 @@ func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
 			t.Fatalf("config page leaked %s", secret)
 		}
 	}
-	for _, want := range []string{"Runtime & Network", "Access & Security", "Shell & Execution", "Features", "Tunnel", "Storage & Maintenance", "configured"} {
+	for _, want := range []string{"Runtime & Network", "Access & Security", "Shell & Execution", "Features", "Tunnel", "Storage & Maintenance", "1 instances", "1 runtime keys", "1 admin profiles"} {
 		if !strings.Contains(model, want) {
 			t.Fatalf("config rows missing %q: %q", want, model)
 		}

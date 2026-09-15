@@ -14,6 +14,7 @@ import (
 	memorypkg "go.mewis.me/chatgpt-mcp/internal/memory"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -115,6 +116,48 @@ func TestExportIncludesLogicalSecretsAndSkipsRuntimeState(t *testing.T) {
 	}
 	if !foundPlugins {
 		t.Fatal("portable plugin desired state was not exported")
+	}
+}
+
+func TestExportImportRestoresMultiTunnelSecrets(t *testing.T) {
+	root := t.TempDir()
+	cfg := validConfig()
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_a", AdminProfileID: "work"}, {ID: "tunnel_b"}}
+	admins := []tunnel.AdminConfig{{ID: "work", OrganizationID: "org_work"}}
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
+	writeConfigFile(t, root, cfg)
+	if err := os.WriteFile(filepath.Join(root, "tunnel.json"), []byte(`{"instance_keys":{"tunnel_a":true,"tunnel_b":true},"admin_keys":{"work":true}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	secrets := map[string]string{
+		secretstore.Name("tunnel", "instance", "tunnel_a", "runtime-key"): "runtime-a",
+		secretstore.Name("tunnel", "instance", "tunnel_b", "runtime-key"): "runtime-b",
+		secretstore.Name("tunnel", "admin", "work", "admin-key"):          "admin-work",
+	}
+	store := secretstore.New(root)
+	for name, value := range secrets {
+		if err := store.Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bundleFile := filepath.Join(t.TempDir(), "multi-tunnel.cgm")
+	result, err := Export(root, bundleFile, ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Secrets != len(secrets) {
+		t.Fatalf("exported secrets = %d, want %d", result.Secrets, len(secrets))
+	}
+	target := filepath.Join(t.TempDir(), "restored")
+	if _, err := Import(target, bundleFile, ImportOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	restored := secretstore.New(target)
+	for name, want := range secrets {
+		got, err := restored.Get(name)
+		if err != nil || got != want {
+			t.Fatalf("restored secret %q = %q err=%v", name, got, err)
+		}
 	}
 }
 

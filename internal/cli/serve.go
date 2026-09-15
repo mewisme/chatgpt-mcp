@@ -89,8 +89,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		configSpan.FailMessage("Server runtime config validation failed", err, tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)))
 		return err
 	}
-	configSpan.EndMessage("Server runtime configuration loaded", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", true), tracepkg.Bool("mcp_http_enabled", cfg.Server.Enabled), tracepkg.Bool("admin_enabled", cfg.Admin.Enabled), tracepkg.Bool("tunnel_enabled", cfg.Tunnel.Enabled), tracepkg.String("exposure_mode", string(cfg.Server.Expose.Mode)), tracepkg.Any("interfaces", append([]string(nil), cfg.Server.Expose.Interfaces...)))
-	logCommandDebug(cmd, "SERVER", "server.config.loaded", "Runtime configuration loaded", logger.WithDebug("mcp_http", cfg.Server.Enabled), logger.WithDebug("admin", cfg.Admin.Enabled), logger.WithDebug("tunnel", cfg.Tunnel.Enabled), logger.WithDebug("expose", cfg.Server.Expose.Mode))
+	configSpan.EndMessage("Server runtime configuration loaded", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", true), tracepkg.Bool("mcp_http_enabled", cfg.Server.Enabled), tracepkg.Bool("admin_enabled", cfg.Admin.Enabled), tracepkg.Int("tunnel_enabled_count", cfg.EnabledTunnelCount()), tracepkg.Int("tunnel_count", len(cfg.RuntimeTunnels().Instances)), tracepkg.String("exposure_mode", string(cfg.Server.Expose.Mode)), tracepkg.Any("interfaces", append([]string(nil), cfg.Server.Expose.Interfaces...)))
+	logCommandDebug(cmd, "SERVER", "server.config.loaded", "Runtime configuration loaded", logger.WithDebug("mcp_http", cfg.Server.Enabled), logger.WithDebug("admin", cfg.Admin.Enabled), logger.WithDebug("tunnels_enabled", cfg.EnabledTunnelCount()), logger.WithDebug("tunnels", len(cfg.RuntimeTunnels().Instances)), logger.WithDebug("expose", cfg.Server.Expose.Mode))
 
 	runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer runtimeCancel()

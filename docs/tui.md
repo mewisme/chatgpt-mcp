@@ -101,9 +101,9 @@ See [MCP and upstreams](mcp.md).
 
 ## Tunnel
 
-Tunnel manages the local OpenAI Secure MCP Tunnel configuration and, when an appropriate verified admin credential is configured, managed tunnel resources.
+Tunnel is collection-first. Its top-level browser lists attached local tunnel instances and each detail is scoped by tunnel ID. Enable/disable/start/stop/detach act on only that instance.
 
-The normal ChatGPT runtime credential is the restricted **Tunnels Read + Use** key. Administrative tunnel management remains separate. See [OpenAI + ChatGPT](openai-chatgpt.md).
+Managed Tunnels and admin profiles are separate resources. Attaching a managed tunnel adds a local instance instead of replacing an existing attachment. The normal ChatGPT runtime credential is a restricted **Tunnels Read + Use** key per instance; admin-profile keys are management-only. See [OpenAI + ChatGPT](openai-chatgpt.md).
 
 ## Requests
 

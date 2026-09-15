@@ -54,7 +54,7 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 		ctx = context.Background()
 	}
 	observer := tracepkg.ObserverFromContext(ctx)
-	span := tracepkg.Start(ctx, "APP", "app.construct", "Constructing server runtime application", tracepkg.Bool("mcp_http_enabled", cfg.Server.Enabled), tracepkg.Bool("admin_enabled", cfg.Admin.Enabled), tracepkg.Bool("tunnel_enabled", cfg.Tunnel.Enabled))
+	span := tracepkg.Start(ctx, "APP", "app.construct", "Constructing server runtime application", tracepkg.Bool("mcp_http_enabled", cfg.Server.Enabled), tracepkg.Bool("admin_enabled", cfg.Admin.Enabled), tracepkg.Int("tunnel_enabled_count", cfg.EnabledTunnelCount()), tracepkg.Int("tunnel_count", len(cfg.RuntimeTunnels().Instances)))
 	stream := activity.NewStream()
 	configStore := config.NewRuntimeStore(cfg)
 	toolSpan := tracepkg.Start(ctx, "APP", "app.tools.bootstrap", "Bootstrapping tool runtime")

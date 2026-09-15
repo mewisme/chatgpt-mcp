@@ -169,39 +169,22 @@ func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
 	}
 }
 
-func TestTunnelRuntimeConfigureEditorSwitchValidationAndCancel(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret"})
-	page, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
+func TestTunnelInstancesDetailUsesIDScopedActionsAndRedactsSecrets(t *testing.T) {
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret", AdminProfileID: "work", OrganizationID: "org_demo"}}
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", OrganizationID: "org_demo"}}
+	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances, Admins: &admins})
+	page, err := NewTunnelInstances(t.Context(), "tunnel_demo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = page.Init()
 	plain := ansi.Strip(page.View(100, 28))
-	if !strings.Contains(plain, "Enabled (at least one MCP transport must remain enabled) [ ENABLED ]") || strings.Contains(plain, "runtime-secret") {
-		t.Fatalf("configure editor view=%q", plain)
+	for _, want := range []string{"tunnel_demo", "Runtime key", "configured", "Admin profile", "work", "Organization", "org_demo", "disable", "start", "detach"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("detail missing %q: %q", want, plain)
+		}
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	page = updated.(*TunnelPage)
-	if page.runtimeForm.Enabled || !page.Dirty() || !strings.Contains(ansi.Strip(page.View(100, 28)), "[ DISABLED ]") {
-		t.Fatalf("switch draft=%#v dirty=%t", page.runtimeForm, page.Dirty())
-	}
-	updated, cmd := page.Update(component.EditorSubmitMsg{})
-	page = updated.(*TunnelPage)
-	if cmd == nil || page.overlay != tunnelOverlayOperation || page.runtimeForm == nil || page.runtimeForm.Enabled {
-		t.Fatalf("runtime submit cmd=%v overlay=%d draft=%#v", cmd != nil, page.overlay, page.runtimeForm)
-	}
-	updated, _ = page.Update(tunnelOperationMsg{command: TunnelConfigure, err: fmt.Errorf("save failed")})
-	page = updated.(*TunnelPage)
-	if page.OverlayActive() || page.runtimeForm == nil || page.runtimeForm.Enabled || !page.Dirty() || !strings.Contains(ansi.Strip(page.View(100, 28)), "save failed") {
-		t.Fatalf("runtime failure overlay=%t draft=%#v dirty=%t", page.OverlayActive(), page.runtimeForm, page.Dirty())
-	}
-	_, cancel := page.Update(component.EditorCancelMsg{})
-	if cancel == nil {
-		t.Fatal("editor cancel returned no navigation")
-	}
-	navigate, ok := cancel().(NavigateMsg)
-	if !ok || strings.Join(navigate.Path, "/") != "tunnel" {
-		t.Fatalf("cancel navigation=%#v", navigate)
+	if strings.Contains(plain, "runtime-secret") || strings.Contains(plain, "admin-secret") {
+		t.Fatalf("tunnel secret leaked in detail: %q", plain)
 	}
 }
 
@@ -274,48 +257,24 @@ func TestTunnelRuntimeOperationOverlayBlocksEditorMouse(t *testing.T) {
 	}
 }
 
-func TestTunnelRuntimeLayoutUsesHierarchyAndGroupWrapping(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_6a9462c95f008191a665c3330bcd8368", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminOrganizationID: "org_demo"})
-	page, err := NewTunnelDashboard(t.Context())
+func TestTunnelInstancesLayoutShowsCollectionSummaryAndManagedShortcut(t *testing.T) {
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_a", APIKey: "runtime-a", AdminProfileID: "work"}, {ID: "tunnel_b", APIKey: "runtime-b"}}
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret"}}
+	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances, Admins: &admins})
+	page, err := NewTunnelInstances(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	page.dashboard.Status.Metadata = &tunnel.Metadata{ID: page.dashboard.Config.ID, Name: "MCP_Tunnel_WSL", FetchedAt: time.Now()}
-	wide := ansi.Strip(page.runtimeView(120))
-	for _, want := range []string{"Status", "Tunnel", "Admin", "Metadata", "● ON", "Configured", "Runtime key", "MCP_Tunnel_WSL", "e configure", "space toggle", "? more"} {
-		if !strings.Contains(wide, want) {
-			t.Fatalf("wide tunnel layout missing %q: %q", want, wide)
+	view := ansi.Strip(page.View(120, 32))
+	for _, want := range []string{"OpenAI Secure MCP Tunnels", "2 attached", "1 admin profiles", "tunnel_a", "tunnel_b", "m managed"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("collection view missing %q: %q", want, view)
 		}
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
-	page = updated.(*TunnelPage)
-	expanded := ansi.Strip(page.runtimeView(120))
-	for _, want := range []string{"remove admin", "managed tunnels", "less"} {
-		if !strings.Contains(expanded, want) {
-			t.Fatalf("expanded tunnel help missing %q: %q", want, expanded)
-		}
+	if strings.Contains(view, "runtime-a") || strings.Contains(view, "runtime-b") || strings.Contains(view, "admin-secret") {
+		t.Fatalf("collection view leaked secrets: %q", view)
 	}
-	updated, _ = page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
-	page = updated.(*TunnelPage)
-	if strings.Contains(wide, "Enabled        true") || strings.Contains(wide, " · ") {
-		t.Fatalf("wide tunnel layout retained raw boolean or dot-joined hints: %q", wide)
-	}
-	wideLines := strings.Split(wide, "\n")
-	foundPair := false
-	for _, line := range wideLines {
-		if strings.Contains(line, "Status") && strings.Contains(line, "Tunnel") {
-			foundPair = true
-			break
-		}
-	}
-	if !foundPair {
-		t.Fatalf("wide layout did not place Status and Tunnel in two columns: %q", wideLines)
-	}
-
-	narrow := ansi.Strip(page.runtimeView(72))
-	if !strings.Contains(narrow, "e configure") || !strings.Contains(narrow, "space toggle") {
-		t.Fatalf("narrow default help missing core actions: %q", narrow)
-	}
+	testutil.AssertLinesFit(t, page.View(72, 24), 72)
 }
 
 func TestTunnelRuntimeKeyHintsUseDefaultHelpStyle(t *testing.T) {

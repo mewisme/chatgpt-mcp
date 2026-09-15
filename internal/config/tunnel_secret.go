@@ -327,5 +327,10 @@ func mergeTunnelSecretData(path string, stored tunnelSecret, runtime tunnel.Conf
 			merged["admin_key"] = secretMarkerValue(runtime.AdminKey)
 		}
 	}
+	if runtime.Instances != nil || runtime.Admins != nil {
+		for _, key := range []string{"runtime_key_configured", "admin_key_configured", "api_key", "admin_key", "admin_organization_id", "admin_workspace_id", "admin_tenant_id", "admin_read_access", "admin_manage_access"} {
+			delete(merged, key)
+		}
+	}
 	return configformat.EncodeGeneric(format, merged)
 }

@@ -348,9 +348,11 @@ func (page *TunnelInstancesPage) listView(width, height int) string {
 	}
 	header := page.listHeader(width)
 	bodyHeight := max(1, height-lipgloss.Height(header))
+	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: bodyHeight})
+	page.browser = updated.(component.Browser)
 	help := page.browser.HelpView()
 	layout := component.NewSectionLayout("", "", page.listFeedback(width), width, bodyHeight, lipgloss.Height(help))
-	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
+	updated, _ = page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
 	page.browser = updated.(component.Browser)
 	return header + "\n" + component.BottomHelp(layout.View(page.browser.BodyContent()), help, width, bodyHeight)
 }
@@ -385,6 +387,8 @@ func (page *TunnelInstancesPage) resizeBrowser() tea.Cmd {
 	}
 	headerHeight := lipgloss.Height(page.listHeader(page.width))
 	bodyHeight := max(1, page.height-headerHeight)
+	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: bodyHeight})
+	page.browser = updated.(component.Browser)
 	help := page.browser.HelpView()
 	layout := component.NewSectionLayout("", "", page.listFeedback(page.width), page.width, bodyHeight, lipgloss.Height(help))
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})

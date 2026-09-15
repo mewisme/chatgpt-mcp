@@ -79,18 +79,17 @@ cgm workspace register ~/projects/my-project
 
 The command returns a stable `ws_*` workspace ID. Register only roots you intentionally want the runtime to reach.
 
-### 3. Configure the Secure MCP Tunnel
+### 3. Attach the Secure MCP Tunnel
 
-Create a tunnel and a restricted runtime API key in OpenAI Platform, then configure them locally:
+Create a tunnel and a restricted runtime API key in OpenAI Platform, then add/verify a management profile and attach the tunnel locally:
 
 ```bash
-cgm tunnel configure \
-  --enabled \
-  --id tunnel_... \
-  --api-key 'sk-...'
+cgm tunnel admin add personal --admin-key 'sk-admin-...' --organization-id org_...
+cgm tunnel admin verify personal
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
 ```
 
-The runtime key should have **Tunnels Read + Use**. It is not an OpenAI Admin API key and is not used to call a language model.
+The runtime key should have **Tunnels Read + Use**. It is separate from the management profile's Admin API key and is not used to call a language model. Additional tunnels can be attached to the same local runtime without replacing the first one.
 
 ### 4. Start the managed runtime
 

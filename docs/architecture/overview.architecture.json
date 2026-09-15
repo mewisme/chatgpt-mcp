@@ -2,35 +2,47 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "chatgpt-mcp overview",
+    "title": "chatgpt-mcp multi-tunnel overview",
     "locale": "en",
     "quality_profile": "showcase",
-    "viewBox": [1160, 640]
+    "viewBox": [1320, 760],
+    "views": [
+      { "id": "ingress", "label": "Multi-tunnel ingress", "focus": ["chatgpt", "tunnels", "manager", "runtime"], "note": "Multiple tunnel clients terminate at one shared local tools.Runtime." },
+      { "id": "shared-runtime", "label": "Shared runtime", "focus": ["runtime", "workspaces", "execution", "upstreams", "plugins"], "note": "All ingress clients reuse the same workspace, tool, upstream, plugin, and approval state." },
+      { "id": "management", "label": "Management plane", "focus": ["control", "admins", "tunnels", "manager"], "note": "Admin profiles manage remote tunnels; runtime keys remain per local tunnel instance." }
+    ]
   },
   "components": [
-    { "id": "chatgpt", "type": "external", "label": "ChatGPT", "sublabel": "MCP client", "pos": [40, 260], "size": [140, 64] },
-    { "id": "tunnel", "type": "cloud", "label": "OpenAI Secure MCP Tunnel", "sublabel": "default private transport", "pos": [250, 250], "size": [190, 84] },
-    { "id": "runtime", "type": "backend", "label": "chatgpt-mcp", "sublabel": "local runtime", "pos": [520, 250], "size": [170, 84], "tag": "single binary" },
-    { "id": "workspaces", "type": "security", "label": "Registered Workspaces", "sublabel": "explicit ws_* scopes", "pos": [810, 120], "size": [190, 72] },
-    { "id": "execution", "type": "backend", "label": "Filesystem / Shell / Git", "sublabel": "workspace-bound tools", "pos": [810, 250], "size": [190, 72] },
-    { "id": "upstreams", "type": "external", "label": "Upstream MCP Servers", "sublabel": "optional aggregation", "pos": [810, 380], "size": [190, 72] },
-    { "id": "control", "type": "frontend", "label": "CLI / TUI / Admin", "sublabel": "local control surfaces", "pos": [500, 440], "size": [210, 72] }
+    { "id": "chatgpt", "type": "external", "label": "ChatGPT Apps", "sublabel": "one or more MCP clients", "pos": [40, 280], "size": [150, 68] },
+    { "id": "tunnels", "type": "cloud", "label": "Secure MCP Tunnels", "sublabel": "Tunnel A / B / N", "pos": [260, 285], "size": [190, 88], "tag": "OpenAI" },
+    { "id": "manager", "type": "backend", "label": "Tunnel Manager", "sublabel": "N independent clients", "pos": [560, 285], "size": [175, 88], "tag": "shared process" },
+    { "id": "runtime", "type": "backend", "label": "tools.Runtime", "sublabel": "single shared runtime", "pos": [850, 285], "size": [175, 88], "tag": "one instance" },
+    { "id": "workspaces", "type": "security", "label": "Registered Workspaces", "sublabel": "explicit ws_* scopes", "pos": [1110, 90], "size": [170, 72] },
+    { "id": "execution", "type": "backend", "label": "Filesystem / Shell / Git", "sublabel": "workspace-bound tools", "pos": [1110, 215], "size": [170, 72] },
+    { "id": "upstreams", "type": "external", "label": "Upstream MCP Servers", "sublabel": "shared aggregation", "pos": [1110, 410], "size": [170, 72] },
+    { "id": "plugins", "type": "backend", "label": "Plugins / Hooks", "sublabel": "shared tool registry", "pos": [1110, 535], "size": [170, 72] },
+    { "id": "control", "type": "frontend", "label": "CLI / TUI / Admin", "sublabel": "local control surfaces", "pos": [555, 535], "size": [185, 72] },
+    { "id": "admins", "type": "security", "label": "Admin Profiles", "sublabel": "management credentials", "pos": [260, 535], "size": [190, 72] }
   ],
   "boundaries": [
-    { "kind": "region", "label": "Your machine", "wraps": ["runtime", "workspaces", "execution", "control"], "pad": 34 },
-    { "kind": "security-group", "label": "Workspace boundary", "wraps": ["workspaces", "execution"], "pad": 24 }
+    { "kind": "region", "label": "Your machine", "wraps": ["manager", "runtime", "workspaces", "execution", "plugins", "control", "admins"], "pad": 20 },
+    { "kind": "security-group", "label": "Workspace boundary", "wraps": ["workspaces", "execution"], "pad": 20 }
   ],
   "connections": [
-    { "id": "chatgpt-tunnel", "from": "chatgpt", "to": "tunnel", "label": "MCP", "variant": "emphasis" },
-    { "id": "tunnel-runtime", "from": "tunnel", "to": "runtime", "label": "outbound-only", "variant": "security" },
-    { "id": "runtime-workspaces", "from": "runtime", "to": "workspaces", "label": "explicit workspace_id" },
-    { "id": "runtime-execution", "from": "runtime", "to": "execution", "label": "scoped tools", "variant": "emphasis" },
-    { "id": "runtime-upstreams", "from": "runtime", "to": "upstreams", "label": "proxy / aggregate", "variant": "dashed" },
-    { "id": "control-runtime", "from": "control", "to": "runtime", "label": "operate locally" }
+    { "id": "chatgpt-tunnels", "from": "chatgpt", "to": "tunnels", "label": "MCP", "variant": "emphasis" },
+    { "id": "tunnels-manager", "from": "tunnels", "to": "manager", "label": "N outbound clients", "variant": "security" },
+    { "id": "manager-runtime", "from": "manager", "to": "runtime", "label": "namespaced sessions", "variant": "emphasis" },
+    { "id": "runtime-workspaces", "from": "runtime", "to": "workspaces", "label": "resolve scope" },
+    { "id": "runtime-execution", "from": "runtime", "to": "execution" },
+    { "id": "runtime-upstreams", "from": "runtime", "to": "upstreams", "variant": "dashed" },
+    { "id": "runtime-plugins", "from": "runtime", "to": "plugins", "variant": "dashed" },
+    { "id": "control-manager", "from": "control", "to": "manager", "label": "attach / detach / lifecycle" },
+    { "id": "control-admins", "from": "control", "to": "admins", "label": "profile operations" },
+    { "id": "admins-tunnels", "from": "admins", "to": "tunnels", "label": "discover / manage only", "variant": "security" }
   ],
   "cards": [
-    { "dot": "cyan", "title": "Default path", "items": ["ChatGPT connects through OpenAI Secure MCP Tunnel", "No public inbound MCP port is required"] },
-    { "dot": "emerald", "title": "Bounded access", "items": ["Filesystem, shell, Git, and process tools stay inside registered workspace scope"] },
-    { "dot": "violet", "title": "Extensible", "items": ["Optional upstream MCP servers are exposed through the same runtime"] }
+    { "dot": "cyan", "title": "One runtime", "items": ["Tunnel A, B, and N all invoke the same tools.Runtime", "Workspaces, approvals, processes, upstreams, and plugins remain shared"] },
+    { "dot": "emerald", "title": "Per-tunnel isolation", "items": ["Each tunnel owns its runtime key, session namespace, reconnect loop, readiness, metadata, and error state", "One degraded tunnel does not stop another ready tunnel"] },
+    { "dot": "violet", "title": "Separate management plane", "items": ["Multiple admin profiles can discover/manage remote tunnels", "Admin keys never replace per-tunnel runtime keys"] }
   ]
 }

@@ -17,6 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 )
 
@@ -236,7 +237,9 @@ func TestRuntimeMCPHTTPStoppedTogglePersistsAndRespectsTransportInvariant(t *tes
 	if err != nil || loaded.Server.Enabled {
 		t.Fatalf("server enabled=%t err=%v", loaded.Server.Enabled, err)
 	}
-	loaded.Tunnel.Enabled = false
+	collection := loaded.RuntimeTunnels()
+	collection.Instances[0].Enabled = false
+	loaded.Tunnel = tunnel.Config{Instances: &collection.Instances, Admins: &collection.Admins}
 	loaded.Server.Enabled = true
 	if err := config.Save(loaded); err != nil {
 		t.Fatal(err)

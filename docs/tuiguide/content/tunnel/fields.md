@@ -1,45 +1,22 @@
 # Tunnel Editor Fields
 
-## Runtime Tunnel editor
+## Admin Profile
 
-### Enabled
+### Profile ID
 
-Controls whether the local Secure MCP Tunnel transport is active. If local MCP HTTP is disabled, this field is required to remain enabled so at least one MCP transport stays available. The editor validates that invariant before saving.
+Stable local name used to select a management credential, for example `personal` or `work`.
 
-### Tunnel ID
+### OpenAI admin API key
 
-Identifier of the tunnel selected for this runtime. It is persisted as the runtime tunnel ID and is required when the tunnel transport is enabled.
+Sensitive management credential. It is stored in the managed secret store and is never used as a tunnel runtime key.
 
-### Runtime API key
+### Scope type and Scope ID
 
-Sensitive credential used by the runtime to connect to the selected tunnel. The input is password-style. When editing, leaving it blank keeps the currently stored runtime key instead of clearing it.
+Exactly one management scope is required: Organization, Workspace, or Tenant. Scope ID contains the matching OpenAI identifier.
 
 ### Control plane base URL
 
-Optional control-plane endpoint override. Empty/default behavior uses the normal tunnel control-plane endpoint; custom configuration is intended for an explicitly different endpoint.
-
-### Organization ID
-
-Optional organization context associated with runtime tunnel operations. It is not the same as the verified admin-key organization scope.
-
-## Admin Key editor
-
-### OpenAI admin API key (Tunnels Manage)
-
-Sensitive admin credential used for management/control-plane operations. It is distinct from the runtime API key. Submitting the editor verifies the key before storing its usable scope.
-
-### Verification scope
-
-Controls which scope is used when verifying the admin key.
-
-- **Auto (reuse or derive)** reuses/derives scope automatically.
-- **Organization** interprets Scope ID as an organization ID.
-- **Workspace** interprets Scope ID as a workspace ID.
-- **Tenant** interprets Scope ID as a tenant ID.
-
-### Scope ID
-
-Identifier for the selected explicit verification scope. It is ignored when Verification scope is Auto.
+Optional profile-specific control-plane override. Empty uses the normal OpenAI control-plane endpoint.
 
 ## Managed Tunnel — General
 
@@ -65,26 +42,30 @@ Optional multiline list of workspace IDs, one per line.
 
 Optional multiline list of tenant IDs, one per line.
 
-## Managed Tunnel — Runtime
+## Attach Managed Tunnel
 
-### Configure cgm to use this tunnel
+### Admin profile
 
-When enabled during create/update, the local runtime is configured to select the managed tunnel after the management operation succeeds.
+Chooses the management credential/provenance used to read the remote tunnel and, when requested, generate a runtime key. Explicit selection is required when multiple profiles can manage the same tunnel.
 
-### Runtime API key
+### Runtime key mode
 
-Optional sensitive runtime credential used when configuring the local runtime. Blank reuses the current runtime key.
-
-### Enable tunnel after configure
-
-Controls whether the selected tunnel transport is enabled after configuring the local runtime.
-
-## Use Managed Tunnel editor
+Choose a manually supplied restricted runtime key or automatic generation through the selected admin profile.
 
 ### Runtime API key
 
-Same secret-preserving behavior as above: blank reuses the current runtime key.
+Sensitive **Tunnels Read + Use** credential for the new local tunnel instance. It is password-style and stored separately from admin-profile credentials.
 
-### Enable tunnel
+### Project ID
 
-Controls whether the tunnel is enabled as part of selecting/configuring the managed tunnel for the local runtime.
+Optional OpenAI project used when automatic runtime-key generation cannot resolve one unambiguously.
+
+### Enabled
+
+Controls whether the newly attached local instance participates in runtime startup immediately. At least one MCP transport must remain enabled overall.
+
+## Delete Managed Tunnel
+
+### Admin profile
+
+Chooses the management profile used for the remote destructive operation. A local attachment with the same tunnel ID must be detached before remote deletion.

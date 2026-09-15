@@ -77,7 +77,7 @@ cgm config set admin.enabled true
 
 Values are parsed according to the schema and validated before persistence. `key=value` syntax is also accepted by the CLI.
 
-At least one MCP transport must remain enabled: direct MCP HTTP (`server.enabled`) or OpenAI Secure MCP Tunnel (`tunnel.enabled`). The default ChatGPT path is the tunnel; direct HTTP is an optional transport for clients that need it.
+At least one MCP transport must remain enabled: direct MCP HTTP (`server.enabled`) or at least one enabled local Secure MCP Tunnel instance. Tunnel instances are managed through `cgm tunnel ...` rather than scalar `config set` fields.
 
 ## Applying changes to a running runtime
 
@@ -114,7 +114,7 @@ Conversion validates the managed state before activating the new representation.
 
 ## Secrets
 
-Long-lived reversible credentials such as tunnel runtime keys, upstream OAuth credentials, and sensitive upstream header/environment values are stored through the selected config root's managed secret store rather than as plaintext values in ordinary structured config.
+Long-lived reversible credentials such as per-instance tunnel runtime keys, tunnel admin-profile keys, upstream OAuth credentials, and sensitive upstream header/environment values are stored through the selected config root's managed secret store rather than as plaintext values in ordinary structured config.
 
 MCP/Admin endpoint credentials are represented by one-way hashes where appropriate. Normal config/status output does not reveal managed secrets.
 
@@ -162,10 +162,12 @@ cgm config set server.expose none
 
 Other supported exposure modes can bind selected interfaces or broader addresses, but non-loopback direct HTTP changes the trust model and requires the appropriate authentication/insecure-HTTP acknowledgement.
 
-For ChatGPT, prefer the Secure MCP Tunnel instead of opening the MCP listener publicly:
+For ChatGPT, prefer Secure MCP Tunnel instead of opening the MCP listener publicly. Add a management profile, then attach one or more managed tunnels:
 
 ```bash
-cgm tunnel configure --enabled --id tunnel_... --api-key 'sk-...'
+cgm tunnel admin add personal --admin-key 'sk-admin-...' --organization-id org_...
+cgm tunnel admin verify personal
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
 ```
 
 Read [Security](security.md#network-exposure) before widening exposure.
@@ -202,13 +204,34 @@ See [Security](security.md#shell-execution-boundary).
 
 ## Tunnel configuration
 
-Configure the default ChatGPT transport:
+Tunnel state is a collection. Each local tunnel instance has its own ID/runtime key and may reference an admin profile used for management provenance. Admin profiles hold management credentials/scopes and are not runtime connections.
+
+Conceptually the persisted model is:
+
+```yaml
+tunnel:
+  instances:
+    - id: tunnel_a
+      enabled: true
+      admin_profile_id: personal
+    - id: tunnel_b
+      enabled: true
+  admins:
+    - id: personal
+      organization_id: org_...
+```
+
+Runtime/admin keys are stored separately in the managed secret store and are redacted from normal config/status output. Older scalar tunnel config is migrated to one collection instance plus a `default` admin profile when applicable.
+
+Use:
 
 ```bash
-cgm tunnel configure \
-  --enabled \
-  --id tunnel_... \
-  --api-key 'sk-...'
+cgm tunnel list
+cgm tunnel status [tunnel_id]
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
+cgm tunnel detach tunnel_...
+cgm tunnel admin list
+cgm tunnel managed list
 ```
 
 See [OpenAI + ChatGPT](openai-chatgpt.md) for Platform and ChatGPT setup. Use `cgm tunnel --help` for the current local/managed tunnel command surface.

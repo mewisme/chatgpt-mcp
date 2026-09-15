@@ -60,19 +60,17 @@ Tunnels Read + Manage
 
 Do not replace the runtime key with a Platform Admin API key.
 
-Reconfigure when necessary:
+Replace the affected local runtime credential by detaching and reattaching that tunnel:
 
 ```bash
-cgm tunnel configure \
-  --enabled \
-  --id tunnel_... \
-  --api-key 'sk-...'
+cgm tunnel detach tunnel_...
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
 ```
 
 Then:
 
 ```bash
-cgm tunnel status
+cgm tunnel status tunnel_...
 cgm logs --component TUNNEL --debug -f
 ```
 

@@ -43,6 +43,26 @@ func (cfg Config) RuntimeTunnels() tunnel.CollectionConfig {
 	return collection
 }
 
+func (cfg Config) EnabledTunnelCount() int {
+	count := 0
+	for _, instance := range cfg.RuntimeTunnels().Instances {
+		if instance.Enabled {
+			count++
+		}
+	}
+	return count
+}
+
+func (cfg Config) ConfiguredTunnelCount() int {
+	count := 0
+	for _, instance := range cfg.RuntimeTunnels().Instances {
+		if strings.TrimSpace(instance.APIKey) != "" {
+			count++
+		}
+	}
+	return count
+}
+
 type PermissionsConfig struct {
 	AllowDirs []string `json:"allow_dirs"`
 }
@@ -239,12 +259,38 @@ func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSe
 	if err := loadCollectionSecrets(secretPath, &cfg.Tunnel, policy); err != nil {
 		return cfg, err
 	}
-	if migrateSecrets || legacyRuntime != "" || legacyAdmin != "" {
+	canonicalizedTunnel := canonicalizeLegacyTunnelCollection(&cfg)
+	if migrateSecrets || legacyRuntime != "" || legacyAdmin != "" || canonicalizedTunnel {
 		if err := saveAt(configPath, secretPath, cfg); err != nil {
 			return cfg, fmt.Errorf("migrate credentials to secret file store: %w", err)
 		}
 	}
 	return cfg, nil
+}
+
+func canonicalizeLegacyTunnelCollection(cfg *Config) bool {
+	if cfg == nil || cfg.Tunnel.Instances != nil || cfg.Tunnel.Admins != nil {
+		return false
+	}
+	collection := cfg.RuntimeTunnels()
+	if len(collection.Instances) == 0 && len(collection.Admins) == 0 {
+		return false
+	}
+	instances := append([]tunnel.InstanceConfig(nil), collection.Instances...)
+	admins := append([]tunnel.AdminConfig(nil), collection.Admins...)
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
+	cfg.Tunnel.Enabled = false
+	cfg.Tunnel.ID = ""
+	cfg.Tunnel.APIKey = ""
+	cfg.Tunnel.AdminKey = ""
+	cfg.Tunnel.AdminOrganizationID = ""
+	cfg.Tunnel.AdminWorkspaceID = ""
+	cfg.Tunnel.AdminTenantID = ""
+	cfg.Tunnel.AdminReadAccess = false
+	cfg.Tunnel.AdminManageAccess = false
+	cfg.Tunnel.ControlPlaneBaseURL = ""
+	cfg.Tunnel.OrganizationID = ""
+	return true
 }
 
 func migrateLegacyServerConfig(path string, data []byte, cfg *Config) error {
@@ -337,13 +383,14 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	if err := writeConfigFile(configPath, data, 0600); err != nil {
 		return err
 	}
-	if err := saveSecret(secretPath, cfg.Tunnel); err != nil {
-		return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
-	}
-	if cfg.Tunnel.Instances != nil || cfg.Tunnel.Admins != nil {
+	collectionMode := cfg.Tunnel.Instances != nil || cfg.Tunnel.Admins != nil
+	if collectionMode {
 		if err := saveCollectionSecrets(secretPath, cfg.Tunnel); err != nil {
 			return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
 		}
+	}
+	if err := saveSecret(secretPath, cfg.Tunnel); err != nil {
+		return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
 	}
 	return nil
 }
@@ -402,6 +449,12 @@ func mergeConfigData(path string, persisted, runtime Config) ([]byte, error) {
 			if _, exists := existingTunnel[key]; exists {
 				mergedTunnel[key] = ""
 			}
+		}
+	}
+	if persisted.Tunnel.Instances != nil || persisted.Tunnel.Admins != nil {
+		mergedTunnel := ensureGenericObject(merged, "tunnel")
+		for _, key := range []string{"enabled", "id", "api_key", "admin_key", "admin_organization_id", "admin_workspace_id", "admin_tenant_id", "control_plane_base_url", "organization_id"} {
+			delete(mergedTunnel, key)
 		}
 	}
 	return configformat.EncodeGeneric(format, merged)

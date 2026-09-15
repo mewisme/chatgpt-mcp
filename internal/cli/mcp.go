@@ -19,6 +19,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/mcpauth"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -65,9 +66,7 @@ func runMCPHTTP(cmd *cobra.Command, workspace, host string, port int, enableSSE 
 	if host == "" {
 		return errors.New("MCP HTTP host is required")
 	}
-	cfg.Server.Enabled = false
-	cfg.Admin.Enabled = false
-	cfg.Tunnel.Enabled = false
+	disableStandaloneRuntimeTransports(&cfg)
 	runtime, err := app.NewWithLoggerContext(cmd.Context(), cfg, commandLogger(cmd))
 	if err != nil {
 		return err
@@ -168,9 +167,7 @@ func runMCPStdio(cmd *cobra.Command, workspace string) (runErr error) {
 	if err := config.Validate(cfg); err != nil {
 		return err
 	}
-	cfg.Server.Enabled = false
-	cfg.Admin.Enabled = false
-	cfg.Tunnel.Enabled = false
+	disableStandaloneRuntimeTransports(&cfg)
 	runtime, err := app.NewWithLoggerContext(cmd.Context(), cfg, commandLogger(cmd))
 	if err != nil {
 		return err
@@ -196,6 +193,17 @@ func runMCPStdio(cmd *cobra.Command, workspace string) (runErr error) {
 		return nil
 	}
 	return err
+}
+
+func disableStandaloneRuntimeTransports(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	cfg.Server.Enabled = false
+	cfg.Admin.Enabled = false
+	instances := []tunnel.InstanceConfig{}
+	admins := append([]tunnel.AdminConfig(nil), cfg.RuntimeTunnels().Admins...)
+	cfg.Tunnel = tunnel.Config{Instances: &instances, Admins: &admins}
 }
 
 func resolveMCPWorkspace(manager interface {

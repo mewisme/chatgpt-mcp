@@ -207,10 +207,9 @@ func TestConfigSaveSeparatesTunnelSecrets(t *testing.T) {
 	configPath := filepath.Join(root, "config.json")
 	secretPath := filepath.Join(root, "tunnel.json")
 	cfg := Default()
-	cfg.Tunnel.ID = "tunnel_0123456789abcdef0123456789abcdef"
-	cfg.Tunnel.APIKey = "tunnel-secret"
-	cfg.Tunnel.AdminKey = "admin-secret"
-	cfg.Tunnel.AdminWorkspaceID = "ws-admin"
+	instances := []tunnel.InstanceConfig{{ID: "tunnel_0123456789abcdef0123456789abcdef", APIKey: "tunnel-secret", AdminProfileID: "default"}}
+	admins := []tunnel.AdminConfig{{ID: "default", AdminKey: "admin-secret", WorkspaceID: "ws-admin"}}
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
 
 	if err := saveAt(configPath, secretPath, cfg); err != nil {
 		t.Fatal(err)
@@ -219,21 +218,22 @@ func TestConfigSaveSeparatesTunnelSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(configData), "tunnel-secret") || strings.Contains(string(configData), "admin-secret") || strings.Contains(string(configData), `"api_key"`) || strings.Contains(string(configData), `"admin_key"`) || strings.Contains(string(configData), "ws-admin") {
+	if strings.Contains(string(configData), "tunnel-secret") || strings.Contains(string(configData), "admin-secret") || strings.Contains(string(configData), `"api_key"`) || strings.Contains(string(configData), `"admin_key"`) || !strings.Contains(string(configData), "ws-admin") {
 		t.Fatalf("config.json leaked tunnel secret: %s", configData)
 	}
 	secretData, err := os.ReadFile(secretPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "ws-admin") || !strings.Contains(string(secretData), "runtime_key_configured") || !strings.Contains(string(secretData), "admin_key_configured") {
+	if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "instance_keys") || !strings.Contains(string(secretData), "admin_keys") {
 		t.Fatalf("tunnel.json did not contain marker-only secret metadata: %s", secretData)
 	}
 	loaded, err := loadAt(configPath, secretPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tunnel.APIKey != "tunnel-secret" || loaded.Tunnel.AdminKey != "admin-secret" || loaded.Tunnel.AdminWorkspaceID != "ws-admin" || loaded.Tunnel.ID != cfg.Tunnel.ID {
+	collection := loaded.Tunnel.Collection()
+	if len(collection.Instances) != 1 || len(collection.Admins) != 1 || collection.Instances[0].APIKey != "tunnel-secret" || collection.Instances[0].ID != instances[0].ID || collection.Admins[0].AdminKey != "admin-secret" || collection.Admins[0].WorkspaceID != "ws-admin" {
 		t.Fatalf("loaded tunnel = %#v", loaded.Tunnel)
 	}
 	if runtime.GOOS != "windows" {
@@ -256,10 +256,9 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			cfg := Default()
 			cfg.Auth.MCPTokenHash = "mcp-hash"
 			cfg.Auth.AdminTokenHash = "admin-hash"
-			cfg.Tunnel.ID = "tunnel_0123456789abcdef0123456789abcdef"
-			cfg.Tunnel.APIKey = "tunnel-secret"
-			cfg.Tunnel.AdminKey = "admin-secret"
-			cfg.Tunnel.AdminOrganizationID = "org-admin"
+			instances := []tunnel.InstanceConfig{{ID: "tunnel_0123456789abcdef0123456789abcdef", APIKey: "tunnel-secret", AdminProfileID: "default"}}
+			admins := []tunnel.AdminConfig{{ID: "default", AdminKey: "admin-secret", OrganizationID: "org-admin"}}
+			cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
 			cfg.Shell.Executable = filepath.Join(root, "bash")
 			cfg.Shell.Path = []string{filepath.Join(root, "bin")}
 			if err := saveAt(configPath, secretPath, cfg); err != nil {
@@ -269,21 +268,22 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey || loaded.Tunnel.AdminKey != cfg.Tunnel.AdminKey || loaded.Tunnel.AdminOrganizationID != cfg.Tunnel.AdminOrganizationID || loaded.Shell.Executable != cfg.Shell.Executable || len(loaded.Shell.Path) != 1 || loaded.Shell.Path[0] != cfg.Shell.Path[0] {
+			collection := loaded.Tunnel.Collection()
+			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || len(collection.Instances) != 1 || collection.Instances[0].APIKey != "tunnel-secret" || len(collection.Admins) != 1 || collection.Admins[0].AdminKey != "admin-secret" || collection.Admins[0].OrganizationID != "org-admin" || loaded.Shell.Executable != cfg.Shell.Executable || len(loaded.Shell.Path) != 1 || loaded.Shell.Path[0] != cfg.Shell.Path[0] {
 				t.Fatalf("round trip = %#v", loaded)
 			}
 			mainData, err := os.ReadFile(configPath)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(mainData), "tunnel-secret") || strings.Contains(string(mainData), "admin-secret") || strings.Contains(string(mainData), "org-admin") {
+			if strings.Contains(string(mainData), "tunnel-secret") || strings.Contains(string(mainData), "admin-secret") || !strings.Contains(string(mainData), "org-admin") {
 				t.Fatalf("main %s config leaked tunnel secret: %s", format, mainData)
 			}
 			secretData, err := os.ReadFile(secretPath)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "org-admin") {
+			if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "instance_keys") || !strings.Contains(string(secretData), "admin_keys") {
 				t.Fatalf("tunnel %s file leaked secret or lost scope: %s", format, secretData)
 			}
 		})
@@ -351,8 +351,9 @@ func TestLegacyGenericTunnelFieldsArePreservedOnSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tunnel.ID != "tunnel_test" {
-		t.Fatalf("tunnel id = %q", loaded.Tunnel.ID)
+	collection := loaded.Tunnel.Collection()
+	if len(collection.Instances) != 1 || collection.Instances[0].ID != "tunnel_test" {
+		t.Fatalf("tunnel collection = %#v", collection)
 	}
 	if err := saveAt(configPath, secretPath, loaded); err != nil {
 		t.Fatal(err)
@@ -916,13 +917,13 @@ func TestClearingRuntimeKeyPreservesAdminKeySecret(t *testing.T) {
 	configPath := filepath.Join(root, "config.json")
 	secretPath := filepath.Join(root, "tunnel.json")
 	cfg := Default()
-	cfg.Tunnel.APIKey = "runtime-secret"
-	cfg.Tunnel.AdminKey = "admin-secret"
-	cfg.Tunnel.AdminWorkspaceID = "ws_admin"
+	instances := []tunnel.InstanceConfig{{ID: "tunnel_test", APIKey: "runtime-secret", AdminProfileID: "default"}}
+	admins := []tunnel.AdminConfig{{ID: "default", AdminKey: "admin-secret", WorkspaceID: "ws_admin"}}
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
 	if err := saveAt(configPath, secretPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Tunnel.APIKey = ""
+	instances[0].APIKey = ""
 	if err := saveAt(configPath, secretPath, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -930,7 +931,8 @@ func TestClearingRuntimeKeyPreservesAdminKeySecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tunnel.APIKey != "" || loaded.Tunnel.AdminKey != "admin-secret" || loaded.Tunnel.AdminWorkspaceID != "ws_admin" {
+	collection := loaded.Tunnel.Collection()
+	if len(collection.Instances) != 1 || collection.Instances[0].APIKey != "" || len(collection.Admins) != 1 || collection.Admins[0].AdminKey != "admin-secret" || collection.Admins[0].WorkspaceID != "ws_admin" {
 		t.Fatalf("loaded tunnel = %#v", loaded.Tunnel)
 	}
 }

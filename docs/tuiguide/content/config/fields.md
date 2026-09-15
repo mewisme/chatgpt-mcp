@@ -6,7 +6,7 @@ The Config TUI is schema-driven. Each field below is the same key exposed by the
 
 ### `server.enabled` — MCP HTTP server
 
-Boolean. Controls whether the local MCP HTTP transport is enabled. Disabling it removes local HTTP MCP connectivity. At least one MCP transport must remain enabled, so the Secure MCP Tunnel must be enabled before this can be disabled by itself. Related: `server.port`, `server.expose.mode`, `auth.mcp_enabled`, `tunnel.enabled`.
+Boolean. Controls whether the local MCP HTTP transport is enabled. Disabling it removes local HTTP MCP connectivity. At least one MCP transport must remain enabled, so at least one attached Secure MCP Tunnel instance must remain enabled before this can be disabled by itself. Related: `server.port`, `server.expose.mode`, `auth.mcp_enabled`.
 
 ### `server.expose.mode` — Exposure
 
@@ -89,38 +89,13 @@ Enum persisted response intensity: `lite`, `full`, `ultra`, `wenyan-lite`, `weny
 
 ## Tunnel
 
-### `tunnel.enabled` — Tunnel
+Tunnel configuration is a collection and is intentionally managed from the Tunnel page/CLI instead of the scalar Config-field editor.
 
-Boolean controlling the OpenAI Secure MCP Tunnel transport. Enabling requires both `tunnel.id` and a configured runtime API key. It can satisfy the requirement that at least one MCP transport remains enabled when local MCP HTTP is disabled.
+The current model contains:
 
-### `tunnel.id` — Tunnel ID
+- **instances** — local tunnel attachments keyed by tunnel ID, each with enabled state, its own managed runtime key, optional admin-profile reference, control-plane override, and organization context;
+- **admin profiles** — named management credentials with one organization/workspace/tenant scope and optional control-plane override.
 
-String identifier for the Secure MCP Tunnel used by this runtime. Required while tunnel transport is enabled.
+Raw runtime/admin keys are never rendered by Config. Legacy scalar `tunnel.*` values from older installations are compatibility input only and are migrated into the collection model on load/save.
 
-### `tunnel.api_key` — Runtime API key
-
-Read-only sensitive managed credential. The raw key is redacted from Config. Manage it from the Tunnel page.
-
-### `tunnel.admin_key` — Admin key
-
-Read-only sensitive credential used for control-plane management such as listing, creating, updating, and deleting managed tunnels. It is separate from the runtime API key and is managed from the Tunnel page.
-
-### `tunnel.admin_organization_id` — Admin organization scope
-
-Read-only verified organization scope produced by admin-key verification.
-
-### `tunnel.admin_workspace_id` — Admin workspace scope
-
-Read-only verified workspace scope produced by admin-key verification.
-
-### `tunnel.admin_tenant_id` — Admin tenant scope
-
-Read-only verified tenant scope produced by admin-key verification.
-
-### `tunnel.control_plane_base_url` — Control-plane URL
-
-Optional string overriding the tunnel control-plane base URL. Empty uses the default endpoint. A custom value must be an absolute HTTP/HTTPS URL with a host.
-
-### `tunnel.organization_id` — Organization ID
-
-Optional OpenAI organization context associated with runtime tunnel operations. This is distinct from the verified admin-key organization scope.
+Use `cgm tunnel list`, `cgm tunnel status <id>`, `cgm tunnel attach/detach`, and `cgm tunnel admin ...` for tunnel changes.

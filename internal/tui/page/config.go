@@ -912,19 +912,13 @@ func (page *ConfigPage) domainSummary(domain string) string {
 	case "features":
 		return fmt.Sprintf("Ponytail %s · Caveman %s", configOnOff(cfg.Features.Ponytail.Active), configOnOff(cfg.Features.Caveman.Active))
 	case "tunnel":
-		return fmt.Sprintf("%s · runtime key %s · admin key %s", configOnOff(cfg.Tunnel.Enabled), configuredState(cfg.Tunnel.APIKey), configuredState(cfg.Tunnel.AdminKey))
+		collection := cfg.RuntimeTunnels()
+		return fmt.Sprintf("%d instances · %d enabled · %d runtime keys · %d admin profiles", len(collection.Instances), cfg.EnabledTunnelCount(), cfg.ConfiguredTunnelCount(), len(collection.Admins))
 	case "storage":
 		return fmt.Sprintf("%s · verify / convert / import / export", page.overview.Source.Format)
 	default:
 		return ""
 	}
-}
-
-func configuredState(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "not configured"
-	}
-	return "configured"
 }
 
 func configOnOff(enabled bool) string {

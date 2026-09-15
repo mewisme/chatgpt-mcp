@@ -24,13 +24,6 @@ const config = {
   shell: { path: [] },
   features: { ponytail: { active: true, mode: "full" }, caveman: { active: true, mode: "full" } },
 }
-const tunnel = {
-  provider: "openai",
-  enabled: false,
-  running: false,
-  ready: false,
-}
-
 describe("admin app runtime smoke", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/overview")
@@ -441,15 +434,9 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
     })
   if (path === "/api/tools") return json([])
   if (path === "/api/upstream") return json([])
-  if (path === "/api/tunnel") return json(tunnel)
-  if (path === "/api/tunnel/config")
-    return json({
-      enabled: false,
-      runtime_key_configured: false,
-      admin_key_configured: false,
-    })
-  if (path === "/api/tunnel/admin/key")
-    return json({ configured: false, scope: {} })
+  if (path === "/api/tunnels") return json([])
+  if (path === "/api/tunnel-admins") return json([])
+  if (path === "/api/managed-tunnels") return json([])
   if (path === "/api/config") return json(config)
   if (path === "/api/network/interfaces") return json([])
   if (path === "/api/requests?status=pending") return json([])

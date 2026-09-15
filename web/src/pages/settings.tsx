@@ -42,7 +42,7 @@ import { adminApi, type NetworkInterface, type PublicConfig } from "@/lib/api"
 export function SettingsPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [savedConfig, setSavedConfig] = useState<PublicConfig | null>(null)
-  const [tunnelEnabled, setTunnelEnabled] = useState(false)
+  const [enabledTunnelCount, setEnabledTunnelCount] = useState(0)
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
@@ -52,14 +52,14 @@ export function SettingsPage() {
     void Promise.all([
       adminApi.config(),
       adminApi.networkInterfaces(),
-      adminApi.tunnelConfig(),
+      adminApi.localTunnels(),
     ])
-      .then(([nextConfig, nextInterfaces, nextTunnel]) => {
+      .then(([nextConfig, nextInterfaces, nextTunnels]) => {
         const normalized = normalizeConfig(nextConfig)
         setConfig(normalized)
         setSavedConfig(normalized)
         setInterfaces(nextInterfaces)
-        setTunnelEnabled(nextTunnel.enabled)
+        setEnabledTunnelCount(nextTunnels.filter((item) => item.enabled).length)
       })
       .catch((value) => setError(errorText(value)))
   }, [])
@@ -145,7 +145,7 @@ export function SettingsPage() {
         (config.auth.admin_enabled && config.auth.admin_token_configured)))
   const saveDisabled =
     busy ||
-    (!config.server.enabled && !tunnelEnabled) ||
+    (!config.server.enabled && enabledTunnelCount === 0) ||
     (config.server.expose.mode === "interfaces" &&
       config.server.expose.interfaces.length === 0) ||
     !exposureAuthReady ||
@@ -185,12 +185,12 @@ export function SettingsPage() {
                 <Toggle
                   label="MCP HTTP"
                   description={
-                    tunnelEnabled
-                      ? "Serve MCP directly over HTTP. Secure MCP Tunnel remains available if this transport is disabled."
-                      : "Serve MCP directly over HTTP. This transport is required while Secure MCP Tunnel is disabled."
+                    enabledTunnelCount > 0
+                      ? "Serve MCP directly over HTTP. Enabled Secure MCP Tunnel instances remain available if this transport is disabled."
+                      : "Serve MCP directly over HTTP. This transport is required while no Secure MCP Tunnel instance is enabled."
                   }
                   checked={config.server.enabled}
-                  disabled={config.server.enabled && !tunnelEnabled}
+                  disabled={config.server.enabled && enabledTunnelCount === 0}
                   onCheckedChange={(enabled) =>
                     setConfig({
                       ...config,
@@ -204,8 +204,8 @@ export function SettingsPage() {
                   >
                     MCP HTTP {config.server.enabled ? "enabled" : "disabled"}
                   </Badge>
-                  <Badge variant={tunnelEnabled ? "secondary" : "outline"}>
-                    Secure MCP Tunnel {tunnelEnabled ? "enabled" : "disabled"}
+                  <Badge variant={enabledTunnelCount > 0 ? "secondary" : "outline"}>
+                    Secure MCP Tunnels {enabledTunnelCount} enabled
                   </Badge>
                 </div>
                 <div className="grid gap-5 md:grid-cols-2">

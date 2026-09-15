@@ -39,6 +39,7 @@ func commandTraceContracts() map[string]commandTraceContract {
 	add(commandTraceInstrumented, []string{"plugin.enable.completed"}, "plugin enable")
 	add(commandTraceInstrumented, []string{"plugin.disable.completed"}, "plugin disable")
 	add(commandTraceInstrumented, []string{"plugin.update.completed"}, "plugin update")
+	add(commandTraceInstrumented, []string{"plugin.rollback.completed"}, "plugin rollback")
 	add(commandTraceInstrumented, []string{"plugin.outdated.completed"}, "plugin outdated")
 	add(commandTraceInstrumented, []string{"plugin.verify.completed"}, "plugin verify")
 	add(commandTraceInstrumented, []string{"plugin.registry.add.completed"}, "plugin registry add")

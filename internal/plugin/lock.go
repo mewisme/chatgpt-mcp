@@ -13,6 +13,8 @@ import (
 
 const LockSchema = 1
 
+var ErrLockCorrupt = errors.New("plugin lock is corrupt")
+
 type LockFile struct {
 	Schema  int                     `json:"schema"`
 	Plugins map[PluginID]LockPlugin `json:"plugins"`
@@ -39,10 +41,10 @@ func LoadLock(path string) (LockFile, error) {
 	}
 	var lock LockFile
 	if err := decodeStrictJSON(data, &lock); err != nil {
-		return LockFile{}, fmt.Errorf("decode plugin lock: %w", err)
+		return LockFile{}, fmt.Errorf("%w: decode plugin lock: %v", ErrLockCorrupt, err)
 	}
 	if err := lock.Validate(); err != nil {
-		return LockFile{}, err
+		return LockFile{}, fmt.Errorf("%w: %v", ErrLockCorrupt, err)
 	}
 	return lock, nil
 }

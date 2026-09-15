@@ -14,7 +14,7 @@ import (
 
 func pluginCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "plugin", Short: "Manage signed ChatGPT MCP plugins", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	cmd.AddCommand(pluginSearchCommand(), pluginInfoCommand(), pluginListCommand(), pluginInstallCommand(), pluginUninstallCommand(), pluginToggleCommand(true), pluginToggleCommand(false), pluginUpdateCommand(), pluginOutdatedCommand(), pluginVerifyCommand(), pluginRegistryCommand())
+	cmd.AddCommand(pluginSearchCommand(), pluginInfoCommand(), pluginListCommand(), pluginInstallCommand(), pluginUninstallCommand(), pluginToggleCommand(true), pluginToggleCommand(false), pluginUpdateCommand(), pluginRollbackCommand(), pluginOutdatedCommand(), pluginVerifyCommand(), pluginRegistryCommand())
 	return cmd
 }
 
@@ -220,6 +220,32 @@ func pluginUpdateCommand() *cobra.Command {
 	}}
 	cmd.Flags().BoolVar(&all, "all", false, "update all outdated plugins")
 	return cmd
+}
+
+func pluginRollbackCommand() *cobra.Command {
+	return &cobra.Command{Use: "rollback <plugin> [version]", Short: "Rollback to a retained signed plugin version", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
+		manager, _, err := newPluginManager()
+		if err != nil {
+			return err
+		}
+		id, err := simplePluginID(args[0])
+		if err != nil {
+			return err
+		}
+		var target pluginpkg.Version
+		if len(args) == 2 {
+			_, _, target, err = pluginpkg.ParseReference(string(id) + "@" + strings.TrimSpace(args[1]))
+			if err != nil {
+				return err
+			}
+		}
+		result, err := manager.Rollback(cmd.Context(), id, target)
+		if err != nil {
+			return err
+		}
+		commandLogger(cmd).Success("PLUGIN", "plugin rolled back", "id", id, "version", result.Plugin.Manifest.Version)
+		return nil
+	}}
 }
 
 func pluginOutdatedCommand() *cobra.Command {

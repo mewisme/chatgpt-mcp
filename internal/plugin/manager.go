@@ -20,6 +20,7 @@ import (
 )
 
 const maxPluginArtifactSize int64 = 512 << 20
+const DefaultRollbackRetention = 2
 
 type Manager struct {
 	Store          *Store
@@ -80,6 +81,10 @@ func (manager Manager) Install(ctx context.Context, reference string) (result In
 	if err != nil {
 		return InstallResult{}, err
 	}
+	return manager.installResolved(ctx, resolved, false)
+}
+
+func (manager Manager) installResolved(ctx context.Context, resolved ResolvedPlugin, replaceExisting bool) (InstallResult, error) {
 	manifest, _, err := manager.RegistryClient.FetchManifest(ctx, resolved)
 	if err != nil {
 		return InstallResult{}, err
@@ -108,6 +113,13 @@ func (manager Manager) Install(ctx context.Context, reference string) (result In
 	defer os.RemoveAll(extracted)
 	if err := ExtractArchive(archivePath, artifact.Archive, extracted); err != nil {
 		return InstallResult{}, err
+	}
+	if replaceExisting {
+		if _, err := manager.Store.Installed(manifest.ID, manifest.Version); err == nil {
+			if err := manager.Store.RemoveVersion(manifest.ID, manifest.Version); err != nil {
+				return InstallResult{}, err
+			}
+		}
 	}
 	installed, err := manager.Store.Install(manifest, extracted)
 	if errors.Is(err, ErrVersionInstalled) {
@@ -306,7 +318,146 @@ func (manager Manager) Update(ctx context.Context, id PluginID) (result InstallR
 	if !ok {
 		return InstallResult{}, fmt.Errorf("plugin %s is not installed", id)
 	}
-	return manager.Install(ctx, entry.Registry+"/"+string(id))
+	result, err = manager.Install(ctx, entry.Registry+"/"+string(id))
+	if err != nil {
+		return InstallResult{}, err
+	}
+	if !entry.Enabled {
+		if err := manager.Store.SetEnabled(id, false); err != nil {
+			return result, fmt.Errorf("restore disabled plugin state after update: %w", err)
+		}
+	}
+	if _, err := manager.PruneVersions(id, DefaultRollbackRetention); err != nil {
+		return result, fmt.Errorf("plugin updated to %s but rollback version pruning failed: %w", result.Plugin.Manifest.Version, err)
+	}
+	return result, nil
+}
+
+func (manager Manager) PruneVersions(id PluginID, retainInactive int) ([]Version, error) {
+	if manager.Store == nil {
+		return nil, errors.New("plugin store is unavailable")
+	}
+	if retainInactive < 0 {
+		return nil, errors.New("rollback retention cannot be negative")
+	}
+	lock, err := LoadLock(manager.Store.layout.LockPath())
+	if err != nil {
+		return nil, err
+	}
+	active, ok := lock.Plugins[id]
+	if !ok {
+		return nil, fmt.Errorf("plugin %s is not installed", id)
+	}
+	versions, err := manager.Store.InstalledVersions(id)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(versions, func(i, j int) bool {
+		comparison, compareErr := comparePluginVersions(versions[i], versions[j])
+		if compareErr != nil {
+			return versions[i] > versions[j]
+		}
+		return comparison > 0
+	})
+	keptInactive := 0
+	removed := []Version{}
+	for _, version := range versions {
+		if version == active.Version {
+			continue
+		}
+		if keptInactive < retainInactive {
+			keptInactive++
+			continue
+		}
+		if err := manager.Store.RemoveVersion(id, version); err != nil {
+			return removed, err
+		}
+		removed = append(removed, version)
+	}
+	return removed, nil
+}
+
+func (manager Manager) Rollback(ctx context.Context, id PluginID, target Version) (result InstallResult, err error) {
+	span := tracepkg.Start(ctx, "PLUGIN", "plugin.rollback", "Rolling back plugin", tracepkg.String("plugin_id", string(id)), tracepkg.String("target_version", string(target)))
+	defer func() { span.Finish(err, tracepkg.String("version", string(result.Plugin.Manifest.Version))) }()
+	if manager.Store == nil {
+		return InstallResult{}, errors.New("plugin store is unavailable")
+	}
+	lock, err := LoadLock(manager.Store.layout.LockPath())
+	if err != nil {
+		return InstallResult{}, err
+	}
+	entry, ok := lock.Plugins[id]
+	if !ok {
+		return InstallResult{}, fmt.Errorf("plugin %s is not installed", id)
+	}
+	if target == "" {
+		target, err = manager.previousVersion(id, entry.Version)
+		if err != nil {
+			return InstallResult{}, err
+		}
+	} else {
+		comparison, compareErr := comparePluginVersions(target, entry.Version)
+		if compareErr != nil {
+			return InstallResult{}, compareErr
+		}
+		if comparison >= 0 {
+			return InstallResult{}, fmt.Errorf("rollback target %s must be older than active version %s", target, entry.Version)
+		}
+	}
+	installed, err := manager.Store.Installed(id, target)
+	if err != nil {
+		return InstallResult{}, fmt.Errorf("rollback version %s is not retained locally: %w", target, err)
+	}
+	if installed.Manifest.Publisher != entry.Publisher {
+		return InstallResult{}, fmt.Errorf("rollback publisher %q does not match active publisher %q", installed.Manifest.Publisher, entry.Publisher)
+	}
+	resolved, err := manager.Resolve(ctx, entry.Registry+"/"+string(id)+"@"+string(target))
+	if err != nil {
+		return InstallResult{}, err
+	}
+	result, err = manager.installResolved(ctx, resolved, true)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	if !entry.Enabled {
+		if err := manager.Store.SetEnabled(id, false); err != nil {
+			return result, fmt.Errorf("restore disabled plugin state after rollback: %w", err)
+		}
+	}
+	return result, nil
+}
+
+func (manager Manager) previousVersion(id PluginID, active Version) (Version, error) {
+	versions, err := manager.Store.InstalledVersions(id)
+	if err != nil {
+		return "", err
+	}
+	var previous Version
+	for _, version := range versions {
+		comparison, err := comparePluginVersions(version, active)
+		if err != nil {
+			return "", err
+		}
+		if comparison >= 0 {
+			continue
+		}
+		if previous == "" {
+			previous = version
+			continue
+		}
+		newer, err := comparePluginVersions(version, previous)
+		if err != nil {
+			return "", err
+		}
+		if newer > 0 {
+			previous = version
+		}
+	}
+	if previous == "" {
+		return "", fmt.Errorf("plugin %s has no retained rollback version older than %s", id, active)
+	}
+	return previous, nil
 }
 
 func (manager Manager) loadSnapshots(ctx context.Context, requiredRegistry string) ([]RegistrySnapshot, error) {

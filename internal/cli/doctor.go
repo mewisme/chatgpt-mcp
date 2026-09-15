@@ -2,11 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 )
 
@@ -20,7 +22,38 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
-	resolver := shellruntime.DefaultProviderResolver()
+	store, err := pluginpkg.NewStore(pluginpkg.DefaultLayout(), pluginpkg.RuntimeContext{})
+	if err != nil {
+		return fmt.Errorf("open plugin store: %w", err)
+	}
+	reconcile, err := pluginpkg.Reconcile(store)
+	if err != nil {
+		return fmt.Errorf("reconcile plugin state: %w", err)
+	}
+	log := commandLogger(cmd)
+	if reconcile.CorruptLock {
+		log.Warning("DOCTOR", "doctor.plugin.lock-recovered", "Corrupt plugin lock quarantined; plugins require explicit repair", nil)
+		log.Detail("quarantine", reconcile.QuarantinePath)
+	}
+	if len(reconcile.Disabled) > 0 {
+		ids := make([]string, len(reconcile.Disabled))
+		for index, id := range reconcile.Disabled {
+			ids[index] = string(id)
+		}
+		log.Warning("DOCTOR", "doctor.plugin.disabled-unsafe", "Unsafe plugin activation state disabled", nil)
+		log.Detail("disabled plugins", strings.Join(ids, ", "))
+	}
+	desired, err := (&pluginpkg.Manager{Store: store}).AssessDesired()
+	if err != nil {
+		return fmt.Errorf("assess plugin desired state: %w", err)
+	}
+	if desired.Desired > desired.Satisfied {
+		log.Detail("plugin desired state", fmt.Sprintf("%d desired, %d satisfied", desired.Desired, desired.Satisfied))
+	}
+	if desired.LockError != "" {
+		log.Detail("plugin lock status", desired.LockError)
+	}
+	resolver := shellruntime.NewProviderResolver(store)
 	if err := resolver.SetConfiguredExecutable(cfg.Shell.Executable); err != nil {
 		return err
 	}
@@ -28,7 +61,6 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	log := commandLogger(cmd)
 	log.Success("DOCTOR", "Bash shell provider ready")
 	log.Detail("provider", provider.Label())
 	log.Detail("executable", provider.Executable)

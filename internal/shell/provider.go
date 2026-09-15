@@ -99,29 +99,76 @@ func (resolver *ProviderResolver) Resolve() (Provider, error) {
 	resolver.mu.RLock()
 	configured, goos, store, lookPath := resolver.configured, resolver.goos, resolver.store, resolver.lookPath
 	resolver.mu.RUnlock()
-	if configured != "" {
-		return bashProvider(configured, "configured", "", ""), nil
-	}
-	if goos == "windows" && store != nil {
-		plugins, err := pluginpkg.NewResolver(store)
-		if err != nil {
-			return Provider{}, fmt.Errorf("resolve Bash plugin capability: %w", err)
-		}
-		provider, err := plugins.Resolve(bashCapability)
-		if err == nil {
-			return bashProvider(provider.Path, "plugin", provider.PluginID, provider.Version), nil
-		}
-		if !errors.Is(err, pluginpkg.ErrCapabilityNotFound) {
-			return Provider{}, err
-		}
-	}
 	if lookPath == nil {
 		lookPath = exec.LookPath
+	}
+	if configured != "" {
+		if goos == "windows" {
+			if _, err := windowsGitBash(lookPath); err == nil {
+				if err := disableRedundantBashPlugin(store); err != nil {
+					return Provider{}, err
+				}
+			}
+		}
+		return bashProvider(configured, "configured", "", ""), nil
+	}
+	if goos == "windows" {
+		if executable, err := windowsGitBash(lookPath); err == nil {
+			if err := disableRedundantBashPlugin(store); err != nil {
+				return Provider{}, err
+			}
+			return bashProvider(executable, "system", "", ""), nil
+		}
+		if store != nil {
+			plugins, err := pluginpkg.NewResolver(store)
+			if err != nil {
+				return Provider{}, fmt.Errorf("resolve Bash plugin capability: %w", err)
+			}
+			provider, err := plugins.Resolve(bashCapability)
+			if err == nil {
+				return bashProvider(provider.Path, "plugin", provider.PluginID, provider.Version), nil
+			}
+			if !errors.Is(err, pluginpkg.ErrCapabilityNotFound) {
+				return Provider{}, err
+			}
+		}
+		return Provider{}, missingBashError(goos)
 	}
 	if executable, err := lookPath("bash"); err == nil {
 		return bashProvider(executable, "system", "", ""), nil
 	}
 	return Provider{}, missingBashError(goos)
+}
+
+func windowsGitBash(lookPath func(string) (string, error)) (string, error) {
+	if gitExecutable, err := lookPath("git"); err == nil {
+		gitRoot := filepath.Dir(filepath.Dir(filepath.Clean(gitExecutable)))
+		for _, candidate := range []string{filepath.Join(gitRoot, "bin", "bash.exe"), filepath.Join(gitRoot, "usr", "bin", "bash.exe")} {
+			info, statErr := os.Stat(candidate)
+			if statErr == nil && info.Mode().IsRegular() {
+				return candidate, nil
+			}
+		}
+	}
+	if executable, err := lookPath("bash"); err == nil && isGitBashPath(executable) {
+		return executable, nil
+	}
+	return "", exec.ErrNotFound
+}
+
+func isGitBashPath(value string) bool {
+	normalized := strings.ToLower(filepath.ToSlash(filepath.Clean(value)))
+	return strings.Contains(normalized, "/git/bin/bash.exe") || strings.Contains(normalized, "/git/usr/bin/bash.exe")
+}
+
+func disableRedundantBashPlugin(store *pluginpkg.Store) error {
+	if store == nil {
+		return nil
+	}
+	if _, err := store.DisableIfEnabled("bash"); err != nil {
+		return fmt.Errorf("disable redundant Bash plugin: %w", err)
+	}
+	return nil
 }
 
 func bashProvider(executable, source string, pluginID pluginpkg.PluginID, version pluginpkg.Version) Provider {

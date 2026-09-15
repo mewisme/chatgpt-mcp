@@ -11,17 +11,11 @@ import (
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 )
 
-func TestProviderResolverPriorityConfiguredPluginSystem(t *testing.T) {
+func TestProviderResolverPriorityConfiguredGitBashPlugin(t *testing.T) {
 	store, pluginPath := testWindowsBashProviderStore(t)
-	systemPath := filepath.Join(t.TempDir(), "system", "bash.exe")
 	resolver := NewProviderResolver(store)
 	resolver.goos = "windows"
-	resolver.lookPath = func(name string) (string, error) {
-		if name != "bash" {
-			t.Fatalf("lookPath(%q)", name)
-		}
-		return systemPath, nil
-	}
+	resolver.lookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 
 	configured := filepath.Join(t.TempDir(), "bash.exe")
 	if err := os.WriteFile(configured, []byte("configured"), 0755); err != nil {
@@ -49,15 +43,59 @@ func TestProviderResolverPriorityConfiguredPluginSystem(t *testing.T) {
 		t.Fatalf("plugin provider = %#v", provider)
 	}
 
-	if err := store.SetEnabled("bash", false); err != nil {
-		t.Fatal(err)
+	gitRoot := filepath.Join(t.TempDir(), "Git")
+	gitPath := filepath.Join(gitRoot, "cmd", "git.exe")
+	systemPath := filepath.Join(gitRoot, "bin", "bash.exe")
+	for path, contents := range map[string]string{gitPath: "git", systemPath: "bash"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resolver.lookPath = func(name string) (string, error) {
+		if name == "git" {
+			return gitPath, nil
+		}
+		return "", exec.ErrNotFound
 	}
 	provider, err = resolver.Resolve()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if provider.Source != "system" || filepath.Clean(provider.Executable) != filepath.Clean(systemPath) {
-		t.Fatalf("system provider = %#v", provider)
+	if provider.Source != "system" || filepath.Clean(provider.Executable) != filepath.Clean(systemPath) || provider.PluginID != "" {
+		t.Fatalf("Git Bash provider = %#v", provider)
+	}
+	plugins, err := pluginpkg.NewResolver(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plugins.Resolve(bashCapability); !errors.Is(err, pluginpkg.ErrCapabilityNotFound) {
+		t.Fatalf("Bash plugin remained enabled after Git Bash detection: %v", err)
+	}
+	provider, err = resolver.Resolve()
+	if err != nil || provider.Source != "system" || filepath.Clean(provider.Executable) != filepath.Clean(systemPath) {
+		t.Fatalf("subsequent Git Bash provider = %#v err=%v", provider, err)
+	}
+}
+
+func TestProviderResolverWindowsDoesNotTreatWSLBashAsGitBash(t *testing.T) {
+	store, pluginPath := testWindowsBashProviderStore(t)
+	resolver := NewProviderResolver(store)
+	resolver.goos = "windows"
+	resolver.lookPath = func(name string) (string, error) {
+		if name == "bash" {
+			return `C:\\Windows\\System32\\bash.exe`, nil
+		}
+		return "", exec.ErrNotFound
+	}
+	provider, err := resolver.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.Source != "plugin" || filepath.Clean(provider.Executable) != filepath.Clean(pluginPath) {
+		t.Fatalf("WSL launcher displaced Bash plugin: %#v", provider)
 	}
 }
 
@@ -79,7 +117,7 @@ func TestProviderResolverWindowsNeverFallsBackToPowerShell(t *testing.T) {
 	if !errors.Is(err, ErrBashUnavailable) || !strings.Contains(err.Error(), "cgm plugin install bash") {
 		t.Fatalf("missing Bash error = %v", err)
 	}
-	if len(lookups) != 1 || lookups[0] != "bash" {
+	if len(lookups) != 2 || lookups[0] != "git" || lookups[1] != "bash" {
 		t.Fatalf("shell fallback lookups = %#v", lookups)
 	}
 }

@@ -233,6 +233,31 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 	return WriteLock(store.layout.LockPath(), lock)
 }
 
+func (store *Store) DisableIfEnabled(id PluginID) (bool, error) {
+	if store == nil {
+		return false, errors.New("plugin store is unavailable")
+	}
+	if !validCanonicalName(string(id)) {
+		return false, fmt.Errorf("invalid plugin id: %q", id)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	lock, err := LoadLock(store.layout.LockPath())
+	if err != nil {
+		return false, err
+	}
+	entry, ok := lock.Plugins[id]
+	if !ok || !entry.Enabled {
+		return false, nil
+	}
+	entry.Enabled = false
+	lock.Plugins[id] = entry
+	if err := WriteLock(store.layout.LockPath(), lock); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (store *Store) RemoveVersion(id PluginID, version Version) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()

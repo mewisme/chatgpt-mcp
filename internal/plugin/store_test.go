@@ -93,6 +93,35 @@ func TestStoreEnableRevalidatesCoreCompatibility(t *testing.T) {
 	}
 }
 
+func TestStoreDisableIfEnabledIsIdempotent(t *testing.T) {
+	store := testStore(t)
+	if _, err := store.Install(testManifest("bash", "1.0.0", "shell/bash"), testPayload(t, "bash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Activate("bash", "1.0.0", ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := store.DisableIfEnabled("bash")
+	if err != nil || !changed {
+		t.Fatalf("first disable changed=%t err=%v", changed, err)
+	}
+	changed, err = store.DisableIfEnabled("bash")
+	if err != nil || changed {
+		t.Fatalf("second disable changed=%t err=%v", changed, err)
+	}
+	lock, err := LoadLock(store.layout.LockPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lock.Plugins["bash"].Enabled {
+		t.Fatal("plugin remained enabled")
+	}
+	changed, err = store.DisableIfEnabled("missing")
+	if err != nil || changed {
+		t.Fatalf("missing plugin disable changed=%t err=%v", changed, err)
+	}
+}
+
 func testStore(t *testing.T) *Store {
 	t.Helper()
 	root := t.TempDir()

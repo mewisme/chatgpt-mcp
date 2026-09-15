@@ -27,8 +27,8 @@ func defaultActionRegistry() *action.Registry {
 		navigationAction("app.go.plugins.marketplace", "Plugin Marketplace", Route{Kind: RoutePlugins, Section: "marketplace"}, []string{"plugin", "marketplace", "search", "install"}),
 		navigationAction("app.go.plugins.updates", "Plugin Updates", Route{Kind: RoutePlugins, Section: "updates"}, []string{"plugin", "update", "outdated"}),
 		navigationAction("app.go.plugins.registries", "Plugin Registries", Route{Kind: RoutePlugins, Section: "registries"}, []string{"plugin", "registry", "trust"}),
-		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure"}, capability.TunnelStatus, capability.TunnelAdminKeyStatus),
-		navigationAction("app.go.tunnels", "Managed Tunnels", Route{Kind: RouteTunnels}, []string{"tunnel", "tunnels", "managed", "openai"}, capability.TunnelList, capability.TunnelGet),
+		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure", "admin", "profiles"}, capability.TunnelList, capability.TunnelStatus, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
+		navigationAction("app.go.tunnels", "Managed Tunnels", Route{Kind: RouteTunnels}, []string{"tunnel", "tunnels", "managed", "openai"}, capability.TunnelManagedList, capability.TunnelManagedGet),
 		navigationAction("app.go.requests", "Requests", Route{Kind: RouteRequests}, []string{"request", "approval"}, capability.RequestView),
 		navigationAction("app.go.logs", "Logs", Route{Kind: RouteLogs}, []string{"logs", "events", "journal"}),
 		navigationAction("app.go.logs-exec", "Command Execution", Route{Kind: RouteLogsExec}, []string{"logs", "command", "execution", "exec", "output"}),
@@ -188,29 +188,37 @@ func requestAction(id, title, description string, keywords, commandPath []string
 
 func tunnelActions() []action.Action {
 	return []action.Action{
-		editorNavigationAction("tunnel.configure", "Configure runtime tunnel", "Tunnel", "Configure the local OpenAI Secure MCP Tunnel", []string{"tunnel", "configure", "runtime"}, []string{"tunnel", "configure"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnel) }, func(action.Context) Route { return Route{Kind: RouteTunnel, Action: "edit"} }),
-		tunnelAction("tunnel.enable", "Enable runtime tunnel", "Enable the local OpenAI Secure MCP Tunnel", []string{"tunnel", "enable", "runtime"}, []string{"tunnel", "enable"}, tuipage.TunnelEnable, RouteTunnel, false),
-		tunnelAction("tunnel.disable", "Disable runtime tunnel", "Disable the local OpenAI Secure MCP Tunnel", []string{"tunnel", "disable", "runtime"}, []string{"tunnel", "disable"}, tuipage.TunnelDisable, RouteTunnel, false),
+		localTunnelAction("tunnel.enable", "Enable tunnel", "Enable the current local tunnel instance", []string{"tunnel", "enable", "runtime"}, []string{"tunnel", "enable"}, tuipage.LocalTunnelEnable),
+		localTunnelAction("tunnel.disable", "Disable tunnel", "Disable the current local tunnel instance", []string{"tunnel", "disable", "runtime"}, []string{"tunnel", "disable"}, tuipage.LocalTunnelDisable),
+		localTunnelAction("tunnel.start", "Start tunnel", "Start the current local tunnel connection", []string{"tunnel", "start", "connect"}, []string{"tunnel", "start"}, tuipage.LocalTunnelStart),
+		localTunnelAction("tunnel.stop", "Stop tunnel", "Stop the current local tunnel connection", []string{"tunnel", "stop", "disconnect"}, []string{"tunnel", "stop"}, tuipage.LocalTunnelStop),
+		localTunnelAction("tunnel.detach", "Detach tunnel", "Remove the current local tunnel instance without deleting the remote tunnel", []string{"tunnel", "detach", "remove"}, []string{"tunnel", "detach"}, tuipage.LocalTunnelDetach),
 		tunnelAction("tunnel.foreground", "Run foreground tunnel", "Show the foreground tunnel command to run after leaving the TUI", []string{"tunnel", "foreground", "run", "terminal"}, []string{"tunnel", "run"}, tuipage.TunnelForeground, RouteTunnel, false),
-		tunnelAction("tunnel.sync", "Sync tunnel metadata", "Fetch and persist metadata for the configured runtime tunnel", []string{"tunnel", "sync", "metadata"}, []string{"tunnel", "sync"}, tuipage.TunnelSync, RouteTunnel, false),
-		editorNavigationAction("tunnel.admin.key.set", "Set admin key", "Tunnel", "Verify and store an OpenAI tunnel admin key", []string{"tunnel", "admin", "key", "set"}, []string{"tunnel", "admin", "key", "set"}, func(ctx action.Context) bool { return ctx.Route == string(RouteTunnel) }, func(action.Context) Route { return Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"} }),
-		tunnelAction("tunnel.admin.key.verify", "Verify admin key", "Re-verify Tunnels Manage access for the stored admin key", []string{"tunnel", "admin", "key", "verify"}, []string{"tunnel", "admin", "key", "verify"}, tuipage.TunnelAdminKeyVerify, RouteTunnel, false),
-		tunnelAction("tunnel.admin.key.remove", "Remove admin key", "Remove the stored tunnel admin key and verification scope", []string{"tunnel", "admin", "key", "remove"}, []string{"tunnel", "admin", "key", "remove"}, tuipage.TunnelAdminKeyRemove, RouteTunnel, false),
-		tunnelAction("tunnel.managed.refresh", "Refresh managed tunnels", "Refresh managed tunnels from the OpenAI control plane", []string{"tunnel", "managed", "refresh", "list"}, []string{"tunnel", "list"}, tuipage.TunnelManagedRefresh, RouteTunnels, false),
-		editorNavigationAction("tunnel.managed.create", "Create managed tunnel", "Tunnel", "Create a tunnel through the OpenAI Tunnel Management API", []string{"tunnel", "managed", "create"}, []string{"tunnel", "create"}, func(ctx action.Context) bool {
+		tunnelAction("tunnel.managed.refresh", "Refresh managed tunnels", "Refresh managed tunnels from all readable admin profiles", []string{"tunnel", "managed", "refresh", "list"}, []string{"tunnel", "managed", "list"}, tuipage.TunnelManagedRefresh, RouteTunnels, false),
+		editorNavigationAction("tunnel.managed.create", "Create managed tunnel", "Tunnel", "Create a tunnel through an OpenAI admin profile", []string{"tunnel", "managed", "create"}, []string{"tunnel", "managed", "create"}, func(ctx action.Context) bool {
 			return ctx.Route == string(RouteTunnels) && tunnelAdminManageAvailable()
 		}, func(action.Context) Route { return Route{Kind: RouteTunnels, Action: "create"} }),
-		editorNavigationAction("tunnel.managed.update", "Update managed tunnel", "Tunnel", "Update the current managed tunnel", []string{"tunnel", "managed", "update", "edit"}, []string{"tunnel", "update"}, func(ctx action.Context) bool {
+		editorNavigationAction("tunnel.managed.update", "Update managed tunnel", "Tunnel", "Update the current managed tunnel", []string{"tunnel", "managed", "update", "edit"}, []string{"tunnel", "managed", "update"}, func(ctx action.Context) bool {
 			return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" && tunnelAdminManageAvailable()
 		}, func(ctx action.Context) Route {
 			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "edit"}
 		}),
-		editorNavigationAction("tunnel.managed.configure", "Use managed tunnel", "Tunnel", "Configure cgm to use the current managed tunnel", []string{"tunnel", "managed", "use", "select", "switch", "runtime"}, []string{"tunnel", "use"}, func(ctx action.Context) bool {
+		editorNavigationAction("tunnel.managed.configure", "Attach managed tunnel", "Tunnel", "Attach the current managed tunnel to the shared local runtime", []string{"tunnel", "managed", "attach", "runtime"}, []string{"tunnel", "attach"}, func(ctx action.Context) bool {
 			return ctx.Route == string(RouteTunnels) && ctx.ResourceID != "" && tunnelAdminReadAvailable()
 		}, func(ctx action.Context) Route {
 			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "configure"}
 		}),
-		tunnelAction("tunnel.managed.delete", "Delete managed tunnel", "Permanently delete the current managed tunnel", []string{"tunnel", "managed", "delete", "remove"}, []string{"tunnel", "delete"}, tuipage.TunnelManagedDelete, RouteTunnels, true),
+		tunnelAction("tunnel.managed.delete", "Delete managed tunnel", "Permanently delete the current managed tunnel", []string{"tunnel", "managed", "delete", "remove"}, []string{"tunnel", "managed", "delete"}, tuipage.TunnelManagedDelete, RouteTunnels, true),
+	}
+}
+
+func localTunnelAction(id, title, description string, keywords, commandPath []string, command tuipage.LocalTunnelCommand) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "Tunnel", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool { return ctx.Route == string(RouteTunnel) && ctx.ResourceID != "" },
+		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
+			return func() tea.Msg { return tuipage.LocalTunnelCommandMsg{Command: command, ResourceID: ctx.ResourceID} }
+		},
 	}
 }
 
@@ -236,12 +244,28 @@ func tunnelAction(id, title, description string, keywords, commandPath []string,
 }
 
 func tunnelAdminReadAvailable() bool {
-	status, err := application.TunnelAdminKeyStatus()
-	return err == nil && (status.Access.Read || status.Access.Manage)
+	profiles, err := application.TunnelAdminProfiles()
+	if err != nil {
+		return false
+	}
+	for _, profile := range profiles {
+		if profile.ReadAccess || profile.ManageAccess {
+			return true
+		}
+	}
+	return false
 }
 func tunnelAdminManageAvailable() bool {
-	status, err := application.TunnelAdminKeyStatus()
-	return err == nil && status.Access.Manage
+	profiles, err := application.TunnelAdminProfiles()
+	if err != nil {
+		return false
+	}
+	for _, profile := range profiles {
+		if profile.ManageAccess {
+			return true
+		}
+	}
+	return false
 }
 
 func mcpActions() []action.Action {

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func runtimeTunnelStatuses(runtime *app.App, cfg config.Config) (runtimecontrol.TunnelSummary, []runtimecontrol.TunnelRuntimeStatus) {
@@ -403,6 +405,47 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		}
 		runtime.Logger.Ready("WORKSPACE", "workspace.registry.reloaded", "Workspace registry reloaded", logger.With("count", len(items)))
 		return workspaceReloadResult{PID: os.Getpid(), Count: len(items)}, nil
+	}, StartTunnel: func(ctx context.Context, id string) (runtimecontrol.TunnelRuntimeStatus, error) {
+		if strings.TrimSpace(id) == "" {
+			return runtimecontrol.TunnelRuntimeStatus{}, errors.New("tunnel id is required")
+		}
+		client, ok := runtime.Tunnels.Client(id)
+		if !ok {
+			return runtimecontrol.TunnelRuntimeStatus{}, fmt.Errorf("tunnel %q is not attached", id)
+		}
+		if err := runtime.Tunnels.Start(ctx, id); err != nil {
+			return runtimecontrol.TunnelRuntimeStatus{}, err
+		}
+		state := client.Status()
+		return runtimecontrol.TunnelRuntimeStatus{ID: id, Enabled: state.Enabled, Configured: tunnel.Configured(client.Config()), Running: state.Running, Ready: state.Ready, Restarting: state.Restarting, LastError: state.LastError}, nil
+	}, StopTunnel: func(ctx context.Context, id string) (runtimecontrol.TunnelRuntimeStatus, error) {
+		if strings.TrimSpace(id) == "" {
+			return runtimecontrol.TunnelRuntimeStatus{}, errors.New("tunnel id is required")
+		}
+		client, ok := runtime.Tunnels.Client(id)
+		if !ok {
+			return runtimecontrol.TunnelRuntimeStatus{}, fmt.Errorf("tunnel %q is not attached", id)
+		}
+		stateMu.RLock()
+		serverEnabled := currentCfg.Server.Enabled
+		stateMu.RUnlock()
+		if !serverEnabled {
+			usable := false
+			for _, item := range runtime.Tunnels.Statuses() {
+				if item.ID != id && item.Enabled && item.Ready {
+					usable = true
+					break
+				}
+			}
+			if !usable {
+				return runtimecontrol.TunnelRuntimeStatus{}, errors.New("cannot stop the last usable MCP transport")
+			}
+		}
+		if err := runtime.Tunnels.Stop(ctx, id); err != nil {
+			return runtimecontrol.TunnelRuntimeStatus{}, err
+		}
+		state := client.Status()
+		return runtimecontrol.TunnelRuntimeStatus{ID: id, Enabled: state.Enabled, Configured: tunnel.Configured(client.Config()), Running: state.Running, Ready: state.Ready, Restarting: state.Restarting, LastError: state.LastError}, nil
 	}, Status: status, StatusWait: statusWait, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Log: runtime.Logger, Shutdown: func() {
 		runtimeCancel()
 		select {

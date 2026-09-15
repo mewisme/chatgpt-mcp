@@ -256,11 +256,11 @@ func parseTunnelRoute(parts []string) (Route, error) {
 	switch {
 	case len(parts) == 1:
 		return route, nil
-	case len(parts) == 2 && parts[1] == "edit":
-		route.Action = "edit"
-		return route, nil
-	case len(parts) == 3 && parts[1] == "admin-key" && parts[2] == "edit":
-		route.Section, route.Action = "admin-key", "edit"
+	case len(parts) == 2:
+		route.ResourceID = strings.TrimSpace(parts[1])
+		if route.ResourceID == "" {
+			return Route{}, fmt.Errorf("tunnel id is required")
+		}
 		return route, nil
 	default:
 		return Route{}, fmt.Errorf("unsupported tunnel path %q", strings.Join(parts, " "))
@@ -283,7 +283,7 @@ func parseManagedTunnelRoute(parts []string) (Route, error) {
 	if len(parts) == 2 {
 		return route, nil
 	}
-	if parts[2] == "edit" || parts[2] == "configure" {
+	if parts[2] == "edit" || parts[2] == "configure" || parts[2] == "delete" {
 		route.Action = parts[2]
 		return route, nil
 	}
@@ -738,8 +738,6 @@ func breadcrumbActionLabel(route Route) string {
 	switch {
 	case route.Kind == RouteInstruction && route.Section == "rules" && route.Action == "edit" && route.ResourceID != "":
 		return "Edit " + route.ResourceID
-	case route.Kind == RouteTunnel && route.Section == "admin-key" && route.Action == "edit":
-		return "Edit Admin Key"
 	case route.Kind == RouteLogs && route.Action == "filter":
 		return "Filters"
 	default:
@@ -890,9 +888,6 @@ func configRouteStack(route Route) []Route {
 }
 
 func tunnelRouteStack(route Route) []Route {
-	if route.Section == "admin-key" && route.Action != "" {
-		return []Route{{Kind: RouteTunnel}, route}
-	}
 	return genericRouteStack(route)
 }
 

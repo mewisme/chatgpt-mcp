@@ -83,16 +83,29 @@ const (
 	MCPAuthStatus            ID = "mcp.auth.status"
 	MCPAuthLogout            ID = "mcp.auth.logout"
 	TunnelStatus             ID = "tunnel.status"
-	TunnelSync               ID = "tunnel.sync"
-	TunnelConfigure          ID = "tunnel.configure"
+	TunnelAttach             ID = "tunnel.attach"
+	TunnelDetach             ID = "tunnel.detach"
 	TunnelEnable             ID = "tunnel.enable"
 	TunnelDisable            ID = "tunnel.disable"
+	TunnelStart              ID = "tunnel.start"
+	TunnelStop               ID = "tunnel.stop"
 	TunnelForeground         ID = "tunnel.foreground"
+	TunnelList               ID = "tunnel.list"
+	TunnelManagedList        ID = "tunnel.managed.list"
+	TunnelManagedGet         ID = "tunnel.managed.get"
+	TunnelManagedCreate      ID = "tunnel.managed.create"
+	TunnelManagedUpdate      ID = "tunnel.managed.update"
+	TunnelManagedDelete      ID = "tunnel.managed.delete"
+	TunnelAdminList          ID = "tunnel.admin.list"
+	TunnelAdminAdd           ID = "tunnel.admin.add"
+	TunnelAdminVerify        ID = "tunnel.admin.verify"
+	TunnelAdminRemove        ID = "tunnel.admin.remove"
+	TunnelSync               ID = "tunnel.sync"
+	TunnelConfigure          ID = "tunnel.configure"
 	TunnelAdminKeySet        ID = "tunnel.admin.key.set"
 	TunnelAdminKeyStatus     ID = "tunnel.admin.key.status"
 	TunnelAdminKeyVerify     ID = "tunnel.admin.key.verify"
 	TunnelAdminKeyRemove     ID = "tunnel.admin.key.remove"
-	TunnelList               ID = "tunnel.list"
 	TunnelGet                ID = "tunnel.get"
 	TunnelUse                ID = "tunnel.use"
 	TunnelCreate             ID = "tunnel.create"
@@ -126,9 +139,9 @@ var specs = []Spec{
 	{MCPServerList, "upstream server list", []string{"mcp server list"}}, {MCPServerAdd, "upstream server add", []string{"mcp server add"}}, {MCPServerConfigure, "upstream server configure", []string{"mcp server configure"}}, {MCPServerShow, "upstream server show", []string{"mcp server show"}},
 	{MCPServerRemove, "upstream server remove", []string{"mcp server remove"}}, {MCPServerEnable, "upstream server enable", []string{"mcp server enable"}}, {MCPServerDisable, "upstream server disable", []string{"mcp server disable"}}, {MCPServerStatus, "upstream server status", []string{"mcp server status"}}, {MCPServerTools, "upstream server tools", []string{"mcp server tools"}},
 	{MCPAuthLogin, "upstream server auth login", []string{"mcp server auth login"}}, {MCPAuthStatus, "upstream server auth status", []string{"mcp server auth status"}}, {MCPAuthLogout, "upstream server auth logout", []string{"mcp server auth logout"}},
-	{TunnelStatus, "tunnel status", nil}, {TunnelSync, "tunnel sync", nil}, {TunnelConfigure, "tunnel configure", nil}, {TunnelEnable, "tunnel enable", nil}, {TunnelDisable, "tunnel disable", nil}, {TunnelForeground, "tunnel run", nil},
-	{TunnelAdminKeySet, "tunnel admin key set", nil}, {TunnelAdminKeyStatus, "tunnel admin key status", nil}, {TunnelAdminKeyVerify, "tunnel admin key verify", nil}, {TunnelAdminKeyRemove, "tunnel admin key remove", nil},
-	{TunnelList, "tunnel list", nil}, {TunnelGet, "tunnel get", nil}, {TunnelUse, "tunnel use", nil}, {TunnelCreate, "tunnel create", nil}, {TunnelUpdate, "tunnel update", nil}, {TunnelDelete, "tunnel delete", nil},
+	{TunnelStatus, "tunnel status", nil}, {TunnelList, "tunnel list", nil}, {TunnelAttach, "tunnel attach", nil}, {TunnelDetach, "tunnel detach", nil}, {TunnelEnable, "tunnel enable", nil}, {TunnelDisable, "tunnel disable", nil}, {TunnelStart, "tunnel start", nil}, {TunnelStop, "tunnel stop", nil}, {TunnelForeground, "tunnel run", nil},
+	{TunnelManagedList, "tunnel managed list", nil}, {TunnelManagedGet, "tunnel managed get", nil}, {TunnelManagedCreate, "tunnel managed create", nil}, {TunnelManagedUpdate, "tunnel managed update", nil}, {TunnelManagedDelete, "tunnel managed delete", nil},
+	{TunnelAdminList, "tunnel admin list", nil}, {TunnelAdminAdd, "tunnel admin add", nil}, {TunnelAdminVerify, "tunnel admin verify", nil}, {TunnelAdminRemove, "tunnel admin remove", nil},
 	{StatusOverview, "status", nil}, {VersionAbout, "version", nil},
 }
 

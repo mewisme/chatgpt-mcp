@@ -62,7 +62,7 @@ describe("admin app runtime smoke", () => {
       tools:
         "Inspect every tool exposed by the local runtime and enabled upstream servers, including schemas and behavioral hints.",
       servers: "Add MCP server",
-      tunnel: "OpenAI Secure MCP Tunnel",
+      tunnel: "Tunnels",
       activity:
         "Live MCP requests, tool calls, and runtime lifecycle events. Tool calls open as addressable child routes.",
       settings: "Runtime",
@@ -86,7 +86,7 @@ describe("admin app runtime smoke", () => {
       expect(document.title).toBe(adminDocumentTitle("Tunnel"))
     )
     expect(
-      (await screen.findAllByText("OpenAI Secure MCP Tunnel")).length
+      (await screen.findAllByText("Tunnels")).length
     ).toBeGreaterThan(0)
     window.history.pushState({}, "", "/tools")
     window.dispatchEvent(new PopStateEvent("popstate"))

@@ -23,6 +23,7 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"plugins", "registries"}, Route{Kind: RoutePlugins, Section: "registries"}},
 		{[]string{"plugins", "registries", "community"}, Route{Kind: RoutePlugins, Section: "registries", ResourceID: "community"}},
 		{[]string{"tunnel"}, Route{Kind: RouteTunnel}},
+		{[]string{"tunnel", "tunnel_abc"}, Route{Kind: RouteTunnel, ResourceID: "tunnel_abc"}},
 		{[]string{"tunnels"}, Route{Kind: RouteTunnels}},
 		{[]string{"tunnels", "tunnel_abc"}, Route{Kind: RouteTunnels, ResourceID: "tunnel_abc"}},
 		{[]string{"logs"}, Route{Kind: RouteLogs}},
@@ -66,7 +67,7 @@ func TestParseRoute(t *testing.T) {
 			t.Fatalf("ParseRoute(%v) = %#v, %v; want %#v", test.args, got, err, test.want)
 		}
 	}
-	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"plugins", "missing", "extra"}, {"plugins", "marketplace", "bash", "extra"}, {"config", "key", "extra"}, {"logs-exec", "settings"}, {"logs-exec", "exec_a", "extra"}, {"logs-tools", "call_a", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
+	for _, args := range [][]string{{"missing"}, {"tunnel", "a", "extra"}, {"mcp", "a", "missing"}, {"plugins", "missing", "extra"}, {"plugins", "marketplace", "bash", "extra"}, {"config", "key", "extra"}, {"logs-exec", "settings"}, {"logs-exec", "exec_a", "extra"}, {"logs-tools", "call_a", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
 		if _, err := ParseRoute(args); err == nil {
 			t.Fatalf("ParseRoute(%v) unexpectedly succeeded", args)
 		}
@@ -89,8 +90,6 @@ func TestParseEditorRoutes(t *testing.T) {
 		{[]string{"mcp", "github", "edit"}, Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
 		{[]string{"mcp", "github", "oauth", "login"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}},
 		{[]string{"plugins", "registries", "add"}, Route{Kind: RoutePlugins, Section: "registries", Action: "add"}},
-		{[]string{"tunnel", "edit"}, Route{Kind: RouteTunnel, Action: "edit"}},
-		{[]string{"tunnel", "admin-key", "edit"}, Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
 		{[]string{"tunnels", "create"}, Route{Kind: RouteTunnels, Action: "create"}},
 		{[]string{"tunnels", "tun_1", "edit"}, Route{Kind: RouteTunnels, ResourceID: "tun_1", Action: "edit"}},
 		{[]string{"tunnels", "tun_1", "configure"}, Route{Kind: RouteTunnels, ResourceID: "tun_1", Action: "configure"}},
@@ -122,7 +121,7 @@ func TestParseEditorRoutesRejectsMalformedPaths(t *testing.T) {
 		{"workspaces", "ws_1", "access", "edit"},
 		{"containers", "wsc_1", "workspaces", "create"},
 		{"mcp", "github", "oauth", "edit"},
-		{"tunnel", "admin-key"},
+		{"tunnel", "admin-key", "edit"},
 		{"tunnels", "tun_1", "create"},
 		{"config", "storage", "edit"},
 		{"runtime", "install", "extra"},
@@ -173,10 +172,6 @@ func TestEditorRouteStacksFollowSemanticAncestry(t *testing.T) {
 		{
 			Route{Kind: RoutePlugins, Section: "registries", Action: "add"},
 			[]Route{{Kind: RoutePlugins}, {Kind: RoutePlugins, Section: "registries"}, {Kind: RoutePlugins, Section: "registries", Action: "add"}},
-		},
-		{
-			Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"},
-			[]Route{{Kind: RouteTunnel}, {Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
 		},
 		{
 			Route{Kind: RouteGuide, ResourceID: "mcp"},
@@ -267,8 +262,7 @@ func TestRouteBreadcrumbInventoryCoversAllChildFamilies(t *testing.T) {
 		{Kind: RouteMCP, ResourceID: "server_a"},
 		{Kind: RouteMCP, ResourceID: "server_a", Section: "health"},
 		{Kind: RouteMCP, ResourceID: "server_a", Section: "oauth", Action: "login"},
-		{Kind: RouteTunnel, Action: "edit"},
-		{Kind: RouteTunnel, Section: "admin-key", Action: "edit"},
+		{Kind: RouteTunnel, ResourceID: "tun_a"},
 		{Kind: RouteTunnels},
 		{Kind: RouteTunnels, ResourceID: "tun_a", Section: "scope"},
 		{Kind: RouteTunnels, ResourceID: "tun_a", Action: "configure"},

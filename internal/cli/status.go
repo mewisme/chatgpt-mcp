@@ -18,9 +18,9 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
-	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 )
 
@@ -34,11 +34,8 @@ type statusSnapshot struct {
 	Services      []installedManagedService
 	ListenerPlan  listenerPlan
 	ListenerError error
-	Tunnel        tunnel.Status
 	Update        *updatepkg.CachedCheck
 }
-
-const statusTunnelWatchTimeout = 35 * time.Second
 
 func statusCommand() *cobra.Command {
 	return &cobra.Command{
@@ -141,34 +138,19 @@ func runStatus(cmd *cobra.Command, _ []string) (runErr error) {
 	} else {
 		listenerSpan.EndMessage("Status listener plan resolved", tracepkg.Int("host_count", len(plan.Hosts)), tracepkg.Int("address_count", len(plan.Addresses)))
 	}
-	tunnelStatus := fetchTunnelStatus(ctx, cfg.Tunnel)
-	if tunnelStatus.MetadataError != "" {
-		logCommandDebug(cmd, "STATUS", "status.tunnel.metadata-unavailable", "Cached tunnel metadata unavailable", logger.WithDebug("error", tunnelStatus.MetadataError))
-	}
 	updateSpan := tracepkg.Start(ctx, "STATUS", "status.update-cache.lookup", "Looking up cached update status")
 	cachedUpdate := cachedUpdateStatus(time.Now())
 	updateSpan.EndMessage("Cached update status lookup completed", tracepkg.Bool("cached", cachedUpdate != nil))
-	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: upstreamCount, ListenerPlan: plan, ListenerError: listenerErr, Tunnel: tunnelStatus, Update: cachedUpdate}
+	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: upstreamCount, ListenerPlan: plan, ListenerError: listenerErr, Update: cachedUpdate}
 	if !running {
 		serviceInspectSpan := tracepkg.Start(ctx, "STATUS", "status.managed-services.inspect", "Inspecting installed managed services")
 		snapshot.Services = installedManagedServices(ctx, account)
 		serviceInspectSpan.EndMessage("Installed managed services inspected", tracepkg.Int("count", len(snapshot.Services)))
 	}
-	snapshotSpan.EndMessage("Status snapshot acquired", tracepkg.Bool("initialized", true), tracepkg.Bool("running", running), tracepkg.Int("workspaces", snapshot.Workspaces), tracepkg.Int("upstreams", snapshot.Upstreams), tracepkg.Int("managed_services", len(snapshot.Services)), tracepkg.Bool("listener_plan_available", listenerErr == nil), tracepkg.Bool("tunnel_metadata_available", tunnelStatus.MetadataError == ""), tracepkg.Bool("update_cached", cachedUpdate != nil))
+	snapshotSpan.EndMessage("Status snapshot acquired", tracepkg.Bool("initialized", true), tracepkg.Bool("running", running), tracepkg.Int("workspaces", snapshot.Workspaces), tracepkg.Int("upstreams", snapshot.Upstreams), tracepkg.Int("managed_services", len(snapshot.Services)), tracepkg.Bool("listener_plan_available", listenerErr == nil), tracepkg.Bool("update_cached", cachedUpdate != nil))
 	snapshotComplete = true
 	if debug || format == logger.FormatJSON {
 		renderLegacyStatus(cmd, snapshot)
-		return nil
-	}
-	if snapshot.Running && transientTunnelState(statusTunnelState(snapshot.Runtime, true)) && logger.CanAnimate(cmd.OutOrStdout()) {
-		renderStatusBaseText(cmd.OutOrStdout(), snapshot, verbose)
-		fmt.Fprintln(cmd.OutOrStdout(), "\n"+cliHeading("Tunnel"))
-		snapshot.Runtime = animateRuntimeTunnelState(cmd, snapshot.Runtime, statusTunnelWatchTimeout)
-		snapshot.Tunnel.Running = snapshot.Runtime.TunnelRunning
-		snapshot.Tunnel.Ready = snapshot.Runtime.TunnelReady
-		snapshot.Tunnel.Restarting = snapshot.Runtime.TunnelRestarting
-		snapshot.Tunnel.LastError = snapshot.Runtime.TunnelLastError
-		renderStatusTunnelBody(cmd.OutOrStdout(), snapshot, verbose)
 		return nil
 	}
 	renderStatusText(cmd.OutOrStdout(), snapshot, verbose)
@@ -294,52 +276,94 @@ func renderStatusEndpoints(out io.Writer, snapshot statusSnapshot, verbose bool)
 }
 
 func renderStatusTunnel(out io.Writer, snapshot statusSnapshot, verbose bool) {
-	fmt.Fprintln(out, "\n"+cliHeading("Tunnel"))
+	fmt.Fprintln(out, "\n"+cliHeading("Tunnels"))
 	renderStatusTunnelBody(out, snapshot, verbose)
 }
 
 func renderStatusTunnelBody(out io.Writer, snapshot statusSnapshot, verbose bool) {
-	status := snapshot.Runtime
-	if !snapshot.Running {
-		status = runtimeStatusResult{TunnelEnabled: snapshot.Config.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(snapshot.Config.Tunnel), TunnelID: snapshot.Config.Tunnel.ID}
-	}
-	state := statusTunnelState(status, snapshot.Running)
-	renderTunnelStateLine(out, state)
+	summary, items := statusTunnelCollection(snapshot)
+	statusField(out, "attached", summary.Total)
+	statusField(out, "ready", fmt.Sprintf("%d/%d", summary.Ready, summary.Enabled))
 	if verbose {
-		statusField(out, "enabled", status.TunnelEnabled)
-		statusField(out, "configured", status.TunnelConfigured)
+		statusField(out, "enabled", summary.Enabled)
+		statusField(out, "configured", summary.Configured)
+		statusField(out, "running", summary.Running)
+		statusField(out, "restarting", summary.Restarting)
+		statusField(out, "degraded", summary.Degraded)
 	}
-	if status.TunnelID != "" {
-		statusField(out, "id", status.TunnelID)
-	}
-	if snapshot.Tunnel.Metadata != nil {
-		metadata := snapshot.Tunnel.Metadata
-		if metadata.Name != "" {
-			statusField(out, "name", metadata.Name)
-		}
-		if verbose {
-			if metadata.Description != "" {
-				statusField(out, "description", metadata.Description)
-			}
-			if metadata.Creator != "" {
-				statusField(out, "creator", metadata.Creator)
-			}
-			if len(metadata.WorkspaceIDs) > 0 {
-				statusField(out, "workspaces", strings.Join(metadata.WorkspaceIDs, ", "))
-			}
-			if len(metadata.OrganizationIDs) > 0 {
-				statusField(out, "organizations", strings.Join(metadata.OrganizationIDs, ", "))
-			}
+	for _, item := range items {
+		statusStateField(out, item.ID, tunnelRuntimeState(item, snapshot.Running))
+		if verbose && item.LastError != "" {
+			statusNestedField(out, "error", item.LastError)
 		}
 	}
-	if verbose && snapshot.Tunnel.AdminKeyConfigured && snapshot.Tunnel.AdminScope != nil {
-		statusField(out, "admin", "configured · "+formatTunnelAdminScope(*snapshot.Tunnel.AdminScope))
+}
+
+func statusTunnelCollection(snapshot statusSnapshot) (runtimecontrol.TunnelSummary, []runtimecontrol.TunnelRuntimeStatus) {
+	if snapshot.Running {
+		if len(snapshot.Runtime.Tunnels) > 0 || snapshot.Runtime.TunnelSummary.Total > 0 {
+			return snapshot.Runtime.TunnelSummary, append([]runtimecontrol.TunnelRuntimeStatus(nil), snapshot.Runtime.Tunnels...)
+		}
+		if snapshot.Runtime.TunnelID != "" || snapshot.Runtime.TunnelEnabled || snapshot.Runtime.TunnelConfigured || snapshot.Runtime.TunnelRunning || snapshot.Runtime.TunnelReady || snapshot.Runtime.TunnelRestarting || snapshot.Runtime.TunnelLastError != "" {
+			item := runtimecontrol.TunnelRuntimeStatus{ID: snapshot.Runtime.TunnelID, Enabled: snapshot.Runtime.TunnelEnabled, Configured: snapshot.Runtime.TunnelConfigured, Running: snapshot.Runtime.TunnelRunning, Ready: snapshot.Runtime.TunnelReady, Restarting: snapshot.Runtime.TunnelRestarting, LastError: snapshot.Runtime.TunnelLastError}
+			summary := runtimecontrol.TunnelSummary{Total: 1}
+			if item.Enabled {
+				summary.Enabled = 1
+			}
+			if item.Configured {
+				summary.Configured = 1
+			}
+			if item.Running {
+				summary.Running = 1
+			}
+			if item.Ready {
+				summary.Ready = 1
+			}
+			if item.Restarting {
+				summary.Restarting = 1
+			}
+			if item.LastError != "" && !item.Ready {
+				summary.Degraded = 1
+			}
+			return summary, []runtimecontrol.TunnelRuntimeStatus{item}
+		}
+		return runtimecontrol.TunnelSummary{}, nil
 	}
-	if verbose && snapshot.Tunnel.MetadataError != "" {
-		statusField(out, "metadata", "unavailable: "+snapshot.Tunnel.MetadataError)
+	collection := snapshot.Config.RuntimeTunnels()
+	summary := runtimecontrol.TunnelSummary{Total: len(collection.Instances)}
+	items := make([]runtimecontrol.TunnelRuntimeStatus, 0, len(collection.Instances))
+	for _, instance := range collection.Instances {
+		configured := strings.TrimSpace(instance.APIKey) != ""
+		item := runtimecontrol.TunnelRuntimeStatus{ID: instance.ID, Enabled: instance.Enabled, Configured: configured}
+		items = append(items, item)
+		if instance.Enabled {
+			summary.Enabled++
+		}
+		if configured {
+			summary.Configured++
+		}
 	}
-	if verbose && status.TunnelLastError != "" {
-		statusField(out, "error", status.TunnelLastError)
+	return summary, items
+}
+
+func tunnelRuntimeState(item runtimecontrol.TunnelRuntimeStatus, runtimeRunning bool) string {
+	switch {
+	case !item.Enabled:
+		return "disabled"
+	case !item.Configured:
+		return "not configured"
+	case !runtimeRunning:
+		return "offline"
+	case item.Ready:
+		return "connected"
+	case item.Restarting:
+		return "reconnecting"
+	case item.Running:
+		return "connecting"
+	case item.LastError != "":
+		return "degraded"
+	default:
+		return "starting"
 	}
 }
 
@@ -355,7 +379,14 @@ func renderStatusConfig(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	if verbose {
 		statusField(out, "format", snapshot.Source.Format)
 	}
-	statusField(out, "transports", fmt.Sprintf("http %s · tunnel %s", onOff(cfg.Server.Enabled), onOff(cfg.Tunnel.Enabled)))
+	collection := cfg.RuntimeTunnels()
+	enabledTunnels := 0
+	for _, instance := range collection.Instances {
+		if instance.Enabled {
+			enabledTunnels++
+		}
+	}
+	statusField(out, "transports", fmt.Sprintf("http %s · tunnels %d/%d enabled", onOff(cfg.Server.Enabled), enabledTunnels, len(collection.Instances)))
 	statusField(out, "auth", fmt.Sprintf("mcp %s · admin %s", onOff(cfg.Auth.MCPEnabled), onOff(cfg.Auth.AdminEnabled)))
 	for _, warning := range config.SecurityWarnings(cfg) {
 		fmt.Fprintln(out, "  "+cliStyled(color.FgHiYellow, color.Bold).Sprint("!")+" "+warning)
@@ -383,7 +414,14 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 	log.Detail("initialized", snapshot.Source.Exists)
 	log.Detail("config", snapshot.Source.Path)
 	log.Detail("format", snapshot.Source.Format)
-	log.Detail("transports", fmt.Sprintf("http=%t tunnel=%t", cfg.Server.Enabled, cfg.Tunnel.Enabled))
+	collection := cfg.RuntimeTunnels()
+	enabledTunnels := 0
+	for _, instance := range collection.Instances {
+		if instance.Enabled {
+			enabledTunnels++
+		}
+	}
+	log.Detail("transports", fmt.Sprintf("http=%t tunnels=%d/%d", cfg.Server.Enabled, enabledTunnels, len(collection.Instances)))
 	logEndpointDetails(log, cfg)
 	log.Detail("auth", fmt.Sprintf("mcp=%t admin=%t", cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled))
 	for _, warning := range config.SecurityWarnings(cfg) {
@@ -415,33 +453,16 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 			log.Detail("backend", runtimeBackendLabel(runtimeStatus.ServiceScope))
 			log.Detail("service", runtimeStatus.ServiceID)
 		}
-		log.Detail("tunnel", runtimeTunnelSummary(runtimeStatus))
-		if runtimeStatus.TunnelID != "" {
-			log.Detail("tunnel id", runtimeStatus.TunnelID)
-		}
 	} else {
 		log.Detail("runtime", "stopped")
-		state := runtimeStatusResult{TunnelEnabled: cfg.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(cfg.Tunnel), TunnelID: cfg.Tunnel.ID}
-		log.Detail("tunnel", runtimeTunnelSummary(state))
-		if cfg.Tunnel.ID != "" {
-			log.Detail("tunnel id", cfg.Tunnel.ID)
-		}
 		for _, item := range snapshot.Services {
 			log.Detail("service "+string(item.spec.Scope), fmt.Sprintf("installed (%s)", managedBackendLabel(item.manager, item.spec)))
 		}
 	}
-	if snapshot.Tunnel.Metadata != nil {
-		log.Detail("tunnel name", snapshot.Tunnel.Metadata.Name)
-		log.Detail("tunnel description", snapshot.Tunnel.Metadata.Description)
-		if len(snapshot.Tunnel.Metadata.WorkspaceIDs) > 0 {
-			log.Detail("tunnel workspaces", strings.Join(snapshot.Tunnel.Metadata.WorkspaceIDs, ", "))
-		}
-		if len(snapshot.Tunnel.Metadata.OrganizationIDs) > 0 {
-			log.Detail("tunnel organizations", strings.Join(snapshot.Tunnel.Metadata.OrganizationIDs, ", "))
-		}
-	}
-	if snapshot.Tunnel.MetadataError != "" {
-		log.Detail("tunnel metadata error", snapshot.Tunnel.MetadataError)
+	summary, items := statusTunnelCollection(snapshot)
+	log.Detail("tunnels", fmt.Sprintf("%d attached · %d enabled · %d ready · %d degraded", summary.Total, summary.Enabled, summary.Ready, summary.Degraded))
+	for _, item := range items {
+		log.Detail("tunnel "+item.ID, tunnelRuntimeState(item, snapshot.Running))
 	}
 	log.Detail("workspaces", snapshot.Workspaces)
 	log.Detail("upstreams", snapshot.Upstreams)
@@ -526,63 +547,6 @@ func statusTunnelState(status runtimeStatusResult, runtimeRunning bool) string {
 
 func transientTunnelState(state string) bool {
 	return state == "starting" || state == "connecting" || state == "reconnecting"
-}
-
-func animateRuntimeTunnelState(cmd *cobra.Command, status runtimeStatusResult, timeout time.Duration) runtimeStatusResult {
-	log := commandLogger(cmd)
-	state := statusTunnelState(status, true)
-	log.Action("TUNNEL", "tunnel.status."+state, tunnelStateActionMessage(state))
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(cmd.Context(), time.Second)
-		next, running, err := managedRuntimeStatus(ctx)
-		cancel()
-		if err != nil || !running {
-			return status
-		}
-		status = next
-		nextState := statusTunnelState(status, true)
-		if !transientTunnelState(nextState) {
-			return status
-		}
-		if nextState != state {
-			state = nextState
-			log.Action("TUNNEL", "tunnel.status."+state, tunnelStateActionMessage(state))
-		}
-		select {
-		case <-cmd.Context().Done():
-			return status
-		case <-time.After(150 * time.Millisecond):
-		}
-	}
-	return status
-}
-
-func tunnelStateActionMessage(state string) string {
-	switch state {
-	case "starting":
-		return "Starting OpenAI Secure MCP Tunnel"
-	case "reconnecting":
-		return "Reconnecting OpenAI Secure MCP Tunnel"
-	default:
-		return "Connecting OpenAI Secure MCP Tunnel"
-	}
-}
-
-func renderTunnelStateLine(out io.Writer, state string) {
-	message := "OpenAI Secure MCP Tunnel is " + state
-	switch state {
-	case "connected":
-		fmt.Fprintln(out, cliStyled(color.FgHiGreen, color.Bold).Sprint("✓"), message)
-	case "starting", "connecting", "reconnecting":
-		fmt.Fprintln(out, cliStyled(color.FgHiCyan, color.Bold).Sprint("⠋"), message)
-	case "failed":
-		fmt.Fprintln(out, cliStyled(color.FgHiRed, color.Bold).Sprint("×"), message)
-	case "degraded":
-		fmt.Fprintln(out, cliStyled(color.FgHiYellow, color.Bold).Sprint("!"), message)
-	default:
-		fmt.Fprintln(out, cliDim("·"), message)
-	}
 }
 
 func formatStatusUptime(started time.Time) string {

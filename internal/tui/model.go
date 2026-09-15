@@ -300,6 +300,14 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, model.showToast("Tunnel", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
+	case tuipage.LocalTunnelCommandMsg:
+		if model.router.Current().Kind != RouteTunnel || (msg.ResourceID != "" && model.router.Current().ResourceID != msg.ResourceID) {
+			model.navigate(Route{Kind: RouteTunnel, ResourceID: msg.ResourceID})
+		}
+		if model.currentPage == nil {
+			return model, model.showToast("Tunnel", "Tunnel page is unavailable", component.ToneDanger)
+		}
+		return model.updatePage(msg)
 	case tuipage.RequestCommandMsg:
 		if err := model.ensureRequestPage(msg.ResourceID); err != nil {
 			return model, model.showToast("Requests", err.Error(), component.ToneDanger)
@@ -1150,7 +1158,7 @@ func (model *Model) loadPage(route Route) {
 	case RoutePlugins:
 		value, err = tuipage.NewPluginsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteTunnel:
-		value, err = tuipage.NewTunnelDashboardRoute(model.ctx, route.Section, route.Action)
+		value, err = tuipage.NewTunnelInstances(model.ctx, route.ResourceID)
 	case RouteTunnels:
 		value, err = tuipage.NewManagedTunnelsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteRequests:

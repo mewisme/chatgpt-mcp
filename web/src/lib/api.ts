@@ -336,8 +336,20 @@ export type TunnelMetadata = {
   request_id?: string
   fetched_at: string
 }
-export type ManagedTunnelCreateRequest = { name: string; description: string; tenant_ids?: string[]; workspace_ids?: string[]; organization_ids?: string[] }
-export type ManagedTunnelUpdateRequest = { name?: string; description?: string; tenant_ids?: string[]; workspace_ids?: string[]; organization_ids?: string[] }
+export type ManagedTunnelCreateRequest = {
+  name: string
+  description: string
+  tenant_ids?: string[]
+  workspace_ids?: string[]
+  organization_ids?: string[]
+}
+export type ManagedTunnelUpdateRequest = {
+  name?: string
+  description?: string
+  tenant_ids?: string[]
+  workspace_ids?: string[]
+  organization_ids?: string[]
+}
 export type ManagedTunnelUseRequest = {
   id: string
   runtime_api_key?: string
@@ -363,6 +375,51 @@ export type TunnelStatus = {
   metadata_error?: string
   admin_key_configured?: boolean
   admin_scope?: TunnelAdminScope
+}
+export type LocalTunnel = {
+  id: string
+  enabled: boolean
+  runtime_key_configured: boolean
+  admin_profile_id?: string
+  control_plane_base_url?: string
+  organization_id?: string
+  status: TunnelStatus
+}
+export type LocalTunnelRequest = {
+  id: string
+  enabled: boolean
+  api_key?: string
+  admin_profile_id?: string
+  control_plane_base_url?: string
+  organization_id?: string
+}
+export type TunnelAdminProfile = {
+  id: string
+  key_configured: boolean
+  organization_id?: string
+  workspace_id?: string
+  tenant_id?: string
+  read_access: boolean
+  manage_access: boolean
+  control_plane_base_url?: string
+}
+export type TunnelAdminProfileRequest = {
+  id?: string
+  admin_key?: string
+  organization_id?: string
+  workspace_id?: string
+  tenant_id?: string
+  control_plane_base_url?: string
+}
+export type ManagedTunnel = {
+  metadata: TunnelMetadata
+  admin_profiles: string[]
+}
+export type ManagedTunnelAttachRequest = {
+  runtime_api_key?: string
+  auto_generate_runtime_key?: boolean
+  project_id?: string
+  enabled: boolean
 }
 
 export type ApprovalStatus =
@@ -450,6 +507,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error(`Invalid JSON response from ${path}`)
   }
+}
+
+function withAdmin(path: string, admin: string) {
+  const value = admin.trim()
+  return value ? `${path}?admin=${encodeURIComponent(value)}` : path
 }
 
 export const adminApi = {
@@ -599,10 +661,22 @@ export const adminApi = {
   removeTunnelAdminKey: () =>
     api<TunnelAdminKeyStatus>("/api/tunnel/admin/key", { method: "DELETE" }),
   managedTunnels: () => api<TunnelMetadata[]>("/api/tunnel/managed"),
-  managedTunnel: (id: string) => api<TunnelMetadata>(`/api/tunnel/managed/${encodeURIComponent(id)}`),
-  createManagedTunnel: (request: ManagedTunnelCreateRequest) => api<TunnelMetadata>("/api/tunnel/managed", { method: "POST", body: JSON.stringify(request) }),
-  updateManagedTunnel: (id: string, request: ManagedTunnelUpdateRequest) => api<TunnelMetadata>(`/api/tunnel/managed/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(request) }),
-  deleteManagedTunnel: (id: string) => api<TunnelMetadata>(`/api/tunnel/managed/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  managedTunnel: (id: string) =>
+    api<TunnelMetadata>(`/api/tunnel/managed/${encodeURIComponent(id)}`),
+  createManagedTunnel: (request: ManagedTunnelCreateRequest) =>
+    api<TunnelMetadata>("/api/tunnel/managed", {
+      method: "POST",
+      body: JSON.stringify(request),
+    }),
+  updateManagedTunnel: (id: string, request: ManagedTunnelUpdateRequest) =>
+    api<TunnelMetadata>(`/api/tunnel/managed/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(request),
+    }),
+  deleteManagedTunnel: (id: string) =>
+    api<TunnelMetadata>(`/api/tunnel/managed/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
   useManagedTunnel: (request: ManagedTunnelUseRequest) =>
     api<ManagedTunnelUseResult>("/api/tunnel/managed/use", {
       method: "POST",
@@ -610,6 +684,96 @@ export const adminApi = {
     }),
   startTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "POST" }),
   stopTunnel: () => api<TunnelStatus>("/api/tunnel", { method: "DELETE" }),
+  localTunnels: () => api<LocalTunnel[]>("/api/tunnels"),
+  attachLocalTunnel: (request: LocalTunnelRequest) =>
+    api<LocalTunnel>("/api/tunnels", {
+      method: "POST",
+      body: JSON.stringify(request),
+    }),
+  localTunnel: (id: string) =>
+    api<LocalTunnel>(`/api/tunnels/${encodeURIComponent(id)}`),
+  updateLocalTunnel: (id: string, request: LocalTunnelRequest) =>
+    api<LocalTunnel>(`/api/tunnels/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(request),
+    }),
+  detachLocalTunnel: (id: string) =>
+    api<void>(`/api/tunnels/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  enableLocalTunnel: (id: string) =>
+    api<LocalTunnel>(`/api/tunnels/${encodeURIComponent(id)}/enable`, {
+      method: "POST",
+    }),
+  disableLocalTunnel: (id: string) =>
+    api<LocalTunnel>(`/api/tunnels/${encodeURIComponent(id)}/disable`, {
+      method: "POST",
+    }),
+  startLocalTunnel: (id: string) =>
+    api<LocalTunnel>(`/api/tunnels/${encodeURIComponent(id)}/start`, {
+      method: "POST",
+    }),
+  stopLocalTunnel: (id: string) =>
+    api<LocalTunnel>(`/api/tunnels/${encodeURIComponent(id)}/stop`, {
+      method: "POST",
+    }),
+  tunnelAdminProfiles: () => api<TunnelAdminProfile[]>("/api/tunnel-admins"),
+  addTunnelAdminProfile: (request: TunnelAdminProfileRequest) =>
+    api<TunnelAdminProfile>("/api/tunnel-admins", {
+      method: "POST",
+      body: JSON.stringify(request),
+    }),
+  tunnelAdminProfile: (id: string) =>
+    api<TunnelAdminProfile>(`/api/tunnel-admins/${encodeURIComponent(id)}`),
+  updateTunnelAdminProfile: (id: string, request: TunnelAdminProfileRequest) =>
+    api<TunnelAdminProfile>(`/api/tunnel-admins/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(request),
+    }),
+  verifyTunnelAdminProfile: (id: string) =>
+    api<TunnelAdminProfile>(
+      `/api/tunnel-admins/${encodeURIComponent(id)}/verify`,
+      { method: "POST" }
+    ),
+  removeTunnelAdminProfile: (id: string) =>
+    api<void>(`/api/tunnel-admins/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+  managedTunnelCollection: (admin = "") =>
+    api<ManagedTunnel[]>(withAdmin("/api/managed-tunnels", admin)),
+  managedTunnelByProfile: (id: string, admin: string) =>
+    api<ManagedTunnel>(
+      withAdmin(`/api/managed-tunnels/${encodeURIComponent(id)}`, admin)
+    ),
+  createManagedTunnelByProfile: (
+    request: ManagedTunnelCreateRequest,
+    admin: string
+  ) =>
+    api<ManagedTunnel>(withAdmin("/api/managed-tunnels", admin), {
+      method: "POST",
+      body: JSON.stringify(request),
+    }),
+  updateManagedTunnelByProfile: (
+    id: string,
+    request: ManagedTunnelUpdateRequest,
+    admin: string
+  ) =>
+    api<ManagedTunnel>(
+      withAdmin(`/api/managed-tunnels/${encodeURIComponent(id)}`, admin),
+      { method: "PUT", body: JSON.stringify(request) }
+    ),
+  deleteManagedTunnelByProfile: (id: string, admin: string) =>
+    api<ManagedTunnel>(
+      withAdmin(`/api/managed-tunnels/${encodeURIComponent(id)}`, admin),
+      { method: "DELETE" }
+    ),
+  attachManagedTunnel: (
+    id: string,
+    request: ManagedTunnelAttachRequest,
+    admin: string
+  ) =>
+    api<LocalTunnel>(
+      withAdmin(`/api/managed-tunnels/${encodeURIComponent(id)}`, admin),
+      { method: "POST", body: JSON.stringify(request) }
+    ),
   approvalRequests: (status = "pending", workspaceID = "") => {
     const query = new URLSearchParams({ status })
     if (workspaceID) query.set("workspace_id", workspaceID)

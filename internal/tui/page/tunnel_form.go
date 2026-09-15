@@ -26,21 +26,23 @@ type tunnelAdminFormData struct {
 }
 
 type managedTunnelFormData struct {
+	AdminProfileID  string
 	Name            string
 	Description     string
 	OrganizationIDs string
 	WorkspaceIDs    string
 	TenantIDs       string
-	Configure       bool
-	RuntimeAPIKey   string
-	Enable          bool
 }
 
 type managedConfigureFormData struct {
+	AdminProfileID string
 	RuntimeKeyMode string
 	RuntimeAPIKey  string
 	ProjectID      string
+	Enabled        bool
 }
+
+type managedDeleteFormData struct{ AdminProfileID string }
 
 func newTunnelRuntimeEditor(dashboard application.TunnelDashboard) (component.Editor, *tunnelRuntimeFormData) {
 	data := &tunnelRuntimeFormData{Enabled: dashboard.Config.Enabled, ID: dashboard.Config.ID, ControlPlane: dashboard.Config.ControlPlaneBaseURL, OrganizationID: dashboard.Config.OrganizationID}
@@ -92,11 +94,12 @@ func newTunnelAdminEditor(status application.TunnelAdminStatus) (component.Edito
 	})
 	return editor, data
 }
-func newManagedTunnelEditor(metadata tunnel.Metadata, create bool) (component.Editor, *managedTunnelFormData) {
+func newManagedTunnelEditor(metadata tunnel.Metadata, create bool, profiles []application.TunnelAdminProfile) (component.Editor, *managedTunnelFormData) {
 	data := &managedTunnelFormData{
 		Name: metadata.Name, Description: metadata.Description,
 		OrganizationIDs: strings.Join(metadata.OrganizationIDs, "\n"), WorkspaceIDs: strings.Join(metadata.WorkspaceIDs, "\n"), TenantIDs: strings.Join(metadata.TenantIDs, "\n"),
 	}
+	profile := managedProfileSelect("Admin profile", &data.AdminProfileID, profiles, true)
 	name := component.Input("Name", &data.Name).Validate(requiredValue("tunnel name"))
 	description := component.Text("Description", &data.Description).Validate(requiredValue("tunnel description"))
 	if !create {
@@ -107,43 +110,60 @@ func newManagedTunnelEditor(metadata tunnel.Metadata, create bool) (component.Ed
 		primary = "create"
 	}
 	editor := component.NewEditor(primary,
+		component.EditorSection{ID: "admin", Title: "Admin", Description: "Choose the admin profile used for this management operation.", Form: component.NewEditorForm(component.Group(profile))},
 		component.EditorSection{ID: "general", Title: "General", Description: "Name and description for the managed tunnel.", Form: component.NewEditorForm(component.Group(name, description))},
 		component.EditorSection{ID: "scope", Title: "Scope", Description: "Optional organization, workspace, and tenant IDs. Enter one ID per line.", Form: component.NewEditorForm(component.Group(
 			component.Text("Organization IDs (one per line)", &data.OrganizationIDs),
 			component.Text("Workspace IDs (one per line)", &data.WorkspaceIDs),
 			component.Text("Tenant IDs (one per line)", &data.TenantIDs),
 		))},
-		component.EditorSection{ID: "runtime", Title: "Runtime", Description: "Optionally select this tunnel for the local runtime after saving. Blank runtime key reuses the current secret.", Form: component.NewEditorForm(component.Group(
-			component.Switch("Configure cgm to use this tunnel", &data.Configure, "YES", "NO"),
-			component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Placeholder("Blank reuses the current runtime key."),
-			component.Switch("Enable tunnel after configure", &data.Enable, "ENABLED", "DISABLED"),
-		))},
 	)
 	return editor, data
 }
 
-func newManagedConfigureEditor(runtimeKeyConfigured bool) (component.Editor, *managedConfigureFormData) {
-	mode := "auto"
-	options := []huh.Option[string]{huh.NewOption("Auto generate with admin key", "auto"), huh.NewOption("Enter runtime key manually", "manual")}
-	if runtimeKeyConfigured {
-		mode = "reuse"
-		options = append([]huh.Option[string]{huh.NewOption("Reuse current runtime key", "reuse")}, options...)
-	}
-	data := &managedConfigureFormData{RuntimeKeyMode: mode}
-	editor := component.NewEditor("use", component.EditorSection{
-		ID: "runtime", Title: "Runtime", Description: "Use this managed tunnel and enable it for the local runtime.",
-		Form: component.NewEditorForm(
-			component.Group(component.Select("Runtime credential", &data.RuntimeKeyMode, options...)),
-			component.Group(component.Input("OpenAI project ID (optional)", &data.ProjectID).Placeholder("Blank uses the only active project or Default project.")).WithHideFunc(func() bool { return data.RuntimeKeyMode != "auto" }),
-			component.Group(component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Placeholder("Read + Use key.").Validate(func(value string) error {
-				if data.RuntimeKeyMode == "manual" && strings.TrimSpace(value) == "" {
-					return fmt.Errorf("runtime API key is required")
-				}
-				return nil
-			})).WithHideFunc(func() bool { return data.RuntimeKeyMode != "manual" }),
-		),
-	})
+func newManagedConfigureEditor(profiles []application.TunnelAdminProfile) (component.Editor, *managedConfigureFormData) {
+	data := &managedConfigureFormData{RuntimeKeyMode: "auto", Enabled: true}
+	editor := component.NewEditor("attach",
+		component.EditorSection{ID: "admin", Title: "Admin", Description: "Choose the admin profile used to fetch and attach this tunnel.", Form: component.NewEditorForm(component.Group(managedProfileSelect("Admin profile", &data.AdminProfileID, profiles, false)))},
+		component.EditorSection{
+			ID: "runtime", Title: "Runtime", Description: "Attach this managed tunnel as another ingress into the shared local runtime.",
+			Form: component.NewEditorForm(
+				component.Group(component.Select("Runtime credential", &data.RuntimeKeyMode, huh.NewOption("Auto generate with admin key", "auto"), huh.NewOption("Enter runtime key manually", "manual"))),
+				component.Group(component.Input("OpenAI project ID (optional)", &data.ProjectID).Placeholder("Blank uses the only active project or Default project.")).WithHideFunc(func() bool { return data.RuntimeKeyMode != "auto" }),
+				component.Group(component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Placeholder("Read + Use key.").Validate(func(value string) error {
+					if data.RuntimeKeyMode == "manual" && strings.TrimSpace(value) == "" {
+						return fmt.Errorf("runtime API key is required")
+					}
+					return nil
+				})).WithHideFunc(func() bool { return data.RuntimeKeyMode != "manual" }),
+				component.Group(component.Switch("Enable after attach", &data.Enabled, "ENABLED", "DISABLED")),
+			),
+		})
 	return editor, data
+}
+
+func newManagedDeleteEditor(profiles []application.TunnelAdminProfile) (component.Editor, *managedDeleteFormData) {
+	data := &managedDeleteFormData{}
+	editor := component.NewEditor("delete", component.EditorSection{ID: "admin", Title: "Admin", Description: "Choose the admin profile used to permanently delete the remote tunnel.", Form: component.NewEditorForm(component.Group(managedProfileSelect("Admin profile", &data.AdminProfileID, profiles, true)))})
+	return editor, data
+}
+
+func managedProfileSelect(title string, value *string, profiles []application.TunnelAdminProfile, manage bool) *huh.Select[string] {
+	options := make([]huh.Option[string], 0, len(profiles)+1)
+	eligible := 0
+	for _, profile := range profiles {
+		if manage && !profile.ManageAccess || !manage && !profile.ReadAccess && !profile.ManageAccess {
+			continue
+		}
+		eligible++
+		options = append(options, huh.NewOption(profile.ID, profile.ID))
+	}
+	if eligible == 1 {
+		*value = options[0].Value
+	} else {
+		options = append([]huh.Option[string]{huh.NewOption("Select profile", "")}, options...)
+	}
+	return component.Select(title, value, options...).Validate(requiredValue("admin profile"))
 }
 
 func runtimeInputFromForm(data *tunnelRuntimeFormData) application.TunnelRuntimeInput {
@@ -172,17 +192,17 @@ func adminInputFromForm(data *tunnelAdminFormData) application.TunnelAdminKeyInp
 	return input
 }
 
-func managedCreateInput(data *managedTunnelFormData) (tunnel.CreateRequest, application.ManagedTunnelOptions) {
+func managedCreateInput(data *managedTunnelFormData) tunnel.CreateRequest {
 	request := tunnel.CreateRequest{
 		Name: strings.TrimSpace(data.Name), Description: strings.TrimSpace(data.Description),
 		OrganizationIDs: application.NormalizeTunnelIDs(splitLines(data.OrganizationIDs)), WorkspaceIDs: application.NormalizeTunnelIDs(splitLines(data.WorkspaceIDs)), TenantIDs: application.NormalizeTunnelIDs(splitLines(data.TenantIDs)),
 	}
-	return request, application.ManagedTunnelOptions{Configure: data.Configure, RuntimeAPIKey: data.RuntimeAPIKey, Enable: data.Enable}
+	return request
 }
 
-func managedUpdateInput(data *managedTunnelFormData) (tunnel.UpdateRequest, application.ManagedTunnelOptions) {
+func managedUpdateInput(data *managedTunnelFormData) tunnel.UpdateRequest {
 	name, description := strings.TrimSpace(data.Name), data.Description
 	organizations, workspaces, tenants := application.NormalizeTunnelIDs(splitLines(data.OrganizationIDs)), application.NormalizeTunnelIDs(splitLines(data.WorkspaceIDs)), application.NormalizeTunnelIDs(splitLines(data.TenantIDs))
 	request := tunnel.UpdateRequest{Name: &name, Description: &description, OrganizationIDs: &organizations, WorkspaceIDs: &workspaces, TenantIDs: &tenants}
-	return request, application.ManagedTunnelOptions{Configure: data.Configure, RuntimeAPIKey: data.RuntimeAPIKey, Enable: data.Enable}
+	return request
 }

@@ -128,25 +128,34 @@ func (page *TunnelPage) initManagedEditorRoute() error {
 		if page.resourceID != "" || page.section != "" {
 			return fmt.Errorf("managed tunnel create editor does not accept a resource or section")
 		}
-		editor, data := newManagedTunnelEditor(tunnel.Metadata{}, true)
+		editor, data := newManagedTunnelEditor(tunnel.Metadata{}, true, page.adminProfiles)
 		page.editor, page.managedForm = &editor, data
 		page.command = TunnelManagedCreate
 	case "edit":
 		if page.resourceID == "" || page.section != "" {
 			return fmt.Errorf("managed tunnel edit editor requires a tunnel resource")
 		}
-		page.command, page.targetID, page.managedUpdateFetch = TunnelManagedUpdate, page.resourceID, true
-		page.pendingInit = page.startOperation(TunnelManagedUpdate, page.resourceID, "Loading managed tunnel", func(ctx context.Context) tunnelOperationMsg {
-			result, err := application.GetManagedTunnel(ctx, page.resourceID, application.ManagedTunnelOptions{})
-			return tunnelOperationMsg{command: TunnelManagedUpdate, targetID: page.resourceID, result: result, err: err}
-		})
+		metadata, err := page.cachedManagedTunnel(page.resourceID)
+		if err != nil {
+			return err
+		}
+		editor, data := newManagedTunnelEditor(metadata, false, page.adminProfiles)
+		page.editor, page.managedForm = &editor, data
+		page.command, page.targetID = TunnelManagedUpdate, page.resourceID
 	case "configure":
 		if page.resourceID == "" || page.section != "" {
-			return fmt.Errorf("managed tunnel use editor requires a tunnel resource")
+			return fmt.Errorf("managed tunnel attach editor requires a tunnel resource")
 		}
-		editor, data := newManagedConfigureEditor(page.dashboard.Config.APIKey != "")
+		editor, data := newManagedConfigureEditor(page.adminProfiles)
 		page.editor, page.configureForm = &editor, data
 		page.command, page.targetID = TunnelManagedConfigure, page.resourceID
+	case "delete":
+		if page.resourceID == "" || page.section != "" {
+			return fmt.Errorf("managed tunnel delete editor requires a tunnel resource")
+		}
+		editor, data := newManagedDeleteEditor(page.adminProfiles)
+		page.editor, page.deleteForm = &editor, data
+		page.command, page.targetID = TunnelManagedDelete, page.resourceID
 	default:
 		return fmt.Errorf("unsupported managed tunnel editor action: %s", page.action)
 	}
@@ -161,42 +170,54 @@ func (page *TunnelPage) submitManagedEditor() tea.Cmd {
 			page.editor.SetFeedback("", fmt.Errorf("managed tunnel draft is unavailable"))
 			return nil
 		}
-		request, options := managedCreateInput(page.managedForm)
+		request, profileID := managedCreateInput(page.managedForm), page.managedForm.AdminProfileID
 		return page.startOperation(page.command, "", "Creating managed tunnel", func(ctx context.Context) tunnelOperationMsg {
-			result, err := application.CreateManagedTunnel(ctx, request, options)
-			return tunnelOperationMsg{command: TunnelManagedCreate, result: result, err: err}
+			discovery, err := application.CreateManagedTunnelByProfile(ctx, profileID, request)
+			return tunnelOperationMsg{command: TunnelManagedCreate, result: application.ManagedTunnelResult{Metadata: discovery.Metadata}, err: err}
 		})
 	case TunnelManagedUpdate:
 		if page.managedForm == nil || page.targetID == "" {
 			page.editor.SetFeedback("", fmt.Errorf("managed tunnel update draft is unavailable"))
 			return nil
 		}
-		request, options := managedUpdateInput(page.managedForm)
-		id := page.targetID
+		request, id, profileID := managedUpdateInput(page.managedForm), page.targetID, page.managedForm.AdminProfileID
 		return page.startOperation(page.command, id, "Updating managed tunnel", func(ctx context.Context) tunnelOperationMsg {
-			result, err := application.UpdateManagedTunnel(ctx, id, request, options)
-			return tunnelOperationMsg{command: TunnelManagedUpdate, targetID: id, result: result, err: err}
+			discovery, err := application.UpdateManagedTunnelByProfile(ctx, id, profileID, request)
+			return tunnelOperationMsg{command: TunnelManagedUpdate, targetID: id, result: application.ManagedTunnelResult{Metadata: discovery.Metadata}, err: err}
 		})
 	case TunnelManagedConfigure:
 		if page.configureForm == nil || page.targetID == "" {
-			page.editor.SetFeedback("", fmt.Errorf("managed tunnel use draft is unavailable"))
+			page.editor.SetFeedback("", fmt.Errorf("managed tunnel attach draft is unavailable"))
 			return nil
 		}
 		data, id := page.configureForm, page.targetID
-		options := application.ManagedTunnelUseOptions{ProjectID: data.ProjectID}
+		options := application.AttachManagedTunnelOptions{AdminProfileID: data.AdminProfileID, ProjectID: data.ProjectID, Enabled: data.Enabled}
 		switch data.RuntimeKeyMode {
 		case "auto":
 			options.AutoGenerateRuntimeKey = true
 		case "manual":
 			options.RuntimeAPIKey = data.RuntimeAPIKey
-		case "reuse":
 		default:
 			page.editor.SetFeedback("", fmt.Errorf("unsupported runtime credential mode: %s", data.RuntimeKeyMode))
 			return nil
 		}
-		return page.startOperation(page.command, id, "Configuring managed tunnel", func(ctx context.Context) tunnelOperationMsg {
-			result, err := application.UseManagedTunnel(ctx, id, options)
+		return page.startOperation(page.command, id, "Attaching managed tunnel", func(ctx context.Context) tunnelOperationMsg {
+			local, err := application.AttachManagedTunnelWithOptions(ctx, id, options)
+			result := application.ManagedTunnelResult{Configured: err == nil}
+			if local.Status.Metadata != nil {
+				result.Metadata = *local.Status.Metadata
+			}
 			return tunnelOperationMsg{command: TunnelManagedConfigure, targetID: id, result: result, err: err}
+		})
+	case TunnelManagedDelete:
+		if page.deleteForm == nil || page.targetID == "" {
+			page.editor.SetFeedback("", fmt.Errorf("managed tunnel delete draft is unavailable"))
+			return nil
+		}
+		id, profileID := page.targetID, page.deleteForm.AdminProfileID
+		return page.startOperation(page.command, id, "Deleting managed tunnel", func(ctx context.Context) tunnelOperationMsg {
+			metadata, err := application.DeleteManagedTunnelByProfile(ctx, id, profileID)
+			return tunnelOperationMsg{command: TunnelManagedDelete, targetID: id, result: application.ManagedTunnelResult{Metadata: metadata}, err: err}
 		})
 	default:
 		page.editor.SetFeedback("", fmt.Errorf("unsupported managed tunnel editor action: %s", page.command))
@@ -217,7 +238,7 @@ func (page *TunnelPage) acceptManagedEditorSuccess(metadata tunnel.Metadata) {
 	if page == nil {
 		return
 	}
-	editor, data := newManagedTunnelEditor(metadata, false)
+	editor, data := newManagedTunnelEditor(metadata, false, page.adminProfiles)
 	page.editor, page.managedForm = &editor, data
 	page.resizeEditor()
 }
@@ -226,7 +247,16 @@ func (page *TunnelPage) acceptManagedConfigureSuccess() {
 	if page == nil {
 		return
 	}
-	editor, data := newManagedConfigureEditor(true)
+	editor, data := newManagedConfigureEditor(page.adminProfiles)
 	page.editor, page.configureForm = &editor, data
 	page.resizeEditor()
+}
+
+func (page *TunnelPage) cachedManagedTunnel(id string) (tunnel.Metadata, error) {
+	for _, item := range page.items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return tunnel.Metadata{}, fmt.Errorf("managed tunnel not found in local cache: %s", id)
 }

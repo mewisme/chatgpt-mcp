@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -36,7 +38,19 @@ type ManagedTunnelDiscovery struct {
 	AdminProfiles []string        `json:"admin_profiles"`
 }
 
+type AttachManagedTunnelOptions struct {
+	AdminProfileID         string
+	RuntimeAPIKey          string
+	AutoGenerateRuntimeKey bool
+	ProjectID              string
+	Enabled                bool
+}
+
 func LocalTunnels() ([]LocalTunnel, error) {
+	return LocalTunnelsContext(context.Background())
+}
+
+func LocalTunnelsContext(ctx context.Context) ([]LocalTunnel, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -50,7 +64,55 @@ func LocalTunnels() ([]LocalTunnel, error) {
 		}
 		items = append(items, localTunnelView(instance, client.Status()))
 	}
+	status, running, err := RuntimeStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !running {
+		return items, nil
+	}
+	byID := make(map[string]runtimecontrol.TunnelRuntimeStatus, len(status.Tunnels))
+	for _, current := range status.Tunnels {
+		byID[current.ID] = current
+	}
+	for i := range items {
+		if current, ok := byID[items[i].ID]; ok {
+			items[i].Status.Running = current.Running
+			items[i].Status.Ready = current.Ready
+			items[i].Status.Restarting = current.Restarting
+			items[i].Status.LastError = current.LastError
+		}
+	}
 	return items, nil
+}
+
+func StartLocalTunnel(ctx context.Context, id string) (LocalTunnel, error) {
+	return controlLocalTunnel(ctx, id, "start")
+}
+
+func StopLocalTunnel(ctx context.Context, id string) (LocalTunnel, error) {
+	return controlLocalTunnel(ctx, id, "stop")
+}
+
+func controlLocalTunnel(ctx context.Context, id, action string) (LocalTunnel, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return LocalTunnel{}, errors.New("tunnel id is required")
+	}
+	var status runtimecontrol.TunnelRuntimeStatus
+	if _, err := runtimecontrol.Request(ctx, http.MethodPost, "/tunnels/"+action, map[string]string{"id": id}, &status); err != nil {
+		return LocalTunnel{}, err
+	}
+	items, err := LocalTunnelsContext(ctx)
+	if err != nil {
+		return LocalTunnel{}, err
+	}
+	for _, item := range items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return LocalTunnel{}, fmt.Errorf("tunnel %q is not attached", id)
 }
 
 func localTunnelView(instance tunnel.InstanceConfig, status tunnel.Status) LocalTunnel {
@@ -370,12 +432,16 @@ func UpdateManagedTunnelByProfile(ctx context.Context, id, profileID string, req
 }
 
 func AttachManagedTunnel(ctx context.Context, id, profileID, runtimeKey string, enabled bool) (LocalTunnel, error) {
+	return AttachManagedTunnelWithOptions(ctx, id, AttachManagedTunnelOptions{AdminProfileID: profileID, RuntimeAPIKey: runtimeKey, Enabled: enabled})
+}
+
+func AttachManagedTunnelWithOptions(ctx context.Context, id string, options AttachManagedTunnelOptions) (LocalTunnel, error) {
 	previous, err := config.Load()
 	if err != nil {
 		return LocalTunnel{}, err
 	}
 	collection := previous.RuntimeTunnels()
-	admin, err := resolveProfile(collection, profileID)
+	admin, err := resolveProfile(collection, strings.TrimSpace(options.AdminProfileID))
 	if err != nil {
 		return LocalTunnel{}, err
 	}
@@ -387,14 +453,25 @@ func AttachManagedTunnel(ctx context.Context, id, profileID, runtimeKey string, 
 			return LocalTunnel{}, fmt.Errorf("tunnel %q is already attached", id)
 		}
 	}
-	if strings.TrimSpace(runtimeKey) == "" {
+	runtimeKey := strings.TrimSpace(options.RuntimeAPIKey)
+	if runtimeKey == "" && options.AutoGenerateRuntimeKey {
+		if !admin.ManageAccess {
+			return LocalTunnel{}, errors.New("admin profile lacks Manage access required for runtime key generation")
+		}
+		generated, err := tunnel.GenerateRuntimeKeyForAdmin(ctx, admin, strings.TrimSpace(options.ProjectID))
+		if err != nil {
+			return LocalTunnel{}, err
+		}
+		runtimeKey = generated.Value
+	}
+	if runtimeKey == "" {
 		return LocalTunnel{}, errors.New("runtime API key is required")
 	}
 	metadata, err := tunnel.GetManagedForAdmin(ctx, admin, id)
 	if err != nil {
 		return LocalTunnel{}, err
 	}
-	instance := tunnel.InstanceConfig{ID: id, Enabled: enabled, APIKey: strings.TrimSpace(runtimeKey), AdminProfileID: admin.ID, ControlPlaneBaseURL: admin.ControlPlaneBaseURL}
+	instance := tunnel.InstanceConfig{ID: id, Enabled: options.Enabled, APIKey: runtimeKey, AdminProfileID: admin.ID, ControlPlaneBaseURL: admin.ControlPlaneBaseURL}
 	if len(metadata.OrganizationIDs) > 0 {
 		instance.OrganizationID = metadata.OrganizationIDs[0]
 	}
@@ -403,7 +480,7 @@ func AttachManagedTunnel(ctx context.Context, id, profileID, runtimeKey string, 
 		return LocalTunnel{}, err
 	}
 	_, _ = config.SaveTunnelMetadata(metadata)
-	return localTunnelView(instance, tunnel.Status{ID: id, Enabled: enabled, Metadata: &metadata}), nil
+	return localTunnelView(instance, tunnel.Status{ID: id, Enabled: options.Enabled, Metadata: &metadata}), nil
 }
 
 func DeleteManagedTunnelByProfile(ctx context.Context, id, profileID string) (tunnel.Metadata, error) {

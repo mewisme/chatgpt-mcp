@@ -120,8 +120,6 @@ func TestEditorActionsNavigateToEditorRoutes(t *testing.T) {
 		{"mcp.server.add", action.Context{Route: string(RouteHome)}, Route{Kind: RouteMCP, Action: "create"}},
 		{"mcp.server.configure", action.Context{Route: string(RouteMCP), ResourceID: "github"}, Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
 		{"mcp.server.auth.login", action.Context{Route: string(RouteMCP), ResourceID: "github"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}},
-		{"tunnel.configure", action.Context{Route: string(RouteTunnel)}, Route{Kind: RouteTunnel, Action: "edit"}},
-		{"tunnel.admin.key.set", action.Context{Route: string(RouteTunnel)}, Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
 		{"tunnel.managed.create", action.Context{Route: string(RouteTunnels)}, Route{Kind: RouteTunnels, Action: "create"}},
 		{"tunnel.managed.update", action.Context{Route: string(RouteTunnels), ResourceID: "tun_demo"}, Route{Kind: RouteTunnels, ResourceID: "tun_demo", Action: "edit"}},
 		{"config.convert", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "convert"}},
@@ -188,10 +186,10 @@ func TestTunnelActionAvailabilityFollowsRouteContext(t *testing.T) {
 		}
 		return false
 	}
-	if !has(action.Context{Route: string(RouteTunnel)}, "tunnel.configure") || !has(action.Context{Route: string(RouteTunnel)}, "tunnel.admin.key.set") {
-		t.Fatal("runtime tunnel actions are unavailable on tunnel route")
+	if has(action.Context{Route: string(RouteTunnel)}, "tunnel.enable") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.enable") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.detach") {
+		t.Fatal("local tunnel actions are not correctly scoped to a tunnel resource")
 	}
-	if has(action.Context{Route: string(RouteHome)}, "tunnel.configure") || has(action.Context{Route: string(RouteTunnel)}, "tunnel.managed.create") {
+	if has(action.Context{Route: string(RouteHome)}, "tunnel.enable") || has(action.Context{Route: string(RouteTunnel)}, "tunnel.managed.create") {
 		t.Fatal("tunnel actions leaked into the wrong route")
 	}
 	if !has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.create") || !has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.refresh") {

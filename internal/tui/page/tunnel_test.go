@@ -79,7 +79,7 @@ func TestManagedTunnelMutationNoticeRendersWithoutDuplicateChildTitle(t *testing
 	}
 }
 
-func TestManagedTunnelBrowserUsesSelectedTunnelShortcut(t *testing.T) {
+func TestManagedTunnelBrowserUsesAttachShortcut(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true})
 	item := tunnel.Metadata{ID: "tunnel_one", Name: "One", Description: "primary"}
 	if _, err := config.SaveTunnelMetadata(item); err != nil {
@@ -90,16 +90,16 @@ func TestManagedTunnelBrowserUsesSelectedTunnelShortcut(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := ansi.Strip(page.View(100, 24))
-	if !strings.Contains(view, "u use") {
-		t.Fatalf("managed browser missing use shortcut: %q", view)
+	if !strings.Contains(view, "t attach") {
+		t.Fatalf("managed browser missing attach shortcut: %q", view)
 	}
-	_, cmd := page.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
+	_, cmd := page.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	if cmd == nil {
-		t.Fatal("managed browser use shortcut returned no command")
+		t.Fatal("managed browser attach shortcut returned no command")
 	}
 	navigate, ok := cmd().(NavigateMsg)
 	if !ok || strings.Join(navigate.Path, "/") != "tunnels/tunnel_one/configure" {
-		t.Fatalf("managed browser use navigation=%#v", navigate)
+		t.Fatalf("managed browser attach navigation=%#v", navigate)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 		t.Fatal("managed tunnel detail incorrectly reports overlay active")
 	}
 	view := ansi.Strip(page.View(100, 26))
-	for _, want := range []string{"One", "primary", "s scope", "r refresh", "u use", "? more"} {
+	for _, want := range []string{"One", "primary", "s scope", "r refresh", "t attach", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("managed detail missing %q: %q", want, view)
 		}
@@ -339,7 +339,7 @@ func TestTunnelPageActionMouseSpaceUsesSpaceKey(t *testing.T) {
 	}
 }
 
-func TestManagedTunnelRefreshPersistsCacheAndUpdatePrefetchesRemoteState(t *testing.T) {
+func TestManagedTunnelRefreshPersistsCacheAndEditUsesCachedState(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer admin-secret" {
 			t.Fatalf("authorization=%q", r.Header.Get("Authorization"))
@@ -350,8 +350,6 @@ func TestManagedTunnelRefreshPersistsCacheAndUpdatePrefetchesRemoteState(t *test
 				t.Fatalf("scope=%q", r.URL.RawQuery)
 			}
 			_, _ = w.Write([]byte(`{"tunnels":[{"id":"tunnel_one","name":"Cached One","description":"first","workspace_ids":["ws_admin"]},{"id":"tunnel_two","name":"Two","description":"second","workspace_ids":["ws_admin"]}]}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/tunnels/tunnel_one":
-			_, _ = w.Write([]byte(`{"id":"tunnel_one","name":"Remote One","description":"fresh","workspace_ids":["ws_admin"]}`))
 		default:
 			t.Fatalf("unexpected request=%s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
 		}
@@ -391,103 +389,39 @@ func TestManagedTunnelRefreshPersistsCacheAndUpdatePrefetchesRemoteState(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if edit.editor != nil || !edit.managedUpdateFetch || edit.overlay != tunnelOverlayOperation {
-		t.Fatalf("prefetch initial editor=%v fetch=%t overlay=%d", edit.editor != nil, edit.managedUpdateFetch, edit.overlay)
+	if edit.editor == nil || edit.managedUpdateFetch || edit.overlay != tunnelOverlayNone || edit.managedForm == nil || edit.managedForm.Name != "Cached One" || edit.managedForm.Description != "first" {
+		t.Fatalf("cached editor=%v fetch=%t overlay=%d form=%#v", edit.editor != nil, edit.managedUpdateFetch, edit.overlay, edit.managedForm)
 	}
-	prefetch := edit.Init()
-	if prefetch == nil {
-		t.Fatal("edit prefetch command missing")
-	}
-	updated, next := edit.Update(prefetch())
-	edit = updated.(*TunnelPage)
-	if edit.overlay != tunnelOverlayNone || edit.managedUpdateFetch || edit.editor == nil || edit.managedForm == nil || edit.managedForm.Name != "Remote One" || edit.managedForm.Description != "fresh" || next == nil {
-		t.Fatalf("overlay=%d fetch=%t editor=%v form=%#v next=%v", edit.overlay, edit.managedUpdateFetch, edit.editor != nil, edit.managedForm, next)
+	if edit.Init() == nil {
+		t.Fatal("edit editor init command missing")
 	}
 }
 
-func TestManagedTunnelEditPrefetchEscapeReturnsToDetail(t *testing.T) {
-	started := make(chan struct{}, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_one" {
-			t.Fatalf("unexpected request=%s %s", r.Method, r.URL.Path)
-		}
-		select {
-		case started <- struct{}{}:
-		default:
-		}
-		<-r.Context().Done()
-	}))
-	defer server.Close()
-	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL})
+func TestManagedTunnelEditCancelReturnsToDetail(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin"})
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_one", Name: "One"}); err != nil {
+		t.Fatal(err)
+	}
 	page, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "edit")
 	if err != nil {
 		t.Fatal(err)
 	}
-	prefetch := page.Init()
-	if prefetch == nil || !page.managedUpdateFetch || page.overlay != tunnelOverlayOperation {
-		t.Fatalf("prefetch cmd=%v fetch=%t overlay=%d", prefetch != nil, page.managedUpdateFetch, page.overlay)
-	}
-	result := make(chan tea.Msg, 1)
-	go func() { result <- prefetch() }()
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("managed edit prefetch did not start")
-	}
-	updated, cmd := page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	updated, cmd := page.Update(component.EditorCancelMsg{})
 	page = updated.(*TunnelPage)
-	if cmd == nil || page.overlay != tunnelOverlayNone || page.managedUpdateFetch {
-		t.Fatalf("escape cmd=%v overlay=%d fetch=%t", cmd != nil, page.overlay, page.managedUpdateFetch)
+	if cmd == nil || page.overlay != tunnelOverlayNone {
+		t.Fatalf("cancel cmd=%v overlay=%d", cmd != nil, page.overlay)
 	}
 	navigate, ok := cmd().(NavigateMsg)
 	if !ok || strings.Join(navigate.Path, "/") != "tunnels/tunnel_one" {
 		t.Fatalf("escape navigation=%#v", navigate)
 	}
-	select {
-	case message := <-result:
-		updated, _ = page.Update(message)
-		page = updated.(*TunnelPage)
-	case <-time.After(time.Second):
-		t.Fatal("cancelled edit prefetch did not return")
-	}
-	if page.operationCancelled || page.err != nil {
-		t.Fatalf("late cancelled prefetch state cancelled=%t err=%v", page.operationCancelled, page.err)
-	}
 }
 
-func TestManagedTunnelEditPrefetchFailureShowsExplicitWrappedErrorState(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_one" {
-			t.Fatalf("unexpected request=%s %s", r.Method, r.URL.Path)
-		}
-		http.Error(w, "remote tunnel unavailable", http.StatusBadGateway)
-	}))
-	defer server.Close()
-	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL})
-	page, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "edit")
-	if err != nil {
-		t.Fatal(err)
+func TestManagedTunnelEditRequiresCachedMetadata(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin"})
+	if _, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "edit"); err == nil || !strings.Contains(err.Error(), "not found in local cache") {
+		t.Fatalf("missing cached metadata err=%v", err)
 	}
-	prefetch := page.Init()
-	if prefetch == nil {
-		t.Fatal("edit prefetch command missing")
-	}
-	updated, _ := page.Update(prefetch())
-	page = updated.(*TunnelPage)
-	if page.err == nil || page.editor != nil || page.overlay != tunnelOverlayNone || page.managedUpdateFetch {
-		t.Fatalf("prefetch failure err=%v editor=%v overlay=%d fetch=%t", page.err, page.editor != nil, page.overlay, page.managedUpdateFetch)
-	}
-	view := page.View(36, 16)
-	plain := ansi.Strip(view)
-	for _, want := range []string{"tunnel_one", "Unable to load managed tunnel"} {
-		if !strings.Contains(plain, want) {
-			t.Fatalf("prefetch failure missing %q: %q", want, plain)
-		}
-	}
-	if strings.Contains(plain, "Edit Managed Tunnel") {
-		t.Fatalf("prefetch failure retained redundant page title: %q", plain)
-	}
-	testutil.AssertLinesFit(t, view, 36)
 }
 
 func TestManagedTunnelRefreshCancellationIgnoresLateResult(t *testing.T) {
@@ -536,7 +470,7 @@ func TestManagedTunnelRefreshCancellationIgnoresLateResult(t *testing.T) {
 	}
 }
 
-func TestManagedTunnelDeleteSelectedRuntimeOffersClearConfigChoice(t *testing.T) {
+func TestManagedTunnelDeleteUsesProfileScopedEditor(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_selected", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin"})
 	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_selected", Name: "Selected"}); err != nil {
 		t.Fatal(err)
@@ -545,16 +479,17 @@ func TestManagedTunnelDeleteSelectedRuntimeOffersClearConfigChoice(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := page.openCommand(TunnelManagedDelete, "tunnel_selected"); err != nil {
+	cmd, err := page.openCommand(TunnelManagedDelete, "tunnel_selected")
+	if err != nil || cmd == nil {
 		t.Fatal(err)
 	}
-	if page.overlay != tunnelOverlayConfirm || !page.deleteOptions || !page.deleteClear {
-		t.Fatalf("delete options overlay=%d options=%t clear=%t", page.overlay, page.deleteOptions, page.deleteClear)
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "tunnels/tunnel_selected/delete" {
+		t.Fatalf("delete navigation=%#v", navigate)
 	}
-	page.confirm.Select(false)
-	page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if page.overlay != tunnelOverlayConfirm || page.deleteOptions || page.deleteClear {
-		t.Fatalf("delete choice overlay=%d options=%t clear=%t", page.overlay, page.deleteOptions, page.deleteClear)
+	deletePage, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_selected", "", "delete")
+	if err != nil || deletePage.editor == nil || deletePage.deleteForm == nil || deletePage.deleteForm.AdminProfileID != "default" {
+		t.Fatalf("delete editor=%v form=%#v err=%v", deletePage != nil && deletePage.editor != nil, deletePage.deleteForm, err)
 	}
 }
 
@@ -566,7 +501,7 @@ func TestManagedTunnelCreateEditorSectionsWrapAndFailureKeepsDraft(t *testing.T)
 	}
 	_ = page.Init()
 	plain := ansi.Strip(page.View(40, 20))
-	for _, want := range []string{"General", "Scope", "Runtime", "enter next"} {
+	for _, want := range []string{"Admin", "General", "Scope", "tab next"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("create editor missing %q: %q", want, plain)
 		}
@@ -575,7 +510,9 @@ func TestManagedTunnelCreateEditorSectionsWrapAndFailureKeepsDraft(t *testing.T)
 		t.Fatalf("create editor retained redundant page title: %q", plain)
 	}
 	testutil.AssertLinesFit(t, page.View(40, 20), 40)
-	updated, _ := page.Update(tea.KeyPressMsg{Code: 'd', Text: "draft-name"})
+	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	page = updated.(*TunnelPage)
+	updated, _ = page.Update(tea.KeyPressMsg{Code: 'd', Text: "draft-name"})
 	page = updated.(*TunnelPage)
 	if page.managedForm == nil || page.managedForm.Name != "draft-name" || !page.Dirty() {
 		t.Fatalf("create draft=%#v dirty=%t", page.managedForm, page.Dirty())
@@ -591,28 +528,20 @@ func TestManagedTunnelCreateEditorSectionsWrapAndFailureKeepsDraft(t *testing.T)
 }
 
 func TestManagedTunnelUpdateAndConfigureFailuresKeepDraft(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_one" {
-			t.Fatalf("unexpected request=%s %s", r.Method, r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"id":"tunnel_one","name":"Remote","description":"fresh","workspace_ids":["ws_admin"]}`))
-	}))
-	defer server.Close()
-	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", ControlPlaneBaseURL: server.URL})
+	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin"})
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_one", Name: "Remote", Description: "fresh", WorkspaceIDs: []string{"ws_admin"}}); err != nil {
+		t.Fatal(err)
+	}
 	edit, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "edit")
 	if err != nil {
 		t.Fatal(err)
 	}
-	prefetch := edit.Init()
-	if prefetch == nil {
-		t.Fatal("edit prefetch missing")
+	if edit.editor == nil || edit.managedForm == nil || edit.managedForm.Name != "Remote" {
+		t.Fatalf("edit editor=%v draft=%#v", edit.editor != nil, edit.managedForm)
 	}
-	updated, initEditor := edit.Update(prefetch())
+	_ = edit.Init()
+	updated, _ := edit.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	edit = updated.(*TunnelPage)
-	if initEditor == nil || edit.editor == nil || edit.managedForm == nil || edit.managedForm.Name != "Remote" {
-		t.Fatalf("edit prefetch editor=%v draft=%#v init=%v", edit.editor != nil, edit.managedForm, initEditor != nil)
-	}
-	_ = initEditor()
 	updated, _ = edit.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	edit = updated.(*TunnelPage)
 	name := edit.managedForm.Name
@@ -627,7 +556,7 @@ func TestManagedTunnelUpdateAndConfigureFailuresKeepDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = configure.Init()
-	if configure.configureForm == nil || configure.configureForm.RuntimeKeyMode != "auto" {
+	if configure.configureForm == nil || configure.configureForm.RuntimeKeyMode != "auto" || configure.configureForm.AdminProfileID != "default" {
 		t.Fatalf("configure draft=%#v", configure.configureForm)
 	}
 	configure.configureForm.RuntimeKeyMode = "manual"
@@ -673,7 +602,7 @@ func TestManagedTunnelReadOnlyAccessHidesManagementActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := ansi.Strip(page.View(100, 24))
-	if !strings.Contains(view, "u use") || strings.Contains(view, "refresh all") || strings.Contains(view, "a add") {
+	if !strings.Contains(view, "t attach") || strings.Contains(view, "refresh all") || strings.Contains(view, "a add") {
 		t.Fatalf("read-only browser actions=%q", view)
 	}
 	detail, err := NewManagedTunnelsRoute(t.Context(), item.ID, "")
@@ -683,7 +612,7 @@ func TestManagedTunnelReadOnlyAccessHidesManagementActions(t *testing.T) {
 	updated, _ := detail.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	detail = updated.(*TunnelPage)
 	view = ansi.Strip(detail.View(100, 26))
-	if !strings.Contains(view, "r refresh") || !strings.Contains(view, "u use") || strings.Contains(view, "update") || strings.Contains(view, "delete") {
+	if !strings.Contains(view, "r refresh") || !strings.Contains(view, "t attach") || strings.Contains(view, "update") || strings.Contains(view, "delete") {
 		t.Fatalf("read-only detail actions=%q", view)
 	}
 }

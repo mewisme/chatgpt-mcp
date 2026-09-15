@@ -44,6 +44,8 @@ type runtimeControlOptions struct {
 	Activity         *activity.Stream
 	Reload           func(context.Context) (runtimeReloadResult, error)
 	ReloadWorkspaces func() (workspaceReloadResult, error)
+	StartTunnel      func(context.Context, string) (runtimecontrol.TunnelRuntimeStatus, error)
+	StopTunnel       func(context.Context, string) (runtimecontrol.TunnelRuntimeStatus, error)
 	Status           func() runtimeStatusResult
 	StatusWait       func(context.Context, string) runtimeStatusResult
 	Shutdown         func()
@@ -123,6 +125,25 @@ func startRuntimeControlContext(ctx context.Context, options runtimeControlOptio
 		result, err := options.ReloadWorkspaces()
 		writeControlJSON(w, result, err)
 	}))
+	tunnelAction := func(action func(context.Context, string) (runtimecontrol.TunnelRuntimeStatus, error)) http.HandlerFunc {
+		return authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+			if action == nil {
+				writeControlJSON(w, nil, errors.New("tunnel control handler is unavailable"))
+				return
+			}
+			var input struct {
+				ID string `json:"id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeControlJSON(w, nil, err)
+				return
+			}
+			result, err := action(r.Context(), strings.TrimSpace(input.ID))
+			writeControlJSON(w, result, err)
+		})
+	}
+	mux.HandleFunc("/tunnels/start", tunnelAction(options.StartTunnel))
+	mux.HandleFunc("/tunnels/stop", tunnelAction(options.StopTunnel))
 	mux.HandleFunc("/status", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, _ *http.Request) {
 		writeControlJSON(w, options.Status(), nil)
 	}))

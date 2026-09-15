@@ -227,6 +227,8 @@ func TestModelManagedTunnelCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 	if model.currentPage.OverlayActive() || !model.currentPage.InputActive() {
 		t.Fatalf("managed create overlay=%t input=%t", model.currentPage.OverlayActive(), model.currentPage.InputActive())
 	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'd', Text: "draft"})
 	model = updated.(Model)
 	guard, ok := model.currentPage.(tuipage.NavigationGuardModel)

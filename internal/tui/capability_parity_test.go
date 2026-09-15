@@ -78,7 +78,7 @@ func TestCapabilityActionsHaveReachableContexts(t *testing.T) {
 		{Route: string(RouteWorkspaces)}, {Route: string(RouteWorkspaces), ResourceID: "resource"},
 		{Route: string(RouteContainers)}, {Route: string(RouteContainers), ResourceID: "resource"},
 		{Route: string(RouteMCP)}, {Route: string(RouteMCP), ResourceID: "resource"},
-		{Route: string(RouteTunnel)}, {Route: string(RouteTunnels)}, {Route: string(RouteTunnels), ResourceID: "resource"},
+		{Route: string(RouteTunnel)}, {Route: string(RouteTunnel), ResourceID: "resource"}, {Route: string(RouteTunnels)}, {Route: string(RouteTunnels), ResourceID: "resource"},
 		{Route: string(RouteRequests)}, {Route: string(RouteRequests), ResourceID: "resource"},
 		{Route: string(RouteLogs)}, {Route: string(RouteConfig)}, {Route: string(RouteRuntime)}, {Route: string(RouteAbout)},
 	}

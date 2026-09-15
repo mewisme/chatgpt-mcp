@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -59,7 +60,7 @@ func TestMCPServerListDefaultsToPlainAndSupportsRedactedJSON(t *testing.T) {
 	}
 }
 
-func TestTunnelListDefaultsToPlainAndSupportsJSON(t *testing.T) {
+func TestManagedTunnelListDefaultsToPlainAndSupportsJSON(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,19 +77,19 @@ func TestTunnelListDefaultsToPlainAndSupportsJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	cfg.Tunnel.AdminKey = "admin-test"
-	cfg.Tunnel.AdminWorkspaceID = "ws_admin"
-	cfg.Tunnel.ControlPlaneBaseURL = server.URL
+	instances := []tunnel.InstanceConfig{}
+	admins := []tunnel.AdminConfig{{ID: "default", AdminKey: "admin-test", WorkspaceID: "ws_admin", ReadAccess: true, ManageAccess: true, ControlPlaneBaseURL: server.URL}}
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
 	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
 		t.Fatal(err)
 	}
-	plain := executeRequestCommand(t, root, []string{"tunnel", "list"})
-	if !strings.Contains(plain, "Managed tunnels loaded") || !strings.Contains(plain, "tunnel_one") || strings.HasPrefix(strings.TrimSpace(plain), "[") {
+	plain := executeRequestCommand(t, root, []string{"tunnel", "managed", "list"})
+	if !strings.Contains(plain, "tunnel_one") || strings.HasPrefix(strings.TrimSpace(plain), "[") {
 		t.Fatalf("plain=%q", plain)
 	}
-	jsonOutput := executeRequestCommand(t, root, []string{"tunnel", "list", "--json"})
-	var items []tunnel.Metadata
-	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &items); err != nil || len(items) != 1 || items[0].Name != "One" {
+	jsonOutput := executeRequestCommand(t, root, []string{"tunnel", "managed", "list", "--json"})
+	var items []application.ManagedTunnelDiscovery
+	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOutput)), &items); err != nil || len(items) != 1 || items[0].Metadata.Name != "One" {
 		t.Fatalf("json=%q items=%#v err=%v", jsonOutput, items, err)
 	}
 }

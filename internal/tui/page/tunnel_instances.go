@@ -1,0 +1,429 @@
+package page
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"go.mewis.me/chatgpt-mcp/internal/application"
+	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+)
+
+type LocalTunnelCommand string
+
+const (
+	LocalTunnelEnable  LocalTunnelCommand = "tunnel.local.enable"
+	LocalTunnelDisable LocalTunnelCommand = "tunnel.local.disable"
+	LocalTunnelStart   LocalTunnelCommand = "tunnel.local.start"
+	LocalTunnelStop    LocalTunnelCommand = "tunnel.local.stop"
+	LocalTunnelDetach  LocalTunnelCommand = "tunnel.local.detach"
+	LocalTunnelRefresh LocalTunnelCommand = "tunnel.local.refresh"
+)
+
+type LocalTunnelCommandMsg struct {
+	Command    LocalTunnelCommand
+	ResourceID string
+}
+
+type localTunnelResultMsg struct {
+	command LocalTunnelCommand
+	id      string
+	item    application.LocalTunnel
+	items   []application.LocalTunnel
+	admins  []application.TunnelAdminProfile
+	err     error
+}
+
+type TunnelInstancesPage struct {
+	ctx        context.Context
+	resourceID string
+	items      []application.LocalTunnel
+	admins     []application.TunnelAdminProfile
+	browser    component.Browser
+	detail     component.DetailPage
+	confirm    component.ConfirmButtons
+	confirmID  string
+	notice     string
+	err        error
+	width      int
+	height     int
+}
+
+func NewTunnelInstances(ctx context.Context, resourceID string) (*TunnelInstancesPage, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	page := &TunnelInstancesPage{ctx: ctx, resourceID: strings.TrimSpace(resourceID)}
+	if err := page.reload(); err != nil {
+		return nil, err
+	}
+	return page, nil
+}
+
+func (page *TunnelInstancesPage) Init() tea.Cmd       { return nil }
+func (page *TunnelInstancesPage) OverlayActive() bool { return page != nil && page.confirmID != "" }
+func (page *TunnelInstancesPage) InputActive() bool {
+	return page != nil && page.resourceID == "" && page.browser.InputActive()
+}
+func (page *TunnelInstancesPage) Notice() string {
+	if page == nil {
+		return ""
+	}
+	return page.notice
+}
+func (page *TunnelInstancesPage) SetNotice(value string) {
+	if page != nil {
+		page.notice = strings.TrimSpace(value)
+	}
+}
+
+func (page *TunnelInstancesPage) Update(message tea.Msg) (Model, tea.Cmd) {
+	if page == nil {
+		return page, nil
+	}
+	switch msg := message.(type) {
+	case tea.WindowSizeMsg:
+		page.width, page.height = msg.Width, msg.Height
+		if page.resourceID != "" {
+			page.detail.Resize(msg.Width, msg.Height)
+		} else {
+			return page, page.resizeBrowser()
+		}
+		return page, nil
+	case component.BrowserOpenMsg:
+		if page.resourceID == "" && msg.Row.ID != "" {
+			id := msg.Row.ID
+			return page, func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", id}} }
+		}
+		return page, nil
+	case component.ConfirmChoiceMsg:
+		if page.confirmID != "" {
+			page.confirm.Select(msg.Affirmative)
+			return page, page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
+		}
+		return page, nil
+	case LocalTunnelCommandMsg:
+		return page, page.runCommand(msg.Command, msg.ResourceID)
+	case localTunnelResultMsg:
+		return page, page.finishCommand(msg)
+	case tea.KeyPressMsg:
+		if page.confirmID != "" {
+			return page, page.updateConfirm(msg)
+		}
+		if page.resourceID == "" && page.browser.InputActive() {
+			updated, cmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
+			return page, cmd
+		}
+		if page.resourceID == "" {
+			switch msg.String() {
+			case "r":
+				return page, page.runCommand(LocalTunnelRefresh, "")
+			case "m", "a":
+				return page, func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}} }
+			}
+		}
+	}
+	if page.resourceID != "" {
+		updated, cmd := page.detail.Update(message)
+		page.detail = updated
+		return page, cmd
+	}
+	updated, cmd := page.browser.Update(message)
+	page.browser = updated.(component.Browser)
+	return page, cmd
+}
+
+func (page *TunnelInstancesPage) View(width, height int) string {
+	if page == nil {
+		return component.StateView(component.PageError, "Tunnel page unavailable", "")
+	}
+	page.width, page.height = width, height
+	content := page.listView(width, height)
+	if page.resourceID != "" {
+		page.detail.SetFeedback(page.notice, page.err)
+		page.detail.Resize(width, height)
+		content = page.detail.View()
+	}
+	if page.confirmID != "" {
+		modalWidth := overlayWidth(width, 64)
+		body := confirmOverlayBody(page.confirm, "Detach tunnel "+page.confirmID+"?", "The local tunnel instance and its runtime key will be removed. The remote OpenAI tunnel is unchanged.", modalWidth)
+		content = component.CenterOverlay(content, component.Modal(body, modalWidth), width, height)
+	}
+	return content
+}
+
+func (page *TunnelInstancesPage) MouseTargets(originX, originY, z int) []component.MouseTarget {
+	if page == nil {
+		return nil
+	}
+	if page.confirmID != "" {
+		return confirmOverlayMouseTargets(page.confirm, "Detach tunnel "+page.confirmID+"?", "The local tunnel instance and its runtime key will be removed. The remote OpenAI tunnel is unchanged.", overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
+	}
+	if page.resourceID != "" {
+		return page.detail.MouseTargets(originX, originY, z)
+	}
+	headerHeight := lipgloss.Height(page.listHeader(page.width))
+	help := page.browser.HelpView()
+	bodyHeight := max(1, page.height-headerHeight)
+	layout := component.NewSectionLayout("", "", page.listFeedback(page.width), page.width, bodyHeight, lipgloss.Height(help))
+	browserY := originY + headerHeight + layout.BodyY
+	targets := page.browser.MouseTargets(originX, browserY, z)
+	helpY := originY + headerHeight + bodyHeight - lipgloss.Height(help)
+	return append(targets, page.browser.HelpMouseTargets(originX, helpY, z+2)...)
+}
+
+func (page *TunnelInstancesPage) reload() error {
+	items, err := application.LocalTunnelsContext(page.ctx)
+	if err != nil {
+		return err
+	}
+	admins, err := application.TunnelAdminProfiles()
+	if err != nil {
+		return err
+	}
+	page.items, page.admins = items, admins
+	if page.resourceID != "" {
+		return page.syncDetail()
+	}
+	helpExpanded := page.browser.HelpExpanded()
+	selected, _ := page.browser.Selected()
+	page.browser = component.NewBrowser(page.ctx, "Tunnel instances", page.rows(), nil).WithTitleVisible(false).WithExternalHelp(true)
+	page.browser.SetHelpBindings(component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"m"}, "m", "managed"))
+	page.browser.SetHelpExpanded(helpExpanded)
+	if selected.ID != "" {
+		page.browser.SelectID(selected.ID)
+	}
+	if page.width > 0 && page.height > 0 {
+		page.resizeBrowser()
+	}
+	return nil
+}
+
+func (page *TunnelInstancesPage) rows() []component.Row {
+	rows := make([]component.Row, 0, len(page.items))
+	for _, item := range page.items {
+		state := localTunnelState(item)
+		description := item.ID
+		if item.AdminProfileID != "" {
+			description += " · admin=" + item.AdminProfileID
+		}
+		rows = append(rows, component.Row{ID: item.ID, Title: item.ID, Description: description, Meta: state, Search: strings.Join([]string{item.ID, item.AdminProfileID, item.OrganizationID, item.ControlPlaneBaseURL, state}, " ")})
+	}
+	return rows
+}
+
+func (page *TunnelInstancesPage) syncDetail() error {
+	var item *application.LocalTunnel
+	for i := range page.items {
+		if page.items[i].ID == page.resourceID {
+			item = &page.items[i]
+			break
+		}
+	}
+	if item == nil {
+		return fmt.Errorf("tunnel %q is not attached", page.resourceID)
+	}
+	content := detailFields(
+		[2]string{"ID", item.ID}, [2]string{"State", localTunnelState(*item)}, [2]string{"Enabled", tunnelYesNo(item.Enabled)},
+		[2]string{"Runtime key", tunnelConfiguredIndicator(item.RuntimeKeyConfigured)}, [2]string{"Admin profile", valueOrNone(item.AdminProfileID)},
+		[2]string{"Organization", valueOrNone(item.OrganizationID)}, [2]string{"Control plane", defaultLabel(item.ControlPlaneBaseURL)},
+	)
+	if item.Status.LastError != "" {
+		content += "\n" + detailFields([2]string{"Error", item.Status.LastError})
+	}
+	page.detail = component.NewDetailPage(item.ID, localTunnelState(*item), content).WithTitleVisible(false)
+	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: LocalTunnelCommandMsg{Command: LocalTunnelRefresh, ResourceID: item.ID}}}
+	if item.Enabled {
+		bindings = append(bindings, component.DetailPageBinding{Key: "space", Desc: "disable", Message: LocalTunnelCommandMsg{Command: LocalTunnelDisable, ResourceID: item.ID}})
+	} else {
+		bindings = append(bindings, component.DetailPageBinding{Key: "space", Desc: "enable", Message: LocalTunnelCommandMsg{Command: LocalTunnelEnable, ResourceID: item.ID}})
+	}
+	if item.Status.Running || item.Status.Restarting {
+		bindings = append(bindings, component.DetailPageBinding{Key: "s", Desc: "stop", Message: LocalTunnelCommandMsg{Command: LocalTunnelStop, ResourceID: item.ID}})
+	} else if item.Enabled && item.RuntimeKeyConfigured {
+		bindings = append(bindings, component.DetailPageBinding{Key: "s", Desc: "start", Message: LocalTunnelCommandMsg{Command: LocalTunnelStart, ResourceID: item.ID}})
+	}
+	bindings = append(bindings, component.DetailPageBinding{Key: "d", Desc: "detach", Message: LocalTunnelCommandMsg{Command: LocalTunnelDetach, ResourceID: item.ID}})
+	page.detail.SetBindings(bindings...)
+	if page.width > 0 && page.height > 0 {
+		page.detail.Resize(page.width, page.height)
+	}
+	return nil
+}
+
+func (page *TunnelInstancesPage) runCommand(command LocalTunnelCommand, id string) tea.Cmd {
+	id = strings.TrimSpace(id)
+	if command == LocalTunnelDetach {
+		page.confirmID = id
+		page.confirm = component.NewConfirmButtons("Detach", "Cancel", false)
+		return nil
+	}
+	ctx := page.ctx
+	return func() tea.Msg {
+		msg := localTunnelResultMsg{command: command, id: id}
+		switch command {
+		case LocalTunnelEnable:
+			msg.item, msg.err = application.SetLocalTunnelEnabled(ctx, id, true)
+		case LocalTunnelDisable:
+			msg.item, msg.err = application.SetLocalTunnelEnabled(ctx, id, false)
+		case LocalTunnelStart:
+			msg.item, msg.err = application.StartLocalTunnel(ctx, id)
+		case LocalTunnelStop:
+			msg.item, msg.err = application.StopLocalTunnel(ctx, id)
+		case LocalTunnelRefresh:
+			msg.items, msg.err = application.LocalTunnelsContext(ctx)
+			if msg.err == nil {
+				msg.admins, msg.err = application.TunnelAdminProfiles()
+			}
+		default:
+			msg.err = fmt.Errorf("unsupported local tunnel action: %s", command)
+		}
+		return msg
+	}
+}
+
+func (page *TunnelInstancesPage) finishCommand(msg localTunnelResultMsg) tea.Cmd {
+	if msg.err != nil {
+		page.err = msg.err
+		return nil
+	}
+	page.err = nil
+	if msg.command == LocalTunnelDetach {
+		items := page.items[:0]
+		for _, item := range page.items {
+			if item.ID != msg.id {
+				items = append(items, item)
+			}
+		}
+		page.items = items
+		page.notice = localTunnelSuccess(msg.command)
+		if page.resourceID == msg.id {
+			return func() tea.Msg { return NavigateMsg{Path: []string{"tunnel"}, Replace: true} }
+		}
+	} else if msg.command == LocalTunnelRefresh {
+		page.items, page.admins = msg.items, msg.admins
+		page.notice = fmt.Sprintf("Refreshed %d tunnel instance(s)", len(page.items))
+	} else {
+		for i := range page.items {
+			if page.items[i].ID == msg.item.ID {
+				page.items[i] = msg.item
+			}
+		}
+		page.notice = localTunnelSuccess(msg.command)
+	}
+	if page.resourceID != "" {
+		page.err = page.syncDetail()
+		return nil
+	}
+	selected, _ := page.browser.Selected()
+	return page.browser.ReplaceRows(page.rows(), selected.ID)
+}
+
+func (page *TunnelInstancesPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
+	if msg.String() == "esc" || msg.String() == "enter" && !page.confirm.AffirmativeSelected() {
+		page.confirmID = ""
+		page.confirm = component.ConfirmButtons{}
+		return nil
+	}
+	if msg.String() != "enter" {
+		return page.confirm.Update(msg)
+	}
+	id := page.confirmID
+	page.confirmID = ""
+	page.confirm = component.ConfirmButtons{}
+	ctx := page.ctx
+	return func() tea.Msg {
+		err := application.DetachLocalTunnel(ctx, id)
+		return localTunnelResultMsg{command: LocalTunnelDetach, id: id, err: err}
+	}
+}
+
+func (page *TunnelInstancesPage) listView(width, height int) string {
+	if page.resourceID != "" {
+		return ""
+	}
+	header := page.listHeader(width)
+	bodyHeight := max(1, height-lipgloss.Height(header))
+	help := page.browser.HelpView()
+	layout := component.NewSectionLayout("", "", page.listFeedback(width), width, bodyHeight, lipgloss.Height(help))
+	updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: layout.BodyHeight})
+	page.browser = updated.(component.Browser)
+	return header + "\n" + component.BottomHelp(layout.View(page.browser.BodyContent()), help, width, bodyHeight)
+}
+
+func (page *TunnelInstancesPage) listHeader(width int) string {
+	ready, running, degraded := 0, 0, 0
+	for _, item := range page.items {
+		if item.Status.Ready {
+			ready++
+		}
+		if item.Status.Running || item.Status.Restarting {
+			running++
+		}
+		if item.Status.LastError != "" {
+			degraded++
+		}
+	}
+	summary := fmt.Sprintf("%d attached · %d running · %d ready · %d degraded · %d admin profiles", len(page.items), running, ready, degraded, len(page.admins))
+	return component.PageTitleNotice("OpenAI Secure MCP Tunnels", page.notice, width) + "\n" + component.Muted(summary)
+}
+
+func (page *TunnelInstancesPage) listFeedback(width int) string {
+	if page.err == nil {
+		return ""
+	}
+	return component.BannerWidth(page.err.Error(), component.ToneDanger, width)
+}
+
+func (page *TunnelInstancesPage) resizeBrowser() tea.Cmd {
+	if page.resourceID != "" || page.width <= 0 || page.height <= 0 {
+		return nil
+	}
+	headerHeight := lipgloss.Height(page.listHeader(page.width))
+	bodyHeight := max(1, page.height-headerHeight)
+	help := page.browser.HelpView()
+	layout := component.NewSectionLayout("", "", page.listFeedback(page.width), page.width, bodyHeight, lipgloss.Height(help))
+	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
+	page.browser = updated.(component.Browser)
+	return cmd
+}
+
+func localTunnelState(item application.LocalTunnel) string {
+	switch {
+	case !item.Enabled:
+		return "disabled"
+	case !item.RuntimeKeyConfigured:
+		return "not configured"
+	case item.Status.Ready:
+		return "connected"
+	case item.Status.Restarting:
+		return "reconnecting"
+	case item.Status.Running:
+		return "connecting"
+	case item.Status.LastError != "":
+		return "degraded"
+	default:
+		return "offline"
+	}
+}
+
+func localTunnelSuccess(command LocalTunnelCommand) string {
+	switch command {
+	case LocalTunnelEnable:
+		return "Tunnel enabled"
+	case LocalTunnelDisable:
+		return "Tunnel disabled"
+	case LocalTunnelStart:
+		return "Tunnel started"
+	case LocalTunnelStop:
+		return "Tunnel stopped"
+	case LocalTunnelDetach:
+		return "Tunnel detached"
+	default:
+		return "Tunnel updated"
+	}
+}

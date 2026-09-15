@@ -42,6 +42,9 @@ func TestDispatchMouseIgnoresUnsupportedButtonsAndOutsideTargets(t *testing.T) {
 	if cmd := DispatchMouse([]MouseTarget{target}, tea.MouseClickMsg(tea.Mouse{X: 1, Y: 1, Button: tea.MouseRight})); cmd != nil {
 		t.Fatal("right click unexpectedly dispatched")
 	}
+	if cmd := DispatchMouse([]MouseTarget{target}, tea.MouseReleaseMsg(tea.Mouse{X: 1, Y: 1, Button: tea.MouseLeft})); cmd != nil {
+		t.Fatal("mouse release unexpectedly dispatched")
+	}
 }
 
 func TestCenteredOverlayTargetsDismissBackdropAndShieldModal(t *testing.T) {

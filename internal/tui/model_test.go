@@ -954,6 +954,42 @@ func TestModelBreadcrumbNavigationRespectsDirtyGuard(t *testing.T) {
 	}
 }
 
+func TestModelBreadcrumbReleaseDoesNotDismissDirtyGuard(t *testing.T) {
+	model := NewModel(Route{Kind: RouteContainers, ResourceID: "wsc_demo", Section: "workspaces", Action: "edit"})
+	model.currentPage = &navigationGuardTestPage{dirty: true, input: true}
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updated.(Model)
+	view := model.View()
+	_, targets := model.render()
+	var target *component.MouseTarget
+	for index := range targets {
+		if targets[index].ID == "app.breadcrumb" {
+			target = &targets[index]
+			break
+		}
+	}
+	if target == nil {
+		t.Fatal("container breadcrumb target not found")
+	}
+	x, y := target.Rect.X, target.Rect.Y
+	cmd := view.OnMouse(tea.MouseClickMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}))
+	if cmd == nil {
+		t.Fatal("breadcrumb click produced no command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if model.pendingNavigation == nil {
+		t.Fatal("breadcrumb click did not open discard guard")
+	}
+	guardedView := model.View()
+	if cmd := guardedView.OnMouse(tea.MouseReleaseMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft})); cmd != nil {
+		t.Fatal("breadcrumb release dismissed discard guard")
+	}
+	if model.pendingNavigation == nil || model.router.Current() != (Route{Kind: RouteContainers, ResourceID: "wsc_demo", Section: "workspaces", Action: "edit"}) {
+		t.Fatalf("discard guard changed after release: route=%#v pending=%v", model.router.Current(), model.pendingNavigation != nil)
+	}
+}
+
 func TestModelPreservePageNavigationReflowsForBreadcrumb(t *testing.T) {
 	model := NewModel(Route{Kind: RouteLogs})
 	page := &navigationGuardTestPage{}

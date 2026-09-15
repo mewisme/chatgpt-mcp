@@ -34,6 +34,9 @@ type MouseTarget struct {
 }
 
 func DispatchMouse(targets []MouseTarget, message tea.MouseMsg) tea.Cmd {
+	if _, released := message.(tea.MouseReleaseMsg); released {
+		return nil
+	}
 	mouse := message.Mouse()
 	_, motion := message.(tea.MouseMotionMsg)
 	if !motion && mouse.Button != tea.MouseLeft && mouse.Button != tea.MouseWheelUp && mouse.Button != tea.MouseWheelDown {

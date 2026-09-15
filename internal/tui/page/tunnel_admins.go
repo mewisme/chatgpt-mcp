@@ -413,6 +413,7 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 	switch msg.command {
 	case TunnelAdminAdd, TunnelAdminUpdate:
 		page.notice = fmt.Sprintf("Admin profile %s verified · %d tunnel(s) readable", msg.item.ID, msg.count)
+		page.acceptAdminEditorSuccess()
 		return tea.Batch(
 			func() tea.Msg { return NavigateMsg{Path: []string{"admins", msg.item.ID}, Replace: true} },
 			func() tea.Msg {
@@ -448,6 +449,18 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 	}
 	selected, _ := page.browser.Selected()
 	return page.browser.ReplaceRows(page.rows(), selected.ID)
+}
+
+func (page *TunnelAdminsPage) acceptAdminEditorSuccess() {
+	if page == nil {
+		return
+	}
+	if page.editor != nil {
+		page.editor.Accept()
+		page.editor.SetSubmitting(false)
+	}
+	page.editor = nil
+	page.form = nil
 }
 
 func (page *TunnelAdminsPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {

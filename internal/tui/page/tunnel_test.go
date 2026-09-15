@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
@@ -611,4 +612,50 @@ func TestTunnelAdminsPageListsProfilesAndOpensCreateEditor(t *testing.T) {
 		t.Fatalf("create editor view=%q", view)
 	}
 	testutil.AssertLinesFit(t, page.View(72, 24), 72)
+}
+
+func TestTunnelAdminsPageCreateSuccessClearsDirtyBeforeNavigate(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewTunnelAdmins(t.Context(), "", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	page.form.ID = "personal"
+	page.form.AdminKey = "secret-draft"
+	page.form.ScopeKind = "organization"
+	page.form.ScopeID = "org_demo"
+	page.editor.SetSubmitting(true)
+	if !page.Dirty() || !page.Submitting() {
+		t.Fatalf("precondition dirty=%t submitting=%t", page.Dirty(), page.Submitting())
+	}
+	cmd := page.finishCommand(tunnelAdminResultMsg{
+		command: TunnelAdminAdd,
+		item:    application.TunnelAdminProfile{ID: "personal", OrganizationID: "org_demo", ManageAccess: true, KeyConfigured: true},
+		count:   2,
+	})
+	if cmd == nil || page.Dirty() || page.Submitting() || page.editor != nil || page.form != nil {
+		t.Fatalf("success left dirty state cmd=%v dirty=%t submitting=%t editor=%v form=%v", cmd != nil, page.Dirty(), page.Submitting(), page.editor != nil, page.form != nil)
+	}
+	if !strings.Contains(page.notice, "personal") || !strings.Contains(page.notice, "verified") {
+		t.Fatalf("notice=%q", page.notice)
+	}
+}
+
+func TestTunnelAdminsPageCreateFailureKeepsDirtyDraft(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewTunnelAdmins(t.Context(), "", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = page.Init()
+	page.form.ID = "personal"
+	page.form.AdminKey = "secret-draft"
+	page.form.ScopeKind = "organization"
+	page.form.ScopeID = "org_demo"
+	page.editor.SetSubmitting(true)
+	cmd := page.finishCommand(tunnelAdminResultMsg{command: TunnelAdminAdd, err: fmt.Errorf("verification failed")})
+	if cmd != nil || page.editor == nil || page.form == nil || page.form.AdminKey != "secret-draft" || !page.Dirty() || page.Submitting() {
+		t.Fatalf("failure lost draft cmd=%v editor=%v draft=%#v dirty=%t submitting=%t", cmd != nil, page.editor != nil, page.form, page.Dirty(), page.Submitting())
+	}
 }

@@ -79,6 +79,63 @@ func TestAdminProfileMutationRequiresUnambiguousProfile(t *testing.T) {
 	}
 }
 
+func TestTunnelAdminCollectionCRUDPreservesSecret(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	instances := []tunnel.InstanceConfig{}
+	admins := []tunnel.AdminConfig{}
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
+	store := config.NewRuntimeStore(cfg)
+	manager := tunnel.NewManager(&tools.Runtime{Registry: tools.NewRegistry()}, nil)
+	if err := manager.Reconcile(context.Background(), cfg.RuntimeTunnels()); err != nil {
+		t.Fatal(err)
+	}
+	api := API{Config: store, Tunnels: manager, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {
+		if err := manager.Reconcile(context.Background(), next.RuntimeTunnels()); err != nil {
+			return err
+		}
+		_, err := store.Update(func(config.Config) (config.Config, error) { return next, nil })
+		return err
+	}}
+	handler := New(api)
+
+	post := httptest.NewRecorder()
+	handler.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/tunnel-admins", bytes.NewBufferString(`{"id":"work","admin_key":"admin-secret","organization_id":"org_one"}`)))
+	if post.Code != http.StatusOK || strings.Contains(post.Body.String(), "admin-secret") || !strings.Contains(post.Body.String(), `"key_configured":true`) {
+		t.Fatalf("post status=%d body=%s", post.Code, post.Body.String())
+	}
+	get := httptest.NewRecorder()
+	handler.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/tunnel-admins/work", nil))
+	if get.Code != http.StatusOK || strings.Contains(get.Body.String(), "admin-secret") || !strings.Contains(get.Body.String(), `"organization_id":"org_one"`) {
+		t.Fatalf("get status=%d body=%s", get.Code, get.Body.String())
+	}
+	put := httptest.NewRecorder()
+	handler.ServeHTTP(put, httptest.NewRequest(http.MethodPut, "/api/tunnel-admins/work", bytes.NewBufferString(`{"organization_id":"org_two","workspace_id":"ws_two"}`)))
+	if put.Code != http.StatusOK || strings.Contains(put.Body.String(), "admin-secret") || !strings.Contains(put.Body.String(), `"organization_id":"org_two"`) {
+		t.Fatalf("put status=%d body=%s", put.Code, put.Body.String())
+	}
+	collection := store.Snapshot().RuntimeTunnels()
+	if len(collection.Admins) != 1 || collection.Admins[0].AdminKey != "admin-secret" || collection.Admins[0].OrganizationID != "org_two" || collection.Admins[0].WorkspaceID != "ws_two" {
+		t.Fatalf("admins=%#v", collection.Admins)
+	}
+	list := httptest.NewRecorder()
+	handler.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/tunnel-admins", nil))
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"id":"work"`) {
+		t.Fatalf("list status=%d body=%s", list.Code, list.Body.String())
+	}
+	remove := httptest.NewRecorder()
+	handler.ServeHTTP(remove, httptest.NewRequest(http.MethodDelete, "/api/tunnel-admins/work", nil))
+	if remove.Code != http.StatusNoContent || len(store.Snapshot().RuntimeTunnels().Admins) != 0 {
+		t.Fatalf("delete status=%d body=%s admins=%#v", remove.Code, remove.Body.String(), store.Snapshot().RuntimeTunnels().Admins)
+	}
+	missing := httptest.NewRecorder()
+	handler.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/api/tunnel-admins/work", nil))
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing status=%d body=%s", missing.Code, missing.Body.String())
+	}
+}
+
 func TestManagedTunnelAPIKeepsAllProfileProvenance(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/tunnels" {

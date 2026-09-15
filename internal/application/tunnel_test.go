@@ -236,6 +236,57 @@ func TestTunnelOnlyConfigCannotDisableTunnel(t *testing.T) {
 	}
 }
 
+func TestUpdateLocalTunnelPreservesRuntimeKeyAndMutatesOnlyTarget(t *testing.T) {
+	setupTunnelApplicationRoot(t, tunnel.Config{})
+	saveTunnelCollectionFixture(t, []tunnel.InstanceConfig{
+		{Enabled: true, ID: "tunnel_one", APIKey: "runtime-one", AdminProfileID: "work", OrganizationID: "org_old"},
+		{Enabled: true, ID: "tunnel_two", APIKey: "runtime-two"},
+	}, []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", ReadAccess: true, ManageAccess: true}})
+
+	updated, err := UpdateLocalTunnel(t.Context(), tunnel.InstanceConfig{Enabled: false, ID: "tunnel_one", AdminProfileID: "work", OrganizationID: "org_new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != "tunnel_one" || updated.Enabled || !updated.RuntimeKeyConfigured || updated.OrganizationID != "org_new" {
+		t.Fatalf("updated=%#v", updated)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	instances := loaded.RuntimeTunnels().Instances
+	if len(instances) != 2 || instances[0].APIKey != "runtime-one" || instances[0].OrganizationID != "org_new" || instances[1].APIKey != "runtime-two" || !instances[1].Enabled {
+		t.Fatalf("instances=%#v", instances)
+	}
+	if _, err := UpdateLocalTunnel(t.Context(), tunnel.InstanceConfig{ID: "missing"}); err == nil || !strings.Contains(err.Error(), "not attached") {
+		t.Fatalf("missing update err=%v", err)
+	}
+}
+
+func TestUpdateTunnelAdminProfilePreservesKeyAndAccess(t *testing.T) {
+	setupTunnelApplicationRoot(t, tunnel.Config{})
+	saveTunnelCollectionFixture(t, nil, []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", OrganizationID: "org_old", WorkspaceID: "ws_old", ReadAccess: true, ManageAccess: true}})
+
+	updated, err := UpdateTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "work", OrganizationID: "org_new", WorkspaceID: "ws_new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != "work" || !updated.KeyConfigured || !updated.ReadAccess || !updated.ManageAccess || updated.OrganizationID != "org_new" || updated.WorkspaceID != "ws_new" {
+		t.Fatalf("updated=%#v", updated)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	admins := loaded.RuntimeTunnels().Admins
+	if len(admins) != 1 || admins[0].AdminKey != "admin-secret" || !admins[0].ReadAccess || !admins[0].ManageAccess || admins[0].OrganizationID != "org_new" {
+		t.Fatalf("admins=%#v", admins)
+	}
+	if _, err := UpdateTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "missing"}); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing update err=%v", err)
+	}
+}
+
 func TestManagedCreateFailureDoesNotChangeRuntimeCollection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

@@ -1132,7 +1132,7 @@ func (page *LogsPage) syncBrowserHelp() {
 	case logsTabCommandExec:
 		bindings = append(bindings, component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"))
 	case logsTabToolCalls:
-		bindings = append(bindings, component.Binding([]string{"r"}, "r", "reconnect"))
+		bindings = append(bindings, component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"))
 	default:
 		bindings = append(bindings, component.Binding([]string{"f"}, "f", "filters"), component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"))
 	}

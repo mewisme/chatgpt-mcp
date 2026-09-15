@@ -1523,6 +1523,16 @@ func TestToolCallTimelineAlignsBodyWithLabels(t *testing.T) {
 	}
 }
 
+func TestToolCallClearShortcutMatchesCommandExecution(t *testing.T) {
+	page, _ := NewToolCallLogsRoute(t.Context(), "")
+	defer page.Close()
+	page.tools.events = []activity.Event{{Sequence: 1, CallID: "call_1", Tool: "read_file", Status: "ok"}}
+	page.handleToolCallKey(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	if len(page.tools.events) != 0 || page.tools.notice != "Tool call stream view cleared" {
+		t.Fatalf("tool clear events=%d notice=%q", len(page.tools.events), page.tools.notice)
+	}
+}
+
 func TestToolCallViewShortcutAndModeDoNotReconnectFeed(t *testing.T) {
 	setupLogsPageRoot(t)
 	manager := workspace.NewManager(workspace.DefaultStorePath())

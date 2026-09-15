@@ -410,7 +410,7 @@ func (page *LogsPage) toolCallStatusView(width int) string {
 }
 
 func (page *LogsPage) toolCallHelpView(width int) string {
-	bindings := []key.Binding{component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode"), component.Binding([]string{"r"}, "r", "reconnect")}
+	bindings := []key.Binding{component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode"), component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view")}
 	bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.tools.paused)))
 	return component.NewHelpFooter(bindings...).View(width)
 }
@@ -436,6 +436,11 @@ func (page *LogsPage) handleToolCallKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "r":
 		return page.startToolCallFeed()
+	case "c":
+		page.tools.events = nil
+		page.tools.notice = "Tool call stream view cleared"
+		page.refreshActiveLogsView()
+		return nil
 	}
 	if page.view == logsViewBrowser {
 		before := ""

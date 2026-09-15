@@ -14,7 +14,7 @@ import (
 
 func pluginCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "plugin", Short: "Manage signed ChatGPT MCP plugins", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	cmd.AddCommand(pluginSearchCommand(), pluginInfoCommand(), pluginListCommand(), pluginInstallCommand(), pluginUninstallCommand(), pluginToggleCommand(true), pluginToggleCommand(false), pluginUpdateCommand(), pluginRollbackCommand(), pluginOutdatedCommand(), pluginVerifyCommand(), pluginRegistryCommand())
+	cmd.AddCommand(pluginSearchCommand(), pluginInfoCommand(), pluginListCommand(), pluginInstallCommand(), pluginUninstallCommand(), pluginToggleCommand(true), pluginToggleCommand(false), pluginUpdateCommand(), pluginRollbackCommand(), pluginPruneCommand(), pluginOutdatedCommand(), pluginVerifyCommand(), pluginRegistryCommand())
 	return cmd
 }
 
@@ -246,6 +246,53 @@ func pluginRollbackCommand() *cobra.Command {
 		commandLogger(cmd).Success("PLUGIN", "plugin rolled back", "id", id, "version", result.Plugin.Manifest.Version)
 		return nil
 	}}
+}
+
+func pluginPruneCommand() *cobra.Command {
+	var retain int
+	var pruneCache bool
+	cmd := &cobra.Command{Use: "prune [plugin]", Short: "Prune old plugin versions and optional cache", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		manager, _, err := newPluginManager()
+		if err != nil {
+			return err
+		}
+		span := tracepkg.Start(cmd.Context(), "PLUGIN", "plugin.prune", "Pruning plugin versions and cache", tracepkg.Int("retain_inactive", retain), tracepkg.Bool("cache", pruneCache))
+		removedCount := 0
+		if len(args) == 1 {
+			id, err := simplePluginID(args[0])
+			if err != nil {
+				span.Fail(err)
+				return err
+			}
+			removed, err := manager.PruneVersions(id, retain)
+			if err != nil {
+				span.Fail(err)
+				return err
+			}
+			removedCount = len(removed)
+		} else {
+			removed, err := manager.PruneAllVersions(retain)
+			if err != nil {
+				span.Fail(err)
+				return err
+			}
+			for _, versions := range removed {
+				removedCount += len(versions)
+			}
+		}
+		if pruneCache {
+			if err := manager.PruneCache(); err != nil {
+				span.Fail(err)
+				return err
+			}
+		}
+		span.End(tracepkg.Int("removed_versions", removedCount))
+		commandLogger(cmd).Success("PLUGIN", "plugin state pruned", "removed_versions", removedCount, "cache", pruneCache)
+		return nil
+	}}
+	cmd.Flags().IntVar(&retain, "retain", pluginpkg.DefaultRollbackRetention, "inactive versions to retain per active plugin")
+	cmd.Flags().BoolVar(&pruneCache, "cache", false, "remove plugin registry/download cache and stale extraction directories")
+	return cmd
 }
 
 func pluginOutdatedCommand() *cobra.Command {

@@ -377,6 +377,80 @@ func (manager Manager) PruneVersions(id PluginID, retainInactive int) ([]Version
 	return removed, nil
 }
 
+func (manager Manager) PruneAllVersions(retainInactive int) (map[PluginID][]Version, error) {
+	if manager.Store == nil {
+		return nil, errors.New("plugin store is unavailable")
+	}
+	if retainInactive < 0 {
+		return nil, errors.New("rollback retention cannot be negative")
+	}
+	lock, err := LoadLock(manager.Store.layout.LockPath())
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(manager.Store.layout.PluginsPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return map[PluginID][]Version{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	removed := map[PluginID][]Version{}
+	for _, entry := range entries {
+		if !entry.IsDir() || !validCanonicalName(entry.Name()) {
+			continue
+		}
+		id := PluginID(entry.Name())
+		if _, active := lock.Plugins[id]; active {
+			versions, err := manager.PruneVersions(id, retainInactive)
+			if err != nil {
+				return removed, err
+			}
+			if len(versions) > 0 {
+				removed[id] = versions
+			}
+			continue
+		}
+		versions, err := manager.Store.InstalledVersions(id)
+		if err != nil {
+			return removed, err
+		}
+		for _, version := range versions {
+			if err := manager.Store.RemoveVersion(id, version); err != nil {
+				return removed, err
+			}
+			removed[id] = append(removed[id], version)
+		}
+		_ = os.Remove(filepath.Join(manager.Store.layout.PluginsPath(), string(id)))
+	}
+	return removed, nil
+}
+
+func (manager Manager) PruneCache() error {
+	if manager.Store == nil {
+		return errors.New("plugin store is unavailable")
+	}
+	if err := os.RemoveAll(filepath.Join(manager.Store.layout.CacheRoot, "plugins")); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(manager.Store.layout.CacheRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".plugin-extract-") {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(manager.Store.layout.CacheRoot, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (manager Manager) Rollback(ctx context.Context, id PluginID, target Version) (result InstallResult, err error) {
 	span := tracepkg.Start(ctx, "PLUGIN", "plugin.rollback", "Rolling back plugin", tracepkg.String("plugin_id", string(id)), tracepkg.String("target_version", string(target)))
 	defer func() { span.Finish(err, tracepkg.String("version", string(result.Plugin.Manifest.Version))) }()

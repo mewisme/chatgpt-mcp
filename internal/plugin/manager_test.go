@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -187,6 +188,75 @@ func TestManagerPruneVersionsNeverRemovesActiveVersion(t *testing.T) {
 	}
 	if _, err := store.Installed("bash", "1.0.0"); err != nil {
 		t.Fatalf("active version removed: %v", err)
+	}
+}
+
+func TestManagerPruneAllVersionsRemovesOrphansAndRetainsActiveRollback(t *testing.T) {
+	store := testStore(t)
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	for _, version := range []string{"1.0.0", "1.1.0", "2.0.0"} {
+		if _, err := store.Install(testManifest("bash", version, "shell/bash"), testPayload(t, "bash")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Activate("bash", "2.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"1.0.0", "1.1.0"} {
+		if _, err := store.Install(testManifest("orphan", version, "formatter/orphan"), testPayload(t, "orphan")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := (&Manager{Store: store}).PruneAllVersions(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := removed["bash"]; len(got) != 1 || got[0] != "1.0.0" {
+		t.Fatalf("active plugin removed versions = %#v", got)
+	}
+	if got := removed["orphan"]; len(got) != 2 {
+		t.Fatalf("orphan removed versions = %#v", got)
+	}
+	versions, err := store.InstalledVersions("bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 || versions[0] != "1.1.0" || versions[1] != "2.0.0" {
+		t.Fatalf("retained versions = %#v", versions)
+	}
+	versions, err = store.InstalledVersions("orphan")
+	if err != nil || len(versions) != 0 {
+		t.Fatalf("orphan versions = %#v err=%v", versions, err)
+	}
+}
+
+func TestManagerPruneCacheRemovesOnlyPluginCache(t *testing.T) {
+	store := testStore(t)
+	pluginCache := filepath.Join(store.layout.CacheRoot, "plugins", "downloads")
+	staleExtract := filepath.Join(store.layout.CacheRoot, ".plugin-extract-stale")
+	unrelated := filepath.Join(store.layout.CacheRoot, "keep.txt")
+	for _, path := range []string{pluginCache, staleExtract} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(pluginCache, "artifact.tar.gz"), []byte("cache"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unrelated, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Manager{Store: store}).PruneCache(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(store.layout.CacheRoot, "plugins")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("plugin cache still exists: %v", err)
+	}
+	if _, err := os.Stat(staleExtract); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale extraction cache still exists: %v", err)
+	}
+	if data, err := os.ReadFile(unrelated); err != nil || string(data) != "keep" {
+		t.Fatalf("unrelated cache changed: %q err=%v", data, err)
 	}
 }
 

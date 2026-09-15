@@ -27,6 +27,7 @@ var publicCapabilityExemptions = map[string]string{
 	"plugin disable":         "plugin TUI capability mapping lands with plugin manager UI in phase 8",
 	"plugin update":          "plugin TUI capability mapping lands with plugin manager UI in phase 8",
 	"plugin rollback":        "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin prune":           "plugin lifecycle maintenance is a local operator action",
 	"plugin outdated":        "plugin TUI capability mapping lands with plugin manager UI in phase 8",
 	"plugin verify":          "plugin TUI capability mapping lands with plugin manager UI in phase 8",
 	"plugin registry":        "plugin TUI capability mapping lands with plugin manager UI in phase 8",

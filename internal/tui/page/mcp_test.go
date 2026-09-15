@@ -753,6 +753,33 @@ func TestMCPCreateJSONMultipleStaysAuthoritativeAndCreatesAtomically(t *testing.
 	}
 }
 
+func TestMCPCreateJSONCtrlJLegacyFallbackSubmits(t *testing.T) {
+	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(mcpServerEditorModeMsg{Mode: mcpServerEditorJSON})
+	page = updated.(*MCPPage)
+	draft := `{"mcpServers":{"local":{"command":"node"}}}`
+	page.jsonEditor.SetValue(draft)
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
+	page = updated.(*MCPPage)
+	if cmd == nil {
+		t.Fatal("legacy Ctrl+J representation did not trigger JSON create")
+	}
+	saved, ok := cmd().(component.TextAreaSavedMsg)
+	if !ok || saved.Value != draft {
+		t.Fatalf("legacy Ctrl+J message=%#v", saved)
+	}
+	updated, cmd = page.Update(saved)
+	page = updated.(*MCPPage)
+	server, exists := manager.Get("local")
+	if cmd == nil || !exists || server.Command != "node" || page.Dirty() {
+		t.Fatalf("legacy Ctrl+J create cmd=%v exists=%t server=%#v dirty=%t", cmd != nil, exists, server, page.Dirty())
+	}
+}
+
 func TestMCPCreateJSONInvalidAndExistingBatchKeepExactDraft(t *testing.T) {
 	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
 	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)

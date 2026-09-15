@@ -82,15 +82,13 @@ func (editor Editor) Update(message tea.Msg) (Editor, tea.Cmd) {
 		if msg.String() == "shift+tab" && form.OnFirstField() && editor.active > 0 {
 			return editor.switchSectionValidated(editor.active-1, true)
 		}
-		switch msg.String() {
-		case "ctrl+enter":
-			if !form.FocusedMultiline() {
-				break
-			}
+		if isCtrlEnter(msg) && form.FocusedMultiline() {
 			if editor.submitting {
 				return editor, nil
 			}
 			return editor, func() tea.Msg { return EditorSubmitMsg{} }
+		}
+		switch msg.String() {
 		case "esc":
 			if editor.submitting {
 				return editor, nil
@@ -118,6 +116,15 @@ func (editor Editor) Update(message tea.Msg) (Editor, tea.Cmd) {
 	editor.sections[editor.active].Form = updated
 	editor.syncHelp()
 	return editor, cmd
+}
+
+func isCtrlEnter(msg tea.KeyPressMsg) bool {
+	switch msg.Keystroke() {
+	case "ctrl+enter", "ctrl+j":
+		return true
+	default:
+		return false
+	}
 }
 
 func (editor *Editor) Resize(width, height int) {

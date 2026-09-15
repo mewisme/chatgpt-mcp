@@ -108,7 +108,7 @@ jobs:
           generated_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           jq --arg generated_at "$generated_at" '.generated_at = $generated_at' dist/plugins/index.json > dist/plugins/index.tmp
           mv dist/plugins/index.tmp dist/plugins/index.json
-          go run ./scripts/validate-plugin-registry.go dist/plugins/index.json dist/plugins/publishers.json
+          go run ./scripts/validate-plugin-registry.go dist/plugins/index.json dist/plugins/publishers.json dist/plugins
 
       - name: Ensure fixed marketplace release
         env:

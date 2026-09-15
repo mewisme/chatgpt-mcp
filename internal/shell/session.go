@@ -15,6 +15,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	statepkg "go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -55,6 +56,7 @@ type Manager struct {
 	root       string
 	executions *ExecutionHub
 	providers  *ProviderResolver
+	wrappers   *pluginpkg.CommandWrapperPipeline
 	mu         sync.Mutex
 	sessions   map[string]*session
 	timeout    time.Duration
@@ -89,7 +91,7 @@ func NewManagerWithProviderResolver(workspaces *workspace.Manager, root string, 
 	if providers == nil {
 		providers = DefaultProviderResolver()
 	}
-	return &Manager{workspaces: workspaces, root: root, executions: executions, providers: providers, sessions: map[string]*session{}, timeout: defaultCommandTimeout}
+	return &Manager{workspaces: workspaces, root: root, executions: executions, providers: providers, wrappers: pluginpkg.NewCommandWrapperPipeline(providers.PluginStore()), sessions: map[string]*session{}, timeout: defaultCommandTimeout}
 }
 
 func (m *Manager) Executions() *ExecutionHub {
@@ -111,6 +113,12 @@ func (m *Manager) Provider() (Provider, error) {
 		return Provider{}, errors.New("shell provider resolver is unavailable")
 	}
 	return m.providers.Resolve()
+}
+
+func (m *Manager) SetCommandWrapperPipeline(pipeline *pluginpkg.CommandWrapperPipeline) {
+	if m != nil {
+		m.wrappers = pipeline
+	}
 }
 
 func (m *Manager) Status(workspaceID string) (Status, error) {
@@ -187,12 +195,17 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 	if strings.TrimSpace(effective) == "" {
 		effective = "pwd"
 	}
-	if err := m.workspaces.ValidateShellCommandContext(ctx, workspaceID, cwd, effective); err != nil {
+	requestedEffective := effective
+	plan, err := m.prepareCommand(ctx, "run_command", requestedEffective)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	if err := m.workspaces.ValidateShellCommandContext(ctx, workspaceID, cwd, plan.Security); err != nil {
 		return ExecResult{}, err
 	}
 	current.state.CWD = cwd
 	current.state.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	current.state.RecentCommands = append(current.state.RecentCommands, effective)
+	current.state.RecentCommands = append(current.state.RecentCommands, requestedEffective)
 	if len(current.state.RecentCommands) > maxHistory {
 		current.state.RecentCommands = append([]string(nil), current.state.RecentCommands[len(current.state.RecentCommands)-maxHistory:]...)
 	}
@@ -207,11 +220,13 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 		return ExecResult{}, err
 	}
 	run := m.executions.Begin(ExecutionInput{
-		WorkspaceID: workspaceID, Tool: "run_command", Command: effective, RequestedCommand: command, EffectiveCommand: effective, SecurityCommand: effective, CWD: cwd, Shell: provider.Language, ShellProvider: provider.Label(), ShellProviderVersion: string(provider.Version), Source: source,
+		WorkspaceID: workspaceID, Tool: "run_command", Command: plan.Effective, RequestedCommand: command, EffectiveCommand: plan.Effective, SecurityCommand: plan.Security,
+		WrapperCapability: plan.WrapperCapability, WrapperProvider: plan.WrapperProvider, WrapperVersion: plan.WrapperVersion,
+		CWD: cwd, Shell: provider.Language, ShellProvider: provider.Label(), ShellProviderVersion: string(provider.Version), Source: source,
 		CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID,
 		ParentExecutionID: metadata.ParentExecutionID, Origin: metadata.Origin, HookDepth: metadata.HookDepth,
 	})
-	result, err := runOnce(ctx, effective, cwd, m.timeout, run, m.workspaces.ShellPath(), provider)
+	result, err := runOnce(ctx, plan.Effective, cwd, m.timeout, run, mergeExecutablePath(plan.WrapperPath, provider.Path, m.workspaces.ShellPath()), provider)
 	if saveErr := m.save(current.state); saveErr != nil && err == nil {
 		return ExecResult{}, saveErr
 	}
@@ -219,34 +234,43 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 }
 
 func (m *Manager) ValidateBackgroundCommand(ctx context.Context, workspaceID, command string) (string, error) {
+	cwd, _, err := m.prepareBackgroundCommand(ctx, workspaceID, command)
+	return cwd, err
+}
+
+func (m *Manager) prepareBackgroundCommand(ctx context.Context, workspaceID, command string) (string, commandPlan, error) {
 	item, err := m.workspaces.Get(workspaceID)
 	if err != nil {
-		return "", err
+		return "", commandPlan{}, err
 	}
 	workspaceID = item.ID
 	current, err := m.session(workspaceID, item.Path)
 	if err != nil {
-		return "", err
+		return "", commandPlan{}, err
 	}
 	current.mu.Lock()
 	defer current.mu.Unlock()
 
 	cwd, err := m.resolveDirectory(workspaceID, item.Path, current.state.CWD)
 	if err != nil {
-		return "", err
+		return "", commandPlan{}, err
 	}
 	current.state.CWD = cwd
-	if err := m.workspaces.ValidateShellCommandContext(ctx, workspaceID, cwd, command); err != nil {
-		return "", err
-	}
 	effectiveCWD, effective, err := m.applyCWDDirectives(workspaceID, cwd, command)
 	if err != nil {
-		return "", err
+		return "", commandPlan{}, err
 	}
 	if strings.TrimSpace(effective) != strings.TrimSpace(command) || filepath.Clean(effectiveCWD) != filepath.Clean(cwd) {
-		return "", errors.New("background process command must not contain cwd-changing directives; change the shell cwd first")
+		return "", commandPlan{}, errors.New("background process command must not contain cwd-changing directives; change the shell cwd first")
 	}
-	return cwd, nil
+	plan, err := m.prepareCommand(ctx, "start_process", effective)
+	if err != nil {
+		return "", commandPlan{}, err
+	}
+	if err := m.workspaces.ValidateShellCommandContext(ctx, workspaceID, cwd, plan.Security); err != nil {
+		return "", commandPlan{}, err
+	}
+	return cwd, plan, nil
 }
 
 func (m *Manager) session(workspaceID, workspaceRoot string) (*session, error) {
@@ -377,7 +401,7 @@ func runOnce(ctx context.Context, command, cwd string, timeout time.Duration, ex
 		return ExecResult{}, err
 	}
 	cmd.Dir = cwd
-	cmd.Env = shellEnvironment(ctx, mergeExecutablePath(provider.Path, shellPath), provider.Executable)
+	cmd.Env = shellEnvironment(ctx, shellPath, provider.Executable)
 	configureCommandLifecycle(cmd)
 	stdout, stderr := &logBuffer{}, &logBuffer{}
 	cmd.Stdout = io.MultiWriter(stdout, execution.Writer("stdout"))

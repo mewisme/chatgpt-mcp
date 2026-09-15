@@ -64,7 +64,7 @@ func newApprovalShellRuntime(t *testing.T) (*Runtime, string) {
 	registry := NewRegistry()
 	shell := shellruntime.NewManager(manager, filepath.Join(t.TempDir(), "shell-state"))
 	processes := shellruntime.NewProcessManager(manager, shell)
-	runtime := &Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints")), SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID)}
+	runtime := &Runtime{Registry: registry, Workspaces: manager, Checkpoints: checkpoint.NewStore(filepath.Join(t.TempDir(), "checkpoints")), SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Shell: shell, Processes: processes}
 	RegisterShellTools(registry, manager, shell, processes)
 	RegisterApprovalTools(registry, runtime)
 	return runtime, item.ID

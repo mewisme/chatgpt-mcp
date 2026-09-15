@@ -117,6 +117,18 @@ func pluginCoreCompatible(store *Store, manifest Manifest) (bool, error) {
 	return manifest.CompatibleWithCore(coreVersion)
 }
 
+func (resolver *Resolver) Capabilities(prefix string) []Capability {
+	prefix = strings.TrimSpace(prefix)
+	capabilities := make([]Capability, 0, len(resolver.providers))
+	for capability := range resolver.providers {
+		if prefix == "" || strings.HasPrefix(string(capability), prefix) {
+			capabilities = append(capabilities, capability)
+		}
+	}
+	sort.Slice(capabilities, func(i, j int) bool { return capabilities[i] < capabilities[j] })
+	return capabilities
+}
+
 func (resolver *Resolver) Providers(capability Capability) []CapabilityProvider {
 	providers := resolver.providers[capability]
 	return cloneCapabilityProviders(providers)

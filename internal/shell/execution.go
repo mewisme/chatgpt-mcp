@@ -41,6 +41,9 @@ type ExecutionInfo struct {
 	RequestedCommand     string `json:"requested_command,omitempty"`
 	EffectiveCommand     string `json:"effective_command,omitempty"`
 	SecurityCommand      string `json:"security_command,omitempty"`
+	WrapperCapability    string `json:"wrapper_capability,omitempty"`
+	WrapperProvider      string `json:"wrapper_provider,omitempty"`
+	WrapperVersion       string `json:"wrapper_version,omitempty"`
 	CWD                  string `json:"cwd"`
 	Shell                string `json:"shell,omitempty"`
 	ShellProvider        string `json:"shell_provider,omitempty"`
@@ -122,6 +125,9 @@ type ExecutionInput struct {
 	RequestedCommand     string
 	EffectiveCommand     string
 	SecurityCommand      string
+	WrapperCapability    string
+	WrapperProvider      string
+	WrapperVersion       string
 	CWD                  string
 	Shell                string
 	ShellProvider        string
@@ -237,6 +243,7 @@ func (h *ExecutionHub) Begin(input ExecutionInput) *ExecutionRun {
 	record := &executionRecord{info: ExecutionInfo{
 		ID: id, ParentExecutionID: strings.TrimSpace(input.ParentExecutionID), Origin: strings.TrimSpace(input.Origin), HookDepth: input.HookDepth,
 		WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, RequestedCommand: input.RequestedCommand, EffectiveCommand: input.EffectiveCommand, SecurityCommand: input.SecurityCommand,
+		WrapperCapability: strings.TrimSpace(input.WrapperCapability), WrapperProvider: strings.TrimSpace(input.WrapperProvider), WrapperVersion: strings.TrimSpace(input.WrapperVersion),
 		CWD: input.CWD, Shell: strings.TrimSpace(input.Shell), ShellProvider: strings.TrimSpace(input.ShellProvider), ShellProviderVersion: strings.TrimSpace(input.ShellProviderVersion),
 		Source: strings.TrimSpace(input.Source), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),
 		ReceivedByInstanceID: strings.TrimSpace(input.ReceivedByInstanceID), ExecutedByInstanceID: strings.TrimSpace(input.ExecutedByInstanceID),

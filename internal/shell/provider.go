@@ -83,6 +83,15 @@ func (resolver *ProviderResolver) ConfiguredExecutable() string {
 	return resolver.configured
 }
 
+func (resolver *ProviderResolver) PluginStore() *pluginpkg.Store {
+	if resolver == nil {
+		return nil
+	}
+	resolver.mu.RLock()
+	defer resolver.mu.RUnlock()
+	return resolver.store
+}
+
 func (resolver *ProviderResolver) Resolve() (Provider, error) {
 	if resolver == nil {
 		return Provider{}, missingBashError(runtime.GOOS)

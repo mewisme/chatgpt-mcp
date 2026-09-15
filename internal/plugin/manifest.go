@@ -147,6 +147,9 @@ func (manifest Manifest) Validate() error {
 	if err := validateHookPermissions(manifest.Provides, seenPermissions); err != nil {
 		return err
 	}
+	if err := validateWrapperPermissions(manifest.Provides, seenPermissions); err != nil {
+		return err
+	}
 	if len(manifest.Platforms) == 0 {
 		return errors.New("plugin must declare at least one platform artifact")
 	}
@@ -182,6 +185,18 @@ func validateHookPermissions(capabilities []Capability, permissions map[Permissi
 		}
 		if _, ok := permissions[required]; !ok {
 			return fmt.Errorf("hook capability %s requires permission %s", capability, required)
+		}
+	}
+	return nil
+}
+
+func validateWrapperPermissions(capabilities []Capability, permissions map[Permission]struct{}) error {
+	for _, capability := range capabilities {
+		if !strings.HasPrefix(string(capability), commandWrapperPrefix) {
+			continue
+		}
+		if _, ok := permissions[PermissionProcessExecute]; !ok {
+			return fmt.Errorf("command wrapper capability %s requires permission %s", capability, PermissionProcessExecute)
 		}
 	}
 	return nil

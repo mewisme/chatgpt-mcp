@@ -17,7 +17,7 @@ New-Item -ItemType Directory -Force -Path $root | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'PortableGit extraction failed' }
 Push-Location $root
 try {
-    & cmd.exe /d /c post-install.bat
+    & .\git-bash.exe --no-needs-console --hide --no-cd --command=post-install.bat
     if ($LASTEXITCODE -ne 0) { throw 'PortableGit post-install preparation failed' }
 } finally {
     Pop-Location

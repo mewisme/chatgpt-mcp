@@ -14,6 +14,7 @@ type CapabilityProvider struct {
 	Version     Version
 	Name        string
 	Path        string
+	Host        *HostExecutableSpec
 	Permissions []Permission
 }
 
@@ -66,7 +67,7 @@ func NewResolver(store *Store) (*Resolver, error) {
 		if err != nil {
 			return nil, err
 		}
-		if entry.ArtifactDigest != "sha256:"+artifact.SHA256 {
+		if entry.ArtifactDigest != platformLockDigest(artifact) {
 			return nil, fmt.Errorf("active plugin %s@%s artifact digest does not match lock metadata", id, entry.Version)
 		}
 		compatible, err := pluginCoreCompatible(store, installed.Manifest)
@@ -76,7 +77,7 @@ func NewResolver(store *Store) (*Resolver, error) {
 		if !compatible {
 			continue
 		}
-		provider := CapabilityProvider{PluginID: id, Version: entry.Version, Name: installed.Manifest.Name, Path: installed.Entrypoint, Permissions: append([]Permission(nil), installed.Manifest.Permissions...)}
+		provider := CapabilityProvider{PluginID: id, Version: entry.Version, Name: installed.Manifest.Name, Path: installed.Entrypoint, Host: installed.Host, Permissions: append([]Permission(nil), installed.Manifest.Permissions...)}
 		for _, capability := range installed.Manifest.Provides {
 			providers[capability] = append(providers[capability], provider)
 		}

@@ -159,3 +159,51 @@ func transparentWrapperRunner(name string) CommandWrapperRunner {
 		}
 	}
 }
+
+func TestHostBackedWrapperUsesDeclarativeRewriteAndPreservesSecurityCommand(t *testing.T) {
+	fake := writeFakeHostWrapper(t)
+	t.Setenv("PATH", filepath.Dir(fake))
+	store := testStore(t)
+	manifest := testHostWrapperManifest()
+	if _, err := store.Install(manifest, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Activate("wrap", "1.0.0", ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}); err != nil {
+		t.Fatal(err)
+	}
+	pipeline := NewCommandWrapperPipeline(store)
+	plan, err := pipeline.Apply(context.Background(), "run_command", "cat file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Effective != "wrap read file.txt" || plan.Security != "cat file.txt" || plan.Wrapper == nil || plan.Wrapper.PluginID != "wrap" {
+		t.Fatalf("host wrapper plan = %#v", plan)
+	}
+	plan, err = pipeline.Apply(context.Background(), "run_command", "echo untouched")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Effective != "echo untouched" || plan.Wrapper != nil {
+		t.Fatalf("unsupported command was wrapped: %#v", plan)
+	}
+}
+
+func TestHostBackedWrapperKeepsDangerousSecurityProjection(t *testing.T) {
+	fake := writeFakeHostWrapper(t)
+	t.Setenv("PATH", filepath.Dir(fake))
+	store := testStore(t)
+	manifest := testHostWrapperManifest()
+	if _, err := store.Install(manifest, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Activate("wrap", "1.0.0", ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NewCommandWrapperPipeline(store).Apply(context.Background(), "run_command", "git push --force")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Effective != "wrap git push --force" || plan.Security != "git push --force" {
+		t.Fatalf("dangerous host wrapper plan = %#v", plan)
+	}
+}

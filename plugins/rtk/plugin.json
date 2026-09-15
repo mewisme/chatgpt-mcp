@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "id": "rtk",
+  "name": "RTK Command Wrapper",
+  "publisher": "mewisme",
+  "version": "1.0.0",
+  "type": "command-wrapper",
+  "requires": {
+    "chatgpt-mcp": ">=0.2.24"
+  },
+  "provides": [
+    "command-wrapper/rtk"
+  ],
+  "permissions": [
+    "process/execute"
+  ],
+  "platforms": {
+    "linux/amd64": {
+      "host": {
+        "executable": "rtk",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk" },
+          { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        }
+      }
+    },
+    "linux/arm64": {
+      "host": {
+        "executable": "rtk",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk" },
+          { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        }
+      }
+    },
+    "darwin/amd64": {
+      "host": {
+        "executable": "rtk",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk" },
+          { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        }
+      }
+    },
+    "darwin/arm64": {
+      "host": {
+        "executable": "rtk",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk" },
+          { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        }
+      }
+    },
+    "windows/amd64": {
+      "host": {
+        "executable": "rtk.exe",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "winget", "command": "winget install rtk-ai.rtk" },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk" }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        }
+      }
+    }
+  }
+}

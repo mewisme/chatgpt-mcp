@@ -96,6 +96,9 @@ func validateRegistryAssets(index plugin.RegistryIndex, assetsRoot string) error
 			sort.Strings(platforms)
 			for _, platform := range platforms {
 				artifact := manifest.Platforms[platform]
+				if artifact.HostBacked() {
+					continue
+				}
 				artifactPath := filepath.Join(assetsRoot, artifact.Artifact)
 				digest, err := fileSHA256(artifactPath)
 				if err != nil {

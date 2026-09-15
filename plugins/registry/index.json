@@ -11,6 +11,16 @@
       "versions": {
         "1.0.0": "bash-1.0.0.json"
       }
+    },
+    "rtk": {
+      "publisher": "mewisme",
+      "name": "RTK Command Wrapper",
+      "description": "Host-backed RTK Token Killer command wrapper; requires RTK already installed on PATH",
+      "type": "command-wrapper",
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "rtk-1.0.0.json"
+      }
     }
   }
 }

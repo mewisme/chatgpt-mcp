@@ -57,10 +57,37 @@ type Dependencies struct {
 }
 
 type PlatformArtifact struct {
-	Artifact   string `json:"artifact"`
-	SHA256     string `json:"sha256"`
-	Archive    string `json:"archive"`
-	Entrypoint string `json:"entrypoint"`
+	Artifact   string              `json:"artifact,omitempty"`
+	SHA256     string              `json:"sha256,omitempty"`
+	Archive    string              `json:"archive,omitempty"`
+	Entrypoint string              `json:"entrypoint,omitempty"`
+	Host       *HostExecutableSpec `json:"host,omitempty"`
+}
+
+type HostExecutableSpec struct {
+	Executable     string                `json:"executable"`
+	Checks         []HostExecutableCheck `json:"checks,omitempty"`
+	Install        []HostInstallHint     `json:"install,omitempty"`
+	CommandWrapper *HostCommandWrapper   `json:"command_wrapper,omitempty"`
+}
+
+type HostExecutableCheck struct {
+	Name             string   `json:"name,omitempty"`
+	Args             []string `json:"args,omitempty"`
+	SuccessExitCodes []int    `json:"success_exit_codes,omitempty"`
+	StdoutPrefix     string   `json:"stdout_prefix,omitempty"`
+	StdoutContains   string   `json:"stdout_contains,omitempty"`
+}
+
+type HostInstallHint struct {
+	Label   string `json:"label,omitempty"`
+	Command string `json:"command"`
+}
+
+type HostCommandWrapper struct {
+	Args                 []string `json:"args"`
+	RewriteExitCodes     []int    `json:"rewrite_exit_codes"`
+	PassthroughExitCodes []int    `json:"passthrough_exit_codes,omitempty"`
 }
 
 type Publisher struct {
@@ -162,8 +189,25 @@ func (manifest Manifest) Validate() error {
 		if !validPlatform(platform) {
 			return fmt.Errorf("invalid plugin platform: %q", platform)
 		}
-		if err := manifest.Platforms[platform].validate(platform); err != nil {
+		artifact := manifest.Platforms[platform]
+		if err := artifact.validate(platform); err != nil {
 			return err
+		}
+		if artifact.HostBacked() {
+			if manifest.Type != "command-wrapper" {
+				return fmt.Errorf("platform %s host executable is only supported for command-wrapper plugins", platform)
+			}
+			if len(manifest.Provides) != 1 || !strings.HasPrefix(string(manifest.Provides[0]), commandWrapperPrefix) {
+				return fmt.Errorf("platform %s host executable requires exactly one command-wrapper capability", platform)
+			}
+			wrapper := strings.TrimPrefix(string(manifest.Provides[0]), commandWrapperPrefix)
+			executable := strings.TrimSuffix(strings.ToLower(artifact.Host.Executable), ".exe")
+			if executable != wrapper {
+				return fmt.Errorf("platform %s host executable %q does not match command-wrapper capability %q", platform, artifact.Host.Executable, manifest.Provides[0])
+			}
+			if artifact.Host.CommandWrapper == nil {
+				return fmt.Errorf("platform %s host command-wrapper configuration is required", platform)
+			}
 		}
 	}
 	return nil
@@ -256,6 +300,30 @@ func ManifestDigest(manifest Manifest) (string, error) {
 }
 
 func (artifact PlatformArtifact) validate(platform string) error {
+	if artifact.Host != nil {
+		if artifact.Artifact != "" || artifact.SHA256 != "" || artifact.Archive != "" || artifact.Entrypoint != "" {
+			return fmt.Errorf("platform %s cannot mix host executable and packaged artifact fields", platform)
+		}
+		if !safeHostExecutable(artifact.Host.Executable) {
+			return fmt.Errorf("platform %s has invalid host executable: %q", platform, artifact.Host.Executable)
+		}
+		for index, check := range artifact.Host.Checks {
+			if err := validateHostCheck(check); err != nil {
+				return fmt.Errorf("platform %s host check %d: %w", platform, index+1, err)
+			}
+		}
+		for index, hint := range artifact.Host.Install {
+			if strings.TrimSpace(hint.Command) == "" || strings.ContainsAny(hint.Command, "\r\n\x00") {
+				return fmt.Errorf("platform %s host install hint %d has invalid command", platform, index+1)
+			}
+		}
+		if artifact.Host.CommandWrapper != nil {
+			if err := validateHostCommandWrapper(*artifact.Host.CommandWrapper); err != nil {
+				return fmt.Errorf("platform %s host command wrapper: %w", platform, err)
+			}
+		}
+		return nil
+	}
 	if !safeAssetName(artifact.Artifact) {
 		return fmt.Errorf("platform %s has unsafe artifact filename: %q", platform, artifact.Artifact)
 	}
@@ -269,6 +337,86 @@ func (artifact PlatformArtifact) validate(platform string) error {
 		return fmt.Errorf("platform %s has unsafe entrypoint: %q", platform, artifact.Entrypoint)
 	}
 	return nil
+}
+
+func (artifact PlatformArtifact) HostBacked() bool {
+	return artifact.Host != nil
+}
+
+func validateHostCheck(check HostExecutableCheck) error {
+	if strings.TrimSpace(check.Name) == "" && len(check.Args) == 0 && strings.TrimSpace(check.StdoutPrefix) == "" && strings.TrimSpace(check.StdoutContains) == "" {
+		return errors.New("empty check")
+	}
+	for _, arg := range check.Args {
+		if strings.ContainsRune(arg, '\x00') {
+			return errors.New("check argument contains NUL")
+		}
+	}
+	return validateExitCodes(check.SuccessExitCodes, true)
+}
+
+func validateHostCommandWrapper(wrapper HostCommandWrapper) error {
+	if len(wrapper.Args) == 0 {
+		return errors.New("args are required")
+	}
+	commandArgs := 0
+	for _, arg := range wrapper.Args {
+		if strings.ContainsRune(arg, '\x00') {
+			return errors.New("argument contains NUL")
+		}
+		if arg == "{command}" {
+			commandArgs++
+		}
+	}
+	if commandArgs != 1 {
+		return errors.New("args must contain exactly one {command} placeholder")
+	}
+	if err := validateExitCodes(wrapper.RewriteExitCodes, false); err != nil {
+		return fmt.Errorf("rewrite exit codes: %w", err)
+	}
+	if err := validateExitCodes(wrapper.PassthroughExitCodes, true); err != nil {
+		return fmt.Errorf("passthrough exit codes: %w", err)
+	}
+	for _, code := range wrapper.RewriteExitCodes {
+		if containsExitCode(wrapper.PassthroughExitCodes, code) {
+			return fmt.Errorf("exit code %d cannot be both rewrite and passthrough", code)
+		}
+	}
+	return nil
+}
+
+func validateExitCodes(codes []int, allowEmpty bool) error {
+	if len(codes) == 0 {
+		if allowEmpty {
+			return nil
+		}
+		return errors.New("at least one exit code is required")
+	}
+	seen := map[int]struct{}{}
+	for _, code := range codes {
+		if code < 0 || code > 255 {
+			return fmt.Errorf("invalid exit code %d", code)
+		}
+		if _, ok := seen[code]; ok {
+			return fmt.Errorf("duplicate exit code %d", code)
+		}
+		seen[code] = struct{}{}
+	}
+	return nil
+}
+
+func containsExitCode(codes []int, target int) bool {
+	for _, code := range codes {
+		if code == target {
+			return true
+		}
+	}
+	return false
+}
+
+func safeHostExecutable(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && value == path.Base(value) && value != "." && value != ".." && !strings.ContainsAny(value, `/\:`)
 }
 
 func validateCapabilities(capabilities []Capability, kind string) error {

@@ -102,17 +102,24 @@ func (manager Manager) installResolved(ctx context.Context, resolved ResolvedPlu
 			return InstallResult{}, fmt.Errorf("plugin %s@%s is incompatible with chatgpt-mcp %s", manifest.ID, manifest.Version, manager.Store.runtime.CoreVersion)
 		}
 	}
-	archivePath, err := manager.downloadArtifact(ctx, resolved.Registry.URL, artifact)
-	if err != nil {
-		return InstallResult{}, err
-	}
-	extracted, err := os.MkdirTemp(manager.Store.layout.CacheRoot, ".plugin-extract-")
-	if err != nil {
-		return InstallResult{}, err
-	}
-	defer os.RemoveAll(extracted)
-	if err := ExtractArchive(archivePath, artifact.Archive, extracted); err != nil {
-		return InstallResult{}, err
+	extracted := ""
+	if artifact.HostBacked() {
+		if _, err := preflightHostExecutable(ctx, artifact); err != nil {
+			return InstallResult{}, fmt.Errorf("plugin %s pre-install check failed: %w", manifest.ID, err)
+		}
+	} else {
+		archivePath, err := manager.downloadArtifact(ctx, resolved.Registry.URL, artifact)
+		if err != nil {
+			return InstallResult{}, err
+		}
+		extracted, err = os.MkdirTemp(manager.Store.layout.CacheRoot, ".plugin-extract-")
+		if err != nil {
+			return InstallResult{}, err
+		}
+		defer os.RemoveAll(extracted)
+		if err := ExtractArchive(archivePath, artifact.Archive, extracted); err != nil {
+			return InstallResult{}, err
+		}
 	}
 	if replaceExisting {
 		if _, err := manager.Store.Installed(manifest.ID, manifest.Version); err == nil {
@@ -243,8 +250,13 @@ func (manager Manager) Verify(ctx context.Context, id PluginID) (err error) {
 	if err != nil {
 		return err
 	}
-	if entry.ArtifactDigest != "sha256:"+artifact.SHA256 {
+	if entry.ArtifactDigest != platformLockDigest(artifact) {
 		return errors.New("plugin artifact lock integrity verification failed")
+	}
+	if artifact.HostBacked() {
+		if _, err := preflightHostExecutable(ctx, artifact); err != nil {
+			return err
+		}
 	}
 	return nil
 }

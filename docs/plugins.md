@@ -1,6 +1,6 @@
 # Plugins
 
-`chatgpt-mcp` plugins extend runtime behavior through signed, versioned artifacts without giving plugins authority over the core workspace or control-plane policy.
+`chatgpt-mcp` plugins extend runtime behavior through signed, versioned plugin metadata and, where needed, packaged artifacts without giving plugins authority over the core workspace or control-plane policy.
 
 Plugins are local-user extensions, not a kernel sandbox. A native plugin process runs as the same operating-system user as `chatgpt-mcp`; use a VM/container, OS sandbox, or separate user identity when plugin code itself is not trusted.
 
@@ -29,7 +29,17 @@ cgm plugin prune --retain 1 --cache
 cgm plugin uninstall bash
 ```
 
-`cgm plugin rollback <plugin> [version]` rolls back to a retained version. With no version it selects the newest retained version older than the active version. Rollback does not trust the retained executable blindly: the exact version is resolved through the configured signed registry again, the manifest and artifact are verified again, and the freshly verified payload replaces the retained copy before activation.
+The official RTK wrapper is host-backed. Install RTK Token Killer on the machine first, ensure `rtk`/`rtk.exe` is on `PATH`, then install the signed plugin metadata:
+
+```bash
+rtk --version
+cgm plugin install rtk
+cgm plugin verify rtk
+```
+
+`cgm plugin install rtk` does not download RTK. It fails before writing plugin state if the host executable is missing or any manifest-declared prerequisite check fails, and prints the installation commands declared by the RTK plugin for the current platform.
+
+`cgm plugin rollback <plugin> [version]` rolls back to a retained version. With no version it selects the newest retained version older than the active version. Rollback does not trust retained activation state blindly: the exact version is resolved through the configured signed registry again. Packaged plugins re-verify and replace the payload; host-backed plugins re-verify the signed manifest and host prerequisite before activation.
 
 The default update retention policy keeps the active version plus the two newest inactive rollback versions. `cgm plugin prune [plugin] --retain N` applies the same retention rule manually; without a plugin it also removes orphaned inactive versions left by uninstalled plugins. Add `--cache` to remove registry/download cache and stale extraction directories without touching config, lock state, or the active payload.
 
@@ -49,8 +59,8 @@ A registry trust pin identifies the expected Sigstore OIDC issuer and signing re
 2. signed registry metadata is checked against the pinned Sigstore identity;
 3. the selected publisher must be trusted by that registry metadata;
 4. the exact plugin manifest signature is verified;
-5. the platform artifact SHA-256 must match the signed manifest;
-6. the extracted manifest, publisher, platform, core compatibility, and capability dependencies are validated before activation.
+5. packaged plugins require the platform artifact SHA-256 to match the signed manifest; host-backed plugins require the manifest-declared host prerequisite preflight to pass;
+6. the manifest, publisher, platform, core compatibility, and capability dependencies are validated before activation.
 
 A custom registry is never allowed to replace the built-in `official` registry. Unqualified plugin resolution is only used for registries explicitly configured to allow it.
 
@@ -59,8 +69,8 @@ A custom registry is never allowed to replace the built-in `official` registry. 
 Plugin state is deliberately split:
 
 - `plugins.json` contains portable **desired state**: registries and exact desired plugin versions plus enabled/disabled intent;
-- `plugins.lock.json` contains machine-local **verified activation state**: active version, publisher, manifest digest, artifact digest, and enabled state;
-- installed payloads live under the plugin data root;
+- `plugins.lock.json` contains machine-local **verified activation state**: active version, publisher, manifest digest, platform integrity digest, and enabled state;
+- packaged plugin payloads live under the plugin data root; host-backed plugins keep signed metadata there without copying the host executable;
 - downloaded registry/artifact cache lives under the plugin cache root.
 
 This split keeps backup/import portable without treating executable state from another machine as trusted.
@@ -97,7 +107,7 @@ Startup and `doctor` reconcile plugin activation state before capabilities are u
 
 - a structurally corrupt lock file is quarantined as `plugins.lock.json.corrupt-<timestamp>` and replaced with an empty lock;
 - desired state in `plugins.json` is preserved;
-- an enabled lock entry with a missing payload, manifest/publisher mismatch, artifact digest mismatch, unsupported platform, or core incompatibility is disabled in the lock;
+- an enabled lock entry with a missing packaged payload, unavailable/invalid host prerequisite, manifest/publisher mismatch, platform integrity mismatch, unsupported platform, or core incompatibility is disabled in the lock;
 - if a provider becomes unavailable, enabled dependents that require its capability are also disabled;
 - reconciliation never converts an untrusted payload into trusted activation state.
 
@@ -105,31 +115,56 @@ After recovery, explicitly repair/install the desired plugins and run `cgm plugi
 
 ## Manifest authoring
 
-A plugin artifact contains a strict `plugin.json` manifest. Unknown JSON fields are rejected. IDs, publishers, capability names, and platform names use canonical lowercase names; plugin versions are SemVer without a leading `v`.
+A plugin uses a strict `plugin.json` manifest. Unknown JSON fields are rejected. IDs, publishers, capability names, and platform names use canonical lowercase names; plugin versions are SemVer without a leading `v`. Most plugins ship a platform artifact, but a command-wrapper may instead declare a verified host executable and install only signed metadata.
 
-Example command-wrapper manifest:
+Example packaged command-wrapper manifest:
 
 ```json
 {
   "schema": 1,
-  "id": "rtk",
-  "name": "RTK command wrapper",
+  "id": "example-wrapper",
+  "name": "Example Wrapper",
   "publisher": "example",
   "version": "1.2.3",
   "type": "command-wrapper",
   "requires": { "chatgpt-mcp": ">=0.2.0" },
-  "provides": ["command-wrapper/rtk"],
+  "provides": ["command-wrapper/example-wrapper"],
   "permissions": ["process/execute"],
   "platforms": {
     "linux/amd64": {
-      "artifact": "rtk-1.2.3-linux-amd64.tar.gz",
+      "artifact": "example-wrapper-1.2.3-linux-amd64.tar.gz",
       "sha256": "<64 lowercase hex characters>",
       "archive": "tar.gz",
-      "entrypoint": "bin/rtk"
+      "entrypoint": "bin/example-wrapper"
     }
   }
 }
 ```
+
+A host-backed wrapper declares a generic host contract instead of an artifact. The plugin owns prerequisite checks, installation hints, and rewrite behavior; core only validates and executes the declared contract. For example:
+
+```json
+{
+  "linux/amd64": {
+    "host": {
+      "executable": "example-wrapper",
+      "checks": [
+        { "name": "identity", "args": ["check"], "stdout_contains": "ready" }
+      ],
+      "install": [
+        { "label": "Package manager", "command": "pkg install example-wrapper" }
+      ],
+      "command_wrapper": {
+        "args": ["rewrite", "{command}"],
+        "rewrite_exit_codes": [0],
+        "passthrough_exit_codes": [1]
+      }
+    }
+  }
+}
+```
+
+Host-backed entries cannot mix `host` with `artifact`, `sha256`, `archive`, or `entrypoint` fields. Checks and install commands are declarative metadata; the install commands are recommendations only and are never executed automatically by ChatGPT MCP.
 
 Recognized plugin types are `runtime`, `command-wrapper`, `hook`, `tool-provider`, `secret-provider`, and `formatter`. Recognized capability namespaces are `shell/*`, `command-wrapper/*`, `hook/*`, `tool-provider/*`, `secret-provider/*`, and `formatter/*`. A manifest must provide at least one capability.
 
@@ -137,7 +172,7 @@ Supported permissions are:
 
 | Permission | Meaning |
 | --- | --- |
-| `process/execute` | plugin entrypoint may be invoked as a subprocess |
+| `process/execute` | plugin entrypoint or declared host executable may be invoked as a subprocess |
 | `network/outbound` | declares outbound-network intent |
 | `filesystem/plugin-data` | declares access to plugin-owned data |
 | `filesystem/workspace-read` | declares workspace read intent |
@@ -174,9 +209,9 @@ Hooks can add policy, but they cannot remove core policy. Core workspace contain
 
 ## Command-wrapper capability
 
-A wrapper capability such as `command-wrapper/rtk` requires `process/execute`. The entrypoint basename must match the capability suffix (`rtk` or `rtk.exe`).
+A wrapper capability requires `process/execute`. Exactly one enabled wrapper may apply to a command; conflicting providers fail instead of being resolved by install order.
 
-The schema-1 subprocess protocol uses three operations:
+Packaged wrappers use the schema-1 subprocess protocol with three operations:
 
 ```text
 can_wrap
@@ -184,7 +219,7 @@ rewrite
 security_projection
 ```
 
-For each operation the core sends:
+For each operation the core sends a bounded JSON request such as:
 
 ```json
 {
@@ -195,18 +230,21 @@ For each operation the core sends:
 }
 ```
 
-`can_wrap` returns `{ "schema": 1, "can_wrap": true|false }`. `rewrite` and `security_projection` return `{ "schema": 1, "command": "..." }`.
+`can_wrap` returns `{ "schema": 1, "can_wrap": true|false }`. `rewrite` and `security_projection` return `{ "schema": 1, "command": "..." }`. Packaged wrapper entrypoint basenames must match the capability suffix, rewrites must be transparent `<wrapper> <requested command>` projections, and `security_projection` must return the exact original requested command.
 
-The current wrapper contract is intentionally strict. Exactly one wrapper may apply. A rewrite must be a transparent executable prefix (`rtk <requested command>`), and the security projection must equal the original requested command exactly. The core classifies the security projection after rewriting, so a wrapped operation such as:
+The official `rtk` plugin is host-backed instead. RTK-specific checks and behavior live entirely in `plugins/rtk/plugin.json`: the manifest checks `rtk --version`, `rtk gain`, and a rewrite probe, declares which rewrite/passthrough exit codes are valid, and provides platform-specific installation recommendations. Core has no RTK-specific protocol or version logic.
+
+At runtime the generic host-wrapper harness expands the manifest-declared `command_wrapper.args` and executes the declared host executable. For RTK that metadata maps the request through `rtk rewrite <requested command>`. Commands declared as passthrough remain unchanged; rewritten output must still execute through the declared wrapper executable. ChatGPT MCP always keeps the exact original request as the security projection:
 
 ```text
 git push --force origin main
 → rtk git push --force origin main
+security: git push --force origin main
 ```
 
-still requires the same destructive approval as the unwrapped command. A plugin cannot return a harmless projection to hide a dangerous operation.
+Core guard, containment, and approval policy therefore remain authoritative. RTK rewrite exit status does not grant or bypass an approval. If the host RTK executable later disappears or fails a manifest-declared prerequisite check, plugin reconciliation disables the RTK plugin.
 
-Wrapper subprocesses have bounded input/output, a timeout, an allowlisted environment, and no inherited approval capability.
+Both packaged and host-backed wrapper execution use bounded output, a timeout, and the reduced plugin environment. Wrapper subprocesses never inherit approval capability.
 
 ## Security invariants
 
@@ -216,8 +254,8 @@ Plugin capabilities are subordinate to core policy:
 - plugin rewrites cannot weaken command classification;
 - plugins cannot expand registered workspace roots by returning different paths;
 - plugin installation/trust configuration is a local operator action, not an Agent self-grant path;
-- signed metadata and SHA-256 verification happen before payload activation;
-- activation records bind registry, publisher, manifest digest, artifact digest, version, and enabled state;
+- signed metadata is verified before activation; packaged payloads are additionally SHA-256 verified before extraction;
+- activation records bind registry, publisher, manifest digest, platform integrity digest, version, and enabled state;
 - corrupt or unverifiable activation state is disabled instead of being guessed/reconstructed from executable files;
 - plugin subprocesses receive a reduced environment and do not inherit control-plane approval authority;
 - trace, logger, and persisted runtime-event paths apply shared secret redaction before diagnostic data is emitted or stored.

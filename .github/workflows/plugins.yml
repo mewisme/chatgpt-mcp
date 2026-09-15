@@ -105,6 +105,7 @@ jobs:
         run: |
           cp plugins/registry/index.json dist/plugins/index.json
           cp plugins/registry/publishers.json dist/plugins/publishers.json
+          cp plugins/rtk/plugin.json dist/plugins/rtk-1.0.0.json
           generated_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           jq --arg generated_at "$generated_at" '.generated_at = $generated_at' dist/plugins/index.json > dist/plugins/index.tmp
           mv dist/plugins/index.tmp dist/plugins/index.json
@@ -142,9 +143,9 @@ jobs:
             else
               printf '%s\n' "$asset" >> dist/plugins/upload-immutable.txt
             fi
-          done < <(find dist/plugins -maxdepth 1 -type f \( -name 'bash-*.json' -o -name 'bash-*.zip' \) ! -name '*.sigstore.json' | sort)
-          if [ ! -s dist/plugins/upload-immutable.txt ] && [ -z "$(find dist/plugins -maxdepth 1 -type f \( -name 'bash-*.json' -o -name 'bash-*.zip' \) ! -name '*.sigstore.json' -print -quit)" ]; then
-            echo "::error::No immutable Bash plugin assets were built."
+          done < <(find dist/plugins -maxdepth 1 -type f \( -name 'bash-*.json' -o -name 'bash-*.zip' -o -name 'rtk-*.json' \) ! -name '*.sigstore.json' | sort)
+          if [ ! -s dist/plugins/upload-immutable.txt ] && [ -z "$(find dist/plugins -maxdepth 1 -type f \( -name 'bash-*.json' -o -name 'bash-*.zip' -o -name 'rtk-*.json' \) ! -name '*.sigstore.json' -print -quit)" ]; then
+            echo "::error::No immutable plugin assets were prepared."
             exit 1
           fi
 
@@ -165,7 +166,7 @@ jobs:
             fi
             cosign sign-blob --yes --bundle "$signature" "$asset"
             printf '%s\n' "$signature" >> dist/plugins/upload-signatures.txt
-          done < <(find dist/plugins -maxdepth 1 -type f \( -name 'bash-*.json' -o -name 'bash-*.zip' \) ! -name '*.sigstore.json' | sort)
+          done < <(find dist/plugins -maxdepth 1 -type f \( -name 'bash-*.json' -o -name 'bash-*.zip' -o -name 'rtk-*.json' \) ! -name '*.sigstore.json' | sort)
 
       - name: Publish immutable versioned assets
         env:

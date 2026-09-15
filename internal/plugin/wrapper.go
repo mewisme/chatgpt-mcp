@@ -98,6 +98,7 @@ func (pipeline *CommandWrapperPipeline) Apply(ctx context.Context, tool, command
 	type applicableWrapper struct {
 		capability Capability
 		provider   CapabilityProvider
+		effective  string
 	}
 	applicable := make([]applicableWrapper, 0, len(capabilities))
 	for _, capability := range capabilities {
@@ -111,6 +112,16 @@ func (pipeline *CommandWrapperPipeline) Apply(ctx context.Context, tool, command
 		name := strings.TrimPrefix(string(capability), commandWrapperPrefix)
 		if executable := wrapperExecutableName(provider.Path); executable != name {
 			return CommandPlan{}, fmt.Errorf("command wrapper %s@%s entrypoint %q does not match capability %q", provider.PluginID, provider.Version, executable, name)
+		}
+		if provider.Host != nil && provider.Host.CommandWrapper != nil {
+			effective, applies, err := pipeline.runHostWrapper(ctx, provider, requested)
+			if err != nil {
+				return CommandPlan{}, fmt.Errorf("command wrapper %s@%s host rewrite failed: %w", provider.PluginID, provider.Version, err)
+			}
+			if applies {
+				applicable = append(applicable, applicableWrapper{capability: capability, provider: provider, effective: effective})
+			}
+			continue
 		}
 		response, err := pipeline.run(ctx, provider, CommandWrapperRequest{Schema: WrapperSchema, Operation: WrapperOperationCanWrap, Tool: strings.TrimSpace(tool), Command: requested})
 		if err != nil {
@@ -135,6 +146,12 @@ func (pipeline *CommandWrapperPipeline) Apply(ctx context.Context, tool, command
 	}
 	selected := applicable[0]
 	name := strings.TrimPrefix(string(selected.capability), commandWrapperPrefix)
+	if selected.provider.Host != nil && selected.provider.Host.CommandWrapper != nil {
+		plan.Effective = selected.effective
+		plan.Security = requested
+		plan.Wrapper = &CommandWrapperInfo{Capability: selected.capability, PluginID: selected.provider.PluginID, Version: selected.provider.Version, Path: selected.provider.Path}
+		return plan, nil
+	}
 	rewrite, err := pipeline.run(ctx, selected.provider, CommandWrapperRequest{Schema: WrapperSchema, Operation: WrapperOperationRewrite, Tool: strings.TrimSpace(tool), Command: requested})
 	if err != nil {
 		return CommandPlan{}, fmt.Errorf("command wrapper %s@%s rewrite failed: %w", selected.provider.PluginID, selected.provider.Version, err)
@@ -162,6 +179,60 @@ func (pipeline *CommandWrapperPipeline) Apply(ctx context.Context, tool, command
 	plan.Security = security
 	plan.Wrapper = &CommandWrapperInfo{Capability: selected.capability, PluginID: selected.provider.PluginID, Version: selected.provider.Version, Path: selected.provider.Path}
 	return plan, nil
+}
+
+func (pipeline *CommandWrapperPipeline) runHostWrapper(ctx context.Context, provider CapabilityProvider, requested string) (string, bool, error) {
+	if provider.Host == nil || provider.Host.CommandWrapper == nil {
+		return "", false, errors.New("host command-wrapper configuration is unavailable")
+	}
+	wrapper := provider.Host.CommandWrapper
+	args := make([]string, len(wrapper.Args))
+	for index, arg := range wrapper.Args {
+		if arg == "{command}" {
+			args[index] = requested
+		} else {
+			args[index] = arg
+		}
+	}
+	runCtx, cancel := context.WithTimeout(nonNilContext(ctx), pipelineTimeout(pipeline))
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, provider.Path, args...)
+	cmd.Env = safeHookEnvironment()
+	stdout, stderr := &boundedWrapperBuffer{}, &boundedWrapperBuffer{}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	exitCode, err := hostExitCode(cmd.Run())
+	if err != nil {
+		return "", false, err
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return "", false, fmt.Errorf("host wrapper output exceeds %d-byte limit", maxWrapperOutputBytes)
+	}
+	if containsExitCode(wrapper.PassthroughExitCodes, exitCode) {
+		return "", false, nil
+	}
+	if !containsExitCode(wrapper.RewriteExitCodes, exitCode) {
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			message = fmt.Sprintf("exit code %d", exitCode)
+		}
+		return "", false, errors.New(message)
+	}
+	effective := strings.TrimSpace(stdout.String())
+	if effective == requested {
+		return "", false, nil
+	}
+	name := wrapperExecutableName(provider.Path)
+	if effective == "" || !strings.HasPrefix(strings.ToLower(effective), strings.ToLower(name)+" ") {
+		return "", false, fmt.Errorf("host rewrite is not routed through %s: %q", name, effective)
+	}
+	return effective, true, nil
+}
+
+func pipelineTimeout(pipeline *CommandWrapperPipeline) time.Duration {
+	if pipeline != nil && pipeline.timeout > 0 {
+		return pipeline.timeout
+	}
+	return defaultWrapperTimeout
 }
 
 func wrapperExecutableName(path string) string {

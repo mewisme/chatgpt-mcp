@@ -26,6 +26,41 @@ func TestValidatePluginRegistryChecksManifestAndArtifactConsistency(t *testing.T
 	}
 }
 
+func TestValidatePluginRegistryAcceptsHostBackedPluginWithoutArtifact(t *testing.T) {
+	root, indexPath, publishersPath := registryValidationFixture(t)
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var index plugin.RegistryIndex
+	if err := json.Unmarshal(data, &index); err != nil {
+		t.Fatal(err)
+	}
+	index.Plugins["wrap"] = plugin.RegistryEntry{Publisher: "mewisme", Name: "Host Wrapper", Type: "command-wrapper", Stable: "1.0.0", Versions: map[plugin.Version]string{"1.0.0": "wrap-1.0.0.json"}}
+	data, err = json.Marshal(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(indexPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := plugin.Manifest{
+		Schema: plugin.ManifestSchema, ID: "wrap", Name: "Host Wrapper", Publisher: "mewisme", Version: "1.0.0", Type: "command-wrapper",
+		Provides: []plugin.Capability{"command-wrapper/wrap"}, Permissions: []plugin.Permission{plugin.PermissionProcessExecute},
+		Platforms: map[string]plugin.PlatformArtifact{"linux/amd64": {Host: &plugin.HostExecutableSpec{Executable: "wrap", CommandWrapper: &plugin.HostCommandWrapper{Args: []string{"rewrite", "{command}"}, RewriteExitCodes: []int{0}}}}},
+	}
+	data, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "wrap-1.0.0.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePluginRegistry(indexPath, publishersPath, root); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestValidatePluginRegistryRejectsMissingChannelManifestAndOrphanManifest(t *testing.T) {
 	root, indexPath, publishersPath := registryValidationFixture(t)
 	manifestPath := filepath.Join(root, "demo-1.0.0.json")

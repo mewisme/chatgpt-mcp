@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -106,8 +107,13 @@ func reconcileLockEntry(store *Store, id PluginID, entry LockPlugin) (Manifest, 
 	if err != nil {
 		return Manifest{}, err
 	}
-	if entry.ArtifactDigest != "sha256:"+artifact.SHA256 {
+	if entry.ArtifactDigest != platformLockDigest(artifact) {
 		return Manifest{}, errors.New("plugin artifact lock integrity verification failed")
+	}
+	if artifact.HostBacked() {
+		if _, err := preflightHostExecutable(context.Background(), artifact); err != nil {
+			return Manifest{}, err
+		}
 	}
 	compatible, err := pluginCoreCompatible(store, installed.Manifest)
 	if err != nil {

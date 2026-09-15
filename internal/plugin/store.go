@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +36,7 @@ type InstalledPlugin struct {
 	Root       string
 	Payload    string
 	Entrypoint string
+	Host       *HostExecutableSpec
 }
 
 type Store struct {
@@ -71,12 +73,20 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 	if err != nil {
 		return InstalledPlugin{}, err
 	}
-	info, err := os.Stat(payloadSource)
-	if err != nil {
-		return InstalledPlugin{}, fmt.Errorf("inspect plugin payload: %w", err)
-	}
-	if !info.IsDir() {
-		return InstalledPlugin{}, errors.New("plugin payload source must be a directory")
+	hostPath := ""
+	if artifact.HostBacked() {
+		hostPath, err = resolveHostExecutable(artifact)
+		if err != nil {
+			return InstalledPlugin{}, err
+		}
+	} else {
+		info, err := os.Stat(payloadSource)
+		if err != nil {
+			return InstalledPlugin{}, fmt.Errorf("inspect plugin payload: %w", err)
+		}
+		if !info.IsDir() {
+			return InstalledPlugin{}, errors.New("plugin payload source must be a directory")
+		}
 	}
 	target := store.layout.InstalledVersionPath(manifest.ID, manifest.Version)
 	if _, err := os.Lstat(target); err == nil {
@@ -94,12 +104,15 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 	}
 	defer os.RemoveAll(staging)
 	payloadTarget := filepath.Join(staging, "payload")
-	if err := copyPayloadTree(payloadSource, payloadTarget); err != nil {
-		return InstalledPlugin{}, err
-	}
-	entrypoint := filepath.Join(payloadTarget, filepath.FromSlash(artifact.Entrypoint))
-	if err := validateEntrypoint(payloadTarget, entrypoint); err != nil {
-		return InstalledPlugin{}, err
+	entrypoint := hostPath
+	if !artifact.HostBacked() {
+		if err := copyPayloadTree(payloadSource, payloadTarget); err != nil {
+			return InstalledPlugin{}, err
+		}
+		entrypoint = filepath.Join(payloadTarget, filepath.FromSlash(artifact.Entrypoint))
+		if err := validateEntrypoint(payloadTarget, entrypoint); err != nil {
+			return InstalledPlugin{}, err
+		}
 	}
 	manifestData, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -113,6 +126,9 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 			return InstalledPlugin{}, ErrVersionInstalled
 		}
 		return InstalledPlugin{}, err
+	}
+	if artifact.HostBacked() {
+		return InstalledPlugin{Manifest: manifest, Root: target, Entrypoint: hostPath, Host: artifact.Host}, nil
 	}
 	return InstalledPlugin{Manifest: manifest, Root: target, Payload: filepath.Join(target, "payload"), Entrypoint: filepath.Join(target, "payload", filepath.FromSlash(artifact.Entrypoint))}, nil
 }
@@ -139,6 +155,13 @@ func (store *Store) Installed(id PluginID, version Version) (InstalledPlugin, er
 	artifact, err := manifest.Platform(store.runtime.OS, store.runtime.Arch)
 	if err != nil {
 		return InstalledPlugin{}, err
+	}
+	if artifact.HostBacked() {
+		entrypoint, err := resolveHostExecutable(artifact)
+		if err != nil {
+			return InstalledPlugin{}, err
+		}
+		return InstalledPlugin{Manifest: manifest, Root: root, Entrypoint: entrypoint, Host: artifact.Host}, nil
 	}
 	payload := filepath.Join(root, "payload")
 	entrypoint := filepath.Join(payload, filepath.FromSlash(artifact.Entrypoint))
@@ -191,7 +214,12 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 		return err
 	}
 	previous := lock
-	lock.Plugins[id] = LockPlugin{Registry: trust.Registry, Publisher: trust.Publisher, Version: version, ManifestDigest: manifestDigest, ArtifactDigest: "sha256:" + artifact.SHA256, Enabled: enabled}
+	if artifact.HostBacked() && enabled {
+		if _, err := preflightHostExecutable(context.Background(), artifact); err != nil {
+			return err
+		}
+	}
+	lock.Plugins[id] = LockPlugin{Registry: trust.Registry, Publisher: trust.Publisher, Version: version, ManifestDigest: manifestDigest, ArtifactDigest: platformLockDigest(artifact), Enabled: enabled}
 	return store.writeLockAndDesired(previous, lock, func(config *Config) error {
 		return config.SetDesired(id, trust.Registry, version, enabled)
 	})
@@ -222,7 +250,7 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 		if err != nil {
 			return err
 		}
-		if digest != entry.ManifestDigest || installed.Manifest.Publisher != entry.Publisher || entry.ArtifactDigest != "sha256:"+artifact.SHA256 {
+		if digest != entry.ManifestDigest || installed.Manifest.Publisher != entry.Publisher || entry.ArtifactDigest != platformLockDigest(artifact) {
 			return fmt.Errorf("plugin %s lock integrity verification failed", id)
 		}
 		compatible, err := pluginCoreCompatible(store, installed.Manifest)
@@ -234,6 +262,11 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 		}
 		if err := ValidateDependencies(store, installed.Manifest); err != nil {
 			return err
+		}
+		if artifact.HostBacked() {
+			if _, err := preflightHostExecutable(context.Background(), artifact); err != nil {
+				return err
+			}
 		}
 	}
 	entry.Enabled = enabled

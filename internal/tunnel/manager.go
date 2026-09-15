@@ -255,7 +255,7 @@ func (m *Manager) Reconcile(ctx context.Context, cfg CollectionConfig) error {
 	var changes []managerChange
 	for _, instance := range cfg.Instances {
 		nextCfg[instance.ID] = instance
-		if old, ok := previous[instance.ID]; ok && previousCfg[instance.ID] == instance {
+		if old, ok := previous[instance.ID]; ok && sameTransport(previousCfg[instance.ID], instance) {
 			next[instance.ID] = old
 			continue
 		}
@@ -292,6 +292,11 @@ func (m *Manager) Reconcile(ctx context.Context, cfg CollectionConfig) error {
 	m.clients, m.configs = next, nextCfg
 	m.mu.Unlock()
 	return nil
+}
+
+func sameTransport(left, right InstanceConfig) bool {
+	left.AdminProfileID, right.AdminProfileID = "", ""
+	return left == right
 }
 
 func rollbackChanges(ctx context.Context, changes []managerChange, running bool) error {

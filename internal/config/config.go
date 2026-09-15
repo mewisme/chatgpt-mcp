@@ -24,6 +24,20 @@ type Config struct {
 	Tunnel      tunnel.Config     `json:"tunnel"`
 }
 
+// RuntimeTunnels returns the local ingress collection, including legacy scalar configs.
+func (cfg Config) RuntimeTunnels() tunnel.CollectionConfig {
+	if cfg.Tunnel.Instances != nil || cfg.Tunnel.Admins != nil {
+		return cfg.Tunnel.Collection()
+	}
+	if cfg.Tunnel.ID == "" {
+		return tunnel.CollectionConfig{}
+	}
+	return tunnel.CollectionConfig{Instances: []tunnel.InstanceConfig{{
+		Enabled: cfg.Tunnel.Enabled, ID: cfg.Tunnel.ID, APIKey: cfg.Tunnel.APIKey,
+		ControlPlaneBaseURL: cfg.Tunnel.ControlPlaneBaseURL, OrganizationID: cfg.Tunnel.OrganizationID,
+	}}}
+}
+
 type PermissionsConfig struct {
 	AllowDirs []string `json:"allow_dirs"`
 }

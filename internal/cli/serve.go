@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,10 +16,43 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
-	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
+
+func runtimeTunnelStatuses(runtime *app.App, cfg config.Config) (runtimecontrol.TunnelSummary, []runtimecontrol.TunnelRuntimeStatus) {
+	configured := make(map[string]bool)
+	for _, instance := range cfg.RuntimeTunnels().Instances {
+		configured[instance.ID] = instance.APIKey != ""
+	}
+	statuses := runtime.Tunnels.Statuses()
+	summary := runtimecontrol.TunnelSummary{Total: len(statuses)}
+	items := make([]runtimecontrol.TunnelRuntimeStatus, 0, len(statuses))
+	for _, status := range statuses {
+		item := runtimecontrol.TunnelRuntimeStatus{ID: status.ID, Enabled: status.Enabled, Configured: configured[status.ID], Running: status.Running, Ready: status.Ready, Restarting: status.Restarting, LastError: status.LastError}
+		items = append(items, item)
+		if item.Enabled {
+			summary.Enabled++
+		}
+		if item.Configured {
+			summary.Configured++
+		}
+		if item.Running {
+			summary.Running++
+		}
+		if item.Ready {
+			summary.Ready++
+		}
+		if item.Restarting {
+			summary.Restarting++
+		}
+		if item.Enabled && (!item.Ready && (item.LastError != "" || !item.Running)) {
+			summary.Degraded++
+		}
+	}
+	return summary, items
+}
 
 func serveCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "serve", Short: "Start the MCP server", RunE: runServer}
@@ -336,9 +368,14 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		stateMu.RLock()
 		cfgSnapshot, lifecycleSnapshot := currentCfg, lifecycle
 		stateMu.RUnlock()
-		tunnelStatus := runtime.Tunnel.Status()
+		tunnelSummary, tunnelItems := runtimeTunnelStatuses(runtime, cfgSnapshot)
 		fingerprint, _ := config.RuntimeFingerprint(cfgSnapshot)
-		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Lifecycle: lifecycleSnapshot, Starting: runtimeLifecycleStarting(lifecycleSnapshot), Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ConfigFingerprint: fingerprint, ServerEnabled: cfgSnapshot.Server.Enabled, ServerPort: cfgSnapshot.Server.Port, AdminEnabled: cfgSnapshot.Admin.Enabled, AdminPort: cfgSnapshot.Admin.Port, Exposure: cfgSnapshot.Server.Expose.Mode, TunnelEnabled: cfgSnapshot.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(cfgSnapshot.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(cfgSnapshot.Tunnel.ID), TunnelLastError: tunnelStatus.LastError, ToolProfile: "full", ToolCount: len(runtime.Tools.List())}
+		result := runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Lifecycle: lifecycleSnapshot, Starting: runtimeLifecycleStarting(lifecycleSnapshot), Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ConfigFingerprint: fingerprint, ServerEnabled: cfgSnapshot.Server.Enabled, ServerPort: cfgSnapshot.Server.Port, AdminEnabled: cfgSnapshot.Admin.Enabled, AdminPort: cfgSnapshot.Admin.Port, Exposure: cfgSnapshot.Server.Expose.Mode, TunnelEnabled: tunnelSummary.Enabled > 0, TunnelConfigured: tunnelSummary.Configured > 0, TunnelRunning: tunnelSummary.Running > 0, TunnelReady: tunnelSummary.Ready > 0, TunnelRestarting: tunnelSummary.Restarting > 0, TunnelSummary: tunnelSummary, Tunnels: tunnelItems, ToolProfile: "full", ToolCount: len(runtime.Tools.List())}
+		if len(tunnelItems) == 1 {
+			result.TunnelID = tunnelItems[0].ID
+			result.TunnelLastError = tunnelItems[0].LastError
+		}
+		return result
 	}
 	statusWait := func(ctx context.Context, previous string) runtimeStatusResult {
 		for {
@@ -387,10 +424,10 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		return errors.Join(err, bindings.Shutdown())
 	}
 	setLifecycle("listeners_ready")
-	if cfg.Tunnel.Enabled && tunnel.Configured(cfg.Tunnel) {
+	if !cfg.Server.Enabled && len(cfg.RuntimeTunnels().Instances) > 0 {
 		setLifecycle("tunnel_connecting")
 		runtime.Logger.Action("TUNNEL", "tunnel.readiness.waiting", "Waiting for OpenAI Secure MCP Tunnel readiness")
-		if err := runtime.Tunnel.WaitUntilReady(runtimeCtx); err != nil {
+		if err := runtime.Tunnels.WaitUntilAnyReady(runtimeCtx); err != nil {
 			return errors.Join(err, bindings.Shutdown())
 		}
 	}

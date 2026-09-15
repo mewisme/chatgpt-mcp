@@ -122,8 +122,8 @@ func SecurityWarnings(cfg Config) []string {
 }
 
 func ValidateMCPTransports(cfg Config) error {
-	tunnelEnabled := cfg.Tunnel.Enabled
-	for _, instance := range cfg.Tunnel.Collection().Instances {
+	tunnelEnabled := false
+	for _, instance := range cfg.RuntimeTunnels().Instances {
 		tunnelEnabled = tunnelEnabled || instance.Enabled
 	}
 	if !cfg.Server.Enabled && !tunnelEnabled {

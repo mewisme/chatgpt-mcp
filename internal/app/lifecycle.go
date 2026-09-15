@@ -7,7 +7,17 @@ import (
 	"time"
 
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
+
+func anyTunnelRunning(statuses []tunnel.Status) bool {
+	for _, status := range statuses {
+		if status.Enabled && status.Running {
+			return true
+		}
+	}
+	return false
+}
 
 func (a *App) Start(ctx context.Context) error {
 	if ctx == nil {
@@ -37,15 +47,21 @@ func (a *App) Start(ctx context.Context) error {
 			refreshSpan.EndMessage("Initial upstream MCP discovery completed")
 		}()
 	}
-	if a.Tunnel != nil {
+	if a.Tunnels != nil {
 		tunnelSpan := tracepkg.Start(ctx, "APP", "app.tunnel.start", "Starting tunnel runtime")
-		if err := a.Tunnel.StartContext(ctx); err != nil {
+		if err := a.Tunnels.StartContext(ctx); err != nil {
 			tunnelSpan.FailMessage("Tunnel runtime start failed", err)
-			span.FailMessage("Application runtime start failed", err)
-			a.runtimeCtx = nil
-			return err
+			if a.Logger != nil {
+				a.Logger.Warning("TUNNEL", "tunnel.start.partial", "One or more tunnels failed to start", err)
+			}
+			if a.MCP == nil && !anyTunnelRunning(a.Tunnels.Statuses()) {
+				span.FailMessage("Application runtime start failed", err)
+				a.runtimeCtx = nil
+				return err
+			}
+		} else {
+			tunnelSpan.EndMessage("Tunnel runtime started", tracepkg.Bool("ready", a.Tunnels.Ready()))
 		}
-		tunnelSpan.EndMessage("Tunnel runtime started", tracepkg.Bool("enabled", a.Tunnel.Status().Enabled), tracepkg.Bool("running", a.Tunnel.Status().Running))
 	}
 	a.running = true
 	span.EndMessage("Application runtime started", tracepkg.Bool("running", true))
@@ -75,12 +91,12 @@ func (a *App) Stop() error {
 			}
 		}()
 	}
-	if a.Tunnel != nil {
+	if a.Tunnels != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			tunnelSpan := tracepkg.StartObserver(a.trace, "APP", "app.tunnel.stop", "Stopping tunnel runtime")
-			if err := a.Tunnel.StopContext(ctx); err != nil {
+			if err := a.Tunnels.StopContext(ctx); err != nil {
 				tunnelSpan.FailMessage("Tunnel runtime stop failed", err)
 				errCh <- err
 			} else {

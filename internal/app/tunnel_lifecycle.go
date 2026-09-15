@@ -10,10 +10,10 @@ import (
 )
 
 func (a *App) attachTunnelLifecycle() {
-	if a == nil || a.Tunnel == nil {
+	if a == nil || a.Tunnels == nil {
 		return
 	}
-	a.Tunnel.SetLifecycleObserver(func(event tunnel.LifecycleEvent) {
+	a.Tunnels.SetLifecycleObserver(func(event tunnel.LifecycleEvent) {
 		fields := []logger.Field{}
 		if event.ID != "" {
 			fields = append(fields, logger.WithVerbose("tunnel_id", event.ID))

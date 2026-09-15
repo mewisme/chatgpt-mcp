@@ -251,23 +251,21 @@ func TestAdminHandlerSharesApprovalManager(t *testing.T) {
 	}
 }
 
-func TestTunnelLifecyclePublishesActivityFromSourceObserver(t *testing.T) {
+func TestHTTPRuntimeStartsWhenTunnelIsUnconfigured(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tunnel.Enabled = true
 	app, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.Start(context.Background()); err == nil {
-		t.Fatal("expected invalid tunnel configuration to fail")
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	recent := app.Activity.Recent(10)
-	if len(recent) == 0 {
-		t.Fatal("tunnel lifecycle failure did not publish activity")
+	if app.MCP == nil {
+		t.Fatal("HTTP MCP runtime unavailable")
 	}
-	last := recent[len(recent)-1]
-	if last.Kind != "tunnel.degraded" || last.Status != "degraded" || last.Source != "tunnel" {
-		t.Fatalf("activity = %#v", last)
+	if err := app.Stop(); err != nil {
+		t.Fatal(err)
 	}
 }
 

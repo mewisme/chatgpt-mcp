@@ -8,22 +8,23 @@ import (
 type RouteKind string
 
 const (
-	RouteHome        RouteKind = "home"
-	RouteWorkspaces  RouteKind = "workspaces"
-	RouteContainers  RouteKind = "containers"
-	RouteMCP         RouteKind = "mcp"
-	RoutePlugins     RouteKind = "plugins"
-	RouteTunnel      RouteKind = "tunnel"
-	RouteTunnels     RouteKind = "tunnels"
-	RouteRequests    RouteKind = "requests"
-	RouteLogs        RouteKind = "logs"
-	RouteLogsExec    RouteKind = "logs-exec"
-	RouteLogsTools   RouteKind = "logs-tools"
-	RouteConfig      RouteKind = "config"
-	RouteInstruction RouteKind = "instruction"
-	RouteRuntime     RouteKind = "runtime"
-	RouteAbout       RouteKind = "about"
-	RouteGuide       RouteKind = "guide"
+	RouteHome         RouteKind = "home"
+	RouteWorkspaces   RouteKind = "workspaces"
+	RouteContainers   RouteKind = "containers"
+	RouteMCP          RouteKind = "mcp"
+	RoutePlugins      RouteKind = "plugins"
+	RouteTunnel       RouteKind = "tunnel"
+	RouteTunnelAdmins RouteKind = "admins"
+	RouteTunnels      RouteKind = "tunnels"
+	RouteRequests     RouteKind = "requests"
+	RouteLogs         RouteKind = "logs"
+	RouteLogsExec     RouteKind = "logs-exec"
+	RouteLogsTools    RouteKind = "logs-tools"
+	RouteConfig       RouteKind = "config"
+	RouteInstruction  RouteKind = "instruction"
+	RouteRuntime      RouteKind = "runtime"
+	RouteAbout        RouteKind = "about"
+	RouteGuide        RouteKind = "guide"
 )
 
 type Route struct {
@@ -80,6 +81,8 @@ func ParseRoute(args []string) (Route, error) {
 		return parsePluginRoute(parts)
 	case RouteTunnel:
 		return parseTunnelRoute(parts)
+	case RouteTunnelAdmins:
+		return parseTunnelAdminsRoute(parts)
 	case RouteTunnels:
 		return parseManagedTunnelRoute(parts)
 	case RouteRequests:
@@ -265,6 +268,32 @@ func parseTunnelRoute(parts []string) (Route, error) {
 	default:
 		return Route{}, fmt.Errorf("unsupported tunnel path %q", strings.Join(parts, " "))
 	}
+}
+
+func parseTunnelAdminsRoute(parts []string) (Route, error) {
+	route := Route{Kind: RouteTunnelAdmins}
+	if len(parts) == 1 {
+		return route, nil
+	}
+	if len(parts) == 2 && parts[1] == "create" {
+		route.Action = "create"
+		return route, nil
+	}
+	if len(parts) > 3 {
+		return Route{}, fmt.Errorf("tunnel admin path is too deep: %s", strings.Join(parts, " "))
+	}
+	route.ResourceID = strings.TrimSpace(parts[1])
+	if route.ResourceID == "" {
+		return Route{}, fmt.Errorf("admin profile id is required")
+	}
+	if len(parts) == 2 {
+		return route, nil
+	}
+	if parts[2] == "edit" {
+		route.Action = "edit"
+		return route, nil
+	}
+	return Route{}, fmt.Errorf("unsupported admins child action %q", parts[2])
 }
 
 func parseManagedTunnelRoute(parts []string) (Route, error) {
@@ -497,6 +526,8 @@ func parseRouteKind(value string) (RouteKind, bool) {
 		return RoutePlugins, true
 	case "tunnel":
 		return RouteTunnel, true
+	case "admins", "admin-profiles", "tunnel-admins":
+		return RouteTunnelAdmins, true
 	case "tunnels", "managed-tunnels":
 		return RouteTunnels, true
 	case "request", "requests", "req":
@@ -524,7 +555,7 @@ func parseRouteKind(value string) (RouteKind, bool) {
 
 func (route Route) Title() string {
 	base := map[RouteKind]string{
-		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RoutePlugins: "Plugins", RouteTunnel: "Tunnel", RouteTunnels: "Managed Tunnels",
+		RouteHome: "Home", RouteWorkspaces: "Workspaces", RouteContainers: "Workspaces · Containers", RouteMCP: "MCP Servers", RoutePlugins: "Plugins", RouteTunnel: "Tunnel", RouteTunnelAdmins: "Admin Profiles", RouteTunnels: "Managed Tunnels",
 		RouteRequests: "Requests", RouteLogs: "Logs", RouteLogsExec: "Logs · Command Execution", RouteLogsTools: "Logs · Tool Calls", RouteConfig: "Config", RouteInstruction: "Instruction", RouteRuntime: "Runtime", RouteAbout: "About", RouteGuide: "Guide",
 	}[route.Kind]
 	if route.Kind == RouteRequests && route.Mode != "" {
@@ -658,6 +689,8 @@ func breadcrumbRootLabel(kind RouteKind) string {
 		return "Plugins"
 	case RouteTunnel:
 		return "Tunnel"
+	case RouteTunnelAdmins:
+		return "Admin Profiles"
 	case RouteTunnels:
 		return "Managed Tunnels"
 	case RouteRequests:
@@ -798,7 +831,7 @@ func routeStack(route Route) []Route {
 	switch route.Kind {
 	case RouteContainers:
 		return genericRouteStack(route)
-	case RouteTunnels:
+	case RouteTunnelAdmins, RouteTunnels:
 		return append([]Route{{Kind: RouteTunnel}}, genericRouteStack(route)...)
 	case RouteLogsExec:
 		return genericRouteStack(route)
@@ -905,7 +938,7 @@ func headerOwner(kind RouteKind) RouteKind {
 	switch kind {
 	case RouteContainers:
 		return RouteWorkspaces
-	case RouteTunnels:
+	case RouteTunnelAdmins, RouteTunnels:
 		return RouteTunnel
 	case RouteLogsExec, RouteLogsTools:
 		return RouteLogs

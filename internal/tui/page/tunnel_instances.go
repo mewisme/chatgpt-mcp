@@ -46,6 +46,7 @@ type TunnelInstancesPage struct {
 	detail     component.DetailPage
 	confirm    component.ConfirmButtons
 	confirmID  string
+	external   *application.ExternalCommand
 	notice     string
 	err        error
 	width      int
@@ -63,8 +64,10 @@ func NewTunnelInstances(ctx context.Context, resourceID string) (*TunnelInstance
 	return page, nil
 }
 
-func (page *TunnelInstancesPage) Init() tea.Cmd       { return nil }
-func (page *TunnelInstancesPage) OverlayActive() bool { return page != nil && page.confirmID != "" }
+func (page *TunnelInstancesPage) Init() tea.Cmd { return nil }
+func (page *TunnelInstancesPage) OverlayActive() bool {
+	return page != nil && (page.confirmID != "" || page.external != nil)
+}
 func (page *TunnelInstancesPage) InputActive() bool {
 	return page != nil && page.resourceID == "" && page.browser.InputActive()
 }
@@ -107,9 +110,35 @@ func (page *TunnelInstancesPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, nil
 	case LocalTunnelCommandMsg:
 		return page, page.runCommand(msg.Command, msg.ResourceID)
+	case TunnelCommandMsg:
+		if msg.Command == TunnelForeground {
+			return page, page.showForeground(msg.ResourceID)
+		}
+		return page, nil
+	case tunnelCopyMsg:
+		if msg.err != nil {
+			page.notice = "Clipboard unavailable: " + msg.err.Error()
+		} else {
+			page.notice = "Copied command to clipboard"
+		}
+		return page, nil
 	case localTunnelResultMsg:
 		return page, page.finishCommand(msg)
 	case tea.KeyPressMsg:
+		if page.external != nil {
+			switch msg.String() {
+			case "esc":
+				page.external = nil
+				return page, nil
+			case "c":
+				value := ""
+				if page.external != nil {
+					value = page.external.Command
+				}
+				return page, func() tea.Msg { return tunnelCopyMsg{err: component.CopyText(value)} }
+			}
+			return page, nil
+		}
 		if page.confirmID != "" {
 			return page, page.updateConfirm(msg)
 		}
@@ -122,7 +151,9 @@ func (page *TunnelInstancesPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			switch msg.String() {
 			case "r":
 				return page, page.runCommand(LocalTunnelRefresh, "")
-			case "m", "a":
+			case "a":
+				return page, func() tea.Msg { return NavigateMsg{Path: []string{"admins"}} }
+			case "m":
 				return page, func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}} }
 			}
 		}
@@ -153,6 +184,11 @@ func (page *TunnelInstancesPage) View(width, height int) string {
 		body := confirmOverlayBody(page.confirm, "Detach tunnel "+page.confirmID+"?", "The local tunnel instance and its runtime key will be removed. The remote OpenAI tunnel is unchanged.", modalWidth)
 		content = component.CenterOverlay(content, component.Modal(body, modalWidth), width, height)
 	}
+	if page.external != nil {
+		modalWidth := overlayWidth(width, 88)
+		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(modalWidth)) + "\n\n" + component.Muted("c copy command · Esc close")
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
+	}
 	return content
 }
 
@@ -162,6 +198,10 @@ func (page *TunnelInstancesPage) MouseTargets(originX, originY, z int) []compone
 	}
 	if page.confirmID != "" {
 		return confirmOverlayMouseTargets(page.confirm, "Detach tunnel "+page.confirmID+"?", "The local tunnel instance and its runtime key will be removed. The remote OpenAI tunnel is unchanged.", overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
+	}
+	if page.external != nil {
+		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(overlayWidth(page.width, 88))) + "\n\n" + component.Muted("c copy command · Esc close")
+		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
 	}
 	if page.resourceID != "" {
 		return page.detail.MouseTargets(originX, originY, z)
@@ -192,7 +232,11 @@ func (page *TunnelInstancesPage) reload() error {
 	helpExpanded := page.browser.HelpExpanded()
 	selected, _ := page.browser.Selected()
 	page.browser = component.NewBrowser(page.ctx, "Tunnel instances", page.rows(), nil).WithTitleVisible(false).WithExternalHelp(true)
-	page.browser.SetHelpBindings(component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"m"}, "m", "managed"))
+	page.browser.SetHelpBindings(
+		component.Binding([]string{"r"}, "r", "refresh"),
+		component.Binding([]string{"a"}, "a", "admins"),
+		component.Binding([]string{"m"}, "m", "managed"),
+	)
 	page.browser.SetHelpExpanded(helpExpanded)
 	if selected.ID != "" {
 		page.browser.SelectID(selected.ID)
@@ -247,11 +291,28 @@ func (page *TunnelInstancesPage) syncDetail() error {
 	} else if item.Enabled && item.RuntimeKeyConfigured {
 		bindings = append(bindings, component.DetailPageBinding{Key: "s", Desc: "start", Message: LocalTunnelCommandMsg{Command: LocalTunnelStart, ResourceID: item.ID}})
 	}
+	if item.Enabled && item.RuntimeKeyConfigured {
+		bindings = append(bindings, component.DetailPageBinding{Key: "f", Desc: "run", Message: TunnelCommandMsg{Command: TunnelForeground, ResourceID: item.ID}})
+	}
 	bindings = append(bindings, component.DetailPageBinding{Key: "d", Desc: "detach", Message: LocalTunnelCommandMsg{Command: LocalTunnelDetach, ResourceID: item.ID}})
 	page.detail.SetBindings(bindings...)
 	if page.width > 0 && page.height > 0 {
 		page.detail.Resize(page.width, page.height)
 	}
+	return nil
+}
+
+func (page *TunnelInstancesPage) showForeground(id string) tea.Cmd {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = page.resourceID
+	}
+	if id == "" {
+		page.err = fmt.Errorf("tunnel id is required")
+		return nil
+	}
+	page.err = nil
+	page.external = &application.ExternalCommand{Command: "cgm tunnel run " + id, Reason: "The foreground tunnel owns the terminal. Exit the TUI before starting it."}
 	return nil
 }
 
@@ -371,6 +432,9 @@ func (page *TunnelInstancesPage) listHeader(width int) string {
 		}
 	}
 	summary := fmt.Sprintf("%d attached · %d running · %d ready · %d degraded · %d admin profiles", len(page.items), running, ready, degraded, len(page.admins))
+	if len(page.items) == 0 {
+		summary = "No tunnels attached · a admins → verify → m managed → refresh → attach"
+	}
 	return component.PageTitleNotice("OpenAI Secure MCP Tunnels", page.notice, width) + "\n" + component.Muted(summary)
 }
 

@@ -195,6 +195,12 @@ func TestTunnelActionAvailabilityFollowsRouteContext(t *testing.T) {
 	if !has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.create") || !has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.refresh") {
 		t.Fatal("managed tunnel list actions are unavailable")
 	}
+	if !has(action.Context{Route: string(RouteTunnelAdmins)}, "tunnel.admin.add") || has(action.Context{Route: string(RouteTunnelAdmins)}, "tunnel.admin.verify") {
+		t.Fatal("admin profile list actions are incorrect")
+	}
+	if !has(action.Context{Route: string(RouteTunnelAdmins), ResourceID: "work"}, "tunnel.admin.verify") || !has(action.Context{Route: string(RouteTunnelAdmins), ResourceID: "work"}, "tunnel.admin.update") {
+		t.Fatal("admin profile resource actions are unavailable")
+	}
 	if has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.update") || has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.delete") {
 		t.Fatal("managed tunnel resource actions available without a resource")
 	}

@@ -74,6 +74,7 @@ func pageQuickOpenResources() []quickopen.Resource {
 		{ID: "plugins-updates", Title: "Plugin Updates", Kind: "Page", Keywords: []string{"plugin", "updates", "outdated"}, Path: []string{"plugins", "updates"}},
 		{ID: "plugins-registries", Title: "Plugin Registries", Kind: "Page", Keywords: []string{"plugin", "registry", "registries", "trust"}, Path: []string{"plugins", "registries"}},
 		{ID: "tunnel", Title: "Tunnel", Kind: "Page", Path: []string{"tunnel"}},
+		{ID: "admins", Title: "Admin Profiles", Kind: "Page", Keywords: []string{"tunnel", "admin", "profile"}, Path: []string{"admins"}},
 		{ID: "tunnels", Title: "Managed Tunnels", Kind: "Page", Path: []string{"tunnels"}},
 		{ID: "requests", Title: "Requests", Kind: "Page", Path: []string{"requests"}},
 		{ID: "logs", Title: "Logs", Kind: "Page", Path: []string{"logs"}},

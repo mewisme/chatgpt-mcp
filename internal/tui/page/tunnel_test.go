@@ -177,8 +177,10 @@ func TestTunnelInstancesDetailUsesIDScopedActionsAndRedactsSecrets(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	page = updated.(*TunnelInstancesPage)
 	plain := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"tunnel_demo", "Runtime key", "configured", "Admin profile", "work", "Organization", "org_demo", "disable", "start", "detach"} {
+	for _, want := range []string{"tunnel_demo", "Runtime key", "configured", "Admin profile", "work", "Organization", "org_demo", "disable", "start", "run", "detach"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("detail missing %q: %q", want, plain)
 		}
@@ -266,7 +268,7 @@ func TestTunnelInstancesLayoutShowsCollectionSummaryAndManagedShortcut(t *testin
 		t.Fatal(err)
 	}
 	view := ansi.Strip(page.View(120, 32))
-	for _, want := range []string{"OpenAI Secure MCP Tunnels", "2 attached", "1 admin profiles", "tunnel_a", "tunnel_b", "m managed"} {
+	for _, want := range []string{"OpenAI Secure MCP Tunnels", "2 attached", "1 admin profiles", "tunnel_a", "tunnel_b", "a admins", "m managed"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("collection view missing %q: %q", want, view)
 		}
@@ -561,7 +563,7 @@ func TestManagedTunnelReadOnlyAccessHidesManagementActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := ansi.Strip(page.View(100, 24))
-	if !strings.Contains(view, "t attach") || strings.Contains(view, "refresh all") || strings.Contains(view, "a add") {
+	if !strings.Contains(view, "t attach") || !strings.Contains(view, "r refresh all") || !strings.Contains(view, "p admins") || strings.Contains(view, "a add") {
 		t.Fatalf("read-only browser actions=%q", view)
 	}
 	detail, err := NewManagedTunnelsRoute(t.Context(), item.ID, "")
@@ -574,4 +576,39 @@ func TestManagedTunnelReadOnlyAccessHidesManagementActions(t *testing.T) {
 	if !strings.Contains(view, "r refresh") || !strings.Contains(view, "t attach") || strings.Contains(view, "update") || strings.Contains(view, "delete") {
 		t.Fatalf("read-only detail actions=%q", view)
 	}
+}
+
+func TestTunnelAdminsPageListsProfilesAndOpensCreateEditor(t *testing.T) {
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", WorkspaceID: "ws_admin", ManageAccess: true}}
+	setupTunnelPageConfig(t, tunnel.Config{Admins: &admins})
+	page, err := NewTunnelAdmins(t.Context(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := ansi.Strip(page.View(100, 28))
+	for _, want := range []string{"Tunnel Admin Profiles", "work", "manage", "a add", "m managed"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("admin list missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "admin-secret") {
+		t.Fatalf("admin list leaked secret: %q", view)
+	}
+	create, err := NewTunnelAdmins(t.Context(), "", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = create.Init()
+	if create.editor == nil || create.form == nil || create.Dirty() {
+		t.Fatalf("create editor=%v form=%v dirty=%t", create.editor != nil, create.form != nil, create.Dirty())
+	}
+	create.form.ID = "personal"
+	create.form.AdminKey = "secret-draft"
+	create.form.ScopeKind = "organization"
+	create.form.ScopeID = "org_demo"
+	view = ansi.Strip(create.View(80, 24))
+	if !strings.Contains(view, "Profile ID") || strings.Contains(view, "secret-draft") {
+		t.Fatalf("create editor view=%q", view)
+	}
+	testutil.AssertLinesFit(t, page.View(72, 24), 72)
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -164,6 +165,15 @@ func (a *App) AdminHandler() http.Handler {
 		return cfg.Auth.AdminEnabled, cfg.Auth.AdminTokenHash
 	}
 	adminHandler := auth.DynamicHashedMiddleware(adminAuth, admin.New(adminAPI))
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		authEnabled := a.Config != nil && a.Config.Snapshot().Auth.AdminEnabled
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"auth_enabled":` + strconv.FormatBool(authEnabled) + `}`))
+	})
 	mux.Handle("/oauth/callback/", adminAPI.OAuthCallbackHandler())
 	mux.Handle("/admin/", adminHandler)
 	mux.Handle("/api/", adminHandler)

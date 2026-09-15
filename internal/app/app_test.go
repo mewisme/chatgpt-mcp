@@ -169,8 +169,13 @@ func TestHandlersRequireEnabledAuthentication(t *testing.T) {
 
 	adminRecorder := httptest.NewRecorder()
 	app.AdminHandler().ServeHTTP(adminRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
-	if adminRecorder.Code != http.StatusUnauthorized {
-		t.Fatalf("admin auth-enabled status = %d", adminRecorder.Code)
+	if adminRecorder.Code != http.StatusOK {
+		t.Fatalf("admin health should stay public = %d", adminRecorder.Code)
+	}
+	protected := httptest.NewRecorder()
+	app.AdminHandler().ServeHTTP(protected, httptest.NewRequest(http.MethodGet, "/api/workspaces", nil))
+	if protected.Code != http.StatusUnauthorized {
+		t.Fatalf("admin auth-enabled status = %d", protected.Code)
 	}
 }
 

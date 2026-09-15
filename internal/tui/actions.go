@@ -28,6 +28,7 @@ func defaultActionRegistry() *action.Registry {
 		navigationAction("app.go.plugins.updates", "Plugin Updates", Route{Kind: RoutePlugins, Section: "updates"}, []string{"plugin", "update", "outdated"}),
 		navigationAction("app.go.plugins.registries", "Plugin Registries", Route{Kind: RoutePlugins, Section: "registries"}, []string{"plugin", "registry", "trust"}),
 		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure", "admin", "profiles"}, capability.TunnelList, capability.TunnelStatus, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
+		navigationAction("app.go.admins", "Admin Profiles", Route{Kind: RouteTunnelAdmins}, []string{"tunnel", "admin", "profile", "profiles"}, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
 		navigationAction("app.go.tunnels", "Managed Tunnels", Route{Kind: RouteTunnels}, []string{"tunnel", "tunnels", "managed", "openai"}, capability.TunnelManagedList, capability.TunnelManagedGet),
 		navigationAction("app.go.requests", "Requests", Route{Kind: RouteRequests}, []string{"request", "approval"}, capability.RequestView),
 		navigationAction("app.go.logs", "Logs", Route{Kind: RouteLogs}, []string{"logs", "events", "journal"}),
@@ -193,7 +194,17 @@ func tunnelActions() []action.Action {
 		localTunnelAction("tunnel.start", "Start tunnel", "Start the current local tunnel connection", []string{"tunnel", "start", "connect"}, []string{"tunnel", "start"}, tuipage.LocalTunnelStart),
 		localTunnelAction("tunnel.stop", "Stop tunnel", "Stop the current local tunnel connection", []string{"tunnel", "stop", "disconnect"}, []string{"tunnel", "stop"}, tuipage.LocalTunnelStop),
 		localTunnelAction("tunnel.detach", "Detach tunnel", "Remove the current local tunnel instance without deleting the remote tunnel", []string{"tunnel", "detach", "remove"}, []string{"tunnel", "detach"}, tuipage.LocalTunnelDetach),
-		tunnelAction("tunnel.foreground", "Run foreground tunnel", "Show the foreground tunnel command to run after leaving the TUI", []string{"tunnel", "foreground", "run", "terminal"}, []string{"tunnel", "run"}, tuipage.TunnelForeground, RouteTunnel, false),
+		tunnelAction("tunnel.foreground", "Run foreground tunnel", "Show the foreground tunnel command to run after leaving the TUI", []string{"tunnel", "foreground", "run", "terminal"}, []string{"tunnel", "run"}, tuipage.TunnelForeground, RouteTunnel, true),
+		editorNavigationAction("tunnel.admin.add", "Add admin profile", "Tunnel", "Add an OpenAI admin profile for tunnel management", []string{"tunnel", "admin", "profile", "add"}, []string{"tunnel", "admin", "add"}, func(ctx action.Context) bool {
+			return ctx.Route == string(RouteTunnel) || ctx.Route == string(RouteTunnelAdmins) || ctx.Route == string(RouteTunnels)
+		}, func(action.Context) Route { return Route{Kind: RouteTunnelAdmins, Action: "create"} }),
+		editorNavigationAction("tunnel.admin.update", "Update admin profile", "Tunnel", "Update the current tunnel admin profile", []string{"tunnel", "admin", "profile", "edit"}, []string{"tunnel", "admin", "add"}, func(ctx action.Context) bool {
+			return ctx.Route == string(RouteTunnelAdmins) && ctx.ResourceID != ""
+		}, func(ctx action.Context) Route {
+			return Route{Kind: RouteTunnelAdmins, ResourceID: ctx.ResourceID, Action: "edit"}
+		}),
+		tunnelAdminAction("tunnel.admin.verify", "Verify admin profile", "Verify the current tunnel admin profile against OpenAI", []string{"tunnel", "admin", "verify"}, []string{"tunnel", "admin", "verify"}, tuipage.TunnelAdminVerify, true),
+		tunnelAdminAction("tunnel.admin.remove", "Remove admin profile", "Remove the current tunnel admin profile", []string{"tunnel", "admin", "remove", "delete"}, []string{"tunnel", "admin", "remove"}, tuipage.TunnelAdminRemove, true),
 		tunnelAction("tunnel.managed.refresh", "Refresh managed tunnels", "Refresh managed tunnels from all readable admin profiles", []string{"tunnel", "managed", "refresh", "list"}, []string{"tunnel", "managed", "list"}, tuipage.TunnelManagedRefresh, RouteTunnels, false),
 		editorNavigationAction("tunnel.managed.create", "Create managed tunnel", "Tunnel", "Create a tunnel through an OpenAI admin profile", []string{"tunnel", "managed", "create"}, []string{"tunnel", "managed", "create"}, func(ctx action.Context) bool {
 			return ctx.Route == string(RouteTunnels) && tunnelAdminManageAvailable()
@@ -209,6 +220,18 @@ func tunnelActions() []action.Action {
 			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "configure"}
 		}),
 		tunnelAction("tunnel.managed.delete", "Delete managed tunnel", "Permanently delete the current managed tunnel", []string{"tunnel", "managed", "delete", "remove"}, []string{"tunnel", "managed", "delete"}, tuipage.TunnelManagedDelete, RouteTunnels, true),
+	}
+}
+
+func tunnelAdminAction(id, title, description string, keywords, commandPath []string, command tuipage.TunnelAdminCommand, needsResource bool) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "Tunnel", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool {
+			return ctx.Route == string(RouteTunnelAdmins) && (!needsResource || ctx.ResourceID != "")
+		},
+		Run: func(_ context.Context, ctx action.Context) tea.Cmd {
+			return func() tea.Msg { return tuipage.TunnelAdminCommandMsg{Command: command, ResourceID: ctx.ResourceID} }
+		},
 	}
 }
 
@@ -230,7 +253,9 @@ func tunnelAction(id, title, description string, keywords, commandPath []string,
 				return false
 			}
 			switch command {
-			case tuipage.TunnelManagedRefresh, tuipage.TunnelManagedCreate, tuipage.TunnelManagedUpdate, tuipage.TunnelManagedDelete:
+			case tuipage.TunnelManagedRefresh:
+				return tunnelAdminReadAvailable()
+			case tuipage.TunnelManagedCreate, tuipage.TunnelManagedUpdate, tuipage.TunnelManagedDelete:
 				return tunnelAdminManageAvailable()
 			case tuipage.TunnelManagedConfigure:
 				return tunnelAdminReadAvailable()

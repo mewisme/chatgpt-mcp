@@ -19,6 +19,80 @@ type tunnelRuntimeFormData struct {
 	OrganizationID string
 }
 
+type tunnelAdminProfileFormData struct {
+	ID           string
+	AdminKey     string
+	ScopeKind    string
+	ScopeID      string
+	ControlPlane string
+}
+
+func newTunnelAdminProfileEditor(profile application.TunnelAdminProfile, create bool) (component.Editor, *tunnelAdminProfileFormData) {
+	data := &tunnelAdminProfileFormData{ID: profile.ID, ScopeKind: "organization", ControlPlane: profile.ControlPlaneBaseURL}
+	switch {
+	case profile.OrganizationID != "":
+		data.ScopeKind, data.ScopeID = "organization", profile.OrganizationID
+	case profile.WorkspaceID != "":
+		data.ScopeKind, data.ScopeID = "workspace", profile.WorkspaceID
+	case profile.TenantID != "":
+		data.ScopeKind, data.ScopeID = "tenant", profile.TenantID
+	}
+	fields := []huh.Field{}
+	if create {
+		fields = append(fields, component.Input("Profile ID", &data.ID).Placeholder("personal").Validate(requiredValue("profile id")))
+	}
+	key := component.PasswordInput("OpenAI admin API key", &data.AdminKey)
+	if create {
+		key = key.Validate(requiredValue("admin API key"))
+	} else {
+		key = key.Placeholder("Blank keeps the current key.")
+	}
+	fields = append(fields,
+		key,
+		component.Select("Scope type", &data.ScopeKind,
+			huh.NewOption("Organization", "organization"),
+			huh.NewOption("Workspace", "workspace"),
+			huh.NewOption("Tenant", "tenant"),
+		),
+		component.Input("Scope ID", &data.ScopeID).Validate(requiredValue("scope id")),
+		component.Input("Control plane base URL", &data.ControlPlane).Placeholder("Blank uses the default OpenAI endpoint."),
+	)
+	primary := "save"
+	if create {
+		primary = "add"
+	}
+	title, description := "Admin Profile", "Update this management credential. Verification runs after save."
+	if create {
+		title, description = "Admin Profile", "Add a named OpenAI admin credential. Verification runs after save."
+	}
+	editor := component.NewEditor(primary, component.EditorSection{ID: "profile", Title: title, Description: description, Form: component.NewEditorForm(component.Group(fields...))})
+	return editor, data
+}
+
+func adminProfileFromForm(data *tunnelAdminProfileFormData, id string) (tunnel.AdminConfig, error) {
+	if data == nil {
+		return tunnel.AdminConfig{}, fmt.Errorf("admin profile draft is unavailable")
+	}
+	admin := tunnel.AdminConfig{ID: strings.TrimSpace(id), AdminKey: strings.TrimSpace(data.AdminKey), ControlPlaneBaseURL: strings.TrimSpace(data.ControlPlane)}
+	if admin.ID == "" {
+		admin.ID = strings.TrimSpace(data.ID)
+	}
+	switch data.ScopeKind {
+	case "organization":
+		admin.OrganizationID = strings.TrimSpace(data.ScopeID)
+	case "workspace":
+		admin.WorkspaceID = strings.TrimSpace(data.ScopeID)
+	case "tenant":
+		admin.TenantID = strings.TrimSpace(data.ScopeID)
+	default:
+		return tunnel.AdminConfig{}, fmt.Errorf("unsupported admin scope type %q", data.ScopeKind)
+	}
+	if err := tunnel.ValidateAdminScope(tunnel.AdminScope{OrganizationID: admin.OrganizationID, WorkspaceID: admin.WorkspaceID, TenantID: admin.TenantID}); err != nil {
+		return tunnel.AdminConfig{}, err
+	}
+	return admin, nil
+}
+
 type tunnelAdminFormData struct {
 	AdminKey  string
 	ScopeKind string

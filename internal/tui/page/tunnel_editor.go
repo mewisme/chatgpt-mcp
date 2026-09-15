@@ -139,21 +139,21 @@ func (page *TunnelPage) initManagedEditorRoute() error {
 		if err != nil {
 			return err
 		}
-		editor, data := newManagedTunnelEditor(metadata, false, page.adminProfiles)
+		editor, data := newManagedTunnelEditor(metadata, false, page.profilesForManaged(page.resourceID, true))
 		page.editor, page.managedForm = &editor, data
 		page.command, page.targetID = TunnelManagedUpdate, page.resourceID
 	case "configure":
 		if page.resourceID == "" || page.section != "" {
 			return fmt.Errorf("managed tunnel attach editor requires a tunnel resource")
 		}
-		editor, data := newManagedConfigureEditor(page.adminProfiles)
+		editor, data := newManagedConfigureEditor(page.profilesForManaged(page.resourceID, false))
 		page.editor, page.configureForm = &editor, data
 		page.command, page.targetID = TunnelManagedConfigure, page.resourceID
 	case "delete":
 		if page.resourceID == "" || page.section != "" {
 			return fmt.Errorf("managed tunnel delete editor requires a tunnel resource")
 		}
-		editor, data := newManagedDeleteEditor(page.adminProfiles)
+		editor, data := newManagedDeleteEditor(page.profilesForManaged(page.resourceID, true))
 		page.editor, page.deleteForm = &editor, data
 		page.command, page.targetID = TunnelManagedDelete, page.resourceID
 	default:
@@ -238,7 +238,7 @@ func (page *TunnelPage) acceptManagedEditorSuccess(metadata tunnel.Metadata) {
 	if page == nil {
 		return
 	}
-	editor, data := newManagedTunnelEditor(metadata, false, page.adminProfiles)
+	editor, data := newManagedTunnelEditor(metadata, false, page.profilesForManaged(metadata.ID, true))
 	page.editor, page.managedForm = &editor, data
 	page.resizeEditor()
 }
@@ -247,7 +247,7 @@ func (page *TunnelPage) acceptManagedConfigureSuccess() {
 	if page == nil {
 		return
 	}
-	editor, data := newManagedConfigureEditor(page.adminProfiles)
+	editor, data := newManagedConfigureEditor(page.profilesForManaged(page.resourceID, false))
 	page.editor, page.configureForm = &editor, data
 	page.resizeEditor()
 }

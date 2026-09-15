@@ -308,6 +308,14 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, model.showToast("Tunnel", "Tunnel page is unavailable", component.ToneDanger)
 		}
 		return model.updatePage(msg)
+	case tuipage.TunnelAdminCommandMsg:
+		if model.router.Current().Kind != RouteTunnelAdmins || (msg.ResourceID != "" && model.router.Current().ResourceID != msg.ResourceID) {
+			model.navigate(Route{Kind: RouteTunnelAdmins, ResourceID: msg.ResourceID})
+		}
+		if model.currentPage == nil {
+			return model, model.showToast("Admin Profiles", "Admin profiles page is unavailable", component.ToneDanger)
+		}
+		return model.updatePage(msg)
 	case tuipage.RequestCommandMsg:
 		if err := model.ensureRequestPage(msg.ResourceID); err != nil {
 			return model, model.showToast("Requests", err.Error(), component.ToneDanger)
@@ -1159,6 +1167,8 @@ func (model *Model) loadPage(route Route) {
 		value, err = tuipage.NewPluginsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteTunnel:
 		value, err = tuipage.NewTunnelInstances(model.ctx, route.ResourceID)
+	case RouteTunnelAdmins:
+		value, err = tuipage.NewTunnelAdmins(model.ctx, route.ResourceID, route.Action)
 	case RouteTunnels:
 		value, err = tuipage.NewManagedTunnelsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteRequests:
@@ -1750,7 +1760,9 @@ func routeDescription(route Route) string {
 	case RouteMCP:
 		return "Manage configured upstream MCP servers."
 	case RouteTunnel:
-		return "Manage runtime and OpenAI Secure MCP Tunnel state."
+		return "Manage local OpenAI Secure MCP Tunnel attachments."
+	case RouteTunnelAdmins:
+		return "Manage OpenAI admin profiles used for tunnel discovery and management."
 	case RouteTunnels:
 		return "Browse and manage tunnels available through the OpenAI Tunnel Management API."
 	case RouteRequests:

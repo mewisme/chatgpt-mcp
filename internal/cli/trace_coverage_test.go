@@ -32,6 +32,18 @@ func commandTraceContracts() map[string]commandTraceContract {
 		}
 	}
 	add(commandTraceTrivial, nil, "config", "logs path", "version")
+	add(commandTraceTrivial, nil, "plugin", "plugin list", "plugin registry", "plugin registry list")
+	add(commandTraceInstrumented, []string{"plugin.registry.snapshots.completed"}, "plugin search")
+	add(commandTraceInstrumented, []string{"plugin.install.completed"}, "plugin install")
+	add(commandTraceInstrumented, []string{"plugin.uninstall.completed"}, "plugin uninstall")
+	add(commandTraceInstrumented, []string{"plugin.enable.completed"}, "plugin enable")
+	add(commandTraceInstrumented, []string{"plugin.disable.completed"}, "plugin disable")
+	add(commandTraceInstrumented, []string{"plugin.update.completed"}, "plugin update")
+	add(commandTraceInstrumented, []string{"plugin.outdated.completed"}, "plugin outdated")
+	add(commandTraceInstrumented, []string{"plugin.verify.completed"}, "plugin verify")
+	add(commandTraceInstrumented, []string{"plugin.registry.add.completed"}, "plugin registry add")
+	add(commandTraceInstrumented, []string{"plugin.registry.remove.completed"}, "plugin registry remove")
+	add(commandTraceTrivial, nil, "plugin info")
 	add(commandTraceStreaming, []string{"logs.snapshot.load.completed"}, "logs")
 	add(commandTraceStreaming, []string{"runtime.events.connect.completed", "logs.snapshot.load.completed"}, "logs follow")
 	add(commandTraceStreaming, nil, "tui")

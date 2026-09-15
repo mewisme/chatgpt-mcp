@@ -17,6 +17,7 @@ var readOnlyPaths = map[string]bool{
 	"request list": true, "request view": true, "request grant list": true,
 	"workspace list": true, "workspace show": true, "workspace access list": true,
 	"mcp server list": true, "mcp server show": true, "mcp server status": true, "mcp server tools": true,
+	"plugin": true, "plugin search": true, "plugin info": true, "plugin list": true, "plugin outdated": true, "plugin verify": true, "plugin registry": true, "plugin registry list": true,
 	"tunnel status": true, "logs": true, "logs follow": true, "logs path": true,
 }
 
@@ -84,6 +85,11 @@ func PathFromArgs(args []string) string {
 		return strings.Join(args[:2], " ")
 	case "mcp":
 		if args[1] == "server" && len(args) >= 3 {
+			return strings.Join(args[:3], " ")
+		}
+		return strings.Join(args[:2], " ")
+	case "plugin":
+		if args[1] == "registry" && len(args) >= 3 {
 			return strings.Join(args[:3], " ")
 		}
 		return strings.Join(args[:2], " ")

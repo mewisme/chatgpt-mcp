@@ -12,10 +12,25 @@ import (
 )
 
 var publicCapabilityExemptions = map[string]string{
-	"tui":                  "TUI entrypoint; it is the surface being checked",
-	"completion":           "local shell integration; it does not access runtime capabilities",
-	"config":               "configuration namespace entrypoint only renders help and rejects positional fallbacks",
-	"request create dummy": "public test-only helper for approval UI development",
+	"tui":                    "TUI entrypoint; it is the surface being checked",
+	"completion":             "local shell integration; it does not access runtime capabilities",
+	"config":                 "configuration namespace entrypoint only renders help and rejects positional fallbacks",
+	"request create dummy":   "public test-only helper for approval UI development",
+	"plugin":                 "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin search":          "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin info":            "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin list":            "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin install":         "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin uninstall":       "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin enable":          "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin disable":         "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin update":          "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin outdated":        "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin verify":          "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin registry":        "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin registry list":   "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin registry add":    "plugin TUI capability mapping lands with plugin manager UI in phase 8",
+	"plugin registry remove": "plugin TUI capability mapping lands with plugin manager UI in phase 8",
 }
 
 func TestPublicCommandsHaveCanonicalCapabilities(t *testing.T) {

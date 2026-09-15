@@ -13,6 +13,8 @@ const (
 	PublishersSchema        = 1
 	OfficialRegistryName    = "official"
 	OfficialRegistryBaseURL = "https://github.com/mewisme/chatgpt-mcp/releases/download/plugins"
+	OfficialSigstoreIssuer  = "https://token.actions.githubusercontent.com"
+	OfficialSigstoreRepo    = "mewisme/chatgpt-mcp"
 )
 
 type RegistryIndex struct {
@@ -53,7 +55,8 @@ type ResolvedPlugin struct {
 }
 
 func OfficialRegistry() Registry {
-	return Registry{Name: OfficialRegistryName, URL: OfficialRegistryBaseURL, UnqualifiedResolution: true}
+	identity := SigstoreIdentity{Issuer: OfficialSigstoreIssuer, Repository: OfficialSigstoreRepo}
+	return Registry{Name: OfficialRegistryName, URL: OfficialRegistryBaseURL, UnqualifiedResolution: true, Trust: &identity}
 }
 
 func ParseRegistryIndex(data []byte) (RegistryIndex, error) {

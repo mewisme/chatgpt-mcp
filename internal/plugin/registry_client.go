@@ -52,11 +52,7 @@ func (client RegistryClient) Refresh(ctx context.Context, registry Registry) (Re
 	if err != nil {
 		return RegistrySnapshot{}, err
 	}
-	publishers, err := ParsePublisherIndex(publishersData)
-	if err != nil {
-		return RegistrySnapshot{}, err
-	}
-	identity, err := registryTrustIdentity(registry, publishers)
+	identity, err := registryTrustIdentity(registry)
 	if err != nil {
 		return RegistrySnapshot{}, err
 	}
@@ -66,6 +62,10 @@ func (client RegistryClient) Refresh(ctx context.Context, registry Registry) (Re
 	}
 	if err := verifier(ctx, publishersData, publishersSignature, identity); err != nil {
 		return RegistrySnapshot{}, fmt.Errorf("verify publisher registry signature: %w", err)
+	}
+	publishers, err := ParsePublisherIndex(publishersData)
+	if err != nil {
+		return RegistrySnapshot{}, err
 	}
 	if err := verifier(ctx, indexData, indexSignature, identity); err != nil {
 		return RegistrySnapshot{}, fmt.Errorf("verify plugin registry signature: %w", err)
@@ -179,7 +179,7 @@ func (client RegistryClient) fetch(ctx context.Context, baseURL, asset string, l
 	if err != nil || base.Scheme != "https" || base.Host == "" {
 		return nil, fmt.Errorf("plugin registry URL must use HTTPS: %s", baseURL)
 	}
-	if !safeAssetName(asset) && !strings.HasSuffix(asset, ".sigstore.json") {
+	if !safeRegistryAssetName(asset) {
 		return nil, fmt.Errorf("unsafe plugin registry asset name: %q", asset)
 	}
 	resolved, err := base.Parse(url.PathEscape(asset))
@@ -195,10 +195,7 @@ func (client RegistryClient) fetch(ctx context.Context, baseURL, asset string, l
 		userAgent = "chatgpt-mcp/plugin-registry"
 	}
 	request.Header.Set("User-Agent", userAgent)
-	httpClient := client.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
-	}
+	httpClient := securePluginHTTPClient(client.HTTPClient, 30*time.Second, base.Host)
 	response, err := httpClient.Do(request)
 	if err != nil {
 		return nil, err
@@ -251,21 +248,25 @@ func validateRegistryDescriptor(registry Registry) error {
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 		return fmt.Errorf("plugin registry URL must use HTTPS: %s", registry.URL)
 	}
+	if registry.Name != OfficialRegistryName {
+		if registry.Trust == nil || strings.TrimSpace(registry.Trust.Issuer) == "" || strings.TrimSpace(registry.Trust.Repository) == "" {
+			return fmt.Errorf("plugin registry %s requires a pinned Sigstore trust identity", registry.Name)
+		}
+	}
 	return nil
 }
 
-func registryTrustIdentity(registry Registry, publishers PublisherIndex) (SigstoreIdentity, error) {
+func registryTrustIdentity(registry Registry) (SigstoreIdentity, error) {
 	if registry.Name == OfficialRegistryName {
-		publisher, ok := publishers.Publishers["mewisme"]
-		if !ok || !publisher.Trusted {
-			return SigstoreIdentity{}, errors.New("official registry requires trusted mewisme publisher")
-		}
-		return publisher.Sigstore, nil
+		return SigstoreIdentity{Issuer: OfficialSigstoreIssuer, Repository: OfficialSigstoreRepo}, nil
 	}
-	for _, publisher := range publishers.Publishers {
-		if publisher.Trusted {
-			return publisher.Sigstore, nil
-		}
+	if registry.Trust == nil || strings.TrimSpace(registry.Trust.Issuer) == "" || strings.TrimSpace(registry.Trust.Repository) == "" {
+		return SigstoreIdentity{}, errors.New("plugin registry trust identity is required")
 	}
-	return SigstoreIdentity{}, errors.New("registry has no trusted publisher identity for metadata verification")
+	return *registry.Trust, nil
+}
+
+func safeRegistryAssetName(asset string) bool {
+	asset = strings.TrimSuffix(asset, ".sigstore.json")
+	return safeAssetName(asset)
 }

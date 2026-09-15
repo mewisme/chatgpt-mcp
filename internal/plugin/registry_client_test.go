@@ -100,6 +100,45 @@ func TestRegistryClientFetchManifestVerifiesIdentity(t *testing.T) {
 	}
 }
 
+func TestRegistryClientPinsOfficialTrustIdentity(t *testing.T) {
+	now := time.Date(2026, 9, 15, 1, 0, 0, 0, time.UTC)
+	server, _ := testRegistryServer(t, now)
+	defer server.Close()
+	var identities []SigstoreIdentity
+	client := RegistryClient{HTTPClient: server.Client(), Layout: testLayout(t), Verifier: func(_ context.Context, _, _ []byte, identity SigstoreIdentity) error {
+		identities = append(identities, identity)
+		return nil
+	}}
+	if _, err := client.Refresh(context.Background(), Registry{Name: OfficialRegistryName, URL: server.URL, UnqualifiedResolution: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(identities) != 2 {
+		t.Fatalf("verified identities = %#v", identities)
+	}
+	for _, identity := range identities {
+		if identity.Issuer != OfficialSigstoreIssuer || identity.Repository != OfficialSigstoreRepo {
+			t.Fatalf("official trust was not pinned: %#v", identity)
+		}
+	}
+}
+
+func TestSecurePluginHTTPClientRejectsCrossHostRedirect(t *testing.T) {
+	client := securePluginHTTPClient(nil, time.Second, "plugins.example.test")
+	request, err := http.NewRequest(http.MethodGet, "https://evil.example.test/asset", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.CheckRedirect(request, nil); err == nil {
+		t.Fatal("cross-host plugin redirect accepted")
+	}
+}
+
+func TestSafeRegistryAssetNameRejectsTraversalSignature(t *testing.T) {
+	if safeRegistryAssetName("../index.json.sigstore.json") {
+		t.Fatal("traversal signature asset accepted")
+	}
+}
+
 func testRegistryServer(t *testing.T, generatedAt time.Time) (*httptest.Server, map[string][]byte) {
 	t.Helper()
 	snapshot := testRegistrySnapshot("official", true)

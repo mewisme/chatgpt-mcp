@@ -76,9 +76,10 @@ type SigstoreIdentity struct {
 }
 
 type Registry struct {
-	Name                  string `json:"name"`
-	URL                   string `json:"url"`
-	UnqualifiedResolution bool   `json:"unqualified_resolution,omitempty"`
+	Name                  string            `json:"name"`
+	URL                   string            `json:"url"`
+	UnqualifiedResolution bool              `json:"unqualified_resolution,omitempty"`
+	Trust                 *SigstoreIdentity `json:"trust,omitempty"`
 }
 
 var canonicalNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$`)
@@ -270,11 +271,17 @@ func validCanonicalName(value string) bool {
 
 func validateVersion(value string) error {
 	value = strings.TrimSpace(value)
-	if value == "" || strings.ContainsAny(value, `/\\`) {
+	if value == "" || strings.ContainsAny(value, `/\\+`) || strings.HasPrefix(value, "v") || strings.HasPrefix(value, "V") {
 		return update.ErrInvalidVersion
 	}
-	_, err := update.NormalizeVersion(value)
-	return err
+	normalized, err := update.NormalizeVersion(value)
+	if err != nil {
+		return err
+	}
+	if strings.TrimPrefix(normalized, "v") != value {
+		return update.ErrInvalidVersion
+	}
+	return nil
 }
 
 func validateCoreConstraint(value string) error {

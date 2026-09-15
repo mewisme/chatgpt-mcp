@@ -43,8 +43,9 @@ func TestResolveAcrossRejectsAmbiguity(t *testing.T) {
 
 func testRegistrySnapshot(name string, unqualified bool) RegistrySnapshot {
 	publisher := Publisher{Name: "mewisme", Source: "https://github.com/mewisme/chatgpt-mcp", Trusted: true, Sigstore: SigstoreIdentity{Issuer: "https://token.actions.githubusercontent.com", Repository: "mewisme/chatgpt-mcp"}}
+	trust := SigstoreIdentity{Issuer: OfficialSigstoreIssuer, Repository: OfficialSigstoreRepo}
 	return RegistrySnapshot{
-		Registry: Registry{Name: name, URL: "https://example.invalid/plugins", UnqualifiedResolution: unqualified},
+		Registry: Registry{Name: name, URL: "https://example.invalid/plugins", UnqualifiedResolution: unqualified, Trust: &trust},
 		Index: RegistryIndex{Schema: RegistrySchema, GeneratedAt: time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC), Plugins: map[PluginID]RegistryEntry{
 			"bash": {Publisher: "mewisme", Name: "Bash Runtime", Description: "Portable Bash", Type: "runtime", Stable: "1.0.0", Versions: map[Version]string{"1.0.0": "bash-1.0.0.json"}},
 		}},

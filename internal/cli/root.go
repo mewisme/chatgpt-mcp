@@ -47,6 +47,7 @@ func newRootCommand() *cobra.Command {
 		workspaceCommand(),
 		upstreamCommand(),
 		mcpCommand(),
+		pluginCommand(),
 		tunnelCommand(),
 		serveCommand(),
 		statusCommand(),

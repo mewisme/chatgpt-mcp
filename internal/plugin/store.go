@@ -164,14 +164,15 @@ func (store *Store) Activate(id PluginID, version Version, trust ActivationTrust
 	if installed.Manifest.Publisher != trust.Publisher {
 		return fmt.Errorf("trusted publisher %q does not match manifest publisher %q", trust.Publisher, installed.Manifest.Publisher)
 	}
-	if coreVersion := strings.TrimSpace(store.runtime.CoreVersion); coreVersion != "" && coreVersion != "dev" {
-		compatible, err := installed.Manifest.CompatibleWithCore(coreVersion)
-		if err != nil {
-			return err
-		}
-		if !compatible {
-			return fmt.Errorf("plugin %s@%s is incompatible with chatgpt-mcp %s", id, version, coreVersion)
-		}
+	compatible, err := pluginCoreCompatible(store, installed.Manifest)
+	if err != nil {
+		return err
+	}
+	if !compatible {
+		return fmt.Errorf("plugin %s@%s is incompatible with chatgpt-mcp %s", id, version, store.runtime.CoreVersion)
+	}
+	if err := ValidateDependencies(store, installed.Manifest); err != nil {
+		return err
 	}
 	manifestDigest, err := ManifestDigest(installed.Manifest)
 	if err != nil {
@@ -199,6 +200,33 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 	entry, ok := lock.Plugins[id]
 	if !ok {
 		return fmt.Errorf("plugin %s is not active", id)
+	}
+	if enabled {
+		installed, err := store.Installed(id, entry.Version)
+		if err != nil {
+			return err
+		}
+		digest, err := ManifestDigest(installed.Manifest)
+		if err != nil {
+			return err
+		}
+		artifact, err := installed.Manifest.Platform(store.runtime.OS, store.runtime.Arch)
+		if err != nil {
+			return err
+		}
+		if digest != entry.ManifestDigest || installed.Manifest.Publisher != entry.Publisher || entry.ArtifactDigest != "sha256:"+artifact.SHA256 {
+			return fmt.Errorf("plugin %s lock integrity verification failed", id)
+		}
+		compatible, err := pluginCoreCompatible(store, installed.Manifest)
+		if err != nil {
+			return err
+		}
+		if !compatible {
+			return fmt.Errorf("plugin %s@%s is incompatible with chatgpt-mcp %s", id, entry.Version, store.runtime.CoreVersion)
+		}
+		if err := ValidateDependencies(store, installed.Manifest); err != nil {
+			return err
+		}
 	}
 	entry.Enabled = enabled
 	lock.Plugins[id] = entry

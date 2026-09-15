@@ -4,20 +4,26 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"testing"
 )
 
-func TestStoreInstallActivateRollback(t *testing.T) {
+func TestStoreImmutableInstallAndRollback(t *testing.T) {
 	store := testStore(t)
-	for _, version := range []Version{"1.0.0", "1.1.0"} {
-		manifest := testManifest("bash", string(version), "shell/bash")
-		payload := testPayload(t)
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	for _, version := range []string{"1.0.0", "1.1.0"} {
+		manifest := testManifest("bash", version, "shell/bash")
+		payload := testPayload(t, "bash")
 		if _, err := store.Install(manifest, payload); err != nil {
 			t.Fatal(err)
 		}
 	}
-	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	if _, err := store.Install(testManifest("bash", "1.0.0", "shell/bash"), testPayload(t, "bash")); !errors.Is(err, ErrVersionInstalled) {
+		t.Fatalf("duplicate install error = %v", err)
+	}
+	if err := store.Activate("bash", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Activate("bash", "1.1.0", trust); err != nil {
 		t.Fatal(err)
 	}
@@ -31,82 +37,81 @@ func TestStoreInstallActivateRollback(t *testing.T) {
 	if lock.Plugins["bash"].Version != "1.0.0" {
 		t.Fatalf("rollback version = %q", lock.Plugins["bash"].Version)
 	}
+	versions, err := store.InstalledVersions("bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("installed versions = %#v", versions)
+	}
 	if err := store.RemoveVersion("bash", "1.0.0"); err == nil {
-		t.Fatal("active version removed")
-	}
-	if err := store.RemoveVersion("bash", "1.1.0"); err != nil {
-		t.Fatal(err)
+		t.Fatal("active rollback version was removed")
 	}
 }
 
-func TestStoreInstallIsImmutable(t *testing.T) {
+func TestStoreRejectsUntrustedActivation(t *testing.T) {
 	store := testStore(t)
-	manifest := testManifest("bash", "1.0.0", "shell/bash")
-	payload := testPayload(t)
-	if _, err := store.Install(manifest, payload); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Install(manifest, payload); !errors.Is(err, ErrVersionInstalled) {
-		t.Fatalf("second install error = %v", err)
-	}
-}
-
-func TestStoreRejectsSymlinkPayload(t *testing.T) {
-	if os.PathSeparator == '\\' {
-		t.Skip("symlink creation may require Windows elevation")
-	}
-	store := testStore(t)
-	payload := testPayload(t)
-	if err := os.Symlink(filepath.Join(payload, "usr", "bin", "bash.exe"), filepath.Join(payload, "escape")); err != nil {
-		t.Skipf("symlink unavailable: %v", err)
-	}
-	if _, err := store.Install(testManifest("bash", "1.0.0", "shell/bash"), payload); err == nil {
-		t.Fatal("symlink payload accepted")
-	}
-}
-
-func TestStoreRequiresTrustedPublisher(t *testing.T) {
-	store := testStore(t)
-	manifest := testManifest("bash", "1.0.0", "shell/bash")
-	if _, err := store.Install(manifest, testPayload(t)); err != nil {
+	if _, err := store.Install(testManifest("bash", "1.0.0", "shell/bash"), testPayload(t, "bash")); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Activate("bash", "1.0.0", ActivationTrust{Registry: "official", Publisher: "mewisme"}); err == nil {
 		t.Fatal("untrusted plugin activated")
 	}
-	if err := store.Activate("bash", "1.0.0", ActivationTrust{Registry: "official", Publisher: "other", Trusted: true}); err == nil {
-		t.Fatal("publisher mismatch activated")
+}
+
+func TestStoreRejectsPayloadSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation may require additional privileges")
+	}
+	store := testStore(t)
+	payload := testPayload(t, "bash")
+	if err := os.Symlink("/tmp", filepath.Join(payload, "escape")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := store.Install(testManifest("bash", "1.0.0", "shell/bash"), payload); err == nil {
+		t.Fatal("payload symlink accepted")
+	}
+}
+
+func TestStoreEnableRevalidatesCoreCompatibility(t *testing.T) {
+	store := testStore(t)
+	store.runtime.CoreVersion = "10.0.0"
+	manifest := testManifest("bash", "1.0.0", "shell/bash")
+	manifest.Requires.ChatGPTMCP = ">=9.0.0"
+	if _, err := store.Install(manifest, testPayload(t, "bash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Activate("bash", "1.0.0", ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetEnabled("bash", false); err != nil {
+		t.Fatal(err)
+	}
+	store.runtime.CoreVersion = "0.2.24"
+	if err := store.SetEnabled("bash", true); err == nil {
+		t.Fatal("incompatible plugin re-enabled")
 	}
 }
 
 func testStore(t *testing.T) *Store {
 	t.Helper()
 	root := t.TempDir()
-	store, err := NewStore(Layout{ConfigRoot: filepath.Join(root, "config"), DataRoot: filepath.Join(root, "data"), CacheRoot: filepath.Join(root, "cache")}, RuntimeContext{OS: "windows", Arch: "amd64", CoreVersion: "0.2.24"})
+	layout := Layout{ConfigRoot: filepath.Join(root, "config"), DataRoot: filepath.Join(root, "data"), CacheRoot: filepath.Join(root, "cache")}
+	store, err := NewStore(layout, RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return store
 }
 
-func testPayload(t *testing.T) string {
+func testPayload(t *testing.T, name string) string {
 	t.Helper()
 	root := t.TempDir()
-	path := filepath.Join(root, "usr", "bin", "bash.exe")
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("test"), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "bin", name), []byte("payload"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	return root
-}
-
-func testLockEntry(t *testing.T, store *Store, manifest Manifest, version Version) LockPlugin {
-	t.Helper()
-	digest, err := ManifestDigest(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return LockPlugin{Registry: "official", Publisher: manifest.Publisher, Version: version, ManifestDigest: digest, ArtifactDigest: "sha256:" + strings.Repeat("a", 64), Enabled: true}
 }

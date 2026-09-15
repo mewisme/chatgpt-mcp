@@ -68,6 +68,13 @@ func NewResolver(store *Store) (*Resolver, error) {
 		if entry.ArtifactDigest != "sha256:"+artifact.SHA256 {
 			return nil, fmt.Errorf("active plugin %s@%s artifact digest does not match lock metadata", id, entry.Version)
 		}
+		compatible, err := pluginCoreCompatible(store, installed.Manifest)
+		if err != nil {
+			return nil, fmt.Errorf("check active plugin %s@%s compatibility: %w", id, entry.Version, err)
+		}
+		if !compatible {
+			continue
+		}
 		provider := CapabilityProvider{PluginID: id, Version: entry.Version, Name: installed.Manifest.Name, Path: installed.Entrypoint}
 		for _, capability := range installed.Manifest.Provides {
 			providers[capability] = append(providers[capability], provider)
@@ -83,6 +90,30 @@ func NewResolver(store *Store) (*Resolver, error) {
 		})
 	}
 	return &Resolver{providers: providers}, nil
+}
+
+func ValidateDependencies(store *Store, manifest Manifest) error {
+	if len(manifest.Dependencies.Capabilities) == 0 {
+		return nil
+	}
+	resolver, err := NewResolver(store)
+	if err != nil {
+		return err
+	}
+	for _, capability := range manifest.Dependencies.Capabilities {
+		if _, err := resolver.Resolve(capability); err != nil {
+			return fmt.Errorf("plugin %s@%s requires capability %s: %w", manifest.ID, manifest.Version, capability, err)
+		}
+	}
+	return nil
+}
+
+func pluginCoreCompatible(store *Store, manifest Manifest) (bool, error) {
+	coreVersion := strings.TrimSpace(store.runtime.CoreVersion)
+	if coreVersion == "" || coreVersion == "dev" {
+		return true, nil
+	}
+	return manifest.CompatibleWithCore(coreVersion)
 }
 
 func (resolver *Resolver) Providers(capability Capability) []CapabilityProvider {

@@ -60,11 +60,7 @@ func TunnelStatus() (TunnelDashboard, error) {
 	if err != nil {
 		return TunnelDashboard{}, err
 	}
-	client := tunnel.NewConfigured(cfg.Tunnel, nil)
-	if metadata, err := config.LoadTunnelMetadata(cfg.Tunnel.ID); err == nil {
-		_ = client.SeedMetadata(metadata)
-	}
-	return TunnelDashboard{Config: cfg.Tunnel, Status: client.Status(), MCPHTTPEnabled: cfg.Server.Enabled}, nil
+	return dashboardFromConfig(cfg), nil
 }
 
 func ConfigureTunnelRuntime(ctx context.Context, input TunnelRuntimeInput) (TunnelDashboard, error) {
@@ -81,29 +77,35 @@ func ConfigureTunnelRuntime(ctx context.Context, input TunnelRuntimeInput) (Tunn
 		span.FailMessage("Tunnel runtime configuration load failed", err)
 		return TunnelDashboard{}, err
 	}
-	previousConfig := cfg
-	previous := cfg.Tunnel
-	next := previous
-	if input.Enabled != nil {
-		next.Enabled = *input.Enabled
-	}
+	collection := cfg.RuntimeTunnels()
+	instance, index, found := primaryLocalInstance(collection)
 	if input.ID != nil {
-		next.ID = strings.TrimSpace(*input.ID)
+		id := strings.TrimSpace(*input.ID)
+		if existing := localInstanceIndex(collection, id); existing >= 0 {
+			instance, index, found = collection.Instances[existing], existing, true
+		} else {
+			instance.ID = id
+		}
+	}
+	previous := instanceRuntimeConfig(instance)
+	if found {
+		previous = instanceRuntimeConfig(collection.Instances[index])
+	} else {
+		previous = tunnel.Config{}
+	}
+	if input.Enabled != nil {
+		instance.Enabled = *input.Enabled
 	}
 	if input.APIKey != nil {
-		next.APIKey = strings.TrimSpace(*input.APIKey)
+		instance.APIKey = strings.TrimSpace(*input.APIKey)
 	}
 	if input.ControlPlaneBaseURL != nil {
-		next.ControlPlaneBaseURL = strings.TrimSpace(*input.ControlPlaneBaseURL)
+		instance.ControlPlaneBaseURL = strings.TrimSpace(*input.ControlPlaneBaseURL)
 	}
 	if input.OrganizationID != nil {
-		next.OrganizationID = strings.TrimSpace(*input.OrganizationID)
+		instance.OrganizationID = strings.TrimSpace(*input.OrganizationID)
 	}
-	cfg.Tunnel = next
-	if err := config.Validate(cfg); err != nil {
-		span.FailMessage("Tunnel runtime configuration validation failed", err, tracepkg.String("tunnel_id", next.ID), tracepkg.Bool("enabled", next.Enabled))
-		return TunnelDashboard{}, err
-	}
+	next := instanceRuntimeConfig(instance)
 	metadataSync := tunnel.Configured(next) && (previous.ID != next.ID || previous.APIKey != next.APIKey || previous.ControlPlaneBaseURL != next.ControlPlaneBaseURL)
 	tracepkg.Emit(ctx, "TUNNEL", "tunnel.runtime.metadata-sync-decision", "Resolved tunnel metadata synchronization decision", tracepkg.Bool("metadata_sync", metadataSync), tracepkg.String("tunnel_id", next.ID), tracepkg.URL("control_plane_base_url", next.ControlPlaneBaseURL), tracepkg.Bool("runtime_auth_present", strings.TrimSpace(next.APIKey) != ""))
 	if metadataSync {
@@ -112,7 +114,12 @@ func ConfigureTunnelRuntime(ctx context.Context, input TunnelRuntimeInput) (Tunn
 			return TunnelDashboard{}, fmt.Errorf("persist tunnel metadata: %w", err)
 		}
 	}
-	if _, _, err := saveConfigMutation(ctx, previousConfig, cfg); err != nil {
+	if found {
+		collection.Instances[index] = instance
+	} else if strings.TrimSpace(instance.ID) != "" {
+		collection.Instances = append(collection.Instances, instance)
+	}
+	if err := saveTunnelCollection(ctx, cfg, collection); err != nil {
 		span.FailMessage("Tunnel runtime configuration persistence failed", err, tracepkg.Bool("metadata_sync", metadataSync))
 		return TunnelDashboard{}, err
 	}
@@ -130,12 +137,11 @@ func SetTunnelEnabled(ctx context.Context, enabled bool) (TunnelDashboard, error
 	if err != nil {
 		return TunnelDashboard{}, err
 	}
-	cfg := previous
-	cfg.Tunnel.Enabled = enabled
-	if err := config.Validate(cfg); err != nil {
-		return TunnelDashboard{}, err
+	instance, _, ok := primaryLocalInstance(previous.RuntimeTunnels())
+	if !ok || strings.TrimSpace(instance.ID) == "" {
+		return TunnelDashboard{}, errors.New("tunnel id is required")
 	}
-	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
+	if _, err := SetLocalTunnelEnabled(ctx, instance.ID, enabled); err != nil {
 		return TunnelDashboard{}, err
 	}
 	return TunnelStatus()
@@ -146,13 +152,15 @@ func SyncConfiguredTunnel(ctx context.Context) (tunnel.Metadata, string, error) 
 	if err != nil {
 		return tunnel.Metadata{}, "", err
 	}
-	if !tunnel.Configured(cfg.Tunnel) {
+	instance, _, ok := primaryLocalInstance(cfg.RuntimeTunnels())
+	runtime := instanceRuntimeConfig(instance)
+	if !ok || !tunnel.Configured(runtime) {
 		return tunnel.Metadata{}, "", errors.New("configured tunnel id and runtime API key are required")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return config.SyncTunnelMetadata(ctx, cfg.Tunnel)
+	return config.SyncTunnelMetadata(ctx, runtime)
 }
 
 func TunnelAdminKeyStatus() (TunnelAdminStatus, error) {
@@ -166,8 +174,9 @@ func TunnelAdminKeyStatusContext(ctx context.Context) (TunnelAdminStatus, error)
 		span.FailMessage("Stored tunnel admin key status load failed", err)
 		return TunnelAdminStatus{}, err
 	}
-	scope := tunnel.AdminScopeFromConfig(cfg.Tunnel)
-	status := TunnelAdminStatus{Configured: tunnel.AdminConfigured(cfg.Tunnel), Scope: scope, Access: tunnel.AdminAccessFromConfig(cfg.Tunnel)}
+	runtime := dashboardFromConfig(cfg).Config
+	scope := tunnel.AdminScopeFromConfig(runtime)
+	status := TunnelAdminStatus{Configured: tunnel.AdminConfigured(runtime), Scope: scope, Access: tunnel.AdminAccessFromConfig(runtime)}
 	fields := append(tunnelAdminScopeFields(scope), tracepkg.Bool("configured", status.Configured), tracepkg.Bool("read_access", status.Access.Read), tracepkg.Bool("manage_access", status.Access.Manage))
 	span.EndMessage("Stored tunnel admin key status loaded", fields...)
 	return status, nil
@@ -191,34 +200,50 @@ func SetTunnelAdminKey(ctx context.Context, input TunnelAdminKeyInput) (int, tun
 		span.FailMessage("Tunnel admin configuration load failed", err)
 		return 0, tunnel.AdminScope{}, err
 	}
-	cfg := previous
 	key := strings.TrimSpace(input.Key)
 	if key == "" {
 		err := errors.New("OpenAI admin key is required")
 		span.FailMessage("Tunnel admin key validation failed", err, tracepkg.String("key_source", keySource))
 		return 0, tunnel.AdminScope{}, err
 	}
-	candidate := cfg.Tunnel
-	candidate.AdminKey = key
-	scope, derivation, err := resolveTunnelAdminSetScope(ctx, candidate, input.Scope)
-	if err != nil {
-		span.FailMessage("Tunnel admin verification scope resolution failed", err, tracepkg.String("scope_derivation", derivation))
-		return 0, tunnel.AdminScope{}, fmt.Errorf("admin key verification scope: %w", err)
+	collection := previous.RuntimeTunnels()
+	admin, exists := primaryAdminProfile(collection)
+	if !exists {
+		admin.ID = "default"
+		if instance, _, ok := primaryLocalInstance(collection); ok {
+			admin.ControlPlaneBaseURL = instance.ControlPlaneBaseURL
+		}
 	}
-	tracepkg.Emit(ctx, "TUNNEL", "tunnel.admin-key.scope-resolved", "Resolved tunnel admin verification scope", append(tunnelAdminScopeFields(scope), tracepkg.String("scope_derivation", derivation))...)
-	tunnel.ApplyAdminScope(&candidate, scope)
-	access, count, err := tunnel.VerifyAdminKey(ctx, candidate)
-	if err != nil {
-		span.FailMessage("Tunnel admin key verification failed", errors.New("tunnel admin verification failed"), append(tunnelAdminScopeFields(scope), tracepkg.String("scope_derivation", derivation))...)
-		return 0, tunnel.AdminScope{}, fmt.Errorf("admin key verification failed: %w", err)
+	admin.AdminKey = key
+	if input.Scope != nil {
+		admin.OrganizationID = strings.TrimSpace(input.Scope.OrganizationID)
+		admin.WorkspaceID = strings.TrimSpace(input.Scope.WorkspaceID)
+		admin.TenantID = strings.TrimSpace(input.Scope.TenantID)
+	} else if !exists {
+		candidate := instanceRuntimeConfig(tunnel.InstanceConfig{})
+		if instance, _, ok := primaryLocalInstance(collection); ok {
+			candidate = instanceRuntimeConfig(instance)
+		}
+		candidate.AdminKey = key
+		scope, derivation, scopeErr := resolveTunnelAdminSetScope(ctx, candidate, nil)
+		if scopeErr != nil {
+			span.FailMessage("Tunnel admin verification scope resolution failed", scopeErr, tracepkg.String("scope_derivation", derivation))
+			return 0, tunnel.AdminScope{}, fmt.Errorf("admin key verification scope: %w", scopeErr)
+		}
+		admin.OrganizationID, admin.WorkspaceID, admin.TenantID = scope.OrganizationID, scope.WorkspaceID, scope.TenantID
 	}
-	tunnel.ApplyAdminAccess(&candidate, access)
-	cfg.Tunnel = candidate
-	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
-		span.FailMessage("Tunnel admin access persistence failed", err, tracepkg.Bool("read_access", access.Read), tracepkg.Bool("manage_access", access.Manage), tracepkg.Int("tunnel_count", count))
+	var count int
+	if exists {
+		_, count, err = UpdateTunnelAdminProfile(ctx, admin)
+	} else {
+		_, count, err = AddTunnelAdminProfile(ctx, admin)
+	}
+	if err != nil {
+		span.FailMessage("Tunnel admin access persistence failed", err)
 		return 0, tunnel.AdminScope{}, err
 	}
-	span.EndMessage("Tunnel admin access verified and stored", append(tunnelAdminScopeFields(scope), tracepkg.String("key_source", keySource), tracepkg.String("scope_derivation", derivation), tracepkg.Bool("read_access", access.Read), tracepkg.Bool("manage_access", access.Manage), tracepkg.Int("tunnel_count", count))...)
+	scope := tunnel.AdminScope{OrganizationID: admin.OrganizationID, WorkspaceID: admin.WorkspaceID, TenantID: admin.TenantID}
+	span.EndMessage("Tunnel admin access verified and stored", append(tunnelAdminScopeFields(scope), tracepkg.String("key_source", keySource), tracepkg.Int("tunnel_count", count))...)
 	return count, scope, nil
 }
 
@@ -232,24 +257,20 @@ func VerifyTunnelAdminKey(ctx context.Context) (int, tunnel.AdminScope, error) {
 		span.FailMessage("Stored tunnel admin configuration load failed", err)
 		return 0, tunnel.AdminScope{}, err
 	}
-	if !tunnel.AdminConfigured(cfg.Tunnel) {
+	collection := cfg.RuntimeTunnels()
+	admin, ok := primaryAdminProfile(collection)
+	if !ok {
 		err := errors.New("tunnel admin key is not configured; set it first")
 		span.FailMessage("Stored tunnel admin access is not configured", err)
 		return 0, tunnel.AdminScope{}, err
 	}
-	scope := tunnel.AdminScopeFromConfig(cfg.Tunnel)
-	access, count, err := tunnel.VerifyAdminKey(ctx, cfg.Tunnel)
+	profile, count, err := VerifyTunnelAdminProfile(ctx, admin.ID)
 	if err != nil {
-		span.FailMessage("Stored tunnel admin access verification failed", errors.New("tunnel admin verification failed"), tunnelAdminScopeFields(scope)...)
-		return 0, scope, err
+		span.FailMessage("Stored tunnel admin access verification failed", errors.New("tunnel admin verification failed"))
+		return 0, tunnel.AdminScope{OrganizationID: admin.OrganizationID, WorkspaceID: admin.WorkspaceID, TenantID: admin.TenantID}, err
 	}
-	previous := cfg
-	tunnel.ApplyAdminAccess(&cfg.Tunnel, access)
-	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
-		span.FailMessage("Stored tunnel admin access persistence failed", err, tracepkg.Bool("read_access", access.Read), tracepkg.Bool("manage_access", access.Manage))
-		return 0, scope, err
-	}
-	span.EndMessage("Stored tunnel admin access verified", append(tunnelAdminScopeFields(scope), tracepkg.Bool("read_access", access.Read), tracepkg.Bool("manage_access", access.Manage), tracepkg.Int("tunnel_count", count))...)
+	scope := tunnel.AdminScope{OrganizationID: profile.OrganizationID, WorkspaceID: profile.WorkspaceID, TenantID: profile.TenantID}
+	span.EndMessage("Stored tunnel admin access verified", append(tunnelAdminScopeFields(scope), tracepkg.Bool("read_access", profile.ReadAccess), tracepkg.Bool("manage_access", profile.ManageAccess), tracepkg.Int("tunnel_count", count))...)
 	return count, scope, nil
 }
 
@@ -263,35 +284,42 @@ func RemoveTunnelAdminKey(ctx context.Context) error {
 		span.FailMessage("Tunnel admin key removal configuration load failed", err)
 		return err
 	}
-	cfg := previous
-	cfg.Tunnel.AdminKey = ""
-	tunnel.ApplyAdminScope(&cfg.Tunnel, tunnel.AdminScope{})
-	tunnel.ApplyAdminAccess(&cfg.Tunnel, tunnel.AdminAccess{})
-	_, reloaded, err := saveConfigMutation(ctx, previous, cfg)
-	if err != nil {
+	collection := previous.RuntimeTunnels()
+	admin, ok := primaryAdminProfile(collection)
+	if !ok {
+		span.EndMessage("Stored tunnel admin key removed", tracepkg.Bool("runtime_reloaded", false))
+		return nil
+	}
+	for i, instance := range collection.Instances {
+		if instance.AdminProfileID == admin.ID {
+			collection.Instances[i].AdminProfileID = ""
+		}
+	}
+	filtered := collection.Admins[:0]
+	for _, item := range collection.Admins {
+		if item.ID != admin.ID {
+			filtered = append(filtered, item)
+		}
+	}
+	collection.Admins = append([]tunnel.AdminConfig{}, filtered...)
+	if err := saveTunnelCollection(ctx, previous, collection); err != nil {
 		span.FailMessage("Tunnel admin key removal failed", err)
 		return err
 	}
-	span.EndMessage("Stored tunnel admin key removed", tracepkg.Bool("runtime_reloaded", reloaded))
+	span.EndMessage("Stored tunnel admin key removed", tracepkg.Bool("runtime_reloaded", true))
 	return nil
 }
 
 func ListManagedTunnels(ctx context.Context) ([]tunnel.Metadata, error) {
-	cfg, err := config.Load()
+	items, err := DiscoverManagedTunnels(ctx, "")
 	if err != nil {
 		return nil, err
 	}
-	if !tunnel.AdminConfigured(cfg.Tunnel) {
-		return nil, errors.New("verified tunnel admin key is required")
+	result := make([]tunnel.Metadata, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.Metadata)
 	}
-	if !cfg.Tunnel.AdminManageAccess {
-		return nil, errors.New("tunnel admin key does not have verified Manage access")
-	}
-	scope := tunnel.AdminScopeFromConfig(cfg.Tunnel)
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return tunnel.ListManaged(ctx, cfg.Tunnel, scope)
+	return result, nil
 }
 
 func RefreshManagedTunnels(ctx context.Context) ([]tunnel.Metadata, error) {
@@ -311,39 +339,21 @@ func RefreshManagedTunnels(ctx context.Context) ([]tunnel.Metadata, error) {
 }
 
 func GetManagedTunnel(ctx context.Context, id string, options ManagedTunnelOptions) (ManagedTunnelResult, error) {
-	cfg, err := config.Load()
+	discovery, err := GetManagedTunnelByProfile(ctx, strings.TrimSpace(id), "")
 	if err != nil {
 		return ManagedTunnelResult{}, err
 	}
-	if !tunnel.AdminConfigured(cfg.Tunnel) {
-		return ManagedTunnelResult{}, errors.New("verified tunnel admin key is required")
-	}
-	if !cfg.Tunnel.AdminReadAccess && !cfg.Tunnel.AdminManageAccess {
-		return ManagedTunnelResult{}, errors.New("tunnel admin key does not have verified Read access")
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	tracepkg.Emit(ctx, "TUNNEL", "tunnel.managed.local-config-decision", "Resolved managed tunnel local configuration decision", tracepkg.String("tunnel_id", strings.TrimSpace(id)), tracepkg.Bool("configure", options.Configure), tracepkg.Bool("enable", options.Enable), tracepkg.Bool("runtime_key_supplied", strings.TrimSpace(options.RuntimeAPIKey) != ""))
-	metadata, err := tunnel.GetManaged(ctx, cfg.Tunnel, strings.TrimSpace(id))
-	if err != nil {
-		return ManagedTunnelResult{}, err
-	}
-	if _, err := config.SaveTunnelMetadataContext(ctx, metadata); err != nil {
+	if _, err := config.SaveTunnelMetadataContext(ctx, discovery.Metadata); err != nil {
 		return ManagedTunnelResult{}, err
 	}
 	configured := false
 	if options.Configure {
-		previous := cfg
-		if err := configureManagedTunnel(&cfg, metadata, options.RuntimeAPIKey, options.Enable); err != nil {
-			return ManagedTunnelResult{}, err
-		}
-		if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
+		if _, err := AttachManagedTunnelWithOptions(ctx, discovery.Metadata.ID, AttachManagedTunnelOptions{AdminProfileID: firstNonEmpty(discovery.AdminProfiles...), RuntimeAPIKey: options.RuntimeAPIKey, Enabled: options.Enable}); err != nil {
 			return ManagedTunnelResult{}, err
 		}
 		configured = true
 	}
-	return ManagedTunnelResult{Metadata: metadata, Configured: configured}, nil
+	return ManagedTunnelResult{Metadata: discovery.Metadata, Configured: configured}, nil
 }
 
 func UseManagedTunnel(ctx context.Context, id string, options ManagedTunnelUseOptions) (ManagedTunnelResult, error) {
@@ -357,49 +367,17 @@ func UseManagedTunnel(ctx context.Context, id string, options ManagedTunnelUseOp
 		span.FailMessage("Managed tunnel selection validation failed", err)
 		return ManagedTunnelResult{}, err
 	}
-	cfg, err := config.Load()
+	item, err := AttachManagedTunnelWithOptions(ctx, id, AttachManagedTunnelOptions{RuntimeAPIKey: options.RuntimeAPIKey, AutoGenerateRuntimeKey: options.AutoGenerateRuntimeKey, ProjectID: options.ProjectID, Enabled: true})
 	if err != nil {
-		span.FailMessage("Managed tunnel configuration load failed", err)
+		span.FailMessage("Managed tunnel local configuration failed", err)
 		return ManagedTunnelResult{}, err
 	}
-	selected, err := GetManagedTunnel(ctx, id, ManagedTunnelOptions{})
-	if err != nil {
-		span.FailMessage("Managed tunnel selection fetch failed", err)
-		return ManagedTunnelResult{}, err
+	result := ManagedTunnelResult{Configured: true}
+	if item.Status.Metadata != nil {
+		result.Metadata = *item.Status.Metadata
 	}
-	key := strings.TrimSpace(options.RuntimeAPIKey)
-	keySource := "flag"
-	if key == "" {
-		key = strings.TrimSpace(cfg.Tunnel.APIKey)
-		keySource = "stored"
-	}
-	if key == "" && options.AutoGenerateRuntimeKey {
-		generated, err := tunnel.GenerateRuntimeKey(ctx, cfg.Tunnel, options.ProjectID)
-		if err != nil {
-			span.FailMessage("Managed tunnel runtime key generation failed", errors.New("runtime key generation failed"))
-			return ManagedTunnelResult{}, err
-		}
-		key = generated.Value
-		keySource = "generated"
-	}
-	if key == "" {
-		err := errors.New("runtime API key is required to use this tunnel; provide one or enable automatic generation with a sufficiently privileged admin key")
-		span.FailMessage("Managed tunnel runtime key unavailable", err, tracepkg.String("runtime_key_source", "none"))
-		return ManagedTunnelResult{}, err
-	}
-	tracepkg.Emit(ctx, "TUNNEL", "tunnel.managed.runtime-key-resolved", "Resolved managed tunnel runtime key source", tracepkg.String("tunnel_id", id), tracepkg.String("runtime_key_source", keySource), tracepkg.Bool("generated", keySource == "generated"))
-	previous := cfg
-	if err := configureManagedTunnel(&cfg, selected.Metadata, key, true); err != nil {
-		span.FailMessage("Managed tunnel local configuration failed", err, tracepkg.String("runtime_key_source", keySource))
-		return ManagedTunnelResult{}, err
-	}
-	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
-		span.FailMessage("Managed tunnel local configuration persistence failed", err, tracepkg.String("runtime_key_source", keySource))
-		return ManagedTunnelResult{}, err
-	}
-	selected.Configured = true
-	span.EndMessage("Managed tunnel selected for local runtime", tracepkg.String("tunnel_id", id), tracepkg.String("runtime_key_source", keySource), tracepkg.Bool("generated", keySource == "generated"), tracepkg.Bool("enabled", true))
-	return selected, nil
+	span.EndMessage("Managed tunnel selected for local runtime", tracepkg.String("tunnel_id", id), tracepkg.Bool("enabled", true))
+	return result, nil
 }
 
 func CreateManagedTunnel(ctx context.Context, request tunnel.CreateRequest, options ManagedTunnelOptions) (ManagedTunnelResult, error) {
@@ -437,11 +415,7 @@ func CreateManagedTunnel(ctx context.Context, request tunnel.CreateRequest, opti
 	}
 	configured := false
 	if options.Configure {
-		previous := cfg
 		if err := configureManagedTunnel(&cfg, metadata, options.RuntimeAPIKey, options.Enable); err != nil {
-			return ManagedTunnelResult{}, err
-		}
-		if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 			return ManagedTunnelResult{}, err
 		}
 		configured = true
@@ -473,11 +447,7 @@ func UpdateManagedTunnel(ctx context.Context, id string, request tunnel.UpdateRe
 	}
 	configured := false
 	if options.Configure {
-		previous := cfg
 		if err := configureManagedTunnel(&cfg, metadata, options.RuntimeAPIKey, options.Enable); err != nil {
-			return ManagedTunnelResult{}, err
-		}
-		if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
 			return ManagedTunnelResult{}, err
 		}
 		configured = true
@@ -486,48 +456,17 @@ func UpdateManagedTunnel(ctx context.Context, id string, request tunnel.UpdateRe
 }
 
 func DeleteManagedTunnel(ctx context.Context, id string, clearConfig bool) (ManagedTunnelResult, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return ManagedTunnelResult{}, err
-	}
-	if !tunnel.AdminConfigured(cfg.Tunnel) {
-		return ManagedTunnelResult{}, errors.New("verified tunnel admin key is required")
-	}
-	if !cfg.Tunnel.AdminManageAccess {
-		return ManagedTunnelResult{}, errors.New("tunnel admin key does not have verified Manage access")
-	}
 	id = strings.TrimSpace(id)
-	configuredTunnel := id != "" && id == strings.TrimSpace(cfg.Tunnel.ID)
-	if configuredTunnel && !cfg.Server.Enabled {
-		return ManagedTunnelResult{}, errors.New("cannot delete the configured OpenAI tunnel while MCP HTTP is disabled")
-	}
-	clearConfigured := clearConfig && configuredTunnel
-	var clearedConfig config.Config
-	if clearConfigured {
-		clearedConfig = cfg
-		clearedConfig.Tunnel.Enabled = false
-		clearedConfig.Tunnel.ID = ""
-		clearedConfig.Tunnel.APIKey = ""
-		clearedConfig.Tunnel.OrganizationID = ""
-		if err := config.Validate(clearedConfig); err != nil {
+	cleared := false
+	if clearConfig {
+		if err := DetachLocalTunnel(ctx, id); err != nil && !strings.Contains(err.Error(), "not attached") {
 			return ManagedTunnelResult{}, err
+		} else if err == nil {
+			cleared = true
 		}
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	tracepkg.Emit(ctx, "TUNNEL", "tunnel.managed.local-clear-decision", "Resolved managed tunnel local clear decision", tracepkg.String("tunnel_id", id), tracepkg.Bool("configured_tunnel", configuredTunnel), tracepkg.Bool("clear_requested", clearConfig), tracepkg.Bool("clear_config", clearConfigured))
-	metadata, err := tunnel.DeleteManaged(ctx, cfg.Tunnel, id)
+	metadata, err := DeleteManagedTunnelByProfile(ctx, id, "")
 	if err != nil {
-		return ManagedTunnelResult{}, err
-	}
-	cleared := clearConfigured && cfg.Tunnel.ID == metadata.ID
-	if cleared {
-		if _, _, err := saveConfigMutationWithoutRollback(ctx, clearedConfig); err != nil {
-			return ManagedTunnelResult{}, err
-		}
-	}
-	if err := config.RemoveTunnelMetadataContext(ctx, metadata.ID); err != nil {
 		return ManagedTunnelResult{}, err
 	}
 	return ManagedTunnelResult{Metadata: metadata, Cleared: cleared}, nil
@@ -554,22 +493,8 @@ func configureManagedTunnel(cfg *config.Config, metadata tunnel.Metadata, runtim
 	if cfg == nil {
 		return errors.New("configuration is unavailable")
 	}
-	key := strings.TrimSpace(runtimeAPIKey)
-	if key == "" {
-		key = strings.TrimSpace(cfg.Tunnel.APIKey)
-	}
-	if key == "" {
-		return errors.New("runtime API key is required to configure cgm")
-	}
-	cfg.Tunnel.ID = metadata.ID
-	cfg.Tunnel.APIKey = key
-	if len(metadata.OrganizationIDs) == 1 {
-		cfg.Tunnel.OrganizationID = metadata.OrganizationIDs[0]
-	}
-	if enable {
-		cfg.Tunnel.Enabled = true
-	}
-	return config.Validate(*cfg)
+	_, err := AttachManagedTunnelWithOptions(context.Background(), metadata.ID, AttachManagedTunnelOptions{RuntimeAPIKey: runtimeAPIKey, Enabled: enable})
+	return err
 }
 
 func resolveTunnelAdminSetScope(ctx context.Context, cfg tunnel.Config, explicit *tunnel.AdminScope) (tunnel.AdminScope, string, error) {

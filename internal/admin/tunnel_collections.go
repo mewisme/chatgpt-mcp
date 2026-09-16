@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -57,24 +58,65 @@ func (api API) persistTunnelCollection(previous, next config.Config) error {
 	if err := api.persistConfig(next); err != nil {
 		return err
 	}
+	return api.syncLiveConfig(next)
+}
+
+func (api API) syncLiveConfig(next config.Config) error {
 	if api.ReloadConfig != nil {
-		if err := api.ReloadConfig(next); err != nil {
-			return errors.Join(err, api.persistConfig(previous))
+		return api.ReloadConfig(next)
+	}
+	if api.Tunnels != nil {
+		if err := api.Tunnels.Reconcile(context.Background(), next.RuntimeTunnels()); err != nil {
+			return err
 		}
-		return nil
 	}
-	if err := api.Tunnels.Reconcile(context.Background(), next.RuntimeTunnels()); err != nil {
-		return errors.Join(err, api.persistConfig(previous))
-	}
-	_, err := api.Config.Update(func(config.Config) (config.Config, error) { return next, nil })
-	if err != nil {
-		return errors.Join(err, api.persistConfig(previous), api.Tunnels.Reconcile(context.Background(), previous.RuntimeTunnels()))
+	if api.Config != nil {
+		_, err := api.Config.Update(func(config.Config) (config.Config, error) { return next, nil })
+		return err
 	}
 	return nil
 }
 
+func (api API) reloadCollectionFromDisk() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	return api.syncLiveConfig(cfg)
+}
+
+func writeTunnelCollectionError(w http.ResponseWriter, err error) {
+	msg := err.Error()
+	code := http.StatusBadRequest
+	switch {
+	case strings.Contains(msg, "not attached"), strings.Contains(msg, "not found"):
+		code = http.StatusNotFound
+	case strings.Contains(msg, "already attached"), strings.Contains(msg, "already exists"):
+		code = http.StatusConflict
+	}
+	http.Error(w, msg, code)
+}
+
+func (api API) liveLocalView(id string) (localTunnelView, error) {
+	_, collection, err := api.collectionState()
+	if err != nil {
+		return localTunnelView{}, err
+	}
+	for _, instance := range collection.Instances {
+		if instance.ID != id {
+			continue
+		}
+		status := tunnel.Status{ID: instance.ID, Enabled: instance.Enabled}
+		if client, ok := api.Tunnels.Client(id); ok {
+			status = client.Status()
+		}
+		return localView(instance, status), nil
+	}
+	return localTunnelView{}, fmt.Errorf("tunnel %q is not attached", id)
+}
+
 func (api API) handleLocalTunnels(w http.ResponseWriter, r *http.Request) {
-	cfg, collection, err := api.collectionState()
+	_, collection, err := api.collectionState()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -97,27 +139,21 @@ func (api API) handleLocalTunnels(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		request.ID = strings.TrimSpace(request.ID)
-		if request.ID == "" {
-			http.Error(w, "tunnel id is required", http.StatusBadRequest)
+		item, err := application.AttachLocalTunnel(r.Context(), tunnel.InstanceConfig{ID: strings.TrimSpace(request.ID), Enabled: request.Enabled, APIKey: strings.TrimSpace(request.APIKey), AdminProfileID: strings.TrimSpace(request.AdminProfileID), ControlPlaneBaseURL: strings.TrimSpace(request.ControlPlaneBaseURL), OrganizationID: strings.TrimSpace(request.OrganizationID)})
+		if err != nil {
+			writeTunnelCollectionError(w, err)
 			return
 		}
-		for _, instance := range collection.Instances {
-			if instance.ID == request.ID {
-				http.Error(w, "tunnel is already attached", http.StatusConflict)
-				return
-			}
-		}
-		instance := tunnel.InstanceConfig{ID: request.ID, Enabled: request.Enabled, APIKey: strings.TrimSpace(request.APIKey), AdminProfileID: strings.TrimSpace(request.AdminProfileID), ControlPlaneBaseURL: strings.TrimSpace(request.ControlPlaneBaseURL), OrganizationID: strings.TrimSpace(request.OrganizationID)}
-		collection.Instances = append(collection.Instances, instance)
-		next := cfg
-		setCollection(&next, collection)
-		if err := api.persistTunnelCollection(cfg, next); err != nil {
+		if err := api.reloadCollectionFromDisk(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		client, _ := api.Tunnels.Client(instance.ID)
-		writeJSON(w, localView(instance, client.Status()))
+		view, err := api.liveLocalView(item.ID)
+		if err != nil {
+			writeJSON(w, localView(tunnel.InstanceConfig{ID: item.ID, Enabled: item.Enabled, APIKey: "", AdminProfileID: item.AdminProfileID, ControlPlaneBaseURL: item.ControlPlaneBaseURL, OrganizationID: item.OrganizationID}, item.Status))
+			return
+		}
+		writeJSON(w, view)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -167,10 +203,15 @@ func (api API) handleLocalTunnel(w http.ResponseWriter, r *http.Request) {
 			}
 			err = api.Tunnels.Stop(r.Context(), id)
 		case "enable", "disable":
-			collection.Instances[index].Enabled = parts[1] == "enable"
-			next := cfg
-			setCollection(&next, collection)
-			err = api.persistTunnelCollection(cfg, next)
+			_, err = application.SetLocalTunnelEnabled(r.Context(), id, parts[1] == "enable")
+			if err != nil {
+				writeTunnelCollectionError(w, err)
+				return
+			}
+			if err := api.reloadCollectionFromDisk(); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		default:
 			http.Error(w, "unknown tunnel action", http.StatusNotFound)
 			return
@@ -179,8 +220,12 @@ func (api API) handleLocalTunnel(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		client, _ = api.Tunnels.Client(id)
-		writeJSON(w, localView(collection.Instances[index], client.Status()))
+		view, viewErr := api.liveLocalView(id)
+		if viewErr != nil {
+			http.Error(w, viewErr.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, view)
 		return
 	}
 	if len(parts) != 1 {
@@ -201,23 +246,26 @@ func (api API) handleLocalTunnel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		instance := tunnel.InstanceConfig{ID: id, Enabled: request.Enabled, APIKey: strings.TrimSpace(request.APIKey), AdminProfileID: strings.TrimSpace(request.AdminProfileID), ControlPlaneBaseURL: strings.TrimSpace(request.ControlPlaneBaseURL), OrganizationID: strings.TrimSpace(request.OrganizationID)}
-		if instance.APIKey == "" {
-			instance.APIKey = collection.Instances[index].APIKey
+		if _, err := application.UpdateLocalTunnel(r.Context(), instance); err != nil {
+			writeTunnelCollectionError(w, err)
+			return
 		}
-		collection.Instances[index] = instance
-		next := cfg
-		setCollection(&next, collection)
-		if err := api.persistTunnelCollection(cfg, next); err != nil {
+		if err := api.reloadCollectionFromDisk(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		client, _ = api.Tunnels.Client(id)
-		writeJSON(w, localView(instance, client.Status()))
+		view, err := api.liveLocalView(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, view)
 	case http.MethodDelete:
-		collection.Instances = append(collection.Instances[:index], collection.Instances[index+1:]...)
-		next := cfg
-		setCollection(&next, collection)
-		if err := api.persistTunnelCollection(cfg, next); err != nil {
+		if err := application.DetachLocalTunnel(r.Context(), id); err != nil {
+			writeTunnelCollectionError(w, err)
+			return
+		}
+		if err := api.reloadCollectionFromDisk(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -504,7 +552,7 @@ func resolveAdminProfile(collection tunnel.CollectionConfig, id string) (tunnel.
 }
 
 func (api API) handleManagedTunnelCollectionItem(w http.ResponseWriter, r *http.Request) {
-	cfg, collection, err := api.collectionState()
+	_, collection, err := api.collectionState()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -571,12 +619,6 @@ func (api API) handleManagedTunnelCollectionItem(w http.ResponseWriter, r *http.
 			http.Error(w, "admin profile lacks Read access", http.StatusForbidden)
 			return
 		}
-		for _, instance := range collection.Instances {
-			if instance.ID == path {
-				http.Error(w, "tunnel is already attached", http.StatusConflict)
-				return
-			}
-		}
 		var request struct {
 			RuntimeAPIKey          string `json:"runtime_api_key"`
 			AutoGenerateRuntimeKey bool   `json:"auto_generate_runtime_key"`
@@ -587,42 +629,21 @@ func (api API) handleManagedTunnelCollectionItem(w http.ResponseWriter, r *http.
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		metadata, err := tunnel.GetManagedForAdmin(r.Context(), admin, path)
+		item, err := application.AttachManagedTunnelWithOptions(r.Context(), path, application.AttachManagedTunnelOptions{AdminProfileID: admin.ID, RuntimeAPIKey: request.RuntimeAPIKey, AutoGenerateRuntimeKey: request.AutoGenerateRuntimeKey, ProjectID: request.ProjectID, Enabled: request.Enabled})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeTunnelCollectionError(w, err)
 			return
 		}
-		key := strings.TrimSpace(request.RuntimeAPIKey)
-		if key == "" && request.AutoGenerateRuntimeKey {
-			if !admin.ManageAccess {
-				http.Error(w, "admin profile lacks Manage access", http.StatusForbidden)
-				return
-			}
-			generated, err := tunnel.GenerateRuntimeKeyForAdmin(r.Context(), admin, request.ProjectID)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-			key = generated.Value
-		}
-		if key == "" {
-			http.Error(w, "runtime API key is required", http.StatusBadRequest)
-			return
-		}
-		instance := tunnel.InstanceConfig{ID: path, Enabled: request.Enabled, APIKey: key, AdminProfileID: admin.ID, ControlPlaneBaseURL: admin.ControlPlaneBaseURL}
-		if len(metadata.OrganizationIDs) > 0 {
-			instance.OrganizationID = metadata.OrganizationIDs[0]
-		}
-		collection.Instances = append(collection.Instances, instance)
-		next := cfg
-		setCollection(&next, collection)
-		if err := api.persistTunnelCollection(cfg, next); err != nil {
+		if err := api.reloadCollectionFromDisk(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		_, _ = config.SaveTunnelMetadata(metadata)
-		client, _ := api.Tunnels.Client(path)
-		writeJSON(w, localView(instance, client.Status()))
+		view, err := api.liveLocalView(item.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, view)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}

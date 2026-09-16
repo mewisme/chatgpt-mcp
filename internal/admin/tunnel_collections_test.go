@@ -10,20 +10,29 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestTunnelCollectionAPIAttachesAndDetachesByID(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
 	cfg.Server.AllowUnauthenticatedLoopback = true
 	instances := []tunnel.InstanceConfig{{ID: "a", APIKey: "secret-a"}}
 	admins := []tunnel.AdminConfig{}
 	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
-	store := config.NewRuntimeStore(cfg)
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewRuntimeStore(loaded)
 	manager := tunnel.NewManager(&tools.Runtime{Registry: tools.NewRegistry()}, nil)
-	if err := manager.Reconcile(context.Background(), cfg.RuntimeTunnels()); err != nil {
+	if err := manager.Reconcile(context.Background(), loaded.RuntimeTunnels()); err != nil {
 		t.Fatal(err)
 	}
 	api := API{Config: store, Tunnels: manager, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {

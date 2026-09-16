@@ -550,28 +550,6 @@ func saveConfigMutation(ctx context.Context, previous, next config.Config) (conf
 	return configReloadResult{}, false, fmt.Errorf("reload running configuration: %w; persisted configuration rolled back", err)
 }
 
-func saveConfigMutationWithoutRollback(ctx context.Context, next config.Config) (configReloadResult, bool, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	source, _ := config.Source()
-	persistSpan := tracepkg.Start(ctx, "CONFIG", "config.persist", "Persisting configuration", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("atomic", true), tracepkg.Bool("rollback", false))
-	if err := config.Save(next); err != nil {
-		persistSpan.FailMessage("Configuration persistence failed", err)
-		return configReloadResult{}, false, err
-	}
-	persistFields := []tracepkg.Field{tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format))}
-	if info, statErr := os.Stat(source.Path); statErr == nil {
-		persistFields = append(persistFields, tracepkg.Int64("bytes", info.Size()))
-	}
-	persistSpan.EndMessage("Configuration persisted", persistFields...)
-	result, reloaded, err := reloadPersistedConfigIfRunning(ctx)
-	if err != nil {
-		return configReloadResult{}, false, fmt.Errorf("reload running configuration: %w", err)
-	}
-	return result, reloaded, nil
-}
-
 func loadConfigTraced(ctx context.Context, name, message string) (config.Config, configformat.Source, error) {
 	return loadConfigWithTracedLoader(ctx, name, message, config.Load)
 }

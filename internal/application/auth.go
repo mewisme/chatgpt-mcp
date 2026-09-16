@@ -14,7 +14,7 @@ import (
 
 var (
 	ErrMCPTokenMissing       = errors.New("direct MCP HTTP token is not configured")
-	ErrMCPTokenNotRevealable = errors.New("direct MCP HTTP token is configured but not stored; rotate once with cgm auth mcp create")
+	ErrMCPTokenNotRevealable = errors.New("direct MCP HTTP token is configured but not stored; rotate once with cgm auth mcp rotate")
 )
 
 type AuthStatus struct {
@@ -125,7 +125,7 @@ func SetAuthEnabled(ctx context.Context, kind string, enabled bool) (AuthStatus,
 	cfg := previous
 	if kind == "mcp" {
 		if enabled && cfg.Auth.MCPTokenHash == "" {
-			err := errors.New("direct MCP HTTP token is not configured; create one first")
+			err := errors.New("direct MCP HTTP token is not configured; rotate one first")
 			span.FailMessage("Authentication state update failed", err)
 			return AuthStatus{}, err
 		}

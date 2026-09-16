@@ -297,6 +297,35 @@ func TestRuntimeTokenRotationRequiresConfirmAndSecretIsTransient(t *testing.T) {
 	}
 }
 
+func TestRuntimeRevealShowsSecretWithoutConfirm(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	cmd, err := page.openCommand(AuthMCPShow)
+	if err != nil || cmd == nil || page.overlay == systemOverlayConfirm {
+		t.Fatalf("reveal overlay=%v cmd=%v err=%v", page.overlay, cmd != nil, err)
+	}
+	page.operationID = 3
+	page.finishOperation(systemOperationMsg{id: 3, command: AuthMCPShow, token: "mcp_revealed"})
+	if page.overlay != systemOverlaySecret || page.secret != "mcp_revealed" || page.secretKind != "mcp" {
+		t.Fatalf("reveal overlay=%v secret=%q kind=%q", page.overlay, page.secret, page.secretKind)
+	}
+	if !strings.Contains(page.View(100, 30), "Direct MCP HTTP token") || !strings.Contains(page.View(100, 30), "Stored encrypted") {
+		t.Fatalf("reveal view=%q", page.View(100, 30))
+	}
+}
+
+func TestRuntimeCopyNoticeDoesNotShowToken(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	cmd, err := page.openCommand(AuthMCPCopy)
+	if err != nil || cmd == nil || page.overlay == systemOverlayConfirm {
+		t.Fatalf("copy overlay=%v cmd=%v err=%v", page.overlay, cmd != nil, err)
+	}
+	page.operationID = 4
+	page.finishOperation(systemOperationMsg{id: 4, command: AuthMCPCopy, notice: "Copied Direct MCP HTTP token"})
+	if page.overlay != systemOverlayNone || page.secret != "" || page.notice != "Copied Direct MCP HTTP token" {
+		t.Fatalf("copy overlay=%v secret=%q notice=%q", page.overlay, page.secret, page.notice)
+	}
+}
+
 func TestRuntimeExternalCommandUsesExplicitOverlay(t *testing.T) {
 	page, _ := NewRuntime(context.Background())
 	page.operationID = 4

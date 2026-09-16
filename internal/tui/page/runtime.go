@@ -40,6 +40,8 @@ const (
 	ConfigUninitialize   SystemCommand = "config.uninitialize.external"
 	AuthMCPEnable        SystemCommand = "auth.mcp.enable"
 	AuthMCPDisable       SystemCommand = "auth.mcp.disable"
+	AuthMCPShow          SystemCommand = "auth.mcp.show"
+	AuthMCPCopy          SystemCommand = "auth.mcp.copy"
 	AuthMCPRotate        SystemCommand = "auth.mcp.rotate"
 	AuthAdminEnable      SystemCommand = "auth.admin.enable"
 	AuthAdminDisable     SystemCommand = "auth.admin.disable"
@@ -351,8 +353,7 @@ func (page *RuntimePage) View(width, height int) string {
 		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 64)), width, height)
 	case systemOverlaySecret:
 		modalWidth := overlayWidth(width, 88)
-		body := component.Title(strings.ToUpper(page.secretKind)+" token") + "\n\n" + page.secret + "\n\n" + component.Muted("Shown once · c copy · Esc close")
-		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(page.secretOverlayBody(), modalWidth), modalWidth), width, height)
 	case systemOverlayExternal:
 		modalWidth := overlayWidth(width, 88)
 		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(modalWidth)) + "\n\n" + component.Muted("c copy command · Esc close")
@@ -369,8 +370,7 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 	case systemOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
 	case systemOverlaySecret:
-		body := component.Title(strings.ToUpper(page.secretKind)+" token") + "\n\n" + page.secret + "\n\n" + component.Muted("Shown once · c copy · Esc close")
-		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
+		return dismissibleOverlayMouseTargets(page.secretOverlayBody(), overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
 	case systemOverlayExternal:
 		if page.external == nil {
 			return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
@@ -449,7 +449,7 @@ func (page *RuntimePage) openCommand(command SystemCommand) (tea.Cmd, error) {
 		page.confirm = component.NewConfirmButtons(page.confirmActionLabel(), "Cancel", false)
 		page.overlay = systemOverlayConfirm
 		return nil, nil
-	case RuntimeUpUser, RuntimeUpSystem, MCPHTTPEnable, MCPHTTPDisable, AuthMCPEnable, AuthMCPDisable, AuthAdminEnable, AuthAdminDisable, AliasInstall, UpdateCheck:
+	case RuntimeUpUser, RuntimeUpSystem, MCPHTTPEnable, MCPHTTPDisable, AuthMCPEnable, AuthMCPDisable, AuthMCPShow, AuthMCPCopy, AuthAdminEnable, AuthAdminDisable, AliasInstall, UpdateCheck:
 		return page.startOperation(command), nil
 	default:
 		return nil, fmt.Errorf("unsupported system action: %s", command)
@@ -530,6 +530,19 @@ func (page *RuntimePage) startOperation(command SystemCommand) tea.Cmd {
 			_, msg.err = application.SetAuthEnabled(ctx, "mcp", true)
 		case AuthMCPDisable:
 			_, msg.err = application.SetAuthEnabled(ctx, "mcp", false)
+		case AuthMCPShow:
+			msg.token, msg.err = application.RevealMCPToken()
+		case AuthMCPCopy:
+			token, err := application.RevealMCPToken()
+			if err != nil {
+				msg.err = err
+				break
+			}
+			if err := component.CopyText(token); err != nil {
+				msg.err = err
+				break
+			}
+			msg.notice = "Copied Direct MCP HTTP token"
 		case AuthAdminEnable:
 			_, msg.err = application.SetAuthEnabled(ctx, "admin", true)
 		case AuthAdminDisable:
@@ -577,7 +590,7 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 	if msg.token != "" {
 		page.secret = msg.token
 		page.secretKind = "admin"
-		if msg.command == AuthMCPRotate {
+		if msg.command == AuthMCPRotate || msg.command == AuthMCPShow {
 			page.secretKind = "mcp"
 		}
 		page.overlay = systemOverlaySecret
@@ -781,6 +794,8 @@ func (page *RuntimePage) runtimeDetailBindings(row component.Row) []component.De
 			}
 			add("e", label, command)
 		}
+		add("v", "reveal token", AuthMCPShow)
+		add("c", "copy token", AuthMCPCopy)
 		add("t", "rotate token", AuthMCPRotate)
 	case "auth.admin":
 		if page.auth.AdminConfigured || page.auth.AdminEnabled {
@@ -1044,6 +1059,16 @@ func (page *RuntimePage) statusView(width int) string {
 	return summary + "\n" + strings.Join(banners, "\n")
 }
 
+func (page *RuntimePage) secretOverlayBody() string {
+	title := "Admin token"
+	hint := "Shown once · c copy · Esc close"
+	if page.secretKind == "mcp" {
+		title = "Direct MCP HTTP token"
+		hint = "Stored encrypted · c copy · Esc close"
+	}
+	return component.Title(title) + "\n\n" + page.secret + "\n\n" + component.Muted(hint)
+}
+
 func (page *RuntimePage) confirmActionLabel() string {
 	switch page.pending {
 	case AuthMCPRotate, AuthAdminRotate:
@@ -1082,7 +1107,9 @@ func (page *RuntimePage) confirmTitle() string {
 
 func (page *RuntimePage) confirmDescription() string {
 	switch page.pending {
-	case AuthMCPRotate, AuthAdminRotate:
+	case AuthMCPRotate:
+		return "The previous token stops working immediately. The new token is stored encrypted and shown so you can copy it."
+	case AuthAdminRotate:
 		return "The previous token stops working immediately. The new plaintext token is shown once and is not persisted by the TUI."
 	case InstallCleanup:
 		return "Only verified legacy standalone installations are eligible for removal; the current executable is preserved."
@@ -1138,6 +1165,10 @@ func systemOperationTitle(command SystemCommand) string {
 		return "Updating MCP HTTP server"
 	case AuthMCPRotate, AuthAdminRotate:
 		return "Rotating authentication token"
+	case AuthMCPShow:
+		return "Revealing Direct MCP HTTP token"
+	case AuthMCPCopy:
+		return "Copying Direct MCP HTTP token"
 	default:
 		return "Applying system action"
 	}

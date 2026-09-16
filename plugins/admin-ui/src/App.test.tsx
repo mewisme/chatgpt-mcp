@@ -438,6 +438,7 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   if (path === "/api/tunnel-admins") return json([])
   if (path === "/api/managed-tunnels") return json([])
   if (path === "/api/config") return json(config)
+  if (path === "/api/plugins") return json([])
   if (path === "/api/network/interfaces") return json([])
   if (path === "/api/requests?status=pending") return json([])
   if (path === "/api/requests?status=") return json([])

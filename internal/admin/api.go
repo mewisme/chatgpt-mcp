@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
@@ -33,6 +34,7 @@ type API struct {
 	OAuthFlows   *mcpoauth.FlowManager
 	ReloadConfig func(config.Config) error
 	saveConfig   func(config.Config) error
+	Plugins      *application.PluginService
 }
 
 type authSettings struct {
@@ -109,6 +111,8 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/network/interfaces", api.handleNetworkInterfaces)
 
 	mux.HandleFunc("/api/config", api.handleConfig)
+	mux.HandleFunc("/api/plugins", api.handlePlugins)
+	mux.HandleFunc("/api/plugins/", api.handlePlugin)
 	mux.HandleFunc("/api/instructions/global", api.handleGlobalInstructions)
 	mux.HandleFunc("/api/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/api/workspaces/", api.handleWorkspace)

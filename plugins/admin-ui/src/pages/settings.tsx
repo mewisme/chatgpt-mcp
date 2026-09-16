@@ -37,13 +37,20 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { adminApi, type NetworkInterface, type PublicConfig } from "@/lib/api"
+import {
+  adminApi,
+  type NetworkInterface,
+  type PluginConfig,
+  type PluginSettingField,
+  type PublicConfig,
+} from "@/lib/api"
 
 export function SettingsPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [savedConfig, setSavedConfig] = useState<PublicConfig | null>(null)
   const [enabledTunnelCount, setEnabledTunnelCount] = useState(0)
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
+  const [pluginConfigs, setPluginConfigs] = useState<PluginConfig[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
@@ -53,13 +60,20 @@ export function SettingsPage() {
       adminApi.config(),
       adminApi.networkInterfaces(),
       adminApi.localTunnels(),
+      adminApi.plugins(),
     ])
-      .then(([nextConfig, nextInterfaces, nextTunnels]) => {
+      .then(async ([nextConfig, nextInterfaces, nextTunnels, plugins]) => {
         const normalized = normalizeConfig(nextConfig)
         setConfig(normalized)
         setSavedConfig(normalized)
         setInterfaces(nextInterfaces)
         setEnabledTunnelCount(nextTunnels.filter((item) => item.enabled).length)
+        const configurable = plugins.filter((item) => item.lifecycle.configure)
+        setPluginConfigs(
+          await Promise.all(
+            configurable.map((item) => adminApi.pluginConfig(item.id))
+          )
+        )
       })
       .catch((value) => setError(errorText(value)))
   }, [])
@@ -82,7 +96,7 @@ export function SettingsPage() {
       setConfig(next)
       setSavedConfig(next)
       setMessage(
-        "Saved. Runtime, transport, listener, feature, auth, filesystem, and shell execution changes were applied live."
+        "Saved. Runtime, transport, listener, auth, filesystem, and shell execution changes were applied live."
       )
       setError("")
     } catch (value) {
@@ -155,7 +169,7 @@ export function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Configure runtime listeners, security, filesystem access, features, and the managed execution environment."
+        description="Configure runtime listeners, security, filesystem access, plugins, and the managed execution environment."
       />
       <PageError message={error} />
       {message ? (
@@ -168,7 +182,7 @@ export function SettingsPage() {
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="network">Network</TabsTrigger>
           <TabsTrigger value="permissions">Permissions</TabsTrigger>
-          <TabsTrigger value="features">Features</TabsTrigger>
+          <TabsTrigger value="plugins">Plugins</TabsTrigger>
           <TabsTrigger value="authentication">Authentication</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>
         </ScrollableTabsList>
@@ -412,109 +426,35 @@ export function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent className="mt-6" value="features">
-          <Card>
-            <CardHeader>
-              <CardTitle>Built-in modes</CardTitle>
-              <CardDescription>
-                Set the default active state for built-in response modes. Their
-                controller tools remain available.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FieldGroup>
-                <Toggle
-                  label="Ponytail"
-                  description="Keep the built-in Ponytail coding mode active by default."
-                  checked={config.features.ponytail.active}
-                  onCheckedChange={(active) =>
-                    setConfig({
-                      ...config,
-                      features: {
-                        ...config.features,
-                        ponytail: { ...config.features.ponytail, active },
-                      },
-                    })
-                  }
-                />
-                <SettingField
-                  label="Ponytail intensity"
-                  description="Default intensity for new workspace mode state. Review remains session-only."
-                >
-                  <Select
-                    value={config.features.ponytail.mode}
-                    onValueChange={(mode) =>
-                      setConfig({
-                        ...config,
-                        features: {
-                          ...config.features,
-                          ponytail: {
-                            ...config.features.ponytail,
-                            mode: mode as PublicConfig["features"]["ponytail"]["mode"],
-                          },
-                        },
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-full sm:w-64">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="lite">Lite</SelectItem>
-                      <SelectItem value="full">Full</SelectItem>
-                      <SelectItem value="ultra">Ultra</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </SettingField>
-                <Toggle
-                  label="Caveman"
-                  description="Keep Caveman mode active by default."
-                  checked={config.features.caveman.active}
-                  onCheckedChange={(active) =>
-                    setConfig({
-                      ...config,
-                      features: {
-                        ...config.features,
-                        caveman: { ...config.features.caveman, active },
-                      },
-                    })
-                  }
-                />
-                <SettingField
-                  label="Caveman intensity"
-                  description="Default Caveman level for new workspace mode state. Wenyan levels use classical Chinese compression."
-                >
-                  <Select
-                    value={config.features.caveman.mode}
-                    onValueChange={(mode) =>
-                      setConfig({
-                        ...config,
-                        features: {
-                          ...config.features,
-                          caveman: {
-                            ...config.features.caveman,
-                            mode: mode as PublicConfig["features"]["caveman"]["mode"],
-                          },
-                        },
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-full sm:w-64">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="lite">Lite</SelectItem>
-                      <SelectItem value="full">Full</SelectItem>
-                      <SelectItem value="ultra">Ultra</SelectItem>
-                      <SelectItem value="wenyan-lite">Wenyan Lite</SelectItem>
-                      <SelectItem value="wenyan-full">Wenyan Full</SelectItem>
-                      <SelectItem value="wenyan-ultra">Wenyan Ultra</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </SettingField>
-              </FieldGroup>
-            </CardContent>
-          </Card>
+        <TabsContent className="mt-6 space-y-6" value="plugins">
+          {pluginConfigs.length === 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Plugin configuration</CardTitle>
+                <CardDescription>
+                  Installed plugins with a configuration schema appear here.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          ) : (
+            pluginConfigs.map((item) => (
+              <PluginConfigCard
+                key={item.id}
+                config={item}
+                busy={busy}
+                onChange={(next) =>
+                  setPluginConfigs((current) =>
+                    current.map((entry) =>
+                      entry.id === next.id ? next : entry
+                    )
+                  )
+                }
+                onBusy={setBusy}
+                onMessage={setMessage}
+                onError={setError}
+              />
+            ))
+          )}
         </TabsContent>
         <TabsContent className="mt-6" value="authentication">
           <Card>
@@ -615,6 +555,155 @@ export function SettingsPage() {
         </div>
       ) : null}
     </div>
+  )
+}
+
+function PluginConfigCard({
+  config,
+  busy,
+  onChange,
+  onBusy,
+  onMessage,
+  onError,
+}: {
+  config: PluginConfig
+  busy: boolean
+  onChange: (next: PluginConfig) => void
+  onBusy: (busy: boolean) => void
+  onMessage: (message: string) => void
+  onError: (error: string) => void
+}) {
+  async function save() {
+    onBusy(true)
+    try {
+      const values: Record<string, unknown> = {}
+      for (const field of config.schema.fields) {
+        const value = config.values[field.key]
+        if (field.sensitive && (value === "" || value === undefined)) continue
+        values[field.key] = value
+      }
+      onChange(await adminApi.savePluginConfig(config.id, values))
+      onMessage(`${config.name} configuration saved.`)
+      onError("")
+    } catch (value) {
+      onError(errorText(value))
+      onMessage("")
+    } finally {
+      onBusy(false)
+    }
+  }
+  async function reset() {
+    onBusy(true)
+    try {
+      onChange(await adminApi.resetPluginConfig(config.id))
+      onMessage(`${config.name} configuration reset to defaults.`)
+      onError("")
+    } catch (value) {
+      onError(errorText(value))
+      onMessage("")
+    } finally {
+      onBusy(false)
+    }
+  }
+  function setValue(key: string, value: unknown) {
+    onChange({ ...config, values: { ...config.values, [key]: value } })
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{config.name}</CardTitle>
+        <CardDescription>
+          {config.origin === "builtin" ? "Built-in" : "Installed"} plugin ·{" "}
+          {config.scope} scope
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <FieldGroup>
+          {config.schema.fields.map((field) => (
+            <PluginSettingControl
+              key={field.key}
+              field={field}
+              value={config.values[field.key]}
+              onChange={(value) => setValue(field.key, value)}
+            />
+          ))}
+        </FieldGroup>
+        <ButtonGroup>
+          <Button disabled={busy} variant="outline" onClick={() => void reset()}>
+            Reset
+          </Button>
+          <Button disabled={busy} onClick={() => void save()}>
+            Save
+          </Button>
+        </ButtonGroup>
+      </CardContent>
+    </Card>
+  )
+}
+
+function PluginSettingControl({
+  field,
+  value,
+  onChange,
+}: {
+  field: PluginSettingField
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  const title = field.title || field.key
+  const description = field.description
+    ? field.default !== undefined
+      ? `${field.description} Default: ${String(field.default)}.`
+      : field.description
+    : undefined
+  if (field.type === "boolean") {
+    return (
+      <Toggle
+        label={title}
+        description={description ?? ""}
+        checked={value === true}
+        onCheckedChange={onChange}
+      />
+    )
+  }
+  if (field.type === "enum") {
+    return (
+      <SettingField label={title} description={description}>
+        <Select
+          value={String(value ?? "")}
+          onValueChange={onChange}
+        >
+          <SelectTrigger className="w-full sm:w-64">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(field.enum ?? []).map((option) => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </SettingField>
+    )
+  }
+  return (
+    <SettingField label={title} description={description}>
+      <Input
+        type={field.sensitive ? "password" : field.type === "integer" || field.type === "number" ? "number" : "text"}
+        placeholder={field.sensitive ? "leave blank to keep" : undefined}
+        value={field.sensitive ? String(value === true ? "" : (value ?? "")) : String(value ?? "")}
+        onChange={(event) =>
+          onChange(
+            field.type === "integer" || field.type === "number"
+              ? event.target.value === ""
+                ? ""
+                : Number(event.target.value)
+              : event.target.value
+          )
+        }
+      />
+    </SettingField>
   )
 }
 

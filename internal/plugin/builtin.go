@@ -27,15 +27,15 @@ func (origin Origin) Label() string {
 }
 
 type Lifecycle struct {
-	Install   bool
-	Uninstall bool
-	Enable    bool
-	Disable   bool
-	Update    bool
-	Rollback  bool
-	Prune     bool
-	Verify    bool
-	Configure bool
+	Install   bool `json:"install"`
+	Uninstall bool `json:"uninstall"`
+	Enable    bool `json:"enable"`
+	Disable   bool `json:"disable"`
+	Update    bool `json:"update"`
+	Rollback  bool `json:"rollback"`
+	Prune     bool `json:"prune"`
+	Verify    bool `json:"verify"`
+	Configure bool `json:"configure"`
 }
 
 func ArtifactLifecycle() Lifecycle {

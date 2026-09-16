@@ -289,6 +289,43 @@ export type PublicConfig = {
     }
   }
 }
+export type PluginLifecycle = {
+  install: boolean
+  uninstall: boolean
+  enable: boolean
+  disable: boolean
+  update: boolean
+  rollback: boolean
+  prune: boolean
+  verify: boolean
+  configure: boolean
+}
+export type PluginListItem = {
+  id: string
+  name: string
+  origin: "builtin" | "installed"
+  origin_label: string
+  enabled: boolean
+  lifecycle: PluginLifecycle
+}
+export type PluginSettingField = {
+  key: string
+  type: "string" | "boolean" | "integer" | "number" | "enum"
+  title?: string
+  description?: string
+  default?: unknown
+  required?: boolean
+  enum?: string[]
+  sensitive?: boolean
+}
+export type PluginConfig = {
+  id: string
+  name: string
+  origin: "builtin" | "installed"
+  scope: string
+  schema: { fields: PluginSettingField[] }
+  values: Record<string, unknown>
+}
 export type NetworkAddress = {
   address: string
   interface?: string
@@ -489,6 +526,18 @@ export const adminApi = {
     api<PublicConfig>("/api/config", {
       method: "PUT",
       body: JSON.stringify(config),
+    }),
+  plugins: () => api<PluginListItem[]>("/api/plugins"),
+  pluginConfig: (id: string) =>
+    api<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config`),
+  savePluginConfig: (id: string, values: Record<string, unknown>) =>
+    api<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config`, {
+      method: "PUT",
+      body: JSON.stringify({ values }),
+    }),
+  resetPluginConfig: (id: string) =>
+    api<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config/reset`, {
+      method: "POST",
     }),
   workspaces: () => api<Workspace[]>("/api/workspaces"),
   workspace: (id: string) =>

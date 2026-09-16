@@ -473,8 +473,8 @@ func TestConfigPageOldOperationCannotOverwriteNewOperation(t *testing.T) {
 	}
 	updated, follow := page.Update(workMsg(current))
 	page = updated.(*ConfigPage)
-	if follow == nil || !strings.Contains(page.notice, "2 structured files") {
-		t.Fatalf("follow=%v notice=%q", follow != nil, page.notice)
+	if op, ok := operationMsg(follow); !ok || !strings.Contains(op.Message, "2 structured files") {
+		t.Fatalf("follow=%v op=%#v notice=%q", follow != nil, op, page.notice)
 	}
 }
 

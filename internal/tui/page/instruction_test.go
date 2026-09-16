@@ -75,15 +75,16 @@ func TestInstructionPageManagesSourcePolicy(t *testing.T) {
 	if cmd == nil || !page.saving {
 		t.Fatalf("provider toggle cmd=%v saving=%t", cmd, page.saving)
 	}
-	updated, _ = page.Update(cmd())
+	updated, follow := page.Update(cmd())
 	page = updated.(*InstructionPage)
 	settings, err := service.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	policy := settings.SourcePolicy["claude"]
-	if policy.Enabled == nil || *policy.Enabled || page.Notice() != "Claude source disabled" {
-		t.Fatalf("provider policy=%#v notice=%q", policy, page.Notice())
+	op, ok := operationMsg(follow)
+	if policy.Enabled == nil || *policy.Enabled || !ok || op.Message != "Claude source disabled" {
+		t.Fatalf("provider policy=%#v op=%#v", policy, op)
 	}
 	if len(settings.DetectedSources) != 1 || settings.DetectedSources[0].Enabled {
 		t.Fatalf("disabled source=%#v", settings.DetectedSources)
@@ -119,15 +120,15 @@ func TestInstructionPageManagesSourcePolicy(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("resource toggle returned no command")
 	}
-	updated, _ = page.Update(cmd())
-	page = updated.(*InstructionPage)
+	_, follow = page.Update(cmd())
 	settings, err = service.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	policy = settings.SourcePolicy["claude"]
-	if policy.Context == nil || *policy.Context || page.Notice() != "Claude Context disabled" {
-		t.Fatalf("resource policy=%#v notice=%q", policy, page.Notice())
+	op, ok = operationMsg(follow)
+	if policy.Context == nil || *policy.Context || !ok || op.Message != "Claude Context disabled" {
+		t.Fatalf("resource policy=%#v op=%#v", policy, op)
 	}
 }
 
@@ -161,8 +162,9 @@ func TestInstructionPageEditsAndSavesGlobalContext(t *testing.T) {
 	}
 	updated, navigation := page.Update(saveCmd())
 	page = updated.(*InstructionPage)
-	if page.contextEditor != nil || page.saving || page.Notice() != "Global context saved" || navigation == nil {
-		t.Fatalf("editor=%v saving=%t notice=%q navigation=%v err=%v", page.contextEditor != nil, page.saving, page.Notice(), navigation != nil, page.err)
+	op, ok := operationMsg(navigation)
+	if page.contextEditor != nil || page.saving || !ok || op.Message != "Global context saved" {
+		t.Fatalf("editor=%v saving=%t notice=%q op=%#v err=%v", page.contextEditor != nil, page.saving, page.Notice(), op, page.err)
 	}
 	settings, err := service.Load()
 	if err != nil {
@@ -233,10 +235,13 @@ func TestInstructionPageRefreshesExternalChanges(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("refresh command is nil")
 	}
-	updated, _ := page.Update(cmd())
+	updated, follow := page.Update(cmd())
 	page = updated.(*InstructionPage)
-	if page.settings.Context != value || page.Notice() != "Instructions refreshed" {
-		t.Fatalf("context=%q notice=%q err=%v", page.settings.Context, page.Notice(), page.err)
+	if page.settings.Context != value {
+		t.Fatalf("context=%q err=%v", page.settings.Context, page.err)
+	}
+	if op, ok := operationMsg(follow); !ok || op.Message != "Instructions refreshed" {
+		t.Fatalf("refresh operation=%#v", op)
 	}
 }
 
@@ -278,14 +283,15 @@ func TestInstructionPageManagesGlobalRules(t *testing.T) {
 	if cmd == nil || !page.saving {
 		t.Fatalf("toggle cmd=%v saving=%t", cmd, page.saving)
 	}
-	updated, _ = page.Update(cmd())
+	updated, follow := page.Update(cmd())
 	page = updated.(*InstructionPage)
 	settings, err := service.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.Rules[0].Enabled || page.Notice() != "Global rule disabled" {
-		t.Fatalf("toggle rule=%#v notice=%q", settings.Rules[0], page.Notice())
+	op, ok := operationMsg(follow)
+	if settings.Rules[0].Enabled || !ok || op.Message != "Global rule disabled" {
+		t.Fatalf("toggle rule=%#v op=%#v", settings.Rules[0], op)
 	}
 
 	_, cmd = page.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})

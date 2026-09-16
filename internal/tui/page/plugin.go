@@ -876,7 +876,6 @@ func (page *PluginPage) finishOperation(msg pluginOperationMsg) tea.Cmd {
 	if msg.err != nil {
 		return func() tea.Msg { return OperationResult("plugin.action", "Plugins", "", msg.err) }
 	}
-	page.notice = msg.notice
 	result := func() tea.Msg { return OperationResult("plugin.action", "Plugins", msg.notice, nil) }
 	if (msg.command == PluginUninstall || msg.command == PluginForceUninstall) && page.resourceID != "" && page.section == "" {
 		return tea.Batch(func() tea.Msg { return NavigateMsg{Path: pluginRoutePath(page.workspaceID), Replace: true} }, result)

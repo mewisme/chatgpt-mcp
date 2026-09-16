@@ -435,12 +435,12 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 	page.err = nil
 	switch msg.command {
 	case TunnelAdminAdd, TunnelAdminUpdate:
-		page.notice = fmt.Sprintf("Admin profile %s verified · %d tunnel(s) readable", msg.item.ID, msg.count)
+		notice := fmt.Sprintf("Admin profile %s verified · %d tunnel(s) readable", msg.item.ID, msg.count)
 		page.acceptAdminEditorSuccess()
 		return tea.Batch(
 			func() tea.Msg { return NavigateMsg{Path: []string{"admins", msg.item.ID}, Replace: true} },
 			func() tea.Msg {
-				return OperationResult("tunnel.admin.save", "Admin Profile", page.notice, nil)
+				return OperationResult("tunnel.admin.save", "Admin Profile", notice, nil)
 			},
 		)
 	case TunnelAdminVerify:
@@ -449,7 +449,13 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 				page.items[i] = msg.item
 			}
 		}
-		page.notice = fmt.Sprintf("Verified %s · %d tunnel(s) readable", msg.item.ID, msg.count)
+		notice := fmt.Sprintf("Verified %s · %d tunnel(s) readable", msg.item.ID, msg.count)
+		if page.resourceID != "" {
+			page.err = page.syncDetail()
+			return withOperation("tunnel.admin.action", "Admin Profile", notice, nil)
+		}
+		selected, _ := page.browser.Selected()
+		return withOperation("tunnel.admin.action", "Admin Profile", notice, page.browser.ReplaceRows(page.rows(), selected.ID))
 	case TunnelAdminRemove:
 		items := page.items[:0]
 		for _, item := range page.items {
@@ -458,20 +464,27 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 			}
 		}
 		page.items = items
-		page.notice = "Admin profile removed"
+		notice := "Admin profile removed"
 		if page.resourceID == msg.id {
-			return withOperation("tunnel.admin.remove", "Admin Profile", page.notice, func() tea.Msg { return NavigateMsg{Path: []string{"admins"}, Replace: true} })
+			return withOperation("tunnel.admin.remove", "Admin Profile", notice, func() tea.Msg { return NavigateMsg{Path: []string{"admins"}, Replace: true} })
 		}
+		if page.resourceID != "" {
+			page.err = page.syncDetail()
+			return withOperation("tunnel.admin.action", "Admin Profile", notice, nil)
+		}
+		selected, _ := page.browser.Selected()
+		return withOperation("tunnel.admin.action", "Admin Profile", notice, page.browser.ReplaceRows(page.rows(), selected.ID))
 	case TunnelAdminRefresh:
 		page.items = msg.items
-		page.notice = fmt.Sprintf("Refreshed %d admin profile(s)", len(page.items))
+		notice := fmt.Sprintf("Refreshed %d admin profile(s)", len(page.items))
+		if page.resourceID != "" {
+			page.err = page.syncDetail()
+			return withOperation("tunnel.admin.action", "Admin Profile", notice, nil)
+		}
+		selected, _ := page.browser.Selected()
+		return withOperation("tunnel.admin.action", "Admin Profile", notice, page.browser.ReplaceRows(page.rows(), selected.ID))
 	}
-	if page.resourceID != "" {
-		page.err = page.syncDetail()
-		return withOperation("tunnel.admin.action", "Admin Profile", page.notice, nil)
-	}
-	selected, _ := page.browser.Selected()
-	return withOperation("tunnel.admin.action", "Admin Profile", page.notice, page.browser.ReplaceRows(page.rows(), selected.ID))
+	return nil
 }
 
 func (page *TunnelAdminsPage) acceptAdminEditorSuccess() {

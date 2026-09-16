@@ -254,9 +254,10 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		page.settings, page.err = msg.settings, nil
-		page.notice = "Instructions refreshed"
 		page.syncDetail()
-		return page, func() tea.Msg { return OperationResult("instruction.refresh", "Instruction", page.notice, nil) }
+		return page, func() tea.Msg {
+			return OperationResult("instruction.refresh", "Instruction", "Instructions refreshed", nil)
+		}
 	case instructionSavedMsg:
 		page.saving = false
 		if msg.err != nil {
@@ -264,7 +265,6 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		page.settings, page.err = msg.settings, nil
-		page.notice = "Global context saved"
 		wasEditing := page.contextEditor != nil
 		page.contextEditor = nil
 		page.syncDetail()
@@ -296,7 +296,6 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			})
 		}
 		page.settings, page.err = msg.settings, nil
-		page.notice = msg.notice
 		page.closeRuleConfirm()
 		page.syncRuleBrowser()
 		return page, func() tea.Msg { return OperationResult("instruction.rule.save", "Instruction", msg.notice, nil) }
@@ -307,7 +306,6 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, func() tea.Msg { return OperationResult("instruction.source.save", "Instruction", "", msg.err) }
 		}
 		page.settings, page.err = msg.settings, nil
-		page.notice = msg.notice
 		page.syncSourceTree()
 		return page, func() tea.Msg { return OperationResult("instruction.source.save", "Instruction", msg.notice, nil) }
 	case instructionSourceWheelMsg:

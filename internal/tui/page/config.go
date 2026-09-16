@@ -527,6 +527,7 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 		}
 	}
 	notice := page.notice
+	page.notice = ""
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
 		page.editor.Accept()

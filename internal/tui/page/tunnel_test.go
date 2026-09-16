@@ -520,10 +520,13 @@ func TestManagedTunnelRefreshPersistsCacheAndEditUsesCachedState(t *testing.T) {
 	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
 		t.Fatalf("refresh pending=%#v", op)
 	}
-	updated, _ := page.Update(workMsg(cmd))
+	updated, follow := page.Update(workMsg(cmd))
 	page = updated.(*TunnelPage)
-	if len(page.items) != 2 || page.items[0].ID != "tunnel_one" || !strings.Contains(page.notice, "2") {
-		t.Fatalf("items=%#v notice=%q", page.items, page.notice)
+	if len(page.items) != 2 || page.items[0].ID != "tunnel_one" {
+		t.Fatalf("items=%#v", page.items)
+	}
+	if op, ok := operationMsg(follow); !ok || !strings.Contains(op.Message, "2") {
+		t.Fatalf("refresh op=%#v", op)
 	}
 	cached, err := config.LoadTunnelMetadata("tunnel_two")
 	if err != nil || cached.Name != "Two" {
@@ -847,8 +850,8 @@ func TestTunnelAdminsPageCreateSuccessClearsDirtyBeforeNavigate(t *testing.T) {
 	if strings.Contains(view, "panic") || view == "" {
 		t.Fatalf("post-success view=%q", view)
 	}
-	if !strings.Contains(page.notice, "personal") || !strings.Contains(page.notice, "verified") {
-		t.Fatalf("notice=%q", page.notice)
+	if op, ok := operationMsg(cmd); !ok || !strings.Contains(op.Message, "personal") || !strings.Contains(op.Message, "verified") {
+		t.Fatalf("operation=%#v", op)
 	}
 }
 
@@ -896,14 +899,14 @@ func TestTunnelAdminsPageDetailVerifyRemoveAndUpdateSuccess(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("verify command missing")
 	}
-	updated, _ = page.Update(tunnelAdminResultMsg{
+	updated, follow := page.Update(tunnelAdminResultMsg{
 		command: TunnelAdminVerify,
 		item:    application.TunnelAdminProfile{ID: "work", WorkspaceID: "ws_admin", ManageAccess: true, ReadAccess: true, KeyConfigured: true},
 		count:   3,
 	})
 	page = updated.(*TunnelAdminsPage)
-	if !strings.Contains(page.notice, "Verified work") || page.Dirty() {
-		t.Fatalf("verify notice=%q dirty=%t", page.notice, page.Dirty())
+	if op, ok := operationMsg(follow); !ok || !strings.Contains(op.Message, "Verified work") || page.Dirty() {
+		t.Fatalf("verify op=%#v dirty=%t", op, page.Dirty())
 	}
 	updated, cmd = page.Update(TunnelAdminCommandMsg{Command: TunnelAdminRemove, ResourceID: "work"})
 	page = updated.(*TunnelAdminsPage)
@@ -964,14 +967,17 @@ func TestTunnelAdminsPageRefreshRemoveFinishAndMouseTargets(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("refresh command missing")
 	}
-	updated, _ = page.Update(tunnelAdminResultMsg{command: TunnelAdminRefresh, items: []application.TunnelAdminProfile{
+	updated, follow := page.Update(tunnelAdminResultMsg{command: TunnelAdminRefresh, items: []application.TunnelAdminProfile{
 		{ID: "work", OrganizationID: "org_demo", ManageAccess: true, KeyConfigured: true},
 		{ID: "read", TenantID: "ten_demo", ReadAccess: true, KeyConfigured: true},
 		{ID: "raw", WorkspaceID: "ws_demo", KeyConfigured: true},
 	}})
 	page = updated.(*TunnelAdminsPage)
+	if op, ok := operationMsg(follow); !ok || !strings.Contains(op.Message, "Refreshed 3") {
+		t.Fatalf("refresh op=%#v", op)
+	}
 	view := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"work", "read", "raw", "manage", "read", "unverified", "organization:org_demo", "tenant:ten_demo", "workspace:ws_demo", "Refreshed 3"} {
+	for _, want := range []string{"work", "read", "raw", "manage", "read", "unverified", "organization:org_demo", "tenant:ten_demo", "workspace:ws_demo"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("refresh list missing %q: %q", want, view)
 		}
@@ -991,7 +997,7 @@ func TestTunnelAdminsPageRefreshRemoveFinishAndMouseTargets(t *testing.T) {
 	if cmd == nil || page.OverlayActive() {
 		t.Fatalf("affirm remove cmd=%v overlay=%t", cmd != nil, page.OverlayActive())
 	}
-	updated, follow := page.Update(tunnelAdminResultMsg{command: TunnelAdminRemove, id: "raw"})
+	updated, follow = page.Update(tunnelAdminResultMsg{command: TunnelAdminRemove, id: "raw"})
 	page = updated.(*TunnelAdminsPage)
 	if follow == nil {
 		t.Fatal("list remove missing operation result")
@@ -999,8 +1005,8 @@ func TestTunnelAdminsPageRefreshRemoveFinishAndMouseTargets(t *testing.T) {
 	if _, ok := follow().(NavigateMsg); ok {
 		t.Fatal("list remove unexpectedly navigated")
 	}
-	if page.notice != "Admin profile removed" || len(page.items) != 2 {
-		t.Fatalf("remove finish notice=%q items=%d", page.notice, len(page.items))
+	if op, ok := operationMsg(follow); !ok || op.Message != "Admin profile removed" || len(page.items) != 2 {
+		t.Fatalf("remove finish op=%#v items=%d", op, len(page.items))
 	}
 	detail, err := NewTunnelAdmins(t.Context(), "work", "")
 	if err != nil {

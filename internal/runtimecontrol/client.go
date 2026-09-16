@@ -89,6 +89,7 @@ type TunnelSummary struct {
 
 type TunnelRuntimeStatus struct {
 	ID         string `json:"id"`
+	Name       string `json:"name,omitempty"`
 	Enabled    bool   `json:"enabled"`
 	Configured bool   `json:"configured"`
 	Running    bool   `json:"running"`

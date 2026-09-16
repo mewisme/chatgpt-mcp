@@ -18,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
@@ -511,6 +512,24 @@ func TestLogRuntimeTunnelMetadata(t *testing.T) {
 	for _, expected := range []string{"tunnel name: MCP Tunnel WSL", "tunnel description: Development tunnel", "tunnel scope: organization:org_test · workspace:ws_test"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("metadata output missing %q: %s", expected, text)
+		}
+	}
+}
+
+func TestLogRuntimeTunnelResultTwoTunnels(t *testing.T) {
+	var output bytes.Buffer
+	log := logger.NewWithOptions(logger.Options{Level: logger.Info, Writer: &output})
+	logRuntimeTunnelResult(log, runtimeStatusResult{
+		TunnelSummary: runtimecontrol.TunnelSummary{Total: 2, Enabled: 2, Configured: 2, Running: 2, Ready: 1},
+		Tunnels: []runtimecontrol.TunnelRuntimeStatus{
+			{ID: "tunnel_alpha", Name: "Alpha", Enabled: true, Configured: true, Running: true, Ready: true},
+			{ID: "tunnel_beta", Name: "Beta", Enabled: true, Configured: true, Running: false, Ready: false, LastError: "dial timeout"},
+		},
+	})
+	text := output.String()
+	for _, expected := range []string{"OpenAI Secure MCP Tunnels 1/2 ready · 1 degraded", "OpenAI Secure MCP Tunnel Alpha connected", "OpenAI Secure MCP Tunnel Beta degraded", "tunnel id: tunnel_alpha", "tunnel id: tunnel_beta"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing %q: %s", expected, text)
 		}
 	}
 }

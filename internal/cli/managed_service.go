@@ -466,50 +466,99 @@ func logRuntimeDetails(log *logger.Logger, status runtimeStatusResult) {
 }
 
 func logRuntimeTunnelResult(log *logger.Logger, status runtimeStatusResult) {
-	state := statusTunnelState(status, true)
-	switch state {
-	case "connected":
-		log.Ready("TUNNEL", "tunnel.connected", "OpenAI Secure MCP Tunnel connected")
-	case "failed":
-		var err error
-		if status.TunnelLastError != "" {
-			err = errors.New(status.TunnelLastError)
-		}
-		log.Failure("TUNNEL", "tunnel.failed", "OpenAI Secure MCP Tunnel failed", err)
-	case "starting", "connecting", "reconnecting":
-		log.Warning("TUNNEL", "tunnel.pending", "OpenAI Secure MCP Tunnel is still "+state, nil)
-	default:
-		log.Notice("TUNNEL", "tunnel."+strings.ReplaceAll(state, " ", "-"), "OpenAI Secure MCP Tunnel is "+state)
+	items := runtimeStatusTunnelItems(status)
+	if len(items) == 0 {
+		log.Notice("TUNNEL", "tunnel.disabled", "OpenAI Secure MCP Tunnel is disabled")
+		return
 	}
-	if status.TunnelID != "" {
-		log.Detail("tunnel id", status.TunnelID)
+	views := buildStatusTunnelViewsFromItems(items, true, nil)
+	if len(views) > 1 {
+		summary := status.TunnelSummary
+		if summary.Total == 0 {
+			summary.Total = len(views)
+			for _, view := range views {
+				if view.Ready {
+					summary.Ready++
+				}
+			}
+		}
+		log.Notice("TUNNEL", "tunnel.status", "OpenAI Secure MCP Tunnels "+statusTunnelSummaryLine(true, summary, views))
+	}
+	for _, view := range views {
+		logRuntimeTunnelView(log, view, len(views) == 1)
+	}
+}
+
+func logRuntimeTunnelView(log *logger.Logger, view statusTunnelView, singleton bool) {
+	message := "OpenAI Secure MCP Tunnel"
+	if !singleton {
+		message = "OpenAI Secure MCP Tunnel " + view.Label
+	}
+	fields := []logger.Field{logger.With("tunnel_id", view.ID)}
+	if view.Name != "" {
+		fields = append(fields, logger.With("tunnel_name", view.Name))
+	}
+	switch view.State {
+	case "connected":
+		log.Ready("TUNNEL", "tunnel.connected", message+" connected", fields...)
+	case "degraded":
+		var err error
+		if view.LastError != "" {
+			err = errors.New(view.LastError)
+		}
+		log.Failure("TUNNEL", "tunnel.degraded", message+" degraded", err, fields...)
+	case "starting", "connecting", "reconnecting":
+		log.Warning("TUNNEL", "tunnel.pending", message+" is still "+view.State, nil, fields...)
+	default:
+		log.Notice("TUNNEL", "tunnel."+strings.ReplaceAll(view.State, " ", "-"), message+" is "+view.State, fields...)
+	}
+	if view.ID != "" {
+		log.Detail("tunnel id", view.ID)
 	}
 }
 
 type tunnelMetadataLoadFunc func(string) (tunnel.Metadata, error)
 
 func logRuntimeTunnelMetadata(log *logger.Logger, cfg tunnel.Config, status runtimeStatusResult, load tunnelMetadataLoadFunc) {
-	if log == nil || load == nil || statusTunnelState(status, true) != "connected" {
+	if log == nil || load == nil {
 		return
 	}
-	id := strings.TrimSpace(status.TunnelID)
-	if id == "" {
-		id = strings.TrimSpace(cfg.ID)
+	for _, id := range connectedTunnelIDs(status, cfg) {
+		metadata, err := load(id)
+		if err != nil {
+			log.Verbose("TUNNEL", "tunnel.metadata.unavailable", "Tunnel metadata unavailable", logger.WithVerbose("error", err.Error()), logger.With("tunnel_id", id))
+			continue
+		}
+		if metadata.Name != "" {
+			log.Detail("tunnel name", metadata.Name)
+		}
+		if metadata.Description != "" {
+			log.Detail("tunnel description", metadata.Description)
+		}
+		if scope := tunnelMetadataScope(metadata); scope != "" {
+			log.Detail("tunnel scope", scope)
+		}
 	}
-	metadata, err := load(id)
-	if err != nil {
-		log.Verbose("TUNNEL", "tunnel.metadata.unavailable", "Tunnel metadata unavailable", logger.WithVerbose("error", err.Error()))
-		return
+}
+
+func connectedTunnelIDs(status runtimeStatusResult, cfg tunnel.Config) []string {
+	ids := make([]string, 0)
+	for _, item := range runtimeStatusTunnelItems(status) {
+		if !item.Ready {
+			continue
+		}
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = strings.TrimSpace(status.TunnelID)
+		}
+		if id == "" {
+			id = strings.TrimSpace(cfg.ID)
+		}
+		if id != "" {
+			ids = append(ids, id)
+		}
 	}
-	if metadata.Name != "" {
-		log.Detail("tunnel name", metadata.Name)
-	}
-	if metadata.Description != "" {
-		log.Detail("tunnel description", metadata.Description)
-	}
-	if scope := tunnelMetadataScope(metadata); scope != "" {
-		log.Detail("tunnel scope", scope)
-	}
+	return ids
 }
 
 func tunnelMetadataScope(metadata tunnel.Metadata) string {

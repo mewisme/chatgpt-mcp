@@ -35,6 +35,7 @@ type statusSnapshot struct {
 	ListenerPlan  listenerPlan
 	ListenerError error
 	Update        *updatepkg.CachedCheck
+	TunnelNames   map[string]string
 }
 
 func statusCommand() *cobra.Command {
@@ -141,7 +142,7 @@ func runStatus(cmd *cobra.Command, _ []string) (runErr error) {
 	updateSpan := tracepkg.Start(ctx, "STATUS", "status.update-cache.lookup", "Looking up cached update status")
 	cachedUpdate := cachedUpdateStatus(time.Now())
 	updateSpan.EndMessage("Cached update status lookup completed", tracepkg.Bool("cached", cachedUpdate != nil))
-	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: upstreamCount, ListenerPlan: plan, ListenerError: listenerErr, Update: cachedUpdate}
+	snapshot := statusSnapshot{Source: source, Config: cfg, Runtime: runtimeStatus, Running: running, Workspaces: len(workspaces), Upstreams: upstreamCount, ListenerPlan: plan, ListenerError: listenerErr, Update: cachedUpdate, TunnelNames: loadCachedTunnelNames(cfg.RuntimeTunnels())}
 	if !running {
 		serviceInspectSpan := tracepkg.Start(ctx, "STATUS", "status.managed-services.inspect", "Inspecting installed managed services")
 		snapshot.Services = installedManagedServices(ctx, account)
@@ -282,50 +283,36 @@ func renderStatusTunnel(out io.Writer, snapshot statusSnapshot, verbose bool) {
 
 func renderStatusTunnelBody(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	summary, items := statusTunnelCollection(snapshot)
-	statusField(out, "attached", summary.Total)
-	statusField(out, "ready", fmt.Sprintf("%d/%d", summary.Ready, summary.Enabled))
+	views := buildStatusTunnelViewsFromItems(items, snapshot.Running, snapshot.TunnelNames)
 	if verbose {
+		statusField(out, "total", summary.Total)
 		statusField(out, "enabled", summary.Enabled)
 		statusField(out, "configured", summary.Configured)
 		statusField(out, "running", summary.Running)
+		statusField(out, "ready", summary.Ready)
 		statusField(out, "restarting", summary.Restarting)
 		statusField(out, "degraded", summary.Degraded)
-	}
-	for _, item := range items {
-		statusStateField(out, item.ID, tunnelRuntimeState(item, snapshot.Running))
-		if verbose && item.LastError != "" {
-			statusNestedField(out, "error", item.LastError)
+		for _, view := range views {
+			fmt.Fprintf(out, "\n  %s\n", cliHeading(view.Label))
+			fmt.Fprintf(out, "    %s %s\n", cliDim(fmt.Sprintf("%-9s", "state")), cliState(view.State))
+			statusNestedField(out, "id", view.ID)
+			if view.LastError != "" {
+				statusNestedField(out, "error", view.LastError)
+			}
 		}
+		return
+	}
+	statusField(out, "status", statusTunnelSummaryLine(snapshot.Running, summary, views))
+	for _, view := range views {
+		statusStateField(out, view.Label, view.State)
 	}
 }
 
 func statusTunnelCollection(snapshot statusSnapshot) (runtimecontrol.TunnelSummary, []runtimecontrol.TunnelRuntimeStatus) {
 	if snapshot.Running {
-		if len(snapshot.Runtime.Tunnels) > 0 || snapshot.Runtime.TunnelSummary.Total > 0 {
-			return snapshot.Runtime.TunnelSummary, append([]runtimecontrol.TunnelRuntimeStatus(nil), snapshot.Runtime.Tunnels...)
-		}
-		if snapshot.Runtime.TunnelID != "" || snapshot.Runtime.TunnelEnabled || snapshot.Runtime.TunnelConfigured || snapshot.Runtime.TunnelRunning || snapshot.Runtime.TunnelReady || snapshot.Runtime.TunnelRestarting || snapshot.Runtime.TunnelLastError != "" {
-			item := runtimecontrol.TunnelRuntimeStatus{ID: snapshot.Runtime.TunnelID, Enabled: snapshot.Runtime.TunnelEnabled, Configured: snapshot.Runtime.TunnelConfigured, Running: snapshot.Runtime.TunnelRunning, Ready: snapshot.Runtime.TunnelReady, Restarting: snapshot.Runtime.TunnelRestarting, LastError: snapshot.Runtime.TunnelLastError}
-			summary := runtimecontrol.TunnelSummary{Total: 1}
-			if item.Enabled {
-				summary.Enabled = 1
-			}
-			if item.Configured {
-				summary.Configured = 1
-			}
-			if item.Running {
-				summary.Running = 1
-			}
-			if item.Ready {
-				summary.Ready = 1
-			}
-			if item.Restarting {
-				summary.Restarting = 1
-			}
-			if item.LastError != "" && !item.Ready {
-				summary.Degraded = 1
-			}
-			return summary, []runtimecontrol.TunnelRuntimeStatus{item}
+		items := runtimeStatusTunnelItems(snapshot.Runtime)
+		if snapshot.Runtime.TunnelSummary.Total > 0 || len(items) > 0 {
+			return snapshot.Runtime.TunnelSummary, append([]runtimecontrol.TunnelRuntimeStatus(nil), items...)
 		}
 		return runtimecontrol.TunnelSummary{}, nil
 	}
@@ -334,7 +321,7 @@ func statusTunnelCollection(snapshot statusSnapshot) (runtimecontrol.TunnelSumma
 	items := make([]runtimecontrol.TunnelRuntimeStatus, 0, len(collection.Instances))
 	for _, instance := range collection.Instances {
 		configured := strings.TrimSpace(instance.APIKey) != ""
-		item := runtimecontrol.TunnelRuntimeStatus{ID: instance.ID, Enabled: instance.Enabled, Configured: configured}
+		item := runtimecontrol.TunnelRuntimeStatus{ID: instance.ID, Name: snapshot.TunnelNames[instance.ID], Enabled: instance.Enabled, Configured: configured}
 		items = append(items, item)
 		if instance.Enabled {
 			summary.Enabled++
@@ -522,6 +509,9 @@ func statusAddressPriority(address mcpnetwork.Address) int {
 }
 
 func statusTunnelState(status runtimeStatusResult, runtimeRunning bool) string {
+	if items := runtimeStatusTunnelItems(status); len(items) > 0 {
+		return tunnelRuntimeState(items[0], runtimeRunning)
+	}
 	if !status.TunnelEnabled {
 		return "disabled"
 	}
@@ -539,7 +529,7 @@ func statusTunnelState(status runtimeStatusResult, runtimeRunning bool) string {
 	case status.TunnelRunning:
 		return "connecting"
 	case status.TunnelLastError != "":
-		return "failed"
+		return "degraded"
 	default:
 		return "starting"
 	}

@@ -32,7 +32,7 @@ func runtimeTunnelStatuses(runtime *app.App, cfg config.Config) (runtimecontrol.
 	summary := runtimecontrol.TunnelSummary{Total: len(statuses)}
 	items := make([]runtimecontrol.TunnelRuntimeStatus, 0, len(statuses))
 	for _, status := range statuses {
-		item := runtimecontrol.TunnelRuntimeStatus{ID: status.ID, Enabled: status.Enabled, Configured: configured[status.ID], Running: status.Running, Ready: status.Ready, Restarting: status.Restarting, LastError: status.LastError}
+		item := newTunnelRuntimeStatus(status, configured[status.ID])
 		items = append(items, item)
 		if item.Enabled {
 			summary.Enabled++
@@ -416,8 +416,9 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		if err := runtime.Tunnels.Start(ctx, id); err != nil {
 			return runtimecontrol.TunnelRuntimeStatus{}, err
 		}
-		state := client.Status()
-		return runtimecontrol.TunnelRuntimeStatus{ID: id, Enabled: state.Enabled, Configured: tunnel.Configured(client.Config()), Running: state.Running, Ready: state.Ready, Restarting: state.Restarting, LastError: state.LastError}, nil
+		item := newTunnelRuntimeStatus(client.Status(), tunnel.Configured(client.Config()))
+		item.ID = id
+		return item, nil
 	}, StopTunnel: func(ctx context.Context, id string) (runtimecontrol.TunnelRuntimeStatus, error) {
 		if strings.TrimSpace(id) == "" {
 			return runtimecontrol.TunnelRuntimeStatus{}, errors.New("tunnel id is required")
@@ -444,8 +445,9 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		if err := runtime.Tunnels.Stop(ctx, id); err != nil {
 			return runtimecontrol.TunnelRuntimeStatus{}, err
 		}
-		state := client.Status()
-		return runtimecontrol.TunnelRuntimeStatus{ID: id, Enabled: state.Enabled, Configured: tunnel.Configured(client.Config()), Running: state.Running, Ready: state.Ready, Restarting: state.Restarting, LastError: state.LastError}, nil
+		item := newTunnelRuntimeStatus(client.Status(), tunnel.Configured(client.Config()))
+		item.ID = id
+		return item, nil
 	}, Status: status, StatusWait: statusWait, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Log: runtime.Logger, Shutdown: func() {
 		runtimeCancel()
 		select {

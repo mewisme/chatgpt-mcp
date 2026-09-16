@@ -57,7 +57,7 @@ type doctorState struct {
 }
 
 func (d *doctorState) checks() []doctorCheck {
-	return []doctorCheck{
+	checks := []doctorCheck{
 		{ID: "install.current", Section: "System", Run: d.checkInstall},
 		{ID: "config.source", Section: "System", Run: d.checkConfigSource},
 		{ID: "config.integrity", Section: "System", Requires: []string{"config.source"}, Run: d.checkConfigIntegrity},
@@ -78,6 +78,7 @@ func (d *doctorState) checks() []doctorCheck {
 		{ID: "shell.provider", Section: "Runtime", Requires: []string{"config.source"}, Run: d.checkShellProvider},
 		{ID: "notification.provider", Section: "Integrations", Requires: []string{"config.source"}, Timeout: time.Second, Run: d.checkNotificationProvider},
 	}
+	return append(checks, d.workspaceChecks()...)
 }
 
 func (d *doctorState) checkConfigSource(ctx context.Context) doctorResult {

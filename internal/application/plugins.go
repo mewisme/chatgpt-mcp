@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
@@ -58,6 +59,7 @@ func NewPluginService() (*PluginService, error) {
 	if err != nil {
 		return nil, err
 	}
+	pluginhost.Attach(store)
 	client := pluginpkg.RegistryClient{Layout: layout, UserAgent: "chatgpt-mcp/" + version.Version}
 	return &PluginService{Manager: &pluginpkg.Manager{Store: store, RegistryClient: client}, Layout: layout}, nil
 }

@@ -15,6 +15,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -73,6 +74,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	if err != nil {
 		panic(err)
 	}
+	pluginhost.Attach(pluginStore)
 	pluginReconcile, err := pluginpkg.Reconcile(pluginStore)
 	if err != nil {
 		panic(err)

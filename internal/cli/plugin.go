@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
@@ -29,6 +30,7 @@ func newPluginManager() (*pluginpkg.Manager, pluginpkg.Layout, error) {
 	if err != nil {
 		return nil, pluginpkg.Layout{}, err
 	}
+	pluginhost.Attach(store)
 	client := pluginpkg.RegistryClient{Layout: layout, UserAgent: "chatgpt-mcp/" + version.Version}
 	return &pluginpkg.Manager{Store: store, RegistryClient: client}, layout, nil
 }

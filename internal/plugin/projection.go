@@ -124,6 +124,51 @@ func verifyProjections(layout Layout, payloadDir string, enabled bool) error {
 	return nil
 }
 
+func ProjectedDestinationOwner(layout Layout, dest string) (PluginID, bool, error) {
+	if err := layout.Validate(); err != nil {
+		return "", false, err
+	}
+	dest = filepath.Clean(dest)
+	lock, err := LoadLock(layout.LockPath())
+	if err != nil {
+		return "", false, err
+	}
+	ids := make([]string, 0, len(lock.Plugins))
+	for id := range lock.Plugins {
+		ids = append(ids, string(id))
+	}
+	sort.Strings(ids)
+	for _, rawID := range ids {
+		id := PluginID(rawID)
+		entry := lock.Plugins[id]
+		if !entry.Enabled {
+			continue
+		}
+		payload := filepath.Join(layout.InstalledVersionPath(id, entry.Version), "payload")
+		if _, err := os.Lstat(payload); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return "", false, err
+		}
+		items, err := loadProjectedItems(layout, payload)
+		if err != nil {
+			return "", false, err
+		}
+		item, ok := items[dest]
+		if !ok {
+			continue
+		}
+		actual, exists, err := destinationDigest(item)
+		if err != nil {
+			return "", false, err
+		}
+		if exists && actual == item.Digest {
+			return id, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func loadProjectedItems(layout Layout, payloadDir string) (map[string]projectedItem, error) {
 	payloadDir = strings.TrimSpace(payloadDir)
 	if payloadDir == "" {

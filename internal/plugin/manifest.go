@@ -577,6 +577,10 @@ func validPlatform(value string) bool {
 	return len(parts) == 2 && validCanonicalName(parts[0]) && validCanonicalName(parts[1])
 }
 
+func ValidCanonicalName(value string) bool {
+	return validCanonicalName(value)
+}
+
 func validCanonicalName(value string) bool {
 	return canonicalNamePattern.MatchString(value)
 }

@@ -69,6 +69,35 @@ func TestDiscoverNativeCGMAndWorkspaceOverridesGlobal(t *testing.T) {
 	}
 }
 
+func TestDiscoverWithUserIncludesBuiltinsAndReservesNames(t *testing.T) {
+	configDir := t.TempDir()
+	testutil.UseConfigRoot(t, configDir)
+	workspace := t.TempDir()
+	home := t.TempDir()
+	writeNativeSkill(t, filepath.Join(workspace, ".agents", "skills", "create-skill"), "create-skill", "shadow")
+	values, err := DiscoverWithUser(workspace, home, instructionpolicy.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]Skill{}
+	for _, skill := range values {
+		byName[skill.Name] = skill
+	}
+	if !Builtin(byName["create-skill"]) || !Builtin(byName["create-rule"]) {
+		t.Fatalf("builtins = %#v", values)
+	}
+	if byName["create-skill"].Description == "shadow" {
+		t.Fatal("builtin name shadowed")
+	}
+	loaded, err := LoadWithUser(workspace, home, "create-skill", 200000, instructionpolicy.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(loaded.Content, "create_skill") || !strings.Contains(loaded.Content, "Do not fall back") {
+		t.Fatalf("builtin body = %q", loaded.Content)
+	}
+}
+
 func writeNativeSkill(t *testing.T, dir, name, description string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0700); err != nil {

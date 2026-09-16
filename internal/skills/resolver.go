@@ -53,7 +53,7 @@ func DiscoverWithUser(workspaceRoot, home string, policy instructionpolicy.Confi
 		}
 	}
 	sort.SliceStable(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-	return result, nil
+	return mergeBuiltins(result), nil
 }
 
 func discoverAt(rootPath string, enabled func(string) bool, nativeDir string) ([]Skill, error) {
@@ -100,6 +100,17 @@ func loadFrom(all []Skill, err error, name string, maxBytes int) (Loaded, error)
 	for _, skill := range all {
 		if skill.Name != name {
 			continue
+		}
+		if Builtin(skill) {
+			content, err := builtinContent(skill.Name)
+			if err != nil {
+				return Loaded{}, err
+			}
+			truncated := len(content) > maxBytes
+			if truncated {
+				content = content[:maxBytes]
+			}
+			return Loaded{Skill: skill, Content: content, Truncated: truncated}, nil
 		}
 		info, err := os.Lstat(skill.Path)
 		if err != nil {

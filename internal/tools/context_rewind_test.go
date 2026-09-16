@@ -72,7 +72,7 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 	if project.Root != root || project.WorkspaceID != workspaceID || project.Summary.MemoryBytes == 0 || project.Summary.InstructionBytes != project.InstructionContext.InstructionBytes {
 		t.Fatalf("project context = %#v", project)
 	}
-	if project.Summary.Rules != 1 || project.Summary.Skills != 1 || len(project.Summary.MemoryFiles) != 1 {
+	if project.Summary.Rules != 1 || project.Summary.Skills != 3 || len(project.Summary.MemoryFiles) != 1 {
 		t.Fatalf("project summary = %#v", project.Summary)
 	}
 	if !strings.Contains(project.InstructionContext.InstructionsText, "instructions") || !strings.Contains(project.InstructionContext.InstructionsText, "Global rule") || !strings.Contains(project.InstructionContext.InstructionsText, "test skill") {
@@ -86,8 +86,8 @@ func TestContextSkillsRulesAndRemember(t *testing.T) {
 	if err != nil || listResult.IsError {
 		t.Fatalf("list_skills failed: %#v %v", listResult, err)
 	}
-	if listResult.StructuredContent.(SkillsListResult).Count != 1 {
-		t.Fatalf("skills = %#v", listResult.StructuredContent)
+	if listed := listResult.StructuredContent.(SkillsListResult); listed.Count != 3 {
+		t.Fatalf("skills = %#v", listed)
 	}
 
 	loadResult, err := runtime.Call(context.Background(), "load_skill", map[string]any{"workspace_id": workspaceID, "name": "test"})
@@ -209,8 +209,14 @@ func TestContextToolsApplyManagedGlobalPolicyToUserSources(t *testing.T) {
 	if err != nil || listResult.IsError {
 		t.Fatalf("list_skills failed: %#v %v", listResult, err)
 	}
-	if listResult.StructuredContent.(SkillsListResult).Count != 0 {
-		t.Fatalf("disabled user skill leaked: %#v", listResult.StructuredContent)
+	listed := listResult.StructuredContent.(SkillsListResult)
+	for _, skill := range listed.Skills {
+		if skill.Name == "user-review" {
+			t.Fatalf("disabled user skill leaked: %#v", listed)
+		}
+	}
+	if listed.Count != 2 {
+		t.Fatalf("expected built-in skills only, got %#v", listed)
 	}
 	loadResult, err := runtime.Call(context.Background(), "load_skill", map[string]any{"workspace_id": workspaceID, "name": "user-review"})
 	if err != nil || !loadResult.IsError {

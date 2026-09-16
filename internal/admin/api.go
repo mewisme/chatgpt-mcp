@@ -25,7 +25,6 @@ type API struct {
 	Upstream     *upstream.Manager
 	Tools        *tools.Runtime
 	Workspaces   *workspace.Manager
-	Tunnel       *tunnel.Client
 	Tunnels      *tunnel.Manager
 	Config       *config.RuntimeStore
 	ReloadConfig func(config.Config) error
@@ -97,18 +96,12 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/requests/", api.handleRequest)
 	mux.HandleFunc("/api/upstream", api.handleUpstreams)
 	mux.HandleFunc("/api/upstream/", api.handleUpstream)
-	mux.HandleFunc("/api/tunnel/config", api.handleTunnelConfig)
 	mux.HandleFunc("/api/tunnels", api.handleLocalTunnels)
 	mux.HandleFunc("/api/tunnels/", api.handleLocalTunnel)
 	mux.HandleFunc("/api/tunnel-admins", api.handleTunnelAdmins)
 	mux.HandleFunc("/api/tunnel-admins/", api.handleTunnelAdmin)
 	mux.HandleFunc("/api/managed-tunnels", api.handleManagedTunnelCollection)
 	mux.HandleFunc("/api/managed-tunnels/", api.handleManagedTunnelCollectionItem)
-	mux.HandleFunc("/api/tunnel/admin/key", api.handleTunnelAdminKey)
-	mux.HandleFunc("/api/tunnel/managed", api.handleManagedTunnels)
-	mux.HandleFunc("/api/tunnel/managed/use", api.handleManagedTunnelUse)
-	mux.HandleFunc("/api/tunnel/managed/", api.handleManagedTunnel)
-	mux.HandleFunc("/api/tunnel", api.handleTunnel)
 	return mux
 }
 

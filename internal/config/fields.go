@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 const RedactedValue = "<redacted>"
@@ -78,17 +79,17 @@ var fieldSpecs = []FieldSpec{
 	{Key: "permissions.allow_dirs", Label: "Allowed directories", Section: FieldSectionAccess, Description: "adds global filesystem roots that registered workspaces may access", Details: "These roots extend workspace-local access for filesystem and shell operations. Paths must be absolute, are normalized, and apply globally in addition to per-workspace allowed directories.", Kind: FieldList, Editable: true},
 	{Key: "shell.executable", Label: "Bash executable", Section: FieldSectionShell, Description: "selects an explicit Bash executable for managed shell commands", Details: "When set, this absolute Bash path has priority over the enabled shell/bash plugin and system Bash discovery. PowerShell is not a valid agent shell provider.", Kind: FieldString, Editable: true, Related: []string{"shell.path"}},
 	{Key: "shell.path", Label: "Executable search paths", Section: FieldSectionShell, Description: "prepends additional executable directories to PATH for managed shell commands", Details: "Paths must be absolute. Configured entries are prepended to the inherited process PATH for foreground and background shell execution.", Kind: FieldList, Editable: true},
-	{Key: "tunnel.enabled", Label: "Tunnel", Section: FieldSectionTunnel, Description: "controls whether the OpenAI Secure MCP Tunnel transport is enabled", Details: "An enabled tunnel requires both tunnel.id and a configured runtime API key. The tunnel can satisfy the requirement that at least one MCP transport remains enabled when the local MCP HTTP server is disabled.", Kind: FieldBool, Editable: true, Related: []string{"tunnel.id", "tunnel.api_key", "server.enabled"}},
+	{Key: "tunnel.enabled", Label: "Tunnel", Section: FieldSectionTunnel, Description: "reports whether any OpenAI Secure MCP Tunnel instance is enabled", Details: "This value is derived from the tunnel collection. Enable or disable a specific instance with cgm tunnel enable/disable.", Kind: FieldReadOnly, Related: []string{"tunnel.instances", "server.enabled"}},
 	{Key: "tunnel.instances", Label: "Tunnel instances", Section: FieldSectionTunnel, Description: "lists configured runtime tunnel instances", Details: "Manage instances by tunnel ID; collection editing is not available through config set.", Kind: FieldReadOnly},
 	{Key: "tunnel.admins", Label: "Tunnel admin profiles", Section: FieldSectionTunnel, Description: "lists configured management profiles", Details: "Manage profiles by profile ID; collection editing is not available through config set.", Kind: FieldReadOnly},
-	{Key: "tunnel.id", Label: "Tunnel ID", Section: FieldSectionTunnel, Description: "identifies the OpenAI Secure MCP Tunnel used by this runtime", Details: "The ID is required when the tunnel transport is enabled and is used together with the runtime API key to connect to the configured tunnel.", Kind: FieldString, Editable: true, Related: []string{"tunnel.enabled", "tunnel.api_key"}},
-	{Key: "tunnel.api_key", Label: "Runtime API key", Section: FieldSectionTunnel, Description: "stores the managed runtime credential used to connect to the Secure MCP Tunnel", Details: "The raw runtime key is stored through the secret workflow and is redacted from config views. A configured runtime key is required when the tunnel transport is enabled.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage the runtime key from the Tunnel page.", Related: []string{"tunnel.enabled", "tunnel.id"}},
-	{Key: "tunnel.admin_key", Label: "Admin key", Section: FieldSectionTunnel, Description: "stores the managed admin credential used for tunnel control-plane operations", Details: "The admin key is separate from the runtime tunnel key. It is used for management operations such as listing, creating, updating, or deleting managed tunnels and is redacted from config views.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage and verify the admin key from the Tunnel page.", Related: []string{"tunnel.admin_organization_id", "tunnel.admin_workspace_id", "tunnel.admin_tenant_id"}},
+	{Key: "tunnel.id", Label: "Tunnel ID", Section: FieldSectionTunnel, Description: "identifies one local tunnel instance for compatibility views", Details: "Derived from the first collection instance or leftover scalar config. Attach or update tunnels with cgm tunnel add/update.", Kind: FieldReadOnly, Related: []string{"tunnel.instances", "tunnel.api_key"}},
+	{Key: "tunnel.api_key", Label: "Runtime API key", Section: FieldSectionTunnel, Description: "stores the managed runtime credential used to connect to the Secure MCP Tunnel", Details: "The raw runtime key is stored through the secret workflow and is redacted from config views. Manage keys with cgm tunnel add/update.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage the runtime key with cgm tunnel add/update.", Related: []string{"tunnel.instances", "tunnel.id"}},
+	{Key: "tunnel.admin_key", Label: "Admin key", Section: FieldSectionTunnel, Description: "stores the managed admin credential used for tunnel control-plane operations", Details: "The admin key is separate from the runtime tunnel key. It is used for management operations such as listing, creating, updating, or deleting managed tunnels and is redacted from config views.", Kind: FieldReadOnly, Sensitive: true, Guidance: "Manage and verify the admin key with cgm tunnel admin.", Related: []string{"tunnel.admins", "tunnel.admin_organization_id", "tunnel.admin_workspace_id", "tunnel.admin_tenant_id"}},
 	{Key: "tunnel.admin_organization_id", Label: "Admin organization scope", Section: FieldSectionTunnel, Description: "records the verified organization scope for the tunnel admin key", Details: "This read-only value is populated from admin-key verification and constrains tunnel management operations to the verified organization scope when present.", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification.", Related: []string{"tunnel.admin_key", "tunnel.admin_workspace_id", "tunnel.admin_tenant_id"}},
 	{Key: "tunnel.admin_workspace_id", Label: "Admin workspace scope", Section: FieldSectionTunnel, Description: "records the verified workspace scope for the tunnel admin key", Details: "This read-only value is populated from admin-key verification and constrains tunnel management operations to the verified workspace scope when present.", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification.", Related: []string{"tunnel.admin_key", "tunnel.admin_organization_id", "tunnel.admin_tenant_id"}},
 	{Key: "tunnel.admin_tenant_id", Label: "Admin tenant scope", Section: FieldSectionTunnel, Description: "records the verified tenant scope for the tunnel admin key", Details: "This read-only value is populated from admin-key verification and constrains tunnel management operations to the verified tenant scope when present.", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification.", Related: []string{"tunnel.admin_key", "tunnel.admin_organization_id", "tunnel.admin_workspace_id"}},
-	{Key: "tunnel.control_plane_base_url", Label: "Control-plane URL", Section: FieldSectionTunnel, Description: "overrides the OpenAI tunnel control-plane base URL", Details: "When empty, the tunnel client uses its default control-plane endpoint. A custom value must be an absolute HTTP or HTTPS URL with a host.", Kind: FieldString, Editable: true, Guidance: "Leave empty unless a different control-plane endpoint is explicitly required.", Related: []string{"tunnel.enabled", "tunnel.id"}},
-	{Key: "tunnel.organization_id", Label: "Organization ID", Section: FieldSectionTunnel, Description: "sets the OpenAI organization context associated with tunnel runtime operations", Details: "This optional organization identifier is carried in tunnel runtime configuration and is distinct from the verified admin-key organization scope.", Kind: FieldString, Editable: true, Related: []string{"tunnel.admin_organization_id", "tunnel.enabled"}},
+	{Key: "tunnel.control_plane_base_url", Label: "Control-plane URL", Section: FieldSectionTunnel, Description: "overrides the OpenAI tunnel control-plane base URL", Details: "Derived from the first collection instance or leftover scalar config. Set it with cgm tunnel add/update.", Kind: FieldReadOnly, Guidance: "Leave empty unless a different control-plane endpoint is explicitly required.", Related: []string{"tunnel.instances"}},
+	{Key: "tunnel.organization_id", Label: "Organization ID", Section: FieldSectionTunnel, Description: "sets the OpenAI organization context associated with tunnel runtime operations", Details: "Derived from the first collection instance or leftover scalar config. Set it with cgm tunnel add/update.", Kind: FieldReadOnly, Related: []string{"tunnel.instances", "tunnel.admin_organization_id"}},
 	{Key: "notifications.enabled", Label: "Desktop notifications", Section: FieldSectionRuntime, Description: "controls whether ChatGPT MCP may send desktop notifications", Details: "This is a best-effort host notification switch. Approval requests still work when notifications are disabled or the desktop provider is unavailable.", Kind: FieldBool, Editable: true, Related: []string{"notifications.approvals", "notifications.when_tui_inactive", "notifications.open_action"}},
 	{Key: "notifications.approvals", Label: "Approval notifications", Section: FieldSectionRuntime, Description: "controls desktop alerts for pending control approval requests", Details: "When enabled together with notifications.enabled, a pending approval.requested event can produce a lock-screen-safe desktop notification. The notification never approves or denies the request.", Kind: FieldBool, Editable: true, Related: []string{"notifications.enabled", "notifications.when_tui_inactive", "notifications.open_action"}},
 	{Key: "notifications.when_tui_inactive", Label: "Notify only without TUI", Section: FieldSectionRuntime, Description: "suppresses desktop approval notifications while a TUI reviewer is open", Details: "An open TUI holds a presence lock for this config root. When this setting is true, desktop notifications are skipped while that lock is held. A failed presence check prefers sending a notification rather than dropping the request silently.", Kind: FieldBool, Editable: true, Related: []string{"notifications.enabled", "notifications.approvals"}},
@@ -201,24 +202,12 @@ func SetValue(cfg *Config, key, raw string) error {
 		cfg.Shell.Executable = strings.TrimSpace(raw)
 	case "shell.path":
 		cfg.Shell.Path = splitFieldList(raw)
-	case "tunnel.enabled":
-		value, err := parseBoolField(raw, key)
-		if err != nil {
-			return err
-		}
-		cfg.Tunnel.Enabled = value
+	case "tunnel.enabled", "tunnel.id", "tunnel.api_key", "tunnel.control_plane_base_url", "tunnel.organization_id":
+		return errors.New("tunnel runtime fields cannot be set through config; use cgm tunnel add/update")
 	case "tunnel.instances", "tunnel.admins":
 		return errors.New("tunnel collections cannot be edited through config set")
-	case "tunnel.id":
-		cfg.Tunnel.ID = raw
-	case "tunnel.api_key":
-		cfg.Tunnel.APIKey = raw
 	case "tunnel.admin_key", "tunnel.admin_organization_id", "tunnel.admin_workspace_id", "tunnel.admin_tenant_id":
 		return errors.New("tunnel admin credentials cannot be set through config; use chatgpt-mcp tunnel admin key")
-	case "tunnel.control_plane_base_url":
-		cfg.Tunnel.ControlPlaneBaseURL = raw
-	case "tunnel.organization_id":
-		cfg.Tunnel.OrganizationID = raw
 	case "notifications.enabled":
 		value, err := parseBoolField(raw, key)
 		if err != nil {
@@ -308,7 +297,7 @@ func RawValue(cfg Config, key string) (string, error) {
 	case "shell.path":
 		return strings.Join(cfg.Shell.Path, ","), nil
 	case "tunnel.enabled":
-		return strconv.FormatBool(cfg.Tunnel.Enabled), nil
+		return strconv.FormatBool(cfg.EnabledTunnelCount() > 0), nil
 	case "tunnel.instances":
 		data, err := json.Marshal(cfg.Tunnel.Collection().Instances)
 		return string(data), err
@@ -316,21 +305,21 @@ func RawValue(cfg Config, key string) (string, error) {
 		data, err := json.Marshal(cfg.Tunnel.Collection().Admins)
 		return string(data), err
 	case "tunnel.id":
-		return cfg.Tunnel.ID, nil
+		return primaryTunnelInstance(cfg).ID, nil
 	case "tunnel.api_key":
-		return cfg.Tunnel.APIKey, nil
+		return primaryTunnelInstance(cfg).APIKey, nil
 	case "tunnel.admin_key":
-		return cfg.Tunnel.AdminKey, nil
+		return primaryTunnelAdmin(cfg).AdminKey, nil
 	case "tunnel.admin_organization_id":
-		return cfg.Tunnel.AdminOrganizationID, nil
+		return primaryTunnelAdmin(cfg).OrganizationID, nil
 	case "tunnel.admin_workspace_id":
-		return cfg.Tunnel.AdminWorkspaceID, nil
+		return primaryTunnelAdmin(cfg).WorkspaceID, nil
 	case "tunnel.admin_tenant_id":
-		return cfg.Tunnel.AdminTenantID, nil
+		return primaryTunnelAdmin(cfg).TenantID, nil
 	case "tunnel.control_plane_base_url":
-		return cfg.Tunnel.ControlPlaneBaseURL, nil
+		return firstNonEmpty(primaryTunnelInstance(cfg).ControlPlaneBaseURL, primaryTunnelAdmin(cfg).ControlPlaneBaseURL), nil
 	case "tunnel.organization_id":
-		return cfg.Tunnel.OrganizationID, nil
+		return primaryTunnelInstance(cfg).OrganizationID, nil
 	case "notifications.enabled":
 		return strconv.FormatBool(cfg.Notifications.Enabled), nil
 	case "notifications.approvals":
@@ -491,4 +480,27 @@ func parseIntField(raw, key string) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer", key)
 	}
 	return value, nil
+}
+
+func primaryTunnelInstance(cfg Config) tunnel.InstanceConfig {
+	if instances := cfg.RuntimeTunnels().Instances; len(instances) > 0 {
+		return instances[0]
+	}
+	return tunnel.InstanceConfig{Enabled: cfg.Tunnel.Enabled, ID: cfg.Tunnel.ID, APIKey: cfg.Tunnel.APIKey, ControlPlaneBaseURL: cfg.Tunnel.ControlPlaneBaseURL, OrganizationID: cfg.Tunnel.OrganizationID}
+}
+
+func primaryTunnelAdmin(cfg Config) tunnel.AdminConfig {
+	if admins := cfg.RuntimeTunnels().Admins; len(admins) > 0 {
+		return admins[0]
+	}
+	return tunnel.AdminConfig{AdminKey: cfg.Tunnel.AdminKey, OrganizationID: cfg.Tunnel.AdminOrganizationID, WorkspaceID: cfg.Tunnel.AdminWorkspaceID, TenantID: cfg.Tunnel.AdminTenantID, ControlPlaneBaseURL: cfg.Tunnel.ControlPlaneBaseURL}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -32,6 +32,10 @@ func TestConfigCompletionIncludesKeysAndTypedValues(t *testing.T) {
 	if !hasCompletion(selection, "tunnel") || !hasCompletion(selection, "tunnel.enabled") || !hasCompletion(selection, "tunnel.organization_id") {
 		t.Fatalf("selection completions = %#v", selection)
 	}
+	setKeys, _ := completeConfigSet(nil, nil, "tunnel")
+	if hasCompletion(setKeys, "tunnel.enabled") || hasCompletion(setKeys, "tunnel.api_key") || hasCompletion(setKeys, "tunnel.id") {
+		t.Fatalf("set completions still include scalar tunnel fields: %#v", setKeys)
+	}
 }
 
 func TestConfigFormatCompletion(t *testing.T) {

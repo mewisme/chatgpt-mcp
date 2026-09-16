@@ -31,6 +31,22 @@ type localTunnelView struct {
 	Status               tunnel.Status `json:"status"`
 }
 
+type managedTunnelCreateRequest struct {
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	TenantIDs       []string `json:"tenant_ids,omitempty"`
+	WorkspaceIDs    []string `json:"workspace_ids,omitempty"`
+	OrganizationIDs []string `json:"organization_ids,omitempty"`
+}
+
+type managedTunnelUpdateRequest struct {
+	Name            *string   `json:"name,omitempty"`
+	Description     *string   `json:"description,omitempty"`
+	TenantIDs       *[]string `json:"tenant_ids,omitempty"`
+	WorkspaceIDs    *[]string `json:"workspace_ids,omitempty"`
+	OrganizationIDs *[]string `json:"organization_ids,omitempty"`
+}
+
 func localView(instance tunnel.InstanceConfig, status tunnel.Status) localTunnelView {
 	status.AdminKeyConfigured = false
 	status.AdminScope = nil

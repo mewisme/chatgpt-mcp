@@ -25,11 +25,7 @@ func configKeyCompletions() []configKeyCompletion {
 	result := make([]configKeyCompletion, 0, len(fields)+1)
 	result = append(result, configKeyCompletion{Key: "server.expose", Description: "server network exposure", Settable: true})
 	for _, spec := range fields {
-		settable := spec.Editable
-		if spec.Key == "tunnel.api_key" {
-			settable = true
-		}
-		result = append(result, configKeyCompletion{Key: spec.Key, Description: spec.Description, Settable: settable})
+		result = append(result, configKeyCompletion{Key: spec.Key, Description: spec.Description, Settable: spec.Editable})
 	}
 	return result
 }

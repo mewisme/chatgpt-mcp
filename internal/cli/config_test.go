@@ -30,19 +30,13 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "admin.enabled", "false"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setConfigValue(&cfg, "tunnel.control_plane_base_url", "https://api.openai.com"); err != nil {
-		t.Fatal(err)
-	}
-	if err := setConfigValue(&cfg, "tunnel.organization_id", "org-test"); err != nil {
-		t.Fatal(err)
-	}
 	if err := setConfigValue(&cfg, "permissions.allow_dirs", "/tmp,/var/tmp"); err != nil {
 		t.Fatal(err)
 	}
 	if err := setConfigValue(&cfg, "shell.path", "/opt/tools,/usr/local/custom/bin"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
 		t.Fatalf("cfg = %#v", cfg)
 	}
 }
@@ -68,6 +62,15 @@ func TestConfigSetValidationMatchesSharedDomain(t *testing.T) {
 	_, err := executeRequestCommandError(root, []string{"config", "set", "server.port", "70000"})
 	if err == nil || err.Error() != wantErr.Error() {
 		t.Fatalf("CLI err=%v want=%v", err, wantErr)
+	}
+}
+
+func TestTunnelRuntimeFieldsCannotBypassCollectionCommands(t *testing.T) {
+	cfg := config.Default()
+	for _, key := range []string{"tunnel.enabled", "tunnel.id", "tunnel.api_key", "tunnel.control_plane_base_url", "tunnel.organization_id"} {
+		if err := setConfigValue(&cfg, key, "value"); err == nil || !strings.Contains(err.Error(), "cgm tunnel") {
+			t.Fatalf("%s error = %v", key, err)
+		}
 	}
 }
 

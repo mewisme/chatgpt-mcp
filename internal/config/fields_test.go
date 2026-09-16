@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestFieldSetValuePreservesTypedBehaviorAndLegacyAliases(t *testing.T) {
@@ -63,6 +64,33 @@ func TestFieldSetValueValidationIsTransactional(t *testing.T) {
 	}
 	if err := SetValue(&cfg, "notifications.open_action", "toast"); err == nil || !strings.Contains(err.Error(), "auto or disabled") {
 		t.Fatalf("open action err=%v", err)
+	}
+}
+
+func TestTunnelRuntimeFieldsCannotBypassCollectionCommands(t *testing.T) {
+	cfg := Default()
+	for _, key := range []string{"tunnel.enabled", "tunnel.id", "tunnel.api_key", "tunnel.control_plane_base_url", "tunnel.organization_id"} {
+		if err := SetValue(&cfg, key, "value"); err == nil || !strings.Contains(err.Error(), "cgm tunnel") {
+			t.Fatalf("%s err=%v", key, err)
+		}
+	}
+}
+
+func TestTunnelScalarReadsUseCollectionPrimary(t *testing.T) {
+	instances := []tunnel.InstanceConfig{
+		{Enabled: true, ID: "tunnel_a", APIKey: "key-a"},
+		{Enabled: false, ID: "tunnel_b", APIKey: "key-b"},
+	}
+	cfg := Default()
+	cfg.Tunnel = tunnel.Config{ID: "scalar", APIKey: "scalar-key", Instances: &instances}
+	if value, err := RawValue(cfg, "tunnel.id"); err != nil || value != "tunnel_a" {
+		t.Fatalf("id=%q err=%v", value, err)
+	}
+	if value, err := RawValue(cfg, "tunnel.api_key"); err != nil || value != "key-a" {
+		t.Fatalf("api_key=%q err=%v", value, err)
+	}
+	if value, err := RawValue(cfg, "tunnel.enabled"); err != nil || value != "true" {
+		t.Fatalf("enabled=%q err=%v", value, err)
 	}
 }
 

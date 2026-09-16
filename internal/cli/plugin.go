@@ -590,8 +590,8 @@ func pluginConfigCommand() *cobra.Command {
 }
 
 func pluginConfigListCommand() *cobra.Command {
-	return &cobra.Command{Use: "list <plugin>", Aliases: []string{"ls"}, Short: "List effective plugin configuration", Args: cobra.ExactArgs(1), ValidArgsFunction: completePluginID, RunE: func(cmd *cobra.Command, args []string) error {
-		service, id, err := pluginConfigTarget(args[0])
+	cmd := &cobra.Command{Use: "list <plugin>", Aliases: []string{"ls"}, Short: "List effective plugin configuration", Args: cobra.ExactArgs(1), ValidArgsFunction: completePluginID, RunE: func(cmd *cobra.Command, args []string) error {
+		service, id, err := pluginConfigTarget(cmd, args[0])
 		if err != nil {
 			return err
 		}
@@ -605,11 +605,13 @@ func pluginConfigListCommand() *cobra.Command {
 		}
 		return nil
 	}}
+	addPluginScopeFlags(cmd)
+	return cmd
 }
 
 func pluginConfigGetCommand() *cobra.Command {
-	return &cobra.Command{Use: "get <plugin> <key>", Short: "Show one plugin configuration value", Args: cobra.ExactArgs(2), ValidArgsFunction: completePluginConfigKey, RunE: func(cmd *cobra.Command, args []string) error {
-		service, id, err := pluginConfigTarget(args[0])
+	cmd := &cobra.Command{Use: "get <plugin> <key>", Short: "Show one plugin configuration value", Args: cobra.ExactArgs(2), ValidArgsFunction: completePluginConfigKey, RunE: func(cmd *cobra.Command, args []string) error {
+		service, id, err := pluginConfigTarget(cmd, args[0])
 		if err != nil {
 			return err
 		}
@@ -620,11 +622,13 @@ func pluginConfigGetCommand() *cobra.Command {
 		commandLogger(cmd).Detail(field.Key, pluginSettingDisplay(field, value))
 		return nil
 	}}
+	addPluginScopeFlags(cmd)
+	return cmd
 }
 
 func pluginConfigSetCommand() *cobra.Command {
-	return &cobra.Command{Use: "set <plugin> <key> <value>", Short: "Set one plugin configuration value", Args: cobra.ExactArgs(3), ValidArgsFunction: completePluginConfigSet, RunE: func(cmd *cobra.Command, args []string) error {
-		service, id, err := pluginConfigTarget(args[0])
+	cmd := &cobra.Command{Use: "set <plugin> <key> <value>", Short: "Set one plugin configuration value", Args: cobra.ExactArgs(3), ValidArgsFunction: completePluginConfigSet, RunE: func(cmd *cobra.Command, args []string) error {
+		service, id, err := pluginConfigTarget(cmd, args[0])
 		if err != nil {
 			return err
 		}
@@ -634,11 +638,13 @@ func pluginConfigSetCommand() *cobra.Command {
 		commandLogger(cmd).Success("PLUGIN", "plugin config saved", "id", id, "key", args[1])
 		return nil
 	}}
+	addPluginScopeFlags(cmd)
+	return cmd
 }
 
 func pluginConfigResetCommand() *cobra.Command {
-	return &cobra.Command{Use: "reset <plugin> [key]", Short: "Reset plugin configuration to schema defaults", Args: cobra.RangeArgs(1, 2), ValidArgsFunction: completePluginConfigKey, RunE: func(cmd *cobra.Command, args []string) error {
-		service, id, err := pluginConfigTarget(args[0])
+	cmd := &cobra.Command{Use: "reset <plugin> [key]", Short: "Reset plugin configuration to schema defaults", Args: cobra.RangeArgs(1, 2), ValidArgsFunction: completePluginConfigKey, RunE: func(cmd *cobra.Command, args []string) error {
+		service, id, err := pluginConfigTarget(cmd, args[0])
 		if err != nil {
 			return err
 		}
@@ -657,14 +663,16 @@ func pluginConfigResetCommand() *cobra.Command {
 		log.Success("PLUGIN", "plugin config reset", "id", id, "key", key)
 		return nil
 	}}
+	addPluginScopeFlags(cmd)
+	return cmd
 }
 
-func pluginConfigTarget(raw string) (*application.PluginService, pluginpkg.PluginID, error) {
+func pluginConfigTarget(cmd *cobra.Command, raw string) (*application.PluginService, pluginpkg.PluginID, error) {
 	id, err := simplePluginID(raw)
 	if err != nil {
 		return nil, "", err
 	}
-	service, err := application.NewPluginService()
+	service, err := application.NewPluginServiceForOptions(pluginScopeOptions(cmd))
 	if err != nil {
 		return nil, "", err
 	}

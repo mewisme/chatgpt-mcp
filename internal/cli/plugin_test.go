@@ -103,15 +103,46 @@ func TestPluginLifecycleCommandsExposeScopeFlags(t *testing.T) {
 	for _, cmd := range []*cobra.Command{
 		pluginListCommand(), pluginInstallCommand(), pluginUninstallCommand(), pluginToggleCommand(true), pluginToggleCommand(false),
 		pluginUpdateCommand(), pluginRollbackCommand(), pluginPruneCommand(), pluginOutdatedCommand(), pluginVerifyCommand(),
+		pluginConfigListCommand(), pluginConfigGetCommand(), pluginConfigSetCommand(), pluginConfigResetCommand(),
 	} {
 		if cmd.Flags().Lookup("scope") == nil || cmd.Flags().Lookup("workspace") == nil {
 			t.Fatalf("%s is missing --scope/--workspace", cmd.Name())
 		}
 	}
-	for _, cmd := range []*cobra.Command{pluginSearchCommand(), pluginInfoCommand(), pluginRegistryListCommand(), pluginConfigListCommand()} {
+	for _, cmd := range []*cobra.Command{pluginSearchCommand(), pluginInfoCommand(), pluginRegistryListCommand()} {
 		if cmd.Flags().Lookup("scope") != nil || cmd.Flags().Lookup("workspace") != nil {
 			t.Fatalf("%s unexpectedly exposes --scope/--workspace", cmd.Name())
 		}
+	}
+}
+
+func TestPluginConfigWorkspaceScopeDoesNotLeak(t *testing.T) {
+	previous := configformat.RootPath()
+	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
+	configDir := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(configDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeRequestCommandError(configDir, []string{"plugin", "config", "set", "ponytail", "default_mode", "ultra"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeRequestCommandError(configDir, []string{"workspace", "register", t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := workspace.NewManager(workspace.DefaultStorePath()).List()
+	if err != nil || len(items) != 1 {
+		t.Fatalf("workspaces = %#v err=%v", items, err)
+	}
+	_, err = executeRequestCommandError(configDir, []string{"plugin", "config", "set", "--scope", "workspace", "--workspace", items[0].ID, "ponytail", "default_mode", "lite"})
+	if err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("workspace builtin config error = %v", err)
+	}
+	out, err := executeRequestCommandError(configDir, []string{"plugin", "config", "get", "ponytail", "default_mode"})
+	if err != nil || !strings.Contains(out, "ultra") {
+		t.Fatalf("global config leaked = %q %v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(items[0].Path, ".cgm", "plugins", "config", "ponytail.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("workspace config file was created for a global builtin")
 	}
 }
 

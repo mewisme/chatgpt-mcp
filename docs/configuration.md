@@ -246,13 +246,14 @@ tunnel:
       organization_id: org_...
 ```
 
-Runtime/admin keys are stored separately in the managed secret store and are redacted from normal config/status output. Older scalar tunnel config is migrated to one collection instance plus a `default` admin profile when applicable.
+Runtime/admin keys are stored separately in the managed secret store and are redacted from normal config/status output. Older scalar `tunnel.id` / `tunnel.api_key` / `tunnel.enabled` files still load: they canonicalize into one collection instance (plus a `default` admin profile when an admin key is present). After that, `config Save` writes collection form only. `config get tunnel.*` still reads the first collection instance or leftover scalar for compatibility views. `config set tunnel.id|enabled|api_key|control_plane_base_url|organization_id` is rejected; use `cgm tunnel add/update`. Active CLI/TUI/Admin mutation paths write the collection, not scalar fields. Scalar leftover adapters remain only for in-memory tests and compatibility JSON until that boundary is removed.
 
 Use:
 
 ```bash
 cgm tunnel list
 cgm tunnel status [tunnel_id]
+cgm tunnel add tunnel_... --runtime-api-key 'sk-...'
 cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
 cgm tunnel detach tunnel_...
 cgm tunnel admin list

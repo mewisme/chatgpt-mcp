@@ -4,7 +4,7 @@ Runtime is the operational status/control page for the local `chatgpt-mcp` proce
 
 ## Status
 
-The page aggregates runtime/service state, MCP HTTP transport, authentication state, managed installation/update information, alias state, and build/version information. Refresh reloads this operational snapshot.
+The page aggregates runtime/service state, MCP HTTP transport, authentication state, managed installation/update information, alias state, and build/version information. Refresh reloads this operational snapshot. Tunnel status is collection-wide: every attached instance is listed rather than one default tunnel.
 
 ## Service lifecycle
 

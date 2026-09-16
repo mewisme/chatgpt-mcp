@@ -171,6 +171,14 @@ cgm tunnel run tunnel_...
 
 Readiness is transport-wide: direct MCP HTTP can make the runtime usable on its own, otherwise at least one enabled/configured tunnel must become ready. Later failure of one tunnel is reported as degraded while the process keeps other tunnels running/reconnecting.
 
+### Identity and labels
+
+`Source=tunnel` means the request arrived over Secure MCP Tunnel. It is not which tunnel. Correlation, filters, approvals, and executions use `TunnelID` (`tunnel_...`). `TunnelName` is optional cached display metadata and is never fetched on the tool-call hot path.
+
+Dense CLI/TUI/Admin lists prefer the cached name. Duplicate names get a short-ID suffix such as `Production · c3330bcd`. The full ID stays in detail, copy/debug, search, and unnamed fallbacks.
+
+`--source tunnel` matches every tunnel ingress. `--tunnel <id-or-label>` selects one instance.
+
 See [OpenAI + ChatGPT](openai-chatgpt.md) for setup.
 
 ## Updates

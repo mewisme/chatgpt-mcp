@@ -365,9 +365,12 @@ cgm logs --tool run_command
 cgm logs --status error
 cgm logs --source tunnel
 cgm logs --tunnel Alpha
+cgm logs --tunnel tunnel_...
 cgm logs --event 'tool.call.*'
 cgm logs --grep timeout
 ```
+
+`--source tunnel` matches every Secure MCP Tunnel ingress. `--tunnel` matches one instance by cached name or canonical ID. Completion offers attached IDs and cached labels. JSON log output includes typed `tunnel_id` / `tunnel_name` fields; `source` remains the transport type.
 
 Journal management:
 
@@ -568,6 +571,8 @@ Local instances:
 ```bash
 cgm tunnel list
 cgm tunnel status [tunnel_id]
+cgm tunnel add tunnel_... --runtime-api-key 'sk-...'
+cgm tunnel update tunnel_... [--runtime-api-key 'sk-...']
 cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
 cgm tunnel detach tunnel_...
 cgm tunnel enable tunnel_...
@@ -577,7 +582,9 @@ cgm tunnel stop tunnel_...
 cgm tunnel run tunnel_...
 ```
 
-`attach` accepts:
+`add` attaches an existing runtime key as another local instance. `update` changes that instance; a blank `--runtime-api-key` keeps the current secret. `attach` converts a managed remote tunnel into a new local instance and does not replace an existing attachment.
+
+`attach` also accepts:
 
 ```text
 --admin <profile>
@@ -592,6 +599,7 @@ Admin profiles:
 ```bash
 cgm tunnel admin list
 cgm tunnel admin add personal --admin-key 'sk-admin-...' --organization-id org_...
+cgm tunnel admin update personal [--organization-id org_...]
 cgm tunnel admin verify personal
 cgm tunnel admin remove personal
 ```

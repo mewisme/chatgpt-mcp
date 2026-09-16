@@ -1,5 +1,31 @@
 # Tunnel Editor Fields
 
+## Local Tunnel
+
+### Tunnel ID
+
+Required when attaching a local instance. It identifies the OpenAI tunnel this runtime uses. Hidden on edit because it is the resource identity.
+
+### Runtime API key
+
+Sensitive **Tunnels Read + Use** credential for this local instance. Required on attach. On edit, blank keeps the current secret.
+
+### Admin profile
+
+Optional management-profile reference for provenance. `None` is a runtime-only attachment.
+
+### Enabled
+
+Whether this instance participates in runtime startup. At least one MCP transport must remain enabled overall.
+
+### Control plane base URL
+
+Optional instance-specific control-plane override. Empty uses the normal OpenAI control-plane endpoint.
+
+### Organization ID
+
+Optional OpenAI organization context for this runtime instance. Distinct from verified admin-profile organization scope.
+
 ## Admin Profile
 
 ### Profile ID

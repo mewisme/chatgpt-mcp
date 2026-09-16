@@ -2,18 +2,22 @@
 
 Tunnel is collection-first: one local runtime can receive traffic from multiple OpenAI Secure MCP Tunnels at the same time.
 
+Rows prefer the cached tunnel name. Duplicate names get a short-ID suffix. Detail, search, and unnamed rows still expose the canonical `tunnel_...` ID.
+
 ## Local tunnel instances
 
 The top-level Tunnel page lists every attached local tunnel instance. Each row/detail is keyed by tunnel ID and shows enabled/configured/live state without rendering the runtime key.
 
 Actions are instance-scoped:
 
+- `n` attaches a local runtime key (`cgm tunnel add`) without creating a remote OpenAI tunnel;
+- `e` edits that instance (`cgm tunnel update`); a blank runtime key keeps the current secret;
 - enable/disable changes only that tunnel's desired state;
 - start/stop changes only that live tunnel connection;
 - detach removes only the local attachment/runtime key and leaves the remote OpenAI tunnel unchanged;
 - foreground shows `cgm tunnel run <id>` to run outside the TUI.
 
-When no tunnels are attached, the page points at Admin Profiles → Managed Tunnels → attach.
+When no tunnels are attached, the page points at Admin Profiles → Managed Tunnels → attach, or use local attach with an existing runtime key.
 
 All instances share the same local MCP runtime, tools, workspaces, approvals, processes, upstream servers, and plugins. Connection/reconnect/error state remains independent per tunnel.
 
@@ -40,7 +44,7 @@ The attach flow chooses an admin profile and a runtime-key strategy:
 
 The new instance can be attached enabled or disabled. Its runtime key is stored as a managed secret and is never rendered afterward.
 
-CLI equivalents include `cgm tunnel attach <id>`, `cgm tunnel detach <id>`, `cgm tunnel status <id>`, and the ID-scoped lifecycle commands.
+CLI equivalents: `cgm tunnel add` / `cgm tunnel update` for local instances; `cgm tunnel attach` for managed attach; plus `cgm tunnel detach`, `cgm tunnel status <id>`, and the ID-scoped lifecycle commands.
 
 ## Remote delete
 

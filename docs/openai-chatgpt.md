@@ -95,6 +95,14 @@ If the selected profile may create a restricted runtime key:
 cgm tunnel attach tunnel_... --admin personal --auto-runtime-key
 ```
 
+To attach a runtime key you already have, without managed discovery:
+
+```bash
+cgm tunnel add tunnel_... --runtime-api-key 'sk-...'
+```
+
+The TUI Tunnel page and Admin UI Tunnel page expose the same local add/update/lifecycle and admin-profile update flows.
+
 Use `--project-id` when automatic key generation cannot resolve a single project.
 
 Inspect the result:

@@ -101,9 +101,11 @@ See [MCP and upstreams](mcp.md).
 
 ## Tunnel
 
-Tunnel is collection-first. Its top-level browser lists attached local tunnel instances and each detail is scoped by tunnel ID. Enable/disable/start/stop/detach act on only that instance.
+Tunnel is collection-first. Its top-level browser lists attached local tunnel instances and each detail is scoped by tunnel ID. Enable/disable/start/stop/detach act on only that instance. `n` attaches a local runtime key (`cgm tunnel add`); `e` edits that instance (`cgm tunnel update`) and a blank runtime key keeps the current secret.
 
-Managed Tunnels and admin profiles are separate resources. Attaching a managed tunnel adds a local instance instead of replacing an existing attachment. The normal ChatGPT runtime credential is a restricted **Tunnels Read + Use** key per instance; admin-profile keys are management-only. See [OpenAI + ChatGPT](openai-chatgpt.md).
+Rows prefer the cached tunnel name. Duplicate names get a short-ID suffix. The full ID stays in detail, search, and unnamed fallbacks.
+
+Managed Tunnels and admin profiles are separate resources. `cgm tunnel attach` from Managed Tunnels adds a local instance instead of replacing an existing attachment. The Admin UI Tunnel page exposes the same local attach/edit/lifecycle and admin-profile update flows. The normal ChatGPT runtime credential is a restricted **Tunnels Read + Use** key per instance; admin-profile keys are management-only. See [OpenAI + ChatGPT](openai-chatgpt.md).
 
 ## Requests
 
@@ -134,6 +136,8 @@ Use:
 | `r` | refresh/reconnect where applicable |
 
 Stream Mode controls the visible scope for Runtime, Command Execution, and Tool Calls. Command Execution can additionally select Process view for a workspace; the other tabs do not expose Process mode.
+
+Tunnel-originated rows show the cached tunnel label, not `Source=tunnel` as identity. Search matches both the label and the canonical tunnel ID. The Logs filter editor has a dedicated Tunnel field plus the transport Source field.
 
 ### Runtime
 

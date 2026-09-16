@@ -98,6 +98,6 @@ The current model contains:
 - **instances** — local tunnel attachments keyed by tunnel ID, each with enabled state, its own managed runtime key, optional admin-profile reference, control-plane override, and organization context;
 - **admin profiles** — named management credentials with one organization/workspace/tenant scope and optional control-plane override.
 
-Raw runtime/admin keys are never rendered by Config. Legacy scalar `tunnel.*` values from older installations are compatibility input only and are migrated into the collection model on load/save.
+Raw runtime/admin keys are never rendered by Config. Legacy scalar `tunnel.*` values from older installations are compatibility input only and are migrated into the collection model on load/save. `config get tunnel.*` still reads the first collection instance or leftover scalar. Those keys are read-only in Config; `config set` cannot write them.
 
-Use `cgm tunnel list`, `cgm tunnel status <id>`, `cgm tunnel attach/detach`, and `cgm tunnel admin ...` for tunnel changes.
+Use `cgm tunnel list`, `cgm tunnel status <id>`, `cgm tunnel add/update`, `cgm tunnel attach/detach`, and `cgm tunnel admin ...` for tunnel changes.

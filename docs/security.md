@@ -242,7 +242,7 @@ Remote Admin approval mutation is stricter than ordinary local browsing and requ
 
 Logger output, trace observers, and persistent runtime events use the same secret-redaction policy before diagnostics are emitted or stored. The sanitizer removes common bearer/token/secret assignments, sensitive nested fields, URL userinfo, and sensitive signed/query parameters. The journal is not intended to retain raw authorization credentials, tunnel keys, token hashes, arbitrary full tool arguments containing secrets, or raw file contents.
 
-Operational metadata such as component, event, workspace, tool, source, status, and duration may be retained.
+Operational metadata such as component, event, workspace, tool, source, tunnel ID/name, status, and duration may be retained. `source=tunnel` means Secure MCP Tunnel transport; `tunnel_id` is the instance identity.
 
 Locate the selected journal with:
 

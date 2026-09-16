@@ -20,6 +20,7 @@ func TestCoreDepsExcludeCFTunnel(t *testing.T) {
 	forbidden := []string{
 		"go.mewis.me/chatgpt-mcp/internal/ponytail",
 		"go.mewis.me/chatgpt-mcp/internal/caveman",
+		"go.mewis.me/chatgpt-mcp/internal/pluginbuild",
 		"go.mewis.me/chatgpt-mcp/pkg/cloudflared",
 		"github.com/quic-go/quic-go",
 		"zombiezen.com/go/capnproto2",

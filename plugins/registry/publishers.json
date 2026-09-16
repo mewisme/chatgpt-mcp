@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "publishers": {
+    "mewisme": {
+      "name": "mewisme",
+      "source": "https://github.com/mewisme/chatgpt-mcp",
+      "trusted": true,
+      "sigstore": {
+        "issuer": "https://token.actions.githubusercontent.com",
+        "repository": "mewisme/chatgpt-mcp"
+      }
+    }
+  }
+}

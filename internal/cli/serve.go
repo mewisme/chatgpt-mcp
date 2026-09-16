@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -14,13 +15,243 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.mewis.me/chatgpt-mcp/internal/app"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
+	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	"go.mewis.me/chatgpt-mcp/internal/runtimeplugin"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
+
+func runtimeTunnelStatuses(_ *app.App, cfg config.Config) (runtimecontrol.TunnelSummary, []runtimecontrol.TunnelRuntimeStatus) {
+	configured := make(map[string]bool)
+	for _, instance := range cfg.RuntimeTunnels().Instances {
+		configured[instance.ID] = instance.APIKey != ""
+	}
+	var statuses []tunnel.Status
+	if pluginStatuses, err := application.SecureMCPRuntimeStatuses(context.Background(), pluginhost.RuntimeHost); err == nil && len(pluginStatuses) > 0 {
+		statuses = pluginStatuses
+	}
+	if len(statuses) == 0 {
+		lastError := ""
+		if _, ok := pluginhost.RuntimeHost.Get(tunnel.PluginIDSecureMCP); !ok {
+			lastError = tunnel.PluginMissingError().Error()
+		}
+		for _, instance := range cfg.RuntimeTunnels().Instances {
+			statuses = append(statuses, tunnel.Status{ID: instance.ID, Enabled: instance.Enabled, Provider: tunnel.ProviderOpenAI, LastError: lastError})
+		}
+	}
+	summary := runtimecontrol.TunnelSummary{Total: len(statuses)}
+	items := make([]runtimecontrol.TunnelRuntimeStatus, 0, len(statuses))
+	for _, status := range statuses {
+		item := newTunnelRuntimeStatus(status, configured[status.ID])
+		items = append(items, item)
+		if item.Enabled {
+			summary.Enabled++
+		}
+		if item.Configured {
+			summary.Configured++
+		}
+		if item.Running {
+			summary.Running++
+		}
+		if item.Ready {
+			summary.Ready++
+		}
+		if item.Restarting {
+			summary.Restarting++
+		}
+		if item.Enabled && (!item.Ready && (item.LastError != "" || !item.Running)) {
+			summary.Degraded++
+		}
+	}
+	return summary, items
+}
+
+func secureMCPInstanceConfigured(cfg config.Config, id string) bool {
+	for _, instance := range cfg.RuntimeTunnels().Instances {
+		if instance.ID == id {
+			return instance.APIKey != ""
+		}
+	}
+	return false
+}
+
+func cfTunnelFromProviders(providers []runtimecontrol.TunnelProviderStatus) *runtimecontrol.CFTunnelStatus {
+	for _, item := range providers {
+		if item.Provider != "cf" {
+			continue
+		}
+		interesting := item.Enabled
+		targets := make([]runtimecontrol.CFTunnelTargetStatus, 0, len(item.Targets))
+		for _, target := range item.Targets {
+			if target.Desired || target.Running || target.Ready || target.Restarting || target.LastError != "" {
+				interesting = true
+			}
+			targets = append(targets, runtimecontrol.CFTunnelTargetStatus{
+				Target: target.Target, Desired: target.Desired, Running: target.Running, Ready: target.Ready, Restarting: target.Restarting,
+				URL: target.URL, Origin: target.Origin, LastError: target.LastError,
+			})
+		}
+		if !interesting {
+			return nil
+		}
+		return &runtimecontrol.CFTunnelStatus{PluginEnabled: item.Enabled, Targets: targets}
+	}
+	return nil
+}
+
+func tunnelProviderRuntimeStatuses(cfg config.Config) []runtimecontrol.TunnelProviderStatus {
+	configured := application.ListConfiguredTunnelProviders(cfg)
+	out := make([]runtimecontrol.TunnelProviderStatus, 0, len(configured))
+	for _, item := range configured {
+		if session, ok := pluginhost.RuntimeHost.Get(item.PluginID); ok {
+			raw, err := session.Call(context.Background(), runtimeplugin.MethodStatus, nil)
+			if err == nil {
+				var st runtimeplugin.StatusResult
+				if json.Unmarshal(raw, &st) == nil && len(st.Targets) > 0 {
+					live := make([]runtimecontrol.TunnelProviderTargetStatus, 0, len(st.Targets))
+					for _, target := range st.Targets {
+						live = append(live, runtimecontrol.TunnelProviderTargetStatus{
+							Target: target.Target, Desired: target.Desired, Running: target.Running, Ready: target.Ready, Restarting: target.Restarting,
+							URL: target.URL, Origin: target.Origin, LastError: target.LastError, Ephemeral: target.Ephemeral || target.URL != "",
+						})
+					}
+					item.Targets = live
+				}
+			}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func providerRuntimeStatus(cfg config.Config, provider string) runtimecontrol.TunnelProviderStatus {
+	for _, item := range tunnelProviderRuntimeStatuses(cfg) {
+		if item.Provider == provider {
+			return item
+		}
+	}
+	return runtimecontrol.TunnelProviderStatus{Provider: provider}
+}
+
+func startTunnelProviderRuntime(ctx context.Context, cfg config.Config, provider, target string) error {
+	ref, err := application.LookupTunnelProvider(provider)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(ref.Path) == "" {
+		return errors.New("tunnel provider has no executable payload")
+	}
+	if err := application.StartTunnelProviderProcess(ctx, cfg, pluginhost.RuntimeHost, ref, target); err != nil {
+		return err
+	}
+	watchTunnelProviderSession(provider, string(ref.PluginID))
+	return nil
+}
+
+func stopTunnelProviderRuntime(ctx context.Context, provider, target string) error {
+	ref, err := application.LookupTunnelProvider(provider)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(ref.Path) == "" {
+		return errors.New("tunnel provider has no executable payload")
+	}
+	return application.StopTunnelProviderProcess(ctx, pluginhost.RuntimeHost, ref, target)
+}
+
+func syncTunnelProviders(ctx context.Context, cfg config.Config) {
+	wanted := map[string]application.TunnelProviderRef{}
+	refs, err := application.ListTunnelProviders()
+	if err == nil {
+		for _, ref := range refs {
+			if strings.TrimSpace(ref.Path) == "" || !ref.Enabled {
+				continue
+			}
+			status, statusErr := application.ConfiguredTunnelProviderStatus(cfg, ref.Provider)
+			if statusErr != nil {
+				continue
+			}
+			anyDesired := false
+			for _, item := range status.Targets {
+				if item.Desired {
+					anyDesired = true
+					break
+				}
+			}
+			if anyDesired {
+				wanted[string(ref.PluginID)] = ref
+			}
+		}
+	}
+	for _, id := range pluginhost.RuntimeHost.IDs() {
+		if id == tunnel.PluginIDSecureMCP {
+			continue
+		}
+		if _, ok := wanted[id]; ok {
+			continue
+		}
+		_ = pluginhost.RuntimeHost.Shutdown(ctx, id)
+	}
+	for _, ref := range wanted {
+		status, _ := application.ConfiguredTunnelProviderStatus(cfg, ref.Provider)
+		for _, item := range status.Targets {
+			if !item.Desired {
+				continue
+			}
+			if err := application.StartTunnelProviderProcess(ctx, cfg, pluginhost.RuntimeHost, ref, item.Target); err != nil {
+				continue
+			}
+			watchTunnelProviderSession(ref.Provider, string(ref.PluginID))
+		}
+	}
+}
+
+var watchingProviders sync.Map
+var tunnelLifecycleLog *logger.Logger
+
+func watchCFTunnel(log *logger.Logger) {
+	tunnelLifecycleLog = log
+}
+
+func watchTunnelProviderSession(provider, pluginID string) {
+	session, ok := pluginhost.RuntimeHost.Get(pluginID)
+	if !ok {
+		return
+	}
+	if _, loaded := watchingProviders.LoadOrStore(pluginID, true); loaded {
+		return
+	}
+	go func() {
+		defer watchingProviders.Delete(pluginID)
+		for ev := range session.Events() {
+			if ev.Name != runtimeplugin.EventStatus {
+				continue
+			}
+			var st runtimeplugin.TargetStatus
+			if json.Unmarshal(ev.Data, &st) != nil {
+				continue
+			}
+			state := "stopped"
+			switch {
+			case st.Restarting:
+				state = "reconnecting"
+			case st.LastError != "":
+				state = "degraded"
+			case st.Ready:
+				state = "ready"
+			case st.Running:
+				state = "connecting"
+			}
+			logTunnelProviderLifecycle(tunnelLifecycleLog, provider, state, st.Target, st.URL, st.LastError)
+		}
+	}()
+}
 
 func serveCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "serve", Short: "Start the MCP server", RunE: runServer}
@@ -55,8 +286,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		configSpan.FailMessage("Server runtime config validation failed", err, tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)))
 		return err
 	}
-	configSpan.EndMessage("Server runtime configuration loaded", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", true), tracepkg.Bool("mcp_http_enabled", cfg.Server.Enabled), tracepkg.Bool("admin_enabled", cfg.Admin.Enabled), tracepkg.Bool("tunnel_enabled", cfg.Tunnel.Enabled), tracepkg.String("exposure_mode", string(cfg.Server.Expose.Mode)), tracepkg.Any("interfaces", append([]string(nil), cfg.Server.Expose.Interfaces...)))
-	logCommandDebug(cmd, "SERVER", "server.config.loaded", "Runtime configuration loaded", logger.WithDebug("mcp_http", cfg.Server.Enabled), logger.WithDebug("admin", cfg.Admin.Enabled), logger.WithDebug("tunnel", cfg.Tunnel.Enabled), logger.WithDebug("expose", cfg.Server.Expose.Mode))
+	configSpan.EndMessage("Server runtime configuration loaded", tracepkg.String("path", source.Path), tracepkg.String("format", string(source.Format)), tracepkg.Bool("exists", true), tracepkg.Bool("mcp_http_enabled", cfg.Server.Enabled), tracepkg.Bool("admin_enabled", cfg.Admin.Enabled), tracepkg.Int("tunnel_enabled_count", cfg.EnabledTunnelCount()), tracepkg.Int("tunnel_count", len(cfg.RuntimeTunnels().Instances)), tracepkg.String("exposure_mode", string(cfg.Server.Expose.Mode)), tracepkg.Any("interfaces", append([]string(nil), cfg.Server.Expose.Interfaces...)))
+	logCommandDebug(cmd, "SERVER", "server.config.loaded", "Runtime configuration loaded", logger.WithDebug("mcp_http", cfg.Server.Enabled), logger.WithDebug("admin", cfg.Admin.Enabled), logger.WithDebug("tunnels_enabled", cfg.EnabledTunnelCount()), logger.WithDebug("tunnels", len(cfg.RuntimeTunnels().Instances)), logger.WithDebug("expose", cfg.Server.Expose.Mode))
 
 	runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer runtimeCancel()
@@ -241,6 +472,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			currentCfg, currentPlan = next, nextPlan
 			stateMu.Unlock()
 			runtime.Logger.Ready("CONFIG", "config.reloaded", "Configuration reloaded")
+			syncTunnelProviders(reloadCtx, next)
+			_ = application.ReconcileSecureMCP(reloadCtx, next, pluginhost.RuntimeHost, runtime.Bridge)
 			result = reloadResult(next, false)
 			return result, nil
 		}
@@ -301,6 +534,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			currentCfg, currentPlan = next, nextPlan
 			stateMu.Unlock()
 			logReadyEndpoints(runtime.Logger, next, nextPlan)
+			syncTunnelProviders(reloadCtx, next)
+			_ = application.ReconcileSecureMCP(reloadCtx, next, pluginhost.RuntimeHost, runtime.Bridge)
 			result = reloadResult(next, true)
 			return result, nil
 		}
@@ -329,6 +564,8 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		currentCfg, currentPlan = next, nextPlan
 		stateMu.Unlock()
 		logReadyEndpoints(runtime.Logger, next, nextPlan)
+		syncTunnelProviders(reloadCtx, next)
+		_ = application.ReconcileSecureMCP(reloadCtx, next, pluginhost.RuntimeHost, runtime.Bridge)
 		result = reloadResult(next, true)
 		return result, nil
 	}
@@ -336,9 +573,15 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		stateMu.RLock()
 		cfgSnapshot, lifecycleSnapshot := currentCfg, lifecycle
 		stateMu.RUnlock()
-		tunnelStatus := runtime.Tunnel.Status()
+		tunnelSummary, tunnelItems := runtimeTunnelStatuses(runtime, cfgSnapshot)
 		fingerprint, _ := config.RuntimeFingerprint(cfgSnapshot)
-		return runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Lifecycle: lifecycleSnapshot, Starting: runtimeLifecycleStarting(lifecycleSnapshot), Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ConfigFingerprint: fingerprint, ServerEnabled: cfgSnapshot.Server.Enabled, ServerPort: cfgSnapshot.Server.Port, AdminEnabled: cfgSnapshot.Admin.Enabled, AdminPort: cfgSnapshot.Admin.Port, Exposure: cfgSnapshot.Server.Expose.Mode, TunnelEnabled: cfgSnapshot.Tunnel.Enabled, TunnelConfigured: tunnel.Configured(cfgSnapshot.Tunnel), TunnelRunning: tunnelStatus.Running, TunnelReady: tunnelStatus.Ready, TunnelRestarting: tunnelStatus.Restarting, TunnelID: strings.TrimSpace(cfgSnapshot.Tunnel.ID), TunnelLastError: tunnelStatus.LastError, ToolProfile: "full", ToolCount: len(runtime.Tools.List())}
+		providers := tunnelProviderRuntimeStatuses(cfgSnapshot)
+		result := runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Lifecycle: lifecycleSnapshot, Starting: runtimeLifecycleStarting(lifecycleSnapshot), Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ConfigFingerprint: fingerprint, ServerEnabled: cfgSnapshot.Server.Enabled, ServerPort: cfgSnapshot.Server.Port, AdminEnabled: cfgSnapshot.Admin.Enabled, AdminPort: cfgSnapshot.Admin.Port, Exposure: cfgSnapshot.Server.Expose.Mode, TunnelEnabled: tunnelSummary.Enabled > 0, TunnelConfigured: tunnelSummary.Configured > 0, TunnelRunning: tunnelSummary.Running > 0, TunnelReady: tunnelSummary.Ready > 0, TunnelRestarting: tunnelSummary.Restarting > 0, TunnelSummary: tunnelSummary, Tunnels: tunnelItems, TunnelProviders: providers, CFTunnel: cfTunnelFromProviders(providers), ToolProfile: "full", ToolCount: len(runtime.Tools.List())}
+		if len(tunnelItems) == 1 {
+			result.TunnelID = tunnelItems[0].ID
+			result.TunnelLastError = tunnelItems[0].LastError
+		}
+		return result
 	}
 	statusWait := func(ctx context.Context, previous string) runtimeStatusResult {
 		for {
@@ -366,6 +609,40 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		}
 		runtime.Logger.Ready("WORKSPACE", "workspace.registry.reloaded", "Workspace registry reloaded", logger.With("count", len(items)))
 		return workspaceReloadResult{PID: os.Getpid(), Count: len(items)}, nil
+	}, StartTunnel: func(ctx context.Context, id string) (runtimecontrol.TunnelRuntimeStatus, error) {
+		status, err := application.StartSecureMCPInstance(ctx, pluginhost.RuntimeHost, id)
+		if err != nil {
+			return runtimecontrol.TunnelRuntimeStatus{}, err
+		}
+		stateMu.RLock()
+		cfg := currentCfg
+		stateMu.RUnlock()
+		return newTunnelRuntimeStatus(status, secureMCPInstanceConfigured(cfg, id)), nil
+	}, StartTunnelProvider: func(ctx context.Context, provider, target string) (runtimecontrol.TunnelProviderStatus, error) {
+		stateMu.RLock()
+		cfg := currentCfg
+		stateMu.RUnlock()
+		if err := startTunnelProviderRuntime(ctx, cfg, provider, target); err != nil {
+			return runtimecontrol.TunnelProviderStatus{}, err
+		}
+		return providerRuntimeStatus(cfg, provider), nil
+	}, StopTunnelProvider: func(ctx context.Context, provider, target string) (runtimecontrol.TunnelProviderStatus, error) {
+		stateMu.RLock()
+		cfg := currentCfg
+		stateMu.RUnlock()
+		if err := stopTunnelProviderRuntime(ctx, provider, target); err != nil {
+			return runtimecontrol.TunnelProviderStatus{}, err
+		}
+		return providerRuntimeStatus(cfg, provider), nil
+	}, StopTunnel: func(ctx context.Context, id string) (runtimecontrol.TunnelRuntimeStatus, error) {
+		stateMu.RLock()
+		cfg := currentCfg
+		stateMu.RUnlock()
+		status, err := application.StopSecureMCPInstance(ctx, pluginhost.RuntimeHost, cfg.Server.Enabled, id)
+		if err != nil {
+			return runtimecontrol.TunnelRuntimeStatus{}, err
+		}
+		return newTunnelRuntimeStatus(status, secureMCPInstanceConfigured(cfg, id)), nil
 	}, Status: status, StatusWait: statusWait, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Log: runtime.Logger, Shutdown: func() {
 		runtimeCancel()
 		select {
@@ -386,12 +663,21 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err := waitRuntimeHTTPReady(runtimeCtx, cfg, 3*time.Second); err != nil {
 		return errors.Join(err, bindings.Shutdown())
 	}
+	watchCFTunnel(runtime.Logger)
+	syncTunnelProviders(runtimeCtx, cfg)
+	if bridge, err := application.StartPrivateSecureMCP(runtimeCtx, cfg, pluginhost.RuntimeHost, runtime.Tools); err != nil {
+		runtime.Logger.Warning("TUNNEL", "tunnel.plugin.start.failed", "Secure MCP Tunnel plugin failed to start", err)
+	} else {
+		runtime.Bridge = bridge
+	}
 	setLifecycle("listeners_ready")
-	if cfg.Tunnel.Enabled && tunnel.Configured(cfg.Tunnel) {
-		setLifecycle("tunnel_connecting")
-		runtime.Logger.Action("TUNNEL", "tunnel.readiness.waiting", "Waiting for OpenAI Secure MCP Tunnel readiness")
-		if err := runtime.Tunnel.WaitUntilReady(runtimeCtx); err != nil {
-			return errors.Join(err, bindings.Shutdown())
+	if !cfg.Server.Enabled && len(cfg.RuntimeTunnels().Instances) > 0 {
+		if _, ok := pluginhost.RuntimeHost.Get(tunnel.PluginIDSecureMCP); ok {
+			setLifecycle("tunnel_connecting")
+			runtime.Logger.Action("TUNNEL", "tunnel.readiness.waiting", "Waiting for OpenAI Secure MCP Tunnel readiness")
+			if err := application.WaitSecureMCPReady(runtimeCtx, pluginhost.RuntimeHost); err != nil {
+				return errors.Join(err, bindings.Shutdown())
+			}
 		}
 	}
 	setLifecycle("ready")
@@ -403,6 +689,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		setLifecycle("stopping")
 		span := tracepkg.Start(runtimeCtx, "SERVER", "server.shutdown", "Stopping server runtime", tracepkg.String("reason", reason), tracepkg.Int("mcp_port", currentCfg.Server.Port), tracepkg.Int("admin_port", currentCfg.Admin.Port))
 		runtime.Logger.Action("SERVER", "server.stopping", "Stopping server")
+		pluginhost.StopRuntime()
 		listenerSpan := tracepkg.Start(runtimeCtx, "NETWORK", "server.listeners.shutdown", "Shutting down server listeners", tracepkg.String("reason", reason), tracepkg.Int("listener_count", len(bindings.mcpListeners)+len(bindings.adminListeners)))
 		err := bindings.Shutdown()
 		if err != nil {
@@ -468,7 +755,7 @@ func waitRuntimeHTTPReady(parent context.Context, cfg config.Config, timeout tim
 		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Server.Port, "/health"))
 	}
 	if cfg.Admin.Enabled {
-		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Admin.Port, "/"))
+		endpoints = append(endpoints, endpointURL("127.0.0.1", cfg.Admin.Port, "/api/health"))
 	}
 	span := tracepkg.Start(parent, "NETWORK", "server.http-readiness", "Waiting for HTTP listener readiness", tracepkg.Any("endpoints", append([]string(nil), endpoints...)), tracepkg.DurationMS("timeout_ms", timeout))
 	if len(endpoints) == 0 {

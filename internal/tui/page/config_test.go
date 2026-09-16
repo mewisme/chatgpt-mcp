@@ -16,6 +16,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
@@ -35,8 +36,9 @@ func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
 	}
 	page.overview.Config.Auth.MCPTokenHash = "MCP_HASH_SECRET"
 	page.overview.Config.Auth.AdminTokenHash = "ADMIN_HASH_SECRET"
-	page.overview.Config.Tunnel.APIKey = "TUNNEL_RUNTIME_SECRET"
-	page.overview.Config.Tunnel.AdminKey = "TUNNEL_ADMIN_SECRET"
+	instances := []tunnel.InstanceConfig{{ID: "tunnel_demo", APIKey: "TUNNEL_RUNTIME_SECRET", AdminProfileID: "work"}}
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "TUNNEL_ADMIN_SECRET"}}
+	page.overview.Config.Tunnel = tunnel.Config{Instances: &instances, Admins: &admins}
 	page.rebuildBrowser("")
 	view := page.View(100, 32)
 	rows := page.configRows()
@@ -50,7 +52,7 @@ func TestConfigPageLoadsAndNeverRendersSecrets(t *testing.T) {
 			t.Fatalf("config page leaked %s", secret)
 		}
 	}
-	for _, want := range []string{"Runtime & Network", "Access & Security", "Shell & Execution", "Features", "Tunnel", "Storage & Maintenance", "configured"} {
+	for _, want := range []string{"Runtime & Network", "Access & Security", "Shell & Execution", "Features", "Tunnel", "Storage & Maintenance", "1 instances", "1 runtime keys", "1 admin profiles"} {
 		if !strings.Contains(model, want) {
 			t.Fatalf("config rows missing %q: %q", want, model)
 		}
@@ -142,7 +144,7 @@ func TestConfigFieldDetailNeverRendersSecretOrHash(t *testing.T) {
 	if strings.Contains(view, "FIELD_DETAIL_SECRET") {
 		t.Fatalf("field detail leaked secret: %q", view)
 	}
-	for _, want := range []string{"configured", "managed", "Guidance", "auth token workflow"} {
+	for _, want := range []string{"configured", "managed", "Guidance", "Reuse this token"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("field detail missing %q: %q", want, view)
 		}
@@ -324,8 +326,14 @@ func TestConfigGlobalSearchIndexesAllFieldsWithoutSecrets(t *testing.T) {
 	page.overview.Config.Tunnel.APIKey = "SEARCH_RUNTIME_SECRET"
 	page.overview.Config.Tunnel.AdminKey = "SEARCH_ADMIN_SECRET"
 	rows := page.searchRows()
-	if len(rows) != len(config.Fields()) {
-		t.Fatalf("search rows=%d fields=%d", len(rows), len(config.Fields()))
+	wantCount := len(config.Fields())
+	if len(rows) != wantCount {
+		t.Fatalf("search rows=%d fields=%d", len(rows), wantCount)
+	}
+	for _, row := range rows {
+		if strings.HasPrefix(row.ID, "features.") {
+			t.Fatalf("feature field leaked into config search: %#v", row)
+		}
 	}
 	joined := fmt.Sprintf("%#v", rows)
 	if strings.Contains(joined, "SEARCH_RUNTIME_SECRET") || strings.Contains(joined, "SEARCH_ADMIN_SECRET") {
@@ -369,7 +377,7 @@ func TestConfigPageReadOnlyGuidance(t *testing.T) {
 	if cmd, err := page.openCommand(ConfigEdit, "auth.mcp_token_hash"); err != nil || cmd != nil {
 		t.Fatalf("read-only edit cmd=%v err=%v", cmd != nil, err)
 	}
-	if page.overlay != configOverlayNone || !strings.Contains(page.notice, "auth token") {
+	if page.overlay != configOverlayNone || !strings.Contains(page.notice, "Reuse this token") {
 		t.Fatalf("overlay=%d notice=%q", page.overlay, page.notice)
 	}
 }
@@ -399,8 +407,9 @@ func TestConfigPageEditIsRoutedAndOperationFailureKeepsEditor(t *testing.T) {
 	edit.fieldForm.Raw = "draft-value"
 	edit.editor.SetSubmitting(true)
 	follow := edit.finishOperation(configOperationMsg{command: ConfigEdit, err: fmt.Errorf("save failed")})
-	if follow != nil || edit.editor == nil || edit.fieldForm.Raw != "draft-value" || edit.editor.Submitting() || !strings.Contains(ansi.Strip(edit.View(52, 20)), "save failed") {
-		t.Fatalf("failure follow=%v editor=%v draft=%q submitting=%t view=%q", follow != nil, edit.editor != nil, edit.fieldForm.Raw, edit.editor.Submitting(), ansi.Strip(edit.View(52, 20)))
+	msg, ok := follow().(OperationMsg)
+	if !ok || msg.Phase != OperationError || edit.editor == nil || edit.fieldForm.Raw != "draft-value" || edit.editor.Submitting() {
+		t.Fatalf("failure follow=%v editor=%v draft=%q submitting=%t", follow != nil, edit.editor != nil, edit.fieldForm.Raw, edit.editor.Submitting())
 	}
 }
 
@@ -432,14 +441,13 @@ func TestConfigPageCancellationIgnoresLateResult(t *testing.T) {
 	cmd := page.startOperation(ConfigVerify, "Verifying", func(context.Context) configOperationMsg {
 		return configOperationMsg{command: ConfigVerify, verify: config.VerifyResult{Format: configformat.JSON, Files: 99}}
 	})
-	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	page = updated.(*ConfigPage)
+	page.cancelOperation()
 	if page.overlay != configOverlayNone {
 		t.Fatalf("overlay=%d", page.overlay)
 	}
-	updated, follow := page.Update(cmd())
+	updated, follow := page.Update(workMsg(cmd))
 	page = updated.(*ConfigPage)
-	if follow != nil || !strings.Contains(page.notice, "cancellation requested") || strings.Contains(page.notice, "99") {
+	if follow != nil || page.notice != "" {
 		t.Fatalf("follow=%v notice=%q", follow != nil, page.notice)
 	}
 }
@@ -456,15 +464,15 @@ func TestConfigPageOldOperationCannotOverwriteNewOperation(t *testing.T) {
 	current := page.startOperation(ConfigVerify, "Current", func(context.Context) configOperationMsg {
 		return configOperationMsg{command: ConfigVerify, verify: config.VerifyResult{Format: configformat.JSON, Files: 2}}
 	})
-	updated, staleFollow := page.Update(old())
+	updated, staleFollow := page.Update(workMsg(old))
 	page = updated.(*ConfigPage)
-	if staleFollow != nil || page.overlay != configOverlayOperation {
+	if staleFollow != nil {
 		t.Fatalf("stale follow=%v overlay=%d", staleFollow != nil, page.overlay)
 	}
-	updated, follow := page.Update(current())
+	updated, follow := page.Update(workMsg(current))
 	page = updated.(*ConfigPage)
-	if follow == nil || !strings.Contains(page.notice, "2 structured files") {
-		t.Fatalf("follow=%v notice=%q", follow != nil, page.notice)
+	if op, ok := operationMsg(follow); !ok || !strings.Contains(op.Message, "2 structured files") {
+		t.Fatalf("follow=%v op=%#v notice=%q", follow != nil, op, page.notice)
 	}
 }
 
@@ -501,6 +509,28 @@ func TestConfigEditorsUseExplicitActionsPickerAndImportConfirmation(t *testing.T
 		t.Fatalf("import submit cmd=%v overlay=%d editor=%v", cmd != nil, page.overlay, page.editor != nil)
 	}
 	testutil.AssertLinesFit(t, page.View(40, 16), 40)
+}
+
+func TestConfigFeaturesDomainNavigatesToPluginConfigure(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, err := NewConfigRoute(t.Context(), "features")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	rows := page.domainRows()
+	if len(rows) != 2 || rows[0].ID != "ponytail" || rows[1].ID != "caveman" {
+		t.Fatalf("feature rows=%#v", rows)
+	}
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "ponytail"}})
+	if cmd == nil {
+		t.Fatal("features open returned no navigation")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "plugins/ponytail/configure" {
+		t.Fatalf("features navigation=%#v", message)
+	}
 }
 
 func prepareConfigPageRoot(t *testing.T) string {

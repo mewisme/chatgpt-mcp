@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
+	coreversion "go.mewis.me/chatgpt-mcp/internal/version"
 )
 
 var ErrDevelopmentBuild = errors.New("development build cannot be installed as a release without --force")
@@ -53,7 +54,7 @@ func Install(options Options) (result Result, resultErr error) {
 	if version == "" {
 		return Result{}, errors.New("install version is required")
 	}
-	development := isDevelopmentVersion(version)
+	development := coreversion.IsDevelopment(version)
 	tracepkg.Emit(ctx, "INSTALL", "install.development-policy", "Resolved development-build installation policy", tracepkg.String("version", version), tracepkg.Bool("development_build", development), tracepkg.Bool("force", options.Force), tracepkg.Bool("allowed", !development || options.Force))
 	if development && !options.Force {
 		return Result{}, ErrDevelopmentBuild
@@ -314,7 +315,7 @@ func Install(options Options) (result Result, resultErr error) {
 
 func normalizeInstallVersion(version string) string {
 	version = strings.TrimSpace(version)
-	if version == "" || isDevelopmentVersion(version) {
+	if version == "" || coreversion.IsDevelopment(version) {
 		return version
 	}
 	if version[0] == 'V' {
@@ -339,9 +340,4 @@ func existingMetadata(path string) (*Metadata, error) {
 
 func metadataMatches(metadata *Metadata, layout Layout, version string) bool {
 	return metadata != nil && metadata.Method == MethodDirect && metadata.Version == version && samePath(metadata.InstallDir, layout.Root) && samePath(metadata.BinDir, layout.BinDir)
-}
-
-func isDevelopmentVersion(version string) bool {
-	version = strings.ToLower(strings.TrimSpace(version))
-	return version == "dev" || version == "(devel)" || strings.HasPrefix(version, "dev-")
 }

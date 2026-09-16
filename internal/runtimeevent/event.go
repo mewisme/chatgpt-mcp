@@ -31,6 +31,8 @@ type Event struct {
 	Tool         string            `json:"tool,omitempty"`
 	Method       string            `json:"method,omitempty"`
 	Source       string            `json:"source,omitempty"`
+	TunnelID     string            `json:"tunnel_id,omitempty"`
+	TunnelName   string            `json:"tunnel_name,omitempty"`
 	Status       string            `json:"status,omitempty"`
 	DurationMS   int64             `json:"duration_ms,omitempty"`
 	Managed      bool              `json:"managed,omitempty"`
@@ -63,6 +65,10 @@ func fromLoggerEvent(event logger.Event, metadata Metadata) Event {
 			result.Method = fmt.Sprint(value)
 		case "source":
 			result.Source = fmt.Sprint(value)
+		case "tunnel_id", "tunnel":
+			result.TunnelID = fmt.Sprint(value)
+		case "tunnel_name":
+			result.TunnelName = fmt.Sprint(value)
 		case "status":
 			result.Status = fmt.Sprint(value)
 		case "duration_ms":

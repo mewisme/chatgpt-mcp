@@ -56,7 +56,11 @@ Optional event/status filter.
 
 ### Source
 
-Optional source filter.
+Optional transport filter such as `tunnel` or `http`. This is not tunnel identity; `--source tunnel` / Source=`tunnel` matches every Secure MCP Tunnel ingress.
+
+### Tunnel
+
+Optional tunnel filter. Matches one attached instance by cached name or canonical `tunnel_...` ID. Equivalent to `cgm logs --tunnel`.
 
 ### Event glob
 

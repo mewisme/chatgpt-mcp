@@ -120,17 +120,21 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 		return StartResult{}, err
 	}
 	workspaceID = workspaceItem.ID
-	cwd, err := m.shell.ValidateBackgroundCommand(ctx, workspaceID, command)
+	cwd, plan, err := m.shell.prepareBackgroundCommand(ctx, workspaceID, command)
 	if err != nil {
 		return StartResult{}, err
 	}
 	processCtx := context.WithoutCancel(ctx)
-	cmd, err := commandForPlatform(processCtx, command)
+	provider, err := m.shell.resolveProvider(processCtx, workspaceID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	cmd, err := commandForProvider(processCtx, plan.Effective, provider)
 	if err != nil {
 		return StartResult{}, err
 	}
 	cmd.Dir = cwd
-	cmd.Env = shellEnvironment(ctx, m.workspaces.ShellPath())
+	cmd.Env = shellEnvironment(ctx, mergeExecutablePath(plan.WrapperPath, provider.Path, m.workspaces.ShellPath()), provider.Executable)
 	configureCommandLifecycle(cmd)
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -172,7 +176,14 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 	var execution *ExecutionRun
 	if m.executions != nil {
 		metadata := executionMetadata(ctx)
-		execution = m.executions.Begin(ExecutionInput{WorkspaceID: workspaceID, Tool: "start_process", Command: command, CWD: cwd, Shell: commandShellLanguage(ctx), Source: metadata.Source, CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID})
+		execution = m.executions.Begin(ExecutionInput{
+			WorkspaceID: workspaceID, Tool: "start_process", Command: plan.Effective, RequestedCommand: command, EffectiveCommand: plan.Effective, SecurityCommand: plan.Security,
+			WrapperCapability: plan.WrapperCapability, WrapperProvider: plan.WrapperProvider, WrapperVersion: plan.WrapperVersion,
+			CWD: cwd, Shell: provider.Language, ShellProvider: provider.Label(), ShellProviderVersion: string(provider.Version), Source: metadata.Source,
+			TunnelID: metadata.TunnelID, TunnelName: metadata.TunnelName,
+			CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID,
+			ParentExecutionID: metadata.ParentExecutionID, Origin: metadata.Origin, HookDepth: metadata.HookDepth,
+		})
 		process.mu.Lock()
 		process.execution = execution
 		process.mu.Unlock()

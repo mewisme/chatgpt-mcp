@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 )
 
 func TestDiscoverUserSourcesOnlyReturnsDetectedResources(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
 		t.Fatal(err)
@@ -33,6 +35,7 @@ func TestDiscoverUserSourcesOnlyReturnsDetectedResources(t *testing.T) {
 }
 
 func TestDiscoverUserSourcesKeepsDetectedDisabledResourceVisible(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
 		t.Fatal(err)
@@ -50,5 +53,24 @@ func TestDiscoverUserSourcesKeepsDetectedDisabledResourceVisible(t *testing.T) {
 	}
 	if len(values) != 1 || values[0].Provider != "claude" || values[0].Enabled || values[0].Loaded || len(values[0].Paths) != 1 || values[0].Paths[0] != path {
 		t.Fatalf("sources = %#v", values)
+	}
+}
+
+func TestDiscoverUserSourcesIncludesNativeCGM(t *testing.T) {
+	configDir := t.TempDir()
+	testutil.UseConfigRoot(t, configDir)
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(configDir, "skills", "ship-it"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "skills", "ship-it", "SKILL.md"), []byte("---\nname: ship-it\ndescription: Ship\n---\nbody\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	values, err := DiscoverUserSources(home, instructionpolicy.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0].Provider != "cgm" || values[0].Kind != string(instructionpolicy.ResourceSkills) || !values[0].Enabled {
+		t.Fatalf("native sources = %#v", values)
 	}
 }

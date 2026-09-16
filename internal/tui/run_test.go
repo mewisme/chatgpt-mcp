@@ -5,6 +5,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
 func TestRunRejectsNonTTYWithoutWritingANSI(t *testing.T) {
@@ -19,5 +21,9 @@ func TestRunRejectsNonTTYWithoutWritingANSI(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("non-TTY run wrote output: %q", out.String())
+	}
+	active, err := state.TUIReviewerActive()
+	if err != nil || active {
+		t.Fatalf("non-TTY run held presence active=%t err=%v", active, err)
 	}
 }

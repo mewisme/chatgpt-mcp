@@ -6,7 +6,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
+
+func TestWorkspaceStoreUsesLocalCGMPath(t *testing.T) {
+	root := t.TempDir()
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewWorkspaceStore(t.TempDir(), manager)
+	want := filepath.Join(root, ".cgm", "checkpoints")
+	if got := store.Path(item.ID); got != want {
+		t.Fatalf("checkpoint path=%q want %q", got, want)
+	}
+	if err := store.Ensure(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(want); err != nil || !info.IsDir() {
+		t.Fatalf("local checkpoint dir info=%#v err=%v", info, err)
+	}
+}
 
 func TestCheckpointBeforeAndRestore(t *testing.T) {
 	root := t.TempDir()

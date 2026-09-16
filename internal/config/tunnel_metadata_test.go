@@ -2,8 +2,6 @@ package config
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,7 +50,35 @@ func TestTunnelMetadataRoundTripAcrossFormats(t *testing.T) {
 	}
 }
 
+type persistAdmin struct {
+	metadata tunnel.Metadata
+}
+
+func (a persistAdmin) FetchMetadata(context.Context, tunnel.Config) (tunnel.Metadata, error) {
+	return a.metadata, nil
+}
+func (persistAdmin) ListManaged(context.Context, tunnel.Config, tunnel.AdminScope) ([]tunnel.Metadata, error) {
+	return nil, nil
+}
+func (persistAdmin) GetManaged(context.Context, tunnel.Config, string) (tunnel.Metadata, error) {
+	return tunnel.Metadata{}, nil
+}
+func (persistAdmin) CreateManaged(context.Context, tunnel.Config, tunnel.CreateRequest) (tunnel.Metadata, error) {
+	return tunnel.Metadata{}, nil
+}
+func (persistAdmin) UpdateManaged(context.Context, tunnel.Config, string, tunnel.UpdateRequest) (tunnel.Metadata, error) {
+	return tunnel.Metadata{}, nil
+}
+func (persistAdmin) DeleteManaged(context.Context, tunnel.Config, string) (tunnel.Metadata, error) {
+	return tunnel.Metadata{}, nil
+}
+func (persistAdmin) VerifyAdminKey(context.Context, tunnel.Config) (tunnel.AdminAccess, int, error) {
+	return tunnel.AdminAccess{}, 0, nil
+}
+
 func TestSyncTunnelMetadataCreatesMissingPersistedFile(t *testing.T) {
+	tunnel.SetAdminBackend(persistAdmin{metadata: tunnel.Metadata{ID: "tunnel_test", Name: "Synced tunnel", Description: "Migrated cache", OrganizationIDs: []string{"org_test"}}})
+	t.Cleanup(func() { tunnel.SetAdminBackend(nil) })
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")
 	if err := configformat.SetRootPath(root); err != nil {
@@ -64,18 +90,8 @@ func TestSyncTunnelMetadataCreatesMissingPersistedFile(t *testing.T) {
 	if err := SaveAs(cfg, configformat.YAML); err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/tunnels/tunnel_test" {
-			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
-		}
-		if r.Header.Get("Authorization") != "Bearer runtime-key" {
-			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
-		}
-		_, _ = w.Write([]byte(`{"id":"tunnel_test","name":"Synced tunnel","description":"Migrated cache","organization_ids":["org_test"]}`))
-	}))
-	defer server.Close()
 
-	metadata, path, err := SyncTunnelMetadata(context.Background(), tunnel.Config{ID: "tunnel_test", APIKey: "runtime-key", ControlPlaneBaseURL: server.URL})
+	metadata, path, err := SyncTunnelMetadata(context.Background(), tunnel.Config{ID: "tunnel_test", APIKey: "runtime-key"})
 	if err != nil {
 		t.Fatal(err)
 	}

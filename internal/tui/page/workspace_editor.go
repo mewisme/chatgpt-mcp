@@ -37,7 +37,7 @@ func (page *WorkspacePage) initWorkspaceEditor() error {
 		}
 		page.value = item.Path
 		field := component.NewPathField("New workspace path", &page.value, component.PathFieldOptions{Kind: component.PathKindDirectory, Validate: requiredValue("workspace path")})
-		section = component.EditorSection{ID: "workspace", Title: "Relocate", Description: "Rebind this workspace after its project directory was renamed or moved. The previous workspace ID remains a legacy alias.", Form: component.NewEditorForm(component.Group(field))}
+		section = component.EditorSection{ID: "workspace", Title: "Relocate", Description: "Rebind this workspace after its project directory was renamed or moved. Workspace identity is preserved.", Form: component.NewEditorForm(component.Group(field))}
 		primary = "relocate"
 	case WorkspaceAccessAdd:
 		if _, err := page.manager.Get(page.targetID); err != nil {
@@ -138,7 +138,7 @@ func (page *WorkspacePage) submitWorkspaceEditor() tea.Cmd {
 	}
 	page.editor.Accept()
 	message := workspaceSuccess(page.command)
-	return tea.Batch(page.workspaceEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Workspace", Message: message, Tone: component.ToneSuccess} })
+	return tea.Batch(page.workspaceEditorParentNavigation(), func() tea.Msg { return OperationResult("workspace.save", "Workspace", message, nil) })
 }
 
 func (page *WorkspacePage) applyWorkspaceEditor() error {

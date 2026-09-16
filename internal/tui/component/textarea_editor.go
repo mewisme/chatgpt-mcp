@@ -53,10 +53,11 @@ func (editor TextAreaEditor) Update(message tea.Msg) (TextAreaEditor, tea.Cmd) {
 		editor.Resize(msg.Width, msg.Height)
 		return editor, nil
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+enter":
+		if isCtrlEnter(msg) {
 			value := editor.input.Value()
 			return editor, func() tea.Msg { return TextAreaSavedMsg{Value: value} }
+		}
+		switch msg.String() {
 		case "esc":
 			return editor, func() tea.Msg { return TextAreaCancelledMsg{} }
 		}

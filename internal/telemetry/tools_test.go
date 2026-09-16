@@ -68,6 +68,39 @@ func TestAttachToolsPublishesActivityAndKeepsDefaultLogQuiet(t *testing.T) {
 	}
 }
 
+func TestAttachToolsPublishesDistinctTunnelActivity(t *testing.T) {
+	previous := color.NoColor
+	color.NoColor = true
+	defer func() { color.NoColor = previous }()
+	registry := tools.NewRegistry()
+	registry.MustRegister("echo", tools.Schema{Name: "echo", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, map[string]any) (tools.Result, error) { return tools.TextResult("ok"), nil })
+	runtime := &tools.Runtime{Registry: registry}
+	stream := activity.NewStream()
+	var output bytes.Buffer
+	AttachTools(runtime, stream, logger.NewWithWriter(logger.Info, &output))
+	call := func(id, name string) {
+		t.Helper()
+		ctx := tools.WithCallTunnel(tools.WithCallSource(context.Background(), "tunnel"), id, name)
+		if _, err := runtime.Call(ctx, "echo", map[string]any{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call("tunnel_a", "Alpha")
+	call("tunnel_b", "Beta")
+	var finished []activity.Event
+	for _, event := range stream.Recent(10) {
+		if event.Phase == "finish" {
+			finished = append(finished, event)
+		}
+	}
+	if len(finished) != 2 || finished[0].Source != "tunnel" || finished[1].Source != "tunnel" {
+		t.Fatalf("finished=%#v", finished)
+	}
+	if finished[0].TunnelID != "tunnel_a" || finished[0].TunnelName != "Alpha" || finished[1].TunnelID != "tunnel_b" || finished[1].TunnelName != "Beta" {
+		t.Fatalf("finished=%#v", finished)
+	}
+}
+
 func TestAttachToolsVerboseLogsStartAndCompletion(t *testing.T) {
 	previous := color.NoColor
 	color.NoColor = true

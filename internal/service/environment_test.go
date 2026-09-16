@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 )
 
 func TestCaptureEnvironmentKeepsExecutionPathWithoutSecrets(t *testing.T) {
@@ -38,6 +40,30 @@ func TestCaptureEnvironmentKeepsExecutionPathWithoutSecrets(t *testing.T) {
 		}
 	} else if snapshot.Values["HOME"] != accountHome || snapshot.Values["USER"] != "mew" || snapshot.Values["LOGNAME"] != "mew" {
 		t.Fatalf("unix identity = %#v", snapshot.Values)
+	}
+}
+
+func TestCaptureEnvironmentPersistsPluginDevRoot(t *testing.T) {
+	t.Setenv(plugindev.EnvRoot, "/repo")
+	t.Setenv(plugindev.EnvPlugins, "rebuild")
+	snapshot := CaptureEnvironment(Account{Username: "mew", HomeDir: filepath.FromSlash("/home/mew")}, nil)
+	if snapshot.Values[plugindev.EnvRoot] != "/repo" {
+		t.Fatalf("dev root = %q", snapshot.Values[plugindev.EnvRoot])
+	}
+	if snapshot.Values[plugindev.EnvPlugins] != "rebuild" {
+		t.Fatalf("dev plugins = %q", snapshot.Values[plugindev.EnvPlugins])
+	}
+}
+
+func TestCaptureEnvironmentKeepsPluginDevOffWithoutInventingRoot(t *testing.T) {
+	t.Setenv(plugindev.EnvPlugins, plugindev.ModeOff)
+	t.Setenv(plugindev.EnvRoot, "")
+	snapshot := CaptureEnvironment(Account{Username: "mew", HomeDir: filepath.FromSlash("/home/mew")}, nil)
+	if snapshot.Values[plugindev.EnvPlugins] != plugindev.ModeOff {
+		t.Fatalf("dev plugins = %q", snapshot.Values[plugindev.EnvPlugins])
+	}
+	if _, ok := snapshot.Values[plugindev.EnvRoot]; ok {
+		t.Fatalf("dev root captured while plugindev is off: %q", snapshot.Values[plugindev.EnvRoot])
 	}
 }
 

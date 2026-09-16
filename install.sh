@@ -10,8 +10,8 @@
 #   CHATGPT_MCP_VERSION           release tag (default: latest)
 #   CHATGPT_MCP_INSTALL_DIR       bundle location (default: ~/.chatgpt-mcp)
 #   CHATGPT_MCP_BIN_DIR           command location (default: ~/.local/bin)
-#   INSTALL_ALLOW_CHECKSUM_ONLY   set to 1 to proceed when Sigstore/cosign
-#                                 verification is unavailable (loud warning)
+#   INSTALL_REQUIRE_COSIGN        set to 1 to require Sigstore/cosign
+#                                 verification instead of checksum fallback
 set -eu
 
 REPO="mewisme/chatgpt-mcp"
@@ -98,38 +98,29 @@ fi
 	exit 1
 }
 
-sigstore_ok=0
-signature_available=0
-if curl -fsSL "$signature_url" -o "$signature"; then
-	signature_available=1
-fi
-if [ "$signature_available" -eq 1 ] && command -v cosign >/dev/null 2>&1; then
-	if cosign verify-blob \
-		--bundle="$signature" \
-		--certificate-identity="$cert_identity" \
-		--certificate-oidc-issuer="$OIDC_ISSUER" \
-		"$checksums"; then
-		sigstore_ok=1
-		echo "Sigstore signature verified for checksums.txt."
-	else
-		echo "chatgpt-mcp: Sigstore/cosign verification failed for $SIGNATURE_NAME" >&2
-		exit 1
-	fi
-fi
-if [ "$sigstore_ok" -eq 0 ]; then
-	if [ "${INSTALL_ALLOW_CHECKSUM_ONLY:-}" = "1" ]; then
-		echo "WARNING: Sigstore/cosign verification unavailable; proceeding with checksum-only install because INSTALL_ALLOW_CHECKSUM_ONLY=1." >&2
-		echo "WARNING: Install cosign and ensure $SIGNATURE_NAME is published for full release integrity." >&2
-	else
-		echo "chatgpt-mcp: Sigstore/cosign verification is required but unavailable." >&2
-		if [ "$signature_available" -eq 0 ]; then
-			echo "chatgpt-mcp: could not download $SIGNATURE_NAME from $signature_url" >&2
-		elif ! command -v cosign >/dev/null 2>&1; then
-			echo "chatgpt-mcp: cosign is not installed or not on PATH" >&2
+if command -v cosign >/dev/null 2>&1; then
+	if curl -fsSL "$signature_url" -o "$signature"; then
+		if cosign verify-blob \
+			--bundle="$signature" \
+			--certificate-identity="$cert_identity" \
+			--certificate-oidc-issuer="$OIDC_ISSUER" \
+			"$checksums"; then
+			echo "Sigstore signature verified for checksums.txt."
+		else
+			echo "chatgpt-mcp: Sigstore/cosign verification failed for $SIGNATURE_NAME" >&2
+			exit 1
 		fi
-		echo "chatgpt-mcp: install cosign, or set INSTALL_ALLOW_CHECKSUM_ONLY=1 to proceed with checksum-only verification." >&2
+	elif [ "${INSTALL_REQUIRE_COSIGN:-}" = "1" ]; then
+		echo "chatgpt-mcp: could not download required $SIGNATURE_NAME from $signature_url" >&2
 		exit 1
+	else
+		echo "WARNING: Sigstore bundle unavailable; checksum verified, continuing without signature verification." >&2
 	fi
+elif [ "${INSTALL_REQUIRE_COSIGN:-}" = "1" ]; then
+	echo "chatgpt-mcp: cosign is required by INSTALL_REQUIRE_COSIGN=1 but is not installed or not on PATH" >&2
+	exit 1
+else
+	echo "Checksum verified. cosign is not installed; skipping optional Sigstore verification."
 fi
 
 listing="$tmp/listing.txt"

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestConvertFormatAtConvertsStructuredTree(t *testing.T) {
@@ -167,5 +168,39 @@ func TestConvertFormatAtPreflightsExistingTargetFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "tunnel.json")); !os.IsNotExist(err) {
 		t.Fatalf("conversion mutated before target preflight failed: %v", err)
+	}
+}
+
+func TestConvertFormatAtPreservesMultiTunnelSecrets(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	cfg := Default()
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_a", APIKey: "runtime-a", AdminProfileID: "work"}, {Enabled: true, ID: "tunnel_b", APIKey: "runtime-b", AdminProfileID: "work"}}
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-work", OrganizationID: "org_work"}}
+	cfg.Tunnel = tunnel.Config{Instances: &instances, Admins: &admins}
+	if err := saveAt(configPath, secretPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := convertFormatAt(root, configformat.TOML); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadAt(filepath.Join(root, "config.toml"), filepath.Join(root, "tunnel.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := loaded.RuntimeTunnels()
+	if len(collection.Instances) != 2 || collection.Instances[0].APIKey != "runtime-a" || collection.Instances[1].APIKey != "runtime-b" {
+		t.Fatalf("instances = %#v", collection.Instances)
+	}
+	if len(collection.Admins) != 1 || collection.Admins[0].AdminKey != "admin-work" {
+		t.Fatalf("admins = %#v", collection.Admins)
+	}
+	entries, err := TunnelSecretEntries(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("secret entries = %#v", entries)
 	}
 }

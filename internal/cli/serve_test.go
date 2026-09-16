@@ -17,6 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestWaitRuntimeHTTPReadyRequiresMCPAndAdminListeners(t *testing.T) {
@@ -28,7 +29,13 @@ func TestWaitRuntimeHTTPReadyRequiresMCPAndAdminListeners(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer mcp.Close()
-	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/health" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
 	defer admin.Close()
 	cfg := config.Default()
 	cfg.Server.Port = testServerPort(t, mcp.Listener.Addr())
@@ -160,6 +167,25 @@ func TestTunnelOnlyServePublishesRuntimeControl(t *testing.T) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatal("tunnel-only runtime control was not published")
+}
+
+func TestRuntimeTunnelStatusesReportsConfiguredWhenPluginMissing(t *testing.T) {
+	cfg := config.Default()
+	instances := []tunnel.InstanceConfig{
+		{Enabled: true, ID: "tunnel_a", APIKey: "key-a"},
+		{Enabled: false, ID: "tunnel_b", APIKey: "key-b"},
+	}
+	cfg.Tunnel.Instances = &instances
+	summary, items := runtimeTunnelStatuses(nil, cfg)
+	if summary.Total != 2 || summary.Ready != 0 || len(items) != 2 {
+		t.Fatalf("summary=%+v items=%+v", summary, items)
+	}
+	if items[0].ID != "tunnel_a" || !items[0].Configured || items[0].Ready || items[1].ID != "tunnel_b" || items[1].Ready {
+		t.Fatalf("items=%+v", items)
+	}
+	if items[0].LastError == "" || !strings.Contains(items[0].LastError, "secure MCP tunnel core plugin is not installed") {
+		t.Fatalf("missing plugin last error = %q", items[0].LastError)
+	}
 }
 
 func testServerPort(t *testing.T, address net.Addr) int {

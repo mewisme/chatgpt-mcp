@@ -47,6 +47,8 @@ const (
 	AliasRemove              ID = "alias.remove"
 	AliasStatus              ID = "alias.status"
 	AuthMCPRotate            ID = "auth.mcp.rotate"
+	AuthMCPShow              ID = "auth.mcp.show"
+	AuthMCPCopy              ID = "auth.mcp.copy"
 	AuthMCPEnable            ID = "auth.mcp.enable"
 	AuthMCPDisable           ID = "auth.mcp.disable"
 	AuthAdminRotate          ID = "auth.admin.rotate"
@@ -68,6 +70,7 @@ const (
 	WorkspaceShow            ID = "workspace.show"
 	WorkspaceRelocate        ID = "workspace.relocate"
 	WorkspaceUnregister      ID = "workspace.unregister"
+	WorkspacePurge           ID = "workspace.purge"
 	MCPStdio                 ID = "mcp.stdio"
 	MCPHTTP                  ID = "mcp.http"
 	MCPServerList            ID = "mcp.server.list"
@@ -79,31 +82,55 @@ const (
 	MCPServerDisable         ID = "mcp.server.disable"
 	MCPServerStatus          ID = "mcp.server.status"
 	MCPServerTools           ID = "mcp.server.tools"
-	MCPAuthLogin             ID = "mcp.auth.login"
-	MCPAuthStatus            ID = "mcp.auth.status"
-	MCPAuthLogout            ID = "mcp.auth.logout"
+	PluginSearch             ID = "plugin.search"
+	PluginInfo               ID = "plugin.info"
+	PluginList               ID = "plugin.list"
+	PluginInstall            ID = "plugin.install"
+	PluginUninstall          ID = "plugin.uninstall"
+	PluginEnable             ID = "plugin.enable"
+	PluginDisable            ID = "plugin.disable"
+	PluginUpdate             ID = "plugin.update"
+	PluginRollback           ID = "plugin.rollback"
+	PluginPrune              ID = "plugin.prune"
+	PluginOutdated           ID = "plugin.outdated"
+	PluginVerify             ID = "plugin.verify"
+	PluginRegistryList       ID = "plugin.registry.list"
+	PluginRegistryAdd        ID = "plugin.registry.add"
+	PluginRegistryRemove     ID = "plugin.registry.remove"
+	PluginConfigList         ID = "plugin.config.list"
+	PluginConfigGet          ID = "plugin.config.get"
+	PluginConfigSet          ID = "plugin.config.set"
+	PluginConfigReset        ID = "plugin.config.reset"
 	TunnelStatus             ID = "tunnel.status"
-	TunnelSync               ID = "tunnel.sync"
-	TunnelConfigure          ID = "tunnel.configure"
+	TunnelAttach             ID = "tunnel.attach"
+	TunnelAdd                ID = "tunnel.add"
+	TunnelDetach             ID = "tunnel.detach"
 	TunnelEnable             ID = "tunnel.enable"
 	TunnelDisable            ID = "tunnel.disable"
+	TunnelStart              ID = "tunnel.start"
+	TunnelStop               ID = "tunnel.stop"
 	TunnelForeground         ID = "tunnel.foreground"
-	TunnelAdminKeySet        ID = "tunnel.admin.key.set"
-	TunnelAdminKeyStatus     ID = "tunnel.admin.key.status"
-	TunnelAdminKeyVerify     ID = "tunnel.admin.key.verify"
-	TunnelAdminKeyRemove     ID = "tunnel.admin.key.remove"
 	TunnelList               ID = "tunnel.list"
-	TunnelGet                ID = "tunnel.get"
-	TunnelUse                ID = "tunnel.use"
-	TunnelCreate             ID = "tunnel.create"
+	TunnelManagedList        ID = "tunnel.managed.list"
+	TunnelManagedGet         ID = "tunnel.managed.get"
+	TunnelManagedCreate      ID = "tunnel.managed.create"
+	TunnelManagedUpdate      ID = "tunnel.managed.update"
+	TunnelManagedDelete      ID = "tunnel.managed.delete"
+	TunnelAdminList          ID = "tunnel.admin.list"
+	TunnelAdminAdd           ID = "tunnel.admin.add"
+	TunnelAdminUpdate        ID = "tunnel.admin.update"
+	TunnelAdminVerify        ID = "tunnel.admin.verify"
+	TunnelAdminRemove        ID = "tunnel.admin.remove"
 	TunnelUpdate             ID = "tunnel.update"
-	TunnelDelete             ID = "tunnel.delete"
+	TunnelCFStatus           ID = "tunnel.cf.status"
+	TunnelCFStart            ID = "tunnel.cf.start"
+	TunnelCFStop             ID = "tunnel.cf.stop"
 	StatusOverview           ID = "status.overview"
 	VersionAbout             ID = "version.about"
 )
 
 var specs = []Spec{
-	{ServerForeground, "serve", []string{RootPath}},
+	{ServerForeground, "serve", nil},
 	{InstallRun, "install", nil}, {InstallCleanup, "install cleanup", nil},
 	{UpdateApply, "upgrade", nil}, {UpdateCheck, "upgrade check", nil},
 	{ConfigInit, "init", nil}, {ConfigUninit, "uninit", nil},
@@ -115,20 +142,25 @@ var specs = []Spec{
 	{ConfigGet, "config get", []string{"config explain"}}, {ConfigList, "config list", nil}, {ConfigSet, "config set", nil}, {ConfigMigrate, "config migrate", nil},
 	{ConfigMigrateSecrets, "config migrate secrets", nil}, {ConfigConvert, "config convert", nil}, {ConfigVerify, "config verify", nil},
 	{AliasInstall, "alias install", nil}, {AliasRemove, "alias remove", nil}, {AliasStatus, "alias status", nil},
-	{AuthMCPRotate, "auth mcp create", nil}, {AuthMCPEnable, "auth mcp enable", nil}, {AuthMCPDisable, "auth mcp disable", nil},
-	{AuthAdminRotate, "auth admin create", nil}, {AuthAdminEnable, "auth admin enable", nil}, {AuthAdminDisable, "auth admin disable", nil}, {AuthStatus, "auth status", nil},
+	{AuthMCPRotate, "auth mcp rotate", []string{"auth mcp create"}}, {AuthMCPShow, "auth mcp show", nil}, {AuthMCPCopy, "auth mcp copy", nil}, {AuthMCPEnable, "auth mcp enable", nil}, {AuthMCPDisable, "auth mcp disable", nil},
+	{AuthAdminRotate, "auth admin create", nil}, {AuthAdminEnable, "auth admin enable", nil}, {AuthAdminDisable, "auth admin disable", nil}, {AuthStatus, "auth status", []string{"auth mcp status"}},
 	{WorkspaceContainerList, "workspace container list", nil}, {WorkspaceContainerCreate, "workspace container create", nil}, {WorkspaceContainerShow, "workspace container show", nil},
 	{WorkspaceContainerRename, "workspace container rename", nil}, {WorkspaceContainerDelete, "workspace container delete", nil}, {WorkspaceContainerAdd, "workspace container add", nil}, {WorkspaceContainerRemove, "workspace container remove", nil},
 	{WorkspaceAccessList, "workspace access list", nil}, {WorkspaceAccessAdd, "workspace access add", nil}, {WorkspaceAccessRemove, "workspace access remove", nil},
-	{WorkspaceRegister, "workspace register", nil}, {WorkspaceList, "workspace list", nil}, {WorkspaceShow, "workspace show", nil}, {WorkspaceRelocate, "workspace relocate", nil}, {WorkspaceUnregister, "workspace unregister", nil},
+	{WorkspaceRegister, "workspace register", nil}, {WorkspaceList, "workspace list", nil}, {WorkspaceShow, "workspace show", nil}, {WorkspaceRelocate, "workspace relocate", nil}, {WorkspaceUnregister, "workspace unregister", nil}, {WorkspacePurge, "workspace purge", nil},
 	{MCPStdio, "mcp stdio", nil},
 	{MCPHTTP, "mcp http", nil},
 	{MCPServerList, "upstream server list", []string{"mcp server list"}}, {MCPServerAdd, "upstream server add", []string{"mcp server add"}}, {MCPServerConfigure, "upstream server configure", []string{"mcp server configure"}}, {MCPServerShow, "upstream server show", []string{"mcp server show"}},
 	{MCPServerRemove, "upstream server remove", []string{"mcp server remove"}}, {MCPServerEnable, "upstream server enable", []string{"mcp server enable"}}, {MCPServerDisable, "upstream server disable", []string{"mcp server disable"}}, {MCPServerStatus, "upstream server status", []string{"mcp server status"}}, {MCPServerTools, "upstream server tools", []string{"mcp server tools"}},
-	{MCPAuthLogin, "upstream server auth login", []string{"mcp server auth login"}}, {MCPAuthStatus, "upstream server auth status", []string{"mcp server auth status"}}, {MCPAuthLogout, "upstream server auth logout", []string{"mcp server auth logout"}},
-	{TunnelStatus, "tunnel status", nil}, {TunnelSync, "tunnel sync", nil}, {TunnelConfigure, "tunnel configure", nil}, {TunnelEnable, "tunnel enable", nil}, {TunnelDisable, "tunnel disable", nil}, {TunnelForeground, "tunnel run", nil},
-	{TunnelAdminKeySet, "tunnel admin key set", nil}, {TunnelAdminKeyStatus, "tunnel admin key status", nil}, {TunnelAdminKeyVerify, "tunnel admin key verify", nil}, {TunnelAdminKeyRemove, "tunnel admin key remove", nil},
-	{TunnelList, "tunnel list", nil}, {TunnelGet, "tunnel get", nil}, {TunnelUse, "tunnel use", nil}, {TunnelCreate, "tunnel create", nil}, {TunnelUpdate, "tunnel update", nil}, {TunnelDelete, "tunnel delete", nil},
+	{PluginSearch, "plugin search", nil}, {PluginInfo, "plugin info", nil}, {PluginList, "plugin list", nil}, {PluginInstall, "plugin install", nil}, {PluginUninstall, "plugin uninstall", nil},
+	{PluginEnable, "plugin enable", nil}, {PluginDisable, "plugin disable", nil}, {PluginUpdate, "plugin update", nil}, {PluginRollback, "plugin rollback", nil}, {PluginPrune, "plugin prune", nil},
+	{PluginOutdated, "plugin outdated", nil}, {PluginVerify, "plugin verify", nil},
+	{PluginRegistryList, "plugin registry list", nil}, {PluginRegistryAdd, "plugin registry add", nil}, {PluginRegistryRemove, "plugin registry remove", nil},
+	{PluginConfigList, "plugin config list", nil}, {PluginConfigGet, "plugin config get", nil}, {PluginConfigSet, "plugin config set", nil}, {PluginConfigReset, "plugin config reset", nil},
+	{TunnelStatus, "tunnel status", nil}, {TunnelList, "tunnel list", nil}, {TunnelAttach, "tunnel attach", nil}, {TunnelAdd, "tunnel add", nil}, {TunnelUpdate, "tunnel update", nil}, {TunnelDetach, "tunnel detach", nil}, {TunnelEnable, "tunnel enable", nil}, {TunnelDisable, "tunnel disable", nil}, {TunnelStart, "tunnel start", nil}, {TunnelStop, "tunnel stop", nil}, {TunnelForeground, "tunnel run", nil},
+	{TunnelManagedList, "tunnel managed list", nil}, {TunnelManagedGet, "tunnel managed get", nil}, {TunnelManagedCreate, "tunnel managed create", nil}, {TunnelManagedUpdate, "tunnel managed update", nil}, {TunnelManagedDelete, "tunnel managed delete", nil},
+	{TunnelAdminList, "tunnel admin list", nil}, {TunnelAdminAdd, "tunnel admin add", nil}, {TunnelAdminUpdate, "tunnel admin update", nil}, {TunnelAdminVerify, "tunnel admin verify", nil}, {TunnelAdminRemove, "tunnel admin remove", nil},
+	{TunnelCFStatus, "tunnel cf status", nil}, {TunnelCFStart, "tunnel cf start", nil}, {TunnelCFStop, "tunnel cf stop", nil},
 	{StatusOverview, "status", nil}, {VersionAbout, "version", nil},
 }
 

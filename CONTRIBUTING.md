@@ -21,11 +21,14 @@ Requirements:
 Quick path:
 
 ```bash
-pnpm --dir web install
-node scripts/prepare-web-embed.mjs
+pnpm --dir plugins/admin-ui install
 CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
-go build -trimpath ./
+go run .
 ```
+
+`go run .` lazily builds current-platform core plugins from `plugins/workflow.json` into `<repo>/.cgm/dev` (`local-dev`). You do not install each core plugin by hand. See [docs/development.md](docs/development.md).
+
+Production Admin UI assets are distributed as the independent `admin-ui` plugin. Use `node scripts/prepare-web-embed.mjs --from-dist` when you need to package the current frontend build.
 
 Fast local gate (subset of CI):
 
@@ -48,10 +51,10 @@ Suggested local checks before opening a PR:
 ./scripts/check.sh
 CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
 go vet ./...
-pnpm --dir web test
-pnpm --dir web lint
-pnpm --dir web typecheck
-pnpm --dir web build
+pnpm --dir plugins/admin-ui test
+pnpm --dir plugins/admin-ui lint
+pnpm --dir plugins/admin-ui typecheck
+pnpm --dir plugins/admin-ui build
 ```
 
 For changes that affect services, tunnel connectivity, runtime logs, configuration, or MCP protocol behavior, also run the release smoke described in [docs/development.md](docs/development.md).
@@ -71,4 +74,20 @@ Releases are cut from tags on `main` via GoReleaser. Release notes live on [GitH
 
 ## License
 
-Contributions are licensed under the project [MIT License](LICENSE).
+Contributions are licensed under the project [Apache License 2.0](LICENSE).
+
+### Copied or adapted source
+
+If you add third-party source to the tree, keep the upstream license and record:
+
+- upstream URL and exact revision
+- original license file
+- NOTICE/attribution and any trademark limits
+- a short provenance file (see `plugins/cf-tunnel/internal/cloudflared/UPSTREAM.md`)
+- local modifications
+
+Do not relicense someone else's code as Apache-2.0. Point the matching plugin or core artifact at that material in `internal/licenseinventory` so NOTICE/SBOM generation stays attached to the artifact that ships it.
+
+### New dependency licenses
+
+Runtime and distributed dependencies must use an SPDX identifier already listed in `licenses/policy.json`. Adding a new license family requires a reviewable allowlist entry with `kind` and, for copyleft/custom/restrictive licenses, a rationale and optional `artifacts` scope. Unknown or unallowlisted licenses fail `go test ./internal/licenseinventory` and `go run ./internal/licenseinventory/cmd/license-inventory`.

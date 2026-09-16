@@ -20,7 +20,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
-	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -227,6 +226,8 @@ func TestModelManagedTunnelCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 	if model.currentPage.OverlayActive() || !model.currentPage.InputActive() {
 		t.Fatalf("managed create overlay=%t input=%t", model.currentPage.OverlayActive(), model.currentPage.InputActive())
 	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'd', Text: "draft"})
 	model = updated.(Model)
 	guard, ok := model.currentPage.(tuipage.NavigationGuardModel)
@@ -243,36 +244,35 @@ func TestModelManagedTunnelCreateEditorUsesDirtyNavigationGuard(t *testing.T) {
 	}
 }
 
-func TestModelMCPOAuthEditorDeepLinkUsesDirtyNavigationGuard(t *testing.T) {
+func TestModelPluginCommandRoutesThroughEnsurePluginPage(t *testing.T) {
 	defer configformat.SetRootPath("")
 	if err := configformat.SetRootPath(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	manager := upstream.NewManager(upstream.NewStore(upstream.Path()))
-	if err := manager.Add(upstream.Server{ID: "secure", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth"}, Expose: "all"}); err != nil {
+	if err := config.Save(config.Default()); err != nil {
 		t.Fatal(err)
 	}
-	route := Route{Kind: RouteMCP, ResourceID: "secure", Section: "oauth", Action: "login"}
-	model := NewModel(route)
-	_ = model.currentPage.Init()
+	model := NewModel(Route{Kind: RouteHome})
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	model = updated.(Model)
-	if model.currentPage == nil || model.currentPage.OverlayActive() || !model.currentPage.InputActive() {
-		t.Fatalf("OAuth deep link page=%v overlay=%t input=%t", model.currentPage != nil, model.currentPage != nil && model.currentPage.OverlayActive(), model.currentPage != nil && model.currentPage.InputActive())
-	}
-	if got := ansi.Strip(model.View().Content); !strings.Contains(got, "MCP  /  secure  /  OAuth  /  Login") || !strings.Contains(got, "enter next") {
-		t.Fatalf("OAuth deep link view=%q", got)
-	}
-	updated, _ = model.Update(tea.KeyPressMsg{Code: 'i', Text: "https://issuer.example"})
+	updated, cmd := model.Update(tuipage.PluginCommandMsg{Command: tuipage.PluginInstall, TargetID: "official/bash"})
 	model = updated.(Model)
-	guard, ok := model.currentPage.(tuipage.NavigationGuardModel)
-	if !ok || !guard.Dirty() {
-		t.Fatalf("OAuth guard=%t dirty=%t", ok, ok && guard.Dirty())
+	if model.router.Current() != (Route{Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"}) {
+		t.Fatalf("install route=%#v", model.router.Current())
 	}
-	updated, cmd := model.Update(navigateMsg{route: Route{Kind: RouteAbout}, sibling: true})
+	if model.currentPage == nil {
+		t.Fatal("plugin page missing after install command")
+	}
+	_ = cmd
+	updated, _ = model.Update(tuipage.PluginCommandMsg{Command: tuipage.PluginRegistryRemove, TargetID: "community"})
 	model = updated.(Model)
-	if cmd != nil || model.pendingNavigation == nil || model.router.Current() != route {
-		t.Fatalf("dirty OAuth editor escaped: route=%#v pending=%v cmd=%v", model.router.Current(), model.pendingNavigation != nil, cmd != nil)
+	if model.router.Current() != (Route{Kind: RoutePlugins, Section: "registries", ResourceID: "community"}) {
+		t.Fatalf("registry remove route=%#v", model.router.Current())
+	}
+	updated, _ = model.Update(tuipage.PluginCommandMsg{Command: tuipage.PluginRefresh, TargetID: ""})
+	model = updated.(Model)
+	if model.router.Current().Kind != RoutePlugins || model.router.Current().Section != "registries" {
+		t.Fatalf("refresh changed section unexpectedly: %#v", model.router.Current())
 	}
 }
 
@@ -325,8 +325,12 @@ func TestModelWorkspaceProjectContextEscapeCancelsBuildInPlace(t *testing.T) {
 	if build == nil || !model.currentPage.OverlayActive() {
 		t.Fatalf("project context build=%v active=%t", build != nil, model.currentPage.OverlayActive())
 	}
-	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = updated.(Model)
+	if cmd != nil {
+		updated, _ = model.Update(cmd())
+		model = updated.(Model)
+	}
 	if model.router.Current() != route || model.currentPage.OverlayActive() {
 		t.Fatalf("escape route=%#v active=%t", model.router.Current(), model.currentPage.OverlayActive())
 	}
@@ -507,9 +511,9 @@ func TestModelHidesNavbarWhenTerminalIsTooNarrow(t *testing.T) {
 	if !strings.Contains(plain, "Instr") || strings.Contains(plain, "Instruction") {
 		t.Fatalf("compact header=%q", plain)
 	}
-	updated, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
 	model = updated.(Model)
-	header, _ = model.header(96, 2, 1)
+	header, _ = model.header(116, 2, 1)
 	if plain = ansi.Strip(header); !strings.Contains(plain, "Instruction") {
 		t.Fatalf("full header=%q", plain)
 	}
@@ -1696,11 +1700,10 @@ func TestModelPageToastAutoDismissDuration(t *testing.T) {
 		t.Fatalf("toast duration=%s", toastDuration)
 	}
 	model := NewModel(Route{Kind: RouteHome})
-	model.currentPage = &noticeTestPage{}
-	updated, dismiss := model.updatePage(noticeTestMsg("Created"))
+	updated, dismiss := model.Update(tuipage.ToastMsg{Title: "Home", Message: "Created", Tone: component.ToneSuccess})
 	model = updated.(Model)
-	if dismiss == nil || model.toast.id == 0 || model.toast.message != "Created" || pageNotice(model.currentPage) != "" {
-		t.Fatalf("page notice did not start toast timer: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
+	if dismiss == nil || model.toast.id == 0 || model.toast.message != "Created" {
+		t.Fatalf("toast did not start timer: toast=%#v", model.toast)
 	}
 	updated, _ = model.Update(toastDismissMsg{id: model.toast.id, timer: model.toast.timer})
 	model = updated.(Model)
@@ -1748,7 +1751,7 @@ func TestModelToastMouseHoverOutsideAndClose(t *testing.T) {
 	model = updated.(Model)
 	updated, _ = model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
 	model = updated.(Model)
-	dialog := component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
+	dialog := model.toastDialog()
 	modalWidth := min(72, model.width-4)
 	foreground := component.Modal(dialog.ViewWidth(component.ModalContentWidth(modalWidth)), modalWidth)
 	_, x, y := component.CenteredOverlayTargets(foreground, model.width, model.height, 0, 0, 299, toastCloseMsg{})
@@ -1788,7 +1791,7 @@ func TestModelToastMouseHoverOutsideAndClose(t *testing.T) {
 	}
 	updated, _ = model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
 	model = updated.(Model)
-	dialog = component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
+	dialog = model.toastDialog()
 	modalWidth = min(72, model.width-4)
 	foreground = component.Modal(dialog.ViewWidth(component.ModalContentWidth(modalWidth)), modalWidth)
 	_, x, y = component.CenteredOverlayTargets(foreground, model.width, model.height, 0, 0, 299, toastCloseMsg{})
@@ -1813,23 +1816,6 @@ func TestModelToastMouseHoverOutsideAndClose(t *testing.T) {
 }
 
 type noticeTestMsg string
-
-type noticeTestPage struct{ notice string }
-
-func (*noticeTestPage) Init() tea.Cmd { return nil }
-func (page *noticeTestPage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {
-	if value, ok := message.(noticeTestMsg); ok {
-		page.notice = string(value)
-	}
-	return page, nil
-}
-func (page *noticeTestPage) View(width, height int) string {
-	return component.PageTitleNotice("Test", page.notice, width)
-}
-func (*noticeTestPage) OverlayActive() bool         { return false }
-func (*noticeTestPage) InputActive() bool           { return false }
-func (page *noticeTestPage) Notice() string         { return page.notice }
-func (page *noticeTestPage) SetNotice(value string) { page.notice = value }
 
 type statusNoticeTestPage struct{ notice string }
 
@@ -1876,5 +1862,87 @@ func TestApprovalDialogWrapsLongArgumentsWithoutTruncation(t *testing.T) {
 	plain := ansi.Strip(view)
 	if strings.Count(plain, "z") < len(token)*5 {
 		t.Fatalf("approval content was truncated: %q", plain)
+	}
+}
+
+func TestModelOperationDialogPendingDoesNotAutoHide(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, cmd := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationPending, Title: "Saving", Message: "Saving admin profile..."})
+	model = updated.(Model)
+	if cmd != nil || model.toast.id == 0 || model.toast.phase != tuipage.OperationPending {
+		t.Fatalf("pending started timer: toast=%#v cmd=%v", model.toast, cmd)
+	}
+	id, timer := model.toast.id, model.toast.timer
+	updated, _ = model.Update(toastDismissMsg{id: id, timer: timer})
+	model = updated.(Model)
+	if model.toast.id != id {
+		t.Fatal("pending dialog auto-hid")
+	}
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc, Text: "esc"})
+	model = updated.(Model)
+	if cmd != nil || model.toast.id != id {
+		t.Fatalf("esc dismissed pending: toast=%#v", model.toast)
+	}
+	updated, cmd = model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationSuccess, Title: "Saved", Message: "Admin profile saved", Tone: component.ToneSuccess})
+	model = updated.(Model)
+	if cmd == nil || model.toast.id != id || model.toast.phase != tuipage.OperationSuccess || model.toast.message != "Admin profile saved" {
+		t.Fatalf("success did not reuse dialog: toast=%#v cmd=%v", model.toast, cmd)
+	}
+}
+
+func TestModelOperationDialogCancelledStartsTimer(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, _ := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationPending, Title: "Saving", Message: "Saving..."})
+	model = updated.(Model)
+	id := model.toast.id
+	updated, cmd := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationCancelled, Title: "Saving", Message: "Cancelled", Tone: component.ToneNeutral})
+	model = updated.(Model)
+	if cmd == nil || model.toast.id != id || model.toast.phase != tuipage.OperationCancelled || model.toast.message != "Cancelled" {
+		t.Fatalf("cancelled=%#v cmd=%v", model.toast, cmd)
+	}
+}
+
+func TestModelOperationDialogPinBlocksStaleTimer(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, _ := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationSuccess, Title: "Saved", Message: "done", Tone: component.ToneSuccess})
+	model = updated.(Model)
+	id, timer := model.toast.id, model.toast.timer
+	updated, cmd := model.Update(tea.KeyPressMsg{Text: "p", Code: 'p'})
+	model = updated.(Model)
+	if cmd != nil || !model.toast.pinned || model.toast.timer == timer {
+		t.Fatalf("pin failed: toast=%#v cmd=%v", model.toast, cmd)
+	}
+	updated, _ = model.Update(toastDismissMsg{id: id, timer: timer})
+	model = updated.(Model)
+	if model.toast.id != id {
+		t.Fatal("stale timer dismissed pinned dialog")
+	}
+	updated, cmd = model.Update(tea.KeyPressMsg{Text: "p", Code: 'p'})
+	model = updated.(Model)
+	if cmd == nil || model.toast.pinned {
+		t.Fatalf("unpin did not restart timer: toast=%#v cmd=%v", model.toast, cmd)
+	}
+	updated, _ = model.Update(toastDismissMsg{id: model.toast.id, timer: model.toast.timer})
+	model = updated.(Model)
+	if model.toast.id != 0 {
+		t.Fatalf("unpinned timer did not dismiss: %#v", model.toast)
+	}
+}
+
+func TestModelOperationDialogIgnoresStaleKey(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, _ := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationPending, Title: "Saving", Message: "Saving..."})
+	model = updated.(Model)
+	id := model.toast.id
+	updated, _ = model.Update(tuipage.OperationMsg{Key: "other", Phase: tuipage.OperationError, Title: "Error", Message: "stale", Tone: component.ToneDanger})
+	model = updated.(Model)
+	if model.toast.id != id || model.toast.phase != tuipage.OperationPending {
+		t.Fatalf("stale error replaced pending: %#v", model.toast)
+	}
+	model.currentPage = &statusNoticeTestPage{}
+	updated, cmd := model.updatePage(noticeTestMsg("Live stream disconnected; reconnecting"))
+	model = updated.(Model)
+	if cmd != nil || model.toast.phase != tuipage.OperationPending || model.toast.id != id {
+		t.Fatalf("status replaced pending: toast=%#v cmd=%v", model.toast, cmd)
 	}
 }

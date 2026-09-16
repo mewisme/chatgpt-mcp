@@ -42,3 +42,16 @@ func TestApplyBuildInfoPreservesExplicitLdflags(t *testing.T) {
 		t.Fatalf("explicit metadata was overwritten: %q %q %q", Version, Commit, Date)
 	}
 }
+
+func TestIsDevelopment(t *testing.T) {
+	for _, value := range []string{"", "dev", "DEV", "(devel)", "dev-abc", "dev-0.2.24"} {
+		if !IsDevelopment(value) {
+			t.Fatalf("%q should be a development version", value)
+		}
+	}
+	for _, value := range []string{"v0.2.24", "0.2.24", "v1.0.0"} {
+		if IsDevelopment(value) {
+			t.Fatalf("%q should not be a development version", value)
+		}
+	}
+}

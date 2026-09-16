@@ -18,7 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
-	"go.mewis.me/chatgpt-mcp/internal/mcpauth"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -65,9 +65,7 @@ func runMCPHTTP(cmd *cobra.Command, workspace, host string, port int, enableSSE 
 	if host == "" {
 		return errors.New("MCP HTTP host is required")
 	}
-	cfg.Server.Enabled = false
-	cfg.Admin.Enabled = false
-	cfg.Tunnel.Enabled = false
+	disableStandaloneRuntimeTransports(&cfg)
 	runtime, err := app.NewWithLoggerContext(cmd.Context(), cfg, commandLogger(cmd))
 	if err != nil {
 		return err
@@ -89,7 +87,7 @@ func runMCPHTTP(cmd *cobra.Command, workspace, host string, port int, enableSSE 
 		return err
 	}
 	if cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {
-		return errors.New("MCP authentication is enabled but no credential is configured; run cgm auth mcp create")
+		return errors.New("direct MCP HTTP authentication is enabled but no credential is configured; run cgm auth mcp rotate")
 	}
 	if !mcpHTTPLoopbackHost(host) {
 		return errors.New("standalone MCP HTTP is currently loopback-only; use 127.0.0.1, ::1, or localhost")
@@ -98,19 +96,13 @@ func runMCPHTTP(cmd *cobra.Command, workspace, host string, port int, enableSSE 
 	if err != nil {
 		return err
 	}
-	baseURL := "http://" + listener.Addr().String()
-	authority, err := mcpauth.New(baseURL, baseURL+"/mcp", func() (mcpauth.Config, error) {
+	handler = auth.DynamicHashedMiddleware(func() (bool, string) {
 		current, loadErr := config.LoadRuntime()
 		if loadErr != nil {
-			return mcpauth.Config{}, loadErr
+			return true, ""
 		}
-		return mcpauth.Config{Enabled: current.Auth.MCPEnabled, LegacyBearer: current.Auth.MCPLegacyBearer, TokenHash: current.Auth.MCPTokenHash}, nil
-	}, auth.VerifyToken)
-	if err != nil {
-		_ = listener.Close()
-		return err
-	}
-	handler = authority.Handler(handler)
+		return current.Auth.MCPEnabled, current.Auth.MCPTokenHash
+	}, handler)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
 	go func() {
 		<-cmd.Context().Done()
@@ -168,9 +160,7 @@ func runMCPStdio(cmd *cobra.Command, workspace string) (runErr error) {
 	if err := config.Validate(cfg); err != nil {
 		return err
 	}
-	cfg.Server.Enabled = false
-	cfg.Admin.Enabled = false
-	cfg.Tunnel.Enabled = false
+	disableStandaloneRuntimeTransports(&cfg)
 	runtime, err := app.NewWithLoggerContext(cmd.Context(), cfg, commandLogger(cmd))
 	if err != nil {
 		return err
@@ -196,6 +186,17 @@ func runMCPStdio(cmd *cobra.Command, workspace string) (runErr error) {
 		return nil
 	}
 	return err
+}
+
+func disableStandaloneRuntimeTransports(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	cfg.Server.Enabled = false
+	cfg.Admin.Enabled = false
+	instances := []tunnel.InstanceConfig{}
+	admins := append([]tunnel.AdminConfig(nil), cfg.RuntimeTunnels().Admins...)
+	cfg.Tunnel = tunnel.Config{Instances: &instances, Admins: &admins}
 }
 
 func resolveMCPWorkspace(manager interface {

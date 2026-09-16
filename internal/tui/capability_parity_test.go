@@ -78,7 +78,11 @@ func TestCapabilityActionsHaveReachableContexts(t *testing.T) {
 		{Route: string(RouteWorkspaces)}, {Route: string(RouteWorkspaces), ResourceID: "resource"},
 		{Route: string(RouteContainers)}, {Route: string(RouteContainers), ResourceID: "resource"},
 		{Route: string(RouteMCP)}, {Route: string(RouteMCP), ResourceID: "resource"},
-		{Route: string(RouteTunnel)}, {Route: string(RouteTunnels)}, {Route: string(RouteTunnels), ResourceID: "resource"},
+		{Route: string(RoutePlugins)}, {Route: string(RoutePlugins), ResourceID: "resource"},
+		{Route: string(RoutePlugins), Section: "marketplace", ResourceID: "resource"},
+		{Route: string(RoutePlugins), Section: "updates", ResourceID: "resource"},
+		{Route: string(RoutePlugins), Section: "registries", ResourceID: "resource"},
+		{Route: string(RouteTunnel)}, {Route: string(RouteTunnel), ResourceID: "resource"}, {Route: string(RouteTunnelAdmins)}, {Route: string(RouteTunnelAdmins), ResourceID: "resource"}, {Route: string(RouteTunnels)}, {Route: string(RouteTunnels), ResourceID: "resource"},
 		{Route: string(RouteRequests)}, {Route: string(RouteRequests), ResourceID: "resource"},
 		{Route: string(RouteLogs)}, {Route: string(RouteConfig)}, {Route: string(RouteRuntime)}, {Route: string(RouteAbout)},
 	}
@@ -95,6 +99,106 @@ func TestCapabilityActionsHaveReachableContexts(t *testing.T) {
 		}
 		if !reachable {
 			t.Errorf("capability action %s has no reachable route context", item.ID)
+		}
+	}
+}
+
+func TestAuthActionsDoNotCollapseCredentialTypes(t *testing.T) {
+	for _, item := range defaultActionRegistry().All() {
+		hasMCP, hasAdmin, hasTunnel, hasAuthStatus := false, false, false, false
+		for _, id := range item.Capabilities {
+			switch {
+			case strings.HasPrefix(string(id), "auth.mcp."):
+				hasMCP = true
+			case strings.HasPrefix(string(id), "auth.admin."):
+				hasAdmin = true
+			case strings.HasPrefix(string(id), "tunnel."):
+				hasTunnel = true
+			case id == capability.AuthStatus:
+				hasAuthStatus = true
+			}
+			if strings.Contains(strings.ToLower(string(id)), "oauth") {
+				t.Errorf("action %s maps leftover oauth capability %s", item.ID, id)
+			}
+		}
+		if hasMCP && hasAdmin {
+			t.Errorf("action %s mixes Direct MCP HTTP and admin capabilities", item.ID)
+		}
+		if (hasMCP || hasAdmin) && hasTunnel {
+			t.Errorf("action %s mixes app auth and tunnel capabilities", item.ID)
+		}
+		if hasAuthStatus && (hasMCP || hasAdmin) {
+			t.Errorf("action %s mixes generic auth.status with credential-specific capabilities", item.ID)
+		}
+	}
+}
+
+func TestAuthActionTitlesMatchCredentialType(t *testing.T) {
+	for _, item := range defaultActionRegistry().All() {
+		for _, id := range item.Capabilities {
+			switch {
+			case strings.HasPrefix(string(id), "auth.mcp."):
+				if !strings.Contains(item.Title, "Direct MCP HTTP") {
+					t.Errorf("%s title %q missing Direct MCP HTTP", item.ID, item.Title)
+				}
+			case strings.HasPrefix(string(id), "auth.admin."):
+				if strings.Contains(item.Title, "Direct MCP HTTP") {
+					t.Errorf("%s admin action uses Direct MCP HTTP title %q", item.ID, item.Title)
+				}
+				if !strings.Contains(strings.ToLower(item.Title), "admin") {
+					t.Errorf("%s admin title %q missing admin", item.ID, item.Title)
+				}
+			case strings.HasPrefix(string(id), "tunnel."):
+				if strings.Contains(item.Title, "Direct MCP HTTP") {
+					t.Errorf("%s tunnel action requires Direct MCP HTTP: %q", item.ID, item.Title)
+				}
+			}
+		}
+	}
+}
+
+func TestTunnelTUIActionsMapToCanonicalCLICommands(t *testing.T) {
+	want := map[string]capability.ID{
+		"tunnel.add":               capability.TunnelAdd,
+		"tunnel.update":            capability.TunnelUpdate,
+		"tunnel.detach":            capability.TunnelDetach,
+		"tunnel.enable":            capability.TunnelEnable,
+		"tunnel.disable":           capability.TunnelDisable,
+		"tunnel.start":             capability.TunnelStart,
+		"tunnel.stop":              capability.TunnelStop,
+		"tunnel.foreground":        capability.TunnelForeground,
+		"tunnel.admin.add":         capability.TunnelAdminAdd,
+		"tunnel.admin.update":      capability.TunnelAdminUpdate,
+		"tunnel.admin.verify":      capability.TunnelAdminVerify,
+		"tunnel.admin.remove":      capability.TunnelAdminRemove,
+		"tunnel.managed.refresh":   capability.TunnelManagedList,
+		"tunnel.managed.create":    capability.TunnelManagedCreate,
+		"tunnel.managed.update":    capability.TunnelManagedUpdate,
+		"tunnel.managed.configure": capability.TunnelAttach,
+		"tunnel.managed.delete":    capability.TunnelManagedDelete,
+	}
+	registry := defaultActionRegistry()
+	for id, cap := range want {
+		spec, ok := capability.Lookup(cap)
+		if !ok {
+			t.Fatalf("missing capability %s", cap)
+		}
+		var item action.Action
+		for _, candidate := range registry.All() {
+			if candidate.ID == id {
+				item = candidate
+				break
+			}
+		}
+		if item.ID == "" {
+			t.Fatalf("missing TUI action %s", id)
+		}
+		got := capability.NormalizePath(strings.Join(item.CommandPath, " "))
+		if got != capability.NormalizePath(spec.CanonicalPath) {
+			t.Errorf("%s CommandPath=%q want %q", id, got, spec.CanonicalPath)
+		}
+		if len(item.Capabilities) != 1 || item.Capabilities[0] != cap {
+			t.Errorf("%s capabilities=%v want %s", id, item.Capabilities, cap)
 		}
 	}
 }

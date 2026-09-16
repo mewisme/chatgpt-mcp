@@ -2,8 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/application"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 )
 
 func TestTUICommandIsRegistered(t *testing.T) {
@@ -24,13 +29,18 @@ func TestTUICommandRequiresTerminal(t *testing.T) {
 	}
 }
 
-func TestTUICommandRejectsUnknownDeepLinkBeforeLaunch(t *testing.T) {
+func TestTUICommandMissingPlugin(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
+	previous := tuiIsTerminal
+	tuiIsTerminal = func(io.Reader, io.Writer) bool { return true }
+	t.Cleanup(func() { tuiIsTerminal = previous })
 	command := tuiCommand()
 	command.SetIn(&bytes.Buffer{})
 	command.SetOut(&bytes.Buffer{})
 	command.SetErr(&bytes.Buffer{})
-	command.SetArgs([]string{"missing"})
-	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "unknown TUI path") {
-		t.Fatalf("unknown TUI path error = %v", err)
+	command.SetArgs([]string{"home"})
+	err := command.Execute()
+	if err == nil || !errors.Is(err, application.ErrTerminalUIMissing) {
+		t.Fatalf("missing tui plugin error = %v", err)
 	}
 }

@@ -3,45 +3,47 @@ package tunnel
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"net"
-	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	tunnelclient "github.com/openai/tunnel-client"
-	tcadmin "github.com/openai/tunnel-client/pkg/controlplane/admin"
 
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
 const (
-	ProviderOpenAI     = "openai"
-	defaultStopTimeout = 5 * time.Second
-	restartMinDelay    = time.Second
-	restartMaxDelay    = 30 * time.Second
-	idleReconnectDelay = 10 * time.Minute
-	metadataTTL        = 5 * time.Minute
+	ProviderOpenAI             = "openai"
+	ProviderSecureMCP          = "secure-mcp"
+	PluginIDSecureMCP          = "secure-mcp-tunnel"
+	DefaultControlPlaneBaseURL = "https://api.openai.com"
+	defaultStopTimeout         = 5 * time.Second
+	restartMinDelay            = time.Second
+	restartMaxDelay            = 30 * time.Second
+	idleReconnectDelay         = 10 * time.Minute
+	metadataTTL                = 5 * time.Minute
 )
 
 type Config struct {
-	Enabled             bool   `json:"enabled"`
-	ID                  string `json:"id,omitempty"`
-	APIKey              string `json:"api_key,omitempty"`
-	AdminKey            string `json:"admin_key,omitempty"`
-	AdminOrganizationID string `json:"admin_organization_id,omitempty"`
-	AdminWorkspaceID    string `json:"admin_workspace_id,omitempty"`
-	AdminTenantID       string `json:"admin_tenant_id,omitempty"`
-	AdminReadAccess     bool   `json:"-"`
-	AdminManageAccess   bool   `json:"-"`
-	ControlPlaneBaseURL string `json:"control_plane_base_url,omitempty"`
-	OrganizationID      string `json:"organization_id,omitempty"`
+	Instances           *[]InstanceConfig `json:"instances,omitempty"`
+	Admins              *[]AdminConfig    `json:"admins,omitempty"`
+	Enabled             bool              `json:"enabled"`
+	ID                  string            `json:"id,omitempty"`
+	APIKey              string            `json:"api_key,omitempty"`
+	AdminKey            string            `json:"admin_key,omitempty"`
+	AdminOrganizationID string            `json:"admin_organization_id,omitempty"`
+	AdminWorkspaceID    string            `json:"admin_workspace_id,omitempty"`
+	AdminTenantID       string            `json:"admin_tenant_id,omitempty"`
+	AdminReadAccess     bool              `json:"-"`
+	AdminManageAccess   bool              `json:"-"`
+	ControlPlaneBaseURL string            `json:"control_plane_base_url,omitempty"`
+	OrganizationID      string            `json:"organization_id,omitempty"`
 }
 
 type AdminAccess struct {
@@ -94,14 +96,14 @@ type CreateRequest struct {
 
 type metadataFetcher func(context.Context, Config) (Metadata, error)
 
-type backend interface {
+type Backend interface {
 	Start(context.Context) error
 	Stop(context.Context) error
 	WaitUntilReady(context.Context) error
 	Done() <-chan os.Signal
 }
 
-type backendFactory func(Config, sdkmcp.Transport) (backend, error)
+type BackendFactory func(Config, sdkmcp.Transport) (Backend, error)
 
 type LifecycleState string
 
@@ -135,8 +137,8 @@ type Client struct {
 	mu             sync.RWMutex
 	config         Config
 	runtime        *tools.Runtime
-	factory        backendFactory
-	backend        backend
+	factory        BackendFactory
+	backend        Backend
 	cancel         context.CancelFunc
 	serverRun      *serverRun
 	readyCh        chan struct{}
@@ -157,6 +159,8 @@ type Client struct {
 	lastActivity   time.Time
 	idleWake       chan struct{}
 	metadataFetch  metadataFetcher
+	mcpEndpoint    string
+	mcpToken       string
 	metadata       *Metadata
 	metadataError  string
 	metadataCheck  time.Time
@@ -174,85 +178,33 @@ func NewConfigured(cfg Config, runtime *tools.Runtime) *Client {
 }
 
 func NewConfiguredWithLogger(cfg Config, runtime *tools.Runtime, log *logger.Logger) *Client {
-	return newConfigured(cfg, runtime, newOpenAIBackendFactory(log))
+	return newConfigured(cfg, runtime, nil)
 }
 
-func newConfigured(cfg Config, runtime *tools.Runtime, factory backendFactory) *Client {
-	if factory == nil {
-		factory = newOpenAIBackendFactory(nil)
-	}
+func NewWithFactory(cfg Config, runtime *tools.Runtime, factory BackendFactory) *Client {
+	return newConfigured(cfg, runtime, factory)
+}
+
+func newConfigured(cfg Config, runtime *tools.Runtime, factory BackendFactory) *Client {
 	return &Client{config: cfg, runtime: runtime, factory: factory, restartDelay: defaultRestartDelay, idleInterval: idleReconnectDelay, metadataFetch: FetchMetadata}
 }
 
+func (c *Client) SetBridge(endpoint, token string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.mcpEndpoint = strings.TrimSpace(endpoint)
+	c.mcpToken = strings.TrimSpace(token)
+	c.mu.Unlock()
+}
+
 func FetchMetadata(ctx context.Context, cfg Config) (Metadata, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	id := strings.TrimSpace(cfg.ID)
-	span := tracepkg.Start(ctx, "TUNNEL", "tunnel.metadata.fetch", "Fetching tunnel metadata", tracepkg.String("tunnel_id", id), tracepkg.String("method", "GET"), tracepkg.URL("url", adminAPIURL(cfg, "/v1/tunnels/"+url.PathEscape(id), nil)), tracepkg.Bool("runtime_key_configured", strings.TrimSpace(cfg.APIKey) != ""))
-	if strings.TrimSpace(cfg.ID) == "" {
-		err := errors.New("OpenAI tunnel id is empty")
-		span.FailMessage("Tunnel metadata fetch validation failed", err)
-		return Metadata{}, err
-	}
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		err := errors.New("OpenAI tunnel API key is empty")
-		span.FailMessage("Tunnel metadata fetch validation failed", err)
-		return Metadata{}, err
-	}
-	client, err := adminTunnelClient(cfg, cfg.APIKey)
-	if err != nil {
-		span.FailMessage("Tunnel metadata client setup failed", err)
-		return Metadata{}, err
-	}
-	value, err := client.GetTunnel(ctx, cfg.ID)
-	if err != nil {
-		span.FailMessage("Tunnel metadata fetch failed", safeAdminTraceError(err), adminRequestErrorTraceFields(err)...)
-		return Metadata{}, err
-	}
-	metadata := metadataFromTunnel(value)
-	span.EndMessage("Tunnel metadata fetched", tracepkg.String("tunnel_id", metadata.ID), tracepkg.Int("organization_count", len(metadata.OrganizationIDs)), tracepkg.Int("workspace_count", len(metadata.WorkspaceIDs)), tracepkg.Int("tenant_count", len(metadata.TenantIDs)))
-	return metadata, nil
-}
-
-func createWithAdminKey(ctx context.Context, cfg Config, apiKey string, req CreateRequest) (Metadata, error) {
-	if strings.TrimSpace(apiKey) == "" {
-		return Metadata{}, errors.New("OpenAI tunnel admin API key is empty")
-	}
-	req.Name = strings.TrimSpace(req.Name)
-	req.Description = strings.TrimSpace(req.Description)
-	if req.Name == "" {
-		return Metadata{}, errors.New("tunnel name is required")
-	}
-	if req.Description == "" {
-		return Metadata{}, errors.New("tunnel description is required")
-	}
-	if len(req.OrganizationIDs) == 0 && len(req.WorkspaceIDs) == 0 {
-		return Metadata{}, errors.New("at least one organization or workspace id is required")
-	}
-	client, err := adminTunnelClient(cfg, apiKey)
+	backend, err := requireAdmin()
 	if err != nil {
 		return Metadata{}, err
 	}
-	value, err := client.CreateTunnel(ctx, tcadmin.TunnelCreateRequest{
-		Name: req.Name, Description: req.Description,
-		TenantIDs: append([]string(nil), req.TenantIDs...), WorkspaceIDs: append([]string(nil), req.WorkspaceIDs...), OrganizationIDs: append([]string(nil), req.OrganizationIDs...),
-	})
-	if err != nil {
-		return Metadata{}, err
-	}
-	return metadataFromTunnel(value), nil
-}
-
-func metadataFromTunnel(value *tcadmin.Tunnel) Metadata {
-	if value == nil {
-		return Metadata{}
-	}
-	return Metadata{
-		ID: value.ID, Name: value.Name, Description: value.Description, Creator: value.Creator,
-		TenantIDs: append([]string(nil), value.TenantIDs...), WorkspaceIDs: append([]string(nil), value.WorkspaceIDs...), OrganizationIDs: append([]string(nil), value.OrganizationIDs...),
-		RequestID: value.RequestID, FetchedAt: time.Now().UTC(),
-	}
+	return backend.FetchMetadata(ctx, cfg)
 }
 
 func (c *Client) RefreshMetadata(ctx context.Context, force bool) (Metadata, error) {
@@ -300,7 +252,7 @@ func (c *Client) RefreshMetadata(ctx context.Context, force bool) (Metadata, err
 	if err != nil {
 		c.metadataCheck = time.Now().UTC()
 		c.metadataError = err.Error()
-		span.FailMessage("Tunnel metadata refresh failed", safeAdminTraceError(err), tracepkg.Bool("cache_hit", false))
+		span.FailMessage("Tunnel metadata refresh failed", err, tracepkg.Bool("cache_hit", false))
 		return Metadata{}, err
 	}
 	value = cloneMetadata(value)
@@ -381,26 +333,6 @@ func defaultRestartDelay(attempt int) time.Duration {
 	return delay
 }
 
-func newOpenAIBackendFactory(log *logger.Logger) backendFactory {
-	if log == nil {
-		log = logger.New(logger.Info)
-	}
-	return func(cfg Config, transport sdkmcp.Transport) (backend, error) {
-		return newOpenAIBackend(cfg, transport, log.LineWriter("TUNNEL"))
-	}
-}
-
-func newOpenAIBackend(cfg Config, transport sdkmcp.Transport, logWriter io.Writer) (backend, error) {
-	return tunnelclient.New(tunnelclient.Config{
-		TunnelID:            cfg.ID,
-		APIKey:              cfg.APIKey,
-		ControlPlaneBaseURL: cfg.ControlPlaneBaseURL,
-		OrganizationID:      cfg.OrganizationID,
-		PollTimeout:         2 * time.Second,
-		LogWriter:           logWriter,
-	}, transport)
-}
-
 func ValidateConfig(cfg Config) error {
 	if !cfg.Enabled {
 		return nil
@@ -411,16 +343,7 @@ func ValidateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return errors.New("OpenAI tunnel is enabled but API key is empty")
 	}
-	if raw := strings.TrimSpace(cfg.ControlPlaneBaseURL); raw != "" {
-		parsed, err := url.Parse(raw)
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			return fmt.Errorf("invalid OpenAI tunnel control plane base URL %q", raw)
-		}
-		if parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
-			return fmt.Errorf("OpenAI tunnel control plane base URL must use HTTPS unless the host is loopback")
-		}
-	}
-	return nil
+	return ValidateControlPlaneBaseURL(cfg.ControlPlaneBaseURL)
 }
 
 func isLoopbackHost(host string) bool {
@@ -431,18 +354,38 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+func newInMemoryTransports() (sdkmcp.Transport, sdkmcp.Transport) {
+	serverConn, tunnelConn := net.Pipe()
+	return &sdkmcp.IOTransport{Reader: serverConn, Writer: serverConn}, &sdkmcp.IOTransport{Reader: tunnelConn, Writer: tunnelConn}
+}
+
 func Configured(cfg Config) bool {
 	return strings.TrimSpace(cfg.ID) != "" && strings.TrimSpace(cfg.APIKey) != ""
 }
 
 func RuntimeConfigEqual(left, right Config) bool {
+	left.Instances, right.Instances = nil, nil
+	left.Admins, right.Admins = nil, nil
 	left.AdminKey, right.AdminKey = "", ""
 	left.AdminOrganizationID, right.AdminOrganizationID = "", ""
 	left.AdminWorkspaceID, right.AdminWorkspaceID = "", ""
 	left.AdminTenantID, right.AdminTenantID = "", ""
 	left.AdminReadAccess, right.AdminReadAccess = false, false
 	left.AdminManageAccess, right.AdminManageAccess = false, false
-	return left == right
+	return reflect.DeepEqual(left, right)
+}
+
+func ConfigEqual(left, right Config) bool { return reflect.DeepEqual(left, right) }
+
+func (cfg Config) Collection() CollectionConfig {
+	var collection CollectionConfig
+	if cfg.Instances != nil {
+		collection.Instances = *cfg.Instances
+	}
+	if cfg.Admins != nil {
+		collection.Admins = *cfg.Admins
+	}
+	return collection
 }
 
 func (c *Client) SyncManagementConfig(cfg Config) error {
@@ -596,8 +539,8 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 		c.mu.Unlock()
 		return context.Canceled
 	}
-	if c.runtime == nil || c.runtime.Registry == nil {
-		err := errors.New("OpenAI tunnel requires an MCP tools runtime")
+	if c.factory == nil {
+		err := PluginMissingError()
 		c.lastError = err.Error()
 		c.mu.Unlock()
 		c.emitLifecycle(LifecycleDegraded, id, err.Error())
@@ -610,28 +553,66 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 		return err
 	}
 
-	bridge, err := newSDKBridge(c.runtime)
-	if err != nil {
-		c.lastError = err.Error()
-		c.mu.Unlock()
-		c.emitLifecycle(LifecycleDegraded, id, err.Error())
-		return err
-	}
-	serverTransport, tunnelTransport := newCancellationSafeInMemoryTransports()
-	tunnelBackend, err := c.factory(c.config, withSessionTransportActivity(tunnelTransport, func() { c.markMCPActivity(session) }))
-	if err != nil {
-		c.lastError = err.Error()
-		c.mu.Unlock()
-		c.emitLifecycle(LifecycleDegraded, id, err.Error())
-		return err
-	}
-
+	var tunnelBackend Backend
+	var run *serverRun
 	runCtx, cancel := context.WithCancel(parent)
-	run := &serverRun{done: make(chan struct{})}
-	go func() {
-		run.err = bridge.Run(runCtx, serverTransport)
+	if endpoint := strings.TrimSpace(c.mcpEndpoint); endpoint != "" {
+		if err := mcp.ValidateBridgeURL(endpoint); err != nil {
+			cancel()
+			c.lastError = err.Error()
+			c.mu.Unlock()
+			c.emitLifecycle(LifecycleDegraded, id, err.Error())
+			return err
+		}
+		created, err := c.factory(c.config, &sdkmcp.StreamableClientTransport{
+			Endpoint: endpoint, DisableStandaloneSSE: true,
+		})
+		if err != nil {
+			cancel()
+			c.lastError = err.Error()
+			c.mu.Unlock()
+			c.emitLifecycle(LifecycleDegraded, id, err.Error())
+			return err
+		}
+		tunnelBackend = created
+		run = &serverRun{done: make(chan struct{})}
 		close(run.done)
-	}()
+	} else {
+		if c.runtime == nil || c.runtime.Registry == nil {
+			cancel()
+			err := errors.New("OpenAI tunnel requires an MCP tools runtime")
+			c.lastError = err.Error()
+			c.mu.Unlock()
+			c.emitLifecycle(LifecycleDegraded, id, err.Error())
+			return err
+		}
+		bridge, err := newSDKBridgeForTunnel(c.runtime, c.config.ID)
+		if err != nil {
+			cancel()
+			c.lastError = err.Error()
+			c.mu.Unlock()
+			c.emitLifecycle(LifecycleDegraded, id, err.Error())
+			return err
+		}
+		if c.metadata != nil {
+			bridge.tunnelName = strings.TrimSpace(c.metadata.Name)
+		}
+		serverTransport, tunnelTransport := newInMemoryTransports()
+		created, err := c.factory(c.config, withSessionTransportActivity(tunnelTransport, func() { c.markMCPActivity(session) }))
+		if err != nil {
+			cancel()
+			c.lastError = err.Error()
+			c.mu.Unlock()
+			c.emitLifecycle(LifecycleDegraded, id, err.Error())
+			return err
+		}
+		tunnelBackend = created
+		run = &serverRun{done: make(chan struct{})}
+		go func() {
+			run.err = bridge.Run(runCtx, serverTransport)
+			close(run.done)
+		}()
+	}
 
 	if err := tunnelBackend.Start(runCtx); err != nil {
 		cancel()
@@ -668,7 +649,7 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 	return nil
 }
 
-func (c *Client) watchReady(session, generation uint64, tunnelBackend backend, ctx, parent context.Context) {
+func (c *Client) watchReady(session, generation uint64, tunnelBackend Backend, ctx, parent context.Context) {
 	err := tunnelBackend.WaitUntilReady(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -804,7 +785,7 @@ func (c *Client) watchServer(session, generation uint64, run *serverRun, parent 
 	c.recoverGeneration(session, generation, parent, "embedded MCP server stopped: "+run.err.Error())
 }
 
-func (c *Client) watchBackend(session, generation uint64, tunnelBackend backend, ctx, parent context.Context) {
+func (c *Client) watchBackend(session, generation uint64, tunnelBackend Backend, ctx, parent context.Context) {
 	done := tunnelBackend.Done()
 	if done == nil {
 		return

@@ -37,6 +37,16 @@ func TestFindCallAndCallHandler(t *testing.T) {
 	}
 }
 
+func TestEventDecodesHistoricalJSONWithoutTunnelFields(t *testing.T) {
+	var event Event
+	if err := json.Unmarshal([]byte(`{"kind":"tool_call","source":"tunnel","timestamp":"2026-09-06T12:00:00Z"}`), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Source != "tunnel" || event.TunnelID != "" || event.TunnelName != "" {
+		t.Fatalf("event=%#v", event)
+	}
+}
+
 func TestStreamRecentIsBoundedAndOrdered(t *testing.T) {
 	stream := NewStream()
 	stream.maxRecent = 3

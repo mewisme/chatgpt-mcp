@@ -1,0 +1,39 @@
+{
+  "allowed": [
+    { "spdx": "Apache-2.0", "kind": "permissive" },
+    { "spdx": "MIT", "kind": "permissive" },
+    { "spdx": "MIT-0", "kind": "permissive" },
+    { "spdx": "BSD-2-Clause", "kind": "permissive" },
+    { "spdx": "BSD-3-Clause", "kind": "permissive" },
+    { "spdx": "BSD-3-Clause-Clear", "kind": "permissive" },
+    { "spdx": "BSD-4-Clause", "kind": "permissive" },
+    { "spdx": "ISC", "kind": "permissive" },
+    { "spdx": "0BSD", "kind": "permissive" },
+    { "spdx": "Unlicense", "kind": "permissive" },
+    { "spdx": "BlueOak-1.0.0", "kind": "permissive" },
+    { "spdx": "Zlib", "kind": "permissive" },
+    { "spdx": "Python-2.0", "kind": "permissive" },
+    { "spdx": "CC0-1.0", "kind": "permissive" },
+    { "spdx": "CC-BY-3.0", "kind": "permissive" },
+    { "spdx": "CC-BY-4.0", "kind": "permissive" },
+    { "spdx": "Unicode-3.0", "kind": "permissive" },
+    { "spdx": "Unicode-DFS-2016", "kind": "permissive" },
+    {
+      "spdx": "MPL-2.0",
+      "kind": "weak-copyleft",
+      "rationale": "Sigstore/HashiCorp and similar file-level MPL obligations in linked Go modules and some frontend tooling"
+    },
+    {
+      "spdx": "OFL-1.1",
+      "kind": "font",
+      "rationale": "Inter font distributed with the Admin UI static bundle",
+      "artifacts": ["admin-ui"]
+    },
+    {
+      "spdx": "GPL-2.0-only",
+      "kind": "copyleft",
+      "rationale": "Git for Windows PortableGit payload shipped by the bash plugin",
+      "artifacts": ["bash"]
+    }
+  ]
+}

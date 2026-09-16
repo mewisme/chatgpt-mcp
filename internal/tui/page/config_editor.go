@@ -122,7 +122,11 @@ func (page *ConfigPage) updateConfigImportConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		page.editor.SetSubmitting(true)
 		return page.startOperation(ConfigImport, "Importing configuration bundle", func(ctx context.Context) configOperationMsg {
 			result, err := application.ImportConfig(ctx, data.Path, data.Force)
-			return configOperationMsg{command: ConfigImport, files: result.Files, secrets: result.Secrets, err: err}
+			issues := len(result.PluginMissing) + len(result.PluginIncompatible) + len(result.PluginPending)
+			if result.PluginLockError != "" {
+				issues++
+			}
+			return configOperationMsg{command: ConfigImport, files: result.Files, secrets: result.Secrets, plugins: result.PluginDesired, pluginIssues: issues, err: err}
 		})
 	default:
 		return page.confirm.Update(msg)

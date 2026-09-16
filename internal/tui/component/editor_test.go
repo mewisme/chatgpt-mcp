@@ -128,6 +128,10 @@ func TestEditorMultilineUsesEnterForNewlineAndCtrlEnterToSubmit(t *testing.T) {
 	if _, submitted = runEditorUntilSubmit(t, updated, cmd); !submitted {
 		t.Fatal("multiline Ctrl+Enter did not submit")
 	}
+	updated, cmd = editor.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
+	if _, submitted = runEditorUntilSubmit(t, updated, cmd); !submitted {
+		t.Fatal("multiline Ctrl+J fallback did not submit")
+	}
 	if plain := ansi.Strip(editor.View()); !strings.Contains(plain, "ctrl+enter build") || !strings.Contains(plain, "enter new line") {
 		t.Fatalf("multiline help=%q", plain)
 	}

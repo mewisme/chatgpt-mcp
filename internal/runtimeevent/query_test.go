@@ -53,3 +53,27 @@ func TestLevelRankAndContainsFold(t *testing.T) {
 		t.Fatal("containsFold mismatch")
 	}
 }
+
+func TestQueryMatchTunnelIdentity(t *testing.T) {
+	alpha := Event{Source: "tunnel", TunnelID: "tunnel_a", TunnelName: "Alpha", Message: "from-alpha"}
+	beta := Event{Source: "tunnel", TunnelID: "tunnel_b", TunnelName: "Beta", Message: "from-beta"}
+	local := Event{Source: "http"}
+	source := Query{Source: "tunnel"}
+	if !source.Match(alpha) || !source.Match(beta) || source.Match(local) {
+		t.Fatal("source=tunnel should match both tunnels and miss http")
+	}
+	for _, needle := range []string{"tunnel_a", "Alpha", "TUNNEL_A", "alpha"} {
+		query := Query{Tunnel: needle}
+		if !query.Match(alpha) || query.Match(beta) || query.Match(local) {
+			t.Fatalf("needle %q leaked across tunnels", needle)
+		}
+	}
+	id := Query{Tunnel: "tunnel_b"}
+	if !id.Match(beta) || id.Match(alpha) {
+		t.Fatal("exact id filter should isolate beta")
+	}
+	grep := Query{Grep: "alpha"}
+	if !grep.Match(alpha) || grep.Match(beta) {
+		t.Fatal("grep should search tunnel name")
+	}
+}

@@ -25,7 +25,7 @@ func cliState(value any) string {
 		return cliStyled(color.FgHiGreen, color.Bold).Sprint(text)
 	case "connecting", "reconnecting":
 		return cliStyled(color.FgHiCyan, color.Bold).Sprint(text)
-	case "unreachable", "failed", "error":
+	case "unreachable", "failed", "error", "degraded":
 		return cliStyled(color.FgHiRed, color.Bold).Sprint(text)
 	case "stopped", "offline", "disabled", "not configured":
 		return cliDim(text)

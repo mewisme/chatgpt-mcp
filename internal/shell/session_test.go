@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -71,7 +72,7 @@ func TestShellEnvironmentOutputIsDeterministic(t *testing.T) {
 func TestApprovedControlPlaneCommandUsesCurrentExecutable(t *testing.T) {
 	invocation := controlguard.Invocation{Program: "cgm", Args: []string{"config", "set", "server.port", "41001"}, Command: "cgm config set server.port 41001"}
 	ctx := controlguard.WithApproval(context.Background(), controlguard.Approval{RequestID: "req_test", Capability: "cap_test", Invocation: invocation})
-	cmd, err := commandForPlatform(ctx, invocation.Command)
+	cmd, err := commandForProvider(ctx, invocation.Command, Provider{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func TestApprovedControlPlaneCommandUsesCurrentExecutable(t *testing.T) {
 			t.Fatalf("arg %d = %q want %q", index, cmd.Args[index+1], invocation.Args[index])
 		}
 	}
-	if _, err := commandForPlatform(ctx, "cgm config set server.port 41002"); err == nil {
+	if _, err := commandForProvider(ctx, "cgm config set server.port 41002", Provider{}); err == nil {
 		t.Fatal("changed approved shell command selected current executable")
 	}
 }
@@ -297,7 +298,7 @@ func TestShellStateFollowsRootConfigFormat(t *testing.T) {
 	if _, err := manager.Status(item.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "workspaces", item.ID, "shell.toml")); err != nil {
+	if _, err := os.Stat(filepath.Join(workspaceRoot, ".cgm", "state", "shell.toml")); err != nil {
 		t.Fatalf("shell state did not follow TOML format: %v", err)
 	}
 }
@@ -310,6 +311,66 @@ func TestShellMarkdownLanguage(t *testing.T) {
 		if got := shellMarkdownLanguage(shell); got != want {
 			t.Fatalf("shellMarkdownLanguage(%q)=%q want %q", shell, got, want)
 		}
+	}
+}
+
+func TestShellExecRecordsBashProviderMetadata(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses system Bash path")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("Bash unavailable")
+	}
+	manager, workspaceID, _ := newShellTestManager(t)
+	resolver := NewProviderResolver(nil)
+	resolver.goos = runtime.GOOS
+	resolver.lookPath = func(name string) (string, error) { return bash, nil }
+	manager.providers = resolver
+	ctx := WithExecutionMetadata(context.Background(), ExecutionMetadata{ParentExecutionID: "call_parent", Origin: "agent", HookDepth: 0})
+	result, err := manager.Exec(ctx, workspaceID, `printf "%s" "$SHELL"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(result.Stdout) != filepath.Clean(bash) {
+		t.Fatalf("SHELL = %q want %q", result.Stdout, bash)
+	}
+	executions := manager.Executions().List(workspaceID, 1)
+	if len(executions) != 1 || executions[0].Shell != "bash" || executions[0].ShellProvider != "system" || executions[0].ParentExecutionID != "call_parent" || executions[0].Origin != "agent" {
+		t.Fatalf("execution metadata = %#v", executions)
+	}
+	if executions[0].RequestedCommand != `printf "%s" "$SHELL"` || executions[0].EffectiveCommand != executions[0].RequestedCommand || executions[0].SecurityCommand != executions[0].EffectiveCommand {
+		t.Fatalf("command provenance = %#v", executions[0])
+	}
+}
+
+func TestShellExecutionAuditsRequestedEffectiveAndSecurityCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses system Bash path")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("Bash unavailable")
+	}
+	manager, workspaceID, root := newShellTestManager(t)
+	resolver := NewProviderResolver(nil)
+	resolver.goos = runtime.GOOS
+	resolver.lookPath = func(name string) (string, error) { return bash, nil }
+	manager.providers = resolver
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	requested := "cd nested && printf ok"
+	if _, err := manager.Exec(context.Background(), workspaceID, requested); err != nil {
+		t.Fatal(err)
+	}
+	executions := manager.Executions().List(workspaceID, 1)
+	if len(executions) != 1 {
+		t.Fatalf("executions = %#v", executions)
+	}
+	info := executions[0]
+	if info.RequestedCommand != requested || info.EffectiveCommand != "printf ok" || info.SecurityCommand != "printf ok" || filepath.Clean(info.CWD) != filepath.Join(root, "nested") {
+		t.Fatalf("execution command audit = %#v", info)
 	}
 }
 

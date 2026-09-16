@@ -50,17 +50,19 @@ type configLoadMsg struct {
 }
 
 type configOperationMsg struct {
-	operationID uint64
-	command     ConfigCommand
-	mutation    application.ConfigMutationResult
-	verify      config.VerifyResult
-	format      configformat.Format
-	converted   int
-	files       int
-	secrets     int
-	migrated    int
-	path        string
-	err         error
+	operationID  uint64
+	command      ConfigCommand
+	mutation     application.ConfigMutationResult
+	verify       config.VerifyResult
+	format       configformat.Format
+	converted    int
+	files        int
+	secrets      int
+	migrated     int
+	path         string
+	plugins      int
+	pluginIssues int
+	err          error
 }
 
 type ConfigPage struct {
@@ -101,7 +103,7 @@ var configDomains = []configDomain{
 	{ID: "runtime", Title: "Runtime & Network", Description: "MCP HTTP and admin server configuration"},
 	{ID: "access", Title: "Access & Security", Description: "Authentication and filesystem access"},
 	{ID: "shell", Title: "Shell & Execution", Description: "Approval, sandbox, environment, and network policy"},
-	{ID: "features", Title: "Features", Description: "Ponytail and Caveman behavior"},
+	{ID: "features", Title: "Features", Description: "Built-in plugin configuration"},
 	{ID: "tunnel", Title: "Tunnel", Description: "OpenAI Secure MCP Tunnel configuration"},
 	{ID: "storage", Title: "Storage & Maintenance", Description: "Storage, verification, import, export, and migration"},
 }
@@ -231,8 +233,8 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, cmd
 		}
 		if msg.Row.ID != "" && page.isBrowserRoute() {
-			if page.resourceID == "" {
-				return page, func() tea.Msg { return NavigateMsg{Path: []string{"config", msg.Row.ID}} }
+			if page.resourceID == "features" {
+				return page, func() tea.Msg { return NavigateMsg{Path: []string{"plugins", msg.Row.ID, "configure"}} }
 			}
 			return page, func() tea.Msg { return NavigateMsg{Path: []string{"config", msg.Row.ID}} }
 		}
@@ -464,15 +466,12 @@ func (page *ConfigPage) startOperation(command ConfigCommand, title string, run 
 	operationID := page.operationID
 	page.operationCancel = cancel
 	page.command = command
-	progress := component.NewProgress(title)
-	page.progress = &progress
-	page.overlay = configOverlayOperation
 	page.err = nil
-	return func() tea.Msg {
+	return beginOperation("config.save", "Configuration", title, func() tea.Msg {
 		message := run(ctx)
 		message.operationID = operationID
 		return message
-	}
+	})
 }
 
 func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
@@ -487,14 +486,14 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 	if msg.err != nil {
 		if page.editor != nil {
 			page.editor.SetSubmitting(false)
-			page.editor.SetFeedback("", msg.err)
 			page.err = nil
-		} else {
-			page.err = msg.err
+			return func() tea.Msg { return OperationResult("config.save", "Configuration", "", msg.err) }
 		}
-		return nil
+		page.err = nil
+		return func() tea.Msg { return OperationResult("config.save", "Configuration", "", msg.err) }
 	}
 	page.err = nil
+	var notice string
 	switch msg.command {
 	case ConfigEdit:
 		page.overview.Config = msg.mutation.Config
@@ -508,30 +507,35 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 				page.overview.RuntimeSync.State = application.ConfigRuntimeStopped
 			}
 		}
-		page.notice = application.ConfigOperationNotice(msg.mutation.RuntimeReloaded)
+		notice = application.ConfigOperationNotice(msg.mutation.RuntimeReloaded)
 	case ConfigVerify:
-		page.notice = fmt.Sprintf("Configuration verified · %s · %d structured files", msg.verify.Format, msg.verify.Files)
+		notice = fmt.Sprintf("Configuration verified · %s · %d structured files", msg.verify.Format, msg.verify.Files)
 	case ConfigMigrate:
-		page.notice = "Legacy credentials migrated to the secret store"
+		notice = "Legacy credentials migrated to the secret store"
 	case ConfigMigrateSecrets:
-		page.notice = fmt.Sprintf("Secret files encrypted at rest · %d migrated", msg.migrated)
+		notice = fmt.Sprintf("Secret files encrypted at rest · %d migrated", msg.migrated)
 	case ConfigConvert:
-		page.notice = fmt.Sprintf("Configuration converted to %s · %d files", msg.format, msg.converted)
+		notice = fmt.Sprintf("Configuration converted to %s · %d files", msg.format, msg.converted)
 	case ConfigExport:
-		page.notice = fmt.Sprintf("Configuration exported · %d files · %d secrets · %s", msg.files, msg.secrets, msg.path)
+		notice = fmt.Sprintf("Configuration exported · %d files · %d secrets · %s", msg.files, msg.secrets, msg.path)
 	case ConfigImport:
-		page.notice = fmt.Sprintf("Configuration imported · %d files · %d secrets", msg.files, msg.secrets)
+		notice = fmt.Sprintf("Configuration imported · %d files · %d secrets", msg.files, msg.secrets)
+		if msg.plugins > 0 {
+			notice += fmt.Sprintf(" · %d plugin intents", msg.plugins)
+		}
+		if msg.pluginIssues > 0 {
+			notice += fmt.Sprintf(" · %d require attention", msg.pluginIssues)
+		}
 	}
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
 		page.editor.Accept()
-		notice := page.notice
-		return tea.Batch(page.configEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Configuration", Message: notice, Tone: component.ToneSuccess} })
+		return tea.Batch(page.configEditorParentNavigation(), func() tea.Msg { return OperationResult("config.save", "Configuration", notice, nil) })
 	}
-	return func() tea.Msg {
+	return withOperation("config.save", "Configuration", notice, func() tea.Msg {
 		overview, err := application.LoadConfigOverview(page.ctx)
 		return configLoadMsg{overview: overview, err: err}
-	}
+	})
 }
 
 func (page *ConfigPage) cancelOperation() {
@@ -544,7 +548,6 @@ func (page *ConfigPage) cancelOperation() {
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
 	}
-	page.notice = "Configuration operation cancellation requested"
 }
 
 func (page *ConfigPage) loadCmd() tea.Cmd {
@@ -700,6 +703,12 @@ func configMaintenanceCommand(id string) (ConfigCommand, bool) {
 }
 
 func (page *ConfigPage) domainRows() []component.Row {
+	if page.resourceID == "features" {
+		return []component.Row{
+			{ID: "ponytail", Title: "Ponytail", Description: "Configure the Ponytail built-in plugin", Meta: "plugin", Search: "ponytail plugin features"},
+			{ID: "caveman", Title: "Caveman", Description: "Configure the Caveman built-in plugin", Meta: "plugin", Search: "caveman plugin features"},
+		}
+	}
 	section, ok := configSectionForRoute(page.resourceID)
 	if !ok {
 		return nil
@@ -778,6 +787,9 @@ func (page *ConfigPage) isBrowserRoute() bool {
 }
 
 func (page *ConfigPage) isDomainRoute() bool {
+	if page.resourceID == "features" {
+		return true
+	}
 	_, ok := configSectionForRoute(page.resourceID)
 	return ok
 }
@@ -805,8 +817,6 @@ func configSectionForRoute(resourceID string) (config.FieldSection, bool) {
 		return config.FieldSectionAccess, true
 	case "shell":
 		return config.FieldSectionShell, true
-	case "features":
-		return config.FieldSectionFeatures, true
 	case "tunnel":
 		return config.FieldSectionTunnel, true
 	default:
@@ -891,7 +901,7 @@ func (page *ConfigPage) domainSummary(domain string) string {
 		}
 		return summary
 	case "access":
-		summary := fmt.Sprintf("MCP auth %s · Admin auth %s · %d extra filesystem roots", configOnOff(cfg.Auth.MCPEnabled), configOnOff(cfg.Auth.AdminEnabled), len(cfg.Permissions.AllowDirs))
+		summary := fmt.Sprintf("Direct MCP HTTP auth %s · Admin auth %s · %d extra filesystem roots", configOnOff(cfg.Auth.MCPEnabled), configOnOff(cfg.Auth.AdminEnabled), len(cfg.Permissions.AllowDirs))
 		if config.UnauthenticatedLoopbackActive(cfg) {
 			summary += " · UNAUTHENTICATED LOOPBACK"
 		}
@@ -902,21 +912,15 @@ func (page *ConfigPage) domainSummary(domain string) string {
 		}
 		return fmt.Sprintf("%d extra PATH entries · risk-based mutation approvals", len(cfg.Shell.Path))
 	case "features":
-		return fmt.Sprintf("Ponytail %s · Caveman %s", configOnOff(cfg.Features.Ponytail.Active), configOnOff(cfg.Features.Caveman.Active))
+		return "Ponytail · Caveman plugins"
 	case "tunnel":
-		return fmt.Sprintf("%s · runtime key %s · admin key %s", configOnOff(cfg.Tunnel.Enabled), configuredState(cfg.Tunnel.APIKey), configuredState(cfg.Tunnel.AdminKey))
+		collection := cfg.RuntimeTunnels()
+		return fmt.Sprintf("%d instances · %d enabled · %d runtime keys · %d admin profiles", len(collection.Instances), cfg.EnabledTunnelCount(), cfg.ConfiguredTunnelCount(), len(collection.Admins))
 	case "storage":
 		return fmt.Sprintf("%s · verify / convert / import / export", page.overview.Source.Format)
 	default:
 		return ""
 	}
-}
-
-func configuredState(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "not configured"
-	}
-	return "configured"
 }
 
 func configOnOff(enabled bool) string {

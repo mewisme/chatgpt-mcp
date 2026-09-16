@@ -62,7 +62,7 @@ func TestLogUpstreamStatusUsesCLIFormatter(t *testing.T) {
 	var output bytes.Buffer
 	cmd := newRootCommand()
 	cmd.SetOut(&output)
-	status := upstream.Status{ID: "demo", Name: "Demo", Enabled: true, Transport: "http", Auth: "oauth", Health: upstream.HealthConnected, Connected: true, ToolCount: 2, Expose: "all", ProxiedTools: []string{"demo_one", "demo_two"}}
+	status := upstream.Status{ID: "demo", Name: "Demo", Enabled: true, Transport: "http", Auth: "static", Health: upstream.HealthConnected, Connected: true, ToolCount: 2, Expose: "all", ProxiedTools: []string{"demo_one", "demo_two"}}
 	logUpstreamStatus(commandLogger(cmd), status)
 	text := output.String()
 	if !strings.Contains(text, "Upstream server connected") || !strings.Contains(text, "health: connected") || !strings.Contains(text, "tools: 2") || strings.HasPrefix(strings.TrimSpace(text), "{") {

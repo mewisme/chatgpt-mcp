@@ -1,31 +1,51 @@
 # Tunnel
 
-Tunnel contains two related surfaces: the local runtime tunnel configuration and managed OpenAI Secure MCP Tunnels.
+Tunnel is collection-first: one local runtime can receive traffic from multiple OpenAI Secure MCP Tunnels at the same time.
 
-## Runtime tunnel
+Rows prefer the cached tunnel name. Duplicate names get a short-ID suffix. Detail, search, and unnamed rows still expose the canonical `tunnel_...` ID.
 
-The Tunnel dashboard shows whether the runtime tunnel is enabled/configured and exposes actions such as configure, enable/disable, foreground run guidance, metadata sync, and admin-key management.
+## Local tunnel instances
 
-**Configure runtime tunnel** opens a full-page editor. The enabled state uses a Switch. Runtime API key input uses a password-style field; when an existing secret can be reused, that behavior is explained in the placeholder rather than a separate label description.
+The top-level Tunnel page lists every attached local tunnel instance. Each row/detail is keyed by tunnel ID and shows enabled/configured/live state without rendering the runtime key.
 
-Save is asynchronous. A backend failure keeps the exact editor draft and feedback. A successful save commits the editor baseline before returning to the dashboard.
+Actions are instance-scoped:
 
-## Admin key
+- `n` attaches a local runtime key (`cgm tunnel add`) without creating a remote OpenAI tunnel;
+- `e` edits that instance (`cgm tunnel update`); a blank runtime key keeps the current secret;
+- enable/disable changes only that tunnel's desired state;
+- start/stop changes only that live tunnel connection;
+- detach removes only the local attachment/runtime key and leaves the remote OpenAI tunnel unchanged;
+- foreground shows `cgm tunnel run <id>` to run outside the TUI.
 
-The admin key enables OpenAI tunnel-management operations. Verification records positively demonstrated tunnel capabilities without rendering the secret afterward. `Read` permits fetching a known tunnel and using it with a separate runtime credential; `Manage` permits listing, creating, updating, and deleting managed tunnels. The verified capability metadata is stored with the tunnel secret sidecar rather than as user-editable config. Re-verifying refreshes the capability state after OpenAI-side permission changes. Verify and remove remain lifecycle actions; removal requires confirmation.
+When no tunnels are attached, the page points at Admin Profiles → Managed Tunnels → attach, or use local attach with an existing runtime key.
+
+All instances share the same local MCP runtime, tools, workspaces, approvals, processes, upstream servers, and plugins. Live OpenAI start/stop/reconnect belongs to the `secure-mcp-tunnel` core plugin; connection/reconnect/error state remains independent per tunnel.
+
+## Admin profiles
+
+Admin profiles are named management credentials. A profile stores one OpenAI admin key plus exactly one organization/workspace/tenant scope and optional control-plane override.
+
+From Tunnel, press `a` to open Admin Profiles. There you can add, edit, verify, and remove profiles. Verification records demonstrated read/manage capability without showing the key. Multiple profiles may coexist. They do not create runtime connections and their keys are never substituted for per-tunnel runtime keys.
 
 ## Managed tunnels
 
-The Managed Tunnels surface adapts to the verified admin-key capability. Full management access exposes list/create/update/delete plus Use. Read-only access removes mutation actions and limits remote reads to known tunnel IDs; the Web Admin provides a tunnel-ID lookup while TUI/CLI retain read/use actions for known resources. If no capability has been verified, management actions remain unavailable until the key is re-verified. Press `u` on a readable selected TUI row or managed-tunnel detail to open the Use flow.
+Managed Tunnels is the remote OpenAI resource browser. Press `m` from Tunnel, or `m` from Admin Profiles. Discovery aggregates readable admin profiles while retaining which profiles can access each remote tunnel; after refresh, list/detail rows show those admin profile IDs. Mutation editors prefer profiles known to reach that tunnel. Press `p` to return to Admin Profiles when setup is incomplete.
 
-Editing an existing managed tunnel first fetches current remote metadata. The loading state can be cancelled with `Esc`; a late fetch result after cancellation is ignored. Fetch errors render an explicit wrapped error page instead of a blank editor.
+If one remote tunnel is visible through multiple profiles, mutations require choosing a specific admin profile. Create/update/delete similarly use an explicit profile when selection is not unambiguous.
 
-## Configure local runtime from a managed tunnel
+## Attach
 
-**Use managed tunnel** writes the selected managed tunnel into the local runtime configuration. Blank secret/key fields can preserve an existing configured secret when that is supported by the operation.
+Attach converts a readable remote managed tunnel into a new local tunnel instance. It does not select or replace an existing local tunnel.
 
-The CLI equivalent is `cgm tunnel use <tunnel_id>` (`select` and `switch` are aliases). `--runtime-api-key` supplies a separate Read + Use credential when no runtime key is already stored, and `--enable` enables the selected tunnel after applying it. The admin key is only used for management discovery and is never substituted for the runtime credential.
+The attach flow chooses an admin profile and a runtime-key strategy:
 
-## Delete behavior
+- provide a separate restricted **Tunnels Read + Use** runtime key; or
+- ask the selected admin profile to generate a restricted runtime key, optionally choosing an OpenAI project.
 
-Deleting a managed tunnel is destructive and uses confirmation rather than a data-entry form. If local runtime configuration points at the tunnel being deleted, the confirmation flow can also handle clearing that local configuration explicitly. The TUI does not hide this consequence inside a generic form toggle.
+The new instance can be attached enabled or disabled. Its runtime key is stored as a managed secret and is never rendered afterward.
+
+CLI equivalents: `cgm tunnel add` / `cgm tunnel update` for local instances; `cgm tunnel attach` for managed attach; plus `cgm tunnel detach`, `cgm tunnel status <id>`, and the ID-scoped lifecycle commands.
+
+## Remote delete
+
+Deleting a managed tunnel deletes the remote OpenAI resource. An attached local instance must be detached first so remote deletion cannot silently invalidate a currently configured local connection.

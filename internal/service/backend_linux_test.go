@@ -26,6 +26,14 @@ func TestLinuxUserUnitUsesExplicitConfigAndUserTarget(t *testing.T) {
 	}
 }
 
+func TestLinuxUnitSetsWorkingDirectoryWhenConfigured(t *testing.T) {
+	spec := Spec{ID: "chatgpt-mcp-user-test", Scope: ScopeUser, ConfigRoot: "/home/mew/.config/chatgpt-mcp", Binary: "/home/mew/.local/bin/cgm", WorkDir: "/home/mew/projects/mcp/chatgpt-mcp", Account: Account{Username: "mew", HomeDir: "/home/mew"}}
+	unit := LinuxUnit(spec)
+	if !strings.Contains(unit, "WorkingDirectory=/home/mew/projects/mcp/chatgpt-mcp") {
+		t.Fatalf("unit missing working directory:\n%s", unit)
+	}
+}
+
 func TestLinuxSystemUnitRunsAsInvokingUser(t *testing.T) {
 	spec := Spec{ID: "chatgpt-mcp-system-test", Scope: ScopeSystem, ConfigRoot: "/home/mew/.config/chatgpt-mcp", Binary: "/usr/local/bin/cgm", Account: Account{Username: "mew", UID: "1000", GID: "1000", HomeDir: "/home/mew"}}
 	unit := LinuxUnit(spec)

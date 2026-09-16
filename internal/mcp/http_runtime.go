@@ -16,7 +16,9 @@ type HTTPRuntime struct {
 	Subscriptions *subscriptionHub
 }
 
-func NewHTTPRuntime() *HTTPRuntime { return NewHTTPRuntimeWithTools(tools.NewRuntime()) }
+func NewHTTPRuntime() *HTTPRuntime {
+	return NewHTTPRuntimeWithTools(tools.NewRuntime())
+}
 
 func NewHTTPRuntimeWithTools(toolRuntime *tools.Runtime) *HTTPRuntime {
 	return &HTTPRuntime{Server: NewRuntimeWithTools(toolRuntime), Activity: activity.NewStream(), Subscriptions: newSubscriptionHub()}

@@ -2,11 +2,43 @@ package app
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
+
+func TestReloadTunnelCollectionDoesNotOwnLiveManager(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	instances := []tunnel.InstanceConfig{{ID: "a", APIKey: "key-a"}, {ID: "b", APIKey: "key-b"}}
+	admins := []tunnel.AdminConfig{}
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
+	a, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := cfg
+	changed := []tunnel.InstanceConfig{{ID: "a", APIKey: "key-a"}, {ID: "c", APIKey: "key-c"}}
+	next.Tunnel.Instances = &changed
+	if err := a.ReloadConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	got := a.Config.Snapshot().RuntimeTunnels().Instances
+	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "c" {
+		t.Fatalf("collection = %#v", got)
+	}
+}
 
 func TestReloadConfigUpdatesLiveRuntime(t *testing.T) {
 	cfg := config.Default()
@@ -20,17 +52,13 @@ func TestReloadConfigUpdatesLiveRuntime(t *testing.T) {
 	next := cfg
 	next.Auth.MCPEnabled = true
 	next.Auth.MCPTokenHash = "hash"
-	next.Features.Ponytail.Active = false
 	next.Permissions.AllowDirs = []string{t.TempDir()}
 	if err := app.ReloadConfig(next); err != nil {
 		t.Fatal(err)
 	}
 	got := app.Config.Snapshot()
-	if !got.Auth.MCPEnabled || got.Features.Ponytail.Active || len(got.Permissions.AllowDirs) != 1 {
+	if !got.Auth.MCPEnabled || len(got.Permissions.AllowDirs) != 1 {
 		t.Fatalf("runtime config = %#v", got)
-	}
-	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("inactive feature controller tool disappeared")
 	}
 }
 
@@ -56,6 +84,33 @@ func TestReloadConfigUpdatesShellPath(t *testing.T) {
 	}
 }
 
+func TestReloadConfigUpdatesShellExecutable(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bash := filepath.Join(t.TempDir(), "bash")
+	if err := os.WriteFile(bash, []byte("test"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	next := cfg
+	next.Shell.Executable = bash
+	if err := app.ReloadConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := app.Tools.Shell.Provider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Config.Snapshot().Shell.Executable != bash || provider.Source != "configured" || filepath.Clean(provider.Executable) != filepath.Clean(bash) {
+		t.Fatalf("shell config=%q provider=%#v", app.Config.Snapshot().Shell.Executable, provider)
+	}
+}
+
 func TestReloadConfigSyncsTunnelAdminKeyWithoutRuntimeReconfigure(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
@@ -71,11 +126,9 @@ func TestReloadConfigSyncsTunnelAdminKeyWithoutRuntimeReconfigure(t *testing.T) 
 	if err := app.ReloadConfig(next); err != nil {
 		t.Fatal(err)
 	}
-	if got := app.Tunnel.Config(); got.AdminKey != "admin-key" || got.AdminWorkspaceID != "ws_admin" {
+	got := app.Config.Snapshot().Tunnel
+	if got.AdminKey != "admin-key" || got.AdminWorkspaceID != "ws_admin" {
 		t.Fatalf("tunnel config = %#v", got)
-	}
-	if !app.Tunnel.Status().AdminKeyConfigured {
-		t.Fatalf("tunnel status = %#v", app.Tunnel.Status())
 	}
 }
 
@@ -89,18 +142,15 @@ func TestReloadConfigFailedApplyRestoresCommittedConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	previous := app.Config.Snapshot()
-	if err := app.Tools.Registry.ReplaceOwned("feature:ponytail", nil); err != nil {
+	if err := app.Tools.Registry.ReplaceOwned("plugin:ponytail", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.Tools.Registry.Register("ponytail_turn", tools.Schema{Name: "ponytail_turn"}, func(context.Context, map[string]any) (tools.Result, error) {
-		return tools.TextResult("blocked"), nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	previousSync := tools.SyncCompiledPlugins
+	tools.SyncCompiledPlugins = func(*tools.Runtime) error { return errors.New("forced apply failure") }
+	t.Cleanup(func() { tools.SyncCompiledPlugins = previousSync })
 	next := previous
 	next.Auth.MCPEnabled = true
 	next.Auth.MCPTokenHash = "hash"
-	next.Features.Ponytail.Active = !previous.Features.Ponytail.Active
 	next.Permissions.AllowDirs = []string{t.TempDir()}
 	next.Shell.Path = []string{t.TempDir()}
 	if err := app.ReloadConfig(next); err == nil {
@@ -110,9 +160,6 @@ func TestReloadConfigFailedApplyRestoresCommittedConfig(t *testing.T) {
 	if got.Auth.MCPEnabled != previous.Auth.MCPEnabled || got.Auth.MCPTokenHash != previous.Auth.MCPTokenHash {
 		t.Fatalf("committed auth not restored: %#v", got.Auth)
 	}
-	if got.Features.Ponytail.Active != previous.Features.Ponytail.Active {
-		t.Fatalf("committed features not restored: %#v", got.Features)
-	}
 	if len(got.Permissions.AllowDirs) != len(previous.Permissions.AllowDirs) {
 		t.Fatalf("committed permissions not restored: %#v", got.Permissions)
 	}
@@ -121,9 +168,6 @@ func TestReloadConfigFailedApplyRestoresCommittedConfig(t *testing.T) {
 	}
 	if runtimePath := app.Tools.Workspaces.ShellPath(); len(runtimePath) != len(previous.Shell.Path) {
 		t.Fatalf("runtime shell path = %#v, want %#v", runtimePath, previous.Shell.Path)
-	}
-	if app.Tools.Features().Ponytail.Active != previous.Features.Ponytail.Active {
-		t.Fatalf("runtime features = %#v", app.Tools.Features())
 	}
 }
 
@@ -160,5 +204,72 @@ func TestReloadConfigCommitsBeforeRuntimeApply(t *testing.T) {
 	}
 	if got := app.Tools.Workspaces.ShellPath(); len(got) != 1 || got[0] != next.Shell.Path[0] {
 		t.Fatalf("runtime after apply = %#v", got)
+	}
+}
+
+type recordingNotifier struct {
+	sent chan notification.Notification
+}
+
+func (r *recordingNotifier) Available(context.Context) bool { return true }
+func (r *recordingNotifier) Capabilities(context.Context) notification.Capabilities {
+	return notification.Capabilities{Notification: true}
+}
+func (r *recordingNotifier) Send(_ context.Context, note notification.Notification) error {
+	select {
+	case r.sent <- note:
+	default:
+	}
+	return nil
+}
+
+func TestReloadConfigAppliesNotificationSettings(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Notifications.Stop()
+	provider := &recordingNotifier{sent: make(chan notification.Notification, 4)}
+	app.Notifications = notification.New(notification.Options{
+		Provider: provider,
+		Presence: func() (bool, error) { return false, nil },
+		Settings: func() notification.Settings { return app.Config.Snapshot().Notifications },
+	})
+	app.Notifications.Start(app.Tools.Approvals.Events())
+	publishApproval(t, app.Tools.Approvals)
+	select {
+	case <-provider.sent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected notification before disable")
+	}
+	next := app.Config.Snapshot()
+	next.Notifications.Enabled = false
+	if err := app.ReloadConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	publishApproval(t, app.Tools.Approvals)
+	select {
+	case note := <-provider.sent:
+		t.Fatalf("notified after disable: %#v", note)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func publishApproval(t *testing.T, manager *approval.Manager) {
+	t.Helper()
+	challenge, _, err := manager.CreateChallenge(approval.ChallengeInput{
+		SessionID: "session", WorkspaceID: "ws_test", Source: "tunnel", TargetTool: "run_command",
+		Arguments: map[string]any{"command": "true"}, GuardCode: controlguard.CodeControlPlaneMutation,
+		GuardReason: "guarded", Title: "Allow test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := manager.CreateRequest(challenge.ID, "session", "ws_test"); err != nil {
+		t.Fatal(err)
 	}
 }

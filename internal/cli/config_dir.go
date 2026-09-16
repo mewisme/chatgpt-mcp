@@ -8,10 +8,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
@@ -33,7 +35,12 @@ func configureConfigDir(cmd *cobra.Command) error {
 }
 
 func prepareCommand(cmd *cobra.Command, args []string) error {
+	pluginhost.Install()
+	application.BindSecureMCPAdmin(pluginhost.RuntimeHost)
 	if err := validateLoggingFlags(cmd, args); err != nil {
+		return err
+	}
+	if err := configureConfigDir(cmd); err != nil {
 		return err
 	}
 	cmd.SetContext(tracepkg.WithObserver(cmd.Context(), commandTraceObserver(cmd)))
@@ -42,9 +49,6 @@ func prepareCommand(cmd *cobra.Command, args []string) error {
 		if err := verifyControlApproval(cmd.Context(), cmd.CommandPath(), processCommandArgs()); err != nil {
 			return err
 		}
-	}
-	if err := configureConfigDir(cmd); err != nil {
-		return err
 	}
 	commandLogger(cmd).Diagnostic(logger.Info, "CLI", "cli.command.configured", "Command environment configured", logger.WithDebug("config", config.RootPath()))
 	return nil

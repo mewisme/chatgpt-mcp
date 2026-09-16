@@ -10,18 +10,57 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	"go.mewis.me/chatgpt-mcp/internal/features"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 type Config struct {
-	Server      ServerConfig      `json:"server"`
-	Admin       AdminConfig       `json:"admin"`
-	Auth        AuthConfig        `json:"auth"`
-	Permissions PermissionsConfig `json:"permissions"`
-	Shell       ShellConfig       `json:"shell"`
-	Features    FeaturesConfig    `json:"features"`
-	Tunnel      tunnel.Config     `json:"tunnel"`
+	Server        ServerConfig          `json:"server"`
+	Admin         AdminConfig           `json:"admin"`
+	Auth          AuthConfig            `json:"auth"`
+	Permissions   PermissionsConfig     `json:"permissions"`
+	Shell         ShellConfig           `json:"shell"`
+	Tunnel        tunnel.Config         `json:"tunnel"`
+	Notifications notification.Settings `json:"notifications"`
+}
+
+// RuntimeTunnels returns the local ingress collection, including legacy scalar configs.
+func (cfg Config) RuntimeTunnels() tunnel.CollectionConfig {
+	if cfg.Tunnel.Instances != nil || cfg.Tunnel.Admins != nil {
+		return cfg.Tunnel.Collection()
+	}
+	collection := tunnel.CollectionConfig{}
+	if cfg.Tunnel.AdminKey != "" || cfg.Tunnel.AdminOrganizationID != "" || cfg.Tunnel.AdminWorkspaceID != "" || cfg.Tunnel.AdminTenantID != "" {
+		collection.Admins = []tunnel.AdminConfig{{ID: "default", AdminKey: cfg.Tunnel.AdminKey, OrganizationID: cfg.Tunnel.AdminOrganizationID, WorkspaceID: cfg.Tunnel.AdminWorkspaceID, TenantID: cfg.Tunnel.AdminTenantID, ReadAccess: cfg.Tunnel.AdminReadAccess, ManageAccess: cfg.Tunnel.AdminManageAccess, ControlPlaneBaseURL: cfg.Tunnel.ControlPlaneBaseURL}}
+	}
+	if cfg.Tunnel.ID != "" {
+		instance := tunnel.InstanceConfig{Enabled: cfg.Tunnel.Enabled, ID: cfg.Tunnel.ID, APIKey: cfg.Tunnel.APIKey, ControlPlaneBaseURL: cfg.Tunnel.ControlPlaneBaseURL, OrganizationID: cfg.Tunnel.OrganizationID}
+		if len(collection.Admins) > 0 {
+			instance.AdminProfileID = "default"
+		}
+		collection.Instances = []tunnel.InstanceConfig{instance}
+	}
+	return collection
+}
+
+func (cfg Config) EnabledTunnelCount() int {
+	count := 0
+	for _, instance := range cfg.RuntimeTunnels().Instances {
+		if instance.Enabled {
+			count++
+		}
+	}
+	return count
+}
+
+func (cfg Config) ConfiguredTunnelCount() int {
+	count := 0
+	for _, instance := range cfg.RuntimeTunnels().Instances {
+		if strings.TrimSpace(instance.APIKey) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 type PermissionsConfig struct {
@@ -29,7 +68,8 @@ type PermissionsConfig struct {
 }
 
 type ShellConfig struct {
-	Path []string `json:"path"`
+	Executable string   `json:"executable,omitempty"`
+	Path       []string `json:"path"`
 }
 
 type ServerConfig struct {
@@ -67,10 +107,8 @@ type AuthConfig struct {
 	AdminTokenHash  string `json:"admin_token_hash,omitempty"`
 }
 
-type FeaturesConfig = features.Config
-
 func Default() Config {
-	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, MCPLegacyBearer: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, MCPLegacyBearer: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Tunnel: tunnel.Config{Enabled: false}, Notifications: notification.DefaultSettings()}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {
@@ -205,6 +243,9 @@ func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSe
 	if err := migrateLegacyServerConfig(configPath, data, &cfg); err != nil {
 		return cfg, err
 	}
+	if err := migrateLegacyFeatureSettings(configPath, data, &cfg); err != nil {
+		return cfg, err
+	}
 	legacyRuntime, legacyAdmin := cfg.Tunnel.APIKey, cfg.Tunnel.AdminKey
 	if legacyRuntime == secretFileMarker {
 		legacyRuntime = ""
@@ -216,12 +257,41 @@ func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSe
 	if err != nil {
 		return cfg, err
 	}
-	if migrateSecrets || legacyRuntime != "" || legacyAdmin != "" {
+	if err := loadCollectionSecrets(secretPath, &cfg.Tunnel, policy); err != nil {
+		return cfg, err
+	}
+	canonicalizedTunnel := canonicalizeLegacyTunnelCollection(&cfg)
+	if migrateSecrets || legacyRuntime != "" || legacyAdmin != "" || canonicalizedTunnel {
 		if err := saveAt(configPath, secretPath, cfg); err != nil {
 			return cfg, fmt.Errorf("migrate credentials to secret file store: %w", err)
 		}
 	}
 	return cfg, nil
+}
+
+func canonicalizeLegacyTunnelCollection(cfg *Config) bool {
+	if cfg == nil || cfg.Tunnel.Instances != nil || cfg.Tunnel.Admins != nil {
+		return false
+	}
+	collection := cfg.RuntimeTunnels()
+	if len(collection.Instances) == 0 && len(collection.Admins) == 0 {
+		return false
+	}
+	instances := append([]tunnel.InstanceConfig(nil), collection.Instances...)
+	admins := append([]tunnel.AdminConfig(nil), collection.Admins...)
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
+	cfg.Tunnel.Enabled = false
+	cfg.Tunnel.ID = ""
+	cfg.Tunnel.APIKey = ""
+	cfg.Tunnel.AdminKey = ""
+	cfg.Tunnel.AdminOrganizationID = ""
+	cfg.Tunnel.AdminWorkspaceID = ""
+	cfg.Tunnel.AdminTenantID = ""
+	cfg.Tunnel.AdminReadAccess = false
+	cfg.Tunnel.AdminManageAccess = false
+	cfg.Tunnel.ControlPlaneBaseURL = ""
+	cfg.Tunnel.OrganizationID = ""
+	return true
 }
 
 func migrateLegacyServerConfig(path string, data []byte, cfg *Config) error {
@@ -286,7 +356,12 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	if err != nil {
 		return err
 	}
+	shellExecutable, err := NormalizeShellExecutable(persisted.Shell.Executable)
+	if err != nil {
+		return err
+	}
 	persisted.Permissions.AllowDirs = allowDirs
+	persisted.Shell.Executable = shellExecutable
 	persisted.Shell.Path = shellPath
 	persisted.Server.Expose = NormalizeExposure(persisted.Server.Expose)
 	persisted.Tunnel.APIKey = ""
@@ -308,6 +383,12 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	}
 	if err := writeConfigFile(configPath, data, 0600); err != nil {
 		return err
+	}
+	collectionMode := cfg.Tunnel.Instances != nil || cfg.Tunnel.Admins != nil
+	if collectionMode {
+		if err := saveCollectionSecrets(secretPath, cfg.Tunnel); err != nil {
+			return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
+		}
 	}
 	if err := saveSecret(secretPath, cfg.Tunnel); err != nil {
 		return errors.Join(err, restoreSnapshot(configPath, configSnapshot), restoreSnapshot(secretPath, secretSnapshot))
@@ -371,6 +452,13 @@ func mergeConfigData(path string, persisted, runtime Config) ([]byte, error) {
 			}
 		}
 	}
+	if persisted.Tunnel.Instances != nil || persisted.Tunnel.Admins != nil {
+		mergedTunnel := ensureGenericObject(merged, "tunnel")
+		for _, key := range []string{"enabled", "id", "api_key", "admin_key", "admin_organization_id", "admin_workspace_id", "admin_tenant_id", "control_plane_base_url", "organization_id"} {
+			delete(mergedTunnel, key)
+		}
+	}
+	delete(merged, "features")
 	return configformat.EncodeGeneric(format, merged)
 }
 

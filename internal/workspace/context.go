@@ -10,6 +10,9 @@ func (m *Manager) ResolveContext(id string) (Context, error) {
 	if err != nil {
 		return Context{}, err
 	}
+	if err := item.unavailableError(); err != nil {
+		return Context{}, err
+	}
 	return Context{Workspace: item, Root: item.Path}, nil
 }
 

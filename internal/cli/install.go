@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	installpkg "go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
@@ -35,6 +38,9 @@ func installCommand() *cobra.Command {
 			log.Detail("alias", "not installed (--no-alias)")
 		}
 		logLegacyCleanup(log, result.Legacy)
+		if err := reconcileCorePluginsAfterInstall(cmd, log, "INSTALL", result); err != nil {
+			return err
+		}
 		return nil
 	}}
 	cmd.Flags().BoolVar(&noAlias, "no-alias", false, "do not install the cgm command alias")
@@ -83,5 +89,44 @@ func logLegacyCleanup(log interface {
 	}
 	for _, failure := range result.Failed {
 		log.Warn("INSTALL", "legacy cleanup failed", "path", failure.Path, "error", failure.Err)
+	}
+}
+
+func reconcileCorePluginsAfterInstall(cmd *cobra.Command, log *logger.Logger, component string, result installpkg.Result) error {
+	report, recErr := application.ReconcileCorePlugins(cmd.Context())
+	logCorePluginReport(log, component, report)
+	if err := application.RollbackRequiredCoreFailure(cmd.Context(), result, report); err != nil {
+		return err
+	}
+	if recErr != nil {
+		log.Warning(component, "plugin.core.unavailable", "Core plugin catalog unavailable", recErr)
+	}
+	return nil
+}
+
+func logCorePluginReport(log *logger.Logger, component string, report pluginpkg.CoreReconcileReport) {
+	if len(report.Items) == 0 {
+		log.Notice(component, "plugin.core.none", "No core plugins declared")
+		return
+	}
+	for _, item := range report.Items {
+		fields := []logger.Field{logger.With("plugin", string(item.ID)), logger.With("action", string(item.Action))}
+		if item.Version != "" {
+			fields = append(fields, logger.With("version", string(item.Version)))
+		}
+		switch item.Action {
+		case pluginpkg.CoreActionFailed:
+			err := errors.New(item.Error)
+			if item.Error == "" {
+				err = errors.New("core plugin failed")
+			}
+			log.Warning(component, "plugin.core.failed", "Core plugin "+string(item.ID)+" failed", err, fields...)
+		case pluginpkg.CoreActionSkipped:
+			log.Notice(component, "plugin.core.skipped", "Core plugin "+string(item.ID)+" skipped", fields...)
+		case pluginpkg.CoreActionRetained:
+			log.Notice(component, "plugin.core.retained", "Core plugin "+string(item.ID)+" already installed", fields...)
+		default:
+			log.Success(component, "core plugin "+string(item.ID)+" "+string(item.Action))
+		}
 	}
 }

@@ -5,15 +5,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
-	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -26,18 +24,17 @@ type API struct {
 	Upstream     *upstream.Manager
 	Tools        *tools.Runtime
 	Workspaces   *workspace.Manager
-	Tunnel       *tunnel.Client
 	Config       *config.RuntimeStore
-	OAuth        *mcpoauth.Store
-	OAuthFlows   *mcpoauth.FlowManager
 	ReloadConfig func(config.Config) error
 	saveConfig   func(config.Config) error
+	Plugins      *application.PluginService
 }
 
 type authSettings struct {
 	MCPEnabled           bool `json:"mcp_enabled"`
 	AdminEnabled         bool `json:"admin_enabled"`
 	MCPTokenConfigured   bool `json:"mcp_token_configured"`
+	MCPTokenRevealable   bool `json:"mcp_token_revealable"`
 	AdminTokenConfigured bool `json:"admin_token_configured"`
 }
 
@@ -52,7 +49,6 @@ type publicConfig struct {
 	Auth        authSettings             `json:"auth"`
 	Permissions config.PermissionsConfig `json:"permissions"`
 	Shell       config.ShellConfig       `json:"shell"`
-	Features    config.FeaturesConfig    `json:"features"`
 }
 
 type configPatch struct {
@@ -60,8 +56,12 @@ type configPatch struct {
 	Admin       *config.AdminConfig       `json:"admin,omitempty"`
 	Auth        *authPatch                `json:"auth,omitempty"`
 	Permissions *config.PermissionsConfig `json:"permissions,omitempty"`
-	Shell       *config.ShellConfig       `json:"shell,omitempty"`
-	Features    *featurePatch             `json:"features,omitempty"`
+	Shell       *shellPatch               `json:"shell,omitempty"`
+}
+
+type shellPatch struct {
+	Executable *string  `json:"executable,omitempty"`
+	Path       []string `json:"path,omitempty"`
 }
 
 type serverPatch struct {
@@ -72,29 +72,7 @@ type serverPatch struct {
 	AllowUnauthenticatedLoopback *bool                  `json:"allow_unauthenticated_loopback,omitempty"`
 }
 
-type featurePatch struct {
-	Ponytail *featureStatePatch `json:"ponytail,omitempty"`
-	Caveman  *featureStatePatch `json:"caveman,omitempty"`
-}
-
-type featureStatePatch struct {
-	Active  *bool   `json:"active,omitempty"`
-	Enabled *bool   `json:"enabled,omitempty"`
-	Mode    *string `json:"mode,omitempty"`
-}
-
-func (patch *featureStatePatch) active() *bool {
-	if patch == nil {
-		return nil
-	}
-	if patch.Active != nil {
-		return patch.Active
-	}
-	return patch.Enabled
-}
-
 func New(api API) http.Handler {
-	api = api.withOAuth()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		authEnabled := api.Config != nil && api.Config.Snapshot().Auth.AdminEnabled
@@ -103,6 +81,9 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/network/interfaces", api.handleNetworkInterfaces)
 
 	mux.HandleFunc("/api/config", api.handleConfig)
+	mux.HandleFunc("/api/auth/mcp-token", api.handleMCPToken)
+	mux.HandleFunc("/api/plugins", api.handlePlugins)
+	mux.HandleFunc("/api/plugins/", api.handlePlugin)
 	mux.HandleFunc("/api/instructions/global", api.handleGlobalInstructions)
 	mux.HandleFunc("/api/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/api/workspaces/", api.handleWorkspace)
@@ -113,12 +94,14 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/requests/", api.handleRequest)
 	mux.HandleFunc("/api/upstream", api.handleUpstreams)
 	mux.HandleFunc("/api/upstream/", api.handleUpstream)
-	mux.HandleFunc("/api/tunnel/config", api.handleTunnelConfig)
-	mux.HandleFunc("/api/tunnel/admin/key", api.handleTunnelAdminKey)
-	mux.HandleFunc("/api/tunnel/managed", api.handleManagedTunnels)
-	mux.HandleFunc("/api/tunnel/managed/use", api.handleManagedTunnelUse)
-	mux.HandleFunc("/api/tunnel/managed/", api.handleManagedTunnel)
-	mux.HandleFunc("/api/tunnel", api.handleTunnel)
+	mux.HandleFunc("/api/tunnels", api.handleLocalTunnels)
+	mux.HandleFunc("/api/tunnels/", api.handleLocalTunnel)
+	mux.HandleFunc("/api/tunnel-providers", api.handleTunnelProviders)
+	mux.HandleFunc("/api/tunnel-providers/", api.handleTunnelProvider)
+	mux.HandleFunc("/api/tunnel-admins", api.handleTunnelAdmins)
+	mux.HandleFunc("/api/tunnel-admins/", api.handleTunnelAdmin)
+	mux.HandleFunc("/api/managed-tunnels", api.handleManagedTunnelCollection)
+	mux.HandleFunc("/api/managed-tunnels/", api.handleManagedTunnelCollectionItem)
 	return mux
 }
 
@@ -190,22 +173,11 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err == nil && patch.Shell != nil {
-			if patch.Shell.Path != nil {
+			if patch.Shell.Executable != nil {
+				next.Shell.Executable, err = config.NormalizeShellExecutable(*patch.Shell.Executable)
+			}
+			if err == nil && patch.Shell.Path != nil {
 				next.Shell.Path, err = config.NormalizeShellPath(patch.Shell.Path)
-			}
-		}
-		if err == nil && patch.Features != nil {
-			if active := patch.Features.Ponytail.active(); active != nil {
-				next.Features.Ponytail.Active = *active
-			}
-			if patch.Features.Ponytail != nil && patch.Features.Ponytail.Mode != nil {
-				next.Features.Ponytail.Mode = strings.ToLower(strings.TrimSpace(*patch.Features.Ponytail.Mode))
-			}
-			if active := patch.Features.Caveman.active(); active != nil {
-				next.Features.Caveman.Active = *active
-			}
-			if patch.Features.Caveman != nil && patch.Features.Caveman.Mode != nil {
-				next.Features.Caveman.Mode = strings.ToLower(strings.TrimSpace(*patch.Features.Caveman.Mode))
 			}
 		}
 		if err == nil {
@@ -258,10 +230,11 @@ func (api API) upstreamManager() *upstream.Manager {
 
 func publicConfigView(cfg config.Config) publicConfig {
 	return publicConfig{
-		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell, Features: cfg.Features,
+		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell,
 		Auth: authSettings{
 			MCPEnabled: cfg.Auth.MCPEnabled, AdminEnabled: cfg.Auth.AdminEnabled,
-			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",
+			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", MCPTokenRevealable: mcpTokenRevealable(cfg.Auth.MCPTokenHash),
+			AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",
 		},
 	}
 }
@@ -284,15 +257,17 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 	if err := api.persistConfig(next); err != nil {
 		return err
 	}
-	if next.Features != previous.Features && api.Tools != nil {
-		if err := api.Tools.SyncFeatures(next.Features); err != nil {
-			return errors.Join(err, api.persistConfig(previous))
-		}
+	if api.Tools == nil {
+		return nil
 	}
-	if api.Tools != nil {
-		api.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
-		api.Tools.SetShellPath(next.Shell.Path)
+	if err := api.Tools.SetShellExecutable(next.Shell.Executable); err != nil {
+		return errors.Join(err, api.persistConfig(previous))
 	}
+	if err := api.Tools.SyncPlugins(); err != nil {
+		return errors.Join(err, api.Tools.SetShellExecutable(previous.Shell.Executable), api.persistConfig(previous))
+	}
+	api.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
+	api.Tools.SetShellPath(next.Shell.Path)
 	return nil
 }
 

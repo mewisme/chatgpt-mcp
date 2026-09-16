@@ -80,6 +80,26 @@ func CloneStringMap(value map[string]string) map[string]string {
 }
 
 var invalidPrefix = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+var serverIDPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$`)
+
+func ValidateServerID(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return errors.New("upstream server id is required")
+	}
+	if !serverIDPattern.MatchString(value) {
+		return errors.New("upstream server id may contain only letters, numbers, '.', '_', and '-'")
+	}
+	return nil
+}
+
+func ValidateHTTPURL(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return errors.New("http upstream requires url")
+	}
+	_, err := outboundpolicy.ParseHTTPURL(raw)
+	return err
+}
 
 func NormalizeServer(value Server) (Server, error) {
 	value.ID = strings.TrimSpace(value.ID)
@@ -123,18 +143,7 @@ func NormalizeServer(value Server) (Server, error) {
 	if value.IdleTimeoutSec == 0 {
 		value.IdleTimeoutSec = 600
 	}
-	if value.Auth.Type == "" {
-		if value.Transport == "http" {
-			value.Auth.Type = "auto"
-		} else {
-			value.Auth.Type = "none"
-		}
-	}
-	switch value.Auth.Type {
-	case "auto", "oauth", "none":
-	default:
-		return Server{}, errors.New("upstream auth type must be auto, oauth, or none")
-	}
+	value.Auth = AuthConfig{}
 	if value.Args == nil {
 		value.Args = []string{}
 	}

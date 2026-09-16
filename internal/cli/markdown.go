@@ -1,33 +1,25 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"os"
-	"strings"
 
-	"charm.land/glamour/v2"
 	"golang.org/x/term"
+
+	"go.mewis.me/chatgpt-mcp/internal/application"
 )
 
 const defaultMarkdownWidth = 100
 
-func renderMarkdown(writer io.Writer, source string) error {
+func renderMarkdown(ctx context.Context, writer io.Writer, source string) error {
 	width := markdownWidth(writer)
-	options := []glamour.TermRendererOption{glamour.WithWordWrap(width)}
-	if os.Getenv("NO_COLOR") != "" || !markdownTerminal(writer) {
-		options = append(options, glamour.WithStandardStyle("ascii"))
-	} else {
-		options = append(options, glamour.WithEnvironmentConfig())
+	terminal := markdownTerminal(writer)
+	style := "environment"
+	if os.Getenv("NO_COLOR") != "" || !terminal {
+		style = "ascii"
 	}
-	renderer, err := glamour.NewTermRenderer(options...)
-	if err != nil {
-		return err
-	}
-	output, err := renderer.Render(strings.TrimSpace(source) + "\n")
-	if err != nil {
-		return err
-	}
-	_, err = io.WriteString(writer, output)
+	_, err := io.WriteString(writer, application.FormatMarkdown(ctx, source, width, terminal, style))
 	return err
 }
 

@@ -58,7 +58,7 @@ func RegisterUpstreamTools(registry *Registry, manager *upstream.Manager) {
 		registerAnnotated(name, title, description, input, output, ToolAnnotations(risk), handler)
 	}
 
-	registerAnnotated("mcp_servers", "MCP Upstream Servers", "List configured upstream MCP servers with health status.", `{"type":"object","properties":{"refresh":{"type":"boolean","default":false}},"additionalProperties":false}`, `{"type":"object","properties":{"servers":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["servers","count"],"additionalProperties":false}`, ToolAnnotationsOpenWorld(RiskRead), func(ctx context.Context, args map[string]any) (Result, error) {
+	registerAnnotated("upstream_servers", "Configured Upstream Servers", "List configured upstream MCP servers with health status.", `{"type":"object","properties":{"refresh":{"type":"boolean","default":false}},"additionalProperties":false}`, `{"type":"object","properties":{"servers":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["servers","count"],"additionalProperties":false}`, ToolAnnotationsOpenWorld(RiskRead), func(ctx context.Context, args map[string]any) (Result, error) {
 		refresh, err := optionalBool(args, "refresh", false)
 		if err != nil {
 			return Result{}, err
@@ -75,7 +75,7 @@ func RegisterUpstreamTools(registry *Registry, manager *upstream.Manager) {
 		return JSONResult(MCPServersResult{Servers: statuses, Count: len(statuses)}), nil
 	})
 
-	registerAnnotated("mcp_tools", "MCP Upstream Tools", "List tools exposed by one configured upstream MCP server and their proxied names.", `{"type":"object","properties":{"server_id":{"type":"string"}},"required":["server_id"],"additionalProperties":false}`, `{"type":"object","properties":{"server_id":{"type":"string"},"tools":{"type":"array","items":{"type":"object","additionalProperties":true}},"proxied_tools":{"type":"array","items":{"type":"string"}},"count":{"type":"integer"}},"required":["server_id","tools","proxied_tools","count"],"additionalProperties":false}`, ToolAnnotationsOpenWorld(RiskRead), func(ctx context.Context, args map[string]any) (Result, error) {
+	registerAnnotated("upstream_tools", "Configured Upstream Tools", "List tools exposed by one configured upstream MCP server and their proxied names.", `{"type":"object","properties":{"server_id":{"type":"string"}},"required":["server_id"],"additionalProperties":false}`, `{"type":"object","properties":{"server_id":{"type":"string"},"tools":{"type":"array","items":{"type":"object","additionalProperties":true}},"proxied_tools":{"type":"array","items":{"type":"string"}},"count":{"type":"integer"}},"required":["server_id","tools","proxied_tools","count"],"additionalProperties":false}`, ToolAnnotationsOpenWorld(RiskRead), func(ctx context.Context, args map[string]any) (Result, error) {
 		serverID, err := requiredString(args, "server_id")
 		if err != nil {
 			return Result{}, err
@@ -106,7 +106,7 @@ func RegisterUpstreamTools(registry *Registry, manager *upstream.Manager) {
 		return JSONResult(MCPToolsResult{ServerID: serverID, Tools: info, ProxiedTools: proxied, Count: len(values)}), nil
 	})
 
-	register("mcp_call", "MCP Upstream Call", "Invoke a tool on a configured upstream MCP server. Upstream tool semantics are external and are not workspace-enforced by chatgpt-mcp.", `{"type":"object","properties":{"server_id":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object","additionalProperties":true,"default":{}}},"required":["server_id","tool"],"additionalProperties":false}`, `{"type":"object","additionalProperties":true}`, RiskCommand, func(ctx context.Context, args map[string]any) (Result, error) {
+	register("upstream_call", "Configured Upstream Call", "Invoke a tool on a configured upstream MCP server. Upstream tool semantics are external and are not workspace-enforced by chatgpt-mcp.", `{"type":"object","properties":{"server_id":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object","additionalProperties":true,"default":{}}},"required":["server_id","tool"],"additionalProperties":false}`, `{"type":"object","additionalProperties":true}`, RiskCommand, func(ctx context.Context, args map[string]any) (Result, error) {
 		serverID, err := requiredString(args, "server_id")
 		if err != nil {
 			return Result{}, err

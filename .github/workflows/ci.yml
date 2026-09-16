@@ -63,20 +63,20 @@ jobs:
           printf '  %s\n' "${files[@]}"
           echo "Full CI: ${full}"
 
-  web:
-    name: Web checks
+  admin-ui:
+    name: Admin UI checks
     runs-on: ubuntu-latest
     needs:
       - changes
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: web
+        working-directory: plugins/admin-ui
     steps:
       - name: Skip heavy checks
         if: needs.changes.outputs.full != 'true'
         working-directory: ${{ github.workspace }}
-        run: echo "Documentation-only change; web checks skipped."
+        run: echo "Documentation-only change; Admin UI checks skipped."
 
       - name: Checkout
         if: needs.changes.outputs.full == 'true'
@@ -94,7 +94,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          cache-dependency-path: plugins/admin-ui/pnpm-lock.yaml
 
       - name: Install
         if: needs.changes.outputs.full == 'true'
@@ -148,12 +148,6 @@ jobs:
         with:
           node-version: 24
 
-      - name: Prepare web fixture
-        if: needs.changes.outputs.full == 'true'
-        run: |
-          mkdir -p internal/web/dist
-          printf '<!doctype html><html><body>CI</body></html>\n' > internal/web/dist/index.html
-
       - name: Install security tooling
         if: needs.changes.outputs.full == 'true'
         run: |
@@ -176,12 +170,12 @@ jobs:
 
       - name: Static analysis
         if: needs.changes.outputs.full == 'true'
-        run: staticcheck ./...
+        run: ./scripts/staticcheck.sh
 
       - name: Security analysis
         if: needs.changes.outputs.full == 'true'
         run: |
-          gosec -quiet -fmt=json ./... > "${RUNNER_TEMP}/gosec.json" || true
+          gosec -quiet -fmt=json -exclude-dir=plugins/cf-tunnel/internal/cloudflared ./... > "${RUNNER_TEMP}/gosec.json" || true
           node scripts/check-gosec-baseline.mjs "${RUNNER_TEMP}/gosec.json" scripts/gosec-baseline.json
 
       - name: Go coverage gate
@@ -194,9 +188,15 @@ jobs:
           echo "Go coverage: ${coverage}%"
           awk -v coverage="${coverage}" 'BEGIN { if (coverage + 0 < 66.0) { print "Go coverage must be at least 66.0%" > "/dev/stderr"; exit 1 } }'
 
+      - name: Plugin workflow definitions
+        if: needs.changes.outputs.full == 'true'
+        run: |
+          node scripts/plugin-workflow.mjs validate
+          node --test scripts/plugin-workflow.test.mjs
+
       - name: Workflow lint
         if: needs.changes.outputs.full == 'true'
-        run: actionlint .github/workflows/ci.yml .github/workflows/release.yml
+        run: actionlint .github/workflows/ci.yml .github/workflows/release.yml .github/workflows/plugins.yml
 
       - name: Installer lint
         if: needs.changes.outputs.full == 'true'
@@ -223,12 +223,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Prepare web fixture
-        if: needs.changes.outputs.full == 'true'
-        run: |
-          mkdir -p internal/web/dist
-          printf '<!doctype html><html><body>CI</body></html>\n' > internal/web/dist/index.html
 
       - name: Test with race detector
         if: needs.changes.outputs.full == 'true'
@@ -277,13 +271,6 @@ jobs:
         with:
           node-version: 24
 
-      - name: Prepare web fixture
-        if: needs.changes.outputs.full == 'true'
-        shell: bash
-        run: |
-          mkdir -p web/dist
-          printf '<!doctype html><html><body>CI</body></html>\n' > web/dist/index.html
-
       - name: Validate Unix installer
         if: needs.changes.outputs.full == 'true' && runner.os != 'Windows'
         run: sh -n install.sh
@@ -300,7 +287,7 @@ jobs:
 
       - name: Local install smoke
         if: needs.changes.outputs.full == 'true'
-        run: node scripts/install-local.mjs --from-dist
+        run: node scripts/install-local.mjs
 
       - name: Package alias smoke
         if: needs.changes.outputs.full == 'true'
@@ -318,7 +305,11 @@ jobs:
 
       - name: Build
         if: needs.changes.outputs.full == 'true'
-        run: go build -trimpath -o ./dist-smoke/${{ matrix.binary }} ./
+        run: go build -trimpath -ldflags "-s -w" -o ./dist-smoke/${{ matrix.binary }} ./
+
+      - name: Record stripped core size
+        if: needs.changes.outputs.full == 'true'
+        run: node -e "const fs=require('fs'); const p=process.argv[1]; console.log('stripped-core-bytes', fs.statSync(p).size, p)" ./dist-smoke/${{ matrix.binary }}
 
       - name: Runtime smoke
         if: needs.changes.outputs.full == 'true'
@@ -362,12 +353,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Prepare web fixture
-        if: needs.changes.outputs.full == 'true'
-        run: |
-          mkdir -p internal/web/dist
-          printf '<!doctype html><html><body>CI</body></html>\n' > internal/web/dist/index.html
 
       - name: Build
         if: needs.changes.outputs.full == 'true'

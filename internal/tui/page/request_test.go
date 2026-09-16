@@ -284,10 +284,10 @@ func TestRequestsPageResolutionUsesRoutedEditorWithoutConfirmField(t *testing.T)
 	}
 	resolvePage.resolveForm.Reason = "reviewed"
 	resolve := resolvePage.submitResolveForm()
-	if resolve == nil || resolvePage.overlay != requestOverlayOperation || !resolvePage.editor.Submitting() {
+	if resolve == nil || !resolvePage.editor.Submitting() {
 		t.Fatalf("resolve=%v overlay=%d submitting=%t", resolve != nil, resolvePage.overlay, resolvePage.editor.Submitting())
 	}
-	updated, follow := resolvePage.Update(resolve())
+	updated, follow := resolvePage.Update(workMsg(resolve))
 	resolvePage = updated.(*RequestsPage)
 	if follow == nil || resolvePage.editor != nil || resolveCalls != 1 {
 		t.Fatalf("follow=%v editor=%v calls=%d", follow != nil, resolvePage.editor != nil, resolveCalls)
@@ -334,10 +334,13 @@ func TestRequestsPageCreatesSyntheticTestRequest(t *testing.T) {
 	page.createForm.WorkspaceID = "ws_demo"
 	page.createForm.Command = "echo hello"
 	create := page.submitCreateTestForm()
-	if create == nil || page.overlay != requestOverlayOperation {
-		t.Fatalf("create=%v overlay=%d", create, page.overlay)
+	if create == nil {
+		t.Fatal("create command missing")
 	}
-	updated, _ := page.Update(create())
+	if op, ok := operationMsg(create); !ok || op.Phase != OperationPending {
+		t.Fatalf("create pending=%#v", op)
+	}
+	updated, _ := page.Update(workMsg(create))
 	page = updated.(*RequestsPage)
 	request, ok := page.findRequest(created.ID)
 	if !ok || request.ID != created.ID || createCalls != 1 || page.editor != nil {
@@ -399,29 +402,31 @@ func TestRequestsPageResolveCancellationIgnoresLateResult(t *testing.T) {
 	}
 	resolve := page.submitResolveForm()
 	result := make(chan tea.Msg, 1)
-	go func() { result <- resolve() }()
+	go func() { result <- workMsg(resolve) }()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("approval request did not start")
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	page = updated.(*RequestsPage)
-	if page.overlay != requestOverlayNone || !page.operationCancelled {
-		t.Fatalf("overlay=%d cancelled=%t", page.overlay, page.operationCancelled)
+	page.cancelOperation()
+	if !page.operationCancelled {
+		t.Fatal("approval request was not cancelled")
 	}
 	select {
 	case message := <-result:
-		updated, _ = page.Update(message)
+		updated, follow := page.Update(message)
 		page = updated.(*RequestsPage)
+		if page.operationCancelled || page.err != nil || page.notice != "" {
+			t.Fatalf("cancelled=%t err=%v notice=%q", page.operationCancelled, page.err, page.notice)
+		}
+		if op, ok := operationMsg(follow); !ok || op.Phase != OperationCancelled || !strings.Contains(op.Message, "cancelled") {
+			t.Fatalf("follow=%v op=%#v", follow != nil, op)
+		}
 	case <-time.After(time.Second):
 		close(release)
 		t.Fatal("cancelled approval request did not return")
 	}
 	close(release)
-	if page.operationCancelled || page.err != nil || !strings.Contains(page.notice, "cancelled") {
-		t.Fatalf("cancelled=%t err=%v notice=%q", page.operationCancelled, page.err, page.notice)
-	}
 }
 
 func TestRequestsPageRejectsStaleResolutionBeforeMutation(t *testing.T) {
@@ -463,11 +468,11 @@ func TestRequestsPageRejectsStaleResolutionBeforeMutation(t *testing.T) {
 			if resolve == nil || !page.editor.Submitting() {
 				t.Fatalf("resolve=%v submitting=%t", resolve != nil, page.editor.Submitting())
 			}
-			updated, follow := page.Update(resolve())
+			updated, follow := page.Update(workMsg(resolve))
 			page = updated.(*RequestsPage)
-			view := ansi.Strip(page.View(42, 18))
-			if follow != nil || resolveCalls != 0 || page.editor == nil || page.resolveForm == nil || page.resolveForm.Reason != "keep this draft" || page.editor.Submitting() || !strings.Contains(view, test.want) {
-				t.Fatalf("follow=%v calls=%d editor=%v draft=%#v submitting=%t view=%q", follow != nil, resolveCalls, page.editor != nil, page.resolveForm, page.editor.Submitting(), view)
+			op, ok := operationMsg(follow)
+			if !ok || op.Phase != OperationError || !strings.Contains(strings.ToLower(op.Message), test.want) || resolveCalls != 0 || page.editor == nil || page.resolveForm == nil || page.resolveForm.Reason != "keep this draft" || page.editor.Submitting() {
+				t.Fatalf("follow=%v op=%#v calls=%d editor=%v draft=%#v submitting=%t", follow != nil, op, resolveCalls, page.editor != nil, page.resolveForm, page.editor.Submitting())
 			}
 		})
 	}
@@ -520,6 +525,61 @@ func TestRequestRowsSearchExactCommandSeparatelyFromTitle(t *testing.T) {
 	}
 }
 
+func TestRequestsDeepLinkMissingRequestStaysUsable(t *testing.T) {
+	server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/requests":
+			_ = json.NewEncoder(w).Encode([]approval.Request{})
+		case "/requests/view":
+			http.Error(w, "not found", http.StatusNotFound)
+		default:
+			t.Fatalf("unexpected path=%s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+	page, err := NewRequests(t.Context(), "req_missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.refreshCmd()())
+	page = updated.(*RequestsPage)
+	view := ansi.Strip(page.View(100, 28))
+	if page.resourceErr == nil || strings.Contains(view, "Loading approval request") {
+		t.Fatalf("missing request view=%q resourceErr=%v", view, page.resourceErr)
+	}
+	if !strings.Contains(view, "no longer available") {
+		t.Fatalf("missing request view=%q", view)
+	}
+}
+
+func TestRequestsDeepLinkShowsResolvedStatus(t *testing.T) {
+	now := time.Now().UTC()
+	approved := approval.Request{ID: "req_approved_deep", Status: approval.StatusApproved, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Allow update", CreatedAt: now.Add(-time.Minute), ExpiresAt: now, ResolvedAt: now}
+	server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/requests":
+			_ = json.NewEncoder(w).Encode([]approval.Request{approved})
+		case "/requests/view":
+			_ = json.NewEncoder(w).Encode(approved)
+		case "/requests/approve":
+			t.Fatal("deep link must not auto-approve")
+		default:
+			t.Fatalf("unexpected path=%s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+	page, err := NewRequests(t.Context(), approved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.refreshCmd()())
+	page = updated.(*RequestsPage)
+	view := ansi.Strip(page.View(100, 28))
+	if page.action != "" || !strings.Contains(strings.ToLower(view), "approved") {
+		t.Fatalf("resolved deep link action=%q view=%q", page.action, view)
+	}
+}
+
 func newRequestPageServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -550,4 +610,42 @@ func newRequestPageServer(t *testing.T, handler http.HandlerFunc) *httptest.Serv
 		t.Fatal(err)
 	}
 	return server
+}
+
+func TestRequestsPagePrefersTunnelLabelOverRawID(t *testing.T) {
+	now := time.Now().UTC()
+	const alphaID, betaID = "tunnel_aaaaaaaaaaaaaaaa", "tunnel_bbbbbbbbbbbbbbbb"
+	alpha := approval.Request{ID: "req_alpha", Status: approval.StatusPending, WorkspaceID: "ws_a", Source: "tunnel", TunnelID: alphaID, TunnelName: "Alpha", TargetTool: "run_command", Title: "Allow alpha", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	beta := approval.Request{ID: "req_beta", Status: approval.StatusPending, WorkspaceID: "ws_a", Source: "tunnel", TunnelID: betaID, TunnelName: "Beta", TargetTool: "run_command", Title: "Allow beta", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/requests" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode([]approval.Request{alpha, beta})
+	})
+	defer server.Close()
+	page, err := NewRequests(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.refreshCmd()())
+	page = updated.(*RequestsPage)
+	if !page.browser.SelectID("req_alpha") {
+		t.Fatal("could not select alpha")
+	}
+	row, ok := page.browser.Selected()
+	if !ok || !strings.Contains(row.Description, "Alpha") || strings.Contains(row.Description, alphaID) || !strings.Contains(row.Search, alphaID) {
+		t.Fatalf("alpha row=%#v", row)
+	}
+	if !page.browser.SelectID("req_beta") {
+		t.Fatal("could not select beta")
+	}
+	row, ok = page.browser.Selected()
+	if !ok || !strings.Contains(row.Description, "Beta") || strings.Contains(row.Description, betaID) {
+		t.Fatalf("beta row=%#v", row)
+	}
+	overview := requestOverview(alpha, 80)
+	if !strings.Contains(overview, "Alpha") || !strings.Contains(overview, alphaID) || !strings.Contains(overview, "tunnel") {
+		t.Fatalf("overview=%q", overview)
+	}
 }

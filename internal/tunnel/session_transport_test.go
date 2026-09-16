@@ -7,7 +7,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
 )
 
 type captureTransport struct{ conn *captureConnection }
@@ -31,7 +30,7 @@ func TestSessionTransportInjectsTunnelSessionIntoToolMeta(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := &jsonrpc.Request{Method: "tools/call", Params: json.RawMessage(`{"name":"probe","arguments":{},"_meta":{"client":"keep"}}`)}
-	ctx := tunnelctx.ContextWithSessionID(context.Background(), "session-production")
+	ctx := ContextWithSessionID(context.Background(), "session-production")
 	if err := conn.Write(ctx, request); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +55,7 @@ func TestSessionTransportDoesNotInjectIntoNonToolRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := &jsonrpc.Request{Method: "tools/list", Params: json.RawMessage(`{"_meta":{"client":"keep"}}`)}
-	ctx := tunnelctx.ContextWithSessionID(context.Background(), "session-production")
+	ctx := ContextWithSessionID(context.Background(), "session-production")
 	if err := conn.Write(ctx, request); err != nil {
 		t.Fatal(err)
 	}

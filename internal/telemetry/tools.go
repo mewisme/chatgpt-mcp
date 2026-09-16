@@ -21,6 +21,12 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 		if observation.Source != "" {
 			fields = append(fields, logger.With("source", observation.Source))
 		}
+		if observation.TunnelID != "" {
+			fields = append(fields, logger.With("tunnel_id", observation.TunnelID))
+		}
+		if observation.TunnelName != "" {
+			fields = append(fields, logger.With("tunnel_name", observation.TunnelName))
+		}
 		if observation.WorkspaceID != "" {
 			fields = append(fields, logger.With("workspace", observation.WorkspaceID))
 		}
@@ -45,7 +51,7 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 				log.Emit(logger.Event{Level: logger.Info, Name: "tool.call.started", Message: "Tool call started", Fields: startFields, Component: "TOOL", Kind: logger.KindInfo, Visibility: logger.VisibilityVerbose})
 			}
 			if stream != nil {
-				stream.Publish(activity.Event{CallID: observation.CallID, Kind: string(activity.EventToolCall), Phase: "start", Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, SessionHash: observation.SessionHash, SessionAccess: string(observation.SessionAccess), SessionWorkspaceCount: observation.SessionWorkspaceCount, ReceivedByInstanceID: observation.ReceivedByInstanceID, ExecutedByInstanceID: observation.ExecutedByInstanceID, Status: "running", Raw: observation.Raw})
+				stream.Publish(activity.Event{CallID: observation.CallID, Kind: string(activity.EventToolCall), Phase: "start", Method: "tools/call", Source: observation.Source, TunnelID: observation.TunnelID, TunnelName: observation.TunnelName, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, SessionHash: observation.SessionHash, SessionAccess: string(observation.SessionAccess), SessionWorkspaceCount: observation.SessionWorkspaceCount, ReceivedByInstanceID: observation.ReceivedByInstanceID, ExecutedByInstanceID: observation.ExecutedByInstanceID, Status: "running", Raw: observation.Raw})
 			}
 			return
 		}
@@ -75,7 +81,7 @@ func AttachTools(runtime *tools.Runtime, stream *activity.Stream, log *logger.Lo
 			log.Emit(event)
 		}
 		if stream != nil {
-			stream.Publish(activity.Event{CallID: observation.CallID, Kind: string(activity.EventToolCall), Phase: "finish", Method: "tools/call", Source: observation.Source, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, SessionHash: observation.SessionHash, SessionAccess: string(observation.SessionAccess), SessionWorkspaceCount: observation.SessionWorkspaceCount, ReceivedByInstanceID: observation.ReceivedByInstanceID, ExecutedByInstanceID: observation.ExecutedByInstanceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message), Raw: observation.Raw})
+			stream.Publish(activity.Event{CallID: observation.CallID, Kind: string(activity.EventToolCall), Phase: "finish", Method: "tools/call", Source: observation.Source, TunnelID: observation.TunnelID, TunnelName: observation.TunnelName, Tool: observation.Tool, WorkspaceID: observation.WorkspaceID, SessionHash: observation.SessionHash, SessionAccess: string(observation.SessionAccess), SessionWorkspaceCount: observation.SessionWorkspaceCount, ReceivedByInstanceID: observation.ReceivedByInstanceID, ExecutedByInstanceID: observation.ExecutedByInstanceID, Status: observation.Status, DurationMS: observation.DurationMS, Message: strings.TrimSpace(observation.Message), Raw: observation.Raw})
 		}
 	})
 }

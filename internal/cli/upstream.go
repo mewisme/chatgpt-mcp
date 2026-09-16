@@ -26,8 +26,6 @@ type upstreamFlags struct {
 	url                 string
 	headers             []string
 	bearerTokenEnvVar   string
-	authType            string
-	authScope           string
 	toolPrefix          string
 	expose              string
 	tools               []string
@@ -54,7 +52,6 @@ func upstreamServerCommand() *cobra.Command {
 		upstreamServerToggleCommand(false),
 		upstreamServerStatusCommand(),
 		upstreamServerToolsCommand(),
-		upstreamServerAuthCommand(),
 	)
 	return server
 }
@@ -308,10 +305,6 @@ func logUpstreamServer(log interface {
 	log.Detail("transport", server.Transport)
 	log.Detail("enabled", server.Enabled)
 	log.Detail("endpoint", endpoint)
-	log.Detail("auth", server.Auth.Type)
-	if server.Auth.Scope != "" {
-		log.Detail("auth scope", server.Auth.Scope)
-	}
 	log.Detail("expose", server.Expose)
 	log.Detail("tool prefix", server.ToolPrefix)
 	log.Detail("idle timeout", fmt.Sprintf("%ds", server.IdleTimeoutSec))
@@ -443,8 +436,6 @@ func bindUpstreamFlags(cmd *cobra.Command, flags *upstreamFlags, create bool) {
 	cmd.Flags().StringVar(&flags.url, "url", "", "HTTP MCP URL")
 	cmd.Flags().StringSliceVar(&flags.headers, "header", nil, "HTTP header KEY=VALUE")
 	cmd.Flags().StringVar(&flags.bearerTokenEnvVar, "bearer-token-env", "", "environment variable containing HTTP bearer token")
-	cmd.Flags().StringVar(&flags.authType, "auth", "", "auth mode: auto, oauth, none")
-	cmd.Flags().StringVar(&flags.authScope, "auth-scope", "", "OAuth scope")
 	cmd.Flags().StringVar(&flags.toolPrefix, "tool-prefix", "", "dynamic proxy tool prefix")
 	cmd.Flags().StringVar(&flags.expose, "expose", "", "none, meta_only, allowlist, or all")
 	cmd.Flags().StringSliceVar(&flags.tools, "tool", nil, "allowlisted upstream tool")
@@ -495,12 +486,6 @@ func applyUpstreamFlags(cmd *cobra.Command, server upstream.Server, flags upstre
 	}
 	if changed("bearer-token-env") {
 		server.BearerTokenEnvVar = flags.bearerTokenEnvVar
-	}
-	if changed("auth") {
-		server.Auth.Type = flags.authType
-	}
-	if changed("auth-scope") {
-		server.Auth.Scope = flags.authScope
 	}
 	if changed("tool-prefix") {
 		server.ToolPrefix = flags.toolPrefix

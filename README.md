@@ -11,7 +11,7 @@ Single Go binary · OpenAI Secure MCP Tunnel · Linux, macOS, and Windows
 [![Go](https://img.shields.io/github/go-mod/go-version/mewisme/chatgpt-mcp?style=flat-square&logo=go)](go.mod)
 [![License](https://img.shields.io/github/license/mewisme/chatgpt-mcp?style=flat-square)](LICENSE)
 
-[Get started](docs/getting-started.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [Command Center](docs/tui.md) · [Security](docs/security.md) · [Documentation](docs/README.md)
+[Get started](docs/getting-started.md) · [Connect ChatGPT](docs/openai-chatgpt.md) · [Command Center](docs/tui.md) · [Plugins](docs/plugins.md) · [Security](docs/security.md) · [Documentation](docs/README.md)
 
 </div>
 
@@ -29,7 +29,7 @@ The main path is intentionally small: ChatGPT reaches the local runtime through 
 
 - **Private by default for ChatGPT** — the Secure MCP Tunnel is outbound-only from your machine; public MCP ingress is not required.
 - **Workspace-bound access** — filesystem, shell, Git, process, context, memory, rules, skills, and checkpoints operate against explicit `ws_*` workspace targets.
-- **Local control stays local** — use the CLI, full-screen TUI, or embedded Admin UI to inspect and operate the runtime.
+- **Local control stays local** — use the CLI, full-screen TUI, or independently distributed Admin UI plugin to inspect and operate the runtime.
 - **MCP aggregation** — optionally expose tools from upstream MCP servers through the same runtime.
 - **One cross-platform binary** — native releases for Linux, macOS, and Windows on amd64 and arm64, with managed background-service support.
 
@@ -79,18 +79,17 @@ cgm workspace register ~/projects/my-project
 
 The command returns a stable `ws_*` workspace ID. Register only roots you intentionally want the runtime to reach.
 
-### 3. Configure the Secure MCP Tunnel
+### 3. Attach the Secure MCP Tunnel
 
-Create a tunnel and a restricted runtime API key in OpenAI Platform, then configure them locally:
+Create a tunnel and a restricted runtime API key in OpenAI Platform, then add/verify a management profile and attach the tunnel locally:
 
 ```bash
-cgm tunnel configure \
-  --enabled \
-  --id tunnel_... \
-  --api-key 'sk-...'
+cgm tunnel admin add personal --admin-key 'sk-admin-...' --organization-id org_...
+cgm tunnel admin verify personal
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
 ```
 
-The runtime key should have **Tunnels Read + Use**. It is not an OpenAI Admin API key and is not used to call a language model.
+The runtime key should have **Tunnels Read + Use**. It is separate from the management profile's Admin API key and is not used to call a language model. Additional tunnels can be attached to the same local runtime without replacing the first one.
 
 ### 4. Start the managed runtime
 
@@ -145,6 +144,8 @@ See [MCP clients and upstream servers](docs/mcp.md).
 
 `chatgpt-mcp` provides an application-level workspace and control-plane boundary, not a kernel sandbox. Paths are canonicalized, symlink escapes are rejected, trusted control-plane mutations are separated from ordinary workspace operations, and sensitive managed credentials are not stored as plaintext structured config.
 
+Authentication uses three independent credentials: the **Admin token** for Admin API/UI, the **Direct MCP HTTP token** for local `/mcp` only (reusable across ChatGPT configurations, stored encrypted and revealable), and **tunnel runtime/admin keys** for OpenAI Secure MCP Tunnel. Direct MCP HTTP authentication does not apply to tunnel traffic.
+
 If you need isolation from deliberately hostile native code running as the same OS user, use an OS sandbox, container/VM, or separate operating-system identity.
 
 Read [Security](docs/security.md) before widening network exposure or filesystem access.
@@ -160,6 +161,7 @@ Read [Security](docs/security.md) before widening network exposure or filesystem
 | Use the full-screen terminal UI | [TUI Command Center](docs/tui.md) |
 | Configure auth, exposure, storage, and runtime settings | [Configuration](docs/configuration.md) |
 | Connect generic clients or upstream MCP servers | [MCP and upstreams](docs/mcp.md) |
+| Install, author, verify, update, or recover plugins | [Plugins](docs/plugins.md) |
 | Look up commands and flags | [CLI reference](docs/cli-reference.md) |
 | Understand trust boundaries | [Security](docs/security.md) |
 | Diagnose common failures | [Troubleshooting](docs/troubleshooting.md) |
@@ -169,7 +171,7 @@ See the [documentation index](docs/README.md) for the recommended reading paths.
 
 ## Development
 
-Source builds require Go 1.27+, Node.js 24+, and pnpm 11+.
+Source builds require Go 1.27+, Node.js 24+, and pnpm 11+. From a checkout, `go run .` builds core plugins into `<repo>/.cgm/dev` automatically. Installed `cgm` binaries never use that `local-dev` path.
 
 ```bash
 ./scripts/check.sh
@@ -179,4 +181,8 @@ See [Development](docs/development.md) for the complete verification, CI, and re
 
 ## License
 
-MIT License. Copyright (c) 2026 Mew.
+Copyright 2026 Nguyễn Mậu Minh. Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Third-party and adapted material keeps its original license. See [NOTICE](NOTICE), `third_party/`, `plugins/cf-tunnel/internal/cloudflared/LICENSE`, and `plugins/bash/licenses/`. Official CGM plugins declare SPDX `license` in `plugin.json` (Apache-2.0 except the bash payload, which is GPL-2.0-only). Community plugins choose their own SPDX expression; the field is metadata only.
+
+"Caveman" is a trademark of Julius Brussee; this project uses the name only to attribute the MIT-licensed upstream material. See `third_party/caveman/NOTICE.md`.

@@ -134,7 +134,7 @@ var knownPermissions = map[Permission]struct{}{
 }
 
 var knownPluginTypes = map[PluginType]struct{}{
-	"runtime": {}, "command-wrapper": {}, "hook": {}, "tool-provider": {}, "secret-provider": {}, "formatter": {}, "web-ui": {},
+	"runtime": {}, "command-wrapper": {}, "hook": {}, "tool-provider": {}, "secret-provider": {}, "formatter": {}, "web-ui": {}, "terminal-ui": {},
 }
 
 func ParseManifest(data []byte) (Manifest, error) {
@@ -209,10 +209,13 @@ func (manifest Manifest) Validate() error {
 			return err
 		}
 	}
-	webUICapabilities := 0
+	webUICapabilities, terminalUICapabilities := 0, 0
 	for _, capability := range manifest.Provides {
 		if strings.HasPrefix(string(capability), "web-ui/") {
 			webUICapabilities++
+		}
+		if strings.HasPrefix(string(capability), "terminal-ui/") {
+			terminalUICapabilities++
 		}
 	}
 	if manifest.Type == "web-ui" {
@@ -224,6 +227,16 @@ func (manifest Manifest) Validate() error {
 		}
 	} else if webUICapabilities > 0 {
 		return errors.New("web-ui capabilities require plugin type web-ui")
+	}
+	if manifest.Type == "terminal-ui" {
+		if len(manifest.Provides) != 1 || terminalUICapabilities != 1 {
+			return errors.New("terminal-ui plugin requires exactly one terminal-ui capability")
+		}
+		if len(manifest.Permissions) != 0 {
+			return errors.New("terminal-ui plugin cannot request runtime permissions")
+		}
+	} else if terminalUICapabilities > 0 {
+		return errors.New("terminal-ui capabilities require plugin type terminal-ui")
 	}
 	if len(manifest.Platforms) == 0 {
 		return errors.New("plugin must declare at least one platform artifact")
@@ -571,7 +584,7 @@ func validCapability(capability Capability) bool {
 		return false
 	}
 	switch parts[0] {
-	case "shell", "command-wrapper", "hook", "tool-provider", "secret-provider", "formatter", "web-ui", "tunnel":
+	case "shell", "command-wrapper", "hook", "tool-provider", "secret-provider", "formatter", "web-ui", "tunnel", "terminal-ui":
 		return true
 	default:
 		return false

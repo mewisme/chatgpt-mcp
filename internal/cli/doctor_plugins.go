@@ -138,6 +138,23 @@ func (d *doctorState) checkPluginSecureMCP(_ context.Context) doctorResult {
 	return doctorResult{Status: doctorWarn, Summary: "Secure MCP tunnels are configured but the core plugin is not installed", Hint: "run cgm plugin install secure-mcp-tunnel"}
 }
 
+func (d *doctorState) checkPluginTUI(_ context.Context) doctorResult {
+	if d.store == nil {
+		return doctorResult{Status: doctorSkip, Summary: "plugin store unavailable"}
+	}
+	id := pluginpkg.PluginID("tui")
+	if entry, ok := d.lock.Plugins[id]; ok && entry.Enabled {
+		if _, err := d.store.Installed(id, entry.Version); err != nil {
+			return doctorResult{Status: doctorFail, Summary: "TUI plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: "run cgm plugin install tui"}
+		}
+		return doctorResult{Status: doctorPass, Summary: "TUI plugin is installed"}
+	}
+	if entry, ok := d.lock.Plugins[id]; ok && !entry.Enabled {
+		return doctorResult{Status: doctorWarn, Summary: "TUI core plugin is installed but disabled", Hint: "run cgm plugin enable tui"}
+	}
+	return doctorResult{Status: doctorWarn, Summary: "TUI core plugin is not installed", Hint: "run cgm plugin install tui"}
+}
+
 func sortedPluginIDs(lock pluginpkg.LockFile) []pluginpkg.PluginID {
 	ids := make([]pluginpkg.PluginID, 0, len(lock.Plugins))
 	for id := range lock.Plugins {

@@ -80,6 +80,7 @@ func (d *doctorState) checks() []doctorCheck {
 		{ID: "plugin.capabilities", Label: "plugin capabilities", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginCapabilities},
 		{ID: "plugin.admin-ui", Label: "Admin UI plugin", Section: "Plugins", Requires: []string{"plugin.lock", "config.source"}, Run: d.checkPluginAdminUI},
 		{ID: "plugin.secure-mcp-tunnel", Label: "Secure MCP Tunnel plugin", Section: "Plugins", Requires: []string{"plugin.lock", "config.source"}, Run: d.checkPluginSecureMCP},
+		{ID: "plugin.tui", Label: "TUI plugin", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginTUI},
 		{ID: "plugin.registry", Label: "plugin registry", Section: "Plugins", Requires: []string{"plugin.lock"}, Timeout: 3 * time.Second, Run: d.checkPluginRegistry},
 		{ID: "runtime.control", Label: "runtime control", Section: "Runtime", Requires: []string{"config.source"}, Run: d.checkRuntimeControl},
 		{ID: "service.user", Label: "user service", Section: "Runtime", Requires: []string{"config.source"}, Run: func(ctx context.Context) doctorResult { return d.checkService(ctx, "user") }},

@@ -67,6 +67,22 @@
       "versions": {
         "1.0.0": "secure-mcp-tunnel-1.0.0.json"
       }
+    },
+    "tui": {
+      "publisher": "mewisme",
+      "name": "Command Center",
+      "description": "Full-screen terminal UI for ChatGPT MCP",
+      "type": "terminal-ui",
+      "scopes": ["global"],
+      "provides": ["terminal-ui/default"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "tui-1.0.0.json"
+      }
     }
   }
 }

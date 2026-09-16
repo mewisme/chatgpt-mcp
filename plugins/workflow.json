@@ -102,6 +102,30 @@
           "path": "payload/secure-mcp-tunnel"
         }
       }
+    },
+    {
+      "id": "tui",
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "build": {
+        "runner": "ubuntu-latest",
+        "command": [
+          "go",
+          "run",
+          "./plugins/tui/build",
+          "-output",
+          "{output}"
+        ]
+      },
+      "smoke": {
+        "runner": "ubuntu-latest",
+        "probe": {
+          "kind": "file",
+          "path": "payload/tui"
+        }
+      }
     }
   ]
 }

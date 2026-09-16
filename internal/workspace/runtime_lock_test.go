@@ -35,6 +35,10 @@ func TestWorkspaceRuntimeLockRejectsSecondActiveManager(t *testing.T) {
 	if metadata.PID <= 0 || metadata.WorkspaceID != item.ID || metadata.StartedAt.IsZero() {
 		t.Fatalf("lock metadata=%#v", metadata)
 	}
+	listed, err := NewManager(store).List()
+	if err != nil || len(listed) != 1 || listed[0].ID != item.ID || !listed[0].Available() {
+		t.Fatalf("standalone list while active=%#v err=%v", listed, err)
+	}
 	second := NewManager(store)
 	if err := second.Activate(); !errors.Is(err, ErrAlreadyActive) {
 		t.Fatalf("second activation error=%v", err)

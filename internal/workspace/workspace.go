@@ -797,20 +797,7 @@ func (m *Manager) ensureLoaded() error {
 	}
 	m.runtimeMu.Lock()
 	defer m.runtimeMu.Unlock()
-	m.mu.RLock()
-	loaded = m.loaded
-	active := m.runtime != nil && (m.runtime.active || m.runtime.preparing)
-	m.mu.RUnlock()
-	if loaded {
-		return nil
-	}
-	if active {
-		return m.ensureLoadedState()
-	}
-	if err := m.activateLocked(); err != nil {
-		return err
-	}
-	return m.deactivateLocked()
+	return m.ensureLoadedState()
 }
 
 func (m *Manager) ensureLoadedState() error {

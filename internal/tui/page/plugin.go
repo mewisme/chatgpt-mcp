@@ -547,7 +547,7 @@ func (page *PluginPage) rows() []component.Row {
 				trust = "trusted"
 			}
 			scopes := formatPluginScopes(item.Entry.AllowedScopes())
-			rows = append(rows, component.Row{ID: item.Reference, Title: item.Entry.Name, Description: item.Reference + " · " + item.Entry.Description, Meta: string(item.Entry.Stable) + " · " + string(item.Entry.Type) + " · " + trust + " · " + state + " · " + scopes, Search: strings.Join([]string{item.Reference, item.Entry.Name, item.Entry.Description, item.Publisher.Name, string(item.Entry.Type), scopes}, " ")})
+			rows = append(rows, component.Row{ID: item.Reference, Title: item.Entry.Name, Description: item.Reference + " · " + item.Entry.Description, Meta: string(item.Entry.Stable) + " · " + string(item.Entry.Type) + " · " + trust + " · " + state + " · " + scopes, Search: strings.Join([]string{item.Reference, item.Entry.Name, item.Entry.Description, item.Publisher.Name, item.Entry.License, string(item.Entry.Type), scopes}, " ")})
 		}
 		return rows
 	case "updates":
@@ -1119,7 +1119,7 @@ func (page *PluginPage) syncPluginDetail() {
 	}
 	content := detailFields(append([][2]string{
 		{"ID", string(manifest.ID)}, {"Name", manifest.Name}, {"Version", string(manifest.Version)}, {"Type", string(manifest.Type)}, {"Origin", detail.Origin.Label()}, {"Scope", pluginDetailScope(detail)}, {"State", state},
-		{"Registry", detail.Registry.Name}, {"Publisher", detail.Publisher.Name}, {"Publisher trust", trust}, {"Signature", detail.SignatureStatus}, {"Source", detail.Publisher.Source}, {"Signing repository", detail.Publisher.Sigstore.Repository},
+		{"Registry", detail.Registry.Name}, {"Publisher", detail.Publisher.Name}, {"License", manifest.License}, {"Publisher trust", trust}, {"Signature", detail.SignatureStatus}, {"Source", detail.Publisher.Source}, {"Signing repository", detail.Publisher.Sigstore.Repository},
 		{"Capabilities", pluginCapabilities(manifest.Provides)}, {"Permissions", pluginPermissions(manifest.Permissions)}, {"Dependencies", pluginCapabilities(manifest.Dependencies.Capabilities)}, {"Core requirement", manifest.Requires.ChatGPTMCP}, {"Core compatibility", detail.CoreCompatibility}, {"Platforms", pluginPlatforms(manifest.Platforms)},
 	}, pluginInstructionFields(detail)...)...)
 	page.detail = component.NewDetailPage(manifest.Name, string(manifest.Version)+" · "+string(manifest.Type)+" · "+state, content).WithTitleVisible(false)

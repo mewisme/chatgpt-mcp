@@ -69,6 +69,35 @@ func TestRegistryEntryWithoutScopesDefaultsToGlobal(t *testing.T) {
 	}
 }
 
+func TestOfficialRegistryIndexLicensesMatchSourceManifests(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "plugins", "registry", "index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := ParseRegistryIndex(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, entry := range index.Plugins {
+		manifest, err := ParseManifest(mustReadFile(t, filepath.Join("..", "..", "plugins", string(id), "plugin.json")))
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if entry.License == "" || entry.License != manifest.License {
+			t.Fatalf("%s license index=%q manifest=%q", id, entry.License, manifest.License)
+		}
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func TestOfficialRegistryIndexDeclaresScopes(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "plugins", "registry", "index.json"))
 	if err != nil {
@@ -102,7 +131,7 @@ func testRegistrySnapshot(name string, unqualified bool) RegistrySnapshot {
 	return RegistrySnapshot{
 		Registry: Registry{Name: name, URL: "https://example.invalid/plugins", UnqualifiedResolution: unqualified, Trust: &trust},
 		Index: RegistryIndex{Schema: RegistrySchema, GeneratedAt: time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC), Plugins: map[PluginID]RegistryEntry{
-			"bash": {Publisher: "mewisme", Name: "Bash Runtime", Description: "Portable Bash", Type: "runtime", Stable: "1.0.0", Versions: map[Version]string{"1.0.0": "bash-1.0.0.json"}},
+			"bash": {Publisher: "mewisme", Name: "Bash Runtime", License: "Apache-2.0", Description: "Portable Bash", Type: "runtime", Stable: "1.0.0", Versions: map[Version]string{"1.0.0": "bash-1.0.0.json"}},
 		}},
 		Publishers: PublisherIndex{Schema: PublishersSchema, Publishers: map[string]Publisher{"mewisme": publisher}},
 	}

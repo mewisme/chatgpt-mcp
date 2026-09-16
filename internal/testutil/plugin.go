@@ -33,7 +33,7 @@ func InstallStubTunnelPlugin(t *testing.T, enabled bool) {
 		t.Fatal(err)
 	}
 	manifest := pluginpkg.Manifest{
-		Schema: pluginpkg.ManifestSchemaV2, ID: "cf-tunnel", Name: "CF Tunnel", Publisher: "mewisme", Version: "1.0.0", Type: "runtime",
+		Schema: pluginpkg.ManifestSchemaV2, ID: "cf-tunnel", Name: "CF Tunnel", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "runtime",
 		Provides: []pluginpkg.Capability{"tunnel/cf"}, Permissions: []pluginpkg.Permission{pluginpkg.PermissionProcessExecute, pluginpkg.PermissionNetworkOutbound},
 		Scopes: []pluginpkg.PluginScope{pluginpkg.ScopeGlobal}, Config: TunnelProviderSettingsSchema(),
 		Platforms: map[string]pluginpkg.PlatformArtifact{

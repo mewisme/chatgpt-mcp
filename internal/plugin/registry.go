@@ -26,6 +26,7 @@ type RegistryIndex struct {
 type RegistryEntry struct {
 	Publisher   string             `json:"publisher"`
 	Name        string             `json:"name"`
+	License     string             `json:"license"`
 	Description string             `json:"description"`
 	Type        PluginType         `json:"type"`
 	Scopes      []PluginScope      `json:"scopes,omitempty"`
@@ -122,6 +123,9 @@ func (index RegistryIndex) Validate() error {
 		}
 		if strings.TrimSpace(entry.Name) == "" {
 			return fmt.Errorf("registry plugin %s name is required", idValue)
+		}
+		if err := validateLicense(entry.License); err != nil {
+			return fmt.Errorf("registry plugin %s: %w", idValue, err)
 		}
 		if _, ok := knownPluginTypes[entry.Type]; !ok {
 			return fmt.Errorf("registry plugin %s has unknown type %q", idValue, entry.Type)

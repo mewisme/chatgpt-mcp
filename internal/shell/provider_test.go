@@ -114,7 +114,7 @@ func TestProviderResolverPOSIXFallsBackToBashPlugin(t *testing.T) {
 	if err := os.WriteFile(entrypoint, []byte("bash"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := pluginpkg.Manifest{Schema: pluginpkg.ManifestSchema, ID: "bash", Name: "Bash Runtime", Publisher: "mewisme", Version: "1.0.0", Type: "runtime", Provides: []pluginpkg.Capability{bashCapability}, Permissions: []pluginpkg.Permission{pluginpkg.PermissionProcessExecute}, Platforms: map[string]pluginpkg.PlatformArtifact{"linux/amd64": {Artifact: "bash.tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: "bin/bash"}}}
+	manifest := pluginpkg.Manifest{Schema: pluginpkg.ManifestSchema, ID: "bash", Name: "Bash Runtime", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "runtime", Provides: []pluginpkg.Capability{bashCapability}, Permissions: []pluginpkg.Permission{pluginpkg.PermissionProcessExecute}, Platforms: map[string]pluginpkg.PlatformArtifact{"linux/amd64": {Artifact: "bash.tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: "bin/bash"}}}
 	installed, err := store.Install(manifest, payload)
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func testWindowsBashProviderStore(t *testing.T) (*pluginpkg.Store, string) {
 		t.Fatal(err)
 	}
 	manifest := pluginpkg.Manifest{
-		Schema: pluginpkg.ManifestSchema, ID: "bash", Name: "Bash Runtime", Publisher: "mewisme", Version: "1.0.0", Type: "runtime",
+		Schema: pluginpkg.ManifestSchema, ID: "bash", Name: "Bash Runtime", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "runtime",
 		Provides: []pluginpkg.Capability{bashCapability}, Permissions: []pluginpkg.Permission{pluginpkg.PermissionProcessExecute},
 		Platforms: map[string]pluginpkg.PlatformArtifact{"windows/amd64": {Artifact: "bash.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "usr/bin/bash.exe"}},
 	}

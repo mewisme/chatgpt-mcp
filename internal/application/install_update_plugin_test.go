@@ -42,7 +42,7 @@ func TestTargetPluginCompatibilityNoticeWarnsWithoutMutatingPluginState(t *testi
 		t.Fatal(err)
 	}
 	manifest := pluginpkg.Manifest{
-		Schema: pluginpkg.ManifestSchema, ID: "incompatible", Name: "Incompatible", Publisher: "mewisme", Version: "1.0.0", Type: "formatter",
+		Schema: pluginpkg.ManifestSchema, ID: "incompatible", Name: "Incompatible", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "formatter",
 		Requires: pluginpkg.Requirements{ChatGPTMCP: "<=0.5.0"}, Provides: []pluginpkg.Capability{"formatter/incompatible"},
 		Platforms: map[string]pluginpkg.PlatformArtifact{runtime.GOOS + "/" + runtime.GOARCH: {Artifact: "incompatible.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "bin/incompatible"}},
 	}

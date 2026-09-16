@@ -45,7 +45,7 @@ export async function validateRepositoryWorkflow(workflow) {
   for (const plugin of workflow.plugins) {
     const manifest = await readPluginManifest(plugin.id)
     const entry = index.plugins[plugin.id]
-    if (entry.name !== manifest.name || entry.type !== manifest.type || !entry.versions?.[manifest.version]) throw new Error(`plugin workflow ${plugin.id} source manifest is not represented by registry index`)
+    if (entry.name !== manifest.name || entry.type !== manifest.type || entry.license !== manifest.license || !entry.versions?.[manifest.version]) throw new Error(`plugin workflow ${plugin.id} source manifest is not represented by registry index`)
     if (!sameCore(plugin.core, entry.core)) throw new Error(`plugin workflow ${plugin.id} core metadata does not match registry index`)
   }
   return workflow

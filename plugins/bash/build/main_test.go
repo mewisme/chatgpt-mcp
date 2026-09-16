@@ -33,7 +33,7 @@ func TestBuildIsDeterministicAndGeneratesExactManifest(t *testing.T) {
 	}
 	templatePath := filepath.Join(t.TempDir(), "plugin.json")
 	manifest := plugin.Manifest{
-		Schema: plugin.ManifestSchema, ID: "bash", Name: "Bash Runtime", Publisher: "mewisme", Version: "1.0.0", Type: "runtime",
+		Schema: plugin.ManifestSchema, ID: "bash", Name: "Bash Runtime", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "runtime",
 		Provides: []plugin.Capability{"shell/bash"}, Permissions: []plugin.Permission{plugin.PermissionProcessExecute},
 		Platforms: map[string]plugin.PlatformArtifact{"windows/amd64": {Artifact: "bash-1.0.0-windows-amd64.zip", SHA256: generatedDigestSentinel, Archive: "zip", Entrypoint: "usr/bin/bash.exe"}},
 	}

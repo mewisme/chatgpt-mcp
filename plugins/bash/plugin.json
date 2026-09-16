@@ -3,6 +3,7 @@
   "id": "bash",
   "name": "Bash Runtime",
   "publisher": "mewisme",
+  "license": "GPL-2.0-only",
   "version": "1.0.1",
   "type": "runtime",
   "scopes": ["global", "workspace"],

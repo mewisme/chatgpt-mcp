@@ -5,6 +5,7 @@
     "admin-ui": {
       "publisher": "mewisme",
       "name": "Admin UI",
+      "license": "Apache-2.0",
       "description": "Static admin dashboard for ChatGPT MCP",
       "type": "web-ui",
       "scopes": ["global"],
@@ -20,6 +21,7 @@
     "bash": {
       "publisher": "mewisme",
       "name": "Bash Runtime",
+      "license": "GPL-2.0-only",
       "description": "Portable Bash runtime for ChatGPT MCP on Windows",
       "type": "runtime",
       "scopes": ["global", "workspace"],
@@ -32,6 +34,7 @@
     "rtk": {
       "publisher": "mewisme",
       "name": "RTK Command Wrapper",
+      "license": "Apache-2.0",
       "description": "Host-backed RTK Token Killer command wrapper with verified portable install support",
       "type": "command-wrapper",
       "scopes": ["global", "workspace"],
@@ -43,6 +46,7 @@
     "cf-tunnel": {
       "publisher": "mewisme",
       "name": "CF Tunnel",
+      "license": "Apache-2.0",
       "description": "Expose local MCP and Admin HTTP through Cloudflare Quick Tunnels",
       "type": "runtime",
       "scopes": ["global"],
@@ -55,6 +59,7 @@
     "secure-mcp-tunnel": {
       "publisher": "mewisme",
       "name": "Secure MCP Tunnel",
+      "license": "Apache-2.0",
       "description": "OpenAI Secure MCP Tunnel runtime and control-plane client",
       "type": "runtime",
       "scopes": ["global"],
@@ -71,6 +76,7 @@
     "tui": {
       "publisher": "mewisme",
       "name": "Command Center",
+      "license": "Apache-2.0",
       "description": "Full-screen terminal UI for ChatGPT MCP",
       "type": "terminal-ui",
       "scopes": ["global"],
@@ -87,6 +93,7 @@
     "markdown-formatter": {
       "publisher": "mewisme",
       "name": "Markdown Formatter",
+      "license": "Apache-2.0",
       "description": "Rich terminal Markdown rendering for ChatGPT MCP",
       "type": "formatter",
       "scopes": ["global"],
@@ -103,6 +110,7 @@
     "ponytail": {
       "publisher": "mewisme",
       "name": "Ponytail",
+      "license": "Apache-2.0",
       "description": "Smallest-correct-solution coding guidance",
       "type": "tool-provider",
       "scopes": ["global"],
@@ -119,6 +127,7 @@
     "caveman": {
       "publisher": "mewisme",
       "name": "Caveman",
+      "license": "Apache-2.0",
       "description": "Compressed assistant prose while preserving technical meaning",
       "type": "tool-provider",
       "scopes": ["global"],

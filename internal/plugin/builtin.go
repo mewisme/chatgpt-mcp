@@ -79,6 +79,7 @@ func (builtin Builtin) CatalogManifest(coreVersion string) Manifest {
 		ID:          builtin.ID,
 		Name:        builtin.Name,
 		Publisher:   BuiltinPublisher,
+		License:     "Apache-2.0",
 		Version:     catalogCoreVersion(coreVersion),
 		Type:        builtin.Type,
 		Provides:    append([]Capability(nil), builtin.Provides...),

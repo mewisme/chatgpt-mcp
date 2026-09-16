@@ -141,7 +141,7 @@ func TestWriteSkillRejectsPluginProjection(t *testing.T) {
 	}
 	payload := filepath.Join("..", "plugin", "testdata", "instruction-resources")
 	manifest := plugin.Manifest{
-		Schema: plugin.ManifestSchema, ID: "demo", Name: "demo", Publisher: "mewisme", Version: "1.0.0", Type: "runtime",
+		Schema: plugin.ManifestSchema, ID: "demo", Name: "demo", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "runtime",
 		Provides:    []plugin.Capability{"formatter/demo"},
 		Permissions: []plugin.Permission{plugin.PermissionProcessExecute},
 		Platforms: map[string]plugin.PlatformArtifact{

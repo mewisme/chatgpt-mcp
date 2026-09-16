@@ -234,7 +234,7 @@ Repair remains an explicit plugin lifecycle action (`cgm plugin verify`, reinsta
 
 ## Manifest authoring
 
-A plugin uses a strict `plugin.json` manifest. Unknown JSON fields are rejected. IDs, publishers, capability names, and platform names use canonical lowercase names; plugin versions are SemVer without a leading `v`. Most plugins ship a platform artifact, but a command-wrapper may instead declare a verified host executable and install only signed metadata.
+A plugin uses a strict `plugin.json` manifest. Unknown JSON fields are rejected. IDs, publishers, capability names, and platform names use canonical lowercase names; plugin versions are SemVer without a leading `v`. `license` is a required SPDX expression (`Apache-2.0`, `MIT OR Apache-2.0`, `LicenseRef-Proprietary`, …). It is descriptive metadata only: it does not change capability, risk, or runtime behavior. Official CGM plugins declare their license explicitly; community plugins choose their own and must not be defaulted to Apache-2.0. Most plugins ship a platform artifact, but a command-wrapper may instead declare a verified host executable and install only signed metadata.
 
 Schema 1 has no `scopes` field and installs globally only. Schema 2 requires a non-empty unique `scopes` list of `global` and/or `workspace`. Do not add `scopes` to a schema-1 manifest.
 
@@ -246,6 +246,7 @@ Example packaged command-wrapper manifest:
   "id": "example-wrapper",
   "name": "Example Wrapper",
   "publisher": "example",
+  "license": "Apache-2.0",
   "version": "1.2.3",
   "type": "command-wrapper",
   "scopes": ["global", "workspace"],

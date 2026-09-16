@@ -91,7 +91,7 @@ func pluginSearchCommand() *cobra.Command {
 			ids := sortedRegistryPluginIDs(snapshot.Index.Plugins)
 			for _, id := range ids {
 				entry := snapshot.Index.Plugins[id]
-				haystack := strings.ToLower(string(id) + " " + entry.Name + " " + entry.Description)
+				haystack := strings.ToLower(string(id) + " " + entry.Name + " " + entry.Description + " " + entry.License)
 				if query != "" && !strings.Contains(haystack, query) {
 					continue
 				}
@@ -138,6 +138,7 @@ func pluginInfoCommand() *cobra.Command {
 		log.Detail("name", resolved.Entry.Name)
 		log.Detail("version", resolved.Version)
 		log.Detail("publisher", resolved.Publisher.Name)
+		log.Detail("license", resolved.Entry.License)
 		log.Detail("type", resolved.Entry.Type)
 		log.Detail("scopes", formatPluginScopes(resolved.Entry.AllowedScopes()))
 		log.Detail("description", resolved.Entry.Description)
@@ -203,6 +204,7 @@ func pluginInstallCommand() *cobra.Command {
 		log.Success("PLUGIN", "plugin installed", "id", result.Plugin.Manifest.ID, "version", result.Plugin.Manifest.Version)
 		log.Detail("registry", result.Registry.Name)
 		log.Detail("publisher", result.Publisher.Name)
+		log.Detail("license", result.Plugin.Manifest.License)
 		return nil
 	}}
 	cmd.Flags().BoolVar(&portable, "portable", false, "install a manifest-declared portable host dependency into plugin data")

@@ -274,7 +274,7 @@ func testPluginService(t *testing.T) *application.PluginService {
 		t.Fatal(err)
 	}
 	manifest := pluginpkg.Manifest{
-		Schema: pluginpkg.ManifestSchema, ID: "demo", Name: "Demo formatter", Publisher: "mewisme", Version: "1.0.0", Type: "formatter",
+		Schema: pluginpkg.ManifestSchema, ID: "demo", Name: "Demo formatter", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "formatter",
 		Provides: []pluginpkg.Capability{"formatter/demo"}, Permissions: []pluginpkg.Permission{pluginpkg.PermissionProcessExecute},
 		Platforms: map[string]pluginpkg.PlatformArtifact{runtime.GOOS + "/" + runtime.GOARCH: {Artifact: "demo.tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: filepath.ToSlash(entrypointRelative)}},
 	}

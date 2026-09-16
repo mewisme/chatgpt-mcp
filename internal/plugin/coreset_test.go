@@ -276,7 +276,7 @@ func newCoreTestEnv(t *testing.T, plugins []coreTestPlugin, stableOverride strin
 		manifestName := plugin.id + "-" + plugin.version + ".json"
 		entry := entries[PluginID(plugin.id)]
 		if entry.Versions == nil {
-			entry = RegistryEntry{Publisher: "mewisme", Name: plugin.id, Description: plugin.id, Type: "formatter", Stable: Version(plugin.version), Versions: map[Version]string{}}
+			entry = RegistryEntry{Publisher: "mewisme", Name: plugin.id, License: "Apache-2.0", Description: plugin.id, Type: "formatter", Stable: Version(plugin.version), Versions: map[Version]string{}}
 		}
 		entry.Versions[Version(plugin.version)] = manifestName
 		if plugin.core != nil {

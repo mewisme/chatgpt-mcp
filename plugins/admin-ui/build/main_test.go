@@ -24,7 +24,7 @@ func TestBuildIsDeterministicAndGeneratesExactManifest(t *testing.T) {
 	}
 	templatePath := filepath.Join(t.TempDir(), "plugin.json")
 	manifest := plugin.Manifest{
-		Schema: plugin.ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", Version: "1.0.0", Type: "web-ui",
+		Schema: plugin.ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "web-ui",
 		Provides: []plugin.Capability{plugin.CapabilityWebUIAdmin}, Permissions: []plugin.Permission{},
 		Platforms: map[string]plugin.PlatformArtifact{"any/any": {Artifact: "admin-ui-1.0.0.zip", SHA256: generatedDigestSentinel, Archive: "zip", Entrypoint: "index.html"}},
 	}

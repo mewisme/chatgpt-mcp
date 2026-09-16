@@ -43,6 +43,7 @@ type Manifest struct {
 	ID           PluginID                    `json:"id"`
 	Name         string                      `json:"name"`
 	Publisher    string                      `json:"publisher"`
+	License      string                      `json:"license"`
 	Version      Version                     `json:"version"`
 	Type         PluginType                  `json:"type"`
 	Requires     Requirements                `json:"requires,omitempty"`
@@ -128,6 +129,7 @@ type Registry struct {
 }
 
 var canonicalNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$`)
+var licenseIDPattern = regexp.MustCompile(`^(LicenseRef-[A-Za-z0-9.-]+|[A-Za-z0-9][A-Za-z0-9.+-]{0,127})$`)
 
 var knownPermissions = map[Permission]struct{}{
 	PermissionProcessExecute: {}, PermissionNetworkOutbound: {}, PermissionFilesystemPluginData: {}, PermissionWorkspaceRead: {}, PermissionWorkspaceWrite: {}, PermissionHookToolObserve: {}, PermissionHookToolControl: {},
@@ -169,6 +171,9 @@ func (manifest Manifest) Validate() error {
 	}
 	if !validCanonicalName(manifest.Publisher) {
 		return fmt.Errorf("invalid plugin publisher: %q", manifest.Publisher)
+	}
+	if err := validateLicense(manifest.License); err != nil {
+		return err
 	}
 	if err := validateVersion(string(manifest.Version)); err != nil {
 		return fmt.Errorf("invalid plugin version %q: %w", manifest.Version, err)
@@ -602,6 +607,29 @@ func ValidCanonicalName(value string) bool {
 
 func validCanonicalName(value string) bool {
 	return canonicalNamePattern.MatchString(value)
+}
+
+func validateLicense(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return errors.New("plugin license is required")
+	}
+	tokens := strings.Fields(value)
+	if len(tokens)%2 == 0 {
+		return fmt.Errorf("invalid SPDX license expression %q", value)
+	}
+	for i, token := range tokens {
+		if i%2 == 1 {
+			if token != "AND" && token != "OR" {
+				return fmt.Errorf("invalid SPDX license expression %q", value)
+			}
+			continue
+		}
+		if !licenseIDPattern.MatchString(token) {
+			return fmt.Errorf("invalid SPDX license identifier %q", token)
+		}
+	}
+	return nil
 }
 
 func validateVersion(value string) error {

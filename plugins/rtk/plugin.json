@@ -3,6 +3,7 @@
   "id": "rtk",
   "name": "RTK Command Wrapper",
   "publisher": "mewisme",
+  "license": "Apache-2.0",
   "version": "1.0.0",
   "type": "command-wrapper",
   "scopes": ["global", "workspace"],

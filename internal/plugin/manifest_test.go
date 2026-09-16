@@ -86,7 +86,7 @@ func TestHostPortableIntegrityModesAreExclusive(t *testing.T) {
 
 func TestManifestPlatformFallsBackToAnyAny(t *testing.T) {
 	manifest := Manifest{
-		Schema: ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", Version: "1.0.0", Type: "web-ui",
+		Schema: ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "web-ui",
 		Provides: []Capability{CapabilityWebUIAdmin}, Permissions: []Permission{},
 		Platforms: map[string]PlatformArtifact{
 			"any/any":     {Artifact: "admin-ui-1.0.0.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "index.html"},
@@ -111,7 +111,7 @@ func TestManifestPlatformFallsBackToAnyAny(t *testing.T) {
 
 func TestManifestWebUIIsolation(t *testing.T) {
 	base := Manifest{
-		Schema: ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", Version: "1.0.0", Type: "web-ui",
+		Schema: ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "web-ui",
 		Provides: []Capability{CapabilityWebUIAdmin}, Permissions: []Permission{},
 		Platforms: map[string]PlatformArtifact{"any/any": {Artifact: "admin-ui-1.0.0.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "index.html"}},
 	}
@@ -234,6 +234,29 @@ func TestManifestSchema2RequiresValidScopes(t *testing.T) {
 	}
 }
 
+func TestManifestLicenseValidation(t *testing.T) {
+	for _, license := range []string{"Apache-2.0", "MIT", "GPL-2.0-only", "MIT OR Apache-2.0", "LicenseRef-Proprietary"} {
+		manifest := testManifest("demo", "1.0.0", "shell/bash")
+		manifest.Publisher = "community"
+		manifest.License = license
+		if err := manifest.Validate(); err != nil {
+			t.Fatalf("%s: %v", license, err)
+		}
+	}
+	missing := testManifest("admin-ui", "1.0.0", CapabilityWebUIAdmin)
+	missing.License = ""
+	if err := missing.Validate(); err == nil {
+		t.Fatal("missing official license accepted")
+	}
+	for _, license := range []string{"Apache 2.0", "MIT AND", "not a license"} {
+		manifest := testManifest("demo", "1.0.0", "shell/bash")
+		manifest.License = license
+		if err := manifest.Validate(); err == nil {
+			t.Fatalf("accepted %q", license)
+		}
+	}
+}
+
 func TestParseManifestRejectsUnknownFields(t *testing.T) {
 	data := `{"schema":1,"id":"bash","name":"Bash","publisher":"mewisme","version":"1.0.0","type":"runtime","provides":["shell/bash"],"permissions":[],"platforms":{"linux/amd64":{"artifact":"bash.tar.gz","sha256":"` + strings.Repeat("a", 64) + `","archive":"tar.gz","entrypoint":"bin/bash"}},"surprise":true}`
 	if _, err := ParseManifest([]byte(data)); err == nil {
@@ -243,7 +266,7 @@ func TestParseManifestRejectsUnknownFields(t *testing.T) {
 
 func testManifest(id, version string, capability Capability) Manifest {
 	return Manifest{
-		Schema: ManifestSchema, ID: PluginID(id), Name: id, Publisher: "mewisme", Version: Version(version), Type: "runtime",
+		Schema: ManifestSchema, ID: PluginID(id), Name: id, Publisher: "mewisme", License: "Apache-2.0", Version: Version(version), Type: "runtime",
 		Provides: []Capability{capability}, Permissions: []Permission{PermissionProcessExecute},
 		Platforms: map[string]PlatformArtifact{"linux/amd64": {Artifact: id + "-" + version + "-linux-amd64.tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: "bin/" + id}},
 	}

@@ -297,7 +297,7 @@ func attachTestHooks(t *testing.T, runtime *Runtime, capabilities []pluginpkg.Ca
 		}
 	}
 	manifest := pluginpkg.Manifest{
-		Schema: pluginpkg.ManifestSchema, ID: "test-hook", Name: "Test Hook", Publisher: "mewisme", Version: "1.0.0", Type: "hook", Provides: capabilities, Permissions: permissions,
+		Schema: pluginpkg.ManifestSchema, ID: "test-hook", Name: "Test Hook", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "hook", Provides: capabilities, Permissions: permissions,
 		Platforms: map[string]pluginpkg.PlatformArtifact{goruntime.GOOS + "/" + goruntime.GOARCH: {Artifact: "test-hook.tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: "bin/hook"}},
 	}
 	if _, err := store.Install(manifest, payload); err != nil {

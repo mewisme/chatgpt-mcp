@@ -36,7 +36,7 @@ func TestValidatePluginRegistryAcceptsHostBackedPluginWithoutArtifact(t *testing
 	if err := json.Unmarshal(data, &index); err != nil {
 		t.Fatal(err)
 	}
-	index.Plugins["wrap"] = plugin.RegistryEntry{Publisher: "mewisme", Name: "Host Wrapper", Type: "command-wrapper", Stable: "1.0.0", Versions: map[plugin.Version]string{"1.0.0": "wrap-1.0.0.json"}}
+	index.Plugins["wrap"] = plugin.RegistryEntry{Publisher: "mewisme", Name: "Host Wrapper", License: "Apache-2.0", Type: "command-wrapper", Stable: "1.0.0", Versions: map[plugin.Version]string{"1.0.0": "wrap-1.0.0.json"}}
 	data, err = json.Marshal(index)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestValidatePluginRegistryAcceptsHostBackedPluginWithoutArtifact(t *testing
 		t.Fatal(err)
 	}
 	manifest := plugin.Manifest{
-		Schema: plugin.ManifestSchema, ID: "wrap", Name: "Host Wrapper", Publisher: "mewisme", Version: "1.0.0", Type: "command-wrapper",
+		Schema: plugin.ManifestSchema, ID: "wrap", Name: "Host Wrapper", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "command-wrapper",
 		Provides: []plugin.Capability{"command-wrapper/wrap"}, Permissions: []plugin.Permission{plugin.PermissionProcessExecute},
 		Platforms: map[string]plugin.PlatformArtifact{"linux/amd64": {Host: &plugin.HostExecutableSpec{Executable: "wrap", CommandWrapper: &plugin.HostCommandWrapper{Args: []string{"rewrite", "{command}"}, RewriteExitCodes: []int{0}}}}},
 	}
@@ -88,8 +88,8 @@ func registryValidationFixtureAt(t *testing.T, root string) (string, string, str
 	t.Helper()
 	artifactData := []byte("plugin-artifact")
 	digest := sha256.Sum256(artifactData)
-	manifest := plugin.Manifest{Schema: plugin.ManifestSchema, ID: "demo", Name: "Demo", Publisher: "mewisme", Version: "1.0.0", Type: "formatter", Provides: []plugin.Capability{"formatter/demo"}, Platforms: map[string]plugin.PlatformArtifact{"linux/amd64": {Artifact: "demo-1.0.0.zip", SHA256: hex.EncodeToString(digest[:]), Archive: "zip", Entrypoint: "bin/demo"}}}
-	index := plugin.RegistryIndex{Schema: plugin.RegistrySchema, GeneratedAt: time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC), Plugins: map[plugin.PluginID]plugin.RegistryEntry{"demo": {Publisher: "mewisme", Name: "Demo", Type: "formatter", Stable: "1.0.0", Versions: map[plugin.Version]string{"1.0.0": "demo-1.0.0.json"}}}}
+	manifest := plugin.Manifest{Schema: plugin.ManifestSchema, ID: "demo", Name: "Demo", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "formatter", Provides: []plugin.Capability{"formatter/demo"}, Platforms: map[string]plugin.PlatformArtifact{"linux/amd64": {Artifact: "demo-1.0.0.zip", SHA256: hex.EncodeToString(digest[:]), Archive: "zip", Entrypoint: "bin/demo"}}}
+	index := plugin.RegistryIndex{Schema: plugin.RegistrySchema, GeneratedAt: time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC), Plugins: map[plugin.PluginID]plugin.RegistryEntry{"demo": {Publisher: "mewisme", Name: "Demo", License: "Apache-2.0", Type: "formatter", Stable: "1.0.0", Versions: map[plugin.Version]string{"1.0.0": "demo-1.0.0.json"}}}}
 	publishers := plugin.PublisherIndex{Schema: plugin.PublishersSchema, Publishers: map[string]plugin.Publisher{"mewisme": {Name: "mewisme", Source: "https://github.com/mewisme/chatgpt-mcp", Trusted: true, Sigstore: plugin.SigstoreIdentity{Issuer: plugin.OfficialSigstoreIssuer, Repository: plugin.OfficialSigstoreRepo}}}}
 	writeJSON := func(path string, value any) {
 		data, err := json.Marshal(value)

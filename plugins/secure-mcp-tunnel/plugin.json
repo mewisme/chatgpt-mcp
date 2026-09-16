@@ -3,6 +3,7 @@
   "id": "secure-mcp-tunnel",
   "name": "Secure MCP Tunnel",
   "publisher": "mewisme",
+  "license": "Apache-2.0",
   "version": "1.0.0",
   "type": "runtime",
   "scopes": ["global"],

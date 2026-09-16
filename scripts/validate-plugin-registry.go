@@ -86,7 +86,7 @@ func validateRegistryAssets(index plugin.RegistryIndex, assetsRoot string) error
 			if err != nil {
 				return fmt.Errorf("validate manifest %s: %w", manifestName, err)
 			}
-			if manifest.ID != id || manifest.Version != version || manifest.Publisher != entry.Publisher || manifest.Type != entry.Type {
+			if manifest.ID != id || manifest.Version != version || manifest.Publisher != entry.Publisher || manifest.Type != entry.Type || manifest.License != entry.License {
 				return fmt.Errorf("registry manifest %s identity does not match index entry %s@%s", manifestName, id, version)
 			}
 			platforms := make([]string, 0, len(manifest.Platforms))

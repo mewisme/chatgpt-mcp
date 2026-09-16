@@ -24,7 +24,7 @@ func TestManagerInstallVerifyAndUninstall(t *testing.T) {
 	manifest.Platforms = map[string]PlatformArtifact{"windows/amd64": artifact}
 	generatedAt := time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC)
 	publisher := Publisher{Name: "mewisme", Source: "https://github.com/mewisme/chatgpt-mcp", Trusted: true, Sigstore: SigstoreIdentity{Issuer: "https://token.actions.githubusercontent.com", Repository: "mewisme/chatgpt-mcp"}}
-	index := RegistryIndex{Schema: RegistrySchema, GeneratedAt: generatedAt, Plugins: map[PluginID]RegistryEntry{"bash": {Publisher: "mewisme", Name: "Bash", Type: "runtime", Stable: "1.0.0", Versions: map[Version]string{"1.0.0": "bash-1.0.0.json"}}}}
+	index := RegistryIndex{Schema: RegistrySchema, GeneratedAt: generatedAt, Plugins: map[PluginID]RegistryEntry{"bash": {Publisher: "mewisme", Name: "Bash", License: "Apache-2.0", Type: "runtime", Stable: "1.0.0", Versions: map[Version]string{"1.0.0": "bash-1.0.0.json"}}}}
 	publishers := PublisherIndex{Schema: PublishersSchema, Publishers: map[string]Publisher{"mewisme": publisher}}
 	indexData, _ := json.Marshal(index)
 	publishersData, _ := json.Marshal(publishers)
@@ -309,7 +309,7 @@ func TestManagerRollbackRefetchesRetainedVersionBeforeActivation(t *testing.T) {
 	v2.Platforms = map[string]PlatformArtifact{"windows/amd64": {Artifact: "bash-2.0.0-windows-amd64.zip", SHA256: strings.Repeat("b", 64), Archive: "zip", Entrypoint: "usr/bin/bash.exe"}}
 	publisher := Publisher{Name: "mewisme", Source: "https://github.com/mewisme/chatgpt-mcp", Trusted: true, Sigstore: SigstoreIdentity{Issuer: OfficialSigstoreIssuer, Repository: OfficialSigstoreRepo}}
 	generatedAt := time.Date(2026, 9, 15, 2, 0, 0, 0, time.UTC)
-	index := RegistryIndex{Schema: RegistrySchema, GeneratedAt: generatedAt, Plugins: map[PluginID]RegistryEntry{"bash": {Publisher: "mewisme", Name: "Bash", Type: "runtime", Stable: "2.0.0", Versions: map[Version]string{"1.0.0": "bash-1.0.0.json", "2.0.0": "bash-2.0.0.json"}}}}
+	index := RegistryIndex{Schema: RegistrySchema, GeneratedAt: generatedAt, Plugins: map[PluginID]RegistryEntry{"bash": {Publisher: "mewisme", Name: "Bash", License: "Apache-2.0", Type: "runtime", Stable: "2.0.0", Versions: map[Version]string{"1.0.0": "bash-1.0.0.json", "2.0.0": "bash-2.0.0.json"}}}}
 	publishers := PublisherIndex{Schema: PublishersSchema, Publishers: map[string]Publisher{"mewisme": publisher}}
 	indexData, _ := json.Marshal(index)
 	publishersData, _ := json.Marshal(publishers)

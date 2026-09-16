@@ -68,7 +68,7 @@ func testAdminUIStore(t *testing.T, installed bool) *pluginpkg.Store {
 		t.Fatal(err)
 	}
 	manifest := pluginpkg.Manifest{
-		Schema: pluginpkg.ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", Version: "1.0.0", Type: "web-ui",
+		Schema: pluginpkg.ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "web-ui",
 		Provides: []pluginpkg.Capability{pluginpkg.CapabilityWebUIAdmin}, Permissions: []pluginpkg.Permission{},
 		Platforms: map[string]pluginpkg.PlatformArtifact{"any/any": {Artifact: "admin-ui-1.0.0.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "index.html"}},
 	}

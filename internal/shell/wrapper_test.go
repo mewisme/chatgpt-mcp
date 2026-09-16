@@ -148,7 +148,7 @@ func installShellWrapper(t *testing.T, name string) *pluginpkg.Store {
 	}
 	entrypointRel := filepath.ToSlash(strings.TrimPrefix(entrypoint, payload+string(filepath.Separator)))
 	manifest := pluginpkg.Manifest{
-		Schema: pluginpkg.ManifestSchema, ID: pluginpkg.PluginID(name), Name: name, Publisher: "mewisme", Version: "1.0.0", Type: "command-wrapper",
+		Schema: pluginpkg.ManifestSchema, ID: pluginpkg.PluginID(name), Name: name, Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "command-wrapper",
 		Provides: []pluginpkg.Capability{pluginpkg.Capability("command-wrapper/" + name)}, Permissions: []pluginpkg.Permission{pluginpkg.PermissionProcessExecute},
 		Platforms: map[string]pluginpkg.PlatformArtifact{runtime.GOOS + "/" + runtime.GOARCH: {Artifact: name + ".tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: entrypointRel}},
 	}

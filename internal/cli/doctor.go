@@ -58,11 +58,20 @@ type doctorState struct {
 
 func (d *doctorState) checks() []doctorCheck {
 	return []doctorCheck{
+		{ID: "install.current", Section: "System", Run: d.checkInstall},
 		{ID: "config.source", Section: "System", Run: d.checkConfigSource},
+		{ID: "config.integrity", Section: "System", Requires: []string{"config.source"}, Run: d.checkConfigIntegrity},
+		{ID: "config.validate", Section: "System", Requires: []string{"config.source"}, Run: d.checkConfigValidate},
+		{ID: "config.security", Section: "System", Requires: []string{"config.validate"}, Run: d.checkConfigSecurity},
+		{ID: "storage.paths", Section: "System", Requires: []string{"config.source"}, Run: d.checkStoragePaths},
 		{ID: "plugin.lock", Section: "Plugins", Run: d.checkPluginLock},
 		{ID: "plugin.desired", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginDesired},
 		{ID: "plugin.capabilities", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginCapabilities},
 		{ID: "plugin.registry", Section: "Plugins", Requires: []string{"plugin.lock"}, Timeout: 3 * time.Second, Run: d.checkPluginRegistry},
+		{ID: "runtime.control", Section: "Runtime", Requires: []string{"config.source"}, Run: d.checkRuntimeControl},
+		{ID: "network.plan", Section: "Runtime", Requires: []string{"config.validate"}, Run: d.checkNetworkPlan},
+		{ID: "auth.mcp", Section: "Runtime", Requires: []string{"config.validate"}, Run: d.checkAuthMCP},
+		{ID: "auth.admin", Section: "Runtime", Requires: []string{"config.validate"}, Run: d.checkAuthAdmin},
 		{ID: "shell.provider", Section: "Runtime", Requires: []string{"config.source"}, Run: d.checkShellProvider},
 		{ID: "notification.provider", Section: "Integrations", Requires: []string{"config.source"}, Timeout: time.Second, Run: d.checkNotificationProvider},
 	}

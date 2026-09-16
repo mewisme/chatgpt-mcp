@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 )
 
 func TestDoctorCommandRegistered(t *testing.T) {
@@ -17,6 +21,42 @@ func TestDoctorCommandRegistered(t *testing.T) {
 	}
 	if cmd.Name() != "doctor" || !cmd.Runnable() {
 		t.Fatalf("doctor command = %q runnable=%t", cmd.Name(), cmd.Runnable())
+	}
+}
+
+func TestDoctorUninitializedStillReportsLaterChecks(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
+	cmd := doctorCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	err := runDoctor(cmd, nil)
+	if !errors.Is(err, errDoctorFailed) {
+		t.Fatalf("err = %v", err)
+	}
+	text := out.String()
+	for _, expected := range []string{"FAIL", "config.source", "plugin.lock", "Summary:"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("output %q missing %q", text, expected)
+		}
+	}
+}
+
+func TestDoctorSecurityWarningDoesNotFail(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cmd := doctorCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := runDoctor(cmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "config.security") || !strings.Contains(out.String(), "WARN") {
+		t.Fatalf("output = %q", out.String())
 	}
 }
 

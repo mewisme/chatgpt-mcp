@@ -5,8 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -232,5 +236,72 @@ func TestReloadConfigCommitsBeforeRuntimeApply(t *testing.T) {
 	}
 	if got := app.Tools.Workspaces.ShellPath(); len(got) != 1 || got[0] != next.Shell.Path[0] {
 		t.Fatalf("runtime after apply = %#v", got)
+	}
+}
+
+type recordingNotifier struct {
+	sent chan notification.Notification
+}
+
+func (r *recordingNotifier) Available(context.Context) bool { return true }
+func (r *recordingNotifier) Capabilities(context.Context) notification.Capabilities {
+	return notification.Capabilities{Notification: true}
+}
+func (r *recordingNotifier) Send(_ context.Context, note notification.Notification) error {
+	select {
+	case r.sent <- note:
+	default:
+	}
+	return nil
+}
+
+func TestReloadConfigAppliesNotificationSettings(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Notifications.Stop()
+	provider := &recordingNotifier{sent: make(chan notification.Notification, 4)}
+	app.Notifications = notification.New(notification.Options{
+		Provider: provider,
+		Presence: func() (bool, error) { return false, nil },
+		Settings: func() notification.Settings { return app.Config.Snapshot().Notifications },
+	})
+	app.Notifications.Start(app.Tools.Approvals.Events())
+	publishApproval(t, app.Tools.Approvals)
+	select {
+	case <-provider.sent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected notification before disable")
+	}
+	next := app.Config.Snapshot()
+	next.Notifications.Enabled = false
+	if err := app.ReloadConfig(next); err != nil {
+		t.Fatal(err)
+	}
+	publishApproval(t, app.Tools.Approvals)
+	select {
+	case note := <-provider.sent:
+		t.Fatalf("notified after disable: %#v", note)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func publishApproval(t *testing.T, manager *approval.Manager) {
+	t.Helper()
+	challenge, _, err := manager.CreateChallenge(approval.ChallengeInput{
+		SessionID: "session", WorkspaceID: "ws_test", Source: "tunnel", TargetTool: "run_command",
+		Arguments: map[string]any{"command": "true"}, GuardCode: controlguard.CodeControlPlaneMutation,
+		GuardReason: "guarded", Title: "Allow test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := manager.CreateRequest(challenge.ID, "session", "ws_test"); err != nil {
+		t.Fatal(err)
 	}
 }

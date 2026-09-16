@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func testHost(goos string, env map[string]string, tools map[string]string) host {
@@ -178,5 +180,15 @@ func TestPlatformProviderNeverRequired(t *testing.T) {
 	}
 	if err := provider.Send(context.Background(), Notification{Title: "t", Body: "b"}); err == nil {
 		t.Fatal("expected send failure")
+	}
+}
+
+func TestTestingEnvDisablesPlatformProvider(t *testing.T) {
+	provider := newPlatformProvider(testHost("linux", map[string]string{
+		configformat.EnvTesting:    "1",
+		"DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/bus",
+	}, map[string]string{"gdbus": "/usr/bin/gdbus"}))
+	if provider.Available(context.Background()) {
+		t.Fatal("testing env still reported desktop notifications")
 	}
 }

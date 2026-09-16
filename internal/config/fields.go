@@ -94,6 +94,10 @@ var fieldSpecs = []FieldSpec{
 	{Key: "tunnel.admin_tenant_id", Label: "Admin tenant scope", Section: FieldSectionTunnel, Description: "records the verified tenant scope for the tunnel admin key", Details: "This read-only value is populated from admin-key verification and constrains tunnel management operations to the verified tenant scope when present.", Kind: FieldReadOnly, Guidance: "This scope is set only after admin-key verification.", Related: []string{"tunnel.admin_key", "tunnel.admin_organization_id", "tunnel.admin_workspace_id"}},
 	{Key: "tunnel.control_plane_base_url", Label: "Control-plane URL", Section: FieldSectionTunnel, Description: "overrides the OpenAI tunnel control-plane base URL", Details: "When empty, the tunnel client uses its default control-plane endpoint. A custom value must be an absolute HTTP or HTTPS URL with a host.", Kind: FieldString, Editable: true, Guidance: "Leave empty unless a different control-plane endpoint is explicitly required.", Related: []string{"tunnel.enabled", "tunnel.id"}},
 	{Key: "tunnel.organization_id", Label: "Organization ID", Section: FieldSectionTunnel, Description: "sets the OpenAI organization context associated with tunnel runtime operations", Details: "This optional organization identifier is carried in tunnel runtime configuration and is distinct from the verified admin-key organization scope.", Kind: FieldString, Editable: true, Related: []string{"tunnel.admin_organization_id", "tunnel.enabled"}},
+	{Key: "notifications.enabled", Label: "Desktop notifications", Section: FieldSectionRuntime, Description: "controls whether ChatGPT MCP may send desktop notifications", Details: "This is a best-effort host notification switch. Approval requests still work when notifications are disabled or the desktop provider is unavailable.", Kind: FieldBool, Editable: true, Related: []string{"notifications.approvals", "notifications.when_tui_inactive", "notifications.open_action"}},
+	{Key: "notifications.approvals", Label: "Approval notifications", Section: FieldSectionRuntime, Description: "controls desktop alerts for pending control approval requests", Details: "When enabled together with notifications.enabled, a pending approval.requested event can produce a lock-screen-safe desktop notification. The notification never approves or denies the request.", Kind: FieldBool, Editable: true, Related: []string{"notifications.enabled", "notifications.when_tui_inactive", "notifications.open_action"}},
+	{Key: "notifications.when_tui_inactive", Label: "Notify only without TUI", Section: FieldSectionRuntime, Description: "suppresses desktop approval notifications while a TUI reviewer is open", Details: "An open TUI holds a presence lock for this config root. When this setting is true, desktop notifications are skipped while that lock is held. A failed presence check prefers sending a notification rather than dropping the request silently.", Kind: FieldBool, Editable: true, Related: []string{"notifications.enabled", "notifications.approvals"}},
+	{Key: "notifications.open_action", Label: "Notification open action", Section: FieldSectionRuntime, Description: "controls whether a notification may open the matching TUI request", Details: "auto exposes a Review action only when the host provider can reliably activate a terminal. disabled keeps notifications passive. v1 providers are passive because one-shot host tools cannot receive notification clicks.", Kind: FieldEnum, Options: []string{"auto", "disabled"}, Values: []FieldValueSpec{{Value: "auto", Description: "Offer Review only when the provider supports reliable activation."}, {Value: "disabled", Description: "Always send a passive notification with no open action."}}, Editable: true, Related: []string{"notifications.enabled", "notifications.approvals"}},
 }
 
 func Fields() []FieldSpec {
@@ -246,6 +250,30 @@ func SetValue(cfg *Config, key, raw string) error {
 		cfg.Tunnel.ControlPlaneBaseURL = raw
 	case "tunnel.organization_id":
 		cfg.Tunnel.OrganizationID = raw
+	case "notifications.enabled":
+		value, err := parseBoolField(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Notifications.Enabled = value
+	case "notifications.approvals":
+		value, err := parseBoolField(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Notifications.Approvals = value
+	case "notifications.when_tui_inactive":
+		value, err := parseBoolField(raw, key)
+		if err != nil {
+			return err
+		}
+		cfg.Notifications.WhenTUIInactive = value
+	case "notifications.open_action":
+		value := strings.ToLower(strings.TrimSpace(raw))
+		if value != "auto" && value != "disabled" {
+			return errors.New("notifications.open_action must be auto or disabled")
+		}
+		cfg.Notifications.OpenAction = value
 	case "auth.mcp_token_hash", "auth.admin_token_hash":
 		return errors.New("token hashes cannot be set through config; use chatgpt-mcp auth <mcp|admin> create")
 	default:
@@ -342,6 +370,14 @@ func RawValue(cfg Config, key string) (string, error) {
 		return cfg.Tunnel.ControlPlaneBaseURL, nil
 	case "tunnel.organization_id":
 		return cfg.Tunnel.OrganizationID, nil
+	case "notifications.enabled":
+		return strconv.FormatBool(cfg.Notifications.Enabled), nil
+	case "notifications.approvals":
+		return strconv.FormatBool(cfg.Notifications.Approvals), nil
+	case "notifications.when_tui_inactive":
+		return strconv.FormatBool(cfg.Notifications.WhenTUIInactive), nil
+	case "notifications.open_action":
+		return cfg.Notifications.OpenAction, nil
 	default:
 		return "", fmt.Errorf("unsupported config key: %s", key)
 	}

@@ -107,7 +107,7 @@ Managed Tunnels and admin profiles are separate resources. Attaching a managed t
 
 ## Requests
 
-Requests is the approval inbox for guarded actions. Pending requests can also appear in the global live approval dialog so a local operator can review the exact action without leaving the current page.
+Requests is the approval inbox for guarded actions. Pending requests can also appear in the global live approval dialog so a local operator can review the exact action without leaving the current page. When no TUI reviewer is open, the runtime may also send a best-effort desktop notification; see [Desktop notifications](configuration.md#desktop-notifications).
 
 Approval does not create a general shell bypass; it authorizes the runtime-defined action/retry scope. See [Security](security.md#control-guard-approvals-and-self-grant-prevention).
 

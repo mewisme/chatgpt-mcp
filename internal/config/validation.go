@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/caveman"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -86,6 +87,9 @@ func Validate(cfg Config) error {
 		return err
 	}
 	if err := cfg.Tunnel.Collection().Validate(); err != nil {
+		return err
+	}
+	if err := notification.ValidateSettings(cfg.Notifications); err != nil {
 		return err
 	}
 	return nil

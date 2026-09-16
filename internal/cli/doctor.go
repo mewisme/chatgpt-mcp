@@ -10,6 +10,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/version"
@@ -119,6 +120,10 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		log.Detail("version", string(provider.Version))
 	}
 	log.Verbose("DOCTOR", "doctor.shell.ready", "Bash shell provider ready", logger.WithVerbose("provider", provider.Label()), logger.WithVerbose("executable", provider.Executable))
+	notifyCtx, notifyCancel := context.WithTimeout(parentCtx, time.Second)
+	available := notification.PlatformProvider().Available(notifyCtx)
+	notifyCancel()
+	log.Verbose("DOCTOR", "doctor.notifications.inspect", "Desktop notification provider inspected", logger.WithVerbose("available", available), logger.WithVerbose("enabled", cfg.Notifications.Enabled))
 	return nil
 }
 

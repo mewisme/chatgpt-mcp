@@ -41,7 +41,13 @@ func (a *App) Bootstrap() error {
 		telemetry.AttachTools(a.Tools, a.Activity, a.Logger)
 		telemetry.AttachApprovals(a.Tools.Approvals, a.Activity, a.Logger)
 		if a.Notifications == nil {
-			a.Notifications = notification.New(notification.Options{Log: a.Logger, Workspaces: a.Tools.Workspaces})
+			a.Notifications = notification.New(notification.Options{
+				Log:        a.Logger,
+				Workspaces: a.Tools.Workspaces,
+				Settings: func() notification.Settings {
+					return a.Config.Snapshot().Notifications
+				},
+			})
 		}
 		if a.Tools.Approvals != nil {
 			a.Notifications.Start(a.Tools.Approvals.Events())

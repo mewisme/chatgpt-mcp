@@ -18,12 +18,13 @@ func TestFieldSetValuePreservesTypedBehaviorAndLegacyAliases(t *testing.T) {
 		"server.port": "4000", "server.expose": "true", "admin.enabled": "false",
 		"features.ponytail.enabled": "false", "features.ponytail.mode": "ULTRA", "features.caveman.enabled": "false", "features.caveman.mode": "WENYAN-ULTRA",
 		"permissions.allow_dirs": "/tmp\n/var/tmp", "shell.executable": "/opt/bash", "shell.path": "/opt/tools,/usr/local/custom/bin",
+		"notifications.enabled": "false", "notifications.open_action": "DISABLED",
 	} {
 		if err := SetValue(&cfg, key, value); err != nil {
 			t.Fatalf("%s: %v", key, err)
 		}
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || len(cfg.Permissions.AllowDirs) != 2 || cfg.Shell.Executable != "/opt/bash" || len(cfg.Shell.Path) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || len(cfg.Permissions.AllowDirs) != 2 || cfg.Shell.Executable != "/opt/bash" || len(cfg.Shell.Path) != 2 || cfg.Notifications.Enabled || cfg.Notifications.OpenAction != "disabled" {
 		t.Fatalf("cfg=%#v", cfg)
 	}
 	if value, err := RawValue(cfg, "shell.path"); err != nil || value != "/opt/tools,/usr/local/custom/bin" {
@@ -66,6 +67,9 @@ func TestFieldSetValueValidationIsTransactional(t *testing.T) {
 	}
 	if err := SetValue(&cfg, "features.caveman.mode", "wenyan"); err == nil || !strings.Contains(err.Error(), "wenyan-lite") {
 		t.Fatalf("caveman err=%v", err)
+	}
+	if err := SetValue(&cfg, "notifications.open_action", "toast"); err == nil || !strings.Contains(err.Error(), "auto or disabled") {
+		t.Fatalf("open action err=%v", err)
 	}
 }
 
@@ -159,7 +163,7 @@ func TestExplainResolvesLeafBranchRootAndAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !root.Branch || !hasExplanationChild(root, "shell") || !hasExplanationChild(root, "server") {
+	if !root.Branch || !hasExplanationChild(root, "shell") || !hasExplanationChild(root, "server") || !hasExplanationChild(root, "notifications") {
 		t.Fatalf("root=%#v", root)
 	}
 	alias, err := Explain("features.ponytail.enabled")
@@ -173,7 +177,7 @@ func TestExplainResolvesLeafBranchRootAndAlias(t *testing.T) {
 
 func TestExplainSchemaKeysIncludeBranchesAndLeaves(t *testing.T) {
 	keys := SchemaKeys()
-	for _, want := range []string{"server", "server.expose", "server.expose.mode", "shell", "shell.path"} {
+	for _, want := range []string{"server", "server.expose", "server.expose.mode", "shell", "shell.path", "notifications", "notifications.open_action"} {
 		if !slices.Contains(keys, want) {
 			t.Fatalf("schema keys missing %q: %#v", want, keys)
 		}

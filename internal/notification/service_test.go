@@ -191,6 +191,19 @@ func TestServiceSendDoesNotBlockRequestCreation(t *testing.T) {
 	_ = waitNote(t, provider.sent)
 }
 
+func TestServiceOpenActionDisabledSetting(t *testing.T) {
+	provider := newFakeProvider()
+	provider.caps = Capabilities{Notification: true, Actions: true}
+	settings := DefaultSettings()
+	settings.OpenAction = OpenActionDisabled
+	_, manager := startService(t, provider, func() (bool, error) { return false, nil }, settings)
+	publishRequested(manager, "req_passive", "Allow git push")
+	note := waitNote(t, provider.sent)
+	if note.OpenAction {
+		t.Fatalf("disabled open action still requested: %#v", note)
+	}
+}
+
 func TestServiceOpenActionFollowsCapabilities(t *testing.T) {
 	provider := newFakeProvider()
 	provider.caps = Capabilities{Notification: true, Actions: true}

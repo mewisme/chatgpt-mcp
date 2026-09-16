@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -21,14 +22,23 @@ const (
 )
 
 type Settings struct {
-	Enabled         bool
-	Approvals       bool
-	WhenTUIInactive bool
-	OpenAction      string
+	Enabled         bool   `json:"enabled"`
+	Approvals       bool   `json:"approvals"`
+	WhenTUIInactive bool   `json:"when_tui_inactive"`
+	OpenAction      string `json:"open_action"`
 }
 
 func DefaultSettings() Settings {
 	return Settings{Enabled: true, Approvals: true, WhenTUIInactive: true, OpenAction: OpenActionAuto}
+}
+
+func ValidateSettings(settings Settings) error {
+	switch strings.ToLower(strings.TrimSpace(settings.OpenAction)) {
+	case "", OpenActionAuto, OpenActionDisabled:
+		return nil
+	default:
+		return fmt.Errorf("notifications.open_action must be auto or disabled: %q", settings.OpenAction)
+	}
 }
 
 type Options struct {

@@ -202,6 +202,20 @@ func TestValidateBuiltinOpenAITunnel(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnknownNotificationOpenAction(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPTokenHash = "configured"
+	cfg.Auth.AdminTokenHash = "configured"
+	cfg.Notifications.OpenAction = "toast"
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "notifications.open_action") {
+		t.Fatalf("err=%v", err)
+	}
+	cfg.Notifications.OpenAction = ""
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestConfigSaveSeparatesTunnelSecrets(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")

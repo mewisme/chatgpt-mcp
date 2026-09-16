@@ -11,17 +11,19 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/features"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 type Config struct {
-	Server      ServerConfig      `json:"server"`
-	Admin       AdminConfig       `json:"admin"`
-	Auth        AuthConfig        `json:"auth"`
-	Permissions PermissionsConfig `json:"permissions"`
-	Shell       ShellConfig       `json:"shell"`
-	Features    FeaturesConfig    `json:"features"`
-	Tunnel      tunnel.Config     `json:"tunnel"`
+	Server        ServerConfig          `json:"server"`
+	Admin         AdminConfig           `json:"admin"`
+	Auth          AuthConfig            `json:"auth"`
+	Permissions   PermissionsConfig     `json:"permissions"`
+	Shell         ShellConfig           `json:"shell"`
+	Features      FeaturesConfig        `json:"features"`
+	Tunnel        tunnel.Config         `json:"tunnel"`
+	Notifications notification.Settings `json:"notifications"`
 }
 
 // RuntimeTunnels returns the local ingress collection, including legacy scalar configs.
@@ -110,7 +112,7 @@ type AuthConfig struct {
 type FeaturesConfig = features.Config
 
 func Default() Config {
-	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, MCPLegacyBearer: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}}
+	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, MCPLegacyBearer: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}, Notifications: notification.DefaultSettings()}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {

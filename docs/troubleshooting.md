@@ -403,6 +403,25 @@ cgm logs --debug -n 200
 
 Fix the upstream endpoint/auth/discovery issue, then retry the relevant upstream configuration action.
 
+## Desktop approval notifications do not appear
+
+Desktop notifications are best-effort and never required for approval.
+
+Check:
+
+1. `cgm config get notifications` — `enabled` and `approvals` must be true.
+2. A TUI reviewer is not already open for this config root (`notifications.when_tui_inactive` suppresses alerts while it is).
+3. The host can actually notify: Linux needs a session D-Bus plus `gdbus` or `notify-send`; Windows needs PowerShell; macOS needs `osascript`; WSL prefers Windows-host PowerShell rather than Linux D-Bus.
+4. Headless/SSH Linux without a desktop session is expected to stay silent.
+
+Review from the TUI Requests page or:
+
+```bash
+cgm tui requests
+cgm doctor --verbose
+cgm logs --component NOTIFICATION --debug -n 50
+```
+
 ## Still stuck
 
 Collect these without copying secrets:

@@ -31,6 +31,22 @@ Integer TCP port for the MCP HTTP server. Valid range is `1-65535`. When both MC
 
 Boolean opt-in allowing authenticated plain HTTP endpoints beyond loopback. This does not disable authentication requirements. Prefer the Secure MCP Tunnel or a TLS reverse proxy when possible.
 
+### `notifications.enabled` — Desktop notifications
+
+Boolean master switch for host desktop notifications. Approval requests still work when this is off or the provider is unavailable.
+
+### `notifications.approvals` — Approval notifications
+
+Boolean controlling desktop alerts for pending control approval requests. The notification never approves or denies.
+
+### `notifications.when_tui_inactive` — Notify only without TUI
+
+Boolean. When true, desktop approval notifications are skipped while a TUI reviewer is open for this config root.
+
+### `notifications.open_action` — Notification open action
+
+Enum: `auto` or `disabled`. `auto` would expose Review only when the host can reliably open a terminal; `disabled` keeps notifications passive. Current providers are passive.
+
 ### `admin.enabled` — Admin server
 
 Boolean controlling the admin HTTP server. When enabled it uses `admin.port` and the same network exposure policy. If admin authentication is enabled, a configured admin credential is required.

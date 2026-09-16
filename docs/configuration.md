@@ -79,6 +79,29 @@ Values are parsed according to the schema and validated before persistence. `key
 
 At least one MCP transport must remain enabled: direct MCP HTTP (`server.enabled`) or at least one enabled local Secure MCP Tunnel instance. Tunnel instances are managed through `cgm tunnel ...` rather than scalar `config set` fields.
 
+## Desktop notifications
+
+Pending control approvals can raise a best-effort desktop notification when no TUI reviewer is open. Notification failure never blocks, approves, or denies the request.
+
+```bash
+cgm config set notifications.enabled true
+cgm config set notifications.approvals true
+cgm config set notifications.when_tui_inactive true
+cgm config set notifications.open_action auto
+cgm config explain notifications
+```
+
+Platform behavior:
+
+- **Linux desktop** uses the session notification bus (`gdbus` or `notify-send`) when `DBUS_SESSION_BUS_ADDRESS` or `XDG_RUNTIME_DIR` is present. Headless and SSH sessions without a session bus stay silent.
+- **Windows** uses a PowerShell balloon tip when `powershell.exe` or `pwsh.exe` is available.
+- **macOS** uses `osascript` when present.
+- **WSL** prefers the Windows host (`powershell.exe`) and does not require Linux D-Bus. Terminal launch, when later enabled, keeps the current WSL distro through Windows Terminal.
+
+v1 notifications are passive: they do not approve/deny, and they do not yet click-open a terminal. Open the TUI Requests page or `cgm tui requests <request-id>` to review.
+
+`cgm doctor --verbose` reports whether a desktop provider looks available; unavailability is non-fatal.
+
 ## Applying changes to a running runtime
 
 Supported local config mutations are applied to the selected running runtime automatically. If the runtime is stopped, the persisted value is used on the next start.

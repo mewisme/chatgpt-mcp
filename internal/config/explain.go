@@ -154,6 +154,8 @@ func branchDescription(key string) string {
 		return "Caveman feature defaults."
 	case "tunnel":
 		return "OpenAI Secure MCP Tunnel configuration."
+	case "notifications":
+		return "Best-effort desktop notification configuration."
 	default:
 		return "Configuration subtree."
 	}

@@ -400,6 +400,7 @@ cgm config set server.enabled false
 cgm config set server.port 41021
 cgm config set admin.port 41022
 cgm config set server.expose none
+cgm config set notifications.enabled true
 ```
 
 At least one MCP transport must remain enabled: `server.enabled` for direct MCP HTTP or at least one enabled local tunnel instance. Tunnel collections are edited with `cgm tunnel ...`, not scalar `config set` keys.

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 const (
@@ -36,6 +38,10 @@ func PlatformProvider() Provider {
 }
 
 func newPlatformProvider(h host) Provider {
+	switch strings.ToLower(strings.TrimSpace(h.env(configformat.EnvTesting))) {
+	case "1", "true", "yes":
+		return UnavailableProvider()
+	}
 	if h.runningOnWSL() {
 		return platformProvider{host: h, kind: "wsl"}
 	}

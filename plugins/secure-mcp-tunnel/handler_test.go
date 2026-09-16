@@ -83,6 +83,43 @@ func TestHandlerStartStopInstanceIsIDScoped(t *testing.T) {
 	}
 }
 
+func TestHandlerRuntimeStatusReportsMixedInstances(t *testing.T) {
+	h := testHandler(t)
+	ctx := context.Background()
+	if err := h.Manager.Reconcile(ctx, tunnel.CollectionConfig{Instances: []tunnel.InstanceConfig{
+		{Enabled: true, ID: "tunnel_a", APIKey: "key-a"},
+		{Enabled: true, ID: "tunnel_b", APIKey: "key-b"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invokeHandler(t, h, "start_instance", map[string]string{"id": "tunnel_a"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, h, "tunnel_a")
+	raw, err := invokeHandler(t, h, "runtime_status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var statuses []tunnel.Status
+	if err := json.Unmarshal(encoded, &statuses); err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("statuses = %#v", statuses)
+	}
+	byID := map[string]tunnel.Status{}
+	for _, item := range statuses {
+		byID[item.ID] = item
+	}
+	if !byID["tunnel_a"].Ready || byID["tunnel_b"].Ready {
+		t.Fatalf("mixed status = %#v", byID)
+	}
+}
+
 type stubBackend struct {
 	ready chan struct{}
 	done  chan os.Signal

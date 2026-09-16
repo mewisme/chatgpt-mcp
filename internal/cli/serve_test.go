@@ -17,6 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 func TestWaitRuntimeHTTPReadyRequiresMCPAndAdminListeners(t *testing.T) {
@@ -166,6 +167,22 @@ func TestTunnelOnlyServePublishesRuntimeControl(t *testing.T) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatal("tunnel-only runtime control was not published")
+}
+
+func TestRuntimeTunnelStatusesReportsConfiguredWhenPluginMissing(t *testing.T) {
+	cfg := config.Default()
+	instances := []tunnel.InstanceConfig{
+		{Enabled: true, ID: "tunnel_a", APIKey: "key-a"},
+		{Enabled: false, ID: "tunnel_b", APIKey: "key-b"},
+	}
+	cfg.Tunnel.Instances = &instances
+	summary, items := runtimeTunnelStatuses(nil, cfg)
+	if summary.Total != 2 || summary.Ready != 0 || len(items) != 2 {
+		t.Fatalf("summary=%+v items=%+v", summary, items)
+	}
+	if items[0].ID != "tunnel_a" || !items[0].Configured || items[0].Ready || items[1].ID != "tunnel_b" || items[1].Ready {
+		t.Fatalf("items=%+v", items)
+	}
 }
 
 func testServerPort(t *testing.T, address net.Addr) int {

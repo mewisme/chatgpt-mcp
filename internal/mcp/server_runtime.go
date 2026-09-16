@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
@@ -14,13 +13,11 @@ type Runtime struct {
 }
 
 func NewRuntime() *Runtime {
-	pluginhost.Install()
 	return NewRuntimeWithTools(tools.NewRuntime())
 }
 
 func NewRuntimeWithTools(toolRuntime *tools.Runtime) *Runtime {
 	if toolRuntime == nil {
-		pluginhost.Install()
 		toolRuntime = tools.NewRuntime()
 	}
 	return &Runtime{Tools: toolRuntime}

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/activity"
-	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
@@ -18,7 +17,6 @@ type HTTPRuntime struct {
 }
 
 func NewHTTPRuntime() *HTTPRuntime {
-	pluginhost.Install()
 	return NewHTTPRuntimeWithTools(tools.NewRuntime())
 }
 

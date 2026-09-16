@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/licenseinventory"
 	"go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/pluginbuild"
 )
@@ -50,6 +51,7 @@ func TestBuildCurrentPlatform(t *testing.T) {
 		t.Skip("template does not declare " + platform)
 	}
 	t.Setenv(pluginbuild.EnvUPX, pluginbuild.EnvUPXOff)
+	t.Setenv(licenseinventory.EnvInventory, licenseinventory.EnvInventoryOff)
 	output := t.TempDir()
 	manifestPath, err := pluginbuild.Build(pluginbuild.Request{
 		RepoRoot: repoRoot, TemplatePath: template, OutputRoot: output, OnlyPlatform: platform,

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/licenseinventory"
 	"go.mewis.me/chatgpt-mcp/internal/plugin"
 )
 
@@ -37,6 +38,10 @@ func Build(req Request) (string, error) {
 		return "", fmt.Errorf("decode plugin template: %w", err)
 	}
 	if err := os.MkdirAll(req.OutputRoot, 0755); err != nil {
+		return "", err
+	}
+	extras, err := licenseinventory.ExtraFiles(req.RepoRoot, string(manifest.ID))
+	if err != nil {
 		return "", err
 	}
 	platforms := make([]string, 0, len(manifest.Platforms))
@@ -71,7 +76,7 @@ func Build(req Request) (string, error) {
 			return "", err
 		}
 		artifactPath := filepath.Join(req.OutputRoot, artifact.Artifact)
-		if err := zipFile(binary, artifact.Entrypoint, artifactPath); err != nil {
+		if err := zipFile(binary, artifact.Entrypoint, artifactPath, extras); err != nil {
 			return "", err
 		}
 		digest, err := fileSHA256(artifactPath)
@@ -116,7 +121,7 @@ func compile(repoRoot, pkg, goos, goarch, output string) error {
 	return nil
 }
 
-func zipFile(sourcePath, entryName, outputPath string) error {
+func zipFile(sourcePath, entryName, outputPath string, extras []licenseinventory.ExtraFile) error {
 	temp, err := os.CreateTemp(filepath.Dir(outputPath), ".plugin-*.zip")
 	if err != nil {
 		return err
@@ -155,6 +160,11 @@ func zipFile(sourcePath, entryName, outputPath string) error {
 		_ = writer.Close()
 		_ = temp.Close()
 		return closeErr
+	}
+	if err := licenseinventory.AddZipFiles(writer, extras, zipEpoch); err != nil {
+		_ = writer.Close()
+		_ = temp.Close()
+		return err
 	}
 	if err := writer.Close(); err != nil {
 		_ = temp.Close()

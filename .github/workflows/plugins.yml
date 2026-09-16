@@ -72,6 +72,13 @@ jobs:
           version: 'v5.2.0'
           install-only: true
 
+      - name: Install Admin UI dependencies
+        if: matrix.id == 'admin-ui'
+        run: pnpm --dir plugins/admin-ui install --frozen-lockfile
+
+      - name: Generate plugin license inventory
+        run: go run ./internal/licenseinventory/cmd/license-inventory --artifact "${{ matrix.id }}" --out "dist/licenses/${{ matrix.id }}"
+
       - name: Build plugin
         run: node scripts/plugin-workflow.mjs build "${{ matrix.id }}" dist/plugins
 

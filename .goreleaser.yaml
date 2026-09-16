@@ -6,6 +6,7 @@ project_name: chatgpt-mcp
 before:
   hooks:
     - go mod verify
+    - go run ./internal/licenseinventory/cmd/license-inventory --artifact core --out dist/licenses/core
 
 builds:
   - id: chatgpt-mcp
@@ -39,12 +40,11 @@ archives:
     formats: [tar.gz]
     files:
       - LICENSE
-      - NOTICE
       - README.md
-      - third_party/ponytail/LICENSE
-      - third_party/ponytail/NOTICE.md
-      - third_party/caveman/LICENSE
-      - third_party/caveman/NOTICE.md
+      - src: dist/licenses/core/NOTICE
+        dst: NOTICE
+      - dist/licenses/core/licenses.txt
+      - dist/licenses/core/sbom.spdx.json
     format_overrides:
       - goos: windows
         formats: [zip]

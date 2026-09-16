@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/licenseinventory"
 	"go.mewis.me/chatgpt-mcp/internal/plugin"
 )
 
@@ -66,8 +67,16 @@ func build(sourceRoot, templatePath, outputRoot string) (string, string, error) 
 	if err := os.MkdirAll(outputRoot, 0755); err != nil {
 		return "", "", err
 	}
+	root, err := repoRootFromTemplate(templatePath)
+	if err != nil {
+		return "", "", err
+	}
+	extras, err := licenseinventory.ExtraFiles(root, "admin-ui")
+	if err != nil {
+		return "", "", err
+	}
 	artifactPath := filepath.Join(outputRoot, artifact.Artifact)
-	if err := deterministicZip(sourceRoot, artifactPath); err != nil {
+	if err := deterministicZip(sourceRoot, artifactPath, extras); err != nil {
 		return "", "", err
 	}
 	digest, err := fileSHA256(artifactPath)
@@ -90,7 +99,7 @@ func build(sourceRoot, templatePath, outputRoot string) (string, string, error) 
 	return artifactPath, manifestPath, nil
 }
 
-func deterministicZip(sourceRoot, outputPath string) error {
+func deterministicZip(sourceRoot, outputPath string, extras []licenseinventory.ExtraFile) error {
 	paths := []string{}
 	err := filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -126,6 +135,11 @@ func deterministicZip(sourceRoot, outputPath string) error {
 			_ = temp.Close()
 			return err
 		}
+	}
+	if err := licenseinventory.AddZipFiles(writer, extras, zipEpoch); err != nil {
+		_ = writer.Close()
+		_ = temp.Close()
+		return err
 	}
 	if err := writer.Close(); err != nil {
 		_ = temp.Close()
@@ -188,6 +202,14 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func repoRootFromTemplate(templatePath string) (string, error) {
+	abs, err := filepath.Abs(templatePath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(abs), "..", "..")), nil
 }
 
 func fail(err error) {

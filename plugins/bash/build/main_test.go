@@ -8,10 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/licenseinventory"
 	"go.mewis.me/chatgpt-mcp/internal/plugin"
 )
 
 func TestBuildIsDeterministicAndGeneratesExactManifest(t *testing.T) {
+	t.Setenv(licenseinventory.EnvInventory, licenseinventory.EnvInventoryOff)
 	sourceRoot := filepath.Join(t.TempDir(), "portable")
 	if err := os.MkdirAll(filepath.Join(sourceRoot, "usr", "bin"), 0755); err != nil {
 		t.Fatal(err)

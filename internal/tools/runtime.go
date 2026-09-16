@@ -214,6 +214,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	callID := r.nextCallID()
 	started := time.Now()
 	source := CallSource(ctx)
+	tunnelID, tunnelName := CallTunnel(ctx)
 	callCtx, cancelCall := toolCallContext(ctx, source, started)
 	defer cancelCall()
 	ctx = callCtx
@@ -312,7 +313,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	if sessionHash != "" {
 		raw["session"] = map[string]any{"hash": sessionHash, "access": sessionAccess, "workspace_count": sessionWorkspaceCount}
 	}
-	r.observeCall(CallObservation{CallID: callID, Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy})
+	r.observeCall(CallObservation{CallID: callID, Phase: "start", Source: source, TunnelID: tunnelID, TunnelName: tunnelName, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy})
 
 	result, err := Result{}, preflightErr
 	registryCalled := false
@@ -359,7 +360,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		finishRaw["status"] = status
 		finishRaw["result_type"] = result.ResultType
 		finishRaw["result"] = observedResult(name, result)
-		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, TunnelID: tunnelID, TunnelName: tunnelName, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return result, nil
 	}
 
@@ -372,13 +373,13 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["status"] = status
 	finishRaw["error"] = message
 	if errors.Is(err, ErrToolNotFound) {
-		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, TunnelID: tunnelID, TunnelName: tunnelName, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return Result{}, err
 	}
 	result = ErrorResult(err)
 	finishRaw["result_type"] = result.ResultType
 	finishRaw["result"] = observedResult(name, result)
-	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, TunnelID: tunnelID, TunnelName: tunnelName, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
 }
 

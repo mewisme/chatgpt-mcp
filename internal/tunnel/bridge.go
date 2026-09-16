@@ -22,6 +22,7 @@ import (
 type sdkBridge struct {
 	runtime          *tools.Runtime
 	tunnelID         string
+	tunnelName       string
 	server           *sdkmcp.Server
 	mu               sync.Mutex
 	fingerprints     map[string]string
@@ -202,6 +203,7 @@ func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
 			ctx = tools.WithInputRound(ctx, request.Params.RequestState, responses)
 		}
 		ctx = tools.WithCallSource(ctx, "tunnel")
+		ctx = tools.WithCallTunnel(ctx, b.tunnelID, b.tunnelName)
 		if sessionID := b.sessionID(ctx, request); sessionID != "" {
 			if b.tunnelID != "" {
 				sessionID = fmt.Sprintf("tunnel:%d:%s:%s", len(b.tunnelID), b.tunnelID, sessionID)

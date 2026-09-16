@@ -40,6 +40,55 @@ func TestSDKBridgePropagatesTunnelSessionID(t *testing.T) {
 	}
 }
 
+func TestSDKBridgeObservationsDistinguishTwoTunnels(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegister("probe", tools.Schema{Name: "probe", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, map[string]any) (tools.Result, error) {
+		return tools.TextResult("ok"), nil
+	})
+	runtime := &tools.Runtime{Registry: registry}
+	seen := make(chan tools.CallObservation, 4)
+	runtime.SetCallObserver(func(observation tools.CallObservation) {
+		if observation.Phase == "finish" {
+			seen <- observation
+		}
+	})
+	for _, item := range []struct{ id, name string }{{"tunnel_a", "Alpha"}, {"tunnel_b", "Beta"}} {
+		bridge, err := newSDKBridgeForTunnel(runtime, item.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bridge.tunnelName = item.name
+		ctx := tunnelctx.ContextWithSessionID(context.Background(), "same-remote-id")
+		if _, err := bridge.toolHandler("probe")(ctx, &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "probe", Arguments: json.RawMessage(`{}`)}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, second := <-seen, <-seen
+	if first.Source != "tunnel" || second.Source != "tunnel" {
+		t.Fatalf("source = %q %q", first.Source, second.Source)
+	}
+	if first.TunnelID != "tunnel_a" || first.TunnelName != "Alpha" {
+		t.Fatalf("first = %#v", first)
+	}
+	if second.TunnelID != "tunnel_b" || second.TunnelName != "Beta" {
+		t.Fatalf("second = %#v", second)
+	}
+
+	direct := make(chan tools.CallObservation, 2)
+	runtime.SetCallObserver(func(observation tools.CallObservation) {
+		if observation.Phase == "finish" {
+			direct <- observation
+		}
+	})
+	if _, err := runtime.Call(tools.WithCallSource(context.Background(), "http"), "probe", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	got := <-direct
+	if got.Source != "http" || got.TunnelID != "" || got.TunnelName != "" {
+		t.Fatalf("direct call leaked tunnel identity: %#v", got)
+	}
+}
+
 func TestSDKBridgeConsumesInternalSessionMetaWithoutLoggingIt(t *testing.T) {
 	registry := tools.NewRegistry()
 	seen := make(chan string, 1)

@@ -11,6 +11,8 @@ type CallObservation struct {
 	CallID                string
 	Phase                 string
 	Source                string
+	TunnelID              string
+	TunnelName            string
 	Tool                  string
 	WorkspaceID           string
 	Status                string
@@ -28,9 +30,15 @@ type CallObservation struct {
 type CallObserver func(CallObservation)
 
 type callSourceKey struct{}
+type callTunnelKey struct{}
 type callDetailsKey struct{}
 type receivedByInstanceKey struct{}
 type mcpSessionIDKey struct{}
+
+type callTunnel struct {
+	ID   string
+	Name string
+}
 
 type callDetails struct {
 	Method  string
@@ -99,6 +107,25 @@ func CallSource(ctx context.Context) string {
 	}
 	source, _ := ctx.Value(callSourceKey{}).(string)
 	return source
+}
+
+func WithCallTunnel(ctx context.Context, id, name string) context.Context {
+	id, name = strings.TrimSpace(id), strings.TrimSpace(name)
+	if id == "" && name == "" {
+		return ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, callTunnelKey{}, callTunnel{ID: id, Name: name})
+}
+
+func CallTunnel(ctx context.Context) (id, name string) {
+	if ctx == nil {
+		return "", ""
+	}
+	value, _ := ctx.Value(callTunnelKey{}).(callTunnel)
+	return value.ID, value.Name
 }
 
 func WithCallDetails(ctx context.Context, method string, params map[string]any) context.Context {

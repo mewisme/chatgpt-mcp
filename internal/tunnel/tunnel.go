@@ -635,6 +635,9 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 		c.emitLifecycle(LifecycleDegraded, id, err.Error())
 		return err
 	}
+	if c.metadata != nil {
+		bridge.tunnelName = strings.TrimSpace(c.metadata.Name)
+	}
 	serverTransport, tunnelTransport := newCancellationSafeInMemoryTransports()
 	tunnelBackend, err := c.factory(c.config, withSessionTransportActivity(tunnelTransport, func() { c.markMCPActivity(session) }))
 	if err != nil {

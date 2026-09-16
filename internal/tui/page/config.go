@@ -489,12 +489,11 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 	if msg.err != nil {
 		if page.editor != nil {
 			page.editor.SetSubmitting(false)
-			page.editor.SetFeedback("", msg.err)
 			page.err = nil
-		} else {
-			page.err = msg.err
+			return func() tea.Msg { return OperationResult("config.save", "Configuration", "", msg.err) }
 		}
-		return nil
+		page.err = msg.err
+		return func() tea.Msg { return OperationResult("config.save", "Configuration", "", msg.err) }
 	}
 	page.err = nil
 	switch msg.command {

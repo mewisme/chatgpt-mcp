@@ -404,8 +404,9 @@ func TestRuntimeInstallAndUpdateUseRoutedEditorsAndFailureKeepsDraft(t *testing.
 	update.editor.SetSubmitting(true)
 	update.operationID = 7
 	follow := update.finishOperation(systemOperationMsg{id: 7, command: UpdateApply, err: fmt.Errorf("update failed")})
-	if follow != nil || update.editor == nil || update.updateForm.TargetVersion != "v-draft" || update.editor.Submitting() || !strings.Contains(ansi.Strip(update.View(44, 18)), "update failed") {
-		t.Fatalf("follow=%v draft=%#v submitting=%t view=%q", follow != nil, update.updateForm, update.editor.Submitting(), ansi.Strip(update.View(44, 18)))
+	msg, ok := follow().(OperationMsg)
+	if !ok || msg.Phase != OperationError || update.editor == nil || update.updateForm.TargetVersion != "v-draft" || update.editor.Submitting() {
+		t.Fatalf("follow=%v draft=%#v submitting=%t", follow != nil, update.updateForm, update.editor.Submitting())
 	}
 }
 
@@ -451,8 +452,9 @@ func TestRuntimeUpdateOperationsUseInlineTitleNotice(t *testing.T) {
 func TestRuntimeUpdateFailureRemainsErrorFeedback(t *testing.T) {
 	page, _ := NewRuntime(t.Context())
 	page.operationID = 3
-	page.finishOperation(systemOperationMsg{id: 3, command: UpdateApply, err: errors.New("update failed")})
-	if page.err == nil || page.err.Error() != "update failed" || page.notice != "" {
-		t.Fatalf("failure err=%v notice=%q", page.err, page.notice)
+	follow := page.finishOperation(systemOperationMsg{id: 3, command: UpdateApply, err: errors.New("update failed")})
+	msg, ok := follow().(OperationMsg)
+	if !ok || page.err == nil || page.err.Error() != "update failed" || page.notice != "" || msg.Phase != OperationError {
+		t.Fatalf("failure err=%v notice=%q msg=%#v", page.err, page.notice, msg)
 	}
 }

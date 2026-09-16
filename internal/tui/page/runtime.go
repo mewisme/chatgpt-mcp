@@ -580,12 +580,11 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		page.overlay = systemOverlayNone
 		if page.editor != nil {
 			page.editor.SetSubmitting(false)
-			page.editor.SetFeedback("", msg.err)
 			page.err = nil
-		} else {
-			page.err = msg.err
+			return func() tea.Msg { return OperationResult("runtime.update", "Runtime", "", msg.err) }
 		}
-		return nil
+		page.err = msg.err
+		return func() tea.Msg { return OperationResult("runtime.update", "Runtime", "", msg.err) }
 	}
 	if msg.token != "" {
 		page.secret = msg.token

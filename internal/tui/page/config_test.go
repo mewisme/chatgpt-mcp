@@ -407,8 +407,9 @@ func TestConfigPageEditIsRoutedAndOperationFailureKeepsEditor(t *testing.T) {
 	edit.fieldForm.Raw = "draft-value"
 	edit.editor.SetSubmitting(true)
 	follow := edit.finishOperation(configOperationMsg{command: ConfigEdit, err: fmt.Errorf("save failed")})
-	if follow != nil || edit.editor == nil || edit.fieldForm.Raw != "draft-value" || edit.editor.Submitting() || !strings.Contains(ansi.Strip(edit.View(52, 20)), "save failed") {
-		t.Fatalf("failure follow=%v editor=%v draft=%q submitting=%t view=%q", follow != nil, edit.editor != nil, edit.fieldForm.Raw, edit.editor.Submitting(), ansi.Strip(edit.View(52, 20)))
+	msg, ok := follow().(OperationMsg)
+	if !ok || msg.Phase != OperationError || edit.editor == nil || edit.fieldForm.Raw != "draft-value" || edit.editor.Submitting() {
+		t.Fatalf("failure follow=%v editor=%v draft=%q submitting=%t", follow != nil, edit.editor != nil, edit.fieldForm.Raw, edit.editor.Submitting())
 	}
 }
 

@@ -282,11 +282,10 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if msg.err != nil {
 			if page.ruleEditor != nil {
 				page.ruleEditor.SetSubmitting(false)
-				page.ruleEditor.SetFeedback("", msg.err)
 			} else {
 				page.err = msg.err
 			}
-			return page, nil
+			return page, func() tea.Msg { return OperationResult("instruction.rule.save", "Instruction", "", msg.err) }
 		}
 		if page.ruleEditor != nil {
 			page.settings, page.err = msg.settings, nil

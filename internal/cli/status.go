@@ -294,19 +294,16 @@ func renderStatusTunnelBody(out io.Writer, snapshot statusSnapshot, verbose bool
 		statusField(out, "ready", summary.Ready)
 		statusField(out, "restarting", summary.Restarting)
 		statusField(out, "degraded", summary.Degraded)
-		for _, view := range views {
-			fmt.Fprintf(out, "\n  %s\n", cliHeading(view.Label))
-			fmt.Fprintf(out, "    %s %s\n", cliDim(fmt.Sprintf("%-9s", "state")), cliState(view.State))
-			statusNestedField(out, "id", view.ID)
-			if view.LastError != "" {
-				statusNestedField(out, "error", view.LastError)
-			}
-		}
-		return
 	}
 	statusField(out, "status", statusTunnelSummaryLine(snapshot.Running, summary, views))
-	for _, view := range views {
-		statusStateField(out, view.Label, view.State)
+	for i, view := range views {
+		fmt.Fprintf(out, "\n  %s\n", cliHeading(fmt.Sprintf("tunnel %d", i+1)))
+		statusNestedField(out, "name", view.Label)
+		statusNestedField(out, "id", view.ID)
+		statusNestedField(out, "status", cliState(view.State))
+		if verbose && view.LastError != "" {
+			statusNestedField(out, "error", view.LastError)
+		}
 	}
 }
 
@@ -495,15 +492,25 @@ func renderLegacyStatus(cmd *cobra.Command, snapshot statusSnapshot) {
 	logCachedUpdate(log, snapshot.Update)
 }
 
+const statusLabelWidth = 11
+
 func statusField(out io.Writer, label string, value any) {
-	fmt.Fprintf(out, "  %s %v\n", cliDim(fmt.Sprintf("%-11s", label)), value)
+	statusFieldWidth(out, label, value, statusLabelWidth)
 }
 func statusNestedField(out io.Writer, label string, value any) {
 	fmt.Fprintf(out, "    %s %v\n", cliDim(fmt.Sprintf("%-9s", label)), value)
 }
 
 func statusStateField(out io.Writer, label string, value any) {
-	fmt.Fprintf(out, "  %s %s\n", cliDim(fmt.Sprintf("%-11s", label)), cliState(value))
+	statusStateFieldWidth(out, label, value, statusLabelWidth)
+}
+
+func statusFieldWidth(out io.Writer, label string, value any, width int) {
+	fmt.Fprintf(out, "  %s %v\n", cliDim(fmt.Sprintf("%-*s", width, label)), value)
+}
+
+func statusStateFieldWidth(out io.Writer, label string, value any, width int) {
+	fmt.Fprintf(out, "  %s %s\n", cliDim(fmt.Sprintf("%-*s", width, label)), cliState(value))
 }
 
 func statusExposureSummary(snapshot statusSnapshot) string {

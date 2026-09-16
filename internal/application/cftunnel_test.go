@@ -121,6 +121,28 @@ func TestLookupUsesInstalledPluginNotBuiltin(t *testing.T) {
 	}
 }
 
+func TestMergeTunnelProviderStatusOmitsSecureMCP(t *testing.T) {
+	got := MergeTunnelProviderStatus(config.Default(), runtimecontrol.RuntimeStatus{
+		TunnelProviders: []runtimecontrol.TunnelProviderStatus{
+			{
+				Provider: tunnelprovider.ProviderSecureMCP,
+				Name:     "Secure MCP Tunnel",
+				Enabled:  true,
+				Targets:  []runtimecontrol.TunnelProviderTargetStatus{{Target: "tunnel_abc", Running: true}},
+			},
+			{
+				Provider: "cf",
+				Name:     "CF Tunnel",
+				Enabled:  true,
+				Targets:  []runtimecontrol.TunnelProviderTargetStatus{{Target: "mcp", Desired: true, Ready: true}},
+			},
+		},
+	})
+	if len(got) != 1 || got[0].Provider != "cf" {
+		t.Fatalf("providers = %#v", got)
+	}
+}
+
 func targetDesired(item runtimecontrol.TunnelProviderStatus, target string) bool {
 	for _, candidate := range item.Targets {
 		if candidate.Target == target {

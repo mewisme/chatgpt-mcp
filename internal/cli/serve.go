@@ -37,8 +37,12 @@ func runtimeTunnelStatuses(_ *app.App, cfg config.Config) (runtimecontrol.Tunnel
 		statuses = pluginStatuses
 	}
 	if len(statuses) == 0 {
+		lastError := ""
+		if _, ok := pluginhost.RuntimeHost.Get(tunnel.PluginIDSecureMCP); !ok {
+			lastError = tunnel.PluginMissingError().Error()
+		}
 		for _, instance := range cfg.RuntimeTunnels().Instances {
-			statuses = append(statuses, tunnel.Status{ID: instance.ID, Enabled: instance.Enabled, Provider: tunnel.ProviderOpenAI})
+			statuses = append(statuses, tunnel.Status{ID: instance.ID, Enabled: instance.Enabled, Provider: tunnel.ProviderOpenAI, LastError: lastError})
 		}
 	}
 	summary := runtimecontrol.TunnelSummary{Total: len(statuses)}

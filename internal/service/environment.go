@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	statepkg "go.mewis.me/chatgpt-mcp/internal/state"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
@@ -49,7 +50,28 @@ func CaptureEnvironment(account Account, extraPath []string) EnvironmentSnapshot
 		values["USER"] = account.Username
 		values["LOGNAME"] = account.Username
 	}
+	capturePluginDev(values)
 	return EnvironmentSnapshot{Version: environmentVersion, Values: values}
+}
+
+func capturePluginDev(values map[string]string) {
+	if mode := strings.TrimSpace(os.Getenv(plugindev.EnvPlugins)); mode != "" {
+		values[plugindev.EnvPlugins] = mode
+	}
+	if root := pluginDevWorkDir(); root != "" {
+		values[plugindev.EnvRoot] = root
+	}
+}
+
+func pluginDevWorkDir() string {
+	if root := strings.TrimSpace(os.Getenv(plugindev.EnvRoot)); root != "" {
+		return root
+	}
+	ctx, err := plugindev.Detect()
+	if err != nil || !ctx.Enabled {
+		return ""
+	}
+	return strings.TrimSpace(ctx.Root)
 }
 
 func SaveEnvironment(configRoot string, snapshot EnvironmentSnapshot) (string, error) {

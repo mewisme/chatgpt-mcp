@@ -527,7 +527,7 @@ func TestLogRuntimeTunnelResultTwoTunnels(t *testing.T) {
 		},
 	})
 	text := output.String()
-	for _, expected := range []string{"OpenAI Secure MCP Tunnels 1/2 ready · 1 degraded", "OpenAI Secure MCP Tunnel Alpha connected", "OpenAI Secure MCP Tunnel Beta degraded", "tunnel id: tunnel_alpha", "tunnel id: tunnel_beta"} {
+	for _, expected := range []string{"OpenAI Secure MCP Tunnels 1/2 ready · 1 degraded", "OpenAI Secure MCP Tunnel Alpha connected", "OpenAI Secure MCP Tunnel Beta degraded", "tunnel_id: tunnel_alpha", "tunnel_id: tunnel_beta"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("missing %q: %s", expected, text)
 		}

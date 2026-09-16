@@ -512,9 +512,6 @@ func logRuntimeTunnelView(log *logger.Logger, view statusTunnelView, singleton b
 	default:
 		log.Notice("TUNNEL", "tunnel."+strings.ReplaceAll(view.State, " ", "-"), message+" is "+view.State, fields...)
 	}
-	if view.ID != "" {
-		log.Detail("tunnel id", view.ID)
-	}
 }
 
 type tunnelMetadataLoadFunc func(string) (tunnel.Metadata, error)

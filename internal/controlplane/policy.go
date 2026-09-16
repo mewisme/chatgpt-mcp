@@ -11,7 +11,7 @@ const (
 )
 
 var readOnlyPaths = map[string]bool{
-	"help": true, "version": true, "status": true, "completion": true,
+	"": true, "help": true, "version": true, "status": true, "completion": true,
 	"config path": true, "config get": true, "config list": true, "config explain": true, "config verify": true, "config validate": true,
 	"auth status": true, "alias status": true, "upgrade check": true,
 	"request list": true, "request view": true, "request grant list": true,

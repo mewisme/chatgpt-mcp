@@ -183,6 +183,9 @@ func TestRuntimeTunnelStatusesReportsConfiguredWhenPluginMissing(t *testing.T) {
 	if items[0].ID != "tunnel_a" || !items[0].Configured || items[0].Ready || items[1].ID != "tunnel_b" || items[1].Ready {
 		t.Fatalf("items=%+v", items)
 	}
+	if items[0].LastError == "" || !strings.Contains(items[0].LastError, "secure MCP tunnel core plugin is not installed") {
+		t.Fatalf("missing plugin last error = %q", items[0].LastError)
+	}
 }
 
 func testServerPort(t *testing.T, address net.Addr) int {

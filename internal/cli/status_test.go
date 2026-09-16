@@ -47,7 +47,7 @@ func TestStatusReportsManagedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	for _, expected := range []string{"✓ ChatGPT MCP is running", "Runtime", "session     run_status", "managed     system ·", "service     chatgpt-mcp-system-test", "Endpoints", "Config", "auth        mcp off · admin off", "Tunnels", "status      1/1 ready", "tunnel_status connected"} {
+	for _, expected := range []string{"✓ ChatGPT MCP is running", "Runtime", "session     run_status", "managed     system ·", "service     chatgpt-mcp-system-test", "Endpoints", "Config", "auth        mcp off · admin off", "Tunnels", "status      1/1 ready", "tunnel 1", "tunnel_status", "connected"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("status missing %q: %s", expected, text)
 		}
@@ -290,13 +290,13 @@ func TestRenderStatusTunnelBodyCollection(t *testing.T) {
 	var output bytes.Buffer
 	renderStatusTunnelBody(&output, healthy, false)
 	text := output.String()
-	for _, expected := range []string{"status      2/2 ready", "Production", "Staging", "connected"} {
+	for _, expected := range []string{"status      2/2 ready", "tunnel 1", "tunnel 2", "name      Production", "name      Staging", "id        " + prodID, "id        " + stageID, "status    connected"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("healthy missing %q: %s", expected, text)
 		}
 	}
-	if strings.Contains(text, prodID) || strings.Contains(text, stageID) || strings.Contains(text, "attached") {
-		t.Fatalf("healthy leaked ids or attached counter: %s", text)
+	if strings.Contains(text, "attached") {
+		t.Fatalf("healthy leaked attached counter: %s", text)
 	}
 
 	mixed := healthy
@@ -354,8 +354,8 @@ func TestRenderStatusTunnelBodyCollection(t *testing.T) {
 	if !strings.Contains(text, "Production · c3330bcd") || !strings.Contains(text, "Production · 3ce094ac") {
 		t.Fatalf("duplicates=%q", text)
 	}
-	if strings.Contains(text, dupA) || strings.Contains(text, dupB) {
-		t.Fatalf("duplicate full ids leaked: %s", text)
+	if !strings.Contains(text, dupA) || !strings.Contains(text, dupB) {
+		t.Fatalf("duplicate ids missing: %s", text)
 	}
 
 	missing := healthy
@@ -381,8 +381,8 @@ func TestRenderStatusTunnelBodyCollection(t *testing.T) {
 	if !strings.Contains(text, "runtime offline · 2 configured") || !strings.Contains(text, "Production") || !strings.Contains(text, "Staging") || !strings.Contains(text, "offline") {
 		t.Fatalf("offline=%q", text)
 	}
-	if strings.Contains(text, prodID) {
-		t.Fatalf("offline leaked id: %s", text)
+	if !strings.Contains(text, prodID) || !strings.Contains(text, stageID) {
+		t.Fatalf("offline missing ids: %s", text)
 	}
 
 	output.Reset()
@@ -390,7 +390,7 @@ func TestRenderStatusTunnelBodyCollection(t *testing.T) {
 	if !strings.Contains(output.String(), "none configured") {
 		t.Fatalf("empty=%q", output.String())
 	}
-	if strings.Contains(output.String(), "Production") || strings.Contains(output.String(), "tunnel_") {
+	if strings.Contains(output.String(), "Production") || strings.Contains(output.String(), "tunnel_") || strings.Contains(output.String(), "tunnel 1") {
 		t.Fatalf("empty should not render tunnel rows: %q", output.String())
 	}
 
@@ -398,9 +398,51 @@ func TestRenderStatusTunnelBodyCollection(t *testing.T) {
 	output.Reset()
 	renderStatusTunnelBody(&output, verbose, true)
 	text = output.String()
-	for _, expected := range []string{"total       2", "ready       1", "Production", "Staging", prodID, stageID, "dial timeout", "connected", "degraded"} {
+	for _, expected := range []string{"total       2", "ready       1", "tunnel 1", "tunnel 2", "Production", "Staging", prodID, stageID, "dial timeout", "connected", "degraded"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("verbose missing %q: %s", expected, text)
 		}
+	}
+
+	aligned := statusSnapshot{
+		Running: true,
+		Runtime: runtimeStatusResult{
+			TunnelSummary: runtimecontrol.TunnelSummary{Total: 2, Enabled: 2, Configured: 2, Running: 2, Ready: 2},
+			Tunnels: []runtimecontrol.TunnelRuntimeStatus{
+				{ID: prodID, Name: "MCP_Tunnel_WSL", Enabled: true, Configured: true, Running: true, Ready: true},
+				{ID: stageID, Name: "WSL_Tunnel", Enabled: true, Configured: true, Running: true, Ready: true},
+			},
+		},
+	}
+	output.Reset()
+	renderStatusTunnelBody(&output, aligned, false)
+	text = output.String()
+	for _, expected := range []string{"status      2/2 ready", "tunnel 1", "tunnel 2", "name      MCP_Tunnel_WSL", "name      WSL_Tunnel", "id        " + prodID, "status    connected"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("aligned missing %q: %s", expected, text)
+		}
+	}
+}
+
+func TestRenderStatusTunnelProvidersOmitsSecureMCP(t *testing.T) {
+	var output bytes.Buffer
+	renderStatusTunnelProviders(&output, statusSnapshot{
+		Running: true,
+		Runtime: runtimeStatusResult{
+			TunnelProviders: []runtimecontrol.TunnelProviderStatus{
+				{
+					Provider: "secure-mcp",
+					Name:     "Secure MCP Tunnel",
+					Enabled:  true,
+					Targets: []runtimecontrol.TunnelProviderTargetStatus{
+						{Target: "tunnel_6a9462c95f008191a665c3330bcd8368", Running: true},
+						{Target: "tunnel_6aa986b0e4d881919ac3ce543ce094ac", Running: true},
+					},
+				},
+			},
+		},
+	})
+	if text := output.String(); text != "" {
+		t.Fatalf("secure mcp leaked into provider status: %q", text)
 	}
 }

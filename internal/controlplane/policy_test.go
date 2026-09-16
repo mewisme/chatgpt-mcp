@@ -9,7 +9,7 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 		{"plugin"}, {"plugin", "search", "bash"}, {"plugin", "info", "bash"}, {"plugin", "list"}, {"plugin", "outdated"}, {"plugin", "verify", "bash"}, {"plugin", "registry"}, {"plugin", "registry", "list"},
 		{"request", "list"}, {"request", "view", "req_test"}, {"req", "ls"}, {"req", "show", "req_test"}, {"req", "info", "req_test"},
 		{"st"}, {"cfg", "ls"}, {"ws", "access", "ls", "ws_test"}, {"mcp", "server", "st", "server"}, {"tunnel", "st"}, {"completion", "bash"},
-		{"--config-dir", "/tmp/config", "config", "get", "server.expose"}, {"--verbose", "status"}, {"--help"},
+		{"--config-dir", "/tmp/config", "config", "get", "server.expose"}, {"--verbose", "status"}, {"--help"}, {},
 	} {
 		if !IsReadOnlyArgs(args) {
 			t.Fatalf("read-only command denied: %#v -> %q", args, PathFromArgs(args))
@@ -21,7 +21,7 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 		{"auth", "mcp", "create"}, {"workspace", "register", "."}, {"workspace", "purge", ".", "--confirm"}, {"workspace", "access", "add", "ws_test", "/tmp"},
 		{"plugin", "install", "bash"}, {"plugin", "uninstall", "bash"}, {"plugin", "enable", "bash"}, {"plugin", "disable", "bash"}, {"plugin", "update", "bash"}, {"plugin", "update", "--all"}, {"plugin", "rollback", "bash"}, {"plugin", "prune", "bash"}, {"plugin", "prune", "--cache"}, {"plugin", "registry", "add", "community", "https://plugins.example.test"}, {"plugin", "registry", "remove", "community"},
 		{"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"request", "grant", "revoke", "req_test"}, {"req", "accept", "req_test"}, {"req", "allow", "req_test"}, {"req", "reject", "req_test"},
-		{"mcp", "server", "add", "server"}, {"tunnel", "enable"}, {"alias", "install"}, {"alias", "remove"}, {"upgrade"}, {"update"}, {"serve"}, {},
+		{"mcp", "server", "add", "server"}, {"tunnel", "enable"}, {"alias", "install"}, {"alias", "remove"}, {"upgrade"}, {"update"}, {"serve"},
 	} {
 		if IsReadOnlyArgs(args) {
 			t.Fatalf("mutating command allowed: %#v -> %q", args, PathFromArgs(args))

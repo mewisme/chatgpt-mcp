@@ -93,6 +93,9 @@ func LinuxUnit(spec Spec) string {
 		"Restart=always",
 		"RestartSec=3s",
 	}
+	if workDir := strings.TrimSpace(spec.WorkDir); workDir != "" {
+		lines = append(lines, "WorkingDirectory="+workDir)
+	}
 	if spec.Scope == ScopeSystem {
 		lines = append(lines, "User="+spec.Account.Username)
 		if spec.Account.GID != "" {

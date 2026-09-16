@@ -338,7 +338,7 @@ func ListConfiguredTunnelProviders(cfg config.Config) []runtimecontrol.TunnelPro
 	out := make([]runtimecontrol.TunnelProviderStatus, 0)
 	add := func(provider string) {
 		provider = strings.TrimSpace(provider)
-		if provider == "" {
+		if provider == "" || !tunnelprovider.IsOriginGated(provider) {
 			return
 		}
 		if _, ok := seen[provider]; ok {
@@ -361,13 +361,26 @@ func ListConfiguredTunnelProviders(cfg config.Config) []runtimecontrol.TunnelPro
 }
 
 func MergeTunnelProviderStatus(cfg config.Config, runtime runtimecontrol.RuntimeStatus) []runtimecontrol.TunnelProviderStatus {
-	if len(runtime.TunnelProviders) > 0 {
-		return runtime.TunnelProviders
+	var items []runtimecontrol.TunnelProviderStatus
+	switch {
+	case len(runtime.TunnelProviders) > 0:
+		items = runtime.TunnelProviders
+	case runtime.CFTunnel != nil:
+		items = []runtimecontrol.TunnelProviderStatus{runtime.CFTunnel.AsProvider()}
+	default:
+		items = ListConfiguredTunnelProviders(cfg)
 	}
-	if runtime.CFTunnel != nil {
-		return []runtimecontrol.TunnelProviderStatus{runtime.CFTunnel.AsProvider()}
+	return originGatedTunnelProviders(items)
+}
+
+func originGatedTunnelProviders(items []runtimecontrol.TunnelProviderStatus) []runtimecontrol.TunnelProviderStatus {
+	out := make([]runtimecontrol.TunnelProviderStatus, 0, len(items))
+	for _, item := range items {
+		if tunnelprovider.IsOriginGated(item.Provider) {
+			out = append(out, item)
+		}
 	}
-	return ListConfiguredTunnelProviders(cfg)
+	return out
 }
 
 func MarketplaceTunnelProviders() []string {

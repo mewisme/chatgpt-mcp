@@ -48,6 +48,14 @@ func RuntimeLayout() plugin.Layout {
 	return layout
 }
 
+func Reset() {
+	prepareMu.Lock()
+	prepared = false
+	preparedLayout = plugin.Layout{}
+	preparedErr = nil
+	prepareMu.Unlock()
+}
+
 func InspectLayout() plugin.Layout {
 	if skipAutoDev(os.Getenv) {
 		return plugin.DefaultLayout()

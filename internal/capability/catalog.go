@@ -130,7 +130,7 @@ const (
 )
 
 var specs = []Spec{
-	{ServerForeground, "serve", []string{RootPath}},
+	{ServerForeground, "serve", nil},
 	{InstallRun, "install", nil}, {InstallCleanup, "install cleanup", nil},
 	{UpdateApply, "upgrade", nil}, {UpdateCheck, "upgrade check", nil},
 	{ConfigInit, "init", nil}, {ConfigUninit, "uninit", nil},

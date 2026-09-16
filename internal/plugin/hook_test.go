@@ -184,6 +184,19 @@ func TestInstalledHookExecutableUsesStrictSubprocessProtocol(t *testing.T) {
 	}
 }
 
+func TestSafeHookEnvironmentOmitsAuthTokens(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_MCP_TOKEN", "mcp_"+strings.Repeat("a", 32))
+	t.Setenv("MCP_TOKEN", "mcp_"+strings.Repeat("b", 32))
+	t.Setenv("ADMIN_TOKEN", "admin_"+strings.Repeat("c", 32))
+	t.Setenv("HOME", t.TempDir())
+	joined := strings.Join(safeHookEnvironment(), "\n")
+	for _, leaked := range []string{"mcp_", "MCP_TOKEN", "ADMIN_TOKEN", "CHATGPT_MCP_MCP_TOKEN"} {
+		if strings.Contains(joined, leaked) {
+			t.Fatalf("hook env leaked %q: %s", leaked, joined)
+		}
+	}
+}
+
 func installHookTestPlugin(t *testing.T, store *Store, id string, capability Capability, permission Permission, scopes ...PluginScope) {
 	t.Helper()
 	manifest := testManifest(id, "1.0.0", capability)

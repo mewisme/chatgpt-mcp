@@ -67,6 +67,48 @@ func TestInitializeAndAuthLifecycle(t *testing.T) {
 	}
 }
 
+func TestRotateMCPTokenDoesNotMutateAdminOrTunnel(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Initialize(InitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Tunnel.Enabled = true
+	cfg.Tunnel.ID = "tunnel_keep"
+	cfg.Tunnel.APIKey = "sk-runtime-keep"
+	cfg.Tunnel.AdminKey = "sk-admin-keep"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RotateAuthToken(t.Context(), "mcp"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Auth.AdminTokenHash != before.Auth.AdminTokenHash {
+		t.Fatal("MCP rotate mutated admin hash")
+	}
+	if after.Auth.MCPTokenHash == before.Auth.MCPTokenHash {
+		t.Fatal("MCP rotate did not replace MCP hash")
+	}
+	if after.Tunnel.APIKey != before.Tunnel.APIKey || after.Tunnel.AdminKey != before.Tunnel.AdminKey {
+		t.Fatalf("MCP rotate mutated tunnel keys: %#v", after.Tunnel)
+	}
+}
+
 func TestRevealMCPTokenLegacyHashOnly(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")

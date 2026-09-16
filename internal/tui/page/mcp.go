@@ -798,16 +798,17 @@ func (page *MCPPage) toggleServer(enabled bool) error {
 func (page *MCPPage) startHealth(id string) tea.Cmd {
 	ctx, cancel := context.WithTimeout(page.ctx, 15*time.Second)
 	page.beginOperation(MCPServerHealth, id, "Refreshing MCP health", cancel)
+	work := func() tea.Msg { return mcpHealthMsg{id: id, status: page.manager.CheckHealth(ctx, id, true)} }
 	if id == "" {
-		return func() tea.Msg { return mcpHealthMsg{statuses: page.manager.ListStatuses(ctx, true)} }
+		work = func() tea.Msg { return mcpHealthMsg{statuses: page.manager.ListStatuses(ctx, true)} }
 	}
-	return func() tea.Msg { return mcpHealthMsg{id: id, status: page.manager.CheckHealth(ctx, id, true)} }
+	return beginOperation("mcp.health", "MCP", "Refreshing MCP health", work)
 }
 
 func (page *MCPPage) finishHealth(msg mcpHealthMsg) tea.Cmd {
 	if page.operationCancelled {
 		page.finishCancelledOperation()
-		return nil
+		return func() tea.Msg { return cancelledOperation("mcp.health", "MCP", "Operation cancelled") }
 	}
 	if msg.id != "" {
 		page.status[msg.id] = msg.status
@@ -818,40 +819,38 @@ func (page *MCPPage) finishHealth(msg mcpHealthMsg) tea.Cmd {
 	}
 	page.finishOperation("MCP health refreshed", nil)
 	_ = page.reload()
-	return nil
+	return func() tea.Msg { return OperationResult("mcp.health", "MCP", "MCP health refreshed", nil) }
 }
 
 func (page *MCPPage) startTools(id string) tea.Cmd {
 	ctx, cancel := context.WithTimeout(page.ctx, 15*time.Second)
 	page.beginOperation(MCPServerTools, id, "Loading MCP tools", cancel)
-	return func() tea.Msg {
+	return beginOperation("mcp.tools", "MCP", "Loading MCP tools", func() tea.Msg {
 		values, err := page.manager.Tools(ctx, id, true)
 		return mcpToolsMsg{id: id, tools: values, err: err}
-	}
+	})
 }
 
 func (page *MCPPage) finishTools(msg mcpToolsMsg) tea.Cmd {
 	if page.operationCancelled {
 		page.finishCancelledOperation()
-		return nil
+		return func() tea.Msg { return cancelledOperation("mcp.tools", "MCP", "Operation cancelled") }
 	}
 	if msg.err != nil {
 		page.finishOperation("", msg.err)
-		return nil
+		return func() tea.Msg { return OperationResult("mcp.tools", "MCP", "", msg.err) }
 	}
 	page.tools[msg.id] = append([]upstream.Tool(nil), msg.tools...)
-	page.finishOperation(fmt.Sprintf("Loaded %d MCP tools", len(msg.tools)), nil)
+	notice := fmt.Sprintf("Loaded %d MCP tools", len(msg.tools))
+	page.finishOperation(notice, nil)
 	_ = page.reload()
-	return nil
+	return func() tea.Msg { return OperationResult("mcp.tools", "MCP", notice, nil) }
 }
 
 func (page *MCPPage) beginOperation(command MCPCommand, targetID, title string, cancel context.CancelFunc) {
 	page.command, page.targetID = command, targetID
 	page.operationCancel = cancel
 	page.operationCancelled = false
-	progress := component.NewProgress(title)
-	page.progress = &progress
-	page.overlay = mcpOverlayOperation
 	page.err = nil
 }
 

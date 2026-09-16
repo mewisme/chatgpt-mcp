@@ -285,9 +285,6 @@ func (editor Editor) layout() editorLayout {
 	if editor.notice != "" {
 		feedback = append(feedback, BannerWidth(editor.notice, ToneSuccess, width))
 	}
-	if editor.submitting {
-		feedback = append(feedback, WrapContent(Muted("Saving..."), width))
-	}
 	result.feedback = strings.Join(feedback, "\n")
 	result.description = WrapContent(Muted(strings.TrimSpace(editor.sections[editor.active].Description)), width)
 	prefix := make([]string, 0, 3)

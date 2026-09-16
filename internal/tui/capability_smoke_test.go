@@ -100,7 +100,14 @@ func TestCapabilitySmokeDestructiveClearRequiresConfirmAndMutatesJournal(t *test
 	if clearCmd == nil {
 		t.Fatal("confirmed clear produced no operation")
 	}
-	_ = clearCmd()
+	msg := clearCmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, item := range batch {
+			if item != nil {
+				_ = item()
+			}
+		}
+	}
 	info, err := application.LoadLogsInfo()
 	if err != nil || info.Files != 0 {
 		t.Fatalf("logs info=%#v err=%v", info, err)

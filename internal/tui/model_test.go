@@ -325,8 +325,12 @@ func TestModelWorkspaceProjectContextEscapeCancelsBuildInPlace(t *testing.T) {
 	if build == nil || !model.currentPage.OverlayActive() {
 		t.Fatalf("project context build=%v active=%t", build != nil, model.currentPage.OverlayActive())
 	}
-	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = updated.(Model)
+	if cmd != nil {
+		updated, _ = model.Update(cmd())
+		model = updated.(Model)
+	}
 	if model.router.Current() != route || model.currentPage.OverlayActive() {
 		t.Fatalf("escape route=%#v active=%t", model.router.Current(), model.currentPage.OverlayActive())
 	}
@@ -1696,11 +1700,10 @@ func TestModelPageToastAutoDismissDuration(t *testing.T) {
 		t.Fatalf("toast duration=%s", toastDuration)
 	}
 	model := NewModel(Route{Kind: RouteHome})
-	model.currentPage = &noticeTestPage{}
-	updated, dismiss := model.updatePage(noticeTestMsg("Created"))
+	updated, dismiss := model.Update(tuipage.ToastMsg{Title: "Home", Message: "Created", Tone: component.ToneSuccess})
 	model = updated.(Model)
-	if dismiss == nil || model.toast.id == 0 || model.toast.message != "Created" || pageNotice(model.currentPage) != "" {
-		t.Fatalf("page notice did not start toast timer: toast=%#v notice=%q", model.toast, pageNotice(model.currentPage))
+	if dismiss == nil || model.toast.id == 0 || model.toast.message != "Created" {
+		t.Fatalf("toast did not start timer: toast=%#v", model.toast)
 	}
 	updated, _ = model.Update(toastDismissMsg{id: model.toast.id, timer: model.toast.timer})
 	model = updated.(Model)
@@ -1814,23 +1817,6 @@ func TestModelToastMouseHoverOutsideAndClose(t *testing.T) {
 
 type noticeTestMsg string
 
-type noticeTestPage struct{ notice string }
-
-func (*noticeTestPage) Init() tea.Cmd { return nil }
-func (page *noticeTestPage) Update(message tea.Msg) (tuipage.Model, tea.Cmd) {
-	if value, ok := message.(noticeTestMsg); ok {
-		page.notice = string(value)
-	}
-	return page, nil
-}
-func (page *noticeTestPage) View(width, height int) string {
-	return component.PageTitleNotice("Test", page.notice, width)
-}
-func (*noticeTestPage) OverlayActive() bool         { return false }
-func (*noticeTestPage) InputActive() bool           { return false }
-func (page *noticeTestPage) Notice() string         { return page.notice }
-func (page *noticeTestPage) SetNotice(value string) { page.notice = value }
-
 type statusNoticeTestPage struct{ notice string }
 
 func (*statusNoticeTestPage) Init() tea.Cmd { return nil }
@@ -1901,6 +1887,18 @@ func TestModelOperationDialogPendingDoesNotAutoHide(t *testing.T) {
 	model = updated.(Model)
 	if cmd == nil || model.toast.id != id || model.toast.phase != tuipage.OperationSuccess || model.toast.message != "Admin profile saved" {
 		t.Fatalf("success did not reuse dialog: toast=%#v cmd=%v", model.toast, cmd)
+	}
+}
+
+func TestModelOperationDialogCancelledStartsTimer(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, _ := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationPending, Title: "Saving", Message: "Saving..."})
+	model = updated.(Model)
+	id := model.toast.id
+	updated, cmd := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationCancelled, Title: "Saving", Message: "Cancelled", Tone: component.ToneNeutral})
+	model = updated.(Model)
+	if cmd == nil || model.toast.id != id || model.toast.phase != tuipage.OperationCancelled || model.toast.message != "Cancelled" {
+		t.Fatalf("cancelled=%#v cmd=%v", model.toast, cmd)
 	}
 }
 

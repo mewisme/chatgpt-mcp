@@ -1339,22 +1339,8 @@ func (model Model) updatePage(message tea.Msg) (tea.Model, tea.Cmd) {
 	if model.currentPage == nil {
 		return model, nil
 	}
-	before := pageNotice(model.currentPage)
 	updated, cmd := model.currentPage.Update(message)
 	model.currentPage = updated
-	after := pageNotice(model.currentPage)
-	if after != "" && after != before {
-		if page, ok := model.currentPage.(tuipage.ToastNoticeModel); ok && !page.ShouldToastNotice() {
-			return model, cmd
-		}
-		if model.toast.phase == tuipage.OperationPending {
-			return model, cmd
-		}
-		if page, ok := model.currentPage.(tuipage.NoticeModel); ok {
-			page.SetNotice("")
-		}
-		return model, tea.Batch(cmd, model.showToast(model.router.Current().Title(), after, component.ToneNeutral))
-	}
 	return model, cmd
 }
 

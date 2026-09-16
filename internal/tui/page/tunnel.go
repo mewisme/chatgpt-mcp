@@ -450,11 +450,8 @@ func (page *TunnelPage) startOperation(command TunnelCommand, targetID, title st
 	page.command, page.targetID = command, targetID
 	page.operationCancel = cancel
 	page.operationCancelled = false
-	progress := component.NewProgress(title)
-	page.progress = &progress
-	page.overlay = tunnelOverlayOperation
 	page.err = nil
-	return func() tea.Msg { return run(ctx) }
+	return beginOperation("tunnel.managed.save", "Managed Tunnel", title, func() tea.Msg { return run(ctx) })
 }
 
 func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
@@ -520,7 +517,7 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 			page.acceptManagedEditorSuccess(msg.result.Metadata)
 			return page.managedEditorSuccess(page.notice, msg.result.Metadata.ID)
 		}
-		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", msg.result.Metadata.ID}} }
+		return withOperation("tunnel.managed.save", "Managed Tunnel", page.notice, func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", msg.result.Metadata.ID}} })
 	case TunnelManagedConfigure:
 		page.upsertMetadata(msg.result.Metadata)
 		if page.configureForm != nil && page.configureForm.AdminProfileID != "" {
@@ -540,7 +537,10 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 		page.resourceID = ""
 		_ = page.reloadManagedBrowser()
 		page.notice = "Managed tunnel deleted"
-		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}, Replace: true} }
+		return withOperation("tunnel.managed.save", "Managed Tunnel", page.notice, func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}, Replace: true} })
+	}
+	if page.notice != "" {
+		return func() tea.Msg { return OperationResult("tunnel.managed.save", "Managed Tunnel", page.notice, nil) }
 	}
 	return nil
 }

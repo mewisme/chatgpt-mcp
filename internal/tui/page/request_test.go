@@ -284,10 +284,10 @@ func TestRequestsPageResolutionUsesRoutedEditorWithoutConfirmField(t *testing.T)
 	}
 	resolvePage.resolveForm.Reason = "reviewed"
 	resolve := resolvePage.submitResolveForm()
-	if resolve == nil || resolvePage.overlay != requestOverlayOperation || !resolvePage.editor.Submitting() {
+	if resolve == nil || !resolvePage.editor.Submitting() {
 		t.Fatalf("resolve=%v overlay=%d submitting=%t", resolve != nil, resolvePage.overlay, resolvePage.editor.Submitting())
 	}
-	updated, follow := resolvePage.Update(resolve())
+	updated, follow := resolvePage.Update(workMsg(resolve))
 	resolvePage = updated.(*RequestsPage)
 	if follow == nil || resolvePage.editor != nil || resolveCalls != 1 {
 		t.Fatalf("follow=%v editor=%v calls=%d", follow != nil, resolvePage.editor != nil, resolveCalls)
@@ -334,10 +334,13 @@ func TestRequestsPageCreatesSyntheticTestRequest(t *testing.T) {
 	page.createForm.WorkspaceID = "ws_demo"
 	page.createForm.Command = "echo hello"
 	create := page.submitCreateTestForm()
-	if create == nil || page.overlay != requestOverlayOperation {
-		t.Fatalf("create=%v overlay=%d", create, page.overlay)
+	if create == nil {
+		t.Fatal("create command missing")
 	}
-	updated, _ := page.Update(create())
+	if op, ok := operationMsg(create); !ok || op.Phase != OperationPending {
+		t.Fatalf("create pending=%#v", op)
+	}
+	updated, _ := page.Update(workMsg(create))
 	page = updated.(*RequestsPage)
 	request, ok := page.findRequest(created.ID)
 	if !ok || request.ID != created.ID || createCalls != 1 || page.editor != nil {
@@ -399,20 +402,19 @@ func TestRequestsPageResolveCancellationIgnoresLateResult(t *testing.T) {
 	}
 	resolve := page.submitResolveForm()
 	result := make(chan tea.Msg, 1)
-	go func() { result <- resolve() }()
+	go func() { result <- workMsg(resolve) }()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("approval request did not start")
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	page = updated.(*RequestsPage)
-	if page.overlay != requestOverlayNone || !page.operationCancelled {
-		t.Fatalf("overlay=%d cancelled=%t", page.overlay, page.operationCancelled)
+	page.cancelOperation()
+	if !page.operationCancelled {
+		t.Fatal("approval request was not cancelled")
 	}
 	select {
 	case message := <-result:
-		updated, _ = page.Update(message)
+		updated, _ := page.Update(message)
 		page = updated.(*RequestsPage)
 	case <-time.After(time.Second):
 		close(release)
@@ -463,7 +465,7 @@ func TestRequestsPageRejectsStaleResolutionBeforeMutation(t *testing.T) {
 			if resolve == nil || !page.editor.Submitting() {
 				t.Fatalf("resolve=%v submitting=%t", resolve != nil, page.editor.Submitting())
 			}
-			updated, follow := page.Update(resolve())
+			updated, follow := page.Update(workMsg(resolve))
 			page = updated.(*RequestsPage)
 			view := ansi.Strip(page.View(42, 18))
 			if follow != nil || resolveCalls != 0 || page.editor == nil || page.resolveForm == nil || page.resolveForm.Reason != "keep this draft" || page.editor.Submitting() || !strings.Contains(view, test.want) {

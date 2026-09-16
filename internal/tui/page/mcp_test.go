@@ -284,10 +284,13 @@ func TestMCPPageHealthAndToolsRunAsCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd, err := page.openCommand(MCPServerHealth, "docs")
-	if err != nil || cmd == nil || page.overlay != mcpOverlayOperation {
-		t.Fatalf("health cmd=%v err=%v overlay=%d", cmd, err, page.overlay)
+	if err != nil || cmd == nil {
+		t.Fatalf("health cmd=%v err=%v", cmd, err)
 	}
-	updated, _ := page.Update(cmd())
+	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
+		t.Fatalf("health pending=%#v", op)
+	}
+	updated, _ := page.Update(workMsg(cmd))
 	page = updated.(*MCPPage)
 	if page.status["docs"].Health != upstream.HealthConnected || page.status["docs"].ToolCount != 1 {
 		t.Fatalf("health=%#v", page.status["docs"])
@@ -296,7 +299,7 @@ func TestMCPPageHealthAndToolsRunAsCommands(t *testing.T) {
 	if err != nil || cmd == nil {
 		t.Fatalf("tools cmd=%v err=%v", cmd, err)
 	}
-	updated, _ = page.Update(cmd())
+	updated, _ = page.Update(workMsg(cmd))
 	page = updated.(*MCPPage)
 	if len(page.tools["docs"]) != 1 || page.tools["docs"][0].Name != "read" {
 		t.Fatalf("tools=%#v", page.tools["docs"])
@@ -314,20 +317,19 @@ func TestMCPPageToolRefreshIsCancellable(t *testing.T) {
 		t.Fatalf("cmd=%v err=%v", cmd, err)
 	}
 	result := make(chan tea.Msg, 1)
-	go func() { result <- cmd() }()
+	go func() { result <- workMsg(cmd) }()
 	select {
 	case <-client.toolsStarted:
 	case <-time.After(time.Second):
 		t.Fatal("tool refresh did not start")
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	page = updated.(*MCPPage)
-	if page.overlay != mcpOverlayNone || !page.operationCancelled {
-		t.Fatalf("cancel state overlay=%d cancelled=%t", page.overlay, page.operationCancelled)
+	page.cancelOperation()
+	if !page.operationCancelled {
+		t.Fatal("tool refresh was not cancelled")
 	}
 	select {
 	case message := <-result:
-		updated, _ = page.Update(message)
+		updated, _ := page.Update(message)
 		page = updated.(*MCPPage)
 	case <-time.After(time.Second):
 		t.Fatal("cancelled tool command did not return")

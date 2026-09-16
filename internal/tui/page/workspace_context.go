@@ -163,10 +163,8 @@ func (page *WorkspacePage) submitWorkspaceContext() tea.Cmd {
 	page.contextBuilding = true
 	page.err, page.notice = nil, ""
 	page.contextEditor.SetFeedback("", nil)
-	progress := component.NewProgress("Building project context")
-	page.contextProgress = &progress
 	build, workspaceID := page.contextBuild, page.resourceID
-	return tea.Batch(progress.Init(), func() tea.Msg {
+	return beginOperation("workspace.context.build", "Workspace", "Building project context", func() tea.Msg {
 		result, err := build(ctx, workspaceID, options)
 		return workspaceContextBuildMsg{ID: id, Result: result, Err: err}
 	})

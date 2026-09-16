@@ -256,7 +256,7 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.settings, page.err = msg.settings, nil
 		page.notice = "Instructions refreshed"
 		page.syncDetail()
-		return page, nil
+		return page, func() tea.Msg { return OperationResult("instruction.refresh", "Instruction", page.notice, nil) }
 	case instructionSavedMsg:
 		page.saving = false
 		if msg.err != nil {

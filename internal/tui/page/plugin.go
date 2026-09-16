@@ -785,10 +785,7 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 	ctx, cancel := context.WithTimeout(page.ctx, pluginOperationTimeout)
 	page.operationCancel = cancel
 	page.command, page.targetID = command, target
-	progress := component.NewProgress(page.operationTitle(command))
-	page.progress = &progress
-	page.overlay = pluginOverlayOperation
-	return func() tea.Msg {
+	return beginOperation("plugin.action", "Plugins", page.operationTitle(command), func() tea.Msg {
 		msg := pluginOperationMsg{command: command, target: target}
 		switch command {
 		case PluginInstall:
@@ -860,7 +857,7 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 			msg.err = fmt.Errorf("unsupported plugin operation: %s", command)
 		}
 		return msg
-	}
+	})
 }
 
 func (page *PluginPage) finishOperation(msg pluginOperationMsg) tea.Cmd {

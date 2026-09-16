@@ -225,7 +225,7 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.operationCancelled {
 			page.operationCancelled = false
 			page.notice = "Approval operation cancelled"
-			return page, nil
+			return page, func() tea.Msg { return cancelledOperation("request.resolve", "Requests", page.notice) }
 		}
 		if msg.err != nil {
 			requestEditorError(page.editor, msg.err)
@@ -247,7 +247,7 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.operationCancelled {
 			page.operationCancelled = false
 			page.notice = "Test request creation cancelled"
-			return page, nil
+			return page, func() tea.Msg { return cancelledOperation("request.create", "Requests", page.notice) }
 		}
 		if msg.err != nil {
 			requestEditorError(page.editor, msg.err)
@@ -525,13 +525,10 @@ func (page *RequestsPage) submitCreateTestForm() tea.Cmd {
 	ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
 	page.operationCancel = cancel
 	page.operationCancelled = false
-	progress := component.NewProgress("Creating test approval request")
-	page.progress = &progress
-	page.overlay = requestOverlayOperation
-	return func() tea.Msg {
+	return beginOperation("request.create", "Requests", "Creating test approval request", func() tea.Msg {
 		request, err := application.CreateDummyApprovalRequest(ctx, data.WorkspaceID, data.Title, data.Command)
 		return requestCreateMsg{request: request, err: err}
-	}
+	})
 }
 
 func (page *RequestsPage) submitResolveForm() tea.Cmd {
@@ -544,10 +541,7 @@ func (page *RequestsPage) submitResolveForm() tea.Cmd {
 	ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
 	page.operationCancel = cancel
 	page.operationCancelled = false
-	progress := component.NewProgress(requestProgressTitle(approve))
-	page.progress = &progress
-	page.overlay = requestOverlayOperation
-	return func() tea.Msg {
+	return beginOperation("request.resolve", "Requests", requestProgressTitle(approve), func() tea.Msg {
 		current, err := application.GetApprovalRequest(ctx, id)
 		if err == nil {
 			err = validateResolvableRequest(current, time.Now())
@@ -557,7 +551,7 @@ func (page *RequestsPage) submitResolveForm() tea.Cmd {
 		}
 		request, err := application.ResolveApprovalRequest(ctx, id, approve, reason)
 		return requestResolveMsg{request: request, approve: approve, err: err}
-	}
+	})
 }
 
 func (page *RequestsPage) manualRefreshCmd() tea.Cmd {

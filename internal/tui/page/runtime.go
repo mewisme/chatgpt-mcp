@@ -480,8 +480,7 @@ func (page *RuntimePage) startOperation(command SystemCommand) tea.Cmd {
 	id := page.operationID
 	ctx, cancel := context.WithTimeout(page.ctx, systemOperationTimeout)
 	page.operationCancel = cancel
-	progress := component.NewProgress(systemOperationTitle(command))
-	page.progress, page.pending, page.overlay = &progress, command, systemOverlayOperation
+	page.pending = command
 	installOptions := application.InstallCurrentOptions{}
 	if page.installForm != nil {
 		installOptions = page.installForm.Options()
@@ -567,7 +566,7 @@ func (page *RuntimePage) startOperation(command SystemCommand) tea.Cmd {
 		}
 		return msg
 	}
-	return tea.Batch(progress.Init(), operation)
+	return beginOperation("runtime.update", "Runtime", systemOperationTitle(command), operation)
 }
 
 func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {

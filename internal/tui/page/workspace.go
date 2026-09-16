@@ -270,6 +270,7 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.err = page.syncDetail()
 		if page.err == nil {
 			page.notice = "Refreshed"
+			return page, func() tea.Msg { return OperationResult("workspace.refresh", "Workspace", page.notice, nil) }
 		}
 		return page, nil
 	case workspaceContextBuildMsg:
@@ -284,7 +285,7 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			if page.contextBuilding {
 				if msg.String() == "esc" {
 					page.cancelWorkspaceContextBuild()
-					return page, func() tea.Msg { return OperationResult("workspace.context.build", "Workspace", page.notice, nil) }
+					return page, func() tea.Msg { return cancelledOperation("workspace.context.build", "Workspace", page.notice) }
 				}
 				return page, nil
 			}

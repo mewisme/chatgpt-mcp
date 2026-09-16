@@ -431,7 +431,7 @@ func (page *ConfigPage) openCommand(command ConfigCommand, resourceID string) (t
 			if page.notice == "" {
 				page.notice = spec.Key + " is read-only"
 			}
-			return nil, nil
+			return func() tea.Msg { return OperationResult("config.save", "Configuration", page.notice, nil) }, nil
 		}
 		return func() tea.Msg { return NavigateMsg{Path: []string{"config", page.targetKey, "edit"}} }, nil
 	case ConfigVerify:
@@ -466,15 +466,12 @@ func (page *ConfigPage) startOperation(command ConfigCommand, title string, run 
 	operationID := page.operationID
 	page.operationCancel = cancel
 	page.command = command
-	progress := component.NewProgress(title)
-	page.progress = &progress
-	page.overlay = configOverlayOperation
 	page.err = nil
-	return func() tea.Msg {
+	return beginOperation("config.save", "Configuration", title, func() tea.Msg {
 		message := run(ctx)
 		message.operationID = operationID
 		return message
-	}
+	})
 }
 
 func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
@@ -529,16 +526,16 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 			page.notice += fmt.Sprintf(" · %d require attention", msg.pluginIssues)
 		}
 	}
+	notice := page.notice
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
 		page.editor.Accept()
-		notice := page.notice
 		return tea.Batch(page.configEditorParentNavigation(), func() tea.Msg { return OperationResult("config.save", "Configuration", notice, nil) })
 	}
-	return func() tea.Msg {
+	return withOperation("config.save", "Configuration", notice, func() tea.Msg {
 		overview, err := application.LoadConfigOverview(page.ctx)
 		return configLoadMsg{overview: overview, err: err}
-	}
+	})
 }
 
 func (page *ConfigPage) cancelOperation() {

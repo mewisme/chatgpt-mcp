@@ -374,8 +374,10 @@ func TestConfigPageReadOnlyGuidance(t *testing.T) {
 	page, _ := NewConfig(t.Context())
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
-	if cmd, err := page.openCommand(ConfigEdit, "auth.mcp_token_hash"); err != nil || cmd != nil {
+	if cmd, err := page.openCommand(ConfigEdit, "auth.mcp_token_hash"); err != nil || cmd == nil {
 		t.Fatalf("read-only edit cmd=%v err=%v", cmd != nil, err)
+	} else if op, ok := operationMsg(cmd); !ok || !strings.Contains(op.Message, "Reuse this token") {
+		t.Fatalf("read-only operation=%#v", op)
 	}
 	if page.overlay != configOverlayNone || !strings.Contains(page.notice, "Reuse this token") {
 		t.Fatalf("overlay=%d notice=%q", page.overlay, page.notice)
@@ -441,12 +443,11 @@ func TestConfigPageCancellationIgnoresLateResult(t *testing.T) {
 	cmd := page.startOperation(ConfigVerify, "Verifying", func(context.Context) configOperationMsg {
 		return configOperationMsg{command: ConfigVerify, verify: config.VerifyResult{Format: configformat.JSON, Files: 99}}
 	})
-	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	page = updated.(*ConfigPage)
+	page.cancelOperation()
 	if page.overlay != configOverlayNone {
 		t.Fatalf("overlay=%d", page.overlay)
 	}
-	updated, follow := page.Update(cmd())
+	updated, follow := page.Update(workMsg(cmd))
 	page = updated.(*ConfigPage)
 	if follow != nil || !strings.Contains(page.notice, "cancellation requested") || strings.Contains(page.notice, "99") {
 		t.Fatalf("follow=%v notice=%q", follow != nil, page.notice)
@@ -465,12 +466,12 @@ func TestConfigPageOldOperationCannotOverwriteNewOperation(t *testing.T) {
 	current := page.startOperation(ConfigVerify, "Current", func(context.Context) configOperationMsg {
 		return configOperationMsg{command: ConfigVerify, verify: config.VerifyResult{Format: configformat.JSON, Files: 2}}
 	})
-	updated, staleFollow := page.Update(old())
+	updated, staleFollow := page.Update(workMsg(old))
 	page = updated.(*ConfigPage)
-	if staleFollow != nil || page.overlay != configOverlayOperation {
+	if staleFollow != nil {
 		t.Fatalf("stale follow=%v overlay=%d", staleFollow != nil, page.overlay)
 	}
-	updated, follow := page.Update(current())
+	updated, follow := page.Update(workMsg(current))
 	page = updated.(*ConfigPage)
 	if follow == nil || !strings.Contains(page.notice, "2 structured files") {
 		t.Fatalf("follow=%v notice=%q", follow != nil, page.notice)

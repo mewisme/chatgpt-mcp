@@ -216,8 +216,8 @@ func TestManagedTunnelsForAdminScopesProfileAndAutoRefreshes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page.adminProfileID != "work" || len(page.adminProfiles) != 1 || page.adminProfiles[0].ID != "work" || page.pendingInit == nil || !page.OverlayActive() {
-		t.Fatalf("profile=%q admins=%d pending=%v overlay=%t", page.adminProfileID, len(page.adminProfiles), page.pendingInit != nil, page.OverlayActive())
+	if page.adminProfileID != "work" || len(page.adminProfiles) != 1 || page.adminProfiles[0].ID != "work" || page.pendingInit == nil {
+		t.Fatalf("profile=%q admins=%d pending=%v", page.adminProfileID, len(page.adminProfiles), page.pendingInit != nil)
 	}
 	if view := ansi.Strip(page.View(100, 24)); !strings.Contains(view, "r refresh") || strings.Contains(view, "r refresh all") {
 		t.Fatalf("scoped refresh help=%q", view)
@@ -377,22 +377,6 @@ func TestTunnelAdminProfileEditorFailureKeepsDraft(t *testing.T) {
 	}
 }
 
-func TestManagedTunnelOperationOverlayBlocksEditorMouse(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{})
-	page, err := NewManagedTunnels(t.Context(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	page.width, page.height = 100, 28
-	page.overlay = tunnelOverlayOperation
-	progress := component.NewProgress("Creating managed tunnel")
-	page.progress = &progress
-	targets := page.MouseTargets(0, 0, 1)
-	if len(targets) != 1 || targets[0].ID != "page.overlay" {
-		t.Fatalf("operation mouse targets=%#v", targets)
-	}
-}
-
 func TestTunnelInstancesLayoutShowsCollectionSummaryAndManagedShortcut(t *testing.T) {
 	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_a", APIKey: "runtime-a", AdminProfileID: "work"}, {ID: "tunnel_b", APIKey: "runtime-b"}}
 	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret"}}
@@ -530,10 +514,13 @@ func TestManagedTunnelRefreshPersistsCacheAndEditUsesCachedState(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd, err := page.openCommand(TunnelManagedRefresh, "")
-	if err != nil || cmd == nil || page.overlay != tunnelOverlayOperation {
-		t.Fatalf("refresh cmd=%v err=%v overlay=%d", cmd, err, page.overlay)
+	if err != nil || cmd == nil {
+		t.Fatalf("refresh cmd=%v err=%v", cmd, err)
 	}
-	updated, _ := page.Update(cmd())
+	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
+		t.Fatalf("refresh pending=%#v", op)
+	}
+	updated, _ := page.Update(workMsg(cmd))
 	page = updated.(*TunnelPage)
 	if len(page.items) != 2 || page.items[0].ID != "tunnel_one" || !strings.Contains(page.notice, "2") {
 		t.Fatalf("items=%#v notice=%q", page.items, page.notice)
@@ -613,20 +600,19 @@ func TestManagedTunnelRefreshCancellationIgnoresLateResult(t *testing.T) {
 		t.Fatalf("cmd=%v err=%v", cmd, err)
 	}
 	result := make(chan tea.Msg, 1)
-	go func() { result <- cmd() }()
+	go func() { result <- workMsg(cmd) }()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("managed refresh did not start")
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	page = updated.(*TunnelPage)
-	if page.overlay != tunnelOverlayNone || !page.operationCancelled {
-		t.Fatalf("cancel state overlay=%d cancelled=%t", page.overlay, page.operationCancelled)
+	page.cancelOperation()
+	if !page.operationCancelled {
+		t.Fatal("managed refresh was not cancelled")
 	}
 	select {
 	case message := <-result:
-		updated, _ = page.Update(message)
+		updated, _ := page.Update(message)
 		page = updated.(*TunnelPage)
 	case <-time.After(time.Second):
 		t.Fatal("cancelled managed refresh did not return")

@@ -754,9 +754,9 @@ func (page *LogsPage) updateClearConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		page.clearSeq++
 		operation := page.clearSeq
-		progress := component.NewProgress("Clearing runtime logs")
-		page.progress, page.overlay = &progress, logsOverlayOperation
-		return func() tea.Msg { return logsClearMsg{operation: operation, err: application.ClearLogs(page.ctx)} }
+		return beginOperation("logs.clear", "Logs", "Clearing runtime logs", func() tea.Msg {
+			return logsClearMsg{operation: operation, err: application.ClearLogs(page.ctx)}
+		})
 	default:
 		return page.confirm.Update(msg)
 	}

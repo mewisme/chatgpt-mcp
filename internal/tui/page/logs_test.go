@@ -371,8 +371,10 @@ func TestLogsClearRequiresExplicitConfirmationAndInfoShowsJournal(t *testing.T) 
 	}
 	page.openCommand(LogsClear)
 	page.confirm.Select(true)
-	if cmd := page.updateClearConfirm(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || page.overlay != logsOverlayOperation {
-		t.Fatalf("confirmed clear cmd=%v overlay=%d", cmd, page.overlay)
+	if cmd := page.updateClearConfirm(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
+		t.Fatal("confirmed clear command missing")
+	} else if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
+		t.Fatalf("confirmed clear pending=%#v", op)
 	}
 	page.closeOverlay()
 	page.openCommand(LogsInfo)

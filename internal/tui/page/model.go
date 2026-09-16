@@ -82,6 +82,10 @@ func OperationResult(key, title, message string, err error) tea.Msg {
 	return OperationMsg{Key: key, Phase: OperationSuccess, Title: title, Message: message, Tone: component.ToneSuccess}
 }
 
+func cancelledOperation(key, title, message string) tea.Msg {
+	return OperationMsg{Key: key, Phase: OperationCancelled, Title: title, Message: message, Tone: component.ToneNeutral}
+}
+
 func beginOperation(key, title, pending string, work tea.Cmd) tea.Cmd {
 	return tea.Batch(OperationStarted(key, title, pending), work)
 }

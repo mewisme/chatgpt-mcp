@@ -136,16 +136,22 @@ func TestRuntimeMCPHTTPToggleUsesTransportAction(t *testing.T) {
 	}
 	message := detailCommand(tea.KeyPressMsg{Code: tea.KeySpace})
 	_, cmd := page.Update(message)
-	if cmd == nil || page.pending != MCPHTTPDisable || page.overlay != systemOverlayOperation {
-		t.Fatalf("disable toggle cmd=%v pending=%q overlay=%d", cmd, page.pending, page.overlay)
+	if cmd == nil || page.pending != MCPHTTPDisable {
+		t.Fatalf("disable toggle cmd=%v pending=%q", cmd, page.pending)
+	}
+	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
+		t.Fatalf("disable pending=%#v", op)
 	}
 	page.closeOverlay()
 	page.runtime.MCPHTTPEnabled = false
 	page.rebuildBrowser("")
 	message = detailCommand(tea.KeyPressMsg{Code: tea.KeySpace})
 	_, cmd = page.Update(message)
-	if cmd == nil || page.pending != MCPHTTPEnable || page.overlay != systemOverlayOperation {
-		t.Fatalf("enable toggle cmd=%v pending=%q overlay=%d", cmd, page.pending, page.overlay)
+	if cmd == nil || page.pending != MCPHTTPEnable {
+		t.Fatalf("enable toggle cmd=%v pending=%q", cmd, page.pending)
+	}
+	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
+		t.Fatalf("enable pending=%#v", op)
 	}
 	page.closeOverlay()
 }

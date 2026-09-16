@@ -54,6 +54,14 @@ func (layout Layout) InstalledVersionPath(id PluginID, version Version) string {
 	return filepath.Join(layout.PluginsPath(), string(id), string(version))
 }
 
+func (layout Layout) PluginConfigPath(id PluginID) string {
+	return filepath.Join(layout.ConfigRoot, "plugins", "config", string(id)+".json")
+}
+
+func WorkspacePluginConfigPath(workspaceRoot string, id PluginID) string {
+	return filepath.Join(filepath.Clean(workspaceRoot), ".cgm", "plugins", "config", string(id)+".json")
+}
+
 func defaultDataRoot() string {
 	home, err := os.UserHomeDir()
 	if err != nil {

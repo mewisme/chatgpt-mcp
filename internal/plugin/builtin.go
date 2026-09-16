@@ -48,6 +48,7 @@ type Builtin struct {
 	Type           PluginType
 	Provides       []Capability
 	Permissions    []Permission
+	Schema         SettingsSchema
 	Disableable    bool
 	DefaultEnabled bool
 	Description    string
@@ -69,7 +70,7 @@ func (builtin Builtin) Validate() error {
 func (builtin Builtin) Origin() Origin { return OriginBuiltin }
 
 func (builtin Builtin) Lifecycle() Lifecycle {
-	return Lifecycle{Enable: builtin.Disableable, Disable: builtin.Disableable, Verify: true}
+	return Lifecycle{Enable: builtin.Disableable, Disable: builtin.Disableable, Verify: true, Configure: len(builtin.Schema.Fields) > 0}
 }
 
 func (builtin Builtin) CatalogManifest(coreVersion string) Manifest {

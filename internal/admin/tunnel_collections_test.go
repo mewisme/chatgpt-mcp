@@ -2,7 +2,6 @@ package admin
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +10,6 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/testutil"
-	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	securemcptunnel "go.mewis.me/chatgpt-mcp/plugins/secure-mcp-tunnel"
 )
@@ -32,14 +30,7 @@ func TestTunnelCollectionAPIAttachesAndDetachesByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := config.NewRuntimeStore(loaded)
-	manager := tunnel.NewManager(&tools.Runtime{Registry: tools.NewRegistry()}, nil)
-	if err := manager.Reconcile(context.Background(), loaded.RuntimeTunnels()); err != nil {
-		t.Fatal(err)
-	}
-	api := API{Config: store, Tunnels: manager, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {
-		if err := manager.Reconcile(context.Background(), next.RuntimeTunnels()); err != nil {
-			return err
-		}
+	api := API{Config: store, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {
 		_, err := store.Update(func(config.Config) (config.Config, error) { return next, nil })
 		return err
 	}}
@@ -49,9 +40,8 @@ func TestTunnelCollectionAPIAttachesAndDetachesByID(t *testing.T) {
 	if post.Code != http.StatusOK || strings.Contains(post.Body.String(), "secret-b") {
 		t.Fatalf("attach status=%d body=%s", post.Code, post.Body.String())
 	}
-	a, _ := manager.Client("a")
-	if _, ok := manager.Client("b"); !ok {
-		t.Fatal("b was not attached")
+	if ids := store.Snapshot().RuntimeTunnels().Instances; len(ids) != 2 || ids[0].ID != "a" || ids[1].ID != "b" {
+		t.Fatalf("instances after attach = %#v", ids)
 	}
 	list := httptest.NewRecorder()
 	handler.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/tunnels", nil))
@@ -70,11 +60,8 @@ func TestTunnelCollectionAPIAttachesAndDetachesByID(t *testing.T) {
 	if detach.Code != http.StatusNoContent {
 		t.Fatalf("detach status=%d body=%s", detach.Code, detach.Body.String())
 	}
-	if got, _ := manager.Client("a"); got != a {
-		t.Fatal("detaching b replaced a")
-	}
-	if _, ok := manager.Client("b"); ok {
-		t.Fatal("b remained attached")
+	if ids := store.Snapshot().RuntimeTunnels().Instances; len(ids) != 1 || ids[0].ID != "a" {
+		t.Fatalf("instances after detach = %#v", ids)
 	}
 }
 
@@ -97,14 +84,7 @@ func TestTunnelAdminCollectionCRUDPreservesSecret(t *testing.T) {
 	admins := []tunnel.AdminConfig{}
 	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
 	store := config.NewRuntimeStore(cfg)
-	manager := tunnel.NewManager(&tools.Runtime{Registry: tools.NewRegistry()}, nil)
-	if err := manager.Reconcile(context.Background(), cfg.RuntimeTunnels()); err != nil {
-		t.Fatal(err)
-	}
-	api := API{Config: store, Tunnels: manager, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {
-		if err := manager.Reconcile(context.Background(), next.RuntimeTunnels()); err != nil {
-			return err
-		}
+	api := API{Config: store, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {
 		_, err := store.Update(func(config.Config) (config.Config, error) { return next, nil })
 		return err
 	}}
@@ -168,11 +148,7 @@ func TestManagedTunnelAPIKeepsAllProfileProvenance(t *testing.T) {
 	instances := []tunnel.InstanceConfig{}
 	admins := []tunnel.AdminConfig{{ID: "a", AdminKey: "key-a", OrganizationID: "org-a", ManageAccess: true, ControlPlaneBaseURL: server.URL}, {ID: "b", AdminKey: "key-b", OrganizationID: "org-b", ManageAccess: true, ControlPlaneBaseURL: server.URL}}
 	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
-	manager := tunnel.NewManager(&tools.Runtime{Registry: tools.NewRegistry()}, nil)
-	if err := manager.Reconcile(context.Background(), cfg.RuntimeTunnels()); err != nil {
-		t.Fatal(err)
-	}
-	handler := New(API{Config: config.NewRuntimeStore(cfg), Tunnels: manager})
+	handler := New(API{Config: config.NewRuntimeStore(cfg)})
 	list := httptest.NewRecorder()
 	handler.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/managed-tunnels", nil))
 	if list.Code != http.StatusOK {
@@ -207,14 +183,7 @@ func TestTunnelAdminAPIRejectsInvalidProfileID(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := config.NewRuntimeStore(loaded)
-	manager := tunnel.NewManager(&tools.Runtime{Registry: tools.NewRegistry()}, nil)
-	if err := manager.Reconcile(context.Background(), loaded.RuntimeTunnels()); err != nil {
-		t.Fatal(err)
-	}
-	api := API{Config: store, Tunnels: manager, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {
-		if err := manager.Reconcile(context.Background(), next.RuntimeTunnels()); err != nil {
-			return err
-		}
+	api := API{Config: store, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {
 		_, err := store.Update(func(config.Config) (config.Config, error) { return next, nil })
 		return err
 	}}

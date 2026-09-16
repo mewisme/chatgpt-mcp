@@ -16,7 +16,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-func TestReloadTunnelCollectionKeepsUnchangedClients(t *testing.T) {
+func TestReloadTunnelCollectionDoesNotOwnLiveManager(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
@@ -28,33 +28,21 @@ func TestReloadTunnelCollectionKeepsUnchangedClients(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientA, _ := a.Tunnels.Client("a")
-	clientB, _ := a.Tunnels.Client("b")
+	if a.Tunnels != nil || a.Tunnel != nil {
+		t.Fatal("core constructed a live Secure MCP manager")
+	}
 	next := cfg
-	changed := []tunnel.InstanceConfig{{ID: "a", APIKey: "key-a"}, {ID: "b", APIKey: "new-key"}, {ID: "c", APIKey: "key-c"}}
+	changed := []tunnel.InstanceConfig{{ID: "a", APIKey: "key-a"}, {ID: "c", APIKey: "key-c"}}
 	next.Tunnel.Instances = &changed
 	if err := a.ReloadConfig(next); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := a.Tunnels.Client("a"); got != clientA {
-		t.Fatal("unchanged tunnel a restarted")
+	if a.Tunnels != nil || a.Tunnel != nil {
+		t.Fatal("reload constructed a live Secure MCP manager")
 	}
-	if got, _ := a.Tunnels.Client("b"); got == clientB {
-		t.Fatal("changed tunnel b was not replaced")
-	}
-	if _, ok := a.Tunnels.Client("c"); !ok {
-		t.Fatal("added tunnel c missing")
-	}
-	removed := []tunnel.InstanceConfig{{ID: "a", APIKey: "key-a"}}
-	next.Tunnel.Instances = &removed
-	if err := a.ReloadConfig(next); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := a.Tunnels.Client("a"); got != clientA {
-		t.Fatal("removing another tunnel restarted a")
-	}
-	if _, ok := a.Tunnels.Client("b"); ok {
-		t.Fatal("removed tunnel b still attached")
+	got := a.Config.Snapshot().RuntimeTunnels().Instances
+	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "c" {
+		t.Fatalf("collection = %#v", got)
 	}
 }
 
@@ -144,11 +132,12 @@ func TestReloadConfigSyncsTunnelAdminKeyWithoutRuntimeReconfigure(t *testing.T) 
 	if err := app.ReloadConfig(next); err != nil {
 		t.Fatal(err)
 	}
-	if got := app.Tunnel.Config(); got.AdminKey != "admin-key" || got.AdminWorkspaceID != "ws_admin" {
+	got := app.Config.Snapshot().Tunnel
+	if got.AdminKey != "admin-key" || got.AdminWorkspaceID != "ws_admin" {
 		t.Fatalf("tunnel config = %#v", got)
 	}
-	if !app.Tunnel.Status().AdminKeyConfigured {
-		t.Fatalf("tunnel status = %#v", app.Tunnel.Status())
+	if app.Tunnels != nil || app.Tunnel != nil {
+		t.Fatal("admin-key reload constructed a live Secure MCP manager")
 	}
 }
 

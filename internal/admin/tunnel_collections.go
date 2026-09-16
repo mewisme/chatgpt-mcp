@@ -9,6 +9,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -54,7 +55,7 @@ func localView(instance tunnel.InstanceConfig, status tunnel.Status) localTunnel
 }
 
 func (api API) collectionState() (config.Config, tunnel.CollectionConfig, error) {
-	if api.Config == nil || api.Tunnels == nil {
+	if api.Config == nil {
 		return config.Config{}, tunnel.CollectionConfig{}, errors.New("tunnel runtime unavailable")
 	}
 	cfg := api.Config.Snapshot()
@@ -122,13 +123,23 @@ func (api API) liveLocalView(id string) (localTunnelView, error) {
 		if instance.ID != id {
 			continue
 		}
-		status := tunnel.Status{ID: instance.ID, Enabled: instance.Enabled}
-		if client, ok := api.Tunnels.Client(id); ok {
-			status = client.Status()
-		}
-		return localView(instance, status), nil
+		return localView(instance, api.instanceStatus(instance)), nil
 	}
 	return localTunnelView{}, fmt.Errorf("tunnel %q is not attached", id)
+}
+
+func (api API) instanceStatus(instance tunnel.InstanceConfig) tunnel.Status {
+	status := tunnel.Status{ID: instance.ID, Enabled: instance.Enabled, Provider: tunnel.ProviderOpenAI}
+	statuses, err := application.SecureMCPRuntimeStatuses(context.Background(), pluginhost.RuntimeHost)
+	if err != nil {
+		return status
+	}
+	for _, item := range statuses {
+		if item.ID == instance.ID {
+			return item
+		}
+	}
+	return status
 }
 
 func (api API) handleLocalTunnels(w http.ResponseWriter, r *http.Request) {
@@ -141,12 +152,7 @@ func (api API) handleLocalTunnels(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		views := make([]localTunnelView, 0, len(collection.Instances))
 		for _, instance := range collection.Instances {
-			client, ok := api.Tunnels.Client(instance.ID)
-			status := tunnel.Status{ID: instance.ID, Enabled: instance.Enabled}
-			if ok {
-				status = client.Status()
-			}
-			views = append(views, localView(instance, status))
+			views = append(views, localView(instance, api.instanceStatus(instance)))
 		}
 		writeJSON(w, views)
 	case http.MethodPost:
@@ -199,11 +205,6 @@ func (api API) handleLocalTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tunnel is not attached", http.StatusNotFound)
 		return
 	}
-	client, ok := api.Tunnels.Client(id)
-	if !ok {
-		http.Error(w, "tunnel client unavailable", http.StatusServiceUnavailable)
-		return
-	}
 	if len(parts) == 2 {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -211,13 +212,9 @@ func (api API) handleLocalTunnel(w http.ResponseWriter, r *http.Request) {
 		}
 		switch parts[1] {
 		case "start":
-			err = api.Tunnels.Start(r.Context(), id)
+			_, err = application.StartSecureMCPInstance(r.Context(), pluginhost.RuntimeHost, id)
 		case "stop":
-			if !cfg.Server.Enabled && !anotherReadyTunnel(api.Tunnels.Statuses(), id) {
-				http.Error(w, "cannot stop the last usable MCP transport", http.StatusConflict)
-				return
-			}
-			err = api.Tunnels.Stop(r.Context(), id)
+			_, err = application.StopSecureMCPInstance(r.Context(), pluginhost.RuntimeHost, cfg.Server.Enabled, id)
 		case "enable", "disable":
 			_, err = application.SetLocalTunnelEnabled(r.Context(), id, parts[1] == "enable")
 			if err != nil {
@@ -250,7 +247,7 @@ func (api API) handleLocalTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, localView(collection.Instances[index], client.Status()))
+		writeJSON(w, localView(collection.Instances[index], api.instanceStatus(collection.Instances[index])))
 	case http.MethodPut:
 		var request localTunnelRequest
 		if err := decodeJSONBody(w, r, &request); err != nil {
@@ -289,15 +286,6 @@ func (api API) handleLocalTunnel(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-}
-
-func anotherReadyTunnel(statuses []tunnel.Status, except string) bool {
-	for _, status := range statuses {
-		if status.ID != except && status.Enabled && status.Ready {
-			return true
-		}
-	}
-	return false
 }
 
 type adminProfileRequest struct {

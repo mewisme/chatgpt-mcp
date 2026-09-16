@@ -17,6 +17,28 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
+func TestNewDoesNotOwnLiveSecureMCPManager(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Enabled = true
+	cfg.Tunnel.Enabled = true
+	cfg.Tunnel.ID = "tunnel_test"
+	cfg.Tunnel.APIKey = "runtime-secret"
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Tunnels != nil || app.Tunnel != nil {
+		t.Fatal("New constructed a live Secure MCP manager")
+	}
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = app.Stop() })
+	if app.Tunnels != nil || app.Tunnel != nil {
+		t.Fatal("Start constructed a live Secure MCP manager")
+	}
+}
+
 func TestNewSharesToolRuntime(t *testing.T) {
 	cfg := config.Default()
 	app, err := New(cfg)
@@ -44,8 +66,8 @@ func TestTunnelOnlyRuntimeDoesNotCreateMCPHTTPRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app.MCP != nil || app.Tools == nil || app.Tunnel == nil {
-		t.Fatalf("tunnel-only runtime MCP=%#v tools=%#v tunnel=%#v", app.MCP, app.Tools, app.Tunnel)
+	if app.MCP != nil || app.Tools == nil || app.Tunnels != nil || app.Tunnel != nil {
+		t.Fatalf("tunnel-only runtime MCP=%#v tools=%#v tunnels=%#v tunnel=%#v", app.MCP, app.Tools, app.Tunnels, app.Tunnel)
 	}
 	recorder := httptest.NewRecorder()
 	app.MCPHandler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))

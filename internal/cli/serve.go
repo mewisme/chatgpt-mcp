@@ -27,14 +27,19 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-func runtimeTunnelStatuses(runtime *app.App, cfg config.Config) (runtimecontrol.TunnelSummary, []runtimecontrol.TunnelRuntimeStatus) {
+func runtimeTunnelStatuses(_ *app.App, cfg config.Config) (runtimecontrol.TunnelSummary, []runtimecontrol.TunnelRuntimeStatus) {
 	configured := make(map[string]bool)
 	for _, instance := range cfg.RuntimeTunnels().Instances {
 		configured[instance.ID] = instance.APIKey != ""
 	}
-	statuses := runtime.Tunnels.Statuses()
+	var statuses []tunnel.Status
 	if pluginStatuses, err := application.SecureMCPRuntimeStatuses(context.Background(), pluginhost.RuntimeHost); err == nil && len(pluginStatuses) > 0 {
 		statuses = pluginStatuses
+	}
+	if len(statuses) == 0 {
+		for _, instance := range cfg.RuntimeTunnels().Instances {
+			statuses = append(statuses, tunnel.Status{ID: instance.ID, Enabled: instance.Enabled, Provider: tunnel.ProviderOpenAI})
+		}
 	}
 	summary := runtimecontrol.TunnelSummary{Total: len(statuses)}
 	items := make([]runtimecontrol.TunnelRuntimeStatus, 0, len(statuses))

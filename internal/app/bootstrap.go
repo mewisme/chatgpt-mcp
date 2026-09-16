@@ -62,7 +62,7 @@ func (a *App) Bootstrap() error {
 		span.FailMessage("Application runtime bootstrap failed", a.bootstrapErr)
 		return a.bootstrapErr
 	}
-	span.EndMessage("Application runtime bootstrapped", tracepkg.Bool("performed", didBootstrap), tracepkg.Bool("mcp_http_enabled", a.MCP != nil), tracepkg.Bool("tunnel_configured", a.Tunnel != nil), tracepkg.Int("tool_count", len(a.Tools.List())))
+	span.EndMessage("Application runtime bootstrapped", tracepkg.Bool("performed", didBootstrap), tracepkg.Bool("mcp_http_enabled", a.MCP != nil), tracepkg.Int("tunnel_count", len(a.Config.Snapshot().RuntimeTunnels().Instances)), tracepkg.Int("tool_count", len(a.Tools.List())))
 	return nil
 }
 

@@ -88,34 +88,9 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 	if appLogger == nil {
 		appLogger = logger.New(logger.Info)
 	}
-	tunnelManager := tunnel.NewManager(toolRuntime, appLogger)
-	if err := tunnelManager.Reconcile(ctx, cfg.RuntimeTunnels()); err != nil {
-		span.FailMessage("Tunnel collection configuration failed", err)
-		return nil, err
-	}
-	for _, status := range tunnelManager.Statuses() {
-		client, _ := tunnelManager.Client(status.ID)
-		seedSpan := tracepkg.Start(ctx, "APP", "app.tunnel.metadata-seed", "Seeding tunnel metadata cache", tracepkg.String("tunnel_id", status.ID))
-		if metadata, err := config.LoadTunnelMetadata(status.ID); err == nil {
-			if seedErr := client.SeedMetadata(metadata); seedErr != nil {
-				seedSpan.FailMessage("Tunnel metadata seed failed", seedErr)
-			} else {
-				seedSpan.EndMessage("Tunnel metadata cache seeded", tracepkg.Bool("seeded", true), tracepkg.String("tunnel_id", metadata.ID))
-			}
-		} else {
-			seedSpan.EndMessage("Tunnel metadata cache unavailable", tracepkg.Bool("seeded", false), tracepkg.Bool("configured", true))
-		}
-	}
-	tunnelClient, ok := tunnelManager.Client(cfg.Tunnel.ID)
-	if !ok {
-		tunnelClient = tunnel.NewConfiguredWithLogger(cfg.Tunnel, toolRuntime, appLogger)
-	}
-	if cfg.Tunnel.Instances == nil && cfg.Tunnel.Admins == nil && cfg.Tunnel.ID != "" {
-		_ = tunnelClient.SyncManagementConfig(cfg.Tunnel)
-	}
 	app := &App{
 		Config: configStore, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
-		Tunnels: tunnelManager, Tunnel: tunnelClient, Logger: appLogger, trace: observer,
+		Logger: appLogger, trace: observer,
 	}
 	bootstrapStarted := time.Now()
 	if err := app.Bootstrap(); err != nil {

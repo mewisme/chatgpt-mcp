@@ -264,13 +264,12 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, func() tea.Msg { return OperationResult("workspace.copy", "Workspace", "", err) }
 		}
 		page.err = nil
-		page.notice = "Copied " + msg.ID
-		return page, func() tea.Msg { return OperationResult("workspace.copy", "Workspace", page.notice, nil) }
+		notice := "Copied " + msg.ID
+		return page, func() tea.Msg { return OperationResult("workspace.copy", "Workspace", notice, nil) }
 	case workspaceRefreshDetailMsg:
 		page.err = page.syncDetail()
 		if page.err == nil {
-			page.notice = "Refreshed"
-			return page, func() tea.Msg { return OperationResult("workspace.refresh", "Workspace", page.notice, nil) }
+			return page, func() tea.Msg { return OperationResult("workspace.refresh", "Workspace", "Refreshed", nil) }
 		}
 		return page, nil
 	case workspaceContextBuildMsg:
@@ -523,7 +522,7 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 			page.err = err
 			return nil
 		}
-		page.notice = workspaceSuccess(page.command)
+		notice := workspaceSuccess(page.command)
 		deletedID := page.targetID
 		page.closeOverlay()
 		if deletedID != "" {
@@ -532,10 +531,10 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 				path = []string{"containers"}
 			}
 			return tea.Batch(func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }, func() tea.Msg {
-				return OperationResult("workspace.delete", "Workspace", page.notice, nil)
+				return OperationResult("workspace.delete", "Workspace", notice, nil)
 			})
 		}
-		return func() tea.Msg { return OperationResult("workspace.delete", "Workspace", page.notice, nil) }
+		return func() tea.Msg { return OperationResult("workspace.delete", "Workspace", notice, nil) }
 	}
 	return page.confirm.Update(msg)
 }

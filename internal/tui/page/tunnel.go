@@ -463,8 +463,9 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 		page.operationCancelled = false
 		page.overlay = tunnelOverlayNone
 		page.progress = nil
-		page.notice = "Operation cancelled"
-		return nil
+		return func() tea.Msg {
+			return cancelledOperation("tunnel.managed.save", "Managed Tunnel", "Operation cancelled")
+		}
 	}
 	page.overlay = tunnelOverlayNone
 	page.progress = nil

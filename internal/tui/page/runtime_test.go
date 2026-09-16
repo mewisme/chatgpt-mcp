@@ -326,9 +326,12 @@ func TestRuntimeCopyNoticeDoesNotShowToken(t *testing.T) {
 		t.Fatalf("copy overlay=%v cmd=%v err=%v", page.overlay, cmd != nil, err)
 	}
 	page.operationID = 4
-	page.finishOperation(systemOperationMsg{id: 4, command: AuthMCPCopy, notice: "Copied Direct MCP HTTP token"})
-	if page.overlay != systemOverlayNone || page.secret != "" || page.notice != "Copied Direct MCP HTTP token" {
-		t.Fatalf("copy overlay=%v secret=%q notice=%q", page.overlay, page.secret, page.notice)
+	follow := page.finishOperation(systemOperationMsg{id: 4, command: AuthMCPCopy, notice: "Copied Direct MCP HTTP token"})
+	if page.overlay != systemOverlayNone || page.secret != "" {
+		t.Fatalf("copy overlay=%v secret=%q", page.overlay, page.secret)
+	}
+	if op, ok := operationMsg(follow); !ok || op.Message != "Copied Direct MCP HTTP token" {
+		t.Fatalf("copy operation=%#v", op)
 	}
 }
 

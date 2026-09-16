@@ -329,13 +329,16 @@ func TestMCPPageToolRefreshIsCancellable(t *testing.T) {
 	}
 	select {
 	case message := <-result:
-		updated, _ := page.Update(message)
+		updated, follow := page.Update(message)
 		page = updated.(*MCPPage)
+		if page.operationCancelled {
+			t.Fatal("cancel flag still set after completion")
+		}
+		if op, ok := operationMsg(follow); !ok || op.Phase != OperationCancelled {
+			t.Fatalf("cancel operation=%#v", op)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("cancelled tool command did not return")
-	}
-	if page.operationCancelled || !strings.Contains(page.notice, "cancel") {
-		t.Fatalf("cancel completion notice=%q cancelled=%t", page.notice, page.operationCancelled)
 	}
 }
 

@@ -145,12 +145,11 @@ func (page *TunnelInstancesPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, nil
 	case tunnelCopyMsg:
+		notice := "Copied command to clipboard"
 		if msg.err != nil {
-			page.notice = "Clipboard unavailable: " + msg.err.Error()
-		} else {
-			page.notice = "Copied command to clipboard"
+			notice = "Clipboard unavailable: " + msg.err.Error()
 		}
-		return page, func() tea.Msg { return OperationResult("tunnel.copy", "Tunnel", page.notice, nil) }
+		return page, func() tea.Msg { return OperationResult("tunnel.copy", "Tunnel", notice, nil) }
 	case localTunnelResultMsg:
 		return page, page.finishCommand(msg)
 	case tea.KeyPressMsg:
@@ -434,7 +433,7 @@ func (page *TunnelInstancesPage) finishCommand(msg localTunnelResultMsg) tea.Cmd
 	}
 	page.err = nil
 	if page.editor != nil && (page.action == "create" || page.action == "edit") {
-		page.notice = localTunnelSuccess(msg.command)
+		notice := localTunnelSuccess(msg.command)
 		page.acceptLocalEditorSuccess()
 		id := msg.item.ID
 		if id == "" {
@@ -442,9 +441,10 @@ func (page *TunnelInstancesPage) finishCommand(msg localTunnelResultMsg) tea.Cmd
 		}
 		return tea.Batch(
 			func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", id}, Replace: true} },
-			func() tea.Msg { return OperationResult("tunnel.local.save", "Tunnel", page.notice, nil) },
+			func() tea.Msg { return OperationResult("tunnel.local.save", "Tunnel", notice, nil) },
 		)
 	}
+	notice := localTunnelSuccess(msg.command)
 	if msg.command == LocalTunnelDetach {
 		items := page.items[:0]
 		for _, item := range page.items {
@@ -453,27 +453,25 @@ func (page *TunnelInstancesPage) finishCommand(msg localTunnelResultMsg) tea.Cmd
 			}
 		}
 		page.items = items
-		page.notice = localTunnelSuccess(msg.command)
 		if page.resourceID == msg.id {
-			return withOperation("tunnel.local.action", "Tunnel", page.notice, func() tea.Msg { return NavigateMsg{Path: []string{"tunnel"}, Replace: true} })
+			return withOperation("tunnel.local.action", "Tunnel", notice, func() tea.Msg { return NavigateMsg{Path: []string{"tunnel"}, Replace: true} })
 		}
 	} else if msg.command == LocalTunnelRefresh {
 		page.items, page.admins = msg.items, msg.admins
-		page.notice = fmt.Sprintf("Refreshed %d tunnel instance(s)", len(page.items))
+		notice = fmt.Sprintf("Refreshed %d tunnel instance(s)", len(page.items))
 	} else {
 		for i := range page.items {
 			if page.items[i].ID == msg.item.ID {
 				page.items[i] = msg.item
 			}
 		}
-		page.notice = localTunnelSuccess(msg.command)
 	}
 	if page.resourceID != "" {
 		page.err = page.syncDetail()
-		return withOperation("tunnel.local.action", "Tunnel", page.notice, nil)
+		return withOperation("tunnel.local.action", "Tunnel", notice, nil)
 	}
 	selected, _ := page.browser.Selected()
-	return withOperation("tunnel.local.action", "Tunnel", page.notice, page.browser.ReplaceRows(page.rows(), selected.ID))
+	return withOperation("tunnel.local.action", "Tunnel", notice, page.browser.ReplaceRows(page.rows(), selected.ID))
 }
 
 func (page *TunnelInstancesPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {

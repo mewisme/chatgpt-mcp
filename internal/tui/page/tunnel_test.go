@@ -615,13 +615,16 @@ func TestManagedTunnelRefreshCancellationIgnoresLateResult(t *testing.T) {
 	}
 	select {
 	case message := <-result:
-		updated, _ := page.Update(message)
+		updated, follow := page.Update(message)
 		page = updated.(*TunnelPage)
+		if page.operationCancelled || page.err != nil {
+			t.Fatalf("completion cancelled=%t err=%v", page.operationCancelled, page.err)
+		}
+		if op, ok := operationMsg(follow); !ok || op.Phase != OperationCancelled {
+			t.Fatalf("cancel operation=%#v", op)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("cancelled managed refresh did not return")
-	}
-	if page.operationCancelled || page.err != nil || !strings.Contains(page.notice, "cancel") {
-		t.Fatalf("completion cancelled=%t err=%v notice=%q", page.operationCancelled, page.err, page.notice)
 	}
 }
 

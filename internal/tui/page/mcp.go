@@ -734,7 +734,9 @@ func (page *MCPPage) openCommand(command MCPCommand, resourceID string) (tea.Cmd
 		if err := page.toggleServer(command == MCPServerEnable); err != nil {
 			return nil, err
 		}
-		return func() tea.Msg { return OperationResult("mcp.toggle", "MCP", page.notice, nil) }, nil
+		notice := page.notice
+		page.notice = ""
+		return func() tea.Msg { return OperationResult("mcp.toggle", "MCP", notice, nil) }, nil
 	case MCPServerHealth:
 		return page.startHealth(page.targetID), nil
 	case MCPServerTools:
@@ -768,10 +770,9 @@ func (page *MCPPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		delete(page.status, target)
 		delete(page.tools, target)
-		page.notice = "MCP server removed"
 		page.closeOverlay()
 		return tea.Batch(func() tea.Msg { return NavigateMsg{Path: []string{"mcp"}, Replace: true} }, func() tea.Msg {
-			return OperationResult("mcp.remove", "MCP", page.notice, nil)
+			return OperationResult("mcp.remove", "MCP", "MCP server removed", nil)
 		})
 	default:
 		page.err = fmt.Errorf("unsupported MCP confirmation: %s", page.command)
@@ -877,9 +878,6 @@ func (page *MCPPage) finishOperation(notice string, err error) {
 	page.overlay = mcpOverlayNone
 	page.progress = nil
 	page.err = err
-	if err == nil && notice != "" {
-		page.notice = notice
-	}
 }
 
 func (page *MCPPage) closeOverlay() {

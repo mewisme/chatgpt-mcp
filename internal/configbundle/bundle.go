@@ -156,6 +156,9 @@ func Import(root, source string, options ImportOptions) (ImportResult, error) {
 	if err != nil {
 		return ImportResult{}, err
 	}
+	if err := configformat.AssertMutableRoot(root); err != nil {
+		return ImportResult{}, err
+	}
 	source, err = absoluteClean(source)
 	if err != nil {
 		return ImportResult{}, err

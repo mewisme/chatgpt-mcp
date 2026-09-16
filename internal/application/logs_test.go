@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -163,12 +163,8 @@ func TestParseLogsSinceAcceptsAbsoluteTimestamp(t *testing.T) {
 
 func setupLogsRoot(t *testing.T) string {
 	t.Helper()
-	previous := configformat.RootPath()
-	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
 	root := t.TempDir()
-	if err := configformat.SetRootPath(root); err != nil {
-		t.Fatal(err)
-	}
+	testutil.UseConfigRoot(t, root)
 	return root
 }
 

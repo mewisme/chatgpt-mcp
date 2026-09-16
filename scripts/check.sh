@@ -5,8 +5,18 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-export CHATGPT_MCP_CONFIG_DIR="${CHATGPT_MCP_CONFIG_DIR:-$(mktemp -d)}"
-trap 'rm -rf "${CHATGPT_MCP_CONFIG_DIR}"' EXIT
+default_config_dir="${HOME}/.config/chatgpt-mcp"
+if [[ -z "${CHATGPT_MCP_CONFIG_DIR:-}" ]]; then
+  CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)"
+  export CHATGPT_MCP_CONFIG_DIR
+  trap 'rm -rf "${CHATGPT_MCP_CONFIG_DIR}"' EXIT
+else
+  export CHATGPT_MCP_CONFIG_DIR
+  if [[ "$(realpath -m "${CHATGPT_MCP_CONFIG_DIR}")" == "$(realpath -m "${default_config_dir}")" ]]; then
+    echo "refusing to run checks with CHATGPT_MCP_CONFIG_DIR set to the live default config root: ${CHATGPT_MCP_CONFIG_DIR}" >&2
+    exit 1
+  fi
+fi
 
 echo "==> gofmt"
 test -z "$(gofmt -l . | tee /dev/stderr)"

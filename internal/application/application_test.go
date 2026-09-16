@@ -144,6 +144,16 @@ func TestUninitializePreservesUnrelatedFilesInManagedRoot(t *testing.T) {
 	}
 }
 
+func TestRemoveConfigRootRefusesLiveDefaultRootDuringTests(t *testing.T) {
+	live := filepath.Join(string(filepath.Separator), "var", "chatgpt-mcp-live-guard", ".config", "chatgpt-mcp")
+	if err := configformat.AssertMutableRoot(live); err == nil {
+		t.Fatalf("expected live-style root to be rejected: %s", live)
+	}
+	if err := RemoveConfigRoot(live); err == nil {
+		t.Fatal("live-style default config root was removed during tests")
+	}
+}
+
 func TestSetAuthEnabledRequiresConfiguredToken(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")

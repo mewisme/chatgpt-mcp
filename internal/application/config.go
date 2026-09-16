@@ -169,6 +169,10 @@ func PurgeStoredSecrets(root string) error {
 
 func PurgeStoredSecretsContext(ctx context.Context, root string) error {
 	span := tracepkg.Start(ctx, "CONFIG", "config.secrets.purge", "Purging stored configuration secrets", tracepkg.String("root", root))
+	if err := configformat.AssertMutableRoot(root); err != nil {
+		span.FailMessage("Stored configuration secret purge refused", err, tracepkg.String("root", root))
+		return err
+	}
 	entries, err := config.TunnelSecretEntries(root)
 	if err != nil {
 		span.FailMessage("Tunnel secret enumeration failed", err)
@@ -214,6 +218,10 @@ func RemoveConfigRootContext(ctx context.Context, root string) error {
 	volume := filepath.VolumeName(clean)
 	if clean == volume+string(filepath.Separator) {
 		err := fmt.Errorf("refusing to remove volume root: %s", clean)
+		span.FailMessage("Configuration root removal refused", err, tracepkg.String("path", clean))
+		return err
+	}
+	if err := configformat.AssertMutableRoot(clean); err != nil {
 		span.FailMessage("Configuration root removal refused", err, tracepkg.String("path", clean))
 		return err
 	}

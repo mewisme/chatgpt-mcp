@@ -3,10 +3,21 @@ package testutil
 import (
 	"os"
 	"path/filepath"
+	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 )
+
+// UseConfigRoot sets the process config root for one test and clears the override on cleanup.
+// Prefer this over restoring a previous RootPath(), which can pin the live default root.
+func UseConfigRoot(t *testing.T, root string) {
+	t.Helper()
+	t.Cleanup(func() { _ = configformat.SetRootPath("") })
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func IsolateConfigHome() (string, func(), error) {
 	home, err := os.MkdirTemp("", "chatgpt-mcp-test-home-")

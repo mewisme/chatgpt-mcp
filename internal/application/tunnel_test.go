@@ -12,6 +12,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -352,12 +353,8 @@ func TestManagedCreateFailureDoesNotChangeRuntimeCollection(t *testing.T) {
 
 func setupTunnelApplicationRoot(t *testing.T, tunnelConfig tunnel.Config) {
 	t.Helper()
-	deferRoot := configformat.RootPath()
-	t.Cleanup(func() { _ = configformat.SetRootPath(deferRoot) })
 	root := filepath.Join(t.TempDir(), "config")
-	if err := configformat.SetRootPath(root); err != nil {
-		t.Fatal(err)
-	}
+	testutil.UseConfigRoot(t, root)
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false

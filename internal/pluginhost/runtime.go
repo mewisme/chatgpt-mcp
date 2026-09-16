@@ -17,3 +17,7 @@ func StopRuntime() {
 func RuntimeStatus() cftunnelplugin.Status {
 	return cftunnelplugin.LiveStatus()
 }
+
+func SetRuntimeObserver(fn cftunnelplugin.LifecycleObserver) {
+	cftunnelplugin.SetLiveObserver(fn)
+}

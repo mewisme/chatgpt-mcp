@@ -99,3 +99,10 @@ func TestStartCFTunnelRejectsUnknownTarget(t *testing.T) {
 		t.Fatal("unknown target accepted")
 	}
 }
+
+func TestCFTunnelStatusFromSnapshotDefaultNil(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
+	if got := CFTunnelStatusFromSnapshot(CFTunnelSnapshot(config.Default())); got != nil {
+		t.Fatalf("status = %#v", got)
+	}
+}

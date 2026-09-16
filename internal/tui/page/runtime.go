@@ -17,6 +17,7 @@ import (
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
+	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
 const systemOperationTimeout = 2 * time.Minute
@@ -844,7 +845,9 @@ func (page *RuntimePage) runtimeItem() runtimeItem {
 			mcpHTTP = endpoint(status.ServerPort, "/mcp")
 		}
 		description = fmt.Sprintf("%s · pid %d · %s", state, status.PID, mode)
-		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP HTTP", mcpHTTP}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}}
+		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP HTTP", mcpHTTP}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}, {"CF Tunnel", runtimeCFTunnelStatus(status)}}
+	} else if page.runtime.Status.CFTunnel != nil {
+		fields = append(fields, [2]string{"CF Tunnel", runtimeCFTunnelStatus(page.runtime.Status)})
 	}
 	return runtimeItem{row: component.Row{ID: "runtime", Title: "MCP runtime process", Description: description, Search: "runtime process status service server"}, detailTitle: "MCP runtime process", detail: detailFields(fields...)}
 }
@@ -1196,6 +1199,28 @@ func valueInt(value int) string {
 		return ""
 	}
 	return fmt.Sprint(value)
+}
+
+func runtimeCFTunnelStatus(status runtimecontrol.RuntimeStatus) string {
+	cf := status.CFTunnel
+	if cf == nil {
+		return "disabled"
+	}
+	parts := make([]string, 0, len(cf.Targets))
+	for _, item := range cf.Targets {
+		line := cftunnelplugin.TargetStatus{
+			Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready, Restarting: item.Restarting,
+			URL: item.URL, Origin: item.Origin, LastError: item.LastError,
+		}.Line()
+		parts = append(parts, item.Target+" "+line)
+	}
+	if len(parts) == 0 {
+		if cf.PluginEnabled {
+			return "enabled"
+		}
+		return "disabled"
+	}
+	return strings.Join(parts, " · ")
 }
 
 func runtimeTunnelStatus(status runtimecontrol.RuntimeStatus) string {

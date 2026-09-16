@@ -105,13 +105,14 @@ type CFTunnelStatus struct {
 }
 
 type CFTunnelTargetStatus struct {
-	Target    string `json:"target"`
-	Desired   bool   `json:"desired"`
-	Running   bool   `json:"running"`
-	Ready     bool   `json:"ready"`
-	URL       string `json:"url,omitempty"`
-	Origin    string `json:"origin,omitempty"`
-	LastError string `json:"last_error,omitempty"`
+	Target     string `json:"target"`
+	Desired    bool   `json:"desired"`
+	Running    bool   `json:"running"`
+	Ready      bool   `json:"ready"`
+	Restarting bool   `json:"restarting,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Origin     string `json:"origin,omitempty"`
+	LastError  string `json:"last_error,omitempty"`
 }
 
 type State struct {

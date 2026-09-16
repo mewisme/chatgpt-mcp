@@ -317,7 +317,7 @@ func renderStatusCFTunnel(out io.Writer, snapshot statusSnapshot) {
 	items := cfTunnelStatusItems(snapshot.Config, live)
 	interesting := live != nil && live.PluginEnabled
 	for _, item := range items {
-		if item.Desired || item.Running || item.Ready || item.LastError != "" {
+		if item.Desired || item.Running || item.Ready || item.Restarting || item.LastError != "" {
 			interesting = true
 		}
 	}

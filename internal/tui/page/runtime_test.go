@@ -480,3 +480,17 @@ func TestRuntimeUpdateFailureRemainsErrorFeedback(t *testing.T) {
 		t.Fatalf("failure err=%v notice=%q msg=%#v", page.err, page.notice, msg)
 	}
 }
+
+func TestRuntimeItemShowsCFTunnel(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	page.runtime = application.RuntimeOverview{Running: true, Status: runtimecontrol.RuntimeStatus{
+		PID: 4242, CFTunnel: &runtimecontrol.CFTunnelStatus{PluginEnabled: true, Targets: []runtimecontrol.CFTunnelTargetStatus{
+			{Target: "mcp", Desired: true, Ready: true, URL: "https://mcp.trycloudflare.com"},
+			{Target: "admin", Desired: true, Restarting: true, LastError: "edge down"},
+		}},
+	}}
+	item := page.runtimeItem()
+	if !strings.Contains(item.detail, "https://mcp.trycloudflare.com · ephemeral") || !strings.Contains(item.detail, "reconnecting · edge down") {
+		t.Fatalf("cf tunnel missing: %q", item.detail)
+	}
+}

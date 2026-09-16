@@ -96,9 +96,88 @@ func readyEndpoint(port int) Endpoint {
 	return Endpoint{Ready: true, Port: port}
 }
 
+func TestManagerReconnectsAfterUnexpectedWait(t *testing.T) {
+	var started atomic.Int32
+	var mu sync.Mutex
+	var tunnels []*cloudflared.Tunnel
+	m := newTestManager(t, func(ctx context.Context, cfg cloudflared.Config) (*cloudflared.Tunnel, error) {
+		started.Add(1)
+		tun := stubTunnel(ctx, cfg)
+		mu.Lock()
+		tunnels = append(tunnels, tun)
+		mu.Unlock()
+		return tun, nil
+	})
+	m.Sync(context.Background(), Snapshot{PluginEnabled: true, DesiredMCP: true, MCP: readyEndpoint(37421)})
+	waitTarget(t, m, TargetMCP, true, "")
+	mu.Lock()
+	first := tunnels[0]
+	mu.Unlock()
+	first.Complete(errors.New("edge down"))
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		st := targetStatus(m, TargetMCP)
+		if started.Load() >= 2 && st.Ready && st.LastError == "" {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("started=%d status=%#v", started.Load(), targetStatus(m, TargetMCP))
+}
+
+func TestManagerRedactsSecretsAndEmitsLifecycle(t *testing.T) {
+	var mu sync.Mutex
+	var events []LifecycleEvent
+	m := newTestManager(t, func(ctx context.Context, cfg cloudflared.Config) (*cloudflared.Tunnel, error) {
+		return nil, errors.New("provision failed secret=cf-secret-value token=mcp_abcdefghijklmnopqrstuvwxyz012345")
+	})
+	m.SetObserver(func(event LifecycleEvent) {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+	})
+	m.Sync(context.Background(), Snapshot{PluginEnabled: true, DesiredMCP: true, MCP: readyEndpoint(37421)})
+	deadline := time.Now().Add(2 * time.Second)
+	var st TargetStatus
+	for time.Now().Before(deadline) {
+		st = targetStatus(m, TargetMCP)
+		if !st.Ready && st.LastError != "" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if st.LastError == "" {
+		t.Fatalf("missing last error: %#v", st)
+	}
+	if strings.Contains(st.LastError, "cf-secret-value") || strings.Contains(st.LastError, "mcp_abcdefghijklmnopqrstuvwxyz012345") {
+		t.Fatalf("secret leaked in status: %#v", st)
+	}
+	if !strings.Contains(st.LastError, "<redacted>") {
+		t.Fatalf("last error not redacted: %#v", st)
+	}
+	mu.Lock()
+	got := append([]LifecycleEvent(nil), events...)
+	mu.Unlock()
+	if len(got) < 2 || got[0].State != LifecycleConnecting || got[len(got)-1].State != LifecycleDegraded {
+		t.Fatalf("events = %#v", got)
+	}
+	for _, event := range got {
+		if strings.Contains(event.Error, "cf-secret-value") || strings.Contains(event.URL, "cf-secret-value") {
+			t.Fatalf("secret leaked in event: %#v", event)
+		}
+	}
+}
+
+func TestTargetStatusLineReconnects(t *testing.T) {
+	if line := (TargetStatus{Restarting: true, LastError: "edge down"}).Line(); line != "reconnecting · edge down" {
+		t.Fatalf("line = %q", line)
+	}
+}
+
 func newTestManager(t *testing.T, start StartFunc) *Manager {
 	t.Helper()
 	m := NewManager()
+	m.reconnectDelay = 0
 	m.SwapStart(start)
 	t.Cleanup(m.Stop)
 	return m

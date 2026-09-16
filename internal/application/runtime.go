@@ -89,7 +89,11 @@ func LoadRuntimeOverview(ctx context.Context) (RuntimeOverview, error) {
 	if err != nil {
 		return RuntimeOverview{}, err
 	}
-	return RuntimeOverview{Running: running, Status: status, MCPHTTPEnabled: cfg.Server.Enabled, MCPHTTPPort: cfg.Server.Port, TunnelEnabled: cfg.EnabledTunnelCount() > 0, UserService: user, SystemService: system}, nil
+	overview := RuntimeOverview{Running: running, Status: status, MCPHTTPEnabled: cfg.Server.Enabled, MCPHTTPPort: cfg.Server.Port, TunnelEnabled: cfg.EnabledTunnelCount() > 0, UserService: user, SystemService: system}
+	if !running {
+		overview.Status.CFTunnel = CFTunnelStatusFromSnapshot(CFTunnelSnapshot(cfg))
+	}
+	return overview, nil
 }
 
 func loadServiceOverview(scope managed.Scope) ServiceOverview {

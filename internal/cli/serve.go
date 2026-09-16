@@ -63,11 +63,11 @@ func cfTunnelRuntimeStatus() *runtimecontrol.CFTunnelStatus {
 	out := &runtimecontrol.CFTunnelStatus{PluginEnabled: st.Enabled, Targets: make([]runtimecontrol.CFTunnelTargetStatus, 0, len(st.Targets))}
 	interesting := st.Enabled
 	for _, item := range st.Targets {
-		if item.Desired || item.Running || item.Ready || item.LastError != "" {
+		if item.Desired || item.Running || item.Ready || item.Restarting || item.LastError != "" {
 			interesting = true
 		}
 		out.Targets = append(out.Targets, runtimecontrol.CFTunnelTargetStatus{
-			Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready,
+			Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready, Restarting: item.Restarting,
 			URL: item.URL, Origin: item.Origin, LastError: item.LastError,
 		})
 	}
@@ -496,6 +496,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err := waitRuntimeHTTPReady(runtimeCtx, cfg, 3*time.Second); err != nil {
 		return errors.Join(err, bindings.Shutdown())
 	}
+	watchCFTunnel(runtime.Logger)
 	syncCFTunnel(runtimeCtx, cfg)
 	setLifecycle("listeners_ready")
 	if !cfg.Server.Enabled && len(cfg.RuntimeTunnels().Instances) > 0 {

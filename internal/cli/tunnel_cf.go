@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -9,6 +10,8 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
@@ -84,7 +87,7 @@ func cfTunnelStatusItems(cfg config.Config, live *runtimecontrol.CFTunnelStatus)
 		items := make([]cftunnelplugin.TargetStatus, 0, len(live.Targets))
 		for _, item := range live.Targets {
 			items = append(items, cftunnelplugin.TargetStatus{
-				Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready,
+				Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready, Restarting: item.Restarting,
 				URL: item.URL, Origin: item.Origin, LastError: item.LastError,
 			})
 		}
@@ -108,17 +111,37 @@ func cfTunnelSnapshotItem(target string, desired bool, endpoint cftunnelplugin.E
 }
 
 func cfTunnelStatusLine(item cftunnelplugin.TargetStatus) string {
-	if item.LastError != "" {
-		return "degraded · " + item.LastError
+	return item.Line()
+}
+
+func watchCFTunnel(log *logger.Logger) {
+	pluginhost.SetRuntimeObserver(func(event cftunnelplugin.LifecycleEvent) {
+		logCFTunnelLifecycle(log, event)
+	})
+}
+
+func logCFTunnelLifecycle(log *logger.Logger, event cftunnelplugin.LifecycleEvent) {
+	if log == nil {
+		return
 	}
-	if item.Ready && item.URL != "" {
-		return item.URL + " · ephemeral"
+	fields := []logger.Field{logger.WithVerbose("target", event.Target)}
+	if event.URL != "" {
+		fields = append(fields, logger.WithVerbose("url", event.URL))
 	}
-	if item.Running {
-		return "connecting"
+	switch event.State {
+	case cftunnelplugin.LifecycleConnecting:
+		log.Action("TUNNEL", "cf-tunnel.connecting", "Connecting CF Tunnel", fields...)
+	case cftunnelplugin.LifecycleReconnecting:
+		log.Action("TUNNEL", "cf-tunnel.reconnecting", "Reconnecting CF Tunnel", fields...)
+	case cftunnelplugin.LifecycleReady:
+		log.Ready("TUNNEL", "cf-tunnel.ready", "CF Tunnel ready", fields...)
+	case cftunnelplugin.LifecycleDegraded:
+		var eventErr error
+		if event.Error != "" {
+			eventErr = errors.New(event.Error)
+		}
+		log.Warning("TUNNEL", "cf-tunnel.degraded", "CF Tunnel degraded", eventErr, fields...)
+	case cftunnelplugin.LifecycleStopped:
+		log.Ready("TUNNEL", "cf-tunnel.stopped", "CF Tunnel stopped", fields...)
 	}
-	if item.Desired {
-		return "offline"
-	}
-	return "disabled"
 }

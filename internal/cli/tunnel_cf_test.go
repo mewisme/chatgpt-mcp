@@ -5,7 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fatih/color"
+
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
@@ -27,6 +30,30 @@ func TestRenderCFTunnelStatusSeparatesFromSecureMCP(t *testing.T) {
 	}
 	if strings.Contains(text, "tunnel_") {
 		t.Fatalf("leaked secure mcp id: %q", text)
+	}
+}
+
+func TestRenderCFTunnelStatusReconnecting(t *testing.T) {
+	var out bytes.Buffer
+	renderCFTunnelStatus(&out, config.Default(), &runtimecontrol.CFTunnelStatus{
+		PluginEnabled: true,
+		Targets:       []runtimecontrol.CFTunnelTargetStatus{{Target: cftunnelplugin.TargetMCP, Desired: true, Restarting: true, LastError: "edge down"}},
+	}, "all")
+	if !strings.Contains(out.String(), "reconnecting · edge down") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestLogCFTunnelLifecycleRedactsSecrets(t *testing.T) {
+	previous := color.NoColor
+	color.NoColor = true
+	defer func() { color.NoColor = previous }()
+	var output bytes.Buffer
+	log := logger.NewWithOptions(logger.Options{Level: logger.Info, Mode: logger.ModeVerbose, Writer: &output})
+	logCFTunnelLifecycle(log, cftunnelplugin.LifecycleEvent{State: cftunnelplugin.LifecycleDegraded, Target: "mcp", Error: "provision failed secret=<redacted>"})
+	text := output.String()
+	if !strings.Contains(text, "CF Tunnel degraded") || !strings.Contains(text, "target: mcp") {
+		t.Fatalf("output = %q", text)
 	}
 }
 

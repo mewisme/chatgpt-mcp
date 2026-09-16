@@ -1,0 +1,93 @@
+# Upstream pin
+
+Quick Tunnel source will be adapted from `github.com/cloudflare/cloudflared`.
+
+| Field | Value |
+| --- | --- |
+| Tag | `2026.9.1` |
+| Commit | `f11dea9cb7079e90a982c1a2d5548ab40847fdcf` |
+| Annotated tag object | `be5825661dca56de70b5493ece66237f290427e3` |
+| License | Apache License 2.0 (copied as `LICENSE`) |
+| Official linux-amd64 checksum | `03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc` |
+
+Do not extract from `cmd/cloudflared`. Reimplement the Quick Tunnel entry as a
+small library `Start(ctx, Config)` that provisions via `POST {quick-service}/tunnel`
+(default `https://api.trycloudflare.com`) and then runs the existing connection
+supervisor against one HTTP origin.
+
+## Phase 0 constraint (do not regress)
+
+Runtime MCP HTTP through official Quick Tunnel works as Streamable HTTP JSON
+(`Content-Type: application/json`). Required initialize / `tools/list` /
+`tools/call` / session continuity / auth do not need SSE. `cgm serve` `/mcp/sse`
+is 405 locally. Do not add protocol hacks to bypass Cloudflare's documented SSE
+limit. Direct MCP HTTP and Admin authentication remain mandatory on any public
+URL.
+
+## Call path to keep
+
+```text
+POST https://api.trycloudflare.com/tunnel
+  -> tunnel id, account tag, secret, hostname
+  -> force protocol=quic, ha-connections=1
+  -> connection.TunnelProperties{Credentials, QuickTunnelUrl}
+  -> supervisor.Supervisor (single edge connection)
+  -> origin HTTP proxy to Config.OriginURL
+```
+
+Upstream files that encode provisioning (must be rewritten out of urfave/cli):
+
+- `cmd/cloudflared/tunnel/quick_tunnel.go` (`RunQuickTunnel`, response types)
+- `connection` credentials / QuickTunnelUrl observer
+- `supervisor` reconnect loop
+- `edgediscovery` region DNS
+- `orchestration` origin config
+- `ingress` / `proxy` HTTP origin
+- `quic` + `quic/v3` edge transport
+- `tunnelrpc` + generated capnp
+- `tunnelstate`, `retry`, `signal`, `stream`
+
+## Keep vs reject (coarse)
+
+Keep, then strip CLI/globals:
+
+- `connection/`, `supervisor/`, `orchestration/`, `edgediscovery/`
+- `quic/`, `quic/v3/`, `tunnelrpc/`, `tunnelstate/`
+- `ingress/` origin HTTP only (drop ICMP, hello-world, JWT middleware if unused)
+- `proxy/`, `retry/`, `signal/`, `stream/`, `tlsconfig/`, `ipaccess/`, `packet/`
+
+Reject:
+
+- entire `cmd/cloudflared` (urfave/cli, service install, updater, `tunnel login/run/create`, DNS routes)
+- `updater/`, `token/` (Access login / browser), `management/`, `sshgen/`, `socks/`
+- `watcher/`, `overwatch/`, `prechecks/` (optional; stock binary runs them)
+- Sentry init, systemd notify, pidfile, tracing/otel exporters
+- Cloudflare's vendored third-party tree (none should be copied)
+
+## Third-party modules that may remain
+
+Expected after strip:
+
+- `github.com/quic-go/quic-go`
+- `github.com/google/uuid`
+- `github.com/pkg/errors` (replace with stdlib if cheap)
+- `golang.org/x/crypto`, `golang.org/x/net`, `golang.org/x/sync`
+
+Remove from the extracted path if the corresponding cloudflared code is dropped:
+
+- `github.com/urfave/cli/v2`
+- `github.com/getsentry/sentry-go`
+- `github.com/coreos/go-oidc`, `github.com/go-jose/go-jose` (Access/JWT ingress)
+- `go.opentelemetry.io/*`
+- `github.com/go-chi/chi`, `github.com/shirou/gopsutil`
+- Prometheus if metrics can be no-ops
+
+## Size estimate (tag `2026.9.1`, tests excluded)
+
+- Whole repo Go: ~44k LOC
+- Coarse keep-candidate dirs above: ~21k LOC
+- CLI `cmd/`: ~9k LOC (do not copy)
+- Official `cloudflared-linux-amd64` binary: 38 MB; extracted library must be smaller and must not import `github.com/cloudflare/cloudflared/...`
+
+File-level classification of every reached cloudflared package is still open
+before the large copy in Phase 2.

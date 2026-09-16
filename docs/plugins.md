@@ -4,6 +4,33 @@
 
 Plugins are local-user extensions, not a kernel sandbox. A native plugin process runs as the same operating-system user as `chatgpt-mcp`; use a VM/container, OS sandbox, or separate user identity when plugin code itself is not trusted.
 
+## Distribution classes
+
+Installation policy is separate from runtime type. Every official plugin is a normal signed artifact; none of the classes below compile feature code into `cgm`.
+
+```text
+built-in      linked into cgm; reserved for tiny bootstrap primitives
+core plugin   official artifact auto-reconciled by cgm install/upgrade; not linked into cgm
+optional      official or community artifact installed only when the operator asks
+```
+
+Current official **core plugins** (required: false, enabled by default):
+
+```text
+admin-ui              web-ui/admin              plugins/admin-ui
+secure-mcp-tunnel     tunnel/secure-mcp         plugins/secure-mcp-tunnel
+tui                   terminal-ui/default       plugins/tui
+markdown-formatter    formatter/markdown        plugins/markdown-formatter
+ponytail              tool-provider/ponytail    plugins/ponytail
+caveman               tool-provider/caveman     plugins/caveman
+```
+
+Current official **optional** plugins: `bash`, `rtk`, `cf-tunnel`.
+
+`cgm install` / `cgm upgrade` reconcile the core-plugin set through the normal plugin manager. Missing or disabled core plugins are reported by `cgm doctor` (`plugin.<id>`) and by the owning command (`cgm tui` fails closed; Markdown rendering falls back to raw text; Secure MCP Tunnel reports `secure MCP tunnel core plugin is not installed`). They do not crash the harness.
+
+Each official plugin keeps deterministic build metadata in `plugins/<id>/plugin.json`, `plugins/workflow.json`, and (for native binaries) `plugins/<id>/build`. Registry identity lives in `plugins/registry/index.json`. Those roots are the handoff surface for plugin UPX compression and per-artifact license/SBOM packaging.
+
 ## Operator workflow
 
 Browse and inspect plugins with the CLI or the **Plugins** page in `cgm tui`:
@@ -44,7 +71,7 @@ The core keeps the admin listener, authentication, `/api/*`, activity endpoints,
 
 Admin Settings can reveal, copy, and rotate the Direct MCP HTTP token after Admin authentication. Ordinary config GET responses expose only configured/enabled/revealable flags, never the plaintext token. Copy reuses the stored token; rotate replaces it. Secure MCP Tunnel credentials stay on the Tunnel page and are independent.
 
-The official RTK wrapper is host-backed. If RTK is not available on `PATH`, installation can use the manifest-declared verified portable binary or a supported global installer; manual shell installation hints remain recommendations only. `bash` and `rtk` may be installed globally or for one workspace. Built-in Ponytail and Caveman remain global-only.
+The official RTK wrapper is host-backed. If RTK is not available on `PATH`, installation can use the manifest-declared verified portable binary or a supported global installer; manual shell installation hints remain recommendations only. `bash` and `rtk` may be installed globally or for one workspace. Ponytail, Caveman, TUI, Markdown formatter, Admin UI, and Secure MCP Tunnel are global-only core plugins.
 
 `cgm plugin rollback <plugin> [version]` rolls back to a retained version. With no version it selects the newest retained version older than the active version. Current installs persist verified registry/publisher identity plus manifest and artifact digests alongside a local payload integrity root, so a retained version can be re-verified and activated while its registry is offline. Legacy retained versions created before that metadata existed fall back to registry re-resolution and signature verification before activation.
 
@@ -261,7 +288,7 @@ A host-backed wrapper declares a generic host contract instead of an artifact. T
 
 Host-backed entries cannot mix `host` with `artifact`, `sha256`, `archive`, or `entrypoint` fields. Checks and install commands are declarative metadata. Manual shell hints are recommendations only; a structured global installer is executed only after the operator explicitly selects that option.
 
-Recognized plugin types are `runtime`, `command-wrapper`, `hook`, `tool-provider`, `secret-provider`, `formatter`, and `web-ui`. Recognized capability namespaces are `shell/*`, `command-wrapper/*`, `hook/*`, `tool-provider/*`, `secret-provider/*`, `formatter/*`, and `web-ui/*`. A manifest must provide at least one capability. A `web-ui` plugin must provide exactly one `web-ui/*` capability, requests no runtime permissions, and may use `any/any` for a platform-independent static bundle.
+Recognized plugin types are `runtime`, `command-wrapper`, `hook`, `tool-provider`, `secret-provider`, `formatter`, `web-ui`, and `terminal-ui`. Recognized capability namespaces are `shell/*`, `command-wrapper/*`, `hook/*`, `tool-provider/*`, `secret-provider/*`, `formatter/*`, `web-ui/*`, `tunnel/*`, and `terminal-ui/*`. A manifest must provide at least one capability. A `web-ui` plugin must provide exactly one `web-ui/*` capability, requests no runtime permissions, and may use `any/any` for a platform-independent static bundle. A `terminal-ui` plugin must provide exactly one `terminal-ui/*` capability and requests no runtime permissions.
 
 Supported permissions are:
 

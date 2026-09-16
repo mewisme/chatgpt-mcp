@@ -85,9 +85,9 @@ List of additional executable directories prepended to the inherited runtime `PA
 
 Shell commands otherwise inherit the runtime process environment. The application still enforces workspace mutation containment, protected control-plane state, and risk-based approval for destructive, host, or external mutations. Strong OS-level process isolation should be provided externally when required.
 
-## Built-in plugins
+## Core plugins
 
-Ponytail and Caveman are built-in plugins. Configure them from the Plugins page or `cgm plugin config`, not from core `features.*` config keys.
+Ponytail and Caveman are official core plugins (`tool-provider/*`), not compiled into `cgm`. Configure them from the Plugins page or `cgm plugin config`, not from core `features.*` config keys.
 
 ## Tunnel
 

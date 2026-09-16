@@ -291,7 +291,7 @@ Pending requests expire after 60 seconds. Approval does not grant a general CLI 
 
 ## TUI Command Center
 
-`cgm tui` is the dedicated full-screen interactive application. Normal CLI commands remain the stable scriptable interface.
+`cgm tui` is the dedicated full-screen interactive application. It launches the `tui` core plugin and stays a small core command. Normal CLI commands remain the stable scriptable interface.
 
 ```bash
 cgm tui

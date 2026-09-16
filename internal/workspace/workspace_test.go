@@ -10,6 +10,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
+	"go.mewis.me/chatgpt-mcp/internal/workspacestate"
 )
 
 func newTestManager(t *testing.T) *Manager {
@@ -546,5 +547,140 @@ func TestDefaultStoreManagerProtectsActiveConfigRoot(t *testing.T) {
 	manager := NewManager(DefaultStorePath())
 	if manager.protectedRoot != canonicalRoot(root) {
 		t.Fatalf("protected root = %q, want %q", manager.protectedRoot, canonicalRoot(root))
+	}
+}
+
+func TestNestedWorkspacesStayIsolated(t *testing.T) {
+	parentRoot := t.TempDir()
+	childRoot := filepath.Join(parentRoot, "child")
+	if err := os.Mkdir(childRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manager := newTestManager(t)
+	parent, err := manager.Register(parentRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := manager.Register(childRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parent.ID == child.ID {
+		t.Fatalf("nested workspaces share identity: %s", parent.ID)
+	}
+	if _, err := manager.ResolvePath(parent.ID, parentRoot, filepath.Join(parentRoot, ".cgm", "workspace.json"), false); err == nil {
+		t.Fatal("parent resolved its own .cgm")
+	}
+	childFile := filepath.Join(childRoot, "file.txt")
+	if _, err := manager.ResolvePath(parent.ID, parentRoot, childFile, false); err != nil {
+		t.Fatalf("parent could not resolve child project file: %v", err)
+	}
+	if err := manager.Unregister(parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(childRoot, ".cgm", "workspace.json")); err != nil {
+		t.Fatalf("child local state was affected: %v", err)
+	}
+	got, err := manager.Get(child.ID)
+	if err != nil || got.ID != child.ID {
+		t.Fatalf("child workspace=%#v err=%v", got, err)
+	}
+}
+
+func TestMissingIndexedWorkspaceDoesNotBlockSibling(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	store := filepath.Join(t.TempDir(), "workspaces.json")
+	manager := NewManager(store)
+	healthyRoot := t.TempDir()
+	missingRoot := t.TempDir()
+	healthy, err := manager.Register(healthyRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing, err := manager.Register(missingRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(missingRoot); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := NewManager(store).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("listed=%d %#v", len(listed), listed)
+	}
+	byID := map[string]Workspace{}
+	for _, item := range listed {
+		byID[item.ID] = item
+	}
+	if !byID[healthy.ID].Available() {
+		t.Fatalf("healthy workspace unavailable: %#v", byID[healthy.ID])
+	}
+	if byID[missing.ID].Available() || byID[missing.ID].Error == "" {
+		t.Fatalf("missing workspace should be unavailable: %#v", byID[missing.ID])
+	}
+	got, err := NewManager(store).Get(healthy.ID)
+	if err != nil || !got.Available() {
+		t.Fatalf("healthy get=%#v err=%v", got, err)
+	}
+	got, err = NewManager(store).Get(missing.ID)
+	if err != nil || got.Available() {
+		t.Fatalf("missing get=%#v err=%v", got, err)
+	}
+	if _, err := NewManager(store).AddAllowDir(missing.ID, t.TempDir()); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("mutation of missing workspace error=%v", err)
+	}
+	if _, err := NewManager(store).AddAllowDir(healthy.ID, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(missingRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing workspace path was recreated: %v", err)
+	}
+	data, err := os.ReadFile(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), missing.ID) {
+		t.Fatalf("index dropped missing workspace: %s", data)
+	}
+}
+
+func TestCorruptIndexedWorkspaceDoesNotBlockSibling(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	store := filepath.Join(t.TempDir(), "workspaces.json")
+	manager := NewManager(store)
+	healthyRoot := t.TempDir()
+	corruptRoot := t.TempDir()
+	healthy, err := manager.Register(healthyRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupt, err := manager.Register(corruptRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityPath := workspacestate.New(corruptRoot).IdentityPath()
+	if err := os.WriteFile(identityPath, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := NewManager(store).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Workspace{}
+	for _, item := range listed {
+		byID[item.ID] = item
+	}
+	if !byID[healthy.ID].Available() {
+		t.Fatalf("healthy workspace unavailable: %#v", byID[healthy.ID])
+	}
+	if byID[corrupt.ID].Available() || byID[corrupt.ID].Error == "" {
+		t.Fatalf("corrupt workspace should be unavailable: %#v", byID[corrupt.ID])
+	}
+	data, err := os.ReadFile(identityPath)
+	if err != nil || string(data) != "{" {
+		t.Fatalf("corrupt identity was rewritten: %q err=%v", data, err)
 	}
 }

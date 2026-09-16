@@ -372,7 +372,8 @@ func workspaceActions() []action.Action {
 		editorNavigationAction("workspace.relocate", "Relocate", "Workspace", "Rebind the current workspace after its project directory was renamed or moved", []string{"workspace", "relocate", "move", "rename", "root"}, []string{"workspace", "relocate"}, func(ctx action.Context) bool { return ctx.Route == string(RouteWorkspaces) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
 			return Route{Kind: RouteWorkspaces, ResourceID: ctx.ResourceID, Action: "relocate"}
 		}),
-		workspaceAction("workspace.unregister", "Unregister", "Unregister the current workspace without deleting project files", []string{"workspace", "unregister"}, []string{"workspace", "unregister"}, tuipage.WorkspaceUnregister, true, false),
+		workspaceAction("workspace.unregister", "Unregister", "Unregister the current workspace without deleting .cgm or project files", []string{"workspace", "unregister"}, []string{"workspace", "unregister"}, tuipage.WorkspaceUnregister, true, false),
+		workspaceAction("workspace.purge", "Delete local state", "Unregister the current workspace and delete its .cgm directory", []string{"workspace", "purge", "delete-state", "cgm"}, []string{"workspace", "purge"}, tuipage.WorkspaceDeleteState, true, false),
 		editorNavigationAction("workspace.access.add", "Add access directory", "Workspace", "Grant the current workspace access to an additional directory", []string{"workspace", "access", "add"}, []string{"workspace", "access", "add"}, func(ctx action.Context) bool { return ctx.Route == string(RouteWorkspaces) && ctx.ResourceID != "" }, func(ctx action.Context) Route {
 			return Route{Kind: RouteWorkspaces, ResourceID: ctx.ResourceID, Section: "access", Action: "add"}
 		}),

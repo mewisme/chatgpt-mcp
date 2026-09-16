@@ -67,12 +67,6 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 	if toolRuntime.Upstream != nil {
 		toolRuntime.Upstream.SetTraceObserver(observer)
 	}
-	workspaceSpan := tracepkg.Start(ctx, "APP", "app.workspaces.load", "Loading workspace registry")
-	if workspaces, err := toolRuntime.Workspaces.List(); err != nil {
-		workspaceSpan.FailMessage("Workspace registry load failed", err)
-	} else {
-		workspaceSpan.EndMessage("Workspace registry loaded", tracepkg.Int("workspace_count", len(workspaces)))
-	}
 	upstreamSpan := tracepkg.Start(ctx, "APP", "app.upstream.bootstrap", "Bootstrapping upstream MCP manager")
 	upstreamCount := 0
 	if toolRuntime.Upstream != nil {

@@ -55,6 +55,14 @@ func tunnelRunCommand() *cobra.Command {
 			return err
 		}
 		runtime.SetShellPath(cfg.Shell.Path)
+		if err := runtime.Workspaces.Activate(); err != nil {
+			return err
+		}
+		defer func() {
+			if err := runtime.Workspaces.Deactivate(); err != nil && runErr == nil {
+				runErr = err
+			}
+		}()
 		telemetry.AttachTools(runtime, nil, log)
 		runtimeCtx, runtimeCancel := context.WithCancel(context.WithoutCancel(cmd.Context()))
 		defer runtimeCancel()

@@ -68,6 +68,7 @@ const (
 	WorkspaceShow            ID = "workspace.show"
 	WorkspaceRelocate        ID = "workspace.relocate"
 	WorkspaceUnregister      ID = "workspace.unregister"
+	WorkspacePurge           ID = "workspace.purge"
 	MCPStdio                 ID = "mcp.stdio"
 	MCPHTTP                  ID = "mcp.http"
 	MCPServerList            ID = "mcp.server.list"
@@ -148,7 +149,7 @@ var specs = []Spec{
 	{WorkspaceContainerList, "workspace container list", nil}, {WorkspaceContainerCreate, "workspace container create", nil}, {WorkspaceContainerShow, "workspace container show", nil},
 	{WorkspaceContainerRename, "workspace container rename", nil}, {WorkspaceContainerDelete, "workspace container delete", nil}, {WorkspaceContainerAdd, "workspace container add", nil}, {WorkspaceContainerRemove, "workspace container remove", nil},
 	{WorkspaceAccessList, "workspace access list", nil}, {WorkspaceAccessAdd, "workspace access add", nil}, {WorkspaceAccessRemove, "workspace access remove", nil},
-	{WorkspaceRegister, "workspace register", nil}, {WorkspaceList, "workspace list", nil}, {WorkspaceShow, "workspace show", nil}, {WorkspaceRelocate, "workspace relocate", nil}, {WorkspaceUnregister, "workspace unregister", nil},
+	{WorkspaceRegister, "workspace register", nil}, {WorkspaceList, "workspace list", nil}, {WorkspaceShow, "workspace show", nil}, {WorkspaceRelocate, "workspace relocate", nil}, {WorkspaceUnregister, "workspace unregister", nil}, {WorkspacePurge, "workspace purge", nil},
 	{MCPStdio, "mcp stdio", nil},
 	{MCPHTTP, "mcp http", nil},
 	{MCPServerList, "upstream server list", []string{"mcp server list"}}, {MCPServerAdd, "upstream server add", []string{"mcp server add"}}, {MCPServerConfigure, "upstream server configure", []string{"mcp server configure"}}, {MCPServerShow, "upstream server show", []string{"mcp server show"}},

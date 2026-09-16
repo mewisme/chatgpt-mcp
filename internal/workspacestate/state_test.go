@@ -131,6 +131,46 @@ func TestGitExcludeRootAndNestedWorkspace(t *testing.T) {
 	}
 }
 
+func TestGitExcludeWorktreeGitFile(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git unavailable")
+	}
+	repo := t.TempDir()
+	if _, err := gitCommand(repo, "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitCommand(repo, "-c", "user.email=test@example.com", "-c", "user.name=test", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "init"); err != nil {
+		t.Fatal(err)
+	}
+	worktree := filepath.Join(t.TempDir(), "worktree")
+	if _, err := gitCommand(repo, "worktree", "add", worktree); err != nil {
+		t.Fatal(err)
+	}
+	if err := New(worktree).EnsureGitExcluded(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	exclude, err := gitCommand(worktree, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
+	if err != nil || exclude == "" {
+		exclude, err = gitCommand(worktree, "rev-parse", "--git-path", "info/exclude")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !filepath.IsAbs(exclude) {
+			exclude = filepath.Join(worktree, exclude)
+		}
+	}
+	data, err := os.ReadFile(exclude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "/.cgm/") {
+		t.Fatalf("worktree exclude missing /.cgm/: %q path=%s", data, exclude)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, ".cgm", ".gitignore")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("created .cgm/.gitignore")
+	}
+}
+
 func gitCommand(cwd string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = cwd

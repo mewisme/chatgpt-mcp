@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -278,6 +280,7 @@ func TestConfigAPIOmitsLegacyInteractiveField(t *testing.T) {
 }
 
 func TestConfigAPIFeaturePatchUpdatesRuntimeActiveState(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := config.Default()
@@ -315,6 +318,7 @@ func TestConfigAPIFeaturePatchUpdatesRuntimeActiveState(t *testing.T) {
 }
 
 func TestConfigAPIPonytailModeUpdatesLiveRuntime(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := config.Default()
@@ -360,6 +364,7 @@ func TestConfigAPIRejectsInvalidPonytailMode(t *testing.T) {
 }
 
 func TestConfigAPICavemanModeUpdatesLiveRuntime(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := config.Default()
@@ -405,6 +410,7 @@ func TestConfigAPIRejectsInvalidCavemanMode(t *testing.T) {
 }
 
 func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeState(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled = false
 	cfg.Auth.AdminEnabled = false
@@ -432,6 +438,7 @@ func TestConfigAPIFeaturePersistenceFailureRollsBackRuntimeState(t *testing.T) {
 }
 
 func TestConfigAPILegacyFeatureEnabledPatchMigratesToActive(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := config.Default()
@@ -455,6 +462,7 @@ func TestConfigAPILegacyFeatureEnabledPatchMigratesToActive(t *testing.T) {
 }
 
 func TestConfigAPIPermissionsPatchUpdatesRuntimeAccess(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	root := t.TempDir()
 	allowed := t.TempDir()
 	cfg := config.Default()
@@ -516,6 +524,7 @@ func TestConfigAPIShellPathPatch(t *testing.T) {
 }
 
 func TestConfigAPIPermissionsPersistenceFailureKeepsRuntimeAccess(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	root := t.TempDir()
 	allowed := t.TempDir()
 	cfg := config.Default()
@@ -586,9 +595,12 @@ func TestWorkspaceAPICRUD(t *testing.T) {
 func TestWorkspaceAPIRelocate(t *testing.T) {
 	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
 	oldRoot := t.TempDir()
-	newRoot := t.TempDir()
 	item, err := manager.Register(oldRoot)
 	if err != nil {
+		t.Fatal(err)
+	}
+	newRoot := filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(oldRoot, newRoot); err != nil {
 		t.Fatal(err)
 	}
 	handler := New(API{Workspaces: manager})
@@ -601,12 +613,33 @@ func TestWorkspaceAPIRelocate(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &relocated); err != nil {
 		t.Fatal(err)
 	}
-	if relocated.ID == item.ID || relocated.Path == item.Path {
+	if relocated.ID != item.ID || relocated.Path == item.Path {
 		t.Fatalf("relocated=%#v", relocated)
 	}
 	resolved, err := manager.Get(item.ID)
-	if err != nil || resolved.ID != relocated.ID {
-		t.Fatalf("legacy lookup=%#v err=%v", resolved, err)
+	if err != nil || resolved.ID != item.ID || resolved.Path != relocated.Path {
+		t.Fatalf("resolved=%#v err=%v", resolved, err)
+	}
+}
+
+func TestWorkspaceAPIDeleteState(t *testing.T) {
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	root := t.TempDir()
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(API{Workspaces: manager})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/api/workspaces/"+item.ID+"/state", nil))
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("delete-state status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := manager.Get(item.ID); err == nil {
+		t.Fatal("workspace still registered")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".cgm")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("local state remains: %v", err)
 	}
 }
 

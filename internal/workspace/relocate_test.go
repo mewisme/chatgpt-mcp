@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -80,6 +81,146 @@ func TestRelocatePreservesIdentityContainersAndLocalState(t *testing.T) {
 	if stateMap["workspace_id"] != item.ID || stateMap["cwd"] != filepath.Join(canonicalRoot(newRoot), "nested") {
 		t.Fatalf("state=%#v", stateMap)
 	}
+}
+
+func TestActiveRelocatePreservesRuntimeLockOwnership(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	manager := NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	oldRoot := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(oldRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	item, err := manager.Register(oldRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Activate(); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Deactivate()
+	newRoot := filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(oldRoot, newRoot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Relocate(item.ID, newRoot); err != nil {
+		t.Fatal(err)
+	}
+	contender := NewManager(filepath.Join(t.TempDir(), "contender.json"))
+	if err := contender.Activate(); err != nil {
+		t.Fatal(err)
+	}
+	defer contender.Deactivate()
+	if _, err := contender.Register(newRoot); !errors.Is(err, ErrAlreadyActive) {
+		t.Fatalf("register relocated active workspace error=%v", err)
+	}
+}
+
+func TestActiveRelocateRejectsCopiedWorkspaceState(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	manager := NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	oldRoot := t.TempDir()
+	item, err := manager.Register(oldRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Activate(); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Deactivate()
+	target := t.TempDir()
+	if err := copyDirectoryForRelocateTest(workspacestate.New(oldRoot).Root(), workspacestate.New(target).Root()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Relocate(item.ID, target); err == nil {
+		t.Fatal("expected active relocation to copied workspace state to fail")
+	}
+}
+
+func TestFreshManagerRelocatesWorkspaceAfterExternalMove(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	store := filepath.Join(t.TempDir(), "workspaces.json")
+	oldRoot := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(oldRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	item, err := NewManager(store).Register(oldRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRoot := filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(oldRoot, newRoot); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewManager(store)
+	relocated, err := fresh.Relocate(item.ID, newRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if relocated.ID != item.ID || relocated.Path != canonicalRoot(newRoot) {
+		t.Fatalf("relocated=%#v", relocated)
+	}
+	resolved, err := fresh.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Path != canonicalRoot(newRoot) {
+		t.Fatalf("resolved=%#v", resolved)
+	}
+}
+
+func TestStandaloneRelocateRejectsWorkspaceOwnedByActiveRuntime(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	store := filepath.Join(t.TempDir(), "workspaces.json")
+	owner := NewManager(store)
+	item, err := owner.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Activate(); err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Deactivate()
+	if _, err := NewManager(store).Relocate(item.ID, item.Path); !errors.Is(err, ErrAlreadyActive) {
+		t.Fatalf("standalone relocate error=%v", err)
+	}
+}
+
+func TestInactiveRelocateRejectsCopiedWorkspaceState(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	manager := NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	oldRoot := t.TempDir()
+	item, err := manager.Register(oldRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	if err := copyDirectoryForRelocateTest(workspacestate.New(oldRoot).Root(), workspacestate.New(target).Root()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Relocate(item.ID, target); err == nil {
+		t.Fatal("expected copied workspace identity to reject inactive relocate")
+	}
+}
+
+func copyDirectoryForRelocateTest(source, destination string) error {
+	return filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0700)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0600)
+	})
 }
 
 func TestRelocateRejectsRegisteredDestination(t *testing.T) {

@@ -64,6 +64,8 @@ cgm workspace access add ws_... /path/to/build-cache
 
 Paths are canonicalized and symlink escapes are rejected.
 
+Each workspace stores identity and workspace-owned state in `<workspace>/.cgm`. Built-in filesystem tools and clearly destructive shell commands refuse to mutate that directory while the workspace is active. This is not a host filesystem lock against commands run outside CGM; `rm -rf .cgm` from another terminal can still delete it.
+
 Built-in filesystem mutations use checkpoint/rewind validation where applicable. If a safe checkpoint cannot be captured completely, the mutation fails before changing the target. Workspace roots and configured allowed roots cannot be removed by checkpointed filesystem operations when doing so would make safe rewind impossible.
 
 Shell-command filesystem changes are not automatically checkpointed.

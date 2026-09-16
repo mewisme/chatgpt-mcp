@@ -3,6 +3,7 @@
 package oslock
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -33,4 +34,27 @@ func TestSharedAndExclusiveLocks(t *testing.T) {
 		t.Fatalf("exclusive lock ok=%t err=%v", ok, err)
 	}
 	defer exclusive.Release()
+}
+
+func TestLockContentAndIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.lock")
+	lock, err := Acquire(path, Exclusive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	if err := lock.ReplaceContent([]byte("runtime\n")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "runtime\n" {
+		t.Fatalf("lock content=%q", data)
+	}
+	same, err := lock.SameFile(path)
+	if err != nil || !same {
+		t.Fatalf("same file=%t err=%v", same, err)
+	}
 }

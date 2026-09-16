@@ -67,7 +67,7 @@ func TestWorkspacePageLifecycle(t *testing.T) {
 	if _, err := page.openCommand(WorkspaceUnregister, id); err != nil {
 		t.Fatal(err)
 	}
-	page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+	page.confirm = component.NewConfirmButtons("Unregister", "Cancel", true)
 	page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	items, err = page.manager.List()
 	if err != nil || len(items) != 0 {
@@ -152,21 +152,23 @@ func TestWorkspaceMutationsSynchronizeRunningRuntime(t *testing.T) {
 	}
 	workspaceID := items[0].ID
 	relocatedRoot := filepath.Join(t.TempDir(), "relocated")
-	if err := os.MkdirAll(relocatedRoot, 0700); err != nil {
+	if err := os.Rename(workspacePath, relocatedRoot); err != nil {
 		t.Fatal(err)
 	}
 	workspacePage.command, workspacePage.targetID, workspacePage.value = WorkspaceRelocate, workspaceID, relocatedRoot
 	if err := workspacePage.applyWorkspaceEditor(); err != nil {
 		t.Fatal(err)
 	}
-	if workspacePage.targetID == workspaceID {
-		t.Fatal("relocate did not update page target to canonical workspace id")
+	if workspacePage.targetID != workspaceID {
+		t.Fatalf("relocate changed workspace id: %s -> %s", workspaceID, workspacePage.targetID)
 	}
-	legacy, err := workspacePage.manager.Get(workspaceID)
-	if err != nil || legacy.ID != workspacePage.targetID {
-		t.Fatalf("legacy workspace lookup=%#v err=%v", legacy, err)
+	relocated, err := workspacePage.manager.Get(workspaceID)
+	if err != nil || relocated.ID != workspaceID {
+		t.Fatalf("relocated workspace=%#v err=%v", relocated, err)
 	}
-	workspaceID = workspacePage.targetID
+	if relocated.Path == workspacePath {
+		t.Fatalf("relocated path was unchanged: %s", relocated.Path)
+	}
 	extra := t.TempDir()
 	workspacePage.command, workspacePage.targetID, workspacePage.value = WorkspaceAccessAdd, workspaceID, extra
 	if err := workspacePage.applyWorkspaceEditor(); err != nil {
@@ -219,7 +221,7 @@ func TestWorkspaceMutationsSynchronizeRunningRuntime(t *testing.T) {
 	}
 
 	workspacePage.command, workspacePage.targetID = WorkspaceUnregister, workspaceID
-	workspacePage.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+	workspacePage.confirm = component.NewConfirmButtons("Unregister", "Cancel", true)
 	workspacePage.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if workspacePage.err != nil {
 		t.Fatal(workspacePage.err)
@@ -412,7 +414,7 @@ func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 		if _, err := page.openCommand(WorkspaceUnregister, item.ID); err != nil {
 			t.Fatal(err)
 		}
-		page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+		page.confirm = component.NewConfirmButtons("Unregister", "Cancel", true)
 		cmd := page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 		if cmd == nil || page.resourceID != item.ID {
 			t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)

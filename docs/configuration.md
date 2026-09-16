@@ -180,6 +180,8 @@ Register concrete project roots with:
 cgm workspace register ~/projects/my-project
 ```
 
+Workspace-owned identity, memory, checkpoints, and related state live in `<workspace>/.cgm`. The config root keeps only a path/id index plus global application state.
+
 Workspace-specific extra roots:
 
 ```bash

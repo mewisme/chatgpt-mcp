@@ -167,6 +167,7 @@ chatgpt-mcp
     │   └── remove
     ├── container
     ├── list
+    ├── purge
     ├── register
     ├── relocate
     ├── show
@@ -503,7 +504,7 @@ If the project directory has already been renamed or moved, rebind the existing 
 cgm workspace relocate ws_... /new/path/to/project
 ```
 
-`relocate` does not move project files. It updates the registered canonical root after the filesystem move, derives the new path-based workspace ID, retains the previous ID as a legacy alias, migrates workspace-scoped persistent state, rewrites state paths rooted under the old project directory, preserves container membership, and synchronizes a running runtime before returning. Workspace-specific extra roots that were inside the old root are rebased to the new root; unrelated external access roots are left unchanged. Managed background processes that were already started remain addressable through the relocated workspace while the current runtime is alive.
+`relocate` does not move project files. It updates the registered canonical root after the filesystem move, keeps the existing workspace ID, rewrites state paths rooted under the old project directory, preserves container membership, and synchronizes a running runtime before returning. Workspace-specific extra roots that were inside the old root are rebased to the new root; unrelated external access roots are left unchanged. Managed background processes that were already started remain addressable through the relocated workspace while the current runtime is alive.
 
 Manage logical workspace containers:
 
@@ -529,12 +530,19 @@ workspace_container_context(container_id="wsc_...")
 
 `wsc_*` is orchestration-only. Filesystem, Git, shell, memory, rule, checkpoint, and `project_context` calls still require one concrete member `ws_*` as `workspace_id`. Passing an existing container ID as `workspace_id` fails with guidance to resolve the container and choose a member; cgm never fans an operation out or silently selects the first member.
 
-When the runtime is already running, every successful CLI workspace-registry mutation synchronously reloads runtime state before returning. This covers workspace register/relocate/unregister, access add/remove, container create/rename/delete, and membership add/remove. The next MCP read therefore sees the change without restarting the runtime or reconnecting the MCP session. If runtime synchronization fails, the CLI reports the failure even though the registry mutation may already have been persisted.
+When the runtime is already running, every successful CLI workspace-registry mutation synchronously reloads runtime state before returning. This covers workspace register/relocate/unregister/purge, access add/remove, container create/rename/delete, and membership add/remove. The next MCP read therefore sees the change without restarting the runtime or reconnecting the MCP session. If runtime synchronization fails, the CLI reports the failure even though the registry mutation may already have been persisted.
 
-Remove the registry handle without deleting project files:
+Remove the registry handle without deleting `.cgm` or project files:
 
 ```bash
 cgm workspace unregister ws_...
+```
+
+Delete local `.cgm` state after explicit confirmation. This unregisters the workspace if needed:
+
+```bash
+cgm workspace purge ws_... --confirm
+cgm workspace purge ~/projects/copied-project --confirm
 ```
 
 Additional workspace roots:

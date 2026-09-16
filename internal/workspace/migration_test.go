@@ -174,7 +174,14 @@ func TestWorkspaceMigrationRejectsConflictingLocalState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(local.StateRoot(), "marker.txt"), []byte("different"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewManager(registryPath).List(); err == nil {
-		t.Fatal("expected conflicting local workspace state migration to fail")
+	items, err := NewManager(registryPath).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Available() || items[0].Error == "" {
+		t.Fatalf("expected conflicting local workspace to stay listed as unavailable, got %#v", items)
+	}
+	if _, err := NewManager(registryPath).AddAllowDir(id, t.TempDir()); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("mutation of conflicting workspace error=%v", err)
 	}
 }

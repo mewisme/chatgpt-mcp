@@ -87,7 +87,7 @@ Common behavior:
 
 The Workspaces area manages concrete `ws_*` project roots, additional access directories, workspace containers, and Project Context previews.
 
-A workspace detail can relocate a project after its directory has already moved. Relocation updates the trusted registered root; it does not move project files itself.
+A workspace detail can relocate a project after its directory has already moved. Relocation updates the trusted registered root and keeps the workspace ID; it does not move project files itself.
 
 Workspace containers (`wsc_*`) are grouping/orchestration resources, not filesystem scopes. See [Workspaces](workspaces.md).
 

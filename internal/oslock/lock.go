@@ -2,6 +2,7 @@ package oslock
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -57,4 +58,41 @@ func (l *Lock) Release() error {
 		return err
 	}
 	return closeErr
+}
+
+func (l *Lock) ReplaceContent(data []byte) error {
+	if l == nil || l.file == nil {
+		return errors.New("file lock is not held")
+	}
+	if err := l.file.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := l.file.Seek(0, 0); err != nil {
+		return err
+	}
+	if len(data) > 0 {
+		written, err := l.file.Write(data)
+		if err != nil {
+			return err
+		}
+		if written != len(data) {
+			return fmt.Errorf("short lock metadata write: wrote %d of %d bytes", written, len(data))
+		}
+	}
+	return l.file.Sync()
+}
+
+func (l *Lock) SameFile(path string) (bool, error) {
+	if l == nil || l.file == nil {
+		return false, errors.New("file lock is not held")
+	}
+	held, err := l.file.Stat()
+	if err != nil {
+		return false, err
+	}
+	target, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(held, target), nil
 }

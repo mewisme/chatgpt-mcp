@@ -38,6 +38,7 @@ type Store struct {
 }
 
 func New(root string) Store { return Store{WorkspaceRoot: filepath.Clean(root)} }
+func DefaultConfig() Config { return Config{Version: configVersion} }
 
 func (s Store) Root() string                 { return filepath.Join(s.WorkspaceRoot, DirectoryName) }
 func (s Store) IdentityPath() string         { return filepath.Join(s.Root(), "workspace.json") }
@@ -95,9 +96,6 @@ func (s Store) LoadIdentity() (Identity, error) {
 
 func (s Store) LoadConfig() (Config, error) {
 	data, err := os.ReadFile(s.ConfigPath())
-	if errors.Is(err, os.ErrNotExist) {
-		return Config{Version: configVersion}, nil
-	}
 	if err != nil {
 		return Config{}, err
 	}

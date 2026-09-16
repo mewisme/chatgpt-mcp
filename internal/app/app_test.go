@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func TestNewSharesToolRuntime(t *testing.T) {
@@ -270,6 +272,38 @@ func TestHTTPRuntimeStartsWhenTunnelIsUnconfigured(t *testing.T) {
 		t.Fatal("HTTP MCP runtime unavailable")
 	}
 	if err := app.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppLifecycleOwnsWorkspaceRuntimeLock(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	cfg := config.Default()
+	cfg.Tunnel.Enabled = false
+	first, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Tools.Workspaces.Register(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	second, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Start(context.Background()); !errors.Is(err, workspace.ErrAlreadyActive) {
+		t.Fatalf("second app start error=%v", err)
+	}
+	if err := first.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Start(context.Background()); err != nil {
+		t.Fatalf("second app start after release failed: %v", err)
+	}
+	if err := second.Stop(); err != nil {
 		t.Fatal(err)
 	}
 }

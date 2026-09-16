@@ -267,7 +267,7 @@ Do not register the destination as a separate workspace if it is the same projec
 cgm workspace relocate ws_... /new/path/to/project
 ```
 
-The canonical workspace ID changes because IDs are derived from canonical paths, but the previous ID remains a legacy alias. Persistent workspace state and container membership follow the new ID, and state paths under the old root are rebased to the new root. The operation does not rename or move the project directory itself.
+The workspace ID is preserved because identity lives in `<workspace>/.cgm/workspace.json`. Persistent workspace state and container membership stay with the project, and state paths under the old root are rebased to the new root. The operation does not rename or move the project directory itself.
 
 In `cgm tui`, open the workspace detail, press `m` for **Relocate**, choose the new directory, and press `Enter` on the final field to relocate it.
 

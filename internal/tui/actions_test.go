@@ -26,10 +26,10 @@ func TestWorkspaceActionAvailabilityFollowsRouteContext(t *testing.T) {
 	if !has(action.Context{Route: string(RouteHome)}, "workspace.register") || !has(action.Context{Route: string(RouteHome)}, "workspace.container.create") {
 		t.Fatal("global workspace actions are unavailable")
 	}
-	if has(action.Context{Route: string(RouteWorkspaces)}, "workspace.unregister") {
+	if has(action.Context{Route: string(RouteWorkspaces)}, "workspace.unregister") || has(action.Context{Route: string(RouteWorkspaces)}, "workspace.purge") {
 		t.Fatal("workspace unregister available without a resource")
 	}
-	if !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.unregister") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.relocate") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.access.add") {
+	if !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.unregister") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.purge") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.relocate") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.access.add") {
 		t.Fatal("workspace context actions missing")
 	}
 	if has(action.Context{Route: string(RouteWorkspaces)}, "workspace.context.configure") || has(action.Context{Route: string(RouteHome), ResourceID: "ws_demo"}, "workspace.context.preview") {

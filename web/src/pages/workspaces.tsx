@@ -66,6 +66,7 @@ type ConfirmAction =
   | { kind: "rename-container"; container: WorkspaceContainer; name: string }
   | { kind: "delete-container"; container: WorkspaceContainer }
   | { kind: "unregister"; workspace: Workspace }
+  | { kind: "delete-state"; workspace: Workspace }
 
 export function WorkspacesPage() {
   const navigate = useNavigate()
@@ -197,6 +198,8 @@ export function WorkspacesPage() {
         await adminApi.removeWorkspaceContainer(action.container.id)
       } else if (action.kind === "unregister") {
         await adminApi.removeWorkspace(action.workspace.id)
+      } else if (action.kind === "delete-state") {
+        await adminApi.deleteWorkspaceState(action.workspace.id)
       } else if (action.mode === "add") {
         await adminApi.addWorkspaceContainers(
           action.workspace.id,
@@ -291,6 +294,9 @@ export function WorkspacesPage() {
                   onRemove={() => openMembership(item, "remove")}
                   onUnregister={() =>
                     setConfirmAction({ kind: "unregister", workspace: item })
+                  }
+                  onDeleteState={() =>
+                    setConfirmAction({ kind: "delete-state", workspace: item })
                   }
                 />
               ))}
@@ -604,6 +610,7 @@ export function WorkspacesPage() {
               variant={
                 confirmAction?.kind === "delete-container" ||
                 confirmAction?.kind === "unregister" ||
+                confirmAction?.kind === "delete-state" ||
                 (confirmAction?.kind === "membership" &&
                   confirmAction.mode === "remove")
                   ? "destructive"
@@ -627,6 +634,7 @@ function WorkspaceRow({
   onAdd,
   onRemove,
   onUnregister,
+  onDeleteState,
 }: {
   item: Workspace
   containers: WorkspaceContainer[]
@@ -634,6 +642,7 @@ function WorkspaceRow({
   onAdd: () => void
   onRemove: () => void
   onUnregister: () => void
+  onDeleteState: () => void
 }) {
   const count = containers.filter((container) =>
     container.workspace_ids?.includes(item.id)
@@ -658,6 +667,7 @@ function WorkspaceRow({
         </ItemTitle>
         <ItemDescription className="font-mono">{item.id}</ItemDescription>
         <div className="mt-1 flex flex-wrap gap-1">
+          {item.error ? <Badge variant="destructive">Unavailable</Badge> : null}
           {item.allow_dirs?.length ? (
             <Badge variant="outline">
               {item.allow_dirs.length} extra path
@@ -700,6 +710,10 @@ function WorkspaceRow({
               <Trash2 />
               Unregister workspace
             </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={onDeleteState}>
+              <Trash2 />
+              Delete local state
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </ItemActions>
@@ -713,6 +727,7 @@ function confirmTitle(action: ConfirmAction | null) {
   if (action.kind === "rename-container") return "Rename workspace container?"
   if (action.kind === "delete-container") return "Delete workspace container?"
   if (action.kind === "unregister") return "Unregister workspace?"
+  if (action.kind === "delete-state") return "Delete local workspace state?"
   return action.mode === "add"
     ? "Add workspace to containers?"
     : "Remove workspace from containers?"
@@ -729,7 +744,9 @@ function confirmDescription(
   if (action.kind === "delete-container")
     return `${action.container.name} (${action.container.id}) will be deleted. Registered workspaces and project files remain unchanged.`
   if (action.kind === "unregister")
-    return `${action.workspace.path} will be removed from chatgpt-mcp. Project files will not be deleted.`
+    return `${action.workspace.path} will be removed from chatgpt-mcp. Project files and .cgm state stay on disk.`
+  if (action.kind === "delete-state")
+    return `${action.workspace.path} will be unregistered and its .cgm directory deleted, including identity, memory, and checkpoints. Project files are unchanged.`
   const names = action.containerIDs
     .map(
       (id) => containers.find((container) => container.id === id)?.name ?? id
@@ -746,6 +763,7 @@ function confirmLabel(action: ConfirmAction | null) {
   if (action.kind === "rename-container") return "Rename"
   if (action.kind === "delete-container") return "Delete"
   if (action.kind === "unregister") return "Unregister"
+  if (action.kind === "delete-state") return "Delete state"
   return action.mode === "add" ? "Add" : "Remove"
 }
 

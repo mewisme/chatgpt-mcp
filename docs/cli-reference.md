@@ -283,7 +283,6 @@ These are not parity bugs:
 | TUI shows the command | `serve`, `mcp stdio`, `mcp http`, `tunnel run`, `init`, `uninit` | they own the terminal |
 | TUI/Admin UI | Instruction editors and workspace Project Context preview | no CLI `instruction` namespace |
 | CLI/TUI | per-workspace access directories | stronger than Admin UI |
-| CLI/TUI | `workspace relocate` | Admin UI has not mounted relocate yet |
 
 `plugin config` is global-only on the CLI. TUI and Admin can edit workspace plugin settings.
 

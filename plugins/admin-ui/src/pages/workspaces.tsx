@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import {
   Boxes,
   FolderGit2,
+  FolderInput,
   FolderMinus,
   FolderPlus,
   MoreHorizontal,
@@ -76,6 +77,8 @@ export function WorkspacesPage() {
   const [containerName, setContainerName] = useState("")
   const [renameName, setRenameName] = useState("")
   const [registerOpen, setRegisterOpen] = useState(false)
+  const [relocateTarget, setRelocateTarget] = useState<Workspace | null>(null)
+  const [relocatePath, setRelocatePath] = useState("")
   const [createContainerOpen, setCreateContainerOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<WorkspaceContainer | null>(
     null
@@ -85,6 +88,7 @@ export function WorkspacesPage() {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const [loading, setLoading] = useState(true)
   const [registering, setRegistering] = useState(false)
+  const [relocating, setRelocating] = useState(false)
   const [busy, setBusy] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState("")
@@ -141,6 +145,23 @@ export function WorkspacesPage() {
       setError(errorText(value))
     } finally {
       setRegistering(false)
+    }
+  }
+
+  async function relocate(event: React.FormEvent) {
+    event.preventDefault()
+    const value = relocatePath.trim()
+    if (!relocateTarget || !value) return
+    setRelocating(true)
+    try {
+      await adminApi.relocateWorkspace(relocateTarget.id, value)
+      setRelocatePath("")
+      setRelocateTarget(null)
+      await load()
+    } catch (value) {
+      setError(errorText(value))
+    } finally {
+      setRelocating(false)
     }
   }
 
@@ -292,6 +313,10 @@ export function WorkspacesPage() {
                   }
                   onAdd={() => openMembership(item, "add")}
                   onRemove={() => openMembership(item, "remove")}
+                  onRelocate={() => {
+                    setRelocatePath(item.path)
+                    setRelocateTarget(item)
+                  }}
                   onUnregister={() =>
                     setConfirmAction({ kind: "unregister", workspace: item })
                   }
@@ -422,6 +447,53 @@ export function WorkspacesPage() {
             Use an absolute path. The server resolves symlinks and validates the
             canonical root.
           </p>
+        </form>
+      </ResponsiveDialog>
+      <ResponsiveDialog
+        open={Boolean(relocateTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRelocateTarget(null)
+            setRelocatePath("")
+          }
+        }}
+        title="Relocate workspace"
+        description={relocateTarget?.id}
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRelocateTarget(null)
+                setRelocatePath("")
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              form="relocate-workspace-form"
+              disabled={relocating || !relocatePath.trim()}
+              type="submit"
+            >
+              {relocating ? "Relocating..." : "Relocate workspace"}
+            </Button>
+          </>
+        }
+      >
+        <form
+          className="space-y-3"
+          id="relocate-workspace-form"
+          onSubmit={relocate}
+        >
+          <Label htmlFor="relocate-workspace-path">New path</Label>
+          <Input
+            autoComplete="off"
+            autoFocus
+            id="relocate-workspace-path"
+            placeholder="/absolute/project/path"
+            value={relocatePath}
+            onChange={(event) => setRelocatePath(event.target.value)}
+          />
         </form>
       </ResponsiveDialog>
       <ResponsiveDialog
@@ -633,6 +705,7 @@ function WorkspaceRow({
   onOpen,
   onAdd,
   onRemove,
+  onRelocate,
   onUnregister,
   onDeleteState,
 }: {
@@ -641,6 +714,7 @@ function WorkspaceRow({
   onOpen: () => void
   onAdd: () => void
   onRemove: () => void
+  onRelocate: () => void
   onUnregister: () => void
   onDeleteState: () => void
 }) {
@@ -704,6 +778,10 @@ function WorkspaceRow({
             <DropdownMenuItem onClick={onRemove}>
               <FolderMinus />
               Remove workspace container
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onRelocate}>
+              <FolderInput />
+              Relocate workspace
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={onUnregister}>

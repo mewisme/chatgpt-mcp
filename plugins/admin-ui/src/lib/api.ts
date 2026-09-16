@@ -552,6 +552,11 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify({ path }),
     }),
+  relocateWorkspace: (id: string, path: string) =>
+    api<Workspace>(`/api/workspaces/${encodeURIComponent(id)}/relocate`, {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
 	removeWorkspace: (id: string) =>
     api<void>(`/api/workspaces/${encodeURIComponent(id)}`, {
       method: "DELETE",

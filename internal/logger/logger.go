@@ -13,6 +13,8 @@ import (
 	spinnerlib "github.com/briandowns/spinner"
 	"github.com/fatih/color"
 	"golang.org/x/term"
+
+	"go.mewis.me/chatgpt-mcp/internal/redact"
 )
 
 type Options struct {
@@ -119,11 +121,22 @@ func terminalWriter(writer io.Writer) bool {
 }
 
 func (l *Logger) normalize(event Event) Event {
+	event.Message = redact.Text(strings.TrimSpace(event.Message))
 	if strings.TrimSpace(event.Name) == "" {
 		event.Name = legacyEventName(event.Component, event.Message)
 	}
-	if strings.TrimSpace(event.Message) == "" {
+	if event.Message == "" {
 		event.Message = event.Name
+	}
+	if event.Err != nil {
+		event.Err = errors.New(redact.Text(event.Err.Error()))
+	}
+	for index, field := range event.Fields {
+		field.Key = strings.TrimSpace(field.Key)
+		if !field.Raw {
+			field.Value = redact.Value(field.Key, field.Value)
+		}
+		event.Fields[index] = field
 	}
 	if event.Component == "" {
 		event.Component = "CLI"
@@ -181,6 +194,11 @@ func (l *Logger) Success(component, message string, fields ...any) {
 }
 func (l *Logger) Detail(label string, value any) {
 	l.Emit(Event{Level: Info, Name: "cli.detail", Message: strings.TrimSpace(label), Fields: []Field{With("value", value)}, Component: "CLI", Kind: KindInfo})
+}
+
+// Secret prints a one-time credential like Detail, without redacting the value.
+func (l *Logger) Secret(label string, value string) {
+	l.Emit(Event{Level: Info, Name: "cli.detail", Message: strings.TrimSpace(label), Fields: []Field{WithRaw("value", value)}, Component: "CLI", Kind: KindInfo})
 }
 
 func (l *Logger) eventTime(event Event) time.Time {

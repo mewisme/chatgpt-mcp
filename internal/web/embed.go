@@ -1,23 +1,46 @@
 package web
 
 import (
-	"embed"
+	"errors"
 	"io/fs"
 	"mime"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
+
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 )
 
-//go:embed dist/*
-var assets embed.FS
+const missingAdminUI = "Admin UI plugin is not installed or enabled.\nInstall with: cgm plugin install admin-ui\n"
 
-func Handler() http.Handler {
-	static, err := fs.Sub(assets, "dist")
-	if err != nil {
-		return http.NotFoundHandler()
+func Handler(store *pluginpkg.Store) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		static, err := adminUIFS(store)
+		if err != nil {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(missingAdminUI))
+			return
+		}
+		spaHandler{static: static, files: http.FileServer(http.FS(static))}.ServeHTTP(w, r)
+	})
+}
+
+func adminUIFS(store *pluginpkg.Store) (fs.FS, error) {
+	if store == nil {
+		return nil, errors.New("plugin store is unavailable")
 	}
-	return SecurityHeaders(spaHandler{static: static, files: http.FileServer(http.FS(static))})
+	resolver, err := pluginpkg.NewResolver(store)
+	if err != nil {
+		return nil, err
+	}
+	provider, err := resolver.Resolve(pluginpkg.CapabilityWebUIAdmin)
+	if err != nil {
+		return nil, err
+	}
+	return os.DirFS(filepath.Dir(provider.Path)), nil
 }
 
 func SecurityHeaders(next http.Handler) http.Handler {

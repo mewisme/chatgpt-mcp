@@ -71,10 +71,13 @@ type toastHoverMsg struct {
 type toastState struct {
 	id      uint64
 	timer   uint64
+	key     string
+	phase   tuipage.OperationPhase
 	title   string
 	message string
 	tone    component.Tone
 	hovered bool
+	pinned  bool
 }
 
 type navigationIntent struct {
@@ -158,9 +161,13 @@ func (model Model) Init() tea.Cmd {
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tuipage.ToastMsg:
-		return model, model.showToast(msg.Title, msg.Message, msg.Tone)
+		return model, model.applyOperation(tuipage.OperationMsg{Phase: tuipage.OperationSuccess, Title: msg.Title, Message: msg.Message, Tone: msg.Tone})
+	case tuipage.OperationMsg:
+		return model, model.applyOperation(msg)
 	case toastCloseMsg:
-		model.dismissToast()
+		if model.toast.phase != tuipage.OperationPending {
+			model.dismissToast()
+		}
 		return model, nil
 	case toastHoverMsg:
 		if msg.id != model.toast.id || model.toast.id == 0 || msg.hovered == model.toast.hovered {
@@ -168,12 +175,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		model.toast.hovered = msg.hovered
 		model.toast.timer++
-		if msg.hovered {
+		if msg.hovered || model.toast.pinned || model.toast.phase == tuipage.OperationPending {
 			return model, nil
 		}
 		return model, model.toastTimerCmd()
 	case toastDismissMsg:
-		if msg.id == model.toast.id && msg.timer == model.toast.timer && !model.toast.hovered {
+		if msg.id == model.toast.id && msg.timer == model.toast.timer && !model.toast.hovered && !model.toast.pinned && model.toast.phase != tuipage.OperationPending {
 			model.dismissToast()
 		}
 		return model, nil
@@ -295,9 +302,30 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, model.showToast("MCP", err.Error(), component.ToneDanger)
 		}
 		return model.updatePage(msg)
+	case tuipage.PluginCommandMsg:
+		if err := model.ensurePluginPage(msg.Command, msg.TargetID); err != nil {
+			return model, model.showToast("Plugins", err.Error(), component.ToneDanger)
+		}
+		return model.updatePage(msg)
 	case tuipage.TunnelCommandMsg:
 		if err := model.ensureTunnelPage(msg.Command, msg.ResourceID); err != nil {
 			return model, model.showToast("Tunnel", err.Error(), component.ToneDanger)
+		}
+		return model.updatePage(msg)
+	case tuipage.LocalTunnelCommandMsg:
+		if model.router.Current().Kind != RouteTunnel || (msg.ResourceID != "" && model.router.Current().ResourceID != msg.ResourceID) {
+			model.navigate(Route{Kind: RouteTunnel, ResourceID: msg.ResourceID})
+		}
+		if model.currentPage == nil {
+			return model, model.showToast("Tunnel", "Tunnel page is unavailable", component.ToneDanger)
+		}
+		return model.updatePage(msg)
+	case tuipage.TunnelAdminCommandMsg:
+		if model.router.Current().Kind != RouteTunnelAdmins || (msg.ResourceID != "" && model.router.Current().ResourceID != msg.ResourceID) {
+			model.navigate(Route{Kind: RouteTunnelAdmins, ResourceID: msg.ResourceID})
+		}
+		if model.currentPage == nil {
+			return model, model.showToast("Admin Profiles", "Admin profiles page is unavailable", component.ToneDanger)
 		}
 		return model.updatePage(msg)
 	case tuipage.RequestCommandMsg:
@@ -325,8 +353,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if model.toast.id != 0 {
 			switch msg.String() {
+			case "p":
+				return model, model.toggleToastPin()
 			case "enter", "esc":
-				model.dismissToast()
+				if model.toast.phase != tuipage.OperationPending {
+					model.dismissToast()
+				}
 			}
 			return model, nil
 		}
@@ -463,7 +495,7 @@ func (model Model) View() tea.View {
 	}
 	if model.toast.id != 0 {
 		width, height := model.layoutSize()
-		dialog := component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
+		dialog := model.toastDialog()
 		modalWidth := max(1, min(72, width-4))
 		foreground := component.Modal(dialog.ViewWidth(component.ModalContentWidth(modalWidth)), modalWidth)
 		overlayTargets, x, y := component.CenteredOverlayTargets(foreground, width, height, 0, 0, 299, toastCloseMsg{})
@@ -1147,8 +1179,16 @@ func (model *Model) loadPage(route Route) {
 		} else {
 			value, err = tuipage.NewMCPRoute(model.ctx, route.ResourceID, route.Section)
 		}
+	case RoutePlugins:
+		value, err = tuipage.NewPluginsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action, route.Mode)
 	case RouteTunnel:
-		value, err = tuipage.NewTunnelDashboardRoute(model.ctx, route.Section, route.Action)
+		value, err = tuipage.NewTunnelInstances(model.ctx, route.ResourceID, route.Action)
+	case RouteTunnelAdmins:
+		if route.Section == "managed" {
+			value, err = tuipage.NewManagedTunnelsForAdmin(model.ctx, route.ResourceID)
+		} else {
+			value, err = tuipage.NewTunnelAdmins(model.ctx, route.ResourceID, route.Action)
+		}
 	case RouteTunnels:
 		value, err = tuipage.NewManagedTunnelsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteRequests:
@@ -1236,6 +1276,30 @@ func (model *Model) ensureMCPPage(resourceID string) error {
 	return nil
 }
 
+func (model *Model) ensurePluginPage(command tuipage.PluginCommand, targetID string) error {
+	section := ""
+	forceSection := false
+	switch command {
+	case tuipage.PluginInstall:
+		section = "marketplace"
+		forceSection = true
+	case tuipage.PluginRegistryRemove:
+		section = "registries"
+		forceSection = true
+	}
+	current := model.router.Current()
+	if current.Kind == RoutePlugins && !forceSection {
+		section = current.Section
+	}
+	if current.Kind != RoutePlugins || current.Section != section || (targetID != "" && current.ResourceID != targetID) {
+		model.navigate(Route{Kind: RoutePlugins, Section: section, ResourceID: targetID})
+	}
+	if model.currentPage == nil {
+		return fmt.Errorf("plugin page is unavailable")
+	}
+	return nil
+}
+
 func (model *Model) ensureTunnelPage(command tuipage.TunnelCommand, resourceID string) error {
 	managed := command == tuipage.TunnelManagedRefresh || command == tuipage.TunnelManagedCreate || command == tuipage.TunnelManagedUpdate || command == tuipage.TunnelManagedConfigure || command == tuipage.TunnelManagedDelete
 	kind := RouteTunnel
@@ -1275,19 +1339,8 @@ func (model Model) updatePage(message tea.Msg) (tea.Model, tea.Cmd) {
 	if model.currentPage == nil {
 		return model, nil
 	}
-	before := pageNotice(model.currentPage)
 	updated, cmd := model.currentPage.Update(message)
 	model.currentPage = updated
-	after := pageNotice(model.currentPage)
-	if after != "" && after != before {
-		if page, ok := model.currentPage.(tuipage.ToastNoticeModel); ok && !page.ShouldToastNotice() {
-			return model, cmd
-		}
-		if page, ok := model.currentPage.(tuipage.NoticeModel); ok {
-			page.SetNotice("")
-		}
-		return model, tea.Batch(cmd, model.showToast(model.router.Current().Title(), after, component.ToneNeutral))
-	}
 	return model, cmd
 }
 
@@ -1299,18 +1352,79 @@ func pageNotice(value tuipage.Model) string {
 }
 
 func (model *Model) showToast(title, message string, tone component.Tone) tea.Cmd {
-	title = strings.TrimSpace(title)
-	message = strings.TrimSpace(message)
+	return model.applyOperation(tuipage.OperationMsg{Phase: tuipage.OperationSuccess, Title: title, Message: message, Tone: tone})
+}
+
+func (model *Model) applyOperation(msg tuipage.OperationMsg) tea.Cmd {
+	if model == nil {
+		return nil
+	}
+	title, message := strings.TrimSpace(msg.Title), strings.TrimSpace(msg.Message)
 	if title == "" && message == "" {
 		return nil
 	}
-	model.toastSeq++
-	model.toast = toastState{id: model.toastSeq, timer: 1, title: title, message: message, tone: tone}
+	phase := msg.Phase
+	if phase == "" {
+		phase = tuipage.OperationSuccess
+	}
+	if phase == tuipage.OperationPending {
+		if model.toast.phase == tuipage.OperationPending && model.toast.key != "" && model.toast.key == msg.Key {
+			model.toast.title, model.toast.message, model.toast.tone = title, message, msg.Tone
+			return nil
+		}
+		model.toastSeq++
+		model.toast = toastState{id: model.toastSeq, timer: 1, key: msg.Key, phase: phase, title: title, message: message, tone: msg.Tone}
+		return nil
+	}
+	if model.toast.phase == tuipage.OperationPending && model.toast.key != "" && msg.Key != "" && msg.Key != model.toast.key {
+		return nil
+	}
+	id, timer, hovered, pinned := model.toast.id, model.toast.timer, model.toast.hovered, model.toast.pinned
+	if id == 0 || msg.Key == "" || model.toast.key != msg.Key {
+		model.toastSeq++
+		id, timer, hovered, pinned = model.toastSeq, 0, false, false
+	}
+	model.toast = toastState{id: id, timer: timer + 1, key: msg.Key, phase: phase, title: title, message: message, tone: msg.Tone, hovered: hovered, pinned: pinned}
+	if model.toast.pinned || model.toast.hovered {
+		return nil
+	}
 	return model.toastTimerCmd()
 }
 
+func (model *Model) toggleToastPin() tea.Cmd {
+	if model == nil || model.toast.id == 0 {
+		return nil
+	}
+	model.toast.pinned = !model.toast.pinned
+	model.toast.timer++
+	if model.toast.pinned || model.toast.hovered || model.toast.phase == tuipage.OperationPending {
+		return nil
+	}
+	return model.toastTimerCmd()
+}
+
+func (model Model) toastDialog() component.ToastDialog {
+	dialog := component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
+	pending := model.toast.phase == tuipage.OperationPending
+	dialog.HideClose = pending
+	if pending {
+		if model.toast.pinned {
+			dialog.Footer = "p auto hide"
+		} else {
+			dialog.Footer = "p keep open"
+		}
+		return dialog
+	}
+	if model.toast.pinned {
+		dialog.Footer = "p auto hide · Enter close"
+	} else {
+		dialog.Footer = "p keep open · Enter close"
+	}
+	return dialog
+}
+
 func (model *Model) toastTimerCmd() tea.Cmd {
-	if model == nil || model.toast.id == 0 || model.toast.hovered {
+	if model == nil || model.toast.id == 0 || model.toast.hovered || model.toast.pinned || model.toast.phase == tuipage.OperationPending {
 		return nil
 	}
 	id, timer := model.toast.id, model.toast.timer
@@ -1740,7 +1854,9 @@ func routeDescription(route Route) string {
 	case RouteMCP:
 		return "Manage configured upstream MCP servers."
 	case RouteTunnel:
-		return "Manage runtime and OpenAI Secure MCP Tunnel state."
+		return "Manage local OpenAI Secure MCP Tunnel attachments."
+	case RouteTunnelAdmins:
+		return "Manage OpenAI admin profiles used for tunnel discovery and management."
 	case RouteTunnels:
 		return "Browse and manage tunnels available through the OpenAI Tunnel Management API."
 	case RouteRequests:

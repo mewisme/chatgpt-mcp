@@ -27,6 +27,14 @@ func TestTextAreaEditorEditsSavesAndTracksDirtyState(t *testing.T) {
 	if !ok || message.Value != "hello!" {
 		t.Fatalf("save message=%#v", message)
 	}
+	_, cmd = editor.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("Ctrl+J fallback save command is nil")
+	}
+	message, ok = cmd().(TextAreaSavedMsg)
+	if !ok || message.Value != "hello!" {
+		t.Fatalf("Ctrl+J fallback save message=%#v", message)
+	}
 }
 
 func TestTextAreaEditorCancelsAndRendersBubblesHelp(t *testing.T) {

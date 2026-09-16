@@ -5,6 +5,8 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/telemetry"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -19,12 +21,19 @@ func (a *App) Bootstrap() error {
 			a.Config = config.NewRuntimeStore(config.Default())
 		}
 		if a.Tools == nil {
+			pluginhost.Install()
 			cfg := a.Config.Snapshot()
-			a.Tools = tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) {
+			a.Tools = tools.NewRuntimeWithAccess(cfg.Permissions.AllowDirs, func() (bool, int) {
 				current := a.Config.Snapshot()
 				return current.Admin.Enabled, current.Admin.Port
 			})
 		}
+		cfg := a.Config.Snapshot()
+		if err := a.Tools.SetShellExecutable(cfg.Shell.Executable); err != nil {
+			a.bootstrapErr = err
+			return
+		}
+		a.Tools.SetShellPath(cfg.Shell.Path)
 		if a.Activity == nil {
 			a.Activity = activity.NewStream()
 		}
@@ -33,11 +42,26 @@ func (a *App) Bootstrap() error {
 		}
 		telemetry.AttachTools(a.Tools, a.Activity, a.Logger)
 		telemetry.AttachApprovals(a.Tools.Approvals, a.Activity, a.Logger)
+		if a.Notifications == nil {
+			a.Notifications = notification.New(notification.Options{
+				Log:        a.Logger,
+				Workspaces: a.Tools.Workspaces,
+				Settings: func() notification.Settings {
+					return a.Config.Snapshot().Notifications
+				},
+			})
+		}
+		if a.Tools.Approvals != nil {
+			a.Notifications.Start(a.Tools.Approvals.Events())
+		}
 		a.Upstream = a.Tools.Upstream
 		a.syncMCPHTTP(a.Config.Snapshot().Server.Enabled)
-		a.attachTunnelLifecycle()
 	})
-	span.EndMessage("Application runtime bootstrapped", tracepkg.Bool("performed", didBootstrap), tracepkg.Bool("mcp_http_enabled", a.MCP != nil), tracepkg.Bool("tunnel_configured", a.Tunnel != nil), tracepkg.Int("tool_count", len(a.Tools.List())))
+	if a.bootstrapErr != nil {
+		span.FailMessage("Application runtime bootstrap failed", a.bootstrapErr)
+		return a.bootstrapErr
+	}
+	span.EndMessage("Application runtime bootstrapped", tracepkg.Bool("performed", didBootstrap), tracepkg.Bool("mcp_http_enabled", a.MCP != nil), tracepkg.Int("tunnel_count", len(a.Config.Snapshot().RuntimeTunnels().Instances)), tracepkg.Int("tool_count", len(a.Tools.List())))
 	return nil
 }
 

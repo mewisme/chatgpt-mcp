@@ -32,12 +32,25 @@ var ErrExecutionNotFound = errors.New("execution not found")
 
 type ExecutionInfo struct {
 	ID                   string `json:"id"`
+	ParentExecutionID    string `json:"parent_execution_id,omitempty"`
+	Origin               string `json:"origin,omitempty"`
+	HookDepth            int    `json:"hook_depth,omitempty"`
 	WorkspaceID          string `json:"workspace_id"`
 	Tool                 string `json:"tool"`
 	Command              string `json:"command"`
+	RequestedCommand     string `json:"requested_command,omitempty"`
+	EffectiveCommand     string `json:"effective_command,omitempty"`
+	SecurityCommand      string `json:"security_command,omitempty"`
+	WrapperCapability    string `json:"wrapper_capability,omitempty"`
+	WrapperProvider      string `json:"wrapper_provider,omitempty"`
+	WrapperVersion       string `json:"wrapper_version,omitempty"`
 	CWD                  string `json:"cwd"`
 	Shell                string `json:"shell,omitempty"`
+	ShellProvider        string `json:"shell_provider,omitempty"`
+	ShellProviderVersion string `json:"shell_provider_version,omitempty"`
 	Source               string `json:"source,omitempty"`
+	TunnelID             string `json:"tunnel_id,omitempty"`
+	TunnelName           string `json:"tunnel_name,omitempty"`
 	CallID               string `json:"call_id,omitempty"`
 	SessionHash          string `json:"session_hash,omitempty"`
 	ReceivedByInstanceID string `json:"received_by_instance_id,omitempty"`
@@ -111,13 +124,26 @@ type ExecutionInput struct {
 	WorkspaceID          string
 	Tool                 string
 	Command              string
+	RequestedCommand     string
+	EffectiveCommand     string
+	SecurityCommand      string
+	WrapperCapability    string
+	WrapperProvider      string
+	WrapperVersion       string
 	CWD                  string
 	Shell                string
+	ShellProvider        string
+	ShellProviderVersion string
 	Source               string
+	TunnelID             string
+	TunnelName           string
 	CallID               string
 	SessionHash          string
 	ReceivedByInstanceID string
 	ExecutedByInstanceID string
+	ParentExecutionID    string
+	Origin               string
+	HookDepth            int
 }
 
 type ExecutionHub struct {
@@ -155,10 +181,15 @@ type executionMetadataKey struct{}
 
 type ExecutionMetadata struct {
 	Source               string
+	TunnelID             string
+	TunnelName           string
 	CallID               string
 	SessionHash          string
 	ReceivedByInstanceID string
 	ExecutedByInstanceID string
+	ParentExecutionID    string
+	Origin               string
+	HookDepth            int
 }
 
 func NewExecutionHub() *ExecutionHub {
@@ -177,10 +208,17 @@ func WithExecutionMetadata(ctx context.Context, metadata ExecutionMetadata) cont
 		ctx = context.Background()
 	}
 	metadata.Source = strings.TrimSpace(metadata.Source)
+	metadata.TunnelID = strings.TrimSpace(metadata.TunnelID)
+	metadata.TunnelName = strings.TrimSpace(metadata.TunnelName)
 	metadata.CallID = strings.TrimSpace(metadata.CallID)
 	metadata.SessionHash = strings.TrimSpace(metadata.SessionHash)
 	metadata.ReceivedByInstanceID = strings.TrimSpace(metadata.ReceivedByInstanceID)
 	metadata.ExecutedByInstanceID = strings.TrimSpace(metadata.ExecutedByInstanceID)
+	metadata.ParentExecutionID = strings.TrimSpace(metadata.ParentExecutionID)
+	metadata.Origin = strings.TrimSpace(metadata.Origin)
+	if metadata.HookDepth < 0 {
+		metadata.HookDepth = 0
+	}
 	return context.WithValue(ctx, executionMetadataKey{}, metadata)
 }
 
@@ -211,8 +249,11 @@ func (h *ExecutionHub) Begin(input ExecutionInput) *ExecutionRun {
 	h.mu.Lock()
 	id := idgen.Must("exec", 8)
 	record := &executionRecord{info: ExecutionInfo{
-		ID: id, WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, CWD: input.CWD, Shell: strings.TrimSpace(input.Shell),
-		Source: strings.TrimSpace(input.Source), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),
+		ID: id, ParentExecutionID: strings.TrimSpace(input.ParentExecutionID), Origin: strings.TrimSpace(input.Origin), HookDepth: input.HookDepth,
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, RequestedCommand: input.RequestedCommand, EffectiveCommand: input.EffectiveCommand, SecurityCommand: input.SecurityCommand,
+		WrapperCapability: strings.TrimSpace(input.WrapperCapability), WrapperProvider: strings.TrimSpace(input.WrapperProvider), WrapperVersion: strings.TrimSpace(input.WrapperVersion),
+		CWD: input.CWD, Shell: strings.TrimSpace(input.Shell), ShellProvider: strings.TrimSpace(input.ShellProvider), ShellProviderVersion: strings.TrimSpace(input.ShellProviderVersion),
+		Source: strings.TrimSpace(input.Source), TunnelID: strings.TrimSpace(input.TunnelID), TunnelName: strings.TrimSpace(input.TunnelName), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),
 		ReceivedByInstanceID: strings.TrimSpace(input.ReceivedByInstanceID), ExecutedByInstanceID: strings.TrimSpace(input.ExecutedByInstanceID),
 		StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: ExecutionStatusRunning,
 	}, subs: map[*ExecutionSubscription]struct{}{}}

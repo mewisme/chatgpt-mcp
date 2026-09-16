@@ -2,17 +2,71 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/runtimeplugin"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
+
+func TestNewDoesNotOwnLiveSecureMCPManager(t *testing.T) {
+	cfg := config.Default()
+	cfg.Server.Enabled = true
+	cfg.Tunnel.Enabled = true
+	cfg.Tunnel.ID = "tunnel_test"
+	cfg.Tunnel.APIKey = "runtime-secret"
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = app.Stop() })
+}
+
+func TestLocalHTTPSurvivesMissingSecureMCPPlugin(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	cfg.Admin.Enabled = true
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_a", APIKey: "key-a"}, {Enabled: true, ID: "tunnel_b", APIKey: "key-b"}}
+	cfg.Tunnel.Instances = &instances
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcp := httptest.NewRecorder()
+	app.MCPHandler().ServeHTTP(mcp, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if mcp.Code != http.StatusOK {
+		t.Fatalf("mcp health=%d", mcp.Code)
+	}
+	admin := httptest.NewRecorder()
+	app.AdminHandler().ServeHTTP(admin, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if admin.Code != http.StatusOK {
+		t.Fatalf("admin health=%d", admin.Code)
+	}
+	if _, err := application.StartSecureMCPInstance(context.Background(), runtimeplugin.NewHost(), "tunnel_a"); !errors.Is(err, tunnel.ErrPluginMissing) {
+		t.Fatalf("start err=%v", err)
+	}
+	mcpAfter := httptest.NewRecorder()
+	app.MCPHandler().ServeHTTP(mcpAfter, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if mcpAfter.Code != http.StatusOK {
+		t.Fatalf("mcp health after missing plugin=%d", mcpAfter.Code)
+	}
+}
 
 func TestNewSharesToolRuntime(t *testing.T) {
 	cfg := config.Default()
@@ -29,12 +83,6 @@ func TestNewSharesToolRuntime(t *testing.T) {
 	if app.Upstream != app.Tools.Upstream {
 		t.Fatal("Admin and tool runtime do not share the same upstream manager")
 	}
-	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("default app missing ponytail controller tool")
-	}
-	if _, ok := app.Tools.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("default app missing caveman controller tool")
-	}
 }
 
 func TestTunnelOnlyRuntimeDoesNotCreateMCPHTTPRuntime(t *testing.T) {
@@ -47,8 +95,8 @@ func TestTunnelOnlyRuntimeDoesNotCreateMCPHTTPRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app.MCP != nil || app.Tools == nil || app.Tunnel == nil {
-		t.Fatalf("tunnel-only runtime MCP=%#v tools=%#v tunnel=%#v", app.MCP, app.Tools, app.Tunnel)
+	if app.MCP != nil || app.Tools == nil {
+		t.Fatalf("tunnel-only runtime MCP=%#v tools=%#v", app.MCP, app.Tools)
 	}
 	recorder := httptest.NewRecorder()
 	app.MCPHandler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
@@ -89,19 +137,20 @@ func TestReloadConfigSwitchesMCPHTTPRuntime(t *testing.T) {
 
 func TestNewKeepsControllerToolsWhenFeatureInactive(t *testing.T) {
 	cfg := config.Default()
-	cfg.Features.Ponytail.Active = false
+	store := pluginpkg.SettingsStore{Layout: pluginpkg.DefaultLayout()}
+	schema := pluginpkg.SettingsSchema{Fields: []pluginpkg.SettingField{
+		{Key: "default_active", Kind: pluginpkg.FieldBool, Default: true},
+		{Key: "default_mode", Kind: pluginpkg.FieldEnum, Enum: []string{"lite", "full", "ultra"}, Default: "full"},
+	}}
+	if err := store.Set(schema, "ponytail", "default_active", false); err != nil {
+		t.Fatal(err)
+	}
 	app, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("inactive ponytail controller tool missing")
-	}
-	if _, ok := app.Tools.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("caveman controller tool missing")
-	}
-	if app.Tools.Features().Ponytail.Active {
-		t.Fatal("ponytail active state was not preserved")
+	if app.Tools == nil {
+		t.Fatal("tool runtime missing")
 	}
 }
 
@@ -131,6 +180,27 @@ func TestHandlersHonorDisabledAuthentication(t *testing.T) {
 	}
 }
 
+func TestAdminAPIAvailableWithoutAdminUIPlugin(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := app.AdminHandler()
+	apiRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(apiRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if apiRecorder.Code != http.StatusOK {
+		t.Fatalf("admin API without UI plugin = %d", apiRecorder.Code)
+	}
+	uiRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(uiRecorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if uiRecorder.Code != http.StatusServiceUnavailable || !strings.Contains(uiRecorder.Body.String(), "cgm plugin install admin-ui") {
+		t.Fatalf("admin UI without plugin = %d %q", uiRecorder.Code, uiRecorder.Body.String())
+	}
+}
+
 func TestHandlersRequireEnabledAuthentication(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = auth.HashToken("mcp-test")
@@ -148,8 +218,31 @@ func TestHandlersRequireEnabledAuthentication(t *testing.T) {
 
 	adminRecorder := httptest.NewRecorder()
 	app.AdminHandler().ServeHTTP(adminRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
-	if adminRecorder.Code != http.StatusUnauthorized {
-		t.Fatalf("admin auth-enabled status = %d", adminRecorder.Code)
+	if adminRecorder.Code != http.StatusOK {
+		t.Fatalf("admin health should stay public = %d", adminRecorder.Code)
+	}
+	protected := httptest.NewRecorder()
+	app.AdminHandler().ServeHTTP(protected, httptest.NewRequest(http.MethodGet, "/api/workspaces", nil))
+	if protected.Code != http.StatusUnauthorized {
+		t.Fatalf("admin auth-enabled status = %d", protected.Code)
+	}
+}
+
+func TestMCPHandlerOmitsInboundOAuthDiscovery(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource/mcp", "/oauth/register", "/oauth/authorize", "/oauth/token"} {
+		recorder := httptest.NewRecorder()
+		app.MCPHandler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("%s status=%d", path, recorder.Code)
+		}
 	}
 }
 
@@ -230,23 +323,53 @@ func TestAdminHandlerSharesApprovalManager(t *testing.T) {
 	}
 }
 
-func TestTunnelLifecyclePublishesActivityFromSourceObserver(t *testing.T) {
+func TestHTTPRuntimeStartsWhenTunnelIsUnconfigured(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tunnel.Enabled = true
 	app, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.Start(context.Background()); err == nil {
-		t.Fatal("expected invalid tunnel configuration to fail")
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	recent := app.Activity.Recent(10)
-	if len(recent) == 0 {
-		t.Fatal("tunnel lifecycle failure did not publish activity")
+	if app.MCP == nil {
+		t.Fatal("HTTP MCP runtime unavailable")
 	}
-	last := recent[len(recent)-1]
-	if last.Kind != "tunnel.degraded" || last.Status != "degraded" || last.Source != "tunnel" {
-		t.Fatalf("activity = %#v", last)
+	if err := app.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppLifecycleOwnsWorkspaceRuntimeLock(t *testing.T) {
+	t.Setenv("CHATGPT_MCP_CONFIG_DIR", t.TempDir())
+	cfg := config.Default()
+	cfg.Tunnel.Enabled = false
+	first, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Tools.Workspaces.Register(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	second, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Start(context.Background()); !errors.Is(err, workspace.ErrAlreadyActive) {
+		t.Fatalf("second app start error=%v", err)
+	}
+	if err := first.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Start(context.Background()); err != nil {
+		t.Fatalf("second app start after release failed: %v", err)
+	}
+	if err := second.Stop(); err != nil {
+		t.Fatal(err)
 	}
 }
 

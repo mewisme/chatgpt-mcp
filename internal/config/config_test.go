@@ -11,8 +11,11 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
+	cavemanplugin "go.mewis.me/chatgpt-mcp/plugins/caveman"
+	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
 func TestValidateRequiresAuthTokens(t *testing.T) {
@@ -202,15 +205,28 @@ func TestValidateBuiltinOpenAITunnel(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnknownNotificationOpenAction(t *testing.T) {
+	cfg := Default()
+	cfg.Auth.MCPTokenHash = "configured"
+	cfg.Auth.AdminTokenHash = "configured"
+	cfg.Notifications.OpenAction = "toast"
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "notifications.open_action") {
+		t.Fatalf("err=%v", err)
+	}
+	cfg.Notifications.OpenAction = ""
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestConfigSaveSeparatesTunnelSecrets(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")
 	secretPath := filepath.Join(root, "tunnel.json")
 	cfg := Default()
-	cfg.Tunnel.ID = "tunnel_0123456789abcdef0123456789abcdef"
-	cfg.Tunnel.APIKey = "tunnel-secret"
-	cfg.Tunnel.AdminKey = "admin-secret"
-	cfg.Tunnel.AdminWorkspaceID = "ws-admin"
+	instances := []tunnel.InstanceConfig{{ID: "tunnel_0123456789abcdef0123456789abcdef", APIKey: "tunnel-secret", AdminProfileID: "default"}}
+	admins := []tunnel.AdminConfig{{ID: "default", AdminKey: "admin-secret", WorkspaceID: "ws-admin"}}
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
 
 	if err := saveAt(configPath, secretPath, cfg); err != nil {
 		t.Fatal(err)
@@ -219,21 +235,22 @@ func TestConfigSaveSeparatesTunnelSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(configData), "tunnel-secret") || strings.Contains(string(configData), "admin-secret") || strings.Contains(string(configData), `"api_key"`) || strings.Contains(string(configData), `"admin_key"`) || strings.Contains(string(configData), "ws-admin") {
+	if strings.Contains(string(configData), "tunnel-secret") || strings.Contains(string(configData), "admin-secret") || strings.Contains(string(configData), `"api_key"`) || strings.Contains(string(configData), `"admin_key"`) || !strings.Contains(string(configData), "ws-admin") {
 		t.Fatalf("config.json leaked tunnel secret: %s", configData)
 	}
 	secretData, err := os.ReadFile(secretPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "ws-admin") || !strings.Contains(string(secretData), "runtime_key_configured") || !strings.Contains(string(secretData), "admin_key_configured") {
+	if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "instance_keys") || !strings.Contains(string(secretData), "admin_keys") {
 		t.Fatalf("tunnel.json did not contain marker-only secret metadata: %s", secretData)
 	}
 	loaded, err := loadAt(configPath, secretPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tunnel.APIKey != "tunnel-secret" || loaded.Tunnel.AdminKey != "admin-secret" || loaded.Tunnel.AdminWorkspaceID != "ws-admin" || loaded.Tunnel.ID != cfg.Tunnel.ID {
+	collection := loaded.Tunnel.Collection()
+	if len(collection.Instances) != 1 || len(collection.Admins) != 1 || collection.Instances[0].APIKey != "tunnel-secret" || collection.Instances[0].ID != instances[0].ID || collection.Admins[0].AdminKey != "admin-secret" || collection.Admins[0].WorkspaceID != "ws-admin" {
 		t.Fatalf("loaded tunnel = %#v", loaded.Tunnel)
 	}
 	if runtime.GOOS != "windows" {
@@ -256,10 +273,10 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			cfg := Default()
 			cfg.Auth.MCPTokenHash = "mcp-hash"
 			cfg.Auth.AdminTokenHash = "admin-hash"
-			cfg.Tunnel.ID = "tunnel_0123456789abcdef0123456789abcdef"
-			cfg.Tunnel.APIKey = "tunnel-secret"
-			cfg.Tunnel.AdminKey = "admin-secret"
-			cfg.Tunnel.AdminOrganizationID = "org-admin"
+			instances := []tunnel.InstanceConfig{{ID: "tunnel_0123456789abcdef0123456789abcdef", APIKey: "tunnel-secret", AdminProfileID: "default"}}
+			admins := []tunnel.AdminConfig{{ID: "default", AdminKey: "admin-secret", OrganizationID: "org-admin"}}
+			cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
+			cfg.Shell.Executable = filepath.Join(root, "bash")
 			cfg.Shell.Path = []string{filepath.Join(root, "bin")}
 			if err := saveAt(configPath, secretPath, cfg); err != nil {
 				t.Fatal(err)
@@ -268,21 +285,22 @@ func TestConfigRoundTripAcrossFormats(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || loaded.Tunnel.APIKey != cfg.Tunnel.APIKey || loaded.Tunnel.AdminKey != cfg.Tunnel.AdminKey || loaded.Tunnel.AdminOrganizationID != cfg.Tunnel.AdminOrganizationID || len(loaded.Shell.Path) != 1 || loaded.Shell.Path[0] != cfg.Shell.Path[0] {
+			collection := loaded.Tunnel.Collection()
+			if loaded.Server.Port != cfg.Server.Port || loaded.Auth.MCPTokenHash != cfg.Auth.MCPTokenHash || len(collection.Instances) != 1 || collection.Instances[0].APIKey != "tunnel-secret" || len(collection.Admins) != 1 || collection.Admins[0].AdminKey != "admin-secret" || collection.Admins[0].OrganizationID != "org-admin" || loaded.Shell.Executable != cfg.Shell.Executable || len(loaded.Shell.Path) != 1 || loaded.Shell.Path[0] != cfg.Shell.Path[0] {
 				t.Fatalf("round trip = %#v", loaded)
 			}
 			mainData, err := os.ReadFile(configPath)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(mainData), "tunnel-secret") || strings.Contains(string(mainData), "admin-secret") || strings.Contains(string(mainData), "org-admin") {
+			if strings.Contains(string(mainData), "tunnel-secret") || strings.Contains(string(mainData), "admin-secret") || !strings.Contains(string(mainData), "org-admin") {
 				t.Fatalf("main %s config leaked tunnel secret: %s", format, mainData)
 			}
 			secretData, err := os.ReadFile(secretPath)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "org-admin") {
+			if strings.Contains(string(secretData), "tunnel-secret") || strings.Contains(string(secretData), "admin-secret") || !strings.Contains(string(secretData), "instance_keys") || !strings.Contains(string(secretData), "admin_keys") {
 				t.Fatalf("tunnel %s file leaked secret or lost scope: %s", format, secretData)
 			}
 		})
@@ -350,8 +368,9 @@ func TestLegacyGenericTunnelFieldsArePreservedOnSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tunnel.ID != "tunnel_test" {
-		t.Fatalf("tunnel id = %q", loaded.Tunnel.ID)
+	collection := loaded.Tunnel.Collection()
+	if len(collection.Instances) != 1 || collection.Instances[0].ID != "tunnel_test" {
+		t.Fatalf("tunnel collection = %#v", collection)
 	}
 	if err := saveAt(configPath, secretPath, loaded); err != nil {
 		t.Fatal(err)
@@ -374,49 +393,17 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 	}
 }
 
-func TestDefaultFeaturesActive(t *testing.T) {
-	cfg := Default()
-	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "full" {
-		t.Fatalf("features = %#v", cfg.Features)
+func pluginSettings(t *testing.T, configPath, id string) map[string]any {
+	t.Helper()
+	schema := ponytailplugin.Plugin().Schema
+	if id == "caveman" {
+		schema = cavemanplugin.Plugin().Schema
 	}
-}
-
-func TestValidatePonytailDefaultMode(t *testing.T) {
-	cfg := Default()
-	cfg.Auth.MCPEnabled = false
-	cfg.Auth.AdminEnabled = false
-	cfg.Server.AllowUnauthenticatedLoopback = true
-	for _, mode := range []string{"lite", "full", "ultra"} {
-		cfg.Features.Ponytail.Mode = mode
-		if err := Validate(cfg); err != nil {
-			t.Fatalf("mode %q rejected: %v", mode, err)
-		}
+	values, err := settingsStoreForConfigPath(configPath).Get(schema, pluginpkg.PluginID(id))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, mode := range []string{"", "off", "review", "max"} {
-		cfg.Features.Ponytail.Mode = mode
-		if err := Validate(cfg); err == nil {
-			t.Fatalf("mode %q accepted", mode)
-		}
-	}
-}
-
-func TestValidateCavemanDefaultMode(t *testing.T) {
-	cfg := Default()
-	cfg.Auth.MCPEnabled = false
-	cfg.Auth.AdminEnabled = false
-	cfg.Server.AllowUnauthenticatedLoopback = true
-	for _, mode := range []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"} {
-		cfg.Features.Caveman.Mode = mode
-		if err := Validate(cfg); err != nil {
-			t.Fatalf("mode %q rejected: %v", mode, err)
-		}
-	}
-	for _, mode := range []string{"", "off", "wenyan", "commit", "review", "compress", "max"} {
-		cfg.Features.Caveman.Mode = mode
-		if err := Validate(cfg); err == nil {
-			t.Fatalf("mode %q accepted", mode)
-		}
-	}
+	return values
 }
 
 func TestNormalizeShellPath(t *testing.T) {
@@ -431,6 +418,23 @@ func TestNormalizeShellPath(t *testing.T) {
 	}
 	if _, err := NormalizeShellPath([]string{"relative/bin"}); err == nil {
 		t.Fatal("relative shell path was accepted")
+	}
+}
+
+func TestNormalizeShellExecutable(t *testing.T) {
+	bash := filepath.Join(t.TempDir(), "bash")
+	got, err := NormalizeShellExecutable("  " + bash + "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != filepath.Clean(bash) {
+		t.Fatalf("shell executable = %q", got)
+	}
+	if _, err := NormalizeShellExecutable("bash"); err == nil {
+		t.Fatal("relative Bash executable was accepted")
+	}
+	if _, err := NormalizeShellExecutable(filepath.Join(t.TempDir(), "pwsh")); err == nil {
+		t.Fatal("PowerShell executable was accepted")
 	}
 }
 
@@ -494,8 +498,12 @@ func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 				if !loaded.Server.Enabled {
 					t.Fatalf("legacy %s config disabled MCP HTTP", format)
 				}
-				if !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
-					t.Fatalf("legacy %s features = %#v", format, loaded.Features)
+				values := pluginSettings(t, configPath, "ponytail")
+				if values["default_active"] != true || values["default_mode"] != "full" {
+					t.Fatalf("legacy %s ponytail = %#v", format, values)
+				}
+				if _, err := os.Stat(filepath.Join(root, "plugins", "config", "ponytail.json")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("legacy load materialized plugin defaults")
 				}
 				unchanged, err := os.ReadFile(configPath)
 				if err != nil {
@@ -559,18 +567,139 @@ func TestPartialFeaturesKeepMissingFeatureDefault(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
-				t.Fatalf("partial %s features = %#v", format, loaded.Features)
+			if loaded.Server.Port != 37421 {
+				t.Fatalf("partial %s port = %d", format, loaded.Server.Port)
+			}
+			values := pluginSettings(t, configPath, "ponytail")
+			if values["default_active"] != false || values["default_mode"] != "full" {
+				t.Fatalf("partial %s ponytail = %#v", format, values)
+			}
+			caveman := pluginSettings(t, configPath, "caveman")
+			if caveman["default_active"] != true || caveman["default_mode"] != "full" {
+				t.Fatalf("partial %s caveman = %#v", format, caveman)
+			}
+			rewritten, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rewrittenValue, err := configformat.DecodeGeneric(format, rewritten)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rewrittenRoot, ok := rewrittenValue.(map[string]any)
+			if !ok {
+				t.Fatalf("rewritten config = %#v", rewrittenValue)
+			}
+			if _, exists := rewrittenRoot["features"]; exists {
+				t.Fatalf("legacy features section was kept: %#v", rewrittenRoot)
+			}
+			if _, err := os.Stat(filepath.Join(root, "plugins.json")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("active=false disabled the built-in plugin")
 			}
 		})
 	}
 }
 
-func TestFeatureConfigSerializesActiveOnly(t *testing.T) {
+func TestLegacyFeaturesDoNotOverwritePluginSettings(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	if err := os.WriteFile(configPath, []byte(`{"server":{"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"features":{"ponytail":{"active":true,"mode":"ultra"}},"tunnel":{"enabled":false}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := settingsStoreForConfigPath(configPath)
+	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_active", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_mode", "lite"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadAt(configPath, secretPath); err != nil {
+		t.Fatal(err)
+	}
+	values := pluginSettings(t, configPath, "ponytail")
+	if values["default_active"] != false || values["default_mode"] != "lite" {
+		t.Fatalf("plugin settings lost: %#v", values)
+	}
+}
+
+func TestLoadHydratesPluginSettingsWithoutCoreConfig(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	store := settingsStoreForConfigPath(configPath)
+	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_active", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_mode", "ultra"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadAt(configPath, secretPath); err != nil {
+		t.Fatal(err)
+	}
+	values := pluginSettings(t, configPath, "ponytail")
+	if values["default_active"] != false || values["default_mode"] != "ultra" {
+		t.Fatalf("plugin settings lost without core config: %#v", values)
+	}
+}
+
+func TestSaveOmitsFeaturesAndPersistsPluginSettings(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		t.Run(string(format), func(t *testing.T) {
+			root := t.TempDir()
+			configPath := configformat.PathFor(root, "config", format)
+			secretPath := configformat.PathFor(root, "tunnel", format)
+			cfg := Default()
+			store := settingsStoreForConfigPath(configPath)
+			if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_active", false); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_mode", "ultra"); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Set(cavemanplugin.Plugin().Schema, "caveman", "default_active", false); err != nil {
+				t.Fatal(err)
+			}
+			if err := saveAt(configPath, secretPath, cfg); err != nil {
+				t.Fatal(err)
+			}
+			saved, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := configformat.DecodeGeneric(format, saved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rootValue, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("root = %#v", raw)
+			}
+			if _, exists := rootValue["features"]; exists {
+				t.Fatalf("features serialized: %#v", rootValue)
+			}
+			if _, exists := rootValue["interactive"]; exists {
+				t.Fatalf("obsolete interactive key serialized: %#v", rootValue)
+			}
+			if _, err := loadAt(configPath, secretPath); err != nil {
+				t.Fatal(err)
+			}
+			ponytail := pluginSettings(t, configPath, "ponytail")
+			if ponytail["default_active"] != false || ponytail["default_mode"] != "ultra" {
+				t.Fatalf("ponytail settings = %#v", ponytail)
+			}
+			caveman := pluginSettings(t, configPath, "caveman")
+			if caveman["default_active"] != false || caveman["default_mode"] != "full" {
+				t.Fatalf("caveman settings = %#v", caveman)
+			}
+		})
+	}
+}
+
+func TestFeatureConfigIsOmittedFromSerialization(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
 		t.Run(string(format), func(t *testing.T) {
 			cfg := Default()
-			cfg.Features.Ponytail.Active = false
 			data, err := configformat.Marshal(format, cfg)
 			if err != nil {
 				t.Fatal(err)
@@ -586,23 +715,8 @@ func TestFeatureConfigSerializesActiveOnly(t *testing.T) {
 			if _, exists := root["interactive"]; exists {
 				t.Fatalf("obsolete interactive key serialized: %#v", root)
 			}
-			featureValues, ok := root["features"].(map[string]any)
-			if !ok {
-				t.Fatalf("features = %#v", root["features"])
-			}
-			ponytail, ok := featureValues["ponytail"].(map[string]any)
-			if !ok || ponytail["active"] != false || ponytail["mode"] != "full" {
-				t.Fatalf("ponytail = %#v", featureValues["ponytail"])
-			}
-			if _, exists := ponytail["enabled"]; exists {
-				t.Fatalf("legacy enabled key was serialized: %#v", ponytail)
-			}
-			caveman, ok := featureValues["caveman"].(map[string]any)
-			if !ok || caveman["active"] != true || caveman["mode"] != "full" {
-				t.Fatalf("caveman = %#v", featureValues["caveman"])
-			}
-			if _, exists := caveman["enabled"]; exists {
-				t.Fatalf("legacy enabled key was serialized: %#v", caveman)
+			if _, exists := root["features"]; exists {
+				t.Fatalf("features still serialized: %#v", root["features"])
 			}
 		})
 	}
@@ -898,13 +1012,13 @@ func TestClearingRuntimeKeyPreservesAdminKeySecret(t *testing.T) {
 	configPath := filepath.Join(root, "config.json")
 	secretPath := filepath.Join(root, "tunnel.json")
 	cfg := Default()
-	cfg.Tunnel.APIKey = "runtime-secret"
-	cfg.Tunnel.AdminKey = "admin-secret"
-	cfg.Tunnel.AdminWorkspaceID = "ws_admin"
+	instances := []tunnel.InstanceConfig{{ID: "tunnel_test", APIKey: "runtime-secret", AdminProfileID: "default"}}
+	admins := []tunnel.AdminConfig{{ID: "default", AdminKey: "admin-secret", WorkspaceID: "ws_admin"}}
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
 	if err := saveAt(configPath, secretPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Tunnel.APIKey = ""
+	instances[0].APIKey = ""
 	if err := saveAt(configPath, secretPath, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -912,7 +1026,8 @@ func TestClearingRuntimeKeyPreservesAdminKeySecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tunnel.APIKey != "" || loaded.Tunnel.AdminKey != "admin-secret" || loaded.Tunnel.AdminWorkspaceID != "ws_admin" {
+	collection := loaded.Tunnel.Collection()
+	if len(collection.Instances) != 1 || collection.Instances[0].APIKey != "" || len(collection.Admins) != 1 || collection.Admins[0].AdminKey != "admin-secret" || collection.Admins[0].WorkspaceID != "ws_admin" {
 		t.Fatalf("loaded tunnel = %#v", loaded.Tunnel)
 	}
 }

@@ -22,8 +22,6 @@ type mcpServerFormData struct {
 	Headers           string
 	SensitiveHeaders  string
 	BearerTokenEnvVar string
-	AuthType          string
-	AuthScope         string
 	Command           string
 	Args              string
 	CWD               string
@@ -38,20 +36,11 @@ type mcpServerFormData struct {
 	existingEnv       map[string]string
 }
 
-type mcpOAuthFormData struct {
-	Issuer             string
-	ClientID           string
-	ClientSecretEnvVar string
-	ClientMetadataURL  string
-	ExtraScope         string
-	OpenBrowser        bool
-}
-
 func newMCPServerFormData(server upstream.Server, create bool) mcpServerFormData {
 	data := mcpServerFormData{
 		ID: server.ID, Name: server.Name, Transport: server.Transport, Enabled: server.Enabled, URL: server.URL,
-		BearerTokenEnvVar: server.BearerTokenEnvVar, AuthType: server.Auth.Type, AuthScope: server.Auth.Scope,
-		Command: server.Command, Args: strings.Join(server.Args, "\n"), CWD: server.CWD,
+		BearerTokenEnvVar: server.BearerTokenEnvVar,
+		Command:           server.Command, Args: strings.Join(server.Args, "\n"), CWD: server.CWD,
 		ToolPrefix: server.ToolPrefix, Expose: server.Expose, Tools: strings.Join(server.Tools, "\n"), DisabledTools: strings.Join(server.DisabledTools, "\n"),
 		existingHeaders: upstream.CloneStringMap(server.Headers), existingEnv: upstream.CloneStringMap(server.Env),
 	}
@@ -64,13 +53,6 @@ func newMCPServerFormData(server upstream.Server, create bool) mcpServerFormData
 		}
 		if data.Expose == "" {
 			data.Expose = "all"
-		}
-	}
-	if data.AuthType == "" {
-		if data.Transport == "http" {
-			data.AuthType = "auto"
-		} else {
-			data.AuthType = "none"
 		}
 	}
 	if server.IdleTimeoutSec > 0 {
@@ -87,7 +69,7 @@ func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, 
 	data := newMCPServerFormData(server, create)
 	generalFields := []huh.Field{}
 	if create {
-		generalFields = append(generalFields, component.Input("Server ID", &data.ID).Validate(requiredValue("server id")))
+		generalFields = append(generalFields, component.Input("Server ID", &data.ID).Validate(upstream.ValidateServerID))
 	}
 	generalFields = append(generalFields,
 		component.Input("Display name", &data.Name),
@@ -96,23 +78,29 @@ func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, 
 	)
 	connection := component.NewEditorForm(
 		component.Group(
-			component.Input("HTTP MCP URL", &data.URL),
-			component.Text("Non-sensitive headers (KEY=VALUE, one per line)", &data.Headers),
-			component.PasswordInput("Sensitive headers JSON (optional; blank keeps existing)", &data.SensitiveHeaders),
+			component.Input("HTTP MCP URL", &data.URL).Validate(func(raw string) error {
+				if data.Transport != "http" {
+					return nil
+				}
+				return upstream.ValidateHTTPURL(raw)
+			}),
+			component.Text("Non-sensitive headers (KEY=VALUE, one per line)", &data.Headers).Validate(validateAssignments("header")),
+			component.PasswordInput("Sensitive headers JSON (optional; blank keeps existing)", &data.SensitiveHeaders).Validate(validateOptionalJSONObject("header")),
 			component.Input("Bearer token environment variable", &data.BearerTokenEnvVar),
 		).WithHideFunc(func() bool { return data.Transport != "http" }),
 		component.Group(
-			component.Input("Command", &data.Command),
+			component.Input("Command", &data.Command).Validate(func(raw string) error {
+				if data.Transport != "stdio" {
+					return nil
+				}
+				return requiredValue("command")(raw)
+			}),
 			component.Text("Arguments (one per line)", &data.Args),
 			newMCPWorkingDirectoryField(&data.CWD),
-			component.Text("Non-sensitive environment (KEY=VALUE, one per line)", &data.Env),
-			component.PasswordInput("Sensitive environment JSON (optional; blank keeps existing)", &data.SensitiveEnv),
+			component.Text("Non-sensitive environment (KEY=VALUE, one per line)", &data.Env).Validate(validateAssignments("env")),
+			component.PasswordInput("Sensitive environment JSON (optional; blank keeps existing)", &data.SensitiveEnv).Validate(validateOptionalJSONObject("env")),
 		).WithHideFunc(func() bool { return data.Transport != "stdio" }),
 	)
-	authentication := component.NewEditorForm(component.Group(
-		component.Select("Auth mode", &data.AuthType, huh.NewOption("Auto", "auto"), huh.NewOption("OAuth", "oauth"), huh.NewOption("None", "none")),
-		component.Input("OAuth scope", &data.AuthScope),
-	))
 	tools := component.NewEditorForm(component.Group(
 		component.Input("Tool prefix", &data.ToolPrefix),
 		component.Select("Expose", &data.Expose, huh.NewOption("All", "all"), huh.NewOption("Allowlist", "allowlist"), huh.NewOption("Metadata only", "meta_only"), huh.NewOption("None", "none")),
@@ -127,7 +115,6 @@ func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, 
 	editor := component.NewEditor(primary,
 		component.EditorSection{ID: "general", Title: "General", Description: "Identity, transport, and availability.", Form: component.NewEditorForm(component.Group(generalFields...))},
 		component.EditorSection{ID: "connection", Title: "Connection", Description: "HTTP connection or stdio process settings. Inactive transport values are preserved.", Form: connection},
-		component.EditorSection{ID: "authentication", Title: "Authentication", Description: "HTTP authentication settings. stdio servers keep these values inactive.", Form: authentication},
 		component.EditorSection{ID: "tools", Title: "Tools", Description: "Tool naming, exposure policy, allowlists, and idle timeout.", Form: tools},
 	)
 	return editor, &data
@@ -135,22 +122,6 @@ func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, 
 
 func newMCPWorkingDirectoryField(value *string) *component.PathField {
 	return component.NewPathField("Working directory", value, component.PathFieldOptions{Kind: component.PathKindDirectory, AllowMissing: true})
-}
-
-func newMCPOAuthEditor() (component.Editor, *mcpOAuthFormData) {
-	data := mcpOAuthFormData{OpenBrowser: true}
-	editor := component.NewEditor("authorize", component.EditorSection{
-		ID: "authorization", Title: "Authorization", Description: "Optional OAuth discovery and client overrides. Leave values blank to use server defaults.",
-		Form: component.NewEditorForm(component.Group(
-			component.Input("Issuer override", &data.Issuer),
-			component.Input("Pre-registered client ID", &data.ClientID),
-			component.Input("Client secret environment variable", &data.ClientSecretEnvVar),
-			component.Input("Client metadata URL", &data.ClientMetadataURL),
-			component.Input("Additional scopes", &data.ExtraScope),
-			component.Switch("Open authorization URL in browser", &data.OpenBrowser, "YES", "NO"),
-		)),
-	})
-	return editor, &data
 }
 
 func mcpServerFormSnapshot(data *mcpServerFormData) string {
@@ -175,8 +146,6 @@ func serverFromMCPForm(data *mcpServerFormData, existing upstream.Server, create
 	server.Enabled = data.Enabled
 	server.URL = strings.TrimSpace(data.URL)
 	server.BearerTokenEnvVar = strings.TrimSpace(data.BearerTokenEnvVar)
-	server.Auth.Type = strings.TrimSpace(data.AuthType)
-	server.Auth.Scope = strings.TrimSpace(data.AuthScope)
 	server.Command = strings.TrimSpace(data.Command)
 	server.Args = splitLines(data.Args)
 	server.CWD = strings.TrimSpace(data.CWD)
@@ -281,6 +250,27 @@ func validatePositiveInt(label string) func(string) error {
 		parsed, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || parsed <= 0 {
 			return fmt.Errorf("%s must be a positive integer", label)
+		}
+		return nil
+	}
+}
+
+func validateAssignments(label string) func(string) error {
+	return func(raw string) error {
+		_, err := upstream.ParseAssignments(splitLines(raw), label)
+		return err
+	}
+}
+
+func validateOptionalJSONObject(label string) func(string) error {
+	return func(raw string) error {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return nil
+		}
+		var value map[string]string
+		if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			return fmt.Errorf("decode sensitive %s JSON: %w", label, err)
 		}
 		return nil
 	}

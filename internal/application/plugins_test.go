@@ -1,0 +1,36 @@
+package application
+
+import (
+	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
+	cavemanplugin "go.mewis.me/chatgpt-mcp/plugins/caveman"
+	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
+)
+
+func TestPluginServiceCatalogIncludesInjectedBuiltins(t *testing.T) {
+	pluginhost.Install()
+	pluginpkg.SetCompiledBuiltins(pluginpkg.BuiltinRegistry{ponytailplugin.Plugin(), cavemanplugin.Plugin()})
+	t.Cleanup(func() { pluginpkg.SetCompiledBuiltins(nil) })
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	service, err := NewPluginService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.Installed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[pluginpkg.PluginID]InstalledPluginInfo{}
+	for _, item := range items {
+		found[item.ID] = item
+	}
+	for _, id := range []pluginpkg.PluginID{"ponytail", "caveman"} {
+		item, ok := found[id]
+		if !ok || item.Origin != pluginpkg.OriginBuiltin || item.Lifecycle.Install || item.Lifecycle.Uninstall || item.Lifecycle.Update || !item.Lifecycle.Configure {
+			t.Fatalf("%s = %#v ok=%t", id, item, ok)
+		}
+	}
+}

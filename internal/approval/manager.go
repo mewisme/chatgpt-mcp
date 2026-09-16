@@ -92,6 +92,8 @@ func (m *Manager) CreateChallenge(input ChallengeInput) (Challenge, bool, error)
 	input.SessionHash = strings.TrimSpace(input.SessionHash)
 	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
 	input.Source = strings.TrimSpace(input.Source)
+	input.TunnelID = strings.TrimSpace(input.TunnelID)
+	input.TunnelName = strings.TrimSpace(input.TunnelName)
 	input.TargetTool = strings.TrimSpace(input.TargetTool)
 	input.GuardReason = strings.TrimSpace(input.GuardReason)
 	input.Title = strings.TrimSpace(input.Title)
@@ -120,7 +122,7 @@ func (m *Manager) CreateChallenge(input ChallengeInput) (Challenge, bool, error)
 		return Challenge{}, false, err
 	}
 	value := Challenge{
-		ID: id, SessionHash: input.SessionHash, WorkspaceID: input.WorkspaceID, Source: input.Source, TargetTool: input.TargetTool, Arguments: arguments, Digest: digest,
+		ID: id, SessionHash: input.SessionHash, WorkspaceID: input.WorkspaceID, Source: input.Source, TunnelID: input.TunnelID, TunnelName: input.TunnelName, TargetTool: input.TargetTool, Arguments: arguments, Digest: digest,
 		GuardCode: input.GuardCode, GuardReason: input.GuardReason, Title: input.Title, Command: input.Command, SimilarCommandPattern: input.SimilarCommandPattern, CreatedAt: now, ExpiresAt: now.Add(m.challengeTTL), sessionID: input.SessionID,
 	}
 	m.challenges[id] = &challengeRecord{value: value}
@@ -193,7 +195,7 @@ func (m *Manager) CreateRequestWithTitle(challengeID, sessionID, workspaceID, ti
 		return Request{}, false, err
 	}
 	value := Request{
-		ID: id, Status: StatusPending, WorkspaceID: challenge.value.WorkspaceID, SessionHash: challenge.value.SessionHash, Source: challenge.value.Source, TargetTool: challenge.value.TargetTool,
+		ID: id, Status: StatusPending, WorkspaceID: challenge.value.WorkspaceID, SessionHash: challenge.value.SessionHash, Source: challenge.value.Source, TunnelID: challenge.value.TunnelID, TunnelName: challenge.value.TunnelName, TargetTool: challenge.value.TargetTool,
 		Arguments: cloneRaw(challenge.value.Arguments), Digest: challenge.value.Digest, GuardCode: challenge.value.GuardCode, GuardReason: challenge.value.GuardReason, Title: title, Command: challenge.value.Command, SimilarCommandPattern: challenge.value.SimilarCommandPattern,
 		CreatedAt: now, ExpiresAt: now.Add(m.requestTTL), sessionID: sessionID, challengeID: challenge.value.ID,
 	}
@@ -549,6 +551,10 @@ func (m *Manager) matchApprovedLocked(input RetryInput) (Request, bool, error) {
 	if active.value.TargetTool != input.TargetTool {
 		return Request{}, false, nil
 	}
+	input.TunnelID = strings.TrimSpace(input.TunnelID)
+	if input.TunnelID != "" && active.value.TunnelID != "" && !strings.EqualFold(input.TunnelID, active.value.TunnelID) {
+		return Request{}, false, nil
+	}
 	digest, actual, err := CanonicalTargetDigest(m.instanceID, Target{SessionID: input.SessionID, WorkspaceID: input.WorkspaceID, Source: input.Source, TargetTool: input.TargetTool, Arguments: input.Arguments, GuardCode: active.value.GuardCode})
 	if err != nil {
 		return Request{}, false, err
@@ -735,7 +741,7 @@ func (m *Manager) emitLocked(name string, request Request) {
 		return
 	}
 	event := Event{
-		Name: name, RequestID: request.ID, WorkspaceID: request.WorkspaceID, SessionHash: request.SessionHash, Source: request.Source,
+		Name: name, RequestID: request.ID, WorkspaceID: request.WorkspaceID, SessionHash: request.SessionHash, Source: request.Source, TunnelID: request.TunnelID, TunnelName: request.TunnelName,
 		TargetTool: request.TargetTool, Title: request.Title, Status: request.Status, CreatedAt: request.CreatedAt, ExpiresAt: request.ExpiresAt, RetryUntil: request.RetryUntil, Timestamp: m.now().UTC(),
 	}
 	if m.events != nil {

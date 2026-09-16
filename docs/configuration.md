@@ -30,7 +30,7 @@ Precedence is:
 > default user config root
 ```
 
-A config root owns that instance's configuration, workspaces, secrets, upstream/OAuth state, logs, shell/runtime state, memory, checkpoints, and runtime-control metadata. Use isolated roots for tests or parallel instances.
+A config root owns that instance's configuration, workspaces, secrets, upstream state, logs, shell/runtime state, memory, checkpoints, and runtime-control metadata. Use isolated roots for tests or parallel instances.
 
 ## Inspect configuration
 
@@ -77,7 +77,30 @@ cgm config set admin.enabled true
 
 Values are parsed according to the schema and validated before persistence. `key=value` syntax is also accepted by the CLI.
 
-At least one MCP transport must remain enabled: direct MCP HTTP (`server.enabled`) or OpenAI Secure MCP Tunnel (`tunnel.enabled`). The default ChatGPT path is the tunnel; direct HTTP is an optional transport for clients that need it.
+At least one MCP transport must remain enabled: direct MCP HTTP (`server.enabled`) or at least one enabled local Secure MCP Tunnel instance. Tunnel instances are managed through `cgm tunnel ...` rather than scalar `config set` fields.
+
+## Desktop notifications
+
+Pending control approvals can raise a best-effort desktop notification when no TUI reviewer is open. Notification failure never blocks, approves, or denies the request.
+
+```bash
+cgm config set notifications.enabled true
+cgm config set notifications.approvals true
+cgm config set notifications.when_tui_inactive true
+cgm config set notifications.open_action auto
+cgm config explain notifications
+```
+
+Platform behavior:
+
+- **Linux desktop** uses the session notification bus (`gdbus` or `notify-send`) when `DBUS_SESSION_BUS_ADDRESS` or `XDG_RUNTIME_DIR` is present. Headless and SSH sessions without a session bus stay silent.
+- **Windows** uses a PowerShell balloon tip when `powershell.exe` or `pwsh.exe` is available.
+- **macOS** uses `osascript` when present.
+- **WSL** prefers the Windows host (`powershell.exe`) and does not require Linux D-Bus. Terminal launch, when later enabled, keeps the current WSL distro through Windows Terminal.
+
+v1 notifications are passive: they do not approve/deny, and they do not yet click-open a terminal. Open the TUI Requests page or `cgm tui requests <request-id>` to review.
+
+`cgm doctor --verbose` reports whether a desktop provider looks available; unavailability is non-fatal.
 
 ## Applying changes to a running runtime
 
@@ -114,7 +137,7 @@ Conversion validates the managed state before activating the new representation.
 
 ## Secrets
 
-Long-lived reversible credentials such as tunnel runtime keys, upstream OAuth credentials, and sensitive upstream header/environment values are stored through the selected config root's managed secret store rather than as plaintext values in ordinary structured config.
+Long-lived reversible credentials such as per-instance tunnel runtime keys, tunnel admin-profile keys, and sensitive upstream header/environment values are stored through the selected config root's managed secret store rather than as plaintext values in ordinary structured config.
 
 MCP/Admin endpoint credentials are represented by one-way hashes where appropriate. Normal config/status output does not reveal managed secrets.
 
@@ -134,23 +157,23 @@ See [Security](security.md) for the storage and trust model.
 
 ## Authentication
 
-MCP and Admin endpoint authentication are separate policies:
+MCP and Admin endpoint authentication are separate policies. Direct MCP HTTP authentication protects `/mcp` only; Secure MCP Tunnel uses separate credentials and is unaffected. Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT — you do not need a new token for each ChatGPT configuration.
 
 ```bash
 cgm auth status
-cgm auth mcp create
+cgm auth mcp show
+cgm auth mcp copy
+cgm auth mcp rotate
 cgm auth admin create
 cgm auth mcp enable
 cgm auth admin enable
 ```
 
-Direct authenticated HTTP clients use the credential expected by that endpoint/transport. The OpenAI tunnel runtime API key is different: it authenticates the tunnel client to OpenAI and is not an MCP/Admin bearer token.
+`cgm auth mcp create` is a deprecated alias for `cgm auth mcp rotate`. Reveal/copy reuse the stored token; rotate only when replacing it. Legacy hash-only installs (`auth.mcp_token_hash` without an encrypted secret) stay configured until one rotate makes the token revealable.
 
-Generic protected `cgm mcp http` uses OAuth as its canonical transport auth. Legacy static MCP bearer compatibility is controlled by:
+Direct authenticated HTTP clients use the credential expected by that endpoint/transport. The OpenAI tunnel runtime API key is different: it authenticates the tunnel client to OpenAI and is not a Direct MCP HTTP or Admin bearer token.
 
-```bash
-cgm config set auth.mcp_legacy_bearer false
-```
+Generic protected `cgm mcp http` uses the same Direct MCP HTTP token as managed `/mcp`. Secure MCP Tunnel credentials are separate.
 
 ## Network exposure
 
@@ -162,10 +185,12 @@ cgm config set server.expose none
 
 Other supported exposure modes can bind selected interfaces or broader addresses, but non-loopback direct HTTP changes the trust model and requires the appropriate authentication/insecure-HTTP acknowledgement.
 
-For ChatGPT, prefer the Secure MCP Tunnel instead of opening the MCP listener publicly:
+For ChatGPT, prefer Secure MCP Tunnel instead of opening the MCP listener publicly. Add a management profile, then attach one or more managed tunnels:
 
 ```bash
-cgm tunnel configure --enabled --id tunnel_... --api-key 'sk-...'
+cgm tunnel admin add personal --admin-key 'sk-admin-...' --organization-id org_...
+cgm tunnel admin verify personal
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
 ```
 
 Read [Security](security.md#network-exposure) before widening exposure.
@@ -177,6 +202,8 @@ Register concrete project roots with:
 ```bash
 cgm workspace register ~/projects/my-project
 ```
+
+Workspace-owned identity, memory, checkpoints, and related state live in `<workspace>/.cgm`. The config root keeps only a path/id index plus global application state.
 
 Workspace-specific extra roots:
 
@@ -202,13 +229,35 @@ See [Security](security.md#shell-execution-boundary).
 
 ## Tunnel configuration
 
-Configure the default ChatGPT transport:
+Tunnel state is a collection. Each local tunnel instance has its own ID/runtime key and may reference an admin profile used for management provenance. Admin profiles hold management credentials/scopes and are not runtime connections.
+
+Conceptually the persisted model is:
+
+```yaml
+tunnel:
+  instances:
+    - id: tunnel_a
+      enabled: true
+      admin_profile_id: personal
+    - id: tunnel_b
+      enabled: true
+  admins:
+    - id: personal
+      organization_id: org_...
+```
+
+Runtime/admin keys are stored separately in the managed secret store and are redacted from normal config/status output. Older scalar `tunnel.id` / `tunnel.api_key` / `tunnel.enabled` files still load: they canonicalize into one collection instance (plus a `default` admin profile when an admin key is present). After that, `config Save` writes collection form only. `config get tunnel.*` still reads the first collection instance or leftover scalar for compatibility views. `config set tunnel.id|enabled|api_key|control_plane_base_url|organization_id` is rejected; use `cgm tunnel add/update`. Active CLI/TUI/Admin mutation paths write the collection, not scalar fields. Scalar leftover adapters remain only for in-memory tests and compatibility JSON until that boundary is removed.
+
+Use:
 
 ```bash
-cgm tunnel configure \
-  --enabled \
-  --id tunnel_... \
-  --api-key 'sk-...'
+cgm tunnel list
+cgm tunnel status [tunnel_id]
+cgm tunnel add tunnel_... --runtime-api-key 'sk-...'
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
+cgm tunnel detach tunnel_...
+cgm tunnel admin list
+cgm tunnel managed list
 ```
 
 See [OpenAI + ChatGPT](openai-chatgpt.md) for Platform and ChatGPT setup. Use `cgm tunnel --help` for the current local/managed tunnel command surface.

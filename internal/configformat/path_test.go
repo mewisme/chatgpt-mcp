@@ -61,3 +61,23 @@ func TestSetRootPathRejectsCurrentWorkingDirectoryAndHome(t *testing.T) {
 		}
 	}
 }
+
+func TestAssertMutableRootAllowsTempDefaultLayout(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".config", "chatgpt-mcp")
+	if err := AssertMutableRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkRoot(root); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAssertMutableRootRejectsLiveDefaultRoot(t *testing.T) {
+	live := DefaultRootPath()
+	if underTempDir(live) {
+		t.Skip("default root is under temp dir in this environment")
+	}
+	if err := AssertMutableRoot(live); err == nil {
+		t.Fatalf("live default root was accepted: %s", live)
+	}
+}

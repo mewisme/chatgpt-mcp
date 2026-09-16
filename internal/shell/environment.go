@@ -18,7 +18,7 @@ type environmentValue struct {
 	value string
 }
 
-func shellEnvironment(ctx context.Context, shellPath []string) []string {
+func shellEnvironment(ctx context.Context, shellPath []string, executable ...string) []string {
 	parent := parentEnvironment()
 	values := map[string]environmentValue{}
 	for key, entry := range parent {
@@ -39,6 +39,9 @@ func shellEnvironment(ctx context.Context, shellPath []string) []string {
 	setShellEnvironment(values, "GIT_PAGER", "cat")
 	setShellEnvironment(values, "NO_COLOR", "1")
 	setShellEnvironment(values, "npm_config_yes", "true")
+	if len(executable) > 0 && strings.TrimSpace(executable[0]) != "" {
+		setShellEnvironment(values, "SHELL", filepath.Clean(executable[0]))
+	}
 	setShellEnvironment(values, controlplane.ToolContextEnv, "1")
 	setShellEnvironment(values, configformat.EnvConfigDir, configformat.RootPath())
 	if granted, ok := controlguard.ApprovalFromContext(ctx); ok {

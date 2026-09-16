@@ -52,6 +52,52 @@ type ToastMsg struct {
 	Tone    component.Tone
 }
 
+type OperationPhase string
+
+const (
+	OperationPending   OperationPhase = "pending"
+	OperationSuccess   OperationPhase = "success"
+	OperationError     OperationPhase = "error"
+	OperationCancelled OperationPhase = "cancelled"
+)
+
+type OperationMsg struct {
+	Key     string
+	Phase   OperationPhase
+	Title   string
+	Message string
+	Tone    component.Tone
+}
+
+func OperationStarted(key, title, message string) tea.Cmd {
+	return func() tea.Msg {
+		return OperationMsg{Key: key, Phase: OperationPending, Title: title, Message: message, Tone: component.ToneAccent}
+	}
+}
+
+func OperationResult(key, title, message string, err error) tea.Msg {
+	if err != nil {
+		return OperationMsg{Key: key, Phase: OperationError, Title: title, Message: strings.TrimSpace(err.Error()), Tone: component.ToneDanger}
+	}
+	return OperationMsg{Key: key, Phase: OperationSuccess, Title: title, Message: message, Tone: component.ToneSuccess}
+}
+
+func cancelledOperation(key, title, message string) tea.Msg {
+	return OperationMsg{Key: key, Phase: OperationCancelled, Title: title, Message: message, Tone: component.ToneNeutral}
+}
+
+func beginOperation(key, title, pending string, work tea.Cmd) tea.Cmd {
+	return tea.Batch(OperationStarted(key, title, pending), work)
+}
+
+func withOperation(key, title, message string, next tea.Cmd) tea.Cmd {
+	result := func() tea.Msg { return OperationResult(key, title, message, nil) }
+	if next == nil {
+		return result
+	}
+	return tea.Batch(next, result)
+}
+
 func pageFeedbackHeight(value string) int {
 	if strings.TrimSpace(value) == "" {
 		return 0

@@ -67,7 +67,7 @@ func TestWorkspacePageLifecycle(t *testing.T) {
 	if _, err := page.openCommand(WorkspaceUnregister, id); err != nil {
 		t.Fatal(err)
 	}
-	page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+	page.confirm = component.NewConfirmButtons("Unregister", "Cancel", true)
 	page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	items, err = page.manager.List()
 	if err != nil || len(items) != 0 {
@@ -152,21 +152,23 @@ func TestWorkspaceMutationsSynchronizeRunningRuntime(t *testing.T) {
 	}
 	workspaceID := items[0].ID
 	relocatedRoot := filepath.Join(t.TempDir(), "relocated")
-	if err := os.MkdirAll(relocatedRoot, 0700); err != nil {
+	if err := os.Rename(workspacePath, relocatedRoot); err != nil {
 		t.Fatal(err)
 	}
 	workspacePage.command, workspacePage.targetID, workspacePage.value = WorkspaceRelocate, workspaceID, relocatedRoot
 	if err := workspacePage.applyWorkspaceEditor(); err != nil {
 		t.Fatal(err)
 	}
-	if workspacePage.targetID == workspaceID {
-		t.Fatal("relocate did not update page target to canonical workspace id")
+	if workspacePage.targetID != workspaceID {
+		t.Fatalf("relocate changed workspace id: %s -> %s", workspaceID, workspacePage.targetID)
 	}
-	legacy, err := workspacePage.manager.Get(workspaceID)
-	if err != nil || legacy.ID != workspacePage.targetID {
-		t.Fatalf("legacy workspace lookup=%#v err=%v", legacy, err)
+	relocated, err := workspacePage.manager.Get(workspaceID)
+	if err != nil || relocated.ID != workspaceID {
+		t.Fatalf("relocated workspace=%#v err=%v", relocated, err)
 	}
-	workspaceID = workspacePage.targetID
+	if relocated.Path == workspacePath {
+		t.Fatalf("relocated path was unchanged: %s", relocated.Path)
+	}
 	extra := t.TempDir()
 	workspacePage.command, workspacePage.targetID, workspacePage.value = WorkspaceAccessAdd, workspaceID, extra
 	if err := workspacePage.applyWorkspaceEditor(); err != nil {
@@ -219,7 +221,7 @@ func TestWorkspaceMutationsSynchronizeRunningRuntime(t *testing.T) {
 	}
 
 	workspacePage.command, workspacePage.targetID = WorkspaceUnregister, workspaceID
-	workspacePage.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+	workspacePage.confirm = component.NewConfirmButtons("Unregister", "Cancel", true)
 	workspacePage.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if workspacePage.err != nil {
 		t.Fatal(workspacePage.err)
@@ -412,7 +414,7 @@ func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 		if _, err := page.openCommand(WorkspaceUnregister, item.ID); err != nil {
 			t.Fatal(err)
 		}
-		page.confirm = component.NewConfirmButtons("Delete", "Cancel", true)
+		page.confirm = component.NewConfirmButtons("Unregister", "Cancel", true)
 		cmd := page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
 		if cmd == nil || page.resourceID != item.ID {
 			t.Fatalf("navigation=%v resource=%q", cmd != nil, page.resourceID)
@@ -420,7 +422,7 @@ func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 		if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Root") || strings.Contains(got, "Overview") {
 			t.Fatalf("intermediate detail render=%q", got)
 		}
-		message, ok := cmd().(NavigateMsg)
+		message, ok := navigateMsg(cmd)
 		if !ok || strings.Join(message.Path, "/") != "workspaces" || !message.Replace {
 			t.Fatalf("navigation=%#v", message)
 		}
@@ -452,7 +454,7 @@ func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Primary") {
 		t.Fatalf("intermediate container detail render=%q", got)
 	}
-	message, ok := cmd().(NavigateMsg)
+	message, ok := navigateMsg(cmd)
 	if !ok || strings.Join(message.Path, "/") != "containers" || !message.Replace {
 		t.Fatalf("navigation=%#v", message)
 	}
@@ -901,7 +903,7 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	if page.Dirty() {
 		t.Fatal("successful project context build retained a dirty draft")
 	}
-	navigate, ok := navigation().(NavigateMsg)
+	navigate, ok := navigateMsg(navigation)
 	if !ok || strings.Join(navigate.Path, "/") != "workspaces/"+item.ID+"/context-preview" {
 		t.Fatalf("preview navigation=%#v", navigate)
 	}
@@ -1087,13 +1089,11 @@ func TestWorkspaceProjectContextEditorRetainsDraftOnBuildFailure(t *testing.T) {
 	if cmd == nil || !page.contextBuilding || page.Dirty() {
 		t.Fatalf("build start cmd=%v building=%t dirty=%t", cmd != nil, page.contextBuilding, page.Dirty())
 	}
-	updated, navigation := page.Update(workspaceContextBuildMessage(t, cmd))
+	updated, follow := page.Update(workspaceContextBuildMessage(t, cmd))
 	page = updated.(*WorkspacePage)
-	if navigation != nil || page.contextBuilding || page.contextEditor == nil || page.contextData.Path != "draft" || !page.Dirty() || session.Result != nil {
-		t.Fatalf("failed build navigation=%v building=%t editor=%v path=%q dirty=%t result=%v", navigation != nil, page.contextBuilding, page.contextEditor != nil, page.contextData.Path, page.Dirty(), session.Result != nil)
-	}
-	if plain := ansi.Strip(page.View(100, 30)); !strings.Contains(plain, "build failed") {
-		t.Fatalf("build failure feedback missing: %q", plain)
+	op, ok := operationMsg(follow)
+	if !ok || op.Phase != OperationError || op.Message != "build failed" || page.contextBuilding || page.contextEditor == nil || page.contextData.Path != "draft" || !page.Dirty() || session.Result != nil {
+		t.Fatalf("failed build op=%#v building=%t editor=%v path=%q dirty=%t result=%v", op, page.contextBuilding, page.contextEditor != nil, page.contextData.Path, page.Dirty(), session.Result != nil)
 	}
 }
 
@@ -1154,10 +1154,13 @@ func TestWorkspaceProjectContextBuildCanBeCancelled(t *testing.T) {
 		t.Fatalf("build did not start: cmd=%v building=%t", cmd, page.contextBuilding)
 	}
 	buildID := page.contextBuildID
-	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	page = updated.(*WorkspacePage)
-	if page.contextBuilding || page.contextBuildID == buildID || session.Result != nil || page.Notice() != "Project Context build cancelled" {
+	if page.contextBuilding || page.contextBuildID == buildID || session.Result != nil || page.Notice() != "" {
 		t.Fatalf("cancel state building=%t id=%d result=%v notice=%q", page.contextBuilding, page.contextBuildID, session.Result != nil, page.Notice())
+	}
+	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationCancelled || op.Message != "Project Context build cancelled" {
+		t.Fatalf("cancel operation=%#v", op)
 	}
 }
 

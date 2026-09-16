@@ -19,6 +19,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 const logsBufferCap = 1024
@@ -394,16 +395,17 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		page.overlay, page.progress = logsOverlayNone, nil
 		if msg.err != nil {
-			page.err = msg.err
-			return page, nil
+			page.err = nil
+			return page, func() tea.Msg { return OperationResult("logs.clear", "Logs", "", msg.err) }
 		}
 		page.events = nil
-		page.notice, page.toastNotice, page.err = "Runtime logs cleared", true, nil
+		page.err = nil
 		browserCmd := page.rebuildBrowser("")
+		cleared := func() tea.Msg { return OperationResult("logs.clear", "Logs", "Runtime logs cleared", nil) }
 		if page.connected {
-			return page, browserCmd
+			return page, tea.Batch(browserCmd, cleared)
 		}
-		return page, tea.Batch(browserCmd, page.startBootstrap())
+		return page, tea.Batch(browserCmd, page.startBootstrap(), cleared)
 	case component.EditorSubmitMsg:
 		return page, page.submitFilterEditor()
 	case component.EditorCancelMsg:
@@ -752,9 +754,9 @@ func (page *LogsPage) updateClearConfirm(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		page.clearSeq++
 		operation := page.clearSeq
-		progress := component.NewProgress("Clearing runtime logs")
-		page.progress, page.overlay = &progress, logsOverlayOperation
-		return func() tea.Msg { return logsClearMsg{operation: operation, err: application.ClearLogs(page.ctx)} }
+		return beginOperation("logs.clear", "Logs", "Clearing runtime logs", func() tea.Msg {
+			return logsClearMsg{operation: operation, err: application.ClearLogs(page.ctx)}
+		})
 	default:
 		return page.confirm.Update(msg)
 	}
@@ -1046,9 +1048,9 @@ func (page *LogsPage) logRow(event runtimeevent.Event) component.Row {
 	if event.Name != "" {
 		titleParts = append(titleParts, event.Name)
 	}
-	meta := compactParts(event.WorkspaceID, event.Tool, event.Status)
+	meta := compactParts(event.WorkspaceID, event.Tool, event.Status, tunnel.DisplayLabel(event.TunnelID, event.TunnelName))
 	fields := application.LogFields(event, page.visibility)
-	search := []string{event.RunID, event.Level, event.Kind, event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.Status, event.ServiceID, event.ServiceScope}
+	search := []string{event.RunID, event.Level, event.Kind, event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.TunnelID, event.TunnelName, event.Status, event.ServiceID, event.ServiceScope}
 	for _, field := range fields {
 		value := fmt.Sprint(field.Value)
 		search = append(search, field.Key, value)
@@ -1132,7 +1134,7 @@ func (page *LogsPage) syncBrowserHelp() {
 	case logsTabCommandExec:
 		bindings = append(bindings, component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"))
 	case logsTabToolCalls:
-		bindings = append(bindings, component.Binding([]string{"r"}, "r", "reconnect"))
+		bindings = append(bindings, component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view"))
 	default:
 		bindings = append(bindings, component.Binding([]string{"f"}, "f", "filters"), component.Binding([]string{"r"}, "r", "refresh"), component.Binding([]string{"i"}, "i", "info"), component.Binding([]string{"d"}, "d", "clear"))
 	}

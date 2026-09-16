@@ -17,6 +17,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 )
 
@@ -35,7 +36,7 @@ func TestRuntimePageBuildsSystemRows(t *testing.T) {
 	page.about = application.AboutInfo{Version: "v1.2.3"}
 	page.rebuildBrowser("")
 	ids := map[string]bool{}
-	for _, id := range []string{"runtime", "transport.mcp-http", "service.user", "auth.mcp", "auth.admin", "installation", "alias", "update", "about"} {
+	for _, id := range []string{"runtime", "shell.bash", "transport.mcp-http", "service.user", "auth.mcp", "auth.admin", "installation", "alias", "update", "about"} {
 		if !page.browser.SelectID(id) {
 			t.Fatalf("row missing: %s", id)
 		}
@@ -43,6 +44,22 @@ func TestRuntimePageBuildsSystemRows(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" && !page.browser.SelectID("service.system") {
 		t.Fatal("system service row missing")
+	}
+}
+
+func TestRuntimeShellDiagnosticShowsBashRemediation(t *testing.T) {
+	page, err := NewRuntimeRoute(t.Context(), "shell.bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.loaded = true
+	page.shell = application.ShellDiagnostic{Error: "bash runtime is not installed", Remediation: "cgm plugin install bash"}
+	page.rebuildBrowser("")
+	view := ansi.Strip(page.View(100, 24))
+	for _, want := range []string{"unavailable", "bash runtime is not installed", "cgm plugin install bash", "r refresh"} {
+		if !strings.Contains(strings.ToLower(view), strings.ToLower(want)) {
+			t.Fatalf("shell diagnostic missing %q: %q", want, view)
+		}
 	}
 }
 
@@ -72,7 +89,7 @@ func TestRuntimeRowsUseDescriptiveTitlesAndDescriptions(t *testing.T) {
 	}
 	mcpAuthItem, adminAuthItem := page.authItem("mcp"), page.authItem("admin")
 	mcpAuth, adminAuth := mcpAuthItem.row, adminAuthItem.row
-	if mcpAuth.Title != "MCP HTTP authentication" || adminAuth.Title != "Admin UI authentication" || !strings.Contains(mcpAuth.Description, "auth only") || !strings.Contains(mcpAuthItem.detail, "listener is controlled by MCP HTTP server") || !strings.Contains(mcpAuthItem.detail, "Legacy bearer") {
+	if mcpAuth.Title != "Direct MCP HTTP authentication" || adminAuth.Title != "Admin UI authentication" || !strings.Contains(mcpAuth.Description, "/mcp only") || !strings.Contains(mcpAuthItem.detail, "Secure MCP Tunnel is unaffected") || !strings.Contains(mcpAuthItem.detail, "Legacy bearer") {
 		t.Fatalf("authentication rows MCP=%#v admin=%#v", mcpAuth, adminAuth)
 	}
 }
@@ -119,16 +136,22 @@ func TestRuntimeMCPHTTPToggleUsesTransportAction(t *testing.T) {
 	}
 	message := detailCommand(tea.KeyPressMsg{Code: tea.KeySpace})
 	_, cmd := page.Update(message)
-	if cmd == nil || page.pending != MCPHTTPDisable || page.overlay != systemOverlayOperation {
-		t.Fatalf("disable toggle cmd=%v pending=%q overlay=%d", cmd, page.pending, page.overlay)
+	if cmd == nil || page.pending != MCPHTTPDisable {
+		t.Fatalf("disable toggle cmd=%v pending=%q", cmd, page.pending)
+	}
+	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
+		t.Fatalf("disable pending=%#v", op)
 	}
 	page.closeOverlay()
 	page.runtime.MCPHTTPEnabled = false
 	page.rebuildBrowser("")
 	message = detailCommand(tea.KeyPressMsg{Code: tea.KeySpace})
 	_, cmd = page.Update(message)
-	if cmd == nil || page.pending != MCPHTTPEnable || page.overlay != systemOverlayOperation {
-		t.Fatalf("enable toggle cmd=%v pending=%q overlay=%d", cmd, page.pending, page.overlay)
+	if cmd == nil || page.pending != MCPHTTPEnable {
+		t.Fatalf("enable toggle cmd=%v pending=%q", cmd, page.pending)
+	}
+	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
+		t.Fatalf("enable pending=%#v", op)
 	}
 	page.closeOverlay()
 }
@@ -220,7 +243,9 @@ func TestRuntimeMCPHTTPStoppedTogglePersistsAndRespectsTransportInvariant(t *tes
 	if err != nil || loaded.Server.Enabled {
 		t.Fatalf("server enabled=%t err=%v", loaded.Server.Enabled, err)
 	}
-	loaded.Tunnel.Enabled = false
+	collection := loaded.RuntimeTunnels()
+	collection.Instances[0].Enabled = false
+	loaded.Tunnel = tunnel.Config{Instances: &collection.Instances, Admins: &collection.Admins}
 	loaded.Server.Enabled = true
 	if err := config.Save(loaded); err != nil {
 		t.Fatal(err)
@@ -275,6 +300,38 @@ func TestRuntimeTokenRotationRequiresConfirmAndSecretIsTransient(t *testing.T) {
 	}
 	if strings.Contains(page.notice, token) || strings.Contains(page.View(100, 30), token) {
 		t.Fatal("token leaked outside one-time overlay")
+	}
+}
+
+func TestRuntimeRevealShowsSecretWithoutConfirm(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	cmd, err := page.openCommand(AuthMCPShow)
+	if err != nil || cmd == nil || page.overlay == systemOverlayConfirm {
+		t.Fatalf("reveal overlay=%v cmd=%v err=%v", page.overlay, cmd != nil, err)
+	}
+	page.operationID = 3
+	page.finishOperation(systemOperationMsg{id: 3, command: AuthMCPShow, token: "mcp_revealed"})
+	if page.overlay != systemOverlaySecret || page.secret != "mcp_revealed" || page.secretKind != "mcp" {
+		t.Fatalf("reveal overlay=%v secret=%q kind=%q", page.overlay, page.secret, page.secretKind)
+	}
+	if !strings.Contains(page.View(100, 30), "Direct MCP HTTP token") || !strings.Contains(page.View(100, 30), "Stored encrypted") {
+		t.Fatalf("reveal view=%q", page.View(100, 30))
+	}
+}
+
+func TestRuntimeCopyNoticeDoesNotShowToken(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	cmd, err := page.openCommand(AuthMCPCopy)
+	if err != nil || cmd == nil || page.overlay == systemOverlayConfirm {
+		t.Fatalf("copy overlay=%v cmd=%v err=%v", page.overlay, cmd != nil, err)
+	}
+	page.operationID = 4
+	follow := page.finishOperation(systemOperationMsg{id: 4, command: AuthMCPCopy, notice: "Copied Direct MCP HTTP token"})
+	if page.overlay != systemOverlayNone || page.secret != "" {
+		t.Fatalf("copy overlay=%v secret=%q", page.overlay, page.secret)
+	}
+	if op, ok := operationMsg(follow); !ok || op.Message != "Copied Direct MCP HTTP token" {
+		t.Fatalf("copy operation=%#v", op)
 	}
 }
 
@@ -356,8 +413,9 @@ func TestRuntimeInstallAndUpdateUseRoutedEditorsAndFailureKeepsDraft(t *testing.
 	update.editor.SetSubmitting(true)
 	update.operationID = 7
 	follow := update.finishOperation(systemOperationMsg{id: 7, command: UpdateApply, err: fmt.Errorf("update failed")})
-	if follow != nil || update.editor == nil || update.updateForm.TargetVersion != "v-draft" || update.editor.Submitting() || !strings.Contains(ansi.Strip(update.View(44, 18)), "update failed") {
-		t.Fatalf("follow=%v draft=%#v submitting=%t view=%q", follow != nil, update.updateForm, update.editor.Submitting(), ansi.Strip(update.View(44, 18)))
+	msg, ok := follow().(OperationMsg)
+	if !ok || msg.Phase != OperationError || update.editor == nil || update.updateForm.TargetVersion != "v-draft" || update.editor.Submitting() {
+		t.Fatalf("follow=%v draft=%#v submitting=%t", follow != nil, update.updateForm, update.editor.Submitting())
 	}
 }
 
@@ -373,7 +431,7 @@ func TestRuntimeCloseCancelsOperation(t *testing.T) {
 	}
 }
 
-func TestRuntimeUpdateOperationsUseInlineTitleNotice(t *testing.T) {
+func TestRuntimeUpdateOperationsUseOperationDialog(t *testing.T) {
 	page, _ := NewRuntime(t.Context())
 	for _, test := range []struct {
 		name string
@@ -386,15 +444,28 @@ func TestRuntimeUpdateOperationsUseInlineTitleNotice(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			page.operationID = test.msg.id
 			cmd := page.finishOperation(test.msg)
-			if !strings.Contains(page.notice, test.want) {
-				t.Fatalf("update title notice=%q", page.notice)
+			if page.notice != "" {
+				t.Fatalf("update left title notice=%q", page.notice)
 			}
 			if cmd == nil {
 				t.Fatal("update completion did not schedule reload")
 			}
-			view := page.View(100, 30)
-			if !strings.Contains(view, page.notice) {
-				t.Fatalf("update notice missing beside page title: %q", view)
+			found := false
+			msg := cmd()
+			if op, ok := msg.(OperationMsg); ok && strings.Contains(op.Message, test.want) {
+				found = true
+			} else if batch, ok := msg.(tea.BatchMsg); ok {
+				for _, item := range batch {
+					if item == nil {
+						continue
+					}
+					if op, ok := item().(OperationMsg); ok && strings.Contains(op.Message, test.want) {
+						found = true
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("missing operation result for %q in %#v", test.want, msg)
 			}
 		})
 	}
@@ -403,8 +474,23 @@ func TestRuntimeUpdateOperationsUseInlineTitleNotice(t *testing.T) {
 func TestRuntimeUpdateFailureRemainsErrorFeedback(t *testing.T) {
 	page, _ := NewRuntime(t.Context())
 	page.operationID = 3
-	page.finishOperation(systemOperationMsg{id: 3, command: UpdateApply, err: errors.New("update failed")})
-	if page.err == nil || page.err.Error() != "update failed" || page.notice != "" {
-		t.Fatalf("failure err=%v notice=%q", page.err, page.notice)
+	follow := page.finishOperation(systemOperationMsg{id: 3, command: UpdateApply, err: errors.New("update failed")})
+	msg, ok := follow().(OperationMsg)
+	if !ok || page.err != nil || page.notice != "" || msg.Phase != OperationError || msg.Message != "update failed" {
+		t.Fatalf("failure err=%v notice=%q msg=%#v", page.err, page.notice, msg)
+	}
+}
+
+func TestRuntimeItemShowsCFTunnel(t *testing.T) {
+	page, _ := NewRuntime(t.Context())
+	page.runtime = application.RuntimeOverview{Running: true, Status: runtimecontrol.RuntimeStatus{
+		PID: 4242, CFTunnel: &runtimecontrol.CFTunnelStatus{PluginEnabled: true, Targets: []runtimecontrol.CFTunnelTargetStatus{
+			{Target: "mcp", Desired: true, Ready: true, URL: "https://mcp.trycloudflare.com"},
+			{Target: "admin", Desired: true, Restarting: true, LastError: "edge down"},
+		}},
+	}}
+	item := page.runtimeItem()
+	if !strings.Contains(item.detail, "https://mcp.trycloudflare.com · ephemeral") || !strings.Contains(item.detail, "reconnecting · edge down") {
+		t.Fatalf("cf tunnel missing: %q", item.detail)
 	}
 }

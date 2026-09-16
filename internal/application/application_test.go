@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,8 +34,12 @@ func TestInitializeAndAuthLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.MCPEnabled || !status.MCPConfigured || !status.AdminEnabled || !status.AdminConfigured {
+	if !status.MCPEnabled || !status.MCPConfigured || !status.MCPRevealable || !status.AdminEnabled || !status.AdminConfigured {
 		t.Fatalf("status = %#v", status)
+	}
+	revealed, err := RevealMCPToken()
+	if err != nil || revealed != result.MCPToken {
+		t.Fatalf("reveal = %q err=%v", revealed, err)
 	}
 	if _, err := SetConfigField(t.Context(), "server.allow_unauthenticated_loopback", "true"); err != nil {
 		t.Fatal(err)
@@ -43,18 +48,93 @@ func TestInitializeAndAuthLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.MCPEnabled || !status.MCPConfigured || !status.UnauthenticatedLoopback {
+	if status.MCPEnabled || !status.MCPConfigured || !status.MCPRevealable || !status.UnauthenticatedLoopback {
 		t.Fatalf("disabled status = %#v", status)
 	}
 	rotated, status, err := RotateAuthToken(t.Context(), "mcp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rotated == result.MCPToken || !status.MCPEnabled || !status.MCPConfigured {
+	if rotated == result.MCPToken || !status.MCPEnabled || !status.MCPConfigured || !status.MCPRevealable {
 		t.Fatalf("rotation did not replace and enable MCP auth")
+	}
+	revealed, err = RevealMCPToken()
+	if err != nil || revealed != rotated {
+		t.Fatalf("rotated reveal = %q err=%v", revealed, err)
 	}
 	if _, _, err := RotateAuthToken(t.Context(), "missing"); err == nil {
 		t.Fatal("invalid auth kind unexpectedly accepted")
+	}
+}
+
+func TestRotateMCPTokenDoesNotMutateAdminOrTunnel(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Initialize(InitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Tunnel.Enabled = true
+	cfg.Tunnel.ID = "tunnel_keep"
+	cfg.Tunnel.APIKey = "sk-runtime-keep"
+	cfg.Tunnel.AdminKey = "sk-admin-keep"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RotateAuthToken(t.Context(), "mcp"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Auth.AdminTokenHash != before.Auth.AdminTokenHash {
+		t.Fatal("MCP rotate mutated admin hash")
+	}
+	if after.Auth.MCPTokenHash == before.Auth.MCPTokenHash {
+		t.Fatal("MCP rotate did not replace MCP hash")
+	}
+	if after.Tunnel.APIKey != before.Tunnel.APIKey || after.Tunnel.AdminKey != before.Tunnel.AdminKey {
+		t.Fatalf("MCP rotate mutated tunnel keys: %#v", after.Tunnel)
+	}
+}
+
+func TestRevealMCPTokenLegacyHashOnly(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "sha256$legacy"
+	cfg.Auth.AdminTokenHash = "sha256$admin"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RevealMCPToken(); !errors.Is(err, ErrMCPTokenNotRevealable) {
+		t.Fatalf("err = %v", err)
+	}
+	status, err := GetAuthStatus()
+	if err != nil || !status.MCPConfigured || status.MCPRevealable {
+		t.Fatalf("status = %#v err=%v", status, err)
+	}
+	rotated, status, err := RotateAuthToken(t.Context(), "mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	revealed, err := RevealMCPToken()
+	if err != nil || revealed != rotated || !status.MCPRevealable {
+		t.Fatalf("after rotate reveal=%q status=%#v err=%v", revealed, status, err)
 	}
 }
 
@@ -141,6 +221,16 @@ func TestUninitializePreservesUnrelatedFilesInManagedRoot(t *testing.T) {
 	}
 	if configformat.IsManagedRoot(root) {
 		t.Fatal("managed root marker remained after uninitialize")
+	}
+}
+
+func TestRemoveConfigRootRefusesLiveDefaultRootDuringTests(t *testing.T) {
+	live := filepath.Join(string(filepath.Separator), "var", "chatgpt-mcp-live-guard", ".config", "chatgpt-mcp")
+	if err := configformat.AssertMutableRoot(live); err == nil {
+		t.Fatalf("expected live-style root to be rejected: %s", live)
+	}
+	if err := RemoveConfigRoot(live); err == nil {
+		t.Fatal("live-style default config root was removed during tests")
 	}
 }
 
@@ -292,7 +382,6 @@ func TestConfigConvertRoundTripJSONYAMLTOML(t *testing.T) {
 	cfg.Auth.MCPTokenHash = "mcp-hash"
 	cfg.Auth.AdminTokenHash = "admin-hash"
 	cfg.Server.Port = 40123
-	cfg.Features.Ponytail.Mode = "ultra"
 	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +400,7 @@ func TestConfigConvertRoundTripJSONYAMLTOML(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if loaded.Server.Port != 40123 || loaded.Features.Ponytail.Mode != "ultra" || loaded.Auth.MCPTokenHash != "mcp-hash" || loaded.Auth.AdminTokenHash != "admin-hash" {
+		if loaded.Server.Port != 40123 || loaded.Auth.MCPTokenHash != "mcp-hash" || loaded.Auth.AdminTokenHash != "admin-hash" {
 			t.Fatalf("round trip changed config after %s: %#v", format, loaded)
 		}
 	}

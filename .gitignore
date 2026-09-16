@@ -1,6 +1,8 @@
 apply-*
+/dist/
 /internal/web/dist/
-/web/coverage/
+/plugins/admin-ui/coverage/
 .agents/
 .local/
+.cgm/
 *.cgm

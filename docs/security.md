@@ -64,6 +64,8 @@ cgm workspace access add ws_... /path/to/build-cache
 
 Paths are canonicalized and symlink escapes are rejected.
 
+Each workspace stores identity and workspace-owned state in `<workspace>/.cgm`. Built-in filesystem tools and clearly destructive shell commands refuse to mutate that directory while the workspace is active. This is not a host filesystem lock against commands run outside CGM; `rm -rf .cgm` from another terminal can still delete it.
+
 Built-in filesystem mutations use checkpoint/rewind validation where applicable. If a safe checkpoint cannot be captured completely, the mutation fails before changing the target. Workspace roots and configured allowed roots cannot be removed by checkpointed filesystem operations when doing so would make safe rewind impossible.
 
 Shell-command filesystem changes are not automatically checkpointed.
@@ -82,7 +84,7 @@ Runtime observability uses safe session metadata/fingerprints rather than exposi
 
 ## Endpoint tenancy
 
-A runtime-level MCP credential authenticates the corresponding endpoint, not an individual workspace. A client that is legitimately authenticated to that runtime can target registered workspaces according to the runtime's tool/session rules.
+A runtime-level Direct MCP HTTP token authenticates direct `/mcp` HTTP access, not an individual workspace. It does not apply to Secure MCP Tunnel. A client that is legitimately authenticated to that runtime can target registered workspaces according to the runtime's tool/session rules.
 
 When two agents must not share the same runtime-level trust domain, use separate runtime instances/config roots or otherwise narrow what is registered. Do not treat workspace IDs themselves as authentication secrets.
 
@@ -114,7 +116,7 @@ The runtime may also support time-bounded grants for matching command patterns w
 
 ## Protected config/state subtree
 
-The selected config root contains control-plane material such as runtime-control state, configuration, OAuth/upstream state, and managed secret files.
+The selected config root contains control-plane material such as runtime-control state, configuration, upstream state, and managed secret files.
 
 Built-in Agent filesystem/shell policies deny direct access to protected control-plane material through path aliases or symlinks where that would bypass control rules.
 
@@ -122,7 +124,7 @@ This prevents an Agent from simply reading an internal runtime-control credentia
 
 ## Secret storage
 
-Long-lived reversible credentials such as OpenAI tunnel keys, upstream OAuth tokens/client secrets, and sensitive upstream environment/header values are stored through a per-config-root secret store rather than as plaintext structured configuration.
+Long-lived reversible credentials such as OpenAI tunnel keys and sensitive upstream environment/header values are stored through a per-config-root secret store rather than as plaintext structured configuration.
 
 Secret values are encrypted at rest with a per-root key in the current file-backed implementation. Structured config keeps only non-secret metadata/configured-state markers.
 
@@ -147,17 +149,27 @@ If stronger isolation is required, provide it externally with an OS sandbox, VM/
 
 ## Authentication
 
-MCP and Admin endpoint authentication are distinct policies:
+There are three independent credentials:
+
+| Credential | Protects | Recoverable? |
+| --- | --- | --- |
+| Admin token | Admin API / Admin UI | No — hash only; rotate to replace |
+| Direct MCP HTTP token | Direct `/mcp` HTTP only | Yes — encrypted secret store; `cgm auth mcp show` / copy |
+| Tunnel runtime/admin keys | OpenAI Secure MCP Tunnel | Separate from Direct MCP HTTP and Admin tokens |
+
+Direct MCP HTTP authentication does not apply to Secure MCP Tunnel. Tunnel traffic neither requires nor accepts the Direct MCP HTTP token.
 
 ```bash
 cgm auth status
-cgm auth mcp create
+cgm auth mcp show
+cgm auth mcp copy
+cgm auth mcp rotate
 cgm auth admin create
 ```
 
-Direct authenticated endpoints expect their own credentials. The OpenAI Secure MCP Tunnel runtime API key is separate and must not be confused with an MCP/Admin bearer token.
+Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT; do not rotate it just to add the server again. Protected generic `cgm mcp http` uses the same token as managed `/mcp`.
 
-Protected generic `cgm mcp http` uses OAuth as its canonical transport authentication. Static MCP bearer compatibility is a migration path controlled by configuration.
+Installations that still have only `auth.mcp_token_hash` (no encrypted secret) are configured but not revealable until one `cgm auth mcp rotate`.
 
 Disabling authentication on an enabled HTTP endpoint requires the corresponding explicit loopback acknowledgement and remains restricted by exposure validation. Prefer authenticated endpoints.
 
@@ -188,8 +200,8 @@ Keep these roles distinct:
 tunnel_id          non-secret tunnel identifier
 runtime API key    secret used by the local tunnel runtime
 Admin API key      secret for Platform administrative tunnel operations
-MCP token          credential for direct MCP endpoint compatibility
-Admin token        credential for local Admin endpoint
+Direct MCP HTTP token    credential for direct /mcp HTTP access only
+Admin token              credential for local Admin endpoint
 ```
 
 For the normal tunnel runtime, use **Tunnels Read + Use**. Do not use an OpenAI Admin API key as the long-lived daemon key.
@@ -207,8 +219,6 @@ HTTP upstream MCP connections use outbound URL controls intended to reduce SSRF 
 - rejecting unsafe/hop-by-hop configured headers and CR/LF header injection.
 
 An upstream can explicitly opt into private-network access when that is the intended destination. Keep that exception scoped to the specific upstream.
-
-OAuth discovery/token traffic follows equivalent origin/network safety rules rather than trusting arbitrary metadata to pivot requests into local infrastructure.
 
 ## Tunnel network model
 
@@ -230,9 +240,9 @@ Remote Admin approval mutation is stricter than ordinary local browsing and requ
 
 ## Runtime journal sanitization
 
-Persistent runtime events are sanitized before writing. The journal is not intended to retain raw authorization credentials, tunnel keys, token hashes, arbitrary full tool arguments containing secrets, or raw file contents.
+Logger output, trace observers, and persistent runtime events use the same secret-redaction policy before diagnostics are emitted or stored. The sanitizer removes common bearer/token/secret assignments, sensitive nested fields, URL userinfo, and sensitive signed/query parameters. The journal is not intended to retain raw authorization credentials, tunnel keys, token hashes, arbitrary full tool arguments containing secrets, or raw file contents.
 
-Operational metadata such as component, event, workspace, tool, source, status, and duration may be retained.
+Operational metadata such as component, event, workspace, tool, source, tunnel ID/name, status, and duration may be retained. `source=tunnel` means Secure MCP Tunnel transport; `tunnel_id` is the instance identity.
 
 Locate the selected journal with:
 
@@ -241,6 +251,14 @@ cgm logs path
 ```
 
 Review diagnostic logs before publishing them because project paths or command output may still be sensitive to your environment.
+
+## Plugin trust boundary
+
+Plugins are signed local-user extensions and remain subordinate to core workspace, control-guard, and approval policy. Registry metadata is pinned to a Sigstore identity; publisher trust, manifest signatures, artifact hashes, platform compatibility, and capability dependencies are verified before activation. Plugin hooks cannot remove core guard decisions, and command-wrapper security projections cannot hide the original dangerous command from classification.
+
+Plugin subprocesses receive a reduced environment and do not inherit approval/control-plane capability. Corrupt or unverifiable lock state is disabled/quarantined rather than reconstructed from executable payloads. Config bundles carry plugin desired state but not verified lock state or executable payloads.
+
+Native plugins still execute as the runtime OS user, so these controls are application boundaries rather than a kernel sandbox. See [Plugins](plugins.md) for the full trust chain, capability contracts, rollback verification, and recovery behavior.
 
 ## Config/state isolation
 

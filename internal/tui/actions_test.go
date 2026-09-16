@@ -9,6 +9,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
+	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -25,10 +26,10 @@ func TestWorkspaceActionAvailabilityFollowsRouteContext(t *testing.T) {
 	if !has(action.Context{Route: string(RouteHome)}, "workspace.register") || !has(action.Context{Route: string(RouteHome)}, "workspace.container.create") {
 		t.Fatal("global workspace actions are unavailable")
 	}
-	if has(action.Context{Route: string(RouteWorkspaces)}, "workspace.unregister") {
+	if has(action.Context{Route: string(RouteWorkspaces)}, "workspace.unregister") || has(action.Context{Route: string(RouteWorkspaces)}, "workspace.purge") {
 		t.Fatal("workspace unregister available without a resource")
 	}
-	if !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.unregister") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.relocate") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.access.add") {
+	if !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.unregister") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.purge") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.relocate") || !has(action.Context{Route: string(RouteWorkspaces), ResourceID: "ws_demo"}, "workspace.access.add") {
 		t.Fatal("workspace context actions missing")
 	}
 	if has(action.Context{Route: string(RouteWorkspaces)}, "workspace.context.configure") || has(action.Context{Route: string(RouteHome), ResourceID: "ws_demo"}, "workspace.context.preview") {
@@ -119,11 +120,10 @@ func TestEditorActionsNavigateToEditorRoutes(t *testing.T) {
 		{"workspace.container.rename", action.Context{Route: string(RouteContainers), ResourceID: "wsc_demo"}, Route{Kind: RouteContainers, ResourceID: "wsc_demo", Action: "edit"}},
 		{"mcp.server.add", action.Context{Route: string(RouteHome)}, Route{Kind: RouteMCP, Action: "create"}},
 		{"mcp.server.configure", action.Context{Route: string(RouteMCP), ResourceID: "github"}, Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
-		{"mcp.server.auth.login", action.Context{Route: string(RouteMCP), ResourceID: "github"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}},
-		{"tunnel.configure", action.Context{Route: string(RouteTunnel)}, Route{Kind: RouteTunnel, Action: "edit"}},
-		{"tunnel.admin.key.set", action.Context{Route: string(RouteTunnel)}, Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
 		{"tunnel.managed.create", action.Context{Route: string(RouteTunnels)}, Route{Kind: RouteTunnels, Action: "create"}},
 		{"tunnel.managed.update", action.Context{Route: string(RouteTunnels), ResourceID: "tun_demo"}, Route{Kind: RouteTunnels, ResourceID: "tun_demo", Action: "edit"}},
+		{"tunnel.add", action.Context{Route: string(RouteTunnel)}, Route{Kind: RouteTunnel, Action: "create"}},
+		{"tunnel.update", action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, Route{Kind: RouteTunnel, ResourceID: "tunnel_demo", Action: "edit"}},
 		{"config.convert", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "convert"}},
 		{"config.export", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "export"}},
 		{"config.import", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "import"}},
@@ -161,7 +161,7 @@ func TestMCPActionAvailabilityFollowsRouteContext(t *testing.T) {
 		t.Fatal("resource MCP actions available without a resource")
 	}
 	ctx := action.Context{Route: string(RouteMCP), ResourceID: "github"}
-	for _, id := range []string{"mcp.server.configure", "mcp.server.remove", "mcp.server.enable", "mcp.server.disable", "mcp.server.tools", "mcp.server.auth.login", "mcp.server.auth.logout"} {
+	for _, id := range []string{"mcp.server.configure", "mcp.server.remove", "mcp.server.enable", "mcp.server.disable", "mcp.server.tools"} {
 		if !has(ctx, id) {
 			t.Fatalf("MCP context action missing: %s", id)
 		}
@@ -188,14 +188,20 @@ func TestTunnelActionAvailabilityFollowsRouteContext(t *testing.T) {
 		}
 		return false
 	}
-	if !has(action.Context{Route: string(RouteTunnel)}, "tunnel.configure") || !has(action.Context{Route: string(RouteTunnel)}, "tunnel.admin.key.set") {
-		t.Fatal("runtime tunnel actions are unavailable on tunnel route")
+	if has(action.Context{Route: string(RouteTunnel)}, "tunnel.enable") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.enable") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.detach") || !has(action.Context{Route: string(RouteTunnel)}, "tunnel.add") || has(action.Context{Route: string(RouteTunnel)}, "tunnel.update") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.update") {
+		t.Fatal("local tunnel actions are not correctly scoped to a tunnel resource")
 	}
-	if has(action.Context{Route: string(RouteHome)}, "tunnel.configure") || has(action.Context{Route: string(RouteTunnel)}, "tunnel.managed.create") {
+	if has(action.Context{Route: string(RouteHome)}, "tunnel.enable") || has(action.Context{Route: string(RouteTunnel)}, "tunnel.managed.create") {
 		t.Fatal("tunnel actions leaked into the wrong route")
 	}
 	if !has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.create") || !has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.refresh") {
 		t.Fatal("managed tunnel list actions are unavailable")
+	}
+	if !has(action.Context{Route: string(RouteTunnelAdmins)}, "tunnel.admin.add") || has(action.Context{Route: string(RouteTunnelAdmins)}, "tunnel.admin.verify") {
+		t.Fatal("admin profile list actions are incorrect")
+	}
+	if !has(action.Context{Route: string(RouteTunnelAdmins), ResourceID: "work"}, "tunnel.admin.verify") || !has(action.Context{Route: string(RouteTunnelAdmins), ResourceID: "work"}, "tunnel.admin.update") {
+		t.Fatal("admin profile resource actions are unavailable")
 	}
 	if has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.update") || has(action.Context{Route: string(RouteTunnels)}, "tunnel.managed.delete") {
 		t.Fatal("managed tunnel resource actions available without a resource")
@@ -205,6 +211,60 @@ func TestTunnelActionAvailabilityFollowsRouteContext(t *testing.T) {
 		if !has(ctx, id) {
 			t.Fatalf("managed tunnel context action missing: %s", id)
 		}
+	}
+}
+
+func TestPluginActionAvailabilityAndInstallCommand(t *testing.T) {
+	registry := defaultActionRegistry()
+	has := func(ctx action.Context, id string) bool {
+		for _, item := range registry.Actions(ctx) {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	if has(action.Context{Route: string(RoutePlugins)}, "plugin.install") || has(action.Context{Route: string(RoutePlugins), ResourceID: "bash"}, "plugin.install") {
+		t.Fatal("plugin install leaked outside marketplace detail")
+	}
+	marketplace := action.Context{Route: string(RoutePlugins), Section: "marketplace", ResourceID: "official/bash"}
+	if !has(marketplace, "plugin.install") {
+		t.Fatal("plugin install missing on marketplace detail")
+	}
+	installed := action.Context{Route: string(RoutePlugins), ResourceID: "bash"}
+	for _, id := range []string{"plugin.update", "plugin.verify", "plugin.uninstall", "plugin.enable", "plugin.disable", "plugin.rollback", "plugin.prune", "plugin.configure", "plugin.config.reset"} {
+		if !has(installed, id) {
+			t.Fatalf("installed plugin action missing: %s", id)
+		}
+	}
+	if has(marketplace, "plugin.configure") || has(marketplace, "plugin.config.reset") {
+		t.Fatal("plugin config actions leaked into marketplace")
+	}
+	if has(marketplace, "plugin.update") || has(action.Context{Route: string(RoutePlugins), Section: "registries", ResourceID: "community"}, "plugin.update") {
+		t.Fatal("installed plugin actions leaked into marketplace/registries")
+	}
+	registries := action.Context{Route: string(RoutePlugins), Section: "registries", ResourceID: "community"}
+	if !has(registries, "plugin.registry.remove") || has(installed, "plugin.registry.remove") {
+		t.Fatal("registry remove action scoping is incorrect")
+	}
+	if !has(action.Context{Route: string(RouteHome)}, "plugin.registry.add") {
+		t.Fatal("plugin registry add should be globally available")
+	}
+	configure, err := registry.Execute(context.Background(), "plugin.configure", installed)
+	if err != nil || configure == nil {
+		t.Fatalf("plugin.configure cmd=%v err=%v", configure != nil, err)
+	}
+	nav, ok := configure().(navigateMsg)
+	if !ok || nav.route != (Route{Kind: RoutePlugins, ResourceID: "bash", Action: "configure"}) {
+		t.Fatalf("plugin.configure message=%#v", nav)
+	}
+	cmd, err := registry.Execute(context.Background(), "plugin.install", marketplace)
+	if err != nil || cmd == nil {
+		t.Fatalf("plugin.install cmd=%v err=%v", cmd != nil, err)
+	}
+	message, ok := cmd().(tuipage.PluginCommandMsg)
+	if !ok || message.Command != tuipage.PluginInstall || message.TargetID != "official/bash" {
+		t.Fatalf("plugin.install message=%#v", message)
 	}
 }
 
@@ -301,7 +361,7 @@ func TestSystemActionAvailabilityFollowsRouteAndPlatform(t *testing.T) {
 		return false
 	}
 	ctx := action.Context{Route: string(RouteRuntime)}
-	for _, id := range []string{"system.refresh", "runtime.up.user", "runtime.down.user", "runtime.restart.user", "runtime.foreground", "mcp.stdio.foreground", "mcp.http.foreground", "auth.mcp.rotate", "auth.admin.rotate", "alias.install", "alias.remove", "install.run", "install.cleanup", "update.check", "update.apply"} {
+	for _, id := range []string{"system.refresh", "runtime.up.user", "runtime.down.user", "runtime.restart.user", "runtime.foreground", "mcp.stdio.foreground", "mcp.http.foreground", "auth.mcp.show", "auth.mcp.copy", "auth.mcp.rotate", "auth.admin.rotate", "alias.install", "alias.remove", "install.run", "install.cleanup", "update.check", "update.apply"} {
 		if !has(ctx, id) {
 			t.Fatalf("system action missing: %s", id)
 		}

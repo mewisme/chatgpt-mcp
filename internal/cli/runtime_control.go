@@ -35,22 +35,26 @@ type runtimeStatusResult = runtimecontrol.RuntimeStatus
 type workspaceReloadResult = runtimecontrol.WorkspaceReloadResult
 
 type runtimeControlOptions struct {
-	RunID            string
-	Managed          bool
-	ServiceID        string
-	ServiceScope     string
-	StartedAt        time.Time
-	Events           *runtimeevent.Stream
-	Activity         *activity.Stream
-	Reload           func(context.Context) (runtimeReloadResult, error)
-	ReloadWorkspaces func() (workspaceReloadResult, error)
-	Status           func() runtimeStatusResult
-	StatusWait       func(context.Context, string) runtimeStatusResult
-	Shutdown         func()
-	ClearLogs        func() error
-	Approvals        *approval.Manager
-	Executions       *shellruntime.ExecutionHub
-	Log              *logger.Logger
+	RunID               string
+	Managed             bool
+	ServiceID           string
+	ServiceScope        string
+	StartedAt           time.Time
+	Events              *runtimeevent.Stream
+	Activity            *activity.Stream
+	Reload              func(context.Context) (runtimeReloadResult, error)
+	ReloadWorkspaces    func() (workspaceReloadResult, error)
+	StartTunnel         func(context.Context, string) (runtimecontrol.TunnelRuntimeStatus, error)
+	StopTunnel          func(context.Context, string) (runtimecontrol.TunnelRuntimeStatus, error)
+	StartTunnelProvider func(context.Context, string, string) (runtimecontrol.TunnelProviderStatus, error)
+	StopTunnelProvider  func(context.Context, string, string) (runtimecontrol.TunnelProviderStatus, error)
+	Status              func() runtimeStatusResult
+	StatusWait          func(context.Context, string) runtimeStatusResult
+	Shutdown            func()
+	ClearLogs           func() error
+	Approvals           *approval.Manager
+	Executions          *shellruntime.ExecutionHub
+	Log                 *logger.Logger
 }
 
 type runtimeControl struct {
@@ -123,6 +127,45 @@ func startRuntimeControlContext(ctx context.Context, options runtimeControlOptio
 		result, err := options.ReloadWorkspaces()
 		writeControlJSON(w, result, err)
 	}))
+	tunnelAction := func(action func(context.Context, string) (runtimecontrol.TunnelRuntimeStatus, error)) http.HandlerFunc {
+		return authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+			if action == nil {
+				writeControlJSON(w, nil, errors.New("tunnel control handler is unavailable"))
+				return
+			}
+			var input struct {
+				ID string `json:"id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeControlJSON(w, nil, err)
+				return
+			}
+			result, err := action(r.Context(), strings.TrimSpace(input.ID))
+			writeControlJSON(w, result, err)
+		})
+	}
+	tunnelProviderAction := func(action func(context.Context, string, string) (runtimecontrol.TunnelProviderStatus, error)) http.HandlerFunc {
+		return authenticatedControl(controlState.Token, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+			if action == nil {
+				writeControlJSON(w, nil, errors.New("tunnel provider control handler is unavailable"))
+				return
+			}
+			var input struct {
+				Provider string `json:"provider"`
+				Target   string `json:"target"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeControlJSON(w, nil, err)
+				return
+			}
+			result, err := action(r.Context(), strings.TrimSpace(input.Provider), strings.TrimSpace(input.Target))
+			writeControlJSON(w, result, err)
+		})
+	}
+	mux.HandleFunc("/tunnels/start", tunnelAction(options.StartTunnel))
+	mux.HandleFunc("/tunnels/stop", tunnelAction(options.StopTunnel))
+	mux.HandleFunc("/tunnel-providers/start", tunnelProviderAction(options.StartTunnelProvider))
+	mux.HandleFunc("/tunnel-providers/stop", tunnelProviderAction(options.StopTunnelProvider))
 	mux.HandleFunc("/status", authenticatedControl(controlState.Token, http.MethodGet, func(w http.ResponseWriter, _ *http.Request) {
 		writeControlJSON(w, options.Status(), nil)
 	}))

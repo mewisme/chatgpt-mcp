@@ -7,8 +7,12 @@ import (
 	"sort"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	"go.mewis.me/chatgpt-mcp/internal/workspacestate"
 )
+
+const NativeSource = ".cgm"
 
 var skillRoots = []struct {
 	Relative string
@@ -22,11 +26,11 @@ var skillRoots = []struct {
 }
 
 func Discover(workspaceRoot string) ([]Skill, error) {
-	return discoverAt(workspaceRoot, nil)
+	return discoverAt(workspaceRoot, nil, workspacestate.New(workspaceRoot).SkillsRoot())
 }
 
 func DiscoverUser(home string, policy instructionpolicy.Config) ([]Skill, error) {
-	return discoverAt(home, func(source string) bool { return policy.Enabled(source, instructionpolicy.ResourceSkills) })
+	return discoverAt(home, func(source string) bool { return policy.Enabled(source, instructionpolicy.ResourceSkills) }, filepath.Join(configformat.RootPath(), "skills"))
 }
 
 func DiscoverWithUser(workspaceRoot, home string, policy instructionpolicy.Config) ([]Skill, error) {
@@ -49,12 +53,15 @@ func DiscoverWithUser(workspaceRoot, home string, policy instructionpolicy.Confi
 		}
 	}
 	sort.SliceStable(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-	return result, nil
+	return mergeBuiltins(result), nil
 }
 
-func discoverAt(rootPath string, enabled func(string) bool) ([]Skill, error) {
+func discoverAt(rootPath string, enabled func(string) bool, nativeDir string) ([]Skill, error) {
 	result := make([]Skill, 0)
 	seen := map[string]bool{}
+	if nativeDir != "" && (enabled == nil || enabled(NativeSource)) {
+		walkSkills(nativeDir, NativeSource, 0, &result, seen)
+	}
 	for _, root := range skillRoots {
 		if enabled != nil && !enabled(root.Source) {
 			continue
@@ -93,6 +100,17 @@ func loadFrom(all []Skill, err error, name string, maxBytes int) (Loaded, error)
 	for _, skill := range all {
 		if skill.Name != name {
 			continue
+		}
+		if Builtin(skill) {
+			content, err := builtinContent(skill.Name)
+			if err != nil {
+				return Loaded{}, err
+			}
+			truncated := len(content) > maxBytes
+			if truncated {
+				content = content[:maxBytes]
+			}
+			return Loaded{Skill: skill, Content: content, Truncated: truncated}, nil
 		}
 		info, err := os.Lstat(skill.Path)
 		if err != nil {

@@ -10,6 +10,40 @@ For how to propose changes, open issues/PRs, and community norms, start with [CO
 - Node.js 24+
 - pnpm 11+
 
+## Repository `go run .`
+
+From a verified checkout (`go.mod` module `go.mewis.me/chatgpt-mcp`, `plugins/workflow.json`, `plugins/registry/index.json`), a development core (`dev`, `(devel)`, `dev-*`, or empty) lazily builds the current-platform **core** plugins from `plugins/workflow.json` (`plugin.core != null`) and activates them as `local-dev` artifacts. You do not need to publish a registry release or install each core plugin by hand.
+
+```bash
+go run .
+go run . tui
+go run . plugin list
+```
+
+State lives under `<repo>/.cgm/dev/` (plugins, builds/cache, bootstrap lock). It is isolated from the user's release plugin store. Delete `.cgm/dev` to reset. Repeated runs reuse artifacts whose source fingerprint still matches; `--version`, `help`, and `completion` skip the bootstrap.
+
+Optional environment:
+
+```text
+CHATGPT_MCP_DEV_ROOT=<path>           verified repository root override
+CHATGPT_MCP_DEV_PLUGINS=auto|off|rebuild
+```
+
+`auto` is the default. `rebuild` ignores the artifact cache for this run. `off` disables automatic repo-local bootstrap. Installed/release `cgm` binaries never activate `local-dev` trust just because they are launched from a checkout.
+
+Plugin artifact precedence:
+
+```text
+CHATGPT_MCP_PLUGIN_BUNDLE   explicit signed/release bundle
+  > automatic repository local-dev bundle
+  > executable-relative plugins/
+  > official registry
+```
+
+An explicit `CHATGPT_MCP_PLUGIN_BUNDLE` is not a local-dev trust exception. `cgm plugin list` / `cgm plugin info` show `local-dev` provenance; `cgm doctor` inspects the isolated store without rebuilding (`plugin.local-dev`). Force a rebuild with `CHATGPT_MCP_DEV_PLUGINS=rebuild`. Workflow child processes set `CHATGPT_MCP_DEV_PLUGINS=off` so plugin builds cannot recurse.
+
+Release packaging still uses `plugins/<id>/build` and UPX/license inventory as below. Local `go run` skips UPX (`CGM_PLUGIN_UPX=off`).
+
 ## Editor and local quality checks
 
 `.editorconfig` sets **indent size 2** for all files. Go uses tabs at width 2 (required by `gofmt`); everything else uses 2-space indentation.
@@ -36,27 +70,27 @@ CI remains the source of truth (`govulncheck`, `gosec` baseline, coverage, matri
 ## Install frontend dependencies
 
 ```bash
-pnpm --dir web install
+pnpm --dir plugins/admin-ui install
 ```
 
 ## Frontend checks
 
 ```bash
-pnpm --dir web test
-pnpm --dir web lint
-pnpm --dir web typecheck
-pnpm --dir web build
+pnpm --dir plugins/admin-ui test
+pnpm --dir plugins/admin-ui lint
+pnpm --dir plugins/admin-ui typecheck
+pnpm --dir plugins/admin-ui build
 ```
 
-## Prepare the embedded frontend
+## Build the Admin UI plugin
 
-The Go binary embeds the built admin dashboard. The prepare script installs frontend dependencies with the frozen lockfile, builds the Admin UI, then copies `web/dist` into `internal/web/dist`:
+The Go binary no longer embeds the admin dashboard. The official `admin-ui` plugin packages the production `plugins/admin-ui/dist` as one deterministic, platform-independent artifact:
 
 ```bash
 node scripts/prepare-web-embed.mjs
 ```
 
-Use `--no-deps` to reuse the current frontend installation, or `--from-dist` to copy an already-built `web/dist` without running install/build.
+Use `--no-deps` to reuse the current frontend installation, or `--from-dist` to package an already-built `plugins/admin-ui/dist` without running install/build. The core retains the admin server, authentication, API routes, activity endpoints, and security headers; the plugin only provides `web-ui/admin` static assets.
 
 ## Backend checks
 
@@ -89,6 +123,44 @@ Build:
 ```bash
 go build -trimpath ./
 ```
+
+## Core boundary
+
+The `cgm` / `chatgpt-mcp` binary is a secure harness. Optional provider and UI behavior lives in independently built plugins. Production core packages (`main.go` and `internal/**` imported by `.`) must not import `go.mewis.me/chatgpt-mcp/plugins/*`.
+
+Acceptable core categories:
+
+- workspace identity, containment, ControlGuard, approvals
+- MCP hosting, Admin API, runtime control, install/update, plugin trust
+- config, secrets, logging, process/service orchestration
+- core filesystem/shell/checkpoint/project-context tools
+- Git convenience tools and Node REPL (stdlib process wrappers; path/policy stay core-owned)
+- desktop notification policy and platform send helpers
+
+Denied in `go list -deps .`:
+
+- every `go.mewis.me/chatgpt-mcp/plugins/` package
+- `internal/ponytail`, `internal/caveman`, `pkg/cloudflared`
+- `github.com/openai/tunnel-client`, `github.com/quic-go/quic-go`
+- Charm TUI/Markdown stacks (`bubbletea`, `bubbles`, `huh`, `glamour`, `lipgloss`, Chroma, Goldmark)
+
+CI runs `TestCoreDepsExcludeCFTunnel` and `TestCoreAndPluginBinarySizes`. Stripped core (`-ldflags -s -w`) must stay under 40 MiB. Plugin packages keep their own `cmd/` and `build/` roots and are releasable through `plugins/workflow.json` without linking into core.
+
+```bash
+go test . -run 'TestCoreDepsExcludeCFTunnel|TestCoreAndPluginBinarySizes'
+```
+
+Official native plugins build independently for **release packaging** (not daily `go run .`; that path is above):
+
+```bash
+go run ./plugins/ponytail/build -output dist/plugins -platform linux/amd64
+```
+
+Linux and Windows native plugin binaries are compressed with `upx --best` and verified with `upx -t` before they are zipped. macOS binaries are left unpacked. Official plugin CI installs UPX v5.2.0 and must not set `CGM_PLUGIN_UPX`. Local iteration may skip compression with `CGM_PLUGIN_UPX=off`; a missing `upx` without that opt-out fails the build. Static `admin-ui`, host-backed `rtk`, and vendor `bash` payloads are not compressed.
+
+Plugin zips and the core GoReleaser archive then include artifact-specific `LICENSE`, `NOTICE`, `licenses.txt`, and `sbom.spdx.json` generated by `go run ./internal/licenseinventory/cmd/license-inventory --artifact <id>`. Official CI generates that inventory before packaging and must not set `CGM_LICENSE_INVENTORY`. Local iteration may skip embedding with `CGM_LICENSE_INVENTORY=off`.
+
+A new CGM-owned native plugin inherits this path by adding `plugins/<id>/build` that calls `pluginbuild.Build` with the plugin's template and `./plugins/<id>/cmd/<id>` package. Do not copy UPX shell into the workflow; do not add plugin-ID branches to the helper. An intentional no-UPX native exception needs a reviewed builder that does not call `pluginbuild.Build`, plus a test update.
 
 ## Config isolation is a test invariant
 
@@ -124,14 +196,7 @@ This rule applies especially to commands such as:
 node scripts/install-local.mjs
 ```
 
-The script prepares the web embed and runs the local Go installation flow.
-
-Variants:
-
-```bash
-node scripts/install-local.mjs --no-deps
-node scripts/install-local.mjs --from-dist
-```
+The script installs the Go binary and the `cgm` alias only. The Admin UI is installed and updated independently through the plugin system.
 
 Both `chatgpt-mcp` and `cgm` are installed beside the Go binary (`cgm` is a symlink on Unix and a command shim on Windows).
 
@@ -140,7 +205,6 @@ Both `chatgpt-mcp` and `cgm` are installed beside the Go binary (`cgm` is a syml
 Build a native binary:
 
 ```bash
-node scripts/prepare-web-embed.mjs
 go build -trimpath -o chatgpt-mcp ./
 ```
 
@@ -166,7 +230,7 @@ The portable smoke verifies behavior such as:
 - managed runtime metadata through the portable hidden service entrypoint
 - persistent runtime log replay/filter/follow/clear
 - MCP discovery and tool listing, including workspace-container Agent tools
-- live workspace-registry read-after-write consistency across CLI mutations: workspace register/unregister, access add/remove, container create/rename/delete, and membership add/remove without runtime restart or MCP reconnect
+- live workspace-registry read-after-write consistency across CLI mutations: workspace register/unregister/purge, access add/remove, container create/rename/delete, and membership add/remove without runtime restart or MCP reconnect
 - integration coverage for Admin, TUI, and MCP workspace-registration mutations verifies each persistent registry change reloads runtime state before success is reported
 - modern MCP error behavior
 - clean stop/shutdown
@@ -301,7 +365,21 @@ Normal commands only read a fresh cache; explicit update checks bypass it and qu
 
 Releases are produced by GoReleaser after release-native checks pass.
 
-The release archive contains the standalone binary with the embedded admin dashboard plus release metadata/files configured by GoReleaser.
+Release compliance order:
+
+```text
+compile executable
+  -> UPX compress eligible Linux/Windows native plugin binaries
+  -> generate per-artifact NOTICE / licenses.txt / sbom.spdx.json
+  -> assemble archives that already contain those files
+  -> checksum
+  -> sign
+  -> publish
+```
+
+Do not sign an archive and then mutate its license files. Core archives use `dist/licenses/core`; official plugins generate `dist/licenses/<id>` before zip. Review `licenses/policy.json` when the inventory fails.
+
+The release archive contains the standalone core binary plus release metadata/files configured by GoReleaser. The Admin UI is released independently through the signed plugin marketplace.
 
 GoReleaser also produces package-manager manifests used by:
 
@@ -327,10 +405,12 @@ Use the next semantic version appropriate for the release instead of copying thi
 git diff --check
 CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
 go vet ./...
-pnpm --dir web test
-pnpm --dir web lint
-pnpm --dir web typecheck
-pnpm --dir web build
+pnpm --dir plugins/admin-ui test
+pnpm --dir plugins/admin-ui lint
+pnpm --dir plugins/admin-ui typecheck
+pnpm --dir plugins/admin-ui build
 ```
 
 For changes affecting service behavior, tunnel connectivity, runtime logs, configuration, or MCP protocol behavior, also run the release smoke.
+
+Live two-instance OpenAI Secure MCP validation is a manual/integration gate. Deterministic tests use isolated `CHATGPT_MCP_CONFIG_DIR` and stub backends; they do not call OpenAI.

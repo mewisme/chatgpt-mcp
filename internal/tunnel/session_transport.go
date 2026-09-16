@@ -6,7 +6,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
 )
 
 const sessionMetaKey = "go.mewis.me/chatgpt-mcp/mcp-session-id"
@@ -46,7 +45,7 @@ func (c *sessionConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
 
 func (c *sessionConnection) Write(ctx context.Context, msg jsonrpc.Message) error {
 	request, isRequest := msg.(*jsonrpc.Request)
-	if sessionID, ok := tunnelctx.SessionIDFromContext(ctx); ok {
+	if sessionID, ok := SessionIDFromContext(ctx); ok {
 		if isRequest && request != nil && request.Method == "tools/call" {
 			params := map[string]any{}
 			if len(request.Params) > 0 && string(request.Params) != "null" {

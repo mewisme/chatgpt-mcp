@@ -7,6 +7,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 )
 
@@ -37,6 +38,7 @@ func internalServiceCommand() *cobra.Command {
 				if err := managed.ApplyEnvironment(snapshot); err != nil {
 					return err
 				}
+				plugindev.Reset()
 				logCommandDebug(cmd, "SERVICE", "service.environment.applied", "Managed service environment snapshot applied", logger.WithDebug("variables", len(snapshot.Values)))
 			}
 			ctx := context.WithValue(cmd.Context(), serviceRuntimeContextKey{}, serviceRuntimeInfo{Managed: true, ID: serviceID, Scope: serviceScope})

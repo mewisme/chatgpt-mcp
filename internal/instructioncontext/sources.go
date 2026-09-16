@@ -110,7 +110,9 @@ func sourceProviderPriority(provider string) int {
 		return 3
 	case "codex":
 		return 4
-	default:
+	case "cgm":
 		return 5
+	default:
+		return 6
 	}
 }

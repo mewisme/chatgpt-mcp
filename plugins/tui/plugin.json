@@ -1,0 +1,49 @@
+{
+  "schema": 2,
+  "id": "tui",
+  "name": "Command Center",
+  "publisher": "mewisme",
+  "license": "Apache-2.0",
+  "version": "1.0.0",
+  "type": "terminal-ui",
+  "scopes": ["global"],
+  "requires": {
+    "chatgpt-mcp": ">=0.2.25"
+  },
+  "provides": [
+    "terminal-ui/default"
+  ],
+  "permissions": [],
+  "platforms": {
+    "linux/amd64": {
+      "artifact": "tui-1.0.0-linux-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "tui"
+    },
+    "linux/arm64": {
+      "artifact": "tui-1.0.0-linux-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "tui"
+    },
+    "darwin/amd64": {
+      "artifact": "tui-1.0.0-darwin-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "tui"
+    },
+    "darwin/arm64": {
+      "artifact": "tui-1.0.0-darwin-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "tui"
+    },
+    "windows/amd64": {
+      "artifact": "tui-1.0.0-windows-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "tui.exe"
+    }
+  }
+}

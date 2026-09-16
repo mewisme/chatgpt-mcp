@@ -14,8 +14,14 @@ import (
 var publicCapabilityExemptions = map[string]string{
 	"tui":                  "TUI entrypoint; it is the surface being checked",
 	"completion":           "local shell integration; it does not access runtime capabilities",
+	"doctor":               "whole-app diagnostic; it does not invoke MCP capabilities",
 	"config":               "configuration namespace entrypoint only renders help and rejects positional fallbacks",
 	"request create dummy": "public test-only helper for approval UI development",
+	"plugin":               "plugin namespace entrypoint only renders help and rejects positional fallbacks",
+	"plugin registry":      "plugin registry namespace entrypoint only renders help and rejects positional fallbacks",
+	"plugin config":        "plugin config namespace entrypoint only renders help and rejects positional fallbacks",
+	"tunnel":               "tunnel namespace routes provider names from tunnel/* capabilities",
+	"tunnel cf":            "CF Tunnel namespace entrypoint only renders help and rejects positional fallbacks",
 }
 
 func TestPublicCommandsHaveCanonicalCapabilities(t *testing.T) {
@@ -50,6 +56,14 @@ func TestPublicCommandsHaveCanonicalCapabilities(t *testing.T) {
 	if len(stale) > 0 {
 		sort.Strings(stale)
 		t.Fatalf("capability catalog paths missing from Cobra tree:\n  %s", strings.Join(stale, "\n  "))
+	}
+}
+
+func TestPublicCommandTreeOmitsOAuth(t *testing.T) {
+	for _, path := range collectRunnablePublicPaths(newRootCommand()) {
+		if strings.Contains(strings.ToLower(path), "oauth") {
+			t.Fatalf("public oauth command: %s", path)
+		}
 	}
 }
 

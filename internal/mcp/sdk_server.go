@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -11,12 +12,19 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
+const (
+	SessionMetaKey    = "go.mewis.me/chatgpt-mcp/mcp-session-id"
+	TunnelIDMetaKey   = "go.mewis.me/chatgpt-mcp/mcp-tunnel-id"
+	TunnelNameMetaKey = "go.mewis.me/chatgpt-mcp/mcp-tunnel-name"
+)
+
 type SDKServer struct {
-	Server         *sdkmcp.Server
-	Tools          *tools.Runtime
-	Source         string
-	SessionID      string
-	BoundWorkspace string
+	Server            *sdkmcp.Server
+	Tools             *tools.Runtime
+	Source            string
+	SessionID         string
+	BoundWorkspace    string
+	PreferSessionMeta bool
 }
 
 func NewSDKServerWithTools(toolRuntime *tools.Runtime, source string) (*SDKServer, error) {
@@ -67,6 +75,14 @@ func (s *SDKServer) addTool(schema tools.Schema) error {
 			}
 		}
 		sessionID := s.SessionID
+		if s.PreferSessionMeta {
+			if id, name := tunnelMeta(request); id != "" || name != "" {
+				ctx = tools.WithCallTunnel(ctx, id, name)
+			}
+			if id := sessionMeta(request); id != "" {
+				sessionID = id
+			}
+		}
 		if sessionID == "" && request.Session != nil {
 			sessionID = request.Session.ID()
 		}
@@ -127,6 +143,23 @@ func sdkCallToolResult(result tools.Result) (*sdkmcp.CallToolResult, error) {
 		return nil, err
 	}
 	return &converted, nil
+}
+
+func sessionMeta(request *sdkmcp.CallToolRequest) string {
+	if request == nil || request.Params == nil || request.Params.Meta == nil {
+		return ""
+	}
+	value, _ := request.Params.Meta[SessionMetaKey].(string)
+	return strings.TrimSpace(value)
+}
+
+func tunnelMeta(request *sdkmcp.CallToolRequest) (id, name string) {
+	if request == nil || request.Params == nil || request.Params.Meta == nil {
+		return "", ""
+	}
+	id, _ = request.Params.Meta[TunnelIDMetaKey].(string)
+	name, _ = request.Params.Meta[TunnelNameMetaKey].(string)
+	return strings.TrimSpace(id), strings.TrimSpace(name)
 }
 
 func inputResponses(values sdkmcp.InputResponseMap) map[string]any {

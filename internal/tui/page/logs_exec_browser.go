@@ -11,6 +11,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 type logsExecutionDetailMsg struct {
@@ -43,8 +44,8 @@ func (page *LogsPage) rebuildExecutionBrowser() {
 		info := latest[id]
 		title := compactParts(info.ID, info.Tool, info.Status)
 		description := strings.TrimSpace(info.Command)
-		meta := compactParts(info.WorkspaceID, info.Shell)
-		search := compactParts(info.ID, info.Tool, info.Command, info.CWD, info.WorkspaceID, info.Status, info.CallID, info.Shell)
+		meta := compactParts(tunnel.DisplayLabel(info.TunnelID, info.TunnelName), info.WorkspaceID, info.Shell)
+		search := compactParts(info.ID, info.Tool, info.Command, info.CWD, info.WorkspaceID, info.Status, info.CallID, info.Shell, info.Source, info.TunnelID, info.TunnelName)
 		rows = append(rows, component.Row{ID: info.ID, Title: title, Description: description, Meta: meta, Search: search})
 	}
 	selected := ""
@@ -96,7 +97,7 @@ func (page *LogsPage) finishExecutionDetail(msg logsExecutionDetailMsg) {
 	}
 	content := component.RenderCodeBlock(string(data), "json", max(20, page.width))
 	info := msg.snapshot.Execution
-	meta := compactParts(info.Tool, info.Status, info.WorkspaceID, info.Shell)
+	meta := compactParts(info.Tool, info.Status, info.WorkspaceID, info.Shell, tunnel.DisplayLabel(info.TunnelID, info.TunnelName))
 	page.detail = component.NewDetailPage("Execution · "+info.ID, meta, content).WithTitleVisible(false)
 	if page.width > 0 && page.height > 0 {
 		page.detail.Resize(page.width, page.height)

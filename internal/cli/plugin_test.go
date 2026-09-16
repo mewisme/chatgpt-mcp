@@ -1,0 +1,206 @@
+package cli
+
+import (
+	"bytes"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/spf13/cobra"
+
+	"go.mewis.me/chatgpt-mcp/internal/application"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
+	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
+)
+
+func TestPluginCommandSurface(t *testing.T) {
+	root := newRootCommand()
+	for _, args := range [][]string{
+		{"plugin", "search"}, {"plugin", "info"}, {"plugin", "list"}, {"plugin", "install"}, {"plugin", "uninstall"},
+		{"plugin", "enable"}, {"plugin", "disable"}, {"plugin", "update"}, {"plugin", "outdated"}, {"plugin", "verify"},
+		{"plugin", "config", "list"}, {"plugin", "config", "get"}, {"plugin", "config", "set"}, {"plugin", "config", "reset"},
+		{"plugin", "registry", "list"}, {"plugin", "registry", "add"}, {"plugin", "registry", "remove"},
+	} {
+		command, _, err := root.Find(args)
+		if err != nil {
+			t.Fatalf("find %v: %v", args, err)
+		}
+		if command == nil || command.Name() != args[len(args)-1] {
+			t.Fatalf("find %v = %#v", args, command)
+		}
+	}
+}
+
+func TestPluginRegistryAddRequiresPinnedRepository(t *testing.T) {
+	root := newRootCommand()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs(testCommandArgs(t, "plugin", "registry", "add", "community", "https://plugins.example.test"))
+	_, err := root.ExecuteC()
+	if err == nil || !strings.Contains(err.Error(), "repository") {
+		t.Fatalf("registry add error = %v", err)
+	}
+}
+
+func TestPluginUninstallExposesForceFlag(t *testing.T) {
+	cmd := pluginUninstallCommand()
+	if cmd.Flags().Lookup("force") == nil {
+		t.Fatal("plugin uninstall is missing --force")
+	}
+}
+
+func TestPluginConfigSetGetReset(t *testing.T) {
+	pluginhost.Install()
+	pluginpkg.SetCompiledBuiltins(pluginpkg.BuiltinRegistry{ponytailplugin.Plugin()})
+	t.Cleanup(func() { pluginpkg.SetCompiledBuiltins(nil) })
+	configDir := filepath.Join(t.TempDir(), "config")
+	previous := configformat.RootPath()
+	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		root := newRootCommand()
+		var out bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.SetArgs(append([]string{"--config-dir", configDir}, args...))
+		_, err := root.ExecuteC()
+		return out.String(), err
+	}
+	if _, err := run("plugin", "config", "set", "ponytail", "default_active", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("plugin", "config", "set", "ponytail", "default_mode", "ultra"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run("plugin", "config", "get", "ponytail", "default_active")
+	if err != nil || !strings.Contains(out, "default_active") || !strings.Contains(out, "false") {
+		t.Fatalf("get active = %q %v", out, err)
+	}
+	out, err = run("plugin", "config", "list", "ponytail")
+	if err != nil || !strings.Contains(out, "default_mode") || !strings.Contains(out, "ultra") {
+		t.Fatalf("list = %q %v", out, err)
+	}
+	if _, err := run("plugin", "config", "set", "ponytail", "default_mode", "review"); err == nil || !strings.Contains(err.Error(), "valid option") {
+		t.Fatalf("session-only mode error = %v", err)
+	}
+	if _, err := run("plugin", "config", "get", "missing", "default_active"); err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("unknown plugin error = %v", err)
+	}
+	if _, err := run("plugin", "config", "reset", "ponytail"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run("plugin", "config", "get", "ponytail", "default_active")
+	if err != nil || !strings.Contains(out, "true") {
+		t.Fatalf("reset get = %q %v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, "plugins", "config", "ponytail.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("reset left plugin config file")
+	}
+}
+
+func TestPluginLifecycleCommandsExposeScopeFlags(t *testing.T) {
+	for _, cmd := range []*cobra.Command{
+		pluginListCommand(), pluginInstallCommand(), pluginUninstallCommand(), pluginToggleCommand(true), pluginToggleCommand(false),
+		pluginUpdateCommand(), pluginRollbackCommand(), pluginPruneCommand(), pluginOutdatedCommand(), pluginVerifyCommand(),
+		pluginConfigListCommand(), pluginConfigGetCommand(), pluginConfigSetCommand(), pluginConfigResetCommand(),
+	} {
+		if cmd.Flags().Lookup("scope") == nil || cmd.Flags().Lookup("workspace") == nil {
+			t.Fatalf("%s is missing --scope/--workspace", cmd.Name())
+		}
+	}
+	for _, cmd := range []*cobra.Command{pluginSearchCommand(), pluginInfoCommand(), pluginRegistryListCommand()} {
+		if cmd.Flags().Lookup("scope") != nil || cmd.Flags().Lookup("workspace") != nil {
+			t.Fatalf("%s unexpectedly exposes --scope/--workspace", cmd.Name())
+		}
+	}
+}
+
+func TestPluginConfigWorkspaceScopeDoesNotLeak(t *testing.T) {
+	pluginhost.Install()
+	pluginpkg.SetCompiledBuiltins(pluginpkg.BuiltinRegistry{ponytailplugin.Plugin()})
+	t.Cleanup(func() { pluginpkg.SetCompiledBuiltins(nil) })
+	previous := configformat.RootPath()
+	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
+	configDir := filepath.Join(t.TempDir(), "config")
+	if err := configformat.SetRootPath(configDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeRequestCommandError(configDir, []string{"plugin", "config", "set", "ponytail", "default_mode", "ultra"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeRequestCommandError(configDir, []string{"workspace", "register", t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := workspace.NewManager(workspace.DefaultStorePath()).List()
+	if err != nil || len(items) != 1 {
+		t.Fatalf("workspaces = %#v err=%v", items, err)
+	}
+	_, err = executeRequestCommandError(configDir, []string{"plugin", "config", "set", "--scope", "workspace", "--workspace", items[0].ID, "ponytail", "default_mode", "lite"})
+	if err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("workspace builtin config error = %v", err)
+	}
+	out, err := executeRequestCommandError(configDir, []string{"plugin", "config", "get", "ponytail", "default_mode"})
+	if err != nil || !strings.Contains(out, "ultra") {
+		t.Fatalf("global config leaked = %q %v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(items[0].Path, ".cgm", "plugins", "config", "ponytail.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("workspace config file was created for a global builtin")
+	}
+}
+
+func TestPluginListRejectsGlobalScopeWithWorkspace(t *testing.T) {
+	root := newRootCommand()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs(testCommandArgs(t, "plugin", "list", "--scope", "global", "--workspace", "ws_x"))
+	_, err := root.ExecuteC()
+	if err == nil || !strings.Contains(err.Error(), "--scope global cannot be combined with --workspace") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestPluginListWorkspaceRequiresRegisteredWorkspace(t *testing.T) {
+	root := newRootCommand()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs(testCommandArgs(t, "plugin", "list", "--scope", "workspace"))
+	_, err := root.ExecuteC()
+	if err == nil || !strings.Contains(err.Error(), "specify --workspace") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestPromptPluginInstallScopeSelectsWorkspace(t *testing.T) {
+	cmd := pluginInstallCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetIn(strings.NewReader("2\n"))
+	opts, err := promptPluginInstallScope(cmd, []pluginpkg.PluginScope{pluginpkg.ScopeGlobal, pluginpkg.ScopeWorkspace}, []workspace.Workspace{
+		{ID: "ws_demo", Path: "/tmp/chatgpt-mcp"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Scope != "workspace" || opts.Workspace != "ws_demo" {
+		t.Fatalf("opts = %#v", opts)
+	}
+	if !strings.Contains(out.String(), "Install scope") || !strings.Contains(out.String(), "Workspace: chatgpt-mcp") {
+		t.Fatalf("prompt = %q", out.String())
+	}
+}
+
+func TestPromptPluginInstallScopeCancelRequiresFlag(t *testing.T) {
+	cmd := pluginInstallCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetIn(strings.NewReader("\n"))
+	_, err := promptPluginInstallScope(cmd, []pluginpkg.PluginScope{pluginpkg.ScopeGlobal, pluginpkg.ScopeWorkspace}, nil)
+	if !errors.Is(err, application.ErrPluginScopeRequired) {
+		t.Fatalf("error = %v", err)
+	}
+}

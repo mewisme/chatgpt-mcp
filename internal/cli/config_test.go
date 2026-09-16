@@ -12,7 +12,6 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
@@ -31,38 +30,14 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "admin.enabled", "false"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setConfigValue(&cfg, "tunnel.control_plane_base_url", "https://api.openai.com"); err != nil {
-		t.Fatal(err)
-	}
-	if err := setConfigValue(&cfg, "tunnel.organization_id", "org-test"); err != nil {
-		t.Fatal(err)
-	}
-	if err := setConfigValue(&cfg, "features.ponytail.active", "false"); err != nil {
-		t.Fatal(err)
-	}
-	if err := setConfigValue(&cfg, "features.ponytail.mode", "ULTRA"); err != nil {
-		t.Fatal(err)
-	}
-	if err := setConfigValue(&cfg, "features.caveman.active", "false"); err != nil {
-		t.Fatal(err)
-	}
-	if err := setConfigValue(&cfg, "features.caveman.mode", "WENYAN-ULTRA"); err != nil {
-		t.Fatal(err)
-	}
 	if err := setConfigValue(&cfg, "permissions.allow_dirs", "/tmp,/var/tmp"); err != nil {
 		t.Fatal(err)
 	}
 	if err := setConfigValue(&cfg, "shell.path", "/opt/tools,/usr/local/custom/bin"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
 		t.Fatalf("cfg = %#v", cfg)
-	}
-	if err := setConfigValue(&cfg, "features.ponytail.mode", "review"); err == nil {
-		t.Fatal("session-only review accepted as configured Ponytail mode")
-	}
-	if err := setConfigValue(&cfg, "features.caveman.mode", "wenyan"); err == nil {
-		t.Fatal("Caveman runtime alias accepted as configured mode")
 	}
 }
 
@@ -90,6 +65,15 @@ func TestConfigSetValidationMatchesSharedDomain(t *testing.T) {
 	}
 }
 
+func TestTunnelRuntimeFieldsCannotBypassCollectionCommands(t *testing.T) {
+	cfg := config.Default()
+	for _, key := range []string{"tunnel.enabled", "tunnel.id", "tunnel.api_key", "tunnel.control_plane_base_url", "tunnel.organization_id"} {
+		if err := setConfigValue(&cfg, key, "value"); err == nil || !strings.Contains(err.Error(), "cgm tunnel") {
+			t.Fatalf("%s error = %v", key, err)
+		}
+	}
+}
+
 func TestTunnelAdminCredentialsCannotBypassVerificationThroughConfigSet(t *testing.T) {
 	cfg := config.Default()
 	for _, key := range []string{"tunnel.admin_key", "tunnel.admin_organization_id", "tunnel.admin_workspace_id", "tunnel.admin_tenant_id"} {
@@ -99,31 +83,15 @@ func TestTunnelAdminCredentialsCannotBypassVerificationThroughConfigSet(t *testi
 	}
 }
 
-func TestFeatureConfigTraversal(t *testing.T) {
+func TestFeatureConfigKeysAreRemoved(t *testing.T) {
 	cfg := config.Default()
-	value, err := getConfigValue(cfg, "features")
-	if err != nil {
-		t.Fatal(err)
-	}
-	features, ok := value.(map[string]any)
-	if !ok {
-		t.Fatalf("features = %#v", value)
-	}
-	ponytail, ok := features["ponytail"].(map[string]any)
-	if !ok || ponytail["active"] != true || ponytail["mode"] != "full" {
-		t.Fatalf("ponytail = %#v", features["ponytail"])
-	}
-	mode, err := getConfigValue(cfg, "features.ponytail.mode")
-	if err != nil || mode != "full" {
-		t.Fatalf("ponytail mode = %#v %v", mode, err)
-	}
-	leaf, err := getConfigValue(cfg, "features.caveman.active")
-	if err != nil || leaf != true {
-		t.Fatalf("caveman leaf = %#v %v", leaf, err)
-	}
-	cavemanMode, err := getConfigValue(cfg, "features.caveman.mode")
-	if err != nil || cavemanMode != "full" {
-		t.Fatalf("caveman mode = %#v %v", cavemanMode, err)
+	for _, key := range []string{"features", "features.ponytail.active", "features.ponytail.mode", "features.caveman.active", "features.caveman.mode"} {
+		if err := setConfigValue(&cfg, key, "false"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+			t.Fatalf("set %s err=%v", key, err)
+		}
+		if _, err := getConfigValue(cfg, key); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+			t.Fatalf("get %s err=%v", key, err)
+		}
 	}
 }
 
@@ -357,10 +325,7 @@ func TestPurgeStoredSecretsRemovesPersistedCredentials(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "tunnel.json"), []byte(`{"runtime_key_configured":true}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "oauth.json"), []byte(`{"version":1,"credentials":{"alpha":{"server_id":"alpha","access_token":"<secret-file>"}}}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "tunnel.json"), []byte(`{"runtime_key_configured":true,"instance_keys":{"tunnel_a":true,"tunnel_b":true},"admin_keys":{"work":true}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "upstream.json"), []byte(`{"servers":[{"id":"alpha","headers":{"Authorization":"<secret-file>"}}]}`), 0600); err != nil {
@@ -370,17 +335,12 @@ func TestPurgeStoredSecretsRemovesPersistedCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	oauthEntries, err := mcpoauth.NewStore(filepath.Join(root, "oauth.json")).SecretEntries()
-	if err != nil {
-		t.Fatal(err)
-	}
 	upstreamEntries, err := upstream.NewStore(filepath.Join(root, "upstream.json")).SecretEntries()
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries = append(entries, oauthEntries...)
 	entries = append(entries, upstreamEntries...)
-	if len(entries) != 3 {
+	if len(entries) != 5 {
 		t.Fatalf("entries = %#v", entries)
 	}
 	store := secretstore.New(root)

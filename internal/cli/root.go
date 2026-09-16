@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
@@ -15,13 +17,17 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
+const mcpAuthReuseHelp = "Protects direct connections to /mcp. Secure MCP Tunnel uses separate tunnel credentials and is unaffected.\n\nReuse the Direct MCP HTTP token when adding this MCP server to ChatGPT. You do not need to generate a new token for each connection."
+
+var clipboardWriteAll = clipboard.WriteAll
+
 var root = newRootCommand()
 
 func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:               cliUseName(),
 		Short:             "Workspace-bound local MCP server for ChatGPT",
-		RunE:              runServer,
+		Args:              cobra.NoArgs,
 		Version:           version.Short(),
 		SilenceErrors:     true,
 		SilenceUsage:      true,
@@ -47,9 +53,11 @@ func newRootCommand() *cobra.Command {
 		workspaceCommand(),
 		upstreamCommand(),
 		mcpCommand(),
+		pluginCommand(),
 		tunnelCommand(),
 		serveCommand(),
 		statusCommand(),
+		doctorCommand(),
 		completionCommand(),
 		internalServiceCommand(),
 		&cobra.Command{Use: "version", Short: "Show the chatgpt-mcp version and build information", Args: cobra.NoArgs, Run: func(cmd *cobra.Command, args []string) {
@@ -94,8 +102,8 @@ func initCommand() *cobra.Command {
 			log.Detail("config", result.ConfigPath)
 			log.Detail("format", result.Format)
 			logEndpointDetails(log, result.Config)
-			log.Detail("mcp token", result.MCPToken)
-			log.Detail("admin token", result.AdminToken)
+			log.Secret("Direct MCP HTTP token", result.MCPToken)
+			log.Secret("admin token", result.AdminToken)
 			return nil
 		},
 	}
@@ -129,7 +137,7 @@ func purgeStoredSecrets(root string) error { return application.PurgeStoredSecre
 func removeConfigRoot(root string) error   { return application.RemoveConfigRoot(root) }
 
 func authCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "auth", Short: "Manage MCP and admin authentication"}
+	cmd := &cobra.Command{Use: "auth", Short: "Manage Direct MCP HTTP and admin authentication"}
 	cmd.AddCommand(
 		authKindCommand("mcp"),
 		authKindCommand("admin"),
@@ -140,14 +148,49 @@ func authCommand() *cobra.Command {
 
 func authKindCommand(kind string) *cobra.Command {
 	cmd := &cobra.Command{Use: kind, Short: "Manage " + kind + " authentication"}
+	if kind == "mcp" {
+		cmd.Short = "Manage Direct MCP HTTP authentication"
+		cmd.Long = mcpAuthReuseHelp
+		cmd.AddCommand(
+			authMCPStatusCommand(),
+			authMCPShowCommand(),
+			authMCPCopyCommand(),
+			authRotateCommand(kind),
+			authDeprecatedCreateCommand(kind),
+			authToggleCommand(kind, true),
+			authToggleCommand(kind, false),
+		)
+		return cmd
+	}
 	cmd.AddCommand(authCreateCommand(kind), authToggleCommand(kind, true), authToggleCommand(kind, false))
 	return cmd
 }
 
+func authRotateCommand(kind string) *cobra.Command {
+	return authTokenRotateCommand(kind, "rotate", "Rotate the Direct MCP HTTP token and print the replacement")
+}
+
+func authDeprecatedCreateCommand(kind string) *cobra.Command {
+	cmd := authTokenRotateCommand(kind, "create", "Deprecated alias for rotate")
+	cmd.Deprecated = `use "cgm auth mcp rotate"`
+	return cmd
+}
+
 func authCreateCommand(kind string) *cobra.Command {
+	return authTokenRotateCommand(kind, "create", "Create or rotate the "+kind+" token")
+}
+
+func authTokenRotateCommand(kind, use, short string) *cobra.Command {
+	label := strings.ToUpper(kind) + " token"
+	long := ""
+	if kind == "mcp" {
+		label = "Direct MCP HTTP token"
+		long = mcpAuthReuseHelp + "\n\nRotation invalidates the previous token immediately. Do not rotate just to add this server to ChatGPT again."
+	}
 	return &cobra.Command{
-		Use:   "create",
-		Short: "Create or rotate the " + kind + " token",
+		Use:   use,
+		Short: short,
+		Long:  long,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "AUTH", "auth.token.rotating", "Creating or rotating authentication token", logger.WithVerbose("type", kind))
 			token, _, err := application.RotateAuthToken(cmd.Context(), kind)
@@ -156,10 +199,75 @@ func authCreateCommand(kind string) *cobra.Command {
 			}
 			log := commandLogger(cmd)
 			log.Success("AUTH", "token rotated", "type", kind)
-			log.Detail(strings.ToUpper(kind), token)
+			log.Secret(label, token)
 			return nil
 		},
 	}
+}
+
+func authMCPStatusCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:     "status",
+		Aliases: []string{"st"},
+		Short:   "Show Direct MCP HTTP authentication state without revealing the token",
+		Long:    mcpAuthReuseHelp,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "AUTH", "auth.status.loading", "Loading authentication state")
+			status, err := application.GetAuthStatusContext(cmd.Context())
+			if err != nil {
+				return err
+			}
+			log := commandLogger(cmd)
+			log.Info("AUTH", "Direct MCP HTTP authentication protects /mcp only; Secure MCP Tunnel is unaffected")
+			log.Info("AUTH", "Reuse this token when adding this MCP server to ChatGPT. You do not need to generate a new token for each connection.")
+			log.Detail("mcp", fmt.Sprintf("enabled=%t configured=%t revealable=%t legacy_bearer=%t", status.MCPEnabled, status.MCPConfigured, status.MCPRevealable, status.MCPLegacyBearer))
+			return nil
+		},
+	}
+}
+
+func authMCPShowCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show",
+		Short: "Print the stored Direct MCP HTTP token",
+		Long:  mcpAuthReuseHelp + "\n\nPrints the current token. If only a legacy hash exists, rotate once first.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "AUTH", "auth.token.showing", "Revealing Direct MCP HTTP token")
+			token, err := application.RevealMCPToken()
+			if err != nil {
+				return err
+			}
+			commandLogger(cmd).Secret("Direct MCP HTTP token", token)
+			return nil
+		},
+	}
+}
+
+func authMCPCopyCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "copy",
+		Short: "Copy the stored Direct MCP HTTP token to the clipboard",
+		Long:  mcpAuthReuseHelp + "\n\nCopies the current token without rotating it. If only a legacy hash exists, rotate once first.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logCommandStep(cmd, "AUTH", "auth.token.copying", "Copying Direct MCP HTTP token")
+			token, err := application.RevealMCPToken()
+			if err != nil {
+				return err
+			}
+			if err := copyClipboard(token); err != nil {
+				return err
+			}
+			commandLogger(cmd).Success("AUTH", "Direct MCP HTTP token copied")
+			return nil
+		},
+	}
+}
+
+func copyClipboard(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return errors.New("nothing to copy")
+	}
+	return clipboardWriteAll(value)
 }
 
 func authToggleCommand(kind string, enabled bool) *cobra.Command {
@@ -167,9 +275,16 @@ func authToggleCommand(kind string, enabled bool) *cobra.Command {
 	if enabled {
 		action = "enable"
 	}
+	short := action + " " + kind + " authentication"
+	long := ""
+	if kind == "mcp" {
+		short = action + " Direct MCP HTTP authentication"
+		long = mcpAuthReuseHelp + "\n\nAffects direct /mcp HTTP authentication only."
+	}
 	return &cobra.Command{
 		Use:   action,
-		Short: action + " " + kind + " authentication",
+		Short: short,
+		Long:  long,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "AUTH", "auth.state.updating", "Updating authentication state", logger.WithVerbose("type", kind), logger.WithVerbose("enabled", enabled))
 			if _, err := application.SetAuthEnabled(cmd.Context(), kind, enabled); err != nil {
@@ -189,7 +304,7 @@ func authStatusCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "status",
 		Aliases: []string{"st"},
-		Short:   "Show authentication state without revealing token hashes",
+		Short:   "Show Direct MCP HTTP and admin authentication state without revealing tokens",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "AUTH", "auth.status.loading", "Loading authentication state")
 			status, err := application.GetAuthStatusContext(cmd.Context())
@@ -197,8 +312,8 @@ func authStatusCommand() *cobra.Command {
 				return err
 			}
 			log := commandLogger(cmd)
-			log.Info("AUTH", "authentication status")
-			log.Detail("mcp", fmt.Sprintf("enabled=%t configured=%t legacy_bearer=%t", status.MCPEnabled, status.MCPConfigured, status.MCPLegacyBearer))
+			log.Info("AUTH", "Direct MCP HTTP authentication protects /mcp only; Secure MCP Tunnel is unaffected")
+			log.Detail("mcp", fmt.Sprintf("enabled=%t configured=%t revealable=%t legacy_bearer=%t", status.MCPEnabled, status.MCPConfigured, status.MCPRevealable, status.MCPLegacyBearer))
 			log.Detail("admin", fmt.Sprintf("enabled=%t configured=%t", status.AdminEnabled, status.AdminConfigured))
 			return nil
 		},

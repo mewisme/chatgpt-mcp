@@ -2,7 +2,6 @@ package page
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,7 +14,6 @@ import (
 	"charm.land/huh/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -54,7 +52,7 @@ func (*mcpPageClient) Call(context.Context, string, string, map[string]any) (ups
 }
 func (*mcpPageClient) PID(string) int { return 4242 }
 
-func newMCPPageTestHarness(t *testing.T, client *mcpPageClient) (*MCPPage, *upstream.Manager, *mcpoauth.Store, *upstream.Store) {
+func newMCPPageTestHarness(t *testing.T, client *mcpPageClient) (*MCPPage, *upstream.Manager, *upstream.Store) {
 	t.Helper()
 	root := t.TempDir()
 	serverStore := upstream.NewStore(filepath.Join(root, "upstream.json"))
@@ -62,16 +60,15 @@ func newMCPPageTestHarness(t *testing.T, client *mcpPageClient) (*MCPPage, *upst
 	if err := manager.Load(); err != nil {
 		t.Fatal(err)
 	}
-	oauthStore := mcpoauth.NewStore(filepath.Join(root, "oauth.json"))
-	page, err := newMCPPage(t.Context(), "", manager, oauthStore)
+	page, err := newMCPPage(t.Context(), "", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return page, manager, oauthStore, serverStore
+	return page, manager, serverStore
 }
 
 func TestMCPMutationNoticeRendersBesidePageTitle(t *testing.T) {
-	page, _, _, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, _, _ := newMCPPageTestHarness(t, &mcpPageClient{})
 	page.notice = "MCP server added"
 	line := strings.Split(ansi.Strip(page.View(100, 24)), "\n")[0]
 	if !strings.Contains(line, "Upstream MCP servers  · MCP server added") {
@@ -81,11 +78,11 @@ func TestMCPMutationNoticeRendersBesidePageTitle(t *testing.T) {
 
 func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
 	client := &mcpPageClient{}
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, client)
-	if err := manager.Add(upstream.Server{ID: "docs", Name: "Docs", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth"}, Expose: "all"}); err != nil {
+	_, manager, _ := newMCPPageTestHarness(t, client)
+	if err := manager.Add(upstream.Server{ID: "docs", Name: "Docs", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Expose: "all"}); err != nil {
 		t.Fatal(err)
 	}
-	page, err := newMCPRoutePage(t.Context(), "docs", "", manager, oauthStore)
+	page, err := newMCPRoutePage(t.Context(), "docs", "", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +90,7 @@ func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
 		t.Fatalf("resource detail state overlay=%t resource=%q", page.OverlayActive(), page.resourceID)
 	}
 	view := ansi.Strip(page.View(110, 28))
-	for _, want := range []string{"ID  docs", "https://example.test/mcp", "h health", "v tools", "u oauth", "? more"} {
+	for _, want := range []string{"ID  docs", "https://example.test/mcp", "h health", "v tools", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("MCP detail missing %q: %q", want, view)
 		}
@@ -104,7 +101,7 @@ func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
 	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	page = updated.(*MCPPage)
 	view = ansi.Strip(page.View(110, 28))
-	for _, want := range []string{"configure", "toggle", "health", "tools", "login", "less"} {
+	for _, want := range []string{"configure", "toggle", "health", "tools", "less"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expanded MCP detail missing %q: %q", want, view)
 		}
@@ -129,18 +126,18 @@ func TestMCPResourceUsesRoutedChildDetailPage(t *testing.T) {
 	if !ok || strings.Join(navigate.Path, "/") != "mcp/docs/health" {
 		t.Fatalf("health navigation=%#v", navigate)
 	}
-	health, err := newMCPRoutePage(t.Context(), "docs", "health", manager, oauthStore)
+	health, err := newMCPRoutePage(t.Context(), "docs", "health", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ansi.Strip(health.View(110, 28)); !strings.Contains(got, "Not checked yet") || strings.Contains(got, "u oauth") || strings.Contains(got, "v tools") {
+	if got := ansi.Strip(health.View(110, 28)); !strings.Contains(got, "Not checked yet") || strings.Contains(got, "v tools") {
 		t.Fatalf("health child=%q", got)
 	}
 }
 
 func TestMCPRoutedServerEditorsAndSecretRedaction(t *testing.T) {
-	_, manager, oauthStore, store := newMCPPageTestHarness(t, &mcpPageClient{})
-	create, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	_, manager, store := newMCPPageTestHarness(t, &mcpPageClient{})
+	create, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +148,7 @@ func TestMCPRoutedServerEditorsAndSecretRedaction(t *testing.T) {
 		t.Fatalf("create editor=%v overlay=%t input=%t dirty=%t", create.editor != nil, create.OverlayActive(), create.InputActive(), create.Dirty())
 	}
 	view := ansi.Strip(create.View(100, 28))
-	for _, want := range []string{"General", "Connection", "Authentication", "Tools", "enter next"} {
+	for _, want := range []string{"General", "Connection", "Tools", "enter next"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("create editor missing %q: %q", want, view)
 		}
@@ -200,7 +197,7 @@ func TestMCPRoutedServerEditorsAndSecretRedaction(t *testing.T) {
 	if strings.Contains(string(data), "top-secret") {
 		t.Fatalf("secret leaked to upstream store: %s", data)
 	}
-	edit, err := newMCPRoutePageAction(t.Context(), "docs", "", "edit", manager, oauthStore)
+	edit, err := newMCPRoutePageAction(t.Context(), "docs", "", "edit", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +215,7 @@ func TestMCPRoutedServerEditorsAndSecretRedaction(t *testing.T) {
 		t.Fatalf("edit did not preserve server state: %#v", server)
 	}
 
-	detail, err := newMCPRoutePage(t.Context(), "docs", "", manager, oauthStore)
+	detail, err := newMCPRoutePage(t.Context(), "docs", "", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,11 +249,11 @@ func TestMCPRoutedServerEditorsAndSecretRedaction(t *testing.T) {
 
 func TestMCPDetailRemovalKeepsDetailUntilParentNavigation(t *testing.T) {
 	client := &mcpPageClient{}
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, client)
+	_, manager, _ := newMCPPageTestHarness(t, client)
 	if err := manager.Add(upstream.Server{ID: "docs", Name: "Docs", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Expose: "all"}); err != nil {
 		t.Fatal(err)
 	}
-	page, err := newMCPRoutePage(t.Context(), "docs", "", manager, oauthStore)
+	page, err := newMCPRoutePage(t.Context(), "docs", "", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +268,7 @@ func TestMCPDetailRemovalKeepsDetailUntilParentNavigation(t *testing.T) {
 	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "ID  docs") || strings.Contains(got, "Overview") {
 		t.Fatalf("intermediate MCP detail render=%q", got)
 	}
-	message, ok := cmd().(NavigateMsg)
+	message, ok := navigateMsg(cmd)
 	if !ok || strings.Join(message.Path, "/") != "mcp" || !message.Replace {
 		t.Fatalf("navigation=%#v", message)
 	}
@@ -279,7 +276,7 @@ func TestMCPDetailRemovalKeepsDetailUntilParentNavigation(t *testing.T) {
 
 func TestMCPPageHealthAndToolsRunAsCommands(t *testing.T) {
 	client := &mcpPageClient{tools: []upstream.Tool{{Name: "read", Description: "Read docs"}}}
-	page, manager, _, _ := newMCPPageTestHarness(t, client)
+	page, manager, _ := newMCPPageTestHarness(t, client)
 	if err := manager.Add(upstream.Server{ID: "docs", Name: "Docs", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Expose: "all"}); err != nil {
 		t.Fatal(err)
 	}
@@ -287,10 +284,13 @@ func TestMCPPageHealthAndToolsRunAsCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd, err := page.openCommand(MCPServerHealth, "docs")
-	if err != nil || cmd == nil || page.overlay != mcpOverlayOperation {
-		t.Fatalf("health cmd=%v err=%v overlay=%d", cmd, err, page.overlay)
+	if err != nil || cmd == nil {
+		t.Fatalf("health cmd=%v err=%v", cmd, err)
 	}
-	updated, _ := page.Update(cmd())
+	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
+		t.Fatalf("health pending=%#v", op)
+	}
+	updated, _ := page.Update(workMsg(cmd))
 	page = updated.(*MCPPage)
 	if page.status["docs"].Health != upstream.HealthConnected || page.status["docs"].ToolCount != 1 {
 		t.Fatalf("health=%#v", page.status["docs"])
@@ -299,7 +299,7 @@ func TestMCPPageHealthAndToolsRunAsCommands(t *testing.T) {
 	if err != nil || cmd == nil {
 		t.Fatalf("tools cmd=%v err=%v", cmd, err)
 	}
-	updated, _ = page.Update(cmd())
+	updated, _ = page.Update(workMsg(cmd))
 	page = updated.(*MCPPage)
 	if len(page.tools["docs"]) != 1 || page.tools["docs"][0].Name != "read" {
 		t.Fatalf("tools=%#v", page.tools["docs"])
@@ -308,7 +308,7 @@ func TestMCPPageHealthAndToolsRunAsCommands(t *testing.T) {
 
 func TestMCPPageToolRefreshIsCancellable(t *testing.T) {
 	client := &mcpPageClient{blockTools: true, toolsStarted: make(chan struct{}, 1)}
-	page, manager, _, _ := newMCPPageTestHarness(t, client)
+	page, manager, _ := newMCPPageTestHarness(t, client)
 	if err := manager.Add(upstream.Server{ID: "slow", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Expose: "all"}); err != nil {
 		t.Fatal(err)
 	}
@@ -317,200 +317,34 @@ func TestMCPPageToolRefreshIsCancellable(t *testing.T) {
 		t.Fatalf("cmd=%v err=%v", cmd, err)
 	}
 	result := make(chan tea.Msg, 1)
-	go func() { result <- cmd() }()
+	go func() { result <- workMsg(cmd) }()
 	select {
 	case <-client.toolsStarted:
 	case <-time.After(time.Second):
 		t.Fatal("tool refresh did not start")
 	}
-	updated, _ := page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	page = updated.(*MCPPage)
-	if page.overlay != mcpOverlayNone || !page.operationCancelled {
-		t.Fatalf("cancel state overlay=%d cancelled=%t", page.overlay, page.operationCancelled)
+	page.cancelOperation()
+	if !page.operationCancelled {
+		t.Fatal("tool refresh was not cancelled")
 	}
 	select {
 	case message := <-result:
-		updated, _ = page.Update(message)
+		updated, follow := page.Update(message)
 		page = updated.(*MCPPage)
+		if page.operationCancelled {
+			t.Fatal("cancel flag still set after completion")
+		}
+		if op, ok := operationMsg(follow); !ok || op.Phase != OperationCancelled {
+			t.Fatalf("cancel operation=%#v", op)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("cancelled tool command did not return")
-	}
-	if page.operationCancelled || !strings.Contains(page.notice, "cancel") {
-		t.Fatalf("cancel completion notice=%q cancelled=%t", page.notice, page.operationCancelled)
-	}
-}
-
-func TestMCPPageOAuthEmitsURLStoresCredentialAndLogoutPreservesServer(t *testing.T) {
-	client := &mcpPageClient{tools: []upstream.Tool{{Name: "read"}}}
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, client)
-	if err := manager.Add(upstream.Server{ID: "secure", Name: "Secure", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth", Scope: "read"}, Expose: "all"}); err != nil {
-		t.Fatal(err)
-	}
-	page, err := newMCPRoutePageAction(t.Context(), "secure", "oauth", "login", manager, oauthStore)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = page.Init()
-	view := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"Open authorization URL in browser", "enter next"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("OAuth editor missing %q: %q", want, view)
-		}
-	}
-	if strings.Contains(view, "Authorize MCP Server") {
-		t.Fatalf("OAuth editor retained redundant page title: %q", view)
-	}
-	if page.OverlayActive() || page.oauthForm == nil || !page.oauthForm.OpenBrowser {
-		t.Fatalf("OAuth editor overlay=%t data=%#v", page.OverlayActive(), page.oauthForm)
-	}
-	opened := make(chan string, 1)
-	page.openBrowser = func(raw string) error {
-		opened <- raw
-		return nil
-	}
-	page.oauthLogin = func(ctx context.Context, config mcpoauth.LoginConfig, options mcpoauth.LoginOptions) (mcpoauth.Credential, error) {
-		if err := options.OnURL("https://auth.example/authorize"); err != nil {
-			return mcpoauth.Credential{}, err
-		}
-		credential := mcpoauth.Credential{ServerID: config.ServerID, ServerURL: config.ServerURL, Issuer: "https://auth.example", ClientID: "client", Scopes: []string{"read"}, AccessToken: "access-secret", RefreshToken: "refresh-secret"}
-		if err := oauthStore.Put(credential); err != nil {
-			return mcpoauth.Credential{}, err
-		}
-		return credential, nil
-	}
-	updated, cmd := page.Update(component.EditorSubmitMsg{})
-	page = updated.(*MCPPage)
-	if cmd == nil || page.overlay != mcpOverlayOperation {
-		t.Fatalf("OAuth submit cmd=%v overlay=%d", cmd != nil, page.overlay)
-	}
-	updated, next := page.Update(cmd())
-	page = updated.(*MCPPage)
-	openedURL := ""
-	select {
-	case openedURL = <-opened:
-	case <-time.After(time.Second):
-		t.Fatal("browser opener was not called")
-	}
-	if page.operationURL != "https://auth.example/authorize" || openedURL != "https://auth.example/authorize" || next == nil {
-		t.Fatalf("url=%q opened=%q next=%v", page.operationURL, openedURL, next)
-	}
-	updated, finish := page.Update(next())
-	page = updated.(*MCPPage)
-	if finish == nil || page.OverlayActive() || page.Dirty() {
-		t.Fatalf("OAuth finish cmd=%v overlay=%t dirty=%t", finish != nil, page.OverlayActive(), page.Dirty())
-	}
-	if strings.Contains(page.View(120, 32), "access-secret") || strings.Contains(page.View(120, 32), "refresh-secret") {
-		t.Fatal("OAuth token leaked into TUI")
-	}
-	status, err := oauthStore.Status("secure")
-	if err != nil || !status.Configured || !status.HasRefreshToken {
-		t.Fatalf("oauth status=%#v err=%v", status, err)
-	}
-	batch, ok := finish().(tea.BatchMsg)
-	if !ok {
-		t.Fatalf("OAuth finish message=%T", finish())
-	}
-	foundNavigation := false
-	for _, next := range batch {
-		if next == nil {
-			continue
-		}
-		if navigate, ok := next().(NavigateMsg); ok && strings.Join(navigate.Path, "/") == "mcp/secure/oauth" {
-			foundNavigation = true
-		}
-	}
-	if !foundNavigation {
-		t.Fatal("OAuth success did not navigate to OAuth detail")
-	}
-
-	detail, err := newMCPRoutePage(t.Context(), "secure", "oauth", manager, oauthStore)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := detail.openCommand(MCPAuthLogout, "secure"); err != nil {
-		t.Fatal(err)
-	}
-	detail.confirm = component.NewConfirmButtons("Logout", "Cancel", true)
-	detail.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
-	status, err = oauthStore.Status("secure")
-	if err != nil || status.Configured {
-		t.Fatalf("oauth remained after logout: %#v err=%v", status, err)
-	}
-	if _, ok := manager.Get("secure"); !ok {
-		t.Fatal("OAuth logout removed MCP server configuration")
-	}
-}
-
-func TestMCPPageOAuthBrowserFailureDoesNotAbortLogin(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
-	if err := manager.Add(upstream.Server{ID: "secure", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth"}, Expose: "all"}); err != nil {
-		t.Fatal(err)
-	}
-	page, err := newMCPRoutePageAction(t.Context(), "secure", "oauth", "login", manager, oauthStore)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = page.Init()
-	page.openBrowser = func(string) error { return errors.New("no browser") }
-	page.oauthLogin = func(_ context.Context, config mcpoauth.LoginConfig, options mcpoauth.LoginOptions) (mcpoauth.Credential, error) {
-		_ = options.OnURL("https://auth.example/authorize")
-		return mcpoauth.Credential{ServerID: config.ServerID}, nil
-	}
-	updated, cmd := page.Update(component.EditorSubmitMsg{})
-	page = updated.(*MCPPage)
-	updated, next := page.Update(cmd())
-	page = updated.(*MCPPage)
-	if next == nil {
-		t.Fatal("missing next OAuth event")
-	}
-	updated, next = page.Update(next())
-	page = updated.(*MCPPage)
-	if !strings.Contains(page.notice, "no browser") || next == nil {
-		t.Fatalf("browser failure notice=%q next=%v", page.notice, next)
-	}
-	updated, finish := page.Update(next())
-	page = updated.(*MCPPage)
-	if finish == nil || page.OverlayActive() {
-		t.Fatalf("browser failure aborted OAuth finish=%v overlay=%t", finish != nil, page.OverlayActive())
-	}
-}
-
-func TestMCPOAuthFailureKeepsEditorDraft(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
-	if err := manager.Add(upstream.Server{ID: "secure", Enabled: true, Transport: "http", URL: "https://example.test/mcp", Auth: upstream.AuthConfig{Type: "oauth"}, Expose: "all"}); err != nil {
-		t.Fatal(err)
-	}
-	page, err := newMCPRoutePageAction(t.Context(), "secure", "oauth", "login", manager, oauthStore)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = page.Init()
-	updated, _ := page.Update(tea.KeyPressMsg{Code: 'i', Text: "https://issuer.example"})
-	page = updated.(*MCPPage)
-	if page.oauthForm.Issuer != "https://issuer.example" || !page.Dirty() {
-		t.Fatalf("OAuth draft=%#v dirty=%t", page.oauthForm, page.Dirty())
-	}
-	page.oauthLogin = func(context.Context, mcpoauth.LoginConfig, mcpoauth.LoginOptions) (mcpoauth.Credential, error) {
-		return mcpoauth.Credential{}, errors.New("authorization failed")
-	}
-	updated, cmd := page.Update(component.EditorSubmitMsg{})
-	page = updated.(*MCPPage)
-	if cmd == nil || page.overlay != mcpOverlayOperation {
-		t.Fatalf("OAuth failure submit cmd=%v overlay=%d", cmd != nil, page.overlay)
-	}
-	updated, _ = page.Update(cmd())
-	page = updated.(*MCPPage)
-	if page.OverlayActive() || page.oauthForm == nil || page.oauthForm.Issuer != "https://issuer.example" || !page.Dirty() {
-		t.Fatalf("OAuth failure lost draft overlay=%t draft=%#v dirty=%t", page.OverlayActive(), page.oauthForm, page.Dirty())
-	}
-	if plain := ansi.Strip(page.View(90, 26)); !strings.Contains(plain, "authorization failed") {
-		t.Fatalf("OAuth failure feedback missing: %q", plain)
 	}
 }
 
 func TestMCPCreateEditorValidationFailureKeepsDraft(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
-	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	_, manager, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,11 +380,11 @@ func TestMCPCreateEditorValidationFailureKeepsDraft(t *testing.T) {
 }
 
 func TestMCPCreateEditorExistingIDFailureKeepsDraft(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	_, manager, _ := newMCPPageTestHarness(t, &mcpPageClient{})
 	if err := manager.Add(upstream.Server{ID: "docs", Name: "Existing", Transport: "http", URL: "https://old.example/mcp", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,8 +412,8 @@ func TestMCPCreateEditorExistingIDFailureKeepsDraft(t *testing.T) {
 }
 
 func TestMCPServerEditorCancelReturnsToParent(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
-	create, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	_, manager, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	create, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +428,7 @@ func TestMCPServerEditorCancelReturnsToParent(t *testing.T) {
 	if err := manager.Add(upstream.Server{ID: "docs", Transport: "http", URL: "https://example.test/mcp", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	edit, err := newMCPRoutePageAction(t.Context(), "docs", "", "edit", manager, oauthStore)
+	edit, err := newMCPRoutePageAction(t.Context(), "docs", "", "edit", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,8 +458,8 @@ func fillMCPCreateHTTPDraft(page *MCPPage, id, name, url string) *MCPPage {
 }
 
 func TestMCPCreateEditorFormJSONTabsKeyboardMouseAndRoundTrip(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
-	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	_, manager, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -694,8 +528,8 @@ func TestMCPCreateEditorFormJSONTabsKeyboardMouseAndRoundTrip(t *testing.T) {
 }
 
 func TestMCPCreateJSONSingleSyncsToFormWithoutLosingDisabled(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
-	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	_, manager, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,8 +549,8 @@ func TestMCPCreateJSONSingleSyncsToFormWithoutLosingDisabled(t *testing.T) {
 }
 
 func TestMCPCreateJSONMultipleStaysAuthoritativeAndCreatesAtomically(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
-	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	_, manager, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -753,9 +587,36 @@ func TestMCPCreateJSONMultipleStaysAuthoritativeAndCreatesAtomically(t *testing.
 	}
 }
 
+func TestMCPCreateJSONCtrlJLegacyFallbackSubmits(t *testing.T) {
+	_, manager, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(mcpServerEditorModeMsg{Mode: mcpServerEditorJSON})
+	page = updated.(*MCPPage)
+	draft := `{"mcpServers":{"local":{"command":"node"}}}`
+	page.jsonEditor.SetValue(draft)
+	updated, cmd := page.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
+	page = updated.(*MCPPage)
+	if cmd == nil {
+		t.Fatal("legacy Ctrl+J representation did not trigger JSON create")
+	}
+	saved, ok := cmd().(component.TextAreaSavedMsg)
+	if !ok || saved.Value != draft {
+		t.Fatalf("legacy Ctrl+J message=%#v", saved)
+	}
+	updated, cmd = page.Update(saved)
+	page = updated.(*MCPPage)
+	server, exists := manager.Get("local")
+	if cmd == nil || !exists || server.Command != "node" || page.Dirty() {
+		t.Fatalf("legacy Ctrl+J create cmd=%v exists=%t server=%#v dirty=%t", cmd != nil, exists, server, page.Dirty())
+	}
+}
+
 func TestMCPCreateJSONInvalidAndExistingBatchKeepExactDraft(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
-	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	_, manager, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -789,8 +650,8 @@ func TestMCPCreateJSONInvalidAndExistingBatchKeepExactDraft(t *testing.T) {
 }
 
 func TestMCPCreateJSONEnterNewlineWrapsAndDivergedTargetIsPreserved(t *testing.T) {
-	_, manager, oauthStore, _ := newMCPPageTestHarness(t, &mcpPageClient{})
-	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager, oauthStore)
+	_, manager, _ := newMCPPageTestHarness(t, &mcpPageClient{})
+	page, err := newMCPRoutePageAction(t.Context(), "", "", "create", manager)
 	if err != nil {
 		t.Fatal(err)
 	}

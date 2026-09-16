@@ -1,0 +1,150 @@
+{
+  "schema": 2,
+  "id": "rtk",
+  "name": "RTK Command Wrapper",
+  "publisher": "mewisme",
+  "license": "Apache-2.0",
+  "version": "1.0.0",
+  "type": "command-wrapper",
+  "scopes": ["global", "workspace"],
+  "requires": {
+    "chatgpt-mcp": ">=0.2.24"
+  },
+  "provides": [
+    "command-wrapper/rtk"
+  ],
+  "permissions": [
+    "process/execute"
+  ],
+  "platforms": {
+    "linux/amd64": {
+      "host": {
+        "executable": "rtk",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk", "executable": "brew", "args": ["install", "rtk-ai/tap/rtk"] },
+          { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/download/v0.49.0/rtk-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "7278231dfd7e6a730a4ab7f847b195bcf02289c2d57622b0dab75a6411100c8f",
+          "archive": "tar.gz",
+          "entrypoint": "rtk"
+        }
+      }
+    },
+    "linux/arm64": {
+      "host": {
+        "executable": "rtk",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk", "executable": "brew", "args": ["install", "rtk-ai/tap/rtk"] },
+          { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/download/v0.49.0/rtk-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "c8ea4b6560841e73157c134fd4a3293914c6ede42e786ee985cf491fde691ba7",
+          "archive": "tar.gz",
+          "entrypoint": "rtk"
+        }
+      }
+    },
+    "darwin/amd64": {
+      "host": {
+        "executable": "rtk",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk", "executable": "brew", "args": ["install", "rtk-ai/tap/rtk"] },
+          { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/download/v0.49.0/rtk-x86_64-apple-darwin.tar.gz",
+          "sha256": "d297388f4a8a786e79abe5f55b80451725bfe8c5835b4736c05d7cff4d68f627",
+          "archive": "tar.gz",
+          "entrypoint": "rtk"
+        }
+      }
+    },
+    "darwin/arm64": {
+      "host": {
+        "executable": "rtk",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "Homebrew", "command": "brew install rtk-ai/tap/rtk", "executable": "brew", "args": ["install", "rtk-ai/tap/rtk"] },
+          { "label": "Quick install", "command": "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh" },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/download/v0.49.0/rtk-aarch64-apple-darwin.tar.gz",
+          "sha256": "bbbfebabb22686993a80da731aa4d5d35116fb8ae24abb00608efa028e13ae01",
+          "archive": "tar.gz",
+          "entrypoint": "rtk"
+        }
+      }
+    },
+    "windows/amd64": {
+      "host": {
+        "executable": "rtk.exe",
+        "checks": [
+          { "name": "version", "args": ["--version"] },
+          { "name": "token-killer", "args": ["gain"] },
+          { "name": "rewrite", "args": ["rewrite", "git status"], "success_exit_codes": [0, 3], "stdout_prefix": "{executable} " }
+        ],
+        "install": [
+          { "label": "winget", "command": "winget install rtk-ai.rtk", "executable": "winget", "args": ["install", "rtk-ai.rtk"] },
+          { "label": "Cargo", "command": "cargo install --git https://github.com/rtk-ai/rtk --branch master rtk", "executable": "cargo", "args": ["install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"] }
+        ],
+        "command_wrapper": {
+          "args": ["rewrite", "{command}"],
+          "rewrite_exit_codes": [0, 3],
+          "passthrough_exit_codes": [1, 2]
+        },
+        "portable": {
+          "url": "https://github.com/rtk-ai/rtk/releases/download/v0.49.0/rtk-x86_64-pc-windows-msvc.zip",
+          "sha256": "cb971046598f0e8bd51f6c27780fcdd2c39a4c459a811bd95b0d77ba8c0d7c9f",
+          "archive": "zip",
+          "entrypoint": "rtk.exe"
+        }
+      }
+    }
+  }
+}

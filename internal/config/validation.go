@@ -9,8 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"go.mewis.me/chatgpt-mcp/internal/caveman"
-	"go.mewis.me/chatgpt-mcp/internal/ponytail"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
@@ -33,11 +32,8 @@ func Validate(cfg Config) error {
 	if _, err := NormalizeShellPath(cfg.Shell.Path); err != nil {
 		return err
 	}
-	if _, ok := ponytail.NormalizeRuntimeMode(cfg.Features.Ponytail.Mode); !ok {
-		return fmt.Errorf("features.ponytail.mode must be lite, full, or ultra: %q", cfg.Features.Ponytail.Mode)
-	}
-	if _, ok := caveman.NormalizeRuntimeMode(cfg.Features.Caveman.Mode); !ok {
-		return fmt.Errorf("features.caveman.mode must be lite, full, ultra, wenyan-lite, wenyan-full, or wenyan-ultra: %q", cfg.Features.Caveman.Mode)
+	if _, err := NormalizeShellExecutable(cfg.Shell.Executable); err != nil {
+		return err
 	}
 	exposure := NormalizeExposure(cfg.Server.Expose)
 	switch exposure.Mode {
@@ -67,19 +63,25 @@ func Validate(cfg Config) error {
 			return errors.New("non-loopback HTTP exposure requires server.allow_insecure_http=true; prefer Secure MCP Tunnel or a TLS reverse proxy")
 		}
 		if cfg.Server.Enabled && (!cfg.Auth.MCPEnabled || cfg.Auth.MCPTokenHash == "") {
-			return errors.New("network exposure requires MCP authentication with a configured token; run chatgpt-mcp auth mcp create")
+			return errors.New("network exposure requires Direct MCP HTTP authentication with a configured token; run chatgpt-mcp auth mcp rotate")
 		}
 		if cfg.Admin.Enabled && (!cfg.Auth.AdminEnabled || cfg.Auth.AdminTokenHash == "") {
 			return errors.New("network exposure with the admin endpoint enabled requires admin authentication with a configured token; run chatgpt-mcp auth admin create")
 		}
 	}
 	if cfg.Server.Enabled && cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {
-		return errors.New("MCP auth is enabled but no token is configured; run chatgpt-mcp auth mcp create")
+		return errors.New("direct MCP HTTP authentication is enabled but no token is configured; run chatgpt-mcp auth mcp rotate")
 	}
 	if cfg.Admin.Enabled && cfg.Auth.AdminEnabled && cfg.Auth.AdminTokenHash == "" {
 		return errors.New("admin auth is enabled but no token is configured; run chatgpt-mcp auth admin create")
 	}
 	if err := tunnel.ValidateConfig(cfg.Tunnel); err != nil {
+		return err
+	}
+	if err := cfg.Tunnel.Collection().Validate(); err != nil {
+		return err
+	}
+	if err := notification.ValidateSettings(cfg.Notifications); err != nil {
 		return err
 	}
 	return nil
@@ -116,7 +118,11 @@ func SecurityWarnings(cfg Config) []string {
 }
 
 func ValidateMCPTransports(cfg Config) error {
-	if !cfg.Server.Enabled && !cfg.Tunnel.Enabled {
+	tunnelEnabled := false
+	for _, instance := range cfg.RuntimeTunnels().Instances {
+		tunnelEnabled = tunnelEnabled || instance.Enabled
+	}
+	if !cfg.Server.Enabled && !tunnelEnabled {
 		return errors.New("at least one MCP transport must be enabled: MCP HTTP (server.enabled) or OpenAI Secure MCP Tunnel (tunnel.enabled)")
 	}
 	return nil
@@ -145,6 +151,22 @@ func NormalizeShellPath(values []string) ([]string, error) {
 		result = append(result, path)
 	}
 	return result, nil
+}
+
+func NormalizeShellExecutable(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(value) {
+		return "", fmt.Errorf("shell executable must be absolute: %q", value)
+	}
+	value = filepath.Clean(value)
+	base := strings.ToLower(filepath.Base(value))
+	if base != "bash" && base != "bash.exe" {
+		return "", fmt.Errorf("shell executable must be Bash: %s", value)
+	}
+	return value, nil
 }
 
 func NormalizeAllowDirs(values []string) ([]string, error) {

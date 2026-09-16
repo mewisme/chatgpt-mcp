@@ -11,6 +11,8 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/install"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
@@ -74,7 +76,15 @@ func LoadInstallationOverview() (InstallationOverview, error) {
 }
 
 func InstallCurrent(options InstallCurrentOptions) (install.Result, error) {
-	return install.Install(install.Options{Version: version.Version, NoAlias: options.NoAlias, Force: options.Force, MigrateLegacy: options.MigrateLegacy})
+	result, err := install.Install(install.Options{Version: version.Version, NoAlias: options.NoAlias, Force: options.Force, MigrateLegacy: options.MigrateLegacy})
+	if err != nil {
+		return result, err
+	}
+	report, _ := ReconcileCorePlugins(context.Background())
+	if err := RollbackRequiredCoreFailure(context.Background(), result, report); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func CleanupLegacyInstallations() (install.LegacyCleanupResult, error) {
@@ -141,14 +151,24 @@ func ApplyUpdate(ctx context.Context, options UpdateApplyOptions) (UpdateApplyRe
 		return UpdateApplyResult{External: &ExternalCommand{Command: "cgm upgrade", Reason: "Upgrading a running system service requires elevation and must be launched outside the TUI."}}, nil
 	}
 	updater := updatepkg.Updater{Resolver: updatepkg.Client{UserAgent: "chatgpt-mcp/" + version.Version}, Downloader: updatepkg.Downloader{UserAgent: "chatgpt-mcp/" + version.Version}}
-	result, err := updater.Apply(ctx, updatepkg.ApplyOptions{Layout: overview.Layout, CurrentVersion: version.Version, TargetVersion: strings.TrimSpace(options.TargetVersion), NoAlias: overview.Alias.State == install.AliasMissing})
+	applyOptions := updatepkg.ApplyOptions{Layout: overview.Layout, CurrentVersion: version.Version, TargetVersion: strings.TrimSpace(options.TargetVersion), NoAlias: overview.Alias.State == install.AliasMissing}
+	plan, err := updater.Resolve(ctx, applyOptions)
+	if err != nil {
+		return UpdateApplyResult{}, err
+	}
+	pluginNotice := ""
+	if plan.Changed {
+		pluginNotice = targetPluginCompatibilityNotice(plan.Target)
+	}
+	applyOptions.ResolvedRelease = &plan.Release
+	result, err := updater.Apply(ctx, applyOptions)
 	if err != nil {
 		return UpdateApplyResult{}, err
 	}
 	if strings.TrimSpace(options.TargetVersion) == "" && result.Target != "" {
 		_ = updatepkg.WriteCache(overview.Layout.UpdateCache, result.Target, time.Now())
 	}
-	output := UpdateApplyResult{Result: result}
+	output := UpdateApplyResult{Result: result, Notice: pluginNotice}
 	if !result.Changed {
 		if result.Current == result.Target {
 			output.Notice = "Already up to date"
@@ -169,16 +189,27 @@ func ApplyUpdate(ctx context.Context, options UpdateApplyOptions) (UpdateApplyRe
 				return UpdateApplyResult{}, fmt.Errorf("managed runtime restart failed: %w; previous version restored", err)
 			}
 		} else {
-			output.Notice = fmt.Sprintf("Foreground runtime pid %d still uses the previous version; restart it manually", runtimeState.PID)
+			output.Notice = appendUpdateNotice(output.Notice, fmt.Sprintf("Foreground runtime pid %d still uses the previous version; restart it manually", runtimeState.PID))
 		}
 	} else if running && options.NoRestart {
-		output.Notice = fmt.Sprintf("Runtime restart skipped; pid %d still uses the previous version", runtimeState.PID)
+		output.Notice = appendUpdateNotice(output.Notice, fmt.Sprintf("Runtime restart skipped; pid %d still uses the previous version", runtimeState.PID))
+	}
+	report, recErr := ReconcileCorePlugins(ctx)
+	if err := RollbackRequiredCoreFailure(ctx, result.Install, report); err != nil {
+		if running && !options.NoRestart && runtimeState.Managed {
+			if restartErr := restartUpdatedManagedRuntime(ctx, result.Install.Layout, runtimeState); restartErr != nil {
+				return UpdateApplyResult{}, fmt.Errorf("%w; previous runtime restart failed: %v", err, restartErr)
+			}
+		}
+		return UpdateApplyResult{}, err
+	}
+	if recErr != nil {
+		output.Notice = appendUpdateNotice(output.Notice, "core plugin reconcile: "+recErr.Error())
+	} else if notice := formatCorePluginNotice(report); notice != "" {
+		output.Notice = appendUpdateNotice(output.Notice, notice)
 	}
 	if err := install.FinalizeResultContext(ctx, result.Install); err != nil {
-		if output.Notice != "" {
-			output.Notice += "; "
-		}
-		output.Notice += "update succeeded but old version cleanup failed: " + err.Error()
+		output.Notice = appendUpdateNotice(output.Notice, "update succeeded but old version cleanup failed: "+err.Error())
 	}
 	return output, nil
 }
@@ -216,4 +247,75 @@ func restartUpdatedManagedRuntime(ctx context.Context, layout install.Layout, st
 	}
 	_, err = waitManagedReady(ctx, spec, status.RunID, managedReadyTimeout)
 	return err
+}
+
+func appendUpdateNotice(current, next string) string {
+	current, next = strings.TrimSpace(current), strings.TrimSpace(next)
+	if current == "" {
+		return next
+	}
+	if next == "" {
+		return current
+	}
+	return current + "; " + next
+}
+
+func ReconcileCorePlugins(ctx context.Context) (pluginpkg.CoreReconcileReport, error) {
+	service, err := NewPluginService()
+	if err != nil {
+		return pluginpkg.CoreReconcileReport{}, err
+	}
+	return service.Manager.ReconcileCoreSet(ctx)
+}
+
+func RollbackRequiredCoreFailure(ctx context.Context, result install.Result, report pluginpkg.CoreReconcileReport) error {
+	req := report.RequiredError()
+	if req == nil {
+		return nil
+	}
+	if result.AlreadyInstalled {
+		return req
+	}
+	if err := install.RollbackResultContext(ctx, result); err != nil {
+		return fmt.Errorf("%w; rollback failed: %v", req, err)
+	}
+	return fmt.Errorf("%w; previous version restored", req)
+}
+
+func formatCorePluginNotice(report pluginpkg.CoreReconcileReport) string {
+	if len(report.Items) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(report.Items))
+	for _, item := range report.Items {
+		part := fmt.Sprintf("%s %s", item.ID, item.Action)
+		if item.Version != "" {
+			part += "@" + string(item.Version)
+		}
+		if item.Error != "" {
+			part += ": " + item.Error
+		}
+		parts = append(parts, part)
+	}
+	return "core plugins: " + strings.Join(parts, "; ")
+}
+
+func targetPluginCompatibilityNotice(target string) string {
+	layout := plugindev.RuntimeLayout()
+	store, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{CoreVersion: version.Version})
+	if err != nil {
+		return "Plugin compatibility preflight unavailable: " + err.Error()
+	}
+	issues, err := (&pluginpkg.Manager{Store: store}).AssessCoreCompatibility(target)
+	if err != nil {
+		return "Plugin compatibility preflight unavailable: " + err.Error()
+	}
+	if len(issues) == 0 {
+		return ""
+	}
+	ids := make([]string, len(issues))
+	for index, issue := range issues {
+		ids[index] = string(issue.ID)
+	}
+	return fmt.Sprintf("Warning: %d enabled plugin(s) may be incompatible with %s: %s", len(issues), target, strings.Join(ids, ", "))
 }

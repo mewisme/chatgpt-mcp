@@ -13,6 +13,8 @@ cgm tui   interactive Command Center
 cgm tui
 ```
 
+`cgm tui` is a small core launcher. The Command Center itself is the `tui` core plugin (`terminal-ui/default`). If that plugin is missing from an **installed** `cgm`, the command fails with `cgm plugin install tui`; if it is installed but disabled, enable it with `cgm plugin enable tui`. From a source checkout, `go run . tui` uses the repository-local `local-dev` plugin automatically ([Development](development.md)).
+
 The TUI requires a real terminal. Redirected/non-TTY invocation fails instead of writing alternate-screen output into a pipe.
 
 Deep-link directly to a page or resource when useful:
@@ -87,13 +89,13 @@ Common behavior:
 
 The Workspaces area manages concrete `ws_*` project roots, additional access directories, workspace containers, and Project Context previews.
 
-A workspace detail can relocate a project after its directory has already moved. Relocation updates the trusted registered root; it does not move project files itself.
+A workspace detail can relocate a project after its directory has already moved. Relocation updates the trusted registered root and keeps the workspace ID; it does not move project files itself.
 
 Workspace containers (`wsc_*`) are grouping/orchestration resources, not filesystem scopes. See [Workspaces](workspaces.md).
 
 ## MCP
 
-The MCP area manages upstream MCP servers, health/tool discovery, tool exposure, and OAuth where supported.
+The MCP area manages upstream MCP servers, health/tool discovery, and tool exposure.
 
 Server creation supports both form-driven setup and canonical JSON input. Sensitive environment/header values remain managed as secrets rather than being echoed into normal detail views.
 
@@ -101,13 +103,15 @@ See [MCP and upstreams](mcp.md).
 
 ## Tunnel
 
-Tunnel manages the local OpenAI Secure MCP Tunnel configuration and, when an appropriate verified admin credential is configured, managed tunnel resources.
+Tunnel is collection-first. Its top-level browser lists attached local tunnel instances and each detail is scoped by tunnel ID. Enable/disable/start/stop/detach act on only that instance. `n` attaches a local runtime key (`cgm tunnel add`); `e` edits that instance (`cgm tunnel update`) and a blank runtime key keeps the current secret.
 
-The normal ChatGPT runtime credential is the restricted **Tunnels Read + Use** key. Administrative tunnel management remains separate. See [OpenAI + ChatGPT](openai-chatgpt.md).
+Rows prefer the cached tunnel name. Duplicate names get a short-ID suffix. The full ID stays in detail, search, and unnamed fallbacks.
+
+Managed Tunnels and admin profiles are separate resources. `cgm tunnel attach` from Managed Tunnels adds a local instance instead of replacing an existing attachment. The Admin UI Tunnel page exposes the same local attach/edit/lifecycle and admin-profile update flows. The normal ChatGPT runtime credential is a restricted **Tunnels Read + Use** key per instance; admin-profile keys are management-only. See [OpenAI + ChatGPT](openai-chatgpt.md).
 
 ## Requests
 
-Requests is the approval inbox for guarded actions. Pending requests can also appear in the global live approval dialog so a local operator can review the exact action without leaving the current page.
+Requests is the approval inbox for guarded actions. Pending requests can also appear in the global live approval dialog so a local operator can review the exact action without leaving the current page. The dialog can approve once or grant similar commands for all MCP sessions for one hour when the request includes a similar-command pattern. The Admin UI has the same approve/deny/reason/similar-grant controls on a global Requests page and each workspace Requests tab. When no TUI reviewer is open, the runtime may also send a best-effort desktop notification; see [Desktop notifications](configuration.md#desktop-notifications).
 
 Approval does not create a general shell bypass; it authorizes the runtime-defined action/retry scope. See [Security](security.md#control-guard-approvals-and-self-grant-prevention).
 
@@ -135,6 +139,8 @@ Use:
 
 Stream Mode controls the visible scope for Runtime, Command Execution, and Tool Calls. Command Execution can additionally select Process view for a workspace; the other tabs do not expose Process mode.
 
+Tunnel-originated rows show the cached tunnel label, not `Source=tunnel` as identity. Search matches both the label and the canonical tunnel ID. The Logs filter editor has a dedicated Tunnel field plus the transport Source field.
+
 ### Runtime
 
 Runtime combines persistent journal history with the live runtime event stream. Tool-call lifecycle events are presented in the dedicated Tool Calls tab rather than duplicated into Runtime history.
@@ -161,7 +167,7 @@ Instruction manages Global Context, managed rules, and detected instruction sour
 
 ## Runtime
 
-Runtime is the operational control surface for service state, authentication, install/update actions, alias state, and version/build information.
+Runtime is the operational control surface for service state, authentication, install/update actions, alias state, and version/build information. Direct MCP HTTP token reveal/copy/rotate live here and reuse the stored token; admin rotation remains one-time plaintext.
 
 For scripts or remote automation, use the equivalent CLI commands instead. See [Runtime and operations](runtime.md).
 

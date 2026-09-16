@@ -40,6 +40,8 @@ const (
 	ConfigUninitialize   SystemCommand = "config.uninitialize.external"
 	AuthMCPEnable        SystemCommand = "auth.mcp.enable"
 	AuthMCPDisable       SystemCommand = "auth.mcp.disable"
+	AuthMCPShow          SystemCommand = "auth.mcp.show"
+	AuthMCPCopy          SystemCommand = "auth.mcp.copy"
 	AuthMCPRotate        SystemCommand = "auth.mcp.rotate"
 	AuthAdminEnable      SystemCommand = "auth.admin.enable"
 	AuthAdminDisable     SystemCommand = "auth.admin.disable"
@@ -69,6 +71,7 @@ type systemLoadMsg struct {
 	auth    application.AuthStatus
 	install application.InstallationOverview
 	about   application.AboutInfo
+	shell   application.ShellDiagnostic
 	err     error
 }
 
@@ -100,6 +103,7 @@ type RuntimePage struct {
 	auth            application.AuthStatus
 	install         application.InstallationOverview
 	about           application.AboutInfo
+	shell           application.ShellDiagnostic
 	loaded          bool
 	loading         bool
 	overlay         systemOverlay
@@ -183,12 +187,11 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		return page, page.finishOperation(msg)
 	}
 	if msg, ok := message.(systemCopyMsg); ok {
+		notice := "Copied to clipboard"
 		if msg.err != nil {
-			page.notice = "Clipboard unavailable: " + msg.err.Error()
-		} else {
-			page.notice = "Copied to clipboard"
+			notice = "Clipboard unavailable: " + msg.err.Error()
 		}
-		return page, nil
+		return page, func() tea.Msg { return OperationResult("runtime.copy", "Runtime", notice, nil) }
 	}
 	if page.overlay == systemOverlayOperation {
 		if key, ok := message.(tea.KeyPressMsg); ok && key.String() == "esc" {
@@ -196,11 +199,10 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.overlay, page.progress = systemOverlayNone, nil
 			if page.editor != nil {
 				page.editor.SetSubmitting(false)
-				page.editor.SetFeedback("Runtime/system operation cancellation requested", nil)
-			} else {
-				page.notice = "Runtime/system operation cancellation requested"
 			}
-			return page, nil
+			return page, func() tea.Msg {
+				return cancelledOperation("runtime.update", "Runtime", "Runtime/system operation cancelled")
+			}
 		}
 		if page.progress != nil {
 			updated, cmd := page.progress.Update(message)
@@ -218,7 +220,7 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		page.loaded, page.err = true, nil
-		page.runtime, page.auth, page.install, page.about = msg.runtime, msg.auth, msg.install, msg.about
+		page.runtime, page.auth, page.install, page.about, page.shell = msg.runtime, msg.auth, msg.install, msg.about, msg.shell
 		if page.action != "" && page.editor == nil {
 			if err := page.initRuntimeEditor(); err != nil {
 				page.err = err
@@ -349,8 +351,7 @@ func (page *RuntimePage) View(width, height int) string {
 		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 64)), width, height)
 	case systemOverlaySecret:
 		modalWidth := overlayWidth(width, 88)
-		body := component.Title(strings.ToUpper(page.secretKind)+" token") + "\n\n" + page.secret + "\n\n" + component.Muted("Shown once · c copy · Esc close")
-		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(page.secretOverlayBody(), modalWidth), modalWidth), width, height)
 	case systemOverlayExternal:
 		modalWidth := overlayWidth(width, 88)
 		body := component.Title("Run outside the TUI") + "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(modalWidth)) + "\n\n" + component.Muted("c copy command · Esc close")
@@ -367,8 +368,7 @@ func (page *RuntimePage) MouseTargets(originX, originY, z int) []component.Mouse
 	case systemOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
 	case systemOverlaySecret:
-		body := component.Title(strings.ToUpper(page.secretKind)+" token") + "\n\n" + page.secret + "\n\n" + component.Muted("Shown once · c copy · Esc close")
-		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
+		return dismissibleOverlayMouseTargets(page.secretOverlayBody(), overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
 	case systemOverlayExternal:
 		if page.external == nil {
 			return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
@@ -408,7 +408,7 @@ func (page *RuntimePage) loadCmd() tea.Cmd {
 			return systemLoadMsg{err: err}
 		}
 		about, err := application.LoadAbout(ctx)
-		return systemLoadMsg{runtime: runtimeState, auth: auth, install: installation, about: about, err: err}
+		return systemLoadMsg{runtime: runtimeState, auth: auth, install: installation, about: about, shell: application.LoadShellDiagnostic(), err: err}
 	}
 }
 
@@ -447,7 +447,7 @@ func (page *RuntimePage) openCommand(command SystemCommand) (tea.Cmd, error) {
 		page.confirm = component.NewConfirmButtons(page.confirmActionLabel(), "Cancel", false)
 		page.overlay = systemOverlayConfirm
 		return nil, nil
-	case RuntimeUpUser, RuntimeUpSystem, MCPHTTPEnable, MCPHTTPDisable, AuthMCPEnable, AuthMCPDisable, AuthAdminEnable, AuthAdminDisable, AliasInstall, UpdateCheck:
+	case RuntimeUpUser, RuntimeUpSystem, MCPHTTPEnable, MCPHTTPDisable, AuthMCPEnable, AuthMCPDisable, AuthMCPShow, AuthMCPCopy, AuthAdminEnable, AuthAdminDisable, AliasInstall, UpdateCheck:
 		return page.startOperation(command), nil
 	default:
 		return nil, fmt.Errorf("unsupported system action: %s", command)
@@ -478,8 +478,7 @@ func (page *RuntimePage) startOperation(command SystemCommand) tea.Cmd {
 	id := page.operationID
 	ctx, cancel := context.WithTimeout(page.ctx, systemOperationTimeout)
 	page.operationCancel = cancel
-	progress := component.NewProgress(systemOperationTitle(command))
-	page.progress, page.pending, page.overlay = &progress, command, systemOverlayOperation
+	page.pending = command
 	installOptions := application.InstallCurrentOptions{}
 	if page.installForm != nil {
 		installOptions = page.installForm.Options()
@@ -528,6 +527,19 @@ func (page *RuntimePage) startOperation(command SystemCommand) tea.Cmd {
 			_, msg.err = application.SetAuthEnabled(ctx, "mcp", true)
 		case AuthMCPDisable:
 			_, msg.err = application.SetAuthEnabled(ctx, "mcp", false)
+		case AuthMCPShow:
+			msg.token, msg.err = application.RevealMCPToken()
+		case AuthMCPCopy:
+			token, err := application.RevealMCPToken()
+			if err != nil {
+				msg.err = err
+				break
+			}
+			if err := component.CopyText(token); err != nil {
+				msg.err = err
+				break
+			}
+			msg.notice = "Copied Direct MCP HTTP token"
 		case AuthAdminEnable:
 			_, msg.err = application.SetAuthEnabled(ctx, "admin", true)
 		case AuthAdminDisable:
@@ -552,7 +564,7 @@ func (page *RuntimePage) startOperation(command SystemCommand) tea.Cmd {
 		}
 		return msg
 	}
-	return tea.Batch(progress.Init(), operation)
+	return beginOperation("runtime.update", "Runtime", systemOperationTitle(command), operation)
 }
 
 func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
@@ -565,17 +577,14 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		page.overlay = systemOverlayNone
 		if page.editor != nil {
 			page.editor.SetSubmitting(false)
-			page.editor.SetFeedback("", msg.err)
-			page.err = nil
-		} else {
-			page.err = msg.err
 		}
-		return nil
+		page.err = nil
+		return func() tea.Msg { return OperationResult("runtime.update", "Runtime", "", msg.err) }
 	}
 	if msg.token != "" {
 		page.secret = msg.token
 		page.secretKind = "admin"
-		if msg.command == AuthMCPRotate {
+		if msg.command == AuthMCPRotate || msg.command == AuthMCPShow {
 			page.secretKind = "mcp"
 		}
 		page.overlay = systemOverlaySecret
@@ -583,8 +592,8 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		page.external, page.overlay = msg.external, systemOverlayExternal
 	} else {
 		page.overlay = systemOverlayNone
-		page.notice = operationNotice(msg)
 	}
+	notice := operationNotice(msg)
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
 		if msg.external != nil {
@@ -592,11 +601,13 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		}
 		page.editor.Accept()
 		page.installForm, page.updateForm = nil, nil
-		notice := page.notice
-		return tea.Batch(page.runtimeEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Runtime", Message: notice, Tone: component.ToneSuccess} })
+		return tea.Batch(page.runtimeEditorParentNavigation(), func() tea.Msg { return OperationResult("runtime.update", "Runtime", notice, nil) })
 	}
 	page.installForm, page.updateForm = nil, nil
-	return page.loadCmd()
+	if msg.token != "" || msg.external != nil {
+		return page.loadCmd()
+	}
+	return withOperation("runtime.update", "Runtime", notice, page.loadCmd())
 }
 
 func (page *RuntimePage) cancelOperation() {
@@ -702,7 +713,7 @@ func (page *RuntimePage) resizeBrowser() tea.Cmd {
 }
 
 func (page *RuntimePage) runtimeItems() []runtimeItem {
-	items := []runtimeItem{page.runtimeItem(), page.mcpHTTPItem(), page.serviceItem(page.runtime.UserService)}
+	items := []runtimeItem{page.runtimeItem(), page.shellItem(), page.mcpHTTPItem(), page.serviceItem(page.runtime.UserService)}
 	if page.runtime.SystemService.Supported {
 		items = append(items, page.serviceItem(page.runtime.SystemService))
 	}
@@ -767,6 +778,10 @@ func (page *RuntimePage) runtimeDetailBindings(row component.Row) []component.De
 			command, label = MCPHTTPDisable, "disable"
 		}
 		add("space", label, command)
+	case "shell.bash":
+		if !page.shell.Available && runtime.GOOS == "windows" {
+			bindings = append(bindings, component.DetailPageBinding{Key: "i", Desc: "install Bash", Message: NavigateMsg{Path: []string{"plugins", "marketplace", "official/bash"}}})
+		}
 	case "auth.mcp":
 		if page.auth.MCPConfigured || page.auth.MCPEnabled {
 			command, label := AuthMCPEnable, "enable"
@@ -775,6 +790,8 @@ func (page *RuntimePage) runtimeDetailBindings(row component.Row) []component.De
 			}
 			add("e", label, command)
 		}
+		add("v", "reveal token", AuthMCPShow)
+		add("c", "copy token", AuthMCPCopy)
 		add("t", "rotate token", AuthMCPRotate)
 	case "auth.admin":
 		if page.auth.AdminConfigured || page.auth.AdminEnabled {
@@ -828,8 +845,24 @@ func (page *RuntimePage) runtimeItem() runtimeItem {
 		}
 		description = fmt.Sprintf("%s · pid %d · %s", state, status.PID, mode)
 		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP HTTP", mcpHTTP}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}}
+		fields = append(fields, runtimeProviderFields(status)...)
+	} else {
+		fields = append(fields, runtimeProviderFields(page.runtime.Status)...)
 	}
 	return runtimeItem{row: component.Row{ID: "runtime", Title: "MCP runtime process", Description: description, Search: "runtime process status service server"}, detailTitle: "MCP runtime process", detail: detailFields(fields...)}
+}
+
+func (page *RuntimePage) shellItem() runtimeItem {
+	state := "unavailable"
+	description := "Bash runtime unavailable"
+	fields := [][2]string{{"State", state}, {"Configured executable", page.shell.Configured}, {"Error", page.shell.Error}, {"Remediation", page.shell.Remediation}}
+	if page.shell.Available {
+		provider := page.shell.Provider
+		state = "available"
+		description = "Bash · " + provider.Label()
+		fields = [][2]string{{"State", state}, {"Language", provider.Language}, {"Provider", provider.Label()}, {"Version", string(provider.Version)}, {"Executable", provider.Executable}, {"Configured executable", page.shell.Configured}}
+	}
+	return runtimeItem{row: component.Row{ID: "shell.bash", Title: "Agent Bash shell", Description: description, Search: "bash shell provider plugin runtime executable remediation"}, detailTitle: "Agent Bash shell", detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) mcpHTTPRow() component.Row {
@@ -859,11 +892,11 @@ func (page *RuntimePage) mcpHTTPItem() runtimeItem {
 	} else if page.runtime.MCPHTTPEnabled {
 		description += " · starts with runtime"
 	}
-	fallback := "off"
+	fallback := "none enabled"
 	if page.runtime.TunnelEnabled {
-		fallback = "on"
+		fallback = "available"
 	}
-	fields := [][2]string{{"Configured", configured}, {"Runtime", runtimeState}, {"Port", fmt.Sprint(page.runtime.MCPHTTPPort)}, {"Endpoint", endpointValue}, {"Tunnel", fallback}, {"Invariant", "MCP HTTP or OpenAI Secure MCP Tunnel must remain enabled."}}
+	fields := [][2]string{{"Configured", configured}, {"Runtime", runtimeState}, {"Port", fmt.Sprint(page.runtime.MCPHTTPPort)}, {"Endpoint", endpointValue}, {"Tunnels", fallback}, {"Invariant", "MCP HTTP or at least one Secure MCP Tunnel must remain enabled."}}
 	return runtimeItem{row: component.Row{ID: "transport.mcp-http", Title: "MCP HTTP server", Description: description, Search: "mcp http server transport listener port enable disable"}, detailTitle: "MCP HTTP server", detail: detailFields(fields...)}
 }
 
@@ -910,14 +943,14 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 	if configured {
 		configuredText = "configured"
 	}
-	title := "MCP HTTP authentication"
+	title := "Direct MCP HTTP authentication"
 	description := state + " · token " + configuredText
-	scope := "Controls authentication only; the MCP HTTP listener is controlled by MCP HTTP server."
+	scope := "Protects direct /mcp HTTP only. Secure MCP Tunnel is unaffected."
 	if kind == "admin" {
 		title = "Admin UI authentication"
 		scope = "Controls authentication for the Admin UI only."
 	} else {
-		description += " · auth only"
+		description += " · /mcp only"
 	}
 	security := "Token hashes are persisted; plaintext is shown once after rotation."
 	legacyBearer := "n/a"
@@ -925,6 +958,12 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 		legacyBearer = "disabled"
 		if page.auth.MCPLegacyBearer {
 			legacyBearer = "enabled"
+		}
+		security = "Direct MCP HTTP token is stored encrypted and can be revealed."
+		if configured && !page.auth.MCPRevealable {
+			configuredText = "configured, rotate to reveal"
+			description = state + " · token " + configuredText + " · /mcp only"
+			security = "Token hash is present but plaintext is not stored. Rotate once to make it revealable."
 		}
 	}
 	if page.auth.UnauthenticatedLoopback && !enabled {
@@ -936,10 +975,14 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 	}
 	fields := [][2]string{{"Enabled", fmt.Sprint(enabled)}, {"Token", configuredText}}
 	if kind == "mcp" {
-		fields = append(fields, [2]string{"OAuth", "canonical for cgm mcp http"}, [2]string{"Legacy bearer", legacyBearer})
+		fields = append(fields, [2]string{"Legacy bearer", legacyBearer})
 	}
 	fields = append(fields, [2]string{"Scope", scope}, [2]string{"Security", security})
-	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind}, detailTitle: title, detail: detailFields(fields...)}
+	search := "auth token " + kind
+	if kind != "admin" {
+		search += " direct mcp http"
+	}
+	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: search}, detailTitle: title, detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) installItem() runtimeItem {
@@ -1015,6 +1058,16 @@ func (page *RuntimePage) statusView(width int) string {
 	return summary + "\n" + strings.Join(banners, "\n")
 }
 
+func (page *RuntimePage) secretOverlayBody() string {
+	title := "Admin token"
+	hint := "Shown once · c copy · Esc close"
+	if page.secretKind == "mcp" {
+		title = "Direct MCP HTTP token"
+		hint = "Stored encrypted · c copy · Esc close"
+	}
+	return component.Title(title) + "\n\n" + page.secret + "\n\n" + component.Muted(hint)
+}
+
 func (page *RuntimePage) confirmActionLabel() string {
 	switch page.pending {
 	case AuthMCPRotate, AuthAdminRotate:
@@ -1035,7 +1088,7 @@ func (page *RuntimePage) confirmActionLabel() string {
 func (page *RuntimePage) confirmTitle() string {
 	switch page.pending {
 	case AuthMCPRotate:
-		return "Rotate MCP token?"
+		return "Rotate Direct MCP HTTP token?"
 	case AuthAdminRotate:
 		return "Rotate admin token?"
 	case InstallCleanup:
@@ -1053,7 +1106,9 @@ func (page *RuntimePage) confirmTitle() string {
 
 func (page *RuntimePage) confirmDescription() string {
 	switch page.pending {
-	case AuthMCPRotate, AuthAdminRotate:
+	case AuthMCPRotate:
+		return "The previous token stops working immediately. The new token is stored encrypted and shown so you can copy it."
+	case AuthAdminRotate:
 		return "The previous token stops working immediately. The new plaintext token is shown once and is not persisted by the TUI."
 	case InstallCleanup:
 		return "Only verified legacy standalone installations are eligible for removal; the current executable is preserved."
@@ -1109,6 +1164,10 @@ func systemOperationTitle(command SystemCommand) string {
 		return "Updating MCP HTTP server"
 	case AuthMCPRotate, AuthAdminRotate:
 		return "Rotating authentication token"
+	case AuthMCPShow:
+		return "Revealing Direct MCP HTTP token"
+	case AuthMCPCopy:
+		return "Copying Direct MCP HTTP token"
 	default:
 		return "Applying system action"
 	}
@@ -1142,7 +1201,43 @@ func valueInt(value int) string {
 	return fmt.Sprint(value)
 }
 
+func runtimeProviderFields(status runtimecontrol.RuntimeStatus) [][2]string {
+	providers := status.TunnelProviders
+	if len(providers) == 0 && status.CFTunnel != nil {
+		providers = []runtimecontrol.TunnelProviderStatus{status.CFTunnel.AsProvider()}
+	}
+	if len(providers) == 0 {
+		return nil
+	}
+	fields := make([][2]string, 0, len(providers))
+	for _, item := range providers {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = item.Provider
+		}
+		fields = append(fields, [2]string{name, runtimeProviderStatusLine(item)})
+	}
+	return fields
+}
+
+func runtimeProviderStatusLine(item runtimecontrol.TunnelProviderStatus) string {
+	parts := make([]string, 0, len(item.Targets))
+	for _, target := range item.Targets {
+		parts = append(parts, target.Target+" "+target.Line())
+	}
+	if len(parts) == 0 {
+		if item.Enabled {
+			return "enabled"
+		}
+		return "disabled"
+	}
+	return strings.Join(parts, " · ")
+}
+
 func runtimeTunnelStatus(status runtimecontrol.RuntimeStatus) string {
+	if status.TunnelSummary.Total > 0 {
+		return fmt.Sprintf("%d attached · %d enabled · %d ready · %d degraded", status.TunnelSummary.Total, status.TunnelSummary.Enabled, status.TunnelSummary.Ready, status.TunnelSummary.Degraded)
+	}
 	if !status.TunnelEnabled {
 		return "disabled"
 	}

@@ -14,6 +14,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 const requestRefreshInterval = time.Second
@@ -223,19 +224,22 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.progress = nil
 		if page.operationCancelled {
 			page.operationCancelled = false
-			page.notice = "Approval operation cancelled"
-			return page, nil
+			return page, func() tea.Msg {
+				return cancelledOperation("request.resolve", "Requests", "Approval operation cancelled")
+			}
 		}
 		if msg.err != nil {
-			requestEditorError(page.editor, msg.err)
+			if page.editor != nil {
+				page.editor.SetSubmitting(false)
+			}
 			page.err = nil
-			return page, nil
+			return page, func() tea.Msg { return OperationResult("request.resolve", "Requests", "", msg.err) }
 		}
 		page.err = nil
 		page.upsertRequest(msg.request)
 		notice := requestResolveNotice(msg.approve, msg.request)
 		page.editor, page.resolveForm, page.resolveID, page.action = nil, nil, "", ""
-		return page, tea.Batch(requestNavigateCmd(page.mode, msg.request.ID, "", true), func() tea.Msg { return ToastMsg{Title: "Requests", Message: notice, Tone: component.ToneSuccess} })
+		return page, tea.Batch(requestNavigateCmd(page.mode, msg.request.ID, "", true), func() tea.Msg { return OperationResult("request.resolve", "Requests", notice, nil) })
 	case requestCreateMsg:
 		if page.operationCancel != nil {
 			page.operationCancel()
@@ -245,19 +249,22 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.progress = nil
 		if page.operationCancelled {
 			page.operationCancelled = false
-			page.notice = "Test request creation cancelled"
-			return page, nil
+			return page, func() tea.Msg {
+				return cancelledOperation("request.create", "Requests", "Test request creation cancelled")
+			}
 		}
 		if msg.err != nil {
-			requestEditorError(page.editor, msg.err)
+			if page.editor != nil {
+				page.editor.SetSubmitting(false)
+			}
 			page.err = nil
-			return page, nil
+			return page, func() tea.Msg { return OperationResult("request.create", "Requests", "", msg.err) }
 		}
 		page.err = nil
 		page.upsertRequest(msg.request)
 		notice := "Created test request " + msg.request.ID
 		page.editor, page.createForm, page.action = nil, nil, ""
-		return page, tea.Batch(requestNavigateCmd(requestModePending, msg.request.ID, "", true), func() tea.Msg { return ToastMsg{Title: "Requests", Message: notice, Tone: component.ToneSuccess} })
+		return page, tea.Batch(requestNavigateCmd(requestModePending, msg.request.ID, "", true), func() tea.Msg { return OperationResult("request.create", "Requests", notice, nil) })
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		if page.editor != nil {
@@ -524,13 +531,10 @@ func (page *RequestsPage) submitCreateTestForm() tea.Cmd {
 	ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
 	page.operationCancel = cancel
 	page.operationCancelled = false
-	progress := component.NewProgress("Creating test approval request")
-	page.progress = &progress
-	page.overlay = requestOverlayOperation
-	return func() tea.Msg {
+	return beginOperation("request.create", "Requests", "Creating test approval request", func() tea.Msg {
 		request, err := application.CreateDummyApprovalRequest(ctx, data.WorkspaceID, data.Title, data.Command)
 		return requestCreateMsg{request: request, err: err}
-	}
+	})
 }
 
 func (page *RequestsPage) submitResolveForm() tea.Cmd {
@@ -543,10 +547,7 @@ func (page *RequestsPage) submitResolveForm() tea.Cmd {
 	ctx, cancel := context.WithTimeout(page.ctx, requestOperationTimeout)
 	page.operationCancel = cancel
 	page.operationCancelled = false
-	progress := component.NewProgress(requestProgressTitle(approve))
-	page.progress = &progress
-	page.overlay = requestOverlayOperation
-	return func() tea.Msg {
+	return beginOperation("request.resolve", "Requests", requestProgressTitle(approve), func() tea.Msg {
 		current, err := application.GetApprovalRequest(ctx, id)
 		if err == nil {
 			err = validateResolvableRequest(current, time.Now())
@@ -556,7 +557,7 @@ func (page *RequestsPage) submitResolveForm() tea.Cmd {
 		}
 		request, err := application.ResolveApprovalRequest(ctx, id, approve, reason)
 		return requestResolveMsg{request: request, approve: approve, err: err}
-	}
+	})
 }
 
 func (page *RequestsPage) manualRefreshCmd() tea.Cmd {
@@ -598,9 +599,6 @@ func (page *RequestsPage) cancelOperation() {
 	page.progress = nil
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
-		page.editor.SetFeedback("Approval operation cancellation requested", nil)
-	} else {
-		page.notice = "Approval operation cancellation requested"
 	}
 }
 
@@ -653,8 +651,8 @@ func (page *RequestsPage) requestRows() []component.Row {
 			meta += " · " + countdown
 		}
 		rows = append(rows, component.Row{
-			ID: request.ID, Title: title, Description: strings.Join(nonEmptyRequestStrings(shortApprovalRequestID(request.ID), request.WorkspaceID, request.TargetTool), " · "), Meta: meta,
-			Search: strings.Join([]string{request.ID, string(request.Status), request.WorkspaceID, request.TargetTool, request.Source, request.Title, request.Command}, " "),
+			ID: request.ID, Title: title, Description: strings.Join(nonEmptyRequestStrings(shortApprovalRequestID(request.ID), tunnel.DisplayLabel(request.TunnelID, request.TunnelName), request.WorkspaceID, request.TargetTool), " · "), Meta: meta,
+			Search: strings.Join([]string{request.ID, string(request.Status), request.WorkspaceID, request.TargetTool, request.Source, request.TunnelID, request.TunnelName, request.Title, request.Command}, " "),
 		})
 	}
 	return rows
@@ -902,11 +900,21 @@ func requestTickCmd() tea.Cmd {
 }
 
 func requestOverview(request approval.Request, _ int) string {
-	return detailFields(
-		[2]string{"Status", string(request.Status)}, [2]string{"Title", request.Title}, [2]string{"Workspace", request.WorkspaceID}, [2]string{"Tool", request.TargetTool},
-		[2]string{"Source", request.Source}, [2]string{"Session", request.SessionHash}, [2]string{"Created", requestTime(request.CreatedAt)}, [2]string{"Expires", requestTime(request.ExpiresAt)},
+	fields := [][2]string{
+		{"Status", string(request.Status)}, {"Title", request.Title}, {"Workspace", request.WorkspaceID}, {"Tool", request.TargetTool},
+		{"Source", request.Source},
+	}
+	if label := tunnel.DisplayLabel(request.TunnelID, request.TunnelName); label != "" {
+		fields = append(fields, [2]string{"Tunnel", label})
+		if strings.TrimSpace(request.TunnelName) != "" && strings.TrimSpace(request.TunnelID) != "" {
+			fields = append(fields, [2]string{"Tunnel ID", request.TunnelID})
+		}
+	}
+	fields = append(fields,
+		[2]string{"Session", request.SessionHash}, [2]string{"Created", requestTime(request.CreatedAt)}, [2]string{"Expires", requestTime(request.ExpiresAt)},
 		[2]string{"Resolved", requestTime(request.ResolvedAt)}, [2]string{"Resolved by", request.ResolvedBy}, [2]string{"Reason", request.Reason}, [2]string{"Retry until", requestTime(request.RetryUntil)}, [2]string{"Consumed", requestTime(request.ConsumedAt)},
 	)
+	return detailFields(fields...)
 }
 
 func requestArguments(request approval.Request) string {

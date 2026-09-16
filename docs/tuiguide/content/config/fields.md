@@ -6,7 +6,7 @@ The Config TUI is schema-driven. Each field below is the same key exposed by the
 
 ### `server.enabled` — MCP HTTP server
 
-Boolean. Controls whether the local MCP HTTP transport is enabled. Disabling it removes local HTTP MCP connectivity. At least one MCP transport must remain enabled, so the Secure MCP Tunnel must be enabled before this can be disabled by itself. Related: `server.port`, `server.expose.mode`, `auth.mcp_enabled`, `tunnel.enabled`.
+Boolean. Controls whether the local MCP HTTP transport is enabled. Disabling it removes local HTTP MCP connectivity. At least one MCP transport must remain enabled, so at least one attached Secure MCP Tunnel instance must remain enabled before this can be disabled by itself. Related: `server.port`, `server.expose.mode`, `auth.mcp_enabled`.
 
 ### `server.expose.mode` — Exposure
 
@@ -31,6 +31,22 @@ Integer TCP port for the MCP HTTP server. Valid range is `1-65535`. When both MC
 
 Boolean opt-in allowing authenticated plain HTTP endpoints beyond loopback. This does not disable authentication requirements. Prefer the Secure MCP Tunnel or a TLS reverse proxy when possible.
 
+### `notifications.enabled` — Desktop notifications
+
+Boolean master switch for host desktop notifications. Approval requests still work when this is off or the provider is unavailable.
+
+### `notifications.approvals` — Approval notifications
+
+Boolean controlling desktop alerts for pending control approval requests. The notification never approves or denies.
+
+### `notifications.when_tui_inactive` — Notify only without TUI
+
+Boolean. When true, desktop approval notifications are skipped while a TUI reviewer is open for this config root.
+
+### `notifications.open_action` — Notification open action
+
+Enum: `auto` or `disabled`. `auto` would expose Review only when the host can reliably open a terminal; `disabled` keeps notifications passive. Current providers are passive.
+
 ### `admin.enabled` — Admin server
 
 Boolean controlling the admin HTTP server. When enabled it uses `admin.port` and the same network exposure policy. If admin authentication is enabled, a configured admin credential is required.
@@ -41,17 +57,17 @@ Integer TCP port for the admin HTTP server. Valid range is `1-65535` while the s
 
 ## Access & Security
 
-### `auth.mcp_enabled` — MCP authentication
+### `auth.mcp_enabled` — Direct MCP HTTP authentication
 
-Boolean token-authentication switch for the MCP HTTP endpoint. Non-loopback HTTP exposure requires MCP authentication with a configured credential.
+Boolean token-authentication switch for direct `/mcp` HTTP access. Protects `/mcp` only; Secure MCP Tunnel is unaffected. Non-loopback HTTP exposure requires Direct MCP HTTP authentication with a configured token. Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT.
 
 ### `auth.admin_enabled` — Admin authentication
 
 Boolean token-authentication switch for the admin HTTP endpoint. Non-loopback exposure with the admin endpoint enabled requires admin authentication and a configured credential.
 
-### `auth.mcp_token_hash` — MCP credential
+### `auth.mcp_token_hash` — Direct MCP HTTP token
 
-Read-only, sensitive managed credential hash. The raw token is never exposed through config views. Manage it through the MCP authentication/token workflow rather than Config field editing.
+Read-only, sensitive managed credential hash. The raw token is never exposed through config views. Reuse this token when adding this MCP server to ChatGPT. Manage it with `cgm auth mcp show`, `cgm auth mcp copy`, or `cgm auth mcp rotate` rather than Config field editing. Legacy hash-only values need one rotate before reveal/copy work.
 
 ### `auth.admin_token_hash` — Admin credential
 
@@ -69,58 +85,19 @@ List of additional executable directories prepended to the inherited runtime `PA
 
 Shell commands otherwise inherit the runtime process environment. The application still enforces workspace mutation containment, protected control-plane state, and risk-based approval for destructive, host, or external mutations. Strong OS-level process isolation should be provided externally when required.
 
-## Features
+## Core plugins
 
-### `features.ponytail.active` — Ponytail active
-
-Boolean controlling whether Ponytail guidance is active by default.
-
-### `features.ponytail.mode` — Ponytail mode
-
-Enum default intensity: `lite`, `full`, or `ultra`. Lite builds the requested solution but may point out simpler alternatives; full enforces reuse/stdlib/native-first and shortest-correct implementation; ultra applies aggressive YAGNI pressure and challenges unnecessary scope.
-
-### `features.caveman.active` — Caveman active
-
-Boolean controlling whether compressed Caveman response style is active by default.
-
-### `features.caveman.mode` — Caveman mode
-
-Enum persisted response intensity: `lite`, `full`, `ultra`, `wenyan-lite`, `wenyan-full`, `wenyan-ultra`. The wenyan variants progressively increase classical-Chinese compression. Session-only aliases such as `off` or `wenyan` are not persisted values.
+Ponytail and Caveman are official core plugins (`tool-provider/*`), not compiled into `cgm`. Configure them from the Plugins page or `cgm plugin config`, not from core `features.*` config keys.
 
 ## Tunnel
 
-### `tunnel.enabled` — Tunnel
+Tunnel configuration is a collection and is intentionally managed from the Tunnel page/CLI instead of the scalar Config-field editor.
 
-Boolean controlling the OpenAI Secure MCP Tunnel transport. Enabling requires both `tunnel.id` and a configured runtime API key. It can satisfy the requirement that at least one MCP transport remains enabled when local MCP HTTP is disabled.
+The current model contains:
 
-### `tunnel.id` — Tunnel ID
+- **instances** — local tunnel attachments keyed by tunnel ID, each with enabled state, its own managed runtime key, optional admin-profile reference, control-plane override, and organization context;
+- **admin profiles** — named management credentials with one organization/workspace/tenant scope and optional control-plane override.
 
-String identifier for the Secure MCP Tunnel used by this runtime. Required while tunnel transport is enabled.
+Raw runtime/admin keys are never rendered by Config. Legacy scalar `tunnel.*` values from older installations are compatibility input only and are migrated into the collection model on load/save. `config get tunnel.*` still reads the first collection instance or leftover scalar. Those keys are read-only in Config; `config set` cannot write them.
 
-### `tunnel.api_key` — Runtime API key
-
-Read-only sensitive managed credential. The raw key is redacted from Config. Manage it from the Tunnel page.
-
-### `tunnel.admin_key` — Admin key
-
-Read-only sensitive credential used for control-plane management such as listing, creating, updating, and deleting managed tunnels. It is separate from the runtime API key and is managed from the Tunnel page.
-
-### `tunnel.admin_organization_id` — Admin organization scope
-
-Read-only verified organization scope produced by admin-key verification.
-
-### `tunnel.admin_workspace_id` — Admin workspace scope
-
-Read-only verified workspace scope produced by admin-key verification.
-
-### `tunnel.admin_tenant_id` — Admin tenant scope
-
-Read-only verified tenant scope produced by admin-key verification.
-
-### `tunnel.control_plane_base_url` — Control-plane URL
-
-Optional string overriding the tunnel control-plane base URL. Empty uses the default endpoint. A custom value must be an absolute HTTP/HTTPS URL with a host.
-
-### `tunnel.organization_id` — Organization ID
-
-Optional OpenAI organization context associated with runtime tunnel operations. This is distinct from the verified admin-key organization scope.
+Use `cgm tunnel list`, `cgm tunnel status <id>`, `cgm tunnel add/update`, `cgm tunnel attach/detach`, and `cgm tunnel admin ...` for tunnel changes.

@@ -103,12 +103,20 @@ func (field *PathField) Update(message tea.Msg) (huh.Model, tea.Cmd) {
 	if field == nil {
 		return field, nil
 	}
-	if msg, ok := message.(tea.KeyPressMsg); ok && msg.String() == "ctrl+o" {
-		next := PathFieldInput
-		if field.mode == PathFieldInput {
-			next = PathFieldPicker
+	if msg, ok := message.(tea.KeyPressMsg); ok {
+		switch msg.String() {
+		case "ctrl+o":
+			next := PathFieldInput
+			if field.mode == PathFieldInput {
+				next = PathFieldPicker
+			}
+			return field, field.SetMode(next)
+		case "enter":
+			// Collapsed picker: Enter advances/submits; open browse with l/→.
+			if field.mode == PathFieldPicker && !field.Zoom() {
+				return field, huh.NextField
+			}
 		}
-		return field, field.SetMode(next)
 	}
 	updated, cmd := field.active().Update(message)
 	field.setActive(updated.(huh.Field))

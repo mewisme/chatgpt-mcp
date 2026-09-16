@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, rm, symlink, writeFile } from "node:fs/promises"
+import { rm, symlink, writeFile } from "node:fs/promises"
 import { basename, delimiter, dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
@@ -9,64 +9,23 @@ process.noDeprecation = true
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
-const options = { installDeps: true, prepareOnly: false, fromDist: false }
+if (args.includes("--help") || args.includes("-h")) {
+  console.log(`Usage: node scripts/install-local.mjs
 
-for (const arg of args) {
-  if (arg === "--no-deps") options.installDeps = false
-  else if (arg === "--prepare-only") options.prepareOnly = true
-  else if (arg === "--from-dist") options.fromDist = true
-  else if (arg === "--help" || arg === "-h") {
-    console.log(`Usage: node scripts/install-local.mjs [--no-deps] [--prepare-only] [--from-dist]
-
-Cross-platform local build/install for Linux, Windows, and macOS.
-
-Default flow:
-  1. pnpm --dir web install --frozen-lockfile
-  2. pnpm --dir web build
-  3. copy web/dist -> internal/web/dist
-  4. go install .
-  5. install cgm alias beside chatgpt-mcp
-
-Options:
-  --no-deps       Skip pnpm install.
-  --prepare-only  Build and prepare embedded web assets without go install .
-  --from-dist     Use an existing web/dist and skip pnpm install/build.
-  -h, --help      Show this help.`)
-    process.exit(0)
-  } else fail(`unknown argument: ${arg}`)
-}
-
-const go = process.platform === "win32" ? "go.exe" : "go"
-
-await requireFile("go.mod")
-await requireFile("scripts/prepare-web-embed.mjs")
-
-console.log(`[INFO] repository: ${root}`)
-console.log(`[INFO] platform: ${process.platform}/${process.arch}`)
-
-const prepareArgs = [resolve(root, "scripts/prepare-web-embed.mjs")]
-if (!options.installDeps) prepareArgs.push("--no-deps")
-if (options.fromDist) prepareArgs.push("--from-dist")
-run(process.execPath, prepareArgs)
-
-if (options.prepareOnly) {
-  console.log("[OK] local web embed is ready")
+Cross-platform local Go build/install for Linux, Windows, and macOS.
+The Admin UI is distributed independently as the admin-ui plugin.`)
   process.exit(0)
 }
+if (args.length) fail(`unknown argument: ${args[0]}`)
 
+const go = process.platform === "win32" ? "go.exe" : "go"
+console.log(`[INFO] repository: ${root}`)
+console.log(`[INFO] platform: ${process.platform}/${process.arch}`)
 run(go, ["install", "."])
 const binaryPath = installedBinaryPath()
 const aliasPath = await installAlias(binaryPath)
 console.log(`[OK] installed: ${binaryPath}`)
 console.log(`[OK] alias: ${aliasPath}`)
-
-async function requireFile(relative) {
-  try {
-    await access(resolve(root, relative))
-  } catch {
-    fail(`required file not found: ${relative}`)
-  }
-}
 
 function run(command, commandArgs) {
   console.log(`[RUN] ${command} ${commandArgs.join(" ")}`)

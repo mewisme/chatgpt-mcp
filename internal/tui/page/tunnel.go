@@ -8,7 +8,6 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -21,14 +20,7 @@ const tunnelOperationTimeout = 30 * time.Second
 type TunnelCommand string
 
 const (
-	TunnelConfigure        TunnelCommand = "tunnel.configure"
-	TunnelEnable           TunnelCommand = "tunnel.enable"
-	TunnelDisable          TunnelCommand = "tunnel.disable"
 	TunnelForeground       TunnelCommand = "tunnel.foreground"
-	TunnelSync             TunnelCommand = "tunnel.sync"
-	TunnelAdminKeySet      TunnelCommand = "tunnel.admin.key.set"
-	TunnelAdminKeyVerify   TunnelCommand = "tunnel.admin.key.verify"
-	TunnelAdminKeyRemove   TunnelCommand = "tunnel.admin.key.remove"
 	TunnelManagedRefresh   TunnelCommand = "tunnel.managed.refresh"
 	TunnelManagedCreate    TunnelCommand = "tunnel.managed.create"
 	TunnelManagedUpdate    TunnelCommand = "tunnel.managed.update"
@@ -41,95 +33,50 @@ type TunnelCommandMsg struct {
 	ResourceID string
 }
 
-type tunnelPageKind uint8
-
-const (
-	tunnelPageRuntime tunnelPageKind = iota
-	tunnelPageManaged
-)
-
 type tunnelOverlayKind uint8
 
 const (
 	tunnelOverlayNone tunnelOverlayKind = iota
-	tunnelOverlayConfirm
 	tunnelOverlayOperation
-	tunnelOverlayExternal
 )
 
 type tunnelCopyMsg struct{ err error }
 
 type tunnelOperationMsg struct {
-	command   TunnelCommand
-	targetID  string
-	dashboard application.TunnelDashboard
-	metadata  tunnel.Metadata
-	items     []tunnel.Metadata
-	result    application.ManagedTunnelResult
-	count     int
-	scope     tunnel.AdminScope
-	err       error
+	command        TunnelCommand
+	targetID       string
+	items          []tunnel.Metadata
+	adminsByTunnel map[string][]string
+	result         application.ManagedTunnelResult
+	err            error
 }
 
 type TunnelPage struct {
 	ctx                context.Context
-	kind               tunnelPageKind
 	resourceID         string
 	section            string
 	action             string
-	dashboard          application.TunnelDashboard
-	adminStatus        application.TunnelAdminStatus
+	adminProfileID     string
+	adminProfiles      []application.TunnelAdminProfile
+	adminsByTunnel     map[string][]string
 	items              []tunnel.Metadata
 	browser            component.Browser
 	detail             component.DetailPage
-	runtimeHelp        component.HelpFooter
 	overlay            tunnelOverlayKind
 	editor             *component.Editor
-	confirm            component.ConfirmButtons
 	progress           *component.Progress
 	command            TunnelCommand
 	targetID           string
 	operationCancel    context.CancelFunc
 	operationCancelled bool
-	runtimeForm        *tunnelRuntimeFormData
-	adminForm          *tunnelAdminFormData
 	managedForm        *managedTunnelFormData
-	managedUpdateFetch bool
 	pendingInit        tea.Cmd
 	configureForm      *managedConfigureFormData
-	deleteClear        bool
-	deleteOptions      bool
-	external           *application.ExternalCommand
+	deleteForm         *managedDeleteFormData
 	notice             string
 	err                error
 	width              int
 	height             int
-}
-
-func NewTunnelDashboard(ctx context.Context) (*TunnelPage, error) {
-	return NewTunnelDashboardRoute(ctx, "", "")
-}
-
-func NewTunnelDashboardRoute(ctx context.Context, section, action string) (*TunnelPage, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	dashboard, err := application.TunnelStatus()
-	if err != nil {
-		return nil, err
-	}
-	adminStatus, err := application.TunnelAdminKeyStatus()
-	if err != nil {
-		return nil, err
-	}
-	page := &TunnelPage{ctx: ctx, kind: tunnelPageRuntime, section: strings.TrimSpace(section), action: strings.TrimSpace(action), dashboard: dashboard, adminStatus: adminStatus}
-	page.runtimeHelp = component.NewHelpFooter(page.runtimeHelpBindings()...)
-	if page.action != "" {
-		if err := page.initRuntimeEditor(); err != nil {
-			return nil, err
-		}
-	}
-	return page, nil
 }
 
 func NewManagedTunnels(ctx context.Context, resourceID string) (*TunnelPage, error) {
@@ -148,20 +95,16 @@ func NewManagedTunnelsRouteAction(ctx context.Context, resourceID, section, acti
 	if err != nil {
 		return nil, err
 	}
-	adminStatus, err := application.TunnelAdminKeyStatus()
+	adminProfiles, err := application.TunnelAdminProfiles()
 	if err != nil {
 		return nil, err
 	}
-	dashboard, err := application.TunnelStatus()
-	if err != nil {
-		return nil, err
+	page := &TunnelPage{ctx: ctx, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), items: items, adminProfiles: adminProfiles, adminsByTunnel: map[string][]string{}}
+	if (page.action == "create" || page.action == "edit" || page.action == "delete") && !hasManagedAdminProfile(adminProfiles, true) {
+		return nil, fmt.Errorf("no tunnel admin profile has verified Manage access")
 	}
-	page := &TunnelPage{ctx: ctx, kind: tunnelPageManaged, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), items: items, adminStatus: adminStatus, dashboard: dashboard}
-	if (page.action == "create" || page.action == "edit") && !page.adminStatus.Access.Manage {
-		return nil, fmt.Errorf("tunnel admin key does not have verified Manage access")
-	}
-	if page.action == "configure" && !page.adminStatus.Access.Read && !page.adminStatus.Access.Manage {
-		return nil, fmt.Errorf("tunnel admin key does not have verified Read access")
+	if page.action == "configure" && !hasManagedAdminProfile(adminProfiles, false) {
+		return nil, fmt.Errorf("no tunnel admin profile has verified Read access")
 	}
 	if page.action == "" {
 		if err := page.reloadManagedBrowser(); err != nil {
@@ -174,6 +117,53 @@ func NewManagedTunnelsRouteAction(ctx context.Context, resourceID, section, acti
 		}
 	}
 	return page, nil
+}
+
+func NewManagedTunnelsForAdmin(ctx context.Context, profileID string) (*TunnelPage, error) {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return nil, fmt.Errorf("admin profile id is required")
+	}
+	page, err := NewManagedTunnelsRouteAction(ctx, "", "", "")
+	if err != nil {
+		return nil, err
+	}
+	var scoped []application.TunnelAdminProfile
+	for _, profile := range page.adminProfiles {
+		if profile.ID != profileID {
+			continue
+		}
+		if !profile.ReadAccess && !profile.ManageAccess {
+			return nil, fmt.Errorf("admin profile %q is missing verified Read access", profileID)
+		}
+		scoped = append(scoped, profile)
+		break
+	}
+	if len(scoped) == 0 {
+		return nil, fmt.Errorf("admin profile %q not found", profileID)
+	}
+	page.adminProfileID = profileID
+	page.adminProfiles = scoped
+	page.items = nil
+	page.adminsByTunnel = map[string][]string{}
+	if err := page.reloadManagedBrowser(); err != nil {
+		return nil, err
+	}
+	cmd, err := page.openCommand(TunnelManagedRefresh, "")
+	if err != nil {
+		return nil, err
+	}
+	page.pendingInit = cmd
+	return page, nil
+}
+
+func hasManagedAdminProfile(profiles []application.TunnelAdminProfile, manage bool) bool {
+	for _, profile := range profiles {
+		if manage && profile.ManageAccess || !manage && (profile.ReadAccess || profile.ManageAccess) {
+			return true
+		}
+	}
+	return false
 }
 
 func (page *TunnelPage) Init() tea.Cmd {
@@ -193,7 +183,7 @@ func (page *TunnelPage) OverlayActive() bool {
 }
 
 func (page *TunnelPage) InputActive() bool {
-	return page != nil && (page.editor != nil || page.kind == tunnelPageManaged && page.resourceID == "" && page.browser.InputActive())
+	return page != nil && (page.editor != nil || page.resourceID == "" && page.browser.InputActive())
 }
 
 func (page *TunnelPage) Dirty() bool { return page != nil && page.editor != nil && page.editor.Dirty() }
@@ -221,21 +211,9 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	if msg, ok := message.(tunnelOperationMsg); ok {
 		return page, page.finishOperation(msg)
 	}
-	if msg, ok := message.(tunnelCopyMsg); ok {
-		if msg.err != nil {
-			page.notice = "Clipboard unavailable: " + msg.err.Error()
-		} else {
-			page.notice = "Copied command to clipboard"
-		}
-		return page, nil
-	}
 	if page.overlay == tunnelOverlayOperation {
 		if key, ok := message.(tea.KeyPressMsg); ok && key.String() == "esc" {
-			prefetch := page.kind == tunnelPageManaged && page.action == "edit" && page.editor == nil && page.managedUpdateFetch
 			page.cancelOperation()
-			if prefetch {
-				return page, page.editorParentNavigation()
-			}
 			return page, nil
 		}
 		if page.progress != nil {
@@ -253,18 +231,15 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.resizeEditor()
 			return page, nil
 		}
-		if page.kind == tunnelPageManaged {
-			var cmd tea.Cmd
-			if page.resourceID != "" {
-				page.detail.Resize(msg.Width, msg.Height)
-			} else {
-				updated, browserCmd := page.browser.Update(msg)
-				page.browser = updated.(component.Browser)
-				cmd = browserCmd
-			}
-			return page, cmd
+		var cmd tea.Cmd
+		if page.resourceID != "" {
+			page.detail.Resize(msg.Width, msg.Height)
+		} else {
+			updated, browserCmd := page.browser.Update(msg)
+			page.browser = updated.(component.Browser)
+			cmd = browserCmd
 		}
-		return page, nil
+		return page, cmd
 	case component.EditorSubmitMsg:
 		if page.editor != nil {
 			return page, page.submitEditor()
@@ -282,12 +257,6 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, cmd
 		}
 		return page, nil
-	case component.ConfirmChoiceMsg:
-		if page.overlay == tunnelOverlayConfirm {
-			page.confirm.Select(msg.Affirmative)
-			return page, page.updateConfirm(tea.KeyPressMsg{Code: tea.KeyEnter})
-		}
-		return page, nil
 	case TunnelCommandMsg:
 		cmd, err := page.openCommand(msg.Command, msg.ResourceID)
 		if err != nil {
@@ -295,7 +264,7 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, cmd
 	case component.BrowserOpenMsg:
-		if page.kind == tunnelPageManaged && page.resourceID == "" && msg.Row.ID != "" {
+		if page.resourceID == "" && msg.Row.ID != "" {
 			return page, func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", msg.Row.ID}} }
 		}
 		return page, nil
@@ -305,33 +274,10 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.editor = &updated
 			return page, cmd
 		}
-		if page.overlay == tunnelOverlayConfirm {
-			return page, page.updateConfirm(msg)
-		}
-		if page.overlay == tunnelOverlayExternal {
-			switch msg.String() {
-			case "esc":
-				page.closeOverlay()
-				return page, nil
-			case "c":
-				value := ""
-				if page.external != nil {
-					value = page.external.Command
-				}
-				return page, func() tea.Msg { return tunnelCopyMsg{err: component.CopyText(value)} }
-			}
-			return page, nil
-		}
-		if page.kind == tunnelPageManaged && page.resourceID == "" && page.browser.InputActive() {
+		if page.resourceID == "" && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
 			return page, cmd
-		}
-		if page.kind == tunnelPageRuntime {
-			page.runtimeHelp.SetBindings(page.runtimeHelpBindings()...)
-			if page.runtimeHelp.Update(msg) {
-				return page, nil
-			}
 		}
 		if cmd, handled := page.handleKey(msg); handled {
 			return page, cmd
@@ -342,17 +288,14 @@ func (page *TunnelPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.editor = &updated
 		return page, cmd
 	}
-	if page.kind == tunnelPageManaged {
-		if page.resourceID != "" {
-			updated, cmd := page.detail.Update(message)
-			page.detail = updated
-			return page, cmd
-		}
-		updated, cmd := page.browser.Update(message)
-		page.browser = updated.(component.Browser)
+	if page.resourceID != "" {
+		updated, cmd := page.detail.Update(message)
+		page.detail = updated
 		return page, cmd
 	}
-	return page, nil
+	updated, cmd := page.browser.Update(message)
+	page.browser = updated.(component.Browser)
+	return page, cmd
 }
 
 func (page *TunnelPage) View(width, height int) string {
@@ -364,48 +307,27 @@ func (page *TunnelPage) View(width, height int) string {
 	if page.err != nil {
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, width)
 	}
-	content := page.runtimeViewWithFeedback(width, feedback)
+	content := ""
 	if page.editor != nil {
 		content = page.editorView(width, height)
-	} else if page.kind == tunnelPageManaged {
-		if page.action == "edit" && page.resourceID != "" {
-			state := component.StateView(component.PageLoading, "Loading managed tunnel", page.resourceID)
-			if page.err != nil && page.overlay != tunnelOverlayOperation {
-				state = component.StateView(component.PageError, "Unable to load managed tunnel", page.err.Error())
-			}
-			content = component.WrapContent(state, width)
-		} else if page.resourceID != "" {
-			page.detail.SetFeedback(page.notice, page.err)
-			page.detail.Resize(width, height)
-			content = page.detail.View()
-		} else {
-			feedback = page.managedFeedback(width, feedback)
-			browserHeight := max(1, height-pageFeedbackHeight(feedback))
-			updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
-			page.browser = updated.(component.Browser)
-			content = prependPageFeedback(feedback, page.browser.Content())
-		}
+	} else if page.resourceID != "" {
+		page.detail.SetFeedback(page.notice, page.err)
+		page.detail.Resize(width, height)
+		content = page.detail.View()
+	} else {
+		feedback = page.managedFeedback(width, feedback)
+		browserHeight := max(1, height-pageFeedbackHeight(feedback))
+		updated, _ := page.browser.Update(tea.WindowSizeMsg{Width: width, Height: browserHeight})
+		page.browser = updated.(component.Browser)
+		content = prependPageFeedback(feedback, page.browser.Content())
 	}
-	switch page.overlay {
-	case tunnelOverlayConfirm:
-		modalWidth := overlayWidth(width, 72)
-		body := confirmOverlayBody(page.confirm, page.confirmTitle(), page.confirmDescription(), modalWidth)
-		content = component.CenterOverlay(content, component.Modal(body, modalWidth), width, height)
-	case tunnelOverlayOperation:
+	if page.overlay == tunnelOverlayOperation {
 		body := ""
 		if page.progress != nil {
 			body = page.progress.View()
 		}
 		body += "\n\n" + component.Muted("Esc cancel")
 		content = component.CenterOverlay(content, component.Modal(body, overlayWidth(width, 72)), width, height)
-	case tunnelOverlayExternal:
-		modalWidth := overlayWidth(width, 88)
-		body := component.Title("Run outside the TUI")
-		if page.external != nil {
-			body += "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(modalWidth))
-		}
-		body += "\n\n" + component.Muted("c copy command · Esc close")
-		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(body, modalWidth), modalWidth), width, height)
 	}
 	return content
 }
@@ -414,113 +336,49 @@ func (page *TunnelPage) MouseTargets(originX, originY, z int) []component.MouseT
 	if page == nil {
 		return nil
 	}
-	switch page.overlay {
-	case tunnelOverlayConfirm:
-		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
-	case tunnelOverlayExternal:
-		body := component.Title("Run outside the TUI")
-		if page.external != nil {
-			body += "\n\n" + component.Muted(page.external.Reason) + "\n\n" + component.RenderCodeBlock(page.external.Command, "bash", component.ModalContentWidth(overlayWidth(page.width, 88)))
-		}
-		body += "\n\n" + component.Muted("c copy command · Esc close")
-		return dismissibleOverlayMouseTargets(body, overlayWidth(page.width, 88), page.width, page.height, originX, originY, z+20)
-	case tunnelOverlayOperation:
+	if page.overlay == tunnelOverlayOperation {
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	}
 	if page.editor != nil {
 		return page.editor.MouseTargets(originX, originY, z)
 	}
+	if page.resourceID != "" {
+		return page.detail.MouseTargets(originX, originY, z)
+	}
 	feedback := ""
 	if page.err != nil {
 		feedback = component.BannerWidth(page.err.Error(), component.ToneDanger, page.width)
 	}
-	if page.kind == tunnelPageManaged {
-		if page.resourceID != "" {
-			return page.detail.MouseTargets(originX, originY, z)
-		}
-		feedback = page.managedFeedback(page.width, feedback)
-		return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
-	}
-	view := page.runtimeViewWithFeedback(page.width, feedback)
-	return keyHintMouseTargets(view, map[string]string{
-		"configure": "e", "toggle": "space", "sync": "s", "foreground": "f", "admin key": "a", "verify": "v", "remove admin": "d", "managed tunnels": "m",
-	}, originX, originY, z)
+	feedback = page.managedFeedback(page.width, feedback)
+	return page.browser.MouseTargets(originX, originY+pageFeedbackHeight(feedback), z)
 }
 
 func (page *TunnelPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	if page.kind == tunnelPageRuntime {
-		switch msg.String() {
-		case "e":
-			cmd, err := page.openCommand(TunnelConfigure, "")
-			page.err = err
-			return cmd, true
-		case "space":
-			if !page.dashboard.Config.Enabled && !tunnel.Configured(page.dashboard.Config) {
-				return nil, true
-			}
-			if page.dashboard.Config.Enabled && !page.dashboard.MCPHTTPEnabled {
-				page.err = fmt.Errorf("tunnel must remain enabled while MCP HTTP is disabled")
-				return nil, true
-			}
-			command := TunnelEnable
-			if page.dashboard.Config.Enabled {
-				command = TunnelDisable
-			}
-			cmd, err := page.openCommand(command, "")
-			page.err = err
-			return cmd, true
-		case "s":
-			if !tunnel.Configured(page.dashboard.Config) {
-				return nil, true
-			}
-			cmd, err := page.openCommand(TunnelSync, "")
-			page.err = err
-			return cmd, true
-		case "f":
-			cmd, err := page.openCommand(TunnelForeground, "")
-			page.err = err
-			return cmd, true
-		case "a":
-			cmd, err := page.openCommand(TunnelAdminKeySet, "")
-			page.err = err
-			return cmd, true
-		case "v":
-			if !page.adminStatus.Configured {
-				return nil, true
-			}
-			cmd, err := page.openCommand(TunnelAdminKeyVerify, "")
-			page.err = err
-			return cmd, true
-		case "d":
-			if !page.adminStatus.Configured {
-				return nil, true
-			}
-			cmd, err := page.openCommand(TunnelAdminKeyRemove, "")
-			page.err = err
-			return cmd, true
-		case "m":
-			return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}} }, true
-		}
-		return nil, false
-	}
-
 	switch msg.String() {
 	case "r":
-		if !page.adminStatus.Access.Manage {
+		if !hasManagedAdminProfile(page.adminProfiles, false) {
+			page.err = fmt.Errorf("add and verify an admin profile first (press p)")
 			return nil, true
 		}
 		cmd, err := page.openCommand(TunnelManagedRefresh, "")
 		page.err = err
 		return cmd, true
 	case "a":
-		if !page.adminStatus.Access.Manage {
+		if !hasManagedAdminProfile(page.adminProfiles, true) {
+			if len(page.adminProfiles) == 0 {
+				return func() tea.Msg { return NavigateMsg{Path: []string{"admins", "create"}} }, true
+			}
+			page.err = fmt.Errorf("no admin profile has verified Manage access; open Admin Profiles (p) and verify")
 			return nil, true
 		}
 		cmd, err := page.openCommand(TunnelManagedCreate, "")
 		page.err = err
 		return cmd, true
-	case "u":
-		if !page.adminStatus.Access.Read && !page.adminStatus.Access.Manage {
+	case "p":
+		return func() tea.Msg { return NavigateMsg{Path: []string{"admins"}} }, true
+	case "t":
+		if !hasManagedAdminProfile(page.adminProfiles, false) {
+			page.err = fmt.Errorf("add and verify an admin profile first (press p)")
 			return nil, true
 		}
 		if page.resourceID != "" {
@@ -541,47 +399,29 @@ func (page *TunnelPage) openCommand(command TunnelCommand, resourceID string) (t
 	page.err, page.notice = nil, ""
 	page.command, page.targetID = command, strings.TrimSpace(resourceID)
 	switch command {
-	case TunnelConfigure:
-		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", "edit"}} }, nil
-	case TunnelEnable, TunnelDisable:
-		enabled := command == TunnelEnable
-		return page.startOperation(command, "", "Updating tunnel state", func(ctx context.Context) tunnelOperationMsg {
-			dashboard, err := application.SetTunnelEnabled(ctx, enabled)
-			return tunnelOperationMsg{command: command, dashboard: dashboard, err: err}
-		}), nil
-	case TunnelForeground:
-		page.external = &application.ExternalCommand{Command: "cgm tunnel run", Reason: "The foreground tunnel owns the terminal. Exit the TUI before starting it."}
-		page.overlay = tunnelOverlayExternal
-		return nil, nil
-	case TunnelSync:
-		return page.startOperation(command, "", "Syncing tunnel metadata", func(ctx context.Context) tunnelOperationMsg {
-			metadata, _, err := application.SyncConfiguredTunnel(ctx)
-			return tunnelOperationMsg{command: command, metadata: metadata, err: err}
-		}), nil
-	case TunnelAdminKeySet:
-		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", "admin-key", "edit"}} }, nil
-	case TunnelAdminKeyVerify:
-		return page.startOperation(command, "", "Verifying tunnel admin key", func(ctx context.Context) tunnelOperationMsg {
-			count, scope, err := application.VerifyTunnelAdminKey(ctx)
-			return tunnelOperationMsg{command: command, count: count, scope: scope, err: err}
-		}), nil
-	case TunnelAdminKeyRemove:
-		if !page.adminStatus.Configured {
-			return nil, fmt.Errorf("tunnel admin key is not configured")
-		}
-		page.confirm = component.NewConfirmButtons("Remove", "Cancel", false)
-		page.overlay = tunnelOverlayConfirm
-		return nil, nil
 	case TunnelManagedRefresh:
-		if page.targetID == "" {
-			return page.startOperation(command, "", "Refreshing managed tunnels", func(ctx context.Context) tunnelOperationMsg {
-				items, err := application.RefreshManagedTunnels(ctx)
-				return tunnelOperationMsg{command: command, items: items, err: err}
-			}), nil
-		}
-		return page.startOperation(command, page.targetID, "Refreshing managed tunnel", func(ctx context.Context) tunnelOperationMsg {
-			result, err := application.GetManagedTunnel(ctx, page.targetID, application.ManagedTunnelOptions{})
-			return tunnelOperationMsg{command: command, targetID: page.targetID, result: result, err: err}
+		id := page.targetID
+		profileID := page.adminProfileID
+		return page.startOperation(command, id, "Refreshing managed tunnels", func(ctx context.Context) tunnelOperationMsg {
+			discovered, err := application.DiscoverManagedTunnels(ctx, profileID)
+			if err != nil {
+				return tunnelOperationMsg{command: command, targetID: id, err: err}
+			}
+			items := make([]tunnel.Metadata, 0, len(discovered))
+			adminsByTunnel := make(map[string][]string, len(discovered))
+			var selected tunnel.Metadata
+			for _, item := range discovered {
+				items = append(items, item.Metadata)
+				adminsByTunnel[item.Metadata.ID] = append([]string(nil), item.AdminProfiles...)
+				_, _ = config.SaveTunnelMetadata(item.Metadata)
+				if item.Metadata.ID == id {
+					selected = item.Metadata
+				}
+			}
+			if id != "" && selected.ID == "" {
+				return tunnelOperationMsg{command: command, targetID: id, err: fmt.Errorf("managed tunnel %q was not found", id)}
+			}
+			return tunnelOperationMsg{command: command, targetID: id, items: items, adminsByTunnel: adminsByTunnel, result: application.ManagedTunnelResult{Metadata: selected}}
 		}), nil
 	case TunnelManagedCreate:
 		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", "create"}} }, nil
@@ -599,66 +439,9 @@ func (page *TunnelPage) openCommand(command TunnelCommand, resourceID string) (t
 		if page.targetID == "" {
 			return nil, fmt.Errorf("managed tunnel id is required")
 		}
-		page.deleteClear = page.dashboard.Config.ID == page.targetID
-		if dashboard, err := application.TunnelStatus(); err == nil {
-			page.dashboard = dashboard
-			page.deleteClear = dashboard.Config.ID == page.targetID
-		}
-		if page.deleteClear && !page.dashboard.MCPHTTPEnabled {
-			return nil, fmt.Errorf("cannot delete the configured tunnel while MCP HTTP is disabled")
-		}
-		if page.deleteClear {
-			page.deleteOptions = true
-			page.confirm = component.NewConfirmButtons("Clear runtime", "Keep runtime", false)
-			page.overlay = tunnelOverlayConfirm
-			return nil, nil
-		}
-		page.confirm = component.NewConfirmButtons("Delete", "Cancel", false)
-		page.overlay = tunnelOverlayConfirm
-		return nil, nil
+		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", page.targetID, "delete"}} }, nil
 	default:
 		return nil, fmt.Errorf("unsupported tunnel action: %s", command)
-	}
-}
-
-func (page *TunnelPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
-	if msg.String() == "esc" {
-		page.closeOverlay()
-		return nil
-	}
-	if msg.String() != "enter" {
-		return page.confirm.Update(msg)
-	}
-	if page.command == TunnelManagedDelete && page.deleteOptions {
-		page.deleteClear = page.confirm.AffirmativeSelected()
-		page.deleteOptions = false
-		page.confirm = component.NewConfirmButtons("Delete", "Cancel", false)
-		page.overlay = tunnelOverlayConfirm
-		return nil
-	}
-	if !page.confirm.AffirmativeSelected() {
-		page.closeOverlay()
-		return nil
-	}
-	switch page.command {
-	case TunnelAdminKeyRemove:
-		if err := application.RemoveTunnelAdminKey(page.ctx); err != nil {
-			page.err = err
-			return nil
-		}
-		page.notice = "Tunnel admin key removed"
-		page.closeOverlay()
-		page.reloadDashboard()
-		return nil
-	case TunnelManagedDelete:
-		id, clearConfig := page.targetID, page.deleteClear
-		return page.startOperation(page.command, id, "Deleting managed tunnel", func(ctx context.Context) tunnelOperationMsg {
-			result, err := application.DeleteManagedTunnel(ctx, id, clearConfig)
-			return tunnelOperationMsg{command: TunnelManagedDelete, targetID: id, result: result, err: err}
-		})
-	default:
-		page.err = fmt.Errorf("unsupported tunnel confirmation: %s", page.command)
-		return nil
 	}
 }
 
@@ -667,11 +450,8 @@ func (page *TunnelPage) startOperation(command TunnelCommand, targetID, title st
 	page.command, page.targetID = command, targetID
 	page.operationCancel = cancel
 	page.operationCancelled = false
-	progress := component.NewProgress(title)
-	page.progress = &progress
-	page.overlay = tunnelOverlayOperation
 	page.err = nil
-	return func() tea.Msg { return run(ctx) }
+	return beginOperation("tunnel.managed.save", "Managed Tunnel", title, func() tea.Msg { return run(ctx) })
 }
 
 func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
@@ -683,88 +463,85 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 		page.operationCancelled = false
 		page.overlay = tunnelOverlayNone
 		page.progress = nil
-		page.notice = "Operation cancelled"
-		return nil
+		return func() tea.Msg {
+			return cancelledOperation("tunnel.managed.save", "Managed Tunnel", "Operation cancelled")
+		}
 	}
 	page.overlay = tunnelOverlayNone
 	page.progress = nil
 	if msg.err != nil {
-		if msg.command == TunnelManagedUpdate && page.managedUpdateFetch {
-			page.managedUpdateFetch = false
-		}
-		page.err = msg.err
+		page.err = nil
 		if page.editor != nil {
-			page.editor.SetFeedback("", msg.err)
+			page.editor.SetSubmitting(false)
 		}
-		return nil
+		return func() tea.Msg { return OperationResult("tunnel.managed.save", "Managed Tunnel", "", msg.err) }
 	}
+	var notice string
 	switch msg.command {
-	case TunnelConfigure, TunnelEnable, TunnelDisable:
-		page.dashboard = msg.dashboard
-		page.reloadDashboard()
-		page.notice = "Tunnel configuration updated"
-		if msg.command == TunnelConfigure && page.editor != nil && page.action != "" {
-			page.acceptRuntimeEditorSuccess()
-			return page.runtimeEditorSuccess(page.notice)
-		}
-	case TunnelSync:
-		page.reloadDashboard()
-		page.notice = "Tunnel metadata synced"
-	case TunnelAdminKeySet, TunnelAdminKeyVerify:
-		page.reloadDashboard()
-		page.notice = fmt.Sprintf("Admin key verified for %d tunnel(s) · %s", msg.count, tunnelScopeLabel(msg.scope))
-		if msg.command == TunnelAdminKeySet && page.editor != nil && page.action != "" {
-			page.acceptRuntimeEditorSuccess()
-			return page.runtimeEditorSuccess(page.notice)
-		}
 	case TunnelManagedRefresh:
+		if len(msg.adminsByTunnel) > 0 {
+			if msg.targetID == "" {
+				page.adminsByTunnel = msg.adminsByTunnel
+			} else {
+				if page.adminsByTunnel == nil {
+					page.adminsByTunnel = map[string][]string{}
+				}
+				page.adminsByTunnel[msg.targetID] = append([]string(nil), msg.adminsByTunnel[msg.targetID]...)
+			}
+		}
 		if msg.targetID == "" {
 			page.items = append([]tunnel.Metadata(nil), msg.items...)
-			page.notice = fmt.Sprintf("Refreshed %d managed tunnel(s)", len(page.items))
+			notice = fmt.Sprintf("Refreshed %d managed tunnel(s)", len(page.items))
 		} else {
 			page.upsertMetadata(msg.result.Metadata)
-			page.notice = "Managed tunnel refreshed"
+			notice = "Managed tunnel refreshed"
 		}
 		_ = page.reloadManagedBrowser()
 	case TunnelManagedUpdate:
-		if page.managedUpdateFetch {
-			page.managedUpdateFetch = false
-			editor, data := newManagedTunnelEditor(msg.result.Metadata, false)
-			page.editor, page.managedForm = &editor, data
-			page.overlay = tunnelOverlayNone
-			page.resizeEditor()
-			return page.editor.Init()
-		}
 		page.upsertMetadata(msg.result.Metadata)
+		if page.managedForm != nil && page.managedForm.AdminProfileID != "" {
+			page.rememberAdminProfiles(msg.result.Metadata.ID, page.managedForm.AdminProfileID)
+		}
 		_ = page.reloadManagedBrowser()
-		page.notice = "Managed tunnel updated"
+		notice = "Managed tunnel updated"
 		if page.editor != nil && page.action == "edit" {
 			page.acceptManagedEditorSuccess(msg.result.Metadata)
-			return page.managedEditorSuccess(page.notice, msg.result.Metadata.ID)
+			return page.managedEditorSuccess(notice, msg.result.Metadata.ID)
 		}
 	case TunnelManagedCreate:
 		page.upsertMetadata(msg.result.Metadata)
+		if page.managedForm != nil && page.managedForm.AdminProfileID != "" {
+			page.rememberAdminProfiles(msg.result.Metadata.ID, page.managedForm.AdminProfileID)
+		}
 		_ = page.reloadManagedBrowser()
-		page.notice = "Managed tunnel created"
+		notice = "Managed tunnel created"
 		if page.editor != nil && page.action == "create" {
 			page.acceptManagedEditorSuccess(msg.result.Metadata)
-			return page.managedEditorSuccess(page.notice, msg.result.Metadata.ID)
+			return page.managedEditorSuccess(notice, msg.result.Metadata.ID)
 		}
-		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", msg.result.Metadata.ID}} }
+		return withOperation("tunnel.managed.save", "Managed Tunnel", notice, func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", msg.result.Metadata.ID}} })
 	case TunnelManagedConfigure:
 		page.upsertMetadata(msg.result.Metadata)
+		if page.configureForm != nil && page.configureForm.AdminProfileID != "" {
+			page.rememberAdminProfiles(msg.result.Metadata.ID, page.configureForm.AdminProfileID)
+		}
 		_ = page.reloadManagedBrowser()
-		page.notice = "Managed tunnel selected for runtime"
+		notice = "Managed tunnel attached to runtime"
 		if page.editor != nil && page.action == "configure" {
 			page.acceptManagedConfigureSuccess()
-			return page.managedEditorSuccess(page.notice, msg.result.Metadata.ID)
+			return page.managedEditorSuccess(notice, msg.result.Metadata.ID)
 		}
 	case TunnelManagedDelete:
 		page.removeMetadata(msg.targetID)
+		if page.adminsByTunnel != nil {
+			delete(page.adminsByTunnel, msg.targetID)
+		}
 		page.resourceID = ""
 		_ = page.reloadManagedBrowser()
-		page.notice = "Managed tunnel deleted"
-		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}, Replace: true} }
+		return withOperation("tunnel.managed.save", "Managed Tunnel", "Managed tunnel deleted", func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}, Replace: true} })
+	}
+	if notice != "" {
+		return func() tea.Msg { return OperationResult("tunnel.managed.save", "Managed Tunnel", notice, nil) }
 	}
 	return nil
 }
@@ -774,31 +551,8 @@ func (page *TunnelPage) cancelOperation() {
 		page.operationCancel()
 	}
 	page.operationCancelled = true
-	page.managedUpdateFetch = false
 	page.overlay = tunnelOverlayNone
 	page.progress = nil
-	page.notice = "Operation cancellation requested"
-}
-
-func (page *TunnelPage) closeOverlay() {
-	page.overlay = tunnelOverlayNone
-	page.confirm = component.ConfirmButtons{}
-	page.managedUpdateFetch = false
-	page.deleteOptions = false
-	page.external = nil
-}
-
-func (page *TunnelPage) reloadDashboard() {
-	if dashboard, err := application.TunnelStatus(); err == nil {
-		page.dashboard = dashboard
-	} else {
-		page.err = err
-	}
-	if status, err := application.TunnelAdminKeyStatus(); err == nil {
-		page.adminStatus = status
-	} else if page.err == nil {
-		page.err = err
-	}
 }
 
 func (page *TunnelPage) reloadManagedBrowser() error {
@@ -807,12 +561,18 @@ func (page *TunnelPage) reloadManagedBrowser() error {
 	}
 	helpExpanded := page.browser.HelpExpanded()
 	rows := page.managedRows()
-	bindings := make([]key.Binding, 0, 3)
-	if page.adminStatus.Access.Read || page.adminStatus.Access.Manage {
-		bindings = append(bindings, component.Binding([]string{"u"}, "u", "use"))
+	bindings := []key.Binding{component.Binding([]string{"p"}, "p", "admins")}
+	if hasManagedAdminProfile(page.adminProfiles, false) {
+		refreshLabel := "refresh all"
+		if page.adminProfileID != "" {
+			refreshLabel = "refresh"
+		}
+		bindings = append(bindings, component.Binding([]string{"r"}, "r", refreshLabel), component.Binding([]string{"t"}, "t", "attach"))
 	}
-	if page.adminStatus.Access.Manage {
-		bindings = append(bindings, component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"a"}, "a", "add"))
+	if hasManagedAdminProfile(page.adminProfiles, true) {
+		bindings = append(bindings, component.Binding([]string{"a"}, "a", "add"))
+	} else if len(page.adminProfiles) == 0 {
+		bindings = append(bindings, component.Binding([]string{"a"}, "a", "add profile"))
 	}
 	page.browser = component.NewBrowser(page.ctx, "Managed tunnels", rows, nil).WithTitleVisible(false).WithHelpBindings(bindings...)
 	page.browser.SetHelpExpanded(helpExpanded)
@@ -831,16 +591,33 @@ func (page *TunnelPage) managedFeedback(width int, feedback string) string {
 }
 
 func (page *TunnelPage) managedRows() []component.Row {
-	dashboard, _ := application.TunnelStatus()
+	attached := attachedTunnelIDs()
+	ids := make([]string, len(page.items))
+	names := make([]string, len(page.items))
+	for i, item := range page.items {
+		ids[i], names[i] = item.ID, item.Name
+	}
+	labels := tunnel.UniqueLabels(ids, names)
 	rows := make([]component.Row, 0, len(page.items))
-	for _, item := range page.items {
-		selected := ""
-		if dashboard.Config.ID == item.ID {
-			selected = "selected runtime"
+	for i, item := range page.items {
+		meta := strings.Join(page.adminsByTunnel[item.ID], ",")
+		if attached[item.ID] {
+			if meta != "" {
+				meta = "attached · " + meta
+			} else {
+				meta = "attached"
+			}
+		}
+		description := strings.TrimSpace(item.Description)
+		if admins := page.adminsByTunnel[item.ID]; len(admins) > 0 {
+			if description != "" {
+				description += " · "
+			}
+			description += "admin=" + strings.Join(admins, ",")
 		}
 		rows = append(rows, component.Row{
-			ID: item.ID, Title: item.Name, Description: item.ID + optionalTunnelDescription(item.Description), Meta: selected,
-			Search: strings.Join(append(append(append([]string{item.ID, item.Name, item.Description}, item.OrganizationIDs...), item.WorkspaceIDs...), item.TenantIDs...), " "),
+			ID: item.ID, Title: labels[i], Description: description, Meta: meta,
+			Search: strings.Join(append(append(append(append([]string{item.ID, item.Name, item.Description}, item.OrganizationIDs...), item.WorkspaceIDs...), item.TenantIDs...), page.adminsByTunnel[item.ID]...), " "),
 		})
 	}
 	return rows
@@ -860,21 +637,22 @@ func (page *TunnelPage) syncManagedDetail() error {
 	content := ""
 	switch page.section {
 	case "":
-		content = detailFields([2]string{"ID", item.ID}, [2]string{"Name", item.Name}, [2]string{"Description", item.Description}, [2]string{"Creator", item.Creator}, [2]string{"Fetched", formatTunnelTime(item.FetchedAt)})
+		content = detailFields(
+			[2]string{"ID", item.ID}, [2]string{"Name", item.Name}, [2]string{"Description", item.Description},
+			[2]string{"Creator", item.Creator}, [2]string{"Admin profiles", joinedOrNone(page.adminsByTunnel[item.ID])},
+			[2]string{"Fetched", formatTunnelTime(item.FetchedAt)},
+		)
 	case "scope":
 		content = detailFields([2]string{"Organizations", joinedOrNone(item.OrganizationIDs)}, [2]string{"Workspaces", joinedOrNone(item.WorkspaceIDs)}, [2]string{"Tenants", joinedOrNone(item.TenantIDs)})
 	default:
 		return fmt.Errorf("unsupported managed tunnel child section: %s", page.section)
 	}
-	dashboard, _ := application.TunnelStatus()
+	attached := attachedTunnelIDs()
 	meta := ""
-	if dashboard.Config.ID == item.ID {
-		meta = "selected runtime"
+	if attached[item.ID] {
+		meta = "attached"
 	}
-	detailTitle := item.Name
-	if strings.TrimSpace(detailTitle) == "" {
-		detailTitle = "Overview"
-	}
+	detailTitle := tunnel.DisplayLabel(item.ID, item.Name)
 	if page.section == "scope" {
 		detailTitle = "Scope"
 	}
@@ -883,10 +661,13 @@ func (page *TunnelPage) syncManagedDetail() error {
 	if page.section == "" {
 		bindings = append(bindings, component.DetailPageBinding{Key: "s", Desc: "scope", Message: NavigateMsg{Path: []string{"tunnels", item.ID, "scope"}}})
 	}
-	if page.adminStatus.Access.Read || page.adminStatus.Access.Manage {
-		bindings = append(bindings, component.DetailPageBinding{Key: "r", Desc: "refresh", Message: TunnelCommandMsg{Command: TunnelManagedRefresh, ResourceID: item.ID}}, component.DetailPageBinding{Key: "u", Desc: "use", Message: TunnelCommandMsg{Command: TunnelManagedConfigure, ResourceID: item.ID}})
+	if hasManagedAdminProfile(page.adminProfiles, false) {
+		bindings = append(bindings, component.DetailPageBinding{Key: "r", Desc: "refresh", Message: TunnelCommandMsg{Command: TunnelManagedRefresh, ResourceID: item.ID}})
+		if !attached[item.ID] {
+			bindings = append(bindings, component.DetailPageBinding{Key: "t", Desc: "attach", Message: TunnelCommandMsg{Command: TunnelManagedConfigure, ResourceID: item.ID}})
+		}
 	}
-	if page.adminStatus.Access.Manage {
+	if hasManagedAdminProfile(page.adminProfiles, true) {
 		bindings = append(bindings, component.DetailPageBinding{Key: "e", Desc: "update", Message: TunnelCommandMsg{Command: TunnelManagedUpdate, ResourceID: item.ID}}, component.DetailPageBinding{Key: "d", Desc: "delete", Message: TunnelCommandMsg{Command: TunnelManagedDelete, ResourceID: item.ID}})
 	}
 	page.detail.SetBindings(bindings...)
@@ -896,105 +677,77 @@ func (page *TunnelPage) syncManagedDetail() error {
 	return nil
 }
 
-func (page *TunnelPage) runtimeView(width int) string {
-	return page.runtimeViewWithFeedback(width, "")
-}
-
-func (page *TunnelPage) runtimeViewWithFeedback(width int, feedback string) string {
-	cfg, status := page.dashboard.Config, page.dashboard.Status
-	configured := tunnel.Configured(cfg)
-	statusSection := tunnelSection("Status",
-		[2]string{"Enabled", tunnelEnabledIndicator(cfg.Enabled)},
-		[2]string{"MCP HTTP", tunnelEnabledIndicator(page.dashboard.MCPHTTPEnabled)},
-		[2]string{"Configured", tunnelYesNo(configured)},
-		[2]string{"Runtime key", tunnelConfiguredIndicator(cfg.APIKey != "")},
-	)
-	tunnelSectionView := tunnelSection("Tunnel",
-		[2]string{"ID", valueOrNone(cfg.ID)},
-		[2]string{"Control plane", defaultLabel(cfg.ControlPlaneBaseURL)},
-		[2]string{"Organization", valueOrNone(cfg.OrganizationID)},
-	)
-	adminSection := tunnelSection("Admin",
-		[2]string{"State", tunnelConfiguredIndicator(page.adminStatus.Configured)},
-		[2]string{"Access", tunnelAdminAccessLabel(page.adminStatus.Access)},
-		[2]string{"Scope", tunnelScopeLabel(page.adminStatus.Scope)},
-	)
-	metadataSection := tunnelMetadataSection(status.Metadata, status.MetadataError)
-	page.runtimeHelp.SetBindings(page.runtimeHelpBindings()...)
-	actions := page.runtimeHelp.View(width)
-	lines := []string{
-		component.PageTitleNotice("OpenAI Secure MCP Tunnel", page.notice, width),
-		tunnelSectionPair(statusSection, tunnelSectionView, width),
-		"",
-		tunnelSectionPair(adminSection, metadataSection, width),
-		"",
-		component.Muted("At least one MCP transport must remain enabled. Live process state is handled by Runtime."),
+func (page *TunnelPage) rememberAdminProfiles(id string, profiles ...string) {
+	if page == nil || strings.TrimSpace(id) == "" {
+		return
 	}
-	return component.BottomHelp(prependPageFeedback(feedback, strings.Join(lines, "\n")), actions, width, page.height)
-}
-
-func (page *TunnelPage) runtimeHelpBindings() []key.Binding {
-	cfg := page.dashboard.Config
-	configured := tunnel.Configured(cfg)
-	bindings := []key.Binding{component.Binding([]string{"e"}, "e", "configure")}
-	if !cfg.Enabled && configured || cfg.Enabled && page.dashboard.MCPHTTPEnabled {
-		bindings = append(bindings, component.Binding([]string{"space"}, "space", "toggle"))
+	if page.adminsByTunnel == nil {
+		page.adminsByTunnel = map[string][]string{}
 	}
-	if configured {
-		bindings = append(bindings, component.Binding([]string{"s"}, "s", "sync"), component.Binding([]string{"f"}, "f", "foreground"))
-	}
-	bindings = append(bindings, component.Binding([]string{"a"}, "a", "admin key"))
-	if page.adminStatus.Configured {
-		bindings = append(bindings, component.Binding([]string{"v"}, "v", "verify"), component.Binding([]string{"d"}, "d", "remove admin"))
-	}
-	return append(bindings, component.Binding([]string{"m"}, "m", "managed tunnels"))
-}
-
-func tunnelSection(title string, fields ...[2]string) string {
-	lines := []string{component.Title(title)}
-	for _, field := range fields {
-		label := strings.TrimSpace(field[0])
-		value := field[1]
-		if strings.TrimSpace(value) == "" {
-			value = component.Muted("None")
+	seen := map[string]bool{}
+	next := make([]string, 0, len(profiles)+len(page.adminsByTunnel[id]))
+	for _, profile := range append(append([]string{}, page.adminsByTunnel[id]...), profiles...) {
+		profile = strings.TrimSpace(profile)
+		if profile == "" || seen[profile] {
+			continue
 		}
-		lines = append(lines, component.Label(fmt.Sprintf("%-14s", label))+value)
+		seen[profile] = true
+		next = append(next, profile)
 	}
-	return strings.Join(lines, "\n")
+	page.adminsByTunnel[id] = next
 }
 
-func tunnelSectionPair(left, right string, width int) string {
-	if width < 84 {
-		return left + "\n\n" + right
-	}
-	gap := 4
-	leftWidth := (width - gap) / 2
-	rightWidth := width - gap - leftWidth
-	leftView := lipgloss.NewStyle().Width(leftWidth).Render(left)
-	rightView := lipgloss.NewStyle().Width(rightWidth).Render(right)
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftView, strings.Repeat(" ", gap), rightView)
-}
-
-func tunnelMetadataSection(metadata *tunnel.Metadata, metadataError string) string {
-	if metadata == nil {
-		state := component.Muted("not loaded")
-		if strings.TrimSpace(metadataError) != "" {
-			state = component.ToneText("unavailable", component.ToneWarning)
+func (page *TunnelPage) profilesForManaged(id string, manage bool) []application.TunnelAdminProfile {
+	allowed := page.adminsByTunnel[strings.TrimSpace(id)]
+	if len(allowed) == 0 {
+		if profile := attachedAdminProfile(id); profile != "" {
+			allowed = []string{profile}
 		}
-		return tunnelSection("Metadata", [2]string{"State", state}, [2]string{"Error", valueOrNone(metadataError)})
 	}
-	return tunnelSection("Metadata",
-		[2]string{"Name", valueOrNone(metadata.Name)},
-		[2]string{"ID", valueOrNone(metadata.ID)},
-		[2]string{"Fetched", formatTunnelTime(metadata.FetchedAt)},
-	)
+	if len(allowed) == 0 {
+		return page.adminProfiles
+	}
+	allow := make(map[string]bool, len(allowed))
+	for _, profile := range allowed {
+		allow[profile] = true
+	}
+	filtered := make([]application.TunnelAdminProfile, 0, len(page.adminProfiles))
+	for _, profile := range page.adminProfiles {
+		if !allow[profile.ID] {
+			continue
+		}
+		if manage && !profile.ManageAccess || !manage && !profile.ReadAccess && !profile.ManageAccess {
+			continue
+		}
+		filtered = append(filtered, profile)
+	}
+	return filtered
 }
 
-func tunnelEnabledIndicator(enabled bool) string {
-	if enabled {
-		return component.ToneText("● ON", component.ToneSuccess)
+func attachedAdminProfile(id string) string {
+	items, err := application.LocalTunnels()
+	if err != nil {
+		return ""
 	}
-	return component.Muted("○ OFF")
+	id = strings.TrimSpace(id)
+	for _, item := range items {
+		if item.ID == id {
+			return strings.TrimSpace(item.AdminProfileID)
+		}
+	}
+	return ""
+}
+
+func attachedTunnelIDs() map[string]bool {
+	items, err := application.LocalTunnels()
+	if err != nil {
+		return map[string]bool{}
+	}
+	result := make(map[string]bool, len(items))
+	for _, item := range items {
+		result[item.ID] = true
+	}
+	return result
 }
 
 func tunnelYesNo(value bool) string {
@@ -1018,29 +771,6 @@ func valueOrNone(value string) string {
 	return value
 }
 
-func (page *TunnelPage) confirmTitle() string {
-	if page.command == TunnelAdminKeyRemove {
-		return "Remove stored tunnel admin key?"
-	}
-	if page.command == TunnelManagedDelete && page.deleteOptions {
-		return "Clear selected runtime configuration too?"
-	}
-	return "Delete managed tunnel " + page.targetID + "?"
-}
-
-func (page *TunnelPage) confirmDescription() string {
-	if page.command == TunnelAdminKeyRemove {
-		return "The admin key and verification scope will be removed. Runtime tunnel configuration is unchanged."
-	}
-	if page.command == TunnelManagedDelete && page.deleteOptions {
-		return "Choose whether deleting this remote tunnel should also clear the local runtime tunnel selection. A final delete confirmation follows."
-	}
-	if page.deleteClear {
-		return "The remote tunnel will be permanently deleted and the selected local runtime tunnel configuration will also be cleared."
-	}
-	return "The remote tunnel will be permanently deleted. Local runtime tunnel configuration will be preserved."
-}
-
 func (page *TunnelPage) upsertMetadata(value tunnel.Metadata) {
 	for index := range page.items {
 		if page.items[index].ID == value.ID {
@@ -1061,41 +791,11 @@ func (page *TunnelPage) removeMetadata(id string) {
 	page.items = result
 }
 
-func tunnelAdminAccessLabel(access tunnel.AdminAccess) string {
-	if access.Manage {
-		return "full management"
-	}
-	if access.Read {
-		return "read only"
-	}
-	return "not verified"
-}
-
-func tunnelScopeLabel(scope tunnel.AdminScope) string {
-	switch {
-	case scope.OrganizationID != "":
-		return "organization:" + scope.OrganizationID
-	case scope.WorkspaceID != "":
-		return "workspace:" + scope.WorkspaceID
-	case scope.TenantID != "":
-		return "tenant:" + scope.TenantID
-	default:
-		return "none"
-	}
-}
-
 func defaultLabel(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return "default"
 	}
 	return value
-}
-
-func optionalTunnelDescription(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return ""
-	}
-	return " · " + value
 }
 
 func formatTunnelTime(value time.Time) string {

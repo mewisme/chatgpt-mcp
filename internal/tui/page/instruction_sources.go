@@ -279,6 +279,8 @@ func providerLabel(provider string) string {
 		return "Cursor"
 	case "codex":
 		return "Codex"
+	case "cgm":
+		return "Native CGM"
 	default:
 		return provider
 	}

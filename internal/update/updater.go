@@ -8,6 +8,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
+	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
 var (
@@ -112,7 +113,7 @@ func (u Updater) Apply(ctx context.Context, options ApplyOptions) (ApplyResult, 
 
 func (u Updater) resolve(ctx context.Context, options ApplyOptions) (ApplyResult, error) {
 	current := strings.TrimSpace(options.CurrentVersion)
-	if isDevelopmentVersion(current) {
+	if version.IsDevelopment(current) {
 		return ApplyResult{}, ErrDevelopmentUpdate
 	}
 	current, err := NormalizeVersion(current)

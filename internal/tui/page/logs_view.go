@@ -11,6 +11,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 type logsDisplayView string
@@ -155,10 +156,17 @@ func renderRuntimeTimeline(events []runtimeevent.Event, width int, visibility lo
 		if event.WorkspaceID != "" {
 			fields = append(fields, logFrameField{Label: "Workspace", Values: []string{event.WorkspaceID}})
 		}
+		if label := tunnel.DisplayLabel(event.TunnelID, event.TunnelName); label != "" {
+			fields = append(fields, logFrameField{Label: "Tunnel", Values: []string{label}})
+		}
 		if event.Status != "" {
 			fields = append(fields, logFrameField{Label: "Status", Values: []string{event.Status}})
 		}
 		for _, field := range application.LogFields(event, visibility) {
+			switch strings.ToLower(strings.TrimSpace(field.Key)) {
+			case "tunnel", "tunnel_id", "tunnel_name":
+				continue
+			}
 			fields = append(fields, logFrameField{Label: field.Key, Values: []string{fmt.Sprint(field.Value)}})
 		}
 		content := []string{}

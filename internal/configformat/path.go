@@ -11,6 +11,7 @@ import (
 
 const (
 	EnvConfigDir = "CHATGPT_MCP_CONFIG_DIR"
+	EnvTesting   = "CHATGPT_MCP_TESTING"
 	rootMarker   = ".chatgpt-mcp-root"
 )
 
@@ -94,10 +95,55 @@ func samePath(left, right string) bool {
 }
 
 func MarkRoot(root string) error {
+	if err := AssertMutableRoot(root); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(root, rootMarker), []byte("chatgpt-mcp\n"), 0600)
+}
+
+// AssertMutableRoot refuses to mutate a live ~/.config/chatgpt-mcp from tests.
+// Isolated roots under the process temp directory are allowed.
+func AssertMutableRoot(root string) error {
+	if !runningUnderTest() {
+		return nil
+	}
+	clean := filepath.Clean(root)
+	if !looksLikeDefaultConfigRoot(clean) {
+		return nil
+	}
+	if underTempDir(clean) {
+		return nil
+	}
+	return fmt.Errorf("refusing to mutate live config root during tests: %s (set CHATGPT_MCP_CONFIG_DIR or configformat.SetRootPath to an isolated directory)", clean)
+}
+
+func looksLikeDefaultConfigRoot(root string) bool {
+	clean := filepath.Clean(root)
+	if filepath.Base(clean) != "chatgpt-mcp" {
+		return false
+	}
+	return filepath.Base(filepath.Dir(clean)) == ".config"
+}
+
+func underTempDir(root string) bool {
+	temp := filepath.Clean(os.TempDir())
+	relative, err := filepath.Rel(temp, filepath.Clean(root))
+	if err != nil {
+		return false
+	}
+	return relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func runningUnderTest() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvTesting))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	name := filepath.Base(os.Args[0])
+	return strings.HasSuffix(name, ".test") || strings.HasSuffix(name, ".test.exe")
 }
 
 func IsManagedRoot(root string) bool {

@@ -108,6 +108,24 @@ func TestPathFieldIntegratesWithEditorForm(t *testing.T) {
 	}
 }
 
+func TestPathFieldCollapsedPickerEnterSubmitsEditor(t *testing.T) {
+	root := t.TempDir()
+	value := root
+	field := NewPathField("Workspace path", &value, PathFieldOptions{Kind: PathKindDirectory})
+	if field.Mode() != PathFieldPicker || field.Zoom() {
+		t.Fatalf("mode=%d zoom=%t", field.Mode(), field.Zoom())
+	}
+	editor := NewEditor("register", EditorSection{ID: "workspace", Title: "Workspace", Form: NewEditorForm(Group(field))})
+	editor = runEditorCmd(t, editor, editor.Init())
+	updated, cmd := editor.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if _, submitted := runEditorUntilSubmit(t, updated, cmd); !submitted {
+		t.Fatal("collapsed path picker Enter did not submit")
+	}
+	if field.Zoom() {
+		t.Fatal("collapsed path picker Enter opened browse instead of submit")
+	}
+}
+
 func TestPathFieldFileKindRejectsDirectory(t *testing.T) {
 	root := t.TempDir()
 	file := filepath.Join(root, "bundle.json")

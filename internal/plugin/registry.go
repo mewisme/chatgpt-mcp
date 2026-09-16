@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	RegistrySchema          = 1
+	RegistrySchema          = 2
+	RegistrySchemaLegacy    = 1
 	PublishersSchema        = 1
 	OfficialRegistryName    = "official"
 	RegistryLocalDev        = "local-dev"
@@ -100,7 +101,7 @@ func ParsePublisherIndex(data []byte) (PublisherIndex, error) {
 }
 
 func (index RegistryIndex) Validate() error {
-	if index.Schema != RegistrySchema {
+	if index.Schema != RegistrySchemaLegacy && index.Schema != RegistrySchema {
 		return fmt.Errorf("unsupported plugin registry schema: %d", index.Schema)
 	}
 	if index.GeneratedAt.IsZero() {
@@ -125,8 +126,14 @@ func (index RegistryIndex) Validate() error {
 		if strings.TrimSpace(entry.Name) == "" {
 			return fmt.Errorf("registry plugin %s name is required", idValue)
 		}
-		if err := validateLicense(entry.License); err != nil {
-			return fmt.Errorf("registry plugin %s: %w", idValue, err)
+		if index.Schema >= RegistrySchema {
+			if err := validateLicense(entry.License); err != nil {
+				return fmt.Errorf("registry plugin %s: %w", idValue, err)
+			}
+		} else if strings.TrimSpace(entry.License) != "" {
+			if err := validateLicense(entry.License); err != nil {
+				return fmt.Errorf("registry plugin %s: %w", idValue, err)
+			}
 		}
 		if _, ok := knownPluginTypes[entry.Type]; !ok {
 			return fmt.Errorf("registry plugin %s has unknown type %q", idValue, entry.Type)

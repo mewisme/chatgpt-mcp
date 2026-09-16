@@ -1171,7 +1171,7 @@ func (model *Model) loadPage(route Route) {
 	case RoutePlugins:
 		value, err = tuipage.NewPluginsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action, route.Mode)
 	case RouteTunnel:
-		value, err = tuipage.NewTunnelInstances(model.ctx, route.ResourceID)
+		value, err = tuipage.NewTunnelInstances(model.ctx, route.ResourceID, route.Action)
 	case RouteTunnelAdmins:
 		if route.Section == "managed" {
 			value, err = tuipage.NewManagedTunnelsForAdmin(model.ctx, route.ResourceID)

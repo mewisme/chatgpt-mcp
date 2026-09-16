@@ -204,14 +204,14 @@ func TestTunnelInstancesDetailUsesIDScopedActionsAndRedactsSecrets(t *testing.T)
 	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret", AdminProfileID: "work", OrganizationID: "org_demo"}}
 	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", OrganizationID: "org_demo"}}
 	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances, Admins: &admins})
-	page, err := NewTunnelInstances(t.Context(), "tunnel_demo")
+	page, err := NewTunnelInstances(t.Context(), "tunnel_demo", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	updated, _ := page.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	page = updated.(*TunnelInstancesPage)
 	plain := ansi.Strip(page.View(100, 28))
-	for _, want := range []string{"tunnel_demo", "Runtime key", "configured", "Admin profile", "work", "Organization", "org_demo", "disable", "start", "run", "detach"} {
+	for _, want := range []string{"tunnel_demo", "Runtime key", "configured", "Admin profile", "work", "Organization", "org_demo", "disable", "start", "run", "edit", "detach"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("detail missing %q: %q", want, plain)
 		}
@@ -294,12 +294,12 @@ func TestTunnelInstancesLayoutShowsCollectionSummaryAndManagedShortcut(t *testin
 	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_a", APIKey: "runtime-a", AdminProfileID: "work"}, {ID: "tunnel_b", APIKey: "runtime-b"}}
 	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret"}}
 	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances, Admins: &admins})
-	page, err := NewTunnelInstances(t.Context(), "")
+	page, err := NewTunnelInstances(t.Context(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	view := ansi.Strip(page.View(120, 32))
-	for _, want := range []string{"OpenAI Secure MCP Tunnels", "2 attached", "1 admin profiles", "tunnel_a", "tunnel_b", "a admins", "m managed"} {
+	for _, want := range []string{"OpenAI Secure MCP Tunnels", "2 attached", "1 admin profiles", "tunnel_a", "tunnel_b", "n attach", "a admins", "m managed"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("collection view missing %q: %q", want, view)
 		}
@@ -308,6 +308,78 @@ func TestTunnelInstancesLayoutShowsCollectionSummaryAndManagedShortcut(t *testin
 		t.Fatalf("collection view leaked secrets: %q", view)
 	}
 	testutil.AssertLinesFit(t, page.View(72, 24), 72)
+}
+
+func TestLocalTunnelEditorsAttachAndPreserveBlankRuntimeKey(t *testing.T) {
+	instances := []tunnel.InstanceConfig{
+		{Enabled: true, ID: "tunnel_one", APIKey: "runtime-one", OrganizationID: "org_old"},
+		{Enabled: true, ID: "tunnel_two", APIKey: "runtime-two"},
+	}
+	admins := []tunnel.AdminConfig{}
+	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances, Admins: &admins})
+	create, err := NewTunnelInstances(t.Context(), "", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = create.Init()
+	view := ansi.Strip(create.View(100, 28))
+	if !create.InputActive() || create.form == nil || !strings.Contains(view, "Attach a tunnel using an existing runtime API key") || strings.Contains(view, "runtime-one") {
+		t.Fatalf("create editor input=%t form=%#v view=%q", create.InputActive(), create.form, view)
+	}
+	create.form.ID = "tunnel_three"
+	create.form.RuntimeAPIKey = "runtime-three"
+	create.form.Enabled = true
+	instance, err := localInstanceFromForm(create.form, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := application.AttachLocalTunnel(t.Context(), instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	create.editor.SetSubmitting(true)
+	if !create.Dirty() || !create.Submitting() {
+		t.Fatalf("precondition dirty=%t submitting=%t", create.Dirty(), create.Submitting())
+	}
+	cmd := create.finishCommand(localTunnelResultMsg{command: LocalTunnelAdd, id: item.ID, item: item})
+	if cmd == nil || create.Dirty() || create.Submitting() {
+		t.Fatalf("attach success dirty=%t submitting=%t cmd=%v", create.Dirty(), create.Submitting(), cmd != nil)
+	}
+
+	edit, err := NewTunnelInstances(t.Context(), "tunnel_one", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = edit.Init()
+	if edit.form == nil || edit.form.RuntimeAPIKey != "" || edit.form.ID != "tunnel_one" {
+		t.Fatalf("edit draft=%#v", edit.form)
+	}
+	view = ansi.Strip(edit.View(100, 28))
+	if strings.Contains(view, "runtime-one") || strings.Contains(view, "runtime-two") || !strings.Contains(view, "Blank keeps the current key") {
+		t.Fatalf("edit editor view=%q", view)
+	}
+	edit.form.OrganizationID = "org_new"
+	instance, err = localInstanceFromForm(edit.form, "tunnel_one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = application.UpdateLocalTunnel(t.Context(), instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit.editor.SetSubmitting(true)
+	cmd = edit.finishCommand(localTunnelResultMsg{command: LocalTunnelUpdate, id: item.ID, item: item})
+	if cmd == nil || edit.Dirty() || edit.Submitting() {
+		t.Fatalf("edit success dirty=%t submitting=%t cmd=%v", edit.Dirty(), edit.Submitting(), cmd != nil)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := loaded.RuntimeTunnels().Instances
+	if len(got) != 3 || got[0].ID != "tunnel_one" || got[0].APIKey != "runtime-one" || got[0].OrganizationID != "org_new" || got[1].ID != "tunnel_two" || got[1].APIKey != "runtime-two" || got[2].ID != "tunnel_three" || got[2].APIKey != "runtime-three" {
+		t.Fatalf("instances=%#v", got)
+	}
 }
 
 func TestTunnelRuntimeKeyHintsUseDefaultHelpStyle(t *testing.T) {

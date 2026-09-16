@@ -21,6 +21,8 @@ const (
 	LocalTunnelStop    LocalTunnelCommand = "tunnel.local.stop"
 	LocalTunnelDetach  LocalTunnelCommand = "tunnel.local.detach"
 	LocalTunnelRefresh LocalTunnelCommand = "tunnel.local.refresh"
+	LocalTunnelAdd     LocalTunnelCommand = "tunnel.local.add"
+	LocalTunnelUpdate  LocalTunnelCommand = "tunnel.local.update"
 )
 
 type LocalTunnelCommandMsg struct {
@@ -40,10 +42,13 @@ type localTunnelResultMsg struct {
 type TunnelInstancesPage struct {
 	ctx        context.Context
 	resourceID string
+	action     string
 	items      []application.LocalTunnel
 	admins     []application.TunnelAdminProfile
 	browser    component.Browser
 	detail     component.DetailPage
+	editor     *component.Editor
+	form       *tunnelRuntimeFormData
 	confirm    component.ConfirmButtons
 	confirmID  string
 	external   *application.ExternalCommand
@@ -53,23 +58,40 @@ type TunnelInstancesPage struct {
 	height     int
 }
 
-func NewTunnelInstances(ctx context.Context, resourceID string) (*TunnelInstancesPage, error) {
+func NewTunnelInstances(ctx context.Context, resourceID, action string) (*TunnelInstancesPage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	page := &TunnelInstancesPage{ctx: ctx, resourceID: strings.TrimSpace(resourceID)}
+	page := &TunnelInstancesPage{ctx: ctx, resourceID: strings.TrimSpace(resourceID), action: strings.TrimSpace(action)}
+	if page.action != "" {
+		if err := page.initEditor(); err != nil {
+			return nil, err
+		}
+		return page, nil
+	}
 	if err := page.reload(); err != nil {
 		return nil, err
 	}
 	return page, nil
 }
 
-func (page *TunnelInstancesPage) Init() tea.Cmd { return nil }
+func (page *TunnelInstancesPage) Init() tea.Cmd {
+	if page != nil && page.editor != nil {
+		return page.editor.Init()
+	}
+	return nil
+}
 func (page *TunnelInstancesPage) OverlayActive() bool {
 	return page != nil && (page.confirmID != "" || page.external != nil)
 }
 func (page *TunnelInstancesPage) InputActive() bool {
-	return page != nil && page.resourceID == "" && page.browser.InputActive()
+	return page != nil && (page.editor != nil || page.resourceID == "" && page.action == "" && page.browser.InputActive())
+}
+func (page *TunnelInstancesPage) Dirty() bool {
+	return page != nil && page.editor != nil && page.editor.Dirty()
+}
+func (page *TunnelInstancesPage) Submitting() bool {
+	return page != nil && page.editor != nil && page.editor.Submitting()
 }
 func (page *TunnelInstancesPage) Notice() string {
 	if page == nil {
@@ -90,14 +112,20 @@ func (page *TunnelInstancesPage) Update(message tea.Msg) (Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
-		if page.resourceID != "" {
+		if page.editor != nil {
+			page.editor.Resize(msg.Width, msg.Height)
+		} else if page.resourceID != "" {
 			page.detail.Resize(msg.Width, msg.Height)
 		} else {
 			return page, page.resizeBrowser()
 		}
 		return page, nil
+	case component.EditorSubmitMsg:
+		return page, page.submitEditor()
+	case component.EditorCancelMsg:
+		return page, page.editorParentNavigation()
 	case component.BrowserOpenMsg:
-		if page.resourceID == "" && msg.Row.ID != "" {
+		if page.editor == nil && page.resourceID == "" && msg.Row.ID != "" {
 			id := msg.Row.ID
 			return page, func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", id}} }
 		}
@@ -142,6 +170,11 @@ func (page *TunnelInstancesPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if page.confirmID != "" {
 			return page, page.updateConfirm(msg)
 		}
+		if page.editor != nil {
+			updated, cmd := page.editor.Update(msg)
+			page.editor = &updated
+			return page, cmd
+		}
 		if page.resourceID == "" && page.browser.InputActive() {
 			updated, cmd := page.browser.Update(msg)
 			page.browser = updated.(component.Browser)
@@ -151,12 +184,19 @@ func (page *TunnelInstancesPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			switch msg.String() {
 			case "r":
 				return page, page.runCommand(LocalTunnelRefresh, "")
+			case "n":
+				return page, func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", "create"}} }
 			case "a":
 				return page, func() tea.Msg { return NavigateMsg{Path: []string{"admins"}} }
 			case "m":
 				return page, func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}} }
 			}
 		}
+	}
+	if page.editor != nil {
+		updated, cmd := page.editor.Update(message)
+		page.editor = &updated
+		return page, cmd
 	}
 	if page.resourceID != "" {
 		updated, cmd := page.detail.Update(message)
@@ -173,6 +213,10 @@ func (page *TunnelInstancesPage) View(width, height int) string {
 		return component.StateView(component.PageError, "Tunnel page unavailable", "")
 	}
 	page.width, page.height = width, height
+	if page.editor != nil {
+		page.editor.Resize(width, height)
+		return page.editor.View()
+	}
 	content := page.listView(width, height)
 	if page.resourceID != "" {
 		page.detail.SetFeedback(page.notice, page.err)
@@ -195,6 +239,9 @@ func (page *TunnelInstancesPage) View(width, height int) string {
 func (page *TunnelInstancesPage) MouseTargets(originX, originY, z int) []component.MouseTarget {
 	if page == nil {
 		return nil
+	}
+	if page.editor != nil {
+		return page.editor.MouseTargets(originX, originY, z)
 	}
 	if page.confirmID != "" {
 		return confirmOverlayMouseTargets(page.confirm, "Detach tunnel "+page.confirmID+"?", "The local tunnel instance and its runtime key will be removed. The remote OpenAI tunnel is unchanged.", overlayWidth(page.width, 64), page.width, page.height, originX, originY, z+20)
@@ -233,6 +280,7 @@ func (page *TunnelInstancesPage) reload() error {
 	selected, _ := page.browser.Selected()
 	page.browser = component.NewBrowser(page.ctx, "Tunnel instances", page.rows(), nil).WithTitleVisible(false).WithExternalHelp(true)
 	page.browser.SetHelpBindings(
+		component.Binding([]string{"n"}, "n", "attach"),
 		component.Binding([]string{"r"}, "r", "refresh"),
 		component.Binding([]string{"a"}, "a", "admins"),
 		component.Binding([]string{"m"}, "m", "managed"),
@@ -294,7 +342,10 @@ func (page *TunnelInstancesPage) syncDetail() error {
 	if item.Enabled && item.RuntimeKeyConfigured {
 		bindings = append(bindings, component.DetailPageBinding{Key: "f", Desc: "run", Message: TunnelCommandMsg{Command: TunnelForeground, ResourceID: item.ID}})
 	}
-	bindings = append(bindings, component.DetailPageBinding{Key: "d", Desc: "detach", Message: LocalTunnelCommandMsg{Command: LocalTunnelDetach, ResourceID: item.ID}})
+	bindings = append(bindings,
+		component.DetailPageBinding{Key: "e", Desc: "edit", Message: NavigateMsg{Path: []string{"tunnel", item.ID, "edit"}}},
+		component.DetailPageBinding{Key: "d", Desc: "detach", Message: LocalTunnelCommandMsg{Command: LocalTunnelDetach, ResourceID: item.ID}},
+	)
 	page.detail.SetBindings(bindings...)
 	if page.width > 0 && page.height > 0 {
 		page.detail.Resize(page.width, page.height)
@@ -348,11 +399,29 @@ func (page *TunnelInstancesPage) runCommand(command LocalTunnelCommand, id strin
 }
 
 func (page *TunnelInstancesPage) finishCommand(msg localTunnelResultMsg) tea.Cmd {
+	if page.editor != nil {
+		page.editor.SetSubmitting(false)
+	}
 	if msg.err != nil {
 		page.err = msg.err
+		if page.editor != nil {
+			page.editor.SetFeedback("", msg.err)
+		}
 		return nil
 	}
 	page.err = nil
+	if page.editor != nil && (page.action == "create" || page.action == "edit") {
+		page.notice = localTunnelSuccess(msg.command)
+		page.acceptLocalEditorSuccess()
+		id := msg.item.ID
+		if id == "" {
+			id = msg.id
+		}
+		return tea.Batch(
+			func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", id}, Replace: true} },
+			func() tea.Msg { return ToastMsg{Title: "Tunnel", Message: page.notice, Tone: component.ToneSuccess} },
+		)
+	}
 	if msg.command == LocalTunnelDetach {
 		items := page.items[:0]
 		for _, item := range page.items {
@@ -433,7 +502,7 @@ func (page *TunnelInstancesPage) listHeader(width int) string {
 	}
 	summary := fmt.Sprintf("%d attached · %d running · %d ready · %d degraded · %d admin profiles", len(page.items), running, ready, degraded, len(page.admins))
 	if len(page.items) == 0 {
-		summary = "No tunnels attached · a admins → verify → m managed → refresh → attach"
+		summary = "No tunnels attached · n attach · a admins → verify → m managed"
 	}
 	return component.PageTitleNotice("OpenAI Secure MCP Tunnels", page.notice, width) + "\n" + component.Muted(summary)
 }
@@ -458,6 +527,94 @@ func (page *TunnelInstancesPage) resizeBrowser() tea.Cmd {
 	updated, cmd := page.browser.Update(tea.WindowSizeMsg{Width: page.width, Height: layout.BodyHeight})
 	page.browser = updated.(component.Browser)
 	return cmd
+}
+
+func (page *TunnelInstancesPage) initEditor() error {
+	create := page.action == "create"
+	if create && page.resourceID != "" {
+		return fmt.Errorf("local tunnel attach editor does not accept a resource")
+	}
+	if !create && (page.action != "edit" || page.resourceID == "") {
+		return fmt.Errorf("unsupported local tunnel editor action %q", page.action)
+	}
+	items, err := application.LocalTunnelsContext(page.ctx)
+	if err != nil {
+		return err
+	}
+	admins, err := application.TunnelAdminProfiles()
+	if err != nil {
+		return err
+	}
+	page.items, page.admins = items, admins
+	var item application.LocalTunnel
+	if !create {
+		found := false
+		for _, candidate := range page.items {
+			if candidate.ID == page.resourceID {
+				item, found = candidate, true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("tunnel %q is not attached", page.resourceID)
+		}
+	}
+	editor, data := newLocalTunnelEditor(item, create, page.admins)
+	page.editor, page.form = &editor, data
+	if page.width > 0 && page.height > 0 {
+		page.editor.Resize(page.width, page.height)
+	}
+	return nil
+}
+
+func (page *TunnelInstancesPage) submitEditor() tea.Cmd {
+	if page == nil || page.editor == nil {
+		return nil
+	}
+	if err := page.editor.Validate(); err != nil {
+		page.editor.SetFeedback("", err)
+		return nil
+	}
+	page.editor.SetFeedback("", nil)
+	create := page.action == "create"
+	instance, err := localInstanceFromForm(page.form, page.resourceID)
+	if err != nil {
+		page.editor.SetFeedback("", err)
+		return nil
+	}
+	if create && instance.APIKey == "" {
+		page.editor.SetFeedback("", fmt.Errorf("runtime API key is required"))
+		return nil
+	}
+	page.editor.SetSubmitting(true)
+	ctx := page.ctx
+	return func() tea.Msg {
+		msg := localTunnelResultMsg{id: instance.ID}
+		if create {
+			msg.command = LocalTunnelAdd
+			msg.item, msg.err = application.AttachLocalTunnel(ctx, instance)
+		} else {
+			msg.command = LocalTunnelUpdate
+			msg.item, msg.err = application.UpdateLocalTunnel(ctx, instance)
+		}
+		return msg
+	}
+}
+
+func (page *TunnelInstancesPage) editorParentNavigation() tea.Cmd {
+	if page != nil && page.resourceID != "" {
+		id := page.resourceID
+		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", id}} }
+	}
+	return func() tea.Msg { return NavigateMsg{Path: []string{"tunnel"}} }
+}
+
+func (page *TunnelInstancesPage) acceptLocalEditorSuccess() {
+	if page == nil || page.editor == nil {
+		return
+	}
+	page.editor.Accept()
+	page.editor.SetSubmitting(false)
 }
 
 func localTunnelState(item application.LocalTunnel) string {
@@ -491,6 +648,10 @@ func localTunnelSuccess(command LocalTunnelCommand) string {
 		return "Tunnel stopped"
 	case LocalTunnelDetach:
 		return "Tunnel detached"
+	case LocalTunnelAdd:
+		return "Tunnel attached"
+	case LocalTunnelUpdate:
+		return "Tunnel updated"
 	default:
 		return "Tunnel updated"
 	}

@@ -94,6 +94,89 @@ func tunnelAttachCommand() *cobra.Command {
 	return cmd
 }
 
+func tunnelAddCommand() *cobra.Command {
+	var runtimeKey, profileID, controlPlane, organizationID string
+	var disabled bool
+	cmd := &cobra.Command{Use: "add <tunnel_id>", Short: "Attach a local tunnel instance", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		runtimeKey = strings.TrimSpace(runtimeKey)
+		if runtimeKey == "" {
+			return errors.New("runtime API key is required")
+		}
+		item, err := application.AttachLocalTunnel(cmd.Context(), tunnel.InstanceConfig{
+			Enabled: !disabled, ID: strings.TrimSpace(args[0]), APIKey: runtimeKey, AdminProfileID: strings.TrimSpace(profileID),
+			ControlPlaneBaseURL: strings.TrimSpace(controlPlane), OrganizationID: strings.TrimSpace(organizationID),
+		})
+		if err != nil {
+			return err
+		}
+		commandLogger(cmd).Success("TUNNEL", "Local tunnel attached", "id", item.ID)
+		return nil
+	}}
+	cmd.Flags().StringVar(&runtimeKey, "runtime-api-key", "", "OpenAI runtime API key with Tunnels Read + Use")
+	cmd.Flags().StringVar(&profileID, "admin", "", "optional admin profile id")
+	cmd.Flags().StringVar(&controlPlane, "control-plane-base-url", "", "OpenAI control plane base URL")
+	cmd.Flags().StringVar(&organizationID, "organization-id", "", "OpenAI organization id")
+	cmd.Flags().BoolVar(&disabled, "disabled", false, "attach without enabling the tunnel")
+	return cmd
+}
+
+func tunnelUpdateCommand() *cobra.Command {
+	var runtimeKey, profileID, controlPlane, organizationID string
+	var enabled, disabled bool
+	cmd := &cobra.Command{Use: "update <tunnel_id>", Short: "Update a local tunnel instance", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		id := strings.TrimSpace(args[0])
+		existing, err := localTunnelByID(id)
+		if err != nil {
+			return err
+		}
+		instance := tunnel.InstanceConfig{Enabled: existing.Enabled, ID: existing.ID, APIKey: strings.TrimSpace(runtimeKey), AdminProfileID: existing.AdminProfileID, ControlPlaneBaseURL: existing.ControlPlaneBaseURL, OrganizationID: existing.OrganizationID}
+		if cmd.Flags().Changed("admin") {
+			instance.AdminProfileID = strings.TrimSpace(profileID)
+		}
+		if cmd.Flags().Changed("control-plane-base-url") {
+			instance.ControlPlaneBaseURL = strings.TrimSpace(controlPlane)
+		}
+		if cmd.Flags().Changed("organization-id") {
+			instance.OrganizationID = strings.TrimSpace(organizationID)
+		}
+		if cmd.Flags().Changed("enabled") && cmd.Flags().Changed("disabled") {
+			return errors.New("specify only one of --enabled or --disabled")
+		}
+		if cmd.Flags().Changed("enabled") {
+			instance.Enabled = enabled
+		}
+		if cmd.Flags().Changed("disabled") {
+			instance.Enabled = !disabled
+		}
+		item, err := application.UpdateLocalTunnel(cmd.Context(), instance)
+		if err != nil {
+			return err
+		}
+		commandLogger(cmd).Success("TUNNEL", "Local tunnel updated", "id", item.ID)
+		return nil
+	}}
+	cmd.Flags().StringVar(&runtimeKey, "runtime-api-key", "", "OpenAI runtime API key; blank keeps the current secret")
+	cmd.Flags().StringVar(&profileID, "admin", "", "admin profile id; empty clears the assignment")
+	cmd.Flags().StringVar(&controlPlane, "control-plane-base-url", "", "OpenAI control plane base URL")
+	cmd.Flags().StringVar(&organizationID, "organization-id", "", "OpenAI organization id")
+	cmd.Flags().BoolVar(&enabled, "enabled", false, "enable this tunnel instance")
+	cmd.Flags().BoolVar(&disabled, "disabled", false, "disable this tunnel instance")
+	return cmd
+}
+
+func localTunnelByID(id string) (application.LocalTunnel, error) {
+	items, err := application.LocalTunnels()
+	if err != nil {
+		return application.LocalTunnel{}, err
+	}
+	for _, item := range items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return application.LocalTunnel{}, fmt.Errorf("tunnel %q is not attached", id)
+}
+
 func tunnelDetachCommand() *cobra.Command {
 	return &cobra.Command{Use: "detach <tunnel_id>", Short: "Detach a local tunnel instance", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if err := application.DetachLocalTunnel(cmd.Context(), strings.TrimSpace(args[0])); err != nil {

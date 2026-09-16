@@ -20,7 +20,7 @@ import (
 
 func tunnelCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "tunnel", Short: "Manage OpenAI Secure MCP Tunnel instances"}
-	cmd.AddCommand(tunnelLocalListCommand(), tunnelCollectionStatusCommand(), tunnelAttachCommand(), tunnelDetachCommand(), tunnelLocalToggleCommand(true), tunnelLocalToggleCommand(false), tunnelStartCommand(), tunnelStopCommand(), tunnelManagedCommand(), tunnelAdminProfilesCommand(), tunnelRunCommand())
+	cmd.AddCommand(tunnelLocalListCommand(), tunnelCollectionStatusCommand(), tunnelAddCommand(), tunnelAttachCommand(), tunnelUpdateCommand(), tunnelDetachCommand(), tunnelLocalToggleCommand(true), tunnelLocalToggleCommand(false), tunnelStartCommand(), tunnelStopCommand(), tunnelManagedCommand(), tunnelAdminProfilesCommand(), tunnelRunCommand())
 	return cmd
 }
 

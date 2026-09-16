@@ -17,6 +17,7 @@ type tunnelRuntimeFormData struct {
 	RuntimeAPIKey  string
 	ControlPlane   string
 	OrganizationID string
+	AdminProfileID string
 }
 
 type tunnelAdminProfileFormData struct {
@@ -144,6 +145,60 @@ func newTunnelRuntimeEditor(dashboard application.TunnelDashboard) (component.Ed
 	})
 	return editor, data
 }
+
+func newLocalTunnelEditor(item application.LocalTunnel, create bool, profiles []application.TunnelAdminProfile) (component.Editor, *tunnelRuntimeFormData) {
+	data := &tunnelRuntimeFormData{Enabled: item.Enabled || create, ID: item.ID, ControlPlane: item.ControlPlaneBaseURL, OrganizationID: item.OrganizationID, AdminProfileID: item.AdminProfileID}
+	fields := []huh.Field{component.Switch("Enabled", &data.Enabled, "ENABLED", "DISABLED")}
+	if create {
+		fields = append(fields, component.Input("Tunnel ID", &data.ID).Validate(requiredValue("tunnel id")))
+	}
+	key := component.PasswordInput("Runtime API key", &data.RuntimeAPIKey)
+	if create {
+		key = key.Validate(requiredValue("runtime API key"))
+	} else {
+		key = key.Placeholder("Blank keeps the current key.")
+	}
+	fields = append(fields, key)
+	if len(profiles) > 0 {
+		if data.AdminProfileID == "" {
+			data.AdminProfileID = "none"
+		}
+		options := []huh.Option[string]{huh.NewOption("None", "none")}
+		for _, profile := range profiles {
+			options = append(options, huh.NewOption(profile.ID, profile.ID))
+		}
+		fields = append(fields, component.Select("Admin profile", &data.AdminProfileID, options...))
+	}
+	fields = append(fields,
+		component.Input("Control plane base URL", &data.ControlPlane).Placeholder("Blank uses the default OpenAI endpoint."),
+		component.Input("Organization ID", &data.OrganizationID),
+	)
+	primary, title, description := "save", "Local Tunnel", "Update this attached tunnel. Blank runtime API key keeps the current secret."
+	if create {
+		primary, title, description = "attach", "Local Tunnel", "Attach a tunnel using an existing runtime API key. This does not create a remote OpenAI tunnel."
+	}
+	editor := component.NewEditor(primary, component.EditorSection{ID: "runtime", Title: title, Description: description, Form: component.NewEditorForm(component.Group(fields...))})
+	return editor, data
+}
+
+func localInstanceFromForm(data *tunnelRuntimeFormData, id string) (tunnel.InstanceConfig, error) {
+	if data == nil {
+		return tunnel.InstanceConfig{}, fmt.Errorf("local tunnel draft is unavailable")
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = strings.TrimSpace(data.ID)
+	}
+	if id == "" {
+		return tunnel.InstanceConfig{}, fmt.Errorf("tunnel id is required")
+	}
+	admin := strings.TrimSpace(data.AdminProfileID)
+	if admin == "none" {
+		admin = ""
+	}
+	return tunnel.InstanceConfig{Enabled: data.Enabled, ID: id, APIKey: strings.TrimSpace(data.RuntimeAPIKey), AdminProfileID: admin, ControlPlaneBaseURL: strings.TrimSpace(data.ControlPlane), OrganizationID: strings.TrimSpace(data.OrganizationID)}, nil
+}
+
 func newTunnelAdminEditor(status application.TunnelAdminStatus) (component.Editor, *tunnelAdminFormData) {
 	data := &tunnelAdminFormData{ScopeKind: "auto"}
 	scope := status.Scope

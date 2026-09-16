@@ -36,7 +36,7 @@ func TestLogTunnelLifecycleReconnect(t *testing.T) {
 
 func TestTunnelCommandHierarchy(t *testing.T) {
 	cmd := tunnelCommand()
-	for _, path := range [][]string{{"admin", "list"}, {"admin", "add"}, {"admin", "update"}, {"admin", "verify"}, {"admin", "remove"}, {"managed", "list"}, {"managed", "get"}, {"managed", "create"}, {"managed", "update"}, {"managed", "delete"}, {"list"}, {"status"}, {"attach"}, {"detach"}, {"enable"}, {"disable"}, {"start"}, {"stop"}, {"run"}} {
+	for _, path := range [][]string{{"admin", "list"}, {"admin", "add"}, {"admin", "update"}, {"admin", "verify"}, {"admin", "remove"}, {"managed", "list"}, {"managed", "get"}, {"managed", "create"}, {"managed", "update"}, {"managed", "delete"}, {"list"}, {"status"}, {"add"}, {"attach"}, {"update"}, {"detach"}, {"enable"}, {"disable"}, {"start"}, {"stop"}, {"run"}} {
 		resolved, _, err := cmd.Find(path)
 		if err != nil || resolved.Name() != path[len(path)-1] {
 			t.Fatalf("tunnel path %v resolved to %v: %v", path, resolved, err)
@@ -92,5 +92,41 @@ func TestTunnelAdminUpdateCommandPreservesBlankKey(t *testing.T) {
 	got := loaded.RuntimeTunnels().Admins
 	if len(got) != 1 || got[0].AdminKey != "admin-secret" || got[0].OrganizationID != "org_new" || got[0].WorkspaceID != "" || !got[0].ReadAccess {
 		t.Fatalf("admins=%#v", got)
+	}
+}
+
+func TestTunnelAddAndUpdateMutateOnlyTarget(t *testing.T) {
+	rootDir := filepath.Join(t.TempDir(), "config")
+	testutil.UseConfigRoot(t, rootDir)
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_one", APIKey: "runtime-one", OrganizationID: "org_old"}, {Enabled: true, ID: "tunnel_two", APIKey: "runtime-two"}}
+	admins := []tunnel.AdminConfig{}
+	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newRootCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--config-dir", rootDir, "tunnel", "add", "tunnel_three", "--runtime-api-key", "runtime-three"})
+	if _, err := cmd.ExecuteC(); err != nil {
+		t.Fatal(err)
+	}
+	cmd = newRootCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--config-dir", rootDir, "tunnel", "update", "tunnel_one", "--organization-id", "org_new", "--disabled"})
+	if _, err := cmd.ExecuteC(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := loaded.RuntimeTunnels().Instances
+	if len(got) != 3 || got[0].ID != "tunnel_one" || got[0].Enabled || got[0].APIKey != "runtime-one" || got[0].OrganizationID != "org_new" || got[1].ID != "tunnel_two" || !got[1].Enabled || got[1].APIKey != "runtime-two" || got[2].ID != "tunnel_three" || got[2].APIKey != "runtime-three" {
+		t.Fatalf("instances=%#v", got)
 	}
 }

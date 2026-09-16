@@ -91,7 +91,7 @@ func commandTraceContracts() map[string]commandTraceContract {
 	add(commandTraceInstrumented, []string{"request.revoke-grant.completed"}, "request grant revoke")
 	add(commandTraceInstrumented, []string{"request.create-dummy.completed"}, "request create dummy")
 	add(commandTraceInstrumented, []string{"status.snapshot.completed"}, "status")
-	add(commandTraceTrivial, nil, "tunnel list", "tunnel status", "tunnel attach", "tunnel detach", "tunnel enable", "tunnel disable", "tunnel start", "tunnel stop")
+	add(commandTraceTrivial, nil, "tunnel list", "tunnel status", "tunnel add", "tunnel attach", "tunnel update", "tunnel detach", "tunnel enable", "tunnel disable", "tunnel start", "tunnel stop")
 	add(commandTraceTrivial, nil, "tunnel managed list", "tunnel managed get", "tunnel managed create", "tunnel managed update", "tunnel managed delete")
 	add(commandTraceTrivial, nil, "tunnel admin list", "tunnel admin add", "tunnel admin update", "tunnel admin verify", "tunnel admin remove")
 	add(commandTraceInstrumented, []string{"tunnel.metadata.fetch.completed"}, "tunnel run")

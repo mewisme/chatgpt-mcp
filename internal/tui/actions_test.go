@@ -122,6 +122,8 @@ func TestEditorActionsNavigateToEditorRoutes(t *testing.T) {
 		{"mcp.server.configure", action.Context{Route: string(RouteMCP), ResourceID: "github"}, Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
 		{"tunnel.managed.create", action.Context{Route: string(RouteTunnels)}, Route{Kind: RouteTunnels, Action: "create"}},
 		{"tunnel.managed.update", action.Context{Route: string(RouteTunnels), ResourceID: "tun_demo"}, Route{Kind: RouteTunnels, ResourceID: "tun_demo", Action: "edit"}},
+		{"tunnel.add", action.Context{Route: string(RouteTunnel)}, Route{Kind: RouteTunnel, Action: "create"}},
+		{"tunnel.update", action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, Route{Kind: RouteTunnel, ResourceID: "tunnel_demo", Action: "edit"}},
 		{"config.convert", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "convert"}},
 		{"config.export", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "export"}},
 		{"config.import", action.Context{Route: string(RouteConfig)}, Route{Kind: RouteConfig, Section: "storage", Action: "import"}},
@@ -186,7 +188,7 @@ func TestTunnelActionAvailabilityFollowsRouteContext(t *testing.T) {
 		}
 		return false
 	}
-	if has(action.Context{Route: string(RouteTunnel)}, "tunnel.enable") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.enable") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.detach") {
+	if has(action.Context{Route: string(RouteTunnel)}, "tunnel.enable") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.enable") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.detach") || !has(action.Context{Route: string(RouteTunnel)}, "tunnel.add") || has(action.Context{Route: string(RouteTunnel)}, "tunnel.update") || !has(action.Context{Route: string(RouteTunnel), ResourceID: "tunnel_demo"}, "tunnel.update") {
 		t.Fatal("local tunnel actions are not correctly scoped to a tunnel resource")
 	}
 	if has(action.Context{Route: string(RouteHome)}, "tunnel.enable") || has(action.Context{Route: string(RouteTunnel)}, "tunnel.managed.create") {

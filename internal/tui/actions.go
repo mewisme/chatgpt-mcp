@@ -27,7 +27,7 @@ func defaultActionRegistry() *action.Registry {
 		navigationAction("app.go.plugins.marketplace", "Plugin Marketplace", Route{Kind: RoutePlugins, Section: "marketplace"}, []string{"plugin", "marketplace", "search", "install"}, capability.PluginSearch),
 		navigationAction("app.go.plugins.updates", "Plugin Updates", Route{Kind: RoutePlugins, Section: "updates"}, []string{"plugin", "update", "outdated"}, capability.PluginOutdated),
 		navigationAction("app.go.plugins.registries", "Plugin Registries", Route{Kind: RoutePlugins, Section: "registries"}, []string{"plugin", "registry", "trust"}, capability.PluginRegistryList),
-		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure", "admin", "profiles"}, capability.TunnelList, capability.TunnelStatus, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminUpdate, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
+		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure", "admin", "profiles"}, capability.TunnelList, capability.TunnelStatus, capability.TunnelAdd, capability.TunnelUpdate, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminUpdate, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
 		navigationAction("app.go.admins", "Admin Profiles", Route{Kind: RouteTunnelAdmins}, []string{"tunnel", "admin", "profile", "profiles"}, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminUpdate, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
 		navigationAction("app.go.tunnels", "Managed Tunnels", Route{Kind: RouteTunnels}, []string{"tunnel", "tunnels", "managed", "openai"}, capability.TunnelManagedList, capability.TunnelManagedGet),
 		navigationAction("app.go.requests", "Requests", Route{Kind: RouteRequests}, []string{"request", "approval"}, capability.RequestView),
@@ -197,6 +197,14 @@ func tunnelActions() []action.Action {
 		localTunnelAction("tunnel.start", "Start tunnel", "Start the current local tunnel connection", []string{"tunnel", "start", "connect"}, []string{"tunnel", "start"}, tuipage.LocalTunnelStart),
 		localTunnelAction("tunnel.stop", "Stop tunnel", "Stop the current local tunnel connection", []string{"tunnel", "stop", "disconnect"}, []string{"tunnel", "stop"}, tuipage.LocalTunnelStop),
 		localTunnelAction("tunnel.detach", "Detach tunnel", "Remove the current local tunnel instance without deleting the remote tunnel", []string{"tunnel", "detach", "remove"}, []string{"tunnel", "detach"}, tuipage.LocalTunnelDetach),
+		editorNavigationAction("tunnel.add", "Attach local tunnel", "Tunnel", "Attach a local tunnel instance with an existing runtime key", []string{"tunnel", "add", "attach", "local"}, []string{"tunnel", "add"}, func(ctx action.Context) bool {
+			return ctx.Route == string(RouteTunnel)
+		}, func(action.Context) Route { return Route{Kind: RouteTunnel, Action: "create"} }),
+		editorNavigationAction("tunnel.update", "Edit local tunnel", "Tunnel", "Update the current local tunnel instance. Blank runtime key keeps the current secret.", []string{"tunnel", "edit", "update", "local"}, []string{"tunnel", "update"}, func(ctx action.Context) bool {
+			return ctx.Route == string(RouteTunnel) && ctx.ResourceID != ""
+		}, func(ctx action.Context) Route {
+			return Route{Kind: RouteTunnel, ResourceID: ctx.ResourceID, Action: "edit"}
+		}),
 		tunnelAction("tunnel.foreground", "Run foreground tunnel", "Show the foreground tunnel command to run after leaving the TUI", []string{"tunnel", "foreground", "run", "terminal"}, []string{"tunnel", "run"}, tuipage.TunnelForeground, RouteTunnel, true),
 		editorNavigationAction("tunnel.admin.add", "Add admin profile", "Tunnel", "Add an OpenAI admin profile for tunnel management", []string{"tunnel", "admin", "profile", "add"}, []string{"tunnel", "admin", "add"}, func(ctx action.Context) bool {
 			return ctx.Route == string(RouteTunnel) || ctx.Route == string(RouteTunnelAdmins) || ctx.Route == string(RouteTunnels)

@@ -265,18 +265,28 @@ func parseMCPRoute(parts []string) (Route, error) {
 
 func parseTunnelRoute(parts []string) (Route, error) {
 	route := Route{Kind: RouteTunnel}
-	switch {
-	case len(parts) == 1:
+	if len(parts) == 1 {
 		return route, nil
-	case len(parts) == 2:
-		route.ResourceID = strings.TrimSpace(parts[1])
-		if route.ResourceID == "" {
-			return Route{}, fmt.Errorf("tunnel id is required")
-		}
-		return route, nil
-	default:
-		return Route{}, fmt.Errorf("unsupported tunnel path %q", strings.Join(parts, " "))
 	}
+	if len(parts) == 2 && parts[1] == "create" {
+		route.Action = "create"
+		return route, nil
+	}
+	if len(parts) > 3 {
+		return Route{}, fmt.Errorf("tunnel path is too deep: %s", strings.Join(parts, " "))
+	}
+	route.ResourceID = strings.TrimSpace(parts[1])
+	if route.ResourceID == "" {
+		return Route{}, fmt.Errorf("tunnel id is required")
+	}
+	if len(parts) == 2 {
+		return route, nil
+	}
+	if parts[2] == "edit" {
+		route.Action = "edit"
+		return route, nil
+	}
+	return Route{}, fmt.Errorf("unsupported tunnel child action %q", parts[2])
 }
 
 func parseTunnelAdminsRoute(parts []string) (Route, error) {

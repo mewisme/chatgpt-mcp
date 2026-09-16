@@ -33,7 +33,7 @@ describe("RequestsPage", () => {
     expect(screen.getByText("Allow cgm install")).toBeInTheDocument()
     expect(screen.getByText("1 pending")).toBeInTheDocument()
 
-    const search = screen.getByPlaceholderText("Search request, tool, source...")
+    const search = screen.getByPlaceholderText("Search request, tool, source, tunnel...")
     await user.type(search, "consumed")
     expect(screen.queryByText("Allow cgm update")).not.toBeInTheDocument()
     expect(screen.getByText("Allow cgm install")).toBeInTheDocument()
@@ -46,6 +46,26 @@ describe("RequestsPage", () => {
     await user.click(screen.getByRole("button", { name: /Approve/ }))
     await waitFor(() => expect(screen.getAllByText("approved").length).toBeGreaterThan(0))
     await waitFor(() => expect(screen.getByText("0 pending")).toBeInTheDocument())
+  })
+
+  it("labels two tunnels and matches search on name or id", async () => {
+    const user = userEvent.setup()
+    const alpha = { ...request("req_alpha", "pending", "cgm update"), tunnel_id: "tunnel_aaaaaaaaaaaaaaaa", tunnel_name: "Alpha", title: "Allow alpha" }
+    const beta = { ...request("req_beta", "pending", "cgm install"), tunnel_id: "tunnel_bbbbbbbbbbbbbbbb", tunnel_name: "Beta", title: "Allow beta" }
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path === "/api/requests?status=&workspace_id=ws_test") return json([alpha, beta])
+      if (path === "/api/requests/stream?workspace_id=ws_test") return approvalStream()
+      throw new Error(`Unhandled test request: ${path}`)
+    }))
+    renderPage()
+    expect(await screen.findByText("Allow alpha")).toBeInTheDocument()
+    expect(screen.getAllByText(/ · Alpha/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/ · Beta/).length).toBeGreaterThan(0)
+    expect(screen.queryByText("tunnel_aaaaaaaaaaaaaaaa")).not.toBeInTheDocument()
+    await user.type(screen.getByPlaceholderText("Search request, tool, source, tunnel..."), "Beta")
+    expect(screen.queryByText("Allow alpha")).not.toBeInTheDocument()
+    expect(screen.getByText("Allow beta")).toBeInTheDocument()
   })
 })
 

@@ -18,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 type logsTab int
@@ -716,6 +717,9 @@ func executionHeaderFields(event shellruntime.ExecutionFeedEvent, first bool) []
 	}
 	if info.Source != "" {
 		fields = append(fields, executionFrameField{Label: "Source", Values: []string{info.Source}})
+	}
+	if label := tunnel.DisplayLabel(info.TunnelID, info.TunnelName); label != "" {
+		fields = append(fields, executionFrameField{Label: "Tunnel", Values: []string{label}})
 	}
 	if info.SessionHash != "" {
 		fields = append(fields, executionFrameField{Label: "Session", Values: []string{info.SessionHash}})

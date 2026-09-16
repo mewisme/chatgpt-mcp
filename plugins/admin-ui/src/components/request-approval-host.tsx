@@ -201,6 +201,10 @@ export function RequestApprovalHost() {
           <DetailRow label="Request" value={selected.id} mono />
           <DetailRow label="Tool" value={selected.target_tool} mono />
           <DetailRow label="Source" value={selected.source || "-"} mono />
+          <DetailRow label="Tunnel" value={selected.tunnel_name || selected.tunnel_id || "-"} />
+          {selected.tunnel_name && selected.tunnel_id ? (
+            <DetailRow label="Tunnel ID" value={selected.tunnel_id} mono />
+          ) : null}
           <DetailRow
             label="Session"
             value={selected.session_hash || "-"}

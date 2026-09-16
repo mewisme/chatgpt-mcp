@@ -302,7 +302,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	}
 	executedBy := r.runtimeInstanceID()
 	ctx = shellruntime.WithExecutionMetadata(ctx, shellruntime.ExecutionMetadata{
-		Source: source, CallID: callID, SessionHash: sessionHash, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy,
+		Source: source, TunnelID: tunnelID, TunnelName: tunnelName, CallID: callID, SessionHash: sessionHash, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy,
 		ParentExecutionID: hookProvenance.ExecutionID, Origin: string(hookProvenance.Origin), HookDepth: hookProvenance.HookDepth,
 	})
 	raw := callRaw(ctx, source, name, args)
@@ -333,7 +333,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	}
 	if err != nil {
 		if guard, ok := controlguard.As(err); ok {
-			if guardedResult, handled, guardErr := r.approvalResultForGuard(guard, sessionID, sessionHash, approvalWorkspaceID, source, name, args, claimedApproval); guardErr != nil {
+			if guardedResult, handled, guardErr := r.approvalResultForGuard(ctx, guard, sessionID, sessionHash, approvalWorkspaceID, source, name, args, claimedApproval); guardErr != nil {
 				err = guardErr
 			} else if handled {
 				result, err = guardedResult, nil

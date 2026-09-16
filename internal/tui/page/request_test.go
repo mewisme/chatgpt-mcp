@@ -606,3 +606,41 @@ func newRequestPageServer(t *testing.T, handler http.HandlerFunc) *httptest.Serv
 	}
 	return server
 }
+
+func TestRequestsPagePrefersTunnelLabelOverRawID(t *testing.T) {
+	now := time.Now().UTC()
+	const alphaID, betaID = "tunnel_aaaaaaaaaaaaaaaa", "tunnel_bbbbbbbbbbbbbbbb"
+	alpha := approval.Request{ID: "req_alpha", Status: approval.StatusPending, WorkspaceID: "ws_a", Source: "tunnel", TunnelID: alphaID, TunnelName: "Alpha", TargetTool: "run_command", Title: "Allow alpha", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	beta := approval.Request{ID: "req_beta", Status: approval.StatusPending, WorkspaceID: "ws_a", Source: "tunnel", TunnelID: betaID, TunnelName: "Beta", TargetTool: "run_command", Title: "Allow beta", CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/requests" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode([]approval.Request{alpha, beta})
+	})
+	defer server.Close()
+	page, err := NewRequests(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.refreshCmd()())
+	page = updated.(*RequestsPage)
+	if !page.browser.SelectID("req_alpha") {
+		t.Fatal("could not select alpha")
+	}
+	row, ok := page.browser.Selected()
+	if !ok || !strings.Contains(row.Description, "Alpha") || strings.Contains(row.Description, alphaID) || !strings.Contains(row.Search, alphaID) {
+		t.Fatalf("alpha row=%#v", row)
+	}
+	if !page.browser.SelectID("req_beta") {
+		t.Fatal("could not select beta")
+	}
+	row, ok = page.browser.Selected()
+	if !ok || !strings.Contains(row.Description, "Beta") || strings.Contains(row.Description, betaID) {
+		t.Fatalf("beta row=%#v", row)
+	}
+	overview := requestOverview(alpha, 80)
+	if !strings.Contains(overview, "Alpha") || !strings.Contains(overview, alphaID) || !strings.Contains(overview, "tunnel") {
+		t.Fatalf("overview=%q", overview)
+	}
+}

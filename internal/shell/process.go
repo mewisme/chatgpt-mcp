@@ -180,6 +180,7 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 			WorkspaceID: workspaceID, Tool: "start_process", Command: plan.Effective, RequestedCommand: command, EffectiveCommand: plan.Effective, SecurityCommand: plan.Security,
 			WrapperCapability: plan.WrapperCapability, WrapperProvider: plan.WrapperProvider, WrapperVersion: plan.WrapperVersion,
 			CWD: cwd, Shell: provider.Language, ShellProvider: provider.Label(), ShellProviderVersion: string(provider.Version), Source: metadata.Source,
+			TunnelID: metadata.TunnelID, TunnelName: metadata.TunnelName,
 			CallID: metadata.CallID, SessionHash: metadata.SessionHash, ReceivedByInstanceID: metadata.ReceivedByInstanceID, ExecutedByInstanceID: metadata.ExecutedByInstanceID,
 			ParentExecutionID: metadata.ParentExecutionID, Origin: metadata.Origin, HookDepth: metadata.HookDepth,
 		})

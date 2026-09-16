@@ -1520,6 +1520,36 @@ func TestLogsAndToolCallsPreferTunnelLabelOverRawID(t *testing.T) {
 	}
 }
 
+func TestCommandExecutionPrefersTunnelLabelOverRawID(t *testing.T) {
+	const alphaID, betaID = "tunnel_aaaaaaaaaaaaaaaa", "tunnel_bbbbbbbbbbbbbbbb"
+	alpha := shellruntime.ExecutionInfo{ID: "exec_a", WorkspaceID: "ws_a", Tool: "run_command", Command: "echo a", Source: "tunnel", TunnelID: alphaID, TunnelName: "Alpha", Status: "success"}
+	beta := shellruntime.ExecutionInfo{ID: "exec_b", WorkspaceID: "ws_a", Tool: "run_command", Command: "echo b", Source: "tunnel", TunnelID: betaID, TunnelName: "Beta", Status: "success"}
+	fields := executionHeaderFields(shellruntime.ExecutionFeedEvent{Execution: &alpha}, true)
+	joined := ""
+	for _, field := range fields {
+		joined += field.Label + " " + strings.Join(field.Values, " ") + "\n"
+	}
+	if !strings.Contains(joined, "Alpha") || strings.Contains(joined, alphaID) || !strings.Contains(joined, "tunnel") {
+		t.Fatalf("header=%q", joined)
+	}
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.view = logsViewBrowser
+	page.exec.paused = true
+	page.exec.events = []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, ExecutionID: alpha.ID, Type: shellruntime.ExecutionEventStarted, Execution: &alpha},
+		{Sequence: 2, ExecutionID: beta.ID, Type: shellruntime.ExecutionEventStarted, Execution: &beta},
+	}
+	page.rebuildExecutionBrowser()
+	if !page.browser.SelectID("exec_a") {
+		t.Fatal("could not select alpha execution")
+	}
+	row, ok := page.browser.Selected()
+	if !ok || !strings.Contains(row.Meta, "Alpha") || strings.Contains(row.Meta, alphaID) || !strings.Contains(row.Search, alphaID) {
+		t.Fatalf("exec row=%#v", row)
+	}
+}
+
 func TestToolCallsMergeLifecycleAndRenderFullRequestResponse(t *testing.T) {
 	page, _ := NewToolCallLogsRoute(t.Context(), "")
 	defer page.Close()

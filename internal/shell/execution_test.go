@@ -206,3 +206,23 @@ func TestRunCommandStreamsBeforeReturningAndPreservesFinalResult(t *testing.T) {
 func streamingTestCommand() string {
 	return `printf 'first\n'; sleep 0.15; printf 'second\n' >&2; sleep 0.15; printf 'third\n'`
 }
+
+func TestExecutionHubPreservesDistinctTunnelIdentity(t *testing.T) {
+	hub := NewExecutionHub()
+	alpha := hub.Begin(ExecutionInput{WorkspaceID: "ws_test", Command: "echo a", Source: "tunnel", TunnelID: "tunnel_a", TunnelName: "Alpha"})
+	beta := hub.Begin(ExecutionInput{WorkspaceID: "ws_test", Command: "echo b", Source: "tunnel", TunnelID: "tunnel_b", TunnelName: "Beta"})
+	items := hub.List("ws_test", 10)
+	if alpha == nil || beta == nil || len(items) != 2 {
+		t.Fatalf("items=%#v", items)
+	}
+	byID := map[string]ExecutionInfo{}
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	if got := byID[alpha.ID()]; got.Source != "tunnel" || got.TunnelID != "tunnel_a" || got.TunnelName != "Alpha" {
+		t.Fatalf("alpha=%#v", got)
+	}
+	if got := byID[beta.ID()]; got.Source != "tunnel" || got.TunnelID != "tunnel_b" || got.TunnelName != "Beta" {
+		t.Fatalf("beta=%#v", got)
+	}
+}

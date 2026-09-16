@@ -43,6 +43,8 @@ export type ExecutionInfo = {
   command: string
   cwd: string
   source?: string
+  tunnel_id?: string
+  tunnel_name?: string
   started_at: string
   finished_at?: string
   status: ExecutionStatus
@@ -407,6 +409,8 @@ export type ApprovalRequest = {
   workspace_id: string
   session_hash?: string
   source?: string
+  tunnel_id?: string
+  tunnel_name?: string
   target_tool: string
   arguments?: Record<string, unknown>
   digest?: string
@@ -428,6 +432,8 @@ export type ApprovalEvent = {
   workspace_id: string
   session_hash?: string
   source?: string
+  tunnel_id?: string
+  tunnel_name?: string
   target_tool: string
   title: string
   status: ApprovalStatus

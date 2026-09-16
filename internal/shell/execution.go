@@ -49,6 +49,8 @@ type ExecutionInfo struct {
 	ShellProvider        string `json:"shell_provider,omitempty"`
 	ShellProviderVersion string `json:"shell_provider_version,omitempty"`
 	Source               string `json:"source,omitempty"`
+	TunnelID             string `json:"tunnel_id,omitempty"`
+	TunnelName           string `json:"tunnel_name,omitempty"`
 	CallID               string `json:"call_id,omitempty"`
 	SessionHash          string `json:"session_hash,omitempty"`
 	ReceivedByInstanceID string `json:"received_by_instance_id,omitempty"`
@@ -133,6 +135,8 @@ type ExecutionInput struct {
 	ShellProvider        string
 	ShellProviderVersion string
 	Source               string
+	TunnelID             string
+	TunnelName           string
 	CallID               string
 	SessionHash          string
 	ReceivedByInstanceID string
@@ -177,6 +181,8 @@ type executionMetadataKey struct{}
 
 type ExecutionMetadata struct {
 	Source               string
+	TunnelID             string
+	TunnelName           string
 	CallID               string
 	SessionHash          string
 	ReceivedByInstanceID string
@@ -202,6 +208,8 @@ func WithExecutionMetadata(ctx context.Context, metadata ExecutionMetadata) cont
 		ctx = context.Background()
 	}
 	metadata.Source = strings.TrimSpace(metadata.Source)
+	metadata.TunnelID = strings.TrimSpace(metadata.TunnelID)
+	metadata.TunnelName = strings.TrimSpace(metadata.TunnelName)
 	metadata.CallID = strings.TrimSpace(metadata.CallID)
 	metadata.SessionHash = strings.TrimSpace(metadata.SessionHash)
 	metadata.ReceivedByInstanceID = strings.TrimSpace(metadata.ReceivedByInstanceID)
@@ -245,7 +253,7 @@ func (h *ExecutionHub) Begin(input ExecutionInput) *ExecutionRun {
 		WorkspaceID: strings.TrimSpace(input.WorkspaceID), Tool: tool, Command: input.Command, RequestedCommand: input.RequestedCommand, EffectiveCommand: input.EffectiveCommand, SecurityCommand: input.SecurityCommand,
 		WrapperCapability: strings.TrimSpace(input.WrapperCapability), WrapperProvider: strings.TrimSpace(input.WrapperProvider), WrapperVersion: strings.TrimSpace(input.WrapperVersion),
 		CWD: input.CWD, Shell: strings.TrimSpace(input.Shell), ShellProvider: strings.TrimSpace(input.ShellProvider), ShellProviderVersion: strings.TrimSpace(input.ShellProviderVersion),
-		Source: strings.TrimSpace(input.Source), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),
+		Source: strings.TrimSpace(input.Source), TunnelID: strings.TrimSpace(input.TunnelID), TunnelName: strings.TrimSpace(input.TunnelName), CallID: strings.TrimSpace(input.CallID), SessionHash: strings.TrimSpace(input.SessionHash),
 		ReceivedByInstanceID: strings.TrimSpace(input.ReceivedByInstanceID), ExecutedByInstanceID: strings.TrimSpace(input.ExecutedByInstanceID),
 		StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: ExecutionStatusRunning,
 	}, subs: map[*ExecutionSubscription]struct{}{}}

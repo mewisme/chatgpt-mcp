@@ -14,6 +14,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 const requestRefreshInterval = time.Second
@@ -653,8 +654,8 @@ func (page *RequestsPage) requestRows() []component.Row {
 			meta += " · " + countdown
 		}
 		rows = append(rows, component.Row{
-			ID: request.ID, Title: title, Description: strings.Join(nonEmptyRequestStrings(shortApprovalRequestID(request.ID), request.WorkspaceID, request.TargetTool), " · "), Meta: meta,
-			Search: strings.Join([]string{request.ID, string(request.Status), request.WorkspaceID, request.TargetTool, request.Source, request.Title, request.Command}, " "),
+			ID: request.ID, Title: title, Description: strings.Join(nonEmptyRequestStrings(shortApprovalRequestID(request.ID), tunnel.DisplayLabel(request.TunnelID, request.TunnelName), request.WorkspaceID, request.TargetTool), " · "), Meta: meta,
+			Search: strings.Join([]string{request.ID, string(request.Status), request.WorkspaceID, request.TargetTool, request.Source, request.TunnelID, request.TunnelName, request.Title, request.Command}, " "),
 		})
 	}
 	return rows
@@ -902,11 +903,21 @@ func requestTickCmd() tea.Cmd {
 }
 
 func requestOverview(request approval.Request, _ int) string {
-	return detailFields(
-		[2]string{"Status", string(request.Status)}, [2]string{"Title", request.Title}, [2]string{"Workspace", request.WorkspaceID}, [2]string{"Tool", request.TargetTool},
-		[2]string{"Source", request.Source}, [2]string{"Session", request.SessionHash}, [2]string{"Created", requestTime(request.CreatedAt)}, [2]string{"Expires", requestTime(request.ExpiresAt)},
+	fields := [][2]string{
+		{"Status", string(request.Status)}, {"Title", request.Title}, {"Workspace", request.WorkspaceID}, {"Tool", request.TargetTool},
+		{"Source", request.Source},
+	}
+	if label := tunnel.DisplayLabel(request.TunnelID, request.TunnelName); label != "" {
+		fields = append(fields, [2]string{"Tunnel", label})
+		if strings.TrimSpace(request.TunnelName) != "" && strings.TrimSpace(request.TunnelID) != "" {
+			fields = append(fields, [2]string{"Tunnel ID", request.TunnelID})
+		}
+	}
+	fields = append(fields,
+		[2]string{"Session", request.SessionHash}, [2]string{"Created", requestTime(request.CreatedAt)}, [2]string{"Expires", requestTime(request.ExpiresAt)},
 		[2]string{"Resolved", requestTime(request.ResolvedAt)}, [2]string{"Resolved by", request.ResolvedBy}, [2]string{"Reason", request.Reason}, [2]string{"Retry until", requestTime(request.RetryUntil)}, [2]string{"Consumed", requestTime(request.ConsumedAt)},
 	)
+	return detailFields(fields...)
 }
 
 func requestArguments(request approval.Request) string {

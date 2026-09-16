@@ -99,6 +99,35 @@ func approvalContext(sessionID string) context.Context {
 	return WithCallSource(WithMCPSessionID(context.Background(), sessionID), "tunnel")
 }
 
+func TestRuntimeGuardChallengePreservesTunnelIdentity(t *testing.T) {
+	runtime, workspaceID := newApprovalRuntime(t)
+	args := map[string]any{"workspace_id": workspaceID, "command": "cgm update"}
+	first, err := runtime.Call(WithCallTunnel(approvalContext("session-a"), "tunnel_a", "Alpha"), "guarded_action", args)
+	if err != nil || !first.IsError {
+		t.Fatalf("guarded call = %#v err=%v", first, err)
+	}
+	challenge, ok := first.StructuredContent.(approvalRequiredResponse)
+	if !ok || challenge.ChallengeID == "" {
+		t.Fatalf("challenge = %#v", first.StructuredContent)
+	}
+	request, _, err := runtime.Approvals.CreateRequestWithTitle(challenge.ChallengeID, "session-a", workspaceID, "Allow alpha")
+	if err != nil || request.Source != "tunnel" || request.TunnelID != "tunnel_a" || request.TunnelName != "Alpha" {
+		t.Fatalf("request=%#v err=%v", request, err)
+	}
+	second, err := runtime.Call(WithCallTunnel(approvalContext("session-b"), "tunnel_b", "Beta"), "guarded_action", args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, ok := second.StructuredContent.(approvalRequiredResponse)
+	if !ok {
+		t.Fatalf("beta challenge = %#v", second.StructuredContent)
+	}
+	beta, _, err := runtime.Approvals.CreateRequestWithTitle(other.ChallengeID, "session-b", workspaceID, "Allow beta")
+	if err != nil || beta.TunnelID != "tunnel_b" || beta.TunnelName != "Beta" || beta.ID == request.ID {
+		t.Fatalf("beta=%#v alpha=%#v err=%v", beta, request, err)
+	}
+}
+
 func TestRuntimeGuardChallengeApprovalAndExactOneShotRetry(t *testing.T) {
 	runtime, workspaceID := newApprovalRuntime(t)
 	ctx := approvalContext("session-a")

@@ -51,6 +51,8 @@ type ChallengeInput struct {
 	SessionHash           string
 	WorkspaceID           string
 	Source                string
+	TunnelID              string
+	TunnelName            string
 	TargetTool            string
 	Arguments             map[string]any
 	GuardCode             controlguard.Code
@@ -65,6 +67,8 @@ type Challenge struct {
 	SessionHash           string            `json:"session_hash,omitempty"`
 	WorkspaceID           string            `json:"workspace_id"`
 	Source                string            `json:"source,omitempty"`
+	TunnelID              string            `json:"tunnel_id,omitempty"`
+	TunnelName            string            `json:"tunnel_name,omitempty"`
 	TargetTool            string            `json:"target_tool"`
 	Arguments             json.RawMessage   `json:"arguments"`
 	Digest                string            `json:"-"`
@@ -85,6 +89,8 @@ type Request struct {
 	WorkspaceID           string            `json:"workspace_id"`
 	SessionHash           string            `json:"session_hash,omitempty"`
 	Source                string            `json:"source,omitempty"`
+	TunnelID              string            `json:"tunnel_id,omitempty"`
+	TunnelName            string            `json:"tunnel_name,omitempty"`
 	TargetTool            string            `json:"target_tool"`
 	Arguments             json.RawMessage   `json:"arguments"`
 	Digest                string            `json:"-"`
@@ -110,6 +116,7 @@ type RetryInput struct {
 	SessionID   string
 	WorkspaceID string
 	Source      string
+	TunnelID    string
 	TargetTool  string
 	Arguments   map[string]any
 	Command     string

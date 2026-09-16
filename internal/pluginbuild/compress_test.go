@@ -64,3 +64,23 @@ func TestCompressBinaryUPXRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCompressBinaryWindowsPE(t *testing.T) {
+	if _, err := exec.LookPath("upx"); err != nil {
+		t.Skip("upx not installed")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "tiny.exe")
+	src := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(src, []byte("package main\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w", "-o", bin, src)
+	cmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	if err := compressBinary(bin, "windows"); err != nil {
+		t.Fatal(err)
+	}
+}

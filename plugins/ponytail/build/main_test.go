@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/pluginbuild"
 )
 
 func TestPluginTemplateValidatesWithSentinelDigests(t *testing.T) {
@@ -48,8 +49,12 @@ func TestBuildCurrentPlatform(t *testing.T) {
 	if _, ok := manifest.Platforms[platform]; !ok {
 		t.Skip("template does not declare " + platform)
 	}
+	t.Setenv(pluginbuild.EnvUPX, pluginbuild.EnvUPXOff)
 	output := t.TempDir()
-	manifestPath, err := build(repoRoot, template, output, platform)
+	manifestPath, err := pluginbuild.Build(pluginbuild.Request{
+		RepoRoot: repoRoot, TemplatePath: template, OutputRoot: output, OnlyPlatform: platform,
+		Package: "./plugins/ponytail/cmd/ponytail",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +63,7 @@ func TestBuildCurrentPlatform(t *testing.T) {
 		t.Fatal(err)
 	}
 	artifact := generated.Platforms[platform]
-	if artifact.SHA256 == generatedDigestSentinel || artifact.SHA256 == "" {
+	if artifact.SHA256 == pluginbuild.DigestSentinel || artifact.SHA256 == "" {
 		t.Fatalf("digest not generated: %#v", artifact)
 	}
 	if _, err := os.Stat(filepath.Join(output, artifact.Artifact)); err != nil {

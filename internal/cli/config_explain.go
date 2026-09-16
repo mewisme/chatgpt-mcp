@@ -51,7 +51,7 @@ func configExplainCommand() *cobra.Command {
 				style = "ascii"
 			}
 			renderSpan := tracepkg.Start(cmd.Context(), "CONFIG", "config.explain.render", "Rendering config explanation Markdown", tracepkg.String("mode", "markdown"), tracepkg.String("key", key), tracepkg.Int("child_count", len(explanation.Children)), tracepkg.Int("markdown_bytes", len(markdown)), tracepkg.Int("terminal_width", width), tracepkg.Bool("terminal", terminal), tracepkg.String("style", style))
-			if err := renderMarkdown(writer, markdown); err != nil {
+			if err := renderMarkdown(cmd.Context(), writer, markdown); err != nil {
 				renderSpan.FailMessage("Config explanation Markdown render failed", err, tracepkg.String("mode", "markdown"), tracepkg.String("key", key), tracepkg.Int("child_count", len(explanation.Children)), tracepkg.Int("markdown_bytes", len(markdown)), tracepkg.Int("terminal_width", width), tracepkg.Bool("terminal", terminal), tracepkg.String("style", style))
 				return err
 			}

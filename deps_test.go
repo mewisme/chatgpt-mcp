@@ -20,6 +20,7 @@ func TestCoreDepsExcludeCFTunnel(t *testing.T) {
 		"go.mewis.me/chatgpt-mcp/plugins/cf-tunnel",
 		"go.mewis.me/chatgpt-mcp/plugins/secure-mcp-tunnel",
 		"go.mewis.me/chatgpt-mcp/plugins/tui",
+		"go.mewis.me/chatgpt-mcp/plugins/markdown-formatter",
 		"go.mewis.me/chatgpt-mcp/pkg/cloudflared",
 		"github.com/quic-go/quic-go",
 		"zombiezen.com/go/capnproto2",
@@ -27,6 +28,11 @@ func TestCoreDepsExcludeCFTunnel(t *testing.T) {
 		"charm.land/bubbletea/v2",
 		"charm.land/bubbles/v2",
 		"charm.land/huh/v2",
+		"charm.land/glamour/v2",
+		"charm.land/lipgloss/v2",
+		"github.com/alecthomas/chroma/v2",
+		"github.com/yuin/goldmark",
+		"github.com/yuin/goldmark-emoji",
 	} {
 		for _, line := range strings.Split(text, "\n") {
 			if line == forbidden || strings.HasPrefix(line, forbidden+"/") {
@@ -46,6 +52,7 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	plugin := filepath.Join(dir, "cf-tunnel")
 	secure := filepath.Join(dir, "secure-mcp-tunnel")
 	tui := filepath.Join(dir, "tui")
+	markdown := filepath.Join(dir, "markdown-formatter")
 	coreBuild := exec.Command("go", "build", "-o", core, ".")
 	coreBuild.Dir = root
 	if out, err := coreBuild.CombinedOutput(); err != nil {
@@ -66,6 +73,11 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	if out, err := tuiBuild.CombinedOutput(); err != nil {
 		t.Fatalf("tui build: %v\n%s", err, out)
 	}
+	markdownBuild := exec.Command("go", "build", "-o", markdown, "./plugins/markdown-formatter/cmd/markdown-formatter")
+	markdownBuild.Dir = root
+	if out, err := markdownBuild.CombinedOutput(); err != nil {
+		t.Fatalf("markdown-formatter build: %v\n%s", err, out)
+	}
 	coreInfo, err := os.Stat(core)
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +94,11 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("core=%d cf-tunnel=%d secure-mcp-tunnel=%d tui=%d", coreInfo.Size(), pluginInfo.Size(), secureInfo.Size(), tuiInfo.Size())
+	markdownInfo, err := os.Stat(markdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("core=%d cf-tunnel=%d secure-mcp-tunnel=%d tui=%d markdown-formatter=%d", coreInfo.Size(), pluginInfo.Size(), secureInfo.Size(), tuiInfo.Size(), markdownInfo.Size())
 }
 
 func moduleRoot(t *testing.T) string {

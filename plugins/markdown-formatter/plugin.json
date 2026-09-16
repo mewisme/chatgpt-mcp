@@ -1,0 +1,48 @@
+{
+  "schema": 2,
+  "id": "markdown-formatter",
+  "name": "Markdown Formatter",
+  "publisher": "mewisme",
+  "version": "1.0.0",
+  "type": "formatter",
+  "scopes": ["global"],
+  "requires": {
+    "chatgpt-mcp": ">=0.2.25"
+  },
+  "provides": [
+    "formatter/markdown"
+  ],
+  "permissions": [],
+  "platforms": {
+    "linux/amd64": {
+      "artifact": "markdown-formatter-1.0.0-linux-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "markdown-formatter"
+    },
+    "linux/arm64": {
+      "artifact": "markdown-formatter-1.0.0-linux-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "markdown-formatter"
+    },
+    "darwin/amd64": {
+      "artifact": "markdown-formatter-1.0.0-darwin-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "markdown-formatter"
+    },
+    "darwin/arm64": {
+      "artifact": "markdown-formatter-1.0.0-darwin-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "markdown-formatter"
+    },
+    "windows/amd64": {
+      "artifact": "markdown-formatter-1.0.0-windows-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "markdown-formatter.exe"
+    }
+  }
+}

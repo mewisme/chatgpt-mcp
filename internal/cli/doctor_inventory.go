@@ -38,7 +38,7 @@ var doctorToolsCoverage = map[string]doctorCoverage{
 	"Approvals":        {Parent: "notification.provider", Note: "approval health is review-path plus runtime bootstrap"},
 	"Executions":       {Parent: "shell.provider"},
 	"Hooks":            {Parent: "plugin.lock"},
-	"PluginStore":      {Checks: []string{"plugin.lock", "plugin.desired", "plugin.capabilities", "plugin.registry", "plugin.payloads", "plugin.compatibility", "plugin.host", "plugin.admin-ui", "plugin.secure-mcp-tunnel", "plugin.tui"}},
+	"PluginStore":      {Checks: []string{"plugin.lock", "plugin.desired", "plugin.capabilities", "plugin.registry", "plugin.payloads", "plugin.compatibility", "plugin.host", "plugin.admin-ui", "plugin.secure-mcp-tunnel", "plugin.tui", "plugin.markdown-formatter"}},
 	"Shell":            {Checks: []string{"shell.provider"}},
 	"Processes":        {Parent: "shell.provider"},
 	"LoopGuard":        {Parent: "tools.registry"},

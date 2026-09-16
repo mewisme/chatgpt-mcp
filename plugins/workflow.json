@@ -126,6 +126,30 @@
           "path": "payload/tui"
         }
       }
+    },
+    {
+      "id": "markdown-formatter",
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "build": {
+        "runner": "ubuntu-latest",
+        "command": [
+          "go",
+          "run",
+          "./plugins/markdown-formatter/build",
+          "-output",
+          "{output}"
+        ]
+      },
+      "smoke": {
+        "runner": "ubuntu-latest",
+        "probe": {
+          "kind": "file",
+          "path": "payload/markdown-formatter"
+        }
+      }
     }
   ]
 }

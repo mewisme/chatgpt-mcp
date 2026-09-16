@@ -29,13 +29,16 @@ test("plugin workflow definitions match registry and source manifests", async ()
   await validateRepositoryWorkflow(workflow)
 })
 
-test("admin-ui is the declared default-enabled core plugin", async () => {
+test("declared core plugins are default-enabled and optional", async () => {
   const workflow = await loadWorkflow()
-  const admin = workflow.plugins.find(plugin => plugin.id === "admin-ui")
-  assert.equal(admin?.core?.required, false)
-  assert.equal(admin?.core?.enabled, true)
-  for (const plugin of workflow.plugins.filter(candidate => candidate.id !== "admin-ui")) {
-    assert.equal(plugin.core, undefined)
+  const coreIDs = ["admin-ui", "secure-mcp-tunnel", "tui", "markdown-formatter"]
+  for (const id of coreIDs) {
+    const plugin = workflow.plugins.find(candidate => candidate.id === id)
+    assert.equal(plugin?.core?.required, false, id)
+    assert.equal(plugin?.core?.enabled, true, id)
+  }
+  for (const plugin of workflow.plugins.filter(candidate => !coreIDs.includes(candidate.id))) {
+    assert.equal(plugin.core, undefined, plugin.id)
   }
 })
 

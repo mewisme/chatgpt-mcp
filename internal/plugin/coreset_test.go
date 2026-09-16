@@ -40,14 +40,14 @@ func TestOfficialRegistryIndexDeclaresAdminUICore(t *testing.T) {
 	if entry.Core == nil || entry.Core.Required || !entry.Core.defaultEnabled() {
 		t.Fatalf("admin-ui core = %#v", entry.Core)
 	}
-	if got := CoreSetFromIndex(index); len(got) != 3 {
+	if got := CoreSetFromIndex(index); len(got) != 4 {
 		t.Fatalf("official core set = %#v", got)
 	}
 	ids := map[PluginID]bool{}
 	for _, spec := range CoreSetFromIndex(index) {
 		ids[spec.ID] = true
 	}
-	if !ids["admin-ui"] || !ids["secure-mcp-tunnel"] || !ids["tui"] {
+	if !ids["admin-ui"] || !ids["secure-mcp-tunnel"] || !ids["tui"] || !ids["markdown-formatter"] {
 		t.Fatalf("official core set = %#v", ids)
 	}
 	for _, id := range []PluginID{"bash", "rtk", "cf-tunnel"} {

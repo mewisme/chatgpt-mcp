@@ -120,6 +120,6 @@ Local stubs/patches:
 - `config/configuration.go`: structs/`CustomDuration` only (no config-file discovery)
 - stripped CLI ingress parsers and Sentry calls from `supervisor`/`stream`
 
-`RunQuickTunnel` is rewritten as `parseProvisionResponse` in `provision.go`. `Start(ctx, Config)` is the library entry (Phase 3).
+`RunQuickTunnel` is rewritten as `Start(ctx, Config)` plus `parseProvisionResponse`. Protocol is forced to QUIC with `HAConnections=1`. Datagram metrics use a per-supervisor Prometheus registry so MCP and Admin tunnels can run in one process.
 
 quic-go replace (same as upstream): `github.com/chungthuang/quic-go v0.45.1-0.20260529212404-a9fddf436fc4`

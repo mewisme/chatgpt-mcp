@@ -9,3 +9,9 @@ directory.
 See `UPSTREAM.md` for the pinned `cloudflare/cloudflared` tag, license, and
 extraction boundaries. Do not import `github.com/cloudflare/cloudflared/...`
 from this module.
+
+```go
+tun, err := cloudflared.Start(ctx, cloudflared.Config{OriginURL: "http://127.0.0.1:37421"})
+```
+
+Context cancellation is shutdown. `Wait` blocks until the supervisor exits.

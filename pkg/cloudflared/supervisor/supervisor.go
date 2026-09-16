@@ -72,7 +72,7 @@ func NewSupervisor(config *TunnelConfig, orchestrator *orchestration.Orchestrato
 	edgeAddrHandler := NewIPAddrFallback(config.MaxEdgeAddrRetries)
 	edgeBindAddr := config.EdgeBindAddr
 
-	datagramMetrics := v3.NewMetrics(prometheus.DefaultRegisterer)
+	datagramMetrics := v3.NewMetrics(prometheus.NewRegistry())
 
 	sessionManager := v3.NewSessionManager(datagramMetrics, config.Log, config.OriginDialerService, orchestrator.GetFlowLimiter())
 

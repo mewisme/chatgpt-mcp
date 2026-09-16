@@ -10,7 +10,6 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
@@ -31,7 +30,7 @@ func TestSDKBridgePropagatesTunnelSessionID(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := bridge.toolHandler("session_probe")
-	ctx := tunnelctx.ContextWithSessionID(context.Background(), "session-a")
+	ctx := ContextWithSessionID(context.Background(), "session-a")
 	if _, err := handler(ctx, &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "session_probe", Arguments: json.RawMessage(`{}`)}}); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +57,7 @@ func TestSDKBridgeObservationsDistinguishTwoTunnels(t *testing.T) {
 			t.Fatal(err)
 		}
 		bridge.tunnelName = item.name
-		ctx := tunnelctx.ContextWithSessionID(context.Background(), "same-remote-id")
+		ctx := ContextWithSessionID(context.Background(), "same-remote-id")
 		if _, err := bridge.toolHandler("probe")(ctx, &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "probe", Arguments: json.RawMessage(`{}`)}}); err != nil {
 			t.Fatal(err)
 		}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
@@ -35,6 +36,7 @@ func configureConfigDir(cmd *cobra.Command) error {
 
 func prepareCommand(cmd *cobra.Command, args []string) error {
 	pluginhost.Install()
+	application.BindSecureMCPAdmin(pluginhost.RuntimeHost)
 	if err := validateLoggingFlags(cmd, args); err != nil {
 		return err
 	}

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
@@ -82,7 +81,7 @@ func TestManagerReconcileAddsAndRemovesOnlyChangedInstances(t *testing.T) {
 func TestManagerStartsHealthyTunnelWhenAnotherFails(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	m := NewManager(runtime, nil)
-	m.factory = func(cfg Config, _ sdkmcp.Transport) (backend, error) {
+	m.factory = func(cfg Config, _ sdkmcp.Transport) (Backend, error) {
 		fake := newFakeBackend()
 		if cfg.ID == "bad" {
 			fake.startErr = errors.New("backend unavailable")
@@ -113,7 +112,7 @@ func TestManagerStartsHealthyTunnelWhenAnotherFails(t *testing.T) {
 func TestManagerReconcileRollsBackChangedTunnelOnly(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	m := NewManager(runtime, nil)
-	m.factory = func(cfg Config, _ sdkmcp.Transport) (backend, error) {
+	m.factory = func(cfg Config, _ sdkmcp.Transport) (Backend, error) {
 		fake := newFakeBackend()
 		if cfg.APIKey == "bad-key" {
 			fake.startErr = errors.New("backend unavailable")
@@ -167,7 +166,7 @@ func TestRemoteSessionIDsAreIsolatedByTunnel(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx := tunnelctx.ContextWithSessionID(context.Background(), "same-remote-id")
+		ctx := ContextWithSessionID(context.Background(), "same-remote-id")
 		request := &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "session_probe", Arguments: json.RawMessage(`{}`)}}
 		if _, err := bridge.toolHandler("session_probe")(ctx, request); err != nil {
 			t.Fatal(err)
@@ -203,7 +202,7 @@ func TestTunnelBridgesCallSharedRuntimeConcurrently(t *testing.T) {
 		go func(bridge *sdkBridge) {
 			defer wg.Done()
 			<-start
-			ctx := tunnelctx.ContextWithSessionID(context.Background(), "same-remote-id")
+			ctx := ContextWithSessionID(context.Background(), "same-remote-id")
 			result, err := bridge.toolHandler("shared_probe")(ctx, &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "shared_probe", Arguments: json.RawMessage(`{}`)}})
 			if err != nil {
 				errs <- err
@@ -254,7 +253,7 @@ func TestTunnelSessionNamespaceIsolatesWorkspaceAccess(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx := tunnelctx.ContextWithSessionID(context.Background(), "same-remote-id")
+		ctx := ContextWithSessionID(context.Background(), "same-remote-id")
 		result, err := bridge.toolHandler("workspace_probe")(ctx, &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "workspace_probe", Arguments: args}})
 		if err != nil || result.IsError {
 			t.Fatalf("%s workspace probe result=%#v err=%v", test.id, result, err)
@@ -297,7 +296,7 @@ func TestTunnelSessionNamespaceIsolatesLoopGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	call := func(bridge *sdkBridge) (*sdkmcp.CallToolResult, error) {
-		ctx := tunnelctx.ContextWithSessionID(context.Background(), "same-remote-id")
+		ctx := ContextWithSessionID(context.Background(), "same-remote-id")
 		return bridge.toolHandler("project_context")(ctx, &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: "project_context", Arguments: json.RawMessage(`{}`)}})
 	}
 	for i := 0; i < 2; i++ {
@@ -349,7 +348,7 @@ func TestTunnelSessionNamespaceIsolatesApprovalRetry(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		ctx := tunnelctx.ContextWithSessionID(context.Background(), "same-remote-id")
+		ctx := ContextWithSessionID(context.Background(), "same-remote-id")
 		return bridge.toolHandler(name)(ctx, &sdkmcp.CallToolRequest{Params: &sdkmcp.CallToolParamsRaw{Name: name, Arguments: data}})
 	}
 	args := map[string]any{"workspace_id": item.ID, "command": "cgm update"}

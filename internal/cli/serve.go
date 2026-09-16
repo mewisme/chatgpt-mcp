@@ -33,6 +33,9 @@ func runtimeTunnelStatuses(runtime *app.App, cfg config.Config) (runtimecontrol.
 		configured[instance.ID] = instance.APIKey != ""
 	}
 	statuses := runtime.Tunnels.Statuses()
+	if pluginStatuses, err := application.SecureMCPRuntimeStatuses(context.Background(), pluginhost.RuntimeHost); err == nil && len(pluginStatuses) > 0 {
+		statuses = pluginStatuses
+	}
 	summary := runtimecontrol.TunnelSummary{Total: len(statuses)}
 	items := make([]runtimecontrol.TunnelRuntimeStatus, 0, len(statuses))
 	for _, status := range statuses {
@@ -169,6 +172,9 @@ func syncTunnelProviders(ctx context.Context, cfg config.Config) {
 		}
 	}
 	for _, id := range pluginhost.RuntimeHost.IDs() {
+		if id == tunnel.PluginIDSecureMCP {
+			continue
+		}
 		if _, ok := wanted[id]; ok {
 			continue
 		}
@@ -449,6 +455,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			stateMu.Unlock()
 			runtime.Logger.Ready("CONFIG", "config.reloaded", "Configuration reloaded")
 			syncTunnelProviders(reloadCtx, next)
+			_ = application.ReconcileSecureMCP(reloadCtx, next, pluginhost.RuntimeHost, runtime.Bridge)
 			result = reloadResult(next, false)
 			return result, nil
 		}
@@ -510,6 +517,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			stateMu.Unlock()
 			logReadyEndpoints(runtime.Logger, next, nextPlan)
 			syncTunnelProviders(reloadCtx, next)
+			_ = application.ReconcileSecureMCP(reloadCtx, next, pluginhost.RuntimeHost, runtime.Bridge)
 			result = reloadResult(next, true)
 			return result, nil
 		}
@@ -539,6 +547,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		stateMu.Unlock()
 		logReadyEndpoints(runtime.Logger, next, nextPlan)
 		syncTunnelProviders(reloadCtx, next)
+		_ = application.ReconcileSecureMCP(reloadCtx, next, pluginhost.RuntimeHost, runtime.Bridge)
 		result = reloadResult(next, true)
 		return result, nil
 	}
@@ -663,12 +672,19 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	}
 	watchCFTunnel(runtime.Logger)
 	syncTunnelProviders(runtimeCtx, cfg)
+	if bridge, err := application.StartPrivateSecureMCP(runtimeCtx, cfg, pluginhost.RuntimeHost, runtime.Tools); err != nil {
+		runtime.Logger.Warning("TUNNEL", "tunnel.plugin.start.failed", "Secure MCP Tunnel plugin failed to start", err)
+	} else {
+		runtime.Bridge = bridge
+	}
 	setLifecycle("listeners_ready")
 	if !cfg.Server.Enabled && len(cfg.RuntimeTunnels().Instances) > 0 {
-		setLifecycle("tunnel_connecting")
-		runtime.Logger.Action("TUNNEL", "tunnel.readiness.waiting", "Waiting for OpenAI Secure MCP Tunnel readiness")
-		if err := runtime.Tunnels.WaitUntilAnyReady(runtimeCtx); err != nil {
-			return errors.Join(err, bindings.Shutdown())
+		if _, ok := pluginhost.RuntimeHost.Get(tunnel.PluginIDSecureMCP); ok {
+			setLifecycle("tunnel_connecting")
+			runtime.Logger.Action("TUNNEL", "tunnel.readiness.waiting", "Waiting for OpenAI Secure MCP Tunnel readiness")
+			if err := application.WaitSecureMCPReady(runtimeCtx, pluginhost.RuntimeHost); err != nil {
+				return errors.Join(err, bindings.Shutdown())
+			}
 		}
 	}
 	setLifecycle("ready")

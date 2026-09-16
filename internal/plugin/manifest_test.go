@@ -158,6 +158,7 @@ func TestOfficialPluginManifestsDeclareIntendedScopes(t *testing.T) {
 		{filepath.Join("..", "..", "plugins", "bash", "plugin.json"), []PluginScope{ScopeGlobal, ScopeWorkspace}},
 		{filepath.Join("..", "..", "plugins", "rtk", "plugin.json"), []PluginScope{ScopeGlobal, ScopeWorkspace}},
 		{filepath.Join("..", "..", "plugins", "cf-tunnel", "plugin.json"), []PluginScope{ScopeGlobal}},
+		{filepath.Join("..", "..", "plugins", "secure-mcp-tunnel", "plugin.json"), []PluginScope{ScopeGlobal}},
 	}
 	for _, test := range cases {
 		data, err := os.ReadFile(test.path)

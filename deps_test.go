@@ -18,9 +18,11 @@ func TestCoreDepsExcludeCFTunnel(t *testing.T) {
 	text := string(out)
 	for _, forbidden := range []string{
 		"go.mewis.me/chatgpt-mcp/plugins/cf-tunnel",
+		"go.mewis.me/chatgpt-mcp/plugins/secure-mcp-tunnel",
 		"go.mewis.me/chatgpt-mcp/pkg/cloudflared",
 		"github.com/quic-go/quic-go",
 		"zombiezen.com/go/capnproto2",
+		"github.com/openai/tunnel-client",
 	} {
 		for _, line := range strings.Split(text, "\n") {
 			if line == forbidden || strings.HasPrefix(line, forbidden+"/") {
@@ -38,6 +40,7 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	dir := t.TempDir()
 	core := filepath.Join(dir, "cgm")
 	plugin := filepath.Join(dir, "cf-tunnel")
+	secure := filepath.Join(dir, "secure-mcp-tunnel")
 	coreBuild := exec.Command("go", "build", "-o", core, ".")
 	coreBuild.Dir = root
 	if out, err := coreBuild.CombinedOutput(); err != nil {
@@ -48,6 +51,11 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	if out, err := pluginBuild.CombinedOutput(); err != nil {
 		t.Fatalf("plugin build: %v\n%s", err, out)
 	}
+	secureBuild := exec.Command("go", "build", "-o", secure, "./plugins/secure-mcp-tunnel/cmd/secure-mcp-tunnel")
+	secureBuild.Dir = root
+	if out, err := secureBuild.CombinedOutput(); err != nil {
+		t.Fatalf("secure-mcp-tunnel build: %v\n%s", err, out)
+	}
 	coreInfo, err := os.Stat(core)
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +64,11 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("core=%d plugin=%d", coreInfo.Size(), pluginInfo.Size())
+	secureInfo, err := os.Stat(secure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("core=%d cf-tunnel=%d secure-mcp-tunnel=%d", coreInfo.Size(), pluginInfo.Size(), secureInfo.Size())
 }
 
 func moduleRoot(t *testing.T) string {

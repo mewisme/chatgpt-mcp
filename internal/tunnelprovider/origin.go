@@ -26,6 +26,8 @@ func ResolveOrigin(cfg config.Config, kind string) (Origin, error) {
 			return Origin{}, ErrListenerNotReady
 		}
 		return Origin{Kind: OriginAdmin, URL: loopbackURL(cfg.Admin.Port), PublicPath: "/"}, nil
+	case OriginPrivate:
+		return Origin{}, fmt.Errorf("%w: private MCP bridge is owned by core runtime", ErrUnsupportedOrigin)
 	default:
 		return Origin{}, fmt.Errorf("%w: %q", ErrUnsupportedOrigin, kind)
 	}

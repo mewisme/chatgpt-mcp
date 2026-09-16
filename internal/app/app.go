@@ -32,6 +32,7 @@ type App struct {
 	Tunnel        *tunnel.Client
 	Logger        *logger.Logger
 	Notifications *notification.Service
+	Bridge        *mcp.PrivateBridge
 	runtimeCtx    context.Context
 	trace         tracepkg.Observer
 	running       bool

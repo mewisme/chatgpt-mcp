@@ -1,4 +1,4 @@
-package tunnel
+package securemcptunnel
 
 import (
 	"context"
@@ -39,7 +39,7 @@ func TestCancellationSafeTransportKeepsPipeOpenAfterRequestCancellation(t *testi
 		t.Fatal(err)
 	}
 	defer serverConn.Close()
-	forwarding := mcpclient.NewForwardingTransport(mcpclient.NewSharedConnectionTransport(withSessionTransport(tunnelTransport)))
+	forwarding := mcpclient.NewForwardingTransport(mcpclient.NewSharedConnectionTransport(withSessionTransport(tunnelTransport, "", "")))
 	tunnelConn, err := forwarding.Connect(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestCancellationSafeTransportKeepsPipeOpenWhenContextCancelsAfterWrite(t *t
 		t.Fatal(err)
 	}
 	defer serverConn.Close()
-	forwarding := mcpclient.NewForwardingTransport(mcpclient.NewSharedConnectionTransport(withSessionTransport(tunnelTransport)))
+	forwarding := mcpclient.NewForwardingTransport(mcpclient.NewSharedConnectionTransport(withSessionTransport(tunnelTransport, "", "")))
 	callerID, _ := jsonrpc.MakeID("first")
 	ctx, cancel := context.WithCancel(tunnelTestRequestContext(context.Background(), "first", callerID))
 	conn, err := forwarding.Connect(ctx)
@@ -166,7 +166,7 @@ func TestCancellationSafeTransportRoutesConcurrentResponsesByLogicalRequest(t *t
 		t.Fatal(err)
 	}
 	defer serverConn.Close()
-	forwarding := mcpclient.NewForwardingTransport(mcpclient.NewSharedConnectionTransport(withSessionTransport(tunnelTransport)))
+	forwarding := mcpclient.NewForwardingTransport(mcpclient.NewSharedConnectionTransport(withSessionTransport(tunnelTransport, "", "")))
 	originalID, _ := jsonrpc.MakeID("same-id")
 	ctxA := tunnelTestRequestContext(context.Background(), "command-a", originalID)
 	ctxB := tunnelTestRequestContext(context.Background(), "command-b", originalID)
@@ -199,7 +199,7 @@ func TestCancellationSafeTransportDropsLateCancelledResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer serverConn.Close()
-	forwarding := mcpclient.NewForwardingTransport(mcpclient.NewSharedConnectionTransport(withSessionTransport(tunnelTransport)))
+	forwarding := mcpclient.NewForwardingTransport(mcpclient.NewSharedConnectionTransport(withSessionTransport(tunnelTransport, "", "")))
 	originalID, _ := jsonrpc.MakeID("reused-id")
 	baseA := tunnelTestRequestContext(context.Background(), "command-cancelled", originalID)
 	ctxA, cancelA := context.WithCancel(baseA)

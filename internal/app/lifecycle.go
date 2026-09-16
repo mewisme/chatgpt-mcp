@@ -92,6 +92,10 @@ func (a *App) Stop() error {
 	if a.Notifications != nil {
 		a.Notifications.Stop()
 	}
+	if a.Bridge != nil {
+		_ = a.Bridge.Close()
+		a.Bridge = nil
+	}
 	if a.MCP != nil {
 		subscriptionsSpan := tracepkg.StartObserver(a.trace, "APP", "app.mcp.subscriptions.close", "Closing MCP subscriptions")
 		if a.Logger != nil {

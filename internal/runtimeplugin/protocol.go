@@ -18,13 +18,15 @@ const (
 )
 
 const (
-	MethodDescribe = "describe"
-	MethodStatus   = "status"
-	MethodStart    = "start"
-	MethodStop     = "stop"
-	MethodShutdown = "shutdown"
-	EventStatus    = "status"
-	EventLog       = "log"
+	MethodDescribe  = "describe"
+	MethodStatus    = "status"
+	MethodStart     = "start"
+	MethodStop      = "stop"
+	MethodShutdown  = "shutdown"
+	MethodReconcile = "reconcile"
+	MethodInvoke    = "invoke"
+	EventStatus     = "status"
+	EventLog        = "log"
 )
 
 const (
@@ -76,8 +78,10 @@ func (err Error) Error() string {
 
 func MethodTimeout(method string) time.Duration {
 	switch method {
-	case MethodStart:
+	case MethodStart, MethodReconcile:
 		return 15 * time.Second
+	case MethodInvoke:
+		return 30 * time.Second
 	case MethodStop:
 		return 10 * time.Second
 	case MethodShutdown:

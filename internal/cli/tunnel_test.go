@@ -16,6 +16,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
+	securemcptunnel "go.mewis.me/chatgpt-mcp/plugins/secure-mcp-tunnel"
 )
 
 func TestLogTunnelLifecycleReconnect(t *testing.T) {
@@ -60,6 +61,7 @@ func TestTunnelRunRequiresTunnelID(t *testing.T) {
 }
 
 func TestTunnelAdminUpdateCommandPreservesBlankKey(t *testing.T) {
+	useSecureMCPAdmin(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer admin-secret" || r.URL.Query().Get("organization_id") != "org_new" {
 			t.Fatalf("request=%s %s auth=%q query=%s", r.Method, r.URL.Path, r.Header.Get("Authorization"), r.URL.RawQuery)
@@ -129,4 +131,10 @@ func TestTunnelAddAndUpdateMutateOnlyTarget(t *testing.T) {
 	if len(got) != 3 || got[0].ID != "tunnel_one" || got[0].Enabled || got[0].APIKey != "runtime-one" || got[0].OrganizationID != "org_new" || got[1].ID != "tunnel_two" || !got[1].Enabled || got[1].APIKey != "runtime-two" || got[2].ID != "tunnel_three" || got[2].APIKey != "runtime-three" {
 		t.Fatalf("instances=%#v", got)
 	}
+}
+
+func useSecureMCPAdmin(t *testing.T) {
+	t.Helper()
+	tunnel.SetAdminBackend(securemcptunnel.ControlPlane())
+	t.Cleanup(func() { tunnel.SetAdminBackend(nil) })
 }

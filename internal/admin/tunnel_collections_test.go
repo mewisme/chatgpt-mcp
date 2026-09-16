@@ -13,6 +13,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
+	securemcptunnel "go.mewis.me/chatgpt-mcp/plugins/secure-mcp-tunnel"
 )
 
 func TestTunnelCollectionAPIAttachesAndDetachesByID(t *testing.T) {
@@ -146,6 +147,8 @@ func TestTunnelAdminCollectionCRUDPreservesSecret(t *testing.T) {
 }
 
 func TestManagedTunnelAPIKeepsAllProfileProvenance(t *testing.T) {
+	tunnel.SetAdminBackend(securemcptunnel.ControlPlane())
+	t.Cleanup(func() { tunnel.SetAdminBackend(nil) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/tunnels" {
 			http.NotFound(w, r)

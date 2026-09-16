@@ -93,6 +93,7 @@ func TestMCPServerListDefaultsToPlainAndSupportsRedactedJSON(t *testing.T) {
 }
 
 func TestManagedTunnelListDefaultsToPlainAndSupportsJSON(t *testing.T) {
+	useSecureMCPAdmin(t)
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

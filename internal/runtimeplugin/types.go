@@ -42,6 +42,17 @@ type StopParams struct {
 	Target string `json:"target"`
 }
 
+type ReconcileParams struct {
+	BridgeURL   string `json:"bridge_url"`
+	BridgeToken string `json:"bridge_token"`
+	Collection  any    `json:"collection,omitempty"`
+}
+
+type InvokeParams struct {
+	Op      string `json:"op"`
+	Payload any    `json:"payload,omitempty"`
+}
+
 type LogEvent struct {
 	Severity string `json:"severity"`
 	Message  string `json:"message"`

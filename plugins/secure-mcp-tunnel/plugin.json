@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "id": "secure-mcp-tunnel",
+  "name": "Secure MCP Tunnel",
+  "publisher": "mewisme",
+  "version": "1.0.0",
+  "type": "runtime",
+  "scopes": ["global"],
+  "requires": {
+    "chatgpt-mcp": ">=0.2.25"
+  },
+  "provides": [
+    "tunnel/secure-mcp"
+  ],
+  "permissions": [
+    "network/outbound"
+  ],
+  "platforms": {
+    "linux/amd64": {
+      "artifact": "secure-mcp-tunnel-1.0.0-linux-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "secure-mcp-tunnel"
+    },
+    "linux/arm64": {
+      "artifact": "secure-mcp-tunnel-1.0.0-linux-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "secure-mcp-tunnel"
+    },
+    "darwin/amd64": {
+      "artifact": "secure-mcp-tunnel-1.0.0-darwin-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "secure-mcp-tunnel"
+    },
+    "darwin/arm64": {
+      "artifact": "secure-mcp-tunnel-1.0.0-darwin-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "secure-mcp-tunnel"
+    },
+    "windows/amd64": {
+      "artifact": "secure-mcp-tunnel-1.0.0-windows-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "secure-mcp-tunnel.exe"
+    }
+  }
+}

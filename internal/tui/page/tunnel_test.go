@@ -18,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	"go.mewis.me/chatgpt-mcp/internal/tui/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
+	securemcptunnel "go.mewis.me/chatgpt-mcp/plugins/secure-mcp-tunnel"
 )
 
 func TestTunnelCollectionRedactsSecretsAndBlankEditPreservesRuntimeKey(t *testing.T) {
@@ -733,6 +734,8 @@ func TestManagedTunnelUpdateAndConfigureFailuresKeepDraft(t *testing.T) {
 
 func setupTunnelPageConfig(t *testing.T, value tunnel.Config) {
 	t.Helper()
+	tunnel.SetAdminBackend(securemcptunnel.ControlPlane())
+	t.Cleanup(func() { tunnel.SetAdminBackend(nil) })
 	previous := configformat.RootPath()
 	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
 	root := filepath.Join(t.TempDir(), "config")

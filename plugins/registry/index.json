@@ -51,6 +51,22 @@
       "versions": {
         "1.0.0": "cf-tunnel-1.0.0.json"
       }
+    },
+    "secure-mcp-tunnel": {
+      "publisher": "mewisme",
+      "name": "Secure MCP Tunnel",
+      "description": "OpenAI Secure MCP Tunnel runtime and control-plane client",
+      "type": "runtime",
+      "scopes": ["global"],
+      "provides": ["tunnel/secure-mcp"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "secure-mcp-tunnel-1.0.0.json"
+      }
     }
   }
 }

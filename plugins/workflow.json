@@ -78,6 +78,30 @@
           "path": "payload/cf-tunnel"
         }
       }
+    },
+    {
+      "id": "secure-mcp-tunnel",
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "build": {
+        "runner": "ubuntu-latest",
+        "command": [
+          "go",
+          "run",
+          "./plugins/secure-mcp-tunnel/build",
+          "-output",
+          "{output}"
+        ]
+      },
+      "smoke": {
+        "runner": "ubuntu-latest",
+        "probe": {
+          "kind": "file",
+          "path": "payload/secure-mcp-tunnel"
+        }
+      }
     }
   ]
 }

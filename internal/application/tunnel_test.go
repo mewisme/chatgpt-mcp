@@ -14,6 +14,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
+	securemcptunnel "go.mewis.me/chatgpt-mcp/plugins/secure-mcp-tunnel"
 )
 
 func TestAttachManagedTunnelSyncsMetadataAndPersistsSecret(t *testing.T) {
@@ -390,6 +391,8 @@ func TestManagedCreateFailureDoesNotChangeRuntimeCollection(t *testing.T) {
 
 func setupTunnelApplicationRoot(t *testing.T, tunnelConfig tunnel.Config) {
 	t.Helper()
+	tunnel.SetAdminBackend(securemcptunnel.ControlPlane())
+	t.Cleanup(func() { tunnel.SetAdminBackend(nil) })
 	root := filepath.Join(t.TempDir(), "config")
 	testutil.UseConfigRoot(t, root)
 	cfg := config.Default()

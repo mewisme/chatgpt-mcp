@@ -9,9 +9,11 @@ import (
 )
 
 const (
-	Prefix      = "tunnel/"
-	OriginMCP   = "mcp-http"
-	OriginAdmin = "admin-http"
+	Prefix            = "tunnel/"
+	OriginMCP         = "mcp-http"
+	OriginAdmin       = "admin-http"
+	OriginPrivate     = "private-mcp"
+	ProviderSecureMCP = "secure-mcp"
 )
 
 var (
@@ -40,6 +42,10 @@ func Capability(provider string) string {
 
 func ProviderName(capability string) string {
 	return strings.TrimPrefix(strings.TrimSpace(capability), Prefix)
+}
+
+func IsOriginGated(provider string) bool {
+	return strings.TrimSpace(provider) != ProviderSecureMCP
 }
 
 func ValidateDescriptor(provider string, desc runtimeplugin.DescribeResult) error {
@@ -85,7 +91,7 @@ func Target(desc runtimeplugin.DescribeResult, id string) (runtimeplugin.Target,
 
 func validateOriginKind(kind string) error {
 	switch strings.TrimSpace(kind) {
-	case OriginMCP, OriginAdmin:
+	case OriginMCP, OriginAdmin, OriginPrivate:
 		return nil
 	default:
 		return fmt.Errorf("%w: %q", ErrUnsupportedOrigin, kind)

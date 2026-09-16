@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/openai/tunnel-client/pkg/tunnelctx"
 
 	localmcp "go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
@@ -231,7 +230,7 @@ func (b *sdkBridge) toolHandler(name string) sdkmcp.ToolHandler {
 }
 
 func (b *sdkBridge) sessionID(ctx context.Context, request *sdkmcp.CallToolRequest) string {
-	if sessionID, ok := tunnelctx.SessionIDFromContext(ctx); ok {
+	if sessionID, ok := SessionIDFromContext(ctx); ok {
 		if sessionID = strings.TrimSpace(sessionID); sessionID != "" {
 			return sessionID
 		}

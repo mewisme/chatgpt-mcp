@@ -120,6 +120,24 @@ func (d *doctorState) checkPluginAdminUI(ctx context.Context) doctorResult {
 	return doctorResult{Status: doctorWarn, Summary: "Admin HTTP is enabled but admin-ui is not an active plugin", Hint: "run cgm plugin install admin-ui"}
 }
 
+func (d *doctorState) checkPluginSecureMCP(_ context.Context) doctorResult {
+	collection := d.cfg.RuntimeTunnels()
+	if d.store == nil {
+		return doctorResult{Status: doctorSkip, Summary: "plugin store unavailable"}
+	}
+	id := pluginpkg.PluginID("secure-mcp-tunnel")
+	if entry, ok := d.lock.Plugins[id]; ok && entry.Enabled {
+		if _, err := d.store.Installed(id, entry.Version); err != nil {
+			return doctorResult{Status: doctorFail, Summary: "Secure MCP Tunnel plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: "run cgm plugin install secure-mcp-tunnel"}
+		}
+		return doctorResult{Status: doctorPass, Summary: "Secure MCP Tunnel plugin is installed"}
+	}
+	if len(collection.Instances) == 0 && len(collection.Admins) == 0 {
+		return doctorResult{Status: doctorSkip, Summary: "Secure MCP Tunnel is not configured"}
+	}
+	return doctorResult{Status: doctorWarn, Summary: "Secure MCP tunnels are configured but the core plugin is not installed", Hint: "run cgm plugin install secure-mcp-tunnel"}
+}
+
 func sortedPluginIDs(lock pluginpkg.LockFile) []pluginpkg.PluginID {
 	ids := make([]pluginpkg.PluginID, 0, len(lock.Plugins))
 	for id := range lock.Plugins {

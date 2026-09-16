@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/telemetry"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -86,29 +86,18 @@ func tunnelRunCommand() *cobra.Command {
 		defer interrupt.Close()
 		shutdownCtx := interrupt.Context
 
-		client := tunnel.NewConfiguredWithLogger(tunnelConfig, runtime, log)
-		if metadata, err := config.LoadTunnelMetadata(tunnelConfig.ID); err == nil {
-			if seedErr := client.SeedMetadata(metadata); seedErr != nil {
-				logCommandDebug(cmd, "TUNNEL", "tunnel.metadata.seed-failed", "Cached tunnel metadata could not be seeded", logger.WithDebug("error", seedErr.Error()))
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			logCommandDebug(cmd, "TUNNEL", "tunnel.metadata.load-failed", "Cached tunnel metadata could not be loaded", logger.WithDebug("error", err.Error()))
-		}
-		client.SetLifecycleObserver(func(event tunnel.LifecycleEvent) { logTunnelLifecycle(log, event) })
+		instances := []tunnel.InstanceConfig{{Enabled: true, ID: tunnelConfig.ID, APIKey: tunnelConfig.APIKey, ControlPlaneBaseURL: tunnelConfig.ControlPlaneBaseURL, OrganizationID: tunnelConfig.OrganizationID}}
+		runCfg := cfg
+		runCfg.Tunnel.Instances = &instances
 		logCommandStep(cmd, "TUNNEL", "tunnel.runtime.starting", "Starting tunnel runtime", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
-		if err := client.StartContext(runtimeCtx); err != nil {
+		bridge, err := application.StartPrivateSecureMCP(runtimeCtx, runCfg, pluginhost.RuntimeHost, runtime)
+		if err != nil {
 			return err
 		}
 		defer func() {
-			status := client.Status()
-			if status.Running || status.Restarting {
-				log.Action("TUNNEL", "tunnel.stopping", "Stopping tunnel", logger.WithVerbose("tunnel_id", tunnelConfig.ID))
-				if err := client.Stop(); err != nil {
-					log.Failure("TUNNEL", "tunnel.stop.failed", "Failed to stop tunnel", err)
-					if runErr == nil {
-						runErr = err
-					}
-				}
+			_ = pluginhost.RuntimeHost.Shutdown(context.Background(), tunnel.PluginIDSecureMCP)
+			if bridge != nil {
+				_ = bridge.Close()
 			}
 			if runtime.Upstream != nil {
 				log.Verbose("UPSTREAM", "upstream.stopping", "Stopping upstream servers")
@@ -128,8 +117,7 @@ func tunnelRunCommand() *cobra.Command {
 				log.Verbose("TUNNEL", "tunnel.shutdown.complete", "Tunnel shutdown complete")
 			}
 		}()
-
-		if err := client.WaitUntilReady(shutdownCtx); err != nil {
+		if err := application.WaitSecureMCPReady(shutdownCtx, pluginhost.RuntimeHost); err != nil {
 			if shutdownCtx.Err() != nil {
 				log.Verbose("TUNNEL", "tunnel.shutdown.requested", "Shutdown requested")
 				return nil

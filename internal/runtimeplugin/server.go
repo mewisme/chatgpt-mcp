@@ -17,6 +17,12 @@ type Handler interface {
 	Shutdown(ctx context.Context, params json.RawMessage) (any, error)
 }
 
+type ExtendedHandler interface {
+	Handler
+	Reconcile(ctx context.Context, params json.RawMessage) (any, error)
+	Invoke(ctx context.Context, params json.RawMessage) (any, error)
+}
+
 type Server struct {
 	Handler Handler
 
@@ -101,6 +107,15 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		return s.Handler.Stop(ctx, params)
 	case MethodShutdown:
 		return s.Handler.Shutdown(ctx, params)
+	case MethodReconcile, MethodInvoke:
+		extended, ok := s.Handler.(ExtendedHandler)
+		if !ok {
+			return nil, ErrUnknownMethod
+		}
+		if method == MethodReconcile {
+			return extended.Reconcile(ctx, params)
+		}
+		return extended.Invoke(ctx, params)
 	default:
 		return nil, ErrUnknownMethod
 	}

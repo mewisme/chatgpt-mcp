@@ -75,15 +75,16 @@ func (cfg InstanceConfig) clientConfig() Config {
 
 // Manager owns independent tunnel transports pointing at exactly one tools runtime.
 type Manager struct {
-	opMu     sync.Mutex
-	mu       sync.RWMutex
-	runtime  *tools.Runtime
-	logger   *logger.Logger
-	clients  map[string]*Client
-	configs  map[string]InstanceConfig
-	running  bool
-	observer LifecycleObserver
-	factory  backendFactory
+	opMu                   sync.Mutex
+	mu                     sync.RWMutex
+	runtime                *tools.Runtime
+	logger                 *logger.Logger
+	clients                map[string]*Client
+	configs                map[string]InstanceConfig
+	running                bool
+	observer               LifecycleObserver
+	factory                BackendFactory
+	bridgeURL, bridgeToken string
 }
 
 type managerChange struct {
@@ -100,6 +101,24 @@ func (m *Manager) Client(id string) (*Client, bool) {
 	defer m.mu.RUnlock()
 	client, ok := m.clients[id]
 	return client, ok
+}
+
+func (m *Manager) SetBackendFactory(factory BackendFactory) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.factory = factory
+	m.mu.Unlock()
+}
+
+func (m *Manager) SetBridge(endpoint, token string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.bridgeURL, m.bridgeToken = strings.TrimSpace(endpoint), strings.TrimSpace(token)
+	m.mu.Unlock()
 }
 
 func (m *Manager) SetLifecycleObserver(observer LifecycleObserver) {
@@ -164,12 +183,19 @@ func (m *Manager) StartContext(ctx context.Context) error {
 	defer m.opMu.Unlock()
 	m.mu.Lock()
 	m.running = true
+	factory := m.factory
 	m.mu.Unlock()
+	if factory == nil {
+		return nil
+	}
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(m.Statuses()))
 	for _, status := range m.Statuses() {
 		if status.Enabled {
 			if client, ok := m.Client(status.ID); ok {
+				if st := client.Status(); st.Running || st.Restarting {
+					continue
+				}
 				wg.Add(1)
 				go func(id string, client *Client) {
 					defer wg.Done()
@@ -280,10 +306,8 @@ func (m *Manager) Reconcile(ctx context.Context, cfg CollectionConfig) error {
 			continue
 		}
 		old := previous[instance.ID]
-		client := NewConfiguredWithLogger(instance.clientConfig(), m.runtime, m.logger)
-		if m.factory != nil {
-			client = newConfigured(instance.clientConfig(), m.runtime, m.factory)
-		}
+		client := newConfigured(instance.clientConfig(), m.runtime, m.factory)
+		client.SetBridge(m.bridgeURL, m.bridgeToken)
 		client.SetLifecycleObserver(observer)
 		next[instance.ID] = client
 		changes = append(changes, managerChange{old: old, next: client, oldEnabled: old != nil && previousCfg[instance.ID].Enabled})

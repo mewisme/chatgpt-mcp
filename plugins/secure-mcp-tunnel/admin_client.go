@@ -1,4 +1,4 @@
-package tunnel
+package securemcptunnel
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	tunnelclient "github.com/openai/tunnel-client"
 	"github.com/openai/tunnel-client/pkg/clientinstance"
 	tcconfig "github.com/openai/tunnel-client/pkg/config"
 	tcadmin "github.com/openai/tunnel-client/pkg/controlplane/admin"
@@ -21,6 +20,7 @@ import (
 	"github.com/openai/tunnel-client/pkg/version"
 
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 const adminTunnelTimeout = 30 * time.Second
@@ -31,10 +31,10 @@ type tracedAdminTunnelClient struct {
 	adminKey   string
 }
 
-func adminTunnelClient(cfg Config, apiKey string) (*tracedAdminTunnelClient, error) {
+func adminTunnelClient(cfg tunnel.Config, apiKey string) (*tracedAdminTunnelClient, error) {
 	baseURL := strings.TrimSpace(cfg.ControlPlaneBaseURL)
 	if baseURL == "" {
-		baseURL = tunnelclient.DefaultControlPlaneBaseURL
+		baseURL = tunnel.DefaultControlPlaneBaseURL
 	}
 	parsed, err := url.Parse(baseURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {

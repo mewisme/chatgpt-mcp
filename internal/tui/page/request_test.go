@@ -520,6 +520,61 @@ func TestRequestRowsSearchExactCommandSeparatelyFromTitle(t *testing.T) {
 	}
 }
 
+func TestRequestsDeepLinkMissingRequestStaysUsable(t *testing.T) {
+	server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/requests":
+			_ = json.NewEncoder(w).Encode([]approval.Request{})
+		case "/requests/view":
+			http.Error(w, "not found", http.StatusNotFound)
+		default:
+			t.Fatalf("unexpected path=%s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+	page, err := NewRequests(t.Context(), "req_missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.refreshCmd()())
+	page = updated.(*RequestsPage)
+	view := ansi.Strip(page.View(100, 28))
+	if page.resourceErr == nil || strings.Contains(view, "Loading approval request") {
+		t.Fatalf("missing request view=%q resourceErr=%v", view, page.resourceErr)
+	}
+	if !strings.Contains(view, "no longer available") {
+		t.Fatalf("missing request view=%q", view)
+	}
+}
+
+func TestRequestsDeepLinkShowsResolvedStatus(t *testing.T) {
+	now := time.Now().UTC()
+	approved := approval.Request{ID: "req_approved_deep", Status: approval.StatusApproved, WorkspaceID: "ws_a", TargetTool: "run_command", Title: "Allow update", CreatedAt: now.Add(-time.Minute), ExpiresAt: now, ResolvedAt: now}
+	server := newRequestPageServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/requests":
+			_ = json.NewEncoder(w).Encode([]approval.Request{approved})
+		case "/requests/view":
+			_ = json.NewEncoder(w).Encode(approved)
+		case "/requests/approve":
+			t.Fatal("deep link must not auto-approve")
+		default:
+			t.Fatalf("unexpected path=%s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+	page, err := NewRequests(t.Context(), approved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.refreshCmd()())
+	page = updated.(*RequestsPage)
+	view := ansi.Strip(page.View(100, 28))
+	if page.action != "" || !strings.Contains(strings.ToLower(view), "approved") {
+		t.Fatalf("resolved deep link action=%q view=%q", page.action, view)
+	}
+}
+
 func newRequestPageServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

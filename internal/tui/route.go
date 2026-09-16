@@ -53,6 +53,10 @@ var headerPages = []headerPage{
 	{Kind: RouteRuntime, Label: "Runtime", CompactLabel: "Run"},
 }
 
+func ApprovalReviewRoute(requestID string) Route {
+	return Route{Kind: RouteRequests, Mode: "all", ResourceID: strings.TrimSpace(requestID)}
+}
+
 func ParseRoute(args []string) (Route, error) {
 	if len(args) == 0 {
 		return Route{Kind: RouteHome}, nil

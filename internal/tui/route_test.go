@@ -43,6 +43,7 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"containers", "wsc_abc", "workspaces"}, Route{Kind: RouteContainers, ResourceID: "wsc_abc", Section: "workspaces"}},
 		{[]string{"mcp", "github", "health"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "health"}},
 		{[]string{"tunnels", "tunnel_abc", "scope"}, Route{Kind: RouteTunnels, ResourceID: "tunnel_abc", Section: "scope"}},
+		{[]string{"requests", "req_abc"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_abc"}},
 		{[]string{"requests", "req_abc", "guard"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_abc", Section: "guard"}},
 		{[]string{"requests", "pending"}, Route{Kind: RouteRequests, Mode: "pending"}},
 		{[]string{"requests", "history", "req_abc"}, Route{Kind: RouteRequests, Mode: "history", ResourceID: "req_abc"}},
@@ -73,6 +74,14 @@ func TestParseRoute(t *testing.T) {
 		if _, err := ParseRoute(args); err == nil {
 			t.Fatalf("ParseRoute(%v) unexpectedly succeeded", args)
 		}
+	}
+}
+
+func TestApprovalReviewRouteOmitsResolveActions(t *testing.T) {
+	got := ApprovalReviewRoute("req_abc")
+	parsed, err := ParseRoute([]string{"requests", "req_abc"})
+	if err != nil || got != parsed || got.Action != "" || got.Kind != RouteRequests || got.ResourceID != "req_abc" {
+		t.Fatalf("review route=%#v parsed=%#v err=%v", got, parsed, err)
 	}
 }
 

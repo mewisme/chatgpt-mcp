@@ -22,7 +22,6 @@ const config = {
   },
   permissions: { allow_dirs: [] },
   shell: { path: [] },
-  features: { ponytail: { active: true, mode: "full" }, caveman: { active: true, mode: "full" } },
 }
 describe("admin app runtime smoke", () => {
   beforeEach(() => {

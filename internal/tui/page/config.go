@@ -591,9 +591,6 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 func (page *ConfigPage) searchRows() []component.Row {
 	rows := make([]component.Row, 0, len(config.Fields()))
 	for _, spec := range config.Fields() {
-		if spec.Section == config.FieldSectionFeatures {
-			continue
-		}
 		value := "loading"
 		state := config.FieldStateDefault
 		if page.loaded {
@@ -795,6 +792,9 @@ func (page *ConfigPage) isBrowserRoute() bool {
 }
 
 func (page *ConfigPage) isDomainRoute() bool {
+	if page.resourceID == "features" {
+		return true
+	}
 	_, ok := configSectionForRoute(page.resourceID)
 	return ok
 }
@@ -822,8 +822,6 @@ func configSectionForRoute(resourceID string) (config.FieldSection, bool) {
 		return config.FieldSectionAccess, true
 	case "shell":
 		return config.FieldSectionShell, true
-	case "features":
-		return config.FieldSectionFeatures, true
 	case "tunnel":
 		return config.FieldSectionTunnel, true
 	default:

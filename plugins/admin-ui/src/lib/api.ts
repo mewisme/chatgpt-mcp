@@ -275,19 +275,6 @@ export type PublicConfig = {
   }
   permissions: { allow_dirs: string[] }
   shell: { path: string[] }
-  features: {
-    ponytail: { active: boolean; mode: "lite" | "full" | "ultra" }
-    caveman: {
-      active: boolean
-      mode:
-        | "lite"
-        | "full"
-        | "ultra"
-        | "wenyan-lite"
-        | "wenyan-full"
-        | "wenyan-ultra"
-    }
-  }
 }
 export type PluginLifecycle = {
   install: boolean

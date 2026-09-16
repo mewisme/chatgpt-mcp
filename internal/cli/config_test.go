@@ -37,32 +37,14 @@ func TestSetConfigValueTyped(t *testing.T) {
 	if err := setConfigValue(&cfg, "tunnel.organization_id", "org-test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setConfigValue(&cfg, "features.ponytail.active", "false"); err != nil {
-		t.Fatal(err)
-	}
-	if err := setConfigValue(&cfg, "features.ponytail.mode", "ULTRA"); err != nil {
-		t.Fatal(err)
-	}
-	if err := setConfigValue(&cfg, "features.caveman.active", "false"); err != nil {
-		t.Fatal(err)
-	}
-	if err := setConfigValue(&cfg, "features.caveman.mode", "WENYAN-ULTRA"); err != nil {
-		t.Fatal(err)
-	}
 	if err := setConfigValue(&cfg, "permissions.allow_dirs", "/tmp,/var/tmp"); err != nil {
 		t.Fatal(err)
 	}
 	if err := setConfigValue(&cfg, "shell.path", "/opt/tools,/usr/local/custom/bin"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != config.ExposureWildcard || cfg.Admin.Enabled || cfg.Tunnel.ControlPlaneBaseURL != "https://api.openai.com" || cfg.Tunnel.OrganizationID != "org-test" || len(cfg.Permissions.AllowDirs) != 2 || len(cfg.Shell.Path) != 2 {
 		t.Fatalf("cfg = %#v", cfg)
-	}
-	if err := setConfigValue(&cfg, "features.ponytail.mode", "review"); err == nil {
-		t.Fatal("session-only review accepted as configured Ponytail mode")
-	}
-	if err := setConfigValue(&cfg, "features.caveman.mode", "wenyan"); err == nil {
-		t.Fatal("Caveman runtime alias accepted as configured mode")
 	}
 }
 
@@ -99,31 +81,15 @@ func TestTunnelAdminCredentialsCannotBypassVerificationThroughConfigSet(t *testi
 	}
 }
 
-func TestFeatureConfigTraversal(t *testing.T) {
+func TestFeatureConfigKeysAreRemoved(t *testing.T) {
 	cfg := config.Default()
-	value, err := getConfigValue(cfg, "features")
-	if err != nil {
-		t.Fatal(err)
-	}
-	features, ok := value.(map[string]any)
-	if !ok {
-		t.Fatalf("features = %#v", value)
-	}
-	ponytail, ok := features["ponytail"].(map[string]any)
-	if !ok || ponytail["active"] != true || ponytail["mode"] != "full" {
-		t.Fatalf("ponytail = %#v", features["ponytail"])
-	}
-	mode, err := getConfigValue(cfg, "features.ponytail.mode")
-	if err != nil || mode != "full" {
-		t.Fatalf("ponytail mode = %#v %v", mode, err)
-	}
-	leaf, err := getConfigValue(cfg, "features.caveman.active")
-	if err != nil || leaf != true {
-		t.Fatalf("caveman leaf = %#v %v", leaf, err)
-	}
-	cavemanMode, err := getConfigValue(cfg, "features.caveman.mode")
-	if err != nil || cavemanMode != "full" {
-		t.Fatalf("caveman mode = %#v %v", cavemanMode, err)
+	for _, key := range []string{"features", "features.ponytail.active", "features.ponytail.mode", "features.caveman.active", "features.caveman.mode"} {
+		if err := setConfigValue(&cfg, key, "false"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+			t.Fatalf("set %s err=%v", key, err)
+		}
+		if _, err := getConfigValue(cfg, key); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+			t.Fatalf("get %s err=%v", key, err)
+		}
 	}
 }
 

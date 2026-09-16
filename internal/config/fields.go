@@ -47,11 +47,10 @@ type FieldValueSpec struct {
 type FieldSection string
 
 const (
-	FieldSectionRuntime  FieldSection = "runtime"
-	FieldSectionAccess   FieldSection = "access"
-	FieldSectionShell    FieldSection = "shell"
-	FieldSectionFeatures FieldSection = "features"
-	FieldSectionTunnel   FieldSection = "tunnel"
+	FieldSectionRuntime FieldSection = "runtime"
+	FieldSectionAccess  FieldSection = "access"
+	FieldSectionShell   FieldSection = "shell"
+	FieldSectionTunnel  FieldSection = "tunnel"
 )
 
 type FieldState string
@@ -79,10 +78,6 @@ var fieldSpecs = []FieldSpec{
 	{Key: "permissions.allow_dirs", Label: "Allowed directories", Section: FieldSectionAccess, Description: "adds global filesystem roots that registered workspaces may access", Details: "These roots extend workspace-local access for filesystem and shell operations. Paths must be absolute, are normalized, and apply globally in addition to per-workspace allowed directories.", Kind: FieldList, Editable: true},
 	{Key: "shell.executable", Label: "Bash executable", Section: FieldSectionShell, Description: "selects an explicit Bash executable for managed shell commands", Details: "When set, this absolute Bash path has priority over the enabled shell/bash plugin and system Bash discovery. PowerShell is not a valid agent shell provider.", Kind: FieldString, Editable: true, Related: []string{"shell.path"}},
 	{Key: "shell.path", Label: "Executable search paths", Section: FieldSectionShell, Description: "prepends additional executable directories to PATH for managed shell commands", Details: "Paths must be absolute. Configured entries are prepended to the inherited process PATH for foreground and background shell execution.", Kind: FieldList, Editable: true},
-	{Key: "features.ponytail.active", Label: "Ponytail active", Section: FieldSectionFeatures, Description: "controls whether Ponytail guidance is active by default", Details: "Ponytail biases coding work toward the smallest correct solution: reuse existing code, prefer standard/platform features, avoid speculative abstractions, and minimize unnecessary implementation.", Kind: FieldBool, Editable: true, Related: []string{"features.ponytail.mode"}},
-	{Key: "features.ponytail.mode", Label: "Ponytail mode", Section: FieldSectionFeatures, Description: "sets the default Ponytail intensity", Details: "This persisted value selects the default runtime intensity when Ponytail is active. Session-only modes such as review/off are not valid persisted values.", Kind: FieldEnum, Options: []string{"lite", "full", "ultra"}, Values: []FieldValueSpec{{Value: "lite", Description: "Build the requested solution but point out a simpler alternative when useful."}, {Value: "full", Description: "Enforce the reuse/stdlib/native-first ladder and prefer the shortest correct implementation."}, {Value: "ultra", Description: "Apply aggressive YAGNI pressure, favor deletion or minimal implementation, and challenge unnecessary scope."}}, Editable: true, Related: []string{"features.ponytail.active"}},
-	{Key: "features.caveman.active", Label: "Caveman active", Section: FieldSectionFeatures, Description: "controls whether Caveman response style is active by default", Details: "Caveman compresses assistant prose while preserving technical meaning, exact code, commands, numbers, and safety-critical clarity.", Kind: FieldBool, Editable: true, Related: []string{"features.caveman.mode"}},
-	{Key: "features.caveman.mode", Label: "Caveman mode", Section: FieldSectionFeatures, Description: "sets the default Caveman response intensity and language register", Details: "The persisted mode controls how aggressively response prose is compressed. The wenyan variants use progressively stronger classical Chinese compression. Session-only aliases such as off or wenyan are not persisted modes.", Kind: FieldEnum, Options: []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"}, Values: []FieldValueSpec{{Value: "lite", Description: "Remove filler and hedging while keeping normal professional sentences."}, {Value: "full", Description: "Use terse fragments where clear and aggressively remove nonessential prose."}, {Value: "ultra", Description: "Maximize compression while preserving unambiguous technical meaning."}, {Value: "wenyan-lite", Description: "Use a semi-classical Chinese register with moderate compression."}, {Value: "wenyan-full", Description: "Use strongly compressed classical Chinese sentence patterns."}, {Value: "wenyan-ultra", Description: "Use extreme classical Chinese abbreviation while retaining meaning."}}, Editable: true, Related: []string{"features.caveman.active"}},
 	{Key: "tunnel.enabled", Label: "Tunnel", Section: FieldSectionTunnel, Description: "controls whether the OpenAI Secure MCP Tunnel transport is enabled", Details: "An enabled tunnel requires both tunnel.id and a configured runtime API key. The tunnel can satisfy the requirement that at least one MCP transport remains enabled when the local MCP HTTP server is disabled.", Kind: FieldBool, Editable: true, Related: []string{"tunnel.id", "tunnel.api_key", "server.enabled"}},
 	{Key: "tunnel.instances", Label: "Tunnel instances", Section: FieldSectionTunnel, Description: "lists configured runtime tunnel instances", Details: "Manage instances by tunnel ID; collection editing is not available through config set.", Kind: FieldReadOnly},
 	{Key: "tunnel.admins", Label: "Tunnel admin profiles", Section: FieldSectionTunnel, Description: "lists configured management profiles", Details: "Manage profiles by profile ID; collection editing is not available through config set.", Kind: FieldReadOnly},
@@ -206,32 +201,6 @@ func SetValue(cfg *Config, key, raw string) error {
 		cfg.Shell.Executable = strings.TrimSpace(raw)
 	case "shell.path":
 		cfg.Shell.Path = splitFieldList(raw)
-	case "features.ponytail.active":
-		value, err := parseBoolField(raw, key)
-		if err != nil {
-			return err
-		}
-		cfg.Features.Ponytail.Active = value
-	case "features.ponytail.mode":
-		value := strings.ToLower(strings.TrimSpace(raw))
-		if value != "lite" && value != "full" && value != "ultra" {
-			return errors.New("features.ponytail.mode must be lite, full, or ultra")
-		}
-		cfg.Features.Ponytail.Mode = value
-	case "features.caveman.active":
-		value, err := parseBoolField(raw, key)
-		if err != nil {
-			return err
-		}
-		cfg.Features.Caveman.Active = value
-	case "features.caveman.mode":
-		value := strings.ToLower(strings.TrimSpace(raw))
-		switch value {
-		case "lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra":
-			cfg.Features.Caveman.Mode = value
-		default:
-			return errors.New("features.caveman.mode must be lite, full, ultra, wenyan-lite, wenyan-full, or wenyan-ultra")
-		}
 	case "tunnel.enabled":
 		value, err := parseBoolField(raw, key)
 		if err != nil {
@@ -338,14 +307,6 @@ func RawValue(cfg Config, key string) (string, error) {
 		return cfg.Shell.Executable, nil
 	case "shell.path":
 		return strings.Join(cfg.Shell.Path, ","), nil
-	case "features.ponytail.active":
-		return strconv.FormatBool(cfg.Features.Ponytail.Active), nil
-	case "features.ponytail.mode":
-		return cfg.Features.Ponytail.Mode, nil
-	case "features.caveman.active":
-		return strconv.FormatBool(cfg.Features.Caveman.Active), nil
-	case "features.caveman.mode":
-		return cfg.Features.Caveman.Mode, nil
 	case "tunnel.enabled":
 		return strconv.FormatBool(cfg.Tunnel.Enabled), nil
 	case "tunnel.instances":
@@ -483,15 +444,7 @@ func RedactedValueAt(cfg Config, key string) (any, error) {
 }
 
 func canonicalFieldKey(key string) string {
-	key = strings.TrimSpace(key)
-	switch key {
-	case "features.ponytail.enabled":
-		return "features.ponytail.active"
-	case "features.caveman.enabled":
-		return "features.caveman.active"
-	default:
-		return key
-	}
+	return strings.TrimSpace(key)
 }
 
 func setTreeValue(tree map[string]any, path string, value any) {

@@ -16,7 +16,6 @@ func TestFieldSetValuePreservesTypedBehaviorAndLegacyAliases(t *testing.T) {
 	cfg.Server.AllowUnauthenticatedLoopback = true
 	for key, value := range map[string]string{
 		"server.port": "4000", "server.expose": "true", "admin.enabled": "false",
-		"features.ponytail.enabled": "false", "features.ponytail.mode": "ULTRA", "features.caveman.enabled": "false", "features.caveman.mode": "WENYAN-ULTRA",
 		"permissions.allow_dirs": "/tmp\n/var/tmp", "shell.executable": "/opt/bash", "shell.path": "/opt/tools,/usr/local/custom/bin",
 		"notifications.enabled": "false", "notifications.open_action": "DISABLED",
 	} {
@@ -24,7 +23,7 @@ func TestFieldSetValuePreservesTypedBehaviorAndLegacyAliases(t *testing.T) {
 			t.Fatalf("%s: %v", key, err)
 		}
 	}
-	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" || cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "wenyan-ultra" || len(cfg.Permissions.AllowDirs) != 2 || cfg.Shell.Executable != "/opt/bash" || len(cfg.Shell.Path) != 2 || cfg.Notifications.Enabled || cfg.Notifications.OpenAction != "disabled" {
+	if cfg.Server.Port != 4000 || cfg.Server.Expose.Mode != ExposureWildcard || cfg.Admin.Enabled || len(cfg.Permissions.AllowDirs) != 2 || cfg.Shell.Executable != "/opt/bash" || len(cfg.Shell.Path) != 2 || cfg.Notifications.Enabled || cfg.Notifications.OpenAction != "disabled" {
 		t.Fatalf("cfg=%#v", cfg)
 	}
 	if value, err := RawValue(cfg, "shell.path"); err != nil || value != "/opt/tools,/usr/local/custom/bin" {
@@ -61,12 +60,6 @@ func TestFieldSetValueValidationIsTransactional(t *testing.T) {
 	}
 	if !cfg.Server.Enabled {
 		t.Fatal("invalid transport update mutated config")
-	}
-	if err := SetValue(&cfg, "features.ponytail.mode", "review"); err == nil || err.Error() != "features.ponytail.mode must be lite, full, or ultra" {
-		t.Fatalf("ponytail err=%v", err)
-	}
-	if err := SetValue(&cfg, "features.caveman.mode", "wenyan"); err == nil || !strings.Contains(err.Error(), "wenyan-lite") {
-		t.Fatalf("caveman err=%v", err)
 	}
 	if err := SetValue(&cfg, "notifications.open_action", "toast"); err == nil || !strings.Contains(err.Error(), "auto or disabled") {
 		t.Fatalf("open action err=%v", err)
@@ -166,9 +159,8 @@ func TestExplainResolvesLeafBranchRootAndAlias(t *testing.T) {
 	if !root.Branch || !hasExplanationChild(root, "shell") || !hasExplanationChild(root, "server") || !hasExplanationChild(root, "notifications") {
 		t.Fatalf("root=%#v", root)
 	}
-	alias, err := Explain("features.ponytail.enabled")
-	if err != nil || alias.Key != "features.ponytail.active" {
-		t.Fatalf("alias=%#v err=%v", alias, err)
+	if _, err := Explain("features.ponytail.active"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
+		t.Fatalf("legacy feature key still explained: %v", err)
 	}
 	if _, err := Explain("does.not.exist"); err == nil || !strings.Contains(err.Error(), "unsupported config key") {
 		t.Fatalf("unsupported err=%v", err)
@@ -242,7 +234,7 @@ func hasExplanationChild(parent Explanation, key string) bool {
 }
 
 func TestFieldPresentationMetadataCoversRegistry(t *testing.T) {
-	valid := map[FieldSection]bool{FieldSectionRuntime: true, FieldSectionAccess: true, FieldSectionShell: true, FieldSectionFeatures: true, FieldSectionTunnel: true}
+	valid := map[FieldSection]bool{FieldSectionRuntime: true, FieldSectionAccess: true, FieldSectionShell: true, FieldSectionTunnel: true}
 	seen := map[string]bool{}
 	for _, spec := range Fields() {
 		if strings.TrimSpace(spec.Label) == "" {

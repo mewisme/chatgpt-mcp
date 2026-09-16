@@ -13,8 +13,19 @@ func migrateLegacyFeatureSettings(configPath string, data []byte, cfg *Config) e
 	if cfg == nil {
 		return nil
 	}
+	source := *cfg
+	if configHasFeatures(configPath, data) {
+		var file struct {
+			Features FeaturesConfig `json:"features"`
+		}
+		file.Features = Default().Features
+		if err := configformat.UnmarshalPath(configPath, data, &file); err != nil {
+			return err
+		}
+		source.Features = file.Features
+	}
 	store := settingsStoreForConfigPath(configPath)
-	for _, item := range builtinFeatureSettings(*cfg) {
+	for _, item := range builtinFeatureSettings(source) {
 		if err := store.ImportMissing(item.Schema, item.ID, item.Values); err != nil {
 			return err
 		}

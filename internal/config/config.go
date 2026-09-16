@@ -21,7 +21,7 @@ type Config struct {
 	Auth          AuthConfig            `json:"auth"`
 	Permissions   PermissionsConfig     `json:"permissions"`
 	Shell         ShellConfig           `json:"shell"`
-	Features      FeaturesConfig        `json:"features"`
+	Features      FeaturesConfig        `json:"-"`
 	Tunnel        tunnel.Config         `json:"tunnel"`
 	Notifications notification.Settings `json:"notifications"`
 }

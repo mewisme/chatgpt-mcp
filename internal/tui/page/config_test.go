@@ -326,12 +326,7 @@ func TestConfigGlobalSearchIndexesAllFieldsWithoutSecrets(t *testing.T) {
 	page.overview.Config.Tunnel.APIKey = "SEARCH_RUNTIME_SECRET"
 	page.overview.Config.Tunnel.AdminKey = "SEARCH_ADMIN_SECRET"
 	rows := page.searchRows()
-	wantCount := 0
-	for _, spec := range config.Fields() {
-		if spec.Section != config.FieldSectionFeatures {
-			wantCount++
-		}
-	}
+	wantCount := len(config.Fields())
 	if len(rows) != wantCount {
 		t.Fatalf("search rows=%d fields=%d", len(rows), wantCount)
 	}

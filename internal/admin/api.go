@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
@@ -55,7 +54,6 @@ type publicConfig struct {
 	Auth        authSettings             `json:"auth"`
 	Permissions config.PermissionsConfig `json:"permissions"`
 	Shell       config.ShellConfig       `json:"shell"`
-	Features    config.FeaturesConfig    `json:"features"`
 }
 
 type configPatch struct {
@@ -64,7 +62,6 @@ type configPatch struct {
 	Auth        *authPatch                `json:"auth,omitempty"`
 	Permissions *config.PermissionsConfig `json:"permissions,omitempty"`
 	Shell       *shellPatch               `json:"shell,omitempty"`
-	Features    *featurePatch             `json:"features,omitempty"`
 }
 
 type shellPatch struct {
@@ -78,27 +75,6 @@ type serverPatch struct {
 	Expose                       *config.ExposureConfig `json:"expose,omitempty"`
 	AllowInsecureHTTP            *bool                  `json:"allow_insecure_http,omitempty"`
 	AllowUnauthenticatedLoopback *bool                  `json:"allow_unauthenticated_loopback,omitempty"`
-}
-
-type featurePatch struct {
-	Ponytail *featureStatePatch `json:"ponytail,omitempty"`
-	Caveman  *featureStatePatch `json:"caveman,omitempty"`
-}
-
-type featureStatePatch struct {
-	Active  *bool   `json:"active,omitempty"`
-	Enabled *bool   `json:"enabled,omitempty"`
-	Mode    *string `json:"mode,omitempty"`
-}
-
-func (patch *featureStatePatch) active() *bool {
-	if patch == nil {
-		return nil
-	}
-	if patch.Active != nil {
-		return patch.Active
-	}
-	return patch.Enabled
 }
 
 func New(api API) http.Handler {
@@ -213,20 +189,6 @@ func (api API) handleConfig(w http.ResponseWriter, r *http.Request) {
 				next.Shell.Path, err = config.NormalizeShellPath(patch.Shell.Path)
 			}
 		}
-		if err == nil && patch.Features != nil {
-			if active := patch.Features.Ponytail.active(); active != nil {
-				next.Features.Ponytail.Active = *active
-			}
-			if patch.Features.Ponytail != nil && patch.Features.Ponytail.Mode != nil {
-				next.Features.Ponytail.Mode = strings.ToLower(strings.TrimSpace(*patch.Features.Ponytail.Mode))
-			}
-			if active := patch.Features.Caveman.active(); active != nil {
-				next.Features.Caveman.Active = *active
-			}
-			if patch.Features.Caveman != nil && patch.Features.Caveman.Mode != nil {
-				next.Features.Caveman.Mode = strings.ToLower(strings.TrimSpace(*patch.Features.Caveman.Mode))
-			}
-		}
 		if err == nil {
 			err = config.Validate(next)
 		}
@@ -277,7 +239,7 @@ func (api API) upstreamManager() *upstream.Manager {
 
 func publicConfigView(cfg config.Config) publicConfig {
 	return publicConfig{
-		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell, Features: cfg.Features,
+		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell,
 		Auth: authSettings{
 			MCPEnabled: cfg.Auth.MCPEnabled, AdminEnabled: cfg.Auth.AdminEnabled,
 			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",

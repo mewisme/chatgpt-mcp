@@ -730,7 +730,7 @@ func TestSaveOmitsFeaturesAndPersistsPluginSettings(t *testing.T) {
 	}
 }
 
-func TestFeatureConfigSerializesActiveOnly(t *testing.T) {
+func TestFeatureConfigIsOmittedFromSerialization(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
 		t.Run(string(format), func(t *testing.T) {
 			cfg := Default()
@@ -750,23 +750,8 @@ func TestFeatureConfigSerializesActiveOnly(t *testing.T) {
 			if _, exists := root["interactive"]; exists {
 				t.Fatalf("obsolete interactive key serialized: %#v", root)
 			}
-			featureValues, ok := root["features"].(map[string]any)
-			if !ok {
-				t.Fatalf("features = %#v", root["features"])
-			}
-			ponytail, ok := featureValues["ponytail"].(map[string]any)
-			if !ok || ponytail["active"] != false || ponytail["mode"] != "full" {
-				t.Fatalf("ponytail = %#v", featureValues["ponytail"])
-			}
-			if _, exists := ponytail["enabled"]; exists {
-				t.Fatalf("legacy enabled key was serialized: %#v", ponytail)
-			}
-			caveman, ok := featureValues["caveman"].(map[string]any)
-			if !ok || caveman["active"] != true || caveman["mode"] != "full" {
-				t.Fatalf("caveman = %#v", featureValues["caveman"])
-			}
-			if _, exists := caveman["enabled"]; exists {
-				t.Fatalf("legacy enabled key was serialized: %#v", caveman)
+			if _, exists := root["features"]; exists {
+				t.Fatalf("features still serialized: %#v", root["features"])
 			}
 		})
 	}

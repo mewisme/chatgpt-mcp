@@ -7,7 +7,7 @@ describe("MCP server JSON parser", () => {
     expect(result.error).toBeUndefined()
     expect(result.kind).toBe("single")
     expect(result.items[0].errors).toEqual([])
-    expect(result.items[0].server).toMatchObject({ id: "local", name: "local", transport: "stdio", command: "node", enabled: true, expose: "all", auth: { type: "none" } })
+    expect(result.items[0].server).toMatchObject({ id: "local", name: "local", transport: "stdio", command: "node", enabled: true, expose: "all" })
   })
 
   it("imports an mcpServers map and infers HTTP or stdio per entry", () => {

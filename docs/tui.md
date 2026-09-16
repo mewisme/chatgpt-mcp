@@ -93,7 +93,7 @@ Workspace containers (`wsc_*`) are grouping/orchestration resources, not filesys
 
 ## MCP
 
-The MCP area manages upstream MCP servers, health/tool discovery, tool exposure, and OAuth where supported.
+The MCP area manages upstream MCP servers, health/tool discovery, and tool exposure.
 
 Server creation supports both form-driven setup and canonical JSON input. Sensitive environment/header values remain managed as secrets rather than being echoed into normal detail views.
 

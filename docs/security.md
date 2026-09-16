@@ -116,7 +116,7 @@ The runtime may also support time-bounded grants for matching command patterns w
 
 ## Protected config/state subtree
 
-The selected config root contains control-plane material such as runtime-control state, configuration, OAuth/upstream state, and managed secret files.
+The selected config root contains control-plane material such as runtime-control state, configuration, upstream state, and managed secret files.
 
 Built-in Agent filesystem/shell policies deny direct access to protected control-plane material through path aliases or symlinks where that would bypass control rules.
 
@@ -124,7 +124,7 @@ This prevents an Agent from simply reading an internal runtime-control credentia
 
 ## Secret storage
 
-Long-lived reversible credentials such as OpenAI tunnel keys, upstream OAuth tokens/client secrets, and sensitive upstream environment/header values are stored through a per-config-root secret store rather than as plaintext structured configuration.
+Long-lived reversible credentials such as OpenAI tunnel keys and sensitive upstream environment/header values are stored through a per-config-root secret store rather than as plaintext structured configuration.
 
 Secret values are encrypted at rest with a per-root key in the current file-backed implementation. Structured config keeps only non-secret metadata/configured-state markers.
 
@@ -209,8 +209,6 @@ HTTP upstream MCP connections use outbound URL controls intended to reduce SSRF 
 - rejecting unsafe/hop-by-hop configured headers and CR/LF header injection.
 
 An upstream can explicitly opt into private-network access when that is the intended destination. Keep that exception scoped to the specific upstream.
-
-OAuth discovery/token traffic follows equivalent origin/network safety rules rather than trusting arbitrary metadata to pivot requests into local infrastructure.
 
 ## Tunnel network model
 

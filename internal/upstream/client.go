@@ -21,7 +21,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/outboundpolicy"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
@@ -96,7 +95,6 @@ type Client interface {
 type NativeClient struct {
 	mu          sync.Mutex
 	connections map[string]*rpcConnection
-	oauth       *mcpoauth.Store
 	trace       tracepkg.Observer
 }
 
@@ -109,7 +107,6 @@ type rpcConnection struct {
 	stdio            *stdioTransport
 	http             *httpTransport
 	tools            map[string]Tool
-	managedOAuth     bool
 	toolsListChanged bool
 	nextID           atomic.Int64
 }
@@ -151,22 +148,12 @@ type httpTransport struct {
 }
 
 func NewNativeClient() *NativeClient {
-	return NewNativeClientWithOAuthStore(mcpoauth.NewStore(mcpoauth.Path()))
-}
-
-func NewNativeClientWithOAuthStore(store *mcpoauth.Store) *NativeClient {
-	if store == nil {
-		store = mcpoauth.NewStore(mcpoauth.Path())
-	}
-	return &NativeClient{connections: map[string]*rpcConnection{}, oauth: store}
+	return &NativeClient{connections: map[string]*rpcConnection{}}
 }
 
 func (c *NativeClient) SetTraceObserver(observer tracepkg.Observer) {
 	if c != nil {
 		c.trace = observer
-		if c.oauth != nil {
-			c.oauth.SetTraceObserver(observer)
-		}
 	}
 }
 
@@ -251,13 +238,6 @@ func (c *NativeClient) Close(ctx context.Context, id string) error {
 	}
 	span.EndMessage("Native upstream connection closed", tracepkg.Bool("connected", true), tracepkg.Int("pid", connection.pid))
 	return nil
-}
-
-func (c *NativeClient) ClearOAuthCredential(id string) error {
-	if c.oauth == nil {
-		return nil
-	}
-	return c.oauth.Delete(id)
 }
 
 func (c *NativeClient) Tools(ctx context.Context, id string) ([]Tool, error) {
@@ -419,26 +399,6 @@ func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rp
 				headers["Authorization"] = "Bearer " + token
 			}
 		}
-		connection.managedOAuth = server.Auth.Type != "none" && !hasHeader(headers, "Authorization")
-		if connection.managedOAuth {
-			oauthSpan := tracepkg.Start(ctx, "OAUTH", "upstream.oauth.access-token", "Resolving upstream OAuth access token", tracepkg.String("server", server.ID), tracepkg.URL("endpoint", server.URL))
-			token, err := c.oauth.AccessToken(ctx, mcpoauth.RuntimeConfig{ServerID: server.ID, ServerURL: server.URL})
-			switch {
-			case err == nil:
-				headers["Authorization"] = "Bearer " + token
-				oauthSpan.EndMessage("Upstream OAuth access token resolved", tracepkg.Bool("configured", true))
-			case errors.Is(err, mcpoauth.ErrCredentialNotFound) && server.Auth.Type == "auto":
-				oauthSpan.EndMessage("Upstream OAuth credential not configured", tracepkg.Bool("configured", false), tracepkg.String("auth_mode", server.Auth.Type))
-			case errors.Is(err, mcpoauth.ErrCredentialNotFound), errors.Is(err, mcpoauth.ErrLoginRequired):
-				oauthSpan.FailMessage("Upstream OAuth login required", err, tracepkg.Bool("configured", false))
-				span.FailMessage("Upstream transport creation failed", err)
-				return nil, &OAuthLoginRequiredError{ServerID: server.ID, Cause: err}
-			default:
-				oauthSpan.FailMessage("Upstream OAuth access token resolution failed", err)
-				span.FailMessage("Upstream transport creation failed", err)
-				return nil, err
-			}
-		}
 		clientOpts := outboundpolicy.Options{AllowPrivate: server.AllowPrivateNetwork}
 		if err := outboundpolicy.ValidateURL(ctx, server.URL, clientOpts); err != nil {
 			span.FailMessage("Upstream transport creation failed", err)
@@ -450,15 +410,11 @@ func (c *NativeClient) createConnection(ctx context.Context, server Server) (*rp
 	if err := connection.negotiate(ctx); err != nil {
 		negotiateSpan.FailMessage("Upstream MCP protocol negotiation failed", err)
 		_ = connection.close(context.Background())
-		if server.Transport == "http" && connection.managedOAuth && isOAuthHTTPChallenge(err) {
-			span.FailMessage("Upstream transport creation failed", err)
-			return nil, &OAuthLoginRequiredError{ServerID: server.ID, Cause: err}
-		}
 		span.FailMessage("Upstream transport creation failed", err)
 		return nil, err
 	}
 	negotiateSpan.EndMessage("Upstream MCP protocol negotiated", tracepkg.String("protocol", connection.era), tracepkg.Bool("tools_list_changed", connection.toolsListChanged))
-	span.EndMessage("Upstream transport created", tracepkg.String("protocol", connection.era), tracepkg.Int("pid", connection.pid), tracepkg.Bool("managed_oauth", connection.managedOAuth))
+	span.EndMessage("Upstream transport created", tracepkg.String("protocol", connection.era), tracepkg.Int("pid", connection.pid))
 	return connection, nil
 }
 

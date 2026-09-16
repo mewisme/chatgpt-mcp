@@ -40,7 +40,7 @@ cgm plugin install admin-ui
 cgm plugin verify admin-ui
 ```
 
-The core keeps the admin listener, authentication, `/api/*`, OAuth callback, activity endpoints, and security headers. `admin-ui` only provides signed static assets through `web-ui/admin` and requests no runtime permissions. Without an enabled provider, API routes remain available while the root UI returns a service-unavailable response with the install command. Auth and tunnel behavior stay in core; they are not workspace plugins.
+The core keeps the admin listener, authentication, `/api/*`, activity endpoints, and security headers. `admin-ui` only provides signed static assets through `web-ui/admin` and requests no runtime permissions. Without an enabled provider, API routes remain available while the root UI returns a service-unavailable response with the install command. Auth and tunnel behavior stay in core; they are not workspace plugins.
 
 The official RTK wrapper is host-backed. If RTK is not available on `PATH`, installation can use the manifest-declared verified portable binary or a supported global installer; manual shell installation hints remain recommendations only. `bash` and `rtk` may be installed globally or for one workspace. Built-in Ponytail and Caveman remain global-only.
 

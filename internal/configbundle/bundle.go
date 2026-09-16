@@ -22,7 +22,6 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	"go.mewis.me/chatgpt-mcp/internal/oauth"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/state"
@@ -361,11 +360,6 @@ func collectSecrets(root string) (map[string]string, error) {
 		return nil, err
 	}
 	add(tunnelEntries)
-	oauthEntries, err := oauth.NewStore(configformat.StructuredPath(root, "oauth")).SecretEntries()
-	if err != nil {
-		return nil, err
-	}
-	add(oauthEntries)
 	upstreamEntries, err := upstream.NewStore(configformat.StructuredPath(root, "upstream")).SecretEntries()
 	if err != nil {
 		return nil, err

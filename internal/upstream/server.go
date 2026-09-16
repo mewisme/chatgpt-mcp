@@ -123,18 +123,7 @@ func NormalizeServer(value Server) (Server, error) {
 	if value.IdleTimeoutSec == 0 {
 		value.IdleTimeoutSec = 600
 	}
-	if value.Auth.Type == "" {
-		if value.Transport == "http" {
-			value.Auth.Type = "auto"
-		} else {
-			value.Auth.Type = "none"
-		}
-	}
-	switch value.Auth.Type {
-	case "auto", "oauth", "none":
-	default:
-		return Server{}, errors.New("upstream auth type must be auto, oauth, or none")
-	}
+	value.Auth = AuthConfig{}
 	if value.Args == nil {
 		value.Args = []string{}
 	}

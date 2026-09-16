@@ -40,7 +40,6 @@ function normalizeItem(value: unknown, key: string, fallbackID = ""): MCPServerJ
   const enabled = booleanValue(value.enabled, "enabled", errors, typeof value.disabled === "boolean" ? !value.disabled : true)
   const expose = stringValue(value.expose, "expose", errors) || "all"
   if (!["all", "allowlist", "meta_only", "none"].includes(expose)) errors.push("expose must be all, allowlist, meta_only, or none.")
-  const auth = authValue(value.auth, transport, errors)
   const server: MCPServer = {
     id,
     name: stringValue(value.name, "name", errors) || id,
@@ -54,12 +53,10 @@ function normalizeItem(value: unknown, key: string, fallbackID = ""): MCPServerJ
     headers: stringMap(value.headers, "headers", errors),
     tools: stringArray(value.tools, "tools", errors),
     disabled_tools: stringArray(value.disabled_tools ?? value.disabledTools, "disabled_tools", errors),
-    auth,
   }
   if (transport === "stdio") {
     server.command = command
     server.cwd = stringValue(value.cwd, "cwd", errors)
-    server.auth = { type: "none" }
   } else {
     server.url = url
     server.bearer_token_env_var = stringValue(value.bearer_token_env_var, "bearer_token_env_var", errors)
@@ -78,15 +75,6 @@ function normalizeTransport(raw: string, command: string, url: string, errors: s
   if (raw === "http" || raw === "streamable-http" || raw === "streamable_http") return "http"
   errors.push(`unsupported transport: ${raw}.`)
   return raw
-}
-
-function authValue(value: unknown, transport: string, errors: string[]) {
-  if (value === undefined || value === null) return { type: transport === "http" ? "auto" : "none" }
-  if (typeof value === "string") return { type: value }
-  if (!isRecord(value)) { errors.push("auth must be an object or string."); return { type: transport === "http" ? "auto" : "none" } }
-  const type = stringValue(value.type, "auth.type", errors) || (transport === "http" ? "auto" : "none")
-  if (!["auto", "oauth", "none"].includes(type)) errors.push("auth.type must be auto, oauth, or none.")
-  return { type, scope: stringValue(value.scope, "auth.scope", errors) || undefined }
 }
 
 function stringValue(value: unknown, key: string, errors: string[]) {

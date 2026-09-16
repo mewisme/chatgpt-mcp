@@ -29,7 +29,6 @@ func TestMigratedEditorsResponsiveMatrix(t *testing.T) {
 			return editor
 		}},
 		{name: "mcp-server", make: func() component.Editor { editor, _ := newMCPServerEditor(upstream.Server{}, true); return editor }},
-		{name: "mcp-oauth", make: func() component.Editor { editor, _ := newMCPOAuthEditor(); return editor }},
 		{name: "tunnel-runtime", make: func() component.Editor {
 			editor, _ := newTunnelRuntimeEditor(application.TunnelDashboard{})
 			return editor

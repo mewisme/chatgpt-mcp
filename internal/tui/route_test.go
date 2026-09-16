@@ -102,7 +102,6 @@ func TestParseEditorRoutes(t *testing.T) {
 		{[]string{"containers", "wsc_1", "workspaces", "edit"}, Route{Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}},
 		{[]string{"mcp", "create"}, Route{Kind: RouteMCP, Action: "create"}},
 		{[]string{"mcp", "github", "edit"}, Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
-		{[]string{"mcp", "github", "oauth", "login"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}},
 		{[]string{"plugins", "registries", "add"}, Route{Kind: RoutePlugins, Section: "registries", Action: "add"}},
 		{[]string{"plugins", "ponytail", "configure"}, Route{Kind: RoutePlugins, ResourceID: "ponytail", Action: "configure"}},
 		{[]string{"plugins", "@ws_abc", "ponytail", "configure"}, Route{Kind: RoutePlugins, Mode: "ws_abc", ResourceID: "ponytail", Action: "configure"}},
@@ -139,7 +138,7 @@ func TestParseEditorRoutesRejectsMalformedPaths(t *testing.T) {
 		{"workspaces", "register", "extra"},
 		{"workspaces", "ws_1", "access", "edit"},
 		{"containers", "wsc_1", "workspaces", "create"},
-		{"mcp", "github", "oauth", "edit"},
+		{"mcp", "github", "oauth"},
 		{"tunnel", "admin-key", "edit"},
 		{"tunnels", "tun_1", "create"},
 		{"config", "storage", "edit"},
@@ -244,7 +243,6 @@ func TestRouteBreadcrumbLabelsUseNavigableAncestry(t *testing.T) {
 	}{
 		{Route{Kind: RouteWorkspaces, ResourceID: "ws_demo", Section: "context"}, []string{"Workspaces", "ws_demo", "Project Context"}},
 		{Route{Kind: RouteContainers, ResourceID: "wsc_demo", Section: "workspaces", Action: "edit"}, []string{"Containers", "wsc_demo", "Workspaces", "Edit"}},
-		{Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}, []string{"MCP", "github", "OAuth", "Login"}},
 		{Route{Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"}, []string{"Plugins", "Marketplace", "official/bash"}},
 		{Route{Kind: RoutePlugins, Section: "registries", Action: "add"}, []string{"Plugins", "Registries", "Add"}},
 		{Route{Kind: RoutePlugins, ResourceID: "ponytail", Action: "configure"}, []string{"Plugins", "ponytail", "Configure"}},
@@ -284,7 +282,6 @@ func TestRouteBreadcrumbInventoryCoversAllChildFamilies(t *testing.T) {
 		{Kind: RouteContainers, ResourceID: "wsc_a", Section: "workspaces", Action: "edit"},
 		{Kind: RouteMCP, ResourceID: "server_a"},
 		{Kind: RouteMCP, ResourceID: "server_a", Section: "health"},
-		{Kind: RouteMCP, ResourceID: "server_a", Section: "oauth", Action: "login"},
 		{Kind: RoutePlugins, ResourceID: "ponytail", Action: "configure"},
 		{Kind: RouteTunnel, ResourceID: "tun_a"},
 		{Kind: RouteTunnelAdmins, ResourceID: "work"},
@@ -331,7 +328,6 @@ func TestEditorRouteTitlesIncludeActionWithoutChangingLegacyOrder(t *testing.T) 
 	for route, want := range map[Route]string{
 		{Kind: RouteMCP, Action: "create"}:                                               "MCP Servers · Create",
 		{Kind: RouteMCP, ResourceID: "github", Action: "edit"}:                           "MCP Servers · github · Edit",
-		{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}:        "MCP Servers · github · Oauth · Login",
 		{Kind: RouteInstruction, Section: "context", Action: "edit"}:                     "Instruction · Context · Edit",
 		{Kind: RouteInstruction, ResourceID: "rule_1", Section: "rules", Action: "edit"}: "Instruction · Rules · rule_1 · Edit",
 	} {
@@ -349,13 +345,6 @@ func TestInstructionTabsAreBreadcrumbRoots(t *testing.T) {
 	}
 	if router.Back() {
 		t.Fatalf("instruction tab root backed unexpectedly: route=%#v stack=%#v", router.Current(), router.stack)
-	}
-}
-
-func TestRouteTitleIncludesChildSection(t *testing.T) {
-	route := Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth"}
-	if got, want := route.Title(), "MCP Servers · github · Oauth"; got != want {
-		t.Fatalf("title=%q want=%q", got, want)
 	}
 }
 

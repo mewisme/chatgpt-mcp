@@ -244,7 +244,7 @@ func parseMCPRoute(parts []string) (Route, error) {
 		route.Action = "create"
 		return route, nil
 	}
-	if len(parts) > 4 {
+	if len(parts) > 3 {
 		return Route{}, fmt.Errorf("mcp path is too deep: %s", strings.Join(parts, " "))
 	}
 	route.ResourceID = parts[1]
@@ -260,13 +260,6 @@ func parseMCPRoute(parts []string) (Route, error) {
 		return Route{}, fmt.Errorf("unsupported mcp child section %q", parts[2])
 	}
 	route.Section = section
-	if len(parts) == 3 {
-		return route, nil
-	}
-	if route.Section != "oauth" || parts[3] != "login" {
-		return Route{}, fmt.Errorf("unsupported mcp editor action %q", parts[3])
-	}
-	route.Action = "login"
 	return route, nil
 }
 
@@ -611,7 +604,7 @@ func normalizeRouteSection(kind RouteKind, value string) (string, bool) {
 		RouteWorkspaces:  {"access": true, "containers": true, "context": true, "context-preview": true},
 		RouteInstruction: {"context": true, "rules": true, "sources": true},
 		RouteContainers:  {"workspaces": true},
-		RouteMCP:         {"health": true, "tools": true, "oauth": true},
+		RouteMCP:         {"health": true, "tools": true},
 		RoutePlugins:     {"marketplace": true, "updates": true, "registries": true},
 		RouteTunnels:     {"scope": true},
 		RouteRequests:    {"command": true, "arguments": true, "guard": true},
@@ -761,8 +754,6 @@ func breadcrumbSegmentLabel(value string) string {
 		return "MCP"
 	case "tui":
 		return "TUI"
-	case "oauth":
-		return "OAuth"
 	case "api":
 		return "API"
 	case "json":
@@ -780,9 +771,6 @@ func breadcrumbSectionLabel(kind RouteKind, section string) string {
 		case "context-preview":
 			return "Context Preview"
 		}
-	}
-	if section == "oauth" {
-		return "OAuth"
 	}
 	return routeSectionTitle(section)
 }

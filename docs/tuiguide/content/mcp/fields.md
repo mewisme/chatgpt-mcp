@@ -1,6 +1,6 @@
 # MCP Server Fields
 
-This page documents every field in the MCP server editor. The editor is split into **General**, **Connection**, **Authentication**, and **Tools** sections. Values belonging to the inactive transport are preserved, so switching HTTP/stdio does not silently destroy the other transport draft.
+This page documents every field in the MCP server editor. The editor is split into **General**, **Connection**, and **Tools** sections. Values belonging to the inactive transport are preserved, so switching HTTP/stdio does not silently destroy the other transport draft.
 
 ## General
 
@@ -64,22 +64,6 @@ Multiline `KEY=VALUE` environment assignments, one per line, for values safe to 
 ### Sensitive environment JSON
 
 Password-style input for sensitive environment data. When editing, blank keeps the existing sensitive environment values.
-
-## Authentication
-
-### Auth mode
-
-HTTP authentication strategy.
-
-- **Auto** lets the MCP/OAuth client choose the appropriate behavior from server metadata and configured credentials.
-- **OAuth** explicitly selects OAuth behavior.
-- **None** disables MCP OAuth/auth handling for the server.
-
-For new HTTP servers the default is Auto. For stdio servers the default is None. Authentication values are preserved when stdio is selected even though they are inactive there.
-
-### OAuth scope
-
-Scope string requested for OAuth authorization when the server/auth flow uses OAuth. Leave empty when the server defaults are sufficient.
 
 ## Tools
 

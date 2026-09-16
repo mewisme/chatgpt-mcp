@@ -80,9 +80,6 @@ const (
 	MCPServerDisable         ID = "mcp.server.disable"
 	MCPServerStatus          ID = "mcp.server.status"
 	MCPServerTools           ID = "mcp.server.tools"
-	MCPAuthLogin             ID = "mcp.auth.login"
-	MCPAuthStatus            ID = "mcp.auth.status"
-	MCPAuthLogout            ID = "mcp.auth.logout"
 	PluginSearch             ID = "plugin.search"
 	PluginInfo               ID = "plugin.info"
 	PluginList               ID = "plugin.list"
@@ -158,7 +155,6 @@ var specs = []Spec{
 	{MCPHTTP, "mcp http", nil},
 	{MCPServerList, "upstream server list", []string{"mcp server list"}}, {MCPServerAdd, "upstream server add", []string{"mcp server add"}}, {MCPServerConfigure, "upstream server configure", []string{"mcp server configure"}}, {MCPServerShow, "upstream server show", []string{"mcp server show"}},
 	{MCPServerRemove, "upstream server remove", []string{"mcp server remove"}}, {MCPServerEnable, "upstream server enable", []string{"mcp server enable"}}, {MCPServerDisable, "upstream server disable", []string{"mcp server disable"}}, {MCPServerStatus, "upstream server status", []string{"mcp server status"}}, {MCPServerTools, "upstream server tools", []string{"mcp server tools"}},
-	{MCPAuthLogin, "upstream server auth login", []string{"mcp server auth login"}}, {MCPAuthStatus, "upstream server auth status", []string{"mcp server auth status"}}, {MCPAuthLogout, "upstream server auth logout", []string{"mcp server auth logout"}},
 	{PluginSearch, "plugin search", nil}, {PluginInfo, "plugin info", nil}, {PluginList, "plugin list", nil}, {PluginInstall, "plugin install", nil}, {PluginUninstall, "plugin uninstall", nil},
 	{PluginEnable, "plugin enable", nil}, {PluginDisable, "plugin disable", nil}, {PluginUpdate, "plugin update", nil}, {PluginRollback, "plugin rollback", nil}, {PluginPrune, "plugin prune", nil},
 	{PluginOutdated, "plugin outdated", nil}, {PluginVerify, "plugin verify", nil},

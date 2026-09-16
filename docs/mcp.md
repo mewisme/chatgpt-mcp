@@ -125,17 +125,7 @@ Tool exposure can be narrowed with prefixes, allowlists, disabled-tool lists, or
 
 `cgm mcp server ...` is a deprecated compatibility path; new automation should use `cgm upstream server ...`.
 
-## Upstream OAuth
-
-HTTP upstreams can use managed OAuth:
-
-```bash
-cgm upstream server auth login <id>
-cgm upstream server auth status <id>
-cgm upstream server auth logout <id>
-```
-
-Managed access/refresh tokens and client secrets are stored through the selected config root's secret store rather than ordinary structured configuration.
+HTTP upstreams authenticate with configured headers and optional bearer-token environment variables. Leftover `auth: {type: oauth|auto|none}` fields in saved config are ignored.
 
 ## Outbound network policy
 

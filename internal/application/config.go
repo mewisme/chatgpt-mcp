@@ -14,7 +14,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configbundle"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
@@ -179,18 +178,12 @@ func PurgeStoredSecretsContext(ctx context.Context, root string) error {
 		span.FailMessage("Tunnel secret enumeration failed", err)
 		return err
 	}
-	oauthEntries, err := mcpoauth.NewStore(configformat.StructuredPath(root, "oauth")).SecretEntries()
-	if err != nil {
-		span.FailMessage("OAuth secret enumeration failed", err)
-		return err
-	}
 	upstreamEntries, err := upstream.NewStore(configformat.StructuredPath(root, "upstream")).SecretEntries()
 	if err != nil {
 		span.FailMessage("Upstream secret enumeration failed", err)
 		return err
 	}
 	entries = append(entries, secretstore.Name("cluster", "relay-token"))
-	entries = append(entries, oauthEntries...)
 	entries = append(entries, upstreamEntries...)
 	changes := make([]secretstore.Change, 0, len(entries))
 	for _, entry := range entries {
@@ -298,11 +291,7 @@ func MigrateLegacySecretsContext(ctx context.Context) error {
 		span.FailMessage("Configuration secret migration failed", err, tracepkg.String("stage", "upstream"), tracepkg.String("path", upstream.Path()))
 		return err
 	}
-	if err := mcpoauth.NewStore(mcpoauth.Path()).Migrate(); err != nil {
-		span.FailMessage("Configuration secret migration failed", err, tracepkg.String("stage", "oauth"), tracepkg.String("path", mcpoauth.Path()))
-		return err
-	}
-	span.EndMessage("Legacy stored secrets migrated", tracepkg.String("upstream_path", upstream.Path()), tracepkg.String("oauth_path", mcpoauth.Path()))
+	span.EndMessage("Legacy stored secrets migrated", tracepkg.String("upstream_path", upstream.Path()))
 	return nil
 }
 

@@ -10,7 +10,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -29,8 +28,6 @@ type API struct {
 	Tunnel       *tunnel.Client
 	Tunnels      *tunnel.Manager
 	Config       *config.RuntimeStore
-	OAuth        *mcpoauth.Store
-	OAuthFlows   *mcpoauth.FlowManager
 	ReloadConfig func(config.Config) error
 	saveConfig   func(config.Config) error
 	Plugins      *application.PluginService
@@ -78,7 +75,6 @@ type serverPatch struct {
 }
 
 func New(api API) http.Handler {
-	api = api.withOAuth()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		authEnabled := api.Config != nil && api.Config.Snapshot().Auth.AdminEnabled

@@ -189,10 +189,6 @@ export type ProjectContextOptions = {
   include_memory?: boolean
   include_skills?: boolean
 }
-export type MCPAuth = {
-  type?: "auto" | "oauth" | "none" | string
-  scope?: string
-}
 export type MCPServer = {
   id: string
   name: string
@@ -205,7 +201,6 @@ export type MCPServer = {
   url?: string
   headers?: Record<string, string>
   bearer_token_env_var?: string
-  auth?: MCPAuth
   tool_prefix?: string
   expose?: "all" | "allowlist" | "meta_only" | "none" | string
   tools?: string[]
@@ -230,31 +225,6 @@ export type MCPServerTools = {
   server_id: string
   tools: Tool[]
   proxied_tools: string[]
-}
-export type MCPServerOAuthStatus = {
-  server_id: string
-  configured: boolean
-  issuer?: string
-  resource?: string
-  registration?: string
-  client_id?: string
-  scopes?: string[]
-  has_refresh_token: boolean
-  expires_at?: string
-  expired: boolean
-}
-export type MCPServerOAuthLogin = {
-  redirect_origin: string
-  issuer?: string
-  client_id?: string
-  client_secret_env_var?: string
-  client_metadata_url?: string
-  scope?: string
-}
-export type MCPServerOAuthSession = {
-  session_id: string
-  authorization_url: string
-  expires_at: string
 }
 export type PublicConfig = {
   server: {
@@ -647,19 +617,6 @@ export const adminApi = {
     api<MCPServerTools>(
       `/api/upstream/${encodeURIComponent(id)}/tools?refresh=${refresh}`
     ),
-  upstreamOAuthStatus: (id: string) =>
-    api<MCPServerOAuthStatus>(
-      `/api/upstream/${encodeURIComponent(id)}/auth/status`
-    ),
-  beginUpstreamOAuth: (id: string, request: MCPServerOAuthLogin) =>
-    api<MCPServerOAuthSession>(
-      `/api/upstream/${encodeURIComponent(id)}/auth/login`,
-      { method: "POST", body: JSON.stringify(request) }
-    ),
-  logoutUpstreamOAuth: (id: string) =>
-    api<void>(`/api/upstream/${encodeURIComponent(id)}/auth/logout`, {
-      method: "DELETE",
-    }),
   localTunnels: () => api<LocalTunnel[]>("/api/tunnels"),
   attachLocalTunnel: (request: LocalTunnelRequest) =>
     api<LocalTunnel>("/api/tunnels", {

@@ -17,7 +17,7 @@ Start with a task guide, then use the reference docs only when you need exact co
 
 | Topic | Guide |
 | --- | --- |
-| Generic MCP clients, stdio/HTTP transports, upstream servers, OAuth | [MCP and upstreams](mcp.md) |
+| Generic MCP clients, stdio/HTTP transports, upstream servers | [MCP and upstreams](mcp.md) |
 | Signed plugins, registries, authoring, rollback, and recovery | [Plugins](plugins.md) |
 | Authentication, exposure, storage, config roots, import/export | [Configuration](configuration.md) |
 | Trust boundaries, approvals, credentials, and network policy | [Security](security.md) |

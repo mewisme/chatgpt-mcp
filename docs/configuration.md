@@ -30,7 +30,7 @@ Precedence is:
 > default user config root
 ```
 
-A config root owns that instance's configuration, workspaces, secrets, upstream/OAuth state, logs, shell/runtime state, memory, checkpoints, and runtime-control metadata. Use isolated roots for tests or parallel instances.
+A config root owns that instance's configuration, workspaces, secrets, upstream state, logs, shell/runtime state, memory, checkpoints, and runtime-control metadata. Use isolated roots for tests or parallel instances.
 
 ## Inspect configuration
 
@@ -137,7 +137,7 @@ Conversion validates the managed state before activating the new representation.
 
 ## Secrets
 
-Long-lived reversible credentials such as per-instance tunnel runtime keys, tunnel admin-profile keys, upstream OAuth credentials, and sensitive upstream header/environment values are stored through the selected config root's managed secret store rather than as plaintext values in ordinary structured config.
+Long-lived reversible credentials such as per-instance tunnel runtime keys, tunnel admin-profile keys, and sensitive upstream header/environment values are stored through the selected config root's managed secret store rather than as plaintext values in ordinary structured config.
 
 MCP/Admin endpoint credentials are represented by one-way hashes where appropriate. Normal config/status output does not reveal managed secrets.
 

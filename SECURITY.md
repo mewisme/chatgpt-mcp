@@ -24,7 +24,7 @@ In scope (examples):
 - Authentication / authorization bypass on MCP or Admin endpoints
 - Workspace path escape, symlink escape, or unintended filesystem access
 - Privilege escalation via control-plane / approval flows
-- Secret leakage (tokens, tunnel keys, OAuth credentials) through logs, exports, or APIs
+- Secret leakage (tokens, tunnel keys) through logs, exports, or APIs
 - Installer or self-update integrity failures (checksum / signature bypass)
 - Remote code execution reachable through the intended product surface
 

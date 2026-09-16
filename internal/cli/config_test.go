@@ -12,7 +12,6 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 )
@@ -326,9 +325,6 @@ func TestPurgeStoredSecretsRemovesPersistedCredentials(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "tunnel.json"), []byte(`{"runtime_key_configured":true,"instance_keys":{"tunnel_a":true,"tunnel_b":true},"admin_keys":{"work":true}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "oauth.json"), []byte(`{"version":1,"credentials":{"alpha":{"server_id":"alpha","access_token":"<secret-file>"}}}`), 0600); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(root, "upstream.json"), []byte(`{"servers":[{"id":"alpha","headers":{"Authorization":"<secret-file>"}}]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -336,17 +332,12 @@ func TestPurgeStoredSecretsRemovesPersistedCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	oauthEntries, err := mcpoauth.NewStore(filepath.Join(root, "oauth.json")).SecretEntries()
-	if err != nil {
-		t.Fatal(err)
-	}
 	upstreamEntries, err := upstream.NewStore(filepath.Join(root, "upstream.json")).SecretEntries()
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries = append(entries, oauthEntries...)
 	entries = append(entries, upstreamEntries...)
-	if len(entries) != 6 {
+	if len(entries) != 5 {
 		t.Fatalf("entries = %#v", entries)
 	}
 	store := secretstore.New(root)

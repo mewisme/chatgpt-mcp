@@ -20,8 +20,6 @@ func TestMCPServerFormCreatesNormalizedHTTPServer(t *testing.T) {
 	data.URL = " https://example.test/mcp "
 	data.Headers = "X-Mode=read"
 	data.SensitiveHeaders = `{"Authorization":"Bearer secret"}`
-	data.AuthType = "oauth"
-	data.AuthScope = "read write"
 	data.Expose = "allowlist"
 	data.Tools = "read\nsearch"
 	data.DisabledTools = "delete"
@@ -95,7 +93,6 @@ func TestMCPServerFormPreservesInactiveTransportDraftValues(t *testing.T) {
 	data.URL = "https://inactive.example/mcp"
 	data.Headers = "X-Inactive=kept"
 	data.BearerTokenEnvVar = "MCP_TOKEN"
-	data.AuthType = "none"
 	server, err := serverFromMCPForm(&data, upstream.Server{}, true)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +101,6 @@ func TestMCPServerFormPreservesInactiveTransportDraftValues(t *testing.T) {
 		t.Fatalf("inactive HTTP draft was lost: %#v", server)
 	}
 	data.Transport = "http"
-	data.AuthType = "auto"
 	server, err = serverFromMCPForm(&data, upstream.Server{}, true)
 	if err != nil {
 		t.Fatal(err)

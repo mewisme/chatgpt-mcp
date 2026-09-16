@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ServersPage } from "@/pages/servers"
 
-const server = { id: "local", name: "Local server", transport: "http", enabled: true, url: "http://127.0.0.1:3000/mcp", auth: { type: "none" }, expose: "all" }
+const server = { id: "local", name: "Local server", transport: "http", enabled: true, url: "http://127.0.0.1:3000/mcp", expose: "all" }
 
 describe("servers page", () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -40,7 +40,6 @@ describe("servers page", () => {
         return json(value)
       }
       if (url.pathname.endsWith("/status")) return json({ id: url.pathname.split("/")[3], enabled: true, transport: "stdio", auth: "none", health: "unknown", connected: false, tool_count: 0, expose: "all", proxied_tools: [] })
-      if (url.pathname.endsWith("/auth/status")) return json({ server_id: url.pathname.split("/")[3], configured: false, has_refresh_token: false, expired: false })
       throw new Error(`Unhandled request: ${request.method} ${url.pathname}${url.search}`)
     }))
     const user = userEvent.setup()

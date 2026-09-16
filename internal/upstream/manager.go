@@ -152,7 +152,7 @@ func (m *Manager) Add(server Server) error {
 	m.mu.Unlock()
 	tracepkg.EmitObserver(m.trace, "MCP", "upstream.cache.invalidated", "Upstream server cache invalidated", tracepkg.String("server", normalized.ID), tracepkg.Bool("tools", true), tracepkg.Bool("errors", true))
 	if !existed {
-		span.EndMessage("Upstream MCP server saved", append(upstreamServerTraceFields(normalized), tracepkg.Bool("existing", false), tracepkg.Any("changed_fields", changed), tracepkg.Bool("connection_closed", false), tracepkg.Bool("oauth_cleanup_performed", false))...)
+		span.EndMessage("Upstream MCP server saved", append(upstreamServerTraceFields(normalized), tracepkg.Bool("existing", false), tracepkg.Any("changed_fields", changed), tracepkg.Bool("connection_closed", false))...)
 		return nil
 	}
 	m.stopToolsSubscription(normalized.ID)
@@ -160,26 +160,11 @@ func (m *Manager) Add(server Server) error {
 	closeErr := m.client.Close(context.Background(), normalized.ID)
 	if closeErr != nil {
 		closeSpan.FailMessage("Changed upstream connection close failed", closeErr)
-	} else {
-		closeSpan.EndMessage("Changed upstream connection closed")
+		span.FailMessage("Upstream MCP server saved with cleanup failure", closeErr, tracepkg.Bool("existing", true), tracepkg.Any("changed_fields", changed), tracepkg.Bool("connection_closed", false))
+		return closeErr
 	}
-	var oauthErr error
-	cleanupOAuth := oauthCredentialBindingChanged(previous, normalized)
-	if cleanupOAuth {
-		oauthSpan := tracepkg.StartObserver(m.trace, "OAUTH", "upstream.oauth.cleanup", "Clearing upstream OAuth credential after binding change", tracepkg.String("server", normalized.ID))
-		oauthErr = m.clearOAuthCredential(normalized.ID)
-		if oauthErr != nil {
-			oauthSpan.FailMessage("Upstream OAuth credential cleanup failed", oauthErr)
-		} else {
-			oauthSpan.EndMessage("Upstream OAuth credential cleared")
-		}
-	}
-	joined := errors.Join(closeErr, oauthErr)
-	if joined != nil {
-		span.FailMessage("Upstream MCP server saved with cleanup failure", joined, tracepkg.Bool("existing", true), tracepkg.Any("changed_fields", changed), tracepkg.Bool("connection_closed", closeErr == nil), tracepkg.Bool("oauth_cleanup_performed", cleanupOAuth))
-		return joined
-	}
-	span.EndMessage("Upstream MCP server saved", append(upstreamServerTraceFields(normalized), tracepkg.Bool("existing", true), tracepkg.Any("changed_fields", changed), tracepkg.Bool("connection_closed", true), tracepkg.Bool("oauth_cleanup_performed", cleanupOAuth))...)
+	closeSpan.EndMessage("Changed upstream connection closed")
+	span.EndMessage("Upstream MCP server saved", append(upstreamServerTraceFields(normalized), tracepkg.Bool("existing", true), tracepkg.Any("changed_fields", changed), tracepkg.Bool("connection_closed", true))...)
 	return nil
 }
 
@@ -247,22 +232,11 @@ func (m *Manager) Remove(id string) error {
 	closeErr := m.client.Close(context.Background(), id)
 	if closeErr != nil {
 		closeSpan.FailMessage("Removed upstream connection close failed", closeErr)
-	} else {
-		closeSpan.EndMessage("Removed upstream connection closed")
+		span.FailMessage("Upstream MCP server removal cleanup failed", closeErr, tracepkg.Bool("existing", existed))
+		return closeErr
 	}
-	oauthSpan := tracepkg.StartObserver(m.trace, "OAUTH", "upstream.oauth.cleanup", "Clearing removed upstream OAuth credential", tracepkg.String("server", id))
-	oauthErr := m.clearOAuthCredential(id)
-	if oauthErr != nil {
-		oauthSpan.FailMessage("Removed upstream OAuth credential cleanup failed", oauthErr)
-	} else {
-		oauthSpan.EndMessage("Removed upstream OAuth credential cleared")
-	}
-	err := errors.Join(closeErr, oauthErr)
-	if err != nil {
-		span.FailMessage("Upstream MCP server removal cleanup failed", err, tracepkg.Bool("existing", existed))
-		return err
-	}
-	span.EndMessage("Upstream MCP server removed", tracepkg.Bool("existing", existed), tracepkg.String("transport", previous.Transport), tracepkg.Bool("connection_closed", true), tracepkg.Bool("oauth_cleanup_performed", true))
+	closeSpan.EndMessage("Removed upstream connection closed")
+	span.EndMessage("Upstream MCP server removed", tracepkg.Bool("existing", existed), tracepkg.String("transport", previous.Transport), tracepkg.Bool("connection_closed", true))
 	return nil
 }
 
@@ -493,8 +467,6 @@ func (m *Manager) buildStatus(server Server, health Health, connected bool, tool
 	if server.Transport == "http" {
 		if len(server.Headers) > 0 || server.BearerTokenEnvVar != "" {
 			auth = "static"
-		} else if server.Auth.Type == "oauth" || server.Auth.Type == "auto" {
-			auth = "oauth"
 		}
 	}
 	status := Status{
@@ -611,42 +583,6 @@ func (m *Manager) stopAllToolsSubscriptions() {
 	for _, subscription := range values {
 		subscription.cancel()
 	}
-}
-
-type oauthCredentialCleaner interface {
-	ClearOAuthCredential(string) error
-}
-
-func (m *Manager) clearOAuthCredential(id string) error {
-	cleaner, ok := m.client.(oauthCredentialCleaner)
-	if !ok {
-		return nil
-	}
-	return cleaner.ClearOAuthCredential(id)
-}
-
-func oauthCredentialBindingChanged(previous, next Server) bool {
-	previousManaged := usesManagedOAuth(previous)
-	nextManaged := usesManagedOAuth(next)
-	if previousManaged != nextManaged {
-		return true
-	}
-	if !previousManaged {
-		return false
-	}
-	return previous.URL != next.URL || previous.Auth.Scope != next.Auth.Scope
-}
-
-func usesManagedOAuth(server Server) bool {
-	if server.Transport != "http" || server.Auth.Type == "none" || strings.TrimSpace(server.BearerTokenEnvVar) != "" {
-		return false
-	}
-	for key := range server.Headers {
-		if strings.EqualFold(key, "Authorization") {
-			return false
-		}
-	}
-	return true
 }
 
 func (m *Manager) recordError(id string, err error) {

@@ -14,7 +14,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/notification"
-	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -32,8 +31,6 @@ type App struct {
 	Tunnels       *tunnel.Manager
 	Tunnel        *tunnel.Client
 	Logger        *logger.Logger
-	OAuth         *mcpoauth.Store
-	OAuthFlows    *mcpoauth.FlowManager
 	Notifications *notification.Service
 	runtimeCtx    context.Context
 	trace         tracepkg.Observer
@@ -87,7 +84,6 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 		mcpRuntime = mcp.NewHTTPRuntimeWithTools(toolRuntime)
 		mcpRuntime.Activity = stream
 	}
-	oauthStore := mcpoauth.NewStore(mcpoauth.Path()).SetTraceObserver(observer)
 	if appLogger == nil {
 		appLogger = logger.New(logger.Info)
 	}
@@ -118,8 +114,7 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 	}
 	app := &App{
 		Config: configStore, MCP: mcpRuntime, Upstream: toolRuntime.Upstream, Tools: toolRuntime, Activity: stream,
-		Tunnels: tunnelManager, Tunnel: tunnelClient, Logger: appLogger,
-		OAuth: oauthStore, OAuthFlows: mcpoauth.NewFlowManager(oauthStore), trace: observer,
+		Tunnels: tunnelManager, Tunnel: tunnelClient, Logger: appLogger, trace: observer,
 	}
 	bootstrapStarted := time.Now()
 	if err := app.Bootstrap(); err != nil {
@@ -155,7 +150,7 @@ func (a *App) AdminHandler() http.Handler {
 		return http.NotFoundHandler()
 	}
 	adminAPI := admin.API{
-		Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Tunnels: a.Tunnels, Config: a.Config, OAuth: a.OAuth, OAuthFlows: a.OAuthFlows, ReloadConfig: a.ReloadConfig,
+		Upstream: a.Upstream, Tools: a.Tools, Tunnel: a.Tunnel, Tunnels: a.Tunnels, Config: a.Config, ReloadConfig: a.ReloadConfig,
 		Approvals: a.Tools.Approvals, Executions: a.Tools.Executions,
 	}
 	adminAuth := func() (bool, string) {
@@ -172,7 +167,6 @@ func (a *App) AdminHandler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true,"auth_enabled":` + strconv.FormatBool(authEnabled) + `}`))
 	})
-	mux.Handle("/oauth/callback/", adminAPI.OAuthCallbackHandler())
 	mux.Handle("/admin/", adminHandler)
 	mux.Handle("/api/", adminHandler)
 	mux.Handle("/api/activity/stream", auth.DynamicHashedMiddleware(adminAuth, activity.Handler(a.Activity)))

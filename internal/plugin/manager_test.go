@@ -130,6 +130,45 @@ func TestManagerUninstallRefusesActiveDependentWithoutForce(t *testing.T) {
 	}
 }
 
+func TestUninstallAndDisableDetectWorkspaceDependents(t *testing.T) {
+	global := testStore(t)
+	workspace := testWorkspaceStore(t)
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	if _, err := global.Install(testManifest("bash", "1.0.0", "shell/bash"), testPayload(t, "bash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := global.Activate("bash", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	consumer := testScopedManifest("consumer", "1.0.0", "formatter/consumer", ScopeWorkspace)
+	consumer.Dependencies.Capabilities = []Capability{"shell/bash"}
+	if _, err := workspace.Install(consumer, testPayload(t, "consumer")); err != nil {
+		t.Fatal(err)
+	}
+	workspace.SetPeers(global)
+	global.SetPeers(workspace)
+	if err := workspace.Activate("consumer", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	if err := global.SetEnabled("bash", false); err == nil {
+		t.Fatal("disabled global provider with workspace dependent")
+	}
+	manager := Manager{Store: global}
+	if err := manager.Uninstall(context.Background(), "bash", false); err == nil {
+		t.Fatal("uninstalled global provider with workspace dependent")
+	}
+	if err := manager.Uninstall(context.Background(), "bash", true); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := LoadLock(workspace.Layout().LockPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lock.Plugins["consumer"].Enabled {
+		t.Fatal("forced uninstall left workspace dependent enabled")
+	}
+}
+
 func TestManagerPruneVersionsRetainsActiveAndNewestRollbackVersions(t *testing.T) {
 	store := testStore(t)
 	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}

@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
+	"go.mewis.me/chatgpt-mcp/internal/version"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -53,6 +55,43 @@ func parsePluginScopeOptions(opts PluginScopeOptions) (pluginpkg.PluginScope, er
 		return "", fmt.Errorf("--scope global cannot be combined with --workspace")
 	}
 	return scope, nil
+}
+
+func AttachPluginPeers(store *pluginpkg.Store) error {
+	if store == nil {
+		return nil
+	}
+	runtime := pluginpkg.RuntimeContext{CoreVersion: version.Version}
+	if store.Layout().EffectiveScope() == pluginpkg.ScopeWorkspace {
+		global, err := pluginpkg.NewStore(pluginpkg.DefaultLayout(), runtime)
+		if err != nil {
+			return err
+		}
+		pluginhost.Attach(global)
+		store.SetPeers(global)
+		return nil
+	}
+	items, err := workspace.NewManager(workspace.DefaultStorePath()).List()
+	if err != nil {
+		return err
+	}
+	peers := make([]*pluginpkg.Store, 0, len(items))
+	for _, item := range items {
+		if !item.Available() {
+			continue
+		}
+		layout, err := pluginpkg.WorkspaceLayout(item.Path)
+		if err != nil {
+			return err
+		}
+		peer, err := pluginpkg.NewStore(layout, runtime)
+		if err != nil {
+			return err
+		}
+		peers = append(peers, peer)
+	}
+	store.SetPeers(peers...)
+	return nil
 }
 
 func ApplyPluginInstallScope(opts PluginScopeOptions, allowed []pluginpkg.PluginScope) (PluginScopeOptions, error) {

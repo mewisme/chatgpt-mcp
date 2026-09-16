@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -126,6 +127,7 @@ func TestResolvePluginLayoutRejectsUnavailableWorkspace(t *testing.T) {
 }
 
 func TestNewPluginServiceForLayoutUsesWorkspaceStore(t *testing.T) {
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
 	root := t.TempDir()
 	layout, err := pluginpkg.WorkspaceLayout(root)
 	if err != nil {
@@ -169,5 +171,38 @@ func TestApplyPluginInstallScope(t *testing.T) {
 	_, err = ApplyPluginInstallScope(PluginScopeOptions{}, []pluginpkg.PluginScope{pluginpkg.ScopeGlobal, pluginpkg.ScopeWorkspace})
 	if !errors.Is(err, ErrPluginScopeRequired) {
 		t.Fatalf("multi-scope error = %v", err)
+	}
+}
+
+func TestAttachPluginPeersWiresGlobalAndWorkspaceStores(t *testing.T) {
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	workspaces := workspace.NewManager(workspace.DefaultStorePath())
+	item, err := workspaces.Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	global, err := pluginpkg.NewStore(pluginpkg.DefaultLayout(), pluginpkg.RuntimeContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AttachPluginPeers(global); err != nil {
+		t.Fatal(err)
+	}
+	if len(global.Peers()) != 1 || global.Peers()[0].Layout().WorkspaceRoot != item.Path {
+		t.Fatalf("global peers = %#v", global.Peers())
+	}
+	layout, err := pluginpkg.WorkspaceLayout(item.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AttachPluginPeers(scoped); err != nil {
+		t.Fatal(err)
+	}
+	if len(scoped.Peers()) != 1 || scoped.Peers()[0].Layout().EffectiveScope() != pluginpkg.ScopeGlobal {
+		t.Fatalf("workspace peers = %#v", scoped.Peers())
 	}
 }

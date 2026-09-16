@@ -100,11 +100,13 @@ func TestResolverMergesWorkspacePluginsAndRejectsSameID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := merged.Resolve("shell/alpha"); err != nil {
-		t.Fatal(err)
+	alpha, err := merged.Resolve("shell/alpha")
+	if err != nil || alpha.Scope != ScopeGlobal {
+		t.Fatalf("alpha = %#v %v", alpha, err)
 	}
-	if _, err := merged.Resolve("command-wrapper/rtk"); err != nil {
-		t.Fatal(err)
+	rtk, err := merged.Resolve("command-wrapper/rtk")
+	if err != nil || rtk.Scope != ScopeWorkspace {
+		t.Fatalf("rtk = %#v %v", rtk, err)
 	}
 	if _, err := global.Install(testScopedManifest("rtk", "1.0.0", "command-wrapper/rtk", ScopeGlobal, ScopeWorkspace), testPayload(t, "rtk")); err != nil {
 		t.Fatal(err)
@@ -143,5 +145,79 @@ func TestResolverAllowsDisabledDuplicateAcrossScopes(t *testing.T) {
 	provider, err := resolver.Resolve("command-wrapper/rtk")
 	if err != nil || provider.PluginID != "rtk" {
 		t.Fatalf("provider = %#v %v", provider, err)
+	}
+}
+
+func TestWorkspacePluginCanDependOnGlobalProvider(t *testing.T) {
+	global := testStore(t)
+	workspace := testWorkspaceStore(t)
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	if _, err := global.Install(testManifest("bash", "1.0.0", "shell/bash"), testPayload(t, "bash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := global.Activate("bash", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	consumer := testScopedManifest("consumer", "1.0.0", "formatter/consumer", ScopeWorkspace)
+	consumer.Dependencies.Capabilities = []Capability{"shell/bash"}
+	if _, err := workspace.Install(consumer, testPayload(t, "consumer")); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.Activate("consumer", "1.0.0", trust); err == nil {
+		t.Fatal("workspace consumer activated without global peer")
+	}
+	workspace.SetPeers(global)
+	if err := workspace.Activate("consumer", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGlobalPluginCannotDependOnWorkspaceProvider(t *testing.T) {
+	global := testStore(t)
+	workspace := testWorkspaceStore(t)
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	if _, err := workspace.Install(testScopedManifest("bash", "1.0.0", "shell/bash", ScopeWorkspace), testPayload(t, "bash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.Activate("bash", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	consumer := testManifest("consumer", "1.0.0", "formatter/consumer")
+	consumer.Dependencies.Capabilities = []Capability{"shell/bash"}
+	if _, err := global.Install(consumer, testPayload(t, "consumer")); err != nil {
+		t.Fatal(err)
+	}
+	global.SetPeers(workspace)
+	if err := global.Activate("consumer", "1.0.0", trust); err == nil {
+		t.Fatal("global consumer used workspace provider")
+	}
+}
+
+func TestActivateRejectsEnabledSameIDAcrossPeers(t *testing.T) {
+	global := testStore(t)
+	workspace := testWorkspaceStore(t)
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	manifest := testScopedManifest("rtk", "1.0.0", "command-wrapper/rtk", ScopeGlobal, ScopeWorkspace)
+	if _, err := global.Install(manifest, testPayload(t, "rtk")); err != nil {
+		t.Fatal(err)
+	}
+	if err := global.Activate("rtk", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workspace.Install(manifest, testPayload(t, "rtk")); err != nil {
+		t.Fatal(err)
+	}
+	workspace.SetPeers(global)
+	global.SetPeers(workspace)
+	err := workspace.Activate("rtk", "1.0.0", trust)
+	var conflict ScopeConflictError
+	if !errors.As(err, &conflict) || conflict.ID != "rtk" {
+		t.Fatalf("activate conflict = %v", err)
+	}
+	if err := workspace.ActivateWithState("rtk", "1.0.0", trust, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.SetEnabled("rtk", true); !errors.As(err, &conflict) {
+		t.Fatalf("enable conflict = %v", err)
 	}
 }

@@ -44,6 +44,8 @@ type Store struct {
 	runtime  RuntimeContext
 	Builtins BuiltinRegistry
 	mu       sync.Mutex
+	peerMu   sync.Mutex
+	peers    []*Store
 }
 
 func NewStore(layout Layout, context RuntimeContext) (*Store, error) {
@@ -63,6 +65,67 @@ func NewStore(layout Layout, context RuntimeContext) (*Store, error) {
 }
 
 func (store *Store) Layout() Layout { return store.layout }
+
+func (store *Store) SetPeers(peers ...*Store) {
+	if store == nil {
+		return
+	}
+	store.peerMu.Lock()
+	store.peers = append([]*Store(nil), peers...)
+	store.peerMu.Unlock()
+}
+
+func (store *Store) Peers() []*Store {
+	if store == nil {
+		return nil
+	}
+	store.peerMu.Lock()
+	defer store.peerMu.Unlock()
+	return append([]*Store(nil), store.peers...)
+}
+
+func (store *Store) rejectPeerConflict(id PluginID) error {
+	for _, peer := range store.Peers() {
+		if peer == nil || peer == store {
+			continue
+		}
+		lock, err := LoadLock(peer.layout.LockPath())
+		if err != nil {
+			return err
+		}
+		if entry, ok := lock.Plugins[id]; ok && entry.Enabled {
+			return ScopeConflictError{ID: id, Scopes: []PluginScope{peer.layout.EffectiveScope(), store.layout.EffectiveScope()}}
+		}
+	}
+	return nil
+}
+
+func (store *Store) dependencyStores() []*Store {
+	if store == nil {
+		return nil
+	}
+	if store.layout.EffectiveScope() != ScopeWorkspace {
+		return []*Store{store}
+	}
+	stores := []*Store{}
+	for _, peer := range store.Peers() {
+		if peer != nil && peer.layout.EffectiveScope() == ScopeGlobal {
+			stores = append(stores, peer)
+		}
+	}
+	return append(stores, store)
+}
+
+func (store *Store) disablePeerDependents(ids []PluginID) error {
+	for _, id := range ids {
+		for _, peer := range store.Peers() {
+			if _, err := peer.DisableIfEnabled(id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 func globalBuiltins(layout Layout) BuiltinRegistry {
 	if layout.EffectiveScope() == ScopeWorkspace {
@@ -286,6 +349,9 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 		return err
 	}
 	if enabled {
+		if err := store.rejectPeerConflict(id); err != nil {
+			return err
+		}
 		if err := store.verifyInstalledIntegrity(context.Background(), installed); err != nil {
 			return err
 		}
@@ -353,18 +419,97 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 		if !compatible {
 			return fmt.Errorf("plugin %s@%s is incompatible with chatgpt-mcp %s", id, entry.Version, store.runtime.CoreVersion)
 		}
+		if err := store.rejectPeerConflict(id); err != nil {
+			return err
+		}
 		if err := ValidateDependencies(store, installed.Manifest); err != nil {
 			return err
 		}
 		if err := store.verifyInstalledIntegrity(context.Background(), installed); err != nil {
 			return err
 		}
+	} else if err := store.rejectPeerDependents(id, entry.Version); err != nil {
+		return err
 	}
 	entry.Enabled = enabled
 	lock.Plugins[id] = entry
 	return store.writeLockAndDesired(previous, lock, func(config *Config) error {
 		return config.SetDesired(id, entry.Registry, entry.Version, enabled)
 	})
+}
+
+func (store *Store) rejectPeerDependents(id PluginID, version Version) error {
+	if store == nil || store.layout.EffectiveScope() != ScopeGlobal {
+		return nil
+	}
+	dependents, err := store.peerDependents(id, version)
+	if err != nil {
+		return err
+	}
+	if len(dependents) == 0 {
+		return nil
+	}
+	return fmt.Errorf("plugin %s is required by active workspace plugin %s", id, dependents[0])
+}
+
+func (store *Store) peerDependents(id PluginID, version Version) ([]PluginID, error) {
+	provided, err := store.providedCapabilities(id, version)
+	if err != nil {
+		return nil, err
+	}
+	if len(provided) == 0 {
+		return nil, nil
+	}
+	dependents := []PluginID{}
+	for _, peer := range store.Peers() {
+		if peer == nil || peer == store || peer.layout.EffectiveScope() != ScopeWorkspace {
+			continue
+		}
+		ids, err := peer.dependentsOf(id, provided)
+		if err != nil {
+			return nil, err
+		}
+		dependents = append(dependents, ids...)
+	}
+	sort.Slice(dependents, func(i, j int) bool { return dependents[i] < dependents[j] })
+	return dependents, nil
+}
+
+func (store *Store) providedCapabilities(id PluginID, version Version) (map[Capability]struct{}, error) {
+	installed, err := store.Installed(id, version)
+	if err != nil {
+		return nil, err
+	}
+	provided := make(map[Capability]struct{}, len(installed.Manifest.Provides))
+	for _, capability := range installed.Manifest.Provides {
+		provided[capability] = struct{}{}
+	}
+	return provided, nil
+}
+
+func (store *Store) dependentsOf(id PluginID, provided map[Capability]struct{}) ([]PluginID, error) {
+	lock, err := LoadLock(store.layout.LockPath())
+	if err != nil {
+		return nil, err
+	}
+	dependents := []PluginID{}
+	for otherID, entry := range lock.Plugins {
+		if otherID == id || !entry.Enabled {
+			continue
+		}
+		installed, err := store.Installed(otherID, entry.Version)
+		if err != nil {
+			return nil, err
+		}
+		for _, dependency := range installed.Manifest.Dependencies.Capabilities {
+			if _, ok := provided[dependency]; ok {
+				dependents = append(dependents, otherID)
+				break
+			}
+		}
+	}
+	sort.Slice(dependents, func(i, j int) bool { return dependents[i] < dependents[j] })
+	return dependents, nil
 }
 
 func (store *Store) DisableIfEnabled(id PluginID) (bool, error) {

@@ -16,6 +16,7 @@ type CapabilityProvider struct {
 	Path        string
 	Host        *HostExecutableSpec
 	Permissions []Permission
+	Scope       PluginScope
 }
 
 type CapabilityConflictError struct {
@@ -127,7 +128,7 @@ func appendResolverProviders(store *Store, providers map[Capability][]Capability
 		if !compatible {
 			continue
 		}
-		provider := CapabilityProvider{PluginID: id, Version: entry.Version, Name: installed.Manifest.Name, Path: installed.Entrypoint, Host: installed.Host, Permissions: append([]Permission(nil), installed.Manifest.Permissions...)}
+		provider := CapabilityProvider{PluginID: id, Version: entry.Version, Name: installed.Manifest.Name, Path: installed.Entrypoint, Host: installed.Host, Permissions: append([]Permission(nil), installed.Manifest.Permissions...), Scope: scope}
 		for _, capability := range installed.Manifest.Provides {
 			providers[capability] = append(providers[capability], provider)
 		}
@@ -136,7 +137,7 @@ func appendResolverProviders(store *Store, providers map[Capability][]Capability
 		if !builtin.DefaultEnabled {
 			continue
 		}
-		provider := CapabilityProvider{PluginID: builtin.ID, Version: catalogCoreVersion(store.runtime.CoreVersion), Name: builtin.Name, Permissions: append([]Permission(nil), builtin.Permissions...)}
+		provider := CapabilityProvider{PluginID: builtin.ID, Version: catalogCoreVersion(store.runtime.CoreVersion), Name: builtin.Name, Permissions: append([]Permission(nil), builtin.Permissions...), Scope: ScopeGlobal}
 		for _, capability := range builtin.Provides {
 			providers[capability] = append(providers[capability], provider)
 		}
@@ -148,13 +149,17 @@ func ValidateDependencies(store *Store, manifest Manifest) error {
 	if len(manifest.Dependencies.Capabilities) == 0 {
 		return nil
 	}
-	resolver, err := NewResolver(store)
+	resolver, err := NewResolverFromStores(store.dependencyStores()...)
 	if err != nil {
 		return err
 	}
 	for _, capability := range manifest.Dependencies.Capabilities {
-		if _, err := resolver.Resolve(capability); err != nil {
+		provider, err := resolver.Resolve(capability)
+		if err != nil {
 			return fmt.Errorf("plugin %s@%s requires capability %s: %w", manifest.ID, manifest.Version, capability, err)
+		}
+		if store.layout.EffectiveScope() == ScopeGlobal && provider.Scope == ScopeWorkspace {
+			return fmt.Errorf("plugin %s@%s cannot depend on workspace capability %s from %s", manifest.ID, manifest.Version, capability, provider.PluginID)
 		}
 	}
 	return nil

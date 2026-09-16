@@ -66,3 +66,25 @@ func TestWorkspaceStoresIsolateWorkspaces(t *testing.T) {
 		t.Fatal("workspace plugin stores share config root")
 	}
 }
+
+func TestWorkspaceStoresSetGlobalPeer(t *testing.T) {
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	global := testStore(t)
+	stores := NewWorkspaceStores(RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"})
+	workspace, _, err := stores.Load("ws_a", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stores.SetGlobalPeer(global)
+	if len(global.Peers()) != 1 || global.Peers()[0] != workspace {
+		t.Fatalf("global peers = %#v", global.Peers())
+	}
+	if len(workspace.Peers()) != 1 || workspace.Peers()[0] != global {
+		t.Fatalf("workspace peers = %#v", workspace.Peers())
+	}
+	stores.Unload("ws_a")
+	stores.SetGlobalPeer(global)
+	if len(global.Peers()) != 0 {
+		t.Fatalf("unloaded peer remained: %#v", global.Peers())
+	}
+}

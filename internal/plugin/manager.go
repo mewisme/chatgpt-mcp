@@ -225,9 +225,22 @@ func (manager Manager) Uninstall(ctx context.Context, id PluginID, force bool) (
 		unlock()
 		return err
 	}
-	if len(dependents) > 0 && !force {
+	peerDependents, err := manager.Store.peerDependents(id, entry.Version)
+	if err != nil {
 		unlock()
-		return fmt.Errorf("plugin %s is required by active plugin %s; use --force to uninstall", id, dependents[0])
+		return err
+	}
+	if len(dependents)+len(peerDependents) > 0 && !force {
+		blocked := dependents
+		if len(blocked) == 0 {
+			blocked = peerDependents
+		}
+		unlock()
+		return fmt.Errorf("plugin %s is required by active plugin %s; use --force to uninstall", id, blocked[0])
+	}
+	if err := manager.Store.disablePeerDependents(peerDependents); err != nil {
+		unlock()
+		return err
 	}
 	for _, dependentID := range dependents {
 		dependent := lock.Plugins[dependentID]

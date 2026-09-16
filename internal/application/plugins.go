@@ -63,6 +63,9 @@ func NewPluginServiceForLayout(layout pluginpkg.Layout) (*PluginService, error) 
 		return nil, err
 	}
 	pluginhost.Attach(store)
+	if err := AttachPluginPeers(store); err != nil {
+		return nil, err
+	}
 	client := pluginpkg.RegistryClient{Layout: layout, UserAgent: "chatgpt-mcp/" + version.Version}
 	return &PluginService{Manager: &pluginpkg.Manager{Store: store, RegistryClient: client}, Layout: layout}, nil
 }

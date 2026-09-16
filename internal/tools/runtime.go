@@ -69,8 +69,9 @@ func NewRuntimeWithAccess(globalAllowDirs []string, environments ...ProjectConte
 		panic(err)
 	}
 	workspacePlugins := pluginpkg.NewWorkspaceStores(pluginpkg.RuntimeContext{})
-	attachWorkspacePluginStores(workspaces, workspacePlugins)
+	attachWorkspacePluginStores(workspaces, workspacePlugins, pluginStore)
 	loadWorkspacePluginStores(workspaces, workspacePlugins)
+	workspacePlugins.SetGlobalPeer(pluginStore)
 	shell := shellruntime.NewManagerWithProviderResolver(workspaces, shellruntime.DefaultStateRoot(), executions, shellruntime.NewProviderResolver(pluginStore))
 	processes := shellruntime.NewProcessManagerWithExecutions(workspaces, shell, executions)
 	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Hooks: pluginpkg.NewHookDispatcher(pluginStore), PluginStore: pluginStore, Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), PluginReconcile: pluginReconcile, WorkspacePlugins: workspacePlugins}
@@ -112,25 +113,31 @@ func (r *Runtime) SyncPlugins() error {
 	return SyncCompiledPlugins(r)
 }
 
-func attachWorkspacePluginStores(workspaces *workspace.Manager, stores *pluginpkg.WorkspaceStores) {
+func attachWorkspacePluginStores(workspaces *workspace.Manager, stores *pluginpkg.WorkspaceStores, global *pluginpkg.Store) {
 	if workspaces == nil || stores == nil {
 		return
 	}
+	sync := func() { stores.SetGlobalPeer(global) }
 	workspaces.SetStateHooks(
 		func(item workspace.Workspace) error {
 			if !item.Available() {
 				return nil
 			}
 			_, _, err := stores.Load(item.ID, item.Path)
+			sync()
 			return err
 		},
-		stores.Unload,
+		func(id string) {
+			stores.Unload(id)
+			sync()
+		},
 		func(item workspace.Workspace) error {
 			stores.Unload(item.ID)
 			if !item.Available() {
 				return nil
 			}
 			_, _, err := stores.Load(item.ID, item.Path)
+			sync()
 			return err
 		},
 	)

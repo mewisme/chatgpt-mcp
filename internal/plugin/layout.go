@@ -2,27 +2,61 @@ package plugin
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/workspacestate"
 )
 
 type Layout struct {
-	ConfigRoot string
-	DataRoot   string
-	CacheRoot  string
+	Scope         PluginScope
+	ConfigRoot    string
+	DataRoot      string
+	CacheRoot     string
+	WorkspaceRoot string
 }
 
 func DefaultLayout() Layout {
 	configRoot := filepath.Clean(configformat.RootPath())
 	defaultConfigRoot := filepath.Clean(configformat.DefaultRootPath())
 	if configRoot != defaultConfigRoot {
-		return Layout{ConfigRoot: configRoot, DataRoot: configRoot + "-data", CacheRoot: configRoot + "-cache"}
+		return Layout{Scope: ScopeGlobal, ConfigRoot: configRoot, DataRoot: configRoot + "-data", CacheRoot: configRoot + "-cache"}
 	}
-	return Layout{ConfigRoot: configRoot, DataRoot: defaultDataRoot(), CacheRoot: defaultCacheRoot()}
+	return Layout{Scope: ScopeGlobal, ConfigRoot: configRoot, DataRoot: defaultDataRoot(), CacheRoot: defaultCacheRoot()}
+}
+
+func WorkspaceLayout(workspaceRoot string) (Layout, error) {
+	workspaceRoot = filepath.Clean(strings.TrimSpace(workspaceRoot))
+	if workspaceRoot == "" {
+		return Layout{}, errors.New("workspace root is required")
+	}
+	if !filepath.IsAbs(workspaceRoot) {
+		return Layout{}, errors.New("workspace root must be absolute")
+	}
+	plugins := workspacestate.New(workspaceRoot).PluginsRoot()
+	global := DefaultLayout()
+	layout := Layout{
+		Scope:         ScopeWorkspace,
+		ConfigRoot:    plugins,
+		DataRoot:      filepath.Join(plugins, "data"),
+		CacheRoot:     global.CacheRoot,
+		WorkspaceRoot: workspaceRoot,
+	}
+	if err := layout.Validate(); err != nil {
+		return Layout{}, err
+	}
+	return layout, nil
+}
+
+func (layout Layout) EffectiveScope() PluginScope {
+	if layout.Scope == "" {
+		return ScopeGlobal
+	}
+	return layout.Scope
 }
 
 func (layout Layout) Validate() error {
@@ -37,15 +71,59 @@ func (layout Layout) Validate() error {
 	if sameCleanPath(layout.ConfigRoot, layout.DataRoot) || sameCleanPath(layout.ConfigRoot, layout.CacheRoot) || sameCleanPath(layout.DataRoot, layout.CacheRoot) {
 		return errors.New("plugin config, data, and cache roots must be distinct")
 	}
+	switch layout.EffectiveScope() {
+	case ScopeGlobal:
+		if strings.TrimSpace(layout.WorkspaceRoot) != "" {
+			return errors.New("global plugin layout cannot include a workspace root")
+		}
+	case ScopeWorkspace:
+		if strings.TrimSpace(layout.WorkspaceRoot) == "" {
+			return errors.New("workspace plugin layout requires a workspace root")
+		}
+		if !filepath.IsAbs(layout.WorkspaceRoot) {
+			return errors.New("workspace root must be absolute")
+		}
+		cgm := workspacestate.New(layout.WorkspaceRoot).Root()
+		if !pathWithin(cgm, layout.ConfigRoot) {
+			return errors.New("workspace plugin config root must stay under .cgm")
+		}
+		if !pathWithin(cgm, layout.DataRoot) {
+			return errors.New("workspace plugin data root must stay under .cgm")
+		}
+	default:
+		return fmt.Errorf("unknown plugin scope: %q", layout.Scope)
+	}
 	return nil
 }
 
-func (layout Layout) ConfigPath() string { return filepath.Join(layout.ConfigRoot, "plugins.json") }
-func (layout Layout) LockPath() string   { return filepath.Join(layout.ConfigRoot, "plugins.lock.json") }
+func (layout Layout) ConfigPath() string {
+	if layout.EffectiveScope() == ScopeWorkspace {
+		return filepath.Join(layout.ConfigRoot, "desired.json")
+	}
+	return filepath.Join(layout.ConfigRoot, "plugins.json")
+}
+
+func (layout Layout) LockPath() string {
+	if layout.EffectiveScope() == ScopeWorkspace {
+		return filepath.Join(layout.ConfigRoot, "lock.json")
+	}
+	return filepath.Join(layout.ConfigRoot, "plugins.lock.json")
+}
+
 func (layout Layout) MutationLockPath() string {
+	if layout.EffectiveScope() == ScopeWorkspace {
+		return filepath.Join(layout.ConfigRoot, "mutation.lock")
+	}
 	return filepath.Join(layout.ConfigRoot, "plugins.mutation.lock")
 }
-func (layout Layout) PluginsPath() string { return filepath.Join(layout.DataRoot, "plugins") }
+
+func (layout Layout) PluginsPath() string {
+	if layout.EffectiveScope() == ScopeWorkspace {
+		return layout.DataRoot
+	}
+	return filepath.Join(layout.DataRoot, "plugins")
+}
+
 func (layout Layout) DownloadsPath() string {
 	return filepath.Join(layout.CacheRoot, "plugins", "downloads")
 }
@@ -55,11 +133,14 @@ func (layout Layout) InstalledVersionPath(id PluginID, version Version) string {
 }
 
 func (layout Layout) PluginConfigPath(id PluginID) string {
+	if layout.EffectiveScope() == ScopeWorkspace {
+		return filepath.Join(layout.ConfigRoot, "config", string(id)+".json")
+	}
 	return filepath.Join(layout.ConfigRoot, "plugins", "config", string(id)+".json")
 }
 
 func WorkspacePluginConfigPath(workspaceRoot string, id PluginID) string {
-	return filepath.Join(filepath.Clean(workspaceRoot), ".cgm", "plugins", "config", string(id)+".json")
+	return filepath.Join(filepath.Clean(workspaceRoot), workspacestate.DirectoryName, "plugins", "config", string(id)+".json")
 }
 
 func defaultDataRoot() string {
@@ -105,3 +186,8 @@ func defaultCacheRoot() string {
 }
 
 func sameCleanPath(left, right string) bool { return filepath.Clean(left) == filepath.Clean(right) }
+
+func pathWithin(root, candidate string) bool {
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
+	return err == nil && (relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative))
+}

@@ -50,6 +50,7 @@ func (s Store) CheckpointRoot() string       { return filepath.Join(s.Root(), "c
 func (s Store) CacheRoot() string            { return filepath.Join(s.Root(), "cache") }
 func (s Store) RuntimeRoot() string          { return filepath.Join(s.Root(), "runtime") }
 func (s Store) RuntimeLockPath() string      { return filepath.Join(s.RuntimeRoot(), "lock") }
+func (s Store) PluginsRoot() string          { return filepath.Join(s.Root(), "plugins") }
 func (s Store) StatePath(name string) string { return filepath.Join(s.StateRoot(), name) }
 
 func (s Store) EnsureIdentity(preferredID string) (Identity, bool, error) {

@@ -243,10 +243,16 @@ func TestManifestLicenseValidation(t *testing.T) {
 			t.Fatalf("%s: %v", license, err)
 		}
 	}
-	missing := testManifest("admin-ui", "1.0.0", CapabilityWebUIAdmin)
-	missing.License = ""
-	if err := missing.Validate(); err == nil {
-		t.Fatal("missing official license accepted")
+	legacyMissing := testManifest("demo", "1.0.0", "shell/bash")
+	legacyMissing.License = ""
+	if err := legacyMissing.Validate(); err != nil {
+		t.Fatalf("legacy manifest rejected missing license: %v", err)
+	}
+	currentMissing := testManifest("demo", "1.0.0", "shell/bash")
+	currentMissing.Schema = ManifestSchemaV2
+	currentMissing.License = ""
+	if err := currentMissing.Validate(); err == nil {
+		t.Fatal("current manifest schema accepted missing license")
 	}
 	for _, license := range []string{"Apache 2.0", "MIT AND", "not a license"} {
 		manifest := testManifest("demo", "1.0.0", "shell/bash")

@@ -172,8 +172,14 @@ func (manifest Manifest) Validate() error {
 	if !validCanonicalName(manifest.Publisher) {
 		return fmt.Errorf("invalid plugin publisher: %q", manifest.Publisher)
 	}
-	if err := validateLicense(manifest.License); err != nil {
-		return err
+	if manifest.Schema >= ManifestSchemaV2 {
+		if err := validateLicense(manifest.License); err != nil {
+			return err
+		}
+	} else if strings.TrimSpace(manifest.License) != "" {
+		if err := validateLicense(manifest.License); err != nil {
+			return err
+		}
 	}
 	if err := validateVersion(string(manifest.Version)); err != nil {
 		return fmt.Errorf("invalid plugin version %q: %w", manifest.Version, err)

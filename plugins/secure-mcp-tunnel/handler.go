@@ -3,6 +3,9 @@ package securemcptunnel
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/runtimeplugin"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -124,9 +127,45 @@ func (h *Handler) Invoke(ctx context.Context, params json.RawMessage) (any, erro
 		return adminVerifyOut{Access: access, Count: count}, nil
 	case "runtime_status":
 		return h.manager().Statuses(), nil
+	case "start_instance":
+		return h.mutateInstance(ctx, invoke.Payload, true)
+	case "stop_instance":
+		return h.mutateInstance(ctx, invoke.Payload, false)
 	default:
 		return nil, runtimeplugin.ErrUnknownMethod
 	}
+}
+
+func (h *Handler) mutateInstance(ctx context.Context, payload any, start bool) (any, error) {
+	in, err := decodeValue[instanceIDIn](payload)
+	if err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(in.ID)
+	if id == "" {
+		return nil, errors.New("tunnel id is required")
+	}
+	if start {
+		err = h.manager().Start(ctx, id)
+	} else {
+		err = h.manager().Stop(ctx, id)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return h.instanceStatus(id)
+}
+
+func (h *Handler) instanceStatus(id string) (tunnel.Status, error) {
+	client, ok := h.manager().Client(id)
+	if !ok {
+		return tunnel.Status{}, fmt.Errorf("tunnel %q is not attached", id)
+	}
+	return client.Status(), nil
+}
+
+type instanceIDIn struct {
+	ID string `json:"id"`
 }
 
 type adminListIn struct {

@@ -422,7 +422,7 @@ func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 		if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Root") || strings.Contains(got, "Overview") {
 			t.Fatalf("intermediate detail render=%q", got)
 		}
-		message, ok := cmd().(NavigateMsg)
+		message, ok := navigateMsg(cmd)
 		if !ok || strings.Join(message.Path, "/") != "workspaces" || !message.Replace {
 			t.Fatalf("navigation=%#v", message)
 		}
@@ -454,7 +454,7 @@ func TestWorkspaceDetailDeletionKeepsDetailUntilParentNavigation(t *testing.T) {
 	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "Primary") {
 		t.Fatalf("intermediate container detail render=%q", got)
 	}
-	message, ok := cmd().(NavigateMsg)
+	message, ok := navigateMsg(cmd)
 	if !ok || strings.Join(message.Path, "/") != "containers" || !message.Replace {
 		t.Fatalf("navigation=%#v", message)
 	}

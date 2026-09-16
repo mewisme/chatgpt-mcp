@@ -268,7 +268,7 @@ func TestMCPDetailRemovalKeepsDetailUntilParentNavigation(t *testing.T) {
 	if got := ansi.Strip(page.View(100, 24)); !strings.Contains(got, "ID  docs") || strings.Contains(got, "Overview") {
 		t.Fatalf("intermediate MCP detail render=%q", got)
 	}
-	message, ok := cmd().(NavigateMsg)
+	message, ok := navigateMsg(cmd)
 	if !ok || strings.Join(message.Path, "/") != "mcp" || !message.Replace {
 		t.Fatalf("navigation=%#v", message)
 	}

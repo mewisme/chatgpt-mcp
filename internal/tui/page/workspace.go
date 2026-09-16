@@ -529,9 +529,11 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 			if page.containers {
 				path = []string{"containers"}
 			}
-			return func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }
+			return tea.Batch(func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }, func() tea.Msg {
+				return OperationResult("workspace.delete", "Workspace", page.notice, nil)
+			})
 		}
-		return nil
+		return func() tea.Msg { return OperationResult("workspace.delete", "Workspace", page.notice, nil) }
 	}
 	return page.confirm.Update(msg)
 }

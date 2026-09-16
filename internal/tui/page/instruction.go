@@ -299,17 +299,17 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.notice = msg.notice
 		page.closeRuleConfirm()
 		page.syncRuleBrowser()
-		return page, nil
+		return page, func() tea.Msg { return OperationResult("instruction.rule.save", "Instruction", msg.notice, nil) }
 	case instructionSourcesSavedMsg:
 		page.saving = false
 		if msg.err != nil {
 			page.err = msg.err
-			return page, nil
+			return page, func() tea.Msg { return OperationResult("instruction.source.save", "Instruction", "", msg.err) }
 		}
 		page.settings, page.err = msg.settings, nil
 		page.notice = msg.notice
 		page.syncSourceTree()
-		return page, nil
+		return page, func() tea.Msg { return OperationResult("instruction.source.save", "Instruction", msg.notice, nil) }
 	case instructionSourceWheelMsg:
 		if page.tab == instructionTabSources {
 			page.updateSourceWheel(msg)

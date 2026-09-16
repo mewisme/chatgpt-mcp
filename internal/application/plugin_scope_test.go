@@ -148,3 +148,26 @@ func TestNewPluginServiceForLayoutUsesWorkspaceStore(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyPluginInstallScope(t *testing.T) {
+	explicit, err := ApplyPluginInstallScope(PluginScopeOptions{Scope: "global"}, []pluginpkg.PluginScope{pluginpkg.ScopeGlobal, pluginpkg.ScopeWorkspace})
+	if err != nil || explicit.Scope != "global" {
+		t.Fatalf("explicit = %#v %v", explicit, err)
+	}
+	implied, err := ApplyPluginInstallScope(PluginScopeOptions{Workspace: "ws_x"}, []pluginpkg.PluginScope{pluginpkg.ScopeGlobal, pluginpkg.ScopeWorkspace})
+	if err != nil || implied.Workspace != "ws_x" {
+		t.Fatalf("implied = %#v %v", implied, err)
+	}
+	single, err := ApplyPluginInstallScope(PluginScopeOptions{}, []pluginpkg.PluginScope{pluginpkg.ScopeWorkspace})
+	if err != nil || single.Scope != string(pluginpkg.ScopeWorkspace) {
+		t.Fatalf("single = %#v %v", single, err)
+	}
+	legacy, err := ApplyPluginInstallScope(PluginScopeOptions{}, nil)
+	if err != nil || legacy.Scope != string(pluginpkg.ScopeGlobal) {
+		t.Fatalf("legacy = %#v %v", legacy, err)
+	}
+	_, err = ApplyPluginInstallScope(PluginScopeOptions{}, []pluginpkg.PluginScope{pluginpkg.ScopeGlobal, pluginpkg.ScopeWorkspace})
+	if !errors.Is(err, ErrPluginScopeRequired) {
+		t.Fatalf("multi-scope error = %v", err)
+	}
+}

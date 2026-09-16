@@ -11,7 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func TestPluginCommandSurface(t *testing.T) {
@@ -130,6 +133,35 @@ func TestPluginListWorkspaceRequiresRegisteredWorkspace(t *testing.T) {
 	root.SetArgs(testCommandArgs(t, "plugin", "list", "--scope", "workspace"))
 	_, err := root.ExecuteC()
 	if err == nil || !strings.Contains(err.Error(), "specify --workspace") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestPromptPluginInstallScopeSelectsWorkspace(t *testing.T) {
+	cmd := pluginInstallCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetIn(strings.NewReader("2\n"))
+	opts, err := promptPluginInstallScope(cmd, []pluginpkg.PluginScope{pluginpkg.ScopeGlobal, pluginpkg.ScopeWorkspace}, []workspace.Workspace{
+		{ID: "ws_demo", Path: "/tmp/chatgpt-mcp"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Scope != "workspace" || opts.Workspace != "ws_demo" {
+		t.Fatalf("opts = %#v", opts)
+	}
+	if !strings.Contains(out.String(), "Install scope") || !strings.Contains(out.String(), "Workspace: chatgpt-mcp") {
+		t.Fatalf("prompt = %q", out.String())
+	}
+}
+
+func TestPromptPluginInstallScopeCancelRequiresFlag(t *testing.T) {
+	cmd := pluginInstallCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetIn(strings.NewReader("\n"))
+	_, err := promptPluginInstallScope(cmd, []pluginpkg.PluginScope{pluginpkg.ScopeGlobal, pluginpkg.ScopeWorkspace}, nil)
+	if !errors.Is(err, application.ErrPluginScopeRequired) {
 		t.Fatalf("error = %v", err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/version"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func pluginCommand() *cobra.Command {
@@ -170,7 +172,15 @@ func pluginListCommand() *cobra.Command {
 func pluginInstallCommand() *cobra.Command {
 	var portable bool
 	cmd := &cobra.Command{Use: "install <plugin>[@version]", Short: "Install and enable a signed plugin", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		manager, _, err := newPluginManagerFromCmd(cmd)
+		opts, err := resolvePluginInstallOptions(cmd, args[0])
+		if err != nil {
+			return err
+		}
+		layout, err := application.ResolvePluginLayout(opts)
+		if err != nil {
+			return err
+		}
+		manager, _, err := newPluginManagerFor(layout)
 		if err != nil {
 			return err
 		}
@@ -195,6 +205,91 @@ func pluginInstallCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&portable, "portable", false, "install a manifest-declared portable host dependency into plugin data")
 	addPluginScopeFlags(cmd)
 	return cmd
+}
+
+type pluginInstallScopeChoice struct {
+	opts  application.PluginScopeOptions
+	label string
+}
+
+func resolvePluginInstallOptions(cmd *cobra.Command, reference string) (application.PluginScopeOptions, error) {
+	opts := pluginScopeOptions(cmd)
+	if strings.TrimSpace(opts.Scope) != "" || strings.TrimSpace(opts.Workspace) != "" {
+		return opts, nil
+	}
+	manager, _, err := newPluginManager()
+	if err != nil {
+		return application.PluginScopeOptions{}, err
+	}
+	resolved, err := manager.Resolve(cmd.Context(), reference)
+	if err != nil {
+		return application.PluginScopeOptions{}, err
+	}
+	filled, err := application.ApplyPluginInstallScope(opts, resolved.Entry.AllowedScopes())
+	if err == nil {
+		return filled, nil
+	}
+	if !errors.Is(err, application.ErrPluginScopeRequired) || !cliStdinIsTerminal(cmd) {
+		return application.PluginScopeOptions{}, err
+	}
+	items, listErr := workspace.NewManager(workspace.DefaultStorePath()).List()
+	if listErr != nil {
+		return application.PluginScopeOptions{}, listErr
+	}
+	available := make([]workspace.Workspace, 0, len(items))
+	for _, item := range items {
+		if item.Available() {
+			available = append(available, item)
+		}
+	}
+	return promptPluginInstallScope(cmd, resolved.Entry.AllowedScopes(), available)
+}
+
+func promptPluginInstallScope(cmd *cobra.Command, allowed []pluginpkg.PluginScope, workspaces []workspace.Workspace) (application.PluginScopeOptions, error) {
+	choices := make([]pluginInstallScopeChoice, 0, 1+len(workspaces))
+	for _, scope := range allowed {
+		switch scope {
+		case pluginpkg.ScopeGlobal:
+			choices = append(choices, pluginInstallScopeChoice{opts: application.PluginScopeOptions{Scope: string(pluginpkg.ScopeGlobal)}, label: "Global"})
+		case pluginpkg.ScopeWorkspace:
+			if len(workspaces) == 0 {
+				continue
+			}
+			for _, item := range workspaces {
+				choices = append(choices, pluginInstallScopeChoice{
+					opts:  application.PluginScopeOptions{Scope: string(pluginpkg.ScopeWorkspace), Workspace: item.ID},
+					label: "Workspace: " + filepath.Base(item.Path),
+				})
+			}
+		}
+	}
+	if len(choices) == 0 {
+		return application.PluginScopeOptions{}, application.ErrPluginScopeRequired
+	}
+	writer := cmd.OutOrStdout()
+	fmt.Fprintln(writer, "Install scope")
+	for index, choice := range choices {
+		fmt.Fprintf(writer, "  %d. %s\n", index+1, choice.label)
+	}
+	fmt.Fprint(writer, "Selection [Enter to cancel]: ")
+	line, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if readErr != nil && strings.TrimSpace(line) == "" {
+		return application.PluginScopeOptions{}, application.ErrPluginScopeRequired
+	}
+	selection := strings.TrimSpace(line)
+	if selection == "" {
+		return application.PluginScopeOptions{}, application.ErrPluginScopeRequired
+	}
+	index, parseErr := strconv.Atoi(selection)
+	if parseErr != nil || index < 1 || index > len(choices) {
+		return application.PluginScopeOptions{}, fmt.Errorf("invalid install scope selection %q", selection)
+	}
+	return choices[index-1].opts, nil
+}
+
+func cliStdinIsTerminal(cmd *cobra.Command) bool {
+	input, ok := cmd.InOrStdin().(*os.File)
+	return ok && term.IsTerminal(int(input.Fd()))
 }
 
 type pluginHostInstallChoice struct {

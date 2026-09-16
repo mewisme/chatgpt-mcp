@@ -1,6 +1,7 @@
 package application
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,8 @@ import (
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
+
+var ErrPluginScopeRequired = errors.New("plugin supports multiple install scopes; specify --scope global|workspace")
 
 type PluginScopeOptions struct {
 	Scope     string
@@ -50,6 +53,21 @@ func parsePluginScopeOptions(opts PluginScopeOptions) (pluginpkg.PluginScope, er
 		return "", fmt.Errorf("--scope global cannot be combined with --workspace")
 	}
 	return scope, nil
+}
+
+func ApplyPluginInstallScope(opts PluginScopeOptions, allowed []pluginpkg.PluginScope) (PluginScopeOptions, error) {
+	if strings.TrimSpace(opts.Scope) != "" || strings.TrimSpace(opts.Workspace) != "" {
+		return opts, nil
+	}
+	if len(allowed) == 0 {
+		opts.Scope = string(pluginpkg.ScopeGlobal)
+		return opts, nil
+	}
+	if len(allowed) == 1 {
+		opts.Scope = string(allowed[0])
+		return opts, nil
+	}
+	return PluginScopeOptions{}, ErrPluginScopeRequired
 }
 
 func resolvePluginWorkspace(workspaces *workspace.Manager, ref string) (workspace.Workspace, error) {

@@ -61,7 +61,7 @@ func New(opts Options) *Service {
 		opts.Settings = DefaultSettings
 	}
 	if opts.Provider == nil {
-		opts.Provider = UnavailableProvider()
+		opts.Provider = PlatformProvider()
 	}
 	if opts.Presence == nil {
 		opts.Presence = state.TUIReviewerActive

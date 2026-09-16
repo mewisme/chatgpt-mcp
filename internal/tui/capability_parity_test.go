@@ -102,3 +102,57 @@ func TestCapabilityActionsHaveReachableContexts(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthActionsDoNotCollapseCredentialTypes(t *testing.T) {
+	for _, item := range defaultActionRegistry().All() {
+		hasMCP, hasAdmin, hasTunnel, hasAuthStatus := false, false, false, false
+		for _, id := range item.Capabilities {
+			switch {
+			case strings.HasPrefix(string(id), "auth.mcp."):
+				hasMCP = true
+			case strings.HasPrefix(string(id), "auth.admin."):
+				hasAdmin = true
+			case strings.HasPrefix(string(id), "tunnel."):
+				hasTunnel = true
+			case id == capability.AuthStatus:
+				hasAuthStatus = true
+			}
+			if strings.Contains(strings.ToLower(string(id)), "oauth") {
+				t.Errorf("action %s maps leftover oauth capability %s", item.ID, id)
+			}
+		}
+		if hasMCP && hasAdmin {
+			t.Errorf("action %s mixes Direct MCP HTTP and admin capabilities", item.ID)
+		}
+		if (hasMCP || hasAdmin) && hasTunnel {
+			t.Errorf("action %s mixes app auth and tunnel capabilities", item.ID)
+		}
+		if hasAuthStatus && (hasMCP || hasAdmin) {
+			t.Errorf("action %s mixes generic auth.status with credential-specific capabilities", item.ID)
+		}
+	}
+}
+
+func TestAuthActionTitlesMatchCredentialType(t *testing.T) {
+	for _, item := range defaultActionRegistry().All() {
+		for _, id := range item.Capabilities {
+			switch {
+			case strings.HasPrefix(string(id), "auth.mcp."):
+				if !strings.Contains(item.Title, "Direct MCP HTTP") {
+					t.Errorf("%s title %q missing Direct MCP HTTP", item.ID, item.Title)
+				}
+			case strings.HasPrefix(string(id), "auth.admin."):
+				if strings.Contains(item.Title, "Direct MCP HTTP") {
+					t.Errorf("%s admin action uses Direct MCP HTTP title %q", item.ID, item.Title)
+				}
+				if !strings.Contains(strings.ToLower(item.Title), "admin") {
+					t.Errorf("%s admin title %q missing admin", item.ID, item.Title)
+				}
+			case strings.HasPrefix(string(id), "tunnel."):
+				if strings.Contains(item.Title, "Direct MCP HTTP") {
+					t.Errorf("%s tunnel action requires Direct MCP HTTP: %q", item.ID, item.Title)
+				}
+			}
+		}
+	}
+}

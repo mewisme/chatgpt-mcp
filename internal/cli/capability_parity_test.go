@@ -57,6 +57,14 @@ func TestPublicCommandsHaveCanonicalCapabilities(t *testing.T) {
 	}
 }
 
+func TestPublicCommandTreeOmitsOAuth(t *testing.T) {
+	for _, path := range collectRunnablePublicPaths(newRootCommand()) {
+		if strings.Contains(strings.ToLower(path), "oauth") {
+			t.Fatalf("public oauth command: %s", path)
+		}
+	}
+}
+
 func TestPublicCapabilityExemptionsAreExplicitAndCurrent(t *testing.T) {
 	actual := map[string]bool{}
 	for _, path := range collectRunnablePublicPaths(newRootCommand()) {

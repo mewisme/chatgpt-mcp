@@ -51,6 +51,14 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
+    "file": "internal/application/tui.go",
+    "details": "Subprocess launched with a potential tainted input or cmd arguments",
+    "code": "}\n\tcmd := exec.CommandContext(ctx, provider.Path, args...)\n\tcmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
     "file": "internal/cli/managed_elevation_unix.go",
     "details": "Subprocess launched with variable",
     "code": "}\n\tchild := exec.CommandContext(cmd.Context(), sudo, args...)\n\tchild.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()"
@@ -91,6 +99,38 @@
     "rule_id": "G204",
     "severity": "MEDIUM",
     "confidence": "HIGH",
+    "file": "internal/licenseinventory/archive.go",
+    "details": "Subprocess launched with variable",
+    "code": "if _, err := os.Stat(filepath.Join(dir, \"NOTICE\")); err != nil {\n\t\tcmd := exec.Command(\"go\", \"run\", \"./internal/licenseinventory/cmd/license-inventory\", \"--artifact\", artifactID, \"--out\", dir)\n\t\tcmd.Dir = root"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/licenseinventory/inventory.go",
+    "details": "Subprocess launched with variable",
+    "code": "args := append([]string{\"list\", \"-deps\", \"-e\", \"-json=ImportPath,Standard,Module\"}, packages...)\n\tcmd := exec.Command(\"go\", args...)\n\tcmd.Dir = root"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/notification/host.go",
+    "details": "Subprocess launched with a potential tainted input or cmd arguments",
+    "code": "}\n\tcmd := exec.CommandContext(ctx, spec.Name, spec.Args...)\n\tif len(spec.Env) > 0 {"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/notification/host.go",
+    "details": "Subprocess launched with a potential tainted input or cmd arguments",
+    "code": "}\n\tcmd := exec.CommandContext(ctx, spec.Name, spec.Args...)\n\treturn cmd.CombinedOutput()"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
     "file": "internal/plugin/hook.go",
     "details": "Subprocess launched with a potential tainted input or cmd arguments",
     "code": "}\n\tcmd := exec.CommandContext(ctx, provider.Path)\n\tcmd.Dir = filepath.Dir(provider.Path)"
@@ -126,6 +166,62 @@
     "file": "internal/plugin/wrapper.go",
     "details": "Subprocess launched with a potential tainted input or cmd arguments",
     "code": "defer cancel()\n\tcmd := exec.CommandContext(runCtx, provider.Path, args...)\n\tcmd.Env = safeHookEnvironment()"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/pluginbuild/build.go",
+    "details": "Subprocess launched with variable",
+    "code": "}\n\tcmd := exec.Command(\"go\", \"build\", \"-trimpath\", \"-ldflags\", \"-s -w\", \"-o\", output, pkg)\n\tcmd.Dir = repoRoot"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/pluginbuild/compress.go",
+    "details": "Subprocess launched with variable",
+    "code": "}\n\tcmd := exec.Command(upx, \"--best\", path)\n\tcmd.Stdout = os.Stderr"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/pluginbuild/compress.go",
+    "details": "Subprocess launched with variable",
+    "code": "}\n\ttest := exec.Command(upx, \"-t\", path)\n\ttest.Stdout = os.Stderr"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugindev/bootstrap.go",
+    "details": "Subprocess launched with variable",
+    "code": "script := filepath.Join(repoRoot, \"scripts\", \"plugin-workflow.mjs\")\n\tcmd := exec.Command(\"node\", script, \"build\", id, output)\n\tcmd.Dir = repoRoot"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugindev/fingerprint.go",
+    "details": "Subprocess launched with a potential tainted input or cmd arguments",
+    "code": "func hashGoDeps(root, pluginID string, files map[string]string) error {\n\tcmd := exec.Command(\"go\", \"list\", \"-e\", \"-deps\", \"-f\", \"{{.Dir}}\", \"./plugins/\"+pluginID+\"/...\")\n\tcmd.Dir = root"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugindev/fingerprint.go",
+    "details": "Subprocess launched with variable",
+    "code": "func toolchainVersion(root, command string, args ...string) (string, error) {\n\tcmd := exec.Command(command, args...)\n\tcmd.Dir = root"
+  },
+  {
+    "rule_id": "G204",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/runtimeplugin/session.go",
+    "details": "Subprocess launched with variable",
+    "code": "runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))\n\tcmd := exec.CommandContext(runCtx, entrypoint)\n\tcmd.Dir = workDir"
   },
   {
     "rule_id": "G204",
@@ -174,6 +270,38 @@
     "file": "internal/install/transaction.go",
     "details": "Expect directory permissions to be 0750 or less",
     "code": "}\n\tif err := os.MkdirAll(layout.Versions, 0755); err != nil {\n\t\treturn Staged{}, err"
+  },
+  {
+    "rule_id": "G301",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/licenseinventory/inventory.go",
+    "details": "Expect directory permissions to be 0750 or less",
+    "code": "func Write(inv Inventory, outputDir string) error {\n\tif err := os.MkdirAll(outputDir, 0755); err != nil {\n\t\treturn err"
+  },
+  {
+    "rule_id": "G301",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/pluginbuild/build.go",
+    "details": "Expect directory permissions to be 0750 or less",
+    "code": "}\n\t\tif err := os.MkdirAll(staging, 0755); err != nil {\n\t\t\treturn \"\", err"
+  },
+  {
+    "rule_id": "G301",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/pluginbuild/build.go",
+    "details": "Expect directory permissions to be 0750 or less",
+    "code": "}\n\tif err := os.MkdirAll(req.OutputRoot, 0755); err != nil {\n\t\treturn \"\", err"
+  },
+  {
+    "rule_id": "G301",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/pluginbuild/build.go",
+    "details": "Expect directory permissions to be 0750 or less",
+    "code": "func compile(repoRoot, pkg, goos, goarch, output string) error {\n\tif err := os.MkdirAll(filepath.Dir(output), 0755); err != nil {\n\t\treturn err"
   },
   {
     "rule_id": "G301",
@@ -291,6 +419,30 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
+    "file": "internal/licenseinventory/inventory.go",
+    "details": "Potential file inclusion via variable",
+    "code": "func LoadPolicy(root string) (Policy, error) {\n\tdata, err := os.ReadFile(filepath.Join(root, \"licenses\", \"policy.json\"))\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/licenseinventory/inventory.go",
+    "details": "Potential file inclusion via variable",
+    "code": "func readFileIfExists(path string) (string, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/licenseinventory/inventory.go",
+    "details": "Potential file inclusion via variable",
+    "code": "if !info.IsDir() {\n\t\tdata, err := os.ReadFile(path)\n\t\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
     "file": "internal/memory/memory.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\tdata, err := os.ReadFile(path)\n\treturn string(data), err"
@@ -302,6 +454,22 @@
     "file": "internal/memory/optimize.go",
     "details": "Potential file inclusion via variable",
     "code": "path := s.WorkspacePath(workspaceID)\n\traw, err := os.ReadFile(path)\n\tif os.IsNotExist(err) {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/notification/host.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\treturn os.ReadFile(path)\n}"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/oslock/lock.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tfile, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)\n\tif err != nil {"
   },
   {
     "rule_id": "G304",
@@ -326,6 +494,14 @@
     "file": "internal/plugin/config.go",
     "details": "Potential file inclusion via variable",
     "code": "func LoadConfig(path string) (Config, error) {\n\tdata, err := os.ReadFile(path)\n\tif errors.Is(err, os.ErrNotExist) {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugin/config.go",
+    "details": "Potential file inclusion via variable",
+    "code": "func loadDesiredDocument(path string) (map[PluginID]DesiredPlugin, error) {\n\tdata, err := os.ReadFile(path)\n\tif errors.Is(err, os.ErrNotExist) {"
   },
   {
     "rule_id": "G304",
@@ -371,9 +547,17 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/plugin/mutation_lock.go",
+    "file": "internal/plugin/pluginconfig.go",
     "details": "Potential file inclusion via variable",
-    "code": "}\n\tfile, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)\n\tif err != nil {"
+    "code": "func readOptionalFile(path string) ([]byte, bool, error) {\n\tdata, err := os.ReadFile(path)\n\tif errors.Is(err, os.ErrNotExist) {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugin/registry_client.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
   },
   {
     "rule_id": "G304",
@@ -435,6 +619,14 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
+    "file": "internal/plugin/resources.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\t\tcontent, err := os.ReadFile(skillPath)\n\t\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
     "file": "internal/plugin/store.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\t\t\t\tdigestData, err := os.ReadFile(filepath.Join(root, \"host.sha256\"))\n\t\t\t\tif err != nil {"
@@ -467,6 +659,62 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
+    "file": "internal/pluginbuild/build.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tsource, err := os.Open(sourcePath)\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/pluginbuild/build.go",
+    "details": "Potential file inclusion via variable",
+    "code": "func fileSHA256(path string) (string, error) {\n\tfile, err := os.Open(path)\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugindev/bootstrap.go",
+    "details": "Potential file inclusion via variable",
+    "code": "func fileDigest(path string) (string, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugindev/cache.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tdata, err := os.ReadFile(filepath.Join(dir, cacheMarker))\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugindev/context.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tmod, err := os.ReadFile(filepath.Join(cleaned, \"go.mod\"))\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugindev/fingerprint.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tfile, err := os.Open(path)\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/plugindev/workflow.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tdata, err := os.ReadFile(filepath.Join(root, \"plugins\", \"workflow.json\"))\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
     "file": "internal/rules/resolver.go",
     "details": "Potential file inclusion via variable",
     "code": "}\n\t\tdata, err := os.ReadFile(path)\n\t\tif err != nil {"
@@ -494,6 +742,14 @@
     "file": "internal/service/service.go",
     "details": "Potential file inclusion via variable",
     "code": "func fileSHA256(path string) (string, error) {\n\tfile, err := os.Open(path)\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/shell/session.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tdata, err := os.ReadFile(path)\n\tif err == nil {"
   },
   {
     "rule_id": "G304",
@@ -555,9 +811,25 @@
     "rule_id": "G304",
     "severity": "MEDIUM",
     "confidence": "HIGH",
-    "file": "internal/workspace/workspace.go",
+    "file": "internal/workspacestate/state.go",
     "details": "Potential file inclusion via variable",
-    "code": "}\n\t\tdata, err := os.ReadFile(path)\n\t\tif err != nil {"
+    "code": "}\n\tdata, err := os.ReadFile(source)\n\tif err != nil {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/workspacestate/state.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tdata, readErr := os.ReadFile(excludePath)\n\tif readErr != nil && !errors.Is(readErr, os.ErrNotExist) {"
+  },
+  {
+    "rule_id": "G304",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/workspacestate/state.go",
+    "details": "Potential file inclusion via variable",
+    "code": "}\n\tif existing, err := os.ReadFile(destination); err == nil {\n\t\tif string(existing) == string(data) {"
   },
   {
     "rule_id": "G304",
@@ -643,9 +915,57 @@
     "rule_id": "G306",
     "severity": "MEDIUM",
     "confidence": "HIGH",
+    "file": "internal/licenseinventory/inventory.go",
+    "details": "Expect WriteFile permissions to be 0600 or less",
+    "code": "}\n\tif err := os.WriteFile(filepath.Join(outputDir, \"license-inventory.json\"), append(data, '\\n'), 0644); err != nil {\n\t\treturn err"
+  },
+  {
+    "rule_id": "G306",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/licenseinventory/inventory.go",
+    "details": "Expect WriteFile permissions to be 0600 or less",
+    "code": "}\n\tif err := os.WriteFile(filepath.Join(outputDir, \"NOTICE\"), []byte(renderNOTICE(inv)), 0644); err != nil {\n\t\treturn err"
+  },
+  {
+    "rule_id": "G306",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/licenseinventory/inventory.go",
+    "details": "Expect WriteFile permissions to be 0600 or less",
+    "code": "}\n\tif err := os.WriteFile(filepath.Join(outputDir, \"sbom.spdx.json\"), append(sbom, '\\n'), 0644); err != nil {\n\t\treturn err"
+  },
+  {
+    "rule_id": "G306",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/licenseinventory/inventory.go",
+    "details": "Expect WriteFile permissions to be 0600 or less",
+    "code": "}\n\treturn os.WriteFile(filepath.Join(outputDir, \"licenses.txt\"), []byte(builder.String()), 0644)\n}"
+  },
+  {
+    "rule_id": "G306",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/pluginbuild/build.go",
+    "details": "Expect WriteFile permissions to be 0600 or less",
+    "code": "manifestPath := filepath.Join(req.OutputRoot, fmt.Sprintf(\"%s-%s.json\", manifest.ID, manifest.Version))\n\tif err := os.WriteFile(manifestPath, append(manifestData, '\\n'), 0644); err != nil {\n\t\treturn \"\", err"
+  },
+  {
+    "rule_id": "G306",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
     "file": "internal/service/backend_linux.go",
     "details": "Expect WriteFile permissions to be 0600 or less",
     "code": "}\n\tif err := os.WriteFile(path, []byte(LinuxUnit(spec)), 0644); err != nil {\n\t\treturn err"
+  },
+  {
+    "rule_id": "G306",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "file": "internal/testutil/plugin.go",
+    "details": "Expect WriteFile permissions to be 0600 or less",
+    "code": "}\n\tif err := os.WriteFile(filepath.Join(payload, \"bin\", \"cf-tunnel\"), []byte(\"payload\"), 0700); err != nil {\n\t\tt.Fatal(err)"
   },
   {
     "rule_id": "G306",

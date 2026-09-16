@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -90,27 +91,48 @@ func (h *StandardRequestHandler) handleConnect(conn io.ReadWriter, req *Request)
 		return fmt.Errorf("Failed to send reply: %v", err)
 	}
 
-	// Start proxying
+	return proxyConnection(conn, req.bufConn, target, 30*time.Second)
+}
+
+// Allow a bounded response drain after EOF, without leaving idle peers alive forever.
+func proxyConnection(conn io.ReadWriter, source io.Reader, target io.ReadWriteCloser, drainTimeout time.Duration) error {
+	defer target.Close()
+	if closer, ok := conn.(io.Closer); ok {
+		defer closer.Close()
+	}
 	proxyDone := make(chan error, 2)
 
 	go func() {
-		_, e := io.Copy(target, req.bufConn)
+		_, e := io.Copy(target, source)
+		if e == nil {
+			if half, ok := target.(interface{ CloseWrite() error }); ok {
+				e = half.CloseWrite()
+			}
+		}
 		proxyDone <- e
 	}()
 
 	go func() {
 		_, e := io.Copy(conn, target)
+		if e == nil {
+			if half, ok := conn.(interface{ CloseWrite() error }); ok {
+				e = half.CloseWrite()
+			}
+		}
 		proxyDone <- e
 	}()
 
-	// Wait for both
-	for i := 0; i < 2; i++ {
-		e := <-proxyDone
-		if e != nil {
-			return e
-		}
+	if err := <-proxyDone; err != nil {
+		return err
 	}
-	return nil
+	timer := time.NewTimer(drainTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-proxyDone:
+		return err
+	case <-timer.C:
+		return fmt.Errorf("SOCKS half-close drain timed out after %s", drainTimeout)
+	}
 }
 
 // handleBind is used to handle a bind command

@@ -72,8 +72,7 @@ func (m *Manager) activateLocked() error {
 	for _, item := range candidates {
 		lock, err := m.acquireRuntimeLock(item)
 		if err != nil {
-			releaseRuntimeLocks(locks)
-			return err
+			return errors.Join(err, releaseRuntimeLocks(locks))
 		}
 		locks[item.ID] = lock
 		roots[item.ID] = item.Path
@@ -189,8 +188,7 @@ func (m *Manager) reconcileRuntimeLocksLocked(items map[string]Workspace) error 
 			continue
 		}
 		if err := validateActiveWorkspaceState(item); err != nil {
-			releaseRuntimeLocks(newLocks)
-			return err
+			return errors.Join(err, releaseRuntimeLocks(newLocks))
 		}
 		if lock := m.runtime.locks[id]; lock != nil {
 			same, sameErr := lock.SameFile(workspacestate.New(item.Path).RuntimeLockPath())
@@ -202,8 +200,7 @@ func (m *Manager) reconcileRuntimeLocksLocked(items map[string]Workspace) error 
 		}
 		lock, err := m.acquireRuntimeLock(item)
 		if err != nil {
-			releaseRuntimeLocks(newLocks)
-			return err
+			return errors.Join(err, releaseRuntimeLocks(newLocks))
 		}
 		newLocks[id] = lock
 		nextLocks[id] = lock

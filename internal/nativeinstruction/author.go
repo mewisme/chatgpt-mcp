@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -296,8 +297,29 @@ type plannedFile struct {
 }
 
 func loadSkillTree(dir string) (map[string]plannedFile, error) {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("skill root is not a regular directory")
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	opened, err := root.Stat(".")
+	if err != nil || !os.SameFile(info, opened) {
+		return nil, errors.New("skill root changed while opening")
+	}
+	return loadRootedSkillTree(root)
+}
+
+func loadRootedSkillTree(root *os.Root) (map[string]plannedFile, error) {
 	files := map[string]plannedFile{}
-	err := filepath.WalkDir(dir, func(current string, entry fs.DirEntry, walkErr error) error {
+	total := 0
+	err := fs.WalkDir(root.FS(), ".", func(current string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -314,17 +336,17 @@ func loadSkillTree(dir string) (map[string]plannedFile, error) {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("%s is not a regular file", current)
 		}
-		relative, err := filepath.Rel(dir, current)
-		if err != nil {
-			return err
-		}
-		rel := filepath.ToSlash(relative)
+		rel := current
 		if rel == "SKILL.md" {
 			return nil
 		}
-		data, err := os.ReadFile(current)
+		data, err := readSkillFile(root, current, info)
 		if err != nil {
 			return err
+		}
+		total += len(data)
+		if total > maxTreeBytes {
+			return fmt.Errorf("skill tree exceeds %d bytes", maxTreeBytes)
 		}
 		files[rel] = plannedFile{Data: data, Mode: fileMode(info.Mode().Perm()&0111 != 0)}
 		return nil
@@ -333,6 +355,29 @@ func loadSkillTree(dir string) (map[string]plannedFile, error) {
 		return nil, err
 	}
 	return files, nil
+}
+
+func readSkillFile(root *os.Root, name string, expected os.FileInfo) ([]byte, error) {
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || !os.SameFile(expected, info) {
+		return nil, fmt.Errorf("skill file changed while opening: %s", name)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxFileBytes {
+		return nil, fmt.Errorf("supporting file %s exceeds %d bytes", name, maxFileBytes)
+	}
+	return data, nil
 }
 
 func writeSkillTree(dir string, files map[string]plannedFile) error {

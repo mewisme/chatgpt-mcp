@@ -210,7 +210,10 @@ func workspaceContextSkillTree(values []skills.Skill) *tree.Node {
 		if label == "" {
 			label = skill.Path
 		}
-		if skill.Path != "" && skill.Path != label {
+		if source := strings.TrimSpace(instructioncontext.InstructionSourceLabel(skill.Source, skill.Path)); source != "" {
+			label += " [" + source + "]"
+		}
+		if skill.Path != "" && skill.Path != skill.Name {
 			label += " · " + skill.Path
 		}
 		node.Child(tree.Root(workspaceContextPreviewNode{Kind: workspaceContextPreviewPath, Resource: "skill", Path: skill.Path, Label: label}))

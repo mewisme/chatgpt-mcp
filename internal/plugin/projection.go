@@ -21,6 +21,20 @@ const (
 	projectionSkill projectionKind = "skill"
 )
 
+const (
+	ResourceActive   = "active"
+	ResourceMissing  = "missing"
+	ResourceModified = "modified"
+	ResourceConflict = "conflict"
+	ResourceInactive = "inactive"
+)
+
+type ProjectedResource struct {
+	Kind  string `json:"kind"`
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
 type projectedItem struct {
 	Kind        projectionKind
 	Name        string
@@ -167,6 +181,57 @@ func ProjectedDestinationOwner(layout Layout, dest string) (PluginID, bool, erro
 		}
 	}
 	return "", false, nil
+}
+
+func ProjectionStatus(layout Layout, payloadDir string, enabled bool) ([]ProjectedResource, error) {
+	if err := layout.Validate(); err != nil {
+		return nil, err
+	}
+	items, err := loadProjectedItems(layout, payloadDir)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ProjectedResource, 0, len(items))
+	for _, dest := range sortedDests(items) {
+		item := items[dest]
+		actual, exists, digestErr := destinationDigest(item)
+		state := ResourceInactive
+		switch {
+		case digestErr != nil:
+			state = ResourceConflict
+		case enabled && !exists:
+			state = ResourceMissing
+		case enabled && actual == item.Digest:
+			state = ResourceActive
+		case enabled:
+			state = ResourceModified
+		case exists && actual == item.Digest:
+			state = ResourceConflict
+		case exists:
+			state = ResourceModified
+		}
+		result = append(result, ProjectedResource{Kind: string(item.Kind), Name: item.Name, State: state})
+	}
+	return result, nil
+}
+
+func (store *Store) InstructionResources(id PluginID) ([]ProjectedResource, error) {
+	if store == nil {
+		return nil, errors.New("plugin store is unavailable")
+	}
+	lock, err := LoadLock(store.layout.LockPath())
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := lock.Plugins[id]
+	if !ok {
+		return nil, fmt.Errorf("plugin %s is not installed", id)
+	}
+	installed, err := store.Installed(id, entry.Version)
+	if err != nil {
+		return nil, err
+	}
+	return ProjectionStatus(store.layout, installed.Payload, entry.Enabled)
 }
 
 func loadProjectedItems(layout Layout, payloadDir string) (map[string]projectedItem, error) {

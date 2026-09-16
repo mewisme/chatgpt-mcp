@@ -160,3 +160,16 @@ func TestFormatInstructionsGolden(t *testing.T) {
 		t.Fatalf("formatted instructions differ from golden\n--- actual ---\n%s\n--- expected ---\n%s", actual, expected)
 	}
 }
+
+func TestFormatInstructionsLabelsNativeCGM(t *testing.T) {
+	text, _ := FormatInstructions(InstructionContext{
+		Rules:  []rules.Rule{{Path: "/workspace/.cgm/rules/ts.md", Source: ".cgm", Content: "use types"}},
+		Skills: []skills.Skill{{Name: "ship-it", Description: "Ship it", Source: ".cgm", Path: "/workspace/.cgm/skills/ship-it/SKILL.md"}},
+	})
+	if !strings.Contains(text, "### /workspace/.cgm/rules/ts.md [native CGM workspace]") {
+		t.Fatalf("rule label missing:\n%s", text)
+	}
+	if !strings.Contains(text, "- ship-it: Ship it [native CGM workspace] (/workspace/.cgm/skills/ship-it/SKILL.md)") {
+		t.Fatalf("skill label missing:\n%s", text)
+	}
+}

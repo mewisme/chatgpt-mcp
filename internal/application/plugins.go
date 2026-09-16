@@ -51,6 +51,7 @@ type PluginDetail struct {
 	CoreCompatibility string
 	Scope             pluginpkg.PluginScope
 	Workspace         string
+	Instructions      []pluginpkg.ProjectedResource
 }
 
 type PluginRegistryInfo struct {
@@ -223,7 +224,8 @@ func (service *PluginService) InstalledDetail(id pluginpkg.PluginID) (PluginDeta
 	if verifyErr := service.Manager.Verify(context.Background(), id); verifyErr != nil {
 		verification = "verification failed: " + verifyErr.Error()
 	}
-	return service.withScope(PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: publisher, Installed: true, Enabled: entry.Enabled, Origin: pluginpkg.OriginInstalled, Lifecycle: pluginpkg.ArtifactLifecycle(), SignatureStatus: verification, CoreCompatibility: pluginCoreCompatibility(installed.Manifest)}), nil
+	instructions, _ := service.Manager.Store.InstructionResources(id)
+	return service.withScope(PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: publisher, Installed: true, Enabled: entry.Enabled, Origin: pluginpkg.OriginInstalled, Lifecycle: pluginpkg.ArtifactLifecycle(), SignatureStatus: verification, CoreCompatibility: pluginCoreCompatibility(installed.Manifest), Instructions: instructions}), nil
 }
 
 func (service *PluginService) MarketplaceDetail(ctx context.Context, reference string) (PluginDetail, error) {

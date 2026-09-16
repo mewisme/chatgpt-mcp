@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1120,11 +1121,11 @@ func (page *PluginPage) syncPluginDetail() {
 	if detail.Publisher.Trusted {
 		trust = "trusted"
 	}
-	content := detailFields(
-		[2]string{"ID", string(manifest.ID)}, [2]string{"Name", manifest.Name}, [2]string{"Version", string(manifest.Version)}, [2]string{"Type", string(manifest.Type)}, [2]string{"Origin", detail.Origin.Label()}, [2]string{"Scope", pluginDetailScope(detail)}, [2]string{"State", state},
-		[2]string{"Registry", detail.Registry.Name}, [2]string{"Publisher", detail.Publisher.Name}, [2]string{"Publisher trust", trust}, [2]string{"Signature", detail.SignatureStatus}, [2]string{"Source", detail.Publisher.Source}, [2]string{"Signing repository", detail.Publisher.Sigstore.Repository},
-		[2]string{"Capabilities", pluginCapabilities(manifest.Provides)}, [2]string{"Permissions", pluginPermissions(manifest.Permissions)}, [2]string{"Dependencies", pluginCapabilities(manifest.Dependencies.Capabilities)}, [2]string{"Core requirement", manifest.Requires.ChatGPTMCP}, [2]string{"Core compatibility", detail.CoreCompatibility}, [2]string{"Platforms", pluginPlatforms(manifest.Platforms)},
-	)
+	content := detailFields(append([][2]string{
+		{"ID", string(manifest.ID)}, {"Name", manifest.Name}, {"Version", string(manifest.Version)}, {"Type", string(manifest.Type)}, {"Origin", detail.Origin.Label()}, {"Scope", pluginDetailScope(detail)}, {"State", state},
+		{"Registry", detail.Registry.Name}, {"Publisher", detail.Publisher.Name}, {"Publisher trust", trust}, {"Signature", detail.SignatureStatus}, {"Source", detail.Publisher.Source}, {"Signing repository", detail.Publisher.Sigstore.Repository},
+		{"Capabilities", pluginCapabilities(manifest.Provides)}, {"Permissions", pluginPermissions(manifest.Permissions)}, {"Dependencies", pluginCapabilities(manifest.Dependencies.Capabilities)}, {"Core requirement", manifest.Requires.ChatGPTMCP}, {"Core compatibility", detail.CoreCompatibility}, {"Platforms", pluginPlatforms(manifest.Platforms)},
+	}, pluginInstructionFields(detail)...)...)
 	page.detail = component.NewDetailPage(manifest.Name, string(manifest.Version)+" · "+string(manifest.Type)+" · "+state, content).WithTitleVisible(false)
 	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: PluginCommandMsg{Command: PluginRefresh}}}
 	life := page.detailLifecycle(detail)
@@ -1276,6 +1277,33 @@ func pluginPlatforms(values map[string]pluginpkg.PlatformArtifact) string {
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, "\n")
+}
+
+func pluginInstructionFields(detail application.PluginDetail) [][2]string {
+	var rules, skills []string
+	for _, item := range detail.Instructions {
+		line := item.Name + " (" + item.State + ")"
+		switch item.Kind {
+		case "skill":
+			skills = append(skills, line)
+		default:
+			rules = append(rules, line)
+		}
+	}
+	if len(rules) == 0 && len(skills) == 0 {
+		return nil
+	}
+	return [][2]string{
+		{"Rules", pluginInstructionSummary(len(rules), rules)},
+		{"Skills", pluginInstructionSummary(len(skills), skills)},
+	}
+}
+
+func pluginInstructionSummary(count int, names []string) string {
+	if len(names) == 0 {
+		return strconv.Itoa(count)
+	}
+	return strconv.Itoa(count) + "\n" + strings.Join(names, "\n")
 }
 
 func sortedPluginIDsFromInstalled(values map[pluginpkg.PluginID]application.InstalledPluginInfo) []pluginpkg.PluginID {

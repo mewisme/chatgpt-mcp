@@ -4,7 +4,7 @@ The Plugins area manages installed plugins, marketplace discovery, available upd
 
 ## Installed plugins
 
-The main Plugins tab lists installed plugins for the selected scope. `g` shows global plugins. `w` shows plugins for one workspace (`plugins/@ws_...`). Rows include a scope badge. Open a row with `Enter` to view identity, version, enablement, and retained rollback versions. From detail:
+The main Plugins tab lists installed plugins for the selected scope. `g` shows global plugins. `w` shows plugins for one workspace (`plugins/@ws_...`). Rows include a scope badge. Open a row with `Enter` to view identity, version, enablement, retained rollback versions, and bundled rule/skill counts with projection health. From detail:
 
 - `space` enables or disables the plugin;
 - `u` updates to the latest available version;

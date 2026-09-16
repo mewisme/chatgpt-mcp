@@ -568,7 +568,21 @@ func pluginVerifyCommand() *cobra.Command {
 		if err := manager.Verify(cmd.Context(), id); err != nil {
 			return err
 		}
-		commandLogger(cmd).Success("PLUGIN", "plugin verified", "id", id)
+		log := commandLogger(cmd)
+		log.Success("PLUGIN", "plugin verified", "id", id)
+		if resources, err := manager.Store.InstructionResources(id); err == nil && len(resources) > 0 {
+			var rules, skills int
+			for _, item := range resources {
+				if item.Kind == "skill" {
+					skills++
+				} else {
+					rules++
+				}
+				log.Detail(item.Kind, item.Name+"  "+item.State)
+			}
+			log.Detail("rules", strconv.Itoa(rules))
+			log.Detail("skills", strconv.Itoa(skills))
+		}
 		return nil
 	}}
 	addPluginScopeFlags(cmd)

@@ -168,3 +168,41 @@ func testProjectionLayout(t *testing.T) Layout {
 	}
 	return layout
 }
+
+func TestProjectionStatusReportsHealth(t *testing.T) {
+	layout := testProjectionLayout(t)
+	payload := filepath.Join("testdata", "instruction-resources")
+	status, err := ProjectionStatus(layout, payload, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status) != 2 || status[0].State != ResourceMissing || status[1].State != ResourceMissing {
+		t.Fatalf("missing = %#v", status)
+	}
+	if err := SyncProjections(layout, "", payload); err != nil {
+		t.Fatal(err)
+	}
+	status, err = ProjectionStatus(layout, payload, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status) != 2 || status[0].State != ResourceActive || status[1].State != ResourceActive {
+		t.Fatalf("active = %#v", status)
+	}
+	if err := os.WriteFile(filepath.Join(layout.RulesRoot(), "typescript.md"), []byte("edited"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	status, err = ProjectionStatus(layout, payload, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range status {
+		if item.Kind == "rule" && item.State == ResourceModified {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("modified = %#v", status)
+	}
+}

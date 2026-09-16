@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/rules"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
 )
@@ -227,7 +228,7 @@ func formatRules(values []rules.Rule) string {
 			continue
 		}
 		title := "### " + displayValue(rule.Path)
-		if source := strings.TrimSpace(rule.Source); source != "" {
+		if source := strings.TrimSpace(InstructionSourceLabel(rule.Source, rule.Path)); source != "" {
 			title += " [" + source + "]"
 		}
 		sections = append(sections, title+"\n"+content)
@@ -247,7 +248,7 @@ func formatSkills(values []skills.Skill) string {
 			description = name
 		}
 		line := "- " + name + ": " + description
-		if source := strings.TrimSpace(skill.Source); source != "" {
+		if source := strings.TrimSpace(InstructionSourceLabel(skill.Source, skill.Path)); source != "" {
 			line += " [" + source + "]"
 		}
 		if path := strings.TrimSpace(skill.Path); path != "" {
@@ -260,6 +261,20 @@ func formatSkills(values []skills.Skill) string {
 	}
 	lines = append(lines, "Load an applicable skill with load_skill using its exact name before following its workflow.")
 	return strings.Join(lines, "\n")
+}
+
+func InstructionSourceLabel(source, path string) string {
+	switch instructionpolicy.ProviderID(source) {
+	case "cgm":
+		if nativeGlobalPath(path) {
+			return "native CGM global"
+		}
+		return "native CGM workspace"
+	case "builtin":
+		return "builtin"
+	default:
+		return strings.TrimSpace(source)
+	}
 }
 
 func indentLines(value, prefix string) string {

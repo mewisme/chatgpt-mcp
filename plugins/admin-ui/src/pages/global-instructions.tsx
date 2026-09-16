@@ -51,7 +51,7 @@ export function GlobalInstructionsPage() {
 
 function groupSources(values: InstructionSource[]) { const groups = new Map<string, InstructionSource[]>(); for (const source of values) groups.set(source.provider, [...(groups.get(source.provider) ?? []), source]); return [...groups.entries()] }
 function resourceEnabled(policy: InstructionSourcePolicy, kind: "context" | "rules" | "skills") { return policy[kind] ?? true }
-function providerLabel(provider: string) { return provider === "agents" ? "Agents" : provider === "claude" ? "Claude" : provider === "claudes" ? "Claudes" : provider === "cursor" ? "Cursor" : provider === "codex" ? "Codex" : provider }
+function providerLabel(provider: string) { return provider === "agents" ? "Agents" : provider === "claude" ? "Claude" : provider === "claudes" ? "Claudes" : provider === "cursor" ? "Cursor" : provider === "codex" ? "Codex" : provider === "cgm" ? "Native CGM" : provider }
 function editableJSON(value: GlobalInstructions) { return JSON.stringify({ context: value.context, rules: value.rules, source_policy: value.source_policy }) }
 function normalizeGlobalInstructions(value: GlobalInstructions): GlobalInstructions {
   const sources = Array.isArray(value?.detected_sources) ? value.detected_sources.filter((source) => source && typeof source === "object").map((source) => ({ ...source, paths: Array.isArray(source.paths) ? source.paths : [] })) : []

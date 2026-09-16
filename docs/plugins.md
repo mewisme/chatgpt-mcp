@@ -74,6 +74,33 @@ Workspace plugins may depend on global providers. Global plugins may not depend 
 
 `cgm plugin config` reads and writes global plugin settings. Workspace plugin settings live under that workspace's `.cgm` and are edited from TUI/Admin with an explicit workspace selected.
 
+## Bundled rules and skills
+
+A plugin payload may include native CGM instructions:
+
+```text
+plugin/
+  rules/
+    <rule-name>.md
+  skills/
+    <skill-name>/
+      SKILL.md
+      ...optional supporting files...
+```
+
+Rule names and skill directory names use the canonical CGM resource grammar. Skill frontmatter `name` must match the directory name. Enable/disable/update/rollback/uninstall project those files into native roots; there is no separate rules/skills lifecycle command.
+
+```text
+global     <config-root>/rules/<name>.md
+           <config-root>/skills/<name>/
+workspace  <workspace>/.cgm/rules/<name>.md
+           <workspace>/.cgm/skills/<name>/
+```
+
+Plugin detail (TUI, `cgm plugin verify`) shows rule/skill counts and projection health: `active`, `missing`, `modified`, or `conflict`. Local edits are preserved; unmanaged destinations are not overwritten.
+
+Create native skills and rules with the core `create_skill` / `create_rule` tools, or the built-in `create-skill` / `create-rule` skills. Those write only under the native roots above. They are not plugins.
+
 ## Registries and trust
 
 The official registry is built in. Additional registries must be configured with an HTTPS URL and a pinned Sigstore identity:

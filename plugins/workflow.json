@@ -54,6 +54,26 @@
         "runner": "ubuntu-latest",
         "mode": "manifest"
       }
+    },
+    {
+      "id": "cf-tunnel",
+      "build": {
+        "runner": "ubuntu-latest",
+        "command": [
+          "go",
+          "run",
+          "./plugins/cf-tunnel/build",
+          "-output",
+          "{output}"
+        ]
+      },
+      "smoke": {
+        "runner": "ubuntu-latest",
+        "probe": {
+          "kind": "file",
+          "path": "payload/cf-tunnel"
+        }
+      }
     }
   ]
 }

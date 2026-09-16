@@ -35,6 +35,18 @@
       "versions": {
         "1.0.0": "rtk-1.0.0.json"
       }
+    },
+    "cf-tunnel": {
+      "publisher": "mewisme",
+      "name": "CF Tunnel",
+      "description": "Expose local MCP and Admin HTTP through Cloudflare Quick Tunnels",
+      "type": "runtime",
+      "scopes": ["global"],
+      "provides": ["tunnel/cf"],
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "cf-tunnel-1.0.0.json"
+      }
     }
   }
 }

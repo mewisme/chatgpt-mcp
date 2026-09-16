@@ -3,6 +3,8 @@ package cftunnel
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -115,6 +117,58 @@ func (m *Manager) Stop() {
 	events, obs := m.takePendingLocked()
 	m.mu.Unlock()
 	notifyObserver(obs, events)
+}
+
+func (m *Manager) ApplyStart(ctx context.Context, target, origin string) error {
+	parsed, err := ParseTarget(target)
+	if err != nil || parsed == "all" {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("start requires target mcp or admin")
+	}
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		return errors.New("origin is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.mu.Lock()
+	m.enabled = true
+	slot := m.ensureLocked(parsed)
+	slot.desired = true
+	if slot.running && slot.origin == origin && slot.lastError == "" {
+		m.mu.Unlock()
+		return nil
+	}
+	m.stopLocked(parsed)
+	slot = m.ensureLocked(parsed)
+	slot.desired = true
+	m.startLocked(ctx, parsed, origin, false)
+	events, obs := m.takePendingLocked()
+	m.mu.Unlock()
+	notifyObserver(obs, events)
+	return nil
+}
+
+func (m *Manager) ApplyStop(target string) error {
+	parsed, err := ParseTarget(target)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	if parsed == "all" {
+		m.enabled = false
+		m.stopLocked(TargetMCP)
+		m.stopLocked(TargetAdmin)
+	} else {
+		m.stopLocked(parsed)
+	}
+	events, obs := m.takePendingLocked()
+	m.mu.Unlock()
+	notifyObserver(obs, events)
+	return nil
 }
 
 func (m *Manager) Status() Status {

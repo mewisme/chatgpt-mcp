@@ -48,6 +48,6 @@ func ParseTarget(value string) (string, error) {
 	case "all":
 		return "all", nil
 	default:
-		return "", fmt.Errorf("cf-tunnel target must be mcp, admin, or all")
+		return "", fmt.Errorf("tunnel target must be mcp, admin, or all")
 	}
 }

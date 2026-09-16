@@ -39,6 +39,7 @@ archives:
     formats: [tar.gz]
     files:
       - LICENSE
+      - NOTICE
       - README.md
       - third_party/ponytail/LICENSE
       - third_party/ponytail/NOTICE.md
@@ -86,7 +87,7 @@ scoops:
     url_template: "https://github.com/mewisme/chatgpt-mcp/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
     homepage: "https://github.com/mewisme/chatgpt-mcp"
     description: "Self-hosted MCP 2026-07-28 runtime with local tools, upstream MCP aggregation, and OpenAI tunnel support"
-    license: MIT
+    license: Apache-2.0
     goamd64: v1
     skip_upload: true
     repository:
@@ -104,6 +105,7 @@ homebrew_casks:
       - chatgpt-mcp
     homepage: "https://github.com/mewisme/chatgpt-mcp"
     description: "Self-hosted MCP 2026-07-28 runtime with local tools, upstream MCP aggregation, and OpenAI tunnel support"
+    license: Apache-2.0
     directory: Casks
     skip_upload: true
     hooks:

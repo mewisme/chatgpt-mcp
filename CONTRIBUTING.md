@@ -73,4 +73,4 @@ Releases are cut from tags on `main` via GoReleaser. Release notes live on [GitH
 
 ## License
 
-Contributions are licensed under the project [MIT License](LICENSE).
+Contributions are licensed under the project [Apache License 2.0](LICENSE).

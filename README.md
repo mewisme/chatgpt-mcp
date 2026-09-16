@@ -181,4 +181,6 @@ See [Development](docs/development.md) for the complete verification, CI, and re
 
 ## License
 
-MIT License. Copyright (c) 2026 Mew.
+Copyright 2026 Nguyễn Mậu Minh. Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Third-party and adapted material keeps its original license. See [NOTICE](NOTICE), `third_party/`, `plugins/cf-tunnel/internal/cloudflared/LICENSE`, and `plugins/bash/licenses/`.

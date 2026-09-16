@@ -731,11 +731,10 @@ func (page *MCPPage) openCommand(command MCPCommand, resourceID string) (tea.Cmd
 		page.overlay = mcpOverlayConfirm
 		return nil, nil
 	case MCPServerEnable, MCPServerDisable:
-		if err := page.toggleServer(command == MCPServerEnable); err != nil {
+		notice, err := page.toggleServer(command == MCPServerEnable)
+		if err != nil {
 			return nil, err
 		}
-		notice := page.notice
-		page.notice = ""
 		return func() tea.Msg { return OperationResult("mcp.toggle", "MCP", notice, nil) }, nil
 	case MCPServerHealth:
 		return page.startHealth(page.targetID), nil
@@ -780,20 +779,20 @@ func (page *MCPPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 	}
 }
 
-func (page *MCPPage) toggleServer(enabled bool) error {
+func (page *MCPPage) toggleServer(enabled bool) (string, error) {
 	server, ok := page.manager.Get(page.targetID)
 	if !ok {
-		return fmt.Errorf("unknown upstream server: %s", page.targetID)
+		return "", fmt.Errorf("unknown upstream server: %s", page.targetID)
 	}
 	server.Enabled = enabled
 	if err := page.manager.Add(server); err != nil {
-		return err
+		return "", err
 	}
-	page.notice = "MCP server disabled"
+	notice := "MCP server disabled"
 	if enabled {
-		page.notice = "MCP server enabled"
+		notice = "MCP server enabled"
 	}
-	return page.reload()
+	return notice, page.reload()
 }
 
 func (page *MCPPage) startHealth(id string) tea.Cmd {
@@ -862,7 +861,6 @@ func (page *MCPPage) cancelOperation() {
 	page.operationCancelled = true
 	page.overlay = mcpOverlayNone
 	page.progress = nil
-	page.notice = "Operation cancellation requested"
 }
 
 func (page *MCPPage) finishCancelledOperation() {
@@ -877,7 +875,7 @@ func (page *MCPPage) finishOperation(notice string, err error) {
 	page.operationCancel = nil
 	page.overlay = mcpOverlayNone
 	page.progress = nil
-	page.err = err
+	page.err = nil
 }
 
 func (page *MCPPage) closeOverlay() {

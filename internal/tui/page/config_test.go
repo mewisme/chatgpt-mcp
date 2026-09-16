@@ -374,10 +374,8 @@ func TestConfigPageReadOnlyGuidance(t *testing.T) {
 	page, _ := NewConfig(t.Context())
 	updated, _ := page.Update(page.Init()())
 	page = updated.(*ConfigPage)
-	if cmd, err := page.openCommand(ConfigEdit, "auth.mcp_token_hash"); err != nil || cmd == nil {
+	if cmd, err := page.openCommand(ConfigEdit, "auth.mcp_token_hash"); err != nil || cmd != nil {
 		t.Fatalf("read-only edit cmd=%v err=%v", cmd != nil, err)
-	} else if op, ok := operationMsg(cmd); !ok || !strings.Contains(op.Message, "Reuse this token") {
-		t.Fatalf("read-only operation=%#v", op)
 	}
 	if page.overlay != configOverlayNone || !strings.Contains(page.notice, "Reuse this token") {
 		t.Fatalf("overlay=%d notice=%q", page.overlay, page.notice)
@@ -449,7 +447,7 @@ func TestConfigPageCancellationIgnoresLateResult(t *testing.T) {
 	}
 	updated, follow := page.Update(workMsg(cmd))
 	page = updated.(*ConfigPage)
-	if follow != nil || !strings.Contains(page.notice, "cancellation requested") || strings.Contains(page.notice, "99") {
+	if follow != nil || page.notice != "" {
 		t.Fatalf("follow=%v notice=%q", follow != nil, page.notice)
 	}
 }

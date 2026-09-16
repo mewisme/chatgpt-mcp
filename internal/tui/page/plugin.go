@@ -249,8 +249,7 @@ func (page *PluginPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			if page.operationCancel != nil {
 				page.operationCancel()
 			}
-			page.notice = "Plugin operation cancellation requested"
-			return page, nil
+			return page, func() tea.Msg { return cancelledOperation("plugin.action", "Plugins", "Plugin operation cancelled") }
 		}
 		if page.progress != nil {
 			updated, cmd := page.progress.Update(message)
@@ -872,7 +871,7 @@ func (page *PluginPage) finishOperation(msg pluginOperationMsg) tea.Cmd {
 			return nil
 		}
 	}
-	page.err = msg.err
+	page.err = nil
 	if msg.err != nil {
 		return func() tea.Msg { return OperationResult("plugin.action", "Plugins", "", msg.err) }
 	}

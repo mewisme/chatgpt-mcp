@@ -476,7 +476,7 @@ func TestRuntimeUpdateFailureRemainsErrorFeedback(t *testing.T) {
 	page.operationID = 3
 	follow := page.finishOperation(systemOperationMsg{id: 3, command: UpdateApply, err: errors.New("update failed")})
 	msg, ok := follow().(OperationMsg)
-	if !ok || page.err == nil || page.err.Error() != "update failed" || page.notice != "" || msg.Phase != OperationError {
+	if !ok || page.err != nil || page.notice != "" || msg.Phase != OperationError || msg.Message != "update failed" {
 		t.Fatalf("failure err=%v notice=%q msg=%#v", page.err, page.notice, msg)
 	}
 }

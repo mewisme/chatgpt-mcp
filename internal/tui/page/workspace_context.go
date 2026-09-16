@@ -183,9 +183,9 @@ func (page *WorkspacePage) finishWorkspaceContextBuild(msg workspaceContextBuild
 		page.err = nil
 		page.contextProgress = nil
 		if page.contextEditor != nil {
-			page.contextEditor.SetFeedback("", msg.Err)
+			page.contextEditor.SetSubmitting(false)
 		}
-		return nil
+		return func() tea.Msg { return OperationResult("workspace.context.build", "Workspace", "", msg.Err) }
 	}
 	options, err := page.contextData.Options()
 	if err != nil {
@@ -202,8 +202,7 @@ func (page *WorkspacePage) finishWorkspaceContextBuild(msg workspaceContextBuild
 	result := msg.Result
 	page.contextSession.Result = &result
 	page.contextProgress = nil
-	page.notice = "Project Context built"
-	return withOperation("workspace.context.build", "Workspace", page.notice, func() tea.Msg { return NavigateMsg{Path: []string{"workspaces", page.resourceID, "context-preview"}} })
+	return withOperation("workspace.context.build", "Workspace", "Project Context built", func() tea.Msg { return NavigateMsg{Path: []string{"workspaces", page.resourceID, "context-preview"}} })
 }
 
 func (page *WorkspacePage) cancelWorkspaceContextBuild() {
@@ -214,7 +213,6 @@ func (page *WorkspacePage) cancelWorkspaceContextBuild() {
 	page.contextBuildID++
 	page.contextBuilding = false
 	page.contextProgress = nil
-	page.notice = "Project Context build cancelled"
 }
 
 func (page *WorkspacePage) resizeWorkspaceContextEditor() {

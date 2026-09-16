@@ -414,16 +414,19 @@ func TestRequestsPageResolveCancellationIgnoresLateResult(t *testing.T) {
 	}
 	select {
 	case message := <-result:
-		updated, _ := page.Update(message)
+		updated, follow := page.Update(message)
 		page = updated.(*RequestsPage)
+		if page.operationCancelled || page.err != nil || page.notice != "" {
+			t.Fatalf("cancelled=%t err=%v notice=%q", page.operationCancelled, page.err, page.notice)
+		}
+		if op, ok := operationMsg(follow); !ok || op.Phase != OperationCancelled || !strings.Contains(op.Message, "cancelled") {
+			t.Fatalf("follow=%v op=%#v", follow != nil, op)
+		}
 	case <-time.After(time.Second):
 		close(release)
 		t.Fatal("cancelled approval request did not return")
 	}
 	close(release)
-	if page.operationCancelled || page.err != nil || !strings.Contains(page.notice, "cancelled") {
-		t.Fatalf("cancelled=%t err=%v notice=%q", page.operationCancelled, page.err, page.notice)
-	}
 }
 
 func TestRequestsPageRejectsStaleResolutionBeforeMutation(t *testing.T) {
@@ -467,9 +470,9 @@ func TestRequestsPageRejectsStaleResolutionBeforeMutation(t *testing.T) {
 			}
 			updated, follow := page.Update(workMsg(resolve))
 			page = updated.(*RequestsPage)
-			view := ansi.Strip(page.View(42, 18))
-			if follow != nil || resolveCalls != 0 || page.editor == nil || page.resolveForm == nil || page.resolveForm.Reason != "keep this draft" || page.editor.Submitting() || !strings.Contains(view, test.want) {
-				t.Fatalf("follow=%v calls=%d editor=%v draft=%#v submitting=%t view=%q", follow != nil, resolveCalls, page.editor != nil, page.resolveForm, page.editor.Submitting(), view)
+			op, ok := operationMsg(follow)
+			if !ok || op.Phase != OperationError || !strings.Contains(strings.ToLower(op.Message), test.want) || resolveCalls != 0 || page.editor == nil || page.resolveForm == nil || page.resolveForm.Reason != "keep this draft" || page.editor.Submitting() {
+				t.Fatalf("follow=%v op=%#v calls=%d editor=%v draft=%#v submitting=%t", follow != nil, op, resolveCalls, page.editor != nil, page.resolveForm, page.editor.Submitting())
 			}
 		})
 	}

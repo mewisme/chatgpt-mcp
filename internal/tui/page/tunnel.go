@@ -476,6 +476,7 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 		}
 		return func() tea.Msg { return OperationResult("tunnel.managed.save", "Managed Tunnel", "", msg.err) }
 	}
+	var notice string
 	switch msg.command {
 	case TunnelManagedRefresh:
 		if len(msg.adminsByTunnel) > 0 {
@@ -490,10 +491,10 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 		}
 		if msg.targetID == "" {
 			page.items = append([]tunnel.Metadata(nil), msg.items...)
-			page.notice = fmt.Sprintf("Refreshed %d managed tunnel(s)", len(page.items))
+			notice = fmt.Sprintf("Refreshed %d managed tunnel(s)", len(page.items))
 		} else {
 			page.upsertMetadata(msg.result.Metadata)
-			page.notice = "Managed tunnel refreshed"
+			notice = "Managed tunnel refreshed"
 		}
 		_ = page.reloadManagedBrowser()
 	case TunnelManagedUpdate:
@@ -502,19 +503,18 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 			page.rememberAdminProfiles(msg.result.Metadata.ID, page.managedForm.AdminProfileID)
 		}
 		_ = page.reloadManagedBrowser()
-		notice := "Managed tunnel updated"
+		notice = "Managed tunnel updated"
 		if page.editor != nil && page.action == "edit" {
 			page.acceptManagedEditorSuccess(msg.result.Metadata)
 			return page.managedEditorSuccess(notice, msg.result.Metadata.ID)
 		}
-		page.notice = notice
 	case TunnelManagedCreate:
 		page.upsertMetadata(msg.result.Metadata)
 		if page.managedForm != nil && page.managedForm.AdminProfileID != "" {
 			page.rememberAdminProfiles(msg.result.Metadata.ID, page.managedForm.AdminProfileID)
 		}
 		_ = page.reloadManagedBrowser()
-		notice := "Managed tunnel created"
+		notice = "Managed tunnel created"
 		if page.editor != nil && page.action == "create" {
 			page.acceptManagedEditorSuccess(msg.result.Metadata)
 			return page.managedEditorSuccess(notice, msg.result.Metadata.ID)
@@ -526,12 +526,11 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 			page.rememberAdminProfiles(msg.result.Metadata.ID, page.configureForm.AdminProfileID)
 		}
 		_ = page.reloadManagedBrowser()
-		notice := "Managed tunnel attached to runtime"
+		notice = "Managed tunnel attached to runtime"
 		if page.editor != nil && page.action == "configure" {
 			page.acceptManagedConfigureSuccess()
 			return page.managedEditorSuccess(notice, msg.result.Metadata.ID)
 		}
-		page.notice = notice
 	case TunnelManagedDelete:
 		page.removeMetadata(msg.targetID)
 		if page.adminsByTunnel != nil {
@@ -541,8 +540,6 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 		_ = page.reloadManagedBrowser()
 		return withOperation("tunnel.managed.save", "Managed Tunnel", "Managed tunnel deleted", func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}, Replace: true} })
 	}
-	notice := page.notice
-	page.notice = ""
 	if notice != "" {
 		return func() tea.Msg { return OperationResult("tunnel.managed.save", "Managed Tunnel", notice, nil) }
 	}
@@ -556,7 +553,6 @@ func (page *TunnelPage) cancelOperation() {
 	page.operationCancelled = true
 	page.overlay = tunnelOverlayNone
 	page.progress = nil
-	page.notice = "Operation cancellation requested"
 }
 
 func (page *TunnelPage) reloadManagedBrowser() error {

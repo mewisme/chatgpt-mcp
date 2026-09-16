@@ -1089,13 +1089,11 @@ func TestWorkspaceProjectContextEditorRetainsDraftOnBuildFailure(t *testing.T) {
 	if cmd == nil || !page.contextBuilding || page.Dirty() {
 		t.Fatalf("build start cmd=%v building=%t dirty=%t", cmd != nil, page.contextBuilding, page.Dirty())
 	}
-	updated, navigation := page.Update(workspaceContextBuildMessage(t, cmd))
+	updated, follow := page.Update(workspaceContextBuildMessage(t, cmd))
 	page = updated.(*WorkspacePage)
-	if navigation != nil || page.contextBuilding || page.contextEditor == nil || page.contextData.Path != "draft" || !page.Dirty() || session.Result != nil {
-		t.Fatalf("failed build navigation=%v building=%t editor=%v path=%q dirty=%t result=%v", navigation != nil, page.contextBuilding, page.contextEditor != nil, page.contextData.Path, page.Dirty(), session.Result != nil)
-	}
-	if plain := ansi.Strip(page.View(100, 30)); !strings.Contains(plain, "build failed") {
-		t.Fatalf("build failure feedback missing: %q", plain)
+	op, ok := operationMsg(follow)
+	if !ok || op.Phase != OperationError || op.Message != "build failed" || page.contextBuilding || page.contextEditor == nil || page.contextData.Path != "draft" || !page.Dirty() || session.Result != nil {
+		t.Fatalf("failed build op=%#v building=%t editor=%v path=%q dirty=%t result=%v", op, page.contextBuilding, page.contextEditor != nil, page.contextData.Path, page.Dirty(), session.Result != nil)
 	}
 }
 
@@ -1156,10 +1154,13 @@ func TestWorkspaceProjectContextBuildCanBeCancelled(t *testing.T) {
 		t.Fatalf("build did not start: cmd=%v building=%t", cmd, page.contextBuilding)
 	}
 	buildID := page.contextBuildID
-	updated, _ = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	updated, cmd = page.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	page = updated.(*WorkspacePage)
-	if page.contextBuilding || page.contextBuildID == buildID || session.Result != nil || page.Notice() != "Project Context build cancelled" {
+	if page.contextBuilding || page.contextBuildID == buildID || session.Result != nil || page.Notice() != "" {
 		t.Fatalf("cancel state building=%t id=%d result=%v notice=%q", page.contextBuilding, page.contextBuildID, session.Result != nil, page.Notice())
+	}
+	if op, ok := operationMsg(cmd); !ok || op.Phase != OperationCancelled || op.Message != "Project Context build cancelled" {
+		t.Fatalf("cancel operation=%#v", op)
 	}
 }
 

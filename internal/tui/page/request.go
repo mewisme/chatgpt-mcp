@@ -224,13 +224,16 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.progress = nil
 		if page.operationCancelled {
 			page.operationCancelled = false
-			page.notice = "Approval operation cancelled"
-			return page, func() tea.Msg { return cancelledOperation("request.resolve", "Requests", page.notice) }
+			return page, func() tea.Msg {
+				return cancelledOperation("request.resolve", "Requests", "Approval operation cancelled")
+			}
 		}
 		if msg.err != nil {
-			requestEditorError(page.editor, msg.err)
+			if page.editor != nil {
+				page.editor.SetSubmitting(false)
+			}
 			page.err = nil
-			return page, nil
+			return page, func() tea.Msg { return OperationResult("request.resolve", "Requests", "", msg.err) }
 		}
 		page.err = nil
 		page.upsertRequest(msg.request)
@@ -246,13 +249,16 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.progress = nil
 		if page.operationCancelled {
 			page.operationCancelled = false
-			page.notice = "Test request creation cancelled"
-			return page, func() tea.Msg { return cancelledOperation("request.create", "Requests", page.notice) }
+			return page, func() tea.Msg {
+				return cancelledOperation("request.create", "Requests", "Test request creation cancelled")
+			}
 		}
 		if msg.err != nil {
-			requestEditorError(page.editor, msg.err)
+			if page.editor != nil {
+				page.editor.SetSubmitting(false)
+			}
 			page.err = nil
-			return page, nil
+			return page, func() tea.Msg { return OperationResult("request.create", "Requests", "", msg.err) }
 		}
 		page.err = nil
 		page.upsertRequest(msg.request)
@@ -593,9 +599,6 @@ func (page *RequestsPage) cancelOperation() {
 	page.progress = nil
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
-		page.editor.SetFeedback("Approval operation cancellation requested", nil)
-	} else {
-		page.notice = "Approval operation cancellation requested"
 	}
 }
 

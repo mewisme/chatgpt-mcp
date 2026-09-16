@@ -431,7 +431,7 @@ func (page *ConfigPage) openCommand(command ConfigCommand, resourceID string) (t
 			if page.notice == "" {
 				page.notice = spec.Key + " is read-only"
 			}
-			return func() tea.Msg { return OperationResult("config.save", "Configuration", page.notice, nil) }, nil
+			return nil, nil
 		}
 		return func() tea.Msg { return NavigateMsg{Path: []string{"config", page.targetKey, "edit"}} }, nil
 	case ConfigVerify:
@@ -489,10 +489,11 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 			page.err = nil
 			return func() tea.Msg { return OperationResult("config.save", "Configuration", "", msg.err) }
 		}
-		page.err = msg.err
+		page.err = nil
 		return func() tea.Msg { return OperationResult("config.save", "Configuration", "", msg.err) }
 	}
 	page.err = nil
+	var notice string
 	switch msg.command {
 	case ConfigEdit:
 		page.overview.Config = msg.mutation.Config
@@ -506,28 +507,26 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 				page.overview.RuntimeSync.State = application.ConfigRuntimeStopped
 			}
 		}
-		page.notice = application.ConfigOperationNotice(msg.mutation.RuntimeReloaded)
+		notice = application.ConfigOperationNotice(msg.mutation.RuntimeReloaded)
 	case ConfigVerify:
-		page.notice = fmt.Sprintf("Configuration verified · %s · %d structured files", msg.verify.Format, msg.verify.Files)
+		notice = fmt.Sprintf("Configuration verified · %s · %d structured files", msg.verify.Format, msg.verify.Files)
 	case ConfigMigrate:
-		page.notice = "Legacy credentials migrated to the secret store"
+		notice = "Legacy credentials migrated to the secret store"
 	case ConfigMigrateSecrets:
-		page.notice = fmt.Sprintf("Secret files encrypted at rest · %d migrated", msg.migrated)
+		notice = fmt.Sprintf("Secret files encrypted at rest · %d migrated", msg.migrated)
 	case ConfigConvert:
-		page.notice = fmt.Sprintf("Configuration converted to %s · %d files", msg.format, msg.converted)
+		notice = fmt.Sprintf("Configuration converted to %s · %d files", msg.format, msg.converted)
 	case ConfigExport:
-		page.notice = fmt.Sprintf("Configuration exported · %d files · %d secrets · %s", msg.files, msg.secrets, msg.path)
+		notice = fmt.Sprintf("Configuration exported · %d files · %d secrets · %s", msg.files, msg.secrets, msg.path)
 	case ConfigImport:
-		page.notice = fmt.Sprintf("Configuration imported · %d files · %d secrets", msg.files, msg.secrets)
+		notice = fmt.Sprintf("Configuration imported · %d files · %d secrets", msg.files, msg.secrets)
 		if msg.plugins > 0 {
-			page.notice += fmt.Sprintf(" · %d plugin intents", msg.plugins)
+			notice += fmt.Sprintf(" · %d plugin intents", msg.plugins)
 		}
 		if msg.pluginIssues > 0 {
-			page.notice += fmt.Sprintf(" · %d require attention", msg.pluginIssues)
+			notice += fmt.Sprintf(" · %d require attention", msg.pluginIssues)
 		}
 	}
-	notice := page.notice
-	page.notice = ""
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
 		page.editor.Accept()
@@ -549,7 +548,6 @@ func (page *ConfigPage) cancelOperation() {
 	if page.editor != nil {
 		page.editor.SetSubmitting(false)
 	}
-	page.notice = "Configuration operation cancellation requested"
 }
 
 func (page *ConfigPage) loadCmd() tea.Cmd {

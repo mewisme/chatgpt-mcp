@@ -284,7 +284,9 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			if page.contextBuilding {
 				if msg.String() == "esc" {
 					page.cancelWorkspaceContextBuild()
-					return page, func() tea.Msg { return cancelledOperation("workspace.context.build", "Workspace", page.notice) }
+					return page, func() tea.Msg {
+						return cancelledOperation("workspace.context.build", "Workspace", "Project Context build cancelled")
+					}
 				}
 				return page, nil
 			}

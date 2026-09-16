@@ -395,11 +395,11 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		page.overlay, page.progress = logsOverlayNone, nil
 		if msg.err != nil {
-			page.err = msg.err
-			return page, nil
+			page.err = nil
+			return page, func() tea.Msg { return OperationResult("logs.clear", "Logs", "", msg.err) }
 		}
 		page.events = nil
-		page.notice, page.toastNotice, page.err = "Runtime logs cleared", true, nil
+		page.err = nil
 		browserCmd := page.rebuildBrowser("")
 		cleared := func() tea.Msg { return OperationResult("logs.clear", "Logs", "Runtime logs cleared", nil) }
 		if page.connected {

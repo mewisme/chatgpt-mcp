@@ -199,11 +199,10 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.overlay, page.progress = systemOverlayNone, nil
 			if page.editor != nil {
 				page.editor.SetSubmitting(false)
-				page.editor.SetFeedback("Runtime/system operation cancellation requested", nil)
-			} else {
-				page.notice = "Runtime/system operation cancellation requested"
 			}
-			return page, nil
+			return page, func() tea.Msg {
+				return cancelledOperation("runtime.update", "Runtime", "Runtime/system operation cancelled")
+			}
 		}
 		if page.progress != nil {
 			updated, cmd := page.progress.Update(message)
@@ -578,10 +577,8 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		page.overlay = systemOverlayNone
 		if page.editor != nil {
 			page.editor.SetSubmitting(false)
-			page.err = nil
-			return func() tea.Msg { return OperationResult("runtime.update", "Runtime", "", msg.err) }
 		}
-		page.err = msg.err
+		page.err = nil
 		return func() tea.Msg { return OperationResult("runtime.update", "Runtime", "", msg.err) }
 	}
 	if msg.token != "" {

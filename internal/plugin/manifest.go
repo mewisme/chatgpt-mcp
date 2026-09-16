@@ -565,7 +565,7 @@ func validCapability(capability Capability) bool {
 		return false
 	}
 	switch parts[0] {
-	case "shell", "command-wrapper", "hook", "tool-provider", "secret-provider", "formatter", "web-ui":
+	case "shell", "command-wrapper", "hook", "tool-provider", "secret-provider", "formatter", "web-ui", "tunnel":
 		return true
 	default:
 		return false

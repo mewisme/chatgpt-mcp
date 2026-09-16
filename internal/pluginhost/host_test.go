@@ -18,11 +18,27 @@ func TestBuiltinsIncludePonytailAndCaveman(t *testing.T) {
 	if _, ok := registry.Lookup("caveman"); !ok {
 		t.Fatal("caveman builtin missing")
 	}
+	cfTunnel, ok := registry.Lookup("cf-tunnel")
+	if !ok {
+		t.Fatal("cf-tunnel builtin missing")
+	}
+	if cfTunnel.DefaultEnabled || !cfTunnel.Disableable || cfTunnel.Type != "runtime" {
+		t.Fatalf("cf-tunnel builtin = %#v", cfTunnel)
+	}
+	if len(cfTunnel.Provides) != 1 || cfTunnel.Provides[0] != "tunnel/cf" {
+		t.Fatalf("cf-tunnel provides = %#v", cfTunnel.Provides)
+	}
+	if len(cfTunnel.Permissions) != 1 || cfTunnel.Permissions[0] != pluginpkg.PermissionNetworkOutbound {
+		t.Fatalf("cf-tunnel permissions = %#v", cfTunnel.Permissions)
+	}
+	if !cfTunnel.Lifecycle().Enable || !cfTunnel.Lifecycle().Disable || cfTunnel.Lifecycle().Configure {
+		t.Fatalf("cf-tunnel lifecycle = %#v", cfTunnel.Lifecycle())
+	}
 	ponytail, _ := registry.Lookup("ponytail")
 	if ponytail.Lifecycle().Install || ponytail.Lifecycle().Uninstall || !ponytail.Lifecycle().Configure {
 		t.Fatalf("ponytail lifecycle = %#v", ponytail.Lifecycle())
 	}
-	for _, id := range []pluginpkg.PluginID{"ponytail", "caveman"} {
+	for _, id := range []pluginpkg.PluginID{"ponytail", "caveman", "cf-tunnel"} {
 		builtin, _ := registry.Lookup(id)
 		scopes := builtin.AllowedScopes()
 		if len(scopes) != 1 || scopes[0] != pluginpkg.ScopeGlobal {

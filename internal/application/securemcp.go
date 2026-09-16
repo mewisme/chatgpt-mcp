@@ -89,6 +89,60 @@ func SecureMCPRuntimeStatuses(ctx context.Context, host *runtimeplugin.Host) ([]
 	return statuses, nil
 }
 
+func StartSecureMCPInstance(ctx context.Context, host *runtimeplugin.Host, id string) (tunnel.Status, error) {
+	return mutateSecureMCPInstance(ctx, host, "start_instance", id)
+}
+
+func StopSecureMCPInstance(ctx context.Context, host *runtimeplugin.Host, serverEnabled bool, id string) (tunnel.Status, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return tunnel.Status{}, errors.New("tunnel id is required")
+	}
+	if _, ok := host.Get(tunnel.PluginIDSecureMCP); !ok {
+		return tunnel.Status{}, tunnel.PluginMissingError()
+	}
+	statuses, err := SecureMCPRuntimeStatuses(ctx, host)
+	if err != nil {
+		return tunnel.Status{}, err
+	}
+	if err := ErrIfLastUsableMCPTransport(serverEnabled, statuses, id); err != nil {
+		return tunnel.Status{}, err
+	}
+	return mutateSecureMCPInstance(ctx, host, "stop_instance", id)
+}
+
+func ErrIfLastUsableMCPTransport(serverEnabled bool, statuses []tunnel.Status, id string) error {
+	if serverEnabled {
+		return nil
+	}
+	for _, item := range statuses {
+		if item.ID != id && item.Enabled && item.Ready {
+			return nil
+		}
+	}
+	return errors.New("cannot stop the last usable MCP transport")
+}
+
+func mutateSecureMCPInstance(ctx context.Context, host *runtimeplugin.Host, op, id string) (tunnel.Status, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return tunnel.Status{}, errors.New("tunnel id is required")
+	}
+	session, ok := host.Get(tunnel.PluginIDSecureMCP)
+	if !ok {
+		return tunnel.Status{}, tunnel.PluginMissingError()
+	}
+	raw, err := session.Call(ctx, runtimeplugin.MethodInvoke, runtimeplugin.InvokeParams{Op: op, Payload: map[string]string{"id": id}})
+	if err != nil {
+		return tunnel.Status{}, err
+	}
+	var status tunnel.Status
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return tunnel.Status{}, err
+	}
+	return status, nil
+}
+
 func WaitSecureMCPReady(ctx context.Context, host *runtimeplugin.Host) error {
 	if ctx == nil {
 		ctx = context.Background()

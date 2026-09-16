@@ -63,6 +63,15 @@ func runtimeTunnelStatuses(runtime *app.App, cfg config.Config) (runtimecontrol.
 	return summary, items
 }
 
+func secureMCPInstanceConfigured(cfg config.Config, id string) bool {
+	for _, instance := range cfg.RuntimeTunnels().Instances {
+		if instance.ID == id {
+			return instance.APIKey != ""
+		}
+	}
+	return false
+}
+
 func cfTunnelFromProviders(providers []runtimecontrol.TunnelProviderStatus) *runtimecontrol.CFTunnelStatus {
 	for _, item := range providers {
 		if item.Provider != "cf" {
@@ -592,19 +601,14 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		runtime.Logger.Ready("WORKSPACE", "workspace.registry.reloaded", "Workspace registry reloaded", logger.With("count", len(items)))
 		return workspaceReloadResult{PID: os.Getpid(), Count: len(items)}, nil
 	}, StartTunnel: func(ctx context.Context, id string) (runtimecontrol.TunnelRuntimeStatus, error) {
-		if strings.TrimSpace(id) == "" {
-			return runtimecontrol.TunnelRuntimeStatus{}, errors.New("tunnel id is required")
-		}
-		client, ok := runtime.Tunnels.Client(id)
-		if !ok {
-			return runtimecontrol.TunnelRuntimeStatus{}, fmt.Errorf("tunnel %q is not attached", id)
-		}
-		if err := runtime.Tunnels.Start(ctx, id); err != nil {
+		status, err := application.StartSecureMCPInstance(ctx, pluginhost.RuntimeHost, id)
+		if err != nil {
 			return runtimecontrol.TunnelRuntimeStatus{}, err
 		}
-		item := newTunnelRuntimeStatus(client.Status(), tunnel.Configured(client.Config()))
-		item.ID = id
-		return item, nil
+		stateMu.RLock()
+		cfg := currentCfg
+		stateMu.RUnlock()
+		return newTunnelRuntimeStatus(status, secureMCPInstanceConfigured(cfg, id)), nil
 	}, StartTunnelProvider: func(ctx context.Context, provider, target string) (runtimecontrol.TunnelProviderStatus, error) {
 		stateMu.RLock()
 		cfg := currentCfg
@@ -622,34 +626,14 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		}
 		return providerRuntimeStatus(cfg, provider), nil
 	}, StopTunnel: func(ctx context.Context, id string) (runtimecontrol.TunnelRuntimeStatus, error) {
-		if strings.TrimSpace(id) == "" {
-			return runtimecontrol.TunnelRuntimeStatus{}, errors.New("tunnel id is required")
-		}
-		client, ok := runtime.Tunnels.Client(id)
-		if !ok {
-			return runtimecontrol.TunnelRuntimeStatus{}, fmt.Errorf("tunnel %q is not attached", id)
-		}
 		stateMu.RLock()
-		serverEnabled := currentCfg.Server.Enabled
+		cfg := currentCfg
 		stateMu.RUnlock()
-		if !serverEnabled {
-			usable := false
-			for _, item := range runtime.Tunnels.Statuses() {
-				if item.ID != id && item.Enabled && item.Ready {
-					usable = true
-					break
-				}
-			}
-			if !usable {
-				return runtimecontrol.TunnelRuntimeStatus{}, errors.New("cannot stop the last usable MCP transport")
-			}
-		}
-		if err := runtime.Tunnels.Stop(ctx, id); err != nil {
+		status, err := application.StopSecureMCPInstance(ctx, pluginhost.RuntimeHost, cfg.Server.Enabled, id)
+		if err != nil {
 			return runtimecontrol.TunnelRuntimeStatus{}, err
 		}
-		item := newTunnelRuntimeStatus(client.Status(), tunnel.Configured(client.Config()))
-		item.ID = id
-		return item, nil
+		return newTunnelRuntimeStatus(status, secureMCPInstanceConfigured(cfg, id)), nil
 	}, Status: status, StatusWait: statusWait, Approvals: runtime.Tools.Approvals, Executions: runtime.Tools.Executions, Log: runtime.Logger, Shutdown: func() {
 		runtimeCancel()
 		select {

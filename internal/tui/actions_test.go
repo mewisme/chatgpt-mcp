@@ -231,10 +231,13 @@ func TestPluginActionAvailabilityAndInstallCommand(t *testing.T) {
 		t.Fatal("plugin install missing on marketplace detail")
 	}
 	installed := action.Context{Route: string(RoutePlugins), ResourceID: "bash"}
-	for _, id := range []string{"plugin.update", "plugin.verify", "plugin.uninstall", "plugin.enable", "plugin.disable", "plugin.rollback", "plugin.prune"} {
+	for _, id := range []string{"plugin.update", "plugin.verify", "plugin.uninstall", "plugin.enable", "plugin.disable", "plugin.rollback", "plugin.prune", "plugin.configure", "plugin.config.reset"} {
 		if !has(installed, id) {
 			t.Fatalf("installed plugin action missing: %s", id)
 		}
+	}
+	if has(marketplace, "plugin.configure") || has(marketplace, "plugin.config.reset") {
+		t.Fatal("plugin config actions leaked into marketplace")
 	}
 	if has(marketplace, "plugin.update") || has(action.Context{Route: string(RoutePlugins), Section: "registries", ResourceID: "community"}, "plugin.update") {
 		t.Fatal("installed plugin actions leaked into marketplace/registries")
@@ -245,6 +248,14 @@ func TestPluginActionAvailabilityAndInstallCommand(t *testing.T) {
 	}
 	if !has(action.Context{Route: string(RouteHome)}, "plugin.registry.add") {
 		t.Fatal("plugin registry add should be globally available")
+	}
+	configure, err := registry.Execute(context.Background(), "plugin.configure", installed)
+	if err != nil || configure == nil {
+		t.Fatalf("plugin.configure cmd=%v err=%v", configure != nil, err)
+	}
+	nav, ok := configure().(navigateMsg)
+	if !ok || nav.route != (Route{Kind: RoutePlugins, ResourceID: "bash", Action: "configure"}) {
+		t.Fatalf("plugin.configure message=%#v", nav)
 	}
 	cmd, err := registry.Execute(context.Background(), "plugin.install", marketplace)
 	if err != nil || cmd == nil {

@@ -322,6 +322,21 @@ func pluginActions() []action.Action {
 		pluginAction("plugin.rollback", "Rollback plugin", "Roll back the current plugin to a retained version", []string{"plugin", "rollback"}, []string{"plugin", "rollback"}, tuipage.PluginRollback, "", true),
 		pluginAction("plugin.prune", "Prune plugin versions", "Prune retained inactive versions for the current plugin", []string{"plugin", "prune", "retain"}, []string{"plugin", "prune"}, tuipage.PluginPrune, "", true),
 		pluginAction("plugin.verify", "Verify plugin", "Re-verify the current plugin integrity and trust chain", []string{"plugin", "verify"}, []string{"plugin", "verify"}, tuipage.PluginVerify, "", true),
+		{
+			ID: "plugin.configure", Title: "Configure plugin", Category: "Plugins", Description: "Edit the selected plugin's configuration",
+			Keywords: []string{"plugin", "config", "configure", "settings"}, CommandPath: []string{"plugin", "config", "set"},
+			Capabilities: []capability.ID{capability.PluginConfigList, capability.PluginConfigGet, capability.PluginConfigSet},
+			Scope:        action.ScopeGlobal,
+			Available: func(ctx action.Context) bool {
+				return ctx.Route == string(RoutePlugins) && ctx.ResourceID != "" && ctx.Section == ""
+			},
+			Run: func(_ context.Context, ctx action.Context) tea.Cmd {
+				return func() tea.Msg {
+					return navigateMsg{route: Route{Kind: RoutePlugins, ResourceID: ctx.ResourceID, Action: "configure"}}
+				}
+			},
+		},
+		pluginAction("plugin.config.reset", "Reset plugin configuration", "Reset the selected plugin's configuration to schema defaults", []string{"plugin", "config", "reset", "defaults"}, []string{"plugin", "config", "reset"}, tuipage.PluginConfigReset, "", true),
 		editorNavigationAction("plugin.registry.add", "Add plugin registry", "Plugins", "Add a trusted third-party plugin registry", []string{"plugin", "registry", "add", "trust"}, []string{"plugin", "registry", "add"}, nil, func(action.Context) Route {
 			return Route{Kind: RoutePlugins, Section: "registries", Action: "add"}
 		}),

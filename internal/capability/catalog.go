@@ -98,6 +98,10 @@ const (
 	PluginRegistryList       ID = "plugin.registry.list"
 	PluginRegistryAdd        ID = "plugin.registry.add"
 	PluginRegistryRemove     ID = "plugin.registry.remove"
+	PluginConfigList         ID = "plugin.config.list"
+	PluginConfigGet          ID = "plugin.config.get"
+	PluginConfigSet          ID = "plugin.config.set"
+	PluginConfigReset        ID = "plugin.config.reset"
 	TunnelStatus             ID = "tunnel.status"
 	TunnelAttach             ID = "tunnel.attach"
 	TunnelDetach             ID = "tunnel.detach"
@@ -159,6 +163,7 @@ var specs = []Spec{
 	{PluginEnable, "plugin enable", nil}, {PluginDisable, "plugin disable", nil}, {PluginUpdate, "plugin update", nil}, {PluginRollback, "plugin rollback", nil}, {PluginPrune, "plugin prune", nil},
 	{PluginOutdated, "plugin outdated", nil}, {PluginVerify, "plugin verify", nil},
 	{PluginRegistryList, "plugin registry list", nil}, {PluginRegistryAdd, "plugin registry add", nil}, {PluginRegistryRemove, "plugin registry remove", nil},
+	{PluginConfigList, "plugin config list", nil}, {PluginConfigGet, "plugin config get", nil}, {PluginConfigSet, "plugin config set", nil}, {PluginConfigReset, "plugin config reset", nil},
 	{TunnelStatus, "tunnel status", nil}, {TunnelList, "tunnel list", nil}, {TunnelAttach, "tunnel attach", nil}, {TunnelDetach, "tunnel detach", nil}, {TunnelEnable, "tunnel enable", nil}, {TunnelDisable, "tunnel disable", nil}, {TunnelStart, "tunnel start", nil}, {TunnelStop, "tunnel stop", nil}, {TunnelForeground, "tunnel run", nil},
 	{TunnelManagedList, "tunnel managed list", nil}, {TunnelManagedGet, "tunnel managed get", nil}, {TunnelManagedCreate, "tunnel managed create", nil}, {TunnelManagedUpdate, "tunnel managed update", nil}, {TunnelManagedDelete, "tunnel managed delete", nil},
 	{TunnelAdminList, "tunnel admin list", nil}, {TunnelAdminAdd, "tunnel admin add", nil}, {TunnelAdminVerify, "tunnel admin verify", nil}, {TunnelAdminRemove, "tunnel admin remove", nil},

@@ -20,10 +20,6 @@ var publicCapabilityExemptions = map[string]string{
 	"plugin":               "plugin namespace entrypoint only renders help and rejects positional fallbacks",
 	"plugin registry":      "plugin registry namespace entrypoint only renders help and rejects positional fallbacks",
 	"plugin config":        "plugin config namespace entrypoint only renders help and rejects positional fallbacks",
-	"plugin config list":   "generic plugin settings CLI; TUI Configure lands with the same settings store",
-	"plugin config get":    "generic plugin settings CLI; TUI Configure lands with the same settings store",
-	"plugin config set":    "generic plugin settings CLI; TUI Configure lands with the same settings store",
-	"plugin config reset":  "generic plugin settings CLI; TUI Configure lands with the same settings store",
 }
 
 func TestPublicCommandsHaveCanonicalCapabilities(t *testing.T) {

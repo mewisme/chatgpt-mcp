@@ -145,6 +145,11 @@ func parsePluginRoute(parts []string) (Route, error) {
 		route.ResourceID = parts[2]
 		return route, nil
 	default:
+		if len(parts) == 3 && strings.EqualFold(parts[2], "configure") {
+			route.ResourceID = parts[1]
+			route.Action = "configure"
+			return route, nil
+		}
 		if len(parts) != 2 {
 			return Route{}, fmt.Errorf("unsupported plugins child section %q", parts[1])
 		}

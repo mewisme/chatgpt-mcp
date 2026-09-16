@@ -103,7 +103,7 @@ var configDomains = []configDomain{
 	{ID: "runtime", Title: "Runtime & Network", Description: "MCP HTTP and admin server configuration"},
 	{ID: "access", Title: "Access & Security", Description: "Authentication and filesystem access"},
 	{ID: "shell", Title: "Shell & Execution", Description: "Approval, sandbox, environment, and network policy"},
-	{ID: "features", Title: "Features", Description: "Ponytail and Caveman behavior"},
+	{ID: "features", Title: "Features", Description: "Built-in plugin configuration"},
 	{ID: "tunnel", Title: "Tunnel", Description: "OpenAI Secure MCP Tunnel configuration"},
 	{ID: "storage", Title: "Storage & Maintenance", Description: "Storage, verification, import, export, and migration"},
 }
@@ -233,8 +233,8 @@ func (page *ConfigPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, cmd
 		}
 		if msg.Row.ID != "" && page.isBrowserRoute() {
-			if page.resourceID == "" {
-				return page, func() tea.Msg { return NavigateMsg{Path: []string{"config", msg.Row.ID}} }
+			if page.resourceID == "features" {
+				return page, func() tea.Msg { return NavigateMsg{Path: []string{"plugins", msg.Row.ID, "configure"}} }
 			}
 			return page, func() tea.Msg { return NavigateMsg{Path: []string{"config", msg.Row.ID}} }
 		}
@@ -591,6 +591,9 @@ func (page *ConfigPage) rebuildBrowser(selected string) {
 func (page *ConfigPage) searchRows() []component.Row {
 	rows := make([]component.Row, 0, len(config.Fields()))
 	for _, spec := range config.Fields() {
+		if spec.Section == config.FieldSectionFeatures {
+			continue
+		}
 		value := "loading"
 		state := config.FieldStateDefault
 		if page.loaded {
@@ -708,6 +711,12 @@ func configMaintenanceCommand(id string) (ConfigCommand, bool) {
 }
 
 func (page *ConfigPage) domainRows() []component.Row {
+	if page.resourceID == "features" {
+		return []component.Row{
+			{ID: "ponytail", Title: "Ponytail", Description: "Configure the Ponytail built-in plugin", Meta: "plugin", Search: "ponytail plugin features"},
+			{ID: "caveman", Title: "Caveman", Description: "Configure the Caveman built-in plugin", Meta: "plugin", Search: "caveman plugin features"},
+		}
+	}
 	section, ok := configSectionForRoute(page.resourceID)
 	if !ok {
 		return nil
@@ -910,7 +919,7 @@ func (page *ConfigPage) domainSummary(domain string) string {
 		}
 		return fmt.Sprintf("%d extra PATH entries · risk-based mutation approvals", len(cfg.Shell.Path))
 	case "features":
-		return fmt.Sprintf("Ponytail %s · Caveman %s", configOnOff(cfg.Features.Ponytail.Active), configOnOff(cfg.Features.Caveman.Active))
+		return "Ponytail · Caveman plugins"
 	case "tunnel":
 		collection := cfg.RuntimeTunnels()
 		return fmt.Sprintf("%d instances · %d enabled · %d runtime keys · %d admin profiles", len(collection.Instances), cfg.EnabledTunnelCount(), cfg.ConfiguredTunnelCount(), len(collection.Admins))

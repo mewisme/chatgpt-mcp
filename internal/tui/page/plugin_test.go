@@ -12,7 +12,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
 func TestPluginPageInstalledListDetailAndConfirmation(t *testing.T) {
@@ -100,6 +102,56 @@ func TestPluginPageBuiltinHidesArtifactActions(t *testing.T) {
 			t.Fatalf("builtin detail key %q should be hidden, got %#v", key, cmd())
 		}
 	}
+	_, cmd := detail.detail.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	if cmd == nil {
+		t.Fatal("builtin configure action missing")
+	}
+	navigate, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(navigate.Path, "/") != "plugins/ponytail/configure" {
+		t.Fatalf("builtin configure navigation=%#v", navigate)
+	}
+}
+
+func TestPluginPageConfigureEditorSavesSettings(t *testing.T) {
+	service := testPluginService(t)
+	page, err := newPluginsRouteAction(t.Context(), "ponytail", "", "configure", service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.editor == nil || page.configForm == nil || page.configForm.ID != "ponytail" {
+		t.Fatalf("configure editor page=%#v form=%#v", page.editor, page.configForm)
+	}
+	if page.configForm.Bools["default_active"] == nil || !*page.configForm.Bools["default_active"] {
+		t.Fatalf("default_active=%v", page.configForm.Bools["default_active"])
+	}
+	if page.configForm.Enums["default_mode"] == nil || *page.configForm.Enums["default_mode"] != "full" {
+		t.Fatalf("default_mode=%v", page.configForm.Enums["default_mode"])
+	}
+	*page.configForm.Bools["default_active"] = false
+	*page.configForm.Enums["default_mode"] = "lite"
+	cmd := page.submitEditor()
+	if cmd == nil {
+		t.Fatal("configure save returned no command")
+	}
+	schema, values, err := service.PluginSettings("ponytail")
+	if err != nil || len(schema.Fields) == 0 {
+		t.Fatalf("schema=%#v err=%v", schema, err)
+	}
+	if values["default_active"] != false || values["default_mode"] != "lite" {
+		t.Fatalf("saved values=%#v", values)
+	}
+
+	detail, err := newPluginsRouteAction(t.Context(), "ponytail", "", "", service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail.finishLoad(detail.loadCmd()().(pluginLoadMsg))
+	if _, err := detail.openCommand(PluginConfigReset, "ponytail"); err != nil {
+		t.Fatal(err)
+	}
+	if detail.overlay != pluginOverlayConfirm || detail.confirmTitle() != "Reset plugin configuration?" {
+		t.Fatalf("reset confirmation overlay=%d title=%q", detail.overlay, detail.confirmTitle())
+	}
 }
 
 func TestPluginPageRegistryEditorAndRemoveConfirmation(t *testing.T) {
@@ -184,6 +236,7 @@ func TestPluginPageHostInstallChooser(t *testing.T) {
 func testPluginService(t *testing.T) *application.PluginService {
 	t.Helper()
 	root := t.TempDir()
+	t.Setenv(configformat.EnvConfigDir, filepath.Join(root, "core"))
 	layout := pluginpkg.Layout{ConfigRoot: filepath.Join(root, "config"), DataRoot: filepath.Join(root, "data"), CacheRoot: filepath.Join(root, "cache")}
 	store, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{OS: runtime.GOOS, Arch: runtime.GOARCH, CoreVersion: "dev"})
 	if err != nil {
@@ -215,6 +268,6 @@ func testPluginService(t *testing.T) *application.PluginService {
 	if err := store.Activate("demo", "1.0.0", pluginpkg.ActivationTrust{Registry: pluginpkg.OfficialRegistryName, Publisher: "mewisme", Trusted: true}); err != nil {
 		t.Fatal(err)
 	}
-	store.Builtins = pluginpkg.BuiltinRegistry{{ID: "ponytail", Name: "Ponytail", Type: "tool-provider", Provides: []pluginpkg.Capability{"tool/ponytail"}, DefaultEnabled: true, Description: "built-in ponytail"}}
+	store.Builtins = pluginpkg.BuiltinRegistry{ponytailplugin.Plugin()}
 	return &application.PluginService{Manager: &pluginpkg.Manager{Store: store, RegistryClient: pluginpkg.RegistryClient{Layout: layout}}, Layout: layout}
 }

@@ -33,6 +33,7 @@ const (
 	PluginDisable        PluginCommand = "plugin.disable"
 	PluginVerify         PluginCommand = "plugin.verify"
 	PluginRegistryRemove PluginCommand = "plugin.registry.remove"
+	PluginConfigReset    PluginCommand = "plugin.config.reset"
 )
 
 type PluginCommandMsg struct {
@@ -106,6 +107,7 @@ type PluginPage struct {
 	hostIndex        int
 	editor           *component.Editor
 	registryForm     *pluginRegistryFormData
+	configForm       *pluginConfigFormData
 	notice           string
 	err              error
 	width            int
@@ -570,6 +572,15 @@ func (page *PluginPage) rowActions() []component.RowAction {
 			command("space", "toggle", PluginEnable, func(row component.Row) bool {
 				return page.pluginLifecycle(row.ID).Enable || page.pluginLifecycle(row.ID).Disable
 			}),
+			{
+				Key: "e", Desc: "configure",
+				When: func(row component.Row) bool { return page.pluginLifecycle(row.ID).Configure },
+				Run: func(row component.Row) (string, tea.Cmd, error) {
+					id := row.ID
+					return "", func() tea.Msg { return NavigateMsg{Path: []string{"plugins", id, "configure"}} }, nil
+				},
+			},
+			command("x", "reset config", PluginConfigReset, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Configure }),
 			command("u", "update", PluginUpdate, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Update }),
 			command("b", "rollback", PluginRollback, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Rollback }),
 			command("p", "prune", PluginPrune, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Prune }),
@@ -643,6 +654,8 @@ func lifecycleAllows(life pluginpkg.Lifecycle, command PluginCommand) bool {
 		return life.Disable
 	case PluginVerify:
 		return life.Verify
+	case PluginConfigReset:
+		return life.Configure
 	default:
 		return true
 	}
@@ -654,6 +667,18 @@ func (page *PluginPage) openCommand(command PluginCommand, target string) (tea.C
 	if command == PluginRefresh {
 		page.loading = true
 		return page.loadCmd(), nil
+	}
+	if command == PluginConfigReset {
+		id, err := pluginID(page.targetID)
+		if err != nil {
+			return nil, err
+		}
+		if _, _, err := page.service.PluginSettings(id); err != nil {
+			return nil, err
+		}
+		page.confirm = component.NewConfirmButtons(page.confirmAffirmative(), "Cancel", false)
+		page.overlay = pluginOverlayConfirm
+		return nil, nil
 	}
 	if command != PluginRegistryRemove && !lifecycleAllows(page.pluginLifecycle(page.targetID), command) {
 		return nil, fmt.Errorf("%w: %s", pluginpkg.ErrBuiltinPlugin, page.targetID)
@@ -763,6 +788,14 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 		case PluginRegistryRemove:
 			msg.err = page.service.RemoveRegistry(ctx, target)
 			msg.notice = "Plugin registry removed"
+		case PluginConfigReset:
+			id, err := pluginID(target)
+			if err != nil {
+				msg.err = err
+			} else {
+				msg.err = page.service.ResetPluginSetting(ctx, id, "")
+			}
+			msg.notice = "Plugin configuration reset"
 		default:
 			msg.err = fmt.Errorf("unsupported plugin operation: %s", command)
 		}
@@ -930,6 +963,8 @@ func (page *PluginPage) operationTitle(command PluginCommand) string {
 		return "Verifying plugin"
 	case PluginRegistryRemove:
 		return "Removing plugin registry"
+	case PluginConfigReset:
+		return "Resetting plugin configuration"
 	default:
 		return "Plugin operation"
 	}
@@ -955,16 +990,22 @@ func (page *PluginPage) confirmAffirmative() string {
 		return "Disable"
 	case PluginRegistryRemove:
 		return "Remove"
+	case PluginConfigReset:
+		return "Reset"
 	default:
 		return "Confirm"
 	}
 }
 
 func (page *PluginPage) confirmTitle() string {
-	if page.command == PluginRegistryRemove {
+	switch page.command {
+	case PluginRegistryRemove:
 		return "Remove plugin registry?"
+	case PluginConfigReset:
+		return "Reset plugin configuration?"
+	default:
+		return page.confirmAffirmative() + " plugin?"
 	}
-	return page.confirmAffirmative() + " plugin?"
 }
 
 func (page *PluginPage) confirmDescription() string {
@@ -987,6 +1028,8 @@ func (page *PluginPage) confirmDescription() string {
 		return "Disable plugin " + page.targetID + ". Its capabilities will stop resolving immediately."
 	case PluginRegistryRemove:
 		return "Remove plugin registry " + page.targetID + " from local configuration. Installed payloads are not deleted."
+	case PluginConfigReset:
+		return "Reset all configuration for plugin " + page.targetID + " to schema defaults."
 	default:
 		return page.targetID
 	}
@@ -1026,6 +1069,10 @@ func (page *PluginPage) syncPluginDetail() {
 				toggle = PluginDisable
 			}
 			bindings = append(bindings, component.DetailPageBinding{Key: "space", HelpKey: "space", Desc: "toggle", Message: PluginCommandMsg{Command: toggle, TargetID: string(manifest.ID)}})
+		}
+		if life.Configure {
+			bindings = append(bindings, component.DetailPageBinding{Key: "e", Desc: "configure", Message: NavigateMsg{Path: []string{"plugins", string(manifest.ID), "configure"}}})
+			bindings = append(bindings, component.DetailPageBinding{Key: "x", Desc: "reset config", Message: PluginCommandMsg{Command: PluginConfigReset, TargetID: string(manifest.ID)}})
 		}
 		if life.Update {
 			bindings = append(bindings, component.DetailPageBinding{Key: "u", Desc: "update", Message: PluginCommandMsg{Command: PluginUpdate, TargetID: string(manifest.ID)}})
@@ -1072,6 +1119,9 @@ func (page *PluginPage) syncRegistryDetail() {
 }
 
 func (page *PluginPage) initEditorRoute() error {
+	if page.action == "configure" && page.section == "" && page.resourceID != "" {
+		return page.initPluginConfigEditor()
+	}
 	if page.section != "registries" || page.action != "add" || page.resourceID != "" {
 		return fmt.Errorf("unsupported plugin editor route")
 	}
@@ -1089,6 +1139,9 @@ func (page *PluginPage) initEditorRoute() error {
 }
 
 func (page *PluginPage) submitEditor() tea.Cmd {
+	if page.configForm != nil {
+		return page.submitPluginConfigEditor()
+	}
 	if page.editor == nil || page.registryForm == nil {
 		return nil
 	}
@@ -1109,6 +1162,10 @@ func (page *PluginPage) submitEditor() tea.Cmd {
 }
 
 func (page *PluginPage) editorParentNavigation() tea.Cmd {
+	if page.action == "configure" && page.resourceID != "" {
+		id := page.resourceID
+		return func() tea.Msg { return NavigateMsg{Path: []string{"plugins", id}} }
+	}
 	return func() tea.Msg { return NavigateMsg{Path: []string{"plugins", "registries"}} }
 }
 

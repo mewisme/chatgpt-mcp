@@ -23,7 +23,7 @@ func TestPluginServiceCatalogIncludesBuiltins(t *testing.T) {
 	}
 	for _, id := range []pluginpkg.PluginID{"ponytail", "caveman"} {
 		item, ok := found[id]
-		if !ok || item.Origin != pluginpkg.OriginBuiltin || item.Lifecycle.Install || item.Lifecycle.Uninstall || item.Lifecycle.Update {
+		if !ok || item.Origin != pluginpkg.OriginBuiltin || item.Lifecycle.Install || item.Lifecycle.Uninstall || item.Lifecycle.Update || !item.Lifecycle.Configure {
 			t.Fatalf("%s = %#v ok=%t", id, item, ok)
 		}
 	}

@@ -39,7 +39,7 @@ type Lifecycle struct {
 }
 
 func ArtifactLifecycle() Lifecycle {
-	return Lifecycle{Install: true, Uninstall: true, Enable: true, Disable: true, Update: true, Rollback: true, Prune: true, Verify: true, Configure: true}
+	return Lifecycle{Install: true, Uninstall: true, Enable: true, Disable: true, Update: true, Rollback: true, Prune: true, Verify: true}
 }
 
 type Builtin struct {

@@ -326,8 +326,19 @@ func TestConfigGlobalSearchIndexesAllFieldsWithoutSecrets(t *testing.T) {
 	page.overview.Config.Tunnel.APIKey = "SEARCH_RUNTIME_SECRET"
 	page.overview.Config.Tunnel.AdminKey = "SEARCH_ADMIN_SECRET"
 	rows := page.searchRows()
-	if len(rows) != len(config.Fields()) {
-		t.Fatalf("search rows=%d fields=%d", len(rows), len(config.Fields()))
+	wantCount := 0
+	for _, spec := range config.Fields() {
+		if spec.Section != config.FieldSectionFeatures {
+			wantCount++
+		}
+	}
+	if len(rows) != wantCount {
+		t.Fatalf("search rows=%d fields=%d", len(rows), wantCount)
+	}
+	for _, row := range rows {
+		if strings.HasPrefix(row.ID, "features.") {
+			t.Fatalf("feature field leaked into config search: %#v", row)
+		}
 	}
 	joined := fmt.Sprintf("%#v", rows)
 	if strings.Contains(joined, "SEARCH_RUNTIME_SECRET") || strings.Contains(joined, "SEARCH_ADMIN_SECRET") {
@@ -503,6 +514,28 @@ func TestConfigEditorsUseExplicitActionsPickerAndImportConfirmation(t *testing.T
 		t.Fatalf("import submit cmd=%v overlay=%d editor=%v", cmd != nil, page.overlay, page.editor != nil)
 	}
 	testutil.AssertLinesFit(t, page.View(40, 16), 40)
+}
+
+func TestConfigFeaturesDomainNavigatesToPluginConfigure(t *testing.T) {
+	prepareConfigPageRoot(t)
+	page, err := NewConfigRoute(t.Context(), "features")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := page.Update(page.Init()())
+	page = updated.(*ConfigPage)
+	rows := page.domainRows()
+	if len(rows) != 2 || rows[0].ID != "ponytail" || rows[1].ID != "caveman" {
+		t.Fatalf("feature rows=%#v", rows)
+	}
+	_, cmd := page.Update(component.BrowserOpenMsg{Row: component.Row{ID: "ponytail"}})
+	if cmd == nil {
+		t.Fatal("features open returned no navigation")
+	}
+	message, ok := cmd().(NavigateMsg)
+	if !ok || strings.Join(message.Path, "/") != "plugins/ponytail/configure" {
+		t.Fatalf("features navigation=%#v", message)
+	}
 }
 
 func prepareConfigPageRoot(t *testing.T) string {

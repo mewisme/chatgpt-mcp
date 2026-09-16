@@ -3,6 +3,7 @@ package version
 import (
 	"fmt"
 	"runtime/debug"
+	"strings"
 )
 
 var (
@@ -36,6 +37,11 @@ func applyBuildInfo(info *debug.BuildInfo) {
 			}
 		}
 	}
+}
+
+func IsDevelopment(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return value == "" || value == "dev" || value == "(devel)" || strings.HasPrefix(value, "dev-")
 }
 
 func String() string {

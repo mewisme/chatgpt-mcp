@@ -903,7 +903,7 @@ func TestWorkspaceProjectContextBuildUsesVolatileSession(t *testing.T) {
 	if page.Dirty() {
 		t.Fatal("successful project context build retained a dirty draft")
 	}
-	navigate, ok := navigation().(NavigateMsg)
+	navigate, ok := navigateMsg(navigation)
 	if !ok || strings.Join(navigate.Path, "/") != "workspaces/"+item.ID+"/context-preview" {
 		t.Fatalf("preview navigation=%#v", navigate)
 	}

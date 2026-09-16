@@ -205,7 +205,7 @@ func (page *WorkspacePage) finishWorkspaceContextBuild(msg workspaceContextBuild
 	page.contextSession.Result = &result
 	page.contextProgress = nil
 	page.notice = "Project Context built"
-	return func() tea.Msg { return NavigateMsg{Path: []string{"workspaces", page.resourceID, "context-preview"}} }
+	return withOperation("workspace.context.build", "Workspace", page.notice, func() tea.Msg { return NavigateMsg{Path: []string{"workspaces", page.resourceID, "context-preview"}} })
 }
 
 func (page *WorkspacePage) cancelWorkspaceContextBuild() {

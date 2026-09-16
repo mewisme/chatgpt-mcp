@@ -1,6 +1,7 @@
 package runtimeevent
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -52,5 +53,28 @@ func TestLoggerEventMapsLevelsKindsAndDurationTypes(t *testing.T) {
 		if event.DurationMS < 10 || event.DurationMS > 12 {
 			t.Fatalf("duration %T=%v mapped to %d", value, value, event.DurationMS)
 		}
+	}
+}
+
+func TestFromLoggerEventPromotesTunnelIdentity(t *testing.T) {
+	event := fromLoggerEvent(logger.Event{Fields: []logger.Field{
+		logger.With("source", "tunnel"), logger.With("tunnel", "tunnel_a"), logger.With("tunnel_name", "Alpha"),
+	}}, Metadata{})
+	if event.Source != "tunnel" || event.TunnelID != "tunnel_a" || event.TunnelName != "Alpha" {
+		t.Fatalf("event=%#v", event)
+	}
+	aliased := fromLoggerEvent(logger.Event{Fields: []logger.Field{logger.With("tunnel_id", "tunnel_b")}}, Metadata{})
+	if aliased.TunnelID != "tunnel_b" {
+		t.Fatalf("aliased=%#v", aliased)
+	}
+}
+
+func TestEventDecodesHistoricalJSONWithoutTunnelFields(t *testing.T) {
+	var event Event
+	if err := json.Unmarshal([]byte(`{"time":"2026-09-06T12:00:00Z","level":"info","kind":"info","event":"tool.call.completed","message":"ok","source":"tunnel"}`), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Source != "tunnel" || event.TunnelID != "" || event.TunnelName != "" {
+		t.Fatalf("event=%#v", event)
 	}
 }

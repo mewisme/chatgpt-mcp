@@ -165,6 +165,27 @@ func workspaceCompletions(cmd *cobra.Command, toComplete string) ([]string, cobr
 	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
+func completeTunnelFilter(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	prepareCompletionConfigRoot(cmd)
+	items, err := application.LocalTunnels()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	values := make([]string, 0, len(items)*2)
+	for _, item := range items {
+		name := ""
+		if item.Status.Metadata != nil {
+			name = strings.TrimSpace(item.Status.Metadata.Name)
+		}
+		if name != "" {
+			values = append(values, item.ID+"\t"+name, name+"\t"+item.ID)
+			continue
+		}
+		values = append(values, item.ID)
+	}
+	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
 func workspaceContainerCompletions(cmd *cobra.Command, toComplete string) ([]string, cobra.ShellCompDirective) {
 	prepareCompletionConfigRoot(cmd)
 	items, err := workspace.NewManager(workspace.DefaultStorePath()).ListContainers()

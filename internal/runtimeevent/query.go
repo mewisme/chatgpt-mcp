@@ -18,6 +18,7 @@ type Query struct {
 	Tool        string
 	Status      string
 	Source      string
+	Tunnel      string
 	EventGlob   string
 	Grep        string
 }
@@ -48,6 +49,9 @@ func (query Query) Match(event Event) bool {
 		return false
 	}
 	if query.Source != "" && !strings.EqualFold(query.Source, event.Source) {
+		return false
+	}
+	if query.Tunnel != "" && !tunnelIdentityMatch(event, query.Tunnel) {
 		return false
 	}
 	if query.EventGlob != "" {
@@ -89,7 +93,7 @@ func levelRank(level string) int {
 
 func searchText(event Event) string {
 	var builder strings.Builder
-	for _, value := range []string{event.RunID, event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.Status} {
+	for _, value := range []string{event.RunID, event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.TunnelID, event.TunnelName, event.Status} {
 		builder.WriteString(value)
 		builder.WriteByte(' ')
 	}
@@ -100,4 +104,15 @@ func searchText(event Event) string {
 		builder.WriteByte(' ')
 	}
 	return builder.String()
+}
+
+func tunnelIdentityMatch(event Event, needle string) bool {
+	needle = strings.TrimSpace(needle)
+	if needle == "" {
+		return true
+	}
+	if strings.EqualFold(event.TunnelID, needle) || strings.EqualFold(event.TunnelName, needle) {
+		return true
+	}
+	return event.TunnelID != "" && strings.HasPrefix(strings.ToLower(event.TunnelID), strings.ToLower(needle))
 }

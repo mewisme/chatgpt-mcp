@@ -364,6 +364,7 @@ cgm logs --workspace ~/projects/my-project
 cgm logs --tool run_command
 cgm logs --status error
 cgm logs --source tunnel
+cgm logs --tunnel Alpha
 cgm logs --event 'tool.call.*'
 cgm logs --grep timeout
 ```

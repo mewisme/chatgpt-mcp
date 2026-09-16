@@ -31,6 +31,7 @@ type LogsQueryOptions struct {
 	Tool       string
 	Status     string
 	Source     string
+	Tunnel     string
 	Event      string
 	Grep       string
 }
@@ -67,7 +68,7 @@ func BuildLogsQueryContext(ctx context.Context, options LogsQueryOptions, now ti
 		err = errors.New("tail must be zero or greater")
 		return runtimeevent.Query{}, err
 	}
-	query = runtimeevent.Query{RunID: strings.TrimSpace(options.Session), MinLevel: strings.ToLower(strings.TrimSpace(options.Level)), Components: splitLogCSV(options.Components), Tool: strings.TrimSpace(options.Tool), Status: strings.TrimSpace(options.Status), Source: strings.TrimSpace(options.Source), EventGlob: strings.TrimSpace(options.Event), Grep: strings.TrimSpace(options.Grep)}
+	query = runtimeevent.Query{RunID: strings.TrimSpace(options.Session), MinLevel: strings.ToLower(strings.TrimSpace(options.Level)), Components: splitLogCSV(options.Components), Tool: strings.TrimSpace(options.Tool), Status: strings.TrimSpace(options.Status), Source: strings.TrimSpace(options.Source), Tunnel: strings.TrimSpace(options.Tunnel), EventGlob: strings.TrimSpace(options.Event), Grep: strings.TrimSpace(options.Grep)}
 	if query.MinLevel != "" {
 		switch query.MinLevel {
 		case "debug", "info", "warn", "warning", "error":

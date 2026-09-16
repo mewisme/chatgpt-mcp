@@ -60,6 +60,19 @@ func TestBuildLogsQueryUsesRuntimeQuerySemantics(t *testing.T) {
 	}
 }
 
+func TestBuildLogsQueryTunnelMatchesIdentity(t *testing.T) {
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	query, err := BuildLogsQuery(LogsQueryOptions{Source: "tunnel", Tunnel: " Alpha "}, now)
+	if err != nil || query.Tunnel != "Alpha" || query.Source != "tunnel" {
+		t.Fatalf("query=%#v err=%v", query, err)
+	}
+	alpha := runtimeevent.Event{Time: now, Source: "tunnel", TunnelID: "tunnel_a", TunnelName: "Alpha"}
+	beta := runtimeevent.Event{Time: now, Source: "tunnel", TunnelID: "tunnel_b", TunnelName: "Beta"}
+	if !query.Match(alpha) || query.Match(beta) {
+		t.Fatalf("alpha=%v beta=%v", query.Match(alpha), query.Match(beta))
+	}
+}
+
 func TestLogFieldsRespectsFieldVisibility(t *testing.T) {
 	event := runtimeevent.Event{Fields: []runtimeevent.Field{{Key: "visible", Value: "ok"}, {Key: "debug", Value: "hidden", Visibility: logger.VisibilityDebug}}}
 	fields := LogFields(event, logger.VisibilityDefault)

@@ -79,6 +79,40 @@ func TestLogsSessionFilterUsesDisplayedPrefix(t *testing.T) {
 	}
 }
 
+func TestLogsTunnelFilterDistinguishesTwoTunnels(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := runtimeevent.NewJournal(root, runtimeevent.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now()
+	for _, event := range []runtimeevent.Event{
+		{Sequence: 1, Time: base, RunID: "run", Level: "info", Kind: "success", Name: "tool.call.completed", Message: "Alpha origin", Source: "tunnel", TunnelID: "tunnel_a", TunnelName: "Alpha"},
+		{Sequence: 2, Time: base.Add(time.Second), RunID: "run", Level: "info", Kind: "success", Name: "tool.call.completed", Message: "Beta origin", Source: "tunnel", TunnelID: "tunnel_b", TunnelName: "Beta"},
+		{Sequence: 3, Time: base.Add(2 * time.Second), RunID: "run", Level: "info", Kind: "success", Name: "tool.call.completed", Message: "HTTP origin", Source: "http"},
+	} {
+		if err := journal.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source := executeLogsCommand(t, root, []string{"logs", "--source", "tunnel"})
+	if !strings.Contains(source, "Alpha origin") || !strings.Contains(source, "Beta origin") || strings.Contains(source, "HTTP origin") {
+		t.Fatalf("source=tunnel output = %q", source)
+	}
+	alpha := executeLogsCommand(t, root, []string{"logs", "--tunnel", "Alpha"})
+	if !strings.Contains(alpha, "Alpha origin") || strings.Contains(alpha, "Beta origin") || strings.Contains(alpha, "HTTP origin") {
+		t.Fatalf("--tunnel Alpha output = %q", alpha)
+	}
+	beta := executeLogsCommand(t, root, []string{"logs", "--tunnel", "tunnel_b"})
+	if !strings.Contains(beta, "Beta origin") || strings.Contains(beta, "Alpha origin") {
+		t.Fatalf("--tunnel tunnel_b output = %q", beta)
+	}
+}
+
 func TestShortSessionIDKeepsCompactHexRunID(t *testing.T) {
 	const value = "run_0123456789abcdef"
 	if got := shortSessionID(value); got != value {

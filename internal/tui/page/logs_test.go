@@ -324,9 +324,9 @@ func TestLogsFilterFormUsesSharedQueryValidation(t *testing.T) {
 	if data.Visibility != "verbose" {
 		t.Fatalf("form visibility=%q", data.Visibility)
 	}
-	data.Tail, data.Level, data.Event = "25", "warn", "tool.*"
+	data.Tail, data.Level, data.Event, data.Tunnel = "25", "warn", "tool.*", "Alpha"
 	options, visibility, err := data.Options()
-	if err != nil || options.Tail != 25 || options.Level != "warn" || options.Event != "tool.*" || visibility != logger.VisibilityVerbose {
+	if err != nil || options.Tail != 25 || options.Level != "warn" || options.Event != "tool.*" || options.Tunnel != "Alpha" || visibility != logger.VisibilityVerbose {
 		t.Fatalf("options=%#v visibility=%d err=%v", options, visibility, err)
 	}
 	data.All, data.Session = true, "run_one"
@@ -1471,6 +1471,52 @@ func TestRuntimeTimelineFiltersToolCallsAndRendersVisibleFields(t *testing.T) {
 	plain := ansi.Strip(renderRuntimeTimeline(visible, 100, page.visibility).Content)
 	if !strings.Contains(plain, "visible") || !strings.Contains(plain, "ok") || strings.Contains(plain, "hidden") || strings.Contains(plain, "tool.call.finish") {
 		t.Fatalf("runtime timeline=%q", plain)
+	}
+}
+
+func TestLogsAndToolCallsPreferTunnelLabelOverRawID(t *testing.T) {
+	const alphaID, betaID = "tunnel_aaaaaaaaaaaaaaaa", "tunnel_bbbbbbbbbbbbbbbb"
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	alpha := runtimeevent.Event{Sequence: 1, Time: time.Now(), RunID: "run", Level: "info", Name: "tool.call.completed", Message: "ok", Source: "tunnel", TunnelID: alphaID, TunnelName: "Alpha"}
+	beta := runtimeevent.Event{Sequence: 2, Time: time.Now(), RunID: "run", Level: "info", Name: "tool.call.completed", Message: "ok", Source: "tunnel", TunnelID: betaID, TunnelName: "Beta"}
+	rowA, rowB := page.logRow(alpha), page.logRow(beta)
+	if !strings.Contains(rowA.Meta, "Alpha") || strings.Contains(rowA.Meta, alphaID) || !strings.Contains(rowA.Search, alphaID) || !strings.Contains(rowA.Search, "Alpha") {
+		t.Fatalf("alpha row meta=%q search=%q", rowA.Meta, rowA.Search)
+	}
+	if !strings.Contains(rowB.Meta, "Beta") || strings.Contains(rowB.Meta, betaID) || !strings.Contains(rowB.Search, betaID) {
+		t.Fatalf("beta row meta=%q search=%q", rowB.Meta, rowB.Search)
+	}
+	plain := ansi.Strip(renderRuntimeTimeline([]runtimeevent.Event{alpha, beta}, 120, logger.VisibilityVerbose).Content)
+	if !strings.Contains(plain, "Alpha") || !strings.Contains(plain, "Beta") || strings.Contains(plain, alphaID) || strings.Contains(plain, betaID) {
+		t.Fatalf("runtime timeline=%q", plain)
+	}
+
+	toolsPage, _ := NewToolCallLogsRoute(t.Context(), "")
+	defer toolsPage.Close()
+	toolsPage.view = logsViewBrowser
+	toolsPage.tools.events = []activity.Event{
+		{Sequence: 1, Timestamp: time.Now(), Kind: string(activity.EventToolCall), Phase: "finish", CallID: "call_a", Tool: "echo", Source: "tunnel", TunnelID: alphaID, TunnelName: "Alpha", Status: "ok"},
+		{Sequence: 2, Timestamp: time.Now(), Kind: string(activity.EventToolCall), Phase: "finish", CallID: "call_b", Tool: "echo", Source: "tunnel", TunnelID: betaID, TunnelName: "Beta", Status: "ok"},
+	}
+	toolsPage.rebuildToolCallBrowser()
+	if !toolsPage.browser.SelectID("call_a") {
+		t.Fatal("could not select alpha call")
+	}
+	row, ok := toolsPage.browser.Selected()
+	if !ok || !strings.Contains(row.Meta, "Alpha") || strings.Contains(row.Meta, alphaID) || !strings.Contains(row.Search, alphaID) {
+		t.Fatalf("tool row=%#v", row)
+	}
+	if !toolsPage.browser.SelectID("call_b") {
+		t.Fatal("could not select beta call")
+	}
+	row, ok = toolsPage.browser.Selected()
+	if !ok || !strings.Contains(row.Meta, "Beta") || strings.Contains(row.Meta, betaID) {
+		t.Fatalf("tool row=%#v", row)
+	}
+	timeline := ansi.Strip(renderToolCallTimeline(toolsPage.visibleToolCallRecords(), 120).Content)
+	if !strings.Contains(timeline, "Alpha") || !strings.Contains(timeline, "Beta") || strings.Contains(timeline, alphaID) || strings.Contains(timeline, betaID) {
+		t.Fatalf("tool timeline=%q", timeline)
 	}
 }
 

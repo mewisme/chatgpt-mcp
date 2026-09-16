@@ -26,6 +26,7 @@ type logsFilterFormData struct {
 	Tool       string
 	Status     string
 	Source     string
+	Tunnel     string
 	Event      string
 	Grep       string
 }
@@ -37,7 +38,7 @@ func newLogsFilterEditor(options application.LogsQueryOptions, visibility logger
 	}
 	data := &logsFilterFormData{
 		Tail: strconv.Itoa(options.Tail), All: options.All, Session: options.Session, Since: options.Since, Until: options.Until, Visibility: logsVisibilityValue(visibility), Level: level,
-		Components: options.Components, Workspace: options.Workspace, Tool: options.Tool, Status: options.Status, Source: options.Source, Event: options.Event, Grep: options.Grep,
+		Components: options.Components, Workspace: options.Workspace, Tool: options.Tool, Status: options.Status, Source: options.Source, Tunnel: options.Tunnel, Event: options.Event, Grep: options.Grep,
 	}
 	rangeForm := component.NewEditorForm(component.Group(
 		component.Input("Tail", &data.Tail).Validate(func(value string) error {
@@ -62,12 +63,13 @@ func newLogsFilterEditor(options application.LogsQueryOptions, visibility logger
 		component.Input("Tool", &data.Tool),
 		component.Input("Status", &data.Status),
 		component.Input("Source", &data.Source),
+		component.Input("Tunnel (ID or label)", &data.Tunnel),
 		component.Input("Event glob", &data.Event),
 		component.Input("Grep", &data.Grep),
 	))
 	editor := component.NewEditor("apply",
 		component.EditorSection{ID: "range", Title: "Range", Description: "Choose how much history to load and which runtime session or time range to inspect.", Form: rangeForm},
-		component.EditorSection{ID: "filters", Title: "Filters", Description: "Narrow events by visibility, level, component, workspace, tool, status, source, event name, or text.", Form: filtersForm},
+		component.EditorSection{ID: "filters", Title: "Filters", Description: "Narrow events by visibility, level, component, workspace, tool, status, source, tunnel, event name, or text.", Form: filtersForm},
 	)
 	return editor, data
 }
@@ -91,7 +93,7 @@ func (data *logsFilterFormData) Options() (application.LogsQueryOptions, logger.
 	if level == "all" {
 		level = ""
 	}
-	options := application.LogsQueryOptions{Tail: tail, All: data.All, Session: strings.TrimSpace(data.Session), Since: strings.TrimSpace(data.Since), Until: strings.TrimSpace(data.Until), Level: level, Components: strings.TrimSpace(data.Components), Workspace: strings.TrimSpace(data.Workspace), Tool: strings.TrimSpace(data.Tool), Status: strings.TrimSpace(data.Status), Source: strings.TrimSpace(data.Source), Event: strings.TrimSpace(data.Event), Grep: strings.TrimSpace(data.Grep)}
+	options := application.LogsQueryOptions{Tail: tail, All: data.All, Session: strings.TrimSpace(data.Session), Since: strings.TrimSpace(data.Since), Until: strings.TrimSpace(data.Until), Level: level, Components: strings.TrimSpace(data.Components), Workspace: strings.TrimSpace(data.Workspace), Tool: strings.TrimSpace(data.Tool), Status: strings.TrimSpace(data.Status), Source: strings.TrimSpace(data.Source), Tunnel: strings.TrimSpace(data.Tunnel), Event: strings.TrimSpace(data.Event), Grep: strings.TrimSpace(data.Grep)}
 	if _, err := application.BuildLogsQuery(options, time.Now()); err != nil {
 		return application.LogsQueryOptions{}, logger.VisibilityDefault, err
 	}

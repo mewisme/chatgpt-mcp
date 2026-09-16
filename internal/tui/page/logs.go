@@ -19,6 +19,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 const logsBufferCap = 1024
@@ -1046,9 +1047,9 @@ func (page *LogsPage) logRow(event runtimeevent.Event) component.Row {
 	if event.Name != "" {
 		titleParts = append(titleParts, event.Name)
 	}
-	meta := compactParts(event.WorkspaceID, event.Tool, event.Status)
+	meta := compactParts(event.WorkspaceID, event.Tool, event.Status, tunnel.DisplayLabel(event.TunnelID, event.TunnelName))
 	fields := application.LogFields(event, page.visibility)
-	search := []string{event.RunID, event.Level, event.Kind, event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.Status, event.ServiceID, event.ServiceScope}
+	search := []string{event.RunID, event.Level, event.Kind, event.Name, event.Component, event.Message, event.Error, event.WorkspaceID, event.Tool, event.Method, event.Source, event.TunnelID, event.TunnelName, event.Status, event.ServiceID, event.ServiceScope}
 	for _, field := range fields {
 		value := fmt.Sprint(field.Value)
 		search = append(search, field.Key, value)

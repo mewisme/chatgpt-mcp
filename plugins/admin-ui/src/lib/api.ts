@@ -19,6 +19,8 @@ export type ActivityEvent = {
   phase?: string
   method?: string
   source?: string
+  tunnel_id?: string
+  tunnel_name?: string
   tool?: string
   workspace_id?: string
   session_hash?: string

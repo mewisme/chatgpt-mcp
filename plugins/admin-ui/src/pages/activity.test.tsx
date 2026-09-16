@@ -46,6 +46,45 @@ describe("activity page", () => {
     view.unmount()
   })
 
+  it("labels two tunnels and matches search on name or id", async () => {
+    const encoder = new TextEncoder()
+    const alphaID = "019a1111-2222-7333-8444-aaaaaaaaaaaa"
+    const betaID = "019a1111-2222-7333-8444-bbbbbbbbbbbb"
+    const alpha = { sequence: 1, call_id: alphaID, kind: "tool_call", tool: "echo_a", source: "tunnel", tunnel_id: "tunnel_aaaaaaaaaaaaaaaa", tunnel_name: "Alpha", status: "success", timestamp: "2026-08-31T12:00:00Z" }
+    const beta = { sequence: 2, call_id: betaID, kind: "tool_call", tool: "echo_b", source: "tunnel", tunnel_id: "tunnel_bbbbbbbbbbbbbbbb", tunnel_name: "Beta", status: "success", timestamp: "2026-08-31T12:00:01Z" }
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path === "/api/activity/stream?history=100") return new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value; value.enqueue(encoder.encode('event: ready\ndata: {"latest_sequence":0}\n\n')) } }), { status: 200, headers: { "Content-Type": "text/event-stream" } })
+      if (path === `/api/activity/${alphaID}`) return json(alpha)
+      throw new Error(`Unhandled test request: ${path}`)
+    }))
+    const user = userEvent.setup()
+    const view = renderActivityRouter()
+    expect(await screen.findByText("Live")).toBeInTheDocument()
+    await act(async () => {
+      controller?.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(alpha)}\n\n`))
+      controller?.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(beta)}\n\n`))
+    })
+    expect(await screen.findByText("Alpha")).toBeInTheDocument()
+    expect(screen.getByText("Beta")).toBeInTheDocument()
+    expect(screen.queryByText("tunnel_aaaaaaaaaaaaaaaa")).not.toBeInTheDocument()
+    await user.type(screen.getByPlaceholderText(/Search tool, workspace, source, tunnel, message/), "Alpha")
+    expect(screen.getByText("echo_a")).toBeInTheDocument()
+    expect(screen.queryByText("echo_b")).not.toBeInTheDocument()
+    await user.clear(screen.getByPlaceholderText(/Search tool, workspace, source, tunnel, message/))
+    await user.type(screen.getByPlaceholderText(/Search tool, workspace, source, tunnel, message/), "tunnel_bbbb")
+    expect(screen.getByText("echo_b")).toBeInTheDocument()
+    expect(screen.queryByText("echo_a")).not.toBeInTheDocument()
+    await user.clear(screen.getByPlaceholderText(/Search tool, workspace, source, tunnel, message/))
+    await user.click(await screen.findByText("echo_a"))
+    expect(await screen.findByRole("tab", { name: "Overview" })).toBeInTheDocument()
+    expect(screen.getByText("Alpha")).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "Metadata" }))
+    expect(screen.getByText("tunnel_aaaaaaaaaaaaaaaa")).toBeInTheDocument()
+    await act(async () => { controller?.close() })
+    view.unmount()
+  })
+
   it("reconnects the activity stream without reloading the page", async () => {
     const encoder = new TextEncoder()
     const controllers: ReadableStreamDefaultController<Uint8Array>[] = []

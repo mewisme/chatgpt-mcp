@@ -118,24 +118,35 @@ func TestRepositoryPolicyCoversGoArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	collector := Collector{Root: root}
-	for _, id := range []string{"core", "rtk", "bash"} {
-		inv, err := collector.Generate(id)
+	for _, artifact := range Artifacts() {
+		if artifact.NPMRoot != "" {
+			if _, err := os.Stat(filepath.Join(root, artifact.NPMRoot, "node_modules")); err != nil {
+				t.Logf("skip %s: npm dependencies are not installed", artifact.ID)
+				continue
+			}
+		}
+		inv, err := collector.Generate(artifact.ID)
 		if err != nil {
-			t.Fatalf("%s: %v", id, err)
+			t.Fatalf("%s: %v", artifact.ID, err)
 		}
 		if err := Validate(inv, policy); err != nil {
-			t.Fatalf("%s: %v", id, err)
+			t.Fatalf("%s: %v", artifact.ID, err)
 		}
-		if inv.Artifact != id || len(inv.Packages) == 0 {
-			t.Fatalf("%s inventory = %#v", id, inv)
+		if inv.Artifact != artifact.ID || len(inv.Packages) == 0 {
+			t.Fatalf("%s inventory = %#v", artifact.ID, inv)
 		}
-		if id == "core" {
+		if artifact.ID == "core" {
 			for _, pkg := range inv.Packages {
 				if strings.Contains(pkg.Path, "third_party/") || strings.Contains(pkg.Path, "cloudflared") || pkg.Name == "ponytail" || pkg.Name == "caveman" {
 					t.Fatalf("core inventory includes plugin material %#v", pkg)
 				}
 			}
 		}
+		licenses := map[string]struct{}{}
+		for _, pkg := range inv.Packages {
+			licenses[pkg.License] = struct{}{}
+		}
+		t.Logf("%s packages=%d licenses=%d", artifact.ID, len(inv.Packages), len(licenses))
 	}
 }
 

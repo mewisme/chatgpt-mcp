@@ -638,6 +638,8 @@ Discovery without `--admin` can aggregate multiple profiles and preserves profil
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md) for Platform/ChatGPT configuration.
 
+Cloudflare Quick Tunnel is a separate optional plugin (`cf-tunnel`) with `cgm tunnel cf ...`. It does not share Secure MCP collection, admin profiles, or OpenAI runtime keys.
+
 ## Upstream MCP servers
 
 ```bash

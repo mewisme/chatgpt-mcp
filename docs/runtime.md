@@ -153,7 +153,9 @@ See [Configuration](configuration.md).
 
 ## Tunnel lifecycle
 
-The normal managed runtime automatically starts all enabled attached OpenAI Secure MCP Tunnel instances. They share one `tools.Runtime` but own independent tunnel sessions, reconnect loops, metadata, errors, and lifecycle state.
+The normal managed runtime starts every enabled attached OpenAI Secure MCP Tunnel instance through the `secure-mcp-tunnel` core plugin. Instances share one local `tools.Runtime` and keep independent sessions, reconnect loops, metadata, errors, and lifecycle state. Core does not own a live OpenAI tunnel client.
+
+If the plugin is missing, repair with `cgm plugin install secure-mcp-tunnel`. Direct MCP HTTP and Admin keep running.
 
 Useful commands:
 

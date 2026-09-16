@@ -19,7 +19,7 @@ Actions are instance-scoped:
 
 When no tunnels are attached, the page points at Admin Profiles → Managed Tunnels → attach, or use local attach with an existing runtime key.
 
-All instances share the same local MCP runtime, tools, workspaces, approvals, processes, upstream servers, and plugins. Connection/reconnect/error state remains independent per tunnel.
+All instances share the same local MCP runtime, tools, workspaces, approvals, processes, upstream servers, and plugins. Live OpenAI start/stop/reconnect belongs to the `secure-mcp-tunnel` core plugin; connection/reconnect/error state remains independent per tunnel.
 
 ## Admin profiles
 

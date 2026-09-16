@@ -56,7 +56,6 @@ func (a *App) Bootstrap() error {
 		}
 		a.Upstream = a.Tools.Upstream
 		a.syncMCPHTTP(a.Config.Snapshot().Server.Enabled)
-		a.attachTunnelLifecycle()
 	})
 	if a.bootstrapErr != nil {
 		span.FailMessage("Application runtime bootstrap failed", a.bootstrapErr)

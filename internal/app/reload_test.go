@@ -28,17 +28,11 @@ func TestReloadTunnelCollectionDoesNotOwnLiveManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Tunnels != nil || a.Tunnel != nil {
-		t.Fatal("core constructed a live Secure MCP manager")
-	}
 	next := cfg
 	changed := []tunnel.InstanceConfig{{ID: "a", APIKey: "key-a"}, {ID: "c", APIKey: "key-c"}}
 	next.Tunnel.Instances = &changed
 	if err := a.ReloadConfig(next); err != nil {
 		t.Fatal(err)
-	}
-	if a.Tunnels != nil || a.Tunnel != nil {
-		t.Fatal("reload constructed a live Secure MCP manager")
 	}
 	got := a.Config.Snapshot().RuntimeTunnels().Instances
 	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "c" {
@@ -135,9 +129,6 @@ func TestReloadConfigSyncsTunnelAdminKeyWithoutRuntimeReconfigure(t *testing.T) 
 	got := app.Config.Snapshot().Tunnel
 	if got.AdminKey != "admin-key" || got.AdminWorkspaceID != "ws_admin" {
 		t.Fatalf("tunnel config = %#v", got)
-	}
-	if app.Tunnels != nil || app.Tunnel != nil {
-		t.Fatal("admin-key reload constructed a live Secure MCP manager")
 	}
 }
 

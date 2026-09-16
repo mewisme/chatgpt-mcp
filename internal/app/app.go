@@ -17,7 +17,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
-	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/web"
 )
@@ -28,8 +27,6 @@ type App struct {
 	Upstream      *upstream.Manager
 	Tools         *tools.Runtime
 	Activity      *activity.Stream
-	Tunnels       *tunnel.Manager
-	Tunnel        *tunnel.Client
 	Logger        *logger.Logger
 	Notifications *notification.Service
 	Bridge        *mcp.PrivateBridge

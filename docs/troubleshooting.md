@@ -45,6 +45,16 @@ OpenAI documents that role/permission changes can take time to propagate, so ret
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md).
 
+## Secure MCP Tunnel plugin is missing
+
+Live OpenAI tunnel start/stop belongs to the `secure-mcp-tunnel` core plugin. If `cgm tunnel status` or start/stop reports `secure MCP tunnel core plugin is not installed`, repair with:
+
+```bash
+cgm plugin install secure-mcp-tunnel
+```
+
+Direct MCP HTTP (`/mcp`) and Admin stay up. Core will not start a hidden in-process OpenAI tunnel client. Cloudflare Quick Tunnel (`cf-tunnel`) is a separate optional plugin and does not replace Secure MCP collection management.
+
 ## Tunnel authentication fails / 403
 
 The runtime API key principal likely does not have the required tunnel permissions or is scoped to the wrong organization/tunnel.

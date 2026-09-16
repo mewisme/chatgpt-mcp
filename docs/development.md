@@ -378,3 +378,5 @@ pnpm --dir plugins/admin-ui build
 ```
 
 For changes affecting service behavior, tunnel connectivity, runtime logs, configuration, or MCP protocol behavior, also run the release smoke.
+
+Live two-instance OpenAI Secure MCP validation is a manual/integration gate. Deterministic tests use isolated `CHATGPT_MCP_CONFIG_DIR` and stub backends; they do not call OpenAI.

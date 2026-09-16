@@ -9,10 +9,21 @@ ChatGPT
 OpenAI Secure MCP Tunnel A/B/...
    │ outbound HTTPS
    ▼
-chatgpt-mcp
+secure-mcp-tunnel core plugin
+   │ private MCP bridge
+   ▼
+chatgpt-mcp core
    │
    └─ registered local workspaces and tools
 ```
+
+The live OpenAI tunnel clients, reconnect loop, and readiness live in the `secure-mcp-tunnel` core plugin. `cgm` stores the tunnel collection, last-usable-transport policy, and routes per-instance start/stop to that plugin. Direct MCP HTTP and Admin stay available if the plugin is missing; they do not fall back to an in-core OpenAI client.
+
+```bash
+cgm plugin install secure-mcp-tunnel
+```
+
+Automated tests do not call OpenAI. Two-instance live validation is a manual/integration gate when real credentials exist.
 
 ## What you need
 

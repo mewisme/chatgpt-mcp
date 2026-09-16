@@ -12,7 +12,6 @@ import (
 	mcpnetwork "go.mewis.me/chatgpt-mcp/internal/network"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
-	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -25,7 +24,6 @@ type API struct {
 	Upstream     *upstream.Manager
 	Tools        *tools.Runtime
 	Workspaces   *workspace.Manager
-	Tunnels      *tunnel.Manager
 	Config       *config.RuntimeStore
 	ReloadConfig func(config.Config) error
 	saveConfig   func(config.Config) error

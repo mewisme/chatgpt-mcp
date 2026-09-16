@@ -3,11 +3,13 @@ package admin
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -65,33 +67,40 @@ func TestTunnelCollectionAPIAttachesAndDetachesByID(t *testing.T) {
 	}
 }
 
-func TestAdminProfileMutationRequiresUnambiguousProfile(t *testing.T) {
-	collection := tunnel.CollectionConfig{Admins: []tunnel.AdminConfig{{ID: "a"}, {ID: "b"}}}
-	if _, err := resolveAdminProfile(collection, ""); err == nil {
-		t.Fatal("ambiguous admin profile was accepted")
-	}
-	admin, err := resolveAdminProfile(collection, "b")
-	if err != nil || admin.ID != "b" {
-		t.Fatalf("profile=%+v err=%v", admin, err)
-	}
-}
-
 func TestTunnelAdminCollectionCRUDPreservesSecret(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
+	tunnel.SetAdminBackend(securemcptunnel.ControlPlane())
+	t.Cleanup(func() { tunnel.SetAdminBackend(nil) })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/tunnels" {
+			_, _ = w.Write([]byte(`{"tunnels":[]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
 	cfg := config.Default()
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
 	cfg.Server.AllowUnauthenticatedLoopback = true
 	instances := []tunnel.InstanceConfig{}
 	admins := []tunnel.AdminConfig{}
 	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
-	store := config.NewRuntimeStore(cfg)
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewRuntimeStore(loaded)
 	api := API{Config: store, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {
 		_, err := store.Update(func(config.Config) (config.Config, error) { return next, nil })
 		return err
 	}}
 	handler := New(api)
-
+	body := fmt.Sprintf(`{"id":"work","admin_key":"admin-secret","organization_id":"org_one","control_plane_base_url":%q}`, server.URL)
 	post := httptest.NewRecorder()
-	handler.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/tunnel-admins", bytes.NewBufferString(`{"id":"work","admin_key":"admin-secret","organization_id":"org_one"}`)))
+	handler.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/tunnel-admins", bytes.NewBufferString(body)))
 	if post.Code != http.StatusOK || strings.Contains(post.Body.String(), "admin-secret") || !strings.Contains(post.Body.String(), `"key_configured":true`) {
 		t.Fatalf("post status=%d body=%s", post.Code, post.Body.String())
 	}
@@ -101,13 +110,22 @@ func TestTunnelAdminCollectionCRUDPreservesSecret(t *testing.T) {
 		t.Fatalf("get status=%d body=%s", get.Code, get.Body.String())
 	}
 	put := httptest.NewRecorder()
-	handler.ServeHTTP(put, httptest.NewRequest(http.MethodPut, "/api/tunnel-admins/work", bytes.NewBufferString(`{"organization_id":"org_two","workspace_id":"ws_two"}`)))
+	handler.ServeHTTP(put, httptest.NewRequest(http.MethodPut, "/api/tunnel-admins/work", bytes.NewBufferString(fmt.Sprintf(`{"organization_id":"org_two","control_plane_base_url":%q}`, server.URL))))
 	if put.Code != http.StatusOK || strings.Contains(put.Body.String(), "admin-secret") || !strings.Contains(put.Body.String(), `"organization_id":"org_two"`) {
 		t.Fatalf("put status=%d body=%s", put.Code, put.Body.String())
 	}
 	collection := store.Snapshot().RuntimeTunnels()
-	if len(collection.Admins) != 1 || collection.Admins[0].AdminKey != "admin-secret" || collection.Admins[0].OrganizationID != "org_two" || collection.Admins[0].WorkspaceID != "ws_two" {
+	if len(collection.Admins) != 1 || collection.Admins[0].AdminKey != "admin-secret" || collection.Admins[0].OrganizationID != "org_two" {
 		t.Fatalf("admins=%#v", collection.Admins)
+	}
+	if _, _, err := application.UpdateTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "work", OrganizationID: "org_cli"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.reloadCollectionFromDisk(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().RuntimeTunnels().Admins; len(got) != 1 || got[0].AdminKey != "admin-secret" || got[0].OrganizationID != "org_cli" {
+		t.Fatalf("application update admins=%#v", got)
 	}
 	list := httptest.NewRecorder()
 	handler.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/tunnel-admins", nil))
@@ -127,6 +145,7 @@ func TestTunnelAdminCollectionCRUDPreservesSecret(t *testing.T) {
 }
 
 func TestManagedTunnelAPIKeepsAllProfileProvenance(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	tunnel.SetAdminBackend(securemcptunnel.ControlPlane())
 	t.Cleanup(func() { tunnel.SetAdminBackend(nil) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -145,10 +164,19 @@ func TestManagedTunnelAPIKeepsAllProfileProvenance(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
 	instances := []tunnel.InstanceConfig{}
 	admins := []tunnel.AdminConfig{{ID: "a", AdminKey: "key-a", OrganizationID: "org-a", ManageAccess: true, ControlPlaneBaseURL: server.URL}, {ID: "b", AdminKey: "key-b", OrganizationID: "org-b", ManageAccess: true, ControlPlaneBaseURL: server.URL}}
 	cfg.Tunnel.Instances, cfg.Tunnel.Admins = &instances, &admins
-	handler := New(API{Config: config.NewRuntimeStore(cfg)})
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(API{Config: config.NewRuntimeStore(loaded)})
 	list := httptest.NewRecorder()
 	handler.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/managed-tunnels", nil))
 	if list.Code != http.StatusOK {

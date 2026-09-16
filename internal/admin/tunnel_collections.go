@@ -62,30 +62,9 @@ func (api API) collectionState() (config.Config, tunnel.CollectionConfig, error)
 	return cfg, cfg.RuntimeTunnels(), nil
 }
 
-func setCollection(cfg *config.Config, collection tunnel.CollectionConfig) {
-	instances := append([]tunnel.InstanceConfig{}, collection.Instances...)
-	admins := append([]tunnel.AdminConfig{}, collection.Admins...)
-	cfg.Tunnel = tunnel.Config{Instances: &instances, Admins: &admins}
-}
-
-func (api API) persistTunnelCollection(previous, next config.Config) error {
-	if err := config.Validate(next); err != nil {
-		return err
-	}
-	if err := api.persistConfig(next); err != nil {
-		return err
-	}
-	return api.syncLiveConfig(next)
-}
-
 func (api API) syncLiveConfig(next config.Config) error {
 	if api.ReloadConfig != nil {
 		return api.ReloadConfig(next)
-	}
-	if api.Tunnels != nil {
-		if err := api.Tunnels.Reconcile(context.Background(), next.RuntimeTunnels()); err != nil {
-			return err
-		}
 	}
 	if api.Config != nil {
 		_, err := api.Config.Update(func(config.Config) (config.Config, error) { return next, nil })
@@ -108,7 +87,7 @@ func writeTunnelCollectionError(w http.ResponseWriter, err error) {
 	switch {
 	case strings.Contains(msg, "not attached"), strings.Contains(msg, "not found"):
 		code = http.StatusNotFound
-	case strings.Contains(msg, "already attached"), strings.Contains(msg, "already exists"):
+	case strings.Contains(msg, "already attached"), strings.Contains(msg, "already exists"), strings.Contains(msg, "is used by"):
 		code = http.StatusConflict
 	}
 	http.Error(w, msg, code)
@@ -312,12 +291,16 @@ func profileView(admin tunnel.AdminConfig) adminProfileView {
 	return adminProfileView{ID: admin.ID, KeyConfigured: admin.AdminKey != "", OrganizationID: admin.OrganizationID, WorkspaceID: admin.WorkspaceID, TenantID: admin.TenantID, ReadAccess: admin.ReadAccess, ManageAccess: admin.ManageAccess, ControlPlaneBaseURL: admin.ControlPlaneBaseURL}
 }
 
+func appProfileView(item application.TunnelAdminProfile) adminProfileView {
+	return adminProfileView{ID: item.ID, KeyConfigured: item.KeyConfigured, OrganizationID: item.OrganizationID, WorkspaceID: item.WorkspaceID, TenantID: item.TenantID, ReadAccess: item.ReadAccess, ManageAccess: item.ManageAccess, ControlPlaneBaseURL: item.ControlPlaneBaseURL}
+}
+
 func profileFromRequest(request adminProfileRequest) tunnel.AdminConfig {
 	return tunnel.AdminConfig{ID: strings.TrimSpace(request.ID), AdminKey: strings.TrimSpace(request.AdminKey), OrganizationID: strings.TrimSpace(request.OrganizationID), WorkspaceID: strings.TrimSpace(request.WorkspaceID), TenantID: strings.TrimSpace(request.TenantID), ControlPlaneBaseURL: strings.TrimSpace(request.ControlPlaneBaseURL)}
 }
 
 func (api API) handleTunnelAdmins(w http.ResponseWriter, r *http.Request) {
-	cfg, collection, err := api.collectionState()
+	_, collection, err := api.collectionState()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -335,32 +318,23 @@ func (api API) handleTunnelAdmins(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		admin := profileFromRequest(request)
-		if err := tunnel.ValidateAdminProfileID(admin.ID); err != nil {
+		item, _, err := application.AddTunnelAdminProfile(r.Context(), profileFromRequest(request))
+		if err != nil {
+			writeTunnelCollectionError(w, err)
+			return
+		}
+		if err := api.reloadCollectionFromDisk(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		for _, existing := range collection.Admins {
-			if existing.ID == admin.ID {
-				http.Error(w, "admin profile already exists", http.StatusConflict)
-				return
-			}
-		}
-		collection.Admins = append(collection.Admins, admin)
-		next := cfg
-		setCollection(&next, collection)
-		if err := api.persistTunnelCollection(cfg, next); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		writeJSON(w, profileView(admin))
+		writeJSON(w, appProfileView(item))
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
 
 func (api API) handleTunnelAdmin(w http.ResponseWriter, r *http.Request) {
-	cfg, collection, err := api.collectionState()
+	_, collection, err := api.collectionState()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -384,19 +358,16 @@ func (api API) handleTunnelAdmin(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		access, _, err := tunnel.VerifyAdminProfile(r.Context(), collection.Admins[index])
+		item, _, err := application.VerifyTunnelAdminProfile(r.Context(), id)
 		if err != nil {
+			writeTunnelCollectionError(w, err)
+			return
+		}
+		if err := api.reloadCollectionFromDisk(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		collection.Admins[index].ReadAccess, collection.Admins[index].ManageAccess = access.Read, access.Manage
-		next := cfg
-		setCollection(&next, collection)
-		if err := api.persistTunnelCollection(cfg, next); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		writeJSON(w, profileView(collection.Admins[index]))
+		writeJSON(w, appProfileView(item))
 		return
 	}
 	if len(parts) != 1 {
@@ -418,30 +389,22 @@ func (api API) handleTunnelAdmin(w http.ResponseWriter, r *http.Request) {
 		}
 		admin := profileFromRequest(request)
 		admin.ID = id
-		if admin.AdminKey == "" {
-			admin.AdminKey = collection.Admins[index].AdminKey
-			admin.ReadAccess = collection.Admins[index].ReadAccess
-			admin.ManageAccess = collection.Admins[index].ManageAccess
+		item, _, err := application.UpdateTunnelAdminProfile(r.Context(), admin)
+		if err != nil {
+			writeTunnelCollectionError(w, err)
+			return
 		}
-		collection.Admins[index] = admin
-		next := cfg
-		setCollection(&next, collection)
-		if err := api.persistTunnelCollection(cfg, next); err != nil {
+		if err := api.reloadCollectionFromDisk(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, profileView(admin))
+		writeJSON(w, appProfileView(item))
 	case http.MethodDelete:
-		for _, instance := range collection.Instances {
-			if instance.AdminProfileID == id {
-				http.Error(w, "admin profile is used by a local tunnel", http.StatusConflict)
-				return
-			}
+		if err := application.RemoveTunnelAdminProfile(r.Context(), id); err != nil {
+			writeTunnelCollectionError(w, err)
+			return
 		}
-		collection.Admins = append(collection.Admins[:index], collection.Admins[index+1:]...)
-		next := cfg
-		setCollection(&next, collection)
-		if err := api.persistTunnelCollection(cfg, next); err != nil {
+		if err := api.reloadCollectionFromDisk(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -456,173 +419,92 @@ type managedTunnelView struct {
 	AdminProfiles []string        `json:"admin_profiles"`
 }
 
+func managedView(item application.ManagedTunnelDiscovery) managedTunnelView {
+	return managedTunnelView{Metadata: item.Metadata, AdminProfiles: item.AdminProfiles}
+}
+
+func writeManagedTunnelError(w http.ResponseWriter, err error) {
+	msg := err.Error()
+	code := http.StatusBadGateway
+	switch {
+	case strings.Contains(msg, "lacks"):
+		code = http.StatusForbidden
+	case strings.Contains(msg, "detach local"):
+		code = http.StatusConflict
+	case strings.Contains(msg, "not found"):
+		code = http.StatusNotFound
+	case strings.Contains(msg, "must be specified"):
+		code = http.StatusBadRequest
+	}
+	http.Error(w, msg, code)
+}
+
 func (api API) handleManagedTunnelCollection(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		_, collection, err := api.collectionState()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-			return
-		}
-		admin, err := resolveAdminProfile(collection, r.URL.Query().Get("admin"))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if !admin.ManageAccess {
-			http.Error(w, "admin profile lacks Manage access", http.StatusForbidden)
-			return
-		}
+	profileID := strings.TrimSpace(r.URL.Query().Get("admin"))
+	switch r.Method {
+	case http.MethodPost:
 		var request managedTunnelCreateRequest
 		if err := decodeJSONBody(w, r, &request); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		metadata, err := tunnel.CreateManagedForAdmin(r.Context(), admin, tunnel.CreateRequest{Name: request.Name, Description: request.Description, TenantIDs: request.TenantIDs, WorkspaceIDs: request.WorkspaceIDs, OrganizationIDs: request.OrganizationIDs})
+		item, err := application.CreateManagedTunnelByProfile(r.Context(), profileID, tunnel.CreateRequest{Name: request.Name, Description: request.Description, TenantIDs: request.TenantIDs, WorkspaceIDs: request.WorkspaceIDs, OrganizationIDs: request.OrganizationIDs})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeManagedTunnelError(w, err)
 			return
 		}
-		_, _ = config.SaveTunnelMetadata(metadata)
-		writeJSON(w, managedTunnelView{Metadata: metadata, AdminProfiles: []string{admin.ID}})
-		return
-	}
-	if r.Method != http.MethodGet {
+		writeJSON(w, managedView(item))
+	case http.MethodGet:
+		items, err := application.DiscoverManagedTunnels(r.Context(), profileID)
+		if err != nil {
+			writeManagedTunnelError(w, err)
+			return
+		}
+		views := make([]managedTunnelView, 0, len(items))
+		for _, item := range items {
+			views = append(views, managedView(item))
+		}
+		writeJSON(w, views)
+	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
 	}
-	_, collection, err := api.collectionState()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-	profileID := strings.TrimSpace(r.URL.Query().Get("admin"))
-	items := make(map[string]managedTunnelView)
-	order := []string{}
-	for _, admin := range collection.Admins {
-		if profileID != "" && admin.ID != profileID {
-			continue
-		}
-		if !admin.ReadAccess && !admin.ManageAccess {
-			continue
-		}
-		found, err := tunnel.ListManagedForAdmin(r.Context(), admin)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("admin profile %s: %v", admin.ID, err), http.StatusBadGateway)
-			return
-		}
-		for _, metadata := range found {
-			item, ok := items[metadata.ID]
-			if !ok {
-				item = managedTunnelView{Metadata: metadata}
-				order = append(order, metadata.ID)
-			}
-			item.AdminProfiles = append(item.AdminProfiles, admin.ID)
-			items[metadata.ID] = item
-		}
-	}
-	if profileID != "" {
-		found := false
-		for _, admin := range collection.Admins {
-			if admin.ID == profileID {
-				found = true
-			}
-		}
-		if !found {
-			http.Error(w, "admin profile not found", http.StatusNotFound)
-			return
-		}
-	}
-	views := make([]managedTunnelView, 0, len(order))
-	for _, id := range order {
-		views = append(views, items[id])
-	}
-	writeJSON(w, views)
-}
-
-func resolveAdminProfile(collection tunnel.CollectionConfig, id string) (tunnel.AdminConfig, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		if len(collection.Admins) == 1 {
-			return collection.Admins[0], nil
-		}
-		return tunnel.AdminConfig{}, errors.New("select an admin profile")
-	}
-	for _, admin := range collection.Admins {
-		if admin.ID == id {
-			return admin, nil
-		}
-	}
-	return tunnel.AdminConfig{}, fmt.Errorf("admin profile %q not found", id)
 }
 
 func (api API) handleManagedTunnelCollectionItem(w http.ResponseWriter, r *http.Request) {
-	_, collection, err := api.collectionState()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
-	}
 	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/managed-tunnels/"), "/")
 	if path == "" || strings.Contains(path, "/") {
 		http.Error(w, "managed tunnel id is required", http.StatusBadRequest)
 		return
 	}
-	admin, err := resolveAdminProfile(collection, r.URL.Query().Get("admin"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	profileID := strings.TrimSpace(r.URL.Query().Get("admin"))
 	switch r.Method {
 	case http.MethodGet:
-		if !admin.ReadAccess && !admin.ManageAccess {
-			http.Error(w, "admin profile lacks Read access", http.StatusForbidden)
-			return
-		}
-		metadata, err := tunnel.GetManagedForAdmin(r.Context(), admin, path)
+		item, err := application.GetManagedTunnelByProfile(r.Context(), path, profileID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeManagedTunnelError(w, err)
 			return
 		}
-		writeJSON(w, managedTunnelView{Metadata: metadata, AdminProfiles: []string{admin.ID}})
+		writeJSON(w, managedView(item))
 	case http.MethodPut:
-		if !admin.ManageAccess {
-			http.Error(w, "admin profile lacks Manage access", http.StatusForbidden)
-			return
-		}
 		var request managedTunnelUpdateRequest
 		if err := decodeJSONBody(w, r, &request); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		metadata, err := tunnel.UpdateManagedForAdmin(r.Context(), admin, path, tunnel.UpdateRequest{Name: request.Name, Description: request.Description, TenantIDs: request.TenantIDs, WorkspaceIDs: request.WorkspaceIDs, OrganizationIDs: request.OrganizationIDs})
+		item, err := application.UpdateManagedTunnelByProfile(r.Context(), path, profileID, tunnel.UpdateRequest{Name: request.Name, Description: request.Description, TenantIDs: request.TenantIDs, WorkspaceIDs: request.WorkspaceIDs, OrganizationIDs: request.OrganizationIDs})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeManagedTunnelError(w, err)
 			return
 		}
-		_, _ = config.SaveTunnelMetadata(metadata)
-		writeJSON(w, managedTunnelView{Metadata: metadata, AdminProfiles: []string{admin.ID}})
+		writeJSON(w, managedView(item))
 	case http.MethodDelete:
-		if !admin.ManageAccess {
-			http.Error(w, "admin profile lacks Manage access", http.StatusForbidden)
-			return
-		}
-		for _, instance := range collection.Instances {
-			if instance.ID == path {
-				http.Error(w, "detach local tunnel before remote deletion", http.StatusConflict)
-				return
-			}
-		}
-		metadata, err := tunnel.DeleteManagedForAdmin(r.Context(), admin, path)
+		metadata, err := application.DeleteManagedTunnelByProfile(r.Context(), path, profileID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeManagedTunnelError(w, err)
 			return
 		}
-		_ = config.RemoveTunnelMetadata(metadata.ID)
-		writeJSON(w, managedTunnelView{Metadata: metadata, AdminProfiles: []string{admin.ID}})
+		writeJSON(w, managedTunnelView{Metadata: metadata, AdminProfiles: []string{profileID}})
 	case http.MethodPost:
-		if !admin.ReadAccess && !admin.ManageAccess {
-			http.Error(w, "admin profile lacks Read access", http.StatusForbidden)
-			return
-		}
 		var request struct {
 			RuntimeAPIKey          string `json:"runtime_api_key"`
 			AutoGenerateRuntimeKey bool   `json:"auto_generate_runtime_key"`
@@ -633,7 +515,7 @@ func (api API) handleManagedTunnelCollectionItem(w http.ResponseWriter, r *http.
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		item, err := application.AttachManagedTunnelWithOptions(r.Context(), path, application.AttachManagedTunnelOptions{AdminProfileID: admin.ID, RuntimeAPIKey: request.RuntimeAPIKey, AutoGenerateRuntimeKey: request.AutoGenerateRuntimeKey, ProjectID: request.ProjectID, Enabled: request.Enabled})
+		item, err := application.AttachManagedTunnelWithOptions(r.Context(), path, application.AttachManagedTunnelOptions{AdminProfileID: profileID, RuntimeAPIKey: request.RuntimeAPIKey, AutoGenerateRuntimeKey: request.AutoGenerateRuntimeKey, ProjectID: request.ProjectID, Enabled: request.Enabled})
 		if err != nil {
 			writeTunnelCollectionError(w, err)
 			return

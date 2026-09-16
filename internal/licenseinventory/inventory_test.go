@@ -95,6 +95,20 @@ func TestGenerateWritesStableInventoryWithoutCachePaths(t *testing.T) {
 	if !strings.Contains(string(licenses), "example.com/mod v1.2.3") || !strings.Contains(string(licenses), "SPDX: MIT") {
 		t.Fatalf("licenses.txt = %s", licenses)
 	}
+	notice, err := os.ReadFile(filepath.Join(out, "NOTICE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(notice), "example.com/mod v1.2.3 (MIT)") || strings.Contains(string(notice), root) {
+		t.Fatalf("NOTICE = %s", notice)
+	}
+	sbom, err := os.ReadFile(filepath.Join(out, "sbom.spdx.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sbom), `"spdxVersion": "SPDX-2.3"`) || !strings.Contains(string(sbom), `"created": "2026-01-01T00:00:00Z"`) || strings.Contains(string(sbom), "pkg/mod") {
+		t.Fatalf("sbom = %s", sbom)
+	}
 }
 
 func TestRepositoryPolicyCoversGoArtifacts(t *testing.T) {
@@ -115,6 +129,13 @@ func TestRepositoryPolicyCoversGoArtifacts(t *testing.T) {
 		if inv.Artifact != id || len(inv.Packages) == 0 {
 			t.Fatalf("%s inventory = %#v", id, inv)
 		}
+		if id == "core" {
+			for _, pkg := range inv.Packages {
+				if strings.Contains(pkg.Path, "third_party/") || strings.Contains(pkg.Path, "cloudflared") || pkg.Name == "ponytail" || pkg.Name == "caveman" {
+					t.Fatalf("core inventory includes plugin material %#v", pkg)
+				}
+			}
+		}
 	}
 }
 
@@ -133,6 +154,25 @@ func moduleRoot(t *testing.T) string {
 			t.Fatal("go.mod not found")
 		}
 		dir = parent
+	}
+}
+
+func TestPonytailNoticeIncludesUpstreamAttribution(t *testing.T) {
+	root := moduleRoot(t)
+	inv, err := Collector{Root: root, GoList: func(string, []string) ([]Package, error) { return nil, nil }}.Generate("ponytail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	if err := Write(inv, out); err != nil {
+		t.Fatal(err)
+	}
+	notice, err := os.ReadFile(filepath.Join(out, "NOTICE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(notice), "Dietrich Gebert") || !strings.Contains(string(notice), "third_party/ponytail") {
+		t.Fatalf("NOTICE = %s", notice)
 	}
 }
 

@@ -33,6 +33,7 @@ type Package struct {
 type Inventory struct {
 	Artifact string    `json:"artifact"`
 	Packages []Package `json:"packages"`
+	Notices  []string  `json:"-"`
 }
 
 type AllowedLicense struct {
@@ -47,11 +48,12 @@ type Policy struct {
 }
 
 type CopiedSource struct {
-	Name    string
-	Version string
-	License string
-	Path    string
-	Source  string
+	Name       string
+	Version    string
+	License    string
+	Path       string
+	Source     string
+	NoticePath string
 }
 
 type Artifact struct {
@@ -73,17 +75,15 @@ type Collector struct {
 func Artifacts() []Artifact {
 	return []Artifact{
 		{ID: "core", GoPackages: []string{"."}, RootLicense: "Apache-2.0", RootName: "go.mewis.me/chatgpt-mcp", RootVersion: "core"},
-		{ID: "admin-ui", NPMRoot: "plugins/admin-ui", RootLicense: "Apache-2.0", RootName: "admin-ui", RootVersion: "plugin", Copied: []CopiedSource{{
-			Name: "@fontsource-variable/inter", Version: "distributed", License: "OFL-1.1", Path: "plugins/admin-ui", Source: "https://fontsource.org/fonts/inter",
-		}}},
+		{ID: "admin-ui", NPMRoot: "plugins/admin-ui", RootLicense: "Apache-2.0", RootName: "admin-ui", RootVersion: "plugin"},
 		{ID: "secure-mcp-tunnel", GoPackages: []string{"./plugins/secure-mcp-tunnel/cmd/secure-mcp-tunnel"}, RootLicense: "Apache-2.0", RootName: "secure-mcp-tunnel", RootVersion: "plugin"},
 		{ID: "tui", GoPackages: []string{"./plugins/tui/cmd/tui"}, RootLicense: "Apache-2.0", RootName: "tui", RootVersion: "plugin"},
 		{ID: "markdown-formatter", GoPackages: []string{"./plugins/markdown-formatter/cmd/markdown-formatter"}, RootLicense: "Apache-2.0", RootName: "markdown-formatter", RootVersion: "plugin"},
 		{ID: "ponytail", GoPackages: []string{"./plugins/ponytail/cmd/ponytail"}, RootLicense: "Apache-2.0", RootName: "ponytail", RootVersion: "plugin", Copied: []CopiedSource{{
-			Name: "third_party/ponytail", Version: "974d940", License: "MIT", Path: "third_party/ponytail", Source: "https://github.com/DietrichGebert/ponytail",
+			Name: "third_party/ponytail", Version: "974d940", License: "MIT", Path: "third_party/ponytail", Source: "https://github.com/DietrichGebert/ponytail", NoticePath: "third_party/ponytail/NOTICE.md",
 		}}},
 		{ID: "caveman", GoPackages: []string{"./plugins/caveman/cmd/caveman"}, RootLicense: "Apache-2.0", RootName: "caveman", RootVersion: "plugin", Copied: []CopiedSource{{
-			Name: "third_party/caveman", Version: "5184b3d", License: "MIT", Path: "third_party/caveman", Source: "https://github.com/JuliusBrussee/caveman",
+			Name: "third_party/caveman", Version: "5184b3d", License: "MIT", Path: "third_party/caveman", Source: "https://github.com/JuliusBrussee/caveman", NoticePath: "third_party/caveman/NOTICE.md",
 		}}},
 		{ID: "cf-tunnel", GoPackages: []string{"./plugins/cf-tunnel/cmd/cf-tunnel"}, RootLicense: "Apache-2.0", RootName: "cf-tunnel", RootVersion: "plugin", Copied: []CopiedSource{{
 			Name: "plugins/cf-tunnel/internal/cloudflared", Version: "2026.9.1", License: "Apache-2.0", Path: "plugins/cf-tunnel/internal/cloudflared", Source: "https://github.com/cloudflare/cloudflared",
@@ -133,6 +133,7 @@ func (collector Collector) Generate(artifactID string) (Inventory, error) {
 		npmList = listNPMPackages
 	}
 	var packages []Package
+	var notices []string
 	packages = append(packages, Package{Name: artifact.RootName, Version: artifact.RootVersion, License: artifact.RootLicense, Path: artifact.ID, Kind: KindRoot})
 	if len(artifact.GoPackages) > 0 {
 		mods, err := goList(collector.Root, artifact.GoPackages)
@@ -155,6 +156,13 @@ func (collector Collector) Generate(artifactID string) (Inventory, error) {
 		} else {
 			pkg.Text = text
 		}
+		if copied.NoticePath != "" {
+			notice, err := os.ReadFile(filepath.Join(collector.Root, copied.NoticePath))
+			if err != nil {
+				return Inventory{}, err
+			}
+			notices = append(notices, strings.TrimSpace(string(notice)))
+		}
 		packages = append(packages, pkg)
 	}
 	packages = dedupePackages(packages)
@@ -167,7 +175,7 @@ func (collector Collector) Generate(artifactID string) (Inventory, error) {
 		}
 		return packages[i].Kind < packages[j].Kind
 	})
-	return Inventory{Artifact: artifactID, Packages: packages}, nil
+	return Inventory{Artifact: artifactID, Packages: packages, Notices: notices}, nil
 }
 
 func Validate(inv Inventory, policy Policy) error {
@@ -210,6 +218,16 @@ func Write(inv Inventory, outputDir string) error {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(outputDir, "license-inventory.json"), append(data, '\n'), 0644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "NOTICE"), []byte(renderNOTICE(inv)), 0644); err != nil {
+		return err
+	}
+	sbom, err := json.MarshalIndent(renderSBOM(inv), "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "sbom.spdx.json"), append(sbom, '\n'), 0644); err != nil {
 		return err
 	}
 	var builder strings.Builder

@@ -29,7 +29,7 @@ The main path is intentionally small: ChatGPT reaches the local runtime through 
 
 - **Private by default for ChatGPT** — the Secure MCP Tunnel is outbound-only from your machine; public MCP ingress is not required.
 - **Workspace-bound access** — filesystem, shell, Git, process, context, memory, rules, skills, and checkpoints operate against explicit `ws_*` workspace targets.
-- **Local control stays local** — use the CLI, full-screen TUI, or embedded Admin UI to inspect and operate the runtime.
+- **Local control stays local** — use the CLI, full-screen TUI, or independently distributed Admin UI plugin to inspect and operate the runtime.
 - **MCP aggregation** — optionally expose tools from upstream MCP servers through the same runtime.
 - **One cross-platform binary** — native releases for Linux, macOS, and Windows on amd64 and arm64, with managed background-service support.
 

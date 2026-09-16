@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	"go.mewis.me/chatgpt-mcp/internal/redact"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
+	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
@@ -108,6 +110,45 @@ func (d *doctorState) checkNetworkPlan(ctx context.Context) doctorResult {
 		return doctorResult{Status: doctorFail, Summary: "listener plan is invalid", Error: redact.Text(err.Error())}
 	}
 	return doctorResult{Status: doctorPass, Summary: "listener plan resolved", Details: []string{fmt.Sprintf("%d addresses", len(plan.Addresses)), string(d.cfg.Server.Expose.Mode)}}
+}
+
+func (d *doctorState) checkNetworkHealth(ctx context.Context) doctorResult {
+	if !d.cfg.Server.Enabled && !d.cfg.Admin.Enabled {
+		return doctorResult{Status: doctorSkip, Summary: "no local HTTP listeners are enabled"}
+	}
+	if err := waitRuntimeHTTPReady(ctx, d.cfg, 2*time.Second); err != nil {
+		return doctorResult{Status: doctorFail, Summary: "local HTTP health probe failed", Error: redact.Text(err.Error())}
+	}
+	return doctorResult{Status: doctorPass, Summary: "local HTTP listeners responded"}
+}
+
+func (d *doctorState) checkService(ctx context.Context, scopeName string) doctorResult {
+	scope := managed.ScopeUser
+	if scopeName == "system" {
+		scope = managed.ScopeSystem
+	}
+	overview := application.LoadServiceOverview(scope)
+	id := "user"
+	if scope == managed.ScopeSystem {
+		id = "system"
+	}
+	if !overview.Supported {
+		return doctorResult{Status: doctorSkip, Summary: id + " managed service is not supported on this platform"}
+	}
+	if overview.Err != "" {
+		return doctorResult{Status: doctorWarn, Summary: id + " managed service could not be inspected", Error: redact.Text(overview.Err)}
+	}
+	if !overview.Installed {
+		return doctorResult{Status: doctorSkip, Summary: id + " managed service is not installed"}
+	}
+	details := []string{overview.Backend, overview.ID}
+	if overview.Warning != "" {
+		return doctorResult{Status: doctorWarn, Summary: id + " managed service is installed with a warning", Details: append(details, overview.Warning)}
+	}
+	if overview.Running {
+		return doctorResult{Status: doctorPass, Summary: id + " managed service is running", Details: details}
+	}
+	return doctorResult{Status: doctorPass, Summary: id + " managed service is installed", Details: details}
 }
 
 func (d *doctorState) checkAuthMCP(ctx context.Context) doctorResult {

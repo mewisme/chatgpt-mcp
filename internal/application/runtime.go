@@ -96,6 +96,10 @@ func LoadRuntimeOverview(ctx context.Context) (RuntimeOverview, error) {
 	return overview, nil
 }
 
+func LoadServiceOverview(scope managed.Scope) ServiceOverview {
+	return loadServiceOverview(scope)
+}
+
 func loadServiceOverview(scope managed.Scope) ServiceOverview {
 	overview := ServiceOverview{Scope: scope, Supported: scope == managed.ScopeUser || runtime.GOOS != "windows"}
 	if !overview.Supported {

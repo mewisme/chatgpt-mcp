@@ -1196,8 +1196,8 @@ func (page *PluginPage) initEditorRoute() error {
 	}
 	data := &pluginRegistryFormData{Issuer: pluginpkg.OfficialSigstoreIssuer}
 	form := component.NewEditorForm(component.Group(
-		component.Input("Registry name", &data.Name).Validate(requiredValue("registry name")),
-		component.Input("Registry HTTPS URL", &data.URL).Validate(requiredValue("registry URL")),
+		component.Input("Registry name", &data.Name).Validate(pluginpkg.ValidateRegistryName),
+		component.Input("Registry HTTPS URL", &data.URL).Validate(pluginpkg.ValidateRegistryURL),
 		component.Input("Pinned Sigstore issuer", &data.Issuer).Validate(requiredValue("Sigstore issuer")),
 		component.Input("Pinned signing repository", &data.Repository).Validate(requiredValue("signing repository")),
 		component.Switch("Allow unqualified plugin resolution", &data.Unqualified, "Yes", "No"),

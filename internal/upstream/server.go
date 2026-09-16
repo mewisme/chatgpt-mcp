@@ -80,6 +80,26 @@ func CloneStringMap(value map[string]string) map[string]string {
 }
 
 var invalidPrefix = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+var serverIDPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$`)
+
+func ValidateServerID(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return errors.New("upstream server id is required")
+	}
+	if !serverIDPattern.MatchString(value) {
+		return errors.New("upstream server id may contain only letters, numbers, '.', '_', and '-'")
+	}
+	return nil
+}
+
+func ValidateHTTPURL(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return errors.New("http upstream requires url")
+	}
+	_, err := outboundpolicy.ParseHTTPURL(raw)
+	return err
+}
 
 func NormalizeServer(value Server) (Server, error) {
 	value.ID = strings.TrimSpace(value.ID)

@@ -125,3 +125,11 @@ func TestMCPServerEditorStdioWorkingDirectoryUsesPathPickerFallback(t *testing.T
 	}
 	testutil.AssertLinesFit(t, field.View(), 48)
 }
+
+func TestMCPServerEditorRejectsSpacedID(t *testing.T) {
+	editor, _ := newMCPServerEditor(upstream.Server{ID: "my server", Transport: "http", URL: "https://example.test", IdleTimeoutSec: 600}, true)
+	_ = editor.Init()
+	if err := editor.Validate(); err == nil || !strings.Contains(err.Error(), "letters, numbers") {
+		t.Fatalf("err=%v", err)
+	}
+}

@@ -815,6 +815,19 @@ func TestTunnelAdminsPageListsProfilesAndOpensCreateEditor(t *testing.T) {
 	testutil.AssertLinesFit(t, page.View(72, 24), 72)
 }
 
+func TestTunnelAdminProfileEditorRejectsSpacedID(t *testing.T) {
+	editor, _ := newTunnelAdminProfileEditor(application.TunnelAdminProfile{ID: "my profile"}, true)
+	_ = editor.Init()
+	if err := editor.Validate(); err == nil || !strings.Contains(err.Error(), "letters, numbers") {
+		t.Fatalf("err=%v", err)
+	}
+	editor, _ = newTunnelAdminProfileEditor(application.TunnelAdminProfile{ID: "personal"}, true)
+	_ = editor.Init()
+	if err := editor.Validate(); err == nil || !strings.Contains(err.Error(), "admin API key") {
+		t.Fatalf("valid id still needs key, err=%v", err)
+	}
+}
+
 func TestTunnelAdminsPageCreateSuccessClearsDirtyBeforeNavigate(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{})
 	page, err := NewTunnelAdmins(t.Context(), "", "create")

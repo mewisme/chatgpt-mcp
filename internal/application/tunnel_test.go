@@ -431,3 +431,11 @@ func assertTunnelSecretNotInManagedFiles(t *testing.T, secret string) {
 		}
 	}
 }
+
+func TestAddTunnelAdminProfileRejectsInvalidID(t *testing.T) {
+	setupTunnelApplicationRoot(t, tunnel.Config{})
+	_, _, err := AddTunnelAdminProfile(t.Context(), tunnel.AdminConfig{ID: "my profile", AdminKey: "admin-secret", WorkspaceID: "ws_admin"})
+	if err == nil || !strings.Contains(err.Error(), "letters, numbers") {
+		t.Fatalf("err=%v", err)
+	}
+}

@@ -290,8 +290,8 @@ func adminProfileView(admin tunnel.AdminConfig) TunnelAdminProfile {
 
 func AddTunnelAdminProfile(ctx context.Context, admin tunnel.AdminConfig) (TunnelAdminProfile, int, error) {
 	admin.ID = strings.TrimSpace(admin.ID)
-	if admin.ID == "" {
-		return TunnelAdminProfile{}, 0, errors.New("admin profile id is required")
+	if err := tunnel.ValidateAdminProfileID(admin.ID); err != nil {
+		return TunnelAdminProfile{}, 0, err
 	}
 	if strings.TrimSpace(admin.AdminKey) == "" {
 		return TunnelAdminProfile{}, 0, errors.New("admin key is required")

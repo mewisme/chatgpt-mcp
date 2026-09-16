@@ -188,3 +188,36 @@ func TestManagedTunnelAPIKeepsAllProfileProvenance(t *testing.T) {
 		t.Fatalf("ambiguous delete status=%d body=%s", ambiguous.Code, ambiguous.Body.String())
 	}
 }
+
+func TestTunnelAdminAPIRejectsInvalidProfileID(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	admins := []tunnel.AdminConfig{}
+	cfg.Tunnel.Admins = &admins
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewRuntimeStore(loaded)
+	manager := tunnel.NewManager(&tools.Runtime{Registry: tools.NewRegistry()}, nil)
+	if err := manager.Reconcile(context.Background(), loaded.RuntimeTunnels()); err != nil {
+		t.Fatal(err)
+	}
+	api := API{Config: store, Tunnels: manager, saveConfig: func(config.Config) error { return nil }, ReloadConfig: func(next config.Config) error {
+		if err := manager.Reconcile(context.Background(), next.RuntimeTunnels()); err != nil {
+			return err
+		}
+		_, err := store.Update(func(config.Config) (config.Config, error) { return next, nil })
+		return err
+	}}
+	post := httptest.NewRecorder()
+	New(api).ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/tunnel-admins", bytes.NewBufferString(`{"id":"my profile","admin_key":"admin-secret","organization_id":"org_one"}`)))
+	if post.Code != http.StatusBadRequest || !strings.Contains(post.Body.String(), "letters, numbers") {
+		t.Fatalf("status=%d body=%s", post.Code, post.Body.String())
+	}
+}

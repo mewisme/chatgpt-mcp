@@ -66,7 +66,13 @@ func (page *PluginPage) initPluginConfigEditor() error {
 			data.Texts[field.Key] = &value
 			captured := field
 			if field.Sensitive {
-				fields = append(fields, component.PasswordInput(title, data.Texts[field.Key]).Placeholder("leave blank to keep"))
+				fields = append(fields, component.PasswordInput(title, data.Texts[field.Key]).Placeholder("leave blank to keep").Validate(func(raw string) error {
+					if strings.TrimSpace(raw) == "" {
+						return nil
+					}
+					_, err := pluginpkg.ParseSettingValue(captured, raw)
+					return err
+				}))
 				continue
 			}
 			input := component.Input(title, data.Texts[field.Key]).Validate(func(raw string) error {

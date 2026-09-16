@@ -5,6 +5,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/update"
 )
 
 type installFormData struct {
@@ -38,7 +39,7 @@ func (data *installFormData) Options() application.InstallCurrentOptions {
 func newUpdateEditor() (component.Editor, *updateFormData) {
 	data := &updateFormData{}
 	editor := component.NewEditor("update", component.EditorSection{ID: "update", Title: "Update", Description: "Verify and apply a release to the managed installation.", Form: component.NewEditorForm(component.Group(
-		component.Input("Target version (blank = latest; explicit may downgrade)", &data.TargetVersion),
+		component.Input("Target version (blank = latest; explicit may downgrade)", &data.TargetVersion).Validate(validateOptionalTargetVersion),
 		component.Switch("Skip managed runtime restart", &data.NoRestart, "YES", "NO"),
 	))})
 	return editor, data
@@ -49,4 +50,13 @@ func (data *updateFormData) Options() application.UpdateApplyOptions {
 		return application.UpdateApplyOptions{}
 	}
 	return application.UpdateApplyOptions{TargetVersion: strings.TrimSpace(data.TargetVersion), NoRestart: data.NoRestart}
+}
+
+func validateOptionalTargetVersion(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	_, err := update.NormalizeVersion(value)
+	return err
 }

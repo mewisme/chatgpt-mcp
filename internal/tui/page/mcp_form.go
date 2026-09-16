@@ -69,7 +69,7 @@ func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, 
 	data := newMCPServerFormData(server, create)
 	generalFields := []huh.Field{}
 	if create {
-		generalFields = append(generalFields, component.Input("Server ID", &data.ID).Validate(requiredValue("server id")))
+		generalFields = append(generalFields, component.Input("Server ID", &data.ID).Validate(upstream.ValidateServerID))
 	}
 	generalFields = append(generalFields,
 		component.Input("Display name", &data.Name),
@@ -78,17 +78,27 @@ func newMCPServerEditor(server upstream.Server, create bool) (component.Editor, 
 	)
 	connection := component.NewEditorForm(
 		component.Group(
-			component.Input("HTTP MCP URL", &data.URL),
-			component.Text("Non-sensitive headers (KEY=VALUE, one per line)", &data.Headers),
-			component.PasswordInput("Sensitive headers JSON (optional; blank keeps existing)", &data.SensitiveHeaders),
+			component.Input("HTTP MCP URL", &data.URL).Validate(func(raw string) error {
+				if data.Transport != "http" {
+					return nil
+				}
+				return upstream.ValidateHTTPURL(raw)
+			}),
+			component.Text("Non-sensitive headers (KEY=VALUE, one per line)", &data.Headers).Validate(validateAssignments("header")),
+			component.PasswordInput("Sensitive headers JSON (optional; blank keeps existing)", &data.SensitiveHeaders).Validate(validateOptionalJSONObject("header")),
 			component.Input("Bearer token environment variable", &data.BearerTokenEnvVar),
 		).WithHideFunc(func() bool { return data.Transport != "http" }),
 		component.Group(
-			component.Input("Command", &data.Command),
+			component.Input("Command", &data.Command).Validate(func(raw string) error {
+				if data.Transport != "stdio" {
+					return nil
+				}
+				return requiredValue("command")(raw)
+			}),
 			component.Text("Arguments (one per line)", &data.Args),
 			newMCPWorkingDirectoryField(&data.CWD),
-			component.Text("Non-sensitive environment (KEY=VALUE, one per line)", &data.Env),
-			component.PasswordInput("Sensitive environment JSON (optional; blank keeps existing)", &data.SensitiveEnv),
+			component.Text("Non-sensitive environment (KEY=VALUE, one per line)", &data.Env).Validate(validateAssignments("env")),
+			component.PasswordInput("Sensitive environment JSON (optional; blank keeps existing)", &data.SensitiveEnv).Validate(validateOptionalJSONObject("env")),
 		).WithHideFunc(func() bool { return data.Transport != "stdio" }),
 	)
 	tools := component.NewEditorForm(component.Group(
@@ -240,6 +250,27 @@ func validatePositiveInt(label string) func(string) error {
 		parsed, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || parsed <= 0 {
 			return fmt.Errorf("%s must be a positive integer", label)
+		}
+		return nil
+	}
+}
+
+func validateAssignments(label string) func(string) error {
+	return func(raw string) error {
+		_, err := upstream.ParseAssignments(splitLines(raw), label)
+		return err
+	}
+}
+
+func validateOptionalJSONObject(label string) func(string) error {
+	return func(raw string) error {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return nil
+		}
+		var value map[string]string
+		if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			return fmt.Errorf("decode sensitive %s JSON: %w", label, err)
 		}
 		return nil
 	}

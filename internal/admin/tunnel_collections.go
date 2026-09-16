@@ -348,8 +348,8 @@ func (api API) handleTunnelAdmins(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		admin := profileFromRequest(request)
-		if admin.ID == "" {
-			http.Error(w, "admin profile id is required", http.StatusBadRequest)
+		if err := tunnel.ValidateAdminProfileID(admin.ID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		for _, existing := range collection.Admins {

@@ -40,7 +40,7 @@ func newTunnelAdminProfileEditor(profile application.TunnelAdminProfile, create 
 	}
 	fields := []huh.Field{}
 	if create {
-		fields = append(fields, component.Input("Profile ID", &data.ID).Placeholder("personal").Validate(requiredValue("profile id")))
+		fields = append(fields, component.Input("Profile ID", &data.ID).Placeholder("personal").Validate(tunnel.ValidateAdminProfileID))
 	}
 	key := component.PasswordInput("OpenAI admin API key", &data.AdminKey)
 	if create {
@@ -56,7 +56,7 @@ func newTunnelAdminProfileEditor(profile application.TunnelAdminProfile, create 
 			huh.NewOption("Tenant", "tenant"),
 		),
 		component.Input("Scope ID", &data.ScopeID).Validate(requiredValue("scope id")),
-		component.Input("Control plane base URL", &data.ControlPlane).Placeholder("Blank uses the default OpenAI endpoint."),
+		component.Input("Control plane base URL", &data.ControlPlane).Placeholder("Blank uses the default OpenAI endpoint.").Validate(tunnel.ValidateControlPlaneBaseURL),
 	)
 	primary := "save"
 	if create {
@@ -136,7 +136,7 @@ func newLocalTunnelEditor(item application.LocalTunnel, create bool, profiles []
 		fields = append(fields, component.Select("Admin profile", &data.AdminProfileID, options...))
 	}
 	fields = append(fields,
-		component.Input("Control plane base URL", &data.ControlPlane).Placeholder("Blank uses the default OpenAI endpoint."),
+		component.Input("Control plane base URL", &data.ControlPlane).Placeholder("Blank uses the default OpenAI endpoint.").Validate(tunnel.ValidateControlPlaneBaseURL),
 		component.Input("Organization ID", &data.OrganizationID),
 	)
 	primary, title, description := "save", "Local Tunnel", "Update this attached tunnel. Blank runtime API key keeps the current secret."

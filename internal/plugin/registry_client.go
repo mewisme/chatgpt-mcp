@@ -280,17 +280,39 @@ func (client RegistryClient) cacheDir(registry Registry) string {
 }
 
 func validateRegistryDescriptor(registry Registry) error {
-	if !validCanonicalName(registry.Name) {
-		return fmt.Errorf("invalid plugin registry name: %q", registry.Name)
+	if err := ValidateRegistryName(registry.Name); err != nil {
+		return err
 	}
-	parsed, err := url.Parse(strings.TrimSpace(registry.URL))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return fmt.Errorf("plugin registry URL must use HTTPS: %s", registry.URL)
+	if err := ValidateRegistryURL(registry.URL); err != nil {
+		return err
 	}
 	if registry.Name != OfficialRegistryName {
 		if registry.Trust == nil || strings.TrimSpace(registry.Trust.Issuer) == "" || strings.TrimSpace(registry.Trust.Repository) == "" {
 			return fmt.Errorf("plugin registry %s requires a pinned Sigstore trust identity", registry.Name)
 		}
+	}
+	return nil
+}
+
+func ValidateRegistryDescriptor(registry Registry) error {
+	return validateRegistryDescriptor(registry)
+}
+
+func ValidateRegistryName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("plugin registry name is required")
+	}
+	if !validCanonicalName(name) {
+		return fmt.Errorf("invalid plugin registry name: %q", name)
+	}
+	return nil
+}
+
+func ValidateRegistryURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf("plugin registry URL must use HTTPS: %s", raw)
 	}
 	return nil
 }

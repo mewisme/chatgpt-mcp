@@ -289,10 +289,14 @@ func (m *Manager) session(workspaceID, workspaceRoot string) (*session, error) {
 }
 
 func (m *Manager) load(workspaceID, workspaceRoot string) (SessionState, error) {
-	data, err := os.ReadFile(m.statePath(workspaceID))
+	path, err := m.statePath(workspaceID)
+	if err != nil {
+		return SessionState{}, err
+	}
+	data, err := os.ReadFile(path)
 	if err == nil {
 		var state SessionState
-		if configformat.UnmarshalPath(m.statePath(workspaceID), data, &state) == nil && state.WorkspaceID == workspaceID && strings.TrimSpace(state.CWD) != "" {
+		if configformat.UnmarshalPath(path, data, &state) == nil && state.WorkspaceID == workspaceID && strings.TrimSpace(state.CWD) != "" {
 			resolved, resolveErr := m.resolveDirectory(workspaceID, workspaceRoot, state.CWD)
 			if resolveErr == nil {
 				state.CWD = resolved
@@ -317,7 +321,10 @@ func (m *Manager) load(workspaceID, workspaceRoot string) (SessionState, error) 
 }
 
 func (m *Manager) save(state SessionState) error {
-	path := m.statePath(state.WorkspaceID)
+	path, err := m.statePath(state.WorkspaceID)
+	if err != nil {
+		return err
+	}
 	data, err := configformat.MarshalPath(path, state)
 	if err != nil {
 		return err
@@ -325,8 +332,12 @@ func (m *Manager) save(state SessionState) error {
 	return statepkg.WriteFileAtomic(path, data, 0600)
 }
 
-func (m *Manager) statePath(workspaceID string) string {
-	return filepath.Join(m.root, "workspaces", workspaceID, "shell"+configformat.ExtensionForRoot(m.root))
+func (m *Manager) statePath(workspaceID string) (string, error) {
+	local, err := m.workspaces.LocalState(workspaceID)
+	if err != nil {
+		return "", err
+	}
+	return local.StatePath("shell" + configformat.ExtensionForRoot(m.root)), nil
 }
 
 func (m *Manager) resolveDirectory(workspaceID, workspaceRoot, input string) (string, error) {

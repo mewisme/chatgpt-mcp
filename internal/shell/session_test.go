@@ -298,7 +298,7 @@ func TestShellStateFollowsRootConfigFormat(t *testing.T) {
 	if _, err := manager.Status(item.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "workspaces", item.ID, "shell.toml")); err != nil {
+	if _, err := os.Stat(filepath.Join(workspaceRoot, ".cgm", "state", "shell.toml")); err != nil {
 		t.Fatalf("shell state did not follow TOML format: %v", err)
 	}
 }

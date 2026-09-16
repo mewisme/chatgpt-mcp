@@ -28,7 +28,11 @@ func TestProcessManagerResolvesRelocatedWorkspaceAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	relocated, err := manager.Relocate(item.ID, t.TempDir())
+	relocatedRoot := filepath.Join(t.TempDir(), "relocated")
+	if err := os.Rename(item.Path, relocatedRoot); err != nil {
+		t.Fatal(err)
+	}
+	relocated, err := manager.Relocate(item.ID, relocatedRoot)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,7 +5,30 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
+
+func TestWorkspaceStoreUsesLocalCGMPath(t *testing.T) {
+	root := t.TempDir()
+	manager := workspace.NewManager(filepath.Join(t.TempDir(), "workspaces.json"))
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewWorkspaceStore(t.TempDir(), manager)
+	want := filepath.Join(root, ".cgm", "memory", "MEMORY.md")
+	if got := store.WorkspacePath(item.ID); got != want {
+		t.Fatalf("workspace memory path=%q want %q", got, want)
+	}
+	path, err := store.Upsert(item.ID, "tooling", "package-manager", "use pnpm")
+	if err != nil || path != want {
+		t.Fatalf("saved path=%q err=%v", path, err)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestParseRenderCanonicalMemoryRoundTrip(t *testing.T) {
 	input := "## tui\n\n### theme\n- Use Charm defaults.\n\n### layout\n- Center the main layout.\n\n## coding-style\n\n### imports\n- Keep imports contiguous.\n"

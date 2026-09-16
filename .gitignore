@@ -4,4 +4,5 @@ apply-*
 /plugins/admin-ui/coverage/
 .agents/
 .local/
+.cgm/
 *.cgm

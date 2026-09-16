@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -156,6 +157,26 @@ func TestStoreDisableIfEnabledIsIdempotent(t *testing.T) {
 	changed, err = store.DisableIfEnabled("missing")
 	if err != nil || changed {
 		t.Fatalf("missing plugin disable changed=%t err=%v", changed, err)
+	}
+}
+
+func TestActivateRejectsLocalDevOnReleaseBuild(t *testing.T) {
+	release := testStore(t)
+	manifest := testManifest("bash", "1.0.0", "shell/bash")
+	if _, err := release.Install(manifest, testPayload(t, "bash")); err != nil {
+		t.Fatal(err)
+	}
+	err := release.Activate("bash", "1.0.0", ActivationTrust{Registry: RegistryLocalDev, Publisher: "mewisme", Trusted: true})
+	if err == nil || !strings.Contains(err.Error(), "local-dev plugins are not accepted by release builds") {
+		t.Fatalf("release err=%v", err)
+	}
+	dev := testStore(t)
+	dev.runtime.CoreVersion = "dev"
+	if _, err := dev.Install(manifest, testPayload(t, "bash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := dev.Activate("bash", "1.0.0", ActivationTrust{Registry: RegistryLocalDev, Publisher: "mewisme", Trusted: true}); err != nil {
+		t.Fatal(err)
 	}
 }
 

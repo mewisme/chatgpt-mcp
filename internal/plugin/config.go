@@ -148,7 +148,7 @@ func (config Config) Validate() error {
 		if !validCanonicalName(desired.Registry) {
 			return fmt.Errorf("invalid desired registry for plugin %s: %q", id, desired.Registry)
 		}
-		if desired.Registry != OfficialRegistryName {
+		if desired.Registry != OfficialRegistryName && desired.Registry != RegistryLocalDev {
 			if _, ok := config.Registries[desired.Registry]; !ok {
 				return fmt.Errorf("desired plugin %s references unconfigured registry %s", id, desired.Registry)
 			}

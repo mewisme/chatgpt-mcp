@@ -12,6 +12,7 @@ const (
 	RegistrySchema          = 1
 	PublishersSchema        = 1
 	OfficialRegistryName    = "official"
+	RegistryLocalDev        = "local-dev"
 	OfficialRegistryBaseURL = "https://github.com/mewisme/chatgpt-mcp/releases/download/plugins"
 	OfficialSigstoreIssuer  = "https://token.actions.githubusercontent.com"
 	OfficialSigstoreRepo    = "mewisme/chatgpt-mcp"

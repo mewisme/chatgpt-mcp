@@ -328,6 +328,9 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 	if !trust.Trusted {
 		return errors.New("plugin publisher is not trusted")
 	}
+	if trust.Registry == RegistryLocalDev && !coreversion.IsDevelopment(store.runtime.CoreVersion) {
+		return errors.New("local-dev plugins are not accepted by release builds")
+	}
 	if !validCanonicalName(trust.Registry) {
 		return fmt.Errorf("invalid plugin registry: %q", trust.Registry)
 	}

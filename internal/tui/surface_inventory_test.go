@@ -35,6 +35,12 @@ func TestSurfaceInventoryTUIActions(t *testing.T) {
 	if byID["runtime.foreground"].Kind != "external-command" {
 		t.Fatalf("runtime.foreground kind=%q", byID["runtime.foreground"].Kind)
 	}
+	if byID["plugin.install"].Kind != "native" {
+		t.Fatalf("plugin.install kind=%q", byID["plugin.install"].Kind)
+	}
+	if byID["tunnel.add"].Kind != "native" {
+		t.Fatalf("tunnel.add kind=%q", byID["tunnel.add"].Kind)
+	}
 	if byID["config.initialize.external"].Kind != "external-command" {
 		t.Fatalf("config.initialize.external kind=%q", byID["config.initialize.external"].Kind)
 	}

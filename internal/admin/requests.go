@@ -16,7 +16,8 @@ import (
 const approvalHeartbeatInterval = 15 * time.Second
 
 type approvalResolutionRequest struct {
-	Reason string `json:"reason,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	AllowSimilar bool   `json:"allow_similar,omitempty"`
 }
 
 func (api API) handleRequests(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +89,11 @@ func (api API) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if parts[1] == "approve" {
-		request, err = api.Approvals.Approve(request.ID, "admin", input.Reason)
+		if input.AllowSimilar {
+			request, err = api.Approvals.ApproveRuntimeSession(request.ID, "admin", input.Reason)
+		} else {
+			request, err = api.Approvals.Approve(request.ID, "admin", input.Reason)
+		}
 	} else {
 		request, err = api.Approvals.Deny(request.ID, "admin", input.Reason)
 	}

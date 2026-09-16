@@ -111,7 +111,7 @@ Managed Tunnels and admin profiles are separate resources. `cgm tunnel attach` f
 
 ## Requests
 
-Requests is the approval inbox for guarded actions. Pending requests can also appear in the global live approval dialog so a local operator can review the exact action without leaving the current page. When no TUI reviewer is open, the runtime may also send a best-effort desktop notification; see [Desktop notifications](configuration.md#desktop-notifications).
+Requests is the approval inbox for guarded actions. Pending requests can also appear in the global live approval dialog so a local operator can review the exact action without leaving the current page. The dialog can approve once or grant similar commands for all MCP sessions for one hour when the request includes a similar-command pattern. The Admin UI has the same approve/deny/reason/similar-grant controls on a global Requests page and each workspace Requests tab. When no TUI reviewer is open, the runtime may also send a best-effort desktop notification; see [Desktop notifications](configuration.md#desktop-notifications).
 
 Approval does not create a general shell bypass; it authorizes the runtime-defined action/retry scope. See [Security](security.md#control-guard-approvals-and-self-grant-prevention).
 

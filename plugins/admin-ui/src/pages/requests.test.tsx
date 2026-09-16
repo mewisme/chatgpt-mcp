@@ -75,6 +75,75 @@ describe("RequestsPage", () => {
     )
   })
 
+  it("lists every workspace from the global route", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = requestPath(input)
+        if (path === "/api/requests?status=") return json([])
+        if (path === "/api/requests/stream") return approvalStream()
+        throw new Error(`Unhandled test request: ${path}`)
+      })
+    )
+    render(
+      <ThemeProvider>
+        <TooltipProvider>
+          <RequestsPage />
+        </TooltipProvider>
+      </ThemeProvider>
+    )
+    expect(await screen.findByText("Approval requests")).toBeInTheDocument()
+    expect(
+      screen.getByText("Review control approvals and resolved request history.")
+    ).toBeInTheDocument()
+  })
+
+  it("approves with a reason and similar-command grant", async () => {
+    const user = userEvent.setup()
+    const pending = {
+      ...request("req_similar", "pending", "git push origin main"),
+      command: "git push origin main",
+      similar_command_pattern: "git push **",
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = requestPath(input)
+        if (path === "/api/requests?status=&workspace_id=ws_test")
+          return json([pending])
+        if (path === "/api/requests/stream?workspace_id=ws_test")
+          return approvalStream()
+        if (path === "/api/requests/req_similar") return json(pending)
+        if (
+          path === "/api/requests/req_similar/approve" &&
+          init?.method === "POST"
+        ) {
+          const body = JSON.parse(String(init.body || "{}"))
+          if (body.reason !== "reviewed" || body.allow_similar !== true) {
+            throw new Error(`unexpected approve body ${JSON.stringify(body)}`)
+          }
+          return json({
+            ...pending,
+            status: "approved",
+            reason: "reviewed",
+            runtime_session_grant: true,
+          })
+        }
+        throw new Error(`Unhandled test request: ${path}`)
+      })
+    )
+    renderPage()
+    await user.click(await screen.findByText("Allow git push origin main"))
+    await user.type(await screen.findByLabelText("Reason"), "reviewed")
+    await user.click(
+      screen.getByText("Allow similar commands for all MCP sessions (1h)")
+    )
+    await user.click(screen.getByRole("button", { name: /Approve/ }))
+    await waitFor(() =>
+      expect(screen.getAllByText("approved").length).toBeGreaterThan(0)
+    )
+  })
+
   it("labels two tunnels and matches search on name or id", async () => {
     const user = userEvent.setup()
     const alpha = {

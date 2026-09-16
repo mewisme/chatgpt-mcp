@@ -3,6 +3,9 @@ import { ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ResponsiveDialog } from "@/components/responsive-dialog"
 import { DetailRow } from "@/components/detail-row"
@@ -16,6 +19,8 @@ export function RequestApprovalHost() {
   const [requests, setRequests] = useState<ApprovalRequest[]>([])
   const [selected, setSelected] = useState<ApprovalRequest | null>(null)
   const [busy, setBusy] = useState<"approve" | "deny" | "">("")
+  const [reason, setReason] = useState("")
+  const [allowSimilar, setAllowSimilar] = useState(false)
   const [error, setError] = useState("")
   const [now, setNow] = useState(() => Date.now())
   const retryTimer = useRef<number | null>(null)
@@ -140,8 +145,10 @@ export function RequestApprovalHost() {
     setBusy(action)
     setError("")
     try {
-      if (action === "approve") await adminApi.approveRequest(selected.id)
-      else await adminApi.denyRequest(selected.id)
+      if (action === "approve") await adminApi.approveRequest(selected.id, reason, allowSimilar)
+      else await adminApi.denyRequest(selected.id, reason)
+      setReason("")
+      setAllowSimilar(false)
       await refresh()
     } catch (value) {
       setError(errorText(value))
@@ -223,6 +230,32 @@ export function RequestApprovalHost() {
             label="Expires"
             value={formatDateTime(selected.expires_at)}
           />
+          {selected.command ? (
+            <DetailRow label="Command" value={selected.command} mono />
+          ) : null}
+          {selected.similar_command_pattern ? (
+            <DetailRow label="Similar pattern" value={selected.similar_command_pattern} mono />
+          ) : null}
+          <div className="space-y-3 py-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="live-approval-reason">Reason</Label>
+              <Input
+                id="live-approval-reason"
+                placeholder="Optional resolution reason"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+            </div>
+            {selected.similar_command_pattern ? (
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={allowSimilar}
+                  onCheckedChange={(checked) => setAllowSimilar(checked === true)}
+                />
+                <span>Allow similar commands for all MCP sessions (1h)</span>
+              </label>
+            ) : null}
+          </div>
         </TabsContent>
         <TabsContent className="mt-4 space-y-3" value="details">
           <div>

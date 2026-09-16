@@ -27,13 +27,18 @@ func TestSurfaceInventoryAdminAPIRoutes(t *testing.T) {
 		}
 	}
 	ui := collectAdminUIRoutes(t)
-	for _, want := range []string{"overview", "tunnel", "workspaces", "settings"} {
+	for _, want := range []string{"overview", "tunnel", "workspaces", "settings", "requests"} {
 		if !containsString(ui, want) {
 			t.Fatalf("missing admin ui route %s in %v", want, ui)
 		}
 	}
 	if containsString(ui, "oauth") {
 		t.Fatal("stale oauth admin ui route")
+	}
+	for _, route := range routes {
+		if strings.Contains(route, "/access") {
+			t.Fatalf("workspace access stays CLI/TUI-only, found admin route %s", route)
+		}
 	}
 	testutil.WriteLocalJSON(t, "surface-parity-admin.json", map[string]any{"api_routes": routes, "ui_routes": ui})
 }

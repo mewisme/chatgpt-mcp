@@ -28,6 +28,26 @@ func TestCatalogHasUniqueIDsAndPaths(t *testing.T) {
 	}
 }
 
+func TestCatalogDropsRetiredTunnelIDs(t *testing.T) {
+	retired := []string{
+		"tunnel.sync", "tunnel.configure", "tunnel.admin.key.set", "tunnel.admin.key.status",
+		"tunnel.admin.key.verify", "tunnel.admin.key.remove", "tunnel.get", "tunnel.use",
+		"tunnel.create", "tunnel.delete",
+	}
+	ids := map[ID]bool{}
+	for _, spec := range All() {
+		ids[spec.ID] = true
+	}
+	for _, id := range retired {
+		if ids[ID(id)] {
+			t.Fatalf("retired capability %s is still in the catalog", id)
+		}
+	}
+	if !ids[TunnelUpdate] {
+		t.Fatal("tunnel.update must remain as the public tunnel update capability")
+	}
+}
+
 func TestCatalogHasNoOAuthCapabilities(t *testing.T) {
 	for _, spec := range All() {
 		blob := strings.ToLower(string(spec.ID) + " " + spec.CanonicalPath + " " + strings.Join(spec.PublicPaths, " "))

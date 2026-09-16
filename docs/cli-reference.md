@@ -280,9 +280,11 @@ These are not parity bugs:
 | CLI-only | `doctor`, `completion` | whole-app diagnostics and shell integration |
 | CLI-only | `config verify --strict` | extra-strict schema gate for scripts |
 | CLI-only | `plugin update --all`, `plugin prune --retain N`, `plugin prune --cache`, explicit `plugin rollback <id> <version>` | bulk/retention operators; TUI updates or rolls back one plugin |
+| CLI-only | `request create dummy`, `request grant list`, `request grant revoke` | test seeding and grant inspection; Admin/TUI approve with optional similar-command grant |
 | TUI shows the command | `serve`, `mcp stdio`, `mcp http`, `tunnel run`, `init`, `uninit` | they own the terminal |
-| TUI/Admin UI | Instruction editors and workspace Project Context preview | no CLI `instruction` namespace |
-| CLI/TUI | per-workspace access directories | stronger than Admin UI |
+| TUI/Admin UI | Instruction editors and workspace Project Context preview | no CLI `instruction` or `context` namespace |
+| CLI/TUI | per-workspace access directories | stronger than Admin UI; global `permissions.allow_dirs` stays on Settings |
+| CLI/TUI | plugin install/enable/disable/update/rollback/prune | Admin UI Settings and workspace Plugins tabs edit schema-driven config only |
 
 `plugin config` is global-only on the CLI. TUI and Admin can edit workspace plugin settings.
 
@@ -301,6 +303,8 @@ cgm request create dummy
 Aliases include `req`, `ls`, `show`/`info`, `accept`/`allow`, and `reject`. Request IDs may be specified in full or by an unambiguous prefix. `approve` and `deny` accept `--reason`; list/view/resolve commands support `--json` where applicable.
 
 Pending requests expire after 60 seconds. Approval does not grant a general CLI bypass: it authorizes one exact retry of the original MCP tool arguments. A mismatched retry is rejected without consuming the valid grant; a successful retry consumes it. `cgm request approve/deny` cannot be run by an MCP shell tool to self-approve its own request.
+
+TUI and the Admin UI Requests page can additionally grant a one-hour similar-command runtime session when the request includes a similar-command pattern. Inspect or revoke those grants with `cgm request grant list` and `cgm request grant revoke`. The Admin UI mounts both a global Requests page and a workspace-scoped Requests tab.
 
 `cgm request create dummy` creates a short-lived pending request through the same runtime approval manager and event stream as production requests. It is intended for testing the request TUI and admin approval UI; its random dummy session cannot match a real MCP retry grant.
 

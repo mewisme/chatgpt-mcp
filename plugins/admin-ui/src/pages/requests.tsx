@@ -8,7 +8,9 @@ import { ResponsiveDialog } from "@/components/responsive-dialog"
 import { TruncatedText } from "@/components/truncated-text"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Item,
   ItemContent,
@@ -47,6 +49,8 @@ export function RequestsPage({ workspaceID = "" }: { workspaceID?: string }) {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [busy, setBusy] = useState<"approve" | "deny" | "">("")
+  const [reason, setReason] = useState("")
+  const [allowSimilar, setAllowSimilar] = useState(false)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState("")
   const retryTimer = useRef<number | null>(null)
@@ -158,6 +162,8 @@ export function RequestsPage({ workspaceID = "" }: { workspaceID?: string }) {
   async function openRequest(item: ApprovalRequest) {
     try {
       setSelected(await adminApi.approvalRequest(item.id))
+      setReason("")
+      setAllowSimilar(false)
       setError("")
     } catch (value) {
       setError(errorText(value))
@@ -169,9 +175,11 @@ export function RequestsPage({ workspaceID = "" }: { workspaceID?: string }) {
     try {
       const next =
         action === "approve"
-          ? await adminApi.approveRequest(selected.id)
-          : await adminApi.denyRequest(selected.id)
+          ? await adminApi.approveRequest(selected.id, reason, allowSimilar)
+          : await adminApi.denyRequest(selected.id, reason)
       setSelected(next)
+      setReason("")
+      setAllowSimilar(false)
       await load()
     } catch (value) {
       setError(errorText(value))
@@ -305,8 +313,16 @@ export function RequestsPage({ workspaceID = "" }: { workspaceID?: string }) {
         <RequestDetail
           request={selected}
           busy={busy}
+          reason={reason}
+          allowSimilar={allowSimilar}
+          onReasonChange={setReason}
+          onAllowSimilarChange={setAllowSimilar}
           onOpenChange={(open) => {
-            if (!open && !busy) setSelected(null)
+            if (!open && !busy) {
+              setSelected(null)
+              setReason("")
+              setAllowSimilar(false)
+            }
           }}
           onResolve={resolve}
         />
@@ -318,15 +334,24 @@ export function RequestsPage({ workspaceID = "" }: { workspaceID?: string }) {
 function RequestDetail({
   request,
   busy,
+  reason,
+  allowSimilar,
+  onReasonChange,
+  onAllowSimilarChange,
   onOpenChange,
   onResolve,
 }: {
   request: ApprovalRequest
   busy: "approve" | "deny" | ""
+  reason: string
+  allowSimilar: boolean
+  onReasonChange: (value: string) => void
+  onAllowSimilarChange: (value: boolean) => void
   onOpenChange: (open: boolean) => void
   onResolve: (action: "approve" | "deny") => void
 }) {
   const pending = request.status === "pending"
+  const similarPattern = request.similar_command_pattern?.trim()
   return (
     <ResponsiveDialog
       open
@@ -372,6 +397,12 @@ function RequestDetail({
             <DetailRow label="Tunnel ID" value={request.tunnel_id} mono />
           ) : null}
           <DetailRow label="Session" value={request.session_hash || "-"} mono />
+          {request.command ? (
+            <DetailRow label="Command" value={request.command} mono />
+          ) : null}
+          {similarPattern ? (
+            <DetailRow label="Similar pattern" value={similarPattern} mono />
+          ) : null}
           <DetailRow
             label="Created"
             value={formatDateTime(request.created_at)}
@@ -403,6 +434,35 @@ function RequestDetail({
               label="Consumed"
               value={formatDateTime(request.consumed_at)}
             />
+          ) : null}
+          {pending ? (
+            <div className="space-y-3 py-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="approval-reason">Reason</Label>
+                <Input
+                  id="approval-reason"
+                  placeholder="Optional resolution reason"
+                  value={reason}
+                  onChange={(event) => onReasonChange(event.target.value)}
+                />
+              </div>
+              {similarPattern ? (
+                <label className="flex items-start gap-2 text-sm">
+                  <Checkbox
+                    checked={allowSimilar}
+                    onCheckedChange={(checked) =>
+                      onAllowSimilarChange(checked === true)
+                    }
+                  />
+                  <span>
+                    Allow similar commands for all MCP sessions (1h)
+                    <span className="mt-1 block font-mono text-xs text-muted-foreground">
+                      {similarPattern}
+                    </span>
+                  </span>
+                </label>
+              ) : null}
+            </div>
           ) : null}
         </TabsContent>
         <TabsContent className="mt-4 space-y-3" value="details">

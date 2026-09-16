@@ -435,6 +435,10 @@ export type ApprovalRequest = {
   guard_code?: string
   guard_reason?: string
   title: string
+  command?: string
+  similar_command_pattern?: string
+  runtime_session_grant?: boolean
+  grant_expires_at?: string
   created_at: string
   expires_at: string
   resolved_at?: string
@@ -766,10 +770,10 @@ export const adminApi = {
   },
   approvalRequest: (id: string) =>
     api<ApprovalRequest>(`/api/requests/${encodeURIComponent(id)}`),
-  approveRequest: (id: string, reason = "") =>
+  approveRequest: (id: string, reason = "", allowSimilar = false) =>
     api<ApprovalRequest>(`/api/requests/${encodeURIComponent(id)}/approve`, {
       method: "POST",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, allow_similar: allowSimilar }),
     }),
   denyRequest: (id: string, reason = "") =>
     api<ApprovalRequest>(`/api/requests/${encodeURIComponent(id)}/deny`, {

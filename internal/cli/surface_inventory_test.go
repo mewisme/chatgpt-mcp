@@ -36,8 +36,24 @@ func TestSurfaceInventoryCLICommands(t *testing.T) {
 		}
 	}
 	install := byPath["plugin install"]
-	if !containsFlag(install.Flags, "scope") || !containsFlag(install.Flags, "workspace") {
+	if !containsFlag(install.Flags, "scope") || !containsFlag(install.Flags, "workspace") || !containsFlag(install.Flags, "portable") {
 		t.Fatalf("plugin install flags=%v", install.Flags)
+	}
+	for _, path := range []string{
+		"tunnel attach", "tunnel update", "tunnel managed create", "workspace access add",
+		"request approve", "request grant list", "config import", "plugin rollback",
+	} {
+		if _, ok := byPath[path]; !ok {
+			t.Fatalf("missing compared command %q", path)
+		}
+	}
+	for _, command := range commands {
+		if command.Path == "instruction" || strings.HasPrefix(command.Path, "instruction ") {
+			t.Fatalf("CLI instruction namespace should stay TUI/Admin-only: %s", command.Path)
+		}
+		if strings.HasPrefix(command.Path, "context ") || command.Path == "context" {
+			t.Fatalf("CLI project-context namespace should stay TUI/Admin-only: %s", command.Path)
+		}
 	}
 	for _, command := range commands {
 		if strings.HasPrefix(command.Path, "plugin ") && (strings.Contains(command.Path, "rule") || strings.Contains(command.Path, "skill")) {

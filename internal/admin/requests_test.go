@@ -54,6 +54,28 @@ func TestApprovalAPIListDetailApproveAndDeny(t *testing.T) {
 	}
 }
 
+func TestApprovalAPIApproveAllowSimilarGrantsRuntimeSession(t *testing.T) {
+	manager := approval.NewManager("instance-test")
+	challenge, _, err := manager.CreateChallenge(approval.ChallengeInput{
+		SessionID: "mcp-session-a", WorkspaceID: "ws_a", Source: "tunnel", TargetTool: "run_command",
+		Arguments: map[string]any{"workspace_id": "ws_a", "command": "git push origin main"}, GuardCode: controlguard.CodeExternalMutation,
+		Title: "Push Git commits", Command: "git push origin main", SimilarCommandPattern: "git push **",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _, err := manager.CreateRequest(challenge.ID, "mcp-session-a", "ws_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(API{Approvals: manager, Config: config.NewRuntimeStore(config.Default())})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, localAdminRequest(http.MethodPost, "/api/requests/"+request.ID+"/approve", strings.NewReader(`{"reason":"reviewed","allow_similar":true}`)))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"runtime_session_grant":true`) || !strings.Contains(recorder.Body.String(), `"reason":"reviewed"`) {
+		t.Fatalf("allow-similar approve status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestApprovalAPIRemoteRequiresEnabledAdminAuthentication(t *testing.T) {
 	manager := approval.NewManager("instance-test")
 	seedAdminApprovalRequest(t, manager, "session-a", "ws_a", "cgm update")

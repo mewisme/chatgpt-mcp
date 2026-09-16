@@ -58,6 +58,7 @@ describe("admin app runtime smoke", () => {
       tunnel: "Tunnels",
       activity:
         "Live MCP requests, tool calls, and runtime lifecycle events. Tool calls open as addressable child routes.",
+      requests: "Approval requests",
       settings: "Runtime",
     }
     for (const item of navItems.slice(1)) {

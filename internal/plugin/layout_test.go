@@ -86,7 +86,7 @@ func TestWorkspaceStoreInstallStaysUnderCgm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := store.Install(testManifest("bash", "1.0.0", "shell/bash"), testPayload(t, "bash"))
+	installed, err := store.Install(testScopedManifest("bash", "1.0.0", "shell/bash", ScopeWorkspace), testPayload(t, "bash"))
 	if err != nil {
 		t.Fatal(err)
 	}

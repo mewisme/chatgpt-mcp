@@ -311,7 +311,7 @@ func TestWorkspaceLocalStateIsProtected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{filepath.Join(root, ".cgm"), filepath.Join(root, ".cgm", "workspace.json")} {
+	for _, path := range []string{filepath.Join(root, ".cgm"), filepath.Join(root, ".cgm", "workspace.json"), filepath.Join(root, ".cgm", "plugins"), filepath.Join(root, ".cgm", "plugins", "config")} {
 		if _, err := manager.ResolvePath(item.ID, root, path, false); err == nil {
 			t.Fatalf("protected workspace state resolved: %s", path)
 		}

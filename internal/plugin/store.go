@@ -59,10 +59,25 @@ func NewStore(layout Layout, context RuntimeContext) (*Store, error) {
 	if strings.TrimSpace(context.CoreVersion) == "" {
 		context.CoreVersion = coreversion.Version
 	}
-	return &Store{layout: layout, runtime: context, Builtins: compiledBuiltinClone()}, nil
+	return &Store{layout: layout, runtime: context, Builtins: globalBuiltins(layout)}, nil
 }
 
 func (store *Store) Layout() Layout { return store.layout }
+
+func globalBuiltins(layout Layout) BuiltinRegistry {
+	if layout.EffectiveScope() == ScopeWorkspace {
+		return nil
+	}
+	return compiledBuiltinClone()
+}
+
+func (store *Store) rejectDisallowedScope(manifest Manifest) error {
+	scope := store.layout.EffectiveScope()
+	if manifest.AllowsScope(scope) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s does not allow %s", ErrScopeNotAllowed, manifest.ID, scope)
+}
 
 func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledPlugin, error) {
 	unlock, err := store.lockMutation()
@@ -74,6 +89,9 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 		return InstalledPlugin{}, fmt.Errorf("%w: %s", ErrBuiltinPlugin, manifest.ID)
 	}
 	if err := manifest.Validate(); err != nil {
+		return InstalledPlugin{}, err
+	}
+	if err := store.rejectDisallowedScope(manifest); err != nil {
 		return InstalledPlugin{}, err
 	}
 	artifact, err := manifest.Platform(store.runtime.OS, store.runtime.Arch)
@@ -249,6 +267,9 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 	}
 	installed, err := store.Installed(id, version)
 	if err != nil {
+		return err
+	}
+	if err := store.rejectDisallowedScope(installed.Manifest); err != nil {
 		return err
 	}
 	if installed.Manifest.Publisher != trust.Publisher {

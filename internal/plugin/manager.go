@@ -84,6 +84,12 @@ func (manager Manager) InstallWithOptions(ctx context.Context, reference string,
 	span := tracepkg.Start(ctx, "PLUGIN", "plugin.install", "Installing plugin", tracepkg.String("reference", reference), tracepkg.String("host_install", string(options.HostInstall)))
 	defer func() {
 		fields := []tracepkg.Field{}
+		if manager.Store != nil {
+			fields = append(fields, tracepkg.String("scope", string(manager.Store.layout.EffectiveScope())))
+			if manager.Store.layout.WorkspaceRoot != "" {
+				fields = append(fields, tracepkg.String("workspace_root", manager.Store.layout.WorkspaceRoot))
+			}
+		}
 		if result.Plugin.Manifest.ID != "" {
 			fields = append(fields, tracepkg.String("plugin_id", string(result.Plugin.Manifest.ID)), tracepkg.String("version", string(result.Plugin.Manifest.Version)), tracepkg.String("registry", result.Registry.Name))
 		}
@@ -116,6 +122,9 @@ func (manager Manager) installResolved(ctx context.Context, resolved ResolvedPlu
 func (manager Manager) installResolvedWithOptions(ctx context.Context, resolved ResolvedPlugin, replaceExisting, enabled bool, options InstallOptions) (InstallResult, error) {
 	manifest, _, err := manager.RegistryClient.FetchManifest(ctx, resolved)
 	if err != nil {
+		return InstallResult{}, err
+	}
+	if err := manager.Store.rejectDisallowedScope(manifest); err != nil {
 		return InstallResult{}, err
 	}
 	artifact, err := manifest.Platform(manager.Store.runtime.OS, manager.Store.runtime.Arch)

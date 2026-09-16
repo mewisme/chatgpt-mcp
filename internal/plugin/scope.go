@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -11,6 +12,8 @@ const (
 	ScopeGlobal    PluginScope = "global"
 	ScopeWorkspace PluginScope = "workspace"
 )
+
+var ErrScopeNotAllowed = errors.New("plugin does not allow this install scope")
 
 func ParsePluginScope(value string) (PluginScope, error) {
 	switch PluginScope(strings.TrimSpace(value)) {

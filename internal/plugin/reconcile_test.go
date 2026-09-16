@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func TestReconcileQuarantinesCorruptLockAndPreservesDesiredState(t *testing.T) {
@@ -145,5 +147,52 @@ func TestReconcileDisablesDependentWhenProviderUnavailable(t *testing.T) {
 	}
 	if lock.Plugins["bash"].Enabled || lock.Plugins["consumer"].Enabled {
 		t.Fatalf("reconciled lock = %#v", lock)
+	}
+}
+
+func TestWorkspaceReconcileDoesNotTouchOtherWorkspace(t *testing.T) {
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	runtime := RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"}
+	layoutA, err := WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	layoutB, err := WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeA, err := NewStore(layoutA, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeB, err := NewStore(layoutB, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	for _, store := range []*Store{storeA, storeB} {
+		if _, err := store.Install(testScopedManifest("bash", "1.0.0", "shell/bash", ScopeWorkspace), testPayload(t, "bash")); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Activate("bash", "1.0.0", trust); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(layoutA.LockPath(), []byte(`{"schema":1,"plugins":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Reconcile(storeA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.CorruptLock {
+		t.Fatalf("workspace reconcile report = %#v", report)
+	}
+	lockB, err := LoadLock(layoutB.LockPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry, ok := lockB.Plugins["bash"]; !ok || !entry.Enabled {
+		t.Fatalf("other workspace lock mutated: %#v", lockB.Plugins)
 	}
 }

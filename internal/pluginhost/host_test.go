@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"testing"
 
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
@@ -31,5 +32,20 @@ func TestSyncToolsRegistersTurnControllers(t *testing.T) {
 	}
 	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
 		t.Fatal("caveman_turn missing")
+	}
+}
+
+func TestAttachSkipsWorkspaceStore(t *testing.T) {
+	layout, err := pluginpkg.WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	Attach(store)
+	if len(store.Builtins) != 0 {
+		t.Fatalf("workspace builtins = %#v", store.Builtins)
 	}
 }

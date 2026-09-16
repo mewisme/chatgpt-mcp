@@ -11,7 +11,7 @@ func Builtins() pluginpkg.BuiltinRegistry {
 }
 
 func Attach(store *pluginpkg.Store) {
-	if store == nil {
+	if store == nil || store.Layout().EffectiveScope() == pluginpkg.ScopeWorkspace {
 		return
 	}
 	store.Builtins = Builtins()

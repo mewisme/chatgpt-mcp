@@ -207,3 +207,10 @@ func testManifest(id, version string, capability Capability) Manifest {
 		Platforms: map[string]PlatformArtifact{"linux/amd64": {Artifact: id + "-" + version + "-linux-amd64.tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: "bin/" + id}},
 	}
 }
+
+func testScopedManifest(id, version string, capability Capability, scopes ...PluginScope) Manifest {
+	manifest := testManifest(id, version, capability)
+	manifest.Schema = ManifestSchemaV2
+	manifest.Scopes = append([]PluginScope(nil), scopes...)
+	return manifest
+}

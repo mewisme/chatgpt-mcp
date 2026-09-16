@@ -179,3 +179,37 @@ func testPayload(t *testing.T, name string) string {
 	}
 	return root
 }
+
+func TestStoreRejectsDisallowedInstallScope(t *testing.T) {
+	layout, err := WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := NewStore(layout, RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workspace.Install(testManifest("bash", "1.0.0", "shell/bash"), testPayload(t, "bash")); !errors.Is(err, ErrScopeNotAllowed) {
+		t.Fatalf("schema 1 workspace install error = %v", err)
+	}
+	if _, err := testStore(t).Install(testScopedManifest("bash", "1.0.0", "shell/bash", ScopeWorkspace), testPayload(t, "bash")); !errors.Is(err, ErrScopeNotAllowed) {
+		t.Fatalf("workspace-only global install error = %v", err)
+	}
+}
+
+func TestWorkspaceStoreOmitsCompiledBuiltins(t *testing.T) {
+	previous := compiledBuiltinClone()
+	t.Cleanup(func() { SetCompiledBuiltins(previous) })
+	SetCompiledBuiltins(BuiltinRegistry{testBuiltin("ponytail", "tool/ponytail")})
+	layout, err := WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(layout, RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(store.Builtins) != 0 {
+		t.Fatalf("workspace builtins = %#v", store.Builtins)
+	}
+}

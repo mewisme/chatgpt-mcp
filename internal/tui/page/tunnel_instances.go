@@ -424,11 +424,13 @@ func (page *TunnelInstancesPage) finishCommand(msg localTunnelResultMsg) tea.Cmd
 		page.editor.SetSubmitting(false)
 	}
 	if msg.err != nil {
-		page.err = msg.err
+		page.err = nil
 		if page.editor != nil {
-			page.editor.SetFeedback("", msg.err)
+			page.editor.SetSubmitting(false)
+		} else {
+			page.err = msg.err
 		}
-		return nil
+		return func() tea.Msg { return OperationResult("tunnel.local.save", "Tunnel", "", msg.err) }
 	}
 	page.err = nil
 	if page.editor != nil && (page.action == "create" || page.action == "edit") {
@@ -440,7 +442,7 @@ func (page *TunnelInstancesPage) finishCommand(msg localTunnelResultMsg) tea.Cmd
 		}
 		return tea.Batch(
 			func() tea.Msg { return NavigateMsg{Path: []string{"tunnel", id}, Replace: true} },
-			func() tea.Msg { return ToastMsg{Title: "Tunnel", Message: page.notice, Tone: component.ToneSuccess} },
+			func() tea.Msg { return OperationResult("tunnel.local.save", "Tunnel", page.notice, nil) },
 		)
 	}
 	if msg.command == LocalTunnelDetach {
@@ -609,7 +611,11 @@ func (page *TunnelInstancesPage) submitEditor() tea.Cmd {
 	}
 	page.editor.SetSubmitting(true)
 	ctx := page.ctx
-	return func() tea.Msg {
+	pending := "Attaching tunnel..."
+	if !create {
+		pending = "Saving tunnel..."
+	}
+	return beginOperation("tunnel.local.save", "Tunnel", pending, func() tea.Msg {
 		msg := localTunnelResultMsg{id: instance.ID}
 		if create {
 			msg.command = LocalTunnelAdd
@@ -619,7 +625,7 @@ func (page *TunnelInstancesPage) submitEditor() tea.Cmd {
 			msg.item, msg.err = application.UpdateLocalTunnel(ctx, instance)
 		}
 		return msg
-	}
+	})
 }
 
 func (page *TunnelInstancesPage) editorParentNavigation() tea.Cmd {

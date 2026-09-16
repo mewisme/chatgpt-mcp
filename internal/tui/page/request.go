@@ -236,7 +236,7 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.upsertRequest(msg.request)
 		notice := requestResolveNotice(msg.approve, msg.request)
 		page.editor, page.resolveForm, page.resolveID, page.action = nil, nil, "", ""
-		return page, tea.Batch(requestNavigateCmd(page.mode, msg.request.ID, "", true), func() tea.Msg { return ToastMsg{Title: "Requests", Message: notice, Tone: component.ToneSuccess} })
+		return page, tea.Batch(requestNavigateCmd(page.mode, msg.request.ID, "", true), func() tea.Msg { return OperationResult("request.resolve", "Requests", notice, nil) })
 	case requestCreateMsg:
 		if page.operationCancel != nil {
 			page.operationCancel()
@@ -258,7 +258,7 @@ func (page *RequestsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.upsertRequest(msg.request)
 		notice := "Created test request " + msg.request.ID
 		page.editor, page.createForm, page.action = nil, nil, ""
-		return page, tea.Batch(requestNavigateCmd(requestModePending, msg.request.ID, "", true), func() tea.Msg { return ToastMsg{Title: "Requests", Message: notice, Tone: component.ToneSuccess} })
+		return page, tea.Batch(requestNavigateCmd(requestModePending, msg.request.ID, "", true), func() tea.Msg { return OperationResult("request.create", "Requests", notice, nil) })
 	case tea.WindowSizeMsg:
 		page.width, page.height = msg.Width, msg.Height
 		if page.editor != nil {

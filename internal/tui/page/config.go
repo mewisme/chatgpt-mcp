@@ -534,7 +534,7 @@ func (page *ConfigPage) finishOperation(msg configOperationMsg) tea.Cmd {
 		page.editor.SetSubmitting(false)
 		page.editor.Accept()
 		notice := page.notice
-		return tea.Batch(page.configEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Configuration", Message: notice, Tone: component.ToneSuccess} })
+		return tea.Batch(page.configEditorParentNavigation(), func() tea.Msg { return OperationResult("config.save", "Configuration", notice, nil) })
 	}
 	return func() tea.Msg {
 		overview, err := application.LoadConfigOverview(page.ctx)

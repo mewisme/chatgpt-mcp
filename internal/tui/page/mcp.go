@@ -525,7 +525,7 @@ func (page *MCPPage) submitJSONEditor() tea.Cmd {
 		message = fmt.Sprintf("Added %d MCP servers", len(servers))
 	}
 	navigation := func() tea.Msg { return NavigateMsg{Path: path} }
-	return tea.Batch(navigation, func() tea.Msg { return ToastMsg{Title: "MCP", Message: message, Tone: component.ToneSuccess} })
+	return tea.Batch(navigation, func() tea.Msg { return OperationResult("mcp.save", "MCP", message, nil) })
 }
 
 func (page *MCPPage) acceptServerDrafts() {
@@ -701,7 +701,7 @@ func (page *MCPPage) submitServerEditor() tea.Cmd {
 		message = "MCP server added"
 	}
 	navigation := func() tea.Msg { return NavigateMsg{Path: []string{"mcp", server.ID}} }
-	return tea.Batch(navigation, func() tea.Msg { return ToastMsg{Title: "MCP", Message: message, Tone: component.ToneSuccess} })
+	return tea.Batch(navigation, func() tea.Msg { return OperationResult("mcp.save", "MCP", message, nil) })
 }
 
 func (page *MCPPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {

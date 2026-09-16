@@ -1226,7 +1226,7 @@ func (page *PluginPage) submitEditor() tea.Cmd {
 	}
 	page.editor.Accept()
 	return tea.Batch(page.editorParentNavigation(), func() tea.Msg {
-		return ToastMsg{Title: "Plugins", Message: "Plugin registry added", Tone: component.ToneSuccess}
+		return OperationResult("plugin.registry.add", "Plugins", "Plugin registry added", nil)
 	})
 }
 

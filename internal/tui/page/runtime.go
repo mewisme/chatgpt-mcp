@@ -608,7 +608,7 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		page.editor.Accept()
 		page.installForm, page.updateForm = nil, nil
 		notice := page.notice
-		return tea.Batch(page.runtimeEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Runtime", Message: notice, Tone: component.ToneSuccess} })
+		return tea.Batch(page.runtimeEditorParentNavigation(), func() tea.Msg { return OperationResult("runtime.update", "Runtime", notice, nil) })
 	}
 	page.installForm, page.updateForm = nil, nil
 	return page.loadCmd()

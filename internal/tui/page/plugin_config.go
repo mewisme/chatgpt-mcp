@@ -119,7 +119,7 @@ func (page *PluginPage) submitPluginConfigEditor() tea.Cmd {
 	}
 	page.editor.Accept()
 	return tea.Batch(page.editorParentNavigation(), func() tea.Msg {
-		return ToastMsg{Title: "Plugins", Message: "Plugin configuration saved", Tone: component.ToneSuccess}
+		return OperationResult("plugin.config.save", "Plugins", "Plugin configuration saved", nil)
 	})
 }
 

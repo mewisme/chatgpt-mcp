@@ -138,7 +138,7 @@ func (page *WorkspacePage) submitWorkspaceEditor() tea.Cmd {
 	}
 	page.editor.Accept()
 	message := workspaceSuccess(page.command)
-	return tea.Batch(page.workspaceEditorParentNavigation(), func() tea.Msg { return ToastMsg{Title: "Workspace", Message: message, Tone: component.ToneSuccess} })
+	return tea.Batch(page.workspaceEditorParentNavigation(), func() tea.Msg { return OperationResult("workspace.save", "Workspace", message, nil) })
 }
 
 func (page *WorkspacePage) applyWorkspaceEditor() error {

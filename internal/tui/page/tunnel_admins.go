@@ -353,7 +353,11 @@ func (page *TunnelAdminsPage) submitEditor() tea.Cmd {
 	}
 	page.editor.SetSubmitting(true)
 	ctx := page.ctx
-	return func() tea.Msg {
+	pending := "Saving admin profile..."
+	if !create {
+		pending = "Updating admin profile..."
+	}
+	return beginOperation("tunnel.admin.save", "Admin Profile", pending, func() tea.Msg {
 		msg := tunnelAdminResultMsg{id: admin.ID}
 		if create {
 			msg.command = TunnelAdminAdd
@@ -363,7 +367,7 @@ func (page *TunnelAdminsPage) submitEditor() tea.Cmd {
 			msg.item, msg.count, msg.err = application.UpdateTunnelAdminProfile(ctx, admin)
 		}
 		return msg
-	}
+	})
 }
 
 func (page *TunnelAdminsPage) editorParentNavigation() tea.Cmd {
@@ -410,11 +414,23 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 		page.editor.SetSubmitting(false)
 	}
 	if msg.err != nil {
-		page.err = msg.err
+		page.err = nil
 		if page.editor != nil {
-			page.editor.SetFeedback("", msg.err)
+			page.editor.SetSubmitting(false)
+		} else {
+			page.err = msg.err
 		}
-		return nil
+		title := "Admin Profile"
+		key := "tunnel.admin.save"
+		switch msg.command {
+		case TunnelAdminVerify:
+			key, title = "tunnel.admin.verify", "Admin Profile"
+		case TunnelAdminRemove:
+			key, title = "tunnel.admin.remove", "Admin Profile"
+		case TunnelAdminRefresh:
+			key, title = "tunnel.admin.refresh", "Admin Profile"
+		}
+		return func() tea.Msg { return OperationResult(key, title, "", msg.err) }
 	}
 	page.err = nil
 	switch msg.command {
@@ -424,7 +440,7 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 		return tea.Batch(
 			func() tea.Msg { return NavigateMsg{Path: []string{"admins", msg.item.ID}, Replace: true} },
 			func() tea.Msg {
-				return ToastMsg{Title: "Admin Profile", Message: page.notice, Tone: component.ToneSuccess}
+				return OperationResult("tunnel.admin.save", "Admin Profile", page.notice, nil)
 			},
 		)
 	case TunnelAdminVerify:

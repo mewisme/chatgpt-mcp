@@ -219,7 +219,7 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.saving = true
 		page.err, page.notice = nil, ""
 		page.ruleEditor.SetSubmitting(true)
-		return page, page.saveRuleEditorCmd()
+		return page, beginOperation("instruction.rule.save", "Instruction", "Saving rule...", page.saveRuleEditorCmd())
 	case component.EditorCancelMsg:
 		if page.ruleEditor != nil && !page.saving {
 			return page, page.ruleEditorParentNavigation()
@@ -272,7 +272,7 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, tea.Batch(
 				func() tea.Msg { return NavigateMsg{Path: []string{"instruction", "context"}, Replace: true} },
 				func() tea.Msg {
-					return ToastMsg{Title: "Instruction", Message: "Global context saved", Tone: component.ToneSuccess}
+					return OperationResult("instruction.context.save", "Instruction", "Global context saved", nil)
 				},
 			)
 		}
@@ -293,7 +293,7 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			page.ruleEditor.SetSubmitting(false)
 			page.ruleEditor.Accept()
 			return page, tea.Batch(page.ruleEditorParentNavigation(), func() tea.Msg {
-				return ToastMsg{Title: "Instruction", Message: msg.notice, Tone: component.ToneSuccess}
+				return OperationResult("instruction.rule.save", "Instruction", msg.notice, nil)
 			})
 		}
 		page.settings, page.err = msg.settings, nil

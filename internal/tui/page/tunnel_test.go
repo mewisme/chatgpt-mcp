@@ -363,14 +363,17 @@ func TestTunnelAdminProfileEditorFailureKeepsDraft(t *testing.T) {
 		t.Fatalf("admin draft=%#v dirty=%t", page.form, page.Dirty())
 	}
 	page.editor.SetSubmitting(true)
-	updated, _ := page.Update(tunnelAdminResultMsg{command: TunnelAdminAdd, err: fmt.Errorf("verification failed")})
+	updated, cmd := page.Update(tunnelAdminResultMsg{command: TunnelAdminAdd, err: fmt.Errorf("verification failed")})
 	page = updated.(*TunnelAdminsPage)
+	msg, ok := cmd().(OperationMsg)
+	if !ok || msg.Phase != OperationError || !strings.Contains(msg.Message, "verification failed") {
+		t.Fatalf("operation error=%#v", msg)
+	}
 	if page.OverlayActive() || page.form == nil || page.form.AdminKey != "secret-draft" || !page.Dirty() {
 		t.Fatalf("admin failure lost draft overlay=%t draft=%#v dirty=%t", page.OverlayActive(), page.form, page.Dirty())
 	}
-	plain := ansi.Strip(page.View(90, 26))
-	if !strings.Contains(plain, "verification failed") || strings.Contains(plain, "secret-draft") {
-		t.Fatalf("admin failure feedback/secret view=%q", plain)
+	if strings.Contains(ansi.Strip(page.View(90, 26)), "secret-draft") {
+		t.Fatalf("admin failure leaked secret")
 	}
 }
 
@@ -873,7 +876,8 @@ func TestTunnelAdminsPageCreateFailureKeepsDirtyDraft(t *testing.T) {
 	page.form.ScopeID = "org_demo"
 	page.editor.SetSubmitting(true)
 	cmd := page.finishCommand(tunnelAdminResultMsg{command: TunnelAdminAdd, err: fmt.Errorf("verification failed")})
-	if cmd != nil || page.editor == nil || page.form == nil || page.form.AdminKey != "secret-draft" || !page.Dirty() || page.Submitting() {
+	msg, ok := cmd().(OperationMsg)
+	if !ok || msg.Phase != OperationError || page.editor == nil || page.form == nil || page.form.AdminKey != "secret-draft" || !page.Dirty() || page.Submitting() {
 		t.Fatalf("failure lost draft cmd=%v editor=%v draft=%#v dirty=%t submitting=%t", cmd != nil, page.editor != nil, page.form, page.Dirty(), page.Submitting())
 	}
 }

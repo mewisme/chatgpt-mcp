@@ -157,7 +157,7 @@ func (page *TunnelPage) managedEditorSuccess(message, id string) tea.Cmd {
 	return tea.Batch(
 		func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", id}} },
 		func() tea.Msg {
-			return ToastMsg{Title: "Managed Tunnel", Message: message, Tone: component.ToneSuccess}
+			return OperationResult("tunnel.managed.save", "Managed Tunnel", message, nil)
 		},
 	)
 }

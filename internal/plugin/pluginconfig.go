@@ -56,6 +56,7 @@ type SettingsStore struct {
 var (
 	ErrUnknownConfigKey   = errors.New("unknown plugin config key")
 	ErrInvalidConfigValue = errors.New("invalid plugin config value")
+	ErrNoPluginConfig     = errors.New("plugin has no configuration")
 )
 
 func (schema SettingsSchema) Validate() error {

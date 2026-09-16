@@ -653,6 +653,26 @@ func TestLegacyFeaturesDoNotOverwritePluginSettings(t *testing.T) {
 	}
 }
 
+func TestLoadHydratesPluginSettingsWithoutCoreConfig(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	store := settingsStoreForConfigPath(configPath)
+	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_active", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_mode", "ultra"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadAt(configPath, secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "ultra" {
+		t.Fatalf("hydrated without core config = %#v", loaded.Features.Ponytail)
+	}
+}
+
 func TestSaveOmitsFeaturesAndPersistsPluginSettings(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
 		t.Run(string(format), func(t *testing.T) {

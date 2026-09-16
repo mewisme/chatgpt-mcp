@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -20,7 +21,7 @@ import (
 
 func pluginCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "plugin", Short: "Manage signed ChatGPT MCP plugins", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	cmd.AddCommand(pluginSearchCommand(), pluginInfoCommand(), pluginListCommand(), pluginInstallCommand(), pluginUninstallCommand(), pluginToggleCommand(true), pluginToggleCommand(false), pluginUpdateCommand(), pluginRollbackCommand(), pluginPruneCommand(), pluginOutdatedCommand(), pluginVerifyCommand(), pluginRegistryCommand())
+	cmd.AddCommand(pluginSearchCommand(), pluginInfoCommand(), pluginListCommand(), pluginInstallCommand(), pluginUninstallCommand(), pluginToggleCommand(true), pluginToggleCommand(false), pluginUpdateCommand(), pluginRollbackCommand(), pluginPruneCommand(), pluginOutdatedCommand(), pluginVerifyCommand(), pluginConfigCommand(), pluginRegistryCommand())
 	return cmd
 }
 
@@ -428,6 +429,104 @@ func pluginVerifyCommand() *cobra.Command {
 		commandLogger(cmd).Success("PLUGIN", "plugin verified", "id", id)
 		return nil
 	}}
+}
+
+func pluginConfigCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "config", Short: "Read and update plugin configuration", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	cmd.AddCommand(pluginConfigListCommand(), pluginConfigGetCommand(), pluginConfigSetCommand(), pluginConfigResetCommand())
+	return cmd
+}
+
+func pluginConfigListCommand() *cobra.Command {
+	return &cobra.Command{Use: "list <plugin>", Aliases: []string{"ls"}, Short: "List effective plugin configuration", Args: cobra.ExactArgs(1), ValidArgsFunction: completePluginID, RunE: func(cmd *cobra.Command, args []string) error {
+		service, id, err := pluginConfigTarget(args[0])
+		if err != nil {
+			return err
+		}
+		schema, values, err := service.PluginSettings(id)
+		if err != nil {
+			return err
+		}
+		log := commandLogger(cmd)
+		for _, field := range schema.Fields {
+			log.Detail(field.Key, pluginSettingDisplay(field, values[field.Key]))
+		}
+		return nil
+	}}
+}
+
+func pluginConfigGetCommand() *cobra.Command {
+	return &cobra.Command{Use: "get <plugin> <key>", Short: "Show one plugin configuration value", Args: cobra.ExactArgs(2), ValidArgsFunction: completePluginConfigKey, RunE: func(cmd *cobra.Command, args []string) error {
+		service, id, err := pluginConfigTarget(args[0])
+		if err != nil {
+			return err
+		}
+		field, value, err := service.PluginSetting(id, args[1])
+		if err != nil {
+			return err
+		}
+		commandLogger(cmd).Detail(field.Key, pluginSettingDisplay(field, value))
+		return nil
+	}}
+}
+
+func pluginConfigSetCommand() *cobra.Command {
+	return &cobra.Command{Use: "set <plugin> <key> <value>", Short: "Set one plugin configuration value", Args: cobra.ExactArgs(3), ValidArgsFunction: completePluginConfigSet, RunE: func(cmd *cobra.Command, args []string) error {
+		service, id, err := pluginConfigTarget(args[0])
+		if err != nil {
+			return err
+		}
+		if err := service.SetPluginSetting(cmd.Context(), id, args[1], args[2]); err != nil {
+			return err
+		}
+		commandLogger(cmd).Success("PLUGIN", "plugin config saved", "id", id, "key", args[1])
+		return nil
+	}}
+}
+
+func pluginConfigResetCommand() *cobra.Command {
+	return &cobra.Command{Use: "reset <plugin> [key]", Short: "Reset plugin configuration to schema defaults", Args: cobra.RangeArgs(1, 2), ValidArgsFunction: completePluginConfigKey, RunE: func(cmd *cobra.Command, args []string) error {
+		service, id, err := pluginConfigTarget(args[0])
+		if err != nil {
+			return err
+		}
+		key := ""
+		if len(args) > 1 {
+			key = args[1]
+		}
+		if err := service.ResetPluginSetting(cmd.Context(), id, key); err != nil {
+			return err
+		}
+		log := commandLogger(cmd)
+		if key == "" {
+			log.Success("PLUGIN", "plugin config reset", "id", id)
+			return nil
+		}
+		log.Success("PLUGIN", "plugin config reset", "id", id, "key", key)
+		return nil
+	}}
+}
+
+func pluginConfigTarget(raw string) (*application.PluginService, pluginpkg.PluginID, error) {
+	id, err := simplePluginID(raw)
+	if err != nil {
+		return nil, "", err
+	}
+	service, err := application.NewPluginService()
+	if err != nil {
+		return nil, "", err
+	}
+	return service, id, nil
+}
+
+func pluginSettingDisplay(field pluginpkg.SettingField, value any) string {
+	if field.Sensitive {
+		if configured, ok := value.(bool); ok && configured {
+			return "configured"
+		}
+		return "not configured"
+	}
+	return pluginpkg.FormatSettingValue(value)
 }
 
 func pluginRegistryCommand() *cobra.Command {

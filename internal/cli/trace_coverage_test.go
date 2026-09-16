@@ -33,6 +33,7 @@ func commandTraceContracts() map[string]commandTraceContract {
 	}
 	add(commandTraceTrivial, nil, "config", "doctor", "logs path", "version")
 	add(commandTraceTrivial, nil, "plugin", "plugin list", "plugin registry", "plugin registry list")
+	add(commandTraceTrivial, nil, "plugin config", "plugin config list", "plugin config get", "plugin config set", "plugin config reset")
 	add(commandTraceInstrumented, []string{"plugin.registry.snapshots.completed"}, "plugin search")
 	add(commandTraceInstrumented, []string{"plugin.install.completed"}, "plugin install")
 	add(commandTraceInstrumented, []string{"plugin.uninstall.completed"}, "plugin uninstall")

@@ -236,6 +236,9 @@ func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSe
 	data, _, err := readConfigFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if hydrateErr := hydrateFeatureSettings(configPath, &cfg); hydrateErr != nil {
+				return cfg, hydrateErr
+			}
 			return cfg, nil
 		}
 		return cfg, err

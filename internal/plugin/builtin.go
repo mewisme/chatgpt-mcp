@@ -127,6 +127,7 @@ type CatalogPlugin struct {
 	Registry  string
 	Publisher string
 	Installed InstalledPlugin
+	Schema    SettingsSchema
 }
 
 func (manager Manager) LookupBuiltin(id PluginID) (Builtin, bool) {
@@ -134,6 +135,26 @@ func (manager Manager) LookupBuiltin(id PluginID) (Builtin, bool) {
 		return Builtin{}, false
 	}
 	return manager.Store.Builtins.Lookup(id)
+}
+
+func (manager Manager) SettingsSchema(id PluginID) (SettingsSchema, error) {
+	if builtin, ok := manager.LookupBuiltin(id); ok {
+		if len(builtin.Schema.Fields) == 0 {
+			return SettingsSchema{}, fmt.Errorf("%w: %s", ErrNoPluginConfig, id)
+		}
+		return builtin.Schema, nil
+	}
+	if _, err := manager.CatalogPlugin(id); err != nil {
+		return SettingsSchema{}, err
+	}
+	return SettingsSchema{}, fmt.Errorf("%w: %s", ErrNoPluginConfig, id)
+}
+
+func (manager Manager) SettingsStore() SettingsStore {
+	if manager.Store == nil {
+		return SettingsStore{}
+	}
+	return SettingsStore{Layout: manager.Store.Layout()}
 }
 
 func (manager Manager) rejectBuiltinArtifact(id PluginID) error {
@@ -201,6 +222,6 @@ func builtinCatalogPlugin(builtin Builtin, coreVersion string) CatalogPlugin {
 	return CatalogPlugin{
 		ID: builtin.ID, Origin: OriginBuiltin, Lifecycle: builtin.Lifecycle(), Enabled: builtin.DefaultEnabled,
 		Version: manifest.Version, Registry: BuiltinRegistryName, Publisher: BuiltinPublisher,
-		Installed: InstalledPlugin{Manifest: manifest},
+		Installed: InstalledPlugin{Manifest: manifest}, Schema: builtin.Schema,
 	}
 }

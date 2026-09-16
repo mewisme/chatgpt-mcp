@@ -7,12 +7,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/notification"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -389,4 +391,132 @@ func enableCFTunnelTarget(t *testing.T, target string) {
 	if err := (pluginpkg.SettingsStore{Layout: pluginpkg.DefaultLayout()}).Set(testutil.TunnelProviderSettingsSchema(), "cf-tunnel", target, true); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestDoctorLocalDevFlagsNonIsolatedStore(t *testing.T) {
+	saveLoopbackDoctorConfig(t)
+	installDoctorStubPlugin(t, "tui", pluginpkg.RegistryLocalDev, nil)
+	state := doctorStateFromStore(t)
+	result := state.checkPluginLocalDev(context.Background())
+	if result.Status != doctorFail {
+		t.Fatalf("status=%s summary=%q", result.Status, result.Summary)
+	}
+	if !strings.Contains(result.Summary, "not an official signed installation") {
+		t.Fatalf("summary=%q", result.Summary)
+	}
+}
+
+func TestDoctorLocalDevInspectsIsolatedStore(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".cgm", "dev")
+	testutil.UseConfigRoot(t, root)
+	if err := config.Save(loopbackDoctorConfig()); err != nil {
+		t.Fatal(err)
+	}
+	installed := installDoctorStubPlugin(t, "tui", pluginpkg.RegistryLocalDev, nil)
+	dev, err := plugindev.Detect()
+	if err != nil || !dev.Enabled {
+		t.Fatalf("detect=%v err=%v", dev, err)
+	}
+	if err := plugindev.WriteProvenance(installed, plugindev.Provenance{
+		Schema: 1, Origin: pluginpkg.RegistryLocalDev, RepoRoot: dev.Root, PluginID: "tui", SourceFingerprint: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state := doctorStateFromStore(t)
+	result := state.checkPluginLocalDev(context.Background())
+	if result.Status != doctorPass {
+		t.Fatalf("status=%s summary=%q details=%v err=%s", result.Status, result.Summary, result.Details, result.Error)
+	}
+	if result := state.checkPluginCaveman(context.Background()); result.Status != doctorWarn || result.Hint != "set CHATGPT_MCP_DEV_PLUGINS=rebuild; doctor does not repair" {
+		t.Fatalf("caveman=%#v", result)
+	}
+}
+
+func TestDoctorPluginPayloadReportsLicenseAndIncompleteCompliance(t *testing.T) {
+	saveLoopbackDoctorConfig(t)
+	installDoctorStubPlugin(t, "markdown-formatter", pluginpkg.OfficialRegistryName, map[string]string{"NOTICE": "notice"})
+	state := doctorStateFromStore(t)
+	result := state.checkPluginPayloads(context.Background())
+	if result.Status != doctorWarn {
+		t.Fatalf("status=%s summary=%q details=%v", result.Status, result.Summary, result.Details)
+	}
+	joined := strings.Join(result.Details, "\n")
+	if !strings.Contains(joined, "license Apache-2.0") || !strings.Contains(joined, "compliance files missing") {
+		t.Fatalf("details=%q", joined)
+	}
+	if !strings.Contains(result.Hint, "does not regenerate") {
+		t.Fatalf("hint=%q", result.Hint)
+	}
+}
+
+func TestDoctorMissingCorePluginDistinctFromOptionalCFTunnel(t *testing.T) {
+	saveLoopbackDoctorConfig(t)
+	state := doctorStateFromStore(t)
+	tui := state.checkPluginTUI(context.Background())
+	if tui.Status != doctorWarn || !strings.Contains(tui.Hint, "cgm plugin install tui") {
+		t.Fatalf("tui=%#v", tui)
+	}
+	cf := state.checkCFTunnelMCP(context.Background())
+	if cf.Status != doctorSkip {
+		t.Fatalf("cf-tunnel=%#v", cf)
+	}
+}
+
+func doctorStateFromStore(t *testing.T) *doctorState {
+	t.Helper()
+	store, err := pluginpkg.NewStore(pluginpkg.DefaultLayout(), pluginpkg.RuntimeContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := pluginpkg.LoadLock(store.Layout().LockPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &doctorState{cfg: loopbackDoctorConfig(), store: store, lock: lock}
+}
+
+func installDoctorStubPlugin(t *testing.T, id, registry string, extras map[string]string) pluginpkg.InstalledPlugin {
+	t.Helper()
+	store, err := pluginpkg.NewStore(pluginpkg.DefaultLayout(), pluginpkg.RuntimeContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(payload, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(payload, "bin", id), []byte("payload"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range extras {
+		if err := os.WriteFile(filepath.Join(payload, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := pluginpkg.Manifest{
+		Schema: pluginpkg.ManifestSchemaV2, ID: pluginpkg.PluginID(id), Name: id, Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0",
+		Type: "terminal-ui", Provides: []pluginpkg.Capability{"terminal-ui/default"},
+		Scopes: []pluginpkg.PluginScope{pluginpkg.ScopeGlobal},
+		Platforms: map[string]pluginpkg.PlatformArtifact{
+			runtime.GOOS + "/" + runtime.GOARCH: {Artifact: id + "-1.0.0.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "bin/" + id},
+		},
+	}
+	if id == "markdown-formatter" {
+		manifest.Provides = []pluginpkg.Capability{"formatter/markdown"}
+		manifest.Type = "formatter"
+	}
+	installed, err := store.Install(manifest, payload)
+	if err != nil && !errors.Is(err, pluginpkg.ErrVersionInstalled) {
+		t.Fatal(err)
+	}
+	if err := store.ActivateWithState(pluginpkg.PluginID(id), "1.0.0", pluginpkg.ActivationTrust{Registry: registry, Publisher: "mewisme", Trusted: true}, true); err != nil {
+		t.Fatal(err)
+	}
+	if installed.Root == "" {
+		installed, err = store.Installed(pluginpkg.PluginID(id), "1.0.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return installed
 }

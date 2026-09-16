@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -14,28 +15,34 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
+var pluginComplianceFiles = []string{"LICENSE", "NOTICE", "licenses.txt", "sbom.spdx.json"}
+
+func (d *doctorState) usingLocalDevStore() bool {
+	return d.store != nil && strings.Contains(d.store.Layout().ConfigRoot, filepath.Join(".cgm", "dev"))
+}
+
+func (d *doctorState) pluginInstallHint(id string) string {
+	if d.usingLocalDevStore() {
+		return "set CHATGPT_MCP_DEV_PLUGINS=rebuild; doctor does not repair"
+	}
+	return "run cgm plugin install " + id
+}
+
 func (d *doctorState) checkPluginLocalDev(_ context.Context) doctorResult {
-	ctx, err := plugindev.Detect()
-	if err != nil {
-		return doctorResult{Status: doctorWarn, Summary: "development plugin context is invalid", Error: redact.Text(err.Error())}
-	}
-	if !ctx.Enabled {
-		return doctorResult{Status: doctorSkip, Summary: "repository local-dev bootstrap is inactive"}
-	}
 	if d.store == nil {
 		return doctorResult{Status: doctorSkip, Summary: "plugin store unavailable"}
 	}
-	if !strings.Contains(d.store.Layout().ConfigRoot, filepath.Join(".cgm", "dev")) {
-		return doctorResult{Status: doctorSkip, Summary: "active plugin store is not the isolated local-dev store"}
-	}
-	details := []string{"store " + d.store.Layout().ConfigRoot, "doctor does not rebuild local-dev plugins"}
-	local := 0
+	details := []string{}
+	local, enabledLocal := 0, 0
 	for _, id := range sortedPluginIDs(d.lock) {
 		entry := d.lock.Plugins[id]
 		if entry.Registry != pluginpkg.RegistryLocalDev {
 			continue
 		}
 		local++
+		if entry.Enabled {
+			enabledLocal++
+		}
 		installed, err := d.store.Installed(id, entry.Version)
 		if err != nil {
 			details = append(details, string(id)+" missing")
@@ -48,6 +55,24 @@ func (d *doctorState) checkPluginLocalDev(_ context.Context) doctorResult {
 		}
 		details = append(details, string(id)+" local-dev "+provenance.SourceFingerprint)
 	}
+	if local > 0 && !d.usingLocalDevStore() {
+		status := doctorWarn
+		if enabledLocal > 0 {
+			status = doctorFail
+		}
+		return doctorResult{Status: status, Summary: "local-dev provenance is not an official signed installation", Details: details, Hint: "install signed plugins with cgm plugin install; local-dev is only for repository go run"}
+	}
+	ctx, err := plugindev.Detect()
+	if err != nil {
+		return doctorResult{Status: doctorWarn, Summary: "development plugin context is invalid", Error: redact.Text(err.Error())}
+	}
+	if !ctx.Enabled {
+		return doctorResult{Status: doctorSkip, Summary: "repository local-dev bootstrap is inactive"}
+	}
+	if !d.usingLocalDevStore() {
+		return doctorResult{Status: doctorSkip, Summary: "active plugin store is not the isolated local-dev store"}
+	}
+	details = append([]string{"store " + d.store.Layout().ConfigRoot, "doctor does not rebuild local-dev plugins"}, details...)
 	if local == 0 {
 		return doctorResult{Status: doctorWarn, Summary: "development mode is active but no local-dev plugins are installed", Details: details, Hint: "run a plugin-using command such as cgm plugin list, or set CHATGPT_MCP_DEV_PLUGINS=rebuild"}
 	}
@@ -71,6 +96,12 @@ func (d *doctorState) checkPluginPayloads(ctx context.Context) doctorResult {
 			}
 			continue
 		}
+		if lic := strings.TrimSpace(installed.Manifest.License); lic != "" {
+			details = append(details, string(id)+" license "+lic)
+		}
+		if issue := pluginComplianceIssue(installed, entry.Registry); issue != "" {
+			details = append(details, issue)
+		}
 		if strings.TrimSpace(installed.Payload) == "" {
 			continue
 		}
@@ -93,7 +124,38 @@ func (d *doctorState) checkPluginPayloads(ctx context.Context) doctorResult {
 	if projectionIssues > 0 {
 		return doctorResult{Status: doctorWarn, Summary: "plugin rule/skill projections are unhealthy", Details: details, Hint: "run cgm plugin verify <id>"}
 	}
+	for _, line := range details {
+		if strings.Contains(line, "compliance files") {
+			return doctorResult{Status: doctorWarn, Summary: "installed plugin compliance files are incomplete", Details: details, Hint: "reinstall the signed plugin artifact; doctor does not regenerate NOTICE or SBOMs"}
+		}
+	}
 	return doctorResult{Status: doctorPass, Summary: fmt.Sprintf("installed plugin payloads verified (%d)", len(ids)), Details: details}
+}
+
+func pluginComplianceIssue(installed pluginpkg.InstalledPlugin, registry string) string {
+	if registry == pluginpkg.RegistryLocalDev {
+		return ""
+	}
+	dir := strings.TrimSpace(installed.Payload)
+	if dir == "" {
+		dir = installed.Root
+	}
+	if dir == "" {
+		return ""
+	}
+	present, missing := 0, []string{}
+	for _, name := range pluginComplianceFiles {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil || info.Size() == 0 {
+			missing = append(missing, name)
+			continue
+		}
+		present++
+	}
+	if present == 0 || len(missing) == 0 {
+		return ""
+	}
+	return string(installed.Manifest.ID) + " compliance files missing " + strings.Join(missing, ",")
 }
 
 func (d *doctorState) checkPluginCompatibility(ctx context.Context) doctorResult {
@@ -155,11 +217,11 @@ func (d *doctorState) checkPluginAdminUI(ctx context.Context) doctorResult {
 	id := pluginpkg.PluginID("admin-ui")
 	if entry, ok := d.lock.Plugins[id]; ok && entry.Enabled {
 		if _, err := d.store.Installed(id, entry.Version); err != nil {
-			return doctorResult{Status: doctorFail, Summary: "Admin UI plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: "run cgm plugin install admin-ui"}
+			return doctorResult{Status: doctorFail, Summary: "Admin UI plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: d.pluginInstallHint("admin-ui")}
 		}
 		return doctorResult{Status: doctorPass, Summary: "Admin UI plugin is installed"}
 	}
-	return doctorResult{Status: doctorWarn, Summary: "Admin HTTP is enabled but admin-ui is not an active plugin", Hint: "run cgm plugin install admin-ui"}
+	return doctorResult{Status: doctorWarn, Summary: "Admin HTTP is enabled but admin-ui is not an active plugin", Hint: d.pluginInstallHint("admin-ui")}
 }
 
 func (d *doctorState) checkPluginSecureMCP(_ context.Context) doctorResult {
@@ -170,14 +232,14 @@ func (d *doctorState) checkPluginSecureMCP(_ context.Context) doctorResult {
 	id := pluginpkg.PluginID("secure-mcp-tunnel")
 	if entry, ok := d.lock.Plugins[id]; ok && entry.Enabled {
 		if _, err := d.store.Installed(id, entry.Version); err != nil {
-			return doctorResult{Status: doctorFail, Summary: "Secure MCP Tunnel plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: "run cgm plugin install secure-mcp-tunnel"}
+			return doctorResult{Status: doctorFail, Summary: "Secure MCP Tunnel plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: d.pluginInstallHint("secure-mcp-tunnel")}
 		}
 		return doctorResult{Status: doctorPass, Summary: "Secure MCP Tunnel plugin is installed"}
 	}
 	if len(collection.Instances) == 0 && len(collection.Admins) == 0 {
 		return doctorResult{Status: doctorSkip, Summary: "Secure MCP Tunnel is not configured"}
 	}
-	return doctorResult{Status: doctorWarn, Summary: "Secure MCP tunnels are configured but the core plugin is not installed", Hint: "run cgm plugin install secure-mcp-tunnel"}
+	return doctorResult{Status: doctorWarn, Summary: "Secure MCP tunnels are configured but the core plugin is not installed", Hint: d.pluginInstallHint("secure-mcp-tunnel")}
 }
 
 func (d *doctorState) checkPluginTUI(_ context.Context) doctorResult {
@@ -187,14 +249,14 @@ func (d *doctorState) checkPluginTUI(_ context.Context) doctorResult {
 	id := pluginpkg.PluginID("tui")
 	if entry, ok := d.lock.Plugins[id]; ok && entry.Enabled {
 		if _, err := d.store.Installed(id, entry.Version); err != nil {
-			return doctorResult{Status: doctorFail, Summary: "TUI plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: "run cgm plugin install tui"}
+			return doctorResult{Status: doctorFail, Summary: "TUI plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: d.pluginInstallHint("tui")}
 		}
 		return doctorResult{Status: doctorPass, Summary: "TUI plugin is installed"}
 	}
 	if entry, ok := d.lock.Plugins[id]; ok && !entry.Enabled {
 		return doctorResult{Status: doctorWarn, Summary: "TUI core plugin is installed but disabled", Hint: "run cgm plugin enable tui"}
 	}
-	return doctorResult{Status: doctorWarn, Summary: "TUI core plugin is not installed", Hint: "run cgm plugin install tui"}
+	return doctorResult{Status: doctorWarn, Summary: "TUI core plugin is not installed", Hint: d.pluginInstallHint("tui")}
 }
 
 func (d *doctorState) checkPluginMarkdownFormatter(_ context.Context) doctorResult {
@@ -216,14 +278,14 @@ func (d *doctorState) checkOptionalCorePlugin(id, label string) doctorResult {
 	pluginID := pluginpkg.PluginID(id)
 	if entry, ok := d.lock.Plugins[pluginID]; ok && entry.Enabled {
 		if _, err := d.store.Installed(pluginID, entry.Version); err != nil {
-			return doctorResult{Status: doctorFail, Summary: label + " plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: "run cgm plugin install " + id}
+			return doctorResult{Status: doctorFail, Summary: label + " plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: d.pluginInstallHint(id)}
 		}
 		return doctorResult{Status: doctorPass, Summary: label + " plugin is installed"}
 	}
 	if entry, ok := d.lock.Plugins[pluginID]; ok && !entry.Enabled {
 		return doctorResult{Status: doctorWarn, Summary: label + " core plugin is installed but disabled", Hint: "run cgm plugin enable " + id}
 	}
-	return doctorResult{Status: doctorWarn, Summary: label + " core plugin is not installed", Hint: "run cgm plugin install " + id}
+	return doctorResult{Status: doctorWarn, Summary: label + " core plugin is not installed", Hint: d.pluginInstallHint(id)}
 }
 
 func sortedPluginIDs(lock pluginpkg.LockFile) []pluginpkg.PluginID {

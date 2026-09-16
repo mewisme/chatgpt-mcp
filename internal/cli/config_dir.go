@@ -36,15 +36,15 @@ func prepareCommand(cmd *cobra.Command, args []string) error {
 	if err := validateLoggingFlags(cmd, args); err != nil {
 		return err
 	}
+	if err := configureConfigDir(cmd); err != nil {
+		return err
+	}
 	cmd.SetContext(tracepkg.WithObserver(cmd.Context(), commandTraceObserver(cmd)))
 	logCommandStart(cmd, args)
 	if controlplane.ToolContextActive() && !controlplane.IsReadOnlyPath(relativeCommandPath(cmd)) {
 		if err := verifyControlApproval(cmd.Context(), cmd.CommandPath(), processCommandArgs()); err != nil {
 			return err
 		}
-	}
-	if err := configureConfigDir(cmd); err != nil {
-		return err
 	}
 	commandLogger(cmd).Diagnostic(logger.Info, "CLI", "cli.command.configured", "Command environment configured", logger.WithDebug("config", config.RootPath()))
 	return nil

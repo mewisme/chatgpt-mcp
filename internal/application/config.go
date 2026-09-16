@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -322,6 +323,9 @@ func MigrateSecretEncryptionContext(ctx context.Context) (int, error) {
 }
 
 func LoadConfigOverview(ctx context.Context) (ConfigOverview, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	source, err := config.Source()
 	if err != nil {
 		return ConfigOverview{}, err
@@ -334,7 +338,9 @@ func LoadConfigOverview(ctx context.Context) (ConfigOverview, error) {
 	if err != nil {
 		return ConfigOverview{}, err
 	}
-	status, running, statusErr := RuntimeStatus(ctx)
+	statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	status, running, statusErr := RuntimeStatus(statusCtx)
 	sync := ConfigRuntimeSync{State: ConfigRuntimeStopped, PersistedFingerprint: persistedFingerprint}
 	if statusErr != nil {
 		sync.State, sync.Error = ConfigRuntimeUnavailable, statusErr.Error()

@@ -7,11 +7,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"testing"
 )
 
 const (
 	EnvConfigDir = "CHATGPT_MCP_CONFIG_DIR"
+	EnvTesting   = "CHATGPT_MCP_TESTING"
 	rootMarker   = ".chatgpt-mcp-root"
 )
 
@@ -107,7 +107,7 @@ func MarkRoot(root string) error {
 // AssertMutableRoot refuses to mutate a live ~/.config/chatgpt-mcp from tests.
 // Isolated roots under the process temp directory are allowed.
 func AssertMutableRoot(root string) error {
-	if !testing.Testing() {
+	if !runningUnderTest() {
 		return nil
 	}
 	clean := filepath.Clean(root)
@@ -135,6 +135,15 @@ func underTempDir(root string) bool {
 		return false
 	}
 	return relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func runningUnderTest() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvTesting))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	name := filepath.Base(os.Args[0])
+	return strings.HasSuffix(name, ".test") || strings.HasSuffix(name, ".test.exe")
 }
 
 func IsManagedRoot(root string) bool {

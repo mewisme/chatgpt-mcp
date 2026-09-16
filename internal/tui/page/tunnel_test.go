@@ -104,6 +104,36 @@ func TestManagedTunnelBrowserUsesAttachShortcut(t *testing.T) {
 	}
 }
 
+func TestManagedTunnelsForAdminScopesProfileAndAutoRefreshes(t *testing.T) {
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", WorkspaceID: "ws_admin", ManageAccess: true, ReadAccess: true}}
+	setupTunnelPageConfig(t, tunnel.Config{Admins: &admins})
+	page, err := NewManagedTunnelsForAdmin(t.Context(), "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.adminProfileID != "work" || len(page.adminProfiles) != 1 || page.adminProfiles[0].ID != "work" || page.pendingInit == nil || !page.OverlayActive() {
+		t.Fatalf("profile=%q admins=%d pending=%v overlay=%t", page.adminProfileID, len(page.adminProfiles), page.pendingInit != nil, page.OverlayActive())
+	}
+	if view := ansi.Strip(page.View(100, 24)); !strings.Contains(view, "r refresh") || strings.Contains(view, "r refresh all") {
+		t.Fatalf("scoped refresh help=%q", view)
+	}
+	cmd := page.Init()
+	if cmd == nil || page.pendingInit != nil {
+		t.Fatalf("init cmd=%v pending=%v", cmd != nil, page.pendingInit != nil)
+	}
+}
+
+func TestManagedConfigureEditorOmitsEnableToggle(t *testing.T) {
+	editor, data := newManagedConfigureEditor([]application.TunnelAdminProfile{{ID: "default", ReadAccess: true}})
+	if data == nil || data.RuntimeKeyMode != "auto" {
+		t.Fatalf("configure draft=%#v", data)
+	}
+	view := ansi.Strip(editor.View())
+	if strings.Contains(view, "Enable after attach") || strings.Contains(view, "ENABLED") {
+		t.Fatalf("configure form still asks to enable: %q", view)
+	}
+}
+
 func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true})
 	item := tunnel.Metadata{ID: "tunnel_one", Name: "One", Description: "primary", OrganizationIDs: []string{"org_one"}, WorkspaceIDs: []string{"ws_one"}, TenantIDs: []string{"tenant_one"}}
@@ -857,7 +887,7 @@ func TestTunnelAdminsPageSubmitValidationAndWindowResize(t *testing.T) {
 	}
 	_, cmd = list.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	nav, ok = cmd().(NavigateMsg)
-	if !ok || strings.Join(nav.Path, "/") != "tunnels" {
+	if !ok || strings.Join(nav.Path, "/") != "admins/work/managed" {
 		t.Fatalf("managed key navigation=%#v", cmd)
 	}
 	_ = updated

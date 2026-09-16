@@ -154,7 +154,12 @@ func (page *TunnelAdminsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			case "a":
 				return page, func() tea.Msg { return NavigateMsg{Path: []string{"admins", "create"}} }
 			case "m":
-				return page, func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}} }
+				row, ok := page.browser.Selected()
+				if !ok || strings.TrimSpace(row.ID) == "" {
+					return page, nil
+				}
+				id := row.ID
+				return page, func() tea.Msg { return NavigateMsg{Path: []string{"admins", id, "managed"}} }
 			}
 		}
 	}
@@ -276,7 +281,7 @@ func (page *TunnelAdminsPage) syncDetail() error {
 		component.DetailPageBinding{Key: "e", Desc: "edit", Message: TunnelAdminCommandMsg{Command: TunnelAdminUpdate, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "v", Desc: "verify", Message: TunnelAdminCommandMsg{Command: TunnelAdminVerify, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "d", Desc: "remove", Message: TunnelAdminCommandMsg{Command: TunnelAdminRemove, ResourceID: item.ID}},
-		component.DetailPageBinding{Key: "m", Desc: "managed", Message: NavigateMsg{Path: []string{"tunnels"}}},
+		component.DetailPageBinding{Key: "m", Desc: "managed", Message: NavigateMsg{Path: []string{"admins", item.ID, "managed"}}},
 	)
 	if page.width > 0 && page.height > 0 {
 		page.detail.Resize(page.width, page.height)

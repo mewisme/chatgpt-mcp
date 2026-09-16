@@ -1173,7 +1173,11 @@ func (model *Model) loadPage(route Route) {
 	case RouteTunnel:
 		value, err = tuipage.NewTunnelInstances(model.ctx, route.ResourceID)
 	case RouteTunnelAdmins:
-		value, err = tuipage.NewTunnelAdmins(model.ctx, route.ResourceID, route.Action)
+		if route.Section == "managed" {
+			value, err = tuipage.NewManagedTunnelsForAdmin(model.ctx, route.ResourceID)
+		} else {
+			value, err = tuipage.NewTunnelAdmins(model.ctx, route.ResourceID, route.Action)
+		}
 	case RouteTunnels:
 		value, err = tuipage.NewManagedTunnelsRouteAction(model.ctx, route.ResourceID, route.Section, route.Action)
 	case RouteRequests:

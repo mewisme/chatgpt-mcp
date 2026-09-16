@@ -113,7 +113,6 @@ type managedConfigureFormData struct {
 	RuntimeKeyMode string
 	RuntimeAPIKey  string
 	ProjectID      string
-	Enabled        bool
 }
 
 type managedDeleteFormData struct{ AdminProfileID string }
@@ -196,7 +195,7 @@ func newManagedTunnelEditor(metadata tunnel.Metadata, create bool, profiles []ap
 }
 
 func newManagedConfigureEditor(profiles []application.TunnelAdminProfile) (component.Editor, *managedConfigureFormData) {
-	data := &managedConfigureFormData{RuntimeKeyMode: "auto", Enabled: true}
+	data := &managedConfigureFormData{RuntimeKeyMode: "auto"}
 	editor := component.NewEditor("attach",
 		component.EditorSection{ID: "admin", Title: "Admin", Description: "Choose the admin profile used to fetch and attach this tunnel.", Form: component.NewEditorForm(component.Group(managedProfileSelect("Admin profile", &data.AdminProfileID, profiles, false)))},
 		component.EditorSection{
@@ -210,7 +209,6 @@ func newManagedConfigureEditor(profiles []application.TunnelAdminProfile) (compo
 					}
 					return nil
 				})).WithHideFunc(func() bool { return data.RuntimeKeyMode != "manual" }),
-				component.Group(component.Switch("Enable after attach", &data.Enabled, "ENABLED", "DISABLED")),
 			),
 		})
 	return editor, data

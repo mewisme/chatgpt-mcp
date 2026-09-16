@@ -293,6 +293,10 @@ func parseTunnelAdminsRoute(parts []string) (Route, error) {
 		route.Action = "edit"
 		return route, nil
 	}
+	if parts[2] == "managed" {
+		route.Section = "managed"
+		return route, nil
+	}
 	return Route{}, fmt.Errorf("unsupported admins child action %q", parts[2])
 }
 

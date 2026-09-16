@@ -78,6 +78,7 @@ type TunnelPage struct {
 	resourceID         string
 	section            string
 	action             string
+	adminProfileID     string
 	dashboard          application.TunnelDashboard
 	adminStatus        application.TunnelAdminStatus
 	adminProfiles      []application.TunnelAdminProfile
@@ -173,6 +174,44 @@ func NewManagedTunnelsRouteAction(ctx context.Context, resourceID, section, acti
 			return nil, err
 		}
 	}
+	return page, nil
+}
+
+func NewManagedTunnelsForAdmin(ctx context.Context, profileID string) (*TunnelPage, error) {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return nil, fmt.Errorf("admin profile id is required")
+	}
+	page, err := NewManagedTunnelsRouteAction(ctx, "", "", "")
+	if err != nil {
+		return nil, err
+	}
+	var scoped []application.TunnelAdminProfile
+	for _, profile := range page.adminProfiles {
+		if profile.ID != profileID {
+			continue
+		}
+		if !profile.ReadAccess && !profile.ManageAccess {
+			return nil, fmt.Errorf("admin profile %q is missing verified Read access", profileID)
+		}
+		scoped = append(scoped, profile)
+		break
+	}
+	if len(scoped) == 0 {
+		return nil, fmt.Errorf("admin profile %q not found", profileID)
+	}
+	page.adminProfileID = profileID
+	page.adminProfiles = scoped
+	page.items = nil
+	page.adminsByTunnel = map[string][]string{}
+	if err := page.reloadManagedBrowser(); err != nil {
+		return nil, err
+	}
+	cmd, err := page.openCommand(TunnelManagedRefresh, "")
+	if err != nil {
+		return nil, err
+	}
+	page.pendingInit = cmd
 	return page, nil
 }
 
@@ -599,8 +638,9 @@ func (page *TunnelPage) openCommand(command TunnelCommand, resourceID string) (t
 		return nil, nil
 	case TunnelManagedRefresh:
 		id := page.targetID
+		profileID := page.adminProfileID
 		return page.startOperation(command, id, "Refreshing managed tunnels", func(ctx context.Context) tunnelOperationMsg {
-			discovered, err := application.DiscoverManagedTunnels(ctx, "")
+			discovered, err := application.DiscoverManagedTunnels(ctx, profileID)
 			if err != nil {
 				return tunnelOperationMsg{command: command, targetID: id, err: err}
 			}
@@ -838,7 +878,11 @@ func (page *TunnelPage) reloadManagedBrowser() error {
 	rows := page.managedRows()
 	bindings := []key.Binding{component.Binding([]string{"p"}, "p", "admins")}
 	if hasManagedAdminProfile(page.adminProfiles, false) {
-		bindings = append(bindings, component.Binding([]string{"r"}, "r", "refresh all"), component.Binding([]string{"t"}, "t", "attach"))
+		refreshLabel := "refresh all"
+		if page.adminProfileID != "" {
+			refreshLabel = "refresh"
+		}
+		bindings = append(bindings, component.Binding([]string{"r"}, "r", refreshLabel), component.Binding([]string{"t"}, "t", "attach"))
 	}
 	if hasManagedAdminProfile(page.adminProfiles, true) {
 		bindings = append(bindings, component.Binding([]string{"a"}, "a", "add"))

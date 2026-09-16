@@ -191,7 +191,7 @@ func (page *TunnelPage) submitManagedEditor() tea.Cmd {
 			return nil
 		}
 		data, id := page.configureForm, page.targetID
-		options := application.AttachManagedTunnelOptions{AdminProfileID: data.AdminProfileID, ProjectID: data.ProjectID, Enabled: data.Enabled}
+		options := application.AttachManagedTunnelOptions{AdminProfileID: data.AdminProfileID, ProjectID: data.ProjectID, Enabled: true}
 		switch data.RuntimeKeyMode {
 		case "auto":
 			options.AutoGenerateRuntimeKey = true

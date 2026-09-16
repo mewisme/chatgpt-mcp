@@ -83,6 +83,41 @@ func TestHandlerStartStopInstanceIsIDScoped(t *testing.T) {
 	}
 }
 
+func TestHandlerReconcilePreservesUnchangedInstance(t *testing.T) {
+	h := testHandler(t)
+	ctx := context.Background()
+	if err := h.Manager.Reconcile(ctx, tunnel.CollectionConfig{Instances: []tunnel.InstanceConfig{
+		{Enabled: true, ID: "tunnel_a", APIKey: "key-a"},
+		{Enabled: true, ID: "tunnel_b", APIKey: "key-b"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invokeHandler(t, h, "start_instance", map[string]string{"id": "tunnel_a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invokeHandler(t, h, "start_instance", map[string]string{"id": "tunnel_b"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, h, "tunnel_a")
+	waitReady(t, h, "tunnel_b")
+	beforeB, _ := h.Manager.Client("tunnel_b")
+	if err := h.Manager.Reconcile(ctx, tunnel.CollectionConfig{Instances: []tunnel.InstanceConfig{
+		{Enabled: true, ID: "tunnel_a", APIKey: "key-a-rotated"},
+		{Enabled: true, ID: "tunnel_b", APIKey: "key-b"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	afterB, ok := h.Manager.Client("tunnel_b")
+	if !ok || afterB != beforeB {
+		t.Fatal("reconcile replaced unchanged tunnel B")
+	}
+	waitReady(t, h, "tunnel_b")
+	b := mustStatus(t, h, "tunnel_b")
+	if !b.Running || !b.Ready {
+		t.Fatalf("B after A reconcile = %+v", b)
+	}
+}
+
 func TestHandlerRuntimeStatusReportsMixedInstances(t *testing.T) {
 	h := testHandler(t)
 	ctx := context.Background()

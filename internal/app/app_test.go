@@ -8,11 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/runtimeplugin"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -36,6 +39,44 @@ func TestNewDoesNotOwnLiveSecureMCPManager(t *testing.T) {
 	t.Cleanup(func() { _ = app.Stop() })
 	if app.Tunnels != nil || app.Tunnel != nil {
 		t.Fatal("Start constructed a live Secure MCP manager")
+	}
+}
+
+func TestLocalHTTPSurvivesMissingSecureMCPPlugin(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	cfg.Admin.Enabled = true
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_a", APIKey: "key-a"}, {Enabled: true, ID: "tunnel_b", APIKey: "key-b"}}
+	cfg.Tunnel.Instances = &instances
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Tunnels != nil || app.Tunnel != nil {
+		t.Fatal("New constructed a live Secure MCP manager")
+	}
+	mcp := httptest.NewRecorder()
+	app.MCPHandler().ServeHTTP(mcp, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if mcp.Code != http.StatusOK {
+		t.Fatalf("mcp health=%d", mcp.Code)
+	}
+	admin := httptest.NewRecorder()
+	app.AdminHandler().ServeHTTP(admin, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if admin.Code != http.StatusOK {
+		t.Fatalf("admin health=%d", admin.Code)
+	}
+	if _, err := application.StartSecureMCPInstance(context.Background(), runtimeplugin.NewHost(), "tunnel_a"); !errors.Is(err, tunnel.ErrPluginMissing) {
+		t.Fatalf("start err=%v", err)
+	}
+	if app.Tunnels != nil || app.Tunnel != nil {
+		t.Fatal("missing plugin start constructed a live Secure MCP manager")
+	}
+	mcpAfter := httptest.NewRecorder()
+	app.MCPHandler().ServeHTTP(mcpAfter, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if mcpAfter.Code != http.StatusOK {
+		t.Fatalf("mcp health after missing plugin=%d", mcpAfter.Code)
 	}
 }
 

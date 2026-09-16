@@ -191,3 +191,18 @@ func TestWorkspacePluginConfigPath(t *testing.T) {
 		t.Fatalf("workspace path = %s", path)
 	}
 }
+
+func TestWorkspaceSettingsStoreWritesCgmConfig(t *testing.T) {
+	layout, err := WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := SettingsStore{Layout: layout}
+	schema := testPluginSettingsSchema()
+	if err := store.Set(schema, "ponytail", "default_mode", "lite"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(layout.PluginConfigPath("ponytail")); err != nil {
+		t.Fatal(err)
+	}
+}

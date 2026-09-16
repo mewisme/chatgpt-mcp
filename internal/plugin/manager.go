@@ -611,7 +611,7 @@ func (manager Manager) Rollback(ctx context.Context, id PluginID, target Version
 	registry := Registry{Name: record.Registry}
 	if record.Registry == OfficialRegistryName {
 		registry = OfficialRegistry()
-	} else if config, configErr := LoadConfig(manager.Store.layout.ConfigPath()); configErr == nil {
+	} else if config, configErr := manager.Store.layout.LoadConfig(); configErr == nil {
 		for _, candidate := range config.AllRegistries() {
 			if candidate.Name == record.Registry {
 				registry = candidate
@@ -655,7 +655,7 @@ func (manager Manager) previousVersion(id PluginID, active Version) (Version, er
 }
 
 func (manager Manager) loadSnapshots(ctx context.Context, requiredRegistry string) ([]RegistrySnapshot, error) {
-	config, err := LoadConfig(manager.Store.layout.ConfigPath())
+	config, err := manager.Store.layout.LoadConfig()
 	if err != nil {
 		return nil, err
 	}

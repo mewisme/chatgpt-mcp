@@ -59,7 +59,7 @@ func MutateConfig(layout Layout, mutate func(*Config) error) error {
 		return err
 	}
 	defer lock.release()
-	config, err := LoadConfig(layout.ConfigPath())
+	config, err := layout.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,43 @@ func MutateConfig(layout Layout, mutate func(*Config) error) error {
 			return err
 		}
 	}
-	return WriteConfig(layout.ConfigPath(), config)
+	return layout.WriteConfig(config)
+}
+
+func (layout Layout) LoadConfig() (Config, error) {
+	if layout.EffectiveScope() != ScopeWorkspace {
+		return LoadConfig(layout.ConfigPath())
+	}
+	desired, err := loadDesiredDocument(layout.ConfigPath())
+	if err != nil {
+		return Config{}, err
+	}
+	global, err := LoadConfig(DefaultLayout().ConfigPath())
+	if err != nil {
+		return Config{}, err
+	}
+	global.Desired = desired
+	if err := global.Validate(); err != nil {
+		return Config{}, err
+	}
+	return global, nil
+}
+
+func (layout Layout) WriteConfig(config Config) error {
+	if layout.EffectiveScope() != ScopeWorkspace {
+		return WriteConfig(layout.ConfigPath(), config)
+	}
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	global, err := LoadConfig(DefaultLayout().ConfigPath())
+	if err != nil {
+		return err
+	}
+	if !sameRegistries(config.Registries, global.Registries) {
+		return errors.New("plugin registries are global")
+	}
+	return writeDesiredDocument(layout.ConfigPath(), config.Desired)
 }
 
 func WriteConfig(path string, config Config) error {
@@ -184,4 +220,64 @@ func (config *Config) RemoveRegistry(name string) error {
 	}
 	delete(config.Registries, name)
 	return nil
+}
+
+type desiredDocument struct {
+	Schema  int                        `json:"schema"`
+	Desired map[PluginID]DesiredPlugin `json:"desired,omitempty"`
+}
+
+func loadDesiredDocument(path string) (map[PluginID]DesiredPlugin, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[PluginID]DesiredPlugin{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var document desiredDocument
+	if err := decodeStrictJSON(data, &document); err != nil {
+		return nil, fmt.Errorf("decode workspace plugin desired state: %w", err)
+	}
+	if document.Schema != ConfigSchema {
+		return nil, fmt.Errorf("unsupported plugin config schema: %d", document.Schema)
+	}
+	if document.Desired == nil {
+		return map[PluginID]DesiredPlugin{}, nil
+	}
+	return document.Desired, nil
+}
+
+func writeDesiredDocument(path string, desired map[PluginID]DesiredPlugin) error {
+	if desired == nil {
+		desired = map[PluginID]DesiredPlugin{}
+	}
+	data, err := json.MarshalIndent(desiredDocument{Schema: ConfigSchema, Desired: desired}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return state.WriteFileAtomic(path, append(data, '\n'), 0600)
+}
+
+func sameRegistries(left, right map[string]Registry) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for name, registry := range left {
+		other, ok := right[name]
+		if !ok || !sameRegistry(registry, other) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameRegistry(left, right Registry) bool {
+	if left.Name != right.Name || left.URL != right.URL || left.UnqualifiedResolution != right.UnqualifiedResolution {
+		return false
+	}
+	if left.Trust == nil || right.Trust == nil {
+		return left.Trust == right.Trust
+	}
+	return *left.Trust == *right.Trust
 }

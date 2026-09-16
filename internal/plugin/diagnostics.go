@@ -27,7 +27,7 @@ func (manager Manager) RegistryHealth(ctx context.Context) ([]RegistryHealth, er
 	if manager.Store == nil {
 		return nil, errors.New("plugin store is unavailable")
 	}
-	config, err := LoadConfig(manager.Store.layout.ConfigPath())
+	config, err := manager.Store.layout.LoadConfig()
 	if err != nil {
 		return nil, err
 	}

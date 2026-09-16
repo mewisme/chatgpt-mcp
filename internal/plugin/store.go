@@ -378,7 +378,7 @@ func (store *Store) DisableIfEnabled(id PluginID) (bool, error) {
 }
 
 func (store *Store) writeLockAndDesired(previous, next LockFile, mutate func(*Config) error) error {
-	config, err := LoadConfig(store.layout.ConfigPath())
+	config, err := store.layout.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -390,7 +390,7 @@ func (store *Store) writeLockAndDesired(previous, next LockFile, mutate func(*Co
 	if err := WriteLock(store.layout.LockPath(), next); err != nil {
 		return err
 	}
-	if err := WriteConfig(store.layout.ConfigPath(), config); err != nil {
+	if err := store.layout.WriteConfig(config); err != nil {
 		if rollbackErr := WriteLock(store.layout.LockPath(), previous); rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("restore previous plugin lock: %w", rollbackErr))
 		}

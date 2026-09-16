@@ -18,7 +18,7 @@ func (manager Manager) AssessDesired() (DesiredReport, error) {
 	if manager.Store == nil {
 		return DesiredReport{}, errors.New("plugin store is unavailable")
 	}
-	config, err := LoadConfig(manager.Store.layout.ConfigPath())
+	config, err := manager.Store.layout.LoadConfig()
 	if err != nil {
 		return DesiredReport{}, err
 	}

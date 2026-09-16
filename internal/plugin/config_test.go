@@ -3,8 +3,11 @@ package plugin
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func TestConfigRegistryLifecycle(t *testing.T) {
@@ -123,5 +126,74 @@ func TestConfigLegacyFileInitializesDesiredState(t *testing.T) {
 	}
 	if config.Desired == nil || len(config.Desired) != 0 {
 		t.Fatalf("legacy desired state = %#v", config.Desired)
+	}
+}
+
+func isolatedWorkspaceLayout(t *testing.T) Layout {
+	t.Helper()
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	layout, err := WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return layout
+}
+
+func TestWorkspaceDesiredOmitsRegistriesAndDoesNotLeakGlobal(t *testing.T) {
+	layout := isolatedWorkspaceLayout(t)
+	store, err := NewStore(layout, RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Install(testManifest("bash", "1.0.0", "shell/bash"), testPayload(t, "bash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Activate("bash", "1.0.0", ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(layout.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"registries"`) {
+		t.Fatalf("workspace desired included registries: %s", data)
+	}
+	loaded, err := layout.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired, ok := loaded.Desired["bash"]
+	if !ok || desired.Registry != "official" || desired.Version != "1.0.0" {
+		t.Fatalf("workspace desired = %#v", loaded.Desired)
+	}
+	global, err := LoadConfig(DefaultLayout().ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, leaked := global.Desired["bash"]; leaked {
+		t.Fatalf("workspace desired leaked into global config: %#v", global.Desired)
+	}
+}
+
+func TestWorkspaceDesiredRejectsEmbeddedRegistries(t *testing.T) {
+	layout := isolatedWorkspaceLayout(t)
+	if err := os.MkdirAll(filepath.Dir(layout.ConfigPath()), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.ConfigPath(), []byte(`{"schema":1,"registries":{},"desired":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := layout.LoadConfig(); err == nil {
+		t.Fatal("workspace desired accepted registries")
+	}
+}
+
+func TestWorkspaceMutateConfigRejectsRegistryChanges(t *testing.T) {
+	layout := isolatedWorkspaceLayout(t)
+	trust := SigstoreIdentity{Issuer: OfficialSigstoreIssuer, Repository: "example/plugins"}
+	if err := MutateConfig(layout, func(config *Config) error {
+		return config.AddRegistry("community", "https://plugins.example.test/releases", false, trust)
+	}); err == nil {
+		t.Fatal("workspace layout accepted registry mutation")
 	}
 }

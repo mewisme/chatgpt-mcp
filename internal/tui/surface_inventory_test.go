@@ -41,6 +41,19 @@ func TestSurfaceInventoryTUIActions(t *testing.T) {
 	if byID["tunnel.add"].Kind != "native" {
 		t.Fatalf("tunnel.add kind=%q", byID["tunnel.add"].Kind)
 	}
+	for _, id := range []string{
+		"tunnel.update", "tunnel.enable", "tunnel.disable", "tunnel.start", "tunnel.stop", "tunnel.detach",
+		"tunnel.admin.add", "tunnel.admin.update", "tunnel.admin.verify", "tunnel.admin.remove",
+		"tunnel.managed.create", "tunnel.managed.update", "tunnel.managed.configure", "tunnel.managed.delete",
+		"plugin.uninstall", "plugin.enable", "plugin.disable", "plugin.update", "plugin.rollback", "plugin.prune", "plugin.verify",
+		"plugin.config.reset", "workspace.relocate", "workspace.access.add", "workspace.access.remove",
+		"request.approve", "request.deny", "request.grant.list", "request.grant.revoke",
+		"config.verify", "config.export", "config.import",
+	} {
+		if byID[id].ID == "" {
+			t.Fatalf("missing compared TUI action %s", id)
+		}
+	}
 	if byID["config.initialize.external"].Kind != "external-command" {
 		t.Fatalf("config.initialize.external kind=%q", byID["config.initialize.external"].Kind)
 	}

@@ -238,43 +238,6 @@ func TestTunnelOnlyConfigCannotDisableTunnel(t *testing.T) {
 	}
 }
 
-func TestConfigureTunnelRuntimeKeepsOtherInstances(t *testing.T) {
-	setupTunnelApplicationRoot(t, tunnel.Config{})
-	saveTunnelCollectionFixture(t, []tunnel.InstanceConfig{
-		{Enabled: true, ID: "tunnel_one", APIKey: "runtime-one", OrganizationID: "org_old"},
-		{Enabled: true, ID: "tunnel_two", APIKey: "runtime-two"},
-	}, nil)
-	if _, err := ConfigureTunnelRuntime(t.Context(), TunnelRuntimeInput{Enabled: boolPtr(false), OrganizationID: strPtr("org_new")}); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	instances := loaded.RuntimeTunnels().Instances
-	if len(instances) != 2 || instances[0].ID != "tunnel_one" || instances[0].Enabled || instances[0].OrganizationID != "org_new" || instances[0].APIKey != "runtime-one" || instances[1].ID != "tunnel_two" || !instances[1].Enabled || instances[1].APIKey != "runtime-two" {
-		t.Fatalf("instances=%#v", instances)
-	}
-	status, err := TunnelStatus()
-	if err != nil || status.Config.ID != "tunnel_one" || status.Config.Enabled {
-		t.Fatalf("status=%#v err=%v", status, err)
-	}
-	if _, err := SetTunnelEnabled(t.Context(), true); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err = config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	instances = loaded.RuntimeTunnels().Instances
-	if !instances[0].Enabled || !instances[1].Enabled || instances[1].APIKey != "runtime-two" {
-		t.Fatalf("instances after enable=%#v", instances)
-	}
-}
-
-func boolPtr(v bool) *bool    { return &v }
-func strPtr(v string) *string { return &v }
-
 func TestUpdateLocalTunnelPreservesRuntimeKeyAndMutatesOnlyTarget(t *testing.T) {
 	setupTunnelApplicationRoot(t, tunnel.Config{})
 	saveTunnelCollectionFixture(t, []tunnel.InstanceConfig{

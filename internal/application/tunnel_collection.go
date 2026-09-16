@@ -121,65 +121,6 @@ func localTunnelView(instance tunnel.InstanceConfig, status tunnel.Status) Local
 	return LocalTunnel{ID: instance.ID, Enabled: instance.Enabled, RuntimeKeyConfigured: instance.APIKey != "", AdminProfileID: instance.AdminProfileID, ControlPlaneBaseURL: instance.ControlPlaneBaseURL, OrganizationID: instance.OrganizationID, Status: status}
 }
 
-func primaryLocalInstance(collection tunnel.CollectionConfig) (tunnel.InstanceConfig, int, bool) {
-	if len(collection.Instances) == 0 {
-		return tunnel.InstanceConfig{}, -1, false
-	}
-	return collection.Instances[0], 0, true
-}
-
-func primaryAdminProfile(collection tunnel.CollectionConfig) (tunnel.AdminConfig, bool) {
-	if len(collection.Admins) == 0 {
-		return tunnel.AdminConfig{}, false
-	}
-	for _, admin := range collection.Admins {
-		if admin.ID == "default" {
-			return admin, true
-		}
-	}
-	return collection.Admins[0], true
-}
-
-func instanceRuntimeConfig(instance tunnel.InstanceConfig) tunnel.Config {
-	return tunnel.Config{Enabled: instance.Enabled, ID: instance.ID, APIKey: instance.APIKey, ControlPlaneBaseURL: instance.ControlPlaneBaseURL, OrganizationID: instance.OrganizationID}
-}
-
-func localInstanceIndex(collection tunnel.CollectionConfig, id string) int {
-	id = strings.TrimSpace(id)
-	for i, instance := range collection.Instances {
-		if instance.ID == id {
-			return i
-		}
-	}
-	return -1
-}
-
-func dashboardFromConfig(cfg config.Config) TunnelDashboard {
-	collection := cfg.RuntimeTunnels()
-	instance, _, _ := primaryLocalInstance(collection)
-	runtime := instanceRuntimeConfig(instance)
-	if admin, ok := primaryAdminProfile(collection); ok {
-		runtime.AdminKey = admin.AdminKey
-		runtime.ControlPlaneBaseURL = firstNonEmpty(runtime.ControlPlaneBaseURL, admin.ControlPlaneBaseURL)
-		tunnel.ApplyAdminScope(&runtime, tunnel.AdminScope{OrganizationID: admin.OrganizationID, WorkspaceID: admin.WorkspaceID, TenantID: admin.TenantID})
-		tunnel.ApplyAdminAccess(&runtime, tunnel.AdminAccess{Read: admin.ReadAccess, Manage: admin.ManageAccess})
-	}
-	client := tunnel.NewConfigured(runtime, nil)
-	if metadata, err := config.LoadTunnelMetadata(runtime.ID); err == nil {
-		_ = client.SeedMetadata(metadata)
-	}
-	return TunnelDashboard{Config: runtime, Status: client.Status(), MCPHTTPEnabled: cfg.Server.Enabled}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func saveTunnelCollection(ctx context.Context, previous config.Config, collection tunnel.CollectionConfig) error {
 	instances := append([]tunnel.InstanceConfig{}, collection.Instances...)
 	admins := append([]tunnel.AdminConfig{}, collection.Admins...)

@@ -6,6 +6,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/notification"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/telemetry"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -20,6 +21,7 @@ func (a *App) Bootstrap() error {
 			a.Config = config.NewRuntimeStore(config.Default())
 		}
 		if a.Tools == nil {
+			pluginhost.Install()
 			cfg := a.Config.Snapshot()
 			a.Tools = tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) {
 				current := a.Config.Snapshot()

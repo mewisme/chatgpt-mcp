@@ -165,7 +165,7 @@ func TestReloadConfigFailedApplyRestoresCommittedConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	previous := app.Config.Snapshot()
-	if err := app.Tools.Registry.ReplaceOwned("feature:ponytail", nil); err != nil {
+	if err := app.Tools.Registry.ReplaceOwned("plugin:ponytail", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := app.Tools.Registry.Register("ponytail_turn", tools.Schema{Name: "ponytail_turn"}, func(context.Context, map[string]any) (tools.Result, error) {

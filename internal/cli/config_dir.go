@@ -12,6 +12,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/controlplane"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
@@ -33,6 +34,7 @@ func configureConfigDir(cmd *cobra.Command) error {
 }
 
 func prepareCommand(cmd *cobra.Command, args []string) error {
+	pluginhost.Install()
 	if err := validateLoggingFlags(cmd, args); err != nil {
 		return err
 	}

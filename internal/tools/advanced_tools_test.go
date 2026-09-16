@@ -24,11 +24,46 @@ func newAdvancedRuntime(t *testing.T) (*Runtime, string, string) {
 	registry := NewRegistry()
 	RegisterWorkspaceTools(registry, workspaces)
 	RegisterAdvancedTools(registry, workspaces)
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, ponytailManager: ponytail.NewManager(true, ponytail.Full), cavemanManager: caveman.NewManager(true, caveman.Full)}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces}
+	if SyncCompiledPlugins == nil {
+		SyncCompiledPlugins = syncTestCompiledPlugins
+	}
 	if err := runtime.SyncFeatures(features.Default()); err != nil {
 		t.Fatal(err)
 	}
 	return runtime, item.ID, item.Path
+}
+
+func syncTestCompiledPlugins(runtime *Runtime, raw any) error {
+	feat, _ := raw.(features.Config)
+	runtime.EnsurePluginSessions(func() []PluginSession {
+		pony := ponytail.NewManager(true, ponytail.Full)
+		cave := caveman.NewManager(true, caveman.Full)
+		return []PluginSession{
+			{Owner: "ponytail", Apply: func(values map[string]any) {
+				active, _ := values["default_active"].(bool)
+				mode, _ := values["default_mode"].(string)
+				pony.SetDefaults(active, ponytail.Mode(mode))
+			}, Tools: func(workspaces *workspace.Manager) map[string]Entry {
+				return map[string]Entry{"ponytail_turn": TurnControllerTool(workspaces, "ponytail_turn", "Ponytail Turn Controller", "Built-in Ponytail controller.", `"off","lite","full","ultra","review"`, func(workspaceID, prompt, action string) (any, error) {
+					return pony.Turn(workspaceID, prompt, action)
+				})}
+			}},
+			{Owner: "caveman", Apply: func(values map[string]any) {
+				active, _ := values["default_active"].(bool)
+				mode, _ := values["default_mode"].(string)
+				cave.SetDefaults(active, caveman.Mode(mode))
+			}, Tools: func(workspaces *workspace.Manager) map[string]Entry {
+				return map[string]Entry{"caveman_turn": TurnControllerTool(workspaces, "caveman_turn", "Caveman Turn Controller", "Built-in Caveman controller.", `"off","lite","full","ultra","wenyan-lite","wenyan-full","wenyan-ultra"`, func(workspaceID, prompt, action string) (any, error) {
+					return cave.Turn(workspaceID, prompt, action)
+				})}
+			}},
+		}
+	})
+	return runtime.ApplyPluginSettings(map[string]map[string]any{
+		"ponytail": {"default_active": feat.Ponytail.Active, "default_mode": feat.Ponytail.Mode},
+		"caveman":  {"default_active": feat.Caveman.Active, "default_mode": feat.Caveman.Mode},
+	})
 }
 
 func TestAdvancedToolCatalog(t *testing.T) {

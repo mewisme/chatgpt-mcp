@@ -9,14 +9,11 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
-	"go.mewis.me/chatgpt-mcp/internal/caveman"
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
-	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
-	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
@@ -47,8 +44,7 @@ type Runtime struct {
 	sessionMu       sync.Mutex
 	featureMu       sync.Mutex
 	features        features.Config
-	ponytailManager *ponytail.Manager
-	cavemanManager  *caveman.Manager
+	pluginSessions  []PluginSession
 }
 
 func NewRuntime() *Runtime {
@@ -74,14 +70,13 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	if err != nil {
 		panic(err)
 	}
-	pluginhost.Attach(pluginStore)
 	pluginReconcile, err := pluginpkg.Reconcile(pluginStore)
 	if err != nil {
 		panic(err)
 	}
 	shell := shellruntime.NewManagerWithProviderResolver(workspaces, shellruntime.DefaultStateRoot(), executions, shellruntime.NewProviderResolver(pluginStore))
 	processes := shellruntime.NewProcessManagerWithExecutions(workspaces, shell, executions)
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Hooks: pluginpkg.NewHookDispatcher(pluginStore), PluginStore: pluginStore, Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), PluginReconcile: pluginReconcile, ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Hooks: pluginpkg.NewHookDispatcher(pluginStore), PluginStore: pluginStore, Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), PluginReconcile: pluginReconcile}
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterWorkspaceContainerTools(registry, workspaces)
@@ -115,19 +110,11 @@ func (r *Runtime) SyncFeatures(featureConfig features.Config) error {
 	}
 	r.featureMu.Lock()
 	defer r.featureMu.Unlock()
-	if r.ponytailManager == nil {
-		r.ponytailManager = ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode))
-	}
-	if r.cavemanManager == nil {
-		r.cavemanManager = caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))
-	}
-	if err := r.Registry.ReplaceOwnedPrefix("feature:", featureToolEntries(r.Workspaces, r.ponytailManager, r.cavemanManager)); err != nil {
-		return err
-	}
-	r.ponytailManager.SetDefaults(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode))
-	r.cavemanManager.SetDefaults(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))
 	r.features = featureConfig
-	return nil
+	if SyncCompiledPlugins == nil {
+		return nil
+	}
+	return SyncCompiledPlugins(r, featureConfig)
 }
 
 func (r *Runtime) Features() features.Config {

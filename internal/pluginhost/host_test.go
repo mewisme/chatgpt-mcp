@@ -1,6 +1,10 @@
 package pluginhost
 
-import "testing"
+import (
+	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/tools"
+)
 
 func TestBuiltinsIncludePonytailAndCaveman(t *testing.T) {
 	registry := Builtins()
@@ -16,5 +20,16 @@ func TestBuiltinsIncludePonytailAndCaveman(t *testing.T) {
 	ponytail, _ := registry.Lookup("ponytail")
 	if ponytail.Lifecycle().Install || ponytail.Lifecycle().Uninstall || !ponytail.Lifecycle().Configure {
 		t.Fatalf("ponytail lifecycle = %#v", ponytail.Lifecycle())
+	}
+}
+
+func TestSyncToolsRegistersTurnControllers(t *testing.T) {
+	Install()
+	runtime := tools.NewRuntime()
+	if _, ok := runtime.Registry.Schema("ponytail_turn"); !ok {
+		t.Fatal("ponytail_turn missing")
+	}
+	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
+		t.Fatal("caveman_turn missing")
 	}
 }

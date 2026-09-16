@@ -59,7 +59,7 @@ func NewStore(layout Layout, context RuntimeContext) (*Store, error) {
 	if strings.TrimSpace(context.CoreVersion) == "" {
 		context.CoreVersion = coreversion.Version
 	}
-	return &Store{layout: layout, runtime: context}, nil
+	return &Store{layout: layout, runtime: context, Builtins: compiledBuiltinClone()}, nil
 }
 
 func (store *Store) Layout() Layout { return store.layout }

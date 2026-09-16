@@ -15,6 +15,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
 	"go.mewis.me/chatgpt-mcp/internal/notification"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -58,6 +59,7 @@ func NewWithLoggerContext(ctx context.Context, cfg config.Config, appLogger *log
 	}
 	observer := tracepkg.ObserverFromContext(ctx)
 	span := tracepkg.Start(ctx, "APP", "app.construct", "Constructing server runtime application", tracepkg.Bool("mcp_http_enabled", cfg.Server.Enabled), tracepkg.Bool("admin_enabled", cfg.Admin.Enabled), tracepkg.Int("tunnel_enabled_count", cfg.EnabledTunnelCount()), tracepkg.Int("tunnel_count", len(cfg.RuntimeTunnels().Instances)))
+	pluginhost.Install()
 	stream := activity.NewStream()
 	configStore := config.NewRuntimeStore(cfg)
 	toolSpan := tracepkg.Start(ctx, "APP", "app.tools.bootstrap", "Bootstrapping tool runtime")

@@ -94,12 +94,6 @@ func adminProfileFromForm(data *tunnelAdminProfileFormData, id string) (tunnel.A
 	return admin, nil
 }
 
-type tunnelAdminFormData struct {
-	AdminKey  string
-	ScopeKind string
-	ScopeID   string
-}
-
 type managedTunnelFormData struct {
 	AdminProfileID  string
 	Name            string
@@ -117,34 +111,6 @@ type managedConfigureFormData struct {
 }
 
 type managedDeleteFormData struct{ AdminProfileID string }
-
-func newTunnelRuntimeEditor(dashboard application.TunnelDashboard) (component.Editor, *tunnelRuntimeFormData) {
-	data := &tunnelRuntimeFormData{Enabled: dashboard.Config.Enabled, ID: dashboard.Config.ID, ControlPlane: dashboard.Config.ControlPlaneBaseURL, OrganizationID: dashboard.Config.OrganizationID}
-	enabledTitle := "Enabled (at least one MCP transport must remain enabled)"
-	if !dashboard.MCPHTTPEnabled {
-		enabledTitle = "Enabled (required while MCP HTTP is disabled)"
-	}
-	enabled := component.Switch(enabledTitle, &data.Enabled, "ENABLED", "DISABLED")
-	if !dashboard.MCPHTTPEnabled {
-		enabled.Validate(func(value bool) error {
-			if !value {
-				return fmt.Errorf("tunnel must remain enabled while MCP HTTP is disabled")
-			}
-			return nil
-		})
-	}
-	editor := component.NewEditor("save", component.EditorSection{
-		ID: "runtime", Title: "Runtime", Description: "Configure the selected runtime tunnel. Blank runtime API key keeps the current secret.",
-		Form: component.NewEditorForm(component.Group(
-			enabled,
-			component.Input("Tunnel ID", &data.ID),
-			component.PasswordInput("Runtime API key", &data.RuntimeAPIKey).Placeholder("Blank keeps the current key."),
-			component.Input("Control plane base URL", &data.ControlPlane),
-			component.Input("Organization ID", &data.OrganizationID),
-		)),
-	})
-	return editor, data
-}
 
 func newLocalTunnelEditor(item application.LocalTunnel, create bool, profiles []application.TunnelAdminProfile) (component.Editor, *tunnelRuntimeFormData) {
 	data := &tunnelRuntimeFormData{Enabled: item.Enabled || create, ID: item.ID, ControlPlane: item.ControlPlaneBaseURL, OrganizationID: item.OrganizationID, AdminProfileID: item.AdminProfileID}
@@ -199,29 +165,6 @@ func localInstanceFromForm(data *tunnelRuntimeFormData, id string) (tunnel.Insta
 	return tunnel.InstanceConfig{Enabled: data.Enabled, ID: id, APIKey: strings.TrimSpace(data.RuntimeAPIKey), AdminProfileID: admin, ControlPlaneBaseURL: strings.TrimSpace(data.ControlPlane), OrganizationID: strings.TrimSpace(data.OrganizationID)}, nil
 }
 
-func newTunnelAdminEditor(status application.TunnelAdminStatus) (component.Editor, *tunnelAdminFormData) {
-	data := &tunnelAdminFormData{ScopeKind: "auto"}
-	scope := status.Scope
-	switch {
-	case scope.OrganizationID != "":
-		data.ScopeKind, data.ScopeID = "organization", scope.OrganizationID
-	case scope.WorkspaceID != "":
-		data.ScopeKind, data.ScopeID = "workspace", scope.WorkspaceID
-	case scope.TenantID != "":
-		data.ScopeKind, data.ScopeID = "tenant", scope.TenantID
-	}
-	editor := component.NewEditor("verify", component.EditorSection{
-		ID: "admin-key", Title: "Admin Key", Description: "Store and verify an OpenAI admin key with Tunnels Manage access.",
-		Form: component.NewEditorForm(component.Group(
-			component.PasswordInput("OpenAI admin API key (Tunnels Manage)", &data.AdminKey),
-			component.Select("Verification scope", &data.ScopeKind,
-				huh.NewOption("Auto (reuse or derive)", "auto"), huh.NewOption("Organization", "organization"), huh.NewOption("Workspace", "workspace"), huh.NewOption("Tenant", "tenant"),
-			),
-			component.Input("Scope ID (ignored for Auto)", &data.ScopeID),
-		)),
-	})
-	return editor, data
-}
 func newManagedTunnelEditor(metadata tunnel.Metadata, create bool, profiles []application.TunnelAdminProfile) (component.Editor, *managedTunnelFormData) {
 	data := &managedTunnelFormData{
 		Name: metadata.Name, Description: metadata.Description,
@@ -291,32 +234,6 @@ func managedProfileSelect(title string, value *string, profiles []application.Tu
 		options = append([]huh.Option[string]{huh.NewOption("Select profile", "")}, options...)
 	}
 	return component.Select(title, value, options...).Validate(requiredValue("admin profile"))
-}
-
-func runtimeInputFromForm(data *tunnelRuntimeFormData) application.TunnelRuntimeInput {
-	input := application.TunnelRuntimeInput{Enabled: &data.Enabled, ID: &data.ID, ControlPlaneBaseURL: &data.ControlPlane, OrganizationID: &data.OrganizationID}
-	if strings.TrimSpace(data.RuntimeAPIKey) != "" {
-		input.APIKey = &data.RuntimeAPIKey
-	}
-	return input
-}
-
-func adminInputFromForm(data *tunnelAdminFormData) application.TunnelAdminKeyInput {
-	input := application.TunnelAdminKeyInput{Key: data.AdminKey}
-	if data.ScopeKind == "auto" {
-		return input
-	}
-	scope := tunnel.AdminScope{}
-	switch data.ScopeKind {
-	case "organization":
-		scope.OrganizationID = data.ScopeID
-	case "workspace":
-		scope.WorkspaceID = data.ScopeID
-	case "tenant":
-		scope.TenantID = data.ScopeID
-	}
-	input.Scope = &scope
-	return input
 }
 
 func managedCreateInput(data *managedTunnelFormData) tunnel.CreateRequest {

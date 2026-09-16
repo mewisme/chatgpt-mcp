@@ -20,49 +20,52 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-func TestTunnelRuntimeEditorsRedactSecretsAndBlankRuntimeKeyPreservesSecret(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{ID: "tunnel_demo", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminWorkspaceID: "ws_admin"})
-	dashboard, err := NewTunnelDashboard(t.Context())
+func TestTunnelCollectionRedactsSecretsAndBlankEditPreservesRuntimeKey(t *testing.T) {
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret", AdminProfileID: "work"}}
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-secret", WorkspaceID: "ws_admin", ManageAccess: true}}
+	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances, Admins: &admins})
+	list, err := NewTunnelInstances(t.Context(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view := dashboard.View(120, 32); strings.Contains(view, "runtime-secret") || strings.Contains(view, "admin-secret") {
-		t.Fatalf("secret leaked in tunnel dashboard: %q", view)
+	if view := list.View(120, 32); strings.Contains(view, "runtime-secret") || strings.Contains(view, "admin-secret") {
+		t.Fatalf("secret leaked in tunnel collection: %q", view)
 	}
-	runtimeEditor, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
+	edit, err := NewTunnelInstances(t.Context(), "tunnel_demo", "edit")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = runtimeEditor.Init()
-	if runtimeEditor.OverlayActive() || runtimeEditor.runtimeForm == nil || runtimeEditor.runtimeForm.RuntimeAPIKey != "" {
-		t.Fatalf("runtime editor overlay=%t draft=%#v", runtimeEditor.OverlayActive(), runtimeEditor.runtimeForm)
+	_ = edit.Init()
+	if edit.OverlayActive() || edit.form == nil || edit.form.RuntimeAPIKey != "" {
+		t.Fatalf("runtime editor overlay=%t draft=%#v", edit.OverlayActive(), edit.form)
 	}
-	if input := runtimeInputFromForm(runtimeEditor.runtimeForm); input.APIKey != nil {
-		t.Fatalf("blank runtime key should preserve existing secret: %#v", input.APIKey)
+	instance, err := localInstanceFromForm(edit.form, "tunnel_demo")
+	if err != nil || instance.APIKey != "" {
+		t.Fatalf("blank runtime key should preserve existing secret: %#v err=%v", instance, err)
 	}
-	view := ansi.Strip(runtimeEditor.View(100, 28))
-	if strings.Contains(view, "runtime-secret") || !strings.Contains(view, "Configure the selected runtime tunnel") || !strings.Contains(view, "enter next") || strings.Contains(view, "Configure Runtime Tunnel") {
+	view := ansi.Strip(edit.View(100, 28))
+	if strings.Contains(view, "runtime-secret") || !strings.Contains(view, "Blank keeps the current key") || !strings.Contains(view, "enter next") {
 		t.Fatalf("runtime editor view=%q", view)
 	}
-	adminEditor, err := NewTunnelDashboardRoute(t.Context(), "admin-key", "edit")
+	adminEditor, err := NewTunnelAdmins(t.Context(), "work", "edit")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = adminEditor.Init()
 	view = ansi.Strip(adminEditor.View(100, 28))
-	if adminEditor.OverlayActive() || adminEditor.adminForm == nil || adminEditor.adminForm.AdminKey != "" || strings.Contains(view, "admin-secret") || !strings.Contains(view, "enter next") {
-		t.Fatalf("admin editor overlay=%t draft=%#v view=%q", adminEditor.OverlayActive(), adminEditor.adminForm, view)
+	if adminEditor.OverlayActive() || adminEditor.form == nil || adminEditor.form.AdminKey != "" || strings.Contains(view, "admin-secret") || !strings.Contains(view, "enter next") {
+		t.Fatalf("admin editor overlay=%t draft=%#v view=%q", adminEditor.OverlayActive(), adminEditor.form, view)
 	}
 }
 
-func TestTunnelRuntimeTitleStartsAtWorkspaceTitlePosition(t *testing.T) {
+func TestTunnelCollectionTitleStartsAtWorkspaceTitlePosition(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{})
-	page, err := NewTunnelDashboard(t.Context())
+	page, err := NewTunnelInstances(t.Context(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(ansi.Strip(page.View(100, 32)), "\n")
-	if len(lines) < 2 || !strings.Contains(lines[0], "OpenAI Secure MCP Tunnel") || strings.TrimSpace(lines[1]) != "" {
+	if len(lines) < 1 || !strings.Contains(lines[0], "OpenAI Secure MCP Tunnels") {
 		t.Fatalf("tunnel title lines=%q", lines[:min(2, len(lines))])
 	}
 }
@@ -101,6 +104,80 @@ func TestManagedTunnelBrowserUsesAttachShortcut(t *testing.T) {
 	navigate, ok := cmd().(NavigateMsg)
 	if !ok || strings.Join(navigate.Path, "/") != "tunnels/tunnel_one/configure" {
 		t.Fatalf("managed browser attach navigation=%#v", navigate)
+	}
+}
+
+func TestManagedAndLocalTunnelRowsPreferLabels(t *testing.T) {
+	admins := []tunnel.AdminConfig{
+		{ID: "work", AdminKey: "admin-work", WorkspaceID: "ws_admin", ReadAccess: true, ManageAccess: true},
+		{ID: "other", AdminKey: "admin-other", OrganizationID: "org_other", ReadAccess: true, ManageAccess: true},
+	}
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_one", APIKey: "runtime-one", AdminProfileID: "work"}, {ID: "tunnel_anon", APIKey: "runtime-anon"}}
+	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances, Admins: &admins})
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_one", Name: "Alpha", Description: "prod"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_two", Name: "Beta", Description: "staging"}); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := NewManagedTunnels(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := ansi.Strip(managed.View(100, 24))
+	if !strings.Contains(view, "Alpha") || !strings.Contains(view, "Beta") || !strings.Contains(view, "prod") || !strings.Contains(view, "staging") {
+		t.Fatalf("managed labels=%q", view)
+	}
+	local, err := NewTunnelInstances(t.Context(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view = ansi.Strip(local.View(120, 32))
+	if !strings.Contains(view, "Alpha") || !strings.Contains(view, "tunnel_anon") || strings.Contains(view, "runtime-one") {
+		t.Fatalf("local labels=%q", view)
+	}
+}
+
+func TestManagedEditorsStayOnAttachedAdminProfile(t *testing.T) {
+	admins := []tunnel.AdminConfig{
+		{ID: "work", AdminKey: "admin-work", WorkspaceID: "ws_admin", ReadAccess: true, ManageAccess: true},
+		{ID: "other", AdminKey: "admin-other", OrganizationID: "org_other", ReadAccess: true, ManageAccess: true},
+	}
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_one", APIKey: "runtime-one", AdminProfileID: "work"}}
+	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances, Admins: &admins})
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_one", Name: "Alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	edit, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edit.managedForm == nil || edit.managedForm.AdminProfileID != "work" {
+		t.Fatalf("edit profile=%#v", edit.managedForm)
+	}
+	if view := ansi.Strip(edit.View(80, 24)); strings.Contains(view, "other") {
+		t.Fatalf("edit offered unrelated profile: %q", view)
+	}
+	configure, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "configure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configure.configureForm == nil || configure.configureForm.AdminProfileID != "work" {
+		t.Fatalf("configure profile=%#v", configure.configureForm)
+	}
+	deletePage, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "delete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deletePage.deleteForm == nil || deletePage.deleteForm.AdminProfileID != "work" {
+		t.Fatalf("delete profile=%#v", deletePage.deleteForm)
+	}
+	create, err := NewManagedTunnelsRouteAction(t.Context(), "", "", "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if create.managedForm == nil || create.managedForm.AdminProfileID != "" {
+		t.Fatalf("create should not pick a profile: %#v", create.managedForm)
 	}
 }
 
@@ -184,9 +261,9 @@ func TestManagedTunnelResourceUsesRoutedChildDetailPage(t *testing.T) {
 	}
 }
 
-func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
+func TestTunnelInstancesKeyHintsStayAtBottom(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{})
-	page, err := NewTunnelDashboard(t.Context())
+	page, err := NewTunnelInstances(t.Context(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,8 +272,8 @@ func TestTunnelRuntimeKeyHintsStayAtBottom(t *testing.T) {
 	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
 		last--
 	}
-	if last != 31 || !strings.Contains(lines[last], "managed tunnels") || strings.Contains(lines[last], "? more") {
-		t.Fatalf("tunnel help line=%d want=31 view=%q", last, strings.Join(lines, "\n"))
+	if last < 0 || !strings.Contains(strings.Join(lines[max(0, last-2):], "\n"), "m managed") {
+		t.Fatalf("tunnel help line=%d view=%q", last, strings.Join(lines, "\n"))
 	}
 }
 
@@ -221,17 +298,14 @@ func TestTunnelInstancesDetailUsesIDScopedActionsAndRedactsSecrets(t *testing.T)
 	}
 }
 
-func TestTunnelRuntimeEditorPasswordLabelAlignsWithOtherFields(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{ID: "tunnel_demo", APIKey: "runtime-secret"})
-	page, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
+func TestLocalTunnelEditorPasswordLabelAlignsWithOtherFields(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewTunnelInstances(t.Context(), "", "create")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = page.Init()
 	plain := ansi.Strip(page.View(100, 30))
-	if strings.Count(plain, "Blank keeps the current key.") != 1 || !strings.Contains(plain, "> Blank keeps the current key.") {
-		t.Fatalf("runtime key placeholder=%q", plain)
-	}
 	labelColumn := func(label string) int {
 		for _, line := range strings.Split(plain, "\n") {
 			if column := strings.Index(line, label); column >= 0 {
@@ -246,27 +320,25 @@ func TestTunnelRuntimeEditorPasswordLabelAlignsWithOtherFields(t *testing.T) {
 	}
 }
 
-func TestTunnelAdminEditorFailureKeepsDraft(t *testing.T) {
+func TestTunnelAdminProfileEditorFailureKeepsDraft(t *testing.T) {
 	setupTunnelPageConfig(t, tunnel.Config{})
-	page, err := NewTunnelDashboardRoute(t.Context(), "admin-key", "edit")
+	page, err := NewTunnelAdmins(t.Context(), "", "create")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = page.Init()
-	updated, _ := page.Update(tea.KeyPressMsg{Code: 's', Text: "secret-draft"})
-	page = updated.(*TunnelPage)
-	if page.adminForm.AdminKey != "secret-draft" || !page.Dirty() {
-		t.Fatalf("admin draft=%#v dirty=%t", page.adminForm, page.Dirty())
+	page.form.ID = "work"
+	page.form.AdminKey = "secret-draft"
+	page.form.ScopeKind = "workspace"
+	page.form.ScopeID = "ws_admin"
+	if !page.Dirty() {
+		t.Fatalf("admin draft=%#v dirty=%t", page.form, page.Dirty())
 	}
-	updated, cmd := page.Update(component.EditorSubmitMsg{})
-	page = updated.(*TunnelPage)
-	if cmd == nil || page.overlay != tunnelOverlayOperation {
-		t.Fatalf("admin submit cmd=%v overlay=%d", cmd != nil, page.overlay)
-	}
-	updated, _ = page.Update(tunnelOperationMsg{command: TunnelAdminKeySet, err: fmt.Errorf("verification failed")})
-	page = updated.(*TunnelPage)
-	if page.OverlayActive() || page.adminForm == nil || page.adminForm.AdminKey != "secret-draft" || !page.Dirty() {
-		t.Fatalf("admin failure lost draft overlay=%t draft=%#v dirty=%t", page.OverlayActive(), page.adminForm, page.Dirty())
+	page.editor.SetSubmitting(true)
+	updated, _ := page.Update(tunnelAdminResultMsg{command: TunnelAdminAdd, err: fmt.Errorf("verification failed")})
+	page = updated.(*TunnelAdminsPage)
+	if page.OverlayActive() || page.form == nil || page.form.AdminKey != "secret-draft" || !page.Dirty() {
+		t.Fatalf("admin failure lost draft overlay=%t draft=%#v dirty=%t", page.OverlayActive(), page.form, page.Dirty())
 	}
 	plain := ansi.Strip(page.View(90, 26))
 	if !strings.Contains(plain, "verification failed") || strings.Contains(plain, "secret-draft") {
@@ -274,15 +346,15 @@ func TestTunnelAdminEditorFailureKeepsDraft(t *testing.T) {
 	}
 }
 
-func TestTunnelRuntimeOperationOverlayBlocksEditorMouse(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo"})
-	page, err := NewTunnelDashboardRoute(t.Context(), "", "edit")
+func TestManagedTunnelOperationOverlayBlocksEditorMouse(t *testing.T) {
+	setupTunnelPageConfig(t, tunnel.Config{})
+	page, err := NewManagedTunnels(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	page.width, page.height = 100, 28
 	page.overlay = tunnelOverlayOperation
-	progress := component.NewProgress("Saving tunnel configuration")
+	progress := component.NewProgress("Creating managed tunnel")
 	page.progress = &progress
 	targets := page.MouseTargets(0, 0, 1)
 	if len(targets) != 1 || targets[0].ID != "page.overlay" {
@@ -382,17 +454,16 @@ func TestLocalTunnelEditorsAttachAndPreserveBlankRuntimeKey(t *testing.T) {
 	}
 }
 
-func TestTunnelRuntimeKeyHintsUseDefaultHelpStyle(t *testing.T) {
-	setupTunnelPageConfig(t, tunnel.Config{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret", AdminKey: "admin-secret", AdminOrganizationID: "org_demo"})
-	page, err := NewTunnelDashboard(t.Context())
+func TestTunnelInstancesHelpUsesDefaultStyle(t *testing.T) {
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: "tunnel_demo", APIKey: "runtime-secret"}}
+	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances})
+	page, err := NewTunnelInstances(t.Context(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	page.height = 32
-	view := page.runtimeView(120)
-	want := component.DefaultHelp(120, page.runtimeHelpBindings()...)
-	if !strings.Contains(view, want) {
-		t.Fatalf("tunnel help does not use default help styling\nwant: %q\nview: %q", want, view)
+	view := ansi.Strip(page.View(120, 32))
+	if !strings.Contains(view, "n attach") || !strings.Contains(view, "m managed") {
+		t.Fatalf("tunnel help missing collection actions: %q", view)
 	}
 }
 
@@ -453,8 +524,8 @@ func TestManagedTunnelRefreshPersistsCacheAndEditUsesCachedState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if edit.editor == nil || edit.managedUpdateFetch || edit.overlay != tunnelOverlayNone || edit.managedForm == nil || edit.managedForm.Name != "Cached One" || edit.managedForm.Description != "first" {
-		t.Fatalf("cached editor=%v fetch=%t overlay=%d form=%#v", edit.editor != nil, edit.managedUpdateFetch, edit.overlay, edit.managedForm)
+	if edit.editor == nil || edit.overlay != tunnelOverlayNone || edit.managedForm == nil || edit.managedForm.Name != "Cached One" || edit.managedForm.Description != "first" {
+		t.Fatalf("cached editor=%v overlay=%d form=%#v", edit.editor != nil, edit.overlay, edit.managedForm)
 	}
 	if edit.Init() == nil {
 		t.Fatal("edit editor init command missing")

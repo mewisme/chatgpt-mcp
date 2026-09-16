@@ -11,26 +11,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
-func (page *TunnelPage) initRuntimeEditor() error {
-	if page == nil || page.kind != tunnelPageRuntime {
-		return fmt.Errorf("runtime tunnel editor is unavailable")
-	}
-	switch {
-	case page.action == "edit" && page.section == "":
-		editor, data := newTunnelRuntimeEditor(page.dashboard)
-		page.editor, page.runtimeForm = &editor, data
-		page.command = TunnelConfigure
-	case page.action == "edit" && page.section == "admin-key":
-		editor, data := newTunnelAdminEditor(page.adminStatus)
-		page.editor, page.adminForm = &editor, data
-		page.command = TunnelAdminKeySet
-	default:
-		return fmt.Errorf("unsupported runtime tunnel editor route")
-	}
-	page.resizeEditor()
-	return nil
-}
-
 func (page *TunnelPage) resizeEditor() {
 	if page == nil || page.editor == nil || page.width <= 0 || page.height <= 0 {
 		return
@@ -48,14 +28,11 @@ func (page *TunnelPage) editorView(width, height int) string {
 }
 
 func (page *TunnelPage) editorParentNavigation() tea.Cmd {
-	if page != nil && page.kind == tunnelPageManaged {
-		if page.resourceID != "" {
-			id := page.resourceID
-			return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", id}} }
-		}
-		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}} }
+	if page != nil && page.resourceID != "" {
+		id := page.resourceID
+		return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels", id}} }
 	}
-	return func() tea.Msg { return NavigateMsg{Path: []string{"tunnel"}} }
+	return func() tea.Msg { return NavigateMsg{Path: []string{"tunnels"}} }
 }
 
 func (page *TunnelPage) submitEditor() tea.Cmd {
@@ -67,60 +44,11 @@ func (page *TunnelPage) submitEditor() tea.Cmd {
 		return nil
 	}
 	page.editor.SetFeedback("", nil)
-	if page.kind == tunnelPageManaged {
-		return page.submitManagedEditor()
-	}
-	switch page.command {
-	case TunnelConfigure:
-		if page.runtimeForm == nil {
-			page.editor.SetFeedback("", fmt.Errorf("runtime tunnel editor draft is unavailable"))
-			return nil
-		}
-		input := runtimeInputFromForm(page.runtimeForm)
-		return page.startOperation(page.command, "", "Saving tunnel configuration", func(ctx context.Context) tunnelOperationMsg {
-			dashboard, err := application.ConfigureTunnelRuntime(ctx, input)
-			return tunnelOperationMsg{command: TunnelConfigure, dashboard: dashboard, err: err}
-		})
-	case TunnelAdminKeySet:
-		if page.adminForm == nil {
-			page.editor.SetFeedback("", fmt.Errorf("tunnel admin key editor draft is unavailable"))
-			return nil
-		}
-		input := adminInputFromForm(page.adminForm)
-		return page.startOperation(page.command, "", "Verifying tunnel admin key", func(ctx context.Context) tunnelOperationMsg {
-			count, scope, err := application.SetTunnelAdminKey(ctx, input)
-			return tunnelOperationMsg{command: TunnelAdminKeySet, count: count, scope: scope, err: err}
-		})
-	default:
-		page.editor.SetFeedback("", fmt.Errorf("unsupported runtime tunnel editor action: %s", page.command))
-		return nil
-	}
-}
-
-func (page *TunnelPage) runtimeEditorSuccess(message string) tea.Cmd {
-	return tea.Batch(
-		func() tea.Msg { return NavigateMsg{Path: []string{"tunnel"}} },
-		func() tea.Msg { return ToastMsg{Title: "Tunnel", Message: message, Tone: component.ToneSuccess} },
-	)
-}
-
-func (page *TunnelPage) acceptRuntimeEditorSuccess() {
-	if page == nil {
-		return
-	}
-	switch page.command {
-	case TunnelConfigure:
-		editor, data := newTunnelRuntimeEditor(page.dashboard)
-		page.editor, page.runtimeForm = &editor, data
-	case TunnelAdminKeySet:
-		editor, data := newTunnelAdminEditor(page.adminStatus)
-		page.editor, page.adminForm = &editor, data
-	}
-	page.resizeEditor()
+	return page.submitManagedEditor()
 }
 
 func (page *TunnelPage) initManagedEditorRoute() error {
-	if page == nil || page.kind != tunnelPageManaged {
+	if page == nil {
 		return fmt.Errorf("managed tunnel editor is unavailable")
 	}
 	switch page.action {

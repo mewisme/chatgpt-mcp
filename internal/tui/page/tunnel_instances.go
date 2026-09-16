@@ -10,6 +10,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 type LocalTunnelCommand string
@@ -299,13 +300,27 @@ func (page *TunnelInstancesPage) rows() []component.Row {
 	rows := make([]component.Row, 0, len(page.items))
 	for _, item := range page.items {
 		state := localTunnelState(item)
-		description := item.ID
+		description := ""
 		if item.AdminProfileID != "" {
-			description += " · admin=" + item.AdminProfileID
+			description = "admin=" + item.AdminProfileID
 		}
-		rows = append(rows, component.Row{ID: item.ID, Title: item.ID, Description: description, Meta: state, Search: strings.Join([]string{item.ID, item.AdminProfileID, item.OrganizationID, item.ControlPlaneBaseURL, state}, " ")})
+		rows = append(rows, component.Row{
+			ID: item.ID, Title: localTunnelLabel(item), Description: description, Meta: state,
+			Search: strings.Join([]string{item.ID, localTunnelName(item), item.AdminProfileID, item.OrganizationID, item.ControlPlaneBaseURL, state}, " "),
+		})
 	}
 	return rows
+}
+
+func localTunnelName(item application.LocalTunnel) string {
+	if item.Status.Metadata == nil {
+		return ""
+	}
+	return item.Status.Metadata.Name
+}
+
+func localTunnelLabel(item application.LocalTunnel) string {
+	return tunnel.DisplayLabel(item.ID, localTunnelName(item))
 }
 
 func (page *TunnelInstancesPage) syncDetail() error {
@@ -327,7 +342,7 @@ func (page *TunnelInstancesPage) syncDetail() error {
 	if item.Status.LastError != "" {
 		content += "\n" + detailFields([2]string{"Error", item.Status.LastError})
 	}
-	page.detail = component.NewDetailPage(item.ID, localTunnelState(*item), content).WithTitleVisible(false)
+	page.detail = component.NewDetailPage(localTunnelLabel(*item), localTunnelState(*item), content).WithTitleVisible(false)
 	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: LocalTunnelCommandMsg{Command: LocalTunnelRefresh, ResourceID: item.ID}}}
 	if item.Enabled {
 		bindings = append(bindings, component.DetailPageBinding{Key: "space", Desc: "disable", Message: LocalTunnelCommandMsg{Command: LocalTunnelDisable, ResourceID: item.ID}})
@@ -502,7 +517,7 @@ func (page *TunnelInstancesPage) listHeader(width int) string {
 	}
 	summary := fmt.Sprintf("%d attached · %d running · %d ready · %d degraded · %d admin profiles", len(page.items), running, ready, degraded, len(page.admins))
 	if len(page.items) == 0 {
-		summary = "No tunnels attached · n attach · a admins → verify → m managed"
+		summary = "No tunnels attached"
 	}
 	return component.PageTitleNotice("OpenAI Secure MCP Tunnels", page.notice, width) + "\n" + component.Muted(summary)
 }

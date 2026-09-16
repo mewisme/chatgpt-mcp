@@ -151,7 +151,7 @@ func TestWorkspaceConfigSurvivesUnregisterAndReregister(t *testing.T) {
 	}
 }
 
-func TestWorkspaceMigrationRejectsConflictingLocalState(t *testing.T) {
+func TestWorkspaceMigrationKeepsLocalFilesOnConflict(t *testing.T) {
 	configRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
 	id := instanceScopedWorkspaceID("inst_55555555555555555555555555555555", workspaceRoot)
@@ -178,10 +178,14 @@ func TestWorkspaceMigrationRejectsConflictingLocalState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].Available() || items[0].Error == "" {
-		t.Fatalf("expected conflicting local workspace to stay listed as unavailable, got %#v", items)
+	if len(items) != 1 || !items[0].Available() || items[0].ID != id {
+		t.Fatalf("expected leftover global state to migrate, got %#v", items)
 	}
-	if _, err := NewManager(registryPath).AddAllowDir(id, t.TempDir()); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("mutation of conflicting workspace error=%v", err)
+	data, err := os.ReadFile(filepath.Join(local.StateRoot(), "marker.txt"))
+	if err != nil || string(data) != "different" {
+		t.Fatalf("local file overwritten: %q err=%v", data, err)
+	}
+	if _, err := os.Stat(legacyState); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy state remains: %v", err)
 	}
 }

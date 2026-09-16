@@ -75,6 +75,86 @@ func TestLegacyStateMigrationIsResumeSafe(t *testing.T) {
 	}
 }
 
+func TestLegacyStateMigrationMergesCheckpointsAndKeepsLocalFiles(t *testing.T) {
+	root := t.TempDir()
+	store := New(root)
+	if err := os.MkdirAll(filepath.Join(store.CheckpointRoot(), "data", "cp_local"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(store.StateRoot(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.StateRoot(), "shell.json"), []byte("local-shell"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.CheckpointRoot(), "index.json"), []byte(`{
+  "version": 1,
+  "checkpoints": [
+    {"id":"cp_local","created_at":"2026-09-16T00:00:00Z","summary":"local"}
+  ]
+}
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.CheckpointRoot(), "data", "cp_local", "manifest.json"), []byte("local-manifest"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	legacy := filepath.Join(t.TempDir(), "legacy")
+	if err := os.MkdirAll(filepath.Join(legacy, "checkpoints", "data", "cp_legacy"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(legacy, "checkpoints", "data", "cp_local"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "shell.json"), []byte("legacy-shell"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "checkpoints", "index.json"), []byte(`{
+  "version": 1,
+  "checkpoints": [
+    {"id":"cp_legacy","created_at":"2026-09-16T01:00:00Z","summary":"legacy"},
+    {"id":"cp_local","created_at":"2026-09-16T00:00:00Z","summary":"stale-local"}
+  ]
+}
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "checkpoints", "data", "cp_legacy", "manifest.json"), []byte("legacy-manifest"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "checkpoints", "data", "cp_local", "manifest.json"), []byte("stale-manifest"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.MigrateLegacyState(legacy); err != nil {
+		t.Fatal(err)
+	}
+	shell, err := os.ReadFile(filepath.Join(store.StateRoot(), "shell.json"))
+	if err != nil || string(shell) != "local-shell" {
+		t.Fatalf("shell.json=%q err=%v", shell, err)
+	}
+	index, err := os.ReadFile(filepath.Join(store.CheckpointRoot(), "index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), `"id": "cp_local"`) || !strings.Contains(string(index), `"id": "cp_legacy"`) || strings.Contains(string(index), "stale-local") {
+		t.Fatalf("merged index=%s", index)
+	}
+	for path, want := range map[string]string{
+		filepath.Join(store.CheckpointRoot(), "data", "cp_local", "manifest.json"):  "local-manifest",
+		filepath.Join(store.CheckpointRoot(), "data", "cp_legacy", "manifest.json"): "legacy-manifest",
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != want {
+			t.Fatalf("path=%s data=%q err=%v", path, data, err)
+		}
+	}
+	if _, err := os.Stat(legacy); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy state remains: %v", err)
+	}
+}
+
 func TestGitExcludeRootAndNestedWorkspace(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git unavailable")

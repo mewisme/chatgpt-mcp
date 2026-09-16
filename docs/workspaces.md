@@ -87,7 +87,7 @@ Each registered workspace owns persistent state under `<workspace>/.cgm`:
 .cgm/runtime/lock     OS-backed exclusive runtime lock
 ```
 
-The global `workspaces.json` index stores only identity/path pointers. Registering a workspace creates `.cgm` when it is missing and reuses an existing identity instead of minting a new ID.
+The global `workspaces.json` index stores only identity/path pointers. Registering a workspace creates `.cgm` when it is missing and reuses an existing identity instead of minting a new ID. Leftover global `workspaces/<id>` state is copied into `.cgm` on load: missing files are added, checkpoint indexes are merged by ID, existing local files win on other conflicts, and the leftover directory is then removed.
 
 For Git checkouts, CGM adds the correct rooted `.cgm/` pattern to Git's `info/exclude`. It does not create `.cgm/.gitignore` and does not edit project `.gitignore`.
 

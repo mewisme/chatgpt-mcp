@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -260,12 +261,74 @@ func copyVerified(source, destination string) error {
 		return err
 	}
 	if existing, err := os.ReadFile(destination); err == nil {
-		if string(existing) != string(data) {
-			return fmt.Errorf("migration destination conflicts with source: %s", destination)
+		if string(existing) == string(data) {
+			return nil
+		}
+		if filepath.Base(destination) == "index.json" {
+			if merged, ok := mergeCheckpointIndex(existing, data); ok {
+				return state.WriteFileAtomic(destination, merged, 0600)
+			}
 		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return state.WriteFileAtomic(destination, data, 0600)
+}
+
+func mergeCheckpointIndex(dest, src []byte) ([]byte, bool) {
+	type index struct {
+		Version     int               `json:"version"`
+		Checkpoints []json.RawMessage `json:"checkpoints"`
+	}
+	var local, leftover index
+	if json.Unmarshal(dest, &local) != nil || json.Unmarshal(src, &leftover) != nil {
+		return nil, false
+	}
+	if local.Version != 1 || leftover.Version != 1 || (local.Checkpoints == nil && leftover.Checkpoints == nil) {
+		return nil, false
+	}
+	type entry struct {
+		id, created string
+		raw         json.RawMessage
+	}
+	parse := func(raw json.RawMessage) (entry, bool) {
+		var meta struct {
+			ID        string `json:"id"`
+			CreatedAt string `json:"created_at"`
+		}
+		if json.Unmarshal(raw, &meta) != nil || meta.ID == "" {
+			return entry{}, false
+		}
+		return entry{id: meta.ID, created: meta.CreatedAt, raw: raw}, true
+	}
+	seen := make(map[string]struct{}, len(local.Checkpoints)+len(leftover.Checkpoints))
+	merged := make([]entry, 0, len(local.Checkpoints)+len(leftover.Checkpoints))
+	add := func(raw json.RawMessage) {
+		next, ok := parse(raw)
+		if !ok {
+			return
+		}
+		if _, dup := seen[next.id]; dup {
+			return
+		}
+		seen[next.id] = struct{}{}
+		merged = append(merged, next)
+	}
+	for _, raw := range local.Checkpoints {
+		add(raw)
+	}
+	for _, raw := range leftover.Checkpoints {
+		add(raw)
+	}
+	sort.SliceStable(merged, func(i, j int) bool { return merged[i].created < merged[j].created })
+	out := index{Version: 1, Checkpoints: make([]json.RawMessage, 0, len(merged))}
+	for _, next := range merged {
+		out.Checkpoints = append(out.Checkpoints, next.raw)
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return nil, false
+	}
+	return append(data, '\n'), true
 }

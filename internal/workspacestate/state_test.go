@@ -26,6 +26,20 @@ func TestIdentityPersistsAndRejectsMismatch(t *testing.T) {
 	}
 }
 
+func TestInstructionRootsStayUnderCgm(t *testing.T) {
+	root := t.TempDir()
+	store := New(root)
+	if store.RulesRoot() != filepath.Join(root, DirectoryName, "rules") {
+		t.Fatalf("rules = %s", store.RulesRoot())
+	}
+	if store.SkillsRoot() != filepath.Join(root, DirectoryName, "skills") {
+		t.Fatalf("skills = %s", store.SkillsRoot())
+	}
+	if filepath.Dir(store.RulesRoot()) != store.Root() || filepath.Dir(store.SkillsRoot()) != store.Root() {
+		t.Fatal("instruction roots escaped .cgm")
+	}
+}
+
 func TestCorruptIdentityIsNotRegenerated(t *testing.T) {
 	store := New(t.TempDir())
 	if err := os.MkdirAll(store.Root(), 0700); err != nil {

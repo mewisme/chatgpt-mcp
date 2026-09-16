@@ -143,6 +143,20 @@ func WorkspacePluginConfigPath(workspaceRoot string, id PluginID) string {
 	return filepath.Join(filepath.Clean(workspaceRoot), workspacestate.DirectoryName, "plugins", "config", string(id)+".json")
 }
 
+func (layout Layout) RulesRoot() string {
+	if layout.EffectiveScope() == ScopeWorkspace {
+		return workspacestate.New(layout.WorkspaceRoot).RulesRoot()
+	}
+	return filepath.Join(layout.ConfigRoot, "rules")
+}
+
+func (layout Layout) SkillsRoot() string {
+	if layout.EffectiveScope() == ScopeWorkspace {
+		return workspacestate.New(layout.WorkspaceRoot).SkillsRoot()
+	}
+	return filepath.Join(layout.ConfigRoot, "skills")
+}
+
 func defaultDataRoot() string {
 	home, err := os.UserHomeDir()
 	if err != nil {

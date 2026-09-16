@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func TestLayoutPathsAreSeparated(t *testing.T) {
@@ -58,6 +60,38 @@ func TestWorkspaceLayoutUsesCgmPlugins(t *testing.T) {
 	}
 	if layout.DownloadsPath() != DefaultLayout().DownloadsPath() {
 		t.Fatalf("workspace cache = %s", layout.DownloadsPath())
+	}
+	if layout.RulesRoot() != filepath.Join(root, ".cgm", "rules") {
+		t.Fatalf("rules = %s", layout.RulesRoot())
+	}
+	if layout.SkillsRoot() != filepath.Join(root, ".cgm", "skills") {
+		t.Fatalf("skills = %s", layout.SkillsRoot())
+	}
+	if strings.HasPrefix(layout.RulesRoot(), layout.ConfigRoot) || strings.HasPrefix(layout.SkillsRoot(), layout.ConfigRoot) {
+		t.Fatal("workspace instruction roots leaked under plugins")
+	}
+}
+
+func TestGlobalInstructionRootsFollowConfigRoot(t *testing.T) {
+	root := t.TempDir()
+	layout := Layout{ConfigRoot: filepath.Join(root, "config"), DataRoot: filepath.Join(root, "data"), CacheRoot: filepath.Join(root, "cache")}
+	if layout.RulesRoot() != filepath.Join(root, "config", "rules") {
+		t.Fatalf("rules = %s", layout.RulesRoot())
+	}
+	if layout.SkillsRoot() != filepath.Join(root, "config", "skills") {
+		t.Fatalf("skills = %s", layout.SkillsRoot())
+	}
+}
+
+func TestDefaultLayoutInstructionRootsFollowIsolatedConfigDir(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv(configformat.EnvConfigDir, configDir)
+	layout := DefaultLayout()
+	if layout.RulesRoot() != filepath.Join(configDir, "rules") {
+		t.Fatalf("rules = %s", layout.RulesRoot())
+	}
+	if layout.SkillsRoot() != filepath.Join(configDir, "skills") {
+		t.Fatalf("skills = %s", layout.SkillsRoot())
 	}
 }
 

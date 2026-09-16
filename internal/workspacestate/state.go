@@ -51,6 +51,8 @@ func (s Store) CacheRoot() string            { return filepath.Join(s.Root(), "c
 func (s Store) RuntimeRoot() string          { return filepath.Join(s.Root(), "runtime") }
 func (s Store) RuntimeLockPath() string      { return filepath.Join(s.RuntimeRoot(), "lock") }
 func (s Store) PluginsRoot() string          { return filepath.Join(s.Root(), "plugins") }
+func (s Store) RulesRoot() string            { return filepath.Join(s.Root(), "rules") }
+func (s Store) SkillsRoot() string           { return filepath.Join(s.Root(), "skills") }
 func (s Store) StatePath(name string) string { return filepath.Join(s.StateRoot(), name) }
 
 func (s Store) EnsureIdentity(preferredID string) (Identity, bool, error) {

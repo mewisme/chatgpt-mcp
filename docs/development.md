@@ -10,6 +10,40 @@ For how to propose changes, open issues/PRs, and community norms, start with [CO
 - Node.js 24+
 - pnpm 11+
 
+## Repository `go run .`
+
+From a verified checkout (`go.mod` module `go.mewis.me/chatgpt-mcp`, `plugins/workflow.json`, `plugins/registry/index.json`), a development core (`dev`, `(devel)`, `dev-*`, or empty) lazily builds the current-platform **core** plugins from `plugins/workflow.json` (`plugin.core != null`) and activates them as `local-dev` artifacts. You do not need to publish a registry release or install each core plugin by hand.
+
+```bash
+go run .
+go run . tui
+go run . plugin list
+```
+
+State lives under `<repo>/.cgm/dev/` (plugins, builds/cache, bootstrap lock). It is isolated from the user's release plugin store. Delete `.cgm/dev` to reset. Repeated runs reuse artifacts whose source fingerprint still matches; `--version`, `help`, and `completion` skip the bootstrap.
+
+Optional environment:
+
+```text
+CHATGPT_MCP_DEV_ROOT=<path>           verified repository root override
+CHATGPT_MCP_DEV_PLUGINS=auto|off|rebuild
+```
+
+`auto` is the default. `rebuild` ignores the artifact cache for this run. `off` disables automatic repo-local bootstrap. Installed/release `cgm` binaries never activate `local-dev` trust just because they are launched from a checkout.
+
+Plugin artifact precedence:
+
+```text
+CHATGPT_MCP_PLUGIN_BUNDLE   explicit signed/release bundle
+  > automatic repository local-dev bundle
+  > executable-relative plugins/
+  > official registry
+```
+
+An explicit `CHATGPT_MCP_PLUGIN_BUNDLE` is not a local-dev trust exception. `cgm plugin list` / `cgm plugin info` show `local-dev` provenance; `cgm doctor` inspects the isolated store without rebuilding (`plugin.local-dev`). Force a rebuild with `CHATGPT_MCP_DEV_PLUGINS=rebuild`. Workflow child processes set `CHATGPT_MCP_DEV_PLUGINS=off` so plugin builds cannot recurse.
+
+Release packaging still uses `plugins/<id>/build` and UPX/license inventory as below. Local `go run` skips UPX (`CGM_PLUGIN_UPX=off`).
+
 ## Editor and local quality checks
 
 `.editorconfig` sets **indent size 2** for all files. Go uses tabs at width 2 (required by `gofmt`); everything else uses 2-space indentation.
@@ -116,7 +150,7 @@ CI runs `TestCoreDepsExcludeCFTunnel` and `TestCoreAndPluginBinarySizes`. Stripp
 go test . -run 'TestCoreDepsExcludeCFTunnel|TestCoreAndPluginBinarySizes'
 ```
 
-Official native plugins build independently, for example:
+Official native plugins build independently for **release packaging** (not daily `go run .`; that path is above):
 
 ```bash
 go run ./plugins/ponytail/build -output dist/plugins -platform linux/amd64

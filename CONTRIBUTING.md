@@ -22,10 +22,11 @@ Quick path:
 
 ```bash
 pnpm --dir plugins/admin-ui install
-pnpm --dir plugins/admin-ui build
 CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
-go build -trimpath ./
+go run .
 ```
+
+`go run .` lazily builds current-platform core plugins from `plugins/workflow.json` into `<repo>/.cgm/dev` (`local-dev`). You do not install each core plugin by hand. See [docs/development.md](docs/development.md).
 
 Production Admin UI assets are distributed as the independent `admin-ui` plugin. Use `node scripts/prepare-web-embed.mjs --from-dist` when you need to package the current frontend build.
 

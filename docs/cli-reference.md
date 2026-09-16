@@ -263,7 +263,7 @@ cgm doctor --log-format json
 
 `cgm doctor` is the canonical whole-application diagnostic. A default run is read-only: it never repairs, quarantines, installs, rotates tokens, sends notifications, or starts tunnels.
 
-It inspects install/config/storage, runtime control and managed services, listener/HTTP health, Direct MCP HTTP and Admin authentication, shell and tool registry, workspaces and Project Context, plugins (lock/payloads/desired/compatibility/host/registry), upstream MCP servers, Secure MCP Tunnel collection, CF Tunnel MCP/Admin prerequisites, notifications, runtime journal, and update metadata.
+It inspects install/config/storage, runtime control and managed services, listener/HTTP health, Direct MCP HTTP and Admin authentication, shell and tool registry, workspaces and Project Context, plugins (lock/payloads/desired/compatibility/host/registry plus `plugin.local-dev` when the isolated `.cgm/dev` store is active), upstream MCP servers, Secure MCP Tunnel collection, CF Tunnel MCP/Admin prerequisites, notifications, runtime journal, and update metadata. Doctor never rebuilds local-dev plugins; use `CHATGPT_MCP_DEV_PLUGINS=rebuild` for that.
 
 Results are `pass`, `warn`, `fail`, or `skip`. Disabled or unconfigured optional features are skipped, not treated as failures. Exit `0` when there are no `fail` results (warnings are allowed). Any `fail` makes the command return non-zero after the full report. External probes use short timeouts and clean up opened connections. JSON output uses stable check IDs; text output prefers human labels and hides skips unless `--verbose`.
 

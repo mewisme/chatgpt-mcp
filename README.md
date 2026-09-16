@@ -171,7 +171,7 @@ See the [documentation index](docs/README.md) for the recommended reading paths.
 
 ## Development
 
-Source builds require Go 1.27+, Node.js 24+, and pnpm 11+.
+Source builds require Go 1.27+, Node.js 24+, and pnpm 11+. From a checkout, `go run .` builds core plugins into `<repo>/.cgm/dev` automatically. Installed `cgm` binaries never use that `local-dev` path.
 
 ```bash
 ./scripts/check.sh

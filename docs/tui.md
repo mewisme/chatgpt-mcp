@@ -13,7 +13,7 @@ cgm tui   interactive Command Center
 cgm tui
 ```
 
-`cgm tui` is a small core launcher. The Command Center itself is the `tui` core plugin (`terminal-ui/default`). If that plugin is missing, the command fails with `cgm plugin install tui`; if it is installed but disabled, enable it with `cgm plugin enable tui`.
+`cgm tui` is a small core launcher. The Command Center itself is the `tui` core plugin (`terminal-ui/default`). If that plugin is missing from an **installed** `cgm`, the command fails with `cgm plugin install tui`; if it is installed but disabled, enable it with `cgm plugin enable tui`. From a source checkout, `go run . tui` uses the repository-local `local-dev` plugin automatically ([Development](development.md)).
 
 The TUI requires a real terminal. Redirected/non-TTY invocation fails instead of writing alternate-screen output into a pipe.
 

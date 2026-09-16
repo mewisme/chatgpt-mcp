@@ -47,11 +47,13 @@ See [OpenAI + ChatGPT setup](openai-chatgpt.md).
 
 ## Secure MCP Tunnel plugin is missing
 
-Live OpenAI tunnel start/stop belongs to the `secure-mcp-tunnel` core plugin. If `cgm tunnel status` or start/stop reports `secure MCP tunnel core plugin is not installed`, repair with:
+Live OpenAI tunnel start/stop belongs to the `secure-mcp-tunnel` core plugin. If an **installed** `cgm` reports `secure MCP tunnel core plugin is not installed`, repair with:
 
 ```bash
 cgm plugin install secure-mcp-tunnel
 ```
+
+From a source checkout, `go run .` builds that plugin into `<repo>/.cgm/dev` as `local-dev`; do not install the signed registry copy into the release plugin store to develop. `cgm doctor` inspects local-dev provenance and does not rebuild it (`CHATGPT_MCP_DEV_PLUGINS=rebuild` does).
 
 Direct MCP HTTP (`/mcp`) and Admin stay up. Core will not start a hidden in-process OpenAI tunnel client. Cloudflare Quick Tunnel (`cf-tunnel`) is a separate optional plugin and does not replace Secure MCP collection management.
 

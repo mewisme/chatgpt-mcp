@@ -27,7 +27,9 @@ caveman               tool-provider/caveman     plugins/caveman
 
 Current official **optional** plugins: `bash`, `rtk`, `cf-tunnel`.
 
-`cgm install` / `cgm upgrade` reconcile the core-plugin set through the normal plugin manager. Missing or disabled core plugins are reported by `cgm doctor` (`plugin.<id>`) and by the owning command (`cgm tui` fails closed; Markdown rendering falls back to raw text; Secure MCP Tunnel reports `secure MCP tunnel core plugin is not installed` and `cgm plugin install secure-mcp-tunnel`). They do not crash the harness. Direct MCP HTTP and Admin remain independently healthy.
+Installed/release `cgm` uses signed official-registry artifacts. `cgm install` / `cgm upgrade` reconcile the core-plugin set through the normal plugin manager. Missing or disabled core plugins are reported by `cgm doctor` (`plugin.<id>`) and by the owning command (`cgm tui` fails closed; Markdown rendering falls back to raw text; Secure MCP Tunnel reports `secure MCP tunnel core plugin is not installed` and `cgm plugin install secure-mcp-tunnel`). They do not crash the harness. Direct MCP HTTP and Admin remain independently healthy.
+
+Source-tree `go run .` is different: it builds those same core plugins from `plugins/workflow.json` into `<repo>/.cgm/dev` with explicit `local-dev` provenance. That path is documented in [Development](development.md) and is unavailable to release binaries. `cgm plugin list` labels those installs `local-dev`; do not confuse them with Sigstore-verified official installs.
 
 Each official plugin keeps deterministic build metadata in `plugins/<id>/plugin.json`, `plugins/workflow.json`, and (for native binaries) `plugins/<id>/build`. Registry identity lives in `plugins/registry/index.json`. Those roots are the handoff surface for plugin UPX compression and per-artifact license/SBOM packaging.
 

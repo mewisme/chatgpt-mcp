@@ -50,8 +50,18 @@ type cancellationSafeConnection struct {
 func newCancellationSafeInMemoryTransports() (sdkmcp.Transport, sdkmcp.Transport) {
 	serverConn, tunnelConn := net.Pipe()
 	server := &sdkmcp.IOTransport{Reader: serverConn, Writer: serverConn}
-	tunnel := &cancellationSafeTransport{base: &sdkmcp.IOTransport{Reader: tunnelConn, Writer: tunnelConn}}
-	return server, tunnel
+	return server, newCancellationSafeTransport(&sdkmcp.IOTransport{Reader: tunnelConn, Writer: tunnelConn})
+}
+
+func newCancellationSafeTransport(base sdkmcp.Transport) sdkmcp.Transport {
+	if base == nil {
+		return nil
+	}
+	return &cancellationSafeTransport{base: base}
+}
+
+func wrapPluginMCPTransport(base sdkmcp.Transport, tunnelID, tunnelName string) sdkmcp.Transport {
+	return withSessionTransport(newCancellationSafeTransport(base), tunnelID, tunnelName)
 }
 
 func (t *cancellationSafeTransport) Connect(ctx context.Context) (sdkmcp.Connection, error) {
@@ -60,8 +70,12 @@ func (t *cancellationSafeTransport) Connect(ctx context.Context) (sdkmcp.Connect
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.conn != nil {
+	if t.conn != nil && !t.conn.hardFailure.Load() {
 		return t.conn, nil
+	}
+	if t.conn != nil {
+		_ = t.conn.base.Close()
+		t.conn = nil
 	}
 	base, err := t.base.Connect(ctx)
 	if err != nil {

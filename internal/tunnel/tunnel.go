@@ -565,7 +565,7 @@ func (c *Client) startGeneration(session uint64, parent context.Context, initial
 			return err
 		}
 		created, err := c.factory(c.config, &sdkmcp.StreamableClientTransport{
-			Endpoint: endpoint, HTTPClient: mcp.BearerHTTPClient(c.mcpToken), DisableStandaloneSSE: true,
+			Endpoint: endpoint, DisableStandaloneSSE: true,
 		})
 		if err != nil {
 			cancel()

@@ -12,7 +12,6 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
@@ -29,7 +28,7 @@ func NewPrivateHTTPHandler(toolRuntime *tools.Runtime) (http.Handler, error) {
 		return nil, err
 	}
 	adapter.PreferSessionMeta = true
-	streamable := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return adapter.Server }, &sdkmcp.StreamableHTTPOptions{SessionTimeout: 30 * time.Minute, PropagateRequestCancellation: true})
+	streamable := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return adapter.Server }, &sdkmcp.StreamableHTTPOptions{Stateless: true, SessionTimeout: 30 * time.Minute, PropagateRequestCancellation: true})
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", streamable)
 	return mux, nil
@@ -40,14 +39,13 @@ func StartPrivateBridge(runtime *tools.Runtime) (*PrivateBridge, error) {
 	if err != nil {
 		return nil, err
 	}
-	token := auth.GenerateToken("cgm_plugin")
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
-	server := &http.Server{Handler: auth.Middleware(token, loopbackOnly(handler)), ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{Handler: loopbackOnly(streamableTunnelCompat(handler)), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(ln) }()
-	return &PrivateBridge{URL: "http://" + ln.Addr().String() + "/mcp", Token: token, listener: ln, server: server}, nil
+	return &PrivateBridge{URL: "http://" + ln.Addr().String() + "/mcp", listener: ln, server: server}, nil
 }
 
 func (b *PrivateBridge) Close() error {
@@ -66,6 +64,18 @@ func (b *PrivateBridge) Close() error {
 	return err
 }
 
+func streamableTunnelCompat(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("Accept", "application/json, text/event-stream")
+		if r.Method == http.MethodPost {
+			if ct := r.Header.Get("Content-Type"); ct == "" || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(ct)), "application/json") {
+				r.Header.Set("Content-Type", "application/json")
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func loopbackOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.RemoteAddr
@@ -79,26 +89,6 @@ func loopbackOnly(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func BearerHTTPClient(token string) *http.Client {
-	return &http.Client{Transport: bearerTransport{base: http.DefaultTransport, token: strings.TrimSpace(token)}}
-}
-
-type bearerTransport struct {
-	base  http.RoundTripper
-	token string
-}
-
-func (t bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t.base == nil {
-		t.base = http.DefaultTransport
-	}
-	req = req.Clone(req.Context())
-	if t.token != "" {
-		req.Header.Set("Authorization", "Bearer "+t.token)
-	}
-	return t.base.RoundTrip(req)
 }
 
 func ValidateBridgeURL(raw string) error {

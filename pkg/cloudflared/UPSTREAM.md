@@ -123,3 +123,33 @@ Local stubs/patches:
 `RunQuickTunnel` is rewritten as `Start(ctx, Config)` plus `parseProvisionResponse`. Protocol is forced to QUIC with `HAConnections=1`. Datagram metrics use a per-supervisor Prometheus registry so MCP and Admin tunnels can run in one process.
 
 quic-go replace (same as upstream): `github.com/chungthuang/quic-go v0.45.1-0.20260529212404-a9fddf436fc4`
+
+## Fetch / diff the next upstream release
+
+Do not bump the pin automatically. Review security and protocol changes first.
+
+```bash
+git clone --filter=blob:none https://github.com/cloudflare/cloudflared.git /tmp/cloudflared-src
+git -C /tmp/cloudflared-src fetch --tags origin
+git -C /tmp/cloudflared-src checkout <new-tag>
+git -C /tmp/cloudflared-src log --oneline f11dea9cb7079e90a982c1a2d5548ab40847fdcf..<new-tag> -- \
+  connection supervisor orchestration edgediscovery quic tunnelrpc ingress proxy retry
+```
+
+Diff keep-set packages against `pkg/cloudflared/` after rewriting
+`github.com/cloudflare/cloudflared` → `go.mewis.me/chatgpt-mcp/pkg/cloudflared`.
+Re-apply every local stub/patch listed above. Re-run MCP/Admin Quick Tunnel
+smoke against the official binary for that tag before extracting.
+
+`reportedVersion` in `start.go` must stay equal to the UPSTREAM.md tag.
+
+## Release checklist (before bumping the pin)
+
+- [ ] Official linux-amd64 checksum recorded for the new tag
+- [ ] Apache-2.0 LICENSE unchanged or reviewed
+- [ ] Quick Tunnel provision path (`POST /tunnel`) still returns id/hostname/secret
+- [ ] MCP Streamable HTTP JSON still works; do not add SSE hacks
+- [ ] quic-go replace still matches upstream when required
+- [ ] Local stubs/patches re-applied and `Start(ctx, Config)` still the only public entry
+- [ ] No `cmd/cloudflared` and no `github.com/cloudflare/cloudflared/...` imports
+- [ ] Provision secret/account tag never appear in errors or logs
